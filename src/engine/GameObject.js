@@ -1,11 +1,16 @@
+const Transform = require('./Transform');
+
 class GameObject {
 
   name;
   tags = [];
   behaviors = new Map();
+  transform;
 
   constructor(name) {
     this.name = name;
+    this.addBehavior(Transform);
+    this.transform = this.getBehavior(Transform);
   }
 
   getBehavior(behaviorType) {

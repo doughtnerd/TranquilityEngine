@@ -1,6 +1,7 @@
 const player = require('play-sound')(opt = {})
 const EventEmitter = require('events');
 const GameBehavior = require('./GameBehavior');
+const AssetDatabase = require('../engine/AssetDatabase');
 
 class AudioPlayer extends GameBehavior {
 
@@ -32,7 +33,7 @@ class AudioPlayer extends GameBehavior {
   }
 
   _play(audioPath) {
-    this.audio = player.play(audioPath, (err) => {
+    this.audio = player.play(AssetDatabase.parseLoadPath(audioPath), (err) => {
       this.eventEmitter.emit('AudioEnded');
       if (err) {
         console.error(err);
@@ -42,7 +43,7 @@ class AudioPlayer extends GameBehavior {
   }
 
   playOnce(audioPath) {
-    player.play(audioPath, (err) => {
+    player.play(AssetDatabase.parseLoadPath(audioPath), (err) => {
       if (err) {
         console.error(err);
         throw err;

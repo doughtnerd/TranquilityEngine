@@ -4,7 +4,7 @@ const SceneManager = require('./SceneManager');
 class Engine {
 
   static interval;
-  static targetFrameRate = 30;
+  static targetFrameRate = 2;
   static frameRate = 0;
 
   static play() {
@@ -29,10 +29,9 @@ class Engine {
   }
 
   static runFrame() {
-    for (let i = 0; i < 10; i++) { }
-    // processInput();
+    // Engine.processInput();
     Engine.update();
-    // render();
+    Engine.render();
   }
 
   static update() {
@@ -41,6 +40,13 @@ class Engine {
 
   static start() {
     SceneManager.activeScene.start();
+  }
+
+  static processInput() {
+
+  }
+
+  static render() {
   }
 }
 
