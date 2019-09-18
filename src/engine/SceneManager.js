@@ -1,6 +1,5 @@
 const EventEmitter = require('events');
 const Scene = require('./Scene');
-const AssetDatabase = require('./AssetDatabase');
 
 class SceneManager {
 
@@ -10,7 +9,7 @@ class SceneManager {
   static activeScene;
 
   static loadScene(index) {
-    const scene = require(AssetDatabase.parseLoadPath(SceneManager.scenes[index]));
+    const scene = SceneManager.scenes[index];
 
     const toInstantiate = scene.gameObjects;
     const instantiatedObjects = SceneManager.instantiateSceneObjects(toInstantiate);
@@ -22,14 +21,17 @@ class SceneManager {
   }
 
   static instantiateSceneObjects(gameObjects) {
-    return gameObjects.map(
-      obj => SceneManager.instantiateSceneObject(obj)
-    );
+    return gameObjects.map((obj, index) => {
+      const instantiatedObj = SceneManager.instantiateSceneObject(obj);
+
+      SceneManager.eventEmitter.emit('SceneLoading', { progress: (index + 1) / gameObjects.length });
+
+      return instantiatedObj;
+    });
   }
 
   static instantiateSceneObject(gameObject) {
-    const loadPath = AssetDatabase.parseLoadPath(gameObject.loadPath);
-    const obj = new (require(loadPath));
+    const obj = new (gameObject.type);
 
     for (const key in gameObject.attributes) {
       if (obj.hasOwnProperty(key)) {
@@ -40,7 +42,7 @@ class SceneManager {
     const settings = gameObject.behaviors || {};
 
     for (const key in settings) {
-      const behaviorType = require(AssetDatabase.parseLoadPath(settings[key].loadPath));
+      const behaviorType = key;
       const behavior = obj.getBehavior(behaviorType);
       const attributes = settings[key].attributes;
 

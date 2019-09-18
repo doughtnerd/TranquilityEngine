@@ -1,5 +1,4 @@
 const GameBehavior = require('../../engine/GameBehavior');
-const readlineSync = require('readline-sync');
 
 const PlayerObject = require('../gameObjects/PlayerObject');
 const SceneManager = require('../../engine/SceneManager');
@@ -20,9 +19,9 @@ class GameController extends GameBehavior {
 
   update() {
     if (this.player) {
-      if (this.player.getBehavior(Damageable).health < 0) {
+      const damage = this.player.getBehavior(Damageable);
+      if (damage.health <= 0) {
         console.log('You have died!');
-        process.exit();
       }
     }
   }

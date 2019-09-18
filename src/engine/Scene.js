@@ -1,3 +1,4 @@
+const SpriteRenderer = require('./SpriteRenderer');
 const Renderer = require('./Renderer');
 
 class Scene {
@@ -13,7 +14,7 @@ class Scene {
       this.behaviors = [...this.behaviors, ...obj.getBehaviors()];
     });
     this.gameObjects.forEach(go => {
-      const r = go.getBehavior(Renderer);
+      const r = go.getBehavior(SpriteRenderer);
       if (r) {
         this.renderers.push(r);
       }
@@ -34,6 +35,13 @@ class Scene {
     this.behaviors.forEach(b => b.start());
   }
 
+  render() {
+    this.renderers.forEach(r => {
+      Renderer.renderQueue.add(r.material);
+    });
+    Renderer.drawFrame();
+  }
+
   instantiate(gameObject) {
     gameObject.behaviors.forEach(b => b.awake());
     this.gameObjects.push(gameObject);
@@ -43,7 +51,6 @@ class Scene {
   findObjectOfType(gameObjectType) {
     return this.gameObjects.find(obj => obj instanceof gameObjectType);
   }
-
 
 }
 

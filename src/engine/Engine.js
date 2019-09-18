@@ -4,7 +4,7 @@ const SceneManager = require('./SceneManager');
 class Engine {
 
   static interval;
-  static targetFrameRate = 2;
+  static targetFrameRate = 60;
   static frameRate = 0;
 
   static play() {
@@ -15,27 +15,24 @@ class Engine {
 
     Engine.start();
 
-    Engine.interval = setInterval(() => {
-      const frameStart = Date.now();
+    Engine.interval = setInterval(Engine.loop, (1 / Engine.targetFrameRate) * 1000);
+  }
 
-      Engine.runFrame();
+  static loop() {
+    const frameStart = Date.now();
 
-      Time.time = (Date.now() - Time.startTime) * .001;
-      Time.deltaTime = (((1 / Engine.targetFrameRate) * 1000) + Date.now() - frameStart) * .001;
+    Engine.runFrame();
 
-      Engine.frameRate = 1 / Time.deltaTime;
-      // console.log(Engine.frameRate);
-    }, (1 / Engine.targetFrameRate) * 1000);
+    Time.time = (Date.now() - Time.startTime) * .001;
+    Time.deltaTime = (((1 / Engine.targetFrameRate) * 1000) + Date.now() - frameStart) * .001;
+
+    Engine.frameRate = 1 / Time.deltaTime;
   }
 
   static runFrame() {
     // Engine.processInput();
     Engine.update();
     Engine.render();
-  }
-
-  static update() {
-    SceneManager.activeScene.update();
   }
 
   static start() {
@@ -46,7 +43,12 @@ class Engine {
 
   }
 
+  static update() {
+    SceneManager.activeScene.update();
+  }
+
   static render() {
+    SceneManager.activeScene.render();
   }
 }
 

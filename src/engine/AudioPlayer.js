@@ -1,7 +1,8 @@
-const player = require('play-sound')(opt = {})
+const Howler = require('howler');
+
 const EventEmitter = require('events');
 const GameBehavior = require('./GameBehavior');
-const AssetDatabase = require('../engine/AssetDatabase');
+// const AssetDatabase = require('../engine/AssetDatabase');
 
 class AudioPlayer extends GameBehavior {
 
@@ -18,37 +19,26 @@ class AudioPlayer extends GameBehavior {
   }
 
   stop() {
-    if (this.audio) {
-      this.audio.kill();
-    }
-    this.eventEmitter.removeAllListeners()
+
   }
 
   play(audioPath) {
-    this.stop();
-    if (this.loop) {
-      this.eventEmitter.on('AudioEnded', () => this._play(audioPath));
-    }
-    this._play(audioPath);
-  }
-
-  _play(audioPath) {
-    this.audio = player.play(AssetDatabase.parseLoadPath(audioPath), (err) => {
-      this.eventEmitter.emit('AudioEnded');
-      if (err) {
-        console.error(err);
-        throw err;
-      }
+    // this.stop();
+    this.audio = new Howler.Howl({
+      src: audioPath,
+      autoplay: this.playOnStart,
+      loop: this.loop,
+      volume: 1,
     });
   }
 
   playOnce(audioPath) {
-    player.play(AssetDatabase.parseLoadPath(audioPath), (err) => {
-      if (err) {
-        console.error(err);
-        throw err;
-      }
-    });
+    // player.play(AssetDatabase.parseLoadPath(audioPath), (err) => {
+    //   if (err) {
+    //     console.error(err);
+    //     throw err;
+    //   }
+    // });
   }
 }
 

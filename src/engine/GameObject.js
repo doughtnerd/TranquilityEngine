@@ -14,6 +14,10 @@ class GameObject {
   }
 
   getBehavior(behaviorType) {
+    if (typeof behaviorType !== 'string') {
+      behaviorType = behaviorType.name;
+    }
+
     return this.behaviors.get(behaviorType);
   }
 
@@ -25,7 +29,7 @@ class GameObject {
 
   addBehavior(behaviorType) {
     const behavior = new behaviorType(this);
-    this.behaviors.set(behaviorType, behavior);
+    this.behaviors.set(behaviorType.name, behavior);
     return behavior;
   }
 

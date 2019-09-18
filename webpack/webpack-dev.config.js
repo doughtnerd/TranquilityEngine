@@ -4,22 +4,19 @@ const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CleanWebpackPlugin = require("clean-webpack-plugin");
 
 module.exports = {
-  // entry: './src/index.js',
-  // output: {
-  //   path: path.resolve(__dirname, 'dist'),
-  //   filename: 'main.bundle.js'
-  // },
   module: {
     rules: [
       {
         test: /\.js$/,
         exclude: /node_modules/,
-        use: {
-          loader: "babel-loader",
-          options: {
-            plugins: ['@babel/plugin-proposal-class-properties']
+        use: [
+          {
+            loader: "babel-loader",
+            options: {
+              plugins: ['@babel/plugin-proposal-class-properties']
+            }
           }
-        }
+        ]
       },
       {
         test: [/\.vert$/, /\.frag$/],
@@ -27,15 +24,20 @@ module.exports = {
       },
       {
         test: /\.(gif|png|jpe?g|svg|xml)$/i,
-        use: "file-loader"
-      },
-      {
-        test: /\.json$/,
-        exclude: /node_modules/,
         use: [
-          'file-loader?name=[name].[ext]&outputPath=portal/content/json'
+          {
+            loader: 'file-loader'
+          }
         ]
       },
+      {
+        test: /\.mp3$/i,
+        use: [
+          {
+            loader: 'file-loader'
+          }
+        ]
+      }
     ]
   },
   stats: {
