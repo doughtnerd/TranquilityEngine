@@ -1,5 +1,6 @@
 const Time = require('./Time');
 const SceneManager = require('./SceneManager');
+const Input = require('./Input');
 
 class Engine {
 
@@ -30,7 +31,7 @@ class Engine {
   }
 
   static runFrame() {
-    // Engine.processInput();
+    Engine.processInput();
     Engine.update();
     Engine.render();
   }
@@ -40,7 +41,8 @@ class Engine {
   }
 
   static processInput() {
-
+    Input.processKeyboardInput();
+    Input.processMouseInput();
   }
 
   static update() {

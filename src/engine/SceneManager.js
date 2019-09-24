@@ -49,7 +49,7 @@ class SceneManager {
       behavior.init(attributes);
     }
 
-    console.log(obj);
+    // console.log(obj);
 
     return obj;
 

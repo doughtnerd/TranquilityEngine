@@ -7,7 +7,18 @@ const MonsterBase = require('../gameObjects/MonsterBase');
 module.exports = {
   gameObjects: [
     {
-      type: CameraObject
+      type: CameraObject,
+      behaviors: {
+        Transform: {
+          attributes: {
+            position: {
+              x: 0,
+              y: 2,
+              z: 0
+            }
+          }
+        }
+      }
     },
     {
       type: Controllers,
@@ -41,9 +52,9 @@ module.exports = {
         Transform: {
           attributes: {
             position: {
-              x: 0,
+              x: 4,
               y: 0,
-              z: -6
+              z: 0
             }
           }
         }
@@ -76,9 +87,14 @@ module.exports = {
         Transform: {
           attributes: {
             position: {
-              x: 2,
-              y: 0,
-              z: -6
+              x: 0,
+              y: 2,
+              z: 0
+            },
+            scale: {
+              x: 1,
+              y: 1,
+              z: 1
             }
           }
         }

@@ -3,22 +3,25 @@ const Renderer = require('./Renderer');
 class Material {
 
   shaderSettings;
-  shaderProgram;
   programInfo;
 
   constructor(vert, frag, shaderSettings) {
     this.shaderSettings = shaderSettings;
 
-    this.shaderProgram = Material.initShaderProgram(vert, frag);
+    const shaderProgram = Material.initShaderProgram(vert, frag);
 
     this.programInfo = {
-      program: this.shaderProgram,
+      program: shaderProgram,
       attributeLocations: {
-        vertexPosition: Renderer.glContext.getAttribLocation(this.shaderProgram, 'aVertexPosition'),
+        vertexPosition: Renderer.glContext.getAttribLocation(shaderProgram, 'aVertexPosition'),
+        vertexColor: Renderer.glContext.getAttribLocation(shaderProgram, 'aVertexColor'),
+        textureCoord: Renderer.glContext.getAttribLocation(shaderProgram, 'aTextureCoord'),
       },
       uniformLocations: {
-        projectionMatrix: Renderer.glContext.getUniformLocation(this.shaderProgram, 'uProjectionMatrix'),
-        modelViewMatrix: Renderer.glContext.getUniformLocation(this.shaderProgram, 'uModelViewMatrix'),
+        projectionMatrix: Renderer.glContext.getUniformLocation(shaderProgram, 'uProjectionMatrix'),
+        modelViewMatrix: Renderer.glContext.getUniformLocation(shaderProgram, 'uModelViewMatrix'),
+        resolution: Renderer.glContext.getUniformLocation(shaderProgram, 'uResolution'),
+        uSampler: Renderer.glContext.getUniformLocation(shaderProgram, 'uSampler'),
       },
     };
   }

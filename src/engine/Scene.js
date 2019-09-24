@@ -1,5 +1,6 @@
 const SpriteRenderer = require('./SpriteRenderer');
 const Renderer = require('./Renderer');
+const Camera = require('./Camera');
 
 class Scene {
 
@@ -37,9 +38,9 @@ class Scene {
 
   render() {
     this.renderers.forEach(r => {
-      Renderer.renderQueue.add(r.material);
+      Renderer.renderQueue.add(r);
     });
-    Renderer.drawFrame();
+    Renderer.drawFrame(Camera.main);
   }
 
   instantiate(gameObject) {

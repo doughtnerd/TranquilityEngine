@@ -20,11 +20,6 @@ class Transform extends GameBehavior {
     y: 1,
     z: 1
   };
-
-  update() {
-    this.rotation.y += 5 * Time.deltaTime;
-    this.position.z = Math.sin(Time.time * 3) * 2 - 5
-  }
 }
 
 module.exports = Transform;
