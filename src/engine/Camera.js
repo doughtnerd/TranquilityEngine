@@ -26,10 +26,11 @@ class Camera extends GameBehavior {
     b: -10,
     t: 10,
   };
+  depth = -1;
 
-  calculateProjectionMatrix(gl) {
+  calculateProjectionMatrix(targetDisplay) {
     const fieldOfView = this.fieldOfView * Math.PI / 180;   // in radians
-    const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+    const aspect = targetDisplay.canvas.clientWidth / targetDisplay.canvas.clientHeight;
     const zNear = this.clippingPlanes.near;
     const zFar = this.clippingPlanes.far;
     const projectionMatrix = mat4.create();
@@ -45,8 +46,8 @@ class Camera extends GameBehavior {
         );
         break;
       case Camera.ProjectionType.Orthographic:
-        const halfHeight = gl.canvas.clientHeight / 2;
-        const halfWidth = gl.canvas.clientWidth / 2;
+        const halfHeight = targetDisplay.canvas.clientHeight / 2;
+        const halfWidth = targetDisplay.canvas.clientWidth / 2;
         mat4.ortho(
           projectionMatrix,
           this.orthogonalBounds.l * aspect,

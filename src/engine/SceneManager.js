@@ -31,28 +31,33 @@ class SceneManager {
   }
 
   static instantiateSceneObject(gameObject) {
-    const obj = new (gameObject.type);
+    const instantiatedGameObject = new (gameObject.type);
 
-    for (const key in gameObject.attributes) {
-      if (obj.hasOwnProperty(key)) {
-        obj[key] = gameObject.attributes[key];
+    SceneManager.applyGameObjectAttributes(instantiatedGameObject, gameObject.attributes);
+
+    const behaviorSettings = gameObject.behaviors || {};
+    SceneManager.applyGameBehaviorSettings(instantiatedGameObject, behaviorSettings);
+
+    return instantiatedGameObject;
+
+  }
+
+  static applyGameObjectAttributes(instantiatedGameObject, attributes) {
+    for (const key in attributes) {
+      if (instantiatedGameObject.hasOwnProperty(key)) {
+        instantiatedGameObject[key] = attributes[key];
       }
     }
+  }
 
-    const settings = gameObject.behaviors || {};
-
-    for (const key in settings) {
+  static applyGameBehaviorSettings(gameObject, behaviorSettings) {
+    for (const key in behaviorSettings) {
       const behaviorType = key;
-      const behavior = obj.getBehavior(behaviorType);
-      const attributes = settings[key].attributes;
+      const behavior = gameObject.getBehavior(behaviorType);
+      const attributes = behaviorSettings[key].attributes;
 
       behavior.init(attributes);
     }
-
-    // console.log(obj);
-
-    return obj;
-
   }
 }
 

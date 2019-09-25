@@ -83,10 +83,10 @@ class SpriteRenderer extends GameBehavior {
   render(renderTarget, viewProjectionMatrix) {
     const modelViewMatrix = this.createModelViewMatrix(this.gameObject.transform);
 
-    //Tell WebGL to use the materials shader
+    //Tell WebGL to use the material's shader
     renderTarget.useProgram(this.material.programInfo.program);
 
-    //Tell WebGL how to extract vertex positions and give it to the shader program
+    //Tell WebGL how to extract vertex positions from buffer and give it to the shader program
     {
       const numComponents = 3;  // pull out 3 values per iteration
       const type = renderTarget.FLOAT;    // the data in the buffer is 32bit floats
@@ -110,7 +110,7 @@ class SpriteRenderer extends GameBehavior {
       );
     }
 
-    // Tell WebGL how to extract colors and give it to the shader program
+    // Tell WebGL how to extract colors from buffer and give it to the shader program
     {
       const numComponents = 4;
       const type = renderTarget.FLOAT;
@@ -139,6 +139,13 @@ class SpriteRenderer extends GameBehavior {
       renderTarget.bindBuffer(renderTarget.ARRAY_BUFFER, this.createTextureBuffer(renderTarget));
       renderTarget.vertexAttribPointer(this.material.programInfo.attributeLocations.textureCoord, numComponents, type, normalize, stride, offset);
       renderTarget.enableVertexAttribArray(this.material.programInfo.attributeLocations.textureCoord);
+
+      // Tell WebGL we want to affect texture unit 0
+      renderTarget.activeTexture(renderTarget.TEXTURE0);
+
+      // Bind the texture to texture unit 0
+      //TODO: Texture never loads because the texture is being loaded once per frame - need to load textures/etc outside of render loop.
+      renderTarget.bindTexture(renderTarget.TEXTURE_2D, this.sprite.loadTexture(renderTarget));
     }
 
     // Set uniforms for the shader.
@@ -160,21 +167,14 @@ class SpriteRenderer extends GameBehavior {
         renderTarget.canvas.width,
         renderTarget.canvas.height
       );
+
+      renderTarget.uniform1i(
+        this.material.programInfo.uniformLocations.uSampler,
+        0
+      );
     }
 
-    {
-      // Tell WebGL we want to affect texture unit 0
-      renderTarget.activeTexture(renderTarget.TEXTURE0);
-
-      // Bind the texture to texture unit 0
-
-      //TODO: Texture never loads because the texture is being loaded once per frame - need to load textures/etc separately before render.
-      renderTarget.bindTexture(renderTarget.TEXTURE_2D, this.sprite.loadTexture(renderTarget));
-
-      // Tell the shader we bound the texture to texture unit 0
-      renderTarget.uniform1i(this.material.programInfo.uniformLocations.uSampler, 0);
-    }
-
+    //Draw
     {
       const offset = 0;
       const vertexCount = 4;
