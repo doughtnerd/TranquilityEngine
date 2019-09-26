@@ -7,15 +7,14 @@ const quat = require('gl-matrix').quat;
 const vec3 = require('gl-matrix').vec3;
 const Shader = require('./Shader');
 const SpriteDefault = require('./shaders/sprite/default/SpriteDefaultShader');
+const TextureLoader = require('./TextureLoader');
 
 class SpriteRenderer extends GameBehavior {
 
-  sprite = new Texture(
-    require('../assets/images/moderncraft.png')
-  );
-  color = [0, 0, 1, 1];
-  material = new Material(
-    new Shader(
+  sprite = require('../assets/images/moderncraft.png');
+  color = [1, 1, 1, 1];
+  material = {
+    shader: new Shader(
       require('./shaders/sprite/default/sprite-default.vert'),
       require('./shaders/sprite/default/sprite-default.frag'),
       [
@@ -30,16 +29,6 @@ class SpriteRenderer extends GameBehavior {
           buffer: this.createGeometryBuffer
         },
         {
-          name: 'aVertexColor',
-          type: 'color',
-          componentType: Shader.AttributeType.Float,
-          numComponents: 4,
-          normalize: false,
-          stride: 0,
-          offset: 0,
-          buffer: this.createColorBuffer
-        },
-        {
           name: 'aTextureCoord',
           type: 'texture',
           componentType: Shader.AttributeType.Float,
@@ -51,12 +40,12 @@ class SpriteRenderer extends GameBehavior {
         },
       ]
     )
-  )
+  }
 
   loadedTexture;
 
   awake() {
-    this.loadedTexture = this.sprite.load(Renderer.glContext);
+    this.loadedTexture = TextureLoader.load(this.sprite, Renderer.glContext);
   }
 
   createGeometryBuffer(gl) {
@@ -211,6 +200,11 @@ class SpriteRenderer extends GameBehavior {
         renderTarget.getUniformLocation(shaderProgram, 'uWorldMatrix'),
         false,
         mat4.create()
+      );
+
+      renderTarget.uniform4fv(
+        renderTarget.getUniformLocation(shaderProgram, "uColor"),
+        this.color
       );
 
 

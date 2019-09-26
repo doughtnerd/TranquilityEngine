@@ -1,14 +1,7 @@
 
+class TextureLoader {
 
-class Texture {
-
-  imageSource;
-
-  constructor(imageSource) {
-    this.imageSource = imageSource;
-  }
-
-  load(glContext) {
+  static load(imageSource, glContext) {
     const texture = glContext.createTexture();
     glContext.bindTexture(glContext.TEXTURE_2D, texture);
 
@@ -30,7 +23,7 @@ class Texture {
       glContext.texImage2D(glContext.TEXTURE_2D, level, internalFormat,
         srcFormat, srcType, image);
 
-      if (Texture.isPowerOf2(image.width) && Texture.isPowerOf2(image.height)) {
+      if (TextureLoader.isPowerOf2(image.width) && TextureLoader.isPowerOf2(image.height)) {
         glContext.generateMipmap(glContext.TEXTURE_2D);
       } else {
         glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_S, glContext.CLAMP_TO_EDGE);
@@ -38,7 +31,7 @@ class Texture {
         glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.LINEAR);
       }
     };
-    image.src = this.imageSource;
+    image.src = imageSource;
 
     return texture;
   }
@@ -48,4 +41,4 @@ class Texture {
   }
 }
 
-module.exports = Texture;
+module.exports = TextureLoader;

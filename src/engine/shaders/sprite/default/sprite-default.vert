@@ -8,12 +8,10 @@ uniform mat4 uViewProjectionMatrix;
 uniform mat4 uModelViewProjectionMatrix;
 uniform vec2 uResolution;
 
-varying highp vec4 vColor;
 varying highp vec2 vTextureCoord;
 
 void main() {
   gl_Position = uModelViewProjectionMatrix * aVertexPosition;
-  vColor = aVertexColor;
   vTextureCoord = aTextureCoord;
 }
 
