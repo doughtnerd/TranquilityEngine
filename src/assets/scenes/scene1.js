@@ -57,7 +57,7 @@ module.exports = {
               z: 0
             }
           }
-        }
+        },
       }
     },
     {
@@ -100,50 +100,5 @@ module.exports = {
         }
       }
     },
-    {
-      type: MonsterBase,
-      attributes: {
-        name: "Orc"
-      },
-      behaviors: {
-        Damager: {
-          attributes: {
-            damageAmount: 1
-          }
-        },
-        Damageable: {
-          attributes: {
-            health: 2
-          }
-        },
-        DropItemOnDeath: {
-          attributes: {
-            item: {
-              damage: 2,
-              hitChance: 0.25
-            }
-          }
-        },
-        Transform: {
-          attributes: {
-            position: {
-              x: 0,
-              y: 6,
-              z: -1
-            },
-            rotation: {
-              x: 0,
-              y: 90,
-              z: 0
-            },
-            scale: {
-              x: 1,
-              y: 1,
-              z: 1
-            }
-          }
-        }
-      }
-    }
   ]
 }

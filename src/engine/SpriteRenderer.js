@@ -6,17 +6,52 @@ const mat4 = require('gl-matrix').mat4;
 const quat = require('gl-matrix').quat;
 const vec3 = require('gl-matrix').vec3;
 const Shader = require('./Shader');
-const SpriteDefault = require('./shaders/sprite/default/SpriteDefault');
+const SpriteDefault = require('./shaders/sprite/default/SpriteDefaultShader');
 
 class SpriteRenderer extends GameBehavior {
 
   sprite = new Texture(
     require('../assets/images/moderncraft.png')
   );
-  color;
+  color = [0, 0, 1, 1];
   material = new Material(
-    new SpriteDefault()
-  );
+    new Shader(
+      require('./shaders/sprite/default/sprite-default.vert'),
+      require('./shaders/sprite/default/sprite-default.frag'),
+      [
+        {
+          name: 'aVertexPosition',
+          type: 'geometry',
+          componentType: Shader.AttributeType.Float,
+          numComponents: 3,
+          normalize: false,
+          stride: 0,
+          offset: 0,
+          buffer: this.createGeometryBuffer
+        },
+        {
+          name: 'aVertexColor',
+          type: 'color',
+          componentType: Shader.AttributeType.Float,
+          numComponents: 4,
+          normalize: false,
+          stride: 0,
+          offset: 0,
+          buffer: this.createColorBuffer
+        },
+        {
+          name: 'aTextureCoord',
+          type: 'texture',
+          componentType: Shader.AttributeType.Float,
+          numComponents: 2,
+          normalize: false,
+          stride: 0,
+          offset: 0,
+          buffer: this.createTextureCoordinateBuffer
+        },
+      ]
+    )
+  )
 
   loadedTexture;
 
@@ -55,13 +90,6 @@ class SpriteRenderer extends GameBehavior {
   }
 
   createColorBuffer(gl) {
-    // const colors = [
-    //   1.0, 1.0, 1.0, 1.0,    // white
-    //   1.0, 0.0, 0.0, 1.0,    // red
-    //   0.0, 1.0, 0.0, 1.0,    // green
-    //   0.0, 0.0, 1.0, 1.0,    // blue
-    // ];
-
     const colors = [
       1.0, 1.0, 1.0, 1.0,    // white
       1.0, 1.0, 1.0, 1.0,    // white
