@@ -22,21 +22,30 @@ class Shader {
 
   attributes = [];
 
-  constructor(vert, frag) {
-    this.vert = vert;
-    this.frag = frag;
+  static AttributeType = {
+    Float: 'FLOAT'
   }
 
-  initShaderProgram(glContext) {
-    const vertexShader = loadShader(glContext.VERTEX_SHADER, this.vert);
-    const fragmentShader = loadShader(glContext.FRAGMENT_SHADER, this.frag);
+  constructor(vert, frag, attributes) {
+    this.vert = vert;
+    this.frag = frag;
+    this.attributes = attributes;
+  }
+
+  loadShaderProgram(glContext) {
+    const vertexShader = loadShader(glContext, glContext.VERTEX_SHADER, this.vert);
+    const fragmentShader = loadShader(glContext, glContext.FRAGMENT_SHADER, this.frag);
 
     const shaderProgram = glContext.createProgram();
     glContext.attachShader(shaderProgram, vertexShader);
     glContext.attachShader(shaderProgram, fragmentShader);
 
-    this.attributes.forEach((attribute, index) => {
+    this.attributes = this.attributes.map((attribute, index) => {
       glContext.bindAttribLocation(shaderProgram, index, attribute);
+      return {
+        ...attribute,
+        boundLocation: index
+      }
     });
 
     glContext.linkProgram(shaderProgram);

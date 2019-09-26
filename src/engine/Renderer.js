@@ -5,7 +5,7 @@ const FastPriorityQueue = require('fastpriorityqueue');
 class Renderer {
 
   static renderQueue = new FastPriorityQueue((a, b) => {
-    return a.material.shaderSettings.renderPriority - b.material.shaderSettings.renderPriority
+    return a.material.shader.renderPriority - b.material.shader.renderPriority
   });
 
   static canvas = document.createElement('canvas');
@@ -30,22 +30,22 @@ class Renderer {
   }
 
   static drawFrame(camera) {
-    Renderer.glContext.clearColor(0.0, 0.0, 0.0, 1.0);  // Clear to black, fully opaque
+    Renderer.glContext.viewport(0, 0, Renderer.canvas.width, Renderer.canvas.height)
+    Renderer.glContext.clearColor(0.5, .5, 1.0, 1.0);  // Clear to black, fully opaque
     Renderer.glContext.clearDepth(1.0);                 // Clear everything
     Renderer.glContext.enable(Renderer.glContext.DEPTH_TEST);           // Enable depth testing
     Renderer.glContext.depthFunc(Renderer.glContext.LEQUAL);            // Near things obscure far things
     // Renderer.glContext.enable(Renderer.glContext.CULL_FACE); // Turn on culling. By default backfacing triangles will be culled.
     Renderer.glContext.clear(Renderer.glContext.COLOR_BUFFER_BIT | Renderer.glContext.DEPTH_BUFFER_BIT); // Clear the canvas before we start drawing on it.
 
-    const projectionMatrix = camera.calculateProjectionMatrix(Renderer.glContext);
-
+    // Matrix representing camera transformation to correct position and orientation.
     const quaternion = quat.fromEuler(
       quat.create(),
       -camera.gameObject.transform.rotation.x,
       -camera.gameObject.transform.rotation.y,
       camera.gameObject.transform.rotation.z,
     );
-    const cameraPositionMatrix = mat4.fromRotationTranslation(
+    const cameraTransformationMatrix = mat4.fromRotationTranslation(
       mat4.create(),
       quaternion,
       [
@@ -55,12 +55,18 @@ class Renderer {
       ]
     );
 
-    const worldPositionMatrix = mat4.invert(mat4.create(), cameraPositionMatrix);
-    const viewProjectionMatrix = mat4.multiply(mat4.create(), projectionMatrix, worldPositionMatrix);
+    // Matrix to transform models vertices from world space to view space (as seen by camera). Always inverse of camera transformation matrix.
+    const viewMatrix = mat4.invert(mat4.create(), cameraTransformationMatrix);
+
+    // Matrix representing the camera frustrum, transforms the camera to screen
+    const projectionMatrix = camera.calculateProjectionMatrix(Renderer.glContext);
+
+    // Matrix to transform from world space to screen space
+    // const viewProjectionMatrix = mat4.multiply(mat4.create(), projectionMatrix, viewMatrix);
 
     while (!this.renderQueue.isEmpty()) {
       const renderer = this.renderQueue.poll();
-      renderer.render(Renderer.glContext, viewProjectionMatrix);
+      renderer.render(Renderer.glContext, viewMatrix, projectionMatrix);
     }
 
     this.renderQueue.trim();

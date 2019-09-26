@@ -9,14 +9,14 @@ class MoveObject extends GameBehavior {
   pitch = 0;
 
   update() {
-    this.gameObject.transform.rotation.x = Time.time * 200;
+
 
     if (Input.getKey('w')) {
-      this.gameObject.transform.position.z += 1 * 10 * Time.deltaTime;
+      this.gameObject.transform.position.y += 1 * 10 * Time.deltaTime;
     }
 
     if (Input.getKey('s')) {
-      this.gameObject.transform.position.z -= 1 * 10 * Time.deltaTime;
+      this.gameObject.transform.position.y -= 1 * 10 * Time.deltaTime;
     }
 
     if (Input.getKey('a')) {
