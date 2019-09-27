@@ -8,12 +8,12 @@ class Material {
   textures = {};
   attributes = [];
 
-  constructor(shader, colors, textures, attributes) {
-    this.shader = shader;
-    this.colors = colors;
-    this.textures = textures;
-    this.attributes = attributes;
-  }
+  // constructor(shader, colors, textures, attributes) {
+  //   this.shader = shader;
+  //   this.colors = colors;
+  //   this.textures = textures;
+  //   this.attributes = attributes;
+  // }
 
   addColor(uniformName, value) {
     this.colors[uniformName] = value;

@@ -1,15 +1,19 @@
+const Shader = require('../../../Shader');
 const Material = require('../../../Material');
 
 class SpriteDefaultMaterial extends Material {
 
-  vert = require('./sprite-default.vert');
-  frag = require('./sprite-default.vert');
+  shader = new Shader(
+    require('./sprite-default.vert'),
+    require('./sprite-default.frag'),
+  );
 
-  colors = new Map([
-    ['aColor', [1, 1, 1, 1]]
-  ])
+  colors = { uDiffuseColor: [] };
 
-  textures = [
+  textures = { uDiffuse: null }
 
-  ];
+  attributes = [];
+
 }
+
+module.exports = SpriteDefaultMaterial;

@@ -1,11 +1,35 @@
+const GameObject = require('../../engine/GameObject');
 const CameraObject = require('../../engine/CameraObject');
 const Controllers = require('../gameObjects/Controllers');
 const AudioHost = require('../gameObjects/AudioHost');
 const PlayerObject = require('../gameObjects/PlayerObject');
 const MonsterBase = require('../gameObjects/MonsterBase');
+const SpriteDefaultMaterial = require('../../engine/shaders/sprite/default/SpriteDefaultMaterial');
 
 module.exports = {
   gameObjects: [
+    {
+      type: GameObject,
+      behaviors: {
+        Transform: {
+          attributes: {
+            position: {
+              x: 3,
+              y: 0,
+              z: 0
+            }
+          }
+        },
+        SpriteRenderer: {
+          type: require('../../engine/SpriteRenderer'),
+          attributes: {
+            sprite: require('../images/moderncraft.png'),
+            color: [1, 1, 1, 1],
+            material: new SpriteDefaultMaterial()
+          }
+        }
+      }
+    },
     {
       type: CameraObject,
       behaviors: {
@@ -52,12 +76,19 @@ module.exports = {
         Transform: {
           attributes: {
             position: {
-              x: 1,
+              x: 0,
               y: 0,
               z: 0
             }
           }
         },
+        SpriteRenderer: {
+          attributes: {
+            sprite: require('../images/flower.jpg'),
+            color: [1, 1, 1, 1],
+            material: new SpriteDefaultMaterial()
+          }
+        }
       }
     },
     {
@@ -87,7 +118,7 @@ module.exports = {
         Transform: {
           attributes: {
             position: {
-              x: 0,
+              x: -1,
               y: 0,
               z: 0
             },
@@ -96,6 +127,13 @@ module.exports = {
               y: 1,
               z: 1
             }
+          }
+        },
+        SpriteRenderer: {
+          attributes: {
+            sprite: require('../images/moderncraft.png'),
+            color: [1, 1, 1, 1],
+            material: new SpriteDefaultMaterial()
           }
         }
       }

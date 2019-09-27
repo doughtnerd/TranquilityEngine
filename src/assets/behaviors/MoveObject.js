@@ -30,7 +30,7 @@ class MoveObject extends GameBehavior {
     // console.log(Input.getMouseDown(), Input.getMouse(), Input.mousePosition, Input.mouseAxis);
 
     // if (Input.getMouse()) {
-    Camera.main.gameObject.transform.rotation = this.calculateRotation(Input.mouseAxis);
+    // Camera.main.gameObject.transform.rotation = this.calculateRotation(Input.mouseAxis);
     // }
 
     Camera.main.gameObject.transform.position = {

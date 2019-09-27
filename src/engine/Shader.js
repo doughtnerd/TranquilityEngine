@@ -18,6 +18,8 @@ class Shader {
   vert = null;
   frag = null;
 
+  shaderProgram;
+
   renderPriority = 1000;
 
   attributes = [];

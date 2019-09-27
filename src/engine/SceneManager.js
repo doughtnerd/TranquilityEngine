@@ -52,9 +52,19 @@ class SceneManager {
 
   static applyGameBehaviorSettings(gameObject, behaviorSettings) {
     for (const key in behaviorSettings) {
+
       const behaviorType = key;
-      const behavior = gameObject.getBehavior(behaviorType);
-      const attributes = behaviorSettings[key].attributes;
+
+      const attributes = behaviorSettings[behaviorType].attributes;
+
+      let behavior = gameObject.getBehavior(behaviorType);
+
+      if (!behavior) {
+        gameObject.addBehavior(behaviorSettings[behaviorType].type);
+        behavior = gameObject.getBehavior(behaviorSettings[behaviorType].type);
+      } else {
+        behavior = gameObject.getBehavior(behaviorType);
+      }
 
       behavior.init(attributes);
     }

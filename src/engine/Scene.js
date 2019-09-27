@@ -1,25 +1,15 @@
-const SpriteRenderer = require('./SpriteRenderer');
-const Renderer = require('./Renderer');
-const Camera = require('./Camera');
 
 class Scene {
 
   gameObjects = [];
   updateFuncs = [];
   behaviors = [];
-  renderers = [];
 
   constructor(gameObjects) {
     this.gameObjects = gameObjects;
     this.gameObjects.forEach(obj => {
       this.behaviors = [...this.behaviors, ...obj.getBehaviors()];
     });
-    this.gameObjects.forEach(go => {
-      const r = go.getBehavior(SpriteRenderer);
-      if (r) {
-        this.renderers.push(r);
-      }
-    })
   }
 
   awake() {
@@ -34,13 +24,6 @@ class Scene {
 
   start() {
     this.behaviors.forEach(b => b.start());
-  }
-
-  render() {
-    this.renderers.forEach(r => {
-      Renderer.renderQueue.add(r);
-    });
-    Renderer.drawFrame(Camera.main);
   }
 
   instantiate(gameObject) {

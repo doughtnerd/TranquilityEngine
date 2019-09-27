@@ -1,7 +1,8 @@
 const Time = require('./Time');
 const SceneManager = require('./SceneManager');
 const Input = require('./Input');
-
+const Renderer = require('./Renderer');
+const Camera = require('./Camera');
 class Engine {
 
   static interval;
@@ -50,7 +51,7 @@ class Engine {
   }
 
   static render() {
-    SceneManager.activeScene.render();
+    Renderer.drawFrame(Camera.main);
   }
 }
 

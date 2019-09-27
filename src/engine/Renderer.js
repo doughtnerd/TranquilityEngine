@@ -1,5 +1,6 @@
 const mat4 = require('gl-matrix').mat4;
 const quat = require('gl-matrix').quat;
+const vec3 = require('gl-matrix').vec3;
 const FastPriorityQueue = require('fastpriorityqueue');
 
 class Renderer {
@@ -66,10 +67,122 @@ class Renderer {
 
     while (!this.renderQueue.isEmpty()) {
       const renderer = this.renderQueue.poll();
-      renderer.render(Renderer.glContext, viewMatrix, projectionMatrix);
+      // renderer.render(Renderer.glContext, viewMatrix, projectionMatrix);
+      Renderer.render(Renderer.glContext, renderer, viewMatrix, projectionMatrix);
     }
 
     this.renderQueue.trim();
+  }
+
+
+  static render(renderTarget, renderData, viewMatrix, projectionMatrix) {
+    const modelMatrix = renderData.gameObjectTransform.createModelMatrix();
+    const modelViewMatrix = mat4.multiply(mat4.create(), viewMatrix, modelMatrix);
+    const viewProjectionMatrix = mat4.multiply(mat4.create(), projectionMatrix, viewMatrix);
+    const modelViewProjectionMatrix = mat4.multiply(mat4.create(), viewProjectionMatrix, modelMatrix);
+
+    const shaderProgram = renderData.material.shader.shaderProgram
+
+    renderTarget.useProgram(shaderProgram);
+
+    renderData.material.attributes.forEach((attributeData, index) => {
+      renderTarget.bindBuffer(
+        renderTarget.ARRAY_BUFFER,
+        attributeData.buffer
+      );
+      renderTarget.vertexAttribPointer(
+        renderTarget.getAttribLocation(shaderProgram, attributeData.name),
+        attributeData.numComponents,
+        renderTarget[attributeData.componentType],
+        attributeData.normalize,
+        attributeData.stride,
+        attributeData.offset);
+      renderTarget.enableVertexAttribArray(
+        renderTarget.getAttribLocation(shaderProgram, attributeData.name),
+      );
+    });
+
+    {
+      renderTarget.uniformMatrix4fv(
+        renderTarget.getUniformLocation(shaderProgram, 'uModelMatrix'),
+        false,
+        modelMatrix
+      );
+
+      renderTarget.uniformMatrix4fv(
+        renderTarget.getUniformLocation(shaderProgram, 'uModelViewMatrix'),
+        false,
+        modelViewMatrix
+      );
+
+      renderTarget.uniformMatrix4fv(
+        renderTarget.getUniformLocation(shaderProgram, 'uViewProjectionMatrix'),
+        false,
+        viewProjectionMatrix
+      );
+
+      renderTarget.uniformMatrix4fv(
+        renderTarget.getUniformLocation(shaderProgram, 'uModelViewProjectionMatrix'),
+        false,
+        modelViewProjectionMatrix
+      );
+
+      renderTarget.uniform2f(
+        renderTarget.getUniformLocation(shaderProgram, 'uResolution'),
+        renderTarget.canvas.width,
+        renderTarget.canvas.height
+      );
+
+      renderTarget.uniformMatrix4fv(
+        renderTarget.getUniformLocation(shaderProgram, 'uWorldMatrix'),
+        false,
+        mat4.create()
+      );
+
+      let index = 0;
+      for (const key in renderData.material.textures) {
+        renderTarget.activeTexture(renderTarget.TEXTURE0 + index);
+        // TODO: Fix loaded texture thingy
+        renderTarget.bindTexture(renderTarget.TEXTURE_2D, renderData.material.textures[key]);
+
+
+        renderTarget.uniform1i(
+          renderTarget.getUniformLocation(shaderProgram, key),
+          index
+        );
+
+        index++;
+      }
+
+      index = 0;
+      for (const key in renderData.material.colors) {
+        renderTarget.uniform4fv(
+          renderTarget.getUniformLocation(shaderProgram, key),
+          renderData.material.colors[key]
+        );
+      }
+
+      // const lightPosition = vec3.fromValues(0, 0, -1);
+      // const modelWorldPosition = vec3.fromValues(this.gameObject.transform.position.x, this.gameObject.transform.position.y, this.gameObject.transform.position.z);
+      // const lightDirection = vec3.subtract([0, 0, 0], modelWorldPosition, lightPosition);
+      // vec3.normalize(lightDirection, lightDirection);
+
+      const lightVector = [0, 1, 1];
+      vec3.normalize(lightVector, lightVector);
+
+      renderTarget.uniform3fv(
+        renderTarget.getUniformLocation(shaderProgram, "uLightingDirection"),
+        // vec3.normalize(lightDirection, lightDirection)
+        lightVector
+      );
+    }
+
+    //Draw
+    {
+      const offset = 0;
+      const vertexCount = 4;
+      renderTarget.drawArrays(renderTarget.TRIANGLE_STRIP, offset, vertexCount);
+    }
   }
 
 }
