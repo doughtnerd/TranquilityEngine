@@ -27,8 +27,9 @@ class Texture {
     const image = new Image();
     image.onload = function () {
       glContext.bindTexture(glContext.TEXTURE_2D, texture);
-      glContext.texImage2D(glContext.TEXTURE_2D, level, internalFormat,
-        srcFormat, srcType, image);
+      glContext.texImage2D(glContext.TEXTURE_2D, level, internalFormat, srcFormat, srcType, image);
+      // gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      // gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
 
       if (Texture.isPowerOf2(image.width) && Texture.isPowerOf2(image.height)) {
         glContext.generateMipmap(glContext.TEXTURE_2D);
@@ -37,6 +38,9 @@ class Texture {
         glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_WRAP_T, glContext.CLAMP_TO_EDGE);
         glContext.texParameteri(glContext.TEXTURE_2D, glContext.TEXTURE_MIN_FILTER, glContext.LINEAR);
       }
+
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
     };
     image.src = this.imageSource;
 

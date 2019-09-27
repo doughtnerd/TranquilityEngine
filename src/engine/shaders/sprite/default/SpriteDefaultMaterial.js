@@ -1,6 +1,6 @@
-const Material = require('../../../Material2');
+const Material = require('../../../Material');
 
-module.exports = class SpriteDefaultMaterial extends Material2 {
+class SpriteDefaultMaterial extends Material {
 
   vert = require('./sprite-default.vert');
   frag = require('./sprite-default.vert');

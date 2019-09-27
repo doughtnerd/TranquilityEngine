@@ -13,34 +13,46 @@ class SpriteRenderer extends GameBehavior {
 
   sprite = require('../assets/images/moderncraft.png');
   color = [1, 1, 1, 1];
-  material = {
-    shader: new Shader(
+  material = new Material(
+    new Shader(
       require('./shaders/sprite/default/sprite-default.vert'),
       require('./shaders/sprite/default/sprite-default.frag'),
-      [
-        {
-          name: 'aVertexPosition',
-          type: 'geometry',
-          componentType: Shader.AttributeType.Float,
-          numComponents: 3,
-          normalize: false,
-          stride: 0,
-          offset: 0,
-          buffer: this.createGeometryBuffer
-        },
-        {
-          name: 'aTextureCoord',
-          type: 'texture',
-          componentType: Shader.AttributeType.Float,
-          numComponents: 2,
-          normalize: false,
-          stride: 0,
-          offset: 0,
-          buffer: this.createTextureCoordinateBuffer
-        },
-      ]
-    )
-  }
+    ),
+    { uDiffuseColor: this.color },
+    { uDiffuse: this.sprite },
+    [
+      {
+        name: 'aVertexPosition',
+        componentType: Shader.AttributeType.Float,
+        numComponents: 3,
+        normalize: false,
+        stride: 0,
+        offset: 0,
+        data: [
+          -0.5, 0.5, 0,
+          0.5, 0.5, 0,
+          -0.5, -0.5, 0,
+          0.5, -0.5, 0,
+        ],
+        buffer: []
+      },
+      {
+        name: 'aTextureCoord',
+        componentType: Shader.AttributeType.Float,
+        numComponents: 2,
+        normalize: false,
+        stride: 0,
+        offset: 0,
+        data: [
+          1.0, 0.0,
+          0.0, 0.0,
+          1.0, 1.0,
+          0.0, 1.0,
+        ],
+        buffer: []
+      },
+    ]
+  );
 
   loadedTexture;
 
@@ -48,20 +60,6 @@ class SpriteRenderer extends GameBehavior {
     this.loadedTexture = TextureLoader.load(this.sprite, Renderer.glContext);
   }
 
-  createGeometryBuffer(gl) {
-    const positions = [
-      -0.5, 0.5, 0,
-      0.5, 0.5, 0,
-      -0.5, -0.5, 0,
-      0.5, -0.5, 0,
-    ];
-
-    const positionBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-
-    return positionBuffer;
-  }
 
   createNormalBuffer(gl) {
     const normals = [
@@ -76,36 +74,6 @@ class SpriteRenderer extends GameBehavior {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
 
     return normalBuffer;
-  }
-
-  createColorBuffer(gl) {
-    const colors = [
-      1.0, 1.0, 1.0, 1.0,    // white
-      1.0, 1.0, 1.0, 1.0,    // white
-      1.0, 1.0, 1.0, 1.0,    // white
-      1.0, 1.0, 1.0, 1.0,    // white
-    ];
-
-    const colorBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
-
-    return colorBuffer;
-  }
-
-  createTextureCoordinateBuffer(gl) {
-    const textureCoordinates = [
-      1.0, 0.0,
-      0.0, 0.0,
-      1.0, 1.0,
-      0.0, 1.0,
-    ];
-
-    const textureCoordBuffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(textureCoordinates), gl.STATIC_DRAW);
-
-    return textureCoordBuffer;
   }
 
   createModelMatrix(modelTransform) {
@@ -127,7 +95,6 @@ class SpriteRenderer extends GameBehavior {
   }
 
   render(renderTarget, viewMatrix, projectionMatrix) {
-    // Calculate rendering matrices
     const modelMatrix = this.createModelMatrix(this.gameObject.transform);
     const modelViewMatrix = mat4.multiply(mat4.create(), viewMatrix, modelMatrix);
     const viewProjectionMatrix = mat4.multiply(mat4.create(), projectionMatrix, viewMatrix);
@@ -137,13 +104,12 @@ class SpriteRenderer extends GameBehavior {
 
     renderTarget.useProgram(shaderProgram);
 
-    this.material.shader.attributes.forEach((attributeData, index) => {
+    this.material.attributes.forEach((attributeData, index) => {
       renderTarget.bindBuffer(
         renderTarget.ARRAY_BUFFER,
-        attributeData.buffer(renderTarget)
+        Material.createBuffer(renderTarget, attributeData.data)
       );
       renderTarget.vertexAttribPointer(
-        // attributeData.boundLocation,
         renderTarget.getAttribLocation(shaderProgram, attributeData.name),
         attributeData.numComponents,
         renderTarget[attributeData.componentType],
@@ -151,13 +117,8 @@ class SpriteRenderer extends GameBehavior {
         attributeData.stride,
         attributeData.offset);
       renderTarget.enableVertexAttribArray(
-        // attributeData.boundLocation
         renderTarget.getAttribLocation(shaderProgram, attributeData.name),
       );
-      if (attributeData.type === 'texture') {
-        renderTarget.activeTexture(renderTarget.TEXTURE0);
-        renderTarget.bindTexture(renderTarget.TEXTURE_2D, this.loadedTexture);
-      }
     });
 
     {
@@ -191,22 +152,33 @@ class SpriteRenderer extends GameBehavior {
         renderTarget.canvas.height
       );
 
-      renderTarget.uniform1i(
-        renderTarget.getUniformLocation(shaderProgram, 'uSampler'),
-        0
-      );
-
       renderTarget.uniformMatrix4fv(
         renderTarget.getUniformLocation(shaderProgram, 'uWorldMatrix'),
         false,
         mat4.create()
       );
 
-      renderTarget.uniform4fv(
-        renderTarget.getUniformLocation(shaderProgram, "uColor"),
-        this.color
-      );
+      let index = 0;
+      for (const key in this.material.textures) {
+        renderTarget.activeTexture(renderTarget.TEXTURE0 + index);
+        renderTarget.bindTexture(renderTarget.TEXTURE_2D, this.loadedTexture);
 
+
+        renderTarget.uniform1i(
+          renderTarget.getUniformLocation(shaderProgram, key),
+          index
+        );
+
+        index++;
+      }
+
+      index = 0;
+      for (const key in this.material.colors) {
+        renderTarget.uniform4fv(
+          renderTarget.getUniformLocation(shaderProgram, key),
+          this.material.colors[key]
+        );
+      }
 
       // const lightPosition = vec3.fromValues(0, 0, -1);
       // const modelWorldPosition = vec3.fromValues(this.gameObject.transform.position.x, this.gameObject.transform.position.y, this.gameObject.transform.position.z);

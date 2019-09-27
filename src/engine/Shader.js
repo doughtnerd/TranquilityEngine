@@ -26,10 +26,9 @@ class Shader {
     Float: 'FLOAT'
   }
 
-  constructor(vert, frag, attributes) {
+  constructor(vert, frag) {
     this.vert = vert;
     this.frag = frag;
-    this.attributes = attributes;
   }
 
   loadShaderProgram(glContext) {
@@ -40,13 +39,13 @@ class Shader {
     glContext.attachShader(shaderProgram, vertexShader);
     glContext.attachShader(shaderProgram, fragmentShader);
 
-    this.attributes = this.attributes.map((attribute, index) => {
-      glContext.bindAttribLocation(shaderProgram, index, attribute);
-      return {
-        ...attribute,
-        boundLocation: index
-      }
-    });
+    // this.attributes = this.attributes.map((attribute, index) => {
+    //   glContext.bindAttribLocation(shaderProgram, index, attribute);
+    //   return {
+    //     ...attribute,
+    //     boundLocation: index
+    //   }
+    // });
 
     glContext.linkProgram(shaderProgram);
 
