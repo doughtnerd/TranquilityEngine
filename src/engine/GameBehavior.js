@@ -16,7 +16,7 @@ class GameBehavior {
   awake() { }
   start() { }
   update() { }
-
+  fixedUpdate() { }
 }
 
 module.exports = GameBehavior;

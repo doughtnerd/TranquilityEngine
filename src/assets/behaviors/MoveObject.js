@@ -1,61 +1,59 @@
-const Time = require('../../engine/Time');
-const GameBehavior = require('../../engine/GameBehavior');
-const Camera = require('../../engine/Camera');
-const Input = require('../../engine/Input');
+const Time = require("../../engine/Time");
+const GameBehavior = require("../../engine/GameBehavior");
+const Camera = require("../../engine/Camera");
+const Input = require("../../engine/Input");
 
 class MoveObject extends GameBehavior {
+	yaw = 0;
+	pitch = 0;
 
-  yaw = 0;
-  pitch = 0;
+	update() {
+		if (Input.getKey("w")) {
+			this.gameObject.transform.position.y += 1 * 10 * Time.deltaTime;
+		}
 
-  update() {
+		if (Input.getKey("s")) {
+			this.gameObject.transform.position.y -= 1 * 10 * Time.deltaTime;
+		}
 
+		if (Input.getKey("a")) {
+			this.gameObject.transform.position.x -= 1 * 10 * Time.deltaTime;
+		}
 
-    if (Input.getKey('w')) {
-      this.gameObject.transform.position.y += 1 * 10 * Time.deltaTime;
-    }
+		if (Input.getKey("d")) {
+			this.gameObject.transform.position.x += 1 * 10 * Time.deltaTime;
+		}
 
-    if (Input.getKey('s')) {
-      this.gameObject.transform.position.y -= 1 * 10 * Time.deltaTime;
-    }
+		// console.log(Input.getMouseDown(), Input.getMouse(), Input.mousePosition, Input.mouseAxis);
 
-    if (Input.getKey('a')) {
-      this.gameObject.transform.position.x -= 1 * 10 * Time.deltaTime;
-    }
+		if (Input.getMouse()) {
+			Camera.main.gameObject.transform.rotation = this.calculateRotation(
+				Input.mouseAxis
+			);
+		}
 
-    if (Input.getKey('d')) {
-      this.gameObject.transform.position.x += 1 * 10 * Time.deltaTime;
-    }
+		Camera.main.gameObject.transform.position = {
+			x: this.gameObject.transform.position.x,
+			y: this.gameObject.transform.position.y + 2,
+			z: this.gameObject.transform.position.z - 6
+		};
+	}
 
-    // console.log(Input.getMouseDown(), Input.getMouse(), Input.mousePosition, Input.mouseAxis);
+	calculateRotation(rotationAmount) {
+		this.yaw += 5 * rotationAmount.x;
+		this.pitch -= 5 * rotationAmount.y;
 
-    // if (Input.getMouse()) {
-    // Camera.main.gameObject.transform.rotation = this.calculateRotation(Input.mouseAxis);
-    // }
+		this.pitch = this.pitch > this.maxPitch ? this.maxPitch : this.pitch;
+		this.pitch = this.pitch < this.minPitch ? this.minPitch : this.pitch;
 
-    Camera.main.gameObject.transform.position = {
-      x: this.gameObject.transform.position.x,
-      y: this.gameObject.transform.position.y + 2,
-      z: this.gameObject.transform.position.z - 6
-    }
-  }
+		const newEulerRotation = {
+			x: this.pitch,
+			y: this.yaw,
+			z: 0
+		};
 
-  calculateRotation(rotationAmount) {
-    this.yaw += 5 * rotationAmount.x;
-    this.pitch -= 5 * rotationAmount.y;
-
-    // this.pitch = this.pitch > this.maxPitch ? this.maxPitch : this.pitch;
-    // this.pitch = this.pitch < this.minPitch ? this.minPitch : this.pitch;
-
-    const newEulerRotation = {
-      x: this.pitch,
-      y: this.yaw,
-      z: 0
-    };
-
-    return newEulerRotation;
-  }
-
+		return newEulerRotation;
+	}
 }
 
 module.exports = MoveObject;
