@@ -1,22 +1,24 @@
-const GameBehavior = require('./GameBehavior');
-const PhysicsEngine = require('./PhysicsEngine');
-const Time = require('./Time');
-const Physics = require('./Physics');
+const GameBehavior = require("./GameBehavior");
+const PhysicsEngine = require("./PhysicsEngine");
+const Time = require("./Time");
+const Physics = require("./Physics");
+const { Vector3 } = require("./Vector3");
 
 class RigidBody extends GameBehavior {
-
   useGravity = false;
-  mass = 1;
-  dragCoefficient = .01;
-  angularDrag = .05;
+  mass = 20;
+  dragCoefficient = 0.01;
+  angularDrag = 0.05;
 
-  airDensity = 1;
-  velocity = [0, 0, 0];
+  airDensity = 2;
+  velocity = Vector3.zero;
   angularVelocity = [0, 0, 0];
   maxLinearVelocity;
   maxAngularVelocity;
 
   inertiaTensor;
+
+  linearForceVector = Vector3.zero;
 
   awake() {
     PhysicsEngine.addRigidBody(this.gameObject);
@@ -29,31 +31,50 @@ class RigidBody extends GameBehavior {
   }
 
   fixedUpdate() {
-    this.addTorque([0, 0, 1 * Time.deltaTime])
     if (this.useGravity) {
       this.updateGravity();
     }
+
+    const drag = this.linearDrag;
+    const acceleration = [
+      (this.linearForceVector.x - drag.x) / this.mass,
+      (this.linearForceVector.y - drag.y) / this.mass,
+      (this.linearForceVector.z - drag.z) / this.mass,
+    ];
+
+    this.velocity = Vector3.add(this.velocity, Vector3.fromArray(acceleration));
+
+    const scaledVelocity = Vector3.scale(this.velocity, Time.deltaTime);
+
+    const newGameObjectPosition = Vector3.add(
+      this.gameObject.transform.position,
+      scaledVelocity
+    );
+
+    this.gameObject.transform.position = newGameObjectPosition;
+
+    this.linearForceVector = Vector3.zero;
   }
 
   addForce(forceVector) {
-    const d = this.linearDrag;
-    const acceleration = [(forceVector[0] - d[0]) / this.mass, (forceVector[1] - d[1]) / this.mass, (forceVector[2] - d[2]) / this.mass];
-    this.velocity[0] += acceleration[0] * Time.deltaTime;
-    this.velocity[1] += acceleration[1] * Time.deltaTime;
-    this.velocity[2] += acceleration[2] * Time.deltaTime;
-    this.gameObject.transform.position.x += this.velocity[0] * Time.deltaTime;
-    this.gameObject.transform.position.y += this.velocity[1] * Time.deltaTime;
-    this.gameObject.transform.position.z += this.velocity[2] * Time.deltaTime;
+    this.linearForceVector = Vector3.add(this.linearForceVector, forceVector);
   }
 
   addTorque(torqueVector) {
-    const angularAcceleration = [torqueVector[0] / this.inertiaTensor[0][0], torqueVector[1] / this.inertiaTensor[1][1], torqueVector[2] / this.inertiaTensor[2][2]];
+    const angularAcceleration = [
+      torqueVector[0] / this.inertiaTensor[0][0],
+      torqueVector[1] / this.inertiaTensor[1][1],
+      torqueVector[2] / this.inertiaTensor[2][2],
+    ];
     this.angularVelocity[0] += angularAcceleration[0];
     this.angularVelocity[1] += angularAcceleration[1];
     this.angularVelocity[2] += angularAcceleration[2];
-    this.gameObject.transform.rotation.x += this.angularVelocity[0] * Time.deltaTime;
-    this.gameObject.transform.rotation.y += this.angularVelocity[1] * Time.deltaTime;
-    this.gameObject.transform.rotation.z += this.angularVelocity[2] * Time.deltaTime;
+    this.gameObject.transform.rotation.x +=
+      this.angularVelocity[0] * Time.deltaTime;
+    this.gameObject.transform.rotation.y +=
+      this.angularVelocity[1] * Time.deltaTime;
+    this.gameObject.transform.rotation.z +=
+      this.angularVelocity[2] * Time.deltaTime;
   }
 
   get weight() {
@@ -68,22 +89,29 @@ class RigidBody extends GameBehavior {
     /*
     Drag = DragCoefficient * (.5 * airDensity) * velocity squared * Area of which the drag coefficient is based.
     */
-    const x = this.dragCoefficient * // Drag coefficient
-      .5 * this.airDensity * // 1/2 Air density
-      Math.pow(this.velocity[0], 2) * // Velocity squared
+    const x =
+      this.dragCoefficient * // Drag coefficient
+      (0.5 * this.airDensity) * // 1/2 Air density
+      Math.pow(this.velocity.x, 2) *
+      (this.velocity.x < 0 ? -1 : 1) * // Velocity squared
       (this.gameObject.transform.scale.z * this.gameObject.transform.scale.y); // Area of reference point.
 
-    const y = this.dragCoefficient * // Drag coefficient
-      .5 * this.airDensity * // 1/2 Air density
-      Math.pow(this.velocity[1], 2) * // Velocity squared
+    const y =
+      this.dragCoefficient * // Drag coefficient
+      (0.5 * this.airDensity) * // 1/2 Air density
+      Math.pow(this.velocity.y, 2) *
+      (this.velocity.y < 0 ? -1 : 1) * // Velocity squared
       (this.gameObject.transform.scale.x * this.gameObject.transform.scale.z); // Area of reference point.
 
-    const z = this.dragCoefficient * // Drag coefficient
-      .5 * this.airDensity * // 1/2 Air density
-      Math.pow(this.velocity[2], 2) * // Velocity squared
+    const z =
+      this.dragCoefficient * // Drag coefficient
+      (0.5 * this.airDensity) * // 1/2 Air density
+      Math.pow(this.velocity.z, 2) *
+      (this.velocity.z < 0 ? -1 : 1) * // Velocity squared
       (this.gameObject.transform.scale.x * this.gameObject.transform.scale.y); // Area of reference point.
 
-    return [x, y, z];
+    // return [x, y, z];
+    return new Vector3(x, y, z);
   }
 
   updateGravity() {
@@ -94,11 +122,9 @@ class RigidBody extends GameBehavior {
     Gravitational acceleration is therefore (weight - drag) / mass
     */
     const linearAcceleration = (this.weight - this.linearDrag[1]) / this.mass;
-    this.velocity[1] -= linearAcceleration * Time.deltaTime;
-    this.gameObject.transform.position.y += this.velocity[1] * Time.deltaTime; // Scale by framerate
-
+    this.velocity.y -= linearAcceleration * Time.deltaTime;
+    this.gameObject.transform.position.y += this.velocity.y * Time.deltaTime; // Scale by framerate
   }
-
 }
 
 module.exports = RigidBody;

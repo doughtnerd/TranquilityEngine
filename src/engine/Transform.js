@@ -1,26 +1,20 @@
-const GameBehavior = require('./GameBehavior');
-const mat4 = require('gl-matrix').mat4;
-const quat = require('gl-matrix').quat;
-const vec3 = require('gl-matrix').vec3;
+const GameBehavior = require("./GameBehavior");
+const { Vector3 } = require("./Vector3");
+const { mat4, quat } = require("gl-matrix");
 
 class Transform extends GameBehavior {
-
-  position = {
-    x: 0,
-    y: 0,
-    z: 0
-  };
+  position = Vector3.zero;
 
   rotation = {
     x: 0,
     y: 0,
-    z: 0
+    z: 0,
   };
 
   scale = {
     x: 1,
     y: 1,
-    z: 1
+    z: 1,
   };
 
   createModelMatrix() {
@@ -28,7 +22,7 @@ class Transform extends GameBehavior {
       [],
       -this.rotation.x,
       -this.rotation.y,
-      this.rotation.z,
+      this.rotation.z
     );
 
     const modelViewMatrix = mat4.fromRotationTranslationScale(
@@ -36,7 +30,7 @@ class Transform extends GameBehavior {
       quaternion,
       [this.position.x, this.position.y, -this.position.z],
       [this.scale.x, this.scale.y, this.scale.z]
-    )
+    );
 
     return modelViewMatrix;
   }

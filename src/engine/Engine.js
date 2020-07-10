@@ -1,14 +1,12 @@
-const Time = require('./Time');
-const SceneManager = require('./SceneManager');
-const PhysicsEngine = require('./PhysicsEngine');
+const Time = require("./Time");
+const SceneManager = require("./SceneManager");
+const PhysicsEngine = require("./PhysicsEngine");
 
-const Input = require('./Input');
-const Renderer = require('./Renderer');
-const Camera = require('./Camera');
-
+const Input = require("./Input");
+const Renderer = require("./Renderer");
+const Camera = require("./Camera");
 
 class Engine {
-
   static interval;
   static targetFrameRate = 120;
   static frameRate = 0;
@@ -21,7 +19,10 @@ class Engine {
 
     Engine.start();
 
-    Engine.interval = setInterval(Engine.loop, (1 / Engine.targetFrameRate) * 1000);
+    Engine.interval = setInterval(
+      Engine.loop,
+      (1 / Engine.targetFrameRate) * 1000
+    );
   }
 
   static loop() {
@@ -29,7 +30,8 @@ class Engine {
 
     Engine.runFrame();
 
-    Time.deltaTime = (((1 / Engine.targetFrameRate) * 1000) + Date.now() - frameStart) * .001;
+    Time.deltaTime =
+      ((1 / Engine.targetFrameRate) * 1000 + Date.now() - frameStart) * 0.001;
 
     Engine.frameRate = 1 / Time.deltaTime;
     Time.time += Time.deltaTime;

@@ -1,61 +1,86 @@
-const Renderer = require('./Renderer');
+const Renderer = require("./Renderer");
 
-document.addEventListener('keydown', event => {
+document.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (Input.activeInputs.hasOwnProperty(key)) return;
   Input.activeInputs[key] = Input.InputPhase.InputDownCaptured;
 });
 
-document.addEventListener('keyup', event => {
+document.addEventListener("keyup", (event) => {
   const key = event.key.toLowerCase();
   Input.activeInputs[key] = Input.InputPhase.InputUpCaptured;
 });
 
-Renderer.canvas.addEventListener("mousedown", event => {
-  if (Input.activeInputs['mouse'] === Input.InputPhase.InputDownCaptured) return;
-  Input.activeInputs['mouse'] = Input.InputPhase.InputDownCaptured;
-  event.preventDefault();
-}, false);
+Renderer.canvas.addEventListener(
+  "mousedown",
+  (event) => {
+    if (Input.activeInputs["mouse"] === Input.InputPhase.InputDownCaptured)
+      return;
+    Input.activeInputs["mouse"] = Input.InputPhase.InputDownCaptured;
+    event.preventDefault();
+  },
+  false
+);
 
-Renderer.canvas.addEventListener("mouseup", event => {
-  Input.activeInputs['mouse'] = Input.InputPhase.InputUpCaptured;
-  event.preventDefault();
-}, false);
+Renderer.canvas.addEventListener(
+  "mouseup",
+  (event) => {
+    Input.activeInputs["mouse"] = Input.InputPhase.InputUpCaptured;
+    event.preventDefault();
+  },
+  false
+);
 
-Renderer.canvas.addEventListener("mouseout", event => {
-  Input.mouseAxis = { x: 0, y: 0 };
-  event.preventDefault();
-}, false);
+Renderer.canvas.addEventListener(
+  "mouseout",
+  (event) => {
+    Input.mouseAxis = { x: 0, y: 0 };
+    event.preventDefault();
+  },
+  false
+);
 
-Renderer.canvas.addEventListener("mouseenter", event => {
-  Input.mouseAxis = { x: 0, y: 0 };
-  event.preventDefault();
-}, false);
+Renderer.canvas.addEventListener(
+  "mouseenter",
+  (event) => {
+    Input.mouseAxis = { x: 0, y: 0 };
+    event.preventDefault();
+  },
+  false
+);
 
-Renderer.canvas.addEventListener("mousemove", event => {
-  Input.mouseAxis.x = (event.pageX - Input.mousePosition.x) * 2 * Math.PI / Renderer.canvas.width;
-  Input.mouseAxis.y = -((event.pageY - Input.mousePosition.y) * 2 * Math.PI / Renderer.canvas.height);
+Renderer.canvas.addEventListener(
+  "mousemove",
+  (event) => {
+    Input.mouseAxis.x =
+      ((event.pageX - Input.mousePosition.x) * 2 * Math.PI) /
+      Renderer.canvas.width;
+    Input.mouseAxis.y = -(
+      ((event.pageY - Input.mousePosition.y) * 2 * Math.PI) /
+      Renderer.canvas.height
+    );
 
-  Input.mousePosition.x = event.pageX;
-  Input.mousePosition.y = event.pageY;
+    Input.mousePosition.x = event.pageX;
+    Input.mousePosition.y = event.pageY;
 
-  const yPosPercentage = Input.mousePosition.y / Renderer.canvas.height;
+    const yPosPercentage = Input.mousePosition.y / Renderer.canvas.height;
 
-  event.preventDefault();
-}, false);
+    event.preventDefault();
+  },
+  false
+);
 
 var drag = false;
 
 class Input {
-
   static mousePosition = {
     x: 0,
-    y: 0
+    y: 0,
   };
 
   static mouseAxis = {
     x: 0,
-    y: 0
+    y: 0,
   };
 
   static activeInputs = {};
@@ -93,16 +118,14 @@ class Input {
     }
   }
 
-  static processMouseInput() {
-
-  }
+  static processMouseInput() {}
 
   static getMouseDown() {
-    return Input.activeInputs['mouse'] === Input.InputPhase.InputDownHappening;
+    return Input.activeInputs["mouse"] === Input.InputPhase.InputDownHappening;
   }
 
   static getMouse() {
-    return Input.activeInputs['mouse'] === Input.InputPhase.InputDownHappened;
+    return Input.activeInputs["mouse"] === Input.InputPhase.InputDownHappened;
   }
 
   /**
@@ -131,7 +154,6 @@ class Input {
     const key = keyName.toLowerCase();
     return Input.activeInputs[key] === Input.InputPhase.InputUpHappening;
   }
-
 }
 
 module.exports = Input;
