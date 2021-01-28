@@ -8,6 +8,12 @@ class Camera extends GameBehavior {
   clearFlags = 1;
   background;
   cullingMask;
+  clearColor = {
+    r: .5,
+    g: .5,
+    b: 1,
+    a: 1
+  };
   projection = Camera.ProjectionType.Perspective;
   fieldOfView = 80;
   clippingPlanes = {

@@ -8,6 +8,8 @@ class MoveObject extends GameBehavior {
   yaw = 0;
   pitch = 0;
 
+  awake() {}
+
   update() {
     if (Input.getKey("w")) {
       this.gameObject.getBehavior(RigidBody).addForce(Vector3.up);
@@ -25,22 +27,17 @@ class MoveObject extends GameBehavior {
       this.gameObject.getBehavior(RigidBody).addForce(Vector3.right);
     }
 
-    if (Input.getMouse()) {
-      Camera.main.gameObject.transform.rotation = this.calculateRotation(
-        Input.mouseAxis
-      );
-    }
+    // if (Input.getMouse()) {
+    //   Camera.main.gameObject.transform.rotation = this.calculateRotation(
+    //     Input.mouseAxis
+    //   );
+    // }
 
-    const cameraPositionDelta = new Vector3(0, 2, -6);
+    const cameraPositionDelta = new Vector3(0, 0, -6);
     const newCameraPosition = Vector3.add(
       this.gameObject.transform.position,
       cameraPositionDelta
     );
-    // Camera.main.gameObject.transform.position = {
-    //   x: this.gameObject.transform.position.x,
-    //   y: this.gameObject.transform.position.y + 2,
-    //   z: this.gameObject.transform.position.z - 6,
-    // };
 
     Camera.main.gameObject.transform.position = newCameraPosition;
   }

@@ -1,8 +1,7 @@
-const EventEmitter = require('events');
-const Scene = require('./Scene');
+const EventEmitter = require("events");
+const Scene = require("./Scene");
 
 class SceneManager {
-
   static eventEmitter = new EventEmitter();
   static scenes;
 
@@ -12,34 +11,43 @@ class SceneManager {
     const scene = SceneManager.scenes[index];
 
     const toInstantiate = scene.gameObjects;
-    const instantiatedObjects = SceneManager.instantiateSceneObjects(toInstantiate);
+    const instantiatedObjects = SceneManager.instantiateSceneObjects(
+      toInstantiate
+    );
 
-    this.activeScene = new Scene(instantiatedObjects);
-    this.activeScene.awake();
+    SceneManager.activeScene = new Scene(instantiatedObjects);
+    SceneManager.activeScene.awake();
 
-    SceneManager.eventEmitter.emit('SceneLoaded');
+    SceneManager.eventEmitter.emit("SceneLoaded");
   }
 
   static instantiateSceneObjects(gameObjects) {
     return gameObjects.map((obj, index) => {
       const instantiatedObj = SceneManager.instantiateSceneObject(obj);
 
-      SceneManager.eventEmitter.emit('SceneLoading', { progress: (index + 1) / gameObjects.length });
+      SceneManager.eventEmitter.emit("SceneLoading", {
+        progress: (index + 1) / gameObjects.length,
+      });
 
       return instantiatedObj;
     });
   }
 
   static instantiateSceneObject(gameObject) {
-    const instantiatedGameObject = new (gameObject.type);
+    const instantiatedGameObject = new gameObject.type();
 
-    SceneManager.applyGameObjectAttributes(instantiatedGameObject, gameObject.attributes);
+    SceneManager.applyGameObjectAttributes(
+      instantiatedGameObject,
+      gameObject.attributes
+    );
 
     const behaviorSettings = gameObject.behaviors || {};
-    SceneManager.applyGameBehaviorSettings(instantiatedGameObject, behaviorSettings);
+    SceneManager.applyGameBehaviorSettings(
+      instantiatedGameObject,
+      behaviorSettings
+    );
 
     return instantiatedGameObject;
-
   }
 
   static applyGameObjectAttributes(instantiatedGameObject, attributes) {
@@ -52,11 +60,10 @@ class SceneManager {
 
   static applyGameBehaviorSettings(gameObject, behaviorSettings) {
     for (const key in behaviorSettings) {
-
       const behaviorType = key;
 
       const attributes = behaviorSettings[behaviorType].attributes;
-
+      console.log(behaviorType);
       let behavior = gameObject.getBehavior(behaviorType);
 
       if (!behavior) {

@@ -1,21 +1,26 @@
+import { Vector3 } from "./Vector3";
+
 const GameBehavior = require("./GameBehavior");
-const { Vector3 } = require("./Vector3");
 const { mat4, quat } = require("gl-matrix");
 
-class Transform extends GameBehavior {
-  position = Vector3.zero;
+export class Transform extends GameBehavior {
+  public position: Vector3 = Vector3.zero;
 
-  rotation = {
+  public rotation = {
     x: 0,
     y: 0,
     z: 0,
   };
 
-  scale = {
-    x: 1,
-    y: 1,
-    z: 1,
-  };
+  public scale = Vector3.one;
+
+  transformPoint(point: Vector3): Vector3 {
+    return Vector3.add(this.position, point);
+  }
+
+  inverseTransformPoint(point: Vector3): Vector3 {
+    return Vector3.subtract(point, this.position);
+  }
 
   createModelMatrix() {
     let quaternion = quat.fromEuler(
@@ -36,4 +41,4 @@ class Transform extends GameBehavior {
   }
 }
 
-module.exports = Transform;
+export default Transform;

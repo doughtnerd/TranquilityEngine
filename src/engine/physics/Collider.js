@@ -1,6 +1,7 @@
 const GameBehavior = require("../GameBehavior");
 const Endpoint = require("./Endpoint");
 const PhysicsEngine = require("../PhysicsEngine");
+const { Vector3 } = require("../Vector3");
 class Collider extends GameBehavior {
   enabled;
   isTrigger;
@@ -36,6 +37,7 @@ class Collider extends GameBehavior {
   }
 
   fixedUpdate() {
+    // this.getNearestEndpoint(new Vector3(0, 0, 0));
     this.updateCenter();
 
     this.updateEndpoints();
@@ -58,6 +60,30 @@ class Collider extends GameBehavior {
 
     this.endpoints.z[0].value = this.bounds.center[2] - this.bounds.size[2];
     this.endpoints.z[1].value = this.bounds.center[2] + this.bounds.size[2];
+  }
+
+  getNearestPoint(to) {
+    const endpointVectors = [];
+    for (let i = 0; i < 2; i++) {
+      const vect = new Vector3(
+        this.endpoints.x[i],
+        this.endpoints.y[i],
+        this.endpoints.z[i]
+      );
+      endpointVectors.push(vect);
+    }
+
+    let closestDistance = Infinity;
+    let closestVector;
+    for (let i = 0; i < endpointVectors; i++) {
+      const result = Vector3.distance(to, endpointVectors[i]);
+      if (result < closestDistance) {
+        closestVector = endpointVectors[0];
+        closestDistance = result;
+      }
+    }
+
+    return closestVector;
   }
 
   static testAABBOverlap(a, b) {

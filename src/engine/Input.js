@@ -1,17 +1,17 @@
-const Renderer = require("./Renderer");
+const Renderer = require('./Renderer');
 
-document.addEventListener("keydown", (event) => {
+Renderer.screen.addEventListener("keydown", (event) => {
   const key = event.key.toLowerCase();
   if (Input.activeInputs.hasOwnProperty(key)) return;
   Input.activeInputs[key] = Input.InputPhase.InputDownCaptured;
 });
 
-document.addEventListener("keyup", (event) => {
+Renderer.screen.addEventListener("keyup", (event) => {
   const key = event.key.toLowerCase();
   Input.activeInputs[key] = Input.InputPhase.InputUpCaptured;
 });
 
-Renderer.canvas.addEventListener(
+Renderer.screen.addEventListener(
   "mousedown",
   (event) => {
     if (Input.activeInputs["mouse"] === Input.InputPhase.InputDownCaptured)
@@ -22,7 +22,7 @@ Renderer.canvas.addEventListener(
   false
 );
 
-Renderer.canvas.addEventListener(
+Renderer.screen.addEventListener(
   "mouseup",
   (event) => {
     Input.activeInputs["mouse"] = Input.InputPhase.InputUpCaptured;
@@ -31,7 +31,7 @@ Renderer.canvas.addEventListener(
   false
 );
 
-Renderer.canvas.addEventListener(
+Renderer.screen.addEventListener(
   "mouseout",
   (event) => {
     Input.mouseAxis = { x: 0, y: 0 };
@@ -40,7 +40,7 @@ Renderer.canvas.addEventListener(
   false
 );
 
-Renderer.canvas.addEventListener(
+Renderer.screen.addEventListener(
   "mouseenter",
   (event) => {
     Input.mouseAxis = { x: 0, y: 0 };
@@ -49,21 +49,21 @@ Renderer.canvas.addEventListener(
   false
 );
 
-Renderer.canvas.addEventListener(
+Renderer.screen.addEventListener(
   "mousemove",
   (event) => {
     Input.mouseAxis.x =
       ((event.pageX - Input.mousePosition.x) * 2 * Math.PI) /
-      Renderer.canvas.width;
+      Renderer.screen.width;
     Input.mouseAxis.y = -(
       ((event.pageY - Input.mousePosition.y) * 2 * Math.PI) /
-      Renderer.canvas.height
+      Renderer.screen.height
     );
 
     Input.mousePosition.x = event.pageX;
     Input.mousePosition.y = event.pageY;
 
-    const yPosPercentage = Input.mousePosition.y / Renderer.canvas.height;
+    const yPosPercentage = Input.mousePosition.y / Renderer.screen.height;
 
     event.preventDefault();
   },

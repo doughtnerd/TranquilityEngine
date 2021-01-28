@@ -9,18 +9,21 @@ class Renderer {
     return a.material.shader.renderPriority - b.material.shader.renderPriority
   });
 
-  static canvas = document.createElement('canvas');
+  static screen = document.createElement('canvas');
   static glContext;
 
   static init({ resolution }) {
-    Renderer.canvas.setAttribute('id', 'glCanvas');
-    Renderer.canvas.setAttribute('width', resolution.width);
-    Renderer.canvas.setAttribute('height', resolution.height);
+    Renderer.screen.setAttribute('id', 'glCanvas');
+    Renderer.screen.setAttribute('width', resolution.width);
+    Renderer.screen.setAttribute('height', resolution.height);
 
     const body = document.querySelector('body');
-    body.appendChild(Renderer.canvas);
+    body.appendChild(Renderer.screen);
 
-    Renderer.glContext = Renderer.canvas.getContext("webgl2");
+    Renderer.glContext = Renderer.screen.getContext("webgl2", {
+      premultipliedAlpha: false 
+    });
+
     if (Renderer.glContext === null) {
       alert("Unable to initialize WebGL. Your browser or machine may not support it.");
       return;
@@ -31,11 +34,15 @@ class Renderer {
   }
 
   static drawFrame(camera) {
-    Renderer.glContext.viewport(0, 0, Renderer.canvas.width, Renderer.canvas.height)
-    Renderer.glContext.clearColor(0.5, .5, 1.0, 1.0);  // Clear to black, fully opaque
+    Renderer.glContext.viewport(0, 0, Renderer.screen.width, Renderer.screen.height)
+    Renderer.glContext.clearColor(camera.clearColor.r, camera.clearColor.g, camera.clearColor.b, camera.clearColor.a);
     Renderer.glContext.clearDepth(1.0);                 // Clear everything
     Renderer.glContext.enable(Renderer.glContext.DEPTH_TEST);           // Enable depth testing
+    Renderer.glContext.enable(Renderer.glContext.BLEND);
     Renderer.glContext.depthFunc(Renderer.glContext.LEQUAL);            // Near things obscure far things
+    // Renderer.glContext.blendFunc(Renderer.glContext.ONE, Renderer.glContext.ONE_MINUS_SRC_ALPHA);
+    Renderer.glContext.blendFunc(Renderer.glContext.SRC_ALPHA, Renderer.glContext.ONE_MINUS_SRC_ALPHA);
+    // Renderer.glContext.blendFuncSeparate(Renderer.glContext.SRC_ALPHA, Renderer.glContext.ONE_MINUS_SRC_ALPHA, Renderer.glContext.ONE, Renderer.glContext.ZERO)
     // Renderer.glContext.enable(Renderer.glContext.CULL_FACE); // Turn on culling. By default backfacing triangles will be culled.
     Renderer.glContext.clear(Renderer.glContext.COLOR_BUFFER_BIT | Renderer.glContext.DEPTH_BUFFER_BIT); // Clear the canvas before we start drawing on it.
 

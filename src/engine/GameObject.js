@@ -1,7 +1,6 @@
-const Transform = require('./Transform');
+const { Transform } = require("./Transform");
 
 class GameObject {
-
   name;
   tags = [];
   behaviors = new Map();
@@ -14,7 +13,7 @@ class GameObject {
   }
 
   getBehavior(behaviorType) {
-    if (typeof behaviorType !== 'string') {
+    if (typeof behaviorType !== "string") {
       behaviorType = behaviorType.name;
     }
 
@@ -23,7 +22,7 @@ class GameObject {
 
   getBehaviors() {
     const arr = [];
-    this.behaviors.forEach(b => arr.push(b));
+    this.behaviors.forEach((b) => arr.push(b));
     return arr;
   }
 
@@ -33,13 +32,9 @@ class GameObject {
     return behavior;
   }
 
-  static dontDestroyOnLoad(GameObject) {
+  static dontDestroyOnLoad(GameObject) {}
 
-  }
-
-  static instantiate(gameObjectConstructor) {
-
-  }
+  static instantiate(gameObjectConstructor) {}
 }
 
 module.exports = GameObject;
