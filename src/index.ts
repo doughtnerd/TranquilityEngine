@@ -20,4 +20,4 @@ SceneManager.loadScene(0);
 
 Camera.main.targetDisplay = gameScreen;
 
-// Engine.play();
+Engine.play();

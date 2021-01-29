@@ -33,7 +33,11 @@ class Scene {
   }
 
   findObjectOfType(gameObjectType) {
-    return this.gameObjects.find(obj => obj instanceof gameObjectType);
+    return this.behaviors.find(obj => obj instanceof gameObjectType);
+  }
+
+  findObjectsOfType(gameObjectType) {
+    return this.behaviors.filter(obj => obj instanceof gameObjectType);
   }
 
 }
