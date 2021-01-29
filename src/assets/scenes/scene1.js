@@ -4,7 +4,7 @@ const Controllers = require("../gameObjects/Controllers");
 const AudioHost = require("../gameObjects/AudioHost");
 const PlayerObject = require("../gameObjects/PlayerObject");
 const MonsterBase = require("../gameObjects/MonsterBase");
-const SpriteDefaultMaterial = require("../../engine/shaders/sprite/default/SpriteDefaultMaterial");
+const SpriteDefaultMaterial = require("../../engine/materials/SpriteDefaultMaterial");
 const { Vector3 } = require("../../engine/Vector3");
 
 const cameraObj = {
@@ -40,7 +40,7 @@ const customObj = {
       type: require("../../engine/RigidBody"),
     },
     SpriteRenderer: {
-      type: require("../../engine/SpriteRenderer"),
+      type: require("../../engine/rendering/SpriteRenderer"),
       attributes: {
         sprite: require("../images/moderncraft.png"),
         color: [1, 1, 1, 1],

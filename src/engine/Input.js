@@ -1,74 +1,3 @@
-const Renderer = require('./Renderer');
-
-Renderer.screen.addEventListener("keydown", (event) => {
-  const key = event.key.toLowerCase();
-  if (Input.activeInputs.hasOwnProperty(key)) return;
-  Input.activeInputs[key] = Input.InputPhase.InputDownCaptured;
-});
-
-Renderer.screen.addEventListener("keyup", (event) => {
-  const key = event.key.toLowerCase();
-  Input.activeInputs[key] = Input.InputPhase.InputUpCaptured;
-});
-
-Renderer.screen.addEventListener(
-  "mousedown",
-  (event) => {
-    if (Input.activeInputs["mouse"] === Input.InputPhase.InputDownCaptured)
-      return;
-    Input.activeInputs["mouse"] = Input.InputPhase.InputDownCaptured;
-    event.preventDefault();
-  },
-  false
-);
-
-Renderer.screen.addEventListener(
-  "mouseup",
-  (event) => {
-    Input.activeInputs["mouse"] = Input.InputPhase.InputUpCaptured;
-    event.preventDefault();
-  },
-  false
-);
-
-Renderer.screen.addEventListener(
-  "mouseout",
-  (event) => {
-    Input.mouseAxis = { x: 0, y: 0 };
-    event.preventDefault();
-  },
-  false
-);
-
-Renderer.screen.addEventListener(
-  "mouseenter",
-  (event) => {
-    Input.mouseAxis = { x: 0, y: 0 };
-    event.preventDefault();
-  },
-  false
-);
-
-Renderer.screen.addEventListener(
-  "mousemove",
-  (event) => {
-    Input.mouseAxis.x =
-      ((event.pageX - Input.mousePosition.x) * 2 * Math.PI) /
-      Renderer.screen.width;
-    Input.mouseAxis.y = -(
-      ((event.pageY - Input.mousePosition.y) * 2 * Math.PI) /
-      Renderer.screen.height
-    );
-
-    Input.mousePosition.x = event.pageX;
-    Input.mousePosition.y = event.pageY;
-
-    const yPosPercentage = Input.mousePosition.y / Renderer.screen.height;
-
-    event.preventDefault();
-  },
-  false
-);
 
 var drag = false;
 
@@ -93,6 +22,79 @@ class Input {
     InputUpHappening: 4,
     InputUpHappened: 5,
   };
+
+  static registerScreen(screen) {
+    screen.addEventListener("keydown", (event) => {
+      console.log("KEYDOWN")
+      const key = event.key.toLowerCase();
+      if (Input.activeInputs.hasOwnProperty(key)) return;
+      Input.activeInputs[key] = Input.InputPhase.InputDownCaptured;
+    });
+    
+    screen.addEventListener("keyup", (event) => {
+      const key = event.key.toLowerCase();
+      Input.activeInputs[key] = Input.InputPhase.InputUpCaptured;
+    });
+    
+    screen.addEventListener(
+      "mousedown",
+      (event) => {
+        if (Input.activeInputs["mouse"] === Input.InputPhase.InputDownCaptured)
+          return;
+        Input.activeInputs["mouse"] = Input.InputPhase.InputDownCaptured;
+        event.preventDefault();
+      },
+      false
+    );
+    
+    screen.addEventListener(
+      "mouseup",
+      (event) => {
+        Input.activeInputs["mouse"] = Input.InputPhase.InputUpCaptured;
+        event.preventDefault();
+      },
+      false
+    );
+    
+    screen.addEventListener(
+      "mouseout",
+      (event) => {
+        Input.mouseAxis = { x: 0, y: 0 };
+        event.preventDefault();
+      },
+      false
+    );
+    
+    screen.addEventListener(
+      "mouseenter",
+      (event) => {
+        Input.mouseAxis = { x: 0, y: 0 };
+        event.preventDefault();
+      },
+      false
+    );
+    
+    screen.addEventListener(
+      "mousemove",
+      (event) => {
+        Input.mouseAxis.x =
+          ((event.pageX - Input.mousePosition.x) * 2 * Math.PI) /
+          screen.width;
+        Input.mouseAxis.y = -(
+          ((event.pageY - Input.mousePosition.y) * 2 * Math.PI) /
+          screen.height
+        );
+    
+        Input.mousePosition.x = event.pageX;
+        Input.mousePosition.y = event.pageY;
+    
+        const yPosPercentage = Input.mousePosition.y / screen.height;
+    
+        event.preventDefault();
+      },
+      false
+    );
+  }
 
   static processKeyboardInput() {
     for (const key in Input.activeInputs) {
@@ -134,6 +136,7 @@ class Input {
    */
   static getKeyDown(keyName) {
     const key = keyName.toLowerCase();
+    console.log(key);
     return Input.activeInputs[key] === Input.InputPhase.InputDownHappening;
   }
 

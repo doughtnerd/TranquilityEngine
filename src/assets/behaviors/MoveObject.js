@@ -1,5 +1,5 @@
 const GameBehavior = require("../../engine/GameBehavior");
-const Camera = require("../../engine/Camera");
+const Camera = require("../../engine/rendering/Camera");
 const Input = require("../../engine/Input");
 const RigidBody = require("../../engine/RigidBody");
 const { Vector3 } = require("../../engine/Vector3");

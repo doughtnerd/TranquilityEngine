@@ -3,8 +3,8 @@ const SceneManager = require("./SceneManager");
 const PhysicsEngine = require("./PhysicsEngine");
 
 const Input = require("./Input");
-const Renderer = require("./Renderer");
-const Camera = require("./Camera");
+const Renderer = require("./rendering/Renderer");
+const Camera = require("./rendering/Camera");
 
 class Engine {
   static interval;

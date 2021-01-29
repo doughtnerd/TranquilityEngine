@@ -1,6 +1,6 @@
-const Shader = require('../../../Shader');
+const Shader = require('../../../rendering/Shader');
 
-class SpriteDefault extends Shader {
+class SpriteDefaultShader extends Shader {
 
   constructor() {
     super(
@@ -41,4 +41,4 @@ class SpriteDefault extends Shader {
   }
 }
 
-module.exports = SpriteDefault;
+module.exports = SpriteDefaultShader;

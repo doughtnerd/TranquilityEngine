@@ -2,7 +2,7 @@ const GameObject = require('../../engine/GameObject');
 const Damageable = require('../behaviors/Damageable');
 const Damager = require('../behaviors/Damager');
 const DropItemOnDeath = require('../behaviors/DropItemOnDeath');
-const SpriteRenderer = require('../../engine/SpriteRenderer');
+const SpriteRenderer = require('../../engine/rendering/SpriteRenderer');
 
 class MonsterBase extends GameObject {
 

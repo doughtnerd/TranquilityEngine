@@ -1,4 +1,4 @@
-const Camera = require('./Camera');
+const Camera = require('./rendering/Camera');
 const GameObject = require('./GameObject');
 
 class CameraObject extends GameObject {

@@ -1,4 +1,4 @@
-const Shader = require('../../../Shader');
+const Shader = require('../../../rendering/Shader');
 
 class SpriteLit extends Shader {
 

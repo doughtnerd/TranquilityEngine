@@ -1,8 +1,14 @@
+import Camera from "./engine/rendering/Camera";
 import Engine from "./engine/Engine";
-import Renderer from "./engine/Renderer";
+import Input from "./engine/Input";
+import Renderer from "./engine/rendering/Renderer";
 import SceneManager from "./engine/SceneManager";
+import Screen from "./engine/rendering/Screen";
 
-Renderer.init({ resolution: { width: 720, height: 480 } });
+let gameScreen = Screen.create({ resolution: { width: 720, height: 480 } });
+document.body.appendChild(gameScreen.screenElement);
+
+Input.registerScreen(gameScreen.screenElement);
 
 SceneManager.scenes = [require("./assets/scenes/scene1.js")];
 
@@ -12,4 +18,6 @@ SceneManager.eventEmitter.on("SceneLoading", (data: { progress: any }) => {
 
 SceneManager.loadScene(0);
 
-Engine.play();
+Camera.main.targetDisplay = gameScreen;
+
+// Engine.play();
