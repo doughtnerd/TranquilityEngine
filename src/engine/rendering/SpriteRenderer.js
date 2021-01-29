@@ -1,6 +1,6 @@
 const GameBehavior = require("../GameBehavior");
 const Material = require("../materials/Material");
-const Renderer = require("./Renderer");
+const SceneRenderer = require("./SceneRenderer");
 const Shader = require("./Shader");
 const TextureLoader = require("./TextureLoader");
 const Camera = require("./Camera");
@@ -51,7 +51,7 @@ class SpriteRenderer extends GameBehavior {
   }
 
   update() {
-    Renderer.renderQueue.add({
+    SceneRenderer.renderQueue.add({
       gameObjectTransform: this.gameObject.transform,
       material: this.material,
     });

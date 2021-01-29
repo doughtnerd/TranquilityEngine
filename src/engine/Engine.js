@@ -3,7 +3,7 @@ const SceneManager = require("./SceneManager");
 const PhysicsEngine = require("./PhysicsEngine");
 
 const Input = require("./Input");
-const Renderer = require("./rendering/Renderer");
+const SceneRenderer = require("./rendering/SceneRenderer");
 const Camera = require("./rendering/Camera");
 
 class Engine {
@@ -58,7 +58,7 @@ class Engine {
   }
 
   static render() {
-    Renderer.drawFrame(Camera.main);
+    Camera.main.render();
   }
 }
 

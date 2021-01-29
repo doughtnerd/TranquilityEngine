@@ -1,7 +1,7 @@
 const GameBehavior = require('../GameBehavior');
 const SceneManager = require('../SceneManager');
 const mat4 = require('gl-matrix').mat4;
-
+const SceneRenderer = require('./SceneRenderer');
 class Camera extends GameBehavior {
 
   static main;
@@ -41,6 +41,10 @@ class Camera extends GameBehavior {
     if(cameras.length === 1) {
       Camera.main = cameras[0];
     }
+  }
+
+  render() {
+    SceneRenderer.drawFrame(this)
   }
 
   calculateProjectionMatrix() {
