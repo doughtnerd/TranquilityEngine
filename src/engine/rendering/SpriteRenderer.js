@@ -1,14 +1,16 @@
-const GameBehavior = require("../GameBehavior");
 const Material = require("../materials/Material");
 const SceneRenderer = require("./SceneRenderer");
 const Shader = require("./Shader");
 const TextureLoader = require("./TextureLoader");
 const Camera = require("./Camera");
+const Renderer = require('./Renderer');
 
-class SpriteRenderer extends GameBehavior {
+class SpriteRenderer extends Renderer {
   sprite;
   color;
-  material = {};
+  flipX;
+  flipY;
+  size;
 
   start() {
     this.material.attributes = [
@@ -47,13 +49,6 @@ class SpriteRenderer extends GameBehavior {
         Camera.main.targetDisplay.glContext,
         attribute.data
       );
-    });
-  }
-
-  update() {
-    SceneRenderer.renderQueue.add({
-      gameObjectTransform: this.gameObject.transform,
-      material: this.material,
     });
   }
 }

@@ -42,8 +42,9 @@ const customObj = {
     SpriteRenderer: {
       type: require("../../engine/rendering/SpriteRenderer"),
       attributes: {
+        rendererPriority: 1000,
         sprite: require("../images/moderncraft.png"),
-        color: [1, 1, 1, 1],
+        color: [1, 1, 1, .33],
         material: new SpriteDefaultMaterial(),
       },
     },

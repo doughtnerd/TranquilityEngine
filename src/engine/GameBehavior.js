@@ -1,5 +1,7 @@
 class GameBehavior {
 
+  _isActive = false;
+  
   constructor(gameObject) {
     this.gameObject = gameObject;
   }
@@ -11,6 +13,19 @@ class GameBehavior {
       }
     }
     return this;
+  }
+
+  setActive(isActive) {
+    if(isActive) {
+      this.onEnable();
+    } else {
+      this.onDisable();
+    }
+    this.isActive = isActive;
+  }
+
+  get isActive() {
+    return this._isActive
   }
 
   //#region First Scene Load

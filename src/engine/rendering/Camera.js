@@ -2,10 +2,24 @@ const GameBehavior = require('../GameBehavior');
 const SceneManager = require('../SceneManager');
 const mat4 = require('gl-matrix').mat4;
 const SceneRenderer = require('./SceneRenderer');
+const Renderer = require('./Renderer');
+const FastPriorityQueue = require('fastpriorityqueue');
+
 class Camera extends GameBehavior {
 
-  static main;
+  renderQueue = new FastPriorityQueue((a, b) => {
+    return a.renderPriority - b.renderPriority
+  });
 
+  static main;
+  static allCameras;
+  static allCamerasCount;
+  static current;
+  static onPreCull;
+  static onPreRender;
+  static onPostRender;
+
+  depth = 0;
   clearFlags = 1;
   background;
   cullingMask;
@@ -41,10 +55,25 @@ class Camera extends GameBehavior {
     if(cameras.length === 1) {
       Camera.main = cameras[0];
     }
+    Camera.allCamerasCount = cameras.length;
+  }
+
+  onEnable() {
+
+  }
+
+  update() {
+    this.render();
   }
 
   render() {
-    SceneRenderer.drawFrame(this)
+    SceneManager.activeScene.findObjectsOfType(Renderer).forEach(renderer => {
+      this.renderQueue.add({
+        gameObjectTransform: renderer.gameObject.transform,
+        material: renderer.material,
+      })
+    });
+    SceneRenderer.drawFrame(this, this.renderQueue)
   }
 
   calculateProjectionMatrix() {

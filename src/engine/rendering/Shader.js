@@ -20,7 +20,7 @@ class Shader {
 
   shaderProgram;
 
-  renderPriority = 1000;
+  renderQueue = 1000;
 
   attributes = [];
 

@@ -58,7 +58,7 @@ class Engine {
   }
 
   static render() {
-    Camera.main.render();
+    // Camera.main.render();
   }
 }
 

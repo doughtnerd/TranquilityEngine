@@ -25,7 +25,7 @@ class SceneManager {
     return gameObjects.map((obj, index) => {
       const instantiatedObj = SceneManager.instantiateSceneObject(obj);
 
-      SceneManager.eventEmitter.emit("SceneLoading", {
+      SceneManager.eventEmitter.emit("sceneLoading", {
         progress: (index + 1) / gameObjects.length,
       });
 
