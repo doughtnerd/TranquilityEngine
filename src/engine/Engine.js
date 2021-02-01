@@ -6,60 +6,64 @@ const Input = require("./Input");
 const SceneRenderer = require("./rendering/SceneRenderer");
 const Camera = require("./rendering/Camera");
 
-class Engine {
-  static interval;
-  static targetFrameRate = 120;
-  static frameRate = 0;
+let interval;
+let targetFrameRate = 120;
+let frameRate = 0;
+let startTime;
 
-  static play() {
-    if (Engine.interval) {
-      clearInterval(Engine.interval);
-    }
-    Engine.startTime = Date.now();
-
-    Engine.start();
-
-    Engine.interval = setInterval(
-      Engine.loop,
-      (1 / Engine.targetFrameRate) * 1000
-    );
+function play() {
+  if (interval) {
+    clearInterval(interval);
   }
 
-  static loop() {
-    const frameStart = Date.now();
+  startTime = Date.now();
 
-    Engine.runFrame();
+  start();
 
-    Time.deltaTime =
-      ((1 / Engine.targetFrameRate) * 1000 + Date.now() - frameStart) * 0.001;
-
-    Engine.frameRate = 1 / Time.deltaTime;
-    Time.time += Time.deltaTime;
-  }
-
-  static runFrame() {
-    Engine.processInput();
-    Engine.update();
-    Engine.render();
-    PhysicsEngine.fixedUpdate();
-  }
-
-  static start() {
-    SceneManager.activeScene.start();
-  }
-
-  static processInput() {
-    Input.processKeyboardInput();
-    Input.processMouseInput();
-  }
-
-  static update() {
-    SceneManager.activeScene.update();
-  }
-
-  static render() {
-    // Camera.main.render();
-  }
+  interval = setInterval(
+    loop,
+    (1 / targetFrameRate) * 1000
+  );
 }
 
-module.exports = Engine;
+function loop() {
+  const frameStart = Date.now();
+
+  runFrame();
+
+  Time.deltaTime =
+    ((1 / targetFrameRate) * 1000 + Date.now() - frameStart) * 0.001;
+
+  frameRate = 1 / Time.deltaTime;
+  Time.time += Time.deltaTime;
+}
+
+function runFrame() {
+  processInput();
+  PhysicsEngine.fixedUpdate();
+  update();
+  render();
+}
+
+function start() {
+  SceneManager.activeScene.start();
+}
+
+function processInput() {
+  Input.processKeyboardInput();
+  Input.processMouseInput();
+}
+
+function update() {
+  SceneManager.activeScene.update();
+}
+
+function render() {
+  // Camera.main.render();
+}
+
+module.exports = {
+  play,
+  frameRate,
+  targetFrameRate
+};

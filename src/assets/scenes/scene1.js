@@ -4,7 +4,7 @@ const Controllers = require("../gameObjects/Controllers");
 const AudioHost = require("../gameObjects/AudioHost");
 const PlayerObject = require("../gameObjects/PlayerObject");
 const MonsterBase = require("../gameObjects/MonsterBase");
-const SpriteDefaultMaterial = require("../../engine/materials/SpriteDefaultMaterial");
+const SpriteDefaultMaterial = require("../../engine/materials/sprite-default/SpriteDefaultMaterial");
 const { Vector3 } = require("../../engine/Vector3");
 
 const cameraObj = {
@@ -13,7 +13,13 @@ const cameraObj = {
   behaviors: {
     Transform: {
       attributes: {
-        position: new Vector3(0, 0, 0),
+        position: new Vector3(0, 0, -6),
+        // position: new Vector3(0, 0, 6),
+        // rotation: {
+        //   x: 0,
+        //   y: 180,
+        //   z: 0
+        // }
       },
     },
     Camera: {
@@ -43,8 +49,8 @@ const customObj = {
       type: require("../../engine/rendering/SpriteRenderer"),
       attributes: {
         rendererPriority: 1000,
-        sprite: require("../images/moderncraft.png"),
-        color: [1, 1, 1, .33],
+        // sprite: require("../images/moderncraft.png"),
+        color: [1, 0, 0, 1],
         material: new SpriteDefaultMaterial(),
       },
     },

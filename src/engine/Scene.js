@@ -27,7 +27,11 @@ class Scene {
   }
 
   instantiate(gameObject) {
-    gameObject.behaviors.forEach(b => b.awake());
+    gameObject.behaviors.forEach(b => {
+      b.awake();
+      b.start();
+      b.onEnable();
+    });
     this.gameObjects.push(gameObject);
     // TODO: Do a thing to add behaviors and such
   }

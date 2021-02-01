@@ -25,7 +25,11 @@ class Shader {
   attributes = [];
 
   static AttributeType = {
-    Float: 'FLOAT'
+    Byte: 'BYTE',
+    Short: 'SHORT',
+    uByte: 'UNSIGNED_BYTE',
+    uShort: 'UNSIGNED_SHORT',
+    Float: 'FLOAT',
   }
 
   constructor(vert, frag) {

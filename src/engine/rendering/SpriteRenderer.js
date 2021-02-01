@@ -6,11 +6,11 @@ const Camera = require("./Camera");
 const Renderer = require('./Renderer');
 
 class SpriteRenderer extends Renderer {
-  sprite;
-  color;
-  flipX;
-  flipY;
-  size;
+  sprite = require('../sprites/White-Square.jpg');
+  color = [1,1,1,1];
+  flipX = false;
+  flipY = false;
+  size = 1;
 
   start() {
     this.material.attributes = [
@@ -21,7 +21,15 @@ class SpriteRenderer extends Renderer {
         normalize: false,
         stride: 0,
         offset: 0,
-        data: [-0.5, 0.5, 0, 0.5, 0.5, 0, -0.5, -0.5, 0, 0.5, -0.5, 0],
+        data: [
+          -0.5, -0.5, 0, 
+          0.5, 0.5, 0, 
+          -0.5, 0.5, 0, 
+
+          -0.5, -0.5, 0, 
+          0.5, -0.5, 0,
+          0.5, 0.5, 0, 
+        ],
         buffer: [],
       },
       {
@@ -31,18 +39,27 @@ class SpriteRenderer extends Renderer {
         normalize: false,
         stride: 0,
         offset: 0,
-        data: [0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        data: [
+          0.0, 1.0, 
+          1.0, 0.0, 
+          0.0, 0.0, 
+          
+          0.0, 1.0, 
+          1.0, 1.0, 
+          1.0, 0.0, 
+        ],
         buffer: [],
       },
     ];
     this.material.shader.shaderProgram = this.material.shader.loadShaderProgram(
       Camera.main.targetDisplay.glContext
     );
-    this.material.textures.uDiffuse = TextureLoader.load(
+    this.material.textures.uMainTex = TextureLoader.load(
       this.sprite,
       Camera.main.targetDisplay.glContext
     );
-    this.material.colors.uDiffuseColor = this.color;
+    
+    this.material.colors.uMainColor = this.color;
 
     this.material.attributes.forEach((attribute) => {
       attribute.buffer = Material.createBuffer(

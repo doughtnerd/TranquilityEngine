@@ -15,6 +15,7 @@ class SceneRenderer {
     camera.targetDisplay.glContext.clearDepth(1.0);                 // Clear everything
     camera.targetDisplay.glContext.enable(camera.targetDisplay.glContext.DEPTH_TEST);           // Enable depth testing
     camera.targetDisplay.glContext.enable(camera.targetDisplay.glContext.BLEND);
+    camera.targetDisplay.glContext.enable(camera.targetDisplay.glContext.CULL_FACE);
     camera.targetDisplay.glContext.depthFunc(camera.targetDisplay.glContext.LEQUAL);            // Near things obscure far things
     // camera.targetDisplay.blendFunc(camera.targetDisplay.ONE, camera.targetDisplay.ONE_MINUS_SRC_ALPHA);
     camera.targetDisplay.glContext.blendFunc(camera.targetDisplay.glContext.SRC_ALPHA, camera.targetDisplay.glContext.ONE_MINUS_SRC_ALPHA);
@@ -162,9 +163,10 @@ class SceneRenderer {
 
     //Draw
     {
+      const primitiveType = renderTarget.TRIANGLES;
       const offset = 0;
-      const vertexCount = 4;
-      renderTarget.drawArrays(renderTarget.TRIANGLE_STRIP, offset, vertexCount);
+      const vertexCount = 6;
+      renderTarget.drawArrays(primitiveType, offset, vertexCount);
     }
   }
 

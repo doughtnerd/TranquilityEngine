@@ -18,7 +18,7 @@ class SceneManager {
     SceneManager.activeScene = new Scene(instantiatedObjects);
     SceneManager.activeScene.awake();
 
-    SceneManager.eventEmitter.emit("SceneLoaded");
+    SceneManager.eventEmitter.emit("sceneLoaded");
   }
 
   static instantiateSceneObjects(gameObjects) {
