@@ -1,3 +1,6 @@
+const screens = {
+
+}
 
 function create({resolution: {height, width}}) {
 
@@ -22,6 +25,13 @@ function create({resolution: {height, width}}) {
     return {glContext, screenElement};
 }
 
-module.exports = {
-    create
+function register(screenIndex, screen) {
+  screens[screenIndex] = screen;
 }
+
+function getScreen(screenIndex) {
+  return screens[screenIndex];
+}
+
+const Screen = { create, register, getScreen };
+module.exports = Screen;

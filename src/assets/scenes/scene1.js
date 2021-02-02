@@ -1,10 +1,6 @@
 const GameObject = require("../../engine/GameObject");
 const CameraObject = require("../../engine/CameraObject");
-const Controllers = require("../gameObjects/Controllers");
-const AudioHost = require("../gameObjects/AudioHost");
 const PlayerObject = require("../gameObjects/PlayerObject");
-const MonsterBase = require("../gameObjects/MonsterBase");
-const SpriteDefaultMaterial = require("../../engine/materials/sprite-default/SpriteDefaultMaterial");
 const { Vector3 } = require("../../engine/Vector3");
 
 const cameraObj = {
@@ -24,7 +20,32 @@ const cameraObj = {
     },
     Camera: {
       attributes: {
-        fieldOfView: 40
+        fieldOfView: 40,
+        targetDisplayIndex: 0
+      }
+    }
+  },
+};
+
+const cameraObj2 = {
+  sceneId: 0,
+  type: CameraObject,
+  behaviors: {
+    Transform: {
+      attributes: {
+        position: new Vector3(0, 0, -6),
+        // position: new Vector3(0, 0, 6),
+        // rotation: {
+        //   x: 0,
+        //   y: 180,
+        //   z: 0
+        // }
+      },
+    },
+    Camera: {
+      attributes: {
+        fieldOfView: 40,
+        targetDisplayIndex: 1
       }
     }
   },
@@ -51,7 +72,7 @@ const customObj = {
         rendererPriority: 1000,
         // sprite: require("../images/moderncraft.png"),
         color: [1, 0, 0, 1],
-        material: new SpriteDefaultMaterial(),
+        // material: new SpriteDefaultMaterial(),
       },
     },
     BoxCollider: {
@@ -83,7 +104,7 @@ const playerObj = {
       attributes: {
         sprite: require("../images/flappy-bird-1.png"),
         color: [1, 1, 1, 1],
-        material: new SpriteDefaultMaterial(),
+        // material: new SpriteDefaultMaterial(),
       },
     },
   },

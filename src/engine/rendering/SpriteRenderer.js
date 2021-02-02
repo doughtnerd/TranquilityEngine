@@ -1,22 +1,23 @@
 const Material = require("../materials/Material");
-const SceneRenderer = require("./SceneRenderer");
-const Shader = require("./Shader");
 const TextureLoader = require("./TextureLoader");
 const Camera = require("./Camera");
 const Renderer = require('./Renderer');
+const SpriteDefaultMaterial = require("../materials/sprite-default/SpriteDefaultMaterial");
+const { create } = require("./Screen");
 
 class SpriteRenderer extends Renderer {
   sprite = require('../sprites/White-Square.jpg');
+  material = new SpriteDefaultMaterial();
   color = [1,1,1,1];
   flipX = false;
   flipY = false;
   size = 1;
 
-  start() {
+  awake() {
     this.material.attributes = [
       {
         name: "aVertexPosition",
-        componentType: Shader.AttributeType.Float,
+        componentType: Material.AttributeType.Float,
         numComponents: 3,
         normalize: false,
         stride: 0,
@@ -34,7 +35,7 @@ class SpriteRenderer extends Renderer {
       },
       {
         name: "aTextureCoord",
-        componentType: Shader.AttributeType.Float,
+        componentType: Material.AttributeType.Float,
         numComponents: 2,
         normalize: false,
         stride: 0,
@@ -51,23 +52,13 @@ class SpriteRenderer extends Renderer {
         buffer: [],
       },
     ];
-    this.material.shader.shaderProgram = this.material.shader.loadShaderProgram(
-      Camera.main.targetDisplay.glContext
-    );
-    this.material.textures.uMainTex = TextureLoader.load(
-      this.sprite,
-      Camera.main.targetDisplay.glContext
-    );
-    
-    this.material.colors.uMainColor = this.color;
-
-    this.material.attributes.forEach((attribute) => {
-      attribute.buffer = Material.createBuffer(
-        Camera.main.targetDisplay.glContext,
-        attribute.data
-      );
-    });
   }
+
+  start() {
+    this.material.mainColor = this.color;
+    this.material.mainTexture = this.sprite;
+  }
+
 }
 
 module.exports = SpriteRenderer;

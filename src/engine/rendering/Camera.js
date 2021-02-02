@@ -4,8 +4,13 @@ const mat4 = require('gl-matrix').mat4;
 const SceneRenderer = require('./SceneRenderer');
 const Renderer = require('./Renderer');
 const FastPriorityQueue = require('fastpriorityqueue');
+const Screen = require('./Screen');
 
 class Camera extends GameBehavior {
+  static ProjectionType = {
+    Perspective: 'perspective',
+    Orthographic: 'orthographic'
+  };
 
   renderQueue = new FastPriorityQueue((a, b) => {
     return a.renderPriority - b.renderPriority
@@ -30,6 +35,7 @@ class Camera extends GameBehavior {
     a: 1
   };
   targetDisplay = null;
+  targetDisplayIndex;
   projection = Camera.ProjectionType.Perspective;
   fieldOfView = 80;
   clippingPlanes = {
@@ -51,11 +57,13 @@ class Camera extends GameBehavior {
   depth = -1;
 
   awake() {
+    this.targetDisplay = Screen.getScreen(this.targetDisplayIndex);
     const cameras = SceneManager.activeScene.findObjectsOfType(Camera);
-    if(cameras.length === 1) {
+    if(cameras.length >= 1) {
       Camera.main = cameras[0];
     }
     Camera.allCamerasCount = cameras.length;
+    Camera.allCameras = cameras;
   }
 
   onEnable() {
@@ -63,16 +71,20 @@ class Camera extends GameBehavior {
   }
 
   update() {
-    this.render();
+    
   }
 
   render() {
     SceneManager.activeScene.findObjectsOfType(Renderer).forEach(renderer => {
+      renderer.material.load(this.targetDisplay.glContext);
+
       this.renderQueue.add({
         gameObjectTransform: renderer.gameObject.transform,
         material: renderer.material,
-      })
+      });
+
     });
+
     SceneRenderer.drawFrame(this, this.renderQueue)
   }
 
@@ -110,12 +122,6 @@ class Camera extends GameBehavior {
 
     return projectionMatrix;
   }
-
-  static ProjectionType = {
-    Perspective: 'perspective',
-    Orthographic: 'orthographic'
-  };
-
 }
 
 module.exports = Camera;

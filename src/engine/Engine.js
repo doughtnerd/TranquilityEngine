@@ -59,7 +59,7 @@ function update() {
 }
 
 function render() {
-  // Camera.main.render();
+  Camera.allCameras.forEach(cam => cam.render());
 }
 
 module.exports = {

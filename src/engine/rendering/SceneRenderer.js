@@ -5,10 +5,6 @@ const FastPriorityQueue = require('fastpriorityqueue');
 
 class SceneRenderer {
 
-  // static renderQueue = new FastPriorityQueue((a, b) => {
-  //   return a.material.shader.renderPriority - b.material.shader.renderPriority
-  // });
-
   static drawFrame(camera, renderQueue) {
     camera.targetDisplay.glContext.viewport(0, 0, camera.targetDisplay.screenElement.width, camera.targetDisplay.screenElement.height)
     camera.targetDisplay.glContext.clearColor(camera.clearColor.r, camera.clearColor.g, camera.clearColor.b, camera.clearColor.a);

@@ -11,6 +11,8 @@ class Renderer extends GameBehavior {
     getMaterials() {
         return this.materials;
     }
+
+    render(camera) {}
 }
 
 module.exports = Renderer;

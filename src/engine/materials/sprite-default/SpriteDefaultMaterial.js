@@ -1,12 +1,14 @@
 const Material = require('../Material');
-const SpriteDefaultShader = require('./SpriteDefaultShader')
 class SpriteDefaultMaterial extends Material {
 
-  shader = new SpriteDefaultShader()
+  shader = {
+    vert: require('./sprite-default.vert'),
+    frag: require('./sprite-default.frag'),
+  }
 
   colors = { uMainColor: [] };
 
-  textures = { uMainTex: null }
+  textures = { uMainTex: null };
 
   attributes = [];
 

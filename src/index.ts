@@ -7,6 +7,7 @@ import Screen from "./engine/rendering/Screen";
 
 let gameScreen = Screen.create({ resolution: { width: 720, height: 480 } });
 document.body.appendChild(gameScreen.screenElement);
+Screen.register(0, gameScreen);
 
 Input.registerScreen(gameScreen.screenElement);
 
@@ -17,7 +18,5 @@ SceneManager.eventEmitter.on("sceneLoading", (data: { progress: any }) => {
 });
 
 SceneManager.loadScene(0);
-
-Camera.main.targetDisplay = gameScreen;
 
 Engine.play();
