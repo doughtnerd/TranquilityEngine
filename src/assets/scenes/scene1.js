@@ -20,7 +20,7 @@ const cameraObj = {
     },
     Camera: {
       attributes: {
-        fieldOfView: 40,
+        fieldOfView: 90,
         targetDisplayIndex: 0
       }
     }
@@ -44,7 +44,7 @@ const cameraObj2 = {
     },
     Camera: {
       attributes: {
-        fieldOfView: 40,
+        fieldOfView: 90,
         targetDisplayIndex: 1
       }
     }
@@ -60,18 +60,22 @@ const customObj = {
   behaviors: {
     Transform: {
       attributes: {
-        position: new Vector3(2, 0, -2),
+        position: new Vector3(0, 0, 0),
+        scale: new Vector3(1, 1, 1)
       },
     },
     RigidBody: {
       type: require("../../engine/RigidBody"),
+      attributes: {
+        static: true
+      }
     },
     SpriteRenderer: {
       type: require("../../engine/rendering/SpriteRenderer"),
       attributes: {
         rendererPriority: 1000,
-        // sprite: require("../images/moderncraft.png"),
-        color: [1, 0, 0, 1],
+        sprite: require("../images/moderncraft.png"),
+        color: [1, 1, 1, 1],
         // material: new SpriteDefaultMaterial(),
       },
     },
@@ -89,6 +93,16 @@ const playerObj = {
     tags: ["Player"],
   },
   behaviors: {
+    RigidBody: {
+      type: require("../../engine/RigidBody"),
+      attributes: {
+        mass: 10,
+        useGravity: true
+      }
+    },
+    BoxCollider: {
+      type: require("../../engine/BoxCollider"),
+    },
     Damager: {
       attributes: {
         damageAmount: 1,
@@ -96,7 +110,7 @@ const playerObj = {
     },
     Transform: {
       attributes: {
-        position: new Vector3(0, 0, 0),
+        position: new Vector3(0, 6, 0),
         scale: Vector3.one,
       },
     },

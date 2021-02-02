@@ -25,7 +25,6 @@ class Input {
 
   static registerScreen(screen) {
     screen.addEventListener("keydown", (event) => {
-      console.log("KEYDOWN")
       const key = event.key.toLowerCase();
       if (Input.activeInputs.hasOwnProperty(key)) return;
       Input.activeInputs[key] = Input.InputPhase.InputDownCaptured;

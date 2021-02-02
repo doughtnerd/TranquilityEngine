@@ -12,19 +12,23 @@ class MoveObject extends GameBehavior {
 
   update() {
     if (Input.getKey("w")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.up);
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.up, 'force');
     }
 
     if (Input.getKey("s")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.down);
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.down, 'force');
     }
 
     if (Input.getKey("a")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.left);
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.left, 'force');
     }
 
     if (Input.getKey("d")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.right);
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.right, 'force');
+    }
+
+    if (Input.getKey(" ")) {
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 5), 'impulse');
     }
 
     // if (Input.getMouse()) {

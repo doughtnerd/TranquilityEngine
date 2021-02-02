@@ -1,4 +1,6 @@
 const SAP = require("./physics/SAP");
+const RigidBody = require("./RigidBody");
+const SceneManager = require("./SceneManager");
 
 class PhysicsEngine {
   static rigidBodies = [];
@@ -13,8 +15,10 @@ class PhysicsEngine {
   }
 
   static fixedUpdate() {
-    PhysicsEngine.rigidBodies.forEach((o) => {
-      o.getBehaviors().forEach((b) => b.fixedUpdate());
+    // SceneManager.activeScene.getBehaviors(RigidBody);
+
+    SceneManager.activeScene.findObjectsOfType(RigidBody).forEach((b) => {
+      b.fixedUpdate()
     });
 
     PhysicsEngine.sap.fixedUpdate();
