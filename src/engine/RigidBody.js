@@ -1,5 +1,4 @@
 const GameBehavior = require("./GameBehavior");
-const PhysicsEngine = require("./PhysicsEngine");
 const Time = require("./Time");
 const Physics = require("./Physics");
 const { Vector3 } = require("./Vector3");
@@ -22,7 +21,6 @@ class RigidBody extends GameBehavior {
   linearForceVector = Vector3.zero;
 
   awake() {
-    // PhysicsEngine.addRigidBody(this.gameObject);
     this.inertiaTensor = Physics.computeCuboidInertiaTensorMatrix(
       this.mass,
       this.gameObject.transform.scale.x,
@@ -36,10 +34,11 @@ class RigidBody extends GameBehavior {
       return;
     }
     let gravity = Vector3.zero;
-    
+
     if (this.useGravity) {
       gravity = this.calculateGravityAcceleration();
-      this.velocity = Vector3.subtract(this.velocity, Vector3.scale(this.calculateGravityAcceleration(), Time.deltaTime));
+      this.velocity = Vector3.subtract(this.velocity, Vector3.scale(this.calculateGravityAcceleration(), Time.fixedDeltaTime));
+      console.log(this.velocity.y);
     }
 
     const drag = this.linearDrag;
@@ -53,7 +52,7 @@ class RigidBody extends GameBehavior {
     this.velocity = Vector3.add(this.velocity, Vector3.fromArray(acceleration));
     
 
-    const scaledVelocity = Vector3.scale(this.velocity, Time.deltaTime);
+    const scaledVelocity = Vector3.scale(this.velocity, Time.fixedDeltaTime);
 
     const newGameObjectPosition = Vector3.add(
       this.gameObject.transform.position,
@@ -92,17 +91,17 @@ class RigidBody extends GameBehavior {
     this.angularVelocity[1] += angularAcceleration[1];
     this.angularVelocity[2] += angularAcceleration[2];
     this.gameObject.transform.rotation.x +=
-      this.angularVelocity[0] * Time.deltaTime;
+      this.angularVelocity[0] * Time.fixedDeltaTime;
     this.gameObject.transform.rotation.y +=
-      this.angularVelocity[1] * Time.deltaTime;
+      this.angularVelocity[1] * Time.fixedDeltaTime;
     this.gameObject.transform.rotation.z +=
-      this.angularVelocity[2] * Time.deltaTime;
+      this.angularVelocity[2] * Time.fixedDeltaTime;
   }
 
   get weight() {
     /*
       Weight (gravitational force) is a function of mass * the gravitational force given off by an object.
-      For earth, a constant of 9.8 is used event though gravity varies the farther/closer from/to an object you get.
+      For earth, a constant of 9.8 is used even though gravity varies the farther/closer from/to an object you get.
     */
     return this.mass * Physics.GRAVITATIONAL_ACCELERATION_CONSTANT;
   }

@@ -29,20 +29,21 @@ function play() {
 function loop() {
   const frameStart = Date.now();
 
-  runFrame();
+  processInput();
+
+  PhysicsEngine.fixedUpdate();
+  Time.fixedDeltaTime =
+    ((1 / targetFrameRate) * 1000 + Date.now() - frameStart) * 0.001;
+  
+  
+  update();
+  render();
 
   Time.deltaTime =
     ((1 / targetFrameRate) * 1000 + Date.now() - frameStart) * 0.001;
 
   frameRate = 1 / Time.deltaTime;
   Time.time += Time.deltaTime;
-}
-
-function runFrame() {
-  processInput();
-  PhysicsEngine.fixedUpdate();
-  update();
-  render();
 }
 
 function start() {
