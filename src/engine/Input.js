@@ -135,7 +135,6 @@ class Input {
    */
   static getKeyDown(keyName) {
     const key = keyName.toLowerCase();
-    console.log(key);
     return Input.activeInputs[key] === Input.InputPhase.InputDownHappening;
   }
 

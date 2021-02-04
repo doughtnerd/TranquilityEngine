@@ -107,8 +107,21 @@ export class Vector3 {
   }
 
   static multiply(vecA, vecB): Vector3 {
-    const [x, y, z] = vec3.multiply(vec3.create(), vecA, vecB);
+    const [x, y, z] = vec3.multiply(vec3.create(), vecA.toArray(), vecB.toArray());
     return new Vector3(x, y, z);
+  }
+
+  static multiplyScalar(a: Vector3, b: number) {
+    return new Vector3(a.x * b, a.y * b, a.z * b);
+  }
+
+  static divide(a: Vector3, b: Vector3): Vector3 {
+    const [x,y,z] = vec3.divide(vec3.create(), a.toArray(), b.toArray())
+    return new Vector3(x, y, z);
+  }
+
+  static divideScalar(a: Vector3, b: number) {
+    return new Vector3(a.x / b, a.y / b, a.z / b);
   }
 
   static distance(a: Vector3, b: Vector3): number {

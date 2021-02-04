@@ -24,18 +24,19 @@ class SAP {
       const isOverlapping = Collider.testAABBOverlap(pair.a, pair.b);
 
       if (isOverlapping) {
-        // console.log(`Collision detected: `, pair.a.gameObject.name, pair.b.gameObject.name);
-        // console.log(pair.a.gameObject.getBehavior(RigidBody).velocity);
+        console.log(`Collision detected: `, pair.a.gameObject.name, pair.b.gameObject.name);
         const aRigid = pair.a.gameObject.getBehavior(RigidBody);
         const bRigid = pair.b.gameObject.getBehavior(RigidBody);
         
         const aVel = aRigid.velocity;
         const bVel = bRigid.velocity;
 
-        const aOpposite = Vector3.scale(aVel, -1);
-        const bOpposite = Vector3.scale(bVel, -1);
-        // aRigid.addForce(Vector3.add(aOpposite, bVel), 'impulse');
-        // bRigid.addForce(Vector3.add(bOpposite, aVel), 'impulse');
+        const aOpposite = Vector3.scale(aVel, -20);
+        const bOpposite = Vector3.scale(bVel, -20);
+
+        aRigid.addForce(Vector3.add(aOpposite, bVel), 'impulse');
+        bRigid.addForce(Vector3.add(bOpposite, aVel), 'impulse');
+
         aRigid.addForce(aOpposite, 'impulse');
         bRigid.addForce(bOpposite, 'impulse');
       }

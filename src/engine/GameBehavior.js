@@ -1,9 +1,10 @@
 class GameBehavior {
 
   _isActive = false;
-  
+
   constructor(gameObject) {
     this.gameObject = gameObject;
+    this.transform = this.gameObject.transform;
   }
 
   init(properties) {

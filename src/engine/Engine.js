@@ -6,35 +6,42 @@ const Input = require("./Input");
 const SceneRenderer = require("./rendering/SceneRenderer");
 const Camera = require("./rendering/Camera");
 
-let interval;
-let targetFrameRate = 120;
+let updateInterval;
+let fixedUpdateInterval;
+let timestep = 20;
+let targetFrameRate = 200;
 let frameRate = 0;
 let startTime;
 
 function play() {
-  if (interval) {
-    clearInterval(interval);
+  if (updateInterval) {
+    clearInterval(updateInterval);
   }
 
   startTime = Date.now();
 
   start();
 
-  interval = setInterval(
+  updateInterval = setInterval(
     loop,
     (1 / targetFrameRate) * 1000
   );
+
+  fixedUpdateInterval = setInterval(
+    () => {
+      const fixedStart = Date.now();
+      PhysicsEngine.fixedUpdate()
+      Time.fixedDeltaTime =
+        (20 + Date.now() - fixedStart) * 0.001;
+    },
+    20
+  )
 }
 
 function loop() {
   const frameStart = Date.now();
 
   processInput();
-
-  PhysicsEngine.fixedUpdate();
-  Time.fixedDeltaTime =
-    ((1 / targetFrameRate) * 1000 + Date.now() - frameStart) * 0.001;
-  
   
   update();
   render();

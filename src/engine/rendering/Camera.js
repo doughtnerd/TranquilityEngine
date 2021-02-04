@@ -13,7 +13,7 @@ class Camera extends GameBehavior {
   };
 
   renderQueue = new FastPriorityQueue((a, b) => {
-    return a.renderPriority - b.renderPriority
+    return a.rendererPriority - b.rendererPriority
   });
 
   static main;
@@ -79,6 +79,7 @@ class Camera extends GameBehavior {
       renderer.material.load(this.targetDisplay.glContext);
 
       this.renderQueue.add({
+        rendererPriority: renderer.rendererPriority,
         gameObjectTransform: renderer.gameObject.transform,
         material: renderer.material,
       });

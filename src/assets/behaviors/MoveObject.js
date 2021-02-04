@@ -12,23 +12,23 @@ class MoveObject extends GameBehavior {
 
   update() {
     if (Input.getKey("w")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.up, 'force');
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 30), 'force');
     }
 
     if (Input.getKey("s")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.down, 'force');
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.down, 30), 'force');
     }
 
     if (Input.getKey("a")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.left, 'force');
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.left, 30), 'force');
     }
 
     if (Input.getKey("d")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.right, 'force');
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.right, 30), 'force');
     }
 
-    if (Input.getKey(" ")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 5), 'impulse');
+    if (Input.getKeyDown(" ")) {
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 200), 'impulse');
     }
 
     // if (Input.getMouse()) {
@@ -43,7 +43,7 @@ class MoveObject extends GameBehavior {
       cameraPositionDelta
     );
 
-    Camera.main.gameObject.transform.position = newCameraPosition;
+    // Camera.main.gameObject.transform.position = newCameraPosition;
   }
 
   calculateRotation(rotationAmount) {

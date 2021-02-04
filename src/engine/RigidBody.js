@@ -18,7 +18,7 @@ class RigidBody extends GameBehavior {
 
   inertiaTensor;
 
-  linearForceVector = Vector3.zero;
+  acceleration = Vector3.zero;
 
   awake() {
     this.inertiaTensor = Physics.computeCuboidInertiaTensorMatrix(
@@ -33,52 +33,39 @@ class RigidBody extends GameBehavior {
     if(this.static) {
       return;
     }
-    let gravity = Vector3.zero;
 
     if (this.useGravity) {
-      gravity = this.calculateGravityAcceleration();
-      this.velocity = Vector3.subtract(this.velocity, Vector3.scale(this.calculateGravityAcceleration(), Time.fixedDeltaTime));
-      console.log(this.velocity.y);
+      this.acceleration = Vector3.add(this.acceleration, Vector3.scale(this.calculateGravityAcceleration(), Time.fixedDeltaTime))
     }
-
-    const drag = this.linearDrag;
-    const acceleration = [
-      (this.linearForceVector.x - drag.x) / this.mass,
-      ((this.linearForceVector.y - drag.y) / this.mass),// - Vector3.scale(this.calculateGravityAcceleration(), Time.deltaTime),
-      (this.linearForceVector.z - drag.z) / this.mass,
-    ];
-
     
-    this.velocity = Vector3.add(this.velocity, Vector3.fromArray(acceleration));
-    
+    this.acceleration = Vector3.scale(this.acceleration, Time.fixedDeltaTime);
+    this.velocity = Vector3.add(this.velocity, this.acceleration);
+    // this.velocity = Vector3.scale(this.velocity, Time.fixedDeltaTime);
 
-    const scaledVelocity = Vector3.scale(this.velocity, Time.fixedDeltaTime);
-
-    const newGameObjectPosition = Vector3.add(
+    let newGameObjectPosition = Vector3.add(
       this.gameObject.transform.position,
-      scaledVelocity
+      this.velocity
     );
 
     this.gameObject.transform.position = newGameObjectPosition;
 
-    this.linearForceVector = Vector3.zero;
-
+    this.acceleration = Vector3.zero;
   }
 
   addForce(forceVector, mode = 'force') {
 
-    if(mode === 'force') {
-      console.log("REACHED IT")
-      this.linearForceVector = Vector3.add(this.linearForceVector, forceVector);
+    switch(mode) {
+      case 'force':
+        forceVector = Vector3.scale(forceVector, Time.fixedDeltaTime)
+        forceVector = Vector3.divideScalar(forceVector, this.mass);
+        this.acceleration = Vector3.add(this.acceleration, forceVector);
+        break;
+      case 'impulse':
+        forceVector = Vector3.divideScalar(forceVector, this.mass);
+        this.acceleration = Vector3.add(this.acceleration, forceVector);
+        break;
     }
-
-    if(mode === 'impulse') {
-      if(Vector3.distance(this.velocity, forceVector) < .01) {
-        this.velocity = Vector3.add(this.linearForceVector, Vector3.zero);
-      }
-      this.velocity = Vector3.add(this.linearForceVector, forceVector);
-      // this.velocity = Vector3.add(this.linearForceVector, forceVector);
-    }
+    
   }
 
   addTorque(torqueVector) {
@@ -121,7 +108,7 @@ class RigidBody extends GameBehavior {
       this.dragCoefficient * // Drag coefficient
       (0.5 * this.airDensity) * // 1/2 Air density
       Math.pow(this.velocity.y, 2) *
-      (this.velocity.y < 0 ? -1 : 1) * // Velocity squared
+      // (this.velocity.y < 0 ? -1 : 1) * // Velocity squared
       (this.gameObject.transform.scale.x * this.gameObject.transform.scale.z); // Area of reference point.
 
     const z =
@@ -143,7 +130,7 @@ class RigidBody extends GameBehavior {
     Gravitational acceleration is therefore (weight - drag) / mass
     */
     const linearAcceleration = (this.weight - this.linearDrag.y) / this.mass;
-    return new Vector3(0, linearAcceleration, 0);
+    return new Vector3(0, -linearAcceleration, 0);
   }
 }
 

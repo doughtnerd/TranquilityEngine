@@ -13,9 +13,9 @@ class SceneRenderer {
     camera.targetDisplay.glContext.enable(camera.targetDisplay.glContext.BLEND);
     camera.targetDisplay.glContext.enable(camera.targetDisplay.glContext.CULL_FACE);
     camera.targetDisplay.glContext.depthFunc(camera.targetDisplay.glContext.LEQUAL);            // Near things obscure far things
-    // camera.targetDisplay.blendFunc(camera.targetDisplay.ONE, camera.targetDisplay.ONE_MINUS_SRC_ALPHA);
-    camera.targetDisplay.glContext.blendFunc(camera.targetDisplay.glContext.SRC_ALPHA, camera.targetDisplay.glContext.ONE_MINUS_SRC_ALPHA);
-    // camera.targetDisplay.blendFuncSeparate(camera.targetDisplay.SRC_ALPHA, camera.targetDisplay.ONE_MINUS_SRC_ALPHA, camera.targetDisplay.ONE, camera.targetDisplay.ZERO)
+    // camera.targetDisplay.glContext.blendFunc(camera.targetDisplay.ONE, camera.targetDisplay.ONE_MINUS_SRC_ALPHA);
+    camera.targetDisplay.glContext.blendFunc(camera.targetDisplay.glContext.ONE, camera.targetDisplay.glContext.ONE_MINUS_SRC_ALPHA);
+    // camera.targetDisplay.glContext.blendFuncSeparate(camera.targetDisplay.SRC_ALPHA, camera.targetDisplay.ONE_MINUS_SRC_ALPHA, camera.targetDisplay.ONE, camera.targetDisplay.ZERO)
     // camera.targetDisplay.enable(camera.targetDisplay.CULL_FACE); // Turn on culling. By default backfacing triangles will be culled.
     camera.targetDisplay.glContext.clear(camera.targetDisplay.glContext.COLOR_BUFFER_BIT | camera.targetDisplay.glContext.DEPTH_BUFFER_BIT); // Clear the canvas before we start drawing on it.
 

@@ -14,7 +14,7 @@ function create({resolution: {height, width}}) {
     screenElement.addEventListener('click', () => screenElement.focus())
 
     const glContext = screenElement.getContext("webgl2", {
-      premultipliedAlpha: false 
+      // premultipliedAlpha: true,s
     });
 
     if (glContext === null) {
