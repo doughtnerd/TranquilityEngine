@@ -1,19 +1,19 @@
-const GameBehavior = require('../GameBehavior');
-const SceneManager = require('../SceneManager');
-const mat4 = require('gl-matrix').mat4;
-const SceneRenderer = require('./SceneRenderer');
-const Renderer = require('./Renderer');
-const FastPriorityQueue = require('fastpriorityqueue');
-const Screen = require('./Screen');
+const GameBehavior = require("../GameBehavior");
+const SceneManager = require("../SceneManager");
+const mat4 = require("gl-matrix").mat4;
+const SceneRenderer = require("./SceneRenderer");
+const Renderer = require("./Renderer");
+const FastPriorityQueue = require("fastpriorityqueue");
+const Screen = require("./Screen");
 
 class Camera extends GameBehavior {
   static ProjectionType = {
-    Perspective: 'perspective',
-    Orthographic: 'orthographic'
+    Perspective: "perspective",
+    Orthographic: "orthographic",
   };
 
   renderQueue = new FastPriorityQueue((a, b) => {
-    return a.rendererPriority - b.rendererPriority
+    return a.rendererPriority < b.rendererPriority;
   });
 
   static main;
@@ -29,10 +29,10 @@ class Camera extends GameBehavior {
   background;
   cullingMask;
   clearColor = {
-    r: .5,
-    g: .5,
+    r: 0.5,
+    g: 0.5,
     b: 1,
-    a: 1
+    a: 1,
   };
   targetDisplay = null;
   targetDisplayIndex;
@@ -40,13 +40,13 @@ class Camera extends GameBehavior {
   fieldOfView = 80;
   clippingPlanes = {
     near: 0.1,
-    far: 100
+    far: 100,
   };
   viewPortRect = {
     x: 0,
     y: 0,
     w: 1,
-    h: 1
+    h: 1,
   };
   orthogonalBounds = {
     l: -10,
@@ -59,23 +59,19 @@ class Camera extends GameBehavior {
   awake() {
     this.targetDisplay = Screen.getScreen(this.targetDisplayIndex);
     const cameras = SceneManager.activeScene.findObjectsOfType(Camera);
-    if(cameras.length >= 1) {
+    if (cameras.length >= 1) {
       Camera.main = cameras[0];
     }
     Camera.allCamerasCount = cameras.length;
     Camera.allCameras = cameras;
   }
 
-  onEnable() {
+  onEnable() {}
 
-  }
-
-  update() {
-    
-  }
+  update() {}
 
   render() {
-    SceneManager.activeScene.findObjectsOfType(Renderer).forEach(renderer => {
+    SceneManager.activeScene.findObjectsOfType(Renderer).forEach((renderer) => {
       renderer.material.load(this.targetDisplay.glContext);
 
       this.renderQueue.add({
@@ -83,14 +79,15 @@ class Camera extends GameBehavior {
         gameObjectTransform: renderer.gameObject.transform,
         material: renderer.material,
       });
-
     });
 
-    SceneRenderer.drawFrame(this, this.renderQueue)
+    // console.log(this.renderQueue);
+
+    SceneRenderer.drawFrame(this, this.renderQueue);
   }
 
   calculateProjectionMatrix() {
-    const fieldOfView = this.fieldOfView * Math.PI / 180;   // in radians
+    const fieldOfView = (this.fieldOfView * Math.PI) / 180; // in radians
     const aspect = this.targetDisplay.screenElement.clientWidth / this.targetDisplay.screenElement.clientHeight;
     const zNear = this.clippingPlanes.near;
     const zFar = this.clippingPlanes.far;
@@ -98,13 +95,7 @@ class Camera extends GameBehavior {
 
     switch (this.projection) {
       case Camera.ProjectionType.Perspective:
-        mat4.perspective(
-          projectionMatrix,
-          fieldOfView,
-          aspect,
-          zNear,
-          zFar
-        );
+        mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
         break;
       case Camera.ProjectionType.Orthographic:
         const halfHeight = this.targetDisplay.screenElement.clientHeight / 2;

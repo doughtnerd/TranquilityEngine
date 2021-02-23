@@ -11,9 +11,7 @@ class SceneManager {
     const scene = SceneManager.scenes[index];
 
     const toInstantiate = scene.gameObjects;
-    const instantiatedObjects = SceneManager.instantiateSceneObjects(
-      toInstantiate
-    );
+    const instantiatedObjects = SceneManager.instantiateSceneObjects(toInstantiate);
 
     SceneManager.activeScene = new Scene(instantiatedObjects);
     SceneManager.activeScene.awake();
@@ -36,16 +34,10 @@ class SceneManager {
   static instantiateSceneObject(gameObject) {
     const instantiatedGameObject = new gameObject.type();
 
-    SceneManager.applyGameObjectAttributes(
-      instantiatedGameObject,
-      gameObject.attributes
-    );
+    SceneManager.applyGameObjectAttributes(instantiatedGameObject, gameObject.attributes);
 
     const behaviorSettings = gameObject.behaviors || {};
-    SceneManager.applyGameBehaviorSettings(
-      instantiatedGameObject,
-      behaviorSettings
-    );
+    SceneManager.applyGameBehaviorSettings(instantiatedGameObject, behaviorSettings);
 
     return instantiatedGameObject;
   }
@@ -67,12 +59,18 @@ class SceneManager {
       let behavior = gameObject.getBehavior(behaviorType);
 
       if (!behavior) {
-        gameObject.addBehavior(behaviorSettings[behaviorType].type);
-        behavior = gameObject.getBehavior(behaviorSettings[behaviorType].type);
+        try {
+          gameObject.addBehavior(behaviorSettings[behaviorType].type[behaviorType]);
+          behavior = gameObject.getBehavior(behaviorSettings[behaviorType].type[behaviorType]);
+        } catch (err) {
+          gameObject.addBehavior(behaviorSettings[behaviorType].type);
+          behavior = gameObject.getBehavior(behaviorSettings[behaviorType].type);
+        }
       } else {
         behavior = gameObject.getBehavior(behaviorType);
       }
 
+      console.log(behavior);
       behavior.init(attributes);
     }
   }

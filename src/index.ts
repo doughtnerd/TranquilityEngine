@@ -1,7 +1,5 @@
-import Camera from "./engine/rendering/Camera";
 import Engine from "./engine/Engine";
 import Input from "./engine/Input";
-import SceneRenderer from "./engine/rendering/SceneRenderer";
 import SceneManager from "./engine/SceneManager";
 import Screen from "./engine/rendering/Screen";
 

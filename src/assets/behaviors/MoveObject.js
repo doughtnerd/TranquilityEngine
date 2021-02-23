@@ -12,29 +12,27 @@ class MoveObject extends GameBehavior {
 
   update() {
     if (Input.getKey("w")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 30), 'force');
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 30), "force");
     }
 
     if (Input.getKey("s")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.down, 30), 'force');
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.down, 30), "force");
     }
 
     if (Input.getKey("a")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.left, 30), 'force');
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.left, 30), "force");
     }
 
     if (Input.getKey("d")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.right, 30), 'force');
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.right, 30), "force");
     }
 
     if (Input.getKeyDown(" ")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 200), 'impulse');
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 200), "impulse");
     }
 
     // if (Input.getMouse()) {
-    //   Camera.main.gameObject.transform.rotation = this.calculateRotation(
-    //     Input.mouseAxis
-    //   );
+    //   Camera.main.gameObject.transform.rotation = this.calculateRotation(Input.mouseAxis);
     // }
 
     // const cameraPositionDelta = new Vector3(0, 0, -6);
