@@ -28,7 +28,7 @@ function play() {
     const fixedStart = Date.now();
     PhysicsEngine.fixedUpdate();
     Time.fixedDeltaTime = (20 + Date.now() - fixedStart) * 0.001;
-  }, 20);
+  }, timestep);
 }
 
 function loop() {

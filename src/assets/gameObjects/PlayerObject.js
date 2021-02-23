@@ -18,7 +18,7 @@ class PlayerObject extends GameObject {
     });
     this.addBehavior(MoveObject);
     this.addBehavior(BoxCollider);
-    this.addBehavior(RigidBody).init({ mass: 20, useGravity: true });
+    this.addBehavior(RigidBody).init({ mass: 20, useGravity: false });
     this.addBehavior(VelocityBasedRotation);
   }
 }

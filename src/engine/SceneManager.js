@@ -70,7 +70,6 @@ class SceneManager {
         behavior = gameObject.getBehavior(behaviorType);
       }
 
-      console.log(behavior);
       behavior.init(attributes);
     }
   }

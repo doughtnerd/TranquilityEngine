@@ -1,5 +1,4 @@
 class GameBehavior {
-
   _isActive = false;
 
   constructor(gameObject) {
@@ -17,7 +16,7 @@ class GameBehavior {
   }
 
   setActive(isActive) {
-    if(isActive) {
+    if (isActive) {
       this.onEnable();
     } else {
       this.onDisable();
@@ -26,21 +25,23 @@ class GameBehavior {
   }
 
   get isActive() {
-    return this._isActive
+    return this._isActive;
   }
 
+  onTriggerEnter() {}
+
   //#region First Scene Load
-  awake() { }
+  awake() {}
   onEnable() {}
   //#endregion
 
   //#region Before first frame
-  start() { }
+  start() {}
   //#endregion
 
   //#region Update Functions
-  fixedUpdate() { }
-  update() { }
+  fixedUpdate() {}
+  update() {}
   lateUpdate() {}
   //#endregion
 
@@ -64,7 +65,6 @@ class GameBehavior {
   onGUI() {}
   onDrawGizmos() {}
   //#endregion
-
 }
 
 module.exports = GameBehavior;

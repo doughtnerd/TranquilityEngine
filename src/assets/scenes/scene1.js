@@ -71,7 +71,7 @@ const infiniteGround = {
       },
     },
     InfiniteBackground: {
-      type: require("../../assets/behaviors/InfiniteBackground"),
+      type: require("../behaviors/InfiniteScroller"),
       attributes: {
         startPos: new Vector3(0, -13, -1),
         backgroundToSpawn: Ground,
@@ -94,7 +94,7 @@ const infiniteBackground = {
       },
     },
     InfiniteBackground: {
-      type: require("../../assets/behaviors/InfiniteBackground"),
+      type: require("../behaviors/InfiniteScroller"),
       attributes: {
         startPos: new Vector3(0, 3, 0),
         backgroundToSpawn: Background,
@@ -105,29 +105,29 @@ const infiniteBackground = {
   },
 };
 
-const pipeUp = {
-  sceneId: 4,
-  type: PipeUp,
-  behaviors: {
-    Transform: {
-      attributes: {
-        position: new Vector3(0, -10, 0),
-      },
-    },
-  },
-};
+// const pipeUp = {
+//   sceneId: 4,
+//   type: PipeUp,
+//   behaviors: {
+//     Transform: {
+//       attributes: {
+//         position: new Vector3(0, -10, 0),
+//       },
+//     },
+//   },
+// };
 
-const pipeDown = {
-  sceneId: 5,
-  type: PipeDown,
-  behaviors: {
-    Transform: {
-      attributes: {
-        position: new Vector3(0, 5, 0),
-      },
-    },
-  },
-};
+// const pipeDown = {
+//   sceneId: 5,
+//   type: PipeDown,
+//   behaviors: {
+//     Transform: {
+//       attributes: {
+//         position: new Vector3(0, 5, 0),
+//       },
+//     },
+//   },
+// };
 
 const pipeSpanwer = {
   sceneId: 6,
@@ -140,5 +140,5 @@ const pipeSpanwer = {
 };
 
 module.exports = {
-  gameObjects: [cameraObj, playerObj, infiniteGround, infiniteBackground, pipeUp, pipeDown, pipeSpanwer],
+  gameObjects: [cameraObj, playerObj, infiniteGround, infiniteBackground, pipeSpanwer],
 };

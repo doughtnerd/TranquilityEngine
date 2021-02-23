@@ -40,11 +40,7 @@ class Collider extends GameBehavior {
   }
 
   updateCenter() {
-    this.bounds.center = [
-      this.gameObject.transform.position.x,
-      this.gameObject.transform.position.y,
-      this.gameObject.transform.position.z,
-    ];
+    this.bounds.center = [this.gameObject.transform.position.x, this.gameObject.transform.position.y, this.gameObject.transform.position.z];
   }
 
   updateEndpoints() {
@@ -61,11 +57,7 @@ class Collider extends GameBehavior {
   getNearestPoint(to) {
     const endpointVectors = [];
     for (let i = 0; i < 2; i++) {
-      const vect = new Vector3(
-        this.endpoints.x[i],
-        this.endpoints.y[i],
-        this.endpoints.z[i]
-      );
+      const vect = new Vector3(this.endpoints.x[i], this.endpoints.y[i], this.endpoints.z[i]);
       endpointVectors.push(vect);
     }
 
@@ -97,22 +89,46 @@ class Collider extends GameBehavior {
     let mtvDistance = Number.MAX_VALUE;
     let mtvAxis = Vector3.zero;
 
-    const xTest = Collider.TestAxisStatic(Vector3.right, a.endpoints.x[0].value, a.endpoints.x[1].value, b.endpoints.x[0].value, b.endpoints.x[1].value, mtvAxis, mtvDistance)
-    if(!xTest.result) {
+    const xTest = Collider.TestAxisStatic(
+      Vector3.right,
+      a.endpoints.x[0].value,
+      a.endpoints.x[1].value,
+      b.endpoints.x[0].value,
+      b.endpoints.x[1].value,
+      mtvAxis,
+      mtvDistance
+    );
+    if (!xTest.result) {
       return false;
     }
     mtvDistance = xTest.mtvDistance;
     mtvAxis = xTest.mtvAxis;
-    
-    const yTest = Collider.TestAxisStatic(Vector3.up, a.endpoints.y[0].value, a.endpoints.y[1].value, b.endpoints.y[0].value, b.endpoints.y[1].value, mtvAxis, mtvDistance)
-    if(!yTest.result) {
+
+    const yTest = Collider.TestAxisStatic(
+      Vector3.up,
+      a.endpoints.y[0].value,
+      a.endpoints.y[1].value,
+      b.endpoints.y[0].value,
+      b.endpoints.y[1].value,
+      mtvAxis,
+      mtvDistance
+    );
+    if (!yTest.result) {
       return false;
     }
     mtvDistance = yTest.mtvDistance;
     mtvAxis = yTest.mtvAxis;
-    
-    const zTest = Collider.TestAxisStatic(Vector3.forward, a.endpoints.z[0].value, a.endpoints.z[1].value, b.endpoints.z[0].value, b.endpoints.z[1].value, mtvAxis, mtvDistance)
-    if(!zTest.result) {
+
+    const zTest = Collider.TestAxisStatic(
+      Vector3.forward,
+      a.endpoints.z[0].value,
+      a.endpoints.z[1].value,
+      b.endpoints.z[0].value,
+      b.endpoints.z[1].value,
+      mtvAxis,
+      mtvDistance
+    );
+    if (!zTest.result) {
       return false;
     }
     mtvDistance = zTest.mtvDistance;
@@ -121,31 +137,39 @@ class Collider extends GameBehavior {
     return {
       isIntersecting: true,
       nEnter: Vector3.normalize(mtvAxis),
-      penetration: Math.sqrt(mtvDistance) * 1.001
-    }
+      penetration: Math.sqrt(mtvDistance) * 1.001,
+    };
   }
 
   static TestAxisStatic(axis, minA, maxA, minB, maxB, mtvAxis, mtvDistance) {
     const axisLengthSquared = Vector3.dot(axis, axis);
 
-    if(axisLengthSquared < 1.0e-8) {
-      return true;
+    if (axisLengthSquared < 1.0e-8) {
+      return {
+        result: true,
+        mtvDistance,
+        mtvAxis,
+      };
     }
 
-    const d0 = (maxB - minA);
-    const d1 = (maxA - minB);
+    const d0 = maxB - minA;
+    const d1 = maxA - minB;
 
-    if(d0 <= 0 || d1 <= 0) {
-      return false;
+    if (d0 <= 0 || d1 <= 0) {
+      return {
+        result: false,
+        mtvDistance,
+        mtvAxis,
+      };
     }
 
-    const overlap = (d0 < d1) ? d0 : d1;
+    const overlap = d0 < d1 ? d0 : -d1;
 
     const sep = Vector3.multiplyScalar(axis, overlap / axisLengthSquared);
 
     const sepLengthSquared = Vector3.dot(sep, sep);
 
-    if(sepLengthSquared < mtvDistance) {
+    if (sepLengthSquared < mtvDistance) {
       mtvDistance = sepLengthSquared;
       mtvAxis = sep;
     }
@@ -153,7 +177,7 @@ class Collider extends GameBehavior {
     return {
       result: true,
       mtvDistance,
-      mtvAxis
+      mtvAxis,
     };
   }
 }

@@ -14,7 +14,7 @@ class SAP {
   collidingPairs = [];
 
   constructor(colliders = []) {
-    colliders.forEach(c => this.addCollider(c));
+    colliders.forEach((c) => this.addCollider(c));
   }
 
   fixedUpdate() {
@@ -27,27 +27,34 @@ class SAP {
     this.collidingPairs.forEach((pair) => {
       const testResult = Collider.AABBAABB(pair.a, pair.b);
 
-      if(testResult.isIntersecting) {
-        // console.log(pair.a.gameObject.name, pair.b.gameObject.name, testResult.penetration.toFixed(2), testResult.nEnter.toArray());
+      if (testResult.isIntersecting) {
+        console.log(pair.a.gameObject.name, pair.b.gameObject.name, testResult.penetration.toFixed(2), testResult.nEnter.toArray());
         const aRigid = pair.a.gameObject.getBehavior(RigidBody);
         const bRigid = pair.b.gameObject.getBehavior(RigidBody);
 
-        aRigid.velocity = Vector3.zero;
-        bRigid.velocity = Vector3.zero;
+        if (pair.a.isTrigger) {
+          pair.b.gameObject.getBehaviors().forEach((b) => b.onTriggerEnter(pair.b));
+        }
+
+        if (pair.b.isTrigger) {
+          pair.a.gameObject.getBehaviors().forEach((b) => b.onTriggerEnter(pair.a));
+        }
+
+        // aRigid.velocity = Vector3.zero;
+        // bRigid.velocity = Vector3.zero;
       }
-    })
+    });
 
     // this.collidingPairs.forEach((pair) => {
     //   const isOverlapping = Collider.testAABBOverlap(pair.a, pair.b);
 
-      
     //   if (isOverlapping) {
     //     console.log(pair.a.endpoints.x[0].value, pair.b.endpoints.x[0].value);
     //     // console.log(`Collision detected: `, pair.a.gameObject.name, pair.b.gameObject.name);
 
     //     const aRigid = pair.a.gameObject.getBehavior(RigidBody);
     //     const bRigid = pair.b.gameObject.getBehavior(RigidBody);
-        
+
     //     const aVel = aRigid.velocity;
     //     const bVel = bRigid.velocity;
 
@@ -86,10 +93,7 @@ class SAP {
         if (ep0.isMin) {
           if (!ep1.isMin) {
             this.collidingPairs = this.collidingPairs.filter((pair) => {
-              return !(
-                (pair.a === ep0.collider && pair.b === ep1.collider) ||
-                (pair.a === ep1.collider && pair.b === ep0.collider)
-              );
+              return !((pair.a === ep0.collider && pair.b === ep1.collider) || (pair.a === ep1.collider && pair.b === ep0.collider));
             });
           }
         } else {
