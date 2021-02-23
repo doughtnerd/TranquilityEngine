@@ -37,11 +37,11 @@ class MoveObject extends GameBehavior {
     //   );
     // }
 
-    const cameraPositionDelta = new Vector3(0, 0, -6);
-    const newCameraPosition = Vector3.add(
-      this.gameObject.transform.position,
-      cameraPositionDelta
-    );
+    // const cameraPositionDelta = new Vector3(0, 0, -6);
+    // const newCameraPosition = Vector3.add(
+    //   this.gameObject.transform.position,
+    //   cameraPositionDelta
+    // );
 
     // Camera.main.gameObject.transform.position = newCameraPosition;
   }

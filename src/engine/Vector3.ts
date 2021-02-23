@@ -83,6 +83,15 @@ export class Vector3 {
     return [this.x, this.y, this.z];
   }
 
+  static normalize(vecA: Vector3): Vector3 {
+    const [x,y,z] = vec3.normalize(vec3.create(), vecA.toArray());
+    return new Vector3(x, y, z);
+  }
+
+  static dot(vecA: Vector3, vecB: Vector3): number {
+    return vec3.dot(vecA.toArray(), vecB.toArray());
+  }
+
   static scale(vector, scaleBy): Vector3 {
     const [x, y, z] = vec3.scale(vec3.create(), vector.toArray(), scaleBy);
     return new Vector3(x, y, z);

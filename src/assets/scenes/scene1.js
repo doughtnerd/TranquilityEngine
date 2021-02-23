@@ -36,7 +36,7 @@ const playerObj = {
       type: require("../../engine/RigidBody"),
       attributes: {
         mass: 20,
-        // useGravity: true
+        useGravity: true
       }
     },
     BoxCollider: {

@@ -1,7 +1,5 @@
 const Collider = require("./physics/Collider");
 const Endpoint = require("./physics/Endpoint");
-const PhysicsEngine = require("./PhysicsEngine");
-
 class BoxCollider extends Collider {
   awake() {
     this.updateCenter();
@@ -19,7 +17,6 @@ class BoxCollider extends Collider {
       new Endpoint(this, this.bounds.center[2] + this.bounds.size[2], false),
     ];
 
-    PhysicsEngine.addCollider(this);
   }
 }
 

@@ -13,6 +13,10 @@ class SAP {
 
   collidingPairs = [];
 
+  constructor(colliders = []) {
+    colliders.forEach(c => this.addCollider(c));
+  }
+
   fixedUpdate() {
     this.colliders.forEach((col) => col.fixedUpdate());
 
@@ -21,26 +25,39 @@ class SAP {
     this.sortEndpoints(this.endpointsZ);
 
     this.collidingPairs.forEach((pair) => {
-      const isOverlapping = Collider.testAABBOverlap(pair.a, pair.b);
+      const testResult = Collider.AABBAABB(pair.a, pair.b);
 
-      if (isOverlapping) {
-        console.log(`Collision detected: `, pair.a.gameObject.name, pair.b.gameObject.name);
+      if(testResult.isIntersecting) {
+        // console.log(pair.a.gameObject.name, pair.b.gameObject.name, testResult.penetration.toFixed(2), testResult.nEnter.toArray());
         const aRigid = pair.a.gameObject.getBehavior(RigidBody);
         const bRigid = pair.b.gameObject.getBehavior(RigidBody);
-        
-        const aVel = aRigid.velocity;
-        const bVel = bRigid.velocity;
 
-        const aOpposite = Vector3.scale(aVel, -20);
-        const bOpposite = Vector3.scale(bVel, -20);
-
-        aRigid.addForce(Vector3.add(aOpposite, bVel), 'impulse');
-        bRigid.addForce(Vector3.add(bOpposite, aVel), 'impulse');
-
-        aRigid.addForce(aOpposite, 'impulse');
-        bRigid.addForce(bOpposite, 'impulse');
+        aRigid.velocity = Vector3.zero;
+        bRigid.velocity = Vector3.zero;
       }
-    });
+    })
+
+    // this.collidingPairs.forEach((pair) => {
+    //   const isOverlapping = Collider.testAABBOverlap(pair.a, pair.b);
+
+      
+    //   if (isOverlapping) {
+    //     console.log(pair.a.endpoints.x[0].value, pair.b.endpoints.x[0].value);
+    //     // console.log(`Collision detected: `, pair.a.gameObject.name, pair.b.gameObject.name);
+
+    //     const aRigid = pair.a.gameObject.getBehavior(RigidBody);
+    //     const bRigid = pair.b.gameObject.getBehavior(RigidBody);
+        
+    //     const aVel = aRigid.velocity;
+    //     const bVel = bRigid.velocity;
+
+    //     const aOpposite = Vector3.scale(aVel, -200);
+    //     const bOpposite = Vector3.scale(bVel, -200);
+
+    //     aRigid.addForce(Vector3.add(aOpposite, bVel), 'impulse');
+    //     bRigid.addForce(Vector3.add(bOpposite, aVel), 'impulse');
+    //   }
+    // });
   }
 
   addCollider(collider) {
