@@ -11,9 +11,9 @@ class MoveObject extends GameBehavior {
   awake() {}
 
   update() {
-    // if (Input.getKey("w")) {
-    //   this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 30), "force");
-    // }
+    if (Input.getKey("w")) {
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 30), "force");
+    }
 
     if (Input.getKey("s")) {
       this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.down, 30), "force");

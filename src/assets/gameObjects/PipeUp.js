@@ -17,9 +17,10 @@ class PipeUp extends GameObject {
 
     this.addBehavior(BoxCollider).init({
       bounds: {
-        size: [2, 10, 1],
+        size: [2, 5, 1],
       },
       isTrigger: true,
+      physicsLayer: 1,
     });
   }
 }

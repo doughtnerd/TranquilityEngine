@@ -1,6 +1,5 @@
-const RigidBody = require("../RigidBody");
-const { Vector3 } = require("../Vector3");
 const Collider = require("./Collider");
+const uuid = require("uuid");
 // const RigidBody = require("../RigidBody");
 
 //Sweep and prune collision system
@@ -13,61 +12,56 @@ class SAP {
 
   collidingPairs = [];
 
+  worldCollisions = [];
+
   constructor(colliders = []) {
     colliders.forEach((c) => this.addCollider(c));
   }
 
-  fixedUpdate() {
+  checkCollisions() {
     this.colliders.forEach((col) => col.fixedUpdate());
 
     this.sortEndpoints(this.endpointsX);
     this.sortEndpoints(this.endpointsY);
     this.sortEndpoints(this.endpointsZ);
 
-    this.collidingPairs.forEach((pair) => {
-      const testResult = Collider.AABBAABB(pair.a, pair.b);
+    const previousWorldCollisions = this.worldCollisions;
+    const allWorldCollisions = [];
+    const enterWorldCollisions = [];
+    const exitWorldCollisions = [];
+    const stayWorldCollisions = [];
 
+    for (let i = 0; i < this.collidingPairs.length; i++) {
+      const { a, b, id } = this.collidingPairs[i];
+
+      const testResult = Collider.AABBAABB(a, b);
       if (testResult.isIntersecting) {
-        console.log(pair.a.gameObject.name, pair.b.gameObject.name, testResult.penetration.toFixed(2), testResult.nEnter.toArray());
-        const aRigid = pair.a.gameObject.getBehavior(RigidBody);
-        const bRigid = pair.b.gameObject.getBehavior(RigidBody);
+        const existing = previousWorldCollisions.find((item) => {
+          return item.id === id;
+        });
 
-        if (pair.a.isTrigger) {
-          pair.b.gameObject.getBehaviors().forEach((b) => b.onTriggerEnter(pair.b));
+        const collision = { ...testResult, a, b, id };
+        allWorldCollisions.push(collision);
+
+        if (existing) {
+          stayWorldCollisions.push(collision);
+        } else {
+          enterWorldCollisions.push(collision);
         }
-
-        if (pair.b.isTrigger) {
-          pair.a.gameObject.getBehaviors().forEach((b) => b.onTriggerEnter(pair.a));
-        }
-
-        // aRigid.velocity = Vector3.zero;
-        // bRigid.velocity = Vector3.zero;
       }
-    });
+    }
 
-    // this.collidingPairs.forEach((pair) => {
-    //   const isOverlapping = Collider.testAABBOverlap(pair.a, pair.b);
+    // console.log(currentWorldCollisions);
 
-    //   if (isOverlapping) {
-    //     console.log(pair.a.endpoints.x[0].value, pair.b.endpoints.x[0].value);
-    //     // console.log(`Collision detected: `, pair.a.gameObject.name, pair.b.gameObject.name);
+    this.worldCollisions = allWorldCollisions;
 
-    //     const aRigid = pair.a.gameObject.getBehavior(RigidBody);
-    //     const bRigid = pair.b.gameObject.getBehavior(RigidBody);
-
-    //     const aVel = aRigid.velocity;
-    //     const bVel = bRigid.velocity;
-
-    //     const aOpposite = Vector3.scale(aVel, -200);
-    //     const bOpposite = Vector3.scale(bVel, -200);
-
-    //     aRigid.addForce(Vector3.add(aOpposite, bVel), 'impulse');
-    //     bRigid.addForce(Vector3.add(bOpposite, aVel), 'impulse');
-    //   }
-    // });
+    return { enterWorldCollisions, exitWorldCollisions, stayWorldCollisions, allWorldCollisions };
   }
 
   addCollider(collider) {
+    if (this.colliders.includes(collider)) {
+      return;
+    }
     this.colliders.push(collider);
 
     this.endpointsX = this.endpointsX.concat(collider.endpoints.x);
@@ -99,6 +93,7 @@ class SAP {
         } else {
           if (ep1.isMin) {
             this.collidingPairs.push({
+              id: uuid.v4(),
               a: ep0.collider,
               b: ep1.collider,
             });

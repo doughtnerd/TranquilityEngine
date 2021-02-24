@@ -10,14 +10,19 @@ const VelocityBasedRotation = require("../behaviors/VelocityBasedRotation");
 class PlayerObject extends GameObject {
   constructor(name = "Player") {
     super(name);
-    this.addBehavior(Damageable).init({ health: 3 });
+    this.addBehavior(Damageable).init({ health: 1 });
     this.addBehavior(SpriteRenderer).init({
       sprite: require("../images/flappy-bird-1.png"),
       color: [1, 1, 1, 1],
       rendererPriority: 1000,
     });
     this.addBehavior(MoveObject);
-    this.addBehavior(BoxCollider);
+    this.addBehavior(BoxCollider).init({
+      bounds: {
+        size: [0.25, 0.5, 0.5],
+      },
+      physicsLayer: 1,
+    });
     this.addBehavior(RigidBody).init({ mass: 20, useGravity: false });
     this.addBehavior(VelocityBasedRotation);
   }

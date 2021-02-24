@@ -29,6 +29,7 @@ class GameBehavior {
   }
 
   onTriggerEnter() {}
+  onTriggerExit() {}
 
   //#region First Scene Load
   awake() {}

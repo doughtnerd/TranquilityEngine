@@ -36,7 +36,7 @@ const playerObj = {
   behaviors: {
     Transform: {
       attributes: {
-        position: new Vector3(0, 2, 0),
+        position: new Vector3(-2, 2, 0),
         scale: new Vector3(2, 2, 1),
       },
     },
@@ -93,7 +93,7 @@ const infiniteBackground = {
         scale: new Vector3(32, 25, 0),
       },
     },
-    InfiniteBackground: {
+    InfiniteScroller: {
       type: require("../behaviors/InfiniteScroller"),
       attributes: {
         startPos: new Vector3(0, 3, 0),

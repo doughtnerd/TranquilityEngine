@@ -2,9 +2,11 @@ const GameBehavior = require("../GameBehavior");
 const Endpoint = require("./Endpoint");
 const { Vector3 } = require("../Vector3");
 class Collider extends GameBehavior {
-  enabled;
-  isTrigger;
+  enabled = true;
+  isTrigger = false;
   attachedRigidbody;
+
+  physicsLayer = 0;
 
   bounds = {
     center: [],
@@ -86,7 +88,16 @@ class Collider extends GameBehavior {
   }
 
   static AABBAABB(a, b) {
+    if (a.physicsLayer !== b.physicsLayer) {
+      return {
+        isIntersecting: false,
+        nEnter: Vector3.zero,
+        penetration: 0,
+      };
+    }
+
     let mtvDistance = Number.MAX_VALUE;
+    // let mtvAxis = new Vector3(1, 1, 1);
     let mtvAxis = Vector3.zero;
 
     const xTest = Collider.TestAxisStatic(
@@ -99,7 +110,11 @@ class Collider extends GameBehavior {
       mtvDistance
     );
     if (!xTest.result) {
-      return false;
+      return {
+        isIntersecting: false,
+        nEnter: Vector3.zero,
+        penetration: 0,
+      };
     }
     mtvDistance = xTest.mtvDistance;
     mtvAxis = xTest.mtvAxis;
@@ -114,7 +129,11 @@ class Collider extends GameBehavior {
       mtvDistance
     );
     if (!yTest.result) {
-      return false;
+      return {
+        isIntersecting: false,
+        nEnter: Vector3.zero,
+        penetration: 0,
+      };
     }
     mtvDistance = yTest.mtvDistance;
     mtvAxis = yTest.mtvAxis;
@@ -129,7 +148,11 @@ class Collider extends GameBehavior {
       mtvDistance
     );
     if (!zTest.result) {
-      return false;
+      return {
+        isIntersecting: false,
+        nEnter: Vector3.zero,
+        penetration: 0,
+      };
     }
     mtvDistance = zTest.mtvDistance;
     mtvAxis = zTest.mtvAxis;
@@ -165,7 +188,9 @@ class Collider extends GameBehavior {
 
     const overlap = d0 < d1 ? d0 : -d1;
 
-    const sep = Vector3.multiplyScalar(axis, overlap / axisLengthSquared);
+    const overlapDivAxisLength = overlap / axisLengthSquared;
+    // console.log(overlapDivAxisLength);
+    const sep = Vector3.multiplyScalar(axis, overlapDivAxisLength);
 
     const sepLengthSquared = Vector3.dot(sep, sep);
 
