@@ -23,7 +23,7 @@ class PlayerObject extends GameObject {
       },
       physicsLayer: 1,
     });
-    this.addBehavior(RigidBody).init({ mass: 20, useGravity: false });
+    this.addBehavior(RigidBody).init({ mass: 20, useGravity: true });
     this.addBehavior(VelocityBasedRotation);
   }
 }
