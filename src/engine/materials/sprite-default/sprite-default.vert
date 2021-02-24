@@ -7,8 +7,6 @@ varying highp vec2 vTextureCoord;
 
 void main() {
   vTextureCoord = aTextureCoord;
-  // aVertexPosition.z += 1.0;
   gl_Position = uModelViewProjectionMatrix * aVertexPosition;
-  // gl_Position.x += 4.0;
 }
 

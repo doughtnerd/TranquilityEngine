@@ -3,8 +3,10 @@
 ## What is it?
 A JavaScript based 2D/3D game engine based on the Unity Game Engine.
 
+## Why is it?
+I've taken a look at the JS based game engine landscape and of them, the only one I'm impressed with is PhaserJS. With PhaserJS, they've done a lot of work to make building a game as simple as possible for new & advanced users. Most of the other engines that exist are overly complicated or didn't have a huge focus on being a 'Game Engine'. So, with my experience working with game engines I decided to make a fusion of JS and Unity. Unity in my opinion is one of the most accessible production grade engines out there to date and that's what I hope this engine will be one day too. My hope is that once this engine is complete enough, JS developers will be able to Zen-out and build a game while learning some of the core APIs that power Unity. 
 ## Limitations
-This project is in active development and as such, might not have every features 100% complete. It is also currently limited to WebGL for rendering. Lastly, this documentation will change as new features become complete and may not always reflect the current state of the engine.
+This project is in active development and as such, might not have every feature 100% complete. It is also currently limited to WebGL for rendering. Lastly, this documentation will change as new features become complete and may not always reflect the current state of the engine.
 
 ## Quick Demo
 ![Basic Demo](./demo/BasicDemo.gif)
@@ -14,6 +16,17 @@ npm run start
 ```
 ## Current Features
 Again, these might be subject to change throughout development but the features that currently exist are described below.
+
+## 2D & 3D Camera
+The Game Engine's camera is built to be usable for both 2D perspective & orthographic games as well as full 3D games. Here's an example of the 3D Camera at work with the flappy bird example:
+
+![3D Camera Demo](./demo/3DCameraDemo.gif)
+
+
+### Custom rendering 
+Allows for custom shaders to be developed and used in the project through the use of material and shader files like so:
+
+![Shader Usage](./demo/ShaderUsage.gif)
 
 ### GameObjects
 Like unity, everything that exists in a game scene is a GameObject. Each GameObject can have a number of scripts attached to it called GameBehaviors.
@@ -126,9 +139,8 @@ module.exports = {
 };
 ```
 
-### Custom rendering 
-Allows for custom shaders to be developed and used in the project through the use of material and shader files like so:
 
+<!-- 
 #### sprite-default.frag
 ```glsl
 varying highp vec2 vTextureCoord;
@@ -177,8 +189,13 @@ class SpriteDefaultMaterial extends Material {
 }
 
 module.exports = SpriteDefaultMaterial;
-```
+``` -->
 
 ### Custom RigidBody Physics & Collisions
 
-The engine currently features a limited set of RigidBody physics and collisions
+The engine currently features a limited set of RigidBody physics and collisions. 
+Current functionality includes:
+
+- Impulse, normal, and gravity forces on rigidbodies.
+- Sweep & Prune based collision detection.
+- Box Collider for collision Detection.

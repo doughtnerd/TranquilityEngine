@@ -89,14 +89,14 @@ const infiniteBackground = {
   behaviors: {
     Transform: {
       attributes: {
-        position: new Vector3(0, 3, 0),
+        position: new Vector3(0, 3, 3),
         scale: new Vector3(32, 25, 0),
       },
     },
     InfiniteScroller: {
       type: require("../behaviors/InfiniteScroller"),
       attributes: {
-        startPos: new Vector3(0, 3, 0),
+        startPos: new Vector3(0, 3, 3),
         backgroundToSpawn: Background,
         scrollVelocity: new Vector3(-0.5, 0, 0),
         rightBound: 30,
