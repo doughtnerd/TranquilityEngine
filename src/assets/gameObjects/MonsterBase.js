@@ -1,19 +1,15 @@
-const GameObject = require('../../engine/GameObject');
-const Damageable = require('../behaviors/Damageable');
-const Damager = require('../behaviors/Damager');
-const DropItemOnDeath = require('../behaviors/DropItemOnDeath');
-const SpriteRenderer = require('../../engine/rendering/SpriteRenderer');
+import GameObject from "../../engine/GameObject";
+import SpriteRenderer from "../../engine/rendering/SpriteRenderer";
+import Damageable from "../behaviors/Damageable";
+import Damager from "../behaviors/Damager";
+import DropItemOnDeath from "../behaviors/DropItemOnDeath";
 
-class MonsterBase extends GameObject {
-
-  constructor(name = 'Monster') {
-    super(name)
+export default class MonsterBase extends GameObject {
+  constructor(name = "Monster") {
+    super(name);
     this.addBehavior(Damageable).init({ health: 1 });
     this.addBehavior(Damager).init({ damageAmount: 1 });
-    this.addBehavior(DropItemOnDeath).init({ item: 'potion' });
+    this.addBehavior(DropItemOnDeath).init({ item: "potion" });
     this.addBehavior(SpriteRenderer);
   }
-
 }
-
-module.exports = MonsterBase;

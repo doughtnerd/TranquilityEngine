@@ -1,6 +1,4 @@
-
-class TextureLoader {
-
+export default class TextureLoader {
   static load(imageSource, glContext) {
     const texture = glContext.createTexture();
     glContext.bindTexture(glContext.TEXTURE_2D, texture);
@@ -12,16 +10,13 @@ class TextureLoader {
     const border = 0;
     const srcFormat = glContext.RGBA;
     const srcType = glContext.UNSIGNED_BYTE;
-    const pixel = new Uint8Array([0, 0, 255, 255]);  // opaque blue
-    glContext.texImage2D(glContext.TEXTURE_2D, level, internalFormat,
-      width, height, border, srcFormat, srcType,
-      pixel);
+    const pixel = new Uint8Array([0, 0, 255, 255]); // opaque blue
+    glContext.texImage2D(glContext.TEXTURE_2D, level, internalFormat, width, height, border, srcFormat, srcType, pixel);
 
     const image = new Image();
     image.onload = function () {
       glContext.bindTexture(glContext.TEXTURE_2D, texture);
-      glContext.texImage2D(glContext.TEXTURE_2D, level, internalFormat,
-        srcFormat, srcType, image);
+      glContext.texImage2D(glContext.TEXTURE_2D, level, internalFormat, srcFormat, srcType, image);
 
       if (TextureLoader.isPowerOf2(image.width) && TextureLoader.isPowerOf2(image.height)) {
         glContext.generateMipmap(glContext.TEXTURE_2D);
@@ -40,5 +35,3 @@ class TextureLoader {
     return (value & (value - 1)) == 0;
   }
 }
-
-module.exports = TextureLoader;

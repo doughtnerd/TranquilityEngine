@@ -1,11 +1,13 @@
-const GameObject = require("../../engine/GameObject");
-const CameraObject = require("../../engine/CameraObject");
-const PlayerObject = require("../gameObjects/PlayerObject");
-const { Vector3 } = require("../../engine/Vector3");
-const Ground = require("../gameObjects/Ground");
-const Background = require("../gameObjects/Background");
-const PipeDown = require("../gameObjects/PipeDown");
-const PipeUp = require("../gameObjects/PipeUp");
+import GameObject from "../../engine/GameObject";
+import CameraObject from "../../engine/CameraObject";
+import PlayerObject from "../gameObjects/PlayerObject";
+import RigidBody from "../../engine/RigidBody";
+import BoxCollider from "../../engine/BoxCollider";
+import InfiniteScroller from "../behaviors/InfiniteScroller";
+import PipeSpawner from "../behaviors/PipeSpawner";
+import Ground from "../gameObjects/Ground";
+import Background from "../gameObjects/Background";
+import { Vector3 } from "../../engine/Vector3";
 
 const cameraObj = {
   sceneId: 0,
@@ -57,21 +59,22 @@ const infiniteGround = {
       },
     },
     RigidBody: {
-      type: require("../../engine/RigidBody"),
+      type: RigidBody,
       attributes: {
         static: true,
       },
     },
     BoxCollider: {
-      type: require("../../engine/BoxCollider"),
+      type: BoxCollider,
       attributes: {
         bounds: {
           size: [30, 5, 1],
         },
+        collisionLayer: 1,
       },
     },
-    InfiniteBackground: {
-      type: require("../behaviors/InfiniteScroller"),
+    InfiniteScroller: {
+      type: InfiniteScroller,
       attributes: {
         startPos: new Vector3(0, -13, -1),
         backgroundToSpawn: Ground,
@@ -94,7 +97,7 @@ const infiniteBackground = {
       },
     },
     InfiniteScroller: {
-      type: require("../behaviors/InfiniteScroller"),
+      type: InfiniteScroller,
       attributes: {
         startPos: new Vector3(0, 3, 3),
         backgroundToSpawn: Background,
@@ -105,40 +108,19 @@ const infiniteBackground = {
   },
 };
 
-// const pipeUp = {
-//   sceneId: 4,
-//   type: PipeUp,
-//   behaviors: {
-//     Transform: {
-//       attributes: {
-//         position: new Vector3(0, -10, 0),
-//       },
-//     },
-//   },
-// };
-
-// const pipeDown = {
-//   sceneId: 5,
-//   type: PipeDown,
-//   behaviors: {
-//     Transform: {
-//       attributes: {
-//         position: new Vector3(0, 5, 0),
-//       },
-//     },
-//   },
-// };
-
 const pipeSpanwer = {
   sceneId: 6,
   type: GameObject,
+  attributes: {
+    name: "Pipe Spawner",
+  },
   behaviors: {
     PipeSpawner: {
-      type: require("../../assets/behaviors/PipeSpawner"),
+      type: PipeSpawner,
     },
   },
 };
 
-module.exports = {
+export default {
   gameObjects: [cameraObj, playerObj, infiniteGround, infiniteBackground, pipeSpanwer],
 };

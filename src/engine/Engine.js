@@ -1,9 +1,8 @@
-const Time = require("./Time");
-const SceneManager = require("./SceneManager");
-const PhysicsEngine = require("./PhysicsEngine");
-
-const Input = require("./Input");
-const Camera = require("./rendering/Camera");
+import Input from "./Input";
+import PhysicsEngine from "./PhysicsEngine";
+import Camera from "./rendering/Camera";
+import SceneManager from "./SceneManager";
+import Time from "./Time";
 
 let updateInterval;
 let fixedUpdateInterval;
@@ -62,7 +61,7 @@ function render() {
   Camera.allCameras.forEach((cam) => cam.render());
 }
 
-module.exports = {
+export default {
   play,
   frameRate,
   targetFrameRate,

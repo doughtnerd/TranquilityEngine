@@ -1,6 +1,4 @@
-
-class Endpoint {
-
+export default class Endpoint {
   collider;
   value;
   isMin;
@@ -11,5 +9,3 @@ class Endpoint {
     this.isMin = isMin;
   }
 }
-
-module.exports = Endpoint;

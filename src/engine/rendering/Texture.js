@@ -1,7 +1,4 @@
-
-
-class Texture {
-
+export default class Texture {
   imageSource;
 
   constructor(imageSource) {
@@ -19,10 +16,8 @@ class Texture {
     const border = 0;
     const srcFormat = glContext.RGBA;
     const srcType = glContext.UNSIGNED_BYTE;
-    const pixel = new Uint8Array([0, 0, 255, 255]);  // opaque blue
-    glContext.texImage2D(glContext.TEXTURE_2D, level, internalFormat,
-      width, height, border, srcFormat, srcType,
-      pixel);
+    const pixel = new Uint8Array([0, 0, 255, 255]); // opaque blue
+    glContext.texImage2D(glContext.TEXTURE_2D, level, internalFormat, width, height, border, srcFormat, srcType, pixel);
 
     const image = new Image();
     image.onload = function () {
@@ -51,5 +46,3 @@ class Texture {
     return (value & (value - 1)) == 0;
   }
 }
-
-module.exports = Texture;

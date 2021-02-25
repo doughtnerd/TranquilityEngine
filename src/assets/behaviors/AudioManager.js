@@ -1,10 +1,8 @@
-const GameBehavior = require("../../engine/GameBehavior");
-const AudioPlayer = require("../../engine/AudioPlayer");
+import AudioPlayer from "../../engine/AudioPlayer";
+import GameBehavior from "../../engine/GameBehavior";
 
-class AudioManager extends GameBehavior {
+export default class AudioManager extends GameBehavior {
   start() {
     this.gameObject.getBehavior(AudioPlayer).loop("./assets/music/town.mp3");
   }
 }
-
-module.exports = AudioManager;

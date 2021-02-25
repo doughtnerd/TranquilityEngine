@@ -4,7 +4,7 @@ import { Vector3 } from "../../engine/Vector3";
 import PipeDown from "../gameObjects/PipeDown";
 import PipeUp from "../gameObjects/PipeUp";
 
-export class PipeSpawner extends GameBehavior {
+export default class PipeSpawner extends GameBehavior {
   positions = [
     {
       up: new Vector3(0, -3, 0),

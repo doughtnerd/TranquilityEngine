@@ -1,18 +1,15 @@
-const GameBehavior = require("../GameBehavior");
-const eventEmitter = require('events');
+import GameBehavior from "../GameBehavior";
 
-class Renderer extends GameBehavior {
-    material = {};
-    materials = [];
-    rendererPriority = 1000;
-    renderingLayerMask;
-    worldToLocalMatrix;
+export default class Renderer extends GameBehavior {
+  material = {};
+  materials = [];
+  rendererPriority = 1000;
+  renderingLayerMask;
+  worldToLocalMatrix;
 
-    getMaterials() {
-        return this.materials;
-    }
+  getMaterials() {
+    return this.materials;
+  }
 
-    render(camera) {}
+  render(camera) {}
 }
-
-module.exports = Renderer;

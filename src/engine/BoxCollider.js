@@ -1,6 +1,7 @@
-const Collider = require("./physics/Collider");
-const Endpoint = require("./physics/Endpoint");
-class BoxCollider extends Collider {
+import Collider from "./physics/Collider";
+import Endpoint from "./physics/Endpoint";
+
+export default class BoxCollider extends Collider {
   awake() {
     this.updateCenter();
 
@@ -16,8 +17,5 @@ class BoxCollider extends Collider {
       new Endpoint(this, this.bounds.center[2] - this.bounds.size[2], true),
       new Endpoint(this, this.bounds.center[2] + this.bounds.size[2], false),
     ];
-
   }
 }
-
-module.exports = BoxCollider;

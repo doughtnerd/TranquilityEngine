@@ -1,15 +1,15 @@
-const GameBehavior = require("../../engine/GameBehavior");
-const SceneManager = require("../../engine/SceneManager");
-const Time = require("../../engine/Time");
-const { Vector3 } = require("../../engine/Vector3");
+import GameBehavior from "../../engine/GameBehavior";
+import SceneManager from "../../engine/SceneManager";
+import Time from "../../engine/Time";
+import { Vector3 } from "../../engine/Vector3";
 
-class InfiniteScroller extends GameBehavior {
-  backgroundToSpawn;
+export default class InfiniteScroller extends GameBehavior {
+  backgroundToSpawn = null;
   startPos = Vector3.zero;
   rightBound = 32;
   scrollVelocity = new Vector3(-5, 0, 0);
-  activeScroller;
-  previousScroller;
+  activeScroller = null;
+  previousScroller = null;
 
   awake() {
     this.activeScroller = new this.backgroundToSpawn();
@@ -42,5 +42,3 @@ class InfiniteScroller extends GameBehavior {
     }
   }
 }
-
-module.exports = InfiniteScroller;

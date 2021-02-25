@@ -1,16 +1,17 @@
-const BoxCollider = require("../../engine/BoxCollider");
-const GameObject = require("../../engine/GameObject");
-const SpriteRenderer = require("../../engine/rendering/SpriteRenderer");
-const { Vector3 } = require("../../engine/Vector3");
+import BoxCollider from "../../engine/BoxCollider";
+import GameObject from "../../engine/GameObject";
+import SpriteRenderer from "../../engine/rendering/SpriteRenderer";
+import { Vector3 } from "../../engine/Vector3";
+import pipeSprite from "../images/PipeDown.png";
 
-class PipeDown extends GameObject {
+export default class PipeDown extends GameObject {
   constructor(name = "PipeDown") {
     super(name);
 
     this.transform.scale = new Vector3(2, 10, 1);
 
     this.addBehavior(SpriteRenderer).init({
-      sprite: require("../images/PipeDown.png"),
+      sprite: pipeSprite,
       color: [1, 1, 1, 1],
       renderPriority: 2000,
     });
@@ -20,9 +21,7 @@ class PipeDown extends GameObject {
         size: [2, 5, 1],
       },
       isTrigger: true,
-      physicsLayer: 1,
+      collisionLayer: 1,
     });
   }
 }
-
-module.exports = PipeDown;

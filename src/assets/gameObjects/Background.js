@@ -1,8 +1,9 @@
-const GameObject = require("../../engine/GameObject");
-const SpriteRenderer = require("../../engine/rendering/SpriteRenderer");
-const { Vector3 } = require("../../engine/Vector3");
+import GameObject from "../../engine/GameObject";
+import SpriteRenderer from "../../engine/rendering/SpriteRenderer";
+import { Vector3 } from "../../engine/Vector3";
+import backgroundImage from "../images/background.png";
 
-class Background extends GameObject {
+export default class Background extends GameObject {
   constructor(name = "background") {
     super(name);
 
@@ -10,10 +11,8 @@ class Background extends GameObject {
 
     this.addBehavior(SpriteRenderer).init({
       rendererPriority: 0,
-      sprite: require("../images/background.png"),
+      sprite: backgroundImage,
       color: [1, 1, 1, 1],
     });
   }
 }
-
-module.exports = Background;

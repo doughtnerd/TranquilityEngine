@@ -1,9 +1,7 @@
-const Collider = require("./Collider");
-const uuid = require("uuid");
-// const RigidBody = require("../RigidBody");
-
+import Collider from "./Collider";
+import * as uuid from "uuid";
 //Sweep and prune collision system
-class SAP {
+export default class SAP {
   colliders = [];
 
   endpointsX = [];
@@ -51,7 +49,7 @@ class SAP {
       }
     }
 
-    // console.log(currentWorldCollisions);
+    // console.debug(currentWorldCollisions);
 
     this.worldCollisions = allWorldCollisions;
 
@@ -107,5 +105,3 @@ class SAP {
     }
   }
 }
-
-module.exports = SAP;

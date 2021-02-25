@@ -1,17 +1,15 @@
-const Material = require('../Material');
-class SpriteDefaultMaterial extends Material {
-
+import vert from "./sprite-default.vert";
+import frag from "./sprite-default.frag";
+import Material from "../Material";
+export default class SpriteDefaultMaterial extends Material {
   shader = {
-    vert: require('./sprite-default.vert'),
-    frag: require('./sprite-default.frag'),
-  }
+    vert,
+    frag,
+  };
 
   colors = { uMainColor: [] };
 
   textures = { uMainTex: null };
 
   attributes = [];
-
 }
-
-module.exports = SpriteDefaultMaterial;

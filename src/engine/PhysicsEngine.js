@@ -1,9 +1,9 @@
-const Collider = require("./physics/Collider");
-const SAP = require("./physics/SAP");
-const RigidBody = require("./RigidBody");
-const SceneManager = require("./SceneManager");
+import Collider from "./physics/Collider";
+import SAP from "./physics/SAP";
+import RigidBody from "./RigidBody";
+import SceneManager from "./SceneManager";
 
-class PhysicsEngine {
+export default class PhysicsEngine {
   static sap = new SAP();
 
   static fixedUpdate() {
@@ -20,7 +20,7 @@ class PhysicsEngine {
 
   static handleCollisions({ enterWorldCollisions, exitWorldCollisions, stayWorldCollisions }) {
     enterWorldCollisions.forEach(({ a, b, nEnter, penetration, isIntersecting }) => {
-      // console.log(enterWorldCollisions, exitWorldCollisions, stayWorldCollisions);
+      // console.debug(enterWorldCollisions, exitWorldCollisions, stayWorldCollisions);
       if (a.isTrigger) {
         b.gameObject.getBehaviors().forEach((behavior) => behavior.onTriggerEnter(a));
       }
@@ -41,5 +41,3 @@ class PhysicsEngine {
     });
   }
 }
-
-module.exports = PhysicsEngine;

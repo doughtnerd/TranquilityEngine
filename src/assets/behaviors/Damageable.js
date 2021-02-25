@@ -1,7 +1,7 @@
-const GameBehavior = require("../../engine/GameBehavior");
-const EventEmitter = require("events");
+import GameBehavior from "../../engine/GameBehavior";
+import EventEmitter from "events";
 
-class Damageable extends GameBehavior {
+export default class Damageable extends GameBehavior {
   health = 1;
   eventEmitter = new EventEmitter();
 
@@ -15,8 +15,6 @@ class Damageable extends GameBehavior {
   }
 
   onTriggerEnter() {
-    console.log("Damaged!!!");
+    console.debug("Damaged!!!");
   }
 }
-
-module.exports = Damageable;

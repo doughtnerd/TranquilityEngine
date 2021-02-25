@@ -1,9 +1,9 @@
+import GameBehavior from "./GameBehavior";
 import { Vector3 } from "./Vector3";
 
-const GameBehavior = require("./GameBehavior");
-const { mat4, quat } = require("gl-matrix");
+import { mat4, quat } from "gl-matrix";
 
-export class Transform extends GameBehavior {
+export default class Transform extends GameBehavior {
   public position: Vector3 = Vector3.zero;
 
   public rotation = {
@@ -24,14 +24,14 @@ export class Transform extends GameBehavior {
 
   createModelMatrix() {
     let quaternion = quat.fromEuler(
-      [],
+      quat.create(),
       -this.rotation.x,
       -this.rotation.y,
       this.rotation.z
     );
 
     const modelViewMatrix = mat4.fromRotationTranslationScale(
-      [],
+      mat4.create(),
       quaternion,
       [this.position.x, this.position.y, -this.position.z],
       [this.scale.x, this.scale.y, this.scale.z]
@@ -40,5 +40,3 @@ export class Transform extends GameBehavior {
     return modelViewMatrix;
   }
 }
-
-export default Transform;

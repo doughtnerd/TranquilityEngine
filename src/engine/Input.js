@@ -1,7 +1,6 @@
-
 var drag = false;
 
-class Input {
+export default class Input {
   static mousePosition = {
     x: 0,
     y: 0,
@@ -29,23 +28,22 @@ class Input {
       if (Input.activeInputs.hasOwnProperty(key)) return;
       Input.activeInputs[key] = Input.InputPhase.InputDownCaptured;
     });
-    
+
     screen.addEventListener("keyup", (event) => {
       const key = event.key.toLowerCase();
       Input.activeInputs[key] = Input.InputPhase.InputUpCaptured;
     });
-    
+
     screen.addEventListener(
       "mousedown",
       (event) => {
-        if (Input.activeInputs["mouse"] === Input.InputPhase.InputDownCaptured)
-          return;
+        if (Input.activeInputs["mouse"] === Input.InputPhase.InputDownCaptured) return;
         Input.activeInputs["mouse"] = Input.InputPhase.InputDownCaptured;
         event.preventDefault();
       },
       false
     );
-    
+
     screen.addEventListener(
       "mouseup",
       (event) => {
@@ -54,7 +52,7 @@ class Input {
       },
       false
     );
-    
+
     screen.addEventListener(
       "mouseout",
       (event) => {
@@ -63,7 +61,7 @@ class Input {
       },
       false
     );
-    
+
     screen.addEventListener(
       "mouseenter",
       (event) => {
@@ -72,23 +70,18 @@ class Input {
       },
       false
     );
-    
+
     screen.addEventListener(
       "mousemove",
       (event) => {
-        Input.mouseAxis.x =
-          ((event.pageX - Input.mousePosition.x) * 2 * Math.PI) /
-          screen.width;
-        Input.mouseAxis.y = -(
-          ((event.pageY - Input.mousePosition.y) * 2 * Math.PI) /
-          screen.height
-        );
-    
+        Input.mouseAxis.x = ((event.pageX - Input.mousePosition.x) * 2 * Math.PI) / screen.width;
+        Input.mouseAxis.y = -(((event.pageY - Input.mousePosition.y) * 2 * Math.PI) / screen.height);
+
         Input.mousePosition.x = event.pageX;
         Input.mousePosition.y = event.pageY;
-    
+
         const yPosPercentage = Input.mousePosition.y / screen.height;
-    
+
         event.preventDefault();
       },
       false
@@ -156,5 +149,3 @@ class Input {
     return Input.activeInputs[key] === Input.InputPhase.InputUpHappening;
   }
 }
-
-module.exports = Input;

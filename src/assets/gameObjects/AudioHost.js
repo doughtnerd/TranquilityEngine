@@ -1,11 +1,9 @@
-const AudioPlayer = require("../../engine/AudioPlayer");
-const GameObject = require("../../engine/GameObject");
+import AudioPlayer from "../../engine/AudioPlayer";
+import GameObject from "../../engine/GameObject";
 
-class AudioHost extends GameObject {
+export default class AudioHost extends GameObject {
   constructor(name = "audio") {
     super(name);
     this.addBehavior(AudioPlayer);
   }
 }
-
-module.exports = AudioHost;

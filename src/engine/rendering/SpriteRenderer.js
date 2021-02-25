@@ -1,14 +1,12 @@
-const Material = require("../materials/Material");
-const TextureLoader = require("./TextureLoader");
-const Camera = require("./Camera");
-const Renderer = require('./Renderer');
-const SpriteDefaultMaterial = require("../materials/sprite-default/SpriteDefaultMaterial");
-const { create } = require("./Screen");
+import SpriteDefaultMaterial from "../materials/sprite-default/SpriteDefaultMaterial";
+import Renderer from "./Renderer";
+import defaultSprite from "../sprites/White-Square.jpg";
+import Material from "../materials/Material";
 
-class SpriteRenderer extends Renderer {
-  sprite = require('../sprites/White-Square.jpg');
+export default class SpriteRenderer extends Renderer {
+  sprite = defaultSprite;
   material = new SpriteDefaultMaterial();
-  color = [1,1,1,1];
+  color = [1, 1, 1, 1];
   flipX = false;
   flipY = false;
   size = 1;
@@ -22,15 +20,7 @@ class SpriteRenderer extends Renderer {
         normalize: false,
         stride: 0,
         offset: 0,
-        data: [
-          -0.5, -0.5, 0, 
-          0.5, 0.5, 0, 
-          -0.5, 0.5, 0, 
-
-          -0.5, -0.5, 0, 
-          0.5, -0.5, 0,
-          0.5, 0.5, 0, 
-        ],
+        data: [-0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0, -0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0],
         buffer: [],
       },
       {
@@ -40,15 +30,7 @@ class SpriteRenderer extends Renderer {
         normalize: false,
         stride: 0,
         offset: 0,
-        data: [
-          0.0, 1.0, 
-          1.0, 0.0, 
-          0.0, 0.0, 
-          
-          0.0, 1.0, 
-          1.0, 1.0, 
-          1.0, 0.0, 
-        ],
+        data: [0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0],
         buffer: [],
       },
     ];
@@ -58,7 +40,4 @@ class SpriteRenderer extends Renderer {
     this.material.mainColor = this.color;
     this.material.mainTexture = this.sprite;
   }
-
 }
-
-module.exports = SpriteRenderer;

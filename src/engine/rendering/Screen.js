@@ -1,28 +1,25 @@
-const screens = {
+const screens = {};
 
-}
+function create({ resolution: { height, width } }) {
+  const screenElement = document.createElement("canvas");
 
-function create({resolution: {height, width}}) {
+  screenElement.setAttribute("width", width);
+  screenElement.setAttribute("height", height);
+  screenElement.setAttribute("tabindex", 0);
 
-    const screenElement = document.createElement('canvas');
+  screenElement.focus();
+  screenElement.addEventListener("click", () => screenElement.focus());
 
-    screenElement.setAttribute('width', width);
-    screenElement.setAttribute('height', height);
-    screenElement.setAttribute('tabindex', 0);
+  const glContext = screenElement.getContext("webgl2", {
+    // premultipliedAlpha: true,s
+  });
 
-    screenElement.focus();
-    screenElement.addEventListener('click', () => screenElement.focus())
+  if (glContext === null) {
+    alert("Unable to initialize WebGL. Your browser or machine may not support it.");
+    return;
+  }
 
-    const glContext = screenElement.getContext("webgl2", {
-      // premultipliedAlpha: true,s
-    });
-
-    if (glContext === null) {
-      alert("Unable to initialize WebGL. Your browser or machine may not support it.");
-      return;
-    }
-
-    return {glContext, screenElement};
+  return { glContext, screenElement };
 }
 
 function register(screenIndex, screen) {
@@ -33,5 +30,4 @@ function getScreen(screenIndex) {
   return screens[screenIndex];
 }
 
-const Screen = { create, register, getScreen };
-module.exports = Screen;
+export default { create, register, getScreen };

@@ -1,13 +1,9 @@
-const Camera = require('./rendering/Camera');
-const GameObject = require('./GameObject');
+import GameObject from "./GameObject";
+import Camera from "./rendering/Camera";
 
-class CameraObject extends GameObject {
-
-  constructor(name = 'Camera') {
+export default class CameraObject extends GameObject {
+  constructor(name = "Camera") {
     super(name);
     this.addBehavior(Camera);
   }
-
 }
-
-module.exports = CameraObject;

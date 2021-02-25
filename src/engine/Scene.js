@@ -1,6 +1,4 @@
-
-class Scene {
-
+export default class Scene {
   gameObjects = [];
 
   constructor(gameObjects) {
@@ -8,25 +6,25 @@ class Scene {
   }
 
   awake() {
-    this.gameObjects.forEach(obj => {
-      obj.getBehaviors().forEach(b => b.awake());
+    this.gameObjects.forEach((obj) => {
+      obj.getBehaviors().forEach((b) => b.awake());
     });
   }
 
   update() {
-    this.gameObjects.forEach(obj => {
-      obj.getBehaviors().forEach(b => b.update());
+    this.gameObjects.forEach((obj) => {
+      obj.getBehaviors().forEach((b) => b.update());
     });
   }
 
   start() {
-    this.gameObjects.forEach(obj => {
-      obj.getBehaviors().forEach(b => b.start());
+    this.gameObjects.forEach((obj) => {
+      obj.getBehaviors().forEach((b) => b.start());
     });
   }
 
   instantiate(gameObject) {
-    gameObject.getBehaviors().forEach(b => {
+    gameObject.getBehaviors().forEach((b) => {
       b.awake();
       b.start();
       b.onEnable();
@@ -41,20 +39,17 @@ class Scene {
 
   findObjectOfType(gameObjectType) {
     const result = this.gameObjects.reduce((prev, curr) => {
-      const found = curr.getBehaviors().filter(b => b instanceof gameObjectType);
+      const found = curr.getBehaviors().filter((b) => b instanceof gameObjectType);
       return [...prev, ...found];
-    }, [])
+    }, []);
     return result[0];
   }
 
   findObjectsOfType(gameObjectType) {
     const result = this.gameObjects.reduce((prev, curr) => {
-      const found = curr.getBehaviors().filter(b => b instanceof gameObjectType);
+      const found = curr.getBehaviors().filter((b) => b instanceof gameObjectType);
       return [...prev, ...found];
-    }, [])
+    }, []);
     return result;
   }
-
 }
-
-module.exports = Scene;

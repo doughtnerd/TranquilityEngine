@@ -1,4 +1,4 @@
-class GameBehavior {
+export default class GameBehavior {
   _isActive = false;
 
   constructor(gameObject) {
@@ -67,5 +67,3 @@ class GameBehavior {
   onDrawGizmos() {}
   //#endregion
 }
-
-module.exports = GameBehavior;

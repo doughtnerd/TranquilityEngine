@@ -1,10 +1,9 @@
-const GameBehavior = require("../../engine/GameBehavior");
-const Camera = require("../../engine/rendering/Camera");
-const Input = require("../../engine/Input");
-const RigidBody = require("../../engine/RigidBody");
-const { Vector3 } = require("../../engine/Vector3");
+import GameBehavior from "../../engine/GameBehavior";
+import Input from "../../engine/Input";
+import RigidBody from "../../engine/RigidBody";
+import { Vector3 } from "../../engine/Vector3";
 
-class MoveObject extends GameBehavior {
+export default class MoveObject extends GameBehavior {
   yaw = 0;
   pitch = 0;
 
@@ -60,5 +59,3 @@ class MoveObject extends GameBehavior {
     return newEulerRotation;
   }
 }
-
-module.exports = MoveObject;

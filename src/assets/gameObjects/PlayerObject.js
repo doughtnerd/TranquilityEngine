@@ -1,18 +1,18 @@
-const GameObject = require("../../engine/GameObject");
-const Damageable = require("../behaviors/Damageable");
-const Damager = require("../behaviors/Damager");
-const SpriteRenderer = require("../../engine/rendering/SpriteRenderer");
-const MoveObject = require("../behaviors/MoveObject");
-const BoxCollider = require("../../engine/BoxCollider");
-const RigidBody = require("../../engine/RigidBody");
-const VelocityBasedRotation = require("../behaviors/VelocityBasedRotation");
+import BoxCollider from "../../engine/BoxCollider";
+import GameObject from "../../engine/GameObject";
+import SpriteRenderer from "../../engine/rendering/SpriteRenderer";
+import RigidBody from "../../engine/RigidBody";
+import Damageable from "../behaviors/Damageable";
+import MoveObject from "../behaviors/MoveObject";
+import VelocityBasedRotation from "../behaviors/VelocityBasedRotation";
+import flappyBird from "../images/flappyBird.png";
 
-class PlayerObject extends GameObject {
+export default class PlayerObject extends GameObject {
   constructor(name = "Player") {
     super(name);
     this.addBehavior(Damageable).init({ health: 1 });
     this.addBehavior(SpriteRenderer).init({
-      sprite: require("../images/flappy-bird-1.png"),
+      sprite: flappyBird,
       color: [1, 1, 1, 1],
       rendererPriority: 1000,
     });
@@ -21,11 +21,9 @@ class PlayerObject extends GameObject {
       bounds: {
         size: [0.25, 0.5, 0.5],
       },
-      physicsLayer: 1,
+      collisionLayer: 1,
     });
     this.addBehavior(RigidBody).init({ mass: 20, useGravity: true });
     this.addBehavior(VelocityBasedRotation);
   }
 }
-
-module.exports = PlayerObject;

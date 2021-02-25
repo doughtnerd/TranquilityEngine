@@ -1,12 +1,13 @@
-const GameBehavior = require("../GameBehavior");
-const Endpoint = require("./Endpoint");
-const { Vector3 } = require("../Vector3");
-class Collider extends GameBehavior {
+import GameBehavior from "../GameBehavior";
+import { Vector3 } from "../Vector3";
+import Endpoint from "./Endpoint";
+
+export default class Collider extends GameBehavior {
   enabled = true;
   isTrigger = false;
   attachedRigidbody;
 
-  physicsLayer = 0;
+  collisionLayer = 0;
 
   bounds = {
     center: [],
@@ -88,7 +89,7 @@ class Collider extends GameBehavior {
   }
 
   static AABBAABB(a, b) {
-    if (a.physicsLayer !== b.physicsLayer) {
+    if (a.collisionLayer !== b.collisionLayer) {
       return {
         isIntersecting: false,
         nEnter: Vector3.zero,
@@ -189,7 +190,7 @@ class Collider extends GameBehavior {
     const overlap = d0 < d1 ? d0 : -d1;
 
     const overlapDivAxisLength = overlap / axisLengthSquared;
-    // console.log(overlapDivAxisLength);
+    // console.debug(overlapDivAxisLength);
     const sep = Vector3.multiplyScalar(axis, overlapDivAxisLength);
 
     const sepLengthSquared = Vector3.dot(sep, sep);
@@ -206,5 +207,3 @@ class Collider extends GameBehavior {
     };
   }
 }
-
-module.exports = Collider;

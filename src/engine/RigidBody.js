@@ -1,9 +1,9 @@
-const GameBehavior = require("./GameBehavior");
-const Time = require("./Time");
-const Physics = require("./Physics");
-const { Vector3 } = require("./Vector3");
+import GameBehavior from "./GameBehavior";
+import Physics from "./Physics";
+import Time from "./Time";
+import { Vector3 } from "./Vector3";
 
-class RigidBody extends GameBehavior {
+export default class RigidBody extends GameBehavior {
   useGravity = false;
   static = false;
   mass = 20;
@@ -13,10 +13,10 @@ class RigidBody extends GameBehavior {
   airDensity = 2;
   velocity = Vector3.zero;
   angularVelocity = [0, 0, 0];
-  maxLinearVelocity;
-  maxAngularVelocity;
+  // maxLinearVelocity;
+  // maxAngularVelocity;
 
-  inertiaTensor;
+  inertiaTensor = [];
 
   acceleration = Vector3.zero;
 
@@ -30,42 +30,37 @@ class RigidBody extends GameBehavior {
   }
 
   fixedUpdate() {
-    if(this.static) {
+    if (this.static) {
       return;
     }
 
     if (this.useGravity) {
-      this.acceleration = Vector3.add(this.acceleration, Vector3.scale(this.calculateGravityAcceleration(), Time.fixedDeltaTime))
+      this.acceleration = Vector3.add(this.acceleration, Vector3.scale(this.calculateGravityAcceleration(), Time.fixedDeltaTime));
     }
-    
+
     this.acceleration = Vector3.scale(this.acceleration, Time.fixedDeltaTime);
     this.velocity = Vector3.add(this.velocity, this.acceleration);
     // this.velocity = Vector3.scale(this.velocity, Time.fixedDeltaTime);
 
-    let newGameObjectPosition = Vector3.add(
-      this.gameObject.transform.position,
-      this.velocity
-    );
+    let newGameObjectPosition = Vector3.add(this.gameObject.transform.position, this.velocity);
 
     this.gameObject.transform.position = newGameObjectPosition;
 
     this.acceleration = Vector3.zero;
   }
 
-  addForce(forceVector, mode = 'force') {
-
-    switch(mode) {
-      case 'force':
-        forceVector = Vector3.scale(forceVector, Time.fixedDeltaTime)
+  addForce(forceVector, mode = "force") {
+    switch (mode) {
+      case "force":
+        forceVector = Vector3.scale(forceVector, Time.fixedDeltaTime);
         forceVector = Vector3.divideScalar(forceVector, this.mass);
         this.acceleration = Vector3.add(this.acceleration, forceVector);
         break;
-      case 'impulse':
+      case "impulse":
         forceVector = Vector3.divideScalar(forceVector, this.mass);
         this.acceleration = Vector3.add(this.acceleration, forceVector);
         break;
     }
-    
   }
 
   addTorque(torqueVector) {
@@ -77,12 +72,9 @@ class RigidBody extends GameBehavior {
     this.angularVelocity[0] += angularAcceleration[0];
     this.angularVelocity[1] += angularAcceleration[1];
     this.angularVelocity[2] += angularAcceleration[2];
-    this.gameObject.transform.rotation.x +=
-      this.angularVelocity[0] * Time.fixedDeltaTime;
-    this.gameObject.transform.rotation.y +=
-      this.angularVelocity[1] * Time.fixedDeltaTime;
-    this.gameObject.transform.rotation.z +=
-      this.angularVelocity[2] * Time.fixedDeltaTime;
+    this.gameObject.transform.rotation.x += this.angularVelocity[0] * Time.fixedDeltaTime;
+    this.gameObject.transform.rotation.y += this.angularVelocity[1] * Time.fixedDeltaTime;
+    this.gameObject.transform.rotation.z += this.angularVelocity[2] * Time.fixedDeltaTime;
   }
 
   get weight() {
@@ -133,5 +125,3 @@ class RigidBody extends GameBehavior {
     return new Vector3(0, -linearAcceleration, 0);
   }
 }
-
-module.exports = RigidBody;

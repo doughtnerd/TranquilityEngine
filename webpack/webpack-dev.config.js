@@ -8,36 +8,16 @@ module.exports = {
   module: {
     rules: [
       {
-        test: /\.tsx?$/,
-        use: "awesome-typescript-loader",
+        test: /\.[tj]sx?$/,
+        use: "ts-loader",
         exclude: /node_modules/,
-      },
-      {
-        test: /\.js$/,
-        exclude: /node_modules/,
-        use: [
-          {
-            loader: "babel-loader",
-            options: {
-              plugins: ["@babel/plugin-proposal-class-properties"],
-            },
-          },
-        ],
       },
       {
         test: [/\.vert$/, /\.frag$/],
         use: "raw-loader",
       },
       {
-        test: /\.(gif|png|jpe?g|svg|xml)$/i,
-        use: [
-          {
-            loader: "file-loader",
-          },
-        ],
-      },
-      {
-        test: /\.mp3$/i,
+        test: /\.(gif|png|jpe?g|svg|xml|mp3)$/i,
         use: [
           {
             loader: "file-loader",

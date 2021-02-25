@@ -1,6 +1,6 @@
-const { Transform } = require("./Transform");
+import Transform from "./Transform";
 
-class GameObject {
+export default class GameObject {
   name;
   tags = [];
   behaviors = new Map();
@@ -27,7 +27,16 @@ class GameObject {
   }
 
   addBehavior(behaviorType) {
-    const behavior = new behaviorType(this);
+    console.debug("---Adding behavior: ", behaviorType);
+
+    let behavior;
+    try {
+      console.debug("---Attempting to create behavior: ", behaviorType);
+      behavior = new behaviorType(this);
+    } catch (e) {
+      console.debug("---Failed first attempt, trying method 2: ", behaviorType);
+      behavior = new behaviorType[behaviorType](this);
+    }
     this.behaviors.set(behaviorType.name, behavior);
     return behavior;
   }
@@ -36,5 +45,3 @@ class GameObject {
 
   static instantiate(gameObjectConstructor) {}
 }
-
-module.exports = GameObject;

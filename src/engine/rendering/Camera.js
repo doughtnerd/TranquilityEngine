@@ -1,12 +1,13 @@
-const GameBehavior = require("../GameBehavior");
-const SceneManager = require("../SceneManager");
-const mat4 = require("gl-matrix").mat4;
-const SceneRenderer = require("./SceneRenderer");
-const Renderer = require("./Renderer");
-const FastPriorityQueue = require("fastpriorityqueue");
-const Screen = require("./Screen");
+import FastPriorityQueue from "fastpriorityqueue";
+import GameBehavior from "../GameBehavior";
+import SceneManager from "../SceneManager";
+import Screen from "./Screen";
+import SceneRenderer from "./SceneRenderer";
+import Renderer from "./Renderer";
 
-class Camera extends GameBehavior {
+import { mat4 } from "gl-matrix";
+
+export default class Camera extends GameBehavior {
   static ProjectionType = {
     Perspective: "perspective",
     Orthographic: "orthographic",
@@ -35,7 +36,7 @@ class Camera extends GameBehavior {
     a: 1,
   };
   targetDisplay = null;
-  targetDisplayIndex;
+  targetDisplayIndex = 0;
   projection = Camera.ProjectionType.Perspective;
   fieldOfView = 80;
   clippingPlanes = {
@@ -81,7 +82,7 @@ class Camera extends GameBehavior {
       });
     });
 
-    // console.log(this.renderQueue);
+    // console.debug(this.renderQueue);
 
     SceneRenderer.drawFrame(this, this.renderQueue);
   }
@@ -115,5 +116,3 @@ class Camera extends GameBehavior {
     return projectionMatrix;
   }
 }
-
-module.exports = Camera;

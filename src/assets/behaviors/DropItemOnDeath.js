@@ -1,8 +1,8 @@
-const GameBehavior = require("../../engine/GameBehavior");
-const Damageable = require("./Damageable");
-const Time = require("../../engine/Time");
+import GameBehavior from "../../engine/GameBehavior";
+import Time from "../../engine/Time";
+import Damageable from "./Damageable";
 
-class DropItemOnDeath extends GameBehavior {
+export default class DropItemOnDeath extends GameBehavior {
   item;
 
   awake() {
@@ -18,8 +18,6 @@ class DropItemOnDeath extends GameBehavior {
   }
 
   dropItem() {
-    console.log(`${this.gameObject.name} Dropped: ${this.item}`);
+    console.debug(`${this.gameObject.name} Dropped: ${this.item}`);
   }
 }
-
-module.exports = DropItemOnDeath;

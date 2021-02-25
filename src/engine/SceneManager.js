@@ -1,5 +1,5 @@
-const EventEmitter = require("events");
-const Scene = require("./Scene");
+import EventEmitter from "events";
+import Scene from "./Scene";
 
 class SceneManager {
   static eventEmitter = new EventEmitter();
@@ -21,7 +21,9 @@ class SceneManager {
 
   static instantiateSceneObjects(gameObjects) {
     return gameObjects.map((obj, index) => {
+      console.debug("---Instantiating: ", obj);
       const instantiatedObj = SceneManager.instantiateSceneObject(obj);
+      console.debug("---Instantiated: ", instantiatedObj);
 
       SceneManager.eventEmitter.emit("sceneLoading", {
         progress: (index + 1) / gameObjects.length,
@@ -32,7 +34,9 @@ class SceneManager {
   }
 
   static instantiateSceneObject(gameObject) {
-    const instantiatedGameObject = new gameObject.type();
+    console.debug("---Now instancing gameobject: ", gameObject);
+    const instantiatedGameObject = new gameObject.type(); //.type();
+    console.debug("---Instanced gameobject: ", gameObject);
 
     SceneManager.applyGameObjectAttributes(instantiatedGameObject, gameObject.attributes);
 
@@ -54,25 +58,30 @@ class SceneManager {
     for (const key in behaviorSettings) {
       const behaviorType = key;
 
+      console.debug("---Applying behavior settings for: ", behaviorType);
+
       const attributes = behaviorSettings[behaviorType].attributes;
-      console.log(behaviorType);
       let behavior = gameObject.getBehavior(behaviorType);
 
       if (!behavior) {
+        console.debug("---GameObject does not have behavior attached. ", behavior);
         try {
-          gameObject.addBehavior(behaviorSettings[behaviorType].type[behaviorType]);
-          behavior = gameObject.getBehavior(behaviorSettings[behaviorType].type[behaviorType]);
-        } catch (err) {
           gameObject.addBehavior(behaviorSettings[behaviorType].type);
           behavior = gameObject.getBehavior(behaviorSettings[behaviorType].type);
+        } catch (err) {
+          gameObject.addBehavior(behaviorSettings[behaviorType].type[behaviorType]);
+          behavior = gameObject.getBehavior(behaviorSettings[behaviorType].type[behaviorType]);
         }
-      } else {
-        behavior = gameObject.getBehavior(behaviorType);
       }
 
+      console.debug("---Initializing GameBehavior. ", behaviorType, attributes);
+
       behavior.init(attributes);
+
+      console.debug("---Finished applying behavior settings for: ", behaviorType);
     }
   }
 }
 
-module.exports = SceneManager;
+// module.exports = SceneManager;
+export default SceneManager;

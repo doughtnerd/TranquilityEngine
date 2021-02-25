@@ -1,13 +1,10 @@
-const Howler = require('howler');
+import GameBehavior from "./GameBehavior";
+import Howler from "howler";
+import EventEmitter from "events";
 
-const EventEmitter = require('events');
-const GameBehavior = require('./GameBehavior');
-// const AssetDatabase = require('../engine/AssetDatabase');
-
-class AudioPlayer extends GameBehavior {
-
+export default class AudioPlayer extends GameBehavior {
   playOnStart = false;
-  audioPath = '';
+  audioPath = "";
   loop = false;
   eventEmitter = new EventEmitter();
   audio;
@@ -18,9 +15,7 @@ class AudioPlayer extends GameBehavior {
     }
   }
 
-  stop() {
-
-  }
+  stop() {}
 
   play(audioPath) {
     // this.stop();
@@ -41,5 +36,3 @@ class AudioPlayer extends GameBehavior {
     // });
   }
 }
-
-module.exports = AudioPlayer;

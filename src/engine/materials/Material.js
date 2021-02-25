@@ -1,42 +1,41 @@
-const TextureLoader = require("../rendering/TextureLoader");
+import TextureLoader from "../rendering/TextureLoader";
 
-class Material {
-
+export default class Material {
   _loaded = false;
 
   shader = {
     vert: null,
     frag: null,
-    program: null
+    program: null,
   };
 
   static AttributeType = {
-    Byte: 'BYTE',
-    Short: 'SHORT',
-    uByte: 'UNSIGNED_BYTE',
-    uShort: 'UNSIGNED_SHORT',
-    Float: 'FLOAT',
-  }
-  
+    Byte: "BYTE",
+    Short: "SHORT",
+    uByte: "UNSIGNED_BYTE",
+    uShort: "UNSIGNED_SHORT",
+    Float: "FLOAT",
+  };
+
   colors = {};
   textures = {};
   renderQueue = 1000;
   attributes = [];
 
   set mainTexture(texture) {
-    this.setTexture('uMainTex', texture)
+    this.setTexture("uMainTex", texture);
   }
 
   get mainTexture() {
-    return this.getTexture('uMainTex')
+    return this.getTexture("uMainTex");
   }
 
   set mainColor(color) {
-    this.setColor('uMainColor', color);
+    this.setColor("uMainColor", color);
   }
 
   get mainColor() {
-    return this.getColor('uMainColor')
+    return this.getColor("uMainColor");
   }
 
   setColor(colorName, value) {
@@ -64,26 +63,18 @@ class Material {
   }
 
   load(glContext) {
-    if(this._loaded) {
+    if (this._loaded) {
       return;
     }
 
-    this.shader.shaderProgram = this.loadShaderProgram(
-      glContext
-    );
+    this.shader.shaderProgram = this.loadShaderProgram(glContext);
 
     Object.entries(this.textures).forEach(([key, value]) => {
-      this.textures[key] = TextureLoader.load(
-        value,
-        glContext
-      )
+      this.textures[key] = TextureLoader.load(value, glContext);
     });
 
     this.attributes.forEach((attribute) => {
-      attribute.buffer = Material.createBuffer(
-        glContext,
-        attribute.data
-      );
+      attribute.buffer = Material.createBuffer(glContext, attribute.data);
     });
 
     this._loaded = true;
@@ -108,7 +99,7 @@ class Material {
     glContext.linkProgram(shaderProgram);
 
     if (!glContext.getProgramParameter(shaderProgram, glContext.LINK_STATUS)) {
-      alert('Unable to initialize the shader program: ' + glContext.getProgramInfoLog(shaderProgram));
+      alert("Unable to initialize the shader program: " + glContext.getProgramInfoLog(shaderProgram));
       return null;
     }
 
@@ -117,18 +108,16 @@ class Material {
 
   loadShader(glContext, type, source) {
     const shader = glContext.createShader(type);
-  
+
     glContext.shaderSource(shader, source);
     glContext.compileShader(shader);
-  
+
     if (!glContext.getShaderParameter(shader, glContext.COMPILE_STATUS)) {
-      alert('An error occurred compiling the shaders: ' + glContext.getShaderInfoLog(shader));
+      alert("An error occurred compiling the shaders: " + glContext.getShaderInfoLog(shader));
       glContext.deleteShader(shader);
       return null;
     }
-  
+
     return shader;
   }
 }
-
-module.exports = Material;

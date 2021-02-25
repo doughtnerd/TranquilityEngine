@@ -34,16 +34,15 @@ The basic skeleton for a GameObject class is the following:
 
 #### PlayerObject.js
 ```JavaScript
-const GameObject = require("../../engine/GameObject");
+import GameObject from "../../engine/GameObject";
 
-class PlayerObject extends GameObject {
+export default class PlayerObject extends GameObject {
   constructor(name = "Player") {
     super(name);
-    // ... Below is where you would attach GameBehaviors 
+    // Game Behaviors can be attached below
   }
 }
 
-module.exports = PlayerObject;
 ```
 
 ### GameBehavior Based Scripting
@@ -52,32 +51,29 @@ Just like Unity, this game engine uses Behaviors that attach to your GameObjects
 GameBehaviors have lifecycle hooks that can be used to bring your script to life. A basic GameBehavior script might look like the following:
 
 ```JavaScript
-const GameBehavior = require('../../engine/GameBehavior');
-const Damageable = require('./Damageable');
-const Time = require('../../engine/Time');
+import GameBehavior from "../../engine/GameBehavior";
+import Time from "../../engine/Time";
+import Damageable from "./Damageable";
 
-class DropItemOnDeath extends GameBehavior {
-
+export default class DropItemOnDeath extends GameBehavior {
   item;
 
   awake() {
-    this.gameObject.getBehavior(Damageable).eventEmitter.addListener('Died', this.dropItem.bind(this));
+    this.gameObject.getBehavior(Damageable).eventEmitter.addListener("Died", this.dropItem.bind(this));
   }
 
   update() {
-    this.gameObject.transform.rotation.x = Time.time * 200;
+    // Do something every frame if you want
   }
 
   onDestroy() {
-    this.gameObject.getBehavior(Damageable).eventEmitter.removeListener(this.dropItem.bind(this))
+    this.gameObject.getBehavior(Damageable).eventEmitter.removeListener(this.dropItem.bind(this));
   }
 
   dropItem() {
-    console.log(`${this.gameObject.name} Dropped: ${this.item}`);
+    console.debug(`${this.gameObject.name} Dropped: ${this.item}`);
   }
 }
-
-module.exports = DropItemOnDeath;
 ```
 
 ### Scene Serialization and Loading
@@ -85,11 +81,12 @@ Much like any game engine, you can divide your game up into scenes and load them
 
 ```JavaScript
 import SceneManager from "./engine/SceneManager";
+import scene1 from './assets/scenes/scene1.js'
 
-SceneManager.scenes = [require("./assets/scenes/scene1.js")];
+SceneManager.scenes = [scene1];
 
 SceneManager.eventEmitter.on("sceneLoading", (data: { progress: any }) => {
-  console.log("Scene Load Progress: ", data.progress);
+  console.debug("Scene Load Progress: ", data.progress);
 });
 
 SceneManager.loadScene(0);
@@ -138,58 +135,6 @@ module.exports = {
   gameObjects: [cameraObj, playerObj],
 };
 ```
-
-
-<!-- 
-#### sprite-default.frag
-```glsl
-varying highp vec2 vTextureCoord;
-
-uniform sampler2D uMainTex;
-uniform lowp vec4 uMainColor;
-
-void main() {
-    gl_FragColor = texture2D(uMainTex, vTextureCoord);
-    gl_FragColor.a *= uMainColor.a;
-    gl_FragColor.rgb *= gl_FragColor.a;
-}
-```
-
-#### sprite-default.vert
-```glsl
-attribute vec4 aVertexPosition;
-attribute vec2 aTextureCoord;
-
-uniform mat4 uModelViewProjectionMatrix;
-
-varying highp vec2 vTextureCoord;
-
-void main() {
-  vTextureCoord = aTextureCoord;
-  gl_Position = uModelViewProjectionMatrix * aVertexPosition;
-}
-```
-
-#### SpriteDefaultMaterial.js
-```JavaScript
-const Material = require('../Material');
-class SpriteDefaultMaterial extends Material {
-
-  shader = {
-    vert: require('./sprite-default.vert'),
-    frag: require('./sprite-default.frag'),
-  }
-
-  colors = { uMainColor: [] };
-
-  textures = { uMainTex: null };
-
-  attributes = [];
-
-}
-
-module.exports = SpriteDefaultMaterial;
-``` -->
 
 ### Custom RigidBody Physics & Collisions
 

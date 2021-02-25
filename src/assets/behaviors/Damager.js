@@ -1,7 +1,6 @@
-const GameBehavior = require('../../engine/GameBehavior');
+import GameBehavior from "../../engine/GameBehavior";
 
-class Damager extends GameBehavior {
-
+export default class Damager extends GameBehavior {
   damageAmount = 1;
 
   damage(damageable) {
@@ -9,10 +8,8 @@ class Damager extends GameBehavior {
     if (rand === 1) {
       damageable.damage(this.damageAmount);
     } else {
-      console.log(`${this.gameObject.name} missed ${damageable.gameObject.name}`);
+      console.debug(`${this.gameObject.name} missed ${damageable.gameObject.name}`);
       damageable.damage(0);
     }
   }
 }
-
-module.exports = Damager;
