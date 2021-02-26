@@ -1,4 +1,5 @@
 import GameBehavior from "../GameBehavior";
+import PhysicsEngine from "../PhysicsEngine";
 import { Vector3 } from "../Vector3";
 import Endpoint from "./Endpoint";
 
@@ -21,6 +22,8 @@ export default class Collider extends GameBehavior {
   };
 
   awake() {
+    PhysicsEngine.addCollider(this);
+    
     this.updateCenter();
     this.endpoints.x = [
       new Endpoint(this, this.bounds.center[0] - this.bounds.size[0], true),
@@ -34,6 +37,10 @@ export default class Collider extends GameBehavior {
       new Endpoint(this, this.bounds.center[2] - this.bounds.size[2], true),
       new Endpoint(this, this.bounds.center[2] + this.bounds.size[2], false),
     ];
+  }
+
+  onDestroy() {
+    PhysicsEngine.removeCollider(this);
   }
 
   fixedUpdate() {

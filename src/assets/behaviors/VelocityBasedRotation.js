@@ -2,9 +2,10 @@ import GameBehavior from "../../engine/GameBehavior";
 import RigidBody from "../../engine/RigidBody";
 
 export default class VelocityBasedRotation extends GameBehavior {
-  rigidBody;
+  rigidBody = null;
 
   awake() {
+    console.log("AWAKE")
     this.rigidBody = this.gameObject.getBehavior(RigidBody);
   }
 

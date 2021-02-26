@@ -13,7 +13,7 @@ export default class PipeUp extends GameObject {
     this.addBehavior(SpriteRenderer).init({
       sprite: pipeSprite,
       color: [1, 1, 1, 1],
-      renderPriority: 2000,
+      rendererPriority: 2000,
     });
 
     this.addBehavior(BoxCollider).init({

@@ -1,3 +1,6 @@
+import Collider from "./physics/Collider";
+import PhysicsEngine from "./PhysicsEngine";
+
 export default class Scene {
   gameObjects = [];
 
@@ -7,7 +10,9 @@ export default class Scene {
 
   awake() {
     this.gameObjects.forEach((obj) => {
-      obj.getBehaviors().forEach((b) => b.awake());
+      obj.getBehaviors().forEach((b) => {
+        b.awake()
+      });
     });
   }
 
@@ -29,9 +34,11 @@ export default class Scene {
     })
   }
   
-  instantiate(gameObject) {
+  instantiate(gameObject, transformParent = null) {
     const newObj = new gameObject();
 
+    newObj.transform.setParent(transformParent);
+    
     newObj.getBehaviors().forEach((b) => {
       b.awake();
       b.start();
@@ -42,7 +49,16 @@ export default class Scene {
   }
 
   destroy(gameObject) {
-    this.gameObjects.splice(this.gameObjects.indexOf(gameObject), 1);
+    gameObject.transform.getChildren().forEach(child => {
+      this.destroy(child.gameObject);
+    })
+    const destroyed = this.gameObjects.splice(this.gameObjects.indexOf(gameObject), 1);
+
+    destroyed.forEach(g => g.getBehaviors().forEach(b => b.onDestroy()));
+    
+    gameObject = null
+
+    console.log(this.gameObjects);
   }
 
   findObjectOfType(gameObjectType) {

@@ -43,6 +43,6 @@ class SpriteLit extends Shader {
       },
     ]);
 
-    this.renderPriority = 1000;
+    this.rendererPriority = 1000;
   }
 }

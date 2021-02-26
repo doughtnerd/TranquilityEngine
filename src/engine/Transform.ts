@@ -21,13 +21,27 @@ export default class Transform extends GameBehavior {
   };
   public localScale = Vector3.one;
 
+  private children = [];
+
+  awake() {
+    if(this.parent !== null) {
+      this.localPosition = this.parent.inverseTransformPoint(this.position);
+      this.position = this.parent.transformPoint(this.localPosition);
+    } else {
+      this.localPosition = this.position;
+    }
+  }
+
   lateUpdate() {
     if(this.parent !== null) {
-      this.localPosition = this.parent.inverseTransformPoint(this.transform.position);
-      this.transform = this.parent.transformPoint(this.transform.position);
-      console.log(this.localPosition, this.position);
-    } else {
+      this.position = Vector3.add(this.parent.position, this.localPosition);
     }
+    // if(this.parent !== null) {
+    //   this.localPosition = this.parent.inverseTransformPoint(this.position);
+    //   this.position = this.parent.transformPoint(this.localPosition);
+    // } else {
+    //   this.localPosition = this.position;
+    // }
   }
 
   /**
@@ -55,7 +69,17 @@ export default class Transform extends GameBehavior {
   }
 
   setParent(transform: Transform) {
+    if(!transform) return;
     this.parent = transform;
+    this.parent.addChild(this);
+  }
+
+  getChildren(): Transform[] {
+    return this.children;
+  }
+
+  private addChild(child: Transform) {
+    this.children.push(child)
   }
 
   translate(translation: Vector3) {

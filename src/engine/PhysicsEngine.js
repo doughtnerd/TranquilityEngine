@@ -6,14 +6,14 @@ import SceneManager from "./SceneManager";
 export default class PhysicsEngine {
   static sap = new SAP();
 
+  static rigidBodies = [];
+
   static fixedUpdate() {
     SceneManager.activeScene.findObjectsOfType(RigidBody).forEach((b) => {
       b.fixedUpdate();
     });
-
-    const colliders = SceneManager.activeScene.findObjectsOfType(Collider);
-    colliders.forEach((c) => PhysicsEngine.sap.addCollider(c));
-    const historicalCollisions = PhysicsEngine.sap.checkCollisions(colliders);
+    
+    const historicalCollisions = PhysicsEngine.sap.checkCollisions();
 
     PhysicsEngine.handleCollisions(historicalCollisions);
   }
@@ -39,5 +39,13 @@ export default class PhysicsEngine {
         b.gameObject.getBehaviors().forEach((behavior) => behavior.onTriggerExit(a));
       }
     });
+  }
+
+  static addCollider(collider) {
+    PhysicsEngine.sap.addCollider(collider);
+  }
+
+  static removeCollider(collider) {
+    PhysicsEngine.sap.colliders.splice(PhysicsEngine.sap.colliders.indexOf(collider), 1);
   }
 }

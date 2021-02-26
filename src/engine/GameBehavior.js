@@ -10,6 +10,8 @@ export default class GameBehavior {
     for (const key in properties) {
       if (this.hasOwnProperty(key)) {
         this[key] = properties[key];
+      } else {
+        console.log(`${this.constructor.name} does not have property ${key}`);
       }
     }
     return this;

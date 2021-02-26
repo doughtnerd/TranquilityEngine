@@ -10,7 +10,7 @@ export default class Ground extends GameObject {
     this.addBehavior(SpriteRenderer).init({
       sprite: groundImage,
       color: [1, 1, 1, 1],
-      renderPriority: 4000,
+      rendererPriority: 4000,
     });
   }
 }

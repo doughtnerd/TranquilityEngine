@@ -38,7 +38,7 @@ const playerObj = {
   behaviors: {
     Transform: {
       attributes: {
-        position: new Vector3(-2, 2, 0),
+        position: new Vector3(-2, 0, 0),
         scale: new Vector3(2, 2, 1),
       },
     },
@@ -122,5 +122,11 @@ const pipeSpanwer = {
 };
 
 export default {
-  gameObjects: [cameraObj, playerObj, infiniteGround, infiniteBackground, pipeSpanwer],
+  gameObjects: [
+    cameraObj, 
+    playerObj, 
+    infiniteGround, 
+    infiniteBackground, 
+    pipeSpanwer
+  ],
 };

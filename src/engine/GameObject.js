@@ -43,5 +43,9 @@ export default class GameObject {
 
   static dontDestroyOnLoad(GameObject) {}
 
-  static instantiate(gameObjectConstructor) {}
+  static instantiate(gameObjectConstructor, parentTransform = null) {
+    const gameObj = new gameObjectConstructor();
+    gameObj.transform.setParent(parentTransform);
+    return gameObj;
+  }
 }

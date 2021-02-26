@@ -5,7 +5,7 @@ import Screen from "./engine/rendering/Screen";
 import scene1 from './assets/scenes/scene1.js'
 import scene2 from './assets/scenes/scene2.js'
 
-let gameScreen = Screen.create({ resolution: { width: 1080, height: 720 } });
+let gameScreen = Screen.create({ resolution: { width: 720, height: 680 } });
 document.body.appendChild(gameScreen.screenElement);
 Screen.register(0, gameScreen);
 
