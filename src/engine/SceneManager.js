@@ -63,15 +63,14 @@ class SceneManager {
       const attributes = behaviorSettings[behaviorType].attributes;
       let behavior = gameObject.getBehavior(behaviorType);
 
+      if(key === "Transform" ) {
+        console.log(behavior)
+      } 
+
       if (!behavior) {
         console.debug("---GameObject does not have behavior attached. ", behavior);
-        try {
-          gameObject.addBehavior(behaviorSettings[behaviorType].type);
-          behavior = gameObject.getBehavior(behaviorSettings[behaviorType].type);
-        } catch (err) {
-          gameObject.addBehavior(behaviorSettings[behaviorType].type[behaviorType]);
-          behavior = gameObject.getBehavior(behaviorSettings[behaviorType].type[behaviorType]);
-        }
+        gameObject.addBehavior(behaviorSettings[behaviorType].type);
+        behavior = gameObject.getBehavior(behaviorSettings[behaviorType].type);
       }
 
       console.debug("---Initializing GameBehavior. ", behaviorType, attributes);

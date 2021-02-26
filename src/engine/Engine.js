@@ -36,6 +36,7 @@ function loop() {
   processInput();
 
   update();
+  lateUpdate();
   render();
 
   Time.deltaTime = ((1 / targetFrameRate) * 1000 + Date.now() - frameStart) * 0.001;
@@ -55,6 +56,10 @@ function processInput() {
 
 function update() {
   SceneManager.activeScene.update();
+}
+
+function lateUpdate() {
+  SceneManager.activeScene.lateUpdate();
 }
 
 function render() {

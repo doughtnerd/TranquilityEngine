@@ -11,26 +11,34 @@ export default class Scene {
     });
   }
 
-  update() {
-    this.gameObjects.forEach((obj) => {
-      obj.getBehaviors().forEach((b) => b.update());
-    });
-  }
-
   start() {
     this.gameObjects.forEach((obj) => {
       obj.getBehaviors().forEach((b) => b.start());
     });
   }
 
+  update() {
+    this.gameObjects.forEach((obj) => {
+      obj.getBehaviors().forEach((b) => b.update());
+    });
+  }
+
+  lateUpdate() {
+    this.gameObjects.forEach((obj) => {
+      obj.getBehaviors().forEach(b => b.lateUpdate());
+    })
+  }
+  
   instantiate(gameObject) {
-    gameObject.getBehaviors().forEach((b) => {
+    const newObj = new gameObject();
+
+    newObj.getBehaviors().forEach((b) => {
       b.awake();
       b.start();
       b.onEnable();
     });
-    this.gameObjects.push(gameObject);
-    return gameObject;
+    this.gameObjects.push(newObj);
+    return newObj;
   }
 
   destroy(gameObject) {

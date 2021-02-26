@@ -12,9 +12,8 @@ export default class InfiniteScroller extends GameBehavior {
   previousScroller = null;
 
   awake() {
-    this.activeScroller = new this.backgroundToSpawn();
+    this.activeScroller = SceneManager.activeScene.instantiate(this.backgroundToSpawn);
     this.activeScroller.transform.position = this.startPos;
-    SceneManager.activeScene.instantiate(this.activeScroller);
   }
 
   update() {
@@ -36,9 +35,8 @@ export default class InfiniteScroller extends GameBehavior {
         SceneManager.activeScene.destroy(this.previousScroller);
       }
       this.previousScroller = this.activeScroller;
-      this.activeScroller = new this.backgroundToSpawn();
+      this.activeScroller = SceneManager.activeScene.instantiate(this.backgroundToSpawn);
       this.activeScroller.transform.position = Vector3.add(this.startPos, new Vector3(this.rightBound - 0.5, 0, 0));
-      SceneManager.activeScene.instantiate(this.activeScroller);
     }
   }
 }

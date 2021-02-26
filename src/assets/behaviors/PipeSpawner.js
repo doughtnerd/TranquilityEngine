@@ -29,13 +29,10 @@ export default class PipeSpawner extends GameBehavior {
   ];
 
   awake() {
-    const up = new PipeUp();
-    const down = new PipeDown();
+    const up = SceneManager.activeScene.instantiate(PipeUp);
+    const down = SceneManager.activeScene.instantiate(PipeDown);
 
     up.transform.position = this.positions[0].up;
     down.transform.position = this.positions[0].down;
-
-    SceneManager.activeScene.instantiate(up);
-    SceneManager.activeScene.instantiate(down);
   }
 }
