@@ -29,11 +29,13 @@ export default class SAP {
     const exitWorldCollisions = [];
     const stayWorldCollisions = [];
 
+
+
     for (let i = 0; i < this.collidingPairs.length; i++) {
       const { a, b, id } = this.collidingPairs[i];
-
       const testResult = Collider.AABBAABB(a, b);
       if (testResult.isIntersecting) {
+        // console.log(a.gameObject.name, b.gameObject.name, testResult);
         const existing = previousWorldCollisions.find((item) => {
           return item.id === id;
         });
@@ -48,8 +50,6 @@ export default class SAP {
         }
       }
     }
-
-    // console.debug(currentWorldCollisions);
 
     this.worldCollisions = allWorldCollisions;
 
@@ -69,6 +69,20 @@ export default class SAP {
     this.sortEndpoints(this.endpointsY);
 
     this.endpointsZ = this.endpointsZ.concat(collider.endpoints.z);
+    this.sortEndpoints(this.endpointsZ);
+  }
+
+  removeCollider(collider) {
+
+    const [colToRemove] = this.colliders.splice(this.colliders.indexOf(collider), 1);
+
+    colToRemove.endpoints.x.forEach(e => this.endpointsX.splice(this.endpointsX.indexOf(e), 1))
+    this.sortEndpoints(this.endpointsX);
+    
+    colToRemove.endpoints.y.forEach(e => this.endpointsY.splice(this.endpointsY.indexOf(e), 1))
+    this.sortEndpoints(this.endpointsY);
+    
+    colToRemove.endpoints.z.forEach(e => this.endpointsZ.splice(this.endpointsZ.indexOf(e), 1))
     this.sortEndpoints(this.endpointsZ);
   }
 

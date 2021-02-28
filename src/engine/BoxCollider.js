@@ -4,7 +4,7 @@ import PhysicsEngine from "./PhysicsEngine";
 
 export default class BoxCollider extends Collider {
   awake() {
-    PhysicsEngine.addCollider(this)
+    
     this.updateCenter();
 
     this.endpoints.x = [
@@ -19,6 +19,8 @@ export default class BoxCollider extends Collider {
       new Endpoint(this, this.bounds.center[2] - this.bounds.size[2], true),
       new Endpoint(this, this.bounds.center[2] + this.bounds.size[2], false),
     ];
+
+    PhysicsEngine.addCollider(this)
   }
 
   onDestroy() {

@@ -89,7 +89,7 @@ export default class Camera extends GameBehavior {
 
   calculateProjectionMatrix() {
     const fieldOfView = (this.fieldOfView * Math.PI) / 180; // in radians
-    const aspect = this.targetDisplay.screenElement.clientWidth / this.targetDisplay.screenElement.clientHeight;
+    const aspect = this.targetDisplay.screen.canvasElement.clientWidth / this.targetDisplay.screen.screenElement.clientHeight;
     const zNear = this.clippingPlanes.near;
     const zFar = this.clippingPlanes.far;
     const projectionMatrix = mat4.create();
@@ -99,8 +99,8 @@ export default class Camera extends GameBehavior {
         mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
         break;
       case Camera.ProjectionType.Orthographic:
-        const halfHeight = this.targetDisplay.screenElement.clientHeight / 2;
-        const halfWidth = this.targetDisplay.screenElement.clientWidth / 2;
+        const halfHeight = this.targetDisplay.screen.canvasElement.clientHeight / 2;
+        const halfWidth = this.targetDisplay.screen.canvasElement.clientWidth / 2;
         mat4.ortho(
           projectionMatrix,
           this.orthogonalBounds.l * aspect,

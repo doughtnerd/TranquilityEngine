@@ -70,7 +70,9 @@ const infiniteGround = {
         bounds: {
           size: [30, 5, 1],
         },
-        collisionLayer: 1,
+
+        // TODO: USING COLLISION LAYER LIKE THIS SEEMS TO HAVE CREATED A MEMORY LEAK
+        collisionLayer: 0x0000000000000100,
       },
     },
     InfiniteScroller: {

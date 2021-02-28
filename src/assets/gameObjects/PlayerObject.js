@@ -21,9 +21,9 @@ export default class PlayerObject extends GameObject {
       bounds: {
         size: [0.25, 0.5, 0.5],
       },
-      collisionLayer: 1,
+      collisionLayer: 0x0000000000000111,
     });
-    this.addBehavior(RigidBody).init({ mass: 20, useGravity: true });
+    this.addBehavior(RigidBody).init({ mass: 20, useGravity: false });
     this.addBehavior(VelocityBasedRotation);
   }
 }

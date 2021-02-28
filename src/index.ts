@@ -6,10 +6,12 @@ import scene1 from './assets/scenes/scene1.js'
 import scene2 from './assets/scenes/scene2.js'
 
 let gameScreen = Screen.create({ resolution: { width: 720, height: 680 } });
-document.body.appendChild(gameScreen.screenElement);
+document.body.appendChild(gameScreen.screen.screenElement);
+
+gameScreen.screen.canvasElement.focus()
 Screen.register(0, gameScreen);
 
-Input.registerScreen(gameScreen.screenElement);
+Input.registerScreen(gameScreen.screen.canvasElement);
 
 SceneManager.scenes = [scene1, scene2];
 

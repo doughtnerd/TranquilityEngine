@@ -6,12 +6,13 @@ export default class SceneManager {
   static eventEmitter = new EventEmitter();
   static scenes = [];
 
-  static activeScene = null;
-
-  private static parsedGameObjectList = {};
-  private static gameObjectQueue = [];
+  static activeScene: Scene = null;
 
   static loadScene(index) {
+    if(this.activeScene) {
+      this.activeScene.unload();
+    }
+
     const scene = SceneManager.scenes[index];
 
     const rootLevelGameObjects = scene.gameObjects;

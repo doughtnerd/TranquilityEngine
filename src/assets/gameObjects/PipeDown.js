@@ -21,7 +21,7 @@ export default class PipeDown extends GameObject {
         size: [2, 5, 1],
       },
       isTrigger: true,
-      collisionLayer: 1,
+      collisionLayer: 0x0000000000000001,
     });
   }
 }

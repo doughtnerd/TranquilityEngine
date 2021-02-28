@@ -4,70 +4,72 @@ import Camera from "./rendering/Camera";
 import SceneManager from "./SceneManager";
 import Time from "./Time";
 
-let updateInterval;
-let fixedUpdateInterval;
-let timestep = 20;
-let targetFrameRate = 200;
-let frameRate = 0;
-let startTime;
+export default class Engine {
+  static updateInterval;
+  static fixedUpdateInterval;
+  static timestep = 20;
+  static targetFrameRate = 200;
+  static frameRate = 0;
+  static startTime;
 
-function play() {
-  if (updateInterval) {
-    clearInterval(updateInterval);
+  static play() {
+    if (Engine.updateInterval) {
+      clearInterval(Engine.updateInterval);
+    }
+
+    Engine.startTime = Date.now();
+
+    Engine.start();
+
+    Engine.loop();
+    Engine.updateInterval = setInterval(Engine.loop, (1 / Engine.targetFrameRate) * 1000);
+
+    Engine.fixedUpdateInterval = setInterval(() => {
+      const fixedStart = Date.now();
+      PhysicsEngine.fixedUpdate();
+      Time.fixedDeltaTime = (20 + Date.now() - fixedStart) * 0.001;
+    }, Engine.timestep);
   }
 
-  startTime = Date.now();
+  static loop() {
+    const frameStart = Date.now();
 
-  start();
+    Engine.processInput();
 
-  loop();
-  updateInterval = setInterval(loop, (1 / targetFrameRate) * 1000);
+    Engine.update();
+    Engine.lateUpdate();
+    Engine.render();
 
-  fixedUpdateInterval = setInterval(() => {
-    const fixedStart = Date.now();
-    PhysicsEngine.fixedUpdate();
-    Time.fixedDeltaTime = (20 + Date.now() - fixedStart) * 0.001;
-  }, timestep);
+    Time.deltaTime = ((1 / Engine.targetFrameRate) * 1000 + Date.now() - frameStart) * 0.001;
+
+    Engine.frameRate = 1 / Time.deltaTime;
+    Time.time += Time.deltaTime;
+  }
+
+  static start() {
+    SceneManager.activeScene.start();
+  }
+
+  static processInput() {
+    Input.processKeyboardInput();
+    Input.processMouseInput();
+  }
+
+  static update() {
+    SceneManager.activeScene.update();
+  }
+
+  static lateUpdate() {
+    SceneManager.activeScene.lateUpdate();
+  }
+
+  static render() {
+    Camera.allCameras.forEach((cam) => cam.render());
+  }
+
+  static stop() {
+    clearInterval(Engine.updateInterval)
+    clearInterval(Engine.fixedUpdateInterval)
+  }
 }
 
-function loop() {
-  const frameStart = Date.now();
-
-  processInput();
-
-  update();
-  lateUpdate();
-  render();
-
-  Time.deltaTime = ((1 / targetFrameRate) * 1000 + Date.now() - frameStart) * 0.001;
-
-  frameRate = 1 / Time.deltaTime;
-  Time.time += Time.deltaTime;
-}
-
-function start() {
-  SceneManager.activeScene.start();
-}
-
-function processInput() {
-  Input.processKeyboardInput();
-  Input.processMouseInput();
-}
-
-function update() {
-  SceneManager.activeScene.update();
-}
-
-function lateUpdate() {
-  SceneManager.activeScene.lateUpdate();
-}
-
-function render() {
-  Camera.allCameras.forEach((cam) => cam.render());
-}
-
-export default {
-  play,
-  frameRate,
-  targetFrameRate,
-};

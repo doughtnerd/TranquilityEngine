@@ -14,18 +14,17 @@ export default class PhysicsEngine {
     });
     
     const historicalCollisions = PhysicsEngine.sap.checkCollisions();
-
     PhysicsEngine.handleCollisions(historicalCollisions);
   }
 
   static handleCollisions({ enterWorldCollisions, exitWorldCollisions, stayWorldCollisions }) {
     enterWorldCollisions.forEach(({ a, b, nEnter, penetration, isIntersecting }) => {
-      // console.debug(enterWorldCollisions, exitWorldCollisions, stayWorldCollisions);
       if (a.isTrigger) {
         b.gameObject.getBehaviors().forEach((behavior) => behavior.onTriggerEnter(a));
       }
-
+      
       if (b.isTrigger) {
+        console.log(enterWorldCollisions, exitWorldCollisions, stayWorldCollisions);
         a.gameObject.getBehaviors().forEach((behavior) => behavior.onTriggerEnter(b));
       }
     });
@@ -46,6 +45,6 @@ export default class PhysicsEngine {
   }
 
   static removeCollider(collider) {
-    PhysicsEngine.sap.colliders.splice(PhysicsEngine.sap.colliders.indexOf(collider), 1);
+    PhysicsEngine.sap.removeCollider(collider);
   }
 }

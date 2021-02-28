@@ -2,7 +2,7 @@ import { mat4, quat, vec3 } from "gl-matrix";
 
 export default class SceneRenderer {
   static drawFrame(camera, renderQueue) {
-    camera.targetDisplay.glContext.viewport(0, 0, camera.targetDisplay.screenElement.width, camera.targetDisplay.screenElement.height);
+    camera.targetDisplay.glContext.viewport(0, 0, camera.targetDisplay.screen.canvasElement.width, camera.targetDisplay.screen.canvasElement.height);
     camera.targetDisplay.glContext.clearColor(camera.clearColor.r, camera.clearColor.g, camera.clearColor.b, camera.clearColor.a);
     camera.targetDisplay.glContext.clearDepth(1.0); // Clear everything
     camera.targetDisplay.glContext.enable(camera.targetDisplay.glContext.DEPTH_TEST); // Enable depth testing

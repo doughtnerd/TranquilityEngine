@@ -42,7 +42,10 @@ export default class Scene {
     newObj.getBehaviors().forEach((b) => {
       b.awake();
       b.start();
-      b.onEnable();
+
+      if(b.isActive) {
+        b.onEnable();
+      }
     });
     this.gameObjects.push(newObj);
     return newObj;
@@ -57,8 +60,10 @@ export default class Scene {
     destroyed.forEach(g => g.getBehaviors().forEach(b => b.onDestroy()));
     
     gameObject = null
+  }
 
-    console.log(this.gameObjects);
+  unload() {
+    this.gameObjects.forEach(g => this.destroy(g));
   }
 
   findObjectOfType(gameObjectType) {

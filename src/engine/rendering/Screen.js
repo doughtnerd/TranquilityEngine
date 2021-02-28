@@ -1,16 +1,26 @@
 const screens = {};
 
 function create({ resolution: { height, width } }) {
-  const screenElement = document.createElement("canvas");
+  const parent = document.createElement('div');
+  parent.style = `maxWidth:${width}px; max-height:${height}px; position:relative;`
+  
+  const uiElement = document.createElement('div');
+  uiElement.style = 'height: 100%; width: 100%; position: absolute; top: 0; left: 0; z-index: 1'
+  
+  
+  const canvasElement = document.createElement("canvas");
 
-  screenElement.setAttribute("width", width);
-  screenElement.setAttribute("height", height);
-  screenElement.setAttribute("tabindex", 0);
+  parent.appendChild(canvasElement);
+  // parent.appendChild(uiElement);
 
-  screenElement.focus();
-  screenElement.addEventListener("click", () => screenElement.focus());
+  canvasElement.setAttribute("width", width);
+  canvasElement.setAttribute("height", height);
+  canvasElement.setAttribute("tabindex", 0);
 
-  const glContext = screenElement.getContext("webgl2", {
+  canvasElement.focus();
+  canvasElement.addEventListener("click", () => canvasElement.focus());
+
+  const glContext = canvasElement.getContext("webgl2", {
     // premultipliedAlpha: true,s
   });
 
@@ -19,7 +29,14 @@ function create({ resolution: { height, width } }) {
     return;
   }
 
-  return { glContext, screenElement };
+  return { 
+    glContext, 
+    screen: {
+      screenElement: parent,
+      uiElement,
+      canvasElement,
+    } 
+  };
 }
 
 function register(screenIndex, screen) {

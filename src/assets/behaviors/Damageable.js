@@ -15,6 +15,7 @@ export default class Damageable extends GameBehavior {
   }
 
   onTriggerEnter() {
-    console.debug("Damaged!!!");
+    console.log("DAMAGED!!!")
+    this.damage();
   }
 }

@@ -8,7 +8,7 @@ export default class Collider extends GameBehavior {
   isTrigger = false;
   attachedRigidbody;
 
-  collisionLayer = 0;
+  collisionLayer = 0x0000000000000001;
 
   bounds = {
     center: [],
@@ -22,8 +22,6 @@ export default class Collider extends GameBehavior {
   };
 
   awake() {
-    PhysicsEngine.addCollider(this);
-    
     this.updateCenter();
     this.endpoints.x = [
       new Endpoint(this, this.bounds.center[0] - this.bounds.size[0], true),
@@ -37,6 +35,7 @@ export default class Collider extends GameBehavior {
       new Endpoint(this, this.bounds.center[2] - this.bounds.size[2], true),
       new Endpoint(this, this.bounds.center[2] + this.bounds.size[2], false),
     ];
+    PhysicsEngine.addCollider(this);
   }
 
   onDestroy() {
@@ -96,7 +95,8 @@ export default class Collider extends GameBehavior {
   }
 
   static AABBAABB(a, b) {
-    if (a.collisionLayer !== b.collisionLayer) {
+    
+    if (a.collisionLayer & b.collisionLayer < 1) {
       return {
         isIntersecting: false,
         nEnter: Vector3.zero,
