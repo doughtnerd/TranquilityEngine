@@ -8,7 +8,7 @@ export default class GameBehavior {
 
   init(properties) {
     for (const key in properties) {
-      if (this.hasOwnProperty(key)) {
+      if (this.hasOwnProperty(key) || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(this), key)?.set) {
         this[key] = properties[key];
       } else {
         console.log(`${this.constructor.name} does not have property ${key}`);

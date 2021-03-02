@@ -23,7 +23,6 @@ export default class SceneManager {
       SceneManager.createGameObjectInstance(gameObject, null, instancedGameObjects);
     }
 
-
     this.activeScene = new Scene(instancedGameObjects);
     this.activeScene.awake();
   }

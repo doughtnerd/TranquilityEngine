@@ -1,8 +1,8 @@
 import GameObject from "../../engine/GameObject";
 import CameraObject from "../../engine/CameraObject";
 import PlayerObject from "../gameObjects/PlayerObject";
-import RigidBody from "../../engine/RigidBody";
-import BoxCollider from "../../engine/BoxCollider";
+import RigidBody from "../../engine/physics/RigidBody";
+import BoxCollider from "../../engine/physics/BoxCollider";
 import InfiniteScroller from "../behaviors/InfiniteScroller";
 import PipeSpawner from "../behaviors/PipeSpawner";
 import Ground from "../gameObjects/Ground";
@@ -61,17 +61,13 @@ const infiniteGround = {
     RigidBody: {
       type: RigidBody,
       attributes: {
-        static: true,
+        isKinematic: true,
       },
     },
     BoxCollider: {
       type: BoxCollider,
       attributes: {
-        bounds: {
-          size: [30, 5, 1],
-        },
-
-        // TODO: USING COLLISION LAYER LIKE THIS SEEMS TO HAVE CREATED A MEMORY LEAK
+        size: new Vector3(30, 9.75, 5),
         collisionLayer: 0x0000000000000100,
       },
     },
@@ -117,6 +113,11 @@ const pipeSpanwer = {
     name: "Pipe Spawner",
   },
   behaviors: {
+    Transform: {
+      attributes: {
+        position: new Vector3(18, 0, 0)
+      }
+    },
     PipeSpawner: {
       type: PipeSpawner,
     },

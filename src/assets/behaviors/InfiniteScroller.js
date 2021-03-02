@@ -1,4 +1,5 @@
 import GameBehavior from "../../engine/GameBehavior";
+import RigidBody from "../../engine/physics/RigidBody";
 import SceneManager from "../../engine/SceneManager";
 import Time from "../../engine/Time";
 import { Vector3 } from "../../engine/Vector3";
@@ -14,6 +15,10 @@ export default class InfiniteScroller extends GameBehavior {
   awake() {
     this.activeScroller = SceneManager.activeScene.instantiate(this.backgroundToSpawn);
     this.activeScroller.transform.position = this.startPos;
+  }
+
+  fixedUpdate() {
+    // console.log(this.gameObject.getBehavior(RigidBody)?.body.position);
   }
 
   update() {

@@ -1,5 +1,6 @@
 import Collider from "./physics/Collider";
 import PhysicsEngine from "./PhysicsEngine";
+import { Vector3 } from "./Vector3";
 
 export default class Scene {
   gameObjects = [];
@@ -22,6 +23,12 @@ export default class Scene {
     });
   }
 
+  fixedUpdate() {
+    this.gameObjects.forEach((obj) => {
+      obj.getBehaviors().forEach((b) => b.fixedUpdate());
+    });
+  }
+
   update() {
     this.gameObjects.forEach((obj) => {
       obj.getBehaviors().forEach((b) => b.update());
@@ -34,10 +41,11 @@ export default class Scene {
     })
   }
   
-  instantiate(gameObject, transformParent = null) {
+  instantiate(gameObject, position = Vector3.zero, transformParent = null) {
     const newObj = new gameObject();
 
     newObj.transform.setParent(transformParent);
+    newObj.transform.position = position;
     
     newObj.getBehaviors().forEach((b) => {
       b.awake();

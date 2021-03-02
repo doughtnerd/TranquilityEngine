@@ -1,8 +1,9 @@
-import BoxCollider from "../../engine/BoxCollider";
+import BoxCollider from "../../engine/physics/BoxCollider";
 import GameObject from "../../engine/GameObject";
 import SpriteRenderer from "../../engine/rendering/SpriteRenderer";
 import { Vector3 } from "../../engine/Vector3";
 import pipeSprite from "../images/PipeUp.png";
+import RigidBody from "../../engine/physics/RigidBody";
 
 export default class PipeUp extends GameObject {
   constructor(name = "PipeUp") {
@@ -15,12 +16,10 @@ export default class PipeUp extends GameObject {
       color: [1, 1, 1, 1],
       rendererPriority: 2000,
     });
-
+    this.addBehavior(RigidBody).init({ mass: 0, useGravity: false });
     this.addBehavior(BoxCollider).init({
-      bounds: {
-        size: [2, 5, 1],
-      },
-      isTrigger: true,
+      size: new Vector3(2, 10, 2),
+      isTrigger: false,
       collisionLayer: 0x0000000000000001,
     });
   }

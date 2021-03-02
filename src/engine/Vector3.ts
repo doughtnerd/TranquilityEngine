@@ -3,7 +3,7 @@ import { vec3 } from "gl-matrix";
 export class Vector3 {
   _vector: [number, number, number];
 
-  constructor(x: number, y: number, z: number) {
+  constructor(x: number = 0, y: number = 0, z: number = 0) {
     this._vector = [x, y, z];
   }
 

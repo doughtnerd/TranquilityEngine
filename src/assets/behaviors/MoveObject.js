@@ -1,6 +1,6 @@
 import GameBehavior from "../../engine/GameBehavior";
 import Input from "../../engine/Input";
-import RigidBody from "../../engine/RigidBody";
+import RigidBody from "../../engine/physics/RigidBody";
 import { Vector3 } from "../../engine/Vector3";
 
 export default class MoveObject extends GameBehavior {

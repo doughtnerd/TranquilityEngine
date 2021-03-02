@@ -1,50 +1,31 @@
-import Collider from "./physics/Collider";
-import SAP from "./physics/SAP";
-import RigidBody from "./RigidBody";
-import SceneManager from "./SceneManager";
+import * as Cannon from 'cannon';
+import SceneManager from './SceneManager';
+import Time from './Time';
 
 export default class PhysicsEngine {
-  static sap = new SAP();
 
-  static rigidBodies = [];
+  static world = null;
+
+  static initialize() {
+    PhysicsEngine.world = new Cannon.World();
+    PhysicsEngine.world.gravity = new Cannon.Vec3(0, -9.82, 0)
+  }
 
   static fixedUpdate() {
-    SceneManager.activeScene.findObjectsOfType(RigidBody).forEach((b) => {
-      b.fixedUpdate();
-    });
-    
-    const historicalCollisions = PhysicsEngine.sap.checkCollisions();
-    PhysicsEngine.handleCollisions(historicalCollisions);
+    PhysicsEngine.world.step(1.0/60.0, Time.fixedDeltaTime, 3);
+    SceneManager.activeScene.fixedUpdate();
   }
 
   static handleCollisions({ enterWorldCollisions, exitWorldCollisions, stayWorldCollisions }) {
-    enterWorldCollisions.forEach(({ a, b, nEnter, penetration, isIntersecting }) => {
-      if (a.isTrigger) {
-        b.gameObject.getBehaviors().forEach((behavior) => behavior.onTriggerEnter(a));
-      }
-      
-      if (b.isTrigger) {
-        console.log(enterWorldCollisions, exitWorldCollisions, stayWorldCollisions);
-        a.gameObject.getBehaviors().forEach((behavior) => behavior.onTriggerEnter(b));
-      }
-    });
-
-    exitWorldCollisions.forEach(({ a, b, nEnter, penetration, isIntersecting }) => {
-      if (a.isTrigger) {
-        a.gameObject.getBehaviors().forEach((behavior) => behavior.onTriggerExit(b));
-      }
-
-      if (b.isTrigger) {
-        b.gameObject.getBehaviors().forEach((behavior) => behavior.onTriggerExit(a));
-      }
-    });
+  
   }
 
-  static addCollider(collider) {
-    PhysicsEngine.sap.addCollider(collider);
+  static addRigidBody(body) {
+    this.world.addBody(body);
   }
 
-  static removeCollider(collider) {
-    PhysicsEngine.sap.removeCollider(collider);
+  static removeRigidBody(body) {
+    this.world.removeBody(body);
   }
+
 }

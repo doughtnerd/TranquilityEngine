@@ -1,11 +1,12 @@
-import BoxCollider from "../../engine/BoxCollider";
+import BoxCollider from "../../engine/physics/BoxCollider";
 import GameObject from "../../engine/GameObject";
 import SpriteRenderer from "../../engine/rendering/SpriteRenderer";
-import RigidBody from "../../engine/RigidBody";
+import RigidBody from "../../engine/physics/RigidBody";
 import Damageable from "../behaviors/Damageable";
 import MoveObject from "../behaviors/MoveObject";
 import VelocityBasedRotation from "../behaviors/VelocityBasedRotation";
 import flappyBird from "../images/flappyBird.png";
+import { Vector3 } from "../../engine/Vector3";
 
 export default class PlayerObject extends GameObject {
   constructor(name = "Player") {
@@ -17,13 +18,26 @@ export default class PlayerObject extends GameObject {
       rendererPriority: 1000,
     });
     this.addBehavior(MoveObject);
+    this.addBehavior(RigidBody).init({ 
+      mass: 20, 
+      useGravity: false,
+      constraints: {
+        freezePosition: {
+          x: false,
+          y: false,
+          z: true
+        },
+        freezeRotation: {
+          x: true,
+          y: true,
+          z: true
+        }
+      }
+    });
     this.addBehavior(BoxCollider).init({
-      bounds: {
-        size: [0.25, 0.5, 0.5],
-      },
+      size: new Vector3(1, 1, 1),
       collisionLayer: 0x0000000000000111,
     });
-    this.addBehavior(RigidBody).init({ mass: 20, useGravity: false });
     this.addBehavior(VelocityBasedRotation);
   }
 }

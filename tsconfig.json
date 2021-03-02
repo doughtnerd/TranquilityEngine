@@ -6,7 +6,8 @@
     "target": "esnext",
     "allowJs": true,
     "sourceMap": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "typeRoots": ["node_modules/@types"],
   },
   "include": ["./src/**/*"]
 }

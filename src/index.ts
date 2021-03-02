@@ -4,6 +4,9 @@ import SceneManager from "./engine/SceneManager";
 import Screen from "./engine/rendering/Screen";
 import scene1 from './assets/scenes/scene1.js'
 import scene2 from './assets/scenes/scene2.js'
+import PhysicsEngine from "./engine/PhysicsEngine";
+
+PhysicsEngine.initialize();
 
 let gameScreen = Screen.create({ resolution: { width: 720, height: 680 } });
 document.body.appendChild(gameScreen.screen.screenElement);

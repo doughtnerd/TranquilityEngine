@@ -12,9 +12,9 @@ export default class GameObject {
     this.transform = this.getBehavior(Transform);
   }
 
-  getBehavior(behaviorType) {
+  getBehavior<T>(behaviorType: T): T | any {
     if (typeof behaviorType !== "string") {
-      behaviorType = behaviorType.name;
+      behaviorType = behaviorType['name'];
     }
 
     return this.behaviors.get(behaviorType);
@@ -26,19 +26,19 @@ export default class GameObject {
     return arr;
   }
 
-  addBehavior(behaviorType) {
+  addBehavior<T>(behaviorType: T): T {
     console.debug("---Adding behavior: ", behaviorType);
 
     let behavior;
     try {
       console.debug("---Attempting to create behavior: ", behaviorType);
-      behavior = new behaviorType(this);
+      behavior = new (behaviorType as any)(this);
     } catch (e) {
       console.debug("---Failed first attempt, trying method 2: ", behaviorType);
-      behavior = new behaviorType[behaviorType](this);
+      behavior = new (behaviorType as any)[behaviorType](this);
     }
-    this.behaviors.set(behaviorType.name, behavior);
-    return behavior;
+    this.behaviors.set((behaviorType as any).name, behavior);
+    return behavior as T;
   }
 
   static dontDestroyOnLoad(GameObject) {}

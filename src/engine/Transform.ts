@@ -21,7 +21,15 @@ export default class Transform extends GameBehavior {
   };
   public localScale = Vector3.one;
 
-  private children = [];
+  public children = [];
+
+  // public get position(): Vector3 {
+  //   return this._position
+  // }
+
+  // public set position(pos: Vector3) {
+  //   this._position = pos;
+  // }
 
   awake() {
     if(this.parent !== null) {
@@ -36,12 +44,6 @@ export default class Transform extends GameBehavior {
     if(this.parent !== null) {
       this.position = Vector3.add(this.parent.position, this.localPosition);
     }
-    // if(this.parent !== null) {
-    //   this.localPosition = this.parent.inverseTransformPoint(this.position);
-    //   this.position = this.parent.transformPoint(this.localPosition);
-    // } else {
-    //   this.localPosition = this.position;
-    // }
   }
 
   /**
@@ -82,8 +84,13 @@ export default class Transform extends GameBehavior {
     this.children.push(child)
   }
 
-  translate(translation: Vector3) {
-
+  translate(translation: Vector3, space: 'world' | 'self' = 'world') {
+    switch(space) {
+      case 'world':
+        break;
+      case 'self':
+        break;
+    }
   }
 
   createModelMatrix() {
