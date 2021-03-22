@@ -1,6 +1,6 @@
 import GameObject from "../../engine/GameObject";
 import CameraObject from "../../engine/CameraObject";
-import PlayerObject from "../gameObjects/PlayerObject";
+import PlayerObject, {Player} from "../gameObjects/PlayerObject";
 import RigidBody from "../../engine/physics/RigidBody";
 import BoxCollider from "../../engine/physics/BoxCollider";
 import InfiniteScroller from "../behaviors/InfiniteScroller";
@@ -28,22 +28,21 @@ const cameraObj = {
   },
 };
 
-const playerObj = {
-  sceneId: 1,
-  type: PlayerObject,
-  attributes: {
-    name: "Player",
-    tags: ["Player"],
-  },
-  behaviors: {
-    Transform: {
-      attributes: {
-        position: new Vector3(-2, 0, 0),
-        scale: new Vector3(2, 2, 1),
-      },
-    },
-  },
-};
+// const playerObj = {
+//   sceneId: 1,
+//   type: PlayerObject,
+//   attributes: {
+//     name: "Player",
+//     tags: ["Player"],
+//   },
+//   behaviors: {
+//     Transform: {
+//       attributes: {
+//         position: new Vector3(-2, 0, 0),
+//       },
+//     },
+//   },
+// };
 
 const infiniteGround = {
   sceneId: 2,
@@ -62,6 +61,18 @@ const infiniteGround = {
       type: RigidBody,
       attributes: {
         isKinematic: true,
+        constraints: {
+          freezePosition: {
+            x: true,
+            y: true,
+            z: true
+          },
+          freezeRotation: {
+            x: true,
+            y: true,
+            z: true
+          }
+        }
       },
     },
     BoxCollider: {
@@ -127,9 +138,9 @@ const pipeSpanwer = {
 export default {
   gameObjects: [
     cameraObj, 
-    playerObj, 
-    infiniteGround, 
-    infiniteBackground, 
+    Player, 
+    // infiniteGround, 
+    // infiniteBackground, 
     pipeSpanwer
   ],
 };

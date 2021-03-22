@@ -58,6 +58,9 @@ export default class Camera extends GameBehavior {
   depth = -1;
 
   awake() {
+  }
+
+  start() {
     this.targetDisplay = Screen.getScreen(this.targetDisplayIndex);
     const cameras = SceneManager.activeScene.findObjectsOfType(Camera);
     if (cameras.length >= 1) {

@@ -13,6 +13,10 @@ export default class InfiniteScroller extends GameBehavior {
   previousScroller = null;
 
   awake() {
+    
+  }
+
+  start() {
     this.activeScroller = SceneManager.activeScene.instantiate(this.backgroundToSpawn);
     this.activeScroller.transform.position = this.startPos;
   }

@@ -19,15 +19,15 @@ export default class MoveObject extends GameBehavior {
     }
 
     if (Input.getKey("a")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.left, 30), "force");
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.left, 10), "force");
     }
 
     if (Input.getKey("d")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.right, 30), "force");
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.right, 10), "force");
     }
 
     if (Input.getKeyDown(" ")) {
-      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 200), "impulse");
+      this.gameObject.getBehavior(RigidBody).addForce(Vector3.scale(Vector3.up, 10), "impulse");
     }
 
     // if (Input.getMouse()) {

@@ -29,14 +29,16 @@ export default class RigidBody extends GameBehavior {
   body: Body = null;
 
   awake() {
+    console.log(this.gameObject.name, this.transform.position.toArray())
     this.body = new Body({
-      mass: this.mass,
+      mass: this.useGravity ? this.mass : 0,
       linearDamping: this.drag,
       angularDamping: this.angularDrag,
       position: new Vec3(this.transform.position.x, this.transform.position.y, this.transform.position.z),
       type: this.isKinematic ? Body.KINEMATIC : Body.DYNAMIC,
+
     });
-    this.body.addEventListener("collide", (e) => { console.log(`${this.gameObject.name} collided`, e); } );
+    // this.body.addEventListener("collide", (e) => { console.log(`${this.gameObject.name} collided`, e); } );
 
     PhysicsEngine.addRigidBody(this.body);
   }
@@ -48,13 +50,10 @@ export default class RigidBody extends GameBehavior {
   }
 
   update() {
-    if(!this.body) return;
     this.body.position = new Vec3(this.transform.position.x, this.transform.position.y, this.transform.position.z);
   }
   
   fixedUpdate() {
-    if(!this.body) return;
-
     if(this.constraints.freezePosition.x) {
       this.body.position.x = this.transform.position.x;
       this.body.velocity.x = 0;
@@ -99,6 +98,11 @@ export default class RigidBody extends GameBehavior {
       receiver.y,
       receiver.z
     );
+
+    // if(this.gameObject.name === 'PipeUp') {
+    //   console.log(this.gameObject.name, this.body.position);
+
+    // }
   }
 
   addForce(force, mode) {

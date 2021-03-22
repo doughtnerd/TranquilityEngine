@@ -5,7 +5,6 @@ export default class VelocityBasedRotation extends GameBehavior {
   rigidBody = null;
 
   awake() {
-    console.log("AWAKE")
     this.rigidBody = this.gameObject.getBehavior(RigidBody);
   }
 

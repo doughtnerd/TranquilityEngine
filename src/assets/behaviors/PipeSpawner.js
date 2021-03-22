@@ -10,6 +10,8 @@ import {Vec3} from 'cannon';
 import BoxCollider from "../../engine/physics/BoxCollider";
 import SpriteRenderer from "../../engine/rendering/SpriteRenderer";
 import spritey from '../images/moderncraft.png';
+
+
 export default class PipeSpawner extends GameBehavior {
   positions = [
     {
@@ -41,7 +43,9 @@ export default class PipeSpawner extends GameBehavior {
 
   pipeParent = null;
 
-  awake() {
+  awake() {}
+
+  start() {
     this.spawn();
   }
 
@@ -59,25 +63,19 @@ export default class PipeSpawner extends GameBehavior {
     }
   }
 
-  fixedUpdate() {
-  }
-
   spawn() {
     const min = Math.ceil(0);
     const max = Math.floor(4);
     const index = Math.floor(Math.random() * (max - min + 1)) + min;
     this.pipeParent = SceneManager.activeScene.instantiate(GameObject, new Vector3(18, 0, 0), null);
 
-    const colliderObj = SceneManager.activeScene.instantiate(GameObject, new Vector3(14, 0, 0), null);
-    colliderObj.addBehavior(RigidBody).init({mass: 0, isKinematic: true});
-    colliderObj.addBehavior(SpriteRenderer).init({sprite: spritey, rendererPriority: 1, color: [1,1,1,1]});
-    colliderObj.addBehavior(BoxCollider).init({size: new Vector3(2, 10, 2)});
+    // const colliderObj = SceneManager.activeScene.instantiate(GameObject, new Vector3(14, 0, 0), null);
+    // colliderObj.addBehavior(RigidBody).init({mass: 0, isKinematic: true}).awake();
+    // colliderObj.addBehavior(SpriteRenderer).init({sprite: spritey, rendererPriority: 1, color: [1,1,1,1]}).awake();
+    // colliderObj.addBehavior(BoxCollider).init({size: new Vector3(2, 10, 2)}).awake();
 
-    const up = SceneManager.activeScene.instantiate(PipeUp, new Vector3(18, 0, 0), this.pipeParent.transform);
-    const down = SceneManager.activeScene.instantiate(PipeDown, new Vector3(18, 0, 0), this.pipeParent.transform);
-
-    up.transform.localPosition = this.positions[index].up;
-    down.transform.localPosition = this.positions[index].down;
-    colliderObj.transform.localPosition = this.positions[index].collider;
+    const up = SceneManager.activeScene.instantiate(PipeUp, this.positions[index].up, this.pipeParent.transform);
+    const down = SceneManager.activeScene.instantiate(PipeDown, this.positions[index].down, this.pipeParent.transform);
+    // colliderObj.transform.localPosition = this.positions[index].collider;
   }
 }

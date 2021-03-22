@@ -9,6 +9,14 @@ export default class Scene {
     this.gameObjects = gameObjects;
   }
 
+  addGameObject(gameObject) {
+    this.gameObjects.push(gameObject);
+  }
+
+  setGameObjects(gameObjects) {
+    this.gameObjects = gameObjects;
+  }
+
   awake() {
     this.gameObjects.forEach((obj) => {
       obj.getBehaviors().forEach((b) => {
@@ -41,11 +49,21 @@ export default class Scene {
     })
   }
   
+  // TODO: Rework this to work with new JSON prefab format.
   instantiate(gameObject, position = Vector3.zero, transformParent = null) {
     const newObj = new gameObject();
 
     newObj.transform.setParent(transformParent);
-    newObj.transform.position = position;
+
+    if(transformParent) {
+      newObj.transform.localPosition = position;
+      newObj.transform.position = transformParent.transformPoint(position);
+    } else {
+      newObj.transform.position = position;
+    }
+
+    // console.log(newObj.name, newObj.transform.position.toArray())
+
     
     newObj.getBehaviors().forEach((b) => {
       b.awake();
@@ -67,7 +85,7 @@ export default class Scene {
 
     destroyed.forEach(g => g.getBehaviors().forEach(b => b.onDestroy()));
     
-    gameObject = null
+    gameObject = null;
   }
 
   unload() {
