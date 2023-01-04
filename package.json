@@ -22,7 +22,7 @@
     "recursive-readdir": "~2.2.2",
     "sorted-array": "~2.0.4",
     "soundjs": "~1.0.1",
-    "terminal-kit": "~1.31.3",
+    "terminal-kit": "~3.0.0",
     "tty": "~1.0.1",
     "uuid": "^8.3.2"
   },
