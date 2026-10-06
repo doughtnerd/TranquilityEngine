@@ -3,7 +3,7 @@ import Howler from "howler";
 import EventEmitter from "events";
 
 export default class AudioPlayer extends GameBehavior {
-  playOnStart = false;
+  playOnStart = true;
   audioPath = "";
   loop = false;
   eventEmitter = new EventEmitter();
@@ -20,6 +20,7 @@ export default class AudioPlayer extends GameBehavior {
   play(audioPath) {
     // this.stop();
     this.audio = new Howler.Howl({
+      xhr: { method : 'GET', withCredentials: false },
       src: audioPath,
       autoplay: this.playOnStart,
       loop: this.loop,
