@@ -2,23 +2,29 @@ import GameObject from "../../engine/GameObject";
 import CameraObject from "../../engine/CameraObject";
 import PlayerObject from "../gameObjects/PlayerObject";
 import RigidBody from "../../engine/RigidBody";
+import Transform from "../../engine/Transform";
 import BoxCollider from "../../engine/BoxCollider";
 import InfiniteScroller from "../behaviors/InfiniteScroller";
 import PipeSpawner from "../behaviors/PipeSpawner";
 import Ground from "../gameObjects/Ground";
 import Background from "../gameObjects/Background";
 import { Vector3 } from "../../engine/Vector3";
+import Camera from "../../engine/rendering/Camera";
+import AudioManager from "../behaviors/AudioManager";
+import AudioPlayer from "../../engine/AudioPlayer";
 
 const cameraObj = {
   sceneId: 0,
   type: CameraObject,
   behaviors: {
     Transform: {
+      type: Transform,
       attributes: {
         position: new Vector3(0, 0, -10),
       },
     },
     Camera: {
+      type: Camera,
       attributes: {
         fieldOfView: 90,
         targetDisplayIndex: 0,
@@ -37,6 +43,7 @@ const playerObj = {
   },
   behaviors: {
     Transform: {
+      type: Transform,
       attributes: {
         position: new Vector3(-2, 0, 0),
         scale: new Vector3(2, 2, 1),
@@ -53,6 +60,7 @@ const infiniteGround = {
   },
   behaviors: {
     Transform: {
+      type: Transform,
       attributes: {
         position: new Vector3(0, -13, -1),
         scale: new Vector3(30, 10, 0),
@@ -93,6 +101,7 @@ const infiniteBackground = {
   },
   behaviors: {
     Transform: {
+      type: Transform,
       attributes: {
         position: new Vector3(0, 3, 3),
         scale: new Vector3(32, 25, 0),
@@ -123,12 +132,27 @@ const pipeSpanwer = {
   },
 };
 
+const audio = {
+  type: GameObject,
+  behaviors: {
+    Player: {
+      type: AudioPlayer,
+      attributes: {}
+    },
+    Audio: {
+      type: AudioManager,
+      attributes: {}
+    }
+  }
+}
+
 export default {
   gameObjects: [
-    cameraObj, 
-    playerObj, 
-    infiniteGround, 
-    infiniteBackground, 
-    pipeSpanwer
+    cameraObj,
+    playerObj,
+    infiniteGround,
+    infiniteBackground,
+    pipeSpanwer,
+    audio
   ],
 };

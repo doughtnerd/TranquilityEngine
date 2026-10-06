@@ -1,6 +1,7 @@
 import EventEmitter from "events";
 import GameObject from "./GameObject";
 import Scene from "./Scene";
+import Transform from "./Transform";
 
 export default class SceneManager {
   static eventEmitter = new EventEmitter();
@@ -42,23 +43,14 @@ export default class SceneManager {
       const [behaviorName, behaviorSettings] = gameObjectBehaviors[j];
 
       console.log(behaviorName, behaviorSettings)
-
-      if(behaviorName === "Transform" && (behaviorSettings as any).attributes.children) {
-        let behavior = instancedObject.getBehavior(behaviorName);
-        if(!behavior) {
-          instancedObject.addBehavior((behaviorSettings as any).type);
-          behavior = instancedObject.getBehavior((behaviorSettings as any).type);
-        }
-        behavior.init((behaviorSettings as any).attributes);
+      let behavior = instancedObject.getBehavior(behaviorName);
+      if(!behavior) {
+        instancedObject.addBehavior((behaviorSettings as any).type);
+        behavior = instancedObject.getBehavior((behaviorSettings as any).type);
+      }
+      behavior.init((behaviorSettings as any).attributes);
+      if (behavior instanceof Transform && (behaviorSettings as any).attributes.children) {
         (behaviorSettings as any).attributes.children.forEach(obj => SceneManager.createGameObjectInstance(obj, instancedObject.transform, instancedGameObjects))
-        
-      } else {
-        let behavior = instancedObject.getBehavior(behaviorName);
-        if(!behavior) {
-          instancedObject.addBehavior((behaviorSettings as any).type);
-          behavior = instancedObject.getBehavior((behaviorSettings as any).type);
-        }
-        behavior.init((behaviorSettings as any).attributes);
       }
     }
 
@@ -124,7 +116,7 @@ export default class SceneManager {
 
   //     if(key === "Transform" ) {
   //       console.log(behavior)
-  //     } 
+  //     }
 
   //     if (!behavior) {
   //       console.debug("---GameObject does not have behavior attached. ", behavior);
