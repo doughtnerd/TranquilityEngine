@@ -1,7 +1,7 @@
 {
   "presets": [
     [
-      "@babel/env",
+      "babel-preset-env",
       {
         "targets": {
           "browsers": [
@@ -12,6 +12,10 @@
         },
         "modules": false
       }
-    ]
+    ],
+    ["@babel/preset-typescript", {
+      "target": "es2020"
+    }]
   ],
+  "plugins": ["@babel/compat-data"],
 }

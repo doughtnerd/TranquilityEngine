@@ -5,8 +5,10 @@
     "module": "esnext",
     "target": "esnext",
     "allowJs": true,
+    "noEmit": false,
     "sourceMap": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "strict": false
   },
   "include": ["./src/**/*"]
 }

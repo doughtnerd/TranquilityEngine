@@ -4,6 +4,7 @@ const HtmlWebpackPlugin = require("html-webpack-plugin");
 const CleanWebpackPlugin = require("clean-webpack-plugin");
 
 module.exports = {
+  mode: "development",
   entry: "./src/index.ts",
   module: {
     rules: [
@@ -13,26 +14,30 @@ module.exports = {
         exclude: /node_modules/,
       },
       {
-        test: [/\.vert$/, /\.frag$/],
-        use: "raw-loader",
+        test: /\.(png|jpg|jpeg|gif|svg|mp3|mp4)/,
+        type: "asset/resource",
       },
       {
-        test: /\.(gif|png|jpe?g|svg|xml|mp3)$/i,
-        use: [
-          {
-            loader: "file-loader",
-          },
-        ],
+        test: /\.json$/,
+        type: "javascript/auto",
+      },
+      {
+        test: /\.(mp4|webm)/,
+        type: "asset/resource",
+      },
+      {
+        test: /\.(vert|frag)$/i,
+        type: "asset/source",
       },
     ],
   },
   resolve: {
-    extensions: [".ts", ".js"],
+    extensions: [".ts", ".tsx", ".js"],
+    alias: {
+      src: "./src/engine",
+    },
+    preferRelative: true,
   },
-  // preLoaders: [
-  //   // All output '.js' files will have any sourcemaps re-processed by 'source-map-loader'.
-  //   { test: /\.js$/, loader: "source-map-loader" },
-  // ],
   stats: {
     colors: true,
   },
