@@ -123,7 +123,8 @@ describe("saving (ADR 0026)", () => {
     await saveOpenScene();
     expect(fs.writes).toEqual([path]);
     const after = fs.files.get(path) as string;
-    const changed = after.split("\n").filter((line, i) => line !== before.split("\n")[i]);
+    // Compare lines without line endings: a CRLF checkout keeps CRLF on save.
+    const changed = after.replace(/\r\n/g, "\n").split("\n").filter((line, i) => line !== before.split("\n")[i]);
     expect(changed).toEqual(['        { "type": "engine.Transform", "data": { "position": [0, 12, 0] } },']);
     expect(stack.dirty).toBe(false);
     expect(project.textOf("scenes/main.scene.json")).toBe(after);
