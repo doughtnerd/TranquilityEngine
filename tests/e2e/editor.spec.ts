@@ -45,7 +45,7 @@ test("clicking in the viewport selects, cycles through overlaps, and clears on e
   await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Sprite");
-  await expect(page.locator(".inspector .node-name")).toHaveText("Sprite");
+  await expect(page.locator(".inspector .node-name")).toHaveValue("Sprite"); // the name is an editable field
 
   // The same spot again: the next thing underneath (the sky, a background prefab instance).
   await canvas.click({ position: centre });
@@ -77,4 +77,22 @@ test("a drag doesn't change the selection", async ({ page }) => {
   await page.mouse.move(box.x + 120, box.y + 80, { steps: 5 });
   await page.mouse.up();
   await expect(selectedRow(page)).toHaveText("Sprite");
+});
+
+test("editing a field in the inspector updates the scene, and Ctrl+Z undoes it", async ({ page }) => {
+  const errors = trackErrors(page);
+  await openEditor(page);
+  await page.getByText("Bird", { exact: true }).click();
+  const y = page.getByRole("textbox", { name: "position y" });
+  await expect(y).toHaveValue("1");
+
+  await y.fill("3.5");
+  await y.press("Enter");
+  await expect(page.locator(".scene-name")).toContainText("•"); // unsaved changes
+  await expect(page.getByRole("button", { name: "Undo" })).toHaveAttribute("title", /Set position/);
+
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(y).toHaveValue("1");
+  await expect(page.locator(".scene-name")).not.toContainText("•");
+  expect(errors).toEqual([]);
 });
