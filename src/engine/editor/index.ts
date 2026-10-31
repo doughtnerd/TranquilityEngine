@@ -237,7 +237,7 @@ export function setGizmo(world: World, node: GameObject | null, options: GizmoOp
   world.render?.setGizmo(node, options, handlers);
 }
 
-/** True while the pointer is over a gizmo handle or dragging one, so clicks there don't select. */
-export function gizmoActive(world: World): boolean {
-  return world.render?.gizmoActive ?? false;
+/** True while dragging the gizmo or if a canvas point is over one of its handles, so clicks there don't select. */
+export function gizmoActive(world: World, x: number, y: number): boolean {
+  return world.render?.gizmoActiveAt(x, y) ?? false;
 }

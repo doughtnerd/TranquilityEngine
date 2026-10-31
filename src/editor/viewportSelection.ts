@@ -77,7 +77,8 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
   };
   const onDown = (e: PointerEvent) => {
     // Presses on a gizmo handle drag the gizmo; they never change the selection.
-    down = e.button === 0 && !gizmoActive(world) ? sample(e) : null;
+    const p = sample(e);
+    down = e.button === 0 && !gizmoActive(world, p.x, p.y) ? p : null;
   };
   const onUp = (e: PointerEvent) => {
     const start = down;

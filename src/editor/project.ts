@@ -1,40 +1,56 @@
-// Project loading. Until project folders open through the platform adapter (ADR 0026), the
-// editor bundles the Flappy demo as its project: its assets, settings and script types.
+// Opening and saving scenes in the Editor World (ADR 0026).
 import { Assets, Camera, DEG2RAD, GameObject, type AssetSource, type Engine, type ProjectSettingsInput } from "../engine";
-import "../demo/flappy/game"; // registers the demo's behaviors, data components and systems
-import demoProject from "../demo/flappy/project.json";
 import { CommandStack, SceneDocument, WorldSync, type SceneFile } from "./document";
-import { docVersion, openScene, sceneCamera, selection, setViewMode } from "./state";
+import { formatSceneJSON, originalLayout } from "./document/format";
+import { bundledDemoProject, editorSettings, type EditorProject } from "./projects";
+import { currentProject, docVersion, openScene, sceneCamera, selection, setViewMode } from "./state";
 
-const DEMO_ROOT = "../demo/flappy/";
+let demo: EditorProject | null = null;
+const bundledDemo = () => (demo ??= bundledDemoProject());
 
-/** The demo's assets, keyed relative to its folder like the game sees them. */
+/** The bundled demo's assets (tests and the browser editor). */
 export function demoAssets(): AssetSource {
-  const modules = import.meta.glob("../demo/flappy/**/*.{png,jpg,jpeg,mp3,json}", { eager: true, import: "default" });
-  return Assets.fromGlob(Object.fromEntries(Object.entries(modules).map(([key, value]) => [key.slice(DEMO_ROOT.length), value])));
+  return bundledDemo().assets;
 }
 
-/** Demo project settings for the Editor World. Autoloads are dropped so nothing plays in the editor. */
+/** The bundled demo's settings for an Editor World. */
 export function demoSettings(): ProjectSettingsInput {
-  const project = demoProject as unknown as ProjectSettingsInput;
-  return { ...project, autoload: [], display: { ...project.display, backgroundColor: "#24272d" } };
+  return editorSettings(bundledDemo());
 }
 
 export const DEMO_SCENE = "scenes/main.scene.json";
 
-/** Open a scene file into the Editor World and frame it in the scene view. */
+/** Open a scene file into the Editor World and frame it in the scene view. Throws if it can't load. */
 export function openSceneFile(engine: Engine, path: string): void {
-  openScene.value?.sync.dispose();
-  const doc = new SceneDocument(Assets.json<SceneFile>(path), path);
-  const stack = new CommandStack(doc);
+  const file = Assets.json<SceneFile>(path);
+  const doc = new SceneDocument(file, path);
   const sync = new WorldSync(engine.world, doc);
-  sync.build();
+  try {
+    openScene.value?.sync.dispose();
+    sync.build();
+  } catch (err) {
+    sync.dispose();
+    openScene.value = null;
+    docVersion.value++;
+    throw err;
+  }
+  const stack = new CommandStack(doc);
   sync.attach(stack);
   stack.subscribe(() => docVersion.value++);
   openScene.value = { path, doc, stack, sync };
   selection.value = null;
   docVersion.value++;
   frameSceneCamera(engine);
+}
+
+/** Write the open scene to its file in the current project, keeping the file's layout. */
+export async function saveOpenScene(): Promise<void> {
+  const scene = openScene.value, project = currentProject.value;
+  if (!scene || !project) return;
+  const original = project.textOf(scene.path);
+  const text = formatSceneJSON(scene.doc.toJSON(), original ? originalLayout(original.replace(/\r\n/g, "\n")) : {});
+  await project.writeText(scene.path, text);
+  scene.stack.markSaved();
 }
 
 /** Match the scene view to the scene's own camera: 2D for orthographic scenes, centred on it. */

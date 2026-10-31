@@ -536,10 +536,20 @@ export class RenderBackend {
     this.applyGizmoOptions();
   }
 
-  /** @internal Editor: true while the pointer is over a gizmo handle or dragging one. */
-  get gizmoActive(): boolean {
+  /**
+   * @internal Editor: true while dragging the gizmo, or if a canvas point (CSS pixels) is over
+   * one of its handles. Hit-tests directly rather than trusting hover state, which is stale
+   * when a press arrives without a preceding move.
+   */
+  gizmoActiveAt(x: number, y: number): boolean {
     const c = this.gizmo;
-    return !!c && c.enabled && (this.gizmoDragging || c.axis !== null);
+    if (!c || !c.enabled) return false;
+    if (this.gizmoDragging) return true;
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    if (w <= 0 || h <= 0) return false;
+    const pointer = { x: (x / w) * 2 - 1, y: -(y / h) * 2 + 1, button: -1 };
+    c.pointerHover(pointer as unknown as PointerEvent); // TransformControls takes {x, y, button} in NDC
+    return c.axis !== null;
   }
 
   private async loadGizmo(): Promise<void> {

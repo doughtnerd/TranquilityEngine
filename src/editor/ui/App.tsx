@@ -1,5 +1,7 @@
 import type { ComponentChildren } from "preact";
-import { docVersion, openScene, sceneCamera, setViewMode, snapping, tool, viewMode, type Tool } from "../state";
+import { openProjectFolder, save } from "../session";
+import { currentProject, docVersion, openScene, sceneCamera, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
+import { AssetsPanel } from "./Assets";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
 
@@ -19,8 +21,9 @@ export function App() {
         <Inspector />
       </Panel>
       <Panel class="assets" title="Assets">
-        <p class="empty">Asset browser coming later. The Flappy demo is open as the project.</p>
+        <AssetsPanel />
       </Panel>
+      <StatusBar />
     </div>
   );
 }
@@ -30,6 +33,7 @@ function Toolbar() {
   return (
     <header class="toolbar">
       <span class="brand">TranquilityEngine Editor</span>
+      <ProjectControls />
       <Tools />
       <div class="group" role="group" aria-label="View mode">
         <button class={mode === "3d" ? "active" : ""} aria-pressed={mode === "3d"} onClick={() => setViewMode("3d")}>
@@ -70,6 +74,36 @@ function Tools() {
         </button>
       ))}
     </div>
+  );
+}
+
+function ProjectControls() {
+  docVersion.value; // the Save button follows unsaved changes
+  const project = currentProject.value;
+  const scene = openScene.value;
+  const canSave = !!project?.canSave && !!scene?.stack.dirty;
+  const saveTitle = !project?.canSave ? "This project is read-only. Open a project folder to save." : `Save ${scene?.path ?? ""} (Ctrl+S)`;
+  return (
+    <div class="group" role="group" aria-label="Project">
+      <button title="Open a project folder (desktop editor)" onClick={() => void openProjectFolder()}>
+        Open Project…
+      </button>
+      <button disabled={!canSave} title={saveTitle} onClick={() => void save()}>
+        Save
+      </button>
+      <span class="project-name" title={project?.root ?? "Bundled with the editor"}>
+        {project?.name ?? "No project"}
+      </span>
+    </div>
+  );
+}
+
+function StatusBar() {
+  const s = status.value;
+  return (
+    <footer class={`status-bar${s?.kind === "error" ? " error" : ""}`} aria-live="polite">
+      {s?.text ?? ""}
+    </footer>
   );
 }
 

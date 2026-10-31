@@ -2,6 +2,7 @@
 import { signal } from "@preact/signals";
 import type { CommandStack, SceneDocument, WorldSync } from "./document";
 import type { OrbitCamera, ViewMode } from "./OrbitCamera";
+import type { EditorProject } from "./projects";
 
 /** The scene view camera, set once the Editor World is running. */
 export const sceneCamera = signal<OrbitCamera | null>(null);
@@ -36,3 +37,9 @@ export const tool = signal<Tool>("move");
 
 /** Gizmo snapping (held Ctrl/Cmd). */
 export const snapping = signal(false);
+
+/** The open project (the bundled demo, or a folder on disk). */
+export const currentProject = signal<EditorProject | null>(null);
+
+/** A message for the status bar, e.g. a failed open or save. */
+export const status = signal<{ kind: "info" | "error"; text: string } | null>(null);

@@ -108,6 +108,8 @@ test("with the Move tool, clicking the gizmo on the selection keeps it selected"
   await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Sprite");
+  // The gizmo loads on first use; wait until it's showing on the selection.
+  await page.waitForFunction(() => (window as unknown as { engine: { world: { render: { gizmo?: { enabled: boolean } } } } }).engine.world.render.gizmo?.enabled === true);
   // The gizmo now sits over the bird: pressing its handle drags instead of selecting what's below.
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Sprite");

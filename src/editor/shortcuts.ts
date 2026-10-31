@@ -1,4 +1,5 @@
 // Editor keyboard shortcuts. Text fields keep their own keys (and undo), so shortcuts skip them.
+import { save } from "./session";
 import { openScene, snapping, tool, type Tool } from "./state";
 
 function isEditable(target: EventTarget | null): boolean {
@@ -9,7 +10,7 @@ function isEditable(target: EventTarget | null): boolean {
   return el instanceof HTMLInputElement && !["checkbox", "radio", "button", "color", "range"].includes(el.type);
 }
 
-export type Shortcut = "undo" | "redo" | `tool:${Tool}`;
+export type Shortcut = "undo" | "redo" | "save" | `tool:${Tool}`;
 
 const TOOL_KEYS: Record<string, Tool> = { q: "select", w: "move", e: "rotate", r: "scale" };
 
@@ -19,6 +20,7 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
   if (e.ctrlKey || e.metaKey) {
     if (key === "z") return e.shiftKey ? "redo" : "undo";
     if (key === "y") return "redo";
+    if (key === "s") return "save";
     return null;
   }
   if (!e.shiftKey && !e.altKey && TOOL_KEYS[key]) return `tool:${TOOL_KEYS[key]}`;
@@ -26,7 +28,7 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
 }
 
 /**
- * Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Q/W/E/R pick the select, move,
+ * Ctrl/Cmd + S saves; Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Q/W/E/R pick the select, move,
  * rotate and scale tools; holding Ctrl/Cmd snaps gizmo drags. Returns a function that removes
  * the listeners.
  */
@@ -34,6 +36,13 @@ export function installShortcuts(target: Window = window): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Control" || e.key === "Meta") snapping.value = true;
     const action = shortcutFor(e);
+    if (action === "save") {
+      // Works while typing too: blurring the field commits its edit before the save.
+      e.preventDefault();
+      if (isEditable(e.target)) (e.target as HTMLElement).blur();
+      void save();
+      return;
+    }
     if (!action || isEditable(e.target)) return;
     if (action.startsWith("tool:")) {
       tool.value = action.slice(5) as Tool;

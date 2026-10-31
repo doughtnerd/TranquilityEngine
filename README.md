@@ -19,7 +19,7 @@ npm run dev
 ```
 Run the engine tests with `npm test`, the browser smoke tests with `npm run test:e2e` (run `npm run test:e2e:install` first), and typecheck with `npm run typecheck`. `npm run build` writes the game to `dist/game/`, the editor to `dist/editor/` and the engine library to `dist/engine/`.
 
-The editor (just an empty 3D scene view so far) is at http://localhost:3000/editor.html while `npm run dev` runs.
+The scene editor is at http://localhost:3000/editor.html while `npm run dev` runs. In a browser it opens the bundled Flappy demo read-only; run `npm run tauri:editor:dev` for the desktop editor, where **Open Project…** opens a project folder (one with a `project.json`, such as `src/demo/flappy`) and **Save** / Ctrl+S writes scenes back to disk.
 
 To run as a desktop app with [Tauri](https://v2.tauri.app/), install Rust ([rustup](https://rustup.rs/)) and then run `npm run tauri:dev` for the game or `npm run tauri:editor:dev` for the editor. `npm run tauri:build` and `npm run tauri:editor:build` produce installers.
 ## Current Features

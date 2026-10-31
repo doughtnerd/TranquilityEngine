@@ -1,38 +1,18 @@
-// Scene editor entry (ADR 0022, 0025, 0026). Renders the Preact layout, boots an Editor World
-// into the viewport panel with the scene view camera, and opens the demo scene. The render backend draws a grid and axes
-// for Editor Worlds and fills the panel.
+// Scene editor entry (ADR 0022, 0025, 0026). Renders the Preact layout, then opens the bundled
+// demo project; Open Project switches to a folder on disk (desktop editor only).
 import { render } from "preact";
-import { Engine, GameObject } from "../engine";
-import { installGizmo } from "./gizmo";
-import { OrbitCamera } from "./OrbitCamera";
-import { DEMO_SCENE, demoAssets, demoSettings, openSceneFile } from "./project";
+import { installCloseGuard } from "./dialogs";
+import { bundledDemoProject } from "./projects";
+import { loadProject } from "./session";
 import { installShortcuts } from "./shortcuts";
-import { sceneCamera, viewMode } from "./state";
-import { installViewportSelection } from "./viewportSelection";
 import { App } from "./ui/App";
 import "./ui/editor.css";
 
 async function main(): Promise<void> {
   render(<App />, document.getElementById("app")!);
-
-  const engine = await Engine.create({
-    kind: "editor",
-    container: document.getElementById("viewport")!,
-    project: demoSettings(),
-    assets: demoAssets(),
-  });
-
-  // Editor tools live under the World root, outside the edited scene, so they keep running (ADR 0026).
-  const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
-  orbit.mode = viewMode.value;
-  sceneCamera.value = orbit;
-
-  openSceneFile(engine, DEMO_SCENE);
   installShortcuts();
-  installViewportSelection(engine, orbit);
-  installGizmo(engine);
-  engine.start();
-  Object.assign(window, { engine, orbit });
+  installCloseGuard();
+  await loadProject(bundledDemoProject());
 }
 
 main().catch((err) => {
