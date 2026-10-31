@@ -18,3 +18,4 @@ export {
 } from "./commands";
 export { CommandStack, type StackEvent, type StackListener } from "./CommandStack";
 export { WorldSync } from "./WorldSync";
+export { RebuildInstances, RevertOverrides } from "./prefabCommands";

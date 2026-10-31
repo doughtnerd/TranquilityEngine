@@ -121,7 +121,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .component { border-top: 1px solid var(--border); padding: 8px 0; }
 .component h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 12px; font-weight: 600; }
 .fields { display: grid; grid-template-columns: minmax(90px, 40%) 1fr; gap: 4px 8px; align-items: center; font-size: 12px; }
-.fields > label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fields .label-cell { display: flex; align-items: center; gap: 4px; min-width: 0; padding-left: 4px; border-left: 2px solid transparent; }
+.fields .label-cell > label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .fields .value { min-width: 0; overflow-wrap: anywhere; }
 .fields .none { color: var(--muted); font-style: italic; }
 .fields .vec { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -179,3 +180,14 @@ button:disabled:hover { background: var(--button); }
 .play-button.active { background: #2f7d4a; border-color: #2f7d4a; color: #fff; }
 .editor.playing .toolbar { background: #1f2a22; }
 .editor.playing .viewport-hint { display: none; }
+
+/* Prefabs (ADR 0013, 0022) */
+.badge.modified { background: #3a4a2f; color: #c3dd9f; }
+.tree .row.inner .name { color: #9fb6dd; }
+.inner-name { color: #9fb6dd; }
+.prefab-actions { display: flex; align-items: center; gap: 6px; margin: -4px 0 8px; flex-wrap: wrap; }
+.prefab-actions .override-count { color: var(--muted); font-size: 12px; margin-right: auto; }
+.fields .label-cell.overridden { border-left-color: var(--accent); }
+.fields .label-cell.overridden > label { color: var(--text); font-weight: 600; }
+.fields .revert { padding: 0 4px; line-height: 1.2; font-size: 12px; background: none; border: none; color: var(--accent); }
+.fields .revert:hover { background: var(--button-hover); }

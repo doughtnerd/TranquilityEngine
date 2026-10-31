@@ -17,7 +17,7 @@ export interface EditorProject {
   readonly settings: ProjectSettingsInput;
   /** Every asset by path relative to the project root: parsed JSON for `.json`, a URL otherwise. */
   readonly assets: AssetSource;
-  /** Asset paths, sorted. */
+  /** Asset paths, sorted. Grows when new files are written. */
   readonly files: readonly string[];
   /** The scene to open first, if any. */
   readonly mainScene: string | null;
@@ -43,9 +43,9 @@ export function pickMainScene(files: readonly string[]): string | null {
 }
 
 class MapProject implements EditorProject {
-  readonly files: readonly string[];
   readonly mainScene: string | null;
   readonly assets: AssetSource;
+  private sortedFiles: string[] | null = null;
 
   constructor(
     readonly name: string,
@@ -55,9 +55,13 @@ class MapProject implements EditorProject {
     private readonly texts: Map<string, string>,
     private readonly write: ((path: string, text: string) => Promise<void>) | null,
   ) {
-    this.files = [...values.keys()].sort();
     this.mainScene = pickMainScene(this.files);
     this.assets = { has: (p) => values.has(p), get: (p) => values.get(p) };
+  }
+
+  /** Asset paths, sorted. Includes files written since the project opened. */
+  get files(): readonly string[] {
+    return (this.sortedFiles ??= [...this.values.keys()].sort());
   }
 
   get canSave(): boolean {
@@ -72,6 +76,7 @@ class MapProject implements EditorProject {
     if (!this.write) throw new Error(`${this.name} is read-only. Open a project folder to save.`);
     const value = JSON.parse(text);
     await this.write(path, text);
+    if (!this.values.has(path)) this.sortedFiles = null;
     this.texts.set(path, text);
     this.values.set(path, value);
   }

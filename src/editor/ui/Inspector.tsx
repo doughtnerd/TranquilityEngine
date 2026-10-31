@@ -1,57 +1,142 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Color, GameObject } from "../../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
-import { RenameNode, SetActive, SetField } from "../document";
+import { RenameNode, RevertOverrides, SetActive, SetField, isFieldOverride, pathKey, type NodePath } from "../document";
 import { editorFor, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
-import { docVersion, openScene, selection, type OpenScene } from "../state";
+import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
+import { currentProject, docVersion, openScene, selectedPath, selection, status, type OpenScene } from "../state";
+
+const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /**
  * The selected node's components with their declared fields and live values (ADR 0022, 0026).
- * Every edit is a command on the open document, so it can be undone.
+ * Every edit is a command on the open document, so it can be undone. On a prefab instance, or a
+ * node inside one, edits become overrides: overridden fields are marked and can be reverted, and
+ * the instance's overrides can be applied to the prefab file.
  */
 export function Inspector() {
   docVersion.value; // re-render when the document changes
   const scene = openScene.value;
-  const id = selection.value;
-  if (!scene || !id || !scene.doc.has(id)) return <p class="empty">Nothing selected</p>;
+  const path = selectedPath();
+  if (!scene || !path || !scene.doc.has(path[0])) return <p class="empty">Nothing selected</p>;
+  const inner = path.length > 1 ? findInner(scene.doc, path) : null;
+  if (path.length > 1 && !inner) return <p class="empty">Nothing selected</p>;
 
+  const id = path[0];
   const entry = scene.doc.node(id);
-  const node = scene.sync.nodeFor(id);
+  const node = scene.sync.nodeFor(path);
   const components = node ? listComponents(node) : [];
+  const key = pathKey(path);
   return (
     <div class="inspector-body">
       <div class="node-header">
         <input
           type="checkbox"
-          checked={entry.active !== false}
+          checked={inner ? (node?.active ?? true) : entry.active !== false}
+          disabled={!!inner}
           aria-label="Active"
           onChange={(e) => scene.stack.execute(new SetActive(id, (e.currentTarget as HTMLInputElement).checked))}
         />
-        <TextInput
-          class="node-name"
-          value={entry.name ?? id}
-          label="Name"
-          onCommit={(name) => name !== (entry.name ?? id) && scene.stack.execute(new RenameNode(id, name))}
-        />
+        {inner ? (
+          <span class="node-name inner-name" title="Nodes inside a prefab are renamed in the prefab">
+            {inner.name}
+          </span>
+        ) : (
+          <TextInput
+            class="node-name"
+            value={entry.name ?? id}
+            label="Name"
+            onCommit={(name) => name !== (entry.name ?? id) && scene.stack.execute(new RenameNode(id, name))}
+          />
+        )}
       </div>
       <dl class="node-meta">
         <dt>Id</dt>
-        <dd>{id}</dd>
+        <dd>{key}</dd>
         {entry.prefab && (
           <>
-            <dt>Prefab</dt>
+            <dt>{inner ? "Inside" : "Prefab"}</dt>
             <dd>{entry.prefab}</dd>
           </>
         )}
       </dl>
+      {entry.prefab && !inner && <PrefabActions scene={scene} id={id} />}
+      {!entry.prefab && <CreatePrefabButton scene={scene} id={id} />}
       {components.map((c) => (
-        <ComponentCard key={`${id}/${c.type}#${c.index}`} scene={scene} nodeId={id} info={c} />
+        <ComponentCard key={`${key}/${c.type}#${c.index}`} scene={scene} path={path} info={c} />
       ))}
     </div>
   );
 }
 
-function ComponentCard(props: { scene: OpenScene; nodeId: string; info: ComponentInfo }) {
+/** Apply or revert all of an instance's overrides. */
+function PrefabActions(props: { scene: OpenScene; id: string }) {
+  docVersion.value; // its props don't change when overrides do, so read the document version
+  const { scene, id } = props;
+  const project = currentProject.value;
+  const count = scene.doc.node(id).overrides?.length ?? 0;
+  const canApply = count > 0 && !!project?.canSave;
+  const applyTitle = !project?.canSave
+    ? "This project is read-only. Open a project folder to apply overrides."
+    : "Write this instance's overrides into the prefab file (updates every instance)";
+  return (
+    <div class="prefab-actions">
+      <span class="override-count">{count === 0 ? "No overrides" : `${count} override${count === 1 ? "" : "s"}`}</span>
+      <button
+        disabled={!canApply}
+        title={applyTitle}
+        onClick={async () => {
+          try {
+            const n = await applyOverrides(scene, project!, id);
+            const prefab = scene.doc.node(id).prefab;
+            status.value = { kind: "info", text: `Applied ${n} override${n === 1 ? "" : "s"} to ${prefab}. Undo restores them here; the prefab file keeps the change.` };
+          } catch (err) {
+            status.value = { kind: "error", text: message(err) };
+          }
+        }}
+      >
+        Apply
+      </button>
+      <button
+        disabled={count === 0}
+        title="Remove all overrides: back to the prefab's values"
+        onClick={() => scene.stack.execute(new RevertOverrides(id, "Revert all overrides"))}
+      >
+        Revert All
+      </button>
+    </div>
+  );
+}
+
+function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
+  docVersion.value;
+  const { scene, id } = props;
+  const project = currentProject.value;
+  const title = project?.canSave
+    ? "Save this node and its children as a prefab file, and make this node an instance of it"
+    : "This project is read-only. Open a project folder to create prefabs.";
+  return (
+    <div class="prefab-actions">
+      <button
+        disabled={!project?.canSave}
+        title={title}
+        onClick={async () => {
+          try {
+            const path = await createPrefab(scene, project!, id);
+            selection.value = id;
+            status.value = { kind: "info", text: `Created ${path}. Undo turns the node back; the file stays on disk.` };
+          } catch (err) {
+            status.value = { kind: "error", text: message(err) };
+          }
+        }}
+      >
+        Create Prefab
+      </button>
+    </div>
+  );
+}
+
+function ComponentCard(props: { scene: OpenScene; path: NodePath; info: ComponentInfo }) {
   const { info } = props;
   const title = info.type.replace(/^(engine|game|editor)\./, "");
   return (
@@ -74,23 +159,34 @@ function ComponentCard(props: { scene: OpenScene; nodeId: string; info: Componen
   );
 }
 
-function FieldRow(props: { scene: OpenScene; nodeId: string; info: ComponentInfo; field: FieldValue }) {
-  const { scene, nodeId, info, field } = props;
+function FieldRow(props: { scene: OpenScene; path: NodePath; info: ComponentInfo; field: FieldValue }) {
+  const { scene, path, info, field } = props;
   const editor = editorFor(field);
+  const [id, ...target] = path;
+  const instance = scene.doc.isPrefabInstance(id);
+  const overridden = isOverridden(scene.doc, path, info.type, field.name, info.index);
 
-  /** Write a new value through a SetField command (an override on prefab instances). */
+  /** Write a new value through a SetField command (an override on prefab instances and nodes inside them). */
   const commit = (value: unknown) => {
-    const json = toSceneJSON(editor, value, {
-      field: field.name,
-      previous: scene.doc.fieldValue(nodeId, info.type, field.name, info.index),
-      nodeId: (n) => scene.sync.nodeIdOf(n),
-    });
-    scene.stack.execute(new SetField(nodeId, info.type, field.name, json, { index: info.index }));
+    const previous = instance
+      ? scene.doc.overrideValue(id, target, info.type, field.name, info.index)
+      : scene.doc.fieldValue(id, info.type, field.name, info.index);
+    const json = toSceneJSON(editor, value, { field: field.name, previous, nodeId: (n) => scene.sync.nodeIdOf(n) });
+    scene.stack.execute(new SetField(id, info.type, field.name, json, { index: info.index, target }));
   };
+  const revert = () =>
+    scene.stack.execute(new RevertOverrides(id, `Revert ${field.name}`, (o) => isFieldOverride(o, target, info.type, field.name, info.index)));
 
   return (
     <>
-      <ScrubLabel name={field.name} scene={scene} value={isNumeric(editor) ? Number(field.value) : null} onScrub={commit} />
+      <div class={`label-cell${overridden ? " overridden" : ""}`}>
+        <ScrubLabel name={field.name} scene={scene} value={isNumeric(editor) ? Number(field.value) : null} onScrub={commit} />
+        {overridden && (
+          <button class="revert" title={`Overridden in this scene. Revert ${field.name} to the prefab's value`} aria-label={`Revert ${field.name}`} onClick={revert}>
+            ↺
+          </button>
+        )}
+      </div>
       <div class="value">
         <FieldEditorView editor={editor} field={field} scene={scene} onCommit={commit} />
       </div>

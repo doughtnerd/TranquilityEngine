@@ -3,9 +3,9 @@
 import { effect } from "@preact/signals";
 import type { Engine } from "../engine";
 import { setGizmo, type GizmoHandlers, type GizmoOptions, type LocalPose } from "../engine/editor";
-import { SetField, type SceneDocument } from "./document";
+import { SetField, type NodePath, type SceneDocument } from "./document";
 import { toSceneJSON } from "./fieldValues";
-import { docVersion, openScene, selection, snapping, tool, viewMode, type Tool } from "./state";
+import { docVersion, openScene, selectedPath, selectedWorldNode, snapping, tool, viewMode, type Tool } from "./state";
 
 type Mode = GizmoOptions["mode"];
 
@@ -19,33 +19,35 @@ export function gizmoMode(t: Tool): Mode | null {
 }
 
 /**
- * The edit one gizmo drag step makes: set the Transform field the mode changes. A 2D rotation
- * stays a single angle when the file stores it that way.
+ * The edit one gizmo drag step makes: set the Transform field the mode changes, on a scene node
+ * or (as an override) a prefab instance or a node inside one. A 2D rotation stays a single angle
+ * when the file stores it that way.
  */
-export function gizmoEdit(doc: SceneDocument, nodeId: string, mode: Mode, pose: LocalPose): SetField {
+export function gizmoEdit(doc: SceneDocument, node: string | NodePath, mode: Mode, pose: LocalPose): SetField {
+  const [id, ...target] = typeof node === "string" ? [node] : node;
   const field = FIELDS[mode];
-  const previous = doc.isPrefabInstance(nodeId) ? undefined : doc.fieldValue(nodeId, "engine.Transform", field);
+  const previous = doc.isPrefabInstance(id) ? doc.overrideValue(id, target, "engine.Transform", field) : doc.fieldValue(id, "engine.Transform", field);
   const value = toSceneJSON("vector3", pose[field], { field, previous });
-  return new SetField(nodeId, "engine.Transform", field, value);
+  return new SetField(id, "engine.Transform", field, value, { target });
 }
 
 /** Show the gizmo on the selection and turn its drags into commands. Returns a function that removes it. */
 export function installGizmo(engine: Engine): () => void {
   const world = engine.world;
-  let drag: { nodeId: string; mode: Mode; last: string } | null = null;
+  let drag: { path: NodePath; mode: Mode; last: string } | null = null;
 
   const handlers: GizmoHandlers = {
     onStart() {
-      const scene = openScene.value, nodeId = selection.value, mode = gizmoMode(tool.value);
-      if (!scene || !nodeId || !mode) return;
-      const name = scene.doc.node(nodeId).name ?? nodeId;
+      const scene = openScene.value, path = selectedPath(), mode = gizmoMode(tool.value);
+      if (!scene || !path || !mode) return;
+      const name = selectedWorldNode()?.name ?? path[path.length - 1];
       scene.stack.beginGroup(`${LABELS[mode]} ${name}`);
-      drag = { nodeId, mode, last: "" };
+      drag = { path, mode, last: "" };
     },
     onChange(pose) {
       const scene = openScene.value;
       if (!scene || !drag) return;
-      const edit = gizmoEdit(scene.doc, drag.nodeId, drag.mode, pose);
+      const edit = gizmoEdit(scene.doc, drag.path, drag.mode, pose);
       const key = JSON.stringify(edit.value);
       if (key === drag.last) return; // the pointer moved but the value didn't (e.g. snapping)
       drag.last = key;
@@ -60,8 +62,9 @@ export function installGizmo(engine: Engine): () => void {
 
   const stop = effect(() => {
     docVersion.value; // nodes are rebuilt by structural edits; re-target the gizmo
-    const scene = openScene.value, id = selection.value, mode = gizmoMode(tool.value);
-    const node = scene && id && mode && scene.doc.has(id) ? scene.sync.nodeFor(id) : null;
+    openScene.value;
+    const mode = gizmoMode(tool.value);
+    const node = mode ? selectedWorldNode() : null;
     setGizmo(world, node, { mode: mode ?? "translate", planar: viewMode.value === "2d", snap: snapping.value }, handlers);
   });
   return () => {

@@ -43,14 +43,21 @@ export function openSceneFile(engine: Engine, path: string): void {
   frameSceneCamera(engine);
 }
 
-/** Write the open scene to its file in the current project, keeping the file's layout. */
+/**
+ * Write a scene or prefab file in `project`, keeping an existing file's layout (unchanged nodes
+ * keep their text) and line endings (Windows checkouts often have CRLF).
+ */
+export async function writeSceneFile(project: EditorProject, path: string, file: SceneFile): Promise<void> {
+  const original = project.textOf(path);
+  const text = formatSceneJSON(file, original ? originalLayout(original.replace(/\r\n/g, "\n")) : {});
+  await project.writeText(path, original?.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text);
+}
+
+/** Write the open scene to its file in the current project. */
 export async function saveOpenScene(): Promise<void> {
   const scene = openScene.value, project = currentProject.value;
   if (!scene || !project) return;
-  const original = project.textOf(scene.path);
-  const text = formatSceneJSON(scene.doc.toJSON(), original ? originalLayout(original.replace(/\r\n/g, "\n")) : {});
-  // Keep the file's line endings (Windows checkouts often have CRLF).
-  await project.writeText(scene.path, original?.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text);
+  await writeSceneFile(project, scene.path, scene.doc.toJSON());
   scene.stack.markSaved();
 }
 

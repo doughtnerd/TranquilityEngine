@@ -1,6 +1,7 @@
 // Shared editor UI state (ADR 0025). Signals so Preact panels re-render when it changes.
 import { signal } from "@preact/signals";
-import type { CommandStack, SceneDocument, WorldSync } from "./document";
+import type { GameObject } from "../engine";
+import type { CommandStack, NodePath, SceneDocument, WorldSync } from "./document";
 import type { OrbitCamera, ViewMode } from "./OrbitCamera";
 import type { EditorProject } from "./projects";
 
@@ -28,7 +29,7 @@ export const openScene = signal<OpenScene | null>(null);
 /** Bumped whenever the open document changes, so panels that read it re-render. */
 export const docVersion = signal(0);
 
-/** Selected document node id. */
+/** Selected document node: an id, or a path key inside a prefab instance (see `selectedPath`). */
 export const selection = signal<string | null>(null);
 
 /** Viewport tool: plain selection, or a move/rotate/scale gizmo on the selection. */
@@ -46,3 +47,18 @@ export const status = signal<{ kind: "info" | "error"; text: string } | null>(nu
 
 /** Play mode: "edit", "starting" while the Runtime World boots, or "playing". */
 export const playState = signal<"edit" | "starting" | "playing">("edit");
+
+/**
+ * The selection as a document path: `[id]` for a scene node, `[instanceId, innerId…]` for a node
+ * inside a prefab instance. `selection` holds its key (ids joined with "/").
+ */
+export function selectedPath(): NodePath | null {
+  const key = selection.value;
+  return key ? key.split("/") : null;
+}
+
+/** The World node showing the selection, if the selection still exists. */
+export function selectedWorldNode(): GameObject | null {
+  const scene = openScene.value, path = selectedPath();
+  return scene && path && scene.doc.has(path[0]) ? scene.sync.nodeFor(path) : null;
+}

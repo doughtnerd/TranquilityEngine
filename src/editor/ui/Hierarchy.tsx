@@ -1,17 +1,27 @@
+import type { ComponentChildren } from "preact";
 import { signal } from "@preact/signals";
-import type { SceneDocument } from "../document";
+import { pathKey, type SceneDocument } from "../document";
+import { innerNodes, type InnerNode } from "../prefabs";
 import { docVersion, openScene, selection } from "../state";
 
-/** Collapsed document node ids. */
+/** Collapsed scene nodes, by path key. */
 const collapsed = signal<ReadonlySet<string>>(new Set());
+/** Prefab instances showing their inner nodes, by path key (instances start collapsed). */
+const expanded = signal<ReadonlySet<string>>(new Set());
 
-function toggle(id: string): void {
-  const next = new Set(collapsed.value);
-  if (!next.delete(id)) next.add(id);
-  collapsed.value = next;
+function toggle(set: typeof collapsed, key: string): void {
+  const next = new Set(set.value);
+  if (!next.delete(key)) next.add(key);
+  set.value = next;
 }
 
-/** The open scene's node tree, read from the document (ADR 0026). Click a node to select it. */
+/** True if the selection is strictly inside the node at `key` (so its ancestors open up). */
+const selectionInside = (key: string) => selection.value?.startsWith(`${key}/`) ?? false;
+
+/**
+ * The open scene's node tree, read from the document (ADR 0026). Prefab instances expand to the
+ * nodes inside them, read from their prefab files; those are selectable and edit as overrides.
+ */
 export function Hierarchy() {
   docVersion.value; // re-render when the document changes
   const scene = openScene.value;
@@ -37,36 +47,117 @@ function TreeNode(props: { doc: SceneDocument; id: string; depth: number }) {
   // document version here too or renames and reorders wouldn't show.
   docVersion.value;
   const node = doc.node(id);
+  if (node.prefab) return <InstanceNode doc={doc} id={id} depth={depth} />;
   const children = doc.children(id);
-  const isCollapsed = collapsed.value.has(id);
-  const selected = selection.value === id;
-  const prefab = node.prefab ? node.prefab.split("/").pop()?.replace(/\.prefab\.json$/, "") : null;
+  const open = !collapsed.value.has(id) || selectionInside(id);
   return (
-    <li role="treeitem" aria-selected={selected} aria-expanded={children.length ? !isCollapsed : undefined}>
+    <Row
+      rowKey={id}
+      name={node.name ?? id}
+      depth={depth}
+      inactive={node.active === false}
+      expandable={children.length > 0}
+      open={open}
+      onToggle={() => toggle(collapsed, id)}
+    >
+      {children.map((child) => (
+        <TreeNode key={child} doc={doc} id={child} depth={depth + 1} />
+      ))}
+    </Row>
+  );
+}
+
+function InstanceNode(props: { doc: SceneDocument; id: string; depth: number }) {
+  const { doc, id, depth } = props;
+  docVersion.value;
+  const node = doc.node(id);
+  const inner = innerNodes(node.prefab!, [id]);
+  const open = expanded.value.has(id) || selectionInside(id);
+  const overrides = node.overrides?.length ?? 0;
+  return (
+    <Row
+      rowKey={id}
+      name={node.name ?? id}
+      depth={depth}
+      inactive={node.active === false}
+      expandable={inner.length > 0}
+      open={open}
+      onToggle={() => toggle(expanded, id)}
+      badge={{ text: prefabName(node.prefab!), title: `${node.prefab}${overrides ? ` · ${overrides} override${overrides === 1 ? "" : "s"}` : ""}`, modified: overrides > 0 }}
+    >
+      {inner.map((n) => (
+        <InnerTreeNode key={pathKey(n.path)} node={n} depth={depth + 1} />
+      ))}
+    </Row>
+  );
+}
+
+function InnerTreeNode(props: { node: InnerNode; depth: number }) {
+  const { node, depth } = props;
+  docVersion.value;
+  const key = pathKey(node.path);
+  const set = node.prefab ? expanded : collapsed;
+  const open = (node.prefab ? expanded.value.has(key) : !collapsed.value.has(key)) || selectionInside(key);
+  return (
+    <Row
+      rowKey={key}
+      name={node.name}
+      depth={depth}
+      inner
+      expandable={node.children.length > 0}
+      open={open}
+      onToggle={() => toggle(set, key)}
+      badge={node.prefab ? { text: prefabName(node.prefab), title: node.prefab, modified: false } : undefined}
+    >
+      {node.children.map((c) => (
+        <InnerTreeNode key={pathKey(c.path)} node={c} depth={depth + 1} />
+      ))}
+    </Row>
+  );
+}
+
+const prefabName = (path: string) => path.split("/").pop()!.replace(/\.prefab\.json$/, "");
+
+function Row(props: {
+  rowKey: string;
+  name: string;
+  depth: number;
+  inactive?: boolean;
+  inner?: boolean;
+  expandable: boolean;
+  open: boolean;
+  onToggle: () => void;
+  badge?: { text: string; title: string; modified: boolean };
+  children?: ComponentChildren;
+}) {
+  const { rowKey, depth, expandable, open, badge } = props;
+  const selected = selection.value === rowKey;
+  return (
+    <li role="treeitem" aria-selected={selected} aria-expanded={expandable ? open : undefined}>
       <div
-        class={`row${selected ? " selected" : ""}${node.active === false ? " inactive" : ""}`}
+        class={`row${selected ? " selected" : ""}${props.inactive ? " inactive" : ""}${props.inner ? " inner" : ""}`}
         style={{ paddingLeft: `${depth * 14 + 4}px` }}
-        onClick={() => (selection.value = id)}
+        title={props.inner ? "Inside a prefab instance: edits become overrides" : undefined}
+        onClick={() => (selection.value = rowKey)}
       >
         <span
-          class={`caret${children.length ? "" : " leaf"}`}
+          class={`caret${expandable ? "" : " leaf"}`}
           onClick={(e) => {
             e.stopPropagation();
-            if (children.length) toggle(id);
+            if (expandable) props.onToggle();
           }}
         >
-          {children.length ? (isCollapsed ? "▸" : "▾") : ""}
+          {expandable ? (open ? "▾" : "▸") : ""}
         </span>
-        <span class="name">{node.name ?? id}</span>
-        {prefab && <span class="badge" title={node.prefab}>{prefab}</span>}
+        <span class="name">{props.name}</span>
+        {badge && (
+          <span class={`badge${badge.modified ? " modified" : ""}`} title={badge.title}>
+            {badge.text}
+            {badge.modified && " •"}
+          </span>
+        )}
       </div>
-      {children.length > 0 && !isCollapsed && (
-        <ul role="group">
-          {children.map((child) => (
-            <TreeNode key={child} doc={doc} id={child} depth={depth + 1} />
-          ))}
-        </ul>
-      )}
+      {expandable && open && <ul role="group">{props.children}</ul>}
     </li>
   );
 }

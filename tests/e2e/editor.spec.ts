@@ -148,3 +148,16 @@ test("Play runs the scene in a game view, Stop returns to the unchanged editor",
   await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("1"); // the edited scene is untouched
   expect(errors).toEqual([]);
 });
+
+test("prefab overrides are marked and can be reverted", async ({ page }) => {
+  await openEditor(page);
+  await page.locator(".tree .row", { hasText: "bg-b" }).click();
+  await expect(page.locator(".override-count")).toHaveText("1 override");
+  const x = page.getByRole("textbox", { name: "position x" });
+  await expect(x).toHaveValue("32");
+  await page.getByRole("button", { name: "Revert position" }).click();
+  await expect(x).toHaveValue("0"); // back to the prefab's value
+  await expect(page.locator(".override-count")).toHaveText("No overrides");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(x).toHaveValue("32");
+});

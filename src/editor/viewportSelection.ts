@@ -6,7 +6,7 @@ import { effect } from "@preact/signals";
 import type { Engine, GameObject } from "../engine";
 import { gizmoActive, pick, setSelectionOutline, viewportCanvas } from "../engine/editor";
 import type { OrbitCamera } from "./OrbitCamera";
-import { docVersion, openScene, selection } from "./state";
+import { docVersion, openScene, selectedWorldNode, selection } from "./state";
 
 /** Pointer travel (CSS pixels) under which a press and release count as a click, not a drag. */
 export const CLICK_SLOP = 4;
@@ -44,25 +44,18 @@ export function chooseSelection(hits: readonly string[], current: string | null,
   return index < 0 ? hits[0] : hits[(index + 1) % hits.length];
 }
 
-/** The World node showing the selected document node, if any. */
-function selectedNode(): GameObject | null {
-  const scene = openScene.value;
-  const id = selection.value;
-  return scene && id && scene.doc.has(id) ? scene.sync.nodeFor(id) : null;
-}
-
 /** Hook selection up to the viewport. Returns a function that removes it. */
 export function installViewportSelection(engine: Engine, camera: OrbitCamera): () => void {
   const world = engine.world;
   camera.focusTarget = () => {
-    const node = selectedNode();
+    const node = selectedWorldNode();
     return node?.isValid && node.transform ? node.transform.worldPosition : null;
   };
 
   // Outline the selection; re-run when it changes or the document is edited (nodes may be rebuilt).
   const stopOutline = effect(() => {
     docVersion.value;
-    const node = selectedNode();
+    const node = selectedWorldNode();
     setSelectionOutline(world, node ? [node] : []);
   });
 
