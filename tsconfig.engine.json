@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "stripInternal": true,
+    "sourceMap": false,
+    "rootDir": "./src/engine",
+    "outDir": "./dist/engine/types"
+  },
+  "include": ["src/engine/**/*"],
+  "exclude": ["src/engine/tests/**/*"]
+}

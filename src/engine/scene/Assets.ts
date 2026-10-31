@@ -2,8 +2,8 @@
  * Asset lookup by path (ADR 0013: assets are referenced by path in v1, e.g.
  * `"asset:images/bird.png"`, relative to the game's asset root).
  *
- * The game registers one or more sources at startup. With webpack, `Assets.fromWebpackContext`
- * wraps a `require.context`; a Vite build would wrap `import.meta.glob` the same way (ADR 0015).
+ * The game registers one or more sources at startup, usually `Assets.fromGlob` over a Vite
+ * `import.meta.glob` of its asset folder (ADR 0015).
  */
 export interface AssetSource {
   has(path: string): boolean;
@@ -54,12 +54,16 @@ export const Assets = {
     return v as T;
   },
 
-  /** Wrap a webpack `require.context` rooted at the game's asset folder. */
-  fromWebpackContext(ctx: __WebpackModuleApi.RequireContext): AssetSource {
-    const keys = new Set(ctx.keys().map((k) => normalizeAssetPath(k)));
+  /**
+   * Wrap the result of a Vite glob import made from the game's asset folder:
+   * `import.meta.glob("./**\/*.{png,mp3,json}", { eager: true, import: "default" })`.
+   * Keys are paths relative to that folder; values are URLs or parsed JSON.
+   */
+  fromGlob(modules: Record<string, unknown>): AssetSource {
+    const map = new Map(Object.entries(modules).map(([key, value]) => [normalizeAssetPath(key), value]));
     return {
-      has: (path) => keys.has(path),
-      get: (path) => ctx(`./${path}`),
+      has: (path) => map.has(path),
+      get: (path) => map.get(path),
     };
   },
 

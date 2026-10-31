@@ -8,5 +8,6 @@ A 2D & 3D TypeScript game engine: Unity-style scripting over a hidden ECS core, 
 - [docs/architecture/implementation-status.md](docs/architecture/implementation-status.md) says what each decision record has and lacks. Update it when you implement part of a record.
 - three.js, Rapier and Howler must never appear in the public API (ADR 0010).
 - Significant decisions (hard to reverse, cross-module, new dependency, public API change) get a record in `docs/decisions/` using `0000-template.md`. Accepted records aren't rewritten; supersede them with a new one.
-- Build tooling is meant to be Vite ([0015](docs/decisions/0015-vite-build-tooling.md)) but is still webpack 5 until that migration lands.
-- Commands: `npm run start` (dev server on :3000), `npm run build` (production build to `dist/`), `npm test` (Vitest, headless), `npm run typecheck`.
+- Build tooling is Vite ([0015](docs/decisions/0015-vite-build-tooling.md)). Every Vite/Vitest config must use the `typescriptTranspile()` plugin from `vite.shared.ts` with `oxc: false`, because oxc doesn't lower standard decorators.
+- The scene editor is in `src/editor/` (page: `editor.html`); the Tauri shell is in `src-tauri/` and needs a Rust toolchain.
+- Commands: `npm run dev` (dev server on :3000; editor at `/editor.html`), `npm run build` (typecheck, then the game in `dist/game/`, the editor in `dist/editor/` and the engine library in `dist/engine/`), `npm test` (Vitest, headless), `npm run test:e2e` (Playwright on Chromium and WebKit; run `npm run test:e2e:install` once first), `npm run typecheck`, `npm run tauri:dev` / `tauri:editor:dev` (desktop window), `npm run tauri:build` / `tauri:editor:build` (installers).

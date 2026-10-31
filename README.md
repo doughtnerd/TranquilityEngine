@@ -15,9 +15,13 @@ The engine is being rebuilt around three.js, Rapier physics, a hidden ECS core a
 The v1 demo is a Flappy Bird clone in `src/demo/flappy/`. To play it (space, up arrow or click to flap):
 ```shell
 npm install
-npm run start
+npm run dev
 ```
-Run the engine tests with `npm test` and typecheck with `npm run typecheck`.
+Run the engine tests with `npm test`, the browser smoke tests with `npm run test:e2e` (run `npm run test:e2e:install` first), and typecheck with `npm run typecheck`. `npm run build` writes the game to `dist/game/`, the editor to `dist/editor/` and the engine library to `dist/engine/`.
+
+The editor (just an empty 3D scene view so far) is at http://localhost:3000/editor.html while `npm run dev` runs.
+
+To run as a desktop app with [Tauri](https://v2.tauri.app/), install Rust ([rustup](https://rustup.rs/)) and then run `npm run tauri:dev` for the game or `npm run tauri:editor:dev` for the editor. `npm run tauri:build` and `npm run tauri:editor:build` produce installers.
 ## Current Features
 Again, these might be subject to change throughout development but the features that currently exist are described below.
 

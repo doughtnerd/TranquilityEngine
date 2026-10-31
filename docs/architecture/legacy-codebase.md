@@ -30,7 +30,7 @@ The prototype was the 2021 engine, updated in October 2026 to build on Node 26 /
 | `engine/AudioPlayer.js` | Howler wrapper behavior | Replace | [0006](../decisions/0006-audio-howler-and-three.md) |
 | `engine/sprites/White-Square.jpg` | Default texture | Keep as default sprite | — |
 | `src/index.ts` | Creates canvas, registers screen/input, loads scenes, `Engine.play()` | Replace with engine bootstrap + platform adapter | [0003](../decisions/0003-tauri-platform-browser-runtime.md) |
-| `webpack/*`, `index.html` | webpack 5 dev/prod configs and HTML template | Replace with `vite.config.ts` and a Vite `index.html` | [0015](../decisions/0015-vite-build-tooling.md) |
+| `webpack/*`, `index.html` | webpack 5 dev/prod configs and HTML template | Replaced by `vite.config.ts` / `vite.engine.config.ts` and a Vite `index.html` (done 2026-10-31) | [0015](../decisions/0015-vite-build-tooling.md) |
 | `assets/scenes/*.js` | JS-module scenes with constructor `type`s | Convert to new scene format | [0013](../decisions/0013-data-driven-scene-format.md) |
 | `assets/gameObjects/*` | GameObject subclasses per object kind | Convert to prefabs | [0008](../decisions/0008-gameobjects-as-node-graph.md), [0013](../decisions/0013-data-driven-scene-format.md) |
 | `assets/behaviors/*` | Demo scripts (PipeSpawner, InfiniteScroller, Damageable…) | Port to new API | — |
@@ -56,6 +56,15 @@ These are reasons for the decisions above. Don't fix them in the legacy code unl
 | `origin/WIP` | 1 commit "Offload" (Mar 2026): line-ending changes only, no content changes. | Delete when convenient. |
 | `origin/dependabot/*` (~19) | Old dependency bumps from 2021–2023. | Close; dependencies were upgraded in `b75bb57` and most of them are being removed. |
 
+## Earlier rewrite attempt (`game-engine` repo)
+
+A separate repository, `~/git/game-engine` (one commit, `6f27f8a`, October 2026), holds an earlier agent-built rewrite. It has a Godot-style `Node` that you subclass to override lifecycle hooks, three.js rendering in pixel units, Howler audio, and a Flappy Bird demo coded in TypeScript. Its notes are in `.agents/` (handoff, roadmap, TICKET-001…010). A refactor toward ECS-style systems is staged there but unfinished and fails its tests.
+
+On 2026-10-31 the owner chose this repository as the canonical engine. `game-engine` is reference material only. Where its decisions differ from the records here (Ammo.js physics, pixel units, three.js types in the public API, Node subclassing, scenes built in code), the records here win. Two pieces were borrowed on 2026-10-31:
+
+- Its Vite setup, which builds the engine, game and editor as separate bundles (`vite.engine.config.ts`, `vite.game.config.ts`, `vite.editor.config.ts`) and exports the engine as an npm package, for [0015](../decisions/0015-vite-build-tooling.md).
+- Its Playwright approach (tests read game state through `page.evaluate()`), for [0023](../decisions/0023-testing-vitest-and-browser-smoke-tests.md).
+
 ## Dependencies
 
 | Package | Used by | Fate |
@@ -69,4 +78,4 @@ These are reasons for the decisions above. Don't fix them in the legacy code unl
 | `postcss`, `autoprefixer`, `css-loader` | Nothing (no CSS rule in webpack) | Remove now |
 | `@babel/*`, `.babelrc` | Nothing (webpack uses `ts-loader` for `.js` and `.ts`) | Remove ([0002](../decisions/0002-typescript-first-esm.md)) |
 | `optimize-css-assets-webpack-plugin`, `css-minimizer-webpack-plugin`, `file-loader`, `source-map-loader` | Nothing (not referenced by either webpack config) | Remove now |
-| `webpack`, `webpack-cli`, `webpack-dev-server`, `webpack-merge`, `ts-loader`, `clean-webpack-plugin@1`, `html-webpack-plugin` | The webpack build | Remove when migrating to Vite ([0015](../decisions/0015-vite-build-tooling.md)) |
+| `webpack`, `webpack-cli`, `webpack-dev-server`, `webpack-merge`, `ts-loader`, `clean-webpack-plugin@1`, `html-webpack-plugin` | The webpack build | Removed in the Vite migration ([0015](../decisions/0015-vite-build-tooling.md)) |

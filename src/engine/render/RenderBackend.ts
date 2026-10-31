@@ -5,7 +5,9 @@
  * three.js objects kept flat under one root, with `matrixAutoUpdate = false`.
  */
 import {
+  AxesHelper,
   CanvasTexture,
+  GridHelper,
   Color as ThreeColor,
   Matrix4,
   Mesh,
@@ -22,7 +24,7 @@ import {
 } from "three";
 import type { Component } from "../core/Component";
 import type { ProjectSettings } from "../core/settings";
-import type { World } from "../core/World";
+import type { World, WorldKind } from "../core/World";
 import { Assets } from "../scene/Assets";
 import { Camera, SpriteRenderer, Text, type Anchor } from "./components";
 
@@ -65,7 +67,7 @@ export class RenderBackend {
   private readonly warnedLayers = new Set<string>();
   private readonly clearColor: ThreeColor;
 
-  constructor(private readonly container: HTMLElement, private readonly settings: ProjectSettings) {
+  constructor(private readonly container: HTMLElement, private readonly settings: ProjectSettings, kind: WorldKind = "runtime") {
     this.canvas = document.createElement("canvas");
     this.canvas.tabIndex = 0;
     this.canvas.style.display = "block";
@@ -80,6 +82,9 @@ export class RenderBackend {
 
     const { width, height } = settings.display;
     this.uiCamera = new OrthographicCamera(0, width, height, 0, -10, 10);
+
+    // Editor Worlds get a ground grid (1 m cells) and XYZ axes so an empty scene has a frame of reference.
+    if (kind === "editor") this.scene.add(new GridHelper(20, 20, 0x5a606b, 0x3a3f47), new AxesHelper(1.5));
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);

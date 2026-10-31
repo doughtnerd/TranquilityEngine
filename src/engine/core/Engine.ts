@@ -5,18 +5,20 @@ import { RenderBackend } from "../render/RenderBackend";
 import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
 import type { ProjectSettingsInput } from "./settings";
-import { World } from "./World";
+import { World, type WorldKind } from "./World";
 
 export interface EngineOptions {
   /** Project settings (usually the game's `project.json`). */
   project?: ProjectSettingsInput;
-  /** Asset sources, e.g. `Assets.fromWebpackContext(require.context("./", true, /…/))`. */
+  /** Asset sources, e.g. `Assets.fromGlob(import.meta.glob("./**\/*.png", { eager: true, import: "default" }))`. */
   assets?: AssetSource | AssetSource[];
   /** Element the canvas is placed in. Omit (or pass `headless: true`) to run without rendering. */
   container?: HTMLElement;
   headless?: boolean;
   /** Storage backend for saves/settings (ADR 0024). Defaults to IndexedDB in browsers, memory otherwise. */
   storage?: StorageBackend;
+  /** "runtime" for games (default); "editor" for the scene editor's Editor World (ADR 0016, 0022). */
+  kind?: WorldKind;
 }
 
 /**
@@ -42,7 +44,7 @@ export class Engine {
   }
 
   static async create(options: EngineOptions = {}): Promise<Engine> {
-    const world = new World("runtime", options.project ?? {});
+    const world = new World(options.kind ?? "runtime", options.project ?? {});
     World.active = world;
 
     for (const source of ([] as AssetSource[]).concat(options.assets ?? [])) Assets.addSource(source);
@@ -50,7 +52,7 @@ export class Engine {
     let render: RenderBackend | null = null;
     const headless = options.headless || !options.container;
     if (!headless) {
-      render = new RenderBackend(options.container!, world.settings);
+      render = new RenderBackend(options.container!, world.settings, world.kind);
       world.render = render;
       Input.attach(render.canvas);
     }

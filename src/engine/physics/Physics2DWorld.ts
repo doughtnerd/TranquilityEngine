@@ -54,6 +54,7 @@ export async function ensurePhysics2D(world: World): Promise<Physics2DWorld> {
   return world.physics2D;
 }
 
+/** @internal */
 export class Physics2DWorld {
   readonly rapier: RAPIER.World;
   private readonly events = new RAPIER.EventQueue(true);

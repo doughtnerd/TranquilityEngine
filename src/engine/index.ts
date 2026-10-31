@@ -3,6 +3,7 @@
  * are never part of this surface (ADR 0010).
  */
 export { Engine, type EngineOptions } from "./core/Engine";
+export type { WorldKind } from "./core/World";
 export { Component, GameBehavior, Waits, type LifecycleHooks } from "./core/Component";
 export { Time } from "./core/Time";
 export { Color, Mathf, Quaternion, Vector2, Vector3, DEG2RAD, RAD2DEG, type Vec2Like, type Vec3Like } from "./core/math";
