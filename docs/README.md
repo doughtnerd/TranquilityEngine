@@ -38,6 +38,8 @@ Start here. These docs describe where the engine is going, why, and what is bein
 | [0022](decisions/0022-editor-is-a-v1-goal.md) | A scene editor is a v1 goal | Accepted |
 | [0023](decisions/0023-testing-vitest-and-browser-smoke-tests.md) | Testing: Vitest + browser smoke tests | Accepted |
 | [0024](decisions/0024-storage-via-platform-adapter.md) | Saves and settings through a platform Storage API | Accepted |
+| [0025](decisions/0025-editor-ui-dom-with-preact.md) | Editor UI: DOM panels built with Preact | Accepted |
+| [0026](decisions/0026-editor-scene-document-and-commands.md) | The editor edits a scene document through commands | Accepted |
 
 ## Working with decisions
 

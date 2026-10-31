@@ -8,7 +8,7 @@ All decision records 0001–0024 are Accepted as of 2026-10-31.
 
 | # | Question | Leaning | Owner record |
 | --- | --- | --- | --- |
-| O1 | Editor UI technology: DOM framework around the viewport, or uikit like game UI | DOM for editor chrome | [0022](../decisions/0022-editor-is-a-v1-goal.md) |
+| ~~O1~~ | ~~Editor UI technology~~ | Resolved: DOM with Preact | [0025](../decisions/0025-editor-ui-dom-with-preact.md) |
 | O2 | Project settings file format (layers matrix, autoloads, physics, build settings) | One JSON project file, versioned like scenes | [0022](../decisions/0022-editor-is-a-v1-goal.md) |
 | O3 | Hot reload of game scripts into a running Editor World | Vite HMR, reinstantiate behaviors, keep field values | [0022](../decisions/0022-editor-is-a-v1-goal.md) |
 | O4 | Buffer read timing: same frame only, or double-buffered | Same frame by default; opt-in double buffering | [0017](../decisions/0017-user-systems-and-data-components.md) |
