@@ -7,6 +7,7 @@ import { OrbitCamera } from "./OrbitCamera";
 import { DEMO_SCENE, demoAssets, demoSettings, openSceneFile } from "./project";
 import { installShortcuts } from "./shortcuts";
 import { sceneCamera, viewMode } from "./state";
+import { installViewportSelection } from "./viewportSelection";
 import { App } from "./ui/App";
 import "./ui/editor.css";
 
@@ -27,6 +28,7 @@ async function main(): Promise<void> {
 
   openSceneFile(engine, DEMO_SCENE);
   installShortcuts();
+  installViewportSelection(engine, orbit);
   engine.start();
   Object.assign(window, { engine, orbit });
 }

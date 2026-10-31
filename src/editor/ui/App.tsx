@@ -38,7 +38,7 @@ function Toolbar() {
           2D
         </button>
       </div>
-      <button title="Focus the origin (F)" onClick={() => sceneCamera.value?.focus()}>
+      <button title="Frame the selection, or the origin (F)" onClick={() => sceneCamera.value?.focus()}>
         Focus
       </button>
       <UndoRedo />

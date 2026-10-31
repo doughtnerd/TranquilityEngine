@@ -8,7 +8,7 @@ export type ViewMode = "3d" | "2d";
  * looking at the focus point.
  *
  * 3D view: right-drag or Alt + left-drag orbits, middle-drag or Shift + right-drag pans, the
- * wheel zooms, F focuses. 2D view: an orthographic camera looking down -Z at the XY plane;
+ * wheel zooms, F focuses (the selection, when the editor sets `focusTarget`). 2D view: an orthographic camera looking down -Z at the XY plane;
  * right-, middle- or Alt + left-drag pans, the wheel zooms.
  */
 @behavior("editor.OrbitCamera")
@@ -33,6 +33,9 @@ export class OrbitCamera extends GameBehavior {
   private camera: Camera | null = null;
   private _mode: ViewMode = "3d";
   private saved3D = { yaw: 35, pitch: -24 };
+
+  /** Where `focus()` and the F key go when no point is given (the editor points it at the selection). Null or unset: the origin. */
+  focusTarget: (() => Vec3Input | null) | null = null;
 
   /** Build the Arm/Camera children under `root` and add the controller. */
   static create(root: GameObject): OrbitCamera {
@@ -66,9 +69,9 @@ export class OrbitCamera extends GameBehavior {
     return this.transform!.position.clone();
   }
 
-  /** Move the focus point (and optionally the distance) without changing the view angle. */
-  focus(point: Vec3Input = [0, 0, 0], distance?: number): void {
-    this.transform!.position = point;
+  /** Move the focus point (default: `focusTarget`, else the origin), optionally the distance, keeping the view angle. */
+  focus(point?: Vec3Input, distance?: number): void {
+    this.transform!.position = point ?? this.focusTarget?.() ?? [0, 0, 0];
     if (distance !== undefined) this.distance = Mathf.clamp(distance, this.minDistance, this.maxDistance);
     this.apply();
   }

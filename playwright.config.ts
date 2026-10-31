@@ -1,6 +1,6 @@
-// Browser smoke tests (ADR 0023): boot the production build of the Flappy demo in Chromium
-// (Windows Tauri webview) and WebKit (macOS/Linux Tauri webviews) and drive it through
-// `window.flappy`, the demo's state handle.
+// Browser smoke tests (ADR 0023): boot the production builds of the Flappy demo (port 4173)
+// and the editor (port 4174) in Chromium (Windows Tauri webview) and WebKit (macOS/Linux Tauri
+// webviews). The demo is driven through `window.flappy`, its state handle.
 import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
@@ -19,10 +19,18 @@ export default defineConfig({
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     { name: "webkit", use: { ...devices["Desktop Safari"] } },
   ],
-  webServer: {
-    command: "npm run build:game && npm run preview",
-    url: "http://localhost:4173",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: "npm run build:game && npm run preview",
+      url: "http://localhost:4173",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command: "npm run build:editor && npx vite preview --config vite.editor.config.ts --port 4174 --strictPort",
+      url: "http://localhost:4174/editor.html",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+  ],
 });

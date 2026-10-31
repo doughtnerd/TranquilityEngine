@@ -6,19 +6,25 @@
  */
 import {
   AxesHelper,
+  BufferGeometry,
   CanvasTexture,
+  Float32BufferAttribute,
   GridHelper,
   Color as ThreeColor,
+  LineBasicMaterial,
+  LineLoop,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
   OrthographicCamera,
   PerspectiveCamera,
   PlaneGeometry,
+  Raycaster,
   Scene,
   SRGBColorSpace,
   Texture,
   TextureLoader,
+  Vector2 as ThreeVector2,
   WebGLRenderer,
   type Camera as ThreeCamera,
 } from "three";
@@ -26,7 +32,9 @@ import type { Component } from "../core/Component";
 import type { ProjectSettings } from "../core/settings";
 import type { World, WorldKind } from "../core/World";
 import { Assets } from "../scene/Assets";
+import type { GameObject } from "../scene/GameObject";
 import { Camera, SpriteRenderer, Text, type Anchor } from "./components";
+import { rayQuadDistance } from "./picking";
 
 interface SpriteEntry {
   mesh: Mesh<PlaneGeometry, MeshBasicMaterial>;
@@ -49,6 +57,13 @@ interface TextEntry {
 
 const tmpWorld = new Matrix4();
 const tmpScale = new Matrix4();
+const raycaster = new Raycaster();
+const ndc = new ThreeVector2();
+
+/** Editor selection outline colour (ADR 0022). */
+const OUTLINE_COLOR = 0x4c8dff;
+/** Draw outlines above every sprite (sprites sort by layer * 10000 + order). */
+const OUTLINE_ORDER = 1e9;
 
 export class RenderBackend {
   readonly canvas: HTMLCanvasElement;
@@ -184,6 +199,7 @@ export class RenderBackend {
     for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     for (const t of world._componentsOfType(Text)) this.syncText(t);
+    if (this.fill) this.syncOutlines();
   }
 
   private sortOrder(layer: string, order: number): number {
@@ -357,11 +373,7 @@ export class RenderBackend {
   /** Step 9: render each enabled camera in depth order, then the UI. */
   render(world: World): void {
     const r = this.renderer;
-    const cams = world
-      ._componentsOfType(Camera)
-      // A scene open in the editor keeps its cameras, but the editor's scene camera draws the view (ADR 0026).
-      .filter((c) => c.isActiveAndEnabled && this.cameras.has(c) && !world.inEditMode(c.node.entity))
-      .sort((a, b) => a.depth - b.depth);
+    const cams = this.viewCameras(world);
     if (!cams.length) {
       r.setClearColor(this.clearColor, 1);
       r.clear(true, true, true);
@@ -379,8 +391,108 @@ export class RenderBackend {
     r.render(this.uiScene, this.uiCamera);
   }
 
+  /** Enabled cameras that draw the view, in depth order. */
+  private viewCameras(world: World): Camera[] {
+    return world
+      ._componentsOfType(Camera)
+      // A scene open in the editor keeps its cameras, but the editor's scene camera draws the view (ADR 0026).
+      .filter((c) => c.isActiveAndEnabled && this.cameras.has(c) && !world.inEditMode(c.node.entity))
+      .sort((a, b) => a.depth - b.depth);
+  }
+
+  // --- Editor: picking and selection outline (ADR 0022) ---------------------------------------
+
+  private readonly outlined = new Set<GameObject>();
+  private readonly outlines: LineLoop[] = [];
+  private outlineGeometry: BufferGeometry | null = null;
+  private outlineMaterial: LineBasicMaterial | null = null;
+
+  /**
+   * @internal Editor: nodes whose renderers lie under a canvas point (CSS pixels, origin
+   * top-left), topmost first: screen-space text, then sprites by draw order (they draw without
+   * depth testing), then nearest. Uses the camera that draws the view (the first in depth order).
+   */
+  pick(world: World, x: number, y: number): GameObject[] {
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    if (w <= 0 || h <= 0) return [];
+    const hits: { node: GameObject; order: number; distance: number }[] = [];
+
+    // Screen-space text: the UI camera maps the reference resolution onto the canvas.
+    const { width: W, height: H } = this.settings.display;
+    const ux = (x / w) * W, uy = (1 - y / h) * H;
+    for (const [t, entry] of this.texts) {
+      if (!entry.mesh.visible) continue;
+      const e = entry.mesh.matrix.elements; // scale (width, height) and position (cx, cy)
+      if (Math.abs(ux - e[12]) <= e[0] / 2 && Math.abs(uy - e[13]) <= e[5] / 2) hits.push({ node: t.node, order: Infinity, distance: 0 });
+    }
+
+    const view = this.viewCameras(world)[0];
+    const camera = view && this.cameras.get(view)?.camera;
+    if (camera) {
+      ndc.set((x / w) * 2 - 1, -(y / h) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      for (const [s, entry] of this.sprites) {
+        if (!entry.mesh.visible) continue;
+        entry.mesh.updateMatrixWorld();
+        const distance = rayQuadDistance(raycaster.ray, entry.mesh.matrixWorld);
+        if (distance !== null) hits.push({ node: s.node, order: entry.mesh.renderOrder, distance });
+      }
+    }
+
+    hits.sort((a, b) => b.order - a.order || a.distance - b.distance);
+    const seen = new Set<number>();
+    return hits.filter((h) => !seen.has(h.node.entity) && seen.add(h.node.entity)).map((h) => h.node);
+  }
+
+  /** @internal Editor: outline the sprites of these nodes and their descendants, every frame. */
+  setSelectionOutline(nodes: readonly GameObject[]): void {
+    this.outlined.clear();
+    for (const n of nodes) this.outlined.add(n);
+  }
+
+  /** Position one outline per selected sprite (called from `sync`, after sprites). */
+  private syncOutlines(): void {
+    let used = 0;
+    if (this.outlined.size > 0) {
+      for (const [s, entry] of this.sprites) {
+        if (!entry.mesh.visible || !this.isOutlined(s.node)) continue;
+        const line = this.outlines[used] ?? this.createOutline();
+        line.matrix.copy(entry.mesh.matrix);
+        line.matrixWorldNeedsUpdate = true;
+        line.visible = true;
+        used++;
+      }
+    }
+    for (let i = used; i < this.outlines.length; i++) this.outlines[i].visible = false;
+  }
+
+  private isOutlined(node: GameObject): boolean {
+    for (const n of this.outlined) {
+      if (!n.isValid) continue;
+      for (let p: GameObject | null = node; p; p = p.parent) if (p === n) return true;
+    }
+    return false;
+  }
+
+  private createOutline(): LineLoop {
+    this.outlineGeometry ??= new BufferGeometry().setAttribute(
+      "position",
+      new Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3),
+    );
+    this.outlineMaterial ??= new LineBasicMaterial({ color: OUTLINE_COLOR, depthTest: false, depthWrite: false, transparent: true });
+    const line = new LineLoop(this.outlineGeometry, this.outlineMaterial);
+    line.matrixAutoUpdate = false;
+    line.frustumCulled = false;
+    line.renderOrder = OUTLINE_ORDER;
+    this.scene.add(line);
+    this.outlines.push(line);
+    return line;
+  }
+
   dispose(): void {
     this.resizeObserver.disconnect();
+    this.outlineGeometry?.dispose();
+    this.outlineMaterial?.dispose();
     for (const s of [...this.sprites.keys()]) this.release(s);
     for (const t of [...this.texts.keys()]) this.release(t);
     for (const tex of this.textures.values()) tex.dispose();
