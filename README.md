@@ -8,6 +8,8 @@ I've taken a look at the JS based game engine landscape and of them, the only on
 ## Limitations
 This project is in active development and as such, might not have every feature 100% complete. It is also currently limited to WebGL for rendering. Lastly, this documentation will change as new features become complete and may not always reflect the current state of the engine.
 
+The engine is being redesigned around three.js, a hidden ECS core and Tauri. See the [design docs](docs/README.md) for the target architecture and decision records; the features below describe the original prototype.
+
 ## Quick Demo
 ![Basic Demo](./demo/BasicDemo.gif)
 To see a very basic example of the game engine operating run:
