@@ -29,3 +29,10 @@ export const docVersion = signal(0);
 
 /** Selected document node id. */
 export const selection = signal<string | null>(null);
+
+/** Viewport tool: plain selection, or a move/rotate/scale gizmo on the selection. */
+export type Tool = "select" | "move" | "rotate" | "scale";
+export const tool = signal<Tool>("move");
+
+/** Gizmo snapping (held Ctrl/Cmd). */
+export const snapping = signal(false);

@@ -72,13 +72,22 @@ test("flap starts the game, falling ends it, flap restarts", async ({ page }) =>
   await waitForState(page, "s.frame > 30");
   const canvas = page.locator("#game canvas");
 
-  // Sample the height before clicking: by the time a poll sees "playing", the bird may already
-  // be past the top of its first flap on a slow machine.
+  // Record the bird's highest point every frame inside the page: under load, polling from the
+  // test can miss the top of the flap entirely.
   const before = await state(page);
+  await page.evaluate(() => {
+    const w = window as unknown as { peakY: number };
+    w.peakY = -Infinity;
+    const track = () => {
+      w.peakY = Math.max(w.peakY, window.flappy!.state().birdY ?? -Infinity);
+      requestAnimationFrame(track);
+    };
+    track();
+  });
   await canvas.click();
   await waitForState(page, "s.state === 'playing'");
   // The flap launches the bird upward before gravity wins.
-  await waitForState(page, `s.birdY > ${before.birdY! + 0.2}`, 2_000);
+  await page.waitForFunction((y) => (window as unknown as { peakY: number }).peakY > y, before.birdY! + 0.2, { timeout: 5_000 });
 
   // No more input: the bird falls to the ground and dies.
   const dead = await waitForState(page, "s.state === 'dead'");

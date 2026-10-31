@@ -16,6 +16,7 @@ import {
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  Object3D,
   OrthographicCamera,
   PerspectiveCamera,
   PlaneGeometry,
@@ -34,7 +35,26 @@ import type { World, WorldKind } from "../core/World";
 import { Assets } from "../scene/Assets";
 import type { GameObject } from "../scene/GameObject";
 import { Camera, SpriteRenderer, Text, type Anchor } from "./components";
+import type { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
+import { localPoseFromWorld, type LocalPose } from "./gizmoMath";
 import { rayQuadDistance } from "./picking";
+
+/** @internal Editor gizmo settings (ADR 0022). */
+export interface GizmoOptions {
+  mode: "translate" | "rotate" | "scale";
+  /** 2D view: move/scale on X and Y only, rotate around Z only. */
+  planar: boolean;
+  /** Snap to 0.25 m, 15° or 0.1 scale steps. */
+  snap: boolean;
+}
+
+/** @internal What the editor does with a gizmo drag: one start, many changes, one end. */
+export interface GizmoHandlers {
+  onStart(): void;
+  /** The dragged node's new local Transform values. */
+  onChange(pose: LocalPose): void;
+  onEnd(): void;
+}
 
 interface SpriteEntry {
   mesh: Mesh<PlaneGeometry, MeshBasicMaterial>;
@@ -199,7 +219,10 @@ export class RenderBackend {
     for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     for (const t of world._componentsOfType(Text)) this.syncText(t);
-    if (this.fill) this.syncOutlines();
+    if (this.fill) {
+      this.syncOutlines();
+      this.syncGizmo(world);
+    }
   }
 
   private sortOrder(layer: string, order: number): number {
@@ -489,7 +512,104 @@ export class RenderBackend {
     return line;
   }
 
+  // --- Editor: transform gizmo (ADR 0022) ------------------------------------------------------
+
+  private gizmo: TransformControls | null = null;
+  private gizmoLoading: Promise<void> | null = null;
+  /** Stand-in the gizmo moves; synced from the target node while not dragging. */
+  private readonly gizmoProxy = new Object3D();
+  private gizmoTarget: GameObject | null = null;
+  private gizmoOptions: GizmoOptions = { mode: "translate", planar: false, snap: false };
+  private gizmoHandlers: GizmoHandlers | null = null;
+  private gizmoDragging = false;
+  private gizmoWorld: World | null = null;
+
+  /**
+   * @internal Editor: show a move/rotate/scale gizmo on `node` (null hides it). Drags report
+   * the node's new local pose through `handlers`; the editor turns them into commands.
+   */
+  setGizmo(node: GameObject | null, options: GizmoOptions, handlers: GizmoHandlers | null): void {
+    this.gizmoTarget = node;
+    this.gizmoOptions = options;
+    this.gizmoHandlers = handlers;
+    if (node && !this.gizmo && !this.gizmoLoading) this.gizmoLoading = this.loadGizmo();
+    this.applyGizmoOptions();
+  }
+
+  /** @internal Editor: true while the pointer is over a gizmo handle or dragging one. */
+  get gizmoActive(): boolean {
+    const c = this.gizmo;
+    return !!c && c.enabled && (this.gizmoDragging || c.axis !== null);
+  }
+
+  private async loadGizmo(): Promise<void> {
+    // Loaded on first use so game bundles never include the editor's gizmo code.
+    const { TransformControls } = await import("three/examples/jsm/controls/TransformControls.js");
+    const controls = new TransformControls(new PerspectiveCamera(), this.canvas);
+    this.gizmoProxy.matrixAutoUpdate = true;
+    this.scene.add(this.gizmoProxy);
+    const helper = controls.getHelper();
+    helper.renderOrder = OUTLINE_ORDER + 1;
+    this.scene.add(helper);
+    controls.attach(this.gizmoProxy);
+    controls.addEventListener("dragging-changed", (e) => {
+      this.gizmoDragging = Boolean((e as { value?: unknown }).value);
+      if (this.gizmoDragging) this.gizmoHandlers?.onStart();
+      else this.gizmoHandlers?.onEnd();
+    });
+    controls.addEventListener("objectChange", () => {
+      const pose = this.gizmoDragging ? this.gizmoPose() : null;
+      if (pose) this.gizmoHandlers?.onChange(pose);
+    });
+    this.gizmo = controls;
+    this.applyGizmoOptions();
+  }
+
+  private applyGizmoOptions(): void {
+    const c = this.gizmo;
+    if (!c) return;
+    const { mode, planar, snap } = this.gizmoOptions;
+    c.setMode(mode);
+    c.showX = !(planar && mode === "rotate");
+    c.showY = !(planar && mode === "rotate");
+    c.showZ = !planar || mode === "rotate";
+    c.setTranslationSnap(snap ? 0.25 : null);
+    c.setRotationSnap(snap ? Math.PI / 12 : null);
+    c.setScaleSnap(snap ? 0.1 : null);
+  }
+
+  /** The target's local pose implied by where the gizmo has moved the proxy. */
+  private gizmoPose(): LocalPose | null {
+    const node = this.gizmoTarget, world = this.gizmoWorld;
+    if (!node?.isValid || !world) return null;
+    const parent = node.parent;
+    const parentWorld = parent ? new Matrix4().fromArray(world.worldMatrix(parent.entity), parent.entity * 16) : null;
+    this.gizmoProxy.updateMatrix();
+    return localPoseFromWorld(parentWorld, this.gizmoProxy.position, this.gizmoProxy.quaternion, this.gizmoProxy.scale);
+  }
+
+  private syncGizmo(world: World): void {
+    const c = this.gizmo;
+    if (!c) return;
+    this.gizmoWorld = world;
+    const node = this.gizmoTarget;
+    const view = this.viewCameras(world)[0];
+    const camera = view && this.cameras.get(view)?.camera;
+    const show = !!camera && !!node?.isValid && !!node.transform && node.activeInHierarchy;
+    c.enabled = show;
+    c.getHelper().visible = show;
+    if (!show) return;
+    c.camera = camera;
+    if (!this.gizmoDragging) {
+      const e = node!.entity;
+      tmpWorld.fromArray(world.worldMatrix(e), e * 16);
+      tmpWorld.decompose(this.gizmoProxy.position, this.gizmoProxy.quaternion, this.gizmoProxy.scale);
+      this.gizmoProxy.updateMatrixWorld(true);
+    }
+  }
+
   dispose(): void {
+    this.gizmo?.dispose();
     this.resizeObserver.disconnect();
     this.outlineGeometry?.dispose();
     this.outlineMaterial?.dispose();

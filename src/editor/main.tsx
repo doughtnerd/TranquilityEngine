@@ -3,6 +3,7 @@
 // for Editor Worlds and fills the panel.
 import { render } from "preact";
 import { Engine, GameObject } from "../engine";
+import { installGizmo } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
 import { DEMO_SCENE, demoAssets, demoSettings, openSceneFile } from "./project";
 import { installShortcuts } from "./shortcuts";
@@ -29,6 +30,7 @@ async function main(): Promise<void> {
   openSceneFile(engine, DEMO_SCENE);
   installShortcuts();
   installViewportSelection(engine, orbit);
+  installGizmo(engine);
   engine.start();
   Object.assign(window, { engine, orbit });
 }

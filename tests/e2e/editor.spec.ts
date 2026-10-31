@@ -41,6 +41,8 @@ test("clicking in the viewport selects, cycles through overlaps, and clears on e
   const box = (await canvas.boundingBox())!;
   const centre = { x: box.width / 2, y: box.height / 2 };
 
+  // The Select tool shows no gizmo, so repeated clicks reach the sprites underneath.
+  await page.keyboard.press("q");
   // Centre the view on the bird, then click it: its sprite node is selected.
   await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
   await canvas.click({ position: centre });
@@ -95,4 +97,18 @@ test("editing a field in the inspector updates the scene, and Ctrl+Z undoes it",
   await expect(y).toHaveValue("1");
   await expect(page.locator(".scene-name")).not.toContainText("•");
   expect(errors).toEqual([]);
+});
+
+test("with the Move tool, clicking the gizmo on the selection keeps it selected", async ({ page }) => {
+  await openEditor(page);
+  const canvas = page.locator("#viewport canvas");
+  const box = (await canvas.boundingBox())!;
+  const centre = { x: box.width / 2, y: box.height / 2 };
+  await expect(page.getByRole("button", { name: "Move" })).toHaveAttribute("aria-pressed", "true");
+  await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
+  await canvas.click({ position: centre });
+  await expect(selectedRow(page)).toHaveText("Sprite");
+  // The gizmo now sits over the bird: pressing its handle drags instead of selecting what's below.
+  await canvas.click({ position: centre });
+  await expect(selectedRow(page)).toHaveText("Sprite");
 });

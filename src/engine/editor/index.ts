@@ -8,6 +8,7 @@ import { getDataComponentDef, type DataComponentDef, type ScalarType } from "../
 import { Vector3 } from "../core/math";
 import { getComponentClass, getComponentId, getFields, type ComponentClass, type FieldType } from "../core/registry";
 import type { World } from "../core/World";
+import type { GizmoHandlers, GizmoOptions } from "../render/RenderBackend";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 
@@ -226,4 +227,17 @@ export function pick(world: World, x: number, y: number): GameObject[] {
 /** Outline the renderers of these nodes (and their descendants) in the viewport until changed. */
 export function setSelectionOutline(world: World, nodes: readonly GameObject[]): void {
   world.render?.setSelectionOutline(nodes);
+}
+
+export type { GizmoHandlers, GizmoOptions } from "../render/RenderBackend";
+export type { LocalPose } from "../render/gizmoMath";
+
+/** Show a move/rotate/scale gizmo on `node` (null hides it); drags report new local poses. No-op headless. */
+export function setGizmo(world: World, node: GameObject | null, options: GizmoOptions, handlers: GizmoHandlers | null): void {
+  world.render?.setGizmo(node, options, handlers);
+}
+
+/** True while the pointer is over a gizmo handle or dragging one, so clicks there don't select. */
+export function gizmoActive(world: World): boolean {
+  return world.render?.gizmoActive ?? false;
 }

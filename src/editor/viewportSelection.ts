@@ -4,7 +4,7 @@
 // camera's F key frames it.
 import { effect } from "@preact/signals";
 import type { Engine, GameObject } from "../engine";
-import { pick, setSelectionOutline, viewportCanvas } from "../engine/editor";
+import { gizmoActive, pick, setSelectionOutline, viewportCanvas } from "../engine/editor";
 import type { OrbitCamera } from "./OrbitCamera";
 import { docVersion, openScene, selection } from "./state";
 
@@ -76,7 +76,8 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
     return { x: e.clientX - rect.left, y: e.clientY - rect.top, button: e.button, alt: e.altKey };
   };
   const onDown = (e: PointerEvent) => {
-    down = e.button === 0 ? sample(e) : null;
+    // Presses on a gizmo handle drag the gizmo; they never change the selection.
+    down = e.button === 0 && !gizmoActive(world) ? sample(e) : null;
   };
   const onUp = (e: PointerEvent) => {
     const start = down;

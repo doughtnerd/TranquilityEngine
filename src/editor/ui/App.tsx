@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { docVersion, openScene, sceneCamera, setViewMode, viewMode } from "../state";
+import { docVersion, openScene, sceneCamera, setViewMode, snapping, tool, viewMode, type Tool } from "../state";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
 
@@ -30,6 +30,7 @@ function Toolbar() {
   return (
     <header class="toolbar">
       <span class="brand">TranquilityEngine Editor</span>
+      <Tools />
       <div class="group" role="group" aria-label="View mode">
         <button class={mode === "3d" ? "active" : ""} aria-pressed={mode === "3d"} onClick={() => setViewMode("3d")}>
           3D
@@ -43,6 +44,32 @@ function Toolbar() {
       </button>
       <UndoRedo />
     </header>
+  );
+}
+
+const TOOLS: { tool: Tool; label: string; key: string }[] = [
+  { tool: "select", label: "Select", key: "Q" },
+  { tool: "move", label: "Move", key: "W" },
+  { tool: "rotate", label: "Rotate", key: "E" },
+  { tool: "scale", label: "Scale", key: "R" },
+];
+
+function Tools() {
+  const current = tool.value;
+  return (
+    <div class="group" role="group" aria-label="Tool">
+      {TOOLS.map((t) => (
+        <button
+          key={t.tool}
+          class={current === t.tool ? "active" : ""}
+          aria-pressed={current === t.tool}
+          title={`${t.label} (${t.key})`}
+          onClick={() => (tool.value = t.tool)}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -68,7 +95,8 @@ function ViewportHint() {
     viewMode.value === "3d"
       ? "Orbit: right-drag or Alt + left-drag · Pan: middle-drag or Shift + right-drag · Zoom: wheel · Focus: F"
       : "Pan: right- or middle-drag · Zoom: wheel · Focus: F";
-  return <div class="viewport-hint">{text}</div>;
+  const gizmo = tool.value === "select" ? "" : ` · Hold Ctrl to snap${snapping.value ? " (on)" : ""}`;
+  return <div class="viewport-hint">{text + gizmo}</div>;
 }
 
 function Panel(props: { class: string; title: string; children: ComponentChildren }) {
