@@ -7,6 +7,8 @@ const downThisFrame = new Set<string>();
 const upThisFrame = new Set<string>();
 const queue: InputEvent[] = [];
 const pointer = new Vector2();
+const pointerDelta = new Vector2();
+const pendingDelta = new Vector2();
 let detachFns: (() => void)[] = [];
 
 const ALIASES: Record<string, string> = { " ": "space", spacebar: "space", esc: "escape", return: "enter" };
@@ -65,6 +67,14 @@ export class Input {
     return pointer.clone();
   }
 
+  /**
+   * Pointer movement since the last frame in CSS pixels (+x right, +y down). A drag that
+   * starts on the canvas keeps reporting movement outside it. Returns a copy.
+   */
+  static get mouseDelta(): Vector2 {
+    return pointerDelta.clone();
+  }
+
   /** @internal Listen to keyboard on the window and pointer events on the canvas. */
   static attach(canvas: HTMLCanvasElement): void {
     Input.detach();
@@ -78,12 +88,18 @@ export class Input {
     const onPointerDown = (e: PointerEvent) => {
       canvas.focus();
       e.preventDefault();
+      try {
+        canvas.setPointerCapture(e.pointerId); // keep receiving moves while dragging outside the canvas
+      } catch {
+        // Synthetic events can carry a pointer id the browser doesn't know; input still works.
+      }
       queue.push({ type: "down", key: mouseKey(e.button) });
     };
     const onPointerUp = (e: PointerEvent) => queue.push({ type: "up", key: mouseKey(e.button) });
     const onPointerMove = (e: PointerEvent) => {
       const rect = canvas.getBoundingClientRect();
       pointer.set(e.clientX - rect.left, e.clientY - rect.top);
+      pendingDelta.set(pendingDelta.x + e.movementX, pendingDelta.y + e.movementY);
     };
     const onBlur = () => {
       for (const k of held) queue.push({ type: "up", key: k });
@@ -125,11 +141,18 @@ export class Input {
       }
     }
     queue.length = 0;
+    pointerDelta.copy(pendingDelta);
+    pendingDelta.set(0, 0);
   }
 
   /** @internal Inject an event (tests, editor play mode). Applied at the next `beginFrame`. */
   static simulate(type: "down" | "up", key: string): void {
     queue.push({ type, key: normalizeKey(key) });
+  }
+
+  /** @internal Inject pointer movement (tests). Applied at the next `beginFrame`. */
+  static simulateMouseMove(dx: number, dy: number): void {
+    pendingDelta.set(pendingDelta.x + dx, pendingDelta.y + dy);
   }
 
   /** @internal */
@@ -138,5 +161,7 @@ export class Input {
     downThisFrame.clear();
     upThisFrame.clear();
     queue.length = 0;
+    pointerDelta.set(0, 0);
+    pendingDelta.set(0, 0);
   }
 }
