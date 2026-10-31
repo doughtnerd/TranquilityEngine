@@ -9,6 +9,8 @@ const queue: InputEvent[] = [];
 const pointer = new Vector2();
 const pointerDelta = new Vector2();
 const pendingDelta = new Vector2();
+const scrollDelta = new Vector2();
+const pendingScroll = new Vector2();
 let detachFns: (() => void)[] = [];
 
 const ALIASES: Record<string, string> = { " ": "space", spacebar: "space", esc: "escape", return: "enter" };
@@ -75,6 +77,11 @@ export class Input {
     return pointerDelta.clone();
   }
 
+  /** Wheel / trackpad scroll since the last frame in pixels (+y = scrolled down). Returns a copy. */
+  static get mouseScrollDelta(): Vector2 {
+    return scrollDelta.clone();
+  }
+
   /** @internal Listen to keyboard on the window and pointer events on the canvas. */
   static attach(canvas: HTMLCanvasElement): void {
     Input.detach();
@@ -101,6 +108,11 @@ export class Input {
       pointer.set(e.clientX - rect.left, e.clientY - rect.top);
       pendingDelta.set(pendingDelta.x + e.movementX, pendingDelta.y + e.movementY);
     };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const scale = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? canvas.clientHeight : 1; // lines / pages → pixels
+      pendingScroll.set(pendingScroll.x + e.deltaX * scale, pendingScroll.y + e.deltaY * scale);
+    };
     const onBlur = () => {
       for (const k of held) queue.push({ type: "up", key: k });
     };
@@ -110,6 +122,7 @@ export class Input {
     canvas.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     detachFns = [
       () => window.removeEventListener("keydown", onKeyDown),
@@ -118,6 +131,7 @@ export class Input {
       () => canvas.removeEventListener("pointerdown", onPointerDown),
       () => window.removeEventListener("pointerup", onPointerUp),
       () => canvas.removeEventListener("pointermove", onPointerMove),
+      () => canvas.removeEventListener("wheel", onWheel),
     ];
   }
 
@@ -143,6 +157,8 @@ export class Input {
     queue.length = 0;
     pointerDelta.copy(pendingDelta);
     pendingDelta.set(0, 0);
+    scrollDelta.copy(pendingScroll);
+    pendingScroll.set(0, 0);
   }
 
   /** @internal Inject an event (tests, editor play mode). Applied at the next `beginFrame`. */
@@ -155,6 +171,11 @@ export class Input {
     pendingDelta.set(pendingDelta.x + dx, pendingDelta.y + dy);
   }
 
+  /** @internal Inject wheel scrolling (tests). Applied at the next `beginFrame`. */
+  static simulateScroll(dx: number, dy: number): void {
+    pendingScroll.set(pendingScroll.x + dx, pendingScroll.y + dy);
+  }
+
   /** @internal */
   static reset(): void {
     held.clear();
@@ -163,5 +184,7 @@ export class Input {
     queue.length = 0;
     pointerDelta.set(0, 0);
     pendingDelta.set(0, 0);
+    scrollDelta.set(0, 0);
+    pendingScroll.set(0, 0);
   }
 }

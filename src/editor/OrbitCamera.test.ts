@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Engine, GameObject, Input } from "../engine";
+import { Camera, Engine, GameObject, Input } from "../engine";
 import { OrbitCamera } from "./OrbitCamera";
 
 let engine: Engine;
@@ -52,5 +52,64 @@ describe("OrbitCamera (ADR 0022)", () => {
     Input.simulateMouseMove(0, 10_000);
     engine.step(frame);
     expect(orbit.pitch).toBe(orbit.minPitch);
+  });
+
+  it("pans with middle drag and Shift + right drag, keeping the view angle", () => {
+    Input.simulate("down", "mouse1");
+    Input.simulateMouseMove(120, 0);
+    engine.step(frame);
+    Input.simulate("up", "mouse1");
+    const afterMiddle = orbit.focusPoint;
+    expect(Math.hypot(afterMiddle.x, afterMiddle.y, afterMiddle.z)).toBeGreaterThan(0.1);
+    expect(afterMiddle.y).toBeCloseTo(0, 4); // horizontal drag moves along the camera's right axis only
+    expect(orbit.yaw).toBeCloseTo(35, 4);
+
+    Input.simulate("down", "shift");
+    Input.simulate("down", "mouse2");
+    Input.simulateMouseMove(0, 60);
+    engine.step(frame);
+    expect(orbit.focusPoint.y).toBeGreaterThan(afterMiddle.y); // dragging down moves the focus up
+    expect(orbit.yaw).toBeCloseTo(35, 4);
+    expect(orbit.pitch).toBeCloseTo(-24, 4);
+  });
+
+  it("zooms with the wheel within limits", () => {
+    Input.simulateScroll(0, -200); // scroll up: closer
+    engine.step(frame);
+    expect(orbit.distance).toBeLessThan(11);
+    Input.simulateScroll(0, 1_000_000);
+    engine.step(frame);
+    expect(orbit.distance).toBe(orbit.maxDistance);
+  });
+
+  it("F focuses the origin", () => {
+    orbit.focus([3, 1, -2]);
+    Input.simulate("down", "f");
+    engine.step(frame);
+    expect(orbit.focusPoint.toArray()).toEqual([0, 0, 0]);
+  });
+
+  it("2D mode looks down -Z orthographically, pans with right drag, and restores the 3D angles", () => {
+    const camera = orbit.gameObject.find("Arm/Camera")!.getBehavior(Camera)!;
+    orbit.mode = "2d";
+    engine.step(frame);
+    expect(camera.projection).toBe("orthographic");
+    const p = eye();
+    expect(p.x).toBeCloseTo(0, 4);
+    expect(p.y).toBeCloseTo(0, 4);
+    expect(p.z).toBeCloseTo(orbit.distance, 4);
+
+    Input.simulate("down", "mouse2");
+    Input.simulateMouseMove(100, 0);
+    engine.step(frame);
+    expect(orbit.yaw).toBe(0);
+    expect(orbit.focusPoint.x).toBeLessThan(0); // the scene follows the pointer to the right
+
+    Input.simulate("up", "mouse2");
+    orbit.mode = "3d";
+    engine.step(frame);
+    expect(camera.projection).toBe("perspective");
+    expect(orbit.yaw).toBeCloseTo(35, 4);
+    expect(orbit.pitch).toBeCloseTo(-24, 4);
   });
 });

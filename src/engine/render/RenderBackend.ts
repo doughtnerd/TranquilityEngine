@@ -83,20 +83,44 @@ export class RenderBackend {
     const { width, height } = settings.display;
     this.uiCamera = new OrthographicCamera(0, width, height, 0, -10, 10);
 
-    // Editor Worlds get a ground grid (1 m cells) and XYZ axes so an empty scene has a frame of reference.
-    if (kind === "editor") this.scene.add(new GridHelper(20, 20, 0x5a606b, 0x3a3f47), new AxesHelper(1.5));
+    // Editor Worlds fill their viewport panel and get a grid (1 m cells) and XYZ axes, so an
+    // empty scene has a frame of reference.
+    this.fill = kind === "editor";
+    if (kind === "editor") {
+      this.grid = new GridHelper(40, 40, 0x5a606b, 0x3a3f47);
+      this.scene.add(this.grid, new AxesHelper(1.5));
+    }
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
   }
 
-  /** Fit the canvas to the container, keeping the reference aspect ratio (letterboxed). */
+  private readonly fill: boolean;
+  private grid: GridHelper | null = null;
+
+  /** @internal Editor: lay the grid on the ground (XZ, 3D view) or facing the camera (XY, 2D view). */
+  setEditorGridPlane(plane: "xz" | "xy"): void {
+    if (!this.grid) return;
+    this.grid.rotation.x = plane === "xy" ? Math.PI / 2 : 0;
+  }
+
+  /** Width / height that cameras render at: the canvas when filling, else the reference resolution. */
+  private get aspect(): number {
+    if (this.fill && this.canvas.clientHeight > 0) return this.canvas.clientWidth / this.canvas.clientHeight;
+    return this.settings.display.width / this.settings.display.height;
+  }
+
+  /** Fit the canvas to the container: fill it (editor) or keep the reference aspect ratio (letterboxed). */
   private resize(): void {
     const { width, height } = this.settings.display;
-    const aspect = width / height;
     const cw = this.container.clientWidth || width;
     const ch = this.container.clientHeight || height;
+    if (this.fill) {
+      this.renderer.setSize(Math.floor(cw), Math.floor(ch), true);
+      return;
+    }
+    const aspect = width / height;
     let w = cw, h = cw / aspect;
     if (h > ch) {
       h = ch;
@@ -237,7 +261,7 @@ export class RenderBackend {
       this.cameras.set(c, entry);
     }
     const { camera } = entry;
-    const aspect = this.settings.display.width / this.settings.display.height;
+    const aspect = this.aspect;
     if (camera instanceof OrthographicCamera) {
       const s = c.orthographicSize;
       camera.left = -s * aspect;

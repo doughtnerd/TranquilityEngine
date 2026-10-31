@@ -1,0 +1,83 @@
+:root {
+  --bg: #1b1d21;
+  --panel: #212329;
+  --border: #2c3036;
+  --text: #c9ccd1;
+  --muted: #7d828b;
+  --accent: #4c8dff;
+  --button: #2b2e35;
+  --button-hover: #353943;
+}
+
+html, body, #app { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 13px system-ui, sans-serif; overflow: hidden; }
+
+.editor {
+  display: grid;
+  height: 100%;
+  grid-template-columns: 240px 1fr 300px;
+  grid-template-rows: auto 1fr 180px;
+  grid-template-areas:
+    "toolbar   toolbar  toolbar"
+    "hierarchy viewport inspector"
+    "assets    assets   assets";
+}
+
+.toolbar {
+  grid-area: toolbar;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.toolbar .brand { font-weight: 600; margin-right: 8px; }
+.toolbar .group { display: flex; }
+.toolbar .group button { border-radius: 0; }
+.toolbar .group button:first-child { border-radius: 4px 0 0 4px; }
+.toolbar .group button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+
+button {
+  background: var(--button);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover { background: var(--button-hover); }
+button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.panel { background: var(--panel); display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.panel h2 {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.panel-body { flex: 1; overflow: auto; padding: 8px 10px; }
+.panel .empty { color: var(--muted); margin: 0; }
+
+.hierarchy { grid-area: hierarchy; border-right: 1px solid var(--border); }
+.inspector { grid-area: inspector; border-left: 1px solid var(--border); }
+.assets { grid-area: assets; border-top: 1px solid var(--border); }
+
+.viewport-panel { grid-area: viewport; position: relative; min-width: 0; min-height: 0; }
+.viewport { position: absolute; inset: 0; overflow: hidden; }
+.viewport-hint {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 0.45);
+  color: var(--muted);
+  font-size: 12px;
+  pointer-events: none;
+}
