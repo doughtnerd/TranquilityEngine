@@ -445,6 +445,17 @@ export class World {
     for (const w of ready) w.resolve();
   }
 
+  /**
+   * @internal Tear the World down: destroy every node under the root now (scripts get
+   * onDisable/onDestroy, audio stops, renderers release) and free the physics world.
+   */
+  _destroyAll(): void {
+    for (const e of this.childEntities(0)) this._destroyNode(e);
+    this._flushDestroyed();
+    this.physics2D?.rapier.free();
+    this.physics2D = null;
+  }
+
   /** @internal Step 10: apply deferred destroys and component removals. */
   _flushDestroyed(): void {
     while (this.destroyQueue.length) {

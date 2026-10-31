@@ -5,17 +5,20 @@ import { getFileSystem } from "../engine/platform/FileSystem";
 import { confirmDiscard } from "./dialogs";
 import { installGizmo } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
+import { startPlay, type PlaySession } from "./playMode";
 import { openSceneFile, saveOpenScene } from "./project";
 import { editorSettings, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { currentProject, docVersion, openScene, sceneCamera, selection, status, viewMode } from "./state";
+import { currentProject, docVersion, openScene, playState, sceneCamera, selection, status, viewMode } from "./state";
 import { installViewportSelection } from "./viewportSelection";
 
 let session: { engine: Engine; dispose(): void } | null = null;
+let play: PlaySession | null = null;
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Boot an Editor World for `project` in the viewport and open its main scene. */
 export async function loadProject(project: EditorProject): Promise<void> {
+  stopPlaying();
   session?.dispose();
   session = null;
   openScene.value?.sync.dispose();
@@ -47,6 +50,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
 /** Open a scene or prefab of the current project, asking first if there are unsaved changes. */
 export async function switchScene(path: string): Promise<void> {
   if (openScene.value?.path === path || !(await confirmDiscard())) return;
+  stopPlaying();
   openScene_(path);
 }
 
@@ -93,4 +97,33 @@ export async function save(): Promise<void> {
   } catch (err) {
     status.value = { kind: "error", text: `Couldn't save ${scene.path}: ${message(err)}` };
   }
+}
+
+/** Play the open scene in a Runtime World shown in the game view (ADR 0022). */
+export async function startPlaying(): Promise<void> {
+  const scene = openScene.value, project = currentProject.value;
+  if (!session || !scene || !project || playState.value !== "edit") return;
+  playState.value = "starting";
+  try {
+    play = await startPlay({ editor: session.engine, scene, project, container: document.getElementById("game-view") ?? undefined });
+    playState.value = "playing";
+    status.value = { kind: "info", text: `Playing ${scene.path}. Edits made now don't affect the running game. Stop (Ctrl+P) to return.` };
+  } catch (err) {
+    playState.value = "edit";
+    status.value = { kind: "error", text: `Couldn't play ${scene.path}: ${message(err)}` };
+  }
+}
+
+/** Leave play mode: dispose the Runtime World and resume editing. */
+export function stopPlaying(): void {
+  if (!play) return;
+  play.stop();
+  play = null;
+  playState.value = "edit";
+  status.value = null;
+}
+
+export function togglePlaying(): void {
+  if (playState.value === "edit") void startPlaying();
+  else if (playState.value === "playing") stopPlaying();
 }

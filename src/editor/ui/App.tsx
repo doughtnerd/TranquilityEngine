@@ -1,6 +1,6 @@
 import type { ComponentChildren } from "preact";
-import { openProjectFolder, save } from "../session";
-import { currentProject, docVersion, openScene, sceneCamera, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
+import { openProjectFolder, save, togglePlaying } from "../session";
+import { currentProject, docVersion, openScene, playState, sceneCamera, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
 import { AssetsPanel } from "./Assets";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
@@ -8,7 +8,7 @@ import { Inspector } from "./Inspector";
 /** Fixed editor layout (ADR 0025): toolbar, hierarchy | viewport | inspector, assets. */
 export function App() {
   return (
-    <div class="editor">
+    <div class={`editor${playState.value !== "edit" ? " playing" : ""}`}>
       <Toolbar />
       <Panel class="hierarchy" title="Hierarchy">
         <Hierarchy />
@@ -16,6 +16,8 @@ export function App() {
       <section class="viewport-panel">
         <div id="viewport" class="viewport" />
         <ViewportHint />
+        {/* The Runtime World's canvas goes here during play mode (ADR 0022). */}
+        <div id="game-view" class="game-view" hidden={playState.value === "edit"} />
       </section>
       <Panel class="inspector" title="Inspector">
         <Inspector />
@@ -34,6 +36,7 @@ function Toolbar() {
     <header class="toolbar">
       <span class="brand">TranquilityEngine Editor</span>
       <ProjectControls />
+      <PlayButton />
       <Tools />
       <div class="group" role="group" aria-label="View mode">
         <button class={mode === "3d" ? "active" : ""} aria-pressed={mode === "3d"} onClick={() => setViewMode("3d")}>
@@ -95,6 +98,22 @@ function ProjectControls() {
         {project?.name ?? "No project"}
       </span>
     </div>
+  );
+}
+
+function PlayButton() {
+  const state = playState.value;
+  const canPlay = !!openScene.value;
+  return (
+    <button
+      class={`play-button${state !== "edit" ? " active" : ""}`}
+      disabled={state === "starting" || (state === "edit" && !canPlay)}
+      aria-pressed={state !== "edit"}
+      title={state === "edit" ? "Play the open scene (Ctrl+P)" : "Stop playing (Ctrl+P)"}
+      onClick={togglePlaying}
+    >
+      {state === "edit" ? "▶ Play" : state === "starting" ? "Starting…" : "■ Stop"}
+    </button>
   );
 }
 

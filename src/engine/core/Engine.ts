@@ -64,6 +64,11 @@ export class Engine {
     return new Engine(world, render);
   }
 
+  /** True while the requestAnimationFrame loop is running. */
+  get isRunning(): boolean {
+    return this.running;
+  }
+
   /** Start the requestAnimationFrame loop. */
   start(): void {
     if (this.running) return;
@@ -80,6 +85,7 @@ export class Engine {
   }
 
   stop(): void {
+    if (!this.running) return; // never started (headless, stepped by hand): nothing to cancel
     this.running = false;
     cancelAnimationFrame(this.rafId);
   }
@@ -149,9 +155,11 @@ export class Engine {
     }
   }
 
-  /** Stop the loop and release GPU resources. */
+  /** Stop the loop, destroy the World's nodes (scripts get onDestroy, audio stops) and release GPU resources. */
   dispose(): void {
     this.stop();
+    World.active = this.world;
+    this.world._destroyAll();
     this.render?.dispose();
     Input.detach();
     if (World.active === this.world) World.active = null;

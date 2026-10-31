@@ -46,7 +46,7 @@ The editor also needs things from the engine that game code must not see: every 
 ## Open questions
 
 - Multi-scene editing (several documents open at once).
-- How play mode hands the document to a Runtime World (likely: serialize the document and load it like any scene file).
+- ~~How play mode hands the document to a Runtime World~~ Resolved: a deep copy of the document is served under the scene's path by a temporary asset source, and the Runtime World loads it like any scene file.
 
 ## References
 

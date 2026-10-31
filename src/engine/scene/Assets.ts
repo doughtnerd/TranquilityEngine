@@ -23,6 +23,11 @@ export const Assets = {
     sources.unshift(source);
   },
 
+  removeSource(source: AssetSource): void {
+    const i = sources.indexOf(source);
+    if (i >= 0) sources.splice(i, 1);
+  },
+
   clearSources(): void {
     sources.length = 0;
   },

@@ -7,7 +7,8 @@ import { Component } from "../core/Component";
 import { getDataComponentDef, type DataComponentDef, type ScalarType } from "../core/data";
 import { Vector3 } from "../core/math";
 import { getComponentClass, getComponentId, getFields, type ComponentClass, type FieldType } from "../core/registry";
-import type { World } from "../core/World";
+import { World } from "../core/World";
+import { Input } from "../input/Input";
 import type { GizmoHandlers, GizmoOptions } from "../render/RenderBackend";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
@@ -240,4 +241,11 @@ export function setGizmo(world: World, node: GameObject | null, options: GizmoOp
 /** True while dragging the gizmo or if a canvas point is over one of its handles, so clicks there don't select. */
 export function gizmoActive(world: World, x: number, y: number): boolean {
   return world.render?.gizmoActiveAt(x, y) ?? false;
+}
+
+/** Give keyboard and pointer input back to this World's canvas and make it the active World (after play mode). */
+export function resumeEditorWorld(world: World): void {
+  World.active = world;
+  const canvas = world.render?.canvas;
+  if (canvas) Input.attach(canvas);
 }

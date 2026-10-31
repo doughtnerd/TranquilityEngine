@@ -23,13 +23,13 @@ export default defineConfig({
     {
       command: "npm run build:game && npm run preview",
       url: "http://localhost:4173",
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false, // a reused server would serve a stale build: the command is what rebuilds
       timeout: 120_000,
     },
     {
       command: "npm run build:editor && npx vite preview --config vite.editor.config.ts --port 4174 --strictPort",
       url: "http://localhost:4174/editor.html",
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: false, // a reused server would serve a stale build: the command is what rebuilds
       timeout: 120_000,
     },
   ],

@@ -125,3 +125,26 @@ test("scene cameras show an icon that selects the camera", async ({ page }) => {
   await expect(selectedRow(page)).toHaveText("Camera");
   await expect(page.locator(".inspector .node-name")).toHaveValue("Camera");
 });
+
+test("Play runs the scene in a game view, Stop returns to the unchanged editor", async ({ page }) => {
+  const errors = trackErrors(page);
+  await openEditor(page);
+  await page.getByText("Bird", { exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("1");
+
+  await page.getByRole("button", { name: /Play/ }).click();
+  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  const game = page.locator("#game-view canvas");
+  await expect(game).toBeVisible();
+  await expect(page.locator(".status-bar")).toContainText("Playing scenes/main.scene.json");
+
+  // Flap: the game's own scripts run in play mode, so the bird moves in the Runtime World.
+  await game.click();
+  await page.waitForTimeout(500);
+
+  await page.keyboard.press("ControlOrMeta+p"); // stop
+  await expect(page.getByRole("button", { name: /Play/ })).toBeVisible();
+  await expect(game).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("1"); // the edited scene is untouched
+  expect(errors).toEqual([]);
+});

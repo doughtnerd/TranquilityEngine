@@ -134,3 +134,16 @@ describe("transforms (ADR 0010, 0019)", () => {
     expect(first.transform!.worldPosition.x).toBe(42);
   });
 });
+
+describe("Engine.dispose", () => {
+  it("destroys every node, so scripts get onDisable and onDestroy", () => {
+    const parent = GameObject.create("Parent");
+    parent.addBehavior(Logger, { label: "p" });
+    GameObject.create("Child", { parent }).addBehavior(Logger, { label: "c" });
+    engine.step(frame);
+    log.length = 0;
+    engine.dispose();
+    expect(log).toEqual(expect.arrayContaining(["p:onDisable", "p:onDestroy", "c:onDisable", "c:onDestroy"]));
+    expect(parent.isValid).toBe(false);
+  });
+});

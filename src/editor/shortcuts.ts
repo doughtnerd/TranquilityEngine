@@ -1,5 +1,5 @@
 // Editor keyboard shortcuts. Text fields keep their own keys (and undo), so shortcuts skip them.
-import { save } from "./session";
+import { save, togglePlaying } from "./session";
 import { openScene, snapping, tool, type Tool } from "./state";
 
 function isEditable(target: EventTarget | null): boolean {
@@ -10,7 +10,7 @@ function isEditable(target: EventTarget | null): boolean {
   return el instanceof HTMLInputElement && !["checkbox", "radio", "button", "color", "range"].includes(el.type);
 }
 
-export type Shortcut = "undo" | "redo" | "save" | `tool:${Tool}`;
+export type Shortcut = "undo" | "redo" | "save" | "play" | `tool:${Tool}`;
 
 const TOOL_KEYS: Record<string, Tool> = { q: "select", w: "move", e: "rotate", r: "scale" };
 
@@ -21,6 +21,7 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
     if (key === "z") return e.shiftKey ? "redo" : "undo";
     if (key === "y") return "redo";
     if (key === "s") return "save";
+    if (key === "p") return "play";
     return null;
   }
   if (!e.shiftKey && !e.altKey && TOOL_KEYS[key]) return `tool:${TOOL_KEYS[key]}`;
@@ -28,7 +29,7 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
 }
 
 /**
- * Ctrl/Cmd + S saves; Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Q/W/E/R pick the select, move,
+ * Ctrl/Cmd + P plays or stops; Ctrl/Cmd + S saves; Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Q/W/E/R pick the select, move,
  * rotate and scale tools; holding Ctrl/Cmd snaps gizmo drags. Returns a function that removes
  * the listeners.
  */
@@ -36,6 +37,11 @@ export function installShortcuts(target: Window = window): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Control" || e.key === "Meta") snapping.value = true;
     const action = shortcutFor(e);
+    if (action === "play") {
+      e.preventDefault(); // not the browser's print dialog
+      togglePlaying();
+      return;
+    }
     if (action === "save") {
       // Works while typing too: blurring the field commits its edit before the save.
       e.preventDefault();
