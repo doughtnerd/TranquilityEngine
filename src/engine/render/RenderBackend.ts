@@ -13,6 +13,7 @@ import {
   Color as ThreeColor,
   LineBasicMaterial,
   LineLoop,
+  LineSegments,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -22,10 +23,13 @@ import {
   PlaneGeometry,
   Raycaster,
   Scene,
+  Sprite as ThreeSprite,
+  SpriteMaterial,
   SRGBColorSpace,
   Texture,
   TextureLoader,
   Vector2 as ThreeVector2,
+  Vector3 as ThreeVector3,
   WebGLRenderer,
   type Camera as ThreeCamera,
 } from "three";
@@ -36,6 +40,7 @@ import { Assets } from "../scene/Assets";
 import type { GameObject } from "../scene/GameObject";
 import { Camera, SpriteRenderer, Text, type Anchor } from "./components";
 import type { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
+import { frustumSegments } from "./cameraGizmo";
 import { localPoseFromWorld, type LocalPose } from "./gizmoMath";
 import { rayQuadDistance } from "./picking";
 
@@ -82,6 +87,11 @@ const ndc = new ThreeVector2();
 
 /** Editor selection outline colour (ADR 0022). */
 const OUTLINE_COLOR = 0x4c8dff;
+/** Editor camera gizmos: unselected wireframe colour, icon size (fraction of view height) and click radius (CSS px). */
+const CAMERA_GIZMO_COLOR = 0xc9ccd1;
+const CAMERA_ICON_SIZE = 0.065;
+const CAMERA_ICON_PICK_RADIUS = 16;
+const tmpPoint = new ThreeVector3();
 /** Draw outlines above every sprite (sprites sort by layer * 10000 + order). */
 const OUTLINE_ORDER = 1e9;
 
@@ -221,6 +231,7 @@ export class RenderBackend {
     for (const t of world._componentsOfType(Text)) this.syncText(t);
     if (this.fill) {
       this.syncOutlines();
+      this.syncCameraGizmos(world);
       this.syncGizmo(world);
     }
   }
@@ -462,6 +473,17 @@ export class RenderBackend {
       }
     }
 
+    // Camera icons: a small circle on screen around each icon, above every sprite.
+    if (camera) {
+      for (const [c, entry] of this.cameraGizmos) {
+        if (!entry.icon.visible) continue;
+        tmpPoint.setFromMatrixPosition(entry.icon.matrixWorld).project(camera);
+        if (tmpPoint.z < -1 || tmpPoint.z > 1) continue; // behind the camera or beyond far
+        const sx = ((tmpPoint.x + 1) / 2) * w, sy = ((1 - tmpPoint.y) / 2) * h;
+        if (Math.hypot(sx - x, sy - y) <= CAMERA_ICON_PICK_RADIUS) hits.push({ node: c.node, order: OUTLINE_ORDER, distance: 0 });
+      }
+    }
+
     hits.sort((a, b) => b.order - a.order || a.distance - b.distance);
     const seen = new Set<number>();
     return hits.filter((h) => !seen.has(h.node.entity) && seen.add(h.node.entity)).map((h) => h.node);
@@ -510,6 +532,75 @@ export class RenderBackend {
     this.scene.add(line);
     this.outlines.push(line);
     return line;
+  }
+
+  // --- Editor: camera gizmos (ADR 0022) --------------------------------------------------------
+
+  private readonly cameraGizmos = new Map<Camera, { icon: ThreeSprite; frustum: LineSegments<BufferGeometry, LineBasicMaterial> }>();
+  private cameraIconMaterial: SpriteMaterial | null = null;
+
+  /**
+   * Cameras inside the edited scene don't draw the editor's view (see `viewCameras`), so the
+   * editor shows each as an icon (clickable, constant size on screen) and a wireframe of what it
+   * sees at the game's aspect ratio; selected cameras are drawn in the selection colour.
+   */
+  private syncCameraGizmos(world: World): void {
+    const seen = new Set<Camera>();
+    const aspect = this.settings.display.width / this.settings.display.height;
+    // Icons keep a constant size on screen. three.js does that itself for perspective views
+    // (sizeAttenuation: false) but not orthographic ones, where the scale is in world units.
+    const view = this.viewCameras(world)[0];
+    const viewCamera = view && this.cameras.get(view)?.camera;
+    const iconScale = viewCamera instanceof OrthographicCamera ? (CAMERA_ICON_SIZE * (viewCamera.top - viewCamera.bottom)) / viewCamera.zoom : CAMERA_ICON_SIZE;
+    for (const c of world._componentsOfType(Camera)) {
+      if (!world.inEditMode(c.node.entity)) continue; // the editor's own camera has no gizmo
+      seen.add(c);
+      const entry = this.cameraGizmos.get(c) ?? this.createCameraGizmo(c);
+      const visible = c.node.activeInHierarchy;
+      entry.icon.visible = entry.frustum.visible = visible;
+      if (!visible) continue;
+      const e = c.node.entity;
+      tmpWorld.fromArray(world.worldMatrix(e), e * 16);
+      entry.frustum.matrix.copy(tmpWorld);
+      entry.frustum.matrixWorldNeedsUpdate = true;
+      const positions = entry.frustum.geometry.getAttribute("position") as Float32BufferAttribute;
+      positions.copyArray(frustumSegments({ projection: c.projection, orthographicSize: c.orthographicSize, fieldOfView: c.fieldOfView, aspect, near: c.near, far: c.far }));
+      positions.needsUpdate = true;
+      entry.frustum.geometry.computeBoundingSphere();
+      entry.frustum.material.color.setHex(this.isOutlined(c.node) ? OUTLINE_COLOR : CAMERA_GIZMO_COLOR);
+      entry.icon.position.setFromMatrixPosition(tmpWorld);
+      entry.icon.scale.set(iconScale, iconScale, 1);
+      entry.icon.updateMatrixWorld();
+    }
+    for (const [c, entry] of this.cameraGizmos) {
+      if (seen.has(c) && c.node.isValid) continue;
+      this.scene.remove(entry.icon, entry.frustum);
+      entry.frustum.geometry.dispose();
+      entry.frustum.material.dispose();
+      this.cameraGizmos.delete(c);
+    }
+  }
+
+  private createCameraGizmo(c: Camera): { icon: ThreeSprite; frustum: LineSegments<BufferGeometry, LineBasicMaterial> } {
+    this.cameraIconMaterial ??= new SpriteMaterial({
+      map: cameraIconTexture(),
+      sizeAttenuation: false,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+    });
+    const icon = new ThreeSprite(this.cameraIconMaterial);
+    icon.scale.set(CAMERA_ICON_SIZE, CAMERA_ICON_SIZE, 1);
+    icon.renderOrder = OUTLINE_ORDER;
+    const geometry = new BufferGeometry().setAttribute("position", new Float32BufferAttribute(new Float32Array(24 * 3), 3));
+    const frustum = new LineSegments(geometry, new LineBasicMaterial({ color: CAMERA_GIZMO_COLOR, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+    frustum.matrixAutoUpdate = false;
+    frustum.frustumCulled = false;
+    frustum.renderOrder = OUTLINE_ORDER - 1;
+    this.scene.add(frustum, icon);
+    const entry = { icon, frustum };
+    this.cameraGizmos.set(c, entry);
+    return entry;
   }
 
   // --- Editor: transform gizmo (ADR 0022) ------------------------------------------------------
@@ -620,6 +711,8 @@ export class RenderBackend {
 
   dispose(): void {
     this.gizmo?.dispose();
+    this.cameraIconMaterial?.map?.dispose();
+    this.cameraIconMaterial?.dispose();
     this.resizeObserver.disconnect();
     this.outlineGeometry?.dispose();
     this.outlineMaterial?.dispose();
@@ -630,6 +723,33 @@ export class RenderBackend {
     this.renderer.dispose();
     this.canvas.remove();
   }
+}
+
+/** A small camera glyph for editor camera icons: a body and lens, light with a dark outline. */
+function cameraIconTexture(): CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "#1b1d21";
+  ctx.fillStyle = "#e8eaed";
+  const body = () => {
+    ctx.beginPath();
+    ctx.roundRect(6, 18, 36, 28, 5);
+    ctx.moveTo(42, 27);
+    ctx.lineTo(58, 18);
+    ctx.lineTo(58, 46);
+    ctx.lineTo(42, 37);
+    ctx.closePath();
+  };
+  body();
+  ctx.stroke();
+  body();
+  ctx.fill();
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
 }
 
 function anchorFactors(anchor: Anchor): [number, number] {

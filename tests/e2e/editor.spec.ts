@@ -114,3 +114,14 @@ test("with the Move tool, clicking the gizmo on the selection keeps it selected"
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Sprite");
 });
+
+test("scene cameras show an icon that selects the camera", async ({ page }) => {
+  await openEditor(page);
+  await page.keyboard.press("q");
+  const canvas = page.locator("#viewport canvas");
+  const box = (await canvas.boundingBox())!;
+  // The editor frames the scene's camera on open, so its icon sits in the middle of the view.
+  await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
+  await expect(selectedRow(page)).toHaveText("Camera");
+  await expect(page.locator(".inspector .node-name")).toHaveValue("Camera");
+});
