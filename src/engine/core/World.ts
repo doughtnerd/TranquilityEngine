@@ -41,6 +41,7 @@ const NONE = -1;
 const FLAG_COMPONENT_NODE = 1;
 const FLAG_SCENE_NODE = 2;
 const FLAG_PENDING_DESTROY = 4;
+const FLAG_EDIT_MODE = 8;
 
 const FRAME_HOOKS: FrameHook[] = ["fixedUpdate", "update", "lateUpdate"];
 
@@ -112,6 +113,7 @@ export class World {
   private suspendDepth = 0;
   private deferred: Component[] = [];
   private destroyQueue: (GameObject | Component)[] = [];
+  private hasEditMode = false;
 
   // data components and buffers
   private dataStores = new Map<DataComponentDef, DataStore>();
@@ -183,6 +185,50 @@ export class World {
   /** @internal */ isSceneNode(e: number): boolean { return (this.flags[e] & FLAG_SCENE_NODE) !== 0; }
   /** @internal */ setSceneNode(e: number): void { this.flags[e] |= FLAG_SCENE_NODE; }
   /** @internal */ isPendingDestroy(e: number): boolean { return (this.flags[e] & FLAG_PENDING_DESTROY) !== 0; }
+
+  /**
+   * @internal Mark a node as the root of a subtree being edited (ADR 0026). Inside it, GameBehavior
+   * hooks don't run, built-in activation side effects (e.g. audio playback) are skipped and user
+   * systems don't see its nodes, so a scene open in the editor stays still. Editor tools outside
+   * the subtree keep running.
+   */
+  setEditMode(e: number, value: boolean): void {
+    this.flags[e] = value ? this.flags[e] | FLAG_EDIT_MODE : this.flags[e] & ~FLAG_EDIT_MODE;
+    if (value) this.hasEditMode = true;
+  }
+
+  /** @internal True if the node or an ancestor is an edit-mode root. */
+  inEditMode(e: number): boolean {
+    if (!this.hasEditMode) return false;
+    for (let n = e; n !== NONE; n = this.parentOf[n]) if (this.flags[n] & FLAG_EDIT_MODE) return true;
+    return false;
+  }
+
+  /** @internal Move a node to `index` among its siblings (clamped). */
+  _setSiblingIndex(e: number, index: number): void {
+    const parent = this.parentOf[e];
+    if (parent === NONE) return;
+    const siblings = this.childEntities(parent).filter((c) => c !== e);
+    const i = Math.max(0, Math.min(index, siblings.length));
+    this.unlink(e);
+    this.parentOf[e] = parent;
+    const next = i < siblings.length ? siblings[i] : NONE;
+    const prev = i > 0 ? siblings[i - 1] : NONE;
+    this.prevSibling[e] = prev;
+    this.nextSibling[e] = next;
+    if (prev === NONE) this.firstChild[parent] = e;
+    else this.nextSibling[prev] = e;
+    if (next === NONE) this.lastChild[parent] = e;
+    else this.prevSibling[next] = e;
+    this.orderDirty = true;
+  }
+
+  /** @internal Data components present on a node, in definition order of their stores. */
+  _dataComponentsOf(e: number): DataComponentDef[] {
+    const out: DataComponentDef[] = [];
+    for (const [def, store] of this.dataStores) if (store.present[e]) out.push(def);
+    return out;
+  }
 
   /** Scene nodes directly under the root, oldest first (ADR 0016). */
   get sceneNodes(): GameObject[] {
@@ -311,8 +357,9 @@ export class World {
     const active = nodeActive && c._enabled;
     if (active === c._active) return;
     c._active = active;
+    const editing = this.inEditMode(e);
     if (active) {
-      c._onActivate();
+      if (!editing) c._onActivate();
       if (c instanceof GameBehavior) {
         if (c.onEnable) this.invoke(c, "onEnable");
         if (!c._started && !this.pendingStart.includes(c)) {
@@ -321,7 +368,7 @@ export class World {
         }
       }
     } else {
-      c._onDeactivate();
+      if (!editing) c._onDeactivate();
       if (c instanceof GameBehavior) {
         if (c.onDisable) this.invoke(c, "onDisable");
         this.cancelAsync(c);
@@ -515,6 +562,7 @@ export class World {
     const row = {} as Row;
     outer: for (const e of source) {
       if (!this.alive[e] || !this.inWorld[e] || !this.activeInHierarchy[e]) continue;
+      if (this.inEditMode(e)) continue;
       if (needsTransform && !this.hasTransform[e]) continue;
       for (const s of stores) if (!s.present[e]) continue outer;
       row.node = this.handle(e);
@@ -533,6 +581,7 @@ export class World {
   }
 
   private invoke(b: GameBehavior, hook: keyof GameBehavior): void {
+    if (this.inEditMode(b._node.entity)) return; // scripts don't run in a scene being edited (ADR 0026)
     try {
       const result = (b[hook] as () => unknown).call(b);
       if (result instanceof Promise) {
@@ -555,7 +604,7 @@ export class World {
     if (c._destroyed) return;
     if (c._active) {
       c._active = false;
-      c._onDeactivate();
+      if (!this.inEditMode(c._node.entity)) c._onDeactivate();
       if (c instanceof GameBehavior && c.onDisable) this.invoke(c, "onDisable");
     }
     if (c instanceof GameBehavior) {

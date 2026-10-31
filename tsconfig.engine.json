@@ -10,5 +10,5 @@
     "outDir": "./dist/engine/types"
   },
   "include": ["src/engine/**/*"],
-  "exclude": ["src/engine/tests/**/*"]
+  "exclude": ["src/engine/tests/**/*", "src/engine/editor/**/*"]
 }

@@ -5,7 +5,7 @@
 import { Component } from "../core/Component";
 import { getDataComponentDef } from "../core/data";
 import { Color, Vector2, Vector3 } from "../core/math";
-import { AssetRef, PlainObject, component, field, getComponentClass, getComponentId, getFields, type ComponentClass } from "../core/registry";
+import { AssetRef, PlainObject, component, field, getComponentClass, getComponentId, getFields, type ComponentClass, type FieldInfo } from "../core/registry";
 import type { World } from "../core/World";
 import { Assets } from "./Assets";
 import { GameObject, type InstantiateOptions } from "./GameObject";
@@ -98,13 +98,29 @@ interface Fixup {
   apply(resolve: (scope: Map<string, Instance>, id: string) => GameObject | null): void;
 }
 
+/** @internal Editor hooks for `instantiateFile` (ADR 0026). Runtime loads pass none. */
+export interface InstantiateHooks {
+  /**
+   * Called for every node created, with its path of ids from the top-level file: `[id]` for a
+   * node of the file itself, `[instanceId, innerId...]` for nodes inside a prefab instance (the
+   * same shape as an override `target`, prefixed with the instance id). A prefab instance root
+   * is reported again, last, as `[instanceId]`.
+   */
+  onNode?(node: GameObject, path: readonly string[]): void;
+  /** Resolve a `$node` reference of the top-level file that isn't part of this instantiation. */
+  resolveExternal?(id: string): GameObject | null;
+}
+
 class Instantiation {
   readonly fixups: Fixup[] = [];
-  constructor(readonly world: World) {}
+  private prefix: string[] = [];
+  private top: Map<string, Instance> | null = null;
+  constructor(readonly world: World, private readonly hooks: InstantiateHooks = {}) {}
 
   /** Create all nodes of `file` under `parent`; returns top-level nodes and the id map. */
   file(file: SceneFile, parent: GameObject, path: string): { roots: GameObject[]; ids: Map<string, Instance> } {
     const ids = new Map<string, Instance>();
+    this.top ??= ids;
     const roots: GameObject[] = [];
     const pending = [...file.nodes];
     let progress = true;
@@ -119,6 +135,7 @@ class Instantiation {
         const inst = this.node(entry, parentNode, ids, path);
         if (ids.has(entry.id)) throw new Error(`${path}: duplicate node id "${entry.id}".`);
         ids.set(entry.id, inst);
+        this.hooks.onNode?.(inst.node, [...this.prefix, entry.id]);
         if (!entry.parent) roots.push(inst.node);
       }
     }
@@ -129,7 +146,14 @@ class Instantiation {
   private node(entry: NodeEntry, parent: GameObject, scope: Map<string, Instance>, path: string): Instance {
     if (entry.prefab) {
       const prefab = loadSceneFile(entry.prefab);
-      const { roots, ids } = this.file(prefab, parent, entry.prefab);
+      this.prefix.push(entry.id);
+      let created: { roots: GameObject[]; ids: Map<string, Instance> };
+      try {
+        created = this.file(prefab, parent, entry.prefab);
+      } finally {
+        this.prefix.pop();
+      }
+      const { roots, ids } = created;
       if (roots.length !== 1) throw new Error(`${entry.prefab}: a prefab must have exactly one root node (has ${roots.length}).`);
       const node = roots[0];
       this.world.ids[node.entity] = entry.id;
@@ -175,32 +199,7 @@ class Instantiation {
         console.warn(`[tranquility] ${path}: "${key}" is not a declared field of ${getComponentId(type) ?? type.name}; ignored.`);
         continue;
       }
-      const target = c as unknown as Record<string, unknown>;
-      const t = info.type;
-      if (t === GameObject) {
-        const ref = raw as { $node?: string } | null;
-        if (ref === null) target[key] = null;
-        else if (ref && typeof ref.$node === "string") {
-          const id = ref.$node;
-          this.fixups.push({ apply: (resolve) => { target[key] = resolve(scope, id); } });
-        } else console.warn(`[tranquility] ${path}: field "${key}" expects {"$node": "<id>"}.`);
-      } else if (t === Vector2) {
-        const cur = target[key];
-        if (cur instanceof Vector2) cur.copy(raw as number[]);
-        else target[key] = Vector2.from(raw as number[]);
-      } else if (t === Vector3) {
-        const cur = target[key];
-        if (cur instanceof Vector3) cur.copy(raw as number[]);
-        else target[key] = Vector3.from(raw as number[]);
-      } else if (t === Color) {
-        target[key] = Color.from(raw as string);
-      } else if (t === AssetRef) {
-        target[key] = typeof raw === "string" ? raw.replace(/^asset:/, "") : raw;
-      } else if (t === PlainObject) {
-        target[key] = mergeDeep(target[key], raw);
-      } else {
-        target[key] = raw;
-      }
+      assignField(c, info, raw, (id, assign) => this.fixups.push({ apply: (resolve) => assign(resolve(scope, id)) }), path);
     }
   }
 
@@ -244,15 +243,54 @@ class Instantiation {
 
   resolveFixups(): void {
     const resolve = (scope: Map<string, Instance>, id: string) => {
-      const found = scope.get(id);
+      const found = scope.get(id)?.node ?? (scope === this.top ? this.hooks.resolveExternal?.(id) : undefined);
       if (!found) console.warn(`[tranquility] node reference "${id}" not found.`);
-      return found?.node ?? null;
+      return found ?? null;
     };
     for (const f of this.fixups) f.apply(resolve);
   }
 }
 
-function applyTransform(node: GameObject, data: Record<string, unknown>): void {
+/**
+ * @internal Assign one serialized field value onto a component, converting it to the field's
+ * declared type. `ref` receives `{"$node": id}` references and a setter to call with the node.
+ */
+export function assignField(
+  c: Component,
+  info: FieldInfo,
+  raw: unknown,
+  ref: (id: string, assign: (node: GameObject | null) => void) => void,
+  path = "<inline>",
+): void {
+  const key = info.name;
+  const target = c as unknown as Record<string, unknown>;
+  const t = info.type;
+  if (t === GameObject) {
+    const r = raw as { $node?: string } | null;
+    if (r === null) target[key] = null;
+    else if (r && typeof r.$node === "string") ref(r.$node, (node) => { target[key] = node; });
+    else console.warn(`[tranquility] ${path}: field "${key}" expects {"$node": "<id>"}.`);
+  } else if (t === Vector2) {
+    const cur = target[key];
+    if (cur instanceof Vector2) cur.copy(raw as number[]);
+    else target[key] = Vector2.from(raw as number[]);
+  } else if (t === Vector3) {
+    const cur = target[key];
+    if (cur instanceof Vector3) cur.copy(raw as number[]);
+    else target[key] = Vector3.from(raw as number[]);
+  } else if (t === Color) {
+    target[key] = Color.from(raw as string);
+  } else if (t === AssetRef) {
+    target[key] = typeof raw === "string" ? raw.replace(/^asset:/, "") : raw;
+  } else if (t === PlainObject) {
+    target[key] = mergeDeep(target[key], raw);
+  } else {
+    target[key] = raw;
+  }
+}
+
+/** @internal Apply Transform data from a scene file (`position`, `rotation`, `scale`). */
+export function applyTransform(node: GameObject, data: Record<string, unknown>): void {
   const t = node.transform ?? node.world._addTransform(node.entity);
   if (data.position !== undefined) t.position = data.position as number[];
   if (data.rotation !== undefined) {
@@ -275,9 +313,9 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** @internal Instantiate every node of `file` under `parent`, then run awake/onEnable in tree order. */
-export function instantiateFile(world: World, file: SceneFile, parent: GameObject, path: string): GameObject[] {
+export function instantiateFile(world: World, file: SceneFile, parent: GameObject, path: string, hooks?: InstantiateHooks): GameObject[] {
   return world._batch(() => {
-    const job = new Instantiation(world);
+    const job = new Instantiation(world, hooks);
     const { roots } = job.file(file, parent, path);
     job.resolveFixups();
     return roots;
