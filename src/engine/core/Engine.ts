@@ -1,6 +1,8 @@
 import { Input } from "../input/Input";
 import { MemoryStorage, Storage, type StorageBackend } from "../platform/Storage";
 import { BrowserStorage } from "../platform/BrowserStorage";
+import { getFileSystem, isTauri } from "../platform/FileSystem";
+import { TauriStorage } from "../platform/TauriStorage";
 import { RenderBackend } from "../render/RenderBackend";
 import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
@@ -15,7 +17,7 @@ export interface EngineOptions {
   /** Element the canvas is placed in. Omit (or pass `headless: true`) to run without rendering. */
   container?: HTMLElement;
   headless?: boolean;
-  /** Storage backend for saves/settings (ADR 0024). Defaults to IndexedDB in browsers, memory otherwise. */
+  /** Storage backend for saves/settings (ADR 0024). Defaults to files under Tauri, IndexedDB in browsers, memory when headless. */
   storage?: StorageBackend;
   /** "runtime" for games (default); "editor" for the scene editor's Editor World (ADR 0016, 0022). */
   kind?: WorldKind;
@@ -57,7 +59,7 @@ export class Engine {
       Input.attach(render.canvas);
     }
 
-    Storage.use(options.storage ?? (typeof indexedDB !== "undefined" && !headless ? new BrowserStorage(world.settings.name) : new MemoryStorage()));
+    Storage.use(options.storage ?? (await defaultStorage(world.settings.name, headless)));
     SceneManager.loadAutoloads(world);
     return new Engine(world, render);
   }
@@ -154,4 +156,12 @@ export class Engine {
     Input.detach();
     if (World.active === this.world) World.active = null;
   }
+}
+
+/** Platform storage (ADR 0024): files in the app data folder under Tauri, IndexedDB in a browser, memory when headless. */
+async function defaultStorage(gameName: string, headless: boolean): Promise<StorageBackend> {
+  if (headless) return new MemoryStorage();
+  if (isTauri()) return TauriStorage.create(await getFileSystem());
+  if (typeof indexedDB !== "undefined") return new BrowserStorage(gameName);
+  return new MemoryStorage();
 }

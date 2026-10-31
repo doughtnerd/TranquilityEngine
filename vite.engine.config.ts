@@ -18,7 +18,7 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: true,
     rollupOptions: {
-      external: [/^three(\/.*)?$/, "howler", /^@dimforge\//],
+      external: [/^three(\/.*)?$/, "howler", /^@dimforge\//, /^@tauri-apps\//],
     },
   },
 });
