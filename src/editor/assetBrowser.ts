@@ -96,8 +96,10 @@ export function uniqueId(doc: SceneDocument, base: string): string {
  * instance (its contents come from the prefab file); top level when nothing is selected.
  */
 export function parentForAdd(doc: SceneDocument, selected: string | null): string | null {
-  if (!selected || !doc.has(selected)) return null;
-  return doc.isPrefabInstance(selected) ? doc.parentOf(selected) : selected;
+  // A selection inside a prefab instance is a path key ("pipe/top"): use its instance.
+  const id = selected?.split("/")[0] ?? null;
+  if (!id || !doc.has(id)) return null;
+  return doc.isPrefabInstance(id) ? doc.parentOf(id) : id;
 }
 
 /** The scene entry for an instance of a prefab file. */

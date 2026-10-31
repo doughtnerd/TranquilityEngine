@@ -89,6 +89,8 @@ describe("asset browser: adding to the scene (ADR 0026)", () => {
     expect(parentForAdd(doc, "bird")).toBe("bird");
     expect(parentForAdd(doc, "bg-a")).toBeNull(); // a top-level prefab instance: add beside it
     expect(parentForAdd(doc, "gone")).toBeNull();
+    // A node inside a prefab instance (a path key): add beside the instance.
+    expect(parentForAdd(doc, "bg-a/inner")).toBeNull();
   });
 
   it("adds a prefab instance as one undoable step, twice with distinct ids", () => {
