@@ -140,6 +140,20 @@ describe("saving (ADR 0026)", () => {
     expect(text).toBe(Object.entries(raw).find(([k]) => k.endsWith("main.scene.json"))![1].replace(/\r\n/g, "\n"));
   });
 
+  it("keeps CRLF line endings", async () => {
+    const path = joinPath(ROOT, "scenes/main.scene.json");
+    const crlf = (fs.files.get(path) as string).replace(/\r?\n/g, "\r\n");
+    fs.files.set(path, crlf);
+    project = await openFolderProject(fs, ROOT);
+    useProjectAssets(project);
+    currentProject.value = project;
+    openScene.value!.stack.execute(new SetField("ceiling", "engine.Transform", "position", [0, 12, 0]));
+    await saveOpenScene();
+    const after = fs.files.get(path) as string;
+    expect(after.split("\r\n").length).toBe(crlf.split("\r\n").length);
+    expect(after.replace(/\r\n/g, "")).not.toContain("\n");
+  });
+
   it("asks before discarding unsaved changes", async () => {
     expect(await confirmDiscard()).toBe(true); // nothing to lose
     openScene.value!.stack.execute(new SetField("ceiling", "engine.Transform", "position", [0, 12, 0]));

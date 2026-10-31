@@ -49,7 +49,8 @@ export async function saveOpenScene(): Promise<void> {
   if (!scene || !project) return;
   const original = project.textOf(scene.path);
   const text = formatSceneJSON(scene.doc.toJSON(), original ? originalLayout(original.replace(/\r\n/g, "\n")) : {});
-  await project.writeText(scene.path, text);
+  // Keep the file's line endings (Windows checkouts often have CRLF).
+  await project.writeText(scene.path, original?.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text);
   scene.stack.markSaved();
 }
 
