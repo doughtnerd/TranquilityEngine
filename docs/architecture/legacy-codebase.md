@@ -1,6 +1,8 @@
 # Legacy Codebase
 
-The code in `src/` as of 2026-10-31 (commit `d4dab10`) is the 2021 prototype, updated in October 2026 to build on Node 26 / webpack 5. It is about 2,000 lines of engine code and runs a Flappy Bird demo. It was written before the current design, so most of it is to be replaced. This page records what exists, its known problems, and which decision record replaces each part.
+> **Historical.** This code was removed on 2026-10-31 and replaced by the new engine in `src/engine/` (see [implementation-status.md](implementation-status.md)). The Flappy Bird demo was ported to `src/demo/flappy/`; its images and music moved there. The last commit with the prototype is `064e501`.
+
+The prototype was the 2021 engine, updated in October 2026 to build on Node 26 / webpack 5: about 2,000 lines of engine code running a Flappy Bird demo, written before the current design. This page records what existed, its known problems, and which decision record replaced each part.
 
 ## What to keep
 

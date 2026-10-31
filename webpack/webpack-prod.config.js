@@ -1,56 +1,18 @@
-const path = require("path");
-const webpack = require("webpack");
-const HtmlWebpackPlugin = require("html-webpack-plugin");
-const CleanWebpackPlugin = require("clean-webpack-plugin");
-module.exports = {
+const { merge } = require("webpack-merge");
+const common = require("./webpack-common.config");
+
+module.exports = merge(common, {
   mode: "production",
-  output: {
-    filename: "bundle.min.js",
-  },
   devtool: false,
-  module: {
-    rules: [
-      {
-        test: /\.[tj]sx?$/,
-        use: "ts-loader",
-        exclude: /node_modules/,
-      },
-      {
-        test: /\.(png|jpg|jpeg|gif|svg|mp3|mp4)/,
-        type: "asset/resource",
-      },
-      {
-        test: /\.json$/,
-        type: "javascript/auto",
-      },
-      {
-        test: /\.(mp4|webm)/,
-        type: "asset/resource",
-      },
-      {
-        test: /\.(vert|frag)$/i,
-        type: "asset/source",
-      },
-    ],
+  output: {
+    filename: "bundle.[contenthash].min.js",
   },
-  resolve: {
-    extensions: [".ts", ".tsx", ".js"],
-    alias: {
-      src: "./src/engine",
-    },
-    preferRelative: true,
+  performance: {
+    // Only JS counts; audio and textures are expected to be large. The bundle is ~4 MiB because
+    // @dimforge/rapier2d-compat embeds its WASM as base64 (plus three.js). Fine for Tauri
+    // downloads; loading the non-compat WASM separately would shrink it for the web.
+    assetFilter: (file) => file.endsWith(".js"),
+    maxAssetSize: 5 * 1024 * 1024,
+    maxEntrypointSize: 5 * 1024 * 1024,
   },
-  entry: "./src/index.ts",
-  plugins: [
-    new CleanWebpackPlugin(["dist"], {
-      root: path.resolve(__dirname, "../"),
-    }),
-    new webpack.DefinePlugin({
-      CANVAS_RENDERER: JSON.stringify(true),
-      WEBGL_RENDERER: JSON.stringify(true),
-    }),
-    new HtmlWebpackPlugin({
-      template: "./index.html",
-    }),
-  ],
-};
+});

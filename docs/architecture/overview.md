@@ -108,4 +108,4 @@ requestAnimationFrame
 
 ## Current state
 
-As of 2026-10-31 the code in `src/` is the 2021-era prototype: custom WebGL renderer, homemade physics, plain-class GameObjects with no ECS. It builds and runs the Flappy Bird demo, but most of it is slated for replacement. See [legacy-codebase.md](legacy-codebase.md).
+On 2026-10-31 the 2021 prototype was replaced by a first vertical slice of this design in `src/engine/`, enough for the Flappy Bird demo in `src/demo/flappy/` to play end to end. [implementation-status.md](implementation-status.md) tracks what each decision record has and lacks; [legacy-codebase.md](legacy-codebase.md) records the old code.

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flappy-dev",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["webpack", "serve", "--host", "localhost", "--port", "3000", "--config", "webpack/webpack-dev.config.js"],
+      "port": 3000
+    }
+  ]
+}

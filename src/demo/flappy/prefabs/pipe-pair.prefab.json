@@ -1,0 +1,58 @@
+{
+  "format": "tranquility.scene@1",
+  "nodes": [
+    {
+      "id": "pair",
+      "name": "PipePair",
+      "components": [
+        { "type": "game.Scroller", "data": { "speed": 5, "wrapWidth": 0 } },
+        { "type": "game.Despawn", "data": { "minX": -14 } }
+      ]
+    },
+    {
+      "id": "top",
+      "name": "Top",
+      "parent": "pair",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 9.6, 0] } },
+        {
+          "type": "engine.SpriteRenderer",
+          "data": { "sprite": "asset:images/PipeDown.png", "size": [2, 14], "sortingLayer": "Pipes" }
+        },
+        {
+          "type": "engine.BoxCollider2D",
+          "data": { "size": [1.7, 14], "isTrigger": true, "layer": "Obstacle" }
+        }
+      ]
+    },
+    {
+      "id": "bottom",
+      "name": "Bottom",
+      "parent": "pair",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, -9.6, 0] } },
+        {
+          "type": "engine.SpriteRenderer",
+          "data": { "sprite": "asset:images/PipeUp.png", "size": [2, 14], "sortingLayer": "Pipes" }
+        },
+        {
+          "type": "engine.BoxCollider2D",
+          "data": { "size": [1.7, 14], "isTrigger": true, "layer": "Obstacle" }
+        }
+      ]
+    },
+    {
+      "id": "gate",
+      "name": "ScoreGate",
+      "parent": "pair",
+      "componentNode": true,
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0.8, 0, 0] } },
+        {
+          "type": "engine.BoxCollider2D",
+          "data": { "size": [0.4, 5.2], "isTrigger": true, "layer": "Score" }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,150 @@
+import { Mat4, Quaternion, RAD2DEG, Vector2, Vector3, type Vec3Input, type Vec3Like } from "../core/math";
+import type { World } from "../core/World";
+import type { GameObject } from "./GameObject";
+
+const tmpA = new Float32Array(16);
+const tmpB = new Float32Array(16);
+
+/**
+ * A node's position, rotation and scale (ADR 0008, 0010).
+ *
+ * `position`, `rotation` and `scale` are **local** (relative to the parent) and are live views
+ * (ADR 0019): `transform.position.x += 1` moves the node. Use `.clone()` to keep a snapshot.
+ * World-space values are available as `worldPosition`, `worldRotation2D` and `worldScale`.
+ *
+ * Transform data lives in the World's typed arrays; this class is a facade over it.
+ */
+export class Transform {
+  private readonly _position: Vector3;
+  private readonly _position2D: Vector2;
+  private readonly _rotation: Quaternion;
+  private readonly _scale: Vector3;
+
+  /** @internal */
+  constructor(private readonly world: World, private readonly e: number) {
+    const dirty = () => world.markTransformDirty(e);
+    this._position = Vector3.view(world.tPos, e * 3, dirty);
+    this._position2D = Vector2.view(world.tPos, e * 3, dirty);
+    this._rotation = Quaternion.view(world.tRot, e * 4, dirty);
+    this._scale = Vector3.view(world.tScl, e * 3, dirty);
+  }
+
+  /** @internal Re-point views after the World grows its storage. */
+  _rebind(): void {
+    this._position._a = this.world.tPos;
+    this._position2D._a = this.world.tPos;
+    this._rotation._a = this.world.tRot;
+    this._scale._a = this.world.tScl;
+  }
+
+  get node(): GameObject {
+    return this.world.handle(this.e);
+  }
+
+  /** Local position (live view). */
+  get position(): Vector3 { return this._position; }
+  set position(v: Vec3Input) { this._position.copy(v); }
+
+  /** Local x/y position (live view over the same storage as `position`). */
+  get position2D(): Vector2 { return this._position2D; }
+  set position2D(v: Vector2 | readonly [number, number]) { this._position2D.copy(v); }
+
+  /** Local rotation (live view). */
+  get rotation(): Quaternion { return this._rotation; }
+  set rotation(q: Quaternion) { this._rotation.copy(q); }
+
+  /** Local scale (live view). */
+  get scale(): Vector3 { return this._scale; }
+  set scale(v: Vec3Input) { this._scale.copy(v); }
+
+  /** Local rotation as Euler angles in degrees (XYZ). Returns a copy. */
+  get eulerAngles(): Vector3 { return this._rotation.toEuler(); }
+  set eulerAngles(v: Vec3Input) {
+    const e = Vector3.from(v);
+    this._rotation.setFromEuler(e.x, e.y, e.z);
+  }
+
+  /** Local rotation around Z in degrees. */
+  get rotation2D(): number { return this._rotation.angle2D; }
+  set rotation2D(degrees: number) { this._rotation.setFromEuler(0, 0, degrees); }
+
+  /** World-space position. Returns a copy; assigning moves the node. */
+  get worldPosition(): Vector3 {
+    const m = this.world.worldMatrix(this.e), o = this.e * 16;
+    return new Vector3(m[o + 12], m[o + 13], m[o + 14]);
+  }
+  set worldPosition(v: Vec3Input) {
+    const p = Vector3.from(v);
+    const parent = this.world.parentEntity(this.e);
+    if (parent < 0) {
+      this._position.copy(p);
+      return;
+    }
+    Mat4.invert(tmpA, 0, this.world.worldMatrix(parent), parent * 16);
+    this._position.set(...Mat4.transformPoint(tmpA, 0, p.x, p.y, p.z));
+  }
+
+  /** World-space rotation around Z in degrees (2D). */
+  get worldRotation2D(): number {
+    const m = this.world.worldMatrix(this.e), o = this.e * 16;
+    return Math.atan2(m[o + 1], m[o]) * RAD2DEG;
+  }
+  set worldRotation2D(degrees: number) {
+    const parent = this.world.parentEntity(this.e);
+    const parentRot = parent < 0 ? 0 : Math.atan2(this.world.worldMatrix(parent)[parent * 16 + 1], this.world.tWorld[parent * 16]) * RAD2DEG;
+    this.rotation2D = degrees - parentRot;
+  }
+
+  /** World-space scale (lossy, from matrix column lengths). */
+  get worldScale(): Vector3 {
+    const m = this.world.worldMatrix(this.e), o = this.e * 16;
+    return new Vector3(Math.hypot(m[o], m[o + 1], m[o + 2]), Math.hypot(m[o + 4], m[o + 5], m[o + 6]), Math.hypot(m[o + 8], m[o + 9], m[o + 10]));
+  }
+
+  /** Move by `delta`, in local (parent) space by default or world space. */
+  translate(delta: Vec3Like, space: "local" | "world" = "local"): void {
+    if (space === "local") this._position.add(delta);
+    else this.worldPosition = Vector3.add(this.worldPosition, delta);
+  }
+
+  /** Rotate around Z by `degrees`. */
+  rotate2D(degrees: number): void {
+    this.rotation2D = this.rotation2D + degrees;
+  }
+
+  /** Transform a point from this node's local space to world space. */
+  localToWorld(point: Vec3Like): Vector3 {
+    return new Vector3(...Mat4.transformPoint(this.world.worldMatrix(this.e), this.e * 16, point.x, point.y, point.z));
+  }
+
+  /** Transform a world-space point into this node's local space. */
+  worldToLocal(point: Vec3Like): Vector3 {
+    Mat4.invert(tmpB, 0, this.world.worldMatrix(this.e), this.e * 16);
+    return new Vector3(...Mat4.transformPoint(tmpB, 0, point.x, point.y, point.z));
+  }
+
+  /** @internal Set world x/y and Z rotation in one go (used by physics write-back). */
+  _setWorldPose2D(x: number, y: number, degrees: number): void {
+    const parent = this.world.parentEntity(this.e);
+    const a = this.world.tPos, o = this.e * 3;
+    if (parent <= 0 || !this.world.hasTransform[parent]) {
+      // Fast path: parent has no transform, so local == world (apart from inherited identity).
+      if (parent > 0) {
+        Mat4.invert(tmpA, 0, this.world.worldMatrix(parent), parent * 16);
+        [a[o], a[o + 1]] = Mat4.transformPoint(tmpA, 0, x, y, a[o + 2]);
+      } else {
+        a[o] = x;
+        a[o + 1] = y;
+      }
+      this._rotation.setFromEuler(0, 0, degrees); // marks dirty
+      return;
+    }
+    this.worldPosition = [x, y, this.worldPosition.z];
+    this.worldRotation2D = degrees;
+  }
+
+  /** @internal */
+  get entity(): number {
+    return this.e;
+  }
+}

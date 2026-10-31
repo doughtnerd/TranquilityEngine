@@ -1,0 +1,17 @@
+{
+  "format": "tranquility.scene@1",
+  "nodes": [
+    {
+      "id": "tile",
+      "name": "GroundTile",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, -13, 0] } },
+        {
+          "type": "engine.SpriteRenderer",
+          "data": { "sprite": "asset:images/ground.jpg", "size": [32.05, 10], "sortingLayer": "Foreground" }
+        },
+        { "type": "game.Scroller", "data": { "speed": 5, "wrapWidth": 32 } }
+      ]
+    }
+  ]
+}

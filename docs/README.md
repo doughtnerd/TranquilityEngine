@@ -6,7 +6,8 @@ Start here. These docs describe where the engine is going, why, and what is bein
 | --- | --- |
 | [Architecture overview](architecture/overview.md) | Goals, non-goals, layers, module layout, glossary |
 | [Open questions](architecture/open-questions.md) | Design decisions not yet made, with leanings |
-| [Legacy codebase](architecture/legacy-codebase.md) | The 2021-era code in `src/`, its known problems, and what replaces each part |
+| [Implementation status](architecture/implementation-status.md) | What `src/engine/` implements today versus each decision record |
+| [Legacy codebase](architecture/legacy-codebase.md) | The 2021 prototype (removed 2026-10-31), its known problems, and what replaced each part |
 | [Decision records](decisions/) | Short-form RFC/ADR records, one decision per file |
 
 ## Decision records
