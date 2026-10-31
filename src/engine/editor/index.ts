@@ -207,3 +207,23 @@ export function writeField(
   assignField(c, info, raw, (id, assign) => assign(resolve(id)));
   return true;
 }
+
+// --- Viewport (ADR 0022) -----------------------------------------------------------------------
+
+/** The canvas the World renders into, or null when headless. */
+export function viewportCanvas(world: World): HTMLCanvasElement | null {
+  return world.render?.canvas ?? null;
+}
+
+/**
+ * Nodes whose renderers lie under a canvas point (CSS pixels, origin top-left), topmost first.
+ * Only nodes with a SpriteRenderer or Text are pickable. Empty when headless.
+ */
+export function pick(world: World, x: number, y: number): GameObject[] {
+  return world.render?.pick(world, x, y) ?? [];
+}
+
+/** Outline the renderers of these nodes (and their descendants) in the viewport until changed. */
+export function setSelectionOutline(world: World, nodes: readonly GameObject[]): void {
+  world.render?.setSelectionOutline(nodes);
+}

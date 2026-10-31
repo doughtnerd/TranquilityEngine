@@ -6,6 +6,7 @@ import { Engine, GameObject } from "../engine";
 import { OrbitCamera } from "./OrbitCamera";
 import { DEMO_SCENE, demoAssets, demoSettings, openSceneFile } from "./project";
 import { sceneCamera, viewMode } from "./state";
+import { installViewportSelection } from "./viewportSelection";
 import { App } from "./ui/App";
 import "./ui/editor.css";
 
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
   sceneCamera.value = orbit;
 
   openSceneFile(engine, DEMO_SCENE);
+  installViewportSelection(engine, orbit);
   engine.start();
   Object.assign(window, { engine, orbit });
 }

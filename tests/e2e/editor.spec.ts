@@ -1,0 +1,80 @@
+import { expect, test, type Page } from "@playwright/test";
+
+const EDITOR = "http://localhost:4174/editor.html";
+
+declare global {
+  interface Window {
+    engine?: { world: { time: { frameCount: number } } };
+    orbit?: { focus(point?: [number, number, number], distance?: number): void; focusPoint: { toArray(): number[] } };
+  }
+}
+
+/** Collect uncaught exceptions and console errors for the whole test. */
+function trackErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => {
+    if (msg.type() === "error") errors.push(msg.text());
+  });
+  return errors;
+}
+
+async function openEditor(page: Page): Promise<void> {
+  await page.goto(EDITOR);
+  await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
+}
+
+const selectedRow = (page: Page) => page.locator(".tree .row.selected .name");
+
+test("opens the demo scene with its node tree", async ({ page }) => {
+  const errors = trackErrors(page);
+  await openEditor(page);
+  await expect(page.locator(".tree .row .name")).toContainText(["Camera", "bg-a", "Bird", "Sprite", "GameManager"]);
+  await expect(page.getByRole("button", { name: "2D" })).toHaveAttribute("aria-pressed", "true");
+  expect(errors).toEqual([]);
+});
+
+test("clicking in the viewport selects, cycles through overlaps, and clears on empty space", async ({ page }) => {
+  const errors = trackErrors(page);
+  await openEditor(page);
+  const canvas = page.locator("#viewport canvas");
+  const box = (await canvas.boundingBox())!;
+  const centre = { x: box.width / 2, y: box.height / 2 };
+
+  // Centre the view on the bird, then click it: its sprite node is selected.
+  await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
+  await canvas.click({ position: centre });
+  await expect(selectedRow(page)).toHaveText("Sprite");
+  await expect(page.locator(".inspector .node-name")).toHaveText("Sprite");
+
+  // The same spot again: the next thing underneath (the sky, a background prefab instance).
+  await canvas.click({ position: centre });
+  await expect(selectedRow(page)).toHaveText("bg-a");
+
+  // F frames the selection.
+  await page.getByText("Bird", { exact: true }).click();
+  await page.keyboard.press("f");
+  await expect.poll(() => page.evaluate(() => window.orbit!.focusPoint.toArray())).toEqual([-4, 1, 0]);
+
+  // Far from the scene there's nothing under the pointer: the selection clears.
+  await page.evaluate(() => window.orbit!.focus([80, 80, 0]));
+  await canvas.click({ position: centre });
+  await expect(selectedRow(page)).toHaveCount(0);
+  await expect(page.locator(".inspector .panel-body")).toHaveText("Nothing selected");
+  expect(errors).toEqual([]);
+});
+
+test("a drag doesn't change the selection", async ({ page }) => {
+  await openEditor(page);
+  const canvas = page.locator("#viewport canvas");
+  const box = (await canvas.boundingBox())!;
+  await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
+  await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
+  await expect(selectedRow(page)).toHaveText("Sprite");
+
+  await page.mouse.move(box.x + 20, box.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 120, box.y + 80, { steps: 5 });
+  await page.mouse.up();
+  await expect(selectedRow(page)).toHaveText("Sprite");
+});
