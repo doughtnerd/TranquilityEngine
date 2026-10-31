@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { sceneCamera, setViewMode, viewMode } from "../state";
+import { docVersion, openScene, sceneCamera, setViewMode, viewMode } from "../state";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
 
@@ -41,7 +41,25 @@ function Toolbar() {
       <button title="Focus the origin (F)" onClick={() => sceneCamera.value?.focus()}>
         Focus
       </button>
+      <UndoRedo />
     </header>
+  );
+}
+
+function UndoRedo() {
+  docVersion.value; // re-render when the undo stack changes
+  const stack = openScene.value?.stack;
+  const undo = stack?.undoLabel ?? null;
+  const redo = stack?.redoLabel ?? null;
+  return (
+    <div class="group" role="group" aria-label="History">
+      <button disabled={!stack?.canUndo} title={undo ? `Undo ${undo} (Ctrl+Z)` : "Nothing to undo"} onClick={() => stack?.undo()}>
+        Undo
+      </button>
+      <button disabled={!stack?.canRedo} title={redo ? `Redo ${redo} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => stack?.redo()}>
+        Redo
+      </button>
+    </div>
   );
 }
 

@@ -3,7 +3,7 @@ import type { SceneDocument } from "./SceneDocument";
 
 /** What happened, passed to `CommandStack` listeners. */
 export interface StackEvent {
-  readonly reason: "execute" | "undo" | "redo" | "save";
+  readonly reason: "execute" | "group" | "undo" | "redo" | "save";
   readonly label: string;
   readonly changes: readonly Change[];
 }
@@ -58,7 +58,11 @@ export class CommandStack {
     if (--this.groupDepth > 0) return;
     const group = this.group!;
     this.group = null;
-    if (group.commands.length) this.push(group);
+    if (group.commands.length) {
+      this.push(group);
+      // Undo/redo availability and dirtiness change only now; the group's edits were already emitted.
+      this.emit({ reason: "group", label: group.label, changes: [] });
+    }
   }
 
   get canUndo(): boolean {

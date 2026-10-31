@@ -33,6 +33,9 @@ export function Hierarchy() {
 
 function TreeNode(props: { doc: SceneDocument; id: string; depth: number }) {
   const { doc, id, depth } = props;
+  // Components that read signals skip re-rendering when their props are unchanged, so read the
+  // document version here too or renames and reorders wouldn't show.
+  docVersion.value;
   const node = doc.node(id);
   const children = doc.children(id);
   const isCollapsed = collapsed.value.has(id);

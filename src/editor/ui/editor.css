@@ -120,7 +120,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .component { border-top: 1px solid var(--border); padding: 8px 0; }
 .component h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 12px; font-weight: 600; }
 .fields { display: grid; grid-template-columns: minmax(90px, 40%) 1fr; gap: 4px 8px; align-items: center; font-size: 12px; }
-.fields label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fields > label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fields .value { min-width: 0; overflow-wrap: anywhere; }
 .fields .none { color: var(--muted); font-style: italic; }
 .fields .vec { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -131,3 +131,26 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .fields .nested { display: flex; flex-direction: column; gap: 2px; }
 .fields .nested-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .fields .nested-key { color: var(--muted); }
+button:disabled { opacity: 0.45; cursor: default; }
+button:disabled:hover { background: var(--button); }
+
+/* Inspector inputs */
+.inspector-body input[type="text"], .inspector-body select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: #17191d;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 5px;
+  font: inherit;
+}
+.inspector-body input[type="text"]:focus, .inspector-body select:focus { outline: none; border-color: var(--accent); }
+.node-header input.node-name { font-weight: 600; font-size: 14px; }
+.fields .vec { display: grid; grid-template-columns: repeat(auto-fit, minmax(52px, 1fr)); gap: 4px; }
+.fields .axis { display: flex; align-items: center; gap: 3px; color: var(--muted); }
+.fields .axis em { font-style: normal; }
+.fields label.scrub { cursor: ew-resize; user-select: none; }
+.fields input[type="color"] { width: 28px; height: 20px; padding: 0; border: 1px solid var(--border); background: none; }
+.fields .hex, .fields .alpha { color: var(--muted); }

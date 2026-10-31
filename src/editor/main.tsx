@@ -5,6 +5,7 @@ import { render } from "preact";
 import { Engine, GameObject } from "../engine";
 import { OrbitCamera } from "./OrbitCamera";
 import { DEMO_SCENE, demoAssets, demoSettings, openSceneFile } from "./project";
+import { installShortcuts } from "./shortcuts";
 import { sceneCamera, viewMode } from "./state";
 import { App } from "./ui/App";
 import "./ui/editor.css";
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
   sceneCamera.value = orbit;
 
   openSceneFile(engine, DEMO_SCENE);
+  installShortcuts();
   engine.start();
   Object.assign(window, { engine, orbit });
 }
