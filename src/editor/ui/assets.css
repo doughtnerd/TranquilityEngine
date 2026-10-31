@@ -1,0 +1,99 @@
+/* Asset browser (ADR 0022): folder tree | search + tile grid, sized to the bottom panel. */
+/* The tree and the grid scroll on their own, so the panel body neither pads nor scrolls. */
+.panel.assets .panel-body { padding: 0; overflow: hidden; display: flex; }
+.panel.assets .panel-body > .empty { padding: 8px 10px; }
+.asset-browser { flex: 1; display: flex; min-width: 0; min-height: 0; }
+
+.asset-tree { flex: none; width: 170px; overflow: auto; border-right: 1px solid var(--border); padding: 6px 0; }
+.asset-tree ul { list-style: none; margin: 0; padding: 0; }
+.asset-folder {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 2px 6px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.asset-folder:hover { background: #2a2d34; }
+.asset-folder.current { background: #2d4166; color: #fff; }
+
+.asset-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.asset-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+.asset-crumb { flex: 1; min-width: 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-search {
+  width: 180px;
+  max-width: 45%;
+  background: #17191d;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font: inherit;
+}
+.asset-search:focus { outline: none; border-color: var(--accent); }
+.asset-main > .empty { padding: 8px; }
+
+.asset-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-auto-rows: min-content;
+  gap: 6px;
+  align-content: start;
+}
+.asset-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: default;
+  user-select: none;
+  min-width: 0;
+}
+.asset-tile:hover { background: #2a2d34; }
+.asset-tile.selected { background: #2d4166; border-color: var(--accent); }
+.asset-tile.open .asset-name { color: #9fb6dd; font-weight: 600; }
+.asset-thumb {
+  width: 56px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  background: #17191d;
+  overflow: hidden;
+}
+.asset-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: pixelated; }
+.asset-kind { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.kind-scene .asset-kind { color: #9fdcb0; }
+.kind-prefab .asset-kind { color: #9fb6dd; }
+.kind-audio .asset-kind { color: #e0c48a; }
+.asset-name { max-width: 100%; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-folder-hint { max-width: 100%; font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-add {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 18px;
+  font-weight: 700;
+  border-radius: 10px;
+  opacity: 0;
+}
+.asset-tile:hover .asset-add, .asset-tile.selected .asset-add, .asset-add:focus-visible { opacity: 1; }
