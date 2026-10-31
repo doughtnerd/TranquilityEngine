@@ -359,7 +359,8 @@ export class RenderBackend {
     const r = this.renderer;
     const cams = world
       ._componentsOfType(Camera)
-      .filter((c) => c.isActiveAndEnabled && this.cameras.has(c))
+      // A scene open in the editor keeps its cameras, but the editor's scene camera draws the view (ADR 0026).
+      .filter((c) => c.isActiveAndEnabled && this.cameras.has(c) && !world.inEditMode(c.node.entity))
       .sort((a, b) => a.depth - b.depth);
     if (!cams.length) {
       r.setClearColor(this.clearColor, 1);

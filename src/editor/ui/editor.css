@@ -81,3 +81,53 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   font-size: 12px;
   pointer-events: none;
 }
+
+.badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: #2f3a4f;
+  color: #9fb6dd;
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* Hierarchy */
+.scene-name { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+.tree .row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: default;
+  white-space: nowrap;
+}
+.tree .row:hover { background: #2a2d34; }
+.tree .row.selected { background: #2d4166; color: #fff; }
+.tree .row.inactive .name { opacity: 0.5; }
+.tree .caret { width: 14px; flex: none; color: var(--muted); text-align: center; cursor: pointer; }
+.tree .caret.leaf { cursor: default; }
+.tree .name { overflow: hidden; text-overflow: ellipsis; }
+
+/* Inspector */
+.node-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.node-name { font-weight: 600; font-size: 14px; }
+.node-meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0 0 10px; font-size: 12px; }
+.node-meta dt { color: var(--muted); }
+.node-meta dd { margin: 0; overflow-wrap: anywhere; }
+.component { border-top: 1px solid var(--border); padding: 8px 0; }
+.component h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: 12px; font-weight: 600; }
+.fields { display: grid; grid-template-columns: minmax(90px, 40%) 1fr; gap: 4px 8px; align-items: center; font-size: 12px; }
+.fields label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fields .value { min-width: 0; overflow-wrap: anywhere; }
+.fields .none { color: var(--muted); font-style: italic; }
+.fields .vec { display: flex; gap: 8px; flex-wrap: wrap; }
+.fields .vec em { color: var(--muted); font-style: normal; }
+.fields .color { display: inline-flex; align-items: center; gap: 6px; }
+.fields .swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border); }
+.fields .ref { color: #9fb6dd; }
+.fields .nested { display: flex; flex-direction: column; gap: 2px; }
+.fields .nested-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fields .nested-key { color: var(--muted); }

@@ -1,5 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { sceneCamera, setViewMode, viewMode } from "../state";
+import { Hierarchy } from "./Hierarchy";
+import { Inspector } from "./Inspector";
 
 /** Fixed editor layout (ADR 0025): toolbar, hierarchy | viewport | inspector, assets. */
 export function App() {
@@ -7,17 +9,17 @@ export function App() {
     <div class="editor">
       <Toolbar />
       <Panel class="hierarchy" title="Hierarchy">
-        <p class="empty">No scene open</p>
+        <Hierarchy />
       </Panel>
       <section class="viewport-panel">
         <div id="viewport" class="viewport" />
         <ViewportHint />
       </section>
       <Panel class="inspector" title="Inspector">
-        <p class="empty">Nothing selected</p>
+        <Inspector />
       </Panel>
       <Panel class="assets" title="Assets">
-        <p class="empty">No project open</p>
+        <p class="empty">Asset browser coming later. The Flappy demo is open as the project.</p>
       </Panel>
     </div>
   );
