@@ -81,6 +81,11 @@ export function getComponentClass(id: string): ComponentClass | undefined {
   return classById.get(id);
 }
 
+/** @internal Every registered component id, in registration order (for the editor's Add Component list). */
+export function listComponentIds(): string[] {
+  return [...classById.keys()];
+}
+
 export function getComponentId(type: ComponentClass): string | undefined {
   return idByClass.get(type);
 }

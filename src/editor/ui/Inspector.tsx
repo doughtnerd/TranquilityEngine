@@ -3,7 +3,9 @@ import { Color, GameObject } from "../../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
 import { RenameNode, RevertOverrides, SetActive, SetField, isFieldOverride, pathKey, type NodePath } from "../document";
 import { editorFor, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
+import { removeComponentFrom, whyNotRemovable } from "../componentEdits";
 import { deleteSelected } from "../deleteSelection";
+import { AddComponentMenu } from "./AddComponentMenu";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
 import { currentProject, docVersion, editingCollider, openScene, selectedKeys, selection, status, type OpenScene } from "../state";
 
@@ -78,6 +80,7 @@ export function Inspector() {
       {components.map((c) => (
         <ComponentCard key={`${key}/${c.type}#${c.index}`} scene={scene} paths={[path]} infos={[c]} />
       ))}
+      {node && <AddComponentMenu scene={scene} targets={[{ path, node }]} />}
     </div>
   );
 }
@@ -130,6 +133,7 @@ function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
           infos={lists.map((l) => l.find((o) => o.type === c.type && o.index === c.index)!)}
         />
       ))}
+      <AddComponentMenu scene={scene} targets={paths.flatMap((path, i) => (nodes[i] ? [{ path, node: nodes[i]! }] : []))} />
     </div>
   );
 }
@@ -221,6 +225,16 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
   const key = pathKey(paths[paths.length - 1]);
   const e = editingCollider.value;
   const editing = !!e && e.key === key && e.type === info.type && e.index === info.index;
+  // Remove: from every node that allows it; disabled (with the first reason) when none does.
+  const { scene } = props;
+  const checks = paths.map((path, i) => {
+    const node = scene.sync.nodeFor(path);
+    if (!node) return { reason: "that node is gone" };
+    const count = listComponents(node).filter((c) => c.type === infos[i].type).length;
+    return { reason: whyNotRemovable(scene.doc, path, infos[i], count), target: { path, node, info: infos[i] } };
+  });
+  const removable = checks.flatMap((c) => (c.reason === null && c.target ? [c.target] : []));
+  const notRemovable = removable.length === 0 ? checks[0].reason : null;
   return (
     <section class="component">
       <h3>
@@ -235,6 +249,20 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
             onClick={() => (editingCollider.value = editing ? null : { key, type: info.type as "engine.BoxCollider2D", index: info.index })}
           >
             Edit Collider
+          </button>
+        )}
+        {info.type !== "engine.Transform" && (
+          <button
+            class="remove-component"
+            aria-label={`Remove ${title}`}
+            title={notRemovable ? `Can't remove: ${notRemovable}` : paths.length > 1 ? `Remove ${title} from ${removable.length} nodes` : `Remove ${title}`}
+            disabled={removable.length === 0}
+            onClick={() => {
+              if (editing) editingCollider.value = null;
+              removeComponentFrom(scene, removable);
+            }}
+          >
+            ✕
           </button>
         )}
       </h3>

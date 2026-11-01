@@ -159,7 +159,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 button:disabled:hover { background: var(--button); }
 
 /* Inspector inputs */
-.inspector-body input[type="text"], .inspector-body select {
+.inspector-body input[type="text"], .inspector-body input[type="search"], .inspector-body select {
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
@@ -170,7 +170,7 @@ button:disabled:hover { background: var(--button); }
   padding: 2px 5px;
   font: inherit;
 }
-.inspector-body input[type="text"]:focus, .inspector-body select:focus { outline: none; border-color: var(--accent); }
+.inspector-body input[type="text"]:focus, .inspector-body input[type="search"]:focus, .inspector-body select:focus { outline: none; border-color: var(--accent); }
 .node-header input.node-name { font-weight: 600; font-size: 14px; }
 .fields .vec { display: grid; grid-template-columns: repeat(auto-fit, minmax(52px, 1fr)); gap: 4px; }
 .fields .axis { display: flex; align-items: center; gap: 3px; color: var(--muted); }
@@ -270,3 +270,31 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .refine-list li.focused { box-shadow: inset 0 0 0 1px var(--accent); }
 .refine-hint { padding: 5px 8px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--border); }
 .multi-names { margin: 0 0 6px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Adding and removing components (ADR 0022). */
+.component h3 .remove-component { margin-left: auto; padding: 0 6px; font-size: 11px; line-height: 18px; color: var(--muted); background: transparent; border-color: transparent; }
+.component h3 .edit-collider ~ .remove-component { margin-left: 6px; }
+.component h3 .remove-component:hover:not(:disabled) { color: #fff; background: #8a3b3b; border-color: #8a3b3b; }
+.component h3 .remove-component:disabled { opacity: 0.35; }
+.add-component { position: relative; border-top: 1px solid var(--border); padding: 10px 0 14px; display: flex; justify-content: center; }
+.add-component-button { min-width: 60%; }
+.menu-backdrop { position: fixed; inset: 0; z-index: 30; }
+.add-component-menu {
+  position: fixed;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+}
+.add-component-menu input { margin: 6px; }
+.add-component-menu ul { list-style: none; margin: 0; padding: 0 0 4px; overflow-y: auto; }
+.add-component-menu li { padding: 3px 12px; cursor: default; user-select: none; }
+.add-component-menu li.group { padding: 6px 8px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.add-component-menu li.empty { color: var(--muted); font-style: italic; }
+.add-component-menu li[role="option"]:hover:not(.disabled) { background: var(--button-hover); }
+.add-component-menu li.active { background: rgb(76 141 255 / 0.35); color: #fff; }
+.add-component-menu li.disabled { color: var(--muted); opacity: 0.6; }

@@ -19,4 +19,4 @@ export {
 export { CommandStack, HISTORY_LIMIT, type HistoryFile, type HistoryState, type StackEvent, type StackListener } from "./CommandStack";
 export { applyPatch, changesBetween, diffFiles, hashFile, hashText, type DocPatch } from "./patch";
 export { WorldSync } from "./WorldSync";
-export { RebuildInstances, RevertOverrides } from "./prefabCommands";
+export { RebuildInstances, RevertOverrides, SetOverrides } from "./prefabCommands";

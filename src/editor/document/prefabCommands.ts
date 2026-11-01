@@ -64,3 +64,30 @@ export class RebuildInstances implements Command {
     return this.apply();
   }
 }
+
+/**
+ * Replace a prefab instance's overrides with `next` (used to add or remove components on an
+ * instance, which also renumbers or drops the field overrides that pointed at them). Undo puts
+ * the previous list back exactly. The instance is rebuilt.
+ */
+export class SetOverrides implements Command {
+  private previous: OverrideEntry[] | undefined;
+
+  constructor(readonly instance: string, readonly label: string, private readonly next: readonly OverrideEntry[]) {}
+
+  apply(doc: SceneDocument): Change[] {
+    const entry = doc.node(this.instance);
+    if (!entry.prefab) throw new Error(`"${this.instance}" is not a prefab instance.`);
+    this.previous = entry.overrides;
+    if (this.next.length > 0) entry.overrides = structuredClone([...this.next]);
+    else delete entry.overrides;
+    return [{ kind: "rebuild", node: this.instance }];
+  }
+
+  undo(doc: SceneDocument): Change[] {
+    const entry = doc.node(this.instance);
+    if (this.previous) entry.overrides = this.previous;
+    else delete entry.overrides;
+    return [{ kind: "rebuild", node: this.instance }];
+  }
+}

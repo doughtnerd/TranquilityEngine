@@ -100,7 +100,7 @@ export class OrbitCamera extends GameBehavior {
     const scroll = Input.mouseScrollDelta.y;
     if (scroll !== 0) this.distance = Mathf.clamp(this.distance * Math.exp(scroll * this.zoomSpeed), this.minDistance, this.maxDistance);
 
-    if (Input.getKeyDown("f")) this.focus();
+    if (Input.getKeyDown("f") && !typingInField()) this.focus();
     this.apply();
   }
 
@@ -144,4 +144,10 @@ export class OrbitCamera extends GameBehavior {
       this.camera.orthographicSize = this.viewHeight / 2;
     }
   }
+}
+
+/** True while a text field has focus: the F key is being typed, not pressed as a shortcut. */
+function typingInField(): boolean {
+  const el = typeof document === "undefined" ? null : (document.activeElement as HTMLElement | null);
+  return !!el && (el.isContentEditable || (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && (el as HTMLInputElement).type !== "checkbox"));
 }

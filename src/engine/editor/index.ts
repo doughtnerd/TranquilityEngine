@@ -4,14 +4,15 @@
  * scene editor (`src/editor/`) imports it by path.
  */
 import { Component } from "../core/Component";
-import { getDataComponentDef, type DataComponentDef, type ScalarType } from "../core/data";
+import { getDataComponentDef, listDataComponentIds, type DataComponentDef, type ScalarType } from "../core/data";
 import { Vector3 } from "../core/math";
-import { getComponentClass, getComponentId, getFields, type ComponentClass, type FieldType } from "../core/registry";
+import { getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldType } from "../core/registry";
 import { World } from "../core/World";
 import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
 import type { EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
+import { SpriteRenderer } from "../render/components";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 
@@ -304,4 +305,39 @@ export function overlayHandleAt(world: World, x: number, y: number): string | nu
 /** Where each overlay handle is on the canvas (CSS pixels). Empty headless. */
 export function overlayHandlesOnCanvas(world: World): { id: string; x: number; y: number }[] {
   return world.render?.overlayHandlesOnCanvas(world) ?? [];
+}
+
+// --- Adding components (ADR 0022) ---------------------------------------------------------------
+
+/** A component type the editor can add: its id, display name and group. */
+export interface ComponentTypeInfo {
+  readonly id: string;
+  readonly name: string;
+  /** Built into the engine, a game script (GameBehavior), or an ECS data component. */
+  readonly group: "Engine" | "Scripts" | "Data";
+}
+
+/** Components every node has or the engine manages itself: never offered, never removable. */
+const FIXED = new Set(["engine.Transform", "engine.SceneInstance"]);
+
+/** True if the editor may add or remove components of type `id`: everything but Transform, engine internals and the editor's own (`editor.*`). */
+export const isEditableComponent = (id: string) => !FIXED.has(id) && !id.startsWith("editor.");
+
+/** Every component type that can be added to a node, grouped (Engine, Scripts, Data) and sorted by name. */
+export function componentCatalog(): ComponentTypeInfo[] {
+  const name = (id: string) => id.replace(/^[^.]*\./, "");
+  const out: ComponentTypeInfo[] = [
+    ...listComponentIds()
+      .filter(isEditableComponent)
+      .map((id) => ({ id, name: name(id), group: id.startsWith("engine.") ? ("Engine" as const) : ("Scripts" as const) })),
+    ...listDataComponentIds().map((id) => ({ id, name: name(id), group: "Data" as const })),
+  ];
+  const order = { Engine: 0, Scripts: 1, Data: 2 };
+  return out.sort((a, b) => order[a.group] - order[b.group] || a.name.localeCompare(b.name));
+}
+
+/** The size of the sprite on `node` in the node's units (before its scale), or null (no sprite, texture not loaded, or headless). */
+export function spriteSize(node: GameObject): [number, number] | null {
+  const s = node.getBehavior(SpriteRenderer);
+  return s ? (node.world.render?.spriteSize(s) ?? null) : null;
 }

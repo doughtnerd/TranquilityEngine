@@ -69,6 +69,11 @@ export function defineComponent<S extends Schema>(id: string, schema: S, options
   return def;
 }
 
+/** @internal Every defined data component id (for the editor's Add Component list). */
+export function listDataComponentIds(): string[] {
+  return [...dataById.keys()];
+}
+
 export function getDataComponentDef(id: string): DataComponentDef | undefined {
   return dataById.get(id);
 }

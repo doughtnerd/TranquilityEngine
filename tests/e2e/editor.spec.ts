@@ -107,7 +107,7 @@ test("with the Move tool, clicking the gizmo on the selection keeps it selected"
   const canvas = page.locator("#viewport canvas");
   const box = (await canvas.boundingBox())!;
   const centre = { x: box.width / 2, y: box.height / 2 };
-  await expect(page.getByRole("button", { name: "Move" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Move", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Bird");

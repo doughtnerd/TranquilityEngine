@@ -509,6 +509,18 @@ export class RenderBackend {
     return hits.filter((h) => !seen.has(h.node.entity) && seen.add(h.node.entity)).map((h) => h.node);
   }
 
+  /**
+   * @internal Editor: a sprite's size in its node's units (before the node's scale): its `size`,
+   * or its texture's pixel size over pixels-per-unit. Null while the texture hasn't loaded.
+   */
+  spriteSize(s: SpriteRenderer): [number, number] | null {
+    if (s.size) return [s.size.x, s.size.y];
+    const img = this.sprites.get(s)?.mesh.material.map?.image as { width: number; height: number } | undefined;
+    if (!img) return null;
+    const ppu = s.pixelsPerUnit > 0 ? s.pixelsPerUnit : this.settings.render.pixelsPerUnit;
+    return [img.width / ppu, img.height / ppu];
+  }
+
   /** @internal Editor: a world point's place on the canvas (CSS pixels, origin top-left), or null if it's behind the camera. */
   worldToCanvas(world: World, p: readonly number[]): [number, number] | null {
     const w = this.canvas.clientWidth, h = this.canvas.clientHeight;

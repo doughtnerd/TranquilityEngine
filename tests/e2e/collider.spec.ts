@@ -78,7 +78,7 @@ test("dragging a box collider's edge resizes it from the opposite edge; the cent
 test("Edit Collider turns off when another tool is picked, hiding the handles", async ({ page }) => {
   await openEditor(page);
   await editCollider(page, "bird", [-4, 1, 0], 3);
-  await page.getByRole("button", { name: "Move" }).click(); // already the tool: picking it still ends editing
+  await page.getByRole("button", { name: "Move", exact: true }).click(); // already the tool: picking it still ends editing
   await expect(page.locator(".edit-collider")).toHaveAttribute("aria-pressed", "false");
   await page.waitForFunction(() => (window as unknown as Hooks).overlayHandles!().length === 0);
 });
