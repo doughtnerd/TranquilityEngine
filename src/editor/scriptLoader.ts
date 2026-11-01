@@ -4,7 +4,7 @@
 // scripts' URLs (loaded before it), and `"tranquility"` points at a shim module that re-exports
 // the editor's own engine. Scripts and the editor then share one registry and one World.
 import * as engine from "../engine";
-import { withReplacingRegistrations } from "../engine/editor";
+import { unregisterScripts, withScriptRegistrations, type ScriptRegistrations } from "../engine/editor";
 
 /** The bare specifier scripts import the engine by. */
 export const ENGINE_MODULE = "tranquility";
@@ -161,6 +161,8 @@ export interface LoadResult {
   /** Scripts that loaded, in load order. */
   readonly loaded: readonly string[];
   readonly problems: readonly ScriptProblem[];
+  /** The component, data component and system ids the scripts registered. */
+  readonly registered: ScriptRegistrations;
 }
 
 /**
@@ -187,7 +189,7 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>): Promise
   const shim = engineShimUrl();
   const urls = new Map<string, string>();
   const loaded: string[] = [];
-  await withReplacingRegistrations(async () => {
+  const registered = await withScriptRegistrations(async () => {
     for (const path of plan.order) {
       if (plan.deps.get(path)!.some((d) => !urls.has(d))) {
         problems.push({ path, message: `imports a script that didn't load` });
@@ -205,5 +207,26 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>): Promise
       }
     }
   });
-  return { loaded, problems };
+  return { loaded, problems, registered };
+}
+
+/** What the current project's scripts registered (the last `replaceScripts`). */
+let current: ScriptRegistrations = { components: [], data: [], systems: [] };
+
+/**
+ * Load `scripts` in place of the scripts loaded before (a reload, or another project): their
+ * types replace the old ones, and types the old scripts registered that the new ones don't (a
+ * deleted script, a renamed id, one that failed to load) are unregistered, so scenes show them as
+ * missing. Pass an empty map to unload everything.
+ */
+export async function replaceScripts(scripts: ReadonlyMap<string, string>): Promise<LoadResult> {
+  const result = scripts.size > 0 ? await loadScripts(scripts) : { loaded: [], problems: [], registered: { components: [], data: [], systems: [] } };
+  const gone = (old: string[], now: string[]) => old.filter((id) => !now.includes(id));
+  unregisterScripts({
+    components: gone(current.components, result.registered.components),
+    data: gone(current.data, result.registered.data),
+    systems: gone(current.systems, result.registered.systems),
+  });
+  current = result.registered;
+  return result;
 }

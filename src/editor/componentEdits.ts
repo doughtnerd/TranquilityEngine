@@ -270,6 +270,34 @@ export function moveComponent(scene: OpenScene, path: NodePath, node: GameObject
 }
 
 /**
+ * Why the `k`-th missing component of `type` on the node at `path` (one whose script is gone,
+ * ADR 0030; `missingCount` of that type) can't be removed, or null if it can: ones written in
+ * this scene can go, ones that come from a prefab file are removed in the prefab.
+ */
+export function whyNotRemovableMissing(doc: SceneDocument, path: NodePath, type: string, k: number, missingCount: number): string | null {
+  const [id, ...target] = path;
+  if (!doc.isPrefabInstance(id)) return null;
+  const added = addedBy(doc.node(id).overrides ?? [], target, type).length;
+  return k >= missingCount - added ? null : "it comes from the prefab; remove it there";
+}
+
+/** Remove the `k`-th missing component of `type` from the node at `path`, as one undo step. */
+export function removeMissingComponent(scene: OpenScene, path: NodePath, type: string, k: number, missingCount: number): boolean {
+  const { doc, stack } = scene;
+  if (whyNotRemovableMissing(doc, path, type, k, missingCount)) return false;
+  const [id, ...target] = path;
+  const label = `Remove missing ${shortName(type)}`;
+  if (!doc.isPrefabInstance(id)) {
+    const at = (doc.node(id).components ?? []).flatMap((c, i) => (c.type === type ? [i] : []))[k];
+    if (at === undefined) return false;
+    stack.execute(new RemoveComponent(id, at));
+  } else {
+    stack.execute(new SetOverrides(id, label, overridesWithout(doc.node(id).overrides ?? [], target, type, k, missingCount)));
+  }
+  return true;
+}
+
+/**
  * The order an instance's node at `target` has without an order override: its components in the
  * prefab file, then `overrides` (removals take the first of a type, additions go last). Null when
  * that can't be told from the file alone (a node inside a nested instance that has overrides of

@@ -1,6 +1,6 @@
 import { DockLayout } from "../layout/DockLayout";
 import { resetLayout } from "../layout/store";
-import { openProjectFolder, save, togglePlaying } from "../session";
+import { openProjectFolder, reloadScripts, save, togglePlaying } from "../session";
 import { currentProject, docVersion, openScene, pickTool, playState, sceneCamera, scriptProblems, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
 import { AssetsPanel } from "./Assets";
 import { AssetDragGhost, ViewportDropHighlight } from "./AssetDragOverlay";
@@ -109,6 +109,11 @@ function ProjectControls() {
       <button disabled={!canSave} title={saveTitle} onClick={() => void save()}>
         Save
       </button>
+      {project?.root != null && (
+        <button title="Read the scripts under scripts/ again and reload them (ADR 0030)" onClick={() => void reloadScripts()}>
+          Reload Scripts
+        </button>
+      )}
       <span class="project-name" title={project?.root ?? "Bundled with the editor"}>
         {project?.name ?? "No project"}
       </span>

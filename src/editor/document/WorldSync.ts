@@ -3,7 +3,7 @@ import { destroyNow, instantiateDocument, instantiateNodes, moveNode, setSibling
 import type { GameObject } from "../../engine/scene/GameObject";
 import type { Change } from "./commands";
 import type { CommandStack } from "./CommandStack";
-import { pathKey, type NodePath, type SceneDocument } from "./SceneDocument";
+import { pathKey, type ComponentEntry, type NodePath, type SceneDocument } from "./SceneDocument";
 
 interface Mapped {
   readonly generation: number;
@@ -25,6 +25,16 @@ export class WorldSync {
   private byKey = new Map<string, GameObject>();
   private byEntity = new Map<number, Mapped>();
   private readonly resolve = (id: string): GameObject | null => this.nodeFor([id]);
+  /** Components that couldn't be created, by node path key (unknown types: a deleted or broken script, ADR 0030). */
+  private readonly missing = new Map<string, ComponentEntry[]>();
+  private readonly onProblem = (message: string, path: readonly string[], component?: ComponentEntry): void => {
+    if (!component) {
+      console.warn(`[editor] ${message}`);
+      return;
+    }
+    const key = pathKey(path);
+    this.missing.set(key, [...(this.missing.get(key) ?? []), component]);
+  };
 
   constructor(readonly world: World, readonly doc: SceneDocument) {}
 
@@ -36,8 +46,18 @@ export class WorldSync {
   /** Instantiate the whole document (replacing any previous build). Returns the scene node. */
   build(): GameObject {
     this.dispose();
-    this.scene = instantiateDocument(this.world, this.doc.toJSON(), this.doc.path, { onNode: (node, path) => this.record(node, path) });
+    this.missing.clear();
+    this.scene = instantiateDocument(this.world, this.doc.toJSON(), this.doc.path, { onNode: (node, path) => this.record(node, path), onProblem: this.onProblem });
     return this.scene;
+  }
+
+  /**
+   * Components of the node at `path` the World couldn't create because their type isn't
+   * registered (its script was deleted or didn't load), as the scene files have them. The
+   * document keeps them; the Inspector shows them as missing scripts.
+   */
+  missingComponents(path: NodePath | string): readonly ComponentEntry[] {
+    return this.missing.get(typeof path === "string" ? path : pathKey(path)) ?? [];
   }
 
   /** Apply every change from the stack as it happens. Returns an unsubscribe function. */
@@ -138,11 +158,13 @@ export class WorldSync {
         return;
       }
       const ids = this.doc.subtree(id);
+      for (const key of [...this.missing.keys()]) if (ids.some((i) => key === i || key.startsWith(`${i}/`))) this.missing.delete(key);
       const nodes = ids.map((i) => structuredClone(this.doc.node(i)));
       delete nodes[0].parent;
       instantiateNodes(this.world, { format: this.doc.format, nodes }, parent, this.doc.path, {
         onNode: (node, path) => this.record(node, path),
         resolveExternal: this.resolve,
+        onProblem: this.onProblem,
       });
       const root = this.nodeFor([id]);
       if (root) setSiblingIndex(root, this.doc.children(parentId).indexOf(id));

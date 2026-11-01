@@ -4,9 +4,10 @@
  * scene editor (`src/editor/`) imports it by path.
  */
 import { Component } from "../core/Component";
-import { getDataComponentDef, listDataComponentIds, type DataComponentDef, type ScalarType } from "../core/data";
+import { _undefineComponent, getDataComponentDef, listDataComponentIds, type DataComponentDef, type ScalarType } from "../core/data";
+import { _undefineSystem } from "../core/systems";
 import { Vector3 } from "../core/math";
-import { _setReplacingRegistrations, getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldType } from "../core/registry";
+import { _setReplacingRegistrations, _takeRecordedRegistrations, _unregisterComponent, getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldType, type ScriptRegistrations } from "../core/registry";
 import { World } from "../core/World";
 import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
@@ -347,16 +348,26 @@ export function spriteSize(node: GameObject): [number, number] | null {
 
 // --- Project scripts (ADR 0030) -----------------------------------------------------------------
 
+export type { ScriptRegistrations } from "../core/registry";
+
 /**
- * Run `load` with registration replacing: a component, data component or system whose id or name
- * is already taken (by the editor build, or an earlier load of the script) is replaced instead
- * of throwing.
+ * Run `load` (which imports project scripts) with registration replacing: a component, data
+ * component or system whose id or name is already taken (by the editor build, or an earlier load
+ * of the script) is replaced instead of throwing. Returns what `load` registered.
  */
-export async function withReplacingRegistrations<T>(load: () => Promise<T>): Promise<T> {
+export async function withScriptRegistrations(load: () => Promise<void>): Promise<ScriptRegistrations> {
   _setReplacingRegistrations(true);
   try {
-    return await load();
+    await load();
   } finally {
     _setReplacingRegistrations(false);
   }
+  return _takeRecordedRegistrations();
+}
+
+/** Forget registrations scripts made (a script was deleted, or another project opened), putting back any of the editor build's they replaced. */
+export function unregisterScripts(registrations: ScriptRegistrations): void {
+  for (const id of registrations.components) _unregisterComponent(id);
+  for (const id of registrations.data) _undefineComponent(id);
+  for (const name of registrations.systems) _undefineSystem(name);
 }

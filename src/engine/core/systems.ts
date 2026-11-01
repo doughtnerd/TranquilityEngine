@@ -5,7 +5,7 @@ import type { GameObject } from "../scene/GameObject";
 import type { Transform } from "../scene/Transform";
 import type { DataComponentDef } from "./data";
 import type { TimeState, World } from "./World";
-import { _isReplacingRegistrations } from "./registry";
+import { _isReplacingRegistrations, _recordRegistration } from "./registry";
 
 export type Phase = "fixedUpdate" | "update" | "lateUpdate";
 
@@ -46,10 +46,32 @@ let userSystemsVersion = 0;
 export function defineSystem(def: SystemDef): SystemDef {
   const existing = userSystems.findIndex((s) => s.name === def.name);
   if (existing >= 0 && !_isReplacingRegistrations()) throw new Error(`System "${def.name}" is already defined.`);
+  if (_isReplacingRegistrations()) {
+    _recordRegistration("systems", def.name);
+    if (existing >= 0 && !scriptSystems.has(def.name)) buildSystems.set(def.name, userSystems[existing]);
+    scriptSystems.add(def.name);
+  }
   if (existing >= 0) userSystems.splice(existing, 1, def);
   else userSystems.push(def);
   userSystemsVersion++;
   return def;
+}
+
+/** Systems the editor build defined that a script's replaced, and names scripts defined. */
+const buildSystems = new Map<string, SystemDef>();
+const scriptSystems = new Set<string>();
+
+/** @internal Editor (ADR 0030): forget a system a script defined, putting back the editor build's if it replaced one. */
+export function _undefineSystem(name: string): void {
+  const at = userSystems.findIndex((s) => s.name === name);
+  const original = buildSystems.get(name);
+  if (at >= 0) {
+    if (original) userSystems.splice(at, 1, original);
+    else userSystems.splice(at, 1);
+  }
+  buildSystems.delete(name);
+  scriptSystems.delete(name);
+  userSystemsVersion++;
 }
 
 /** @internal Built-in system: a named function in a phase. */

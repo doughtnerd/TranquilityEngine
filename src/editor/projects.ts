@@ -25,6 +25,10 @@ export interface EditorProject {
   readonly mainScene: string | null;
   /** The project's scripts (the `.ts` files under `scripts/`): source text by project-relative path. */
   readonly scripts: ReadonlyMap<string, string>;
+  /** Read the scripts from disk again (they may have been edited elsewhere). */
+  rereadScripts(): Promise<void>;
+  /** Write a script and update `scripts`. */
+  writeScript(path: string, text: string): Promise<void>;
   /** The text a JSON file had when last read or written (keeps its layout on save). */
   textOf(path: string): string | undefined;
   /** Write a JSON file and update what the project serves for it. */
@@ -58,7 +62,8 @@ class MapProject implements EditorProject {
     private readonly values: Map<string, unknown>,
     private readonly texts: Map<string, string>,
     private readonly write: ((path: string, text: string) => Promise<void>) | null,
-    readonly scripts: ReadonlyMap<string, string> = new Map(),
+    private readonly scriptFiles: { read: () => Promise<Map<string, string>> } | null = null,
+    private scriptMap: Map<string, string> = new Map(),
   ) {
     this.mainScene = pickMainScene(this.files);
     this.assets = { has: (p) => values.has(p), get: (p) => values.get(p) };
@@ -75,6 +80,21 @@ class MapProject implements EditorProject {
 
   textOf(path: string): string | undefined {
     return this.texts.get(path);
+  }
+
+  get scripts(): ReadonlyMap<string, string> {
+    return this.scriptMap;
+  }
+
+  async rereadScripts(): Promise<void> {
+    if (this.scriptFiles) this.scriptMap = await this.scriptFiles.read();
+  }
+
+  async writeScript(path: string, text: string): Promise<void> {
+    if (!this.write) throw new Error(`${this.name} is read-only. Open a project folder to save.`);
+    if (!isScriptPath(path)) throw new Error(`${path} isn't a script: scripts are .ts files under scripts/.`);
+    await this.write(path, text);
+    this.scriptMap = new Map(this.scriptMap).set(path, text);
   }
 
   async writeText(path: string, text: string): Promise<void> {
@@ -150,13 +170,16 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
       values.set(path, URL.createObjectURL(new Blob([bytes as BlobPart], { type })));
     }
   }
-  const scripts = new Map<string, string>();
-  if (await fs.exists(joinPath(root, "scripts"))) {
-    for (const path of await listAssetFiles(fs, root, "scripts", isScriptPath)) scripts.set(path, await fs.readText(joinPath(root, path)));
-  }
+  const readScripts = async () => {
+    const scripts = new Map<string, string>();
+    if (await fs.exists(joinPath(root, "scripts"))) {
+      for (const path of await listAssetFiles(fs, root, "scripts", isScriptPath)) scripts.set(path, await fs.readText(joinPath(root, path)));
+    }
+    return scripts;
+  };
   const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput & { name?: string };
   const folder = root.split(/[\\/]/).filter(Boolean).pop() ?? root;
-  return new MapProject(settings.name ?? folder, root, settings, values, texts, (path, text) => fs.writeText(joinPath(root, path), text), scripts);
+  return new MapProject(settings.name ?? folder, root, settings, values, texts, (path, text) => fs.writeText(joinPath(root, path), text), { read: readScripts }, await readScripts());
 }
 
 /** Settings for the Editor World: the project's, minus autoloads, with the editor's background. */

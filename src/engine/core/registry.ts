@@ -42,17 +42,57 @@ const idByClass = new Map<ComponentClass, string>();
 
 let replacing = false;
 
+/** @internal What scripts registered while loading (ADR 0030): component, data component and system ids. */
+export interface ScriptRegistrations {
+  components: string[];
+  data: string[];
+  systems: string[];
+}
+
+let recorded: { components: Set<string>; data: Set<string>; systems: Set<string> } | null = null;
+
 /**
  * @internal Editor (ADR 0030): while on, registering a component, data component or system
- * whose id or name is taken replaces it instead of throwing. On only while the editor loads or
- * reloads project scripts.
+ * whose id or name is taken replaces it instead of throwing, and every registration is recorded
+ * (`_takeRecordedRegistrations`). On only while the editor loads or reloads project scripts.
  */
 export function _setReplacingRegistrations(on: boolean): void {
   replacing = on;
+  if (on) recorded = { components: new Set(), data: new Set(), systems: new Set() };
 }
 
 /** @internal True while the editor is (re)loading project scripts (see `_setReplacingRegistrations`). */
 export const _isReplacingRegistrations = () => replacing;
+
+/** @internal Note a registration made while loading scripts. */
+export function _recordRegistration(kind: keyof ScriptRegistrations, id: string): void {
+  recorded?.[kind].add(id);
+}
+
+/** @internal What was registered since replacing was last switched on. */
+export function _takeRecordedRegistrations(): ScriptRegistrations {
+  const r = recorded ?? { components: new Set(), data: new Set(), systems: new Set() };
+  recorded = null;
+  return { components: [...r.components], data: [...r.data], systems: [...r.systems] };
+}
+
+/** Classes the editor build registered that a script's registration replaced: put back when the script's goes. */
+const buildClasses = new Map<string, ComponentClass>();
+const fromBuild = new Set<string>();
+
+/** @internal Editor: forget a component id a script registered, putting back the editor build's class if it replaced one. */
+export function _unregisterComponent(id: string): void {
+  const cls = classById.get(id);
+  if (cls) idByClass.delete(cls);
+  const original = buildClasses.get(id);
+  if (original) {
+    classById.set(id, original);
+    idByClass.set(original, id);
+    buildClasses.delete(id);
+  } else {
+    classById.delete(id);
+  }
+}
 
 /** Register a component class under a stable id. Usually applied with `@behavior` / `@component`. */
 export function registerComponent(id: string, type: ComponentClass): void {
@@ -60,7 +100,10 @@ export function registerComponent(id: string, type: ComponentClass): void {
   if (existing && existing !== type) {
     if (!replacing) throw new Error(`Component id "${id}" is already registered to a different class.`);
     idByClass.delete(existing);
+    if (fromBuild.has(id) && !buildClasses.has(id)) buildClasses.set(id, existing);
   }
+  if (replacing) _recordRegistration("components", id);
+  else fromBuild.add(id);
   classById.set(id, type);
   idByClass.set(type, id);
 }

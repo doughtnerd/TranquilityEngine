@@ -16,7 +16,7 @@ import { startPlay, type PlaySession } from "./playMode";
 import { openSceneFile, saveOpenScene } from "./project";
 import { editorSettings, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, docVersion, openScene, playState, sceneCamera, scriptProblems, selection, status, viewMode } from "./state";
-import { loadScripts } from "./scriptLoader";
+import { replaceScripts } from "./scriptLoader";
 import { installViewportSelection } from "./viewportSelection";
 
 let session: { engine: Engine; dispose(): void } | null = null;
@@ -57,8 +57,10 @@ export async function loadProject(project: EditorProject): Promise<void> {
   docVersion.value++;
 
   useProjectAssets(project);
-  // Project scripts register their types before any scene is built (ADR 0030).
-  const scripts = project.scripts.size > 0 ? await loadScripts(project.scripts) : { loaded: [], problems: [] };
+  // Project scripts register their types before any scene is built, replacing the previous
+  // project's (ADR 0030).
+  pendingReload = false;
+  const scripts = await replaceScripts(project.scripts);
   scriptProblems.value = scripts.problems;
   const engine = await Engine.create({ kind: "editor", container: document.getElementById("viewport")!, project: editorSettings(project) });
   // Editor tools live under the World root, outside the edited scene, so they keep running (ADR 0026).
@@ -209,13 +211,61 @@ export async function startPlaying(): Promise<void> {
   }
 }
 
-/** Leave play mode: dispose the Runtime World and resume editing. */
+/** Leave play mode: dispose the Runtime World and resume editing (and reload scripts saved meanwhile). */
 export function stopPlaying(): void {
   if (!play) return;
   play.stop();
   play = null;
   playState.value = "edit";
   status.value = null;
+  if (pendingReload) void reloadScripts();
+}
+
+/** Scripts changed during play mode: reload them on Stop (ADR 0030). */
+let pendingReload = false;
+
+/**
+ * Reload the project's scripts from disk (ADR 0030): compile and load them again, unregister
+ * types that are gone, and rebuild the open scene from its document, so field values typed in
+ * the Inspector stay. During play mode the reload waits for Stop: the running game keeps the code
+ * it started with.
+ */
+export async function reloadScripts(): Promise<void> {
+  const project = currentProject.value;
+  if (!project) return;
+  if (playState.value !== "edit") {
+    pendingReload = true;
+    status.value = { kind: "info", text: "Scripts changed. They'll reload when you stop playing." };
+    return;
+  }
+  pendingReload = false;
+  try {
+    await project.rereadScripts();
+  } catch (err) {
+    status.value = { kind: "error", text: `Couldn't read the scripts: ${message(err)}` };
+    return;
+  }
+  const result = await replaceScripts(project.scripts);
+  scriptProblems.value = result.problems;
+  const scene = openScene.value;
+  if (scene) {
+    scene.sync.build();
+    docVersion.value++; // panels, outlines and the gizmo pick up the rebuilt nodes
+  }
+  status.value =
+    result.problems.length > 0
+      ? { kind: "error", text: `Reloaded scripts; ${result.problems.map((p) => `${p.path}: ${p.message}`).join("; ")}` }
+      : result.loaded.length === 0
+        ? { kind: "info", text: "Reloaded scripts: there are none under scripts/ now." }
+        : { kind: "info", text: `Reloaded ${result.loaded.length} script${result.loaded.length === 1 ? "" : "s"}.` };
+}
+
+/** Save a script of the current project, then reload scripts (ADR 0030). */
+export async function saveScript(path: string, text: string): Promise<void> {
+  const project = currentProject.value;
+  if (!project) throw new Error("No project is open.");
+  await project.writeScript(path, text);
+  await reloadScripts();
 }
 
 export function togglePlaying(): void {

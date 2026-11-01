@@ -132,13 +132,27 @@ export interface InstantiateHooks {
   onNode?(node: GameObject, path: readonly string[]): void;
   /** Resolve a `$node` reference of the top-level file that isn't part of this instantiation. */
   resolveExternal?(id: string): GameObject | null;
+  /**
+   * When given, problems a game would stop on are reported here and skipped instead (the
+   * editor, ADR 0030): a component of an unknown type (a script that was deleted or didn't load),
+   * an override aimed at a missing component or node. `path` is the node's path, as for `onNode`.
+   */
+  onProblem?(message: string, path: readonly string[], component?: ComponentEntry): void;
 }
 
 class Instantiation {
   readonly fixups: Fixup[] = [];
   private prefix: string[] = [];
   private top: Map<string, Instance> | null = null;
+  /** Path (as for `onNode`) of the node being filled in, for `onProblem`. */
+  private at: readonly string[] = [];
   constructor(readonly world: World, private readonly hooks: InstantiateHooks = {}) {}
+
+  /** Stop on a problem, or (editor) report it so the caller can skip the thing and carry on. */
+  private problem(message: string, component?: ComponentEntry): void {
+    if (!this.hooks.onProblem) throw new Error(message);
+    this.hooks.onProblem(message, this.at, component);
+  }
 
   /** Create all nodes of `file` under `parent`; returns top-level nodes and the id map. */
   file(file: SceneFile, parent: GameObject, path: string): { roots: GameObject[]; ids: Map<string, Instance> } {
@@ -194,6 +208,7 @@ class Instantiation {
       if (entry.tags) node.tags = entry.tags;
       if (entry.active === false) node.setActive(false);
       const inst: Instance = { node, nested: ids };
+      this.at = [...this.prefix, entry.id];
       for (const o of entry.overrides ?? []) this.override(inst, o, scope, path);
       return inst;
     }
@@ -201,6 +216,7 @@ class Instantiation {
     if (entry.componentNode) this.world.setComponentNode(node.entity, true);
     if (entry.tags) node.tags = entry.tags;
     if (entry.active === false) node.setActive(false);
+    this.at = [...this.prefix, entry.id];
     for (const c of entry.components ?? []) this.component(node, c, scope, path);
     return { node };
   }
@@ -217,7 +233,10 @@ class Instantiation {
       return;
     }
     const type = getComponentClass(entry.type) as (new () => Component) | undefined;
-    if (!type) throw new Error(`${path}: unknown component type "${entry.type}". Is the class imported and decorated with @behavior("${entry.type}")?`);
+    if (!type) {
+      this.problem(`${path}: unknown component type "${entry.type}". Is the class imported and decorated with @behavior("${entry.type}")?`, entry);
+      return;
+    }
     const c = node.addBehavior(type);
     if (entry.enabled === false) c._enabled = false; // lifecycle is deferred until the batch ends
     this.fields(c, data, scope, path);
@@ -240,10 +259,23 @@ class Instantiation {
     let current = inst;
     for (const id of o.target ?? []) {
       const next = current.nested?.get(id);
-      if (!next) throw new Error(`${path}: override target "${(o.target ?? []).join("/")}" not found in prefab instance.`);
+      if (!next) {
+        this.problem(`${path}: override target "${(o.target ?? []).join("/")}" not found in prefab instance.`);
+        return;
+      }
       current = next;
     }
     const node = current.node;
+    const previous = this.at;
+    this.at = [...this.at, ...(o.target ?? [])];
+    try {
+      this.applyOverride(node, o, scope, path);
+    } finally {
+      this.at = previous;
+    }
+  }
+
+  private applyOverride(node: GameObject, o: OverrideEntry, scope: Map<string, Instance>, path: string): void {
     if (o.name !== undefined) node.name = o.name;
     if (o.active !== undefined) node.setActive(o.active);
     if (o.removeComponent) {
@@ -269,8 +301,8 @@ class Instantiation {
     if (o.component && o.field === undefined && o.enabled !== undefined) {
       const type = getComponentClass(o.component) as (abstract new () => Component) | undefined;
       const c = type ? node.getBehaviors(type)[o.index ?? 0] : undefined;
-      if (!c) throw new Error(`${path}: override targets missing component "${o.component}".`);
-      c._enabled = o.enabled; // lifecycle is deferred until the batch ends
+      if (!c) this.problem(`${path}: override targets missing component "${o.component}".`);
+      else c._enabled = o.enabled; // lifecycle is deferred until the batch ends
     }
     if (o.component && o.field !== undefined) {
       if (o.component === "engine.Transform") {
@@ -285,8 +317,8 @@ class Instantiation {
       }
       const type = getComponentClass(o.component) as (abstract new () => Component) | undefined;
       const c = type ? node.getBehaviors(type)[o.index ?? 0] : undefined;
-      if (!c) throw new Error(`${path}: override targets missing component "${o.component}".`);
-      this.fields(c, { [o.field]: o.value }, scope, path);
+      if (!c) this.problem(`${path}: override targets missing component "${o.component}".`);
+      else this.fields(c, { [o.field]: o.value }, scope, path);
     }
   }
 

@@ -4,7 +4,17 @@ import { Color, GameObject } from "../../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
 import { RenameNode, RevertOverrides, SetActive, SetField, isFieldOverride, pathKey, type NodePath } from "../document";
 import { editorFor, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
-import { inFileOrder, moveComponent, removeComponentFrom, setComponentEnabled, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "../componentEdits";
+import {
+  inFileOrder,
+  moveComponent,
+  removeComponentFrom,
+  removeMissingComponent,
+  setComponentEnabled,
+  whyNotRemovable,
+  whyNotRemovableMissing,
+  whyNotReorderable,
+  whyNotToggleable,
+} from "../componentEdits";
 import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
@@ -81,6 +91,7 @@ export function Inspector() {
       {components.map((c) => (
         <ComponentCard key={`${key}/${c.type}#${c.index}`} scene={scene} paths={[path]} infos={[c]} siblings={components} />
       ))}
+      <MissingComponents scene={scene} path={path} />
       {node && <AddComponentMenu scene={scene} targets={[{ path, node }]} />}
     </div>
   );
@@ -136,6 +147,51 @@ function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
       ))}
       <AddComponentMenu scene={scene} targets={paths.flatMap((path, i) => (nodes[i] ? [{ path, node: nodes[i]! }] : []))} />
     </div>
+  );
+}
+
+/**
+ * Components whose type isn't registered (their script was deleted, renamed or didn't load, ADR
+ * 0030). The scene keeps their data; each card says so and can remove the component.
+ */
+function MissingComponents(props: { scene: OpenScene; path: NodePath }) {
+  docVersion.value; // a script reload rebuilds the scene without changing these props
+  const { scene, path } = props;
+  const missing = scene.sync.missingComponents(path);
+  if (missing.length === 0) return null;
+  const seen = new Map<string, number>();
+  return (
+    <>
+      {missing.map((entry) => {
+        const k = seen.get(entry.type) ?? 0;
+        seen.set(entry.type, k + 1);
+        const count = missing.filter((m) => m.type === entry.type).length;
+        const reason = whyNotRemovableMissing(scene.doc, path, entry.type, k, count);
+        const name = entry.type.replace(/^[^.]*\./, "");
+        return (
+          <section key={`${entry.type}#${k}`} class="component missing">
+            <h3>
+              <span class="missing-mark" aria-hidden="true">⚠</span>
+              {name}
+              <span class="badge">missing script</span>
+              <button
+                class="remove-component"
+                aria-label={`Remove ${name}`}
+                title={reason ? `Can't remove: ${reason}` : `Remove ${name} from this node`}
+                disabled={reason !== null}
+                onClick={() => removeMissingComponent(scene, path, entry.type, k, count)}
+              >
+                ✕
+              </button>
+            </h3>
+            <p class="missing-note">
+              No script registers <code>{entry.type}</code>: it was deleted or renamed, or it didn't load. Its data stays in the scene, and it comes back
+              when the script does.
+            </p>
+          </section>
+        );
+      })}
+    </>
   );
 }
 
