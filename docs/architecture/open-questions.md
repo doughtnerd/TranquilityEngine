@@ -10,7 +10,7 @@ All decision records 0001–0024 are Accepted as of 2026-10-31.
 | --- | --- | --- | --- |
 | ~~O1~~ | ~~Editor UI technology~~ | Resolved: DOM with Preact | [0025](../decisions/0025-editor-ui-dom-with-preact.md) |
 | O2 | Project settings file format (layers matrix, autoloads, physics, build settings) | One JSON project file, versioned like scenes | [0022](../decisions/0022-editor-is-a-v1-goal.md) |
-| O3 | Hot reload of game scripts into a running Editor World | Vite HMR, reinstantiate behaviors, keep field values | [0022](../decisions/0022-editor-is-a-v1-goal.md) |
+| O3 | Hot reload of game scripts into a running Editor World | Proposed in [0030](../decisions/0030-in-editor-scripting.md): compile project scripts in the editor and reload them, rebuilding affected nodes from the document | [0022](../decisions/0022-editor-is-a-v1-goal.md) |
 | O4 | Buffer read timing: same frame only, or double-buffered | Same frame by default; opt-in double buffering | [0017](../decisions/0017-user-systems-and-data-components.md) |
 | O5 | Data component field types beyond numbers (strings, node refs, enums) | Allow, stored as references, serialized per 0013 | [0017](../decisions/0017-user-systems-and-data-components.md) |
 | O6 | Cancel one async flow without disabling the behavior | `this.run(async …)` returning a cancellable task | [0018](../decisions/0018-promise-based-waits.md) |

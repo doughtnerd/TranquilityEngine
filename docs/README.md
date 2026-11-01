@@ -43,6 +43,7 @@ Start here. These docs describe where the engine is going, why, and what is bein
 | [0027](decisions/0027-persistent-undo-tree.md) | Persistent, tree-shaped edit history | Accepted |
 | [0028](decisions/0028-component-enabled-overrides.md) | Prefab overrides can switch a component on or off | Accepted |
 | [0029](decisions/0029-component-order-overrides.md) | Prefab overrides can reorder a node's components | Accepted |
+| [0030](decisions/0030-in-editor-scripting.md) | Write and run project scripts inside the editor | Proposed |
 
 ## Working with decisions
 
