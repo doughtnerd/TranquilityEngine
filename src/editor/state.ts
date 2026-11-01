@@ -80,6 +80,9 @@ export const tool = signal<Tool>("move");
 /** Gizmo snapping (held Ctrl/Cmd). */
 export const snapping = signal(false);
 
+/** Project scripts that didn't compile or load (ADR 0030), by path. Empty when all loaded. */
+export const scriptProblems = signal<readonly { path: string; message: string }[]>([]);
+
 /** The open project (the bundled demo, or a folder on disk). */
 export const currentProject = signal<EditorProject | null>(null);
 

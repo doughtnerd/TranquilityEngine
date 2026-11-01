@@ -1,7 +1,7 @@
 import { DockLayout } from "../layout/DockLayout";
 import { resetLayout } from "../layout/store";
 import { openProjectFolder, save, togglePlaying } from "../session";
-import { currentProject, docVersion, openScene, pickTool, playState, sceneCamera, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
+import { currentProject, docVersion, openScene, pickTool, playState, sceneCamera, scriptProblems, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
 import { AssetsPanel } from "./Assets";
 import { AssetDragGhost, ViewportDropHighlight } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -148,7 +148,27 @@ function StatusBar() {
           {s.action.label}
         </button>
       )}
+      <ScriptProblems />
     </footer>
+  );
+}
+
+/**
+ * Project scripts that didn't load (ADR 0030): a lasting marker in the status bar, since other
+ * messages replace the status text. Clicking it puts the details in the status text.
+ */
+function ScriptProblems() {
+  const problems = scriptProblems.value;
+  if (problems.length === 0) return null;
+  const lines = problems.map((p) => `${p.path}: ${p.message}`);
+  return (
+    <button
+      class="script-problems"
+      title={lines.join("\n")}
+      onClick={() => (status.value = { kind: "error", text: lines.join("; ") })}
+    >
+      ⚠ {problems.length === 1 ? "1 script didn't load" : `${problems.length} scripts didn't load`}
+    </button>
   );
 }
 

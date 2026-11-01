@@ -15,7 +15,8 @@ import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
 import { openSceneFile, saveOpenScene } from "./project";
 import { editorSettings, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { currentProject, docVersion, openScene, playState, sceneCamera, selection, status, viewMode } from "./state";
+import { currentProject, docVersion, openScene, playState, sceneCamera, scriptProblems, selection, status, viewMode } from "./state";
+import { loadScripts } from "./scriptLoader";
 import { installViewportSelection } from "./viewportSelection";
 
 let session: { engine: Engine; dispose(): void } | null = null;
@@ -56,6 +57,9 @@ export async function loadProject(project: EditorProject): Promise<void> {
   docVersion.value++;
 
   useProjectAssets(project);
+  // Project scripts register their types before any scene is built (ADR 0030).
+  const scripts = project.scripts.size > 0 ? await loadScripts(project.scripts) : { loaded: [], problems: [] };
+  scriptProblems.value = scripts.problems;
   const engine = await Engine.create({ kind: "editor", container: document.getElementById("viewport")!, project: editorSettings(project) });
   // Editor tools live under the World root, outside the edited scene, so they keep running (ADR 0026).
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
@@ -75,6 +79,11 @@ export async function loadProject(project: EditorProject): Promise<void> {
   // Debug and end-to-end test hooks.
   Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world), nodeRect });
   if (project.mainScene) openScene_(project.mainScene);
+  if (scripts.problems.length > 0) {
+    const list = scripts.problems.map((p) => `${p.path}: ${p.message}`).join("; ");
+    const scene = status.value?.kind === "error" ? ` · ${status.value.text}` : "";
+    status.value = { kind: "error", text: `${scripts.problems.length === 1 ? "A script" : `${scripts.problems.length} scripts`} didn't load: ${list}${scene}` };
+  }
 }
 
 /** Open a scene or prefab of the current project, asking first if there are unsaved changes. */

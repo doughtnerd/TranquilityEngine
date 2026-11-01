@@ -5,6 +5,7 @@
  * arrays (ADR 0012). Buffers are per-frame queues of plain records: the data-oriented
  * replacement for events. Both can be used from user systems and from GameBehaviors.
  */
+import { _isReplacingRegistrations } from "./registry";
 import { World } from "./World";
 
 export interface ScalarType {
@@ -43,7 +44,7 @@ const dataById = new Map<string, DataComponentDef>();
  * ```
  */
 export function defineComponent<S extends Schema>(id: string, schema: S, options: { key?: string } = {}): DataComponentDef<S> {
-  if (dataById.has(id)) throw new Error(`Data component "${id}" is already defined.`);
+  if (dataById.has(id) && !_isReplacingRegistrations()) throw new Error(`Data component "${id}" is already defined.`);
   const fields = Object.keys(schema) as (keyof S & string)[];
   const viewProto: Record<string, unknown> = {};
   for (const f of fields) {

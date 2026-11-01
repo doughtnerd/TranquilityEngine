@@ -5,6 +5,7 @@ import type { GameObject } from "../scene/GameObject";
 import type { Transform } from "../scene/Transform";
 import type { DataComponentDef } from "./data";
 import type { TimeState, World } from "./World";
+import { _isReplacingRegistrations } from "./registry";
 
 export type Phase = "fixedUpdate" | "update" | "lateUpdate";
 
@@ -43,8 +44,10 @@ let userSystemsVersion = 0;
 
 /** Register a user system. It runs in every world, in the given phase. */
 export function defineSystem(def: SystemDef): SystemDef {
-  if (userSystems.some((s) => s.name === def.name)) throw new Error(`System "${def.name}" is already defined.`);
-  userSystems.push(def);
+  const existing = userSystems.findIndex((s) => s.name === def.name);
+  if (existing >= 0 && !_isReplacingRegistrations()) throw new Error(`System "${def.name}" is already defined.`);
+  if (existing >= 0) userSystems.splice(existing, 1, def);
+  else userSystems.push(def);
   userSystemsVersion++;
   return def;
 }

@@ -2,11 +2,13 @@
 // - The bundled Flappy demo: always available, read-only (works in a plain browser).
 // - A project folder on disk, opened through the platform FileSystem (Tauri): read and write.
 //
-// Game script types aren't loaded from the project yet: the editor registers the demo's types at
-// build time, so a folder project can only use engine types and the demo's scripts for now.
+// A folder project's own scripts (`scripts/**/*.ts`, ADR 0030) are read here and loaded by the
+// session (scriptLoader.ts). The demo's script types are compiled into the editor, so the
+// bundled demo (which works in a plain browser) needs no loading.
 import { Assets, type AssetSource, type ProjectSettingsInput } from "../engine";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import "../demo/flappy/game"; // registers the demo's behaviors, data components and systems
+import { isScriptPath } from "./scriptLoader";
 
 export interface EditorProject {
   /** Shown in the toolbar. */
@@ -21,6 +23,8 @@ export interface EditorProject {
   readonly files: readonly string[];
   /** The scene to open first, if any. */
   readonly mainScene: string | null;
+  /** The project's scripts (the `.ts` files under `scripts/`): source text by project-relative path. */
+  readonly scripts: ReadonlyMap<string, string>;
   /** The text a JSON file had when last read or written (keeps its layout on save). */
   textOf(path: string): string | undefined;
   /** Write a JSON file and update what the project serves for it. */
@@ -54,6 +58,7 @@ class MapProject implements EditorProject {
     private readonly values: Map<string, unknown>,
     private readonly texts: Map<string, string>,
     private readonly write: ((path: string, text: string) => Promise<void>) | null,
+    readonly scripts: ReadonlyMap<string, string> = new Map(),
   ) {
     this.mainScene = pickMainScene(this.files);
     this.assets = { has: (p) => values.has(p), get: (p) => values.get(p) };
@@ -105,15 +110,15 @@ export function joinPath(root: string, path: string): string {
   return root.replace(/[\\/]+$/, "") + sep + path.split("/").join(sep);
 }
 
-/** Every asset file under `root`, as project-relative paths. Skips hidden and build folders. */
-export async function listAssetFiles(fs: FileSystem, root: string, dir = ""): Promise<string[]> {
+/** Every asset file under `root` (or the files `accept` takes), as project-relative paths. Skips hidden and build folders. */
+export async function listAssetFiles(fs: FileSystem, root: string, dir = "", accept: (path: string) => boolean = (p) => ASSET_EXTENSIONS.test(p)): Promise<string[]> {
   const out: string[] = [];
   for (const entry of await fs.list(dir ? joinPath(root, dir) : root)) {
     if (entry.name.startsWith(".")) continue;
     const path = dir ? `${dir}/${entry.name}` : entry.name;
     if (entry.isDirectory) {
-      if (!SKIP_DIRS.has(entry.name)) out.push(...(await listAssetFiles(fs, root, path)));
-    } else if (ASSET_EXTENSIONS.test(entry.name)) {
+      if (!SKIP_DIRS.has(entry.name)) out.push(...(await listAssetFiles(fs, root, path, accept)));
+    } else if (accept(path)) {
       out.push(path);
     }
   }
@@ -145,9 +150,13 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
       values.set(path, URL.createObjectURL(new Blob([bytes as BlobPart], { type })));
     }
   }
+  const scripts = new Map<string, string>();
+  if (await fs.exists(joinPath(root, "scripts"))) {
+    for (const path of await listAssetFiles(fs, root, "scripts", isScriptPath)) scripts.set(path, await fs.readText(joinPath(root, path)));
+  }
   const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput & { name?: string };
   const folder = root.split(/[\\/]/).filter(Boolean).pop() ?? root;
-  return new MapProject(settings.name ?? folder, root, settings, values, texts, (path, text) => fs.writeText(joinPath(root, path), text));
+  return new MapProject(settings.name ?? folder, root, settings, values, texts, (path, text) => fs.writeText(joinPath(root, path), text), scripts);
 }
 
 /** Settings for the Editor World: the project's, minus autoloads, with the editor's background. */

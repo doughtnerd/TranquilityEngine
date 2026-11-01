@@ -1,6 +1,6 @@
 # 0030. Write and run project scripts inside the editor
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-01
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

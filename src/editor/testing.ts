@@ -36,7 +36,9 @@ export class MemoryFileSystem implements FileSystem {
     return [...names].map(([name, isDirectory]) => ({ name, isDirectory }));
   }
   async exists(p: string) {
-    return this.files.has(this.key(p));
+    const k = this.key(p);
+    const folder = k.replace(/\\$/, "") + "\\";
+    return this.files.has(k) || [...this.files.keys()].some((f) => f.startsWith(folder)); // a file, or a folder holding files
   }
   async mkdir() {}
   async remove(p: string) {

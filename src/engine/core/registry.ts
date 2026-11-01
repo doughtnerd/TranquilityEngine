@@ -40,11 +40,26 @@ export type ComponentClass<T = unknown> = abstract new () => T;
 const classById = new Map<string, ComponentClass>();
 const idByClass = new Map<ComponentClass, string>();
 
+let replacing = false;
+
+/**
+ * @internal Editor (ADR 0030): while on, registering a component, data component or system
+ * whose id or name is taken replaces it instead of throwing. On only while the editor loads or
+ * reloads project scripts.
+ */
+export function _setReplacingRegistrations(on: boolean): void {
+  replacing = on;
+}
+
+/** @internal True while the editor is (re)loading project scripts (see `_setReplacingRegistrations`). */
+export const _isReplacingRegistrations = () => replacing;
+
 /** Register a component class under a stable id. Usually applied with `@behavior` / `@component`. */
 export function registerComponent(id: string, type: ComponentClass): void {
   const existing = classById.get(id);
   if (existing && existing !== type) {
-    throw new Error(`Component id "${id}" is already registered to a different class.`);
+    if (!replacing) throw new Error(`Component id "${id}" is already registered to a different class.`);
+    idByClass.delete(existing);
   }
   classById.set(id, type);
   idByClass.set(type, id);

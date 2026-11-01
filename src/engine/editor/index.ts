@@ -6,7 +6,7 @@
 import { Component } from "../core/Component";
 import { getDataComponentDef, listDataComponentIds, type DataComponentDef, type ScalarType } from "../core/data";
 import { Vector3 } from "../core/math";
-import { getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldType } from "../core/registry";
+import { _setReplacingRegistrations, getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldType } from "../core/registry";
 import { World } from "../core/World";
 import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
@@ -343,4 +343,20 @@ export function componentCatalog(): ComponentTypeInfo[] {
 export function spriteSize(node: GameObject): [number, number] | null {
   const s = node.getBehavior(SpriteRenderer);
   return s ? (node.world.render?.spriteSize(s) ?? null) : null;
+}
+
+// --- Project scripts (ADR 0030) -----------------------------------------------------------------
+
+/**
+ * Run `load` with registration replacing: a component, data component or system whose id or name
+ * is already taken (by the editor build, or an earlier load of the script) is replaced instead
+ * of throwing.
+ */
+export async function withReplacingRegistrations<T>(load: () => Promise<T>): Promise<T> {
+  _setReplacingRegistrations(true);
+  try {
+    return await load();
+  } finally {
+    _setReplacingRegistrations(false);
+  }
 }
