@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { componentCatalog, listComponents, type ComponentInfo } from "../engine/editor";
-import { addComponentTo, newComponentEntry, overridesWithout, removeComponentFrom, whyNotAddable, whyNotRemovable } from "./componentEdits";
+import { addComponentTo, moveComponent, newComponentEntry, overridesWithout, removeComponentFrom, setComponentEnabled, whyNotAddable, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "./componentEdits";
 import { SetField, type NodePath } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
@@ -133,5 +133,77 @@ describe("renumbering overrides after a removal", () => {
       list[4],
       { removeComponent: t },
     ]);
+  });
+});
+
+describe("switching components on and off", () => {
+  const on = (key: string, type: string) => info(key, type).enabled;
+
+  it("writes enabled: false on a plain node, and drops the key when switched back on", () => {
+    const { doc, stack } = scene();
+    const circle = () => doc.node("bird").components!.find((c) => c.type === "engine.CircleCollider2D")!;
+    expect(setComponentEnabled(scene(), [{ ...target("bird"), info: info("bird", "engine.CircleCollider2D") }], false)).toBe(1);
+    expect(circle().enabled).toBe(false);
+    expect(on("bird", "engine.CircleCollider2D")).toBe(false);
+    expect(stack.undoLabel).toBe("Disable CircleCollider2D");
+    setComponentEnabled(scene(), [{ ...target("bird"), info: info("bird", "engine.CircleCollider2D") }], true);
+    expect("enabled" in circle()).toBe(false);
+    stack.undo();
+    expect(circle().enabled).toBe(false);
+  });
+
+  it("overrides a prefab's component, and switching it back removes the override", () => {
+    const { doc } = scene();
+    setComponentEnabled(scene(), [{ ...target("bg-a"), info: info("bg-a", "engine.SpriteRenderer") }], false);
+    expect(doc.node("bg-a").overrides).toEqual([{ component: "engine.SpriteRenderer", enabled: false }]);
+    expect(on("bg-a", "engine.SpriteRenderer")).toBe(false); // the loader applies it
+    setComponentEnabled(scene(), [{ ...target("bg-a"), info: info("bg-a", "engine.SpriteRenderer") }], true);
+    expect(doc.node("bg-a").overrides).toBeUndefined();
+    expect(on("bg-a", "engine.SpriteRenderer")).toBe(true);
+  });
+
+  it("flags a component added in this scene on its own entry", () => {
+    addComponentTo(scene(), [target("bg-a")], "engine.BoxCollider2D");
+    setComponentEnabled(scene(), [{ ...target("bg-a"), info: info("bg-a", "engine.BoxCollider2D") }], false);
+    expect(scene().doc.node("bg-a").overrides).toEqual([{ addComponent: { type: "engine.BoxCollider2D", enabled: false } }]);
+    expect(on("bg-a", "engine.BoxCollider2D")).toBe(false);
+  });
+
+  it("removing a component drops its enabled override too", () => {
+    setComponentEnabled(scene(), [{ ...target("bg-a"), info: info("bg-a", "engine.SpriteRenderer") }], false);
+    removeComponentFrom(scene(), [{ ...target("bg-a"), info: info("bg-a", "engine.SpriteRenderer") }]);
+    expect(scene().doc.node("bg-a").overrides).toEqual([{ removeComponent: "engine.SpriteRenderer" }]);
+  });
+
+  it("leaves Transform and data components always on", () => {
+    expect(whyNotToggleable(scene().doc, ["bird"], info("bird", "engine.Transform"), 1)).toMatch(/always on/);
+    expect(whyNotToggleable(scene().doc, ["bg-a"], info("bg-a", "game.Scroller"), 1)).toMatch(/always on/);
+  });
+});
+
+describe("reordering components", () => {
+  it("moves a component before or after another on a plain node, as one undo step", () => {
+    const { doc, stack } = scene();
+    const order = () => doc.node("bird").components!.map((c) => c.type.replace(/^[^.]*\./, ""));
+    const before = order();
+    expect(before.slice(1)).toEqual(["RigidBody2D", "CircleCollider2D", "Bird"]);
+    expect(moveComponent(scene(), "bird", info("bird", "game.Bird"), info("bird", "engine.RigidBody2D"), false)).toBe(true);
+    expect(order().slice(1)).toEqual(["Bird", "RigidBody2D", "CircleCollider2D"]);
+    expect(types("bird").slice(1)).toEqual(["game.Bird", "engine.RigidBody2D", "engine.CircleCollider2D"]); // the live node follows
+    expect(moveComponent(scene(), "bird", info("bird", "game.Bird"), info("bird", "engine.CircleCollider2D"), true)).toBe(true);
+    expect(order().slice(1)).toEqual(["RigidBody2D", "CircleCollider2D", "Bird"]);
+    expect(stack.undoLabel).toBe("Reorder components");
+    stack.undo();
+    stack.undo();
+    expect(order()).toEqual(before);
+  });
+
+  it("does nothing for a move onto itself or into the same place", () => {
+    expect(moveComponent(scene(), "bird", info("bird", "game.Bird"), info("bird", "game.Bird"), false)).toBe(false);
+    expect(moveComponent(scene(), "bird", info("bird", "game.Bird"), info("bird", "engine.CircleCollider2D"), true)).toBe(false);
+  });
+
+  it("refuses prefab instances", () => {
+    expect(whyNotReorderable(scene().doc, ["bg-a"])).toMatch(/in the prefab/);
   });
 });

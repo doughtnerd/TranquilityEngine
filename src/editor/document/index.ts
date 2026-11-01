@@ -6,6 +6,8 @@ export {
   AddNode,
   CommandGroup,
   RemoveComponent,
+  SetComponentEnabled,
+  MoveComponent,
   RemoveNode,
   RenameNode,
   ReparentNode,

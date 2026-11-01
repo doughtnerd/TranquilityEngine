@@ -1,9 +1,10 @@
+import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Color, GameObject } from "../../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
 import { RenameNode, RevertOverrides, SetActive, SetField, isFieldOverride, pathKey, type NodePath } from "../document";
 import { editorFor, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
-import { removeComponentFrom, whyNotRemovable } from "../componentEdits";
+import { moveComponent, removeComponentFrom, setComponentEnabled, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "../componentEdits";
 import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
@@ -78,7 +79,7 @@ export function Inspector() {
       {entry.prefab && !inner && <PrefabActions scene={scene} id={id} />}
       {!entry.prefab && <CreatePrefabButton scene={scene} id={id} />}
       {components.map((c) => (
-        <ComponentCard key={`${key}/${c.type}#${c.index}`} scene={scene} paths={[path]} infos={[c]} />
+        <ComponentCard key={`${key}/${c.type}#${c.index}`} scene={scene} paths={[path]} infos={[c]} siblings={components} />
       ))}
       {node && <AddComponentMenu scene={scene} targets={[{ path, node }]} />}
     </div>
@@ -218,7 +219,48 @@ function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
 const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D"]);
 
 /** One component, shared by every node in `paths` (`infos` holds each node's copy, in the same order). */
-function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: ComponentInfo[] }) {
+/** Where a dragged component would land: next to the component `type`#`index`, before or after it. */
+const componentDrop = signal<{ type: string; index: number; after: boolean } | null>(null);
+
+/**
+ * Drag a component by its grip to reorder it among the node's scripts and engine components
+ * (data components and Transform stay put). A line shows where it will land.
+ */
+function startReorder(e: PointerEvent, scene: OpenScene, id: string, info: ComponentInfo, siblings: readonly ComponentInfo[]): void {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const grip = e.currentTarget as HTMLElement;
+  grip.setPointerCapture(e.pointerId);
+  const self = grip.closest(".component");
+  const move = (m: PointerEvent) => {
+    const cards = [...document.querySelectorAll<HTMLElement>(".inspector-body .component[data-reorder]")];
+    let best: { card: HTMLElement; after: boolean; distance: number } | null = null;
+    for (const card of cards) {
+      const r = card.getBoundingClientRect();
+      const distance = m.clientY < r.top ? r.top - m.clientY : m.clientY > r.bottom ? m.clientY - r.bottom : 0;
+      if (!best || distance < best.distance) best = { card, after: m.clientY > r.top + r.height / 2, distance };
+    }
+    componentDrop.value = best && best.card !== self ? { type: best.card.dataset.type!, index: Number(best.card.dataset.index), after: best.after } : null;
+  };
+  const up = () => {
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", up);
+    grip.removeEventListener("pointercancel", up);
+    const drop = componentDrop.value;
+    componentDrop.value = null;
+    const anchor = drop && siblings.find((c) => c.type === drop.type && c.index === drop.index);
+    if (anchor) moveComponent(scene, id, info, anchor, drop.after);
+  };
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", up);
+  grip.addEventListener("pointercancel", up);
+}
+
+/**
+ * One component, shared by every node in `paths` (`infos` holds each node's copy, in the same
+ * order). `siblings` (a single node's whole list) makes it reorderable.
+ */
+function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: ComponentInfo[]; siblings?: readonly ComponentInfo[] }) {
   const { paths, infos } = props;
   const info = infos[infos.length - 1];
   const title = info.type.replace(/^(engine|game|editor)\./, "");
@@ -235,10 +277,48 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
   });
   const removable = checks.flatMap((c) => (c.reason === null && c.target ? [c.target] : []));
   const notRemovable = removable.length === 0 ? checks[0].reason : null;
+  // Enabled: a checkbox across every node; mixed shows as indeterminate.
+  const toggleable = checks.flatMap((c) =>
+    c.target && whyNotToggleable(scene.doc, c.target.path, c.target.info, listComponents(c.target.node).filter((o) => o.type === info.type).length) === null ? [c.target] : [],
+  );
+  const allEnabled = infos.every((i) => i.enabled);
+  // Reorder: a single plain node's scripts and engine components.
+  const siblings = props.siblings?.filter((c) => c.kind === "behavior") ?? [];
+  const reorderable = paths.length === 1 && info.kind === "behavior" && siblings.length > 1 && whyNotReorderable(scene.doc, paths[0]) === null;
+  const drop = componentDrop.value;
+  const dropHere = drop && drop.type === info.type && drop.index === info.index ? (drop.after ? " drop-after" : " drop-before") : "";
+  const step = (by: -1 | 1) => {
+    const at = siblings.findIndex((c) => c.type === info.type && c.index === info.index);
+    const anchor = siblings[at + by];
+    if (anchor) moveComponent(scene, paths[0][0], info, anchor, by > 0);
+  };
   return (
-    <section class="component">
+    <section class={`component${dropHere}${allEnabled ? "" : " off"}`} {...(reorderable ? { "data-reorder": "", "data-type": info.type, "data-index": String(info.index) } : {})}>
       <h3>
-        <input type="checkbox" checked={info.enabled} disabled aria-label={`${title} enabled`} />
+        {reorderable && (
+          <button
+            class="reorder-grip"
+            aria-label={`Reorder ${title}`}
+            title="Drag to reorder (or focus and press Alt+↑ / Alt+↓)"
+            onPointerDown={(e) => startReorder(e, scene, paths[0][0], info, siblings)}
+            onKeyDown={(e) => {
+              if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+              e.preventDefault();
+              step(e.key === "ArrowUp" ? -1 : 1);
+            }}
+          >
+            ⠿
+          </button>
+        )}
+        <input
+          type="checkbox"
+          checked={allEnabled}
+          indeterminate={!allEnabled && infos.some((i) => i.enabled)}
+          disabled={toggleable.length === 0}
+          aria-label={`${title} enabled`}
+          title={toggleable.length === 0 ? (info.kind === "behavior" ? undefined : `${title} is always on`) : allEnabled ? `Disable ${title}` : `Enable ${title}`}
+          onChange={(e) => setComponentEnabled(scene, toggleable, (e.currentTarget as HTMLInputElement).checked)}
+        />
         {title}
         {info.kind === "data" && <span class="badge">data</span>}
         {COLLIDERS.has(info.type) && paths.length === 1 && (

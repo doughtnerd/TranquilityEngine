@@ -31,6 +31,8 @@ export interface OverrideEntry {
   index?: number;
   field?: string;
   value?: unknown;
+  /** With `component` (and `index`) but no `field`: start that component enabled or disabled (ADR 0028). */
+  enabled?: boolean;
   addComponent?: ComponentEntry;
   removeComponent?: string;
 }
@@ -249,6 +251,12 @@ class Instantiation {
       }
     }
     if (o.addComponent) this.component(node, o.addComponent, scope, path);
+    if (o.component && o.field === undefined && o.enabled !== undefined) {
+      const type = getComponentClass(o.component) as (abstract new () => Component) | undefined;
+      const c = type ? node.getBehaviors(type)[o.index ?? 0] : undefined;
+      if (!c) throw new Error(`${path}: override targets missing component "${o.component}".`);
+      c._enabled = o.enabled; // lifecycle is deferred until the batch ends
+    }
     if (o.component && o.field !== undefined) {
       if (o.component === "engine.Transform") {
         applyTransform(node, { [o.field]: o.value });

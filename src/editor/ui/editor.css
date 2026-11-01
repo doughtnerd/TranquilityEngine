@@ -298,3 +298,10 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .add-component-menu li[role="option"]:hover:not(.disabled) { background: var(--button-hover); }
 .add-component-menu li.active { background: rgb(76 141 255 / 0.35); color: #fff; }
 .add-component-menu li.disabled { color: var(--muted); opacity: 0.6; }
+.component.off .fields { opacity: 0.55; }
+.component.off h3 { color: var(--muted); }
+.component h3 .reorder-grip { padding: 0 2px; margin-right: 2px; border: none; background: transparent; color: var(--muted); cursor: grab; font-size: 13px; line-height: 18px; touch-action: none; }
+.component h3 .reorder-grip:hover { color: var(--text); }
+.component h3 .reorder-grip:active { cursor: grabbing; }
+.component.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.component.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }

@@ -370,6 +370,58 @@ export class RemoveComponent implements Command {
   }
 }
 
+/** Start the component at `position` in a plain node's list enabled or disabled (`enabled: false` in the file; enabled is the default and leaves no key). */
+export class SetComponentEnabled implements Command {
+  readonly label: string;
+  private previous: boolean | undefined;
+  constructor(readonly node: string, readonly position: number, readonly enabled: boolean) {
+    this.label = enabled ? "Enable component" : "Disable component";
+  }
+
+  apply(doc: SceneDocument): Change[] {
+    const entry = this.entry(doc);
+    this.previous = entry.enabled;
+    if (this.enabled) delete entry.enabled;
+    else setKey(entry, "enabled", false, ["type"]);
+    return [{ kind: "rebuild", node: this.node }];
+  }
+
+  undo(doc: SceneDocument): Change[] {
+    const entry = this.entry(doc);
+    if (this.previous === undefined) delete entry.enabled;
+    else setKey(entry, "enabled", this.previous, ["type"]);
+    return [{ kind: "rebuild", node: this.node }];
+  }
+
+  private entry(doc: SceneDocument): ComponentEntry {
+    const entry = doc.node(this.node).components?.[this.position];
+    if (!entry) throw new Error(`"${this.node}" has no component at position ${this.position}.`);
+    return entry;
+  }
+}
+
+/** Move the component at `from` in a plain node's list so it ends up at `to` (an index into the list after it's taken out). */
+export class MoveComponent implements Command {
+  readonly label = "Reorder components";
+  constructor(readonly node: string, readonly from: number, readonly to: number) {}
+
+  apply(doc: SceneDocument): Change[] {
+    return this.move(doc, this.from, this.to);
+  }
+
+  undo(doc: SceneDocument): Change[] {
+    return this.move(doc, this.to, this.from);
+  }
+
+  private move(doc: SceneDocument, from: number, to: number): Change[] {
+    const list = doc.node(this.node).components ?? [];
+    if (from < 0 || from >= list.length || to < 0 || to >= list.length) throw new Error(`"${this.node}": can't move component ${from} to ${to}.`);
+    const [entry] = list.splice(from, 1);
+    list.splice(to, 0, entry);
+    return [{ kind: "rebuild", node: this.node }];
+  }
+}
+
 // --- grouping ---------------------------------------------------------------------------------
 
 /** Several commands as one undo step (used by `CommandStack.beginGroup`). */

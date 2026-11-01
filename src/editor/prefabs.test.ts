@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, SpriteRenderer } from "../engine";
-import { AddNode, RevertOverrides, SetField, type SceneFile } from "./document";
+import { AddNode, RevertOverrides, SetField, SetOverrides, type SceneFile } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { applyOverrides, createPrefab, findInner, innerNodes, isOverridden, newPrefabPath, prefabFileName } from "./prefabs";
 import { openSceneFile } from "./project";
@@ -77,6 +77,31 @@ describe("Apply (ADR 0022)", () => {
     expect(bgB.getBehavior(SpriteRenderer)!.color.toHex()).toBe("#ff0000");
     expect(bgB.transform!.position.x).toBe(32);
     expect(scene.stack.undoLabel).toBe("Apply to background.prefab.json");
+  });
+
+  it("writes added, removed and switched-off components into the prefab, nested instances too", async () => {
+    const scene = openScene.value!;
+    addPipe();
+    scene.stack.execute(
+      new SetOverrides("bg-a", "components", [
+        { addComponent: { type: "engine.BoxCollider2D", data: { size: [3, 3] } } },
+        { component: "engine.BoxCollider2D", field: "isTrigger", value: true }, // a field of the added box
+        { removeComponent: "game.Scroller" },
+        { component: "engine.SpriteRenderer", enabled: false },
+      ]),
+    );
+    expect(await applyOverrides(scene, project, "bg-a")).toBe(4);
+    const tile = fileOf("prefabs/background.prefab.json").nodes[0];
+    expect(tile.components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.SpriteRenderer", "engine.BoxCollider2D"]);
+    expect(tile.components![1].enabled).toBe(false);
+    expect(tile.components![2]).toEqual({ type: "engine.BoxCollider2D", data: { size: [3, 3], isTrigger: true } });
+    expect(scene.sync.nodeFor("bg-b")!.getBehavior(SpriteRenderer)!.enabled).toBe(false); // the other instance follows
+
+    // Inside the pipe: the top node is plain in pipe-pair.prefab.json, so it's edited directly.
+    scene.stack.execute(new SetOverrides("pipe", "components", [{ target: ["top"], component: "engine.BoxCollider2D", enabled: false }]));
+    expect(await applyOverrides(scene, project, "pipe")).toBe(1);
+    const top = fileOf("prefabs/pipe-pair.prefab.json").nodes.find((n) => n.id === "top")!;
+    expect(top.components!.find((c) => c.type === "engine.BoxCollider2D")!.enabled).toBe(false);
   });
 
   it("refuses in a read-only project", async () => {

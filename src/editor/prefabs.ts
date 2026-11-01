@@ -3,7 +3,23 @@
 // its children into a prefab file plus an instance).
 import { Assets } from "../engine";
 import { isScenePath } from "../engine/scene/SceneLoader";
-import { AddNode, RebuildInstances, RemoveNode, RevertOverrides, SceneDocument, SetField, isFieldOverride, type NodeEntry, type NodePath, type OverrideEntry, type SceneFile } from "./document";
+import {
+  AddComponent,
+  AddNode,
+  RebuildInstances,
+  RemoveComponent,
+  RemoveNode,
+  RevertOverrides,
+  SceneDocument,
+  SetComponentEnabled,
+  SetField,
+  SetOverrides,
+  isFieldOverride,
+  type NodeEntry,
+  type NodePath,
+  type OverrideEntry,
+  type SceneFile,
+} from "./document";
 import { writeSceneFile } from "./project";
 import type { EditorProject } from "./projects";
 import type { OpenScene } from "./state";
@@ -72,7 +88,38 @@ export function isOverridden(doc: SceneDocument, path: NodePath, type: string, f
 }
 
 /** Overrides that Apply can write into a prefab file: component field values. */
-const applicable = (o: OverrideEntry) => o.component !== undefined && o.field !== undefined && o.value !== undefined;
+/** Overrides Apply writes into the prefab: field values, added or removed components, and components switched on or off. */
+const applicable = (o: OverrideEntry) =>
+  (o.component !== undefined && o.field !== undefined && o.value !== undefined) ||
+  (o.component !== undefined && o.field === undefined && o.enabled !== undefined) ||
+  o.addComponent !== undefined ||
+  o.removeComponent !== undefined;
+
+/**
+ * Write one override into the prefab document, onto its node `nodeId` (with `inner` the path
+ * inside that node when it's itself a nested instance, where the override stays an override).
+ */
+function applyOverride(prefab: SceneDocument, nodeId: string, inner: readonly string[], o: OverrideEntry): void {
+  if (o.field !== undefined) {
+    new SetField(nodeId, o.component!, o.field, o.value, { index: o.index, target: inner }).apply(prefab);
+    return;
+  }
+  if (prefab.isPrefabInstance(nodeId)) {
+    const { target: _, ...rest } = o;
+    new SetOverrides(nodeId, "", [...(prefab.node(nodeId).overrides ?? []), { ...(inner.length > 0 ? { target: [...inner] } : {}), ...rest }]).apply(prefab);
+    return;
+  }
+  const positions = (type: string) => (prefab.node(nodeId).components ?? []).flatMap((c, i) => (c.type === type ? [i] : []));
+  if (o.addComponent) new AddComponent(nodeId, o.addComponent).apply(prefab);
+  if (o.removeComponent) {
+    const [first] = positions(o.removeComponent); // a removeComponent override removes the first of its type
+    if (first !== undefined) new RemoveComponent(nodeId, first).apply(prefab);
+  }
+  if (o.component && o.enabled !== undefined) {
+    const at = positions(o.component)[o.index ?? 0];
+    if (at !== undefined) new SetComponentEnabled(nodeId, at, o.enabled).apply(prefab);
+  }
+}
 
 /** Ids of every instance of `prefab` in the document. */
 export function instancesOf(doc: SceneDocument, prefab: string): string[] {
@@ -80,7 +127,8 @@ export function instancesOf(doc: SceneDocument, prefab: string): string[] {
 }
 
 /**
- * Apply an instance's field overrides to its prefab file: write them into the prefab, save it,
+ * Apply an instance's overrides to its prefab file (field values, added and removed components,
+ * components switched on or off; not name or active): write them into the prefab, save it,
  * then remove them from the instance and refresh every instance of that prefab in the scene.
  * The scene change is one undo step; the prefab file itself stays as written. Returns how many
  * overrides were applied.
@@ -101,7 +149,7 @@ export async function applyOverrides(open: OpenScene, project: EditorProject, in
   for (const o of overrides) {
     // A target names a node in the file, then (for nested instances) a path inside that node's instance.
     const [nodeId = rootId, ...inner] = o.target ?? [];
-    new SetField(nodeId, o.component!, o.field!, o.value, { index: o.index, target: inner }).apply(prefab);
+    applyOverride(prefab, nodeId, inner, o);
   }
   await writeSceneFile(project, entry.prefab, prefab.toJSON());
 

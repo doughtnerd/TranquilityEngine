@@ -84,3 +84,45 @@ test("on a prefab instance, adding or removing a component is an override", asyn
   await expect(card(page, "SpriteRenderer")).toBeVisible();
   await expect(badge).toHaveText("background");
 });
+
+test("a component's checkbox switches it off and on; Transform and data components have none to use", async ({ page }) => {
+  await openEditor(page);
+  await row(page, "bird").click();
+  const enabled = page.getByRole("checkbox", { name: "CircleCollider2D enabled" });
+  await expect(enabled).toBeChecked();
+  await enabled.uncheck();
+  await expect(enabled).not.toBeChecked();
+  await expect(card(page, "CircleCollider2D")).toHaveClass(/\boff\b/);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(enabled).toBeChecked();
+  await expect(page.getByRole("checkbox", { name: "Transform enabled" })).toBeDisabled();
+  await row(page, "bg-a").click();
+  await expect(page.getByRole("checkbox", { name: "Scroller enabled" })).toBeDisabled();
+});
+
+test("components reorder by dragging the grip, or with Alt+arrow keys", async ({ page }) => {
+  await openEditor(page);
+  await row(page, "bird").click();
+  const titles = async () => (await cards(page).allTextContents()).map((t) => t.replace(/[⠿✕]|Edit Collider/g, "").trim());
+  expect(await titles()).toEqual(["Transform", "RigidBody2D", "CircleCollider2D", "Bird"]);
+
+  // Drag RigidBody2D's grip below the Bird script.
+  const grip = (await page.getByRole("button", { name: "Reorder RigidBody2D" }).boundingBox())!;
+  const bird = (await card(page, "Bird").last().boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + 4, bird.y + bird.height - 4, { steps: 8 });
+  await expect(card(page, "Bird").last()).toHaveClass(/drop-after/);
+  await page.mouse.up();
+  await expect.poll(titles).toEqual(["Transform", "CircleCollider2D", "Bird", "RigidBody2D"]);
+
+  await page.getByRole("button", { name: "Reorder RigidBody2D" }).focus();
+  await page.keyboard.press("Alt+ArrowUp");
+  await expect.poll(titles).toEqual(["Transform", "CircleCollider2D", "RigidBody2D", "Bird"]);
+  await page.keyboard.press("ControlOrMeta+z");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(titles).toEqual(["Transform", "RigidBody2D", "CircleCollider2D", "Bird"]);
+
+  await row(page, "bg-a").click(); // a prefab instance: reordered in the prefab
+  await expect(page.getByRole("button", { name: /^Reorder / })).toHaveCount(0);
+});
