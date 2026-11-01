@@ -6,11 +6,13 @@ import {
   buildFolderTree,
   findFolder,
   idBase,
+  nodeForAsset,
   parentForAdd,
   prefabInstanceEntry,
   searchFiles,
   spriteNodeEntry,
   uniqueId,
+  whyNotAddable,
 } from "./assetBrowser";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
@@ -114,7 +116,31 @@ describe("asset browser: adding to the scene (ADR 0026)", () => {
     expect(node.transform!.position.toArray()).toEqual([3, 1, 0]);
   });
 
-  it("refuses assets that can't go in a scene", () => {
-    expect(() => addAssetToScene(openScene.value!, "music/town.mp3", null)).toThrow(/can't be added/);
+  it("refuses assets with no kind of scene node", () => {
+    expect(() => addAssetToScene(openScene.value!, "project.json", null)).toThrow(/no kind of scene node fits/);
+  });
+
+  it("turns audio into an AudioSource node", () => {
+    const scene = openScene.value!;
+    const id = addAssetToScene(scene, "music/town.mp3", null, [1, 2, 0]);
+    expect(scene.doc.node(id)).toMatchObject({
+      name: "Town",
+      components: [
+        { type: "engine.Transform", data: { position: [1, 2, 0] } },
+        { type: "engine.AudioSource", data: { clip: "asset:music/town.mp3" } },
+      ],
+    });
+  });
+
+  it("instances scenes and prefabs, placed when asked, and refuses self-nesting", () => {
+    const { doc } = openScene.value!;
+    expect(nodeForAsset(doc, "scenes/main.scene.json")).toMatchObject({ prefab: "scenes/main.scene.json" });
+    expect(nodeForAsset(doc, "prefabs/pipe-pair.prefab.json", { position: [3, 4, 0], placeInstances: true })).toMatchObject({
+      prefab: "prefabs/pipe-pair.prefab.json",
+      overrides: [{ component: "engine.Transform", field: "position", value: [3, 4, 0] }],
+    });
+    expect(nodeForAsset(doc, "prefabs/pipe-pair.prefab.json", { position: [3, 4, 0] })!.overrides).toBeUndefined();
+    expect(whyNotAddable(doc, "scenes/main.scene.json")).toMatch(/inside itself/); // the open scene
+    expect(whyNotAddable(doc, "prefabs/pipe-pair.prefab.json")).toBeNull();
   });
 });

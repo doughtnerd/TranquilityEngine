@@ -3,6 +3,7 @@ import { resetLayout } from "../layout/store";
 import { openProjectFolder, save, togglePlaying } from "../session";
 import { currentProject, docVersion, openScene, playState, sceneCamera, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
 import { AssetsPanel } from "./Assets";
+import { AssetDragGhost, ViewportDropHighlight } from "./AssetDragOverlay";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
 
@@ -19,12 +20,14 @@ export function App() {
           <>
             <div id="viewport" class="viewport" />
             <ViewportHint />
+            <ViewportDropHighlight />
             {/* The Runtime World's canvas goes here during play mode (ADR 0022). */}
             <div id="game-view" class="game-view" hidden={playState.value === "edit"} />
           </>
         }
       />
       <StatusBar />
+      <AssetDragGhost />
     </div>
   );
 }

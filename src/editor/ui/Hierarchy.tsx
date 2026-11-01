@@ -1,6 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { signal } from "@preact/signals";
 import { pathKey, type SceneDocument } from "../document";
+import { assetDrag } from "../assetDrag";
 import { innerNodes, type InnerNode } from "../prefabs";
 import { docVersion, openScene, selection } from "../state";
 
@@ -28,7 +29,7 @@ export function Hierarchy() {
   if (!scene) return <p class="empty">No scene open</p>;
   return (
     <div>
-      <div class="scene-name" title={scene.path}>
+      <div class={`scene-name${dropMode(null) === "root" ? " drop-into" : ""}`} title={scene.path}>
         {scene.path.split("/").pop()}
         {scene.stack.dirty && " •"}
       </div>
@@ -116,7 +117,14 @@ function InnerTreeNode(props: { node: InnerNode; depth: number }) {
   );
 }
 
-const prefabName = (path: string) => path.split("/").pop()!.replace(/\.prefab\.json$/, "");
+const prefabName = (path: string) => path.split("/").pop()!.replace(/\.(prefab|scene)\.json$/, "");
+
+/** How a dragged asset would land relative to the row `key` (null: the scene itself), if it's the target. */
+function dropMode(key: string | null): "into" | "before" | "after" | "root" | null {
+  const t = assetDrag.value?.target;
+  if (!t || t.kind !== "hierarchy") return null;
+  return t.row === key ? t.mode : null;
+}
 
 function Row(props: {
   rowKey: string;
@@ -132,10 +140,12 @@ function Row(props: {
 }) {
   const { rowKey, depth, expandable, open, badge } = props;
   const selected = selection.value === rowKey;
+  const drop = dropMode(rowKey);
   return (
     <li role="treeitem" aria-selected={selected} aria-expanded={expandable ? open : undefined}>
       <div
-        class={`row${selected ? " selected" : ""}${props.inactive ? " inactive" : ""}${props.inner ? " inner" : ""}`}
+        class={`row${selected ? " selected" : ""}${props.inactive ? " inactive" : ""}${props.inner ? " inner" : ""}${drop ? ` drop-${drop}` : ""}`}
+        data-key={rowKey}
         style={{ paddingLeft: `${depth * 14 + 4}px` }}
         title={props.inner ? "Inside a prefab instance: edits become overrides" : undefined}
         onClick={() => (selection.value = rowKey)}

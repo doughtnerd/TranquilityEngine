@@ -489,6 +489,25 @@ export class RenderBackend {
     return hits.filter((h) => !seen.has(h.node.entity) && seen.add(h.node.entity)).map((h) => h.node);
   }
 
+  /**
+   * @internal Editor: the world point on the plane z = `z` under a canvas point (CSS pixels),
+   * seen through the camera that draws the view; null if the ray misses the plane (looking
+   * along it or away from it).
+   */
+  pointOnPlaneZ(world: World, x: number, y: number, z = 0): [number, number, number] | null {
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    const view = this.viewCameras(world)[0];
+    const camera = view && this.cameras.get(view)?.camera;
+    if (!camera || w <= 0 || h <= 0) return null;
+    ndc.set((x / w) * 2 - 1, -(y / h) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    const { origin, direction } = raycaster.ray;
+    if (Math.abs(direction.z) < 1e-6) return null;
+    const t = (z - origin.z) / direction.z;
+    if (t < 0) return null;
+    return [origin.x + direction.x * t, origin.y + direction.y * t, z];
+  }
+
   /** @internal Editor: outline the sprites of these nodes and their descendants, every frame. */
   setSelectionOutline(nodes: readonly GameObject[]): void {
     this.outlined.clear();

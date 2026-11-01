@@ -11,6 +11,7 @@ import {
   type AssetKind,
   type Folder,
 } from "../assetBrowser";
+import { startAssetDrag } from "../assetDrag";
 import { switchScene } from "../session";
 import { currentProject, docVersion, openScene, playState, sceneCamera, selection, status } from "../state";
 import "./assets.css";
@@ -106,9 +107,10 @@ function AssetTile(props: { path: string; url: unknown; showFolder: boolean }) {
       class={`asset-tile kind-${kind}${selected ? " selected" : ""}${open ? " open" : ""}`}
       role="option"
       aria-selected={selected}
-      title={`${path}${opens ? " (double-click to open)" : ""}`}
+      title={`${path}${opens ? " (double-click to open)" : ""}${canAddToScene(path) ? "; drag into the viewport or hierarchy to add" : ""}`}
       onClick={() => (selectedAsset.value = path)}
       onDblClick={() => opens && void switchScene(path)}
+      onPointerDown={(e) => startAssetDrag(e, path)}
     >
       <div class="asset-thumb">
         {kind === "image" && typeof url === "string" ? <img src={url} alt="" draggable={false} /> : <span class="asset-kind">{KIND_LABELS[kind]}</span>}

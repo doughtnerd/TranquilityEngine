@@ -1,6 +1,7 @@
 // Asset browser logic (ADR 0022): the project's files as a folder tree, search, and the scene
 // nodes that adding an asset creates. No UI here; `ui/Assets.tsx` renders it.
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
+import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
 export type AssetKind = "scene" | "prefab" | "image" | "audio" | "json" | "other";
@@ -102,9 +103,29 @@ export function parentForAdd(doc: SceneDocument, selected: string | null): strin
   return doc.isPrefabInstance(id) ? doc.parentOf(id) : id;
 }
 
-/** The scene entry for an instance of a prefab file. */
-export function prefabInstanceEntry(doc: SceneDocument, prefabPath: string): NodeEntry {
-  return { id: uniqueId(doc, idBase(prefabPath)), prefab: prefabPath };
+type Vec3 = readonly [number, number, number];
+
+/**
+ * The scene entry for an instance of a prefab or scene file. With `position`, the instance gets
+ * a Transform override placing it there (a prefab's own position applies otherwise).
+ */
+export function prefabInstanceEntry(doc: SceneDocument, prefabPath: string, position?: Vec3): NodeEntry {
+  const entry: NodeEntry = { id: uniqueId(doc, idBase(prefabPath)), prefab: prefabPath };
+  if (position) entry.overrides = [{ component: "engine.Transform", field: "position", value: [...position] }];
+  return entry;
+}
+
+/** An audio node: a Transform at `position` and an AudioSource playing the clip. */
+export function audioNodeEntry(doc: SceneDocument, audioPath: string, position: Vec3 = [0, 0, 0]): NodeEntry {
+  const name = fileName(audioPath).replace(/\.[^.]+$/, "");
+  return {
+    id: uniqueId(doc, idBase(audioPath)),
+    name: name.charAt(0).toUpperCase() + name.slice(1),
+    components: [
+      { type: "engine.Transform", data: { position: [...position] } },
+      { type: "engine.AudioSource", data: { clip: `asset:${audioPath}` } },
+    ],
+  };
 }
 
 /** A sprite node showing an image: a Transform at `position` and a SpriteRenderer sized by pixels per unit. */
@@ -120,18 +141,59 @@ export function spriteNodeEntry(doc: SceneDocument, imagePath: string, position:
   };
 }
 
-/** True for assets that "Add to scene" understands. */
-export const canAddToScene = (path: string) => assetKind(path) === "prefab" || assetKind(path) === "image";
+/** True for assets that have a scene node to become: prefabs and scenes, images, audio. */
+export const canAddToScene = (path: string) => ["prefab", "scene", "image", "audio"].includes(assetKind(path));
 
 /**
- * Add an asset to the open scene as one undoable command: a prefab instance, or a sprite node for
- * an image (at `position`, e.g. the scene camera's focus point). Returns the new node's id.
+ * Why `path` can't be added to the document, or null if it can: assets with no node type, and
+ * scenes or prefabs that would end up containing themselves.
  */
-export function addAssetToScene(scene: OpenScene, path: string, selected: string | null, position: readonly [number, number, number] = [0, 0, 0]): string {
-  const { doc, stack } = scene;
+export function whyNotAddable(doc: SceneDocument, path: string): string | null {
+  if (!canAddToScene(path)) return "no kind of scene node fits this file";
   const kind = assetKind(path);
-  const entry = kind === "prefab" ? prefabInstanceEntry(doc, path) : kind === "image" ? spriteNodeEntry(doc, path, position) : null;
-  if (!entry) throw new Error(`"${path}" can't be added to a scene.`);
-  stack.execute(new AddNode(entry, { parent: parentForAdd(doc, selected) }));
+  if ((kind === "scene" || kind === "prefab") && wouldNest(path, doc.path)) return "it would end up inside itself";
+  return null;
+}
+
+export interface AddOptions {
+  /** Parent document node id; null or omitted for the top level. */
+  parent?: string | null;
+  /** Position among the parent's children; omitted: last. */
+  index?: number;
+  /** Where the node goes, in its parent's space. */
+  position?: Vec3;
+  /** Also place prefab and scene instances at `position` (viewport drops); otherwise they keep their own. */
+  placeInstances?: boolean;
+}
+
+/** The scene entry an asset becomes: an instance (prefab, scene), a sprite (image) or an audio source (audio). */
+export function nodeForAsset(doc: SceneDocument, path: string, options: AddOptions = {}): NodeEntry | null {
+  switch (assetKind(path)) {
+    case "prefab":
+    case "scene":
+      return prefabInstanceEntry(doc, path, options.placeInstances ? options.position : undefined);
+    case "image":
+      return spriteNodeEntry(doc, path, options.position);
+    case "audio":
+      return audioNodeEntry(doc, path, options.position);
+    default:
+      return null;
+  }
+}
+
+/** Add an asset to the open scene as one undoable command. Returns the new node's id; throws if it can't be added. */
+export function addAsset(scene: OpenScene, path: string, options: AddOptions = {}): string {
+  const reason = whyNotAddable(scene.doc, path);
+  const entry = reason ? null : nodeForAsset(scene.doc, path, options);
+  if (!entry) throw new Error(reason ?? `"${path}" can't be added to a scene.`);
+  scene.stack.execute(new AddNode(entry, { parent: options.parent ?? null, index: options.index }));
   return entry.id;
+}
+
+/**
+ * The asset browser's + button: add under the selection (see `parentForAdd`). Sprites and audio
+ * go at `position` (e.g. the scene camera's focus point). Returns the new node's id.
+ */
+export function addAssetToScene(scene: OpenScene, path: string, selected: string | null, position: Vec3 = [0, 0, 0]): string {
+  return addAsset(scene, path, { parent: parentForAdd(scene.doc, selected), position });
 }

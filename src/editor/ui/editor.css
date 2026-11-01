@@ -213,3 +213,15 @@ button:disabled:hover { background: var(--button); }
 .fields .label-cell.overridden > label { color: var(--text); font-weight: 600; }
 .fields .revert { padding: 0 4px; line-height: 1.2; font-size: 12px; background: none; border: none; color: var(--accent); }
 .fields .revert:hover { background: var(--button-hover); }
+
+/* Asset drag and drop (ADR 0022) */
+.asset-drag-ghost { position: fixed; z-index: 20; pointer-events: none; padding: 4px 8px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 12px; white-space: nowrap; box-shadow: 0 2px 8px rgb(0 0 0 / 0.4); }
+.asset-drag-ghost.invalid { background: #5a3434; color: #f3c2c2; }
+.viewport-drop-highlight { position: absolute; inset: 0; z-index: 1; pointer-events: none; box-shadow: inset 0 0 0 2px var(--accent); background: rgb(76 141 255 / 0.08); }
+.tree .row.drop-into, .scene-name.drop-into { background: rgb(76 141 255 / 0.25); box-shadow: inset 0 0 0 1px var(--accent); border-radius: 3px; }
+.tree .row.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.tree .row.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+.scene-name { padding: 2px 4px; }
+body:has(.asset-drag-ghost), body:has(.asset-drag-ghost) * { cursor: copy !important; user-select: none; }
+body:has(.asset-drag-ghost.invalid), body:has(.asset-drag-ghost.invalid) * { cursor: not-allowed !important; }
+.fields .unset { display: inline-flex; align-items: center; gap: 8px; }

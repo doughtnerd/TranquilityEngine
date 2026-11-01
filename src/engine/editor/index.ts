@@ -249,3 +249,8 @@ export function resumeEditorWorld(world: World): void {
   const canvas = world.render?.canvas;
   if (canvas) Input.attach(canvas);
 }
+
+/** The world point on the plane z = 0 under a canvas point (CSS pixels), or null (headless, or the ray misses it). */
+export function pointOnSpritePlane(world: World, x: number, y: number): [number, number, number] | null {
+  return world.render?.pointOnPlaneZ(world, x, y, 0) ?? null;
+}

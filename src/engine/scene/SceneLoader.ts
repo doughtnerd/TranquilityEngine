@@ -83,7 +83,23 @@ export function loadSceneFile(path: string): SceneFile {
   return migrateSceneFile(Assets.json<SceneFile>(path), path);
 }
 
-/** Marks a node created from a scene file; scene nodes sit under the World root (ADR 0016). */
+/**
+ * True for scene files (`*.scene.json`). Instanced inside another scene, a scene becomes a scene
+ * node holding its top-level nodes; any other file is a prefab, a single node instanced as itself.
+ */
+export function isScenePath(path: string): boolean {
+  return path.toLowerCase().endsWith(".scene.json");
+}
+
+/** Display name for a scene file: `scenes/level-1.scene.json` → `level-1`. */
+export function sceneName(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1).replace(/\.(scene\.)?json$/i, "");
+}
+
+/**
+ * Marks a scene node: a node created from a scene file, holding that file's top-level nodes.
+ * Loaded scenes sit under the World root; sub-scenes sit inside other scenes (ADR 0016).
+ */
 @component("engine.SceneInstance")
 export class SceneInstance extends Component {
   @field(String) source = "";
@@ -146,16 +162,26 @@ class Instantiation {
   private node(entry: NodeEntry, parent: GameObject, scope: Map<string, Instance>, path: string): Instance {
     if (entry.prefab) {
       const prefab = loadSceneFile(entry.prefab);
+      // A prefab is a single node, and its instance is that node. A scene is not a node of its
+      // own file: like SceneManager.load, its instance is a scene node holding the file's
+      // top-level nodes (ADR 0016), here with a Transform so a sub-scene can be placed in its
+      // parent scene. Overrides with an empty target apply to that scene node.
+      let container: GameObject | null = null;
+      if (isScenePath(entry.prefab)) {
+        container = this.world._createNode(entry.name ?? sceneName(entry.prefab), parent.entity, { transform: true, id: entry.id });
+        this.world.setSceneNode(container.entity);
+        container.addBehavior(SceneInstance, { source: entry.prefab });
+      }
       this.prefix.push(entry.id);
       let created: { roots: GameObject[]; ids: Map<string, Instance> };
       try {
-        created = this.file(prefab, parent, entry.prefab);
+        created = this.file(prefab, container ?? parent, entry.prefab);
       } finally {
         this.prefix.pop();
       }
       const { roots, ids } = created;
-      if (roots.length !== 1) throw new Error(`${entry.prefab}: a prefab must have exactly one root node (has ${roots.length}).`);
-      const node = roots[0];
+      if (!container && roots.length !== 1) throw new Error(`${entry.prefab}: a prefab must have exactly one top-level node (has ${roots.length}).`);
+      const node = container ?? roots[0];
       this.world.ids[node.entity] = entry.id;
       if (entry.name) node.name = entry.name;
       if (entry.tags) node.tags = entry.tags;

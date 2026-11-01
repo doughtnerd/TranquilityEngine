@@ -2,6 +2,7 @@
 // Apply (write an instance's overrides into its prefab file) and Create Prefab (turn a node and
 // its children into a prefab file plus an instance).
 import { Assets } from "../engine";
+import { isScenePath } from "../engine/scene/SceneLoader";
 import { AddNode, RebuildInstances, RemoveNode, RevertOverrides, SceneDocument, SetField, isFieldOverride, type NodeEntry, type NodePath, type OverrideEntry, type SceneFile } from "./document";
 import { writeSceneFile } from "./project";
 import type { EditorProject } from "./projects";
@@ -22,8 +23,9 @@ function prefabFile(path: string): SceneFile | null {
 }
 
 /**
- * The children of a prefab instance as the prefab file describes them: the prefab root's
- * descendants, with nested prefab instances expanded the same way.
+ * The children of an instance as its file describes them, with nested instances expanded the
+ * same way. A prefab's instance is the prefab's single node, so its children are that node's;
+ * a scene's instance is a scene node holding the file's top-level nodes (ADR 0016).
  */
 export function innerNodes(prefabPath: string, path: NodePath, seen: ReadonlySet<string> = new Set()): InnerNode[] {
   const file = prefabFile(prefabPath);
@@ -34,15 +36,17 @@ export function innerNodes(prefabPath: string, path: NodePath, seen: ReadonlySet
     const p = n.parent ?? null;
     byParent.set(p, [...(byParent.get(p) ?? []), n]);
   }
-  const root = byParent.get(null)?.[0];
-  if (!root) return [];
   const build = (n: NodeEntry, at: NodePath): InnerNode => ({
     path: at,
     name: n.name ?? n.id,
     prefab: n.prefab,
     children: n.prefab ? innerNodes(n.prefab, at, nested) : (byParent.get(n.id) ?? []).map((c) => build(c, [...at, c.id])),
   });
-  // The instance node stands for the prefab root, so its children are the root's children.
+  const top = byParent.get(null) ?? [];
+  if (isScenePath(prefabPath)) return top.map((n) => build(n, [...path, n.id]));
+  const root = top[0];
+  if (!root) return [];
+  // The instance node stands for the prefab's node, so its children are that node's children.
   return (byParent.get(root.id) ?? []).map((c) => build(c, [...path, c.id]));
 }
 
@@ -81,24 +85,28 @@ export function instancesOf(doc: SceneDocument, prefab: string): string[] {
  * The scene change is one undo step; the prefab file itself stays as written. Returns how many
  * overrides were applied.
  */
-export async function applyOverrides(scene: OpenScene, project: EditorProject, instance: string): Promise<number> {
-  const entry = scene.doc.node(instance);
+export async function applyOverrides(open: OpenScene, project: EditorProject, instance: string): Promise<number> {
+  const entry = open.doc.node(instance);
   if (!entry.prefab) throw new Error(`"${instance}" is not a prefab instance.`);
   if (!project.canSave) throw new Error(`${project.name} is read-only. Open a project folder to apply overrides.`);
-  const overrides = (entry.overrides ?? []).filter(applicable);
+  // A scene instance's own node (empty target) isn't in the scene file, so its overrides (e.g.
+  // where the sub-scene is placed) stay on the instance.
+  const scene = isScenePath(entry.prefab);
+  const fits = (o: OverrideEntry) => applicable(o) && !(scene && !o.target?.length);
+  const overrides = (entry.overrides ?? []).filter(fits);
   if (overrides.length === 0) return 0;
 
   const prefab = new SceneDocument(Assets.json<SceneFile>(entry.prefab), entry.prefab);
   const rootId = prefab.roots()[0];
   for (const o of overrides) {
-    // A target names a node in the prefab, then (for nested prefabs) a path inside that node's instance.
+    // A target names a node in the file, then (for nested instances) a path inside that node's instance.
     const [nodeId = rootId, ...inner] = o.target ?? [];
     new SetField(nodeId, o.component!, o.field!, o.value, { index: o.index, target: inner }).apply(prefab);
   }
   await writeSceneFile(project, entry.prefab, prefab.toJSON());
 
-  const others = instancesOf(scene.doc, entry.prefab).filter((id) => id !== instance);
-  scene.stack.execute(new RevertOverrides(instance, `Apply to ${entry.prefab.split("/").pop()}`, applicable, others));
+  const others = instancesOf(open.doc, entry.prefab).filter((id) => id !== instance);
+  open.stack.execute(new RevertOverrides(instance, `Apply to ${entry.prefab.split("/").pop()}`, fits, others));
   return overrides.length;
 }
 
@@ -154,3 +162,14 @@ export async function createPrefab(scene: OpenScene, project: EditorProject, id:
 }
 
 export { RebuildInstances };
+
+/**
+ * True if instancing `file` inside the document at `into` would contain itself: the same file,
+ * or a file whose instances (at any depth) include `into`.
+ */
+export function wouldNest(file: string, into: string, seen: ReadonlySet<string> = new Set()): boolean {
+  if (file === into) return true;
+  if (seen.has(file) || !Assets.has(file)) return false;
+  const next = new Set(seen).add(file);
+  return Assets.json<SceneFile>(file).nodes.some((n) => n.prefab !== undefined && wouldNest(n.prefab, into, next));
+}

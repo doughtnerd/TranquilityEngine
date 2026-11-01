@@ -212,6 +212,18 @@ function FieldEditorView(props: { editor: FieldEditor; field: FieldValue; scene:
       return <ColorInput value={v instanceof Color ? v : Color.white} label={field.name} onCommit={onCommit} />;
     case "vector2":
     case "vector3":
+      if (v === null || v === undefined) {
+        // Unset (e.g. a sprite's size, which then comes from its texture): offer to set one.
+        const zero = editor === "vector2" ? [1, 1] : [0, 0, 0];
+        return (
+          <span class="unset">
+            <span class="none">Auto</span>
+            <button title={`Set ${field.name} explicitly`} onClick={() => onCommit(zero)}>
+              Set
+            </button>
+          </span>
+        );
+      }
       return <VectorInput value={(v as { toArray(): number[] }).toArray()} label={field.name} onCommit={onCommit} />;
     case "node":
       return <NodeRefInput value={v instanceof GameObject ? scene.sync.nodeIdOf(v) : null} scene={scene} label={field.name} onCommit={onCommit} />;
