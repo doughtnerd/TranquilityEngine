@@ -8,6 +8,7 @@ export {
   RemoveComponent,
   SetComponentEnabled,
   MoveComponent,
+  SetComponents,
   RemoveNode,
   RenameNode,
   ReparentNode,

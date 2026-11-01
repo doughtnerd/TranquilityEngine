@@ -42,6 +42,7 @@ Start here. These docs describe where the engine is going, why, and what is bein
 | [0026](decisions/0026-editor-scene-document-and-commands.md) | The editor edits a scene document through commands | Accepted |
 | [0027](decisions/0027-persistent-undo-tree.md) | Persistent, tree-shaped edit history | Accepted |
 | [0028](decisions/0028-component-enabled-overrides.md) | Prefab overrides can switch a component on or off | Accepted |
+| [0029](decisions/0029-component-order-overrides.md) | Prefab overrides can reorder a node's components | Accepted |
 
 ## Working with decisions
 

@@ -335,6 +335,19 @@ export class World {
     return this.componentsOf[e];
   }
 
+  /**
+   * @internal Put a node's components in the order of `ordered` (the same components): its list,
+   * and the creation sequence that orders hooks within one node (ADR 0007, 0029).
+   */
+  _reorderComponents(e: number, ordered: readonly Component[]): void {
+    const current = this.componentsOf[e];
+    if (ordered.length !== current.length || !ordered.every((c) => current.includes(c))) throw new Error("_reorderComponents: not the same components.");
+    const seqs = current.map((c) => c._seq).sort((a, b) => a - b);
+    ordered.forEach((c, i) => (c._seq = seqs[i]));
+    this.componentsOf[e] = [...ordered];
+    this.orderDirty = true;
+  }
+
   /** @internal All live components of a type (including subclasses), in creation order. */
   _componentsOfType<T extends Component>(type: abstract new () => T): readonly T[] {
     return (this.byType.get(type) ?? []) as T[];

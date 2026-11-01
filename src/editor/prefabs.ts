@@ -2,6 +2,7 @@
 // Apply (write an instance's overrides into its prefab file) and Create Prefab (turn a node and
 // its children into a prefab file plus an instance).
 import { Assets } from "../engine";
+import { isDataComponent } from "../engine/editor";
 import { isScenePath } from "../engine/scene/SceneLoader";
 import {
   AddComponent,
@@ -12,9 +13,11 @@ import {
   RevertOverrides,
   SceneDocument,
   SetComponentEnabled,
+  SetComponents,
   SetField,
   SetOverrides,
   isFieldOverride,
+  type ComponentEntry,
   type NodeEntry,
   type NodePath,
   type OverrideEntry,
@@ -93,7 +96,8 @@ const applicable = (o: OverrideEntry) =>
   (o.component !== undefined && o.field !== undefined && o.value !== undefined) ||
   (o.component !== undefined && o.field === undefined && o.enabled !== undefined) ||
   o.addComponent !== undefined ||
-  o.removeComponent !== undefined;
+  o.removeComponent !== undefined ||
+  o.order !== undefined;
 
 /**
  * Write one override into the prefab document, onto its node `nodeId` (with `inner` the path
@@ -118,6 +122,21 @@ function applyOverride(prefab: SceneDocument, nodeId: string, inner: readonly st
   if (o.component && o.enabled !== undefined) {
     const at = positions(o.component)[o.index ?? 0];
     if (at !== undefined) new SetComponentEnabled(nodeId, at, o.enabled).apply(prefab);
+  }
+  if (o.order) {
+    // Scripts and engine components take the listed order in the slots they fill; Transform and
+    // data components keep their places (the override only orders the rest).
+    const list = prefab.node(nodeId).components ?? [];
+    const slots = list.flatMap((c, i) => (c.type !== "engine.Transform" && !isDataComponent(c.type) ? [i] : []));
+    const pool = slots.map((i) => list[i]);
+    const ordered: ComponentEntry[] = [];
+    for (const type of o.order) {
+      const at = pool.findIndex((c) => c.type === type);
+      if (at >= 0) ordered.push(...pool.splice(at, 1));
+    }
+    const next = [...list];
+    [...ordered, ...pool].forEach((c, k) => (next[slots[k]] = c));
+    new SetComponents(nodeId, next).apply(prefab);
   }
 }
 

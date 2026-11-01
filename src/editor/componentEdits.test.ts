@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { componentCatalog, listComponents, type ComponentInfo } from "../engine/editor";
-import { addComponentTo, moveComponent, newComponentEntry, overridesWithout, removeComponentFrom, setComponentEnabled, whyNotAddable, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "./componentEdits";
-import { SetField, type NodePath } from "./document";
+import { addComponentTo, inFileOrder, moveComponent, newComponentEntry, overridesWithout, removeComponentFrom, setComponentEnabled, whyNotAddable, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "./componentEdits";
+import { SetField, SetOverrides, type NodePath } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { bundledDemoProject, editorSettings, useProjectAssets } from "./projects";
@@ -187,10 +187,10 @@ describe("reordering components", () => {
     const order = () => doc.node("bird").components!.map((c) => c.type.replace(/^[^.]*\./, ""));
     const before = order();
     expect(before.slice(1)).toEqual(["RigidBody2D", "CircleCollider2D", "Bird"]);
-    expect(moveComponent(scene(), "bird", info("bird", "game.Bird"), info("bird", "engine.RigidBody2D"), false)).toBe(true);
+    expect(moveComponent(scene(), ["bird"], target("bird").node, info("bird", "game.Bird"), info("bird", "engine.RigidBody2D"), false)).toBe(true);
     expect(order().slice(1)).toEqual(["Bird", "RigidBody2D", "CircleCollider2D"]);
     expect(types("bird").slice(1)).toEqual(["game.Bird", "engine.RigidBody2D", "engine.CircleCollider2D"]); // the live node follows
-    expect(moveComponent(scene(), "bird", info("bird", "game.Bird"), info("bird", "engine.CircleCollider2D"), true)).toBe(true);
+    expect(moveComponent(scene(), ["bird"], target("bird").node, info("bird", "game.Bird"), info("bird", "engine.CircleCollider2D"), true)).toBe(true);
     expect(order().slice(1)).toEqual(["RigidBody2D", "CircleCollider2D", "Bird"]);
     expect(stack.undoLabel).toBe("Reorder components");
     stack.undo();
@@ -199,11 +199,53 @@ describe("reordering components", () => {
   });
 
   it("does nothing for a move onto itself or into the same place", () => {
-    expect(moveComponent(scene(), "bird", info("bird", "game.Bird"), info("bird", "game.Bird"), false)).toBe(false);
-    expect(moveComponent(scene(), "bird", info("bird", "game.Bird"), info("bird", "engine.CircleCollider2D"), true)).toBe(false);
+    expect(moveComponent(scene(), ["bird"], target("bird").node, info("bird", "game.Bird"), info("bird", "game.Bird"), false)).toBe(false);
+    expect(moveComponent(scene(), ["bird"], target("bird").node, info("bird", "game.Bird"), info("bird", "engine.CircleCollider2D"), true)).toBe(false);
   });
 
-  it("refuses prefab instances", () => {
-    expect(whyNotReorderable(scene().doc, ["bg-a"])).toMatch(/in the prefab/);
+  it("keeps Transform first, and a prefab instance's data components where the prefab has them", () => {
+    expect(whyNotReorderable(scene().doc, ["bird"], info("bird", "engine.Transform"))).toMatch(/first/);
+    expect(whyNotReorderable(scene().doc, ["bg-a"], info("bg-a", "game.Scroller"))).toMatch(/stay where the prefab/);
+    expect(whyNotReorderable(scene().doc, ["bg-a"], info("bg-a", "engine.SpriteRenderer"))).toBeNull();
+  });
+
+  it("moves data components among the rest on a plain node, and lists components in file order", () => {
+    const { doc } = scene();
+    // Ceiling: Transform, BoxCollider2D. Give it a data component (the demo's Scroller) and a script.
+    addComponentTo(scene(), [target("ceiling")], "game.Scroller");
+    addComponentTo(scene(), [target("ceiling")], "game.Bird");
+    const listed = () => inFileOrder(doc, "ceiling", listComponents(target("ceiling").node)).map((c) => c.type);
+    expect(listed()).toEqual(["engine.Transform", "engine.BoxCollider2D", "game.Scroller", "game.Bird"]);
+    expect(moveComponent(scene(), ["ceiling"], target("ceiling").node, info("ceiling", "game.Scroller"), info("ceiling", "engine.BoxCollider2D"), false)).toBe(true);
+    expect(doc.node("ceiling").components!.map((c) => c.type)).toEqual(["engine.Transform", "game.Scroller", "engine.BoxCollider2D", "game.Bird"]);
+    expect(listed()).toEqual(["engine.Transform", "game.Scroller", "engine.BoxCollider2D", "game.Bird"]);
+    expect(types("ceiling").slice(-1)).toEqual(["game.Scroller"]); // live, data components sit apart
+  });
+
+  it("reorders a prefab instance's components with an order override the loader applies", () => {
+    const { doc, stack } = scene();
+    addComponentTo(scene(), [target("bg-a")], "engine.BoxCollider2D");
+    const behaviors = () => listComponents(target("bg-a").node).filter((c) => c.kind === "behavior").map((c) => c.type);
+    expect(behaviors()).toEqual(["engine.SpriteRenderer", "engine.BoxCollider2D"]);
+    expect(moveComponent(scene(), ["bg-a"], target("bg-a").node, info("bg-a", "engine.BoxCollider2D"), info("bg-a", "engine.SpriteRenderer"), false)).toBe(true);
+    expect(doc.node("bg-a").overrides!.at(-1)).toEqual({ order: ["engine.BoxCollider2D", "engine.SpriteRenderer"] });
+    expect(behaviors()).toEqual(["engine.BoxCollider2D", "engine.SpriteRenderer"]);
+    // Back in the prefab's own order (its sprite, then the added box): the override goes.
+    moveComponent(scene(), ["bg-a"], target("bg-a").node, info("bg-a", "engine.BoxCollider2D"), info("bg-a", "engine.SpriteRenderer"), true);
+    expect(doc.node("bg-a").overrides).toEqual([{ addComponent: { type: "engine.BoxCollider2D" } }]);
+    expect(behaviors()).toEqual(["engine.SpriteRenderer", "engine.BoxCollider2D"]);
+    stack.undo();
+    expect(behaviors()).toEqual(["engine.BoxCollider2D", "engine.SpriteRenderer"]);
+    // Removing a component takes it out of the order too.
+    stack.execute(new SetOverrides("bg-a", "two", [{ addComponent: { type: "engine.CircleCollider2D" } }, ...doc.node("bg-a").overrides!]));
+    removeComponentFrom(scene(), [{ ...target("bg-a"), info: info("bg-a", "engine.BoxCollider2D") }]);
+    expect(doc.node("bg-a").overrides).toEqual([{ addComponent: { type: "engine.CircleCollider2D" } }, { order: ["engine.SpriteRenderer"] }]);
+  });
+
+  it("orders hooks within a node by the new order", () => {
+    addComponentTo(scene(), [target("bg-a")], "engine.BoxCollider2D");
+    moveComponent(scene(), ["bg-a"], target("bg-a").node, info("bg-a", "engine.BoxCollider2D"), info("bg-a", "engine.SpriteRenderer"), false);
+    const [box, sprite] = listComponents(target("bg-a").node).filter((c) => c.kind === "behavior").map((c) => c.component as unknown as { _seq: number });
+    expect(box._seq).toBeLessThan(sprite._seq);
   });
 });

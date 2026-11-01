@@ -422,6 +422,27 @@ export class MoveComponent implements Command {
   }
 }
 
+/** Replace a plain node's components list (e.g. reordered as a whole). Undo puts the old list back. */
+export class SetComponents implements Command {
+  readonly label = "Reorder components";
+  private previous: ComponentEntry[] | undefined;
+  constructor(readonly node: string, private readonly components: readonly ComponentEntry[]) {}
+
+  apply(doc: SceneDocument): Change[] {
+    const node = doc.node(this.node);
+    this.previous = node.components;
+    node.components = structuredClone([...this.components]);
+    return [{ kind: "rebuild", node: this.node }];
+  }
+
+  undo(doc: SceneDocument): Change[] {
+    const node = doc.node(this.node);
+    if (this.previous) node.components = this.previous;
+    else delete node.components;
+    return [{ kind: "rebuild", node: this.node }];
+  }
+}
+
 // --- grouping ---------------------------------------------------------------------------------
 
 /** Several commands as one undo step (used by `CommandStack.beginGroup`). */

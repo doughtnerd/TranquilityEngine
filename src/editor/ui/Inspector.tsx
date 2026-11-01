@@ -4,7 +4,7 @@ import { Color, GameObject } from "../../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
 import { RenameNode, RevertOverrides, SetActive, SetField, isFieldOverride, pathKey, type NodePath } from "../document";
 import { editorFor, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
-import { moveComponent, removeComponentFrom, setComponentEnabled, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "../componentEdits";
+import { inFileOrder, moveComponent, removeComponentFrom, setComponentEnabled, whyNotRemovable, whyNotReorderable, whyNotToggleable } from "../componentEdits";
 import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
@@ -36,7 +36,7 @@ export function Inspector() {
   const id = path[0];
   const entry = scene.doc.node(id);
   const node = scene.sync.nodeFor(path);
-  const components = node ? listComponents(node) : [];
+  const components = node ? inFileOrder(scene.doc, id, listComponents(node)) : [];
   const key = pathKey(path);
   return (
     <div class="inspector-body">
@@ -226,7 +226,7 @@ const componentDrop = signal<{ type: string; index: number; after: boolean } | n
  * Drag a component by its grip to reorder it among the node's scripts and engine components
  * (data components and Transform stay put). A line shows where it will land.
  */
-function startReorder(e: PointerEvent, scene: OpenScene, id: string, info: ComponentInfo, siblings: readonly ComponentInfo[]): void {
+function startReorder(e: PointerEvent, scene: OpenScene, path: NodePath, info: ComponentInfo, siblings: readonly ComponentInfo[]): void {
   if (e.button !== 0) return;
   e.preventDefault();
   const grip = e.currentTarget as HTMLElement;
@@ -249,7 +249,8 @@ function startReorder(e: PointerEvent, scene: OpenScene, id: string, info: Compo
     const drop = componentDrop.value;
     componentDrop.value = null;
     const anchor = drop && siblings.find((c) => c.type === drop.type && c.index === drop.index);
-    if (anchor) moveComponent(scene, id, info, anchor, drop.after);
+    const node = scene.sync.nodeFor(path);
+    if (anchor && node) moveComponent(scene, path, node, info, anchor, drop.after);
   };
   grip.addEventListener("pointermove", move);
   grip.addEventListener("pointerup", up);
@@ -282,15 +283,16 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
     c.target && whyNotToggleable(scene.doc, c.target.path, c.target.info, listComponents(c.target.node).filter((o) => o.type === info.type).length) === null ? [c.target] : [],
   );
   const allEnabled = infos.every((i) => i.enabled);
-  // Reorder: a single plain node's scripts and engine components.
-  const siblings = props.siblings?.filter((c) => c.kind === "behavior") ?? [];
-  const reorderable = paths.length === 1 && info.kind === "behavior" && siblings.length > 1 && whyNotReorderable(scene.doc, paths[0]) === null;
+  // Reorder: a single node's components, among those that can move.
+  const siblings = props.siblings?.filter((c) => whyNotReorderable(scene.doc, paths[0], c) === null) ?? [];
+  const reorderable = paths.length === 1 && siblings.length > 1 && whyNotReorderable(scene.doc, paths[0], info) === null;
   const drop = componentDrop.value;
   const dropHere = drop && drop.type === info.type && drop.index === info.index ? (drop.after ? " drop-after" : " drop-before") : "";
   const step = (by: -1 | 1) => {
     const at = siblings.findIndex((c) => c.type === info.type && c.index === info.index);
     const anchor = siblings[at + by];
-    if (anchor) moveComponent(scene, paths[0][0], info, anchor, by > 0);
+    const node = scene.sync.nodeFor(paths[0]);
+    if (anchor && node) moveComponent(scene, paths[0], node, info, anchor, by > 0);
   };
   return (
     <section class={`component${dropHere}${allEnabled ? "" : " off"}`} {...(reorderable ? { "data-reorder": "", "data-type": info.type, "data-index": String(info.index) } : {})}>
@@ -300,7 +302,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
             class="reorder-grip"
             aria-label={`Reorder ${title}`}
             title="Drag to reorder (or focus and press Alt+↑ / Alt+↓)"
-            onPointerDown={(e) => startReorder(e, scene, paths[0][0], info, siblings)}
+            onPointerDown={(e) => startReorder(e, scene, paths[0], info, siblings)}
             onKeyDown={(e) => {
               if (!e.altKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
               e.preventDefault();

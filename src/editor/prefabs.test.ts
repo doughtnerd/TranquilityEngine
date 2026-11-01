@@ -104,6 +104,22 @@ describe("Apply (ADR 0022)", () => {
     expect(top.components!.find((c) => c.type === "engine.BoxCollider2D")!.enabled).toBe(false);
   });
 
+  it("writes an order override as the prefab's component order, leaving Transform and data components in place", async () => {
+    const scene = openScene.value!;
+    scene.stack.execute(
+      new SetOverrides("bg-a", "order", [{ addComponent: { type: "engine.CircleCollider2D" } }, { order: ["engine.CircleCollider2D", "engine.SpriteRenderer"] }]),
+    );
+    expect(await applyOverrides(scene, project, "bg-a")).toBe(2);
+    const tile = fileOf("prefabs/background.prefab.json").nodes[0];
+    expect(tile.components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.CircleCollider2D", "game.Scroller", "engine.SpriteRenderer"]);
+
+    addPipe();
+    scene.stack.execute(new SetOverrides("pipe", "order", [{ target: ["top"], order: ["engine.BoxCollider2D", "engine.SpriteRenderer"] }]));
+    await applyOverrides(scene, project, "pipe");
+    const top = fileOf("prefabs/pipe-pair.prefab.json").nodes.find((n) => n.id === "top")!;
+    expect(top.components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.BoxCollider2D", "engine.SpriteRenderer"]);
+  });
+
   it("refuses in a read-only project", async () => {
     const scene = openScene.value!;
     scene.stack.execute(new SetField("bg-a", "engine.SpriteRenderer", "color", "#ff0000"));

@@ -323,6 +323,9 @@ const FIXED = new Set(["engine.Transform", "engine.SceneInstance"]);
 /** True if the editor may add or remove components of type `id`: everything but Transform, engine internals and the editor's own (`editor.*`). */
 export const isEditableComponent = (id: string) => !FIXED.has(id) && !id.startsWith("editor.");
 
+/** True if `id` names an ECS data component (ADR 0017) rather than a script or engine component. */
+export const isDataComponent = (id: string) => getDataComponentDef(id) !== undefined;
+
 /** Every component type that can be added to a node, grouped (Engine, Scripts, Data) and sorted by name. */
 export function componentCatalog(): ComponentTypeInfo[] {
   const name = (id: string) => id.replace(/^[^.]*\./, "");

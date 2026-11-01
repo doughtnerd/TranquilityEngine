@@ -2,10 +2,12 @@
 // 0028). On a plain node these edit the node's components list; on a prefab instance, or a node
 // inside one, they become overrides (`addComponent`, `removeComponent`, `enabled`), and
 // overrides pointing at a removed component are dropped or renumbered so the scene still loads.
-// Each edit is one undo step, across every selected node. Reordering is for plain nodes only
-// (the override format has no way to say it).
-import type { GameObject } from "../engine";
-import { componentCatalog, isEditableComponent, listComponents, spriteSize, type ComponentInfo } from "../engine/editor";
+// Each edit is one undo step, across every selected node. Reordering moves entries in a plain
+// node's list (data components too); on an instance it's an `order` override (ADR 0029) of its
+// scripts and engine components.
+import { Assets, type GameObject } from "../engine";
+import { componentCatalog, isDataComponent, isEditableComponent, listComponents, spriteSize, type ComponentInfo } from "../engine/editor";
+import { isScenePath } from "../engine/scene/SceneLoader";
 import {
   AddComponent,
   MoveComponent,
@@ -17,6 +19,7 @@ import {
   type NodePath,
   type OverrideEntry,
   type SceneDocument,
+  type SceneFile,
 } from "./document";
 import type { OpenScene } from "./state";
 
@@ -102,6 +105,13 @@ export function overridesWithout(list: readonly OverrideEntry[], target: readonl
   const out: OverrideEntry[] = [];
   list.forEach((o, i) => {
     if (i === dropAt) return;
+    if (o.order && sameTarget(o.target, target)) {
+      // Take the removed component's entry out of the order (its index-th occurrence of the type).
+      const at = o.order.flatMap((t, j) => (t === type ? [j] : []))[index];
+      const order = o.order.filter((_, j) => j !== at);
+      if (order.length > 0) out.push({ ...structuredClone(o), order });
+      return;
+    }
     if (o.component === type && (o.field !== undefined || o.enabled !== undefined) && sameTarget(o.target, target)) {
       const at = o.index ?? 0;
       if (at === index) return;
@@ -202,26 +212,96 @@ export function setComponentEnabled(scene: OpenScene, targets: readonly { path: 
   return able.length;
 }
 
-/** Why the components of the node at `path` can't be reordered, or null if they can. */
-export function whyNotReorderable(doc: SceneDocument, path: NodePath): string | null {
-  return doc.isPrefabInstance(path[0]) ? "components of a prefab instance are reordered in the prefab" : null;
+/** Why component `info` of the node at `path` can't be reordered, or null if it can. */
+export function whyNotReorderable(doc: SceneDocument, path: NodePath, info: ComponentInfo): string | null {
+  if (info.kind === "transform") return "Transform always comes first";
+  if (doc.isPrefabInstance(path[0]) && info.kind === "data") return "data components of a prefab instance stay where the prefab has them";
+  return null;
 }
 
 /**
- * Move component `info` of the plain node `id` next to `anchor` (before it, or after it with
- * `after`), as one undo step. False if nothing moved.
+ * A plain node's components in the order its file lists them (Transform first; components the
+ * file doesn't have, such as ones a script added, last). The World keeps data components apart,
+ * so this, not the live order, is what the Inspector shows and reorders.
  */
-export function moveComponent(scene: OpenScene, id: string, info: ComponentInfo, anchor: ComponentInfo, after: boolean): boolean {
-  const { doc, stack } = scene;
-  if (whyNotReorderable(doc, [id]) || (info.type === anchor.type && info.index === anchor.index)) return false;
+export function inFileOrder(doc: SceneDocument, id: string, infos: readonly ComponentInfo[]): ComponentInfo[] {
+  if (doc.isPrefabInstance(id)) return [...infos];
   const list = doc.node(id).components ?? [];
-  const position = (c: ComponentInfo) => list.flatMap((e, i) => (e.type === c.type ? [i] : []))[c.index];
-  const from = position(info), at = position(anchor);
-  if (from === undefined || at === undefined) return false;
-  const to = (at > from ? at - 1 : at) + (after ? 1 : 0); // the anchor's place once `info` is out of the list
-  if (to === from) return false;
-  stack.execute(new MoveComponent(id, from, to));
+  const position = (c: ComponentInfo) => (c.kind === "transform" ? -1 : (list.flatMap((e, i) => (e.type === c.type ? [i] : []))[c.index] ?? Infinity));
+  return [...infos].sort((a, b) => position(a) - position(b));
+}
+
+/**
+ * Move component `info` of the node at `path` next to `anchor` (before it, or after it with
+ * `after`), as one undo step: within a plain node's list, or as an `order` override on a prefab
+ * instance. False if nothing moved.
+ */
+export function moveComponent(scene: OpenScene, path: NodePath, node: GameObject, info: ComponentInfo, anchor: ComponentInfo, after: boolean): boolean {
+  const { doc, stack } = scene;
+  if (whyNotReorderable(doc, path, info) || whyNotReorderable(doc, path, anchor)) return false;
+  const same = (a: ComponentInfo, b: ComponentInfo) => a.type === b.type && a.index === b.index;
+  if (same(info, anchor)) return false;
+  const [id, ...target] = path;
+  if (!doc.isPrefabInstance(id)) {
+    const list = doc.node(id).components ?? [];
+    const position = (c: ComponentInfo) => list.flatMap((e, i) => (e.type === c.type ? [i] : []))[c.index];
+    const from = position(info), at = position(anchor);
+    if (from === undefined || at === undefined) return false;
+    const to = (at > from ? at - 1 : at) + (after ? 1 : 0); // the anchor's place once `info` is out of the list
+    if (to === from) return false;
+    stack.execute(new MoveComponent(id, from, to));
+    return true;
+  }
+  // An instance: write the new order of its scripts and engine components.
+  const live = listComponents(node).filter((c) => c.kind === "behavior");
+  const rest = live.filter((c) => !same(c, info));
+  const at = rest.findIndex((c) => same(c, anchor));
+  if (at < 0) return false;
+  const next = [...rest];
+  next.splice(at + (after ? 1 : 0), 0, info);
+  if (next.every((c, i) => same(c, live[i]))) return false;
+  const order = next.map((c) => c.type);
+  const list = (doc.node(id).overrides ?? []).filter((o) => !(o.order && sameTarget(o.target, target))).map((o) => structuredClone(o));
+  // Back in the prefab's own order: no override needed.
+  const natural = prefabOrder(doc, id, target, list);
+  if (!natural || natural.length !== order.length || natural.some((t, i) => t !== order[i])) list.push({ ...(target.length > 0 ? { target: [...target] } : {}), order });
+  stack.execute(new SetOverrides(id, "Reorder components", list));
   return true;
+}
+
+/**
+ * The order an instance's node at `target` has without an order override: its components in the
+ * prefab file, then `overrides` (removals take the first of a type, additions go last). Null when
+ * that can't be told from the file alone (a node inside a nested instance that has overrides of
+ * its own, or a missing file).
+ */
+function prefabOrder(doc: SceneDocument, id: string, target: readonly string[], overrides: readonly OverrideEntry[]): string[] | null {
+  let path = doc.node(id).prefab!;
+  let ids = [...target];
+  for (;;) {
+    if (!Assets.has(path)) return null;
+    const file = Assets.json<SceneFile>(path);
+    const top = file.nodes.filter((n) => !n.parent);
+    if (isScenePath(path) && ids.length === 0) return null; // a sub-scene's own node: not in its file
+    let node = isScenePath(path) ? top.find((n) => n.id === ids.shift()) : top[0];
+    while (node && ids.length > 0 && !node.prefab) {
+      const next = ids.shift();
+      node = file.nodes.find((n) => n.id === next && n.parent === node!.id);
+    }
+    if (!node) return null;
+    if (node.prefab) {
+      if (ids.length === 0 || node.overrides?.length) return null;
+      path = node.prefab;
+      continue;
+    }
+    const order = (node.components ?? []).map((c) => c.type).filter((t) => t !== "engine.Transform" && !isDataComponent(t));
+    for (const o of overrides) {
+      if (!sameTarget(o.target, target)) continue;
+      if (o.removeComponent && order.includes(o.removeComponent)) order.splice(order.indexOf(o.removeComponent), 1);
+      if (o.addComponent && !isDataComponent(o.addComponent.type)) order.push(o.addComponent.type);
+    }
+    return order;
+  }
 }
 
 export { componentCatalog };

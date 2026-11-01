@@ -33,6 +33,11 @@ export interface OverrideEntry {
   value?: unknown;
   /** With `component` (and `index`) but no `field`: start that component enabled or disabled (ADR 0028). */
   enabled?: boolean;
+  /**
+   * The order of the node's components, as component ids (repeated for several of a type). Ones
+   * not listed follow, in their order; listed ones that aren't there are skipped (ADR 0029).
+   */
+  order?: string[];
   addComponent?: ComponentEntry;
   removeComponent?: string;
 }
@@ -251,6 +256,16 @@ class Instantiation {
       }
     }
     if (o.addComponent) this.component(node, o.addComponent, scope, path);
+    if (o.order) {
+      const pool = [...this.world._componentsOf(node.entity)];
+      const idOf = (c: Component) => getComponentId(c.constructor as ComponentClass);
+      const ordered: Component[] = [];
+      for (const id of o.order) {
+        const at = pool.findIndex((c) => idOf(c) === id);
+        if (at >= 0) ordered.push(...pool.splice(at, 1));
+      }
+      this.world._reorderComponents(node.entity, [...ordered, ...pool]);
+    }
     if (o.component && o.field === undefined && o.enabled !== undefined) {
       const type = getComponentClass(o.component) as (abstract new () => Component) | undefined;
       const c = type ? node.getBehaviors(type)[o.index ?? 0] : undefined;

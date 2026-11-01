@@ -103,7 +103,7 @@ test("a component's checkbox switches it off and on; Transform and data componen
 test("components reorder by dragging the grip, or with Alt+arrow keys", async ({ page }) => {
   await openEditor(page);
   await row(page, "bird").click();
-  const titles = async () => (await cards(page).allTextContents()).map((t) => t.replace(/[⠿✕]|Edit Collider/g, "").trim());
+  const titles = async () => (await cards(page).allTextContents()).map((t) => t.replace(/[⠿✕]|Edit Collider/g, "").trim().replace(/data$/, ""));
   expect(await titles()).toEqual(["Transform", "RigidBody2D", "CircleCollider2D", "Bird"]);
 
   // Drag RigidBody2D's grip below the Bird script.
@@ -123,6 +123,28 @@ test("components reorder by dragging the grip, or with Alt+arrow keys", async ({
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(titles).toEqual(["Transform", "RigidBody2D", "CircleCollider2D", "Bird"]);
 
-  await row(page, "bg-a").click(); // a prefab instance: reordered in the prefab
-  await expect(page.getByRole("button", { name: /^Reorder / })).toHaveCount(0);
+  // A prefab instance reorders through an override; its data component (Scroller) stays put.
+  await row(page, "bg-a").click();
+  await expect(page.getByRole("button", { name: /^Reorder / })).toHaveCount(0); // only one movable component
+  await page.getByRole("button", { name: "Add Component" }).click();
+  await menuOptions(page).filter({ hasText: "BoxCollider2D" }).click();
+  expect(await titles()).toEqual(["Transform", "SpriteRenderer", "BoxCollider2D", "Scroller"]);
+  await page.getByRole("button", { name: "Reorder BoxCollider2D" }).focus();
+  await page.keyboard.press("Alt+ArrowUp");
+  await expect.poll(titles).toEqual(["Transform", "BoxCollider2D", "SpriteRenderer", "Scroller"]);
+  await expect(page.getByRole("button", { name: "Reorder Scroller" })).toHaveCount(0);
+});
+
+test("on a plain node, data components reorder among the rest", async ({ page }) => {
+  await openEditor(page);
+  await row(page, "ceiling").click();
+  for (const name of ["Scroller", "Bird"]) {
+    await page.getByRole("button", { name: "Add Component" }).click();
+    await menuOptions(page).filter({ hasText: new RegExp(`^${name}$`) }).click();
+  }
+  const titles = async () => (await cards(page).allTextContents()).map((t) => t.replace(/[⠿✕]|Edit Collider|data/g, "").trim());
+  expect(await titles()).toEqual(["Transform", "BoxCollider2D", "Scroller", "Bird"]);
+  await page.getByRole("button", { name: "Reorder Scroller" }).focus();
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect.poll(titles).toEqual(["Transform", "BoxCollider2D", "Bird", "Scroller"]);
 });
