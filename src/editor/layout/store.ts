@@ -2,7 +2,7 @@
 // per-viewer convenience, so browser storage is fine; anything unreadable falls back to the
 // default layout.
 import { effect, signal } from "@preact/signals";
-import { defaultLayout, parseLayout, type Layout } from "./model";
+import { activatePanel, defaultLayout, parseLayout, type Layout, type PanelId } from "./model";
 
 const STORAGE_KEY = "tranquility.editor.layout";
 
@@ -25,6 +25,11 @@ effect(() => {
     // Storage blocked (private window, previews): the layout just isn't remembered.
   }
 });
+
+/** Bring `panel` to the front of its tab group. */
+export function showPanel(panel: PanelId): void {
+  layout.value = activatePanel(layout.value, panel);
+}
 
 export function resetLayout(): void {
   layout.value = defaultLayout();

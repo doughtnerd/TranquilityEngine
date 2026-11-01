@@ -17,8 +17,9 @@ import {
 } from "../componentEdits";
 import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
+import { openScript, scriptFor } from "../code/codeState";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
-import { currentProject, docVersion, editingCollider, openScene, selectedKeys, selection, status, type OpenScene } from "../state";
+import { currentProject, docVersion, editingCollider, openScene, scriptsVersion, selectedKeys, selection, status, type OpenScene } from "../state";
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -334,6 +335,9 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
   });
   const removable = checks.flatMap((c) => (c.reason === null && c.target ? [c.target] : []));
   const notRemovable = removable.length === 0 ? checks[0].reason : null;
+  // The project script that defines this component, if any (ADR 0030).
+  scriptsVersion.value;
+  const script = currentProject.value ? scriptFor(currentProject.value.scripts, info.type) : null;
   // Enabled: a checkbox across every node; mixed shows as indeterminate.
   const toggleable = checks.flatMap((c) =>
     c.target && whyNotToggleable(scene.doc, c.target.path, c.target.info, listComponents(c.target.node).filter((o) => o.type === info.type).length) === null ? [c.target] : [],
@@ -379,6 +383,11 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
         />
         {title}
         {info.kind === "data" && <span class="badge">data</span>}
+        {script && (
+          <button class="open-script" title={`Open ${script} in the Code panel`} aria-label={`Open ${title} script`} onClick={() => openScript(script)}>
+            {"{ }"}
+          </button>
+        )}
         {COLLIDERS.has(info.type) && paths.length === 1 && (
           <button
             class={`edit-collider${editing ? " active" : ""}`}

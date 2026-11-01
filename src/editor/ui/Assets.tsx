@@ -12,8 +12,9 @@ import {
   type Folder,
 } from "../assetBrowser";
 import { startAssetDrag } from "../assetDrag";
+import { openScript } from "../code/codeState";
 import { switchScene } from "../session";
-import { currentProject, docVersion, openScene, playState, sceneCamera, selection, status } from "../state";
+import { currentProject, docVersion, openScene, playState, sceneCamera, scriptsVersion, selection, status } from "../state";
 import "./assets.css";
 
 /** Open folder (project-relative, "" = root), search text and the selected tile. */
@@ -21,21 +22,24 @@ const folderPath = signal("");
 const query = signal("");
 const selectedAsset = signal<string | null>(null);
 
-const KIND_LABELS: Record<AssetKind, string> = { scene: "Scene", prefab: "Prefab", image: "Image", audio: "Audio", json: "JSON", other: "File" };
+const KIND_LABELS: Record<AssetKind, string> = { scene: "Scene", prefab: "Prefab", image: "Image", audio: "Audio", json: "JSON", script: "Script", other: "File" };
 
 /**
  * The project's files (ADR 0022): a folder tree, a grid of tiles with image thumbnails, and
- * search across folders. Click selects a tile, double-click opens scenes and prefabs, and the +
+ * search across folders. Click selects a tile, double-click opens scenes and prefabs (and scripts,
+ * in the Code panel, ADR 0030), and the +
  * button adds a prefab instance or a sprite for an image to the open scene.
  */
 export function AssetsPanel() {
   docVersion.value; // the project's file list can change after saves
+  scriptsVersion.value; // and its scripts after a reload
   const project = currentProject.value;
   if (!project) return <p class="empty">No project open</p>;
-  const tree = buildFolderTree(project.files);
+  const all = [...project.files, ...project.scripts.keys()].sort();
+  const tree = buildFolderTree(all);
   const folder = findFolder(tree, folderPath.value) ?? tree;
   const searching = query.value.trim() !== "";
-  const files = searching ? searchFiles(project.files, query.value) : folder.files;
+  const files = searching ? searchFiles(all, query.value) : folder.files;
   return (
     <div class="asset-browser">
       <nav class="asset-tree" aria-label="Folders">
@@ -100,7 +104,7 @@ function AssetTile(props: { path: string; url: unknown; showFolder: boolean }) {
   const kind = assetKind(path);
   const open = openScene.value?.path === path;
   const selected = selectedAsset.value === path;
-  const opens = kind === "scene" || kind === "prefab";
+  const opens = kind === "scene" || kind === "prefab" || kind === "script";
   const canAdd = canAddToScene(path) && !!openScene.value && playState.value === "edit" && openScene.value.path !== path;
   return (
     <li
@@ -109,7 +113,7 @@ function AssetTile(props: { path: string; url: unknown; showFolder: boolean }) {
       aria-selected={selected}
       title={`${path}${opens ? " (double-click to open)" : ""}${canAddToScene(path) ? "; drag into the viewport or hierarchy to add" : ""}`}
       onClick={() => (selectedAsset.value = path)}
-      onDblClick={() => opens && void switchScene(path)}
+      onDblClick={() => (kind === "script" ? openScript(path) : opens && void switchScene(path))}
       onPointerDown={(e) => startAssetDrag(e, path)}
     >
       <div class="asset-thumb">

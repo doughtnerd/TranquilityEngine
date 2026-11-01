@@ -1,0 +1,76 @@
+// Monaco for the Code panel (ADR 0030), loaded the first time the panel shows. Sets up its
+// workers, a TypeScript service that knows the engine's types as the `"tranquility"` package,
+// the editor's colours, and one model per project script (so autocomplete and errors work
+// across scripts).
+import * as monaco from "monaco-editor";
+import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
+import TsWorker from "monaco-editor/languages/features/typescript/ts.worker.js?worker";
+import engineTypes from "virtual:tranquility-types";
+
+(self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
+  getWorker: (_id, label) => (label === "typescript" || label === "javascript" ? new TsWorker() : new EditorWorker()),
+};
+
+const ts = monaco.typescript;
+ts.typescriptDefaults.setCompilerOptions({
+  target: 9 as monaco.typescript.ScriptTarget, // ES2022, as scripts are compiled (Monaco's enum stops at ES2020)
+  module: ts.ModuleKind.ESNext,
+  moduleResolution: ts.ModuleResolutionKind.NodeJs,
+  lib: ["es2022", "dom"],
+  strict: true,
+  noEmit: true,
+  useDefineForClassFields: true,
+  allowNonTsExtensions: true,
+});
+// Every script model, not only the one showing, so imports between scripts resolve.
+ts.typescriptDefaults.setEagerModelSync(true);
+// The engine's declarations, served as the package scripts import.
+for (const [path, text] of Object.entries(engineTypes)) ts.typescriptDefaults.addExtraLib(text, `file:///node_modules/tranquility/${path}`);
+ts.typescriptDefaults.addExtraLib(JSON.stringify({ name: "tranquility", types: "index.d.ts" }), "file:///node_modules/tranquility/package.json");
+
+monaco.editor.defineTheme("tranquility", {
+  base: "vs-dark",
+  inherit: true,
+  rules: [],
+  colors: {
+    "editor.background": "#1b1d21",
+    "editor.lineHighlightBackground": "#23262c",
+    "editorLineNumber.foreground": "#5a5f68",
+    "editorGutter.background": "#1b1d21",
+    "editorWidget.background": "#212329",
+    "editorWidget.border": "#2c3036",
+    "editor.selectionBackground": "#2d4166",
+    focusBorder: "#4c8dff",
+  },
+});
+
+export { monaco };
+
+const uriOf = (path: string) => monaco.Uri.parse(`file:///project/${path}`);
+
+/** The model for a project script, made if needed. */
+export function modelFor(path: string, text: string): monaco.editor.ITextModel {
+  return monaco.editor.getModel(uriOf(path)) ?? monaco.editor.createModel(text, "typescript", uriOf(path));
+}
+
+/**
+ * Bring the script models in line with `scripts` (project path → text on disk): new scripts get
+ * models, models of deleted scripts go, and models without unsaved edits take the text on disk.
+ * `dirty` are paths with unsaved edits, left alone.
+ */
+export function syncModels(scripts: ReadonlyMap<string, string>, dirty: ReadonlySet<string>): void {
+  for (const model of monaco.editor.getModels()) {
+    const path = model.uri.path.replace(/^\/project\//, "");
+    if (model.uri.scheme !== "file" || !model.uri.path.startsWith("/project/")) continue;
+    if (!scripts.has(path) && !dirty.has(path)) model.dispose();
+  }
+  for (const [path, text] of scripts) {
+    const model = modelFor(path, text);
+    if (!dirty.has(path) && model.getValue() !== text) model.setValue(text);
+  }
+}
+
+/** Drop every script model (another project opened). */
+export function disposeModels(): void {
+  for (const model of monaco.editor.getModels()) if (model.uri.path.startsWith("/project/")) model.dispose();
+}

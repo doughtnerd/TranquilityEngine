@@ -3,6 +3,7 @@ import { resetLayout } from "../layout/store";
 import { openProjectFolder, reloadScripts, save, togglePlaying } from "../session";
 import { currentProject, docVersion, openScene, pickTool, playState, sceneCamera, scriptProblems, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
 import { AssetsPanel } from "./Assets";
+import { CodePanel } from "./CodePanel";
 import { AssetDragGhost, ViewportDropHighlight } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { HistoryPanel } from "./HistoryPanel";
@@ -11,7 +12,7 @@ import { SettingsDialog, settingsOpen } from "./SettingsDialog";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
 
-const PANELS = { hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel /> };
+const PANELS = { hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel /> };
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {

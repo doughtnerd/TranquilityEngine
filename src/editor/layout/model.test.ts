@@ -20,7 +20,7 @@ const sides = (l: Layout) => l.docks.map((d) => `${d.side}:${d.groups.map((g) =>
 const where = (l: Layout, p: PanelId) => l.docks.find((d) => d.groups.some((g) => g.panels.includes(p)))!;
 
 describe("default layout", () => {
-  it("puts Assets full width at the bottom, Hierarchy left, Inspector right", () => {
+  it("puts Assets (with the Code tab) full width at the bottom, Hierarchy left, Inspector right", () => {
     const geo = computeGeometry(defaultLayout(), bounds);
     const [bottom, left, right] = geo.docks;
     expect(bottom.rect).toEqual({ x: 0, y: 800 - 190, w: 1200, h: 190 }); // outermost: full width
@@ -33,7 +33,7 @@ describe("default layout", () => {
 describe("moving panels", () => {
   it("to the outer edge: a new outermost dock that claims the full height", () => {
     const l = movePanel(defaultLayout(), "inspector", { kind: "edge", side: "left", placement: "outer" });
-    expect(sides(l)).toEqual(["left:inspector", "bottom:assets", "left:hierarchy", "right:history"]); // History stays on the right
+    expect(sides(l)).toEqual(["left:inspector", "bottom:assets+code", "left:hierarchy", "right:history"]); // History stays on the right
     const geo = computeGeometry(l, bounds);
     expect(geo.docks[0].rect).toEqual({ x: 0, y: 0, w: 240, h: 800 });
     expect(geo.docks[1].rect.x).toBe(240); // the bottom dock now starts right of it
@@ -41,22 +41,22 @@ describe("moving panels", () => {
 
   it("to the viewport's edge: a new innermost dock beside the viewport", () => {
     const l = movePanel(defaultLayout(), "assets", { kind: "edge", side: "right", placement: "inner" });
-    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history", "right:assets"]);
+    expect(sides(l)).toEqual(["bottom:code", "left:hierarchy", "right:inspector+history", "right:assets"]);
     const geo = computeGeometry(l, bounds);
-    expect(geo.docks[2].rect.h).toBe(800); // no bottom dock any more
+    expect(geo.docks[3].rect.h).toBe(610); // inside the bottom dock, which still holds Code
   });
 
   it("into a dock: splits it evenly at the drop position", () => {
     let l = resizeSplit(movePanel(defaultLayout(), "assets", { kind: "split", dock: "left", index: 0 }), "left", 0, 0.3);
-    expect(sides(l)).toEqual(["left:assets|hierarchy", "right:inspector+history"]);
+    expect(sides(l)).toEqual(["bottom:code", "left:assets|hierarchy", "right:inspector+history"]);
     l = movePanel(l, "inspector", { kind: "split", dock: "left", index: 1 });
-    expect(sides(l)).toEqual(["left:assets|inspector|hierarchy", "right:history"]);
+    expect(sides(l)).toEqual(["bottom:code", "left:assets|inspector|hierarchy", "right:history"]);
     expect(where(l, "assets").fractions).toEqual([1 / 3, 1 / 3, 1 / 3]); // uniform again after the drop
   });
 
   it("onto another panel's header: joins it as the active tab", () => {
     const l = movePanel(defaultLayout(), "inspector", { kind: "tab", group: "hierarchy" });
-    expect(sides(l)).toEqual(["bottom:assets", "left:hierarchy+inspector", "right:history"]);
+    expect(sides(l)).toEqual(["bottom:assets+code", "left:hierarchy+inspector", "right:history"]);
     expect(where(l, "inspector").groups[0].active).toBe("inspector");
   });
 
@@ -158,7 +158,7 @@ describe("layouts saved before a panel existed", () => {
       ],
     };
     const l = parseLayout(old)!;
-    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history|assets"]);
+    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history|assets+code"]); // Code joins Assets, where there's width
     expect(l.docks[0].size).toBe(300); // the user's arrangement is kept
     expect(where(l, "history").groups[0].active).toBe("inspector");
   });
@@ -168,6 +168,6 @@ describe("layouts saved before a panel existed", () => {
       version: 1,
       docks: [{ id: "b", side: "bottom", size: 200, groups: [{ id: "g", panels: ["assets", "hierarchy"], active: "assets" }], fractions: [1] }],
     })!;
-    expect(sides(l)).toEqual(["bottom:assets+hierarchy+inspector+history"]);
+    expect(sides(l)).toEqual(["bottom:assets+hierarchy+inspector+history+code"]);
   });
 });

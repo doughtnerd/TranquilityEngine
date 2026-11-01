@@ -6,11 +6,11 @@
 // or more tab groups split evenly along it (stacked in side docks, side by side in the bottom
 // dock); a group shows one panel at a time, with tabs when it has more than one.
 
-export type PanelId = "hierarchy" | "inspector" | "assets" | "history";
+export type PanelId = "hierarchy" | "inspector" | "assets" | "history" | "code";
 export type Side = "left" | "right" | "bottom";
 
-export const PANELS: readonly PanelId[] = ["hierarchy", "inspector", "assets", "history"];
-export const PANEL_TITLES: Record<PanelId, string> = { hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History" };
+export const PANELS: readonly PanelId[] = ["hierarchy", "inspector", "assets", "history", "code"];
+export const PANEL_TITLES: Record<PanelId, string> = { hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code" };
 
 export interface TabGroup {
   id: string;
@@ -64,7 +64,7 @@ export function defaultLayout(): Layout {
   return {
     version: 1,
     docks: [
-      { id: "bottom", side: "bottom", size: DEFAULT_SIZE.bottom, groups: [{ id: "assets", panels: ["assets"], active: "assets" }], fractions: [1] },
+      { id: "bottom", side: "bottom", size: DEFAULT_SIZE.bottom, groups: [{ id: "assets", panels: ["assets", "code"], active: "assets" }], fractions: [1] },
       { id: "left", side: "left", size: DEFAULT_SIZE.left, groups: [{ id: "hierarchy", panels: ["hierarchy"], active: "hierarchy" }], fractions: [1] },
       { id: "right", side: "right", size: DEFAULT_SIZE.right, groups: [{ id: "inspector", panels: ["inspector", "history"], active: "inspector" }], fractions: [1] },
     ],
@@ -170,7 +170,8 @@ export function resizeSplit(layout: Layout, dockId: string, index: number, delta
  * Accept a saved layout only if it's well formed and holds each panel at most once; otherwise
  * null (the caller falls back to the default). Guards against stale or hand-edited storage.
  * Panels missing from it (e.g. added to the editor after the layout was saved) are added as tabs
- * to the group holding the Inspector, or the first group, so the user's arrangement survives.
+ * to the group holding the Inspector (the Code panel: the Assets panel, where there's width), or
+ * the first group, so the user's arrangement survives.
  */
 export function parseLayout(value: unknown): Layout | null {
   try {
@@ -191,8 +192,8 @@ export function parseLayout(value: unknown): Layout | null {
     if (missing.length) {
       if (result.docks.length === 0) return null;
       const groups = result.docks.flatMap((d) => d.groups);
-      const home = groups.find((g) => g.panels.includes("inspector")) ?? groups[0];
-      home.panels.push(...missing);
+      const holding = (p: PanelId) => groups.find((g) => g.panels.includes(p));
+      for (const p of missing) (((p === "code" && holding("assets")) || holding("inspector")) ?? groups[0]).panels.push(p);
     }
     return result;
   } catch {

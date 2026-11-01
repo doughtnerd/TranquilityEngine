@@ -88,7 +88,8 @@ export class Input {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return;
       const key = normalizeKey(e.key);
-      if (key === "space" || key.startsWith("arrow")) e.preventDefault();
+      // Keep Space and the arrows from scrolling the page, but not from typing in a text field.
+      if ((key === "space" || key.startsWith("arrow")) && !isTextEntry(e.target)) e.preventDefault();
       queue.push({ type: "down", key });
     };
     const onKeyUp = (e: KeyboardEvent) => queue.push({ type: "up", key: normalizeKey(e.key) });
@@ -187,4 +188,15 @@ export class Input {
     scrollDelta.set(0, 0);
     pendingScroll.set(0, 0);
   }
+}
+
+/**
+ * True if a key event's target takes typed text, where keys mean characters: an input, a
+ * textarea, an editable element, or one using the EditContext API (as code editors do).
+ */
+function isTextEntry(target: EventTarget | null): boolean {
+  const el = target as (HTMLElement & { editContext?: unknown }) | null;
+  if (!el || typeof el.tagName !== "string") return false;
+  if (el.isContentEditable || el.tagName === "TEXTAREA" || el.editContext) return true;
+  return el.tagName === "INPUT" && !["checkbox", "radio", "button", "range", "color", "submit", "reset"].includes((el as HTMLInputElement).type);
 }

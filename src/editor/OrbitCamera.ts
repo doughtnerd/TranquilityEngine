@@ -148,6 +148,9 @@ export class OrbitCamera extends GameBehavior {
 
 /** True while a text field has focus: the F key is being typed, not pressed as a shortcut. */
 function typingInField(): boolean {
-  const el = typeof document === "undefined" ? null : (document.activeElement as HTMLElement | null);
-  return !!el && (el.isContentEditable || (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && (el as HTMLInputElement).type !== "checkbox"));
+  const el = typeof document === "undefined" ? null : (document.activeElement as (HTMLElement & { editContext?: unknown }) | null);
+  if (!el) return false;
+  // The Code panel's editor types through the EditContext API on a plain element.
+  if (el.isContentEditable || el.editContext || el.closest(".monaco-editor")) return true;
+  return ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) && (el as HTMLInputElement).type !== "checkbox";
 }

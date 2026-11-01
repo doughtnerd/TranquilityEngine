@@ -14,8 +14,9 @@ import { installGizmo } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
 import { openSceneFile, saveOpenScene } from "./project";
-import { editorSettings, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { currentProject, docVersion, openScene, playState, sceneCamera, scriptProblems, selection, status, viewMode } from "./state";
+import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
+import { currentProject, docVersion, openScene, playState, sceneCamera, scriptProblems, scriptsVersion, selection, status, viewMode } from "./state";
+import { closeAllScripts } from "./code/codeState";
 import { replaceScripts } from "./scriptLoader";
 import { installViewportSelection } from "./viewportSelection";
 
@@ -27,6 +28,19 @@ let history: AttachedHistory | null = null;
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Boot an Editor World for `project` in the viewport and open its main scene. */
+/**
+ * End-to-end test hook: open the bundled demo's files as a project folder in memory, plus `extra`
+ * files (project path → text, e.g. scripts), as if opened from disk. The folder is left on
+ * `window.testFolder` (path → contents) so tests can see what the editor wrote.
+ */
+async function openTestProject(extra: Record<string, string> = {}): Promise<void> {
+  const { demoFolder, ROOT } = await import("./testing");
+  const fs = demoFolder();
+  for (const [path, text] of Object.entries(extra)) fs.files.set(joinPath(ROOT, path), text);
+  Object.assign(window, { testFolder: { read: (path: string) => fs.files.get(joinPath(ROOT, path)) } });
+  await loadProject(await openFolderProject(fs, ROOT));
+}
+
 /** Debug and end-to-end test hook: where a document node (by path key) is on the viewport canvas, or null. */
 function nodeRect(key: string): { left: number; top: number; right: number; bottom: number } | null {
   const scene = openScene.peek(), root = scene?.sync.sceneNode;
@@ -60,8 +74,11 @@ export async function loadProject(project: EditorProject): Promise<void> {
   // Project scripts register their types before any scene is built, replacing the previous
   // project's (ADR 0030).
   pendingReload = false;
+  closeAllScripts();
+  void import("./code/monaco").then((m) => m.disposeModels()).catch(() => {}); // only if Monaco was loaded
   const scripts = await replaceScripts(project.scripts);
   scriptProblems.value = scripts.problems;
+  scriptsVersion.value++;
   const engine = await Engine.create({ kind: "editor", container: document.getElementById("viewport")!, project: editorSettings(project) });
   // Editor tools live under the World root, outside the edited scene, so they keep running (ADR 0026).
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
@@ -79,7 +96,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   currentProject.value = project;
   engine.start();
   // Debug and end-to-end test hooks.
-  Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world), nodeRect });
+  Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world), nodeRect, openTestProject });
   if (project.mainScene) openScene_(project.mainScene);
   if (scripts.problems.length > 0) {
     const list = scripts.problems.map((p) => `${p.path}: ${p.message}`).join("; ");
@@ -247,6 +264,7 @@ export async function reloadScripts(): Promise<void> {
   }
   const result = await replaceScripts(project.scripts);
   scriptProblems.value = result.problems;
+  scriptsVersion.value++;
   const scene = openScene.value;
   if (scene) {
     scene.sync.build();

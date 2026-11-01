@@ -147,6 +147,16 @@ export function rewriteImports(code: string, imports: readonly ImportSite[], url
 
 const dataUrl = (code: string) => `data:text/javascript;charset=utf-8,${encodeURIComponent(code)}`;
 
+/**
+ * A URL to import `code` from: a `blob:` URL in browsers (WebKit gets `data:` module reloads
+ * wrong), a `data:` URL elsewhere (Node, for tests, can't import `blob:`).
+ */
+const moduleUrl = (code: string) =>
+  typeof Blob !== "undefined" && typeof document !== "undefined" ? URL.createObjectURL(new Blob([code], { type: "text/javascript" })) : dataUrl(code);
+
+/** Blob URLs of the last load's modules, revoked once the next load has run. */
+let lastUrls: string[] = [];
+
 /** A module that re-exports the editor's engine, for `import … from "tranquility"`. */
 function engineShimUrl(): string {
   const g = globalThis as { __tranquility?: unknown };
@@ -197,7 +207,9 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>): Promise
       }
       const s = compiled.get(path)!;
       const code = rewriteImports(s.code, s.imports, (spec) => (spec === ENGINE_MODULE ? shim : urls.get(resolveScript(path, spec, new Set(compiled.keys()))!)!));
-      const url = dataUrl(`${code}${stamp}//# sourceURL=${path}\n`);
+      // No `//# sourceURL`: WebKit runs modules sharing one in a single scope, so a reload would
+      // redeclare their classes. The inline source map names the file for the debugger.
+      const url = moduleUrl(`${code}${stamp}`);
       try {
         await import(/* @vite-ignore */ url);
         urls.set(path, url);
@@ -207,6 +219,8 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>): Promise
       }
     }
   });
+  for (const url of lastUrls) if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+  lastUrls = [...urls.values()];
   return { loaded, problems, registered };
 }
 

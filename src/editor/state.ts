@@ -80,6 +80,9 @@ export const tool = signal<Tool>("move");
 /** Gizmo snapping (held Ctrl/Cmd). */
 export const snapping = signal(false);
 
+/** Bumped when the project's scripts are (re)read, so panels showing them re-render (ADR 0030). */
+export const scriptsVersion = signal(0);
+
 /** Project scripts that didn't compile or load (ADR 0030), by path. Empty when all loaded. */
 export const scriptProblems = signal<readonly { path: string; message: string }[]>([]);
 
