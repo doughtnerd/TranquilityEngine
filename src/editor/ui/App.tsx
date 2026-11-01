@@ -5,10 +5,12 @@ import { currentProject, docVersion, openScene, playState, sceneCamera, setViewM
 import { AssetsPanel } from "./Assets";
 import { AssetDragGhost, ViewportDropHighlight } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { HistoryPanel } from "./HistoryPanel";
+import { SettingsDialog, settingsOpen } from "./SettingsDialog";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
 
-const PANELS = { hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel /> };
+const PANELS = { hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel /> };
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {
@@ -30,6 +32,7 @@ export function App() {
       <StatusBar />
       <AssetDragGhost />
       <ConfirmDialog />
+      <SettingsDialog />
     </div>
   );
 }
@@ -56,6 +59,9 @@ function Toolbar() {
       <UndoRedo />
       <button title="Put the panels back where they started" onClick={resetLayout}>
         Reset Layout
+      </button>
+      <button title="Editor settings" onClick={() => (settingsOpen.value = true)}>
+        Settings
       </button>
     </header>
   );

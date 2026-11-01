@@ -33,7 +33,7 @@ describe("default layout", () => {
 describe("moving panels", () => {
   it("to the outer edge: a new outermost dock that claims the full height", () => {
     const l = movePanel(defaultLayout(), "inspector", { kind: "edge", side: "left", placement: "outer" });
-    expect(sides(l)).toEqual(["left:inspector", "bottom:assets", "left:hierarchy"]); // right dock emptied and removed
+    expect(sides(l)).toEqual(["left:inspector", "bottom:assets", "left:hierarchy", "right:history"]); // History stays on the right
     const geo = computeGeometry(l, bounds);
     expect(geo.docks[0].rect).toEqual({ x: 0, y: 0, w: 240, h: 800 });
     expect(geo.docks[1].rect.x).toBe(240); // the bottom dock now starts right of it
@@ -41,22 +41,22 @@ describe("moving panels", () => {
 
   it("to the viewport's edge: a new innermost dock beside the viewport", () => {
     const l = movePanel(defaultLayout(), "assets", { kind: "edge", side: "right", placement: "inner" });
-    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector", "right:assets"]);
+    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history", "right:assets"]);
     const geo = computeGeometry(l, bounds);
     expect(geo.docks[2].rect.h).toBe(800); // no bottom dock any more
   });
 
   it("into a dock: splits it evenly at the drop position", () => {
     let l = resizeSplit(movePanel(defaultLayout(), "assets", { kind: "split", dock: "left", index: 0 }), "left", 0, 0.3);
-    expect(sides(l)).toEqual(["left:assets|hierarchy", "right:inspector"]);
+    expect(sides(l)).toEqual(["left:assets|hierarchy", "right:inspector+history"]);
     l = movePanel(l, "inspector", { kind: "split", dock: "left", index: 1 });
-    expect(sides(l)).toEqual(["left:assets|inspector|hierarchy"]);
+    expect(sides(l)).toEqual(["left:assets|inspector|hierarchy", "right:history"]);
     expect(where(l, "assets").fractions).toEqual([1 / 3, 1 / 3, 1 / 3]); // uniform again after the drop
   });
 
   it("onto another panel's header: joins it as the active tab", () => {
     const l = movePanel(defaultLayout(), "inspector", { kind: "tab", group: "hierarchy" });
-    expect(sides(l)).toEqual(["bottom:assets", "left:hierarchy+inspector"]);
+    expect(sides(l)).toEqual(["bottom:assets", "left:hierarchy+inspector", "right:history"]);
     expect(where(l, "inspector").groups[0].active).toBe("inspector");
   });
 
@@ -136,5 +136,38 @@ describe("saved layouts", () => {
     dup.docks[0].groups[0].panels.push("inspector");
     expect(parseLayout(dup)).toBeNull();
     expect(parseLayout({ version: 2, docks: l.docks })).toBeNull();
+  });
+});
+
+describe("layouts saved before a panel existed", () => {
+  it("adds missing panels as tabs beside the Inspector instead of discarding the layout", () => {
+    const old = {
+      version: 1,
+      docks: [
+        { id: "left", side: "left", size: 300, groups: [{ id: "g1", panels: ["hierarchy"], active: "hierarchy" }], fractions: [1] },
+        {
+          id: "right",
+          side: "right",
+          size: 260,
+          groups: [
+            { id: "g2", panels: ["inspector"], active: "inspector" },
+            { id: "g3", panels: ["assets"], active: "assets" },
+          ],
+          fractions: [0.5, 0.5],
+        },
+      ],
+    };
+    const l = parseLayout(old)!;
+    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history|assets"]);
+    expect(l.docks[0].size).toBe(300); // the user's arrangement is kept
+    expect(where(l, "history").groups[0].active).toBe("inspector");
+  });
+
+  it("uses the first group when the Inspector isn't in the layout", () => {
+    const l = parseLayout({
+      version: 1,
+      docks: [{ id: "b", side: "bottom", size: 200, groups: [{ id: "g", panels: ["assets", "hierarchy"], active: "assets" }], fractions: [1] }],
+    })!;
+    expect(sides(l)).toEqual(["bottom:assets+hierarchy+inspector+history"]);
   });
 });

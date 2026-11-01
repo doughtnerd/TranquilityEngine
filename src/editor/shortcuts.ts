@@ -11,13 +11,16 @@ function isEditable(target: EventTarget | null): boolean {
   return el instanceof HTMLInputElement && !["checkbox", "radio", "button", "color", "range"].includes(el.type);
 }
 
-export type Shortcut = "undo" | "redo" | "save" | "play" | "delete" | `tool:${Tool}`;
+export type Shortcut = "undo" | "redo" | "back" | "forward" | "save" | "play" | "delete" | `tool:${Tool}`;
 
 const TOOL_KEYS: Record<string, Tool> = { q: "select", w: "move", e: "rotate", r: "scale" };
 
 /** What a keydown means to the editor, if anything. Exported for tests. */
-export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey"> & { altKey?: boolean }): Shortcut | null {
+export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey"> & { altKey?: boolean; code?: string }): Shortcut | null {
   const key = e.key.toLowerCase();
+  // Ctrl/Cmd + Alt (+ Shift) + Z: step through history in creation order (Vim's g- / g+). Checked
+  // before plain Ctrl + Z, and by key code too, since Alt changes `key` on some layouts.
+  if ((e.ctrlKey || e.metaKey) && e.altKey && (key === "z" || e.code === "KeyZ")) return e.shiftKey ? "forward" : "back";
   if (e.ctrlKey || e.metaKey) {
     if (key === "z") return e.shiftKey ? "redo" : "undo";
     if (key === "y") return "redo";
@@ -31,7 +34,7 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
 }
 
 /**
- * Delete or Backspace deletes the selected node; Ctrl/Cmd + P plays or stops; Ctrl/Cmd + S saves; Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Q/W/E/R pick the select, move,
+ * Delete or Backspace deletes the selected node; Ctrl/Cmd + P plays or stops; Ctrl/Cmd + S saves; Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Ctrl/Cmd + Alt + Z / + Shift step back / forward through history in creation order; Q/W/E/R pick the select, move,
  * rotate and scale tools; holding Ctrl/Cmd snaps gizmo drags. Returns a function that removes
  * the listeners.
  */
@@ -66,7 +69,9 @@ export function installShortcuts(target: Window = window): () => void {
     if (!stack) return;
     e.preventDefault();
     if (action === "undo") stack.undo();
-    else stack.redo();
+    else if (action === "redo") stack.redo();
+    else if (action === "back") stack.back();
+    else if (action === "forward") stack.forward();
   };
   const onKeyUp = (e: KeyboardEvent) => {
     if (e.key === "Control" || e.key === "Meta") snapping.value = false;
