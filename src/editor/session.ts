@@ -18,6 +18,7 @@ import { editorSettings, joinPath, openFolderProject, useProjectAssets, type Edi
 import { currentProject, docVersion, openScene, playState, sceneCamera, scriptProblems, scriptsVersion, selection, status, viewMode } from "./state";
 import { closeAllScripts } from "./code/codeState";
 import { replaceScripts } from "./scriptLoader";
+import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
 import { installViewportSelection } from "./viewportSelection";
 
 let session: { engine: Engine; dispose(): void } | null = null;
@@ -79,6 +80,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   const scripts = await replaceScripts(project.scripts);
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;
+  void setUpScripting(project);
   const engine = await Engine.create({ kind: "editor", container: document.getElementById("viewport")!, project: editorSettings(project) });
   // Editor tools live under the World root, outside the edited scene, so they keep running (ADR 0026).
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
@@ -238,6 +240,45 @@ export function stopPlaying(): void {
   if (pendingReload) void reloadScripts();
 }
 
+/** Stops watching the current project's scripts folder. */
+let stopWatchingScripts: (() => void) | null = null;
+
+/**
+ * For a project folder (ADR 0030): write the `tsconfig.json` and engine declarations external
+ * editors need, and watch `scripts/` to reload scripts edited outside the editor.
+ */
+async function setUpScripting(project: EditorProject): Promise<void> {
+  stopWatchingScripts?.();
+  stopWatchingScripts = null;
+  const fs = project.fileSystem, root = project.root;
+  if (!fs || !root || !project.canSave) return;
+  try {
+    const { default: declarations } = await import("virtual:tranquility-types");
+    await writeScriptingFiles(fs, root, declarations);
+  } catch (err) {
+    console.warn(`[editor] couldn't write the project's tsconfig.json and engine types: ${message(err)}`);
+  }
+  if (currentProject.value !== project) return;
+  try {
+    const stop = await watchScripts(fs, root, () => void reloadScripts({ outside: true }));
+    if (currentProject.value === project) stopWatchingScripts = stop;
+    else stop?.();
+  } catch (err) {
+    console.warn(`[editor] can't watch scripts/ for changes: ${message(err)}`);
+  }
+}
+
+/** Open a project script with the system's default app for it (its code editor). */
+export async function openScriptExternally(path: string): Promise<void> {
+  const project = currentProject.value;
+  if (!project?.fileSystem?.openExternally || !project.root) return;
+  try {
+    await project.fileSystem.openExternally(joinPath(project.root, path));
+  } catch (err) {
+    status.value = { kind: "error", text: `Couldn't open ${path}: ${message(err)}` };
+  }
+}
+
 /** Scripts changed during play mode: reload them on Stop (ADR 0030). */
 let pendingReload = false;
 
@@ -247,9 +288,20 @@ let pendingReload = false;
  * the Inspector stay. During play mode the reload waits for Stop: the running game keeps the code
  * it started with.
  */
-export async function reloadScripts(): Promise<void> {
+export async function reloadScripts(options: { outside?: boolean } = {}): Promise<void> {
   const project = currentProject.value;
   if (!project) return;
+  if (options.outside) {
+    // A change on disk: skip it when the files match what's loaded (e.g. the editor's own save).
+    const before = project.scripts;
+    try {
+      await project.rereadScripts();
+    } catch {
+      return;
+    }
+    const after = project.scripts;
+    if (after.size === before.size && [...after].every(([path, text]) => before.get(path) === text)) return;
+  }
   if (playState.value !== "edit") {
     pendingReload = true;
     status.value = { kind: "info", text: "Scripts changed. They'll reload when you stop playing." };
@@ -273,9 +325,11 @@ export async function reloadScripts(): Promise<void> {
   status.value =
     result.problems.length > 0
       ? { kind: "error", text: `Reloaded scripts; ${result.problems.map((p) => `${p.path}: ${p.message}`).join("; ")}` }
-      : result.loaded.length === 0
-        ? { kind: "info", text: "Reloaded scripts: there are none under scripts/ now." }
-        : { kind: "info", text: `Reloaded ${result.loaded.length} script${result.loaded.length === 1 ? "" : "s"}.` };
+      : options.outside
+        ? { kind: "info", text: "Scripts changed on disk; reloaded them." }
+        : result.loaded.length === 0
+          ? { kind: "info", text: "Reloaded scripts: there are none under scripts/ now." }
+          : { kind: "info", text: `Reloaded ${result.loaded.length} script${result.loaded.length === 1 ? "" : "s"}.` };
 }
 
 /** Save a script of the current project, then reload scripts (ADR 0030). */

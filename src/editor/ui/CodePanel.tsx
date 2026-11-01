@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type * as Monaco from "monaco-editor";
 import { fileName } from "../assetBrowser";
 import { activeScript, closeScript, dirtyScripts, openScripts, setDirty } from "../code/codeState";
-import { saveScript } from "../session";
+import { openScriptExternally, saveScript } from "../session";
 import { currentProject, scriptsVersion, status } from "../state";
 import { confirmInEditor } from "./ConfirmDialog";
 
@@ -57,6 +57,15 @@ export function CodePanel() {
           </div>
         ))}
         {!project.canSave && <span class="code-readonly">read-only</span>}
+        {active && project.fileSystem?.openExternally && (
+          <button
+            class="code-external"
+            title={`Open ${active} in your code editor (the system's app for .ts files). Changes saved there reload here.`}
+            onClick={() => void openScriptExternally(active)}
+          >
+            Open Externally
+          </button>
+        )}
       </div>
       <MonacoHost />
     </div>

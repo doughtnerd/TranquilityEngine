@@ -15,6 +15,8 @@ export interface EditorProject {
   readonly name: string;
   /** The folder on disk, or null for the bundled demo. */
   readonly root: string | null;
+  /** The folder's file system (for watching scripts and opening files externally), or null for the bundled demo. */
+  readonly fileSystem: FileSystem | null;
   readonly canSave: boolean;
   readonly settings: ProjectSettingsInput;
   /** Every asset by path relative to the project root: parsed JSON for `.json`, a URL otherwise. */
@@ -63,6 +65,7 @@ class MapProject implements EditorProject {
     private readonly texts: Map<string, string>,
     private readonly write: ((path: string, text: string) => Promise<void>) | null,
     private readonly scriptFiles: { read: () => Promise<Map<string, string>> } | null = null,
+    readonly fileSystem: FileSystem | null = null,
     private scriptMap: Map<string, string> = new Map(),
   ) {
     this.mainScene = pickMainScene(this.files);
@@ -179,7 +182,7 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
   };
   const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput & { name?: string };
   const folder = root.split(/[\\/]/).filter(Boolean).pop() ?? root;
-  return new MapProject(settings.name ?? folder, root, settings, values, texts, (path, text) => fs.writeText(joinPath(root, path), text), { read: readScripts }, await readScripts());
+  return new MapProject(settings.name ?? folder, root, settings, values, texts, (path, text) => fs.writeText(joinPath(root, path), text), { read: readScripts }, fs, await readScripts());
 }
 
 /** Settings for the Editor World: the project's, minus autoloads, with the editor's background. */

@@ -1,7 +1,7 @@
 import type { DirEntry, FileSystem } from "./FileSystem";
 
 /**
- * File access through Tauri's fs and dialog plugins (ADR 0003, 0026). Internal.
+ * File access through Tauri's fs, dialog and opener plugins (ADR 0003, 0026, 0030). Internal.
  *
  * The plugins are imported lazily so headless tests and browser builds never load them. Paths
  * must be inside the app's data folder or a folder the user picked with `pickFolder` (the dialog
@@ -61,6 +61,17 @@ export class TauriFileSystem implements FileSystem {
     // `recursive` makes the dialog plugin allow the whole folder tree in the fs scope.
     const picked = await dialog.open({ directory: true, multiple: false, recursive: true, title });
     return typeof picked === "string" ? picked : null;
+  }
+
+  async watch(path: string, onChange: (paths: string[]) => void): Promise<() => void> {
+    const fs = await import("@tauri-apps/plugin-fs");
+    // Needs the plugin's "watch" Cargo feature (src-tauri/Cargo.toml).
+    return fs.watch(path, (e) => onChange(e.paths), { recursive: true, delayMs: 300 });
+  }
+
+  async openExternally(path: string): Promise<void> {
+    const opener = await import("@tauri-apps/plugin-opener");
+    await opener.openPath(path);
   }
 }
 

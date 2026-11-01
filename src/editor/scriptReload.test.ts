@@ -99,6 +99,19 @@ describe("reloading scripts (ADR 0030)", () => {
     expect(status.value?.text).toMatch(/reload when you stop playing/);
   });
 
+  it("reloads on a change from outside the editor, but not when the files match what's loaded", async () => {
+    status.value = null;
+    const before = getComponentClass("game.Wheel");
+    await reloadScripts({ outside: true }); // e.g. the watcher seeing the editor's own save
+    expect(getComponentClass("game.Wheel")).toBe(before);
+    expect(status.value).toBeNull();
+
+    fs.files.set(file("scripts/Wheel.ts"), wheel(`@field(Number) power = 7;`));
+    await reloadScripts({ outside: true });
+    expect(valueOf("power")).toBe(7);
+    expect(status.peek()?.text).toBe("Scripts changed on disk; reloaded them."); // peek: TypeScript narrowed .value to null above
+  });
+
   it("saving a script writes it and reloads", async () => {
     await saveScript("scripts/Wheel.ts", wheel(`@field(Number) power = 9;`));
     expect(fs.files.get(file("scripts/Wheel.ts"))).toContain("power = 9");

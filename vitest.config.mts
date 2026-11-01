@@ -1,8 +1,8 @@
 import { defineConfig } from "vitest/config";
-import { typescriptTranspile } from "./vite.shared.ts";
+import { engineTypes, typescriptTranspile } from "./vite.shared.ts";
 
 export default defineConfig({
-  plugins: [typescriptTranspile()],
+  plugins: [typescriptTranspile(), engineTypes()],
   oxc: false,
   test: {
     environment: "node",

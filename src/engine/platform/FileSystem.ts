@@ -27,6 +27,13 @@ export interface FileSystem {
   remove(path: string): Promise<void>;
   /** Native folder picker. Returns the chosen path, or null if cancelled. */
   pickFolder(title?: string): Promise<string | null>;
+  /**
+   * Call `onChange` with the paths that changed in folder `path` (at any depth), batched a
+   * moment after the changes. Returns a function that stops watching. Desktop only.
+   */
+  watch?(path: string, onChange: (paths: string[]) => void): Promise<() => void>;
+  /** Open a file or folder with the system's default app (for a script: its code editor). Desktop only. */
+  openExternally?(path: string): Promise<void>;
 }
 
 export class UnsupportedError extends Error {
