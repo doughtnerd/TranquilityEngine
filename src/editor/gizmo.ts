@@ -1,11 +1,14 @@
-// Transform gizmo (ADR 0022, 0026): the move/rotate/scale handles on the selected node. Each drag
-// is one undo step: a command group of SetField edits to the node's Transform.
+// Transform gizmo (ADR 0022, 0026): the move/rotate/scale handles on the selection. Each drag is
+// one undo step: a command group of SetField edits to the nodes' Transforms. With several nodes
+// selected the gizmo sits at their centre and acts on the topmost ones (a child of a selected
+// node moves with it); turning or scaling around that centre moves them too.
 import { effect } from "@preact/signals";
 import type { Engine } from "../engine";
 import { setGizmo, type GizmoHandlers, type GizmoOptions, type LocalPose } from "../engine/editor";
 import { SetField, type NodePath, type SceneDocument } from "./document";
 import { toSceneJSON } from "./fieldValues";
-import { docVersion, editingCollider, openScene, selectedPath, selectedWorldNode, snapping, tool, viewMode, type Tool } from "./state";
+import { topmostKeys } from "./selectionModel";
+import { docVersion, editingCollider, openScene, selectedNodes, snapping, tool, viewMode, type Tool } from "./state";
 
 type Mode = GizmoOptions["mode"];
 
@@ -23,9 +26,8 @@ export function gizmoMode(t: Tool): Mode | null {
  * or (as an override) a prefab instance or a node inside one. A 2D rotation stays a single angle
  * when the file stores it that way.
  */
-export function gizmoEdit(doc: SceneDocument, node: string | NodePath, mode: Mode, pose: LocalPose): SetField {
+export function gizmoEdit(doc: SceneDocument, node: string | NodePath, mode: Mode, pose: LocalPose, field: "position" | "rotation" | "scale" = FIELDS[mode]): SetField {
   const [id, ...target] = typeof node === "string" ? [node] : node;
-  const field = FIELDS[mode];
   const previous = doc.isPrefabInstance(id) ? doc.overrideValue(id, target, "engine.Transform", field) : doc.fieldValue(id, "engine.Transform", field);
   const value = toSceneJSON("vector3", pose[field], { field, previous });
   return new SetField(id, "engine.Transform", field, value, { target });
@@ -34,24 +36,31 @@ export function gizmoEdit(doc: SceneDocument, node: string | NodePath, mode: Mod
 /** Show the gizmo on the selection and turn its drags into commands. Returns a function that removes it. */
 export function installGizmo(engine: Engine): () => void {
   const world = engine.world;
-  let drag: { path: NodePath; mode: Mode; last: string } | null = null;
+  /** The nodes the gizmo is on (set by the effect below), and the drag in progress. */
+  let targets: { path: NodePath; name: string }[] = [];
+  let drag: { targets: typeof targets; mode: Mode; last: Map<string, string> } | null = null;
 
   const handlers: GizmoHandlers = {
     onStart() {
-      const scene = openScene.value, path = selectedPath(), mode = gizmoMode(tool.value);
-      if (!scene || !path || !mode) return;
-      const name = selectedWorldNode()?.name ?? path[path.length - 1];
-      scene.stack.beginGroup(`${LABELS[mode]} ${name}`);
-      drag = { path, mode, last: "" };
+      const scene = openScene.value, mode = gizmoMode(tool.value);
+      if (!scene || !mode || targets.length === 0) return;
+      scene.stack.beginGroup(`${LABELS[mode]} ${targets.length === 1 ? targets[0].name : `${targets.length} nodes`}`);
+      drag = { targets, mode, last: new Map() };
     },
-    onChange(pose) {
+    onChange(poses) {
       const scene = openScene.value;
       if (!scene || !drag) return;
-      const edit = gizmoEdit(scene.doc, drag.path, drag.mode, pose);
-      const key = JSON.stringify(edit.value);
-      if (key === drag.last) return; // the pointer moved but the value didn't (e.g. snapping)
-      drag.last = key;
-      scene.stack.execute(edit);
+      // Several nodes turn or scale around their centre, so their positions change too.
+      const fields = new Set([FIELDS[drag.mode], ...(drag.targets.length > 1 ? (["position"] as const) : [])]);
+      drag.targets.forEach((t, i) => {
+        for (const field of fields) {
+          const edit = gizmoEdit(scene.doc, t.path, drag!.mode, poses[i], field);
+          const key = `${t.path.join("/")}:${field}`, json = JSON.stringify(edit.value);
+          if (drag!.last.get(key) === json) continue; // the pointer moved but the value didn't (e.g. snapping)
+          drag!.last.set(key, json);
+          scene.stack.execute(edit);
+        }
+      });
     },
     onEnd() {
       if (!drag) return;
@@ -62,14 +71,17 @@ export function installGizmo(engine: Engine): () => void {
 
   const stop = effect(() => {
     docVersion.value; // nodes are rebuilt by structural edits; re-target the gizmo
-    openScene.value;
+    const scene = openScene.value;
     // While a collider's handles are showing ("Edit Collider"), the transform gizmo steps aside.
     const mode = editingCollider.value ? null : gizmoMode(tool.value);
-    const node = mode ? selectedWorldNode() : null;
-    setGizmo(world, node, { mode: mode ?? "translate", planar: viewMode.value === "2d", snap: snapping.value }, handlers);
+    const selected = mode && scene ? selectedNodes() : [];
+    const top = scene ? new Set(topmostKeys(scene.doc, selected.map((s) => s.key))) : new Set<string>();
+    const chosen = selected.filter((s) => top.has(s.key));
+    targets = chosen.map((s) => ({ path: s.path, name: s.node.name }));
+    setGizmo(world, chosen.map((s) => s.node), { mode: mode ?? "translate", planar: viewMode.value === "2d", snap: snapping.value }, handlers);
   });
   return () => {
     stop();
-    setGizmo(world, null, { mode: "translate", planar: false, snap: false }, null);
+    setGizmo(world, [], { mode: "translate", planar: false, snap: false }, null);
   };
 }

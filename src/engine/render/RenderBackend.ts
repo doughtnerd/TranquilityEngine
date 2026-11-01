@@ -18,6 +18,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   Object3D,
+  Quaternion,
   OrthographicCamera,
   Points,
   PointsMaterial,
@@ -66,9 +67,17 @@ export interface EditorOverlay {
 /** @internal What the editor does with a gizmo drag: one start, many changes, one end. */
 export interface GizmoHandlers {
   onStart(): void;
-  /** The dragged node's new local Transform values. */
-  onChange(pose: LocalPose): void;
+  /** Each target node's new local Transform values, in the order the nodes were given. */
+  onChange(poses: LocalPose[]): void;
   onEnd(): void;
+}
+
+/** @internal A rectangle on the canvas in CSS pixels (origin top-left); a point when left = right and top = bottom. */
+export interface ScreenRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
 }
 
 interface SpriteEntry {
@@ -501,6 +510,63 @@ export class RenderBackend {
   }
 
   /**
+   * @internal Editor: where each active node under `root` with a Transform is on the canvas (CSS
+   * pixels, origin top-left): the rectangle around its sprite or text, or (with neither) a point
+   * at its origin. Nodes behind the camera are left out. Parents come before children.
+   */
+  screenBounds(world: World, root: GameObject): { node: GameObject; rect: ScreenRect }[] {
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    const view = this.viewCameras(world)[0];
+    const camera = view && this.cameras.get(view)?.camera;
+    if (!camera || w <= 0 || h <= 0) return [];
+    const sprites = new Map<GameObject, Mesh>(), texts = new Map<GameObject, Mesh>();
+    for (const [s, entry] of this.sprites) if (entry.mesh.visible) sprites.set(s.node, entry.mesh);
+    for (const [t, entry] of this.texts) if (entry.mesh.visible) texts.set(t.node, entry.mesh);
+    const { width: W, height: H } = this.settings.display;
+
+    /** Grow `rect` by a world point's place on the canvas; false if it's behind the camera. */
+    const add = (rect: ScreenRect, p: ThreeVector3): boolean => {
+      p.project(camera);
+      if (p.z < -1 || p.z > 1) return false;
+      const x = ((p.x + 1) / 2) * w, y = ((1 - p.y) / 2) * h;
+      rect.left = Math.min(rect.left, x);
+      rect.right = Math.max(rect.right, x);
+      rect.top = Math.min(rect.top, y);
+      rect.bottom = Math.max(rect.bottom, y);
+      return true;
+    };
+    const boundsOf = (node: GameObject): ScreenRect | null => {
+      const rect: ScreenRect = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+      const text = texts.get(node);
+      if (text) {
+        // Screen-space text: the UI camera maps the reference resolution onto the canvas.
+        const e = text.matrix.elements;
+        return { left: ((e[12] - e[0] / 2) / W) * w, right: ((e[12] + e[0] / 2) / W) * w, top: (1 - (e[13] + e[5] / 2) / H) * h, bottom: (1 - (e[13] - e[5] / 2) / H) * h };
+      }
+      const sprite = sprites.get(node);
+      if (sprite) {
+        sprite.updateMatrixWorld();
+        for (const [cx, cy] of [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]) {
+          if (!add(rect, tmpPoint.set(cx, cy, 0).applyMatrix4(sprite.matrixWorld))) return null;
+        }
+        return rect;
+      }
+      tmpWorld.fromArray(world.worldMatrix(node.entity), node.entity * 16);
+      return add(rect, tmpPoint.setFromMatrixPosition(tmpWorld)) ? rect : null;
+    };
+
+    const out: { node: GameObject; rect: ScreenRect }[] = [];
+    const visit = (node: GameObject): void => {
+      if (world.isPendingDestroy(node.entity) || !node.activeInHierarchy) return;
+      const rect = node.transform ? boundsOf(node) : null;
+      if (rect) out.push({ node, rect });
+      for (const c of node.children) visit(c);
+    };
+    visit(root);
+    return out;
+  }
+
+  /**
    * @internal Editor: the world point on the plane z = `z` under a canvas point (CSS pixels),
    * seen through the camera that draws the view; null if the ray misses the plane (looking
    * along it or away from it).
@@ -722,23 +788,28 @@ export class RenderBackend {
 
   private gizmo: TransformControls | null = null;
   private gizmoLoading: Promise<void> | null = null;
-  /** Stand-in the gizmo moves; synced from the target node while not dragging. */
+  /** Stand-in the gizmo moves; synced from the target nodes while not dragging. */
   private readonly gizmoProxy = new Object3D();
-  private gizmoTarget: GameObject | null = null;
+  private gizmoTargets: readonly GameObject[] = [];
+  /** World matrices when the drag started: the proxy's and each target's. */
+  private gizmoStart: { proxy: Matrix4; targets: Matrix4[] } | null = null;
   private gizmoOptions: GizmoOptions = { mode: "translate", planar: false, snap: false };
   private gizmoHandlers: GizmoHandlers | null = null;
   private gizmoDragging = false;
   private gizmoWorld: World | null = null;
 
   /**
-   * @internal Editor: show a move/rotate/scale gizmo on `node` (null hides it). Drags report
-   * the node's new local pose through `handlers`; the editor turns them into commands.
+   * @internal Editor: show a move/rotate/scale gizmo on `nodes` (none hides it). One node: the
+   * gizmo sits on it, aligned with it. Several: it sits at their centre, aligned with the world,
+   * and moves, turns or scales them all around that point. Drags report the nodes' new local
+   * poses through `handlers`; the editor turns them into commands. Don't pass a node together
+   * with one of its descendants, or the descendant moves twice.
    */
-  setGizmo(node: GameObject | null, options: GizmoOptions, handlers: GizmoHandlers | null): void {
-    this.gizmoTarget = node;
+  setGizmo(nodes: readonly GameObject[], options: GizmoOptions, handlers: GizmoHandlers | null): void {
+    this.gizmoTargets = nodes;
     this.gizmoOptions = options;
     this.gizmoHandlers = handlers;
-    if (node && !this.gizmo && !this.gizmoLoading) this.gizmoLoading = this.loadGizmo();
+    if (nodes.length > 0 && !this.gizmo && !this.gizmoLoading) this.gizmoLoading = this.loadGizmo();
     this.applyGizmoOptions();
   }
 
@@ -770,12 +841,17 @@ export class RenderBackend {
     controls.attach(this.gizmoProxy);
     controls.addEventListener("dragging-changed", (e) => {
       this.gizmoDragging = Boolean((e as { value?: unknown }).value);
-      if (this.gizmoDragging) this.gizmoHandlers?.onStart();
-      else this.gizmoHandlers?.onEnd();
+      if (this.gizmoDragging) {
+        this.gizmoStart = this.gizmoWorld ? this.gizmoMatrices(this.gizmoWorld) : null;
+        this.gizmoHandlers?.onStart();
+      } else {
+        this.gizmoStart = null;
+        this.gizmoHandlers?.onEnd();
+      }
     });
     controls.addEventListener("objectChange", () => {
-      const pose = this.gizmoDragging ? this.gizmoPose() : null;
-      if (pose) this.gizmoHandlers?.onChange(pose);
+      const poses = this.gizmoDragging ? this.gizmoPoses() : null;
+      if (poses) this.gizmoHandlers?.onChange(poses);
     });
     this.gizmo = controls;
     this.applyGizmoOptions();
@@ -794,33 +870,65 @@ export class RenderBackend {
     c.setScaleSnap(snap ? 0.1 : null);
   }
 
-  /** The target's local pose implied by where the gizmo has moved the proxy. */
-  private gizmoPose(): LocalPose | null {
-    const node = this.gizmoTarget, world = this.gizmoWorld;
-    if (!node?.isValid || !world) return null;
-    const parent = node.parent;
-    const parentWorld = parent ? new Matrix4().fromArray(world.worldMatrix(parent.entity), parent.entity * 16) : null;
+  private gizmoMatrices(world: World): { proxy: Matrix4; targets: Matrix4[] } {
     this.gizmoProxy.updateMatrix();
-    return localPoseFromWorld(parentWorld, this.gizmoProxy.position, this.gizmoProxy.quaternion, this.gizmoProxy.scale);
+    return {
+      proxy: this.gizmoProxy.matrix.clone(),
+      targets: this.gizmoTargets.map((n) => new Matrix4().fromArray(world.worldMatrix(n.entity), n.entity * 16)),
+    };
+  }
+
+  /**
+   * The targets' local poses implied by how the gizmo has moved the proxy since the drag began:
+   * the same change (new proxy x inverse of the start proxy) applied to each target's start pose.
+   */
+  private gizmoPoses(): LocalPose[] | null {
+    const start = this.gizmoStart, world = this.gizmoWorld;
+    if (!start || !world || !this.gizmoTargets.every((n) => n.isValid)) return null;
+    this.gizmoProxy.updateMatrix();
+    const delta = this.gizmoProxy.matrix.clone().multiply(start.proxy.clone().invert());
+    const position = new ThreeVector3(), quaternion = new Quaternion(), scale = new ThreeVector3();
+    return this.gizmoTargets.map((node, i) => {
+      if (this.gizmoTargets.length === 1) {
+        // Exactly the proxy, so a single node never picks up rounding error.
+        position.copy(this.gizmoProxy.position);
+        quaternion.copy(this.gizmoProxy.quaternion);
+        scale.copy(this.gizmoProxy.scale);
+      } else {
+        delta.clone().multiply(start.targets[i]).decompose(position, quaternion, scale);
+      }
+      const parent = node.parent;
+      const parentWorld = parent ? new Matrix4().fromArray(world.worldMatrix(parent.entity), parent.entity * 16) : null;
+      return localPoseFromWorld(parentWorld, position, quaternion, scale);
+    });
   }
 
   private syncGizmo(world: World): void {
     const c = this.gizmo;
     if (!c) return;
     this.gizmoWorld = world;
-    const node = this.gizmoTarget;
+    const nodes = this.gizmoTargets.filter((n) => n.isValid && n.transform && n.activeInHierarchy);
     const view = this.viewCameras(world)[0];
     const camera = view && this.cameras.get(view)?.camera;
-    const show = !!camera && !!node?.isValid && !!node.transform && node.activeInHierarchy;
+    const show = !!camera && nodes.length > 0 && nodes.length === this.gizmoTargets.length;
     c.enabled = show;
     c.getHelper().visible = show;
     if (!show) return;
     c.camera = camera;
     if (!this.gizmoDragging) {
-      const e = node!.entity;
-      tmpWorld.fromArray(world.worldMatrix(e), e * 16);
-      tmpWorld.decompose(this.gizmoProxy.position, this.gizmoProxy.quaternion, this.gizmoProxy.scale);
-      this.gizmoProxy.updateMatrixWorld(true);
+      const proxy = this.gizmoProxy;
+      if (nodes.length === 1) {
+        const e = nodes[0].entity;
+        tmpWorld.fromArray(world.worldMatrix(e), e * 16);
+        tmpWorld.decompose(proxy.position, proxy.quaternion, proxy.scale);
+      } else {
+        proxy.position.set(0, 0, 0);
+        for (const n of nodes) proxy.position.add(tmpPoint.setFromMatrixPosition(tmpWorld.fromArray(world.worldMatrix(n.entity), n.entity * 16)));
+        proxy.position.divideScalar(nodes.length);
+        proxy.quaternion.identity();
+        proxy.scale.set(1, 1, 1);
+      }
+      proxy.updateMatrixWorld(true);
     }
   }
 

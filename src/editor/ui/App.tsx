@@ -6,6 +6,7 @@ import { AssetsPanel } from "./Assets";
 import { AssetDragGhost, ViewportDropHighlight } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { HistoryPanel } from "./HistoryPanel";
+import { RefineList } from "./RefineList";
 import { SettingsDialog, settingsOpen } from "./SettingsDialog";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
@@ -33,6 +34,7 @@ export function App() {
       <AssetDragGhost />
       <ConfirmDialog />
       <SettingsDialog />
+      <RefineList />
     </div>
   );
 }

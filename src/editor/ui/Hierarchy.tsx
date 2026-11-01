@@ -4,7 +4,8 @@ import { pathKey, type SceneDocument } from "../document";
 import { assetDrag } from "../assetDrag";
 import { nodeDrag, startNodeDrag } from "../nodeDrag";
 import { innerNodes, type InnerNode } from "../prefabs";
-import { docVersion, openScene, selection } from "../state";
+import { combineSelection, rangeBetween } from "../selectionModel";
+import { docVersion, isSelected, openScene, select, selectedKeys } from "../state";
 
 /** Collapsed scene nodes, by path key. */
 const collapsed = signal<ReadonlySet<string>>(new Set());
@@ -17,8 +18,25 @@ function toggle(set: typeof collapsed, key: string): void {
   set.value = next;
 }
 
-/** True if the selection is strictly inside the node at `key` (so its ancestors open up). */
-const selectionInside = (key: string) => selection.value?.startsWith(`${key}/`) ?? false;
+/** True if a selected node is strictly inside the node at `key` (so its ancestors open up). */
+const selectionInside = (key: string) => selectedKeys.value.some((k) => k.startsWith(`${key}/`));
+
+/** Where a Shift+click range starts: the last row clicked without Shift. */
+let anchor: string | null = null;
+
+/** A row click: select it alone, Ctrl/Cmd toggles it, Shift selects the visible rows from the anchor (Ctrl+Shift adds them). */
+function clickRow(e: MouseEvent, key: string): void {
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (e.shiftKey) {
+    const tree = (e.currentTarget as HTMLElement).closest(".tree");
+    const order = [...(tree?.querySelectorAll<HTMLElement>(".row[data-key]") ?? [])].map((el) => el.dataset.key!);
+    const range = rangeBetween(order, anchor ?? key, key);
+    select(ctrl ? combineSelection(selectedKeys.peek(), range, "add") : range, key);
+    return;
+  }
+  anchor = key;
+  select(ctrl ? combineSelection(selectedKeys.peek(), [key], "toggle") : [key], key);
+}
 
 /**
  * The open scene's node tree, read from the document (ADR 0026). Prefab instances expand to the
@@ -140,7 +158,7 @@ function Row(props: {
   children?: ComponentChildren;
 }) {
   const { rowKey, depth, expandable, open, badge } = props;
-  const selected = selection.value === rowKey;
+  const selected = isSelected(rowKey);
   const drop = dropMode(rowKey);
   return (
     <li role="treeitem" aria-selected={selected} aria-expanded={expandable ? open : undefined}>
@@ -150,7 +168,7 @@ function Row(props: {
         onPointerDown={(e) => startNodeDrag(e, rowKey)}
         style={{ paddingLeft: `${depth * 14 + 4}px` }}
         title={props.inner ? "Inside a prefab instance: edits become overrides" : undefined}
-        onClick={() => (selection.value = rowKey)}
+        onClick={(e) => clickRow(e, rowKey)}
       >
         <span
           class={`caret${expandable ? "" : " leaf"}`}

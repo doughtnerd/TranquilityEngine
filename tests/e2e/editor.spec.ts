@@ -66,7 +66,8 @@ test("clicking in the viewport selects, cycles through overlaps, and clears on e
   expect(errors).toEqual([]);
 });
 
-test("a drag doesn't change the selection", async ({ page }) => {
+// (A left drag on empty space draws a selection box: see selection.spec.ts.)
+test("a camera drag doesn't change the selection", async ({ page }) => {
   await openEditor(page);
   const canvas = page.locator("#viewport canvas");
   const box = (await canvas.boundingBox())!;
@@ -75,9 +76,9 @@ test("a drag doesn't change the selection", async ({ page }) => {
   await expect(selectedRow(page)).toHaveText("Sprite");
 
   await page.mouse.move(box.x + 20, box.y + 20);
-  await page.mouse.down();
+  await page.mouse.down({ button: "right" }); // pans in 2D, orbits in 3D
   await page.mouse.move(box.x + 120, box.y + 80, { steps: 5 });
-  await page.mouse.up();
+  await page.mouse.up({ button: "right" });
   await expect(selectedRow(page)).toHaveText("Sprite");
 });
 

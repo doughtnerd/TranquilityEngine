@@ -1,5 +1,5 @@
 // Collider gizmos (ADR 0022), like Unity's: every 2D collider in the scene is outlined in green
-// (the selected node's brighter). With "Edit Collider" on, the collider gets handles: box edges
+// (selected nodes' brighter). With "Edit Collider" on, the collider gets handles: box edges
 // resize it (Alt: symmetric), circle rim handles set the radius, and the centre handle moves its
 // offset. Each drag is one undo step (an override on prefab instances).
 import { effect } from "@preact/signals";
@@ -7,7 +7,7 @@ import { BoxCollider2D, CircleCollider2D, Collider2D, GameObject, type Engine } 
 import { overlayHandleAt, pointOnSpritePlane, setEditorOverlay, viewportCanvas, type EditorOverlay } from "../engine/editor";
 import { boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, tidy, toLocal, type BoxHandle, type CircleHandle, type Pose2D, type V2 } from "./colliderMath";
 import { SetField } from "./document";
-import { editingCollider, openScene, playState, selectedWorldNode, selection, type EditingCollider } from "./state";
+import { editingCollider, openScene, playState, selectedNodes, selectedWorldNode, selection, type EditingCollider } from "./state";
 
 const COLOR = 0x3fae5a;
 const COLOR_SELECTED = 0x9dff9d;
@@ -35,12 +35,12 @@ function editedCollider(): { node: GameObject; collider: BoxCollider2D | CircleC
 /** What to draw this frame: outlines for every collider in the edited scene, handles for the one being edited. */
 export function colliderOverlay(engine: Engine): EditorOverlay {
   const overlay: EditorOverlay = { lines: [], handles: [] };
-  const selected = selectedWorldNode();
+  const selected = new Set(selectedNodes().map((s) => s.node));
   for (const c of GameObject.findObjectsOfType(Collider2D)) {
     const node = c.node;
     if (!node.transform || !engine.world.inEditMode(node.entity)) continue;
     const pose = poseOf(node);
-    const color = node === selected ? COLOR_SELECTED : COLOR;
+    const color = selected.has(node) ? COLOR_SELECTED : COLOR;
     const center: V2 = [c.center.x, c.center.y];
     if (c instanceof BoxCollider2D) overlay.lines.push({ points: boxCorners(pose, center, [c.size.x, c.size.y]), closed: true, color });
     else if (c instanceof CircleCollider2D) overlay.lines.push({ points: circlePoints(pose, center, c.radius), closed: true, color });

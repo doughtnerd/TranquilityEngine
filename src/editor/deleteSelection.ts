@@ -1,27 +1,31 @@
-// Deleting the selected node from the open scene, asking first when other nodes reference it
+// Deleting the selected nodes from the open scene, asking first when other nodes reference them
 // (unless the user chose not to be asked again).
-import { pathKey } from "./document";
-import { deleteNode, describeReference, referencesInto, whyNotDeletable } from "./hierarchyEdit";
+import { deleteNodes, describeReference, referencesInto, whyNotDeletable } from "./hierarchyEdit";
 import { askBeforeClearingReferences } from "./preferences";
-import { openScene, playState, selection, status } from "./state";
+import { topmostKeys } from "./selectionModel";
+import { openScene, playState, select, selectedKeys, status } from "./state";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 
-/** Delete the selected node (and its children). Returns true if it was deleted. */
+/** Delete the selected nodes (and their children) as one undo step. Returns true if they were deleted. */
 export async function deleteSelected(): Promise<boolean> {
-  const scene = openScene.value, key = selection.value;
-  if (!scene || !key || playState.value !== "edit") return false;
-  const reason = whyNotDeletable(scene.doc, key);
-  if (reason) {
-    status.value = { kind: "info", text: `Can't delete that: ${reason}.` };
-    return false;
+  const scene = openScene.value;
+  if (!scene || selectedKeys.value.length === 0 || playState.value !== "edit") return false;
+  const keys = topmostKeys(scene.doc, selectedKeys.value); // children go with their parents
+  for (const key of keys) {
+    const reason = whyNotDeletable(scene.doc, key);
+    if (reason) {
+      const what = keys.length === 1 ? "that" : key;
+      status.value = { kind: "info", text: `Can't delete ${what}: ${reason}.` };
+      return false;
+    }
   }
-  const name = scene.doc.node(key).name ?? key;
-  const refs = referencesInto(scene.doc, key);
+  const name = keys.length === 1 ? (scene.doc.node(keys[0]).name ?? keys[0]) : `${keys.length} nodes`;
+  const refs = referencesInto(scene.doc, keys);
   const labels = refs.map((r) => describeReference(scene.doc, r));
   if (refs.length > 0 && askBeforeClearingReferences.value) {
     const answer = await confirmInEditor({
       title: `Delete ${name}?`,
-      message: `${refs.length === 1 ? "This reference" : `These ${refs.length} references`} to it will be set to None. Undo restores them.`,
+      message: `${refs.length === 1 ? "This reference" : `These ${refs.length} references`} to ${keys.length === 1 ? "it" : "them"} will be set to None. Undo restores them.`,
       items: labels,
       confirmLabel: "Delete",
       optionLabel: "Don't ask again",
@@ -30,9 +34,9 @@ export async function deleteSelected(): Promise<boolean> {
     if (answer.option) askBeforeClearingReferences.value = false;
   }
   // The scene may have changed while the dialog was open.
-  if (openScene.value !== scene || !scene.doc.has(key)) return false;
-  deleteNode(scene, key);
-  if (selection.value === key || selection.value?.startsWith(`${pathKey([key])}/`)) selection.value = null;
+  if (openScene.value !== scene || !keys.every((k) => scene.doc.has(k))) return false;
+  deleteNodes(scene, keys);
+  select(selectedKeys.peek().filter((k) => scene.doc.has(k.split("/")[0])));
   status.value =
     refs.length === 0
       ? { kind: "info", text: `Deleted ${name}.` }

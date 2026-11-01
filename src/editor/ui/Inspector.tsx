@@ -5,7 +5,7 @@ import { RenameNode, RevertOverrides, SetActive, SetField, isFieldOverride, path
 import { editorFor, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
 import { deleteSelected } from "../deleteSelection";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
-import { currentProject, docVersion, editingCollider, openScene, selectedPath, selection, status, type OpenScene } from "../state";
+import { currentProject, docVersion, editingCollider, openScene, selectedKeys, selection, status, type OpenScene } from "../state";
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -13,15 +13,22 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
  * The selected node's components with their declared fields and live values (ADR 0022, 0026).
  * Every edit is a command on the open document, so it can be undone. On a prefab instance, or a
  * node inside one, edits become overrides: overridden fields are marked and can be reverted, and
- * the instance's overrides can be applied to the prefab file.
+ * the instance's overrides can be applied to the prefab file. With several nodes selected it
+ * shows the components they all have; fields that differ show a dash, and an edit sets every
+ * selected node in one undo step.
  */
 export function Inspector() {
   docVersion.value; // re-render when the document changes
   const scene = openScene.value;
-  const path = selectedPath();
-  if (!scene || !path || !scene.doc.has(path[0])) return <p class="empty">Nothing selected</p>;
+  if (!scene) return <p class="empty">Nothing selected</p>;
+  // Selected nodes that still exist (an undo may have removed some).
+  const paths = selectedKeys.value
+    .map((k) => k.split("/") as NodePath)
+    .filter((p) => scene.doc.has(p[0]) && (p.length === 1 || findInner(scene.doc, p)));
+  if (paths.length === 0) return <p class="empty">Nothing selected</p>;
+  if (paths.length > 1) return <MultiInspector scene={scene} paths={paths} />;
+  const path = paths[0];
   const inner = path.length > 1 ? findInner(scene.doc, path) : null;
-  if (path.length > 1 && !inner) return <p class="empty">Nothing selected</p>;
 
   const id = path[0];
   const entry = scene.doc.node(id);
@@ -69,10 +76,72 @@ export function Inspector() {
       {entry.prefab && !inner && <PrefabActions scene={scene} id={id} />}
       {!entry.prefab && <CreatePrefabButton scene={scene} id={id} />}
       {components.map((c) => (
-        <ComponentCard key={`${key}/${c.type}#${c.index}`} scene={scene} path={path} info={c} />
+        <ComponentCard key={`${key}/${c.type}#${c.index}`} scene={scene} paths={[path]} infos={[c]} />
       ))}
     </div>
   );
+}
+
+/** Several nodes: their names, a shared active toggle, Delete, and the components they all have. */
+function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
+  const { scene, paths } = props;
+  const nodes = paths.map((p) => scene.sync.nodeFor(p));
+  const lists = nodes.map((n) => (n ? listComponents(n) : []));
+  // Components every node has, matched by type and index, in the active (last) node's order.
+  const shared = lists[lists.length - 1].filter((c) => lists.every((l) => l.some((o) => o.type === c.type && o.index === c.index)));
+  const names = paths.map((p, i) => nodes[i]?.name ?? p[p.length - 1]);
+  const anyInner = paths.some((p) => p.length > 1);
+  const actives = paths.map((p, i) => (p.length > 1 ? (nodes[i]?.active ?? true) : scene.doc.node(p[0]).active !== false));
+  const allActive = actives.every(Boolean);
+  const key = paths.map(pathKey).join("|");
+  return (
+    <div class="inspector-body">
+      <div class="node-header">
+        <input
+          type="checkbox"
+          checked={allActive}
+          indeterminate={!allActive && actives.some(Boolean)}
+          disabled={anyInner}
+          aria-label="Active"
+          title={anyInner ? "Nodes inside a prefab are activated in the prefab" : undefined}
+          onChange={(e) => {
+            const on = (e.currentTarget as HTMLInputElement).checked;
+            inGroup(scene, `${on ? "Activate" : "Deactivate"} ${paths.length} nodes`, () => {
+              for (const p of paths) scene.stack.execute(new SetActive(p[0], on));
+            });
+          }}
+        />
+        <span class="node-name multi-name">{paths.length} nodes selected</span>
+        {!anyInner && (
+          <button class="delete-node" title="Delete these nodes and their children (Delete)" aria-label="Delete nodes" onClick={() => void deleteSelected()}>
+            Delete
+          </button>
+        )}
+      </div>
+      <p class="multi-names" title={names.join(", ")}>
+        {names.join(", ")}
+      </p>
+      {shared.length === 0 && <p class="empty">No components in common</p>}
+      {shared.map((c) => (
+        <ComponentCard
+          key={`${key}/${c.type}#${c.index}`}
+          scene={scene}
+          paths={paths}
+          infos={lists.map((l) => l.find((o) => o.type === c.type && o.index === c.index)!)}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Run `body` as one undo step. */
+function inGroup(scene: OpenScene, label: string, body: () => void): void {
+  scene.stack.beginGroup(label);
+  try {
+    body();
+  } finally {
+    scene.stack.endGroup();
+  }
 }
 
 /** Apply or revert all of an instance's overrides. */
@@ -144,10 +213,12 @@ function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
 
 const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D"]);
 
-function ComponentCard(props: { scene: OpenScene; path: NodePath; info: ComponentInfo }) {
-  const { info, path } = props;
+/** One component, shared by every node in `paths` (`infos` holds each node's copy, in the same order). */
+function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: ComponentInfo[] }) {
+  const { paths, infos } = props;
+  const info = infos[infos.length - 1];
   const title = info.type.replace(/^(engine|game|editor)\./, "");
-  const key = pathKey(path);
+  const key = pathKey(paths[paths.length - 1]);
   const e = editingCollider.value;
   const editing = !!e && e.key === key && e.type === info.type && e.index === info.index;
   return (
@@ -156,7 +227,7 @@ function ComponentCard(props: { scene: OpenScene; path: NodePath; info: Componen
         <input type="checkbox" checked={info.enabled} disabled aria-label={`${title} enabled`} />
         {title}
         {info.kind === "data" && <span class="badge">data</span>}
-        {COLLIDERS.has(info.type) && (
+        {COLLIDERS.has(info.type) && paths.length === 1 && (
           <button
             class={`edit-collider${editing ? " active" : ""}`}
             aria-pressed={editing}
@@ -172,7 +243,7 @@ function ComponentCard(props: { scene: OpenScene; path: NodePath; info: Componen
       ) : (
         <div class="fields">
           {info.fields.map((f) => (
-            <FieldRow key={f.name} {...props} field={f} />
+            <FieldRow key={f.name} {...props} info={info} values={infos.map((i) => i.fields.find((o) => o.name === f.name)?.value)} field={f} />
           ))}
         </div>
       )}
@@ -180,28 +251,49 @@ function ComponentCard(props: { scene: OpenScene; path: NodePath; info: Componen
   );
 }
 
-function FieldRow(props: { scene: OpenScene; path: NodePath; info: ComponentInfo; field: FieldValue }) {
-  const { scene, path, info, field } = props;
+/**
+ * One field of a component on every node in `paths`; `values` holds each node's value. Values
+ * that differ show as mixed, and a commit writes every node (one undo step for several).
+ */
+function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentInfo; field: FieldValue; values: unknown[] }) {
+  const { scene, paths, info, field, values } = props;
   const editor = editorFor(field);
-  const [id, ...target] = path;
-  const instance = scene.doc.isPrefabInstance(id);
-  const overridden = isOverridden(scene.doc, path, info.type, field.name, info.index);
+  const overridden = paths.some((p) => isOverridden(scene.doc, p, info.type, field.name, info.index));
+  const mixed = new Set(values.map((v) => valueKey(v, scene))).size > 1;
 
-  /** Write a new value through a SetField command (an override on prefab instances and nodes inside them). */
-  const commit = (value: unknown) => {
-    const previous = instance
-      ? scene.doc.overrideValue(id, target, info.type, field.name, info.index)
-      : scene.doc.fieldValue(id, info.type, field.name, info.index);
-    const json = toSceneJSON(editor, value, { field: field.name, previous, nodeId: (n) => scene.sync.nodeIdOf(n) });
-    scene.stack.execute(new SetField(id, info.type, field.name, json, { index: info.index, target }));
+  /** Write each node's new value through a SetField command (an override on prefab instances and nodes inside them). */
+  const commitEach = (valueFor: (i: number) => unknown) => {
+    const write = () =>
+      paths.forEach(([id, ...target], i) => {
+        const previous = scene.doc.isPrefabInstance(id)
+          ? scene.doc.overrideValue(id, target, info.type, field.name, info.index)
+          : scene.doc.fieldValue(id, info.type, field.name, info.index);
+        const json = toSceneJSON(editor, valueFor(i), { field: field.name, previous, nodeId: (n) => scene.sync.nodeIdOf(n) });
+        scene.stack.execute(new SetField(id, info.type, field.name, json, { index: info.index, target }));
+      });
+    if (paths.length === 1) write();
+    else inGroup(scene, `Set ${field.name} on ${paths.length} nodes`, write);
   };
+  const commit = (value: unknown) => commitEach(() => value);
+  /** Set one axis of a vector on every node, keeping each node's other axes. */
+  const commitAxis = (axis: number, n: number) =>
+    commitEach((i) => {
+      const own = values[i] as { toArray(): number[] } | null | undefined;
+      const base = own ? own.toArray() : editor === "vector2" ? [1, 1] : [0, 0, 0];
+      return base.map((old, j) => (j === axis ? n : old));
+    });
   const revert = () =>
-    scene.stack.execute(new RevertOverrides(id, `Revert ${field.name}`, (o) => isFieldOverride(o, target, info.type, field.name, info.index)));
+    inGroup(scene, `Revert ${field.name}`, () => {
+      for (const [id, ...target] of paths) {
+        if (!scene.doc.isPrefabInstance(id)) continue;
+        scene.stack.execute(new RevertOverrides(id, `Revert ${field.name}`, (o) => isFieldOverride(o, target, info.type, field.name, info.index)));
+      }
+    });
 
   return (
     <>
       <div class={`label-cell${overridden ? " overridden" : ""}`}>
-        <ScrubLabel name={field.name} scene={scene} value={isNumeric(editor) ? Number(field.value) : null} onScrub={commit} />
+        <ScrubLabel name={field.name} scene={scene} value={isNumeric(editor) && !mixed ? Number(field.value) : null} onScrub={commit} />
         {overridden && (
           <button class="revert" title={`Overridden in this scene. Revert ${field.name} to the prefab's value`} aria-label={`Revert ${field.name}`} onClick={revert}>
             ↺
@@ -209,7 +301,7 @@ function FieldRow(props: { scene: OpenScene; path: NodePath; info: ComponentInfo
         )}
       </div>
       <div class="value">
-        <FieldEditorView editor={editor} field={field} scene={scene} onCommit={commit} />
+        <FieldEditorView editor={editor} field={field} values={values} mixed={mixed} scene={scene} onCommit={commit} onCommitAxis={commitAxis} />
       </div>
     </>
   );
@@ -217,22 +309,54 @@ function FieldRow(props: { scene: OpenScene; path: NodePath; info: ComponentInfo
 
 const isNumeric = (e: FieldEditor) => e === "number" || e === "integer";
 
-function FieldEditorView(props: { editor: FieldEditor; field: FieldValue; scene: OpenScene; onCommit: (value: unknown) => void }) {
-  const { editor, field, scene, onCommit } = props;
+/** A comparable form of a field value, to tell whether several nodes' values differ. */
+function valueKey(v: unknown, scene: OpenScene): string {
+  if (v instanceof Color) return `color:${v.toHex()}:${v.a}`;
+  if (v instanceof GameObject) return `node:${scene.sync.nodeIdOf(v)}`;
+  if (v && typeof v === "object" && "toArray" in v) return JSON.stringify((v as { toArray(): number[] }).toArray());
+  return JSON.stringify(v ?? null);
+}
+
+/** Shown for values that differ between the selected nodes. */
+const MIXED = "\u2014";
+
+function FieldEditorView(props: {
+  editor: FieldEditor;
+  field: FieldValue;
+  /** Each selected node's value; `field.value` is the active node's. */
+  values: unknown[];
+  mixed: boolean;
+  scene: OpenScene;
+  onCommit: (value: unknown) => void;
+  onCommitAxis: (axis: number, value: number) => void;
+}) {
+  const { editor, field, values, mixed, scene, onCommit } = props;
   const v = field.value;
   switch (editor) {
     case "number":
     case "integer":
-      return <NumberInput value={Number(v)} integer={editor === "integer"} label={field.name} onCommit={onCommit} />;
+      return <NumberInput value={mixed ? null : Number(v)} integer={editor === "integer"} label={field.name} onCommit={onCommit} />;
     case "boolean":
-      return <input type="checkbox" checked={Boolean(v)} aria-label={field.name} onChange={(e) => onCommit((e.currentTarget as HTMLInputElement).checked)} />;
+      return (
+        <input
+          type="checkbox"
+          checked={!mixed && Boolean(v)}
+          indeterminate={mixed}
+          aria-label={field.name}
+          onChange={(e) => onCommit((e.currentTarget as HTMLInputElement).checked)}
+        />
+      );
     case "string":
     case "asset":
-      return <TextInput value={String(v ?? "")} label={field.name} onCommit={onCommit} />;
+      return <TextInput value={mixed ? "" : String(v ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} onCommit={onCommit} />;
     case "color":
-      return <ColorInput value={v instanceof Color ? v : Color.white} label={field.name} onCommit={onCommit} />;
+      return <ColorInput value={v instanceof Color ? v : Color.white} mixed={mixed} label={field.name} onCommit={onCommit} />;
     case "vector2":
     case "vector3":
+      if (values.some((x) => x !== null && x !== undefined) && values.some((x) => x === null || x === undefined)) {
+        // Set on some nodes, unset (automatic) on others.
+        return <span class="none">{MIXED} (some Auto)</span>;
+      }
       if (v === null || v === undefined) {
         // Unset (e.g. a sprite's size, which then comes from its texture): offer to set one.
         const zero = editor === "vector2" ? [1, 1] : [0, 0, 0];
@@ -245,11 +369,11 @@ function FieldEditorView(props: { editor: FieldEditor; field: FieldValue; scene:
           </span>
         );
       }
-      return <VectorInput value={(v as { toArray(): number[] }).toArray()} label={field.name} onCommit={onCommit} />;
+      return <VectorInput value={axesOf(values)} label={field.name} onCommitAxis={props.onCommitAxis} />;
     case "node":
-      return <NodeRefInput value={v instanceof GameObject ? scene.sync.nodeIdOf(v) : null} scene={scene} label={field.name} onCommit={onCommit} />;
+      return <NodeRefInput value={v instanceof GameObject ? scene.sync.nodeIdOf(v) : null} mixed={mixed} scene={scene} label={field.name} onCommit={onCommit} />;
     case "object":
-      return <ObjectInput value={(v ?? {}) as Record<string, unknown>} onCommit={onCommit} />;
+      return mixed ? <span class="none">{MIXED} (differs)</span> : <ObjectInput value={(v ?? {}) as Record<string, unknown>} onCommit={onCommit} />;
     default:
       return <span>{JSON.stringify(v)}</span>;
   }
@@ -257,8 +381,14 @@ function FieldEditorView(props: { editor: FieldEditor; field: FieldValue; scene:
 
 // --- inputs -------------------------------------------------------------------------------------
 
+/** Each axis shared by every vector in `values`, or null where they differ. */
+function axesOf(values: unknown[]): (number | null)[] {
+  const arrays = values.map((x) => (x as { toArray(): number[] }).toArray());
+  return arrays[0].map((n, i) => (arrays.every((a) => a[i] === n) ? n : null));
+}
+
 /** Text that commits on Enter or blur and reverts on Escape. */
-function TextInput(props: { value: string; label: string; class?: string; onCommit: (v: string) => void }) {
+function TextInput(props: { value: string; label: string; class?: string; placeholder?: string; onCommit: (v: string) => void }) {
   const [draft, setDraft] = useState(props.value);
   useEffect(() => setDraft(props.value), [props.value]);
   const commit = () => draft !== props.value && props.onCommit(draft);
@@ -267,6 +397,7 @@ function TextInput(props: { value: string; label: string; class?: string; onComm
       type="text"
       class={props.class}
       aria-label={props.label}
+      placeholder={props.placeholder}
       value={draft}
       onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
       onBlur={commit}
@@ -281,9 +412,12 @@ function TextInput(props: { value: string; label: string; class?: string; onComm
   );
 }
 
-/** A number that commits on Enter or blur. Accepts simple arithmetic (`2*3`); invalid text reverts. */
-function NumberInput(props: { value: number; integer?: boolean; label: string; onCommit: (v: number) => void }) {
-  const shown = formatNumber(props.value);
+/**
+ * A number that commits on Enter or blur. Accepts simple arithmetic (`2*3`); invalid text reverts.
+ * A null value (differs between the selected nodes) shows a dash until a number is typed.
+ */
+function NumberInput(props: { value: number | null; integer?: boolean; label: string; onCommit: (v: number) => void }) {
+  const shown = props.value === null ? MIXED : formatNumber(props.value);
   const [draft, setDraft] = useState(shown);
   useEffect(() => setDraft(shown), [shown]);
   const commit = () => {
@@ -313,25 +447,22 @@ function NumberInput(props: { value: number; integer?: boolean; label: string; o
   );
 }
 
-function VectorInput(props: { value: number[]; label: string; onCommit: (v: number[]) => void }) {
+/** A vector edited per axis; a null axis differs between the selected nodes. */
+function VectorInput(props: { value: (number | null)[]; label: string; onCommitAxis: (axis: number, v: number) => void }) {
   const axes = ["x", "y", "z", "w"];
   return (
     <span class="vec">
       {props.value.map((x, i) => (
         <label key={i} class="axis">
           <em>{axes[i]}</em>
-          <NumberInput
-            value={x}
-            label={`${props.label} ${axes[i]}`}
-            onCommit={(n) => props.onCommit(props.value.map((old, j) => (j === i ? n : old)))}
-          />
+          <NumberInput value={x} label={`${props.label} ${axes[i]}`} onCommit={(n) => props.onCommitAxis(i, n)} />
         </label>
       ))}
     </span>
   );
 }
 
-function ColorInput(props: { value: Color; label: string; onCommit: (v: Color) => void }) {
+function ColorInput(props: { value: Color; mixed?: boolean; label: string; onCommit: (v: Color) => void }) {
   const c = props.value;
   return (
     <span class="color">
@@ -345,24 +476,30 @@ function ColorInput(props: { value: Color; label: string; onCommit: (v: Color) =
           props.onCommit(next);
         }}
       />
-      <span class="hex">{c.toHex()}</span>
-      {c.a < 1 && <span class="alpha">α {formatNumber(c.a)}</span>}
+      <span class="hex">{props.mixed ? MIXED : c.toHex()}</span>
+      {!props.mixed && c.a < 1 && <span class="alpha">α {formatNumber(c.a)}</span>}
     </span>
   );
 }
 
 /** Pick another node of the open scene, or None. */
-function NodeRefInput(props: { value: string | null; scene: OpenScene; label: string; onCommit: (id: string | null) => void }) {
+function NodeRefInput(props: { value: string | null; mixed?: boolean; scene: OpenScene; label: string; onCommit: (id: string | null) => void }) {
   const { doc } = props.scene;
+  const MIXED_VALUE = "\u0000mixed";
   return (
     <select
       aria-label={props.label}
-      value={props.value ?? ""}
+      value={props.mixed ? MIXED_VALUE : (props.value ?? "")}
       onChange={(e) => {
         const id = (e.currentTarget as HTMLSelectElement).value;
-        props.onCommit(id === "" ? null : id);
+        if (id !== MIXED_VALUE) props.onCommit(id === "" ? null : id);
       }}
     >
+      {props.mixed && (
+        <option value={MIXED_VALUE} disabled>
+          {MIXED}
+        </option>
+      )}
       <option value="">None</option>
       {doc.nodes.map((n) => (
         <option key={n.id} value={n.id}>

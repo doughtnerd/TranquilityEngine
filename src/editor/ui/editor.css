@@ -243,3 +243,30 @@ button.danger:hover { background: #a33939; }
 .node-header .delete-node { margin-left: auto; flex: none; }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .component h3 .edit-collider { margin-left: auto; font-size: 11px; font-weight: 500; padding: 1px 8px; }
+
+/* Viewport multi-selection (ADR 0022): the selection box and the Alt+click refine list. */
+.selection-box { position: fixed; z-index: 20; pointer-events: none; border: 1px solid var(--accent); background: rgb(76 141 255 / 0.15); }
+.refine-backdrop { position: fixed; inset: 0; z-index: 30; }
+.refine-list {
+  position: fixed;
+  min-width: 180px;
+  max-width: 320px;
+  max-height: 360px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.45);
+  outline: none;
+}
+.refine-list:focus-visible { box-shadow: 0 6px 20px rgb(0 0 0 / 0.45), 0 0 0 2px var(--accent); }
+.refine-title { padding: 6px 8px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid var(--border); }
+.refine-list ul { list-style: none; margin: 0; padding: 2px 0; overflow-y: auto; }
+.refine-list li { padding: 3px 8px; cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
+.refine-list li:hover { background: var(--button-hover); }
+.refine-list li.inner { color: var(--muted); font-style: italic; }
+.refine-list li.selected { background: rgb(76 141 255 / 0.35); color: #fff; }
+.refine-list li.focused { box-shadow: inset 0 0 0 1px var(--accent); }
+.refine-hint { padding: 5px 8px; color: var(--muted); font-size: 11px; border-top: 1px solid var(--border); }
+.multi-names { margin: 0 0 6px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

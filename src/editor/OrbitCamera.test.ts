@@ -26,6 +26,7 @@ describe("OrbitCamera (ADR 0022)", () => {
   it("rotates while the right mouse button drags", () => {
     const before = eye();
     Input.simulate("down", "mouse2");
+    engine.step(frame); // the press: travel before it is ignored
     Input.simulateMouseMove(100, -50);
     engine.step(frame);
 
@@ -46,9 +47,18 @@ describe("OrbitCamera (ADR 0022)", () => {
     expect(orbit.pitch).toBeCloseTo(-24, 4);
   });
 
+  it("ignores travel from before a drag began", () => {
+    Input.simulateMouseMove(300, 200); // moved, then pressed, within one frame
+    Input.simulate("down", "mouse2");
+    engine.step(frame);
+    expect(orbit.yaw).toBeCloseTo(35, 4);
+    expect(orbit.pitch).toBeCloseTo(-24, 4);
+  });
+
   it("orbits with Alt + left drag and clamps pitch", () => {
     Input.simulate("down", "alt");
     Input.simulate("down", "mouse0");
+    engine.step(frame); // the press: travel before it is ignored
     Input.simulateMouseMove(0, 10_000);
     engine.step(frame);
     expect(orbit.pitch).toBe(orbit.minPitch);
@@ -56,6 +66,7 @@ describe("OrbitCamera (ADR 0022)", () => {
 
   it("pans with middle drag and Shift + right drag, keeping the view angle", () => {
     Input.simulate("down", "mouse1");
+    engine.step(frame); // the press: travel before it is ignored
     Input.simulateMouseMove(120, 0);
     engine.step(frame);
     Input.simulate("up", "mouse1");
@@ -66,6 +77,7 @@ describe("OrbitCamera (ADR 0022)", () => {
 
     Input.simulate("down", "shift");
     Input.simulate("down", "mouse2");
+    engine.step(frame); // the press: travel before it is ignored
     Input.simulateMouseMove(0, 60);
     engine.step(frame);
     expect(orbit.focusPoint.y).toBeGreaterThan(afterMiddle.y); // dragging down moves the focus up
@@ -100,6 +112,7 @@ describe("OrbitCamera (ADR 0022)", () => {
     expect(p.z).toBeCloseTo(orbit.distance, 4);
 
     Input.simulate("down", "mouse2");
+    engine.step(frame); // the press: travel before it is ignored
     Input.simulateMouseMove(100, 0);
     engine.step(frame);
     expect(orbit.yaw).toBe(0);

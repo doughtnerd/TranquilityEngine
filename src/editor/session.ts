@@ -1,7 +1,8 @@
 // The editor session: one Editor World per open project (ADR 0016, 0026). Opening another
 // project tears the World down and boots a new one with that project's settings and assets.
 import { Engine, GameObject } from "../engine";
-import { overlayHandlesOnCanvas } from "../engine/editor";
+import { overlayHandlesOnCanvas, screenBounds } from "../engine/editor";
+import { pathKey } from "./document";
 import { getFileSystem } from "../engine/platform/FileSystem";
 import { effect } from "@preact/signals";
 import { confirmDiscard } from "./dialogs";
@@ -25,6 +26,25 @@ let history: AttachedHistory | null = null;
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Boot an Editor World for `project` in the viewport and open its main scene. */
+/** Debug and end-to-end test hook: where a document node (by path key) is on the viewport canvas, or null. */
+function nodeRect(key: string): { left: number; top: number; right: number; bottom: number } | null {
+  const scene = openScene.peek(), root = scene?.sync.sceneNode;
+  if (!scene || !root) return null;
+  const rects = screenBounds(scene.sync.world, root)
+    .filter((b) => {
+      const path = scene.sync.pathOf(b.node);
+      return path !== null && pathKey(path) === key;
+    })
+    .map((b) => b.rect);
+  if (rects.length === 0) return null;
+  return {
+    left: Math.min(...rects.map((r) => r.left)),
+    top: Math.min(...rects.map((r) => r.top)),
+    right: Math.max(...rects.map((r) => r.right)),
+    bottom: Math.max(...rects.map((r) => r.bottom)),
+  };
+}
+
 export async function loadProject(project: EditorProject): Promise<void> {
   stopPlaying();
   await detachHistory();
@@ -53,7 +73,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   currentProject.value = project;
   engine.start();
   // Debug and end-to-end test hooks.
-  Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world) });
+  Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world), nodeRect });
   if (project.mainScene) openScene_(project.mainScene);
 }
 

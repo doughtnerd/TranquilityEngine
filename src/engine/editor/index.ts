@@ -11,7 +11,7 @@ import { World } from "../core/World";
 import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
-import type { EditorOverlay, GizmoHandlers, GizmoOptions } from "../render/RenderBackend";
+import type { EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 
@@ -227,6 +227,16 @@ export function pick(world: World, x: number, y: number): GameObject[] {
   return world.render?.pick(world, x, y) ?? [];
 }
 
+export type { ScreenRect } from "../render/RenderBackend";
+
+/**
+ * Where each active node under `root` is on the canvas (CSS pixels): the rectangle around its
+ * sprite or text, or a point at its origin. Parents come before children. Empty headless.
+ */
+export function screenBounds(world: World, root: GameObject): { node: GameObject; rect: ScreenRect }[] {
+  return world.render?.screenBounds(world, root) ?? [];
+}
+
 /** Outline the renderers of these nodes (and their descendants) in the viewport until changed. */
 export function setSelectionOutline(world: World, nodes: readonly GameObject[]): void {
   world.render?.setSelectionOutline(nodes);
@@ -235,9 +245,12 @@ export function setSelectionOutline(world: World, nodes: readonly GameObject[]):
 export type { GizmoHandlers, GizmoOptions } from "../render/RenderBackend";
 export type { LocalPose } from "../render/gizmoMath";
 
-/** Show a move/rotate/scale gizmo on `node` (null hides it); drags report new local poses. No-op headless. */
-export function setGizmo(world: World, node: GameObject | null, options: GizmoOptions, handlers: GizmoHandlers | null): void {
-  world.render?.setGizmo(node, options, handlers);
+/**
+ * Show a move/rotate/scale gizmo on `nodes` (none hides it): on the node itself for one, at their
+ * centre for several. Drags report each node's new local pose. No-op headless.
+ */
+export function setGizmo(world: World, nodes: readonly GameObject[], options: GizmoOptions, handlers: GizmoHandlers | null): void {
+  world.render?.setGizmo(nodes, options, handlers);
 }
 
 /** True while dragging the gizmo or if a canvas point is over one of its handles, so clicks there don't select. */

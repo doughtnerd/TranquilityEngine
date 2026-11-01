@@ -64,8 +64,8 @@ export function moveNode(scene: OpenScene, id: string, parent: string | null, in
 }
 
 /** References from nodes outside `id`'s subtree to nodes inside it: the ones deleting it breaks. */
-export function referencesInto(doc: SceneDocument, id: string): NodeReference[] {
-  const inside = new Set(doc.subtree(id));
+export function referencesInto(doc: SceneDocument, id: string | readonly string[]): NodeReference[] {
+  const inside = new Set((typeof id === "string" ? [id] : id).flatMap((i) => doc.subtree(i)));
   return doc.references().filter((r) => inside.has(r.to) && !inside.has(r.path[0]));
 }
 
@@ -82,14 +82,21 @@ export function whyNotDeletable(doc: SceneDocument, key: string): string | null 
  * references it cleared.
  */
 export function deleteNode(scene: OpenScene, id: string): NodeReference[] {
+  return deleteNodes(scene, [id]);
+}
+
+/** `deleteNode` for several nodes at once, as one undo step. None of them may be inside another. */
+export function deleteNodes(scene: OpenScene, ids: readonly string[]): NodeReference[] {
   const { doc, stack } = scene;
-  const reason = whyNotDeletable(doc, id);
-  if (reason) throw new Error(reason);
-  const refs = referencesInto(doc, id);
-  stack.beginGroup(`Delete ${doc.node(id).name ?? id}`);
+  for (const id of ids) {
+    const reason = whyNotDeletable(doc, id);
+    if (reason) throw new Error(reason);
+  }
+  const refs = referencesInto(doc, ids);
+  stack.beginGroup(ids.length === 1 ? `Delete ${doc.node(ids[0]).name ?? ids[0]}` : `Delete ${ids.length} nodes`);
   try {
     for (const r of refs) stack.execute(new SetField(r.path[0], r.type, r.field, null, { index: r.index, target: r.path.slice(1) }));
-    stack.execute(new RemoveNode(id));
+    for (const id of ids) stack.execute(new RemoveNode(id));
   } finally {
     stack.endGroup();
   }

@@ -1,15 +1,22 @@
-// Viewport selection (ADR 0022, 0026): a plain left click picks the topmost renderer under the
+// Viewport selection (ADR 0022, 0026). A plain left click picks the topmost renderer under the
 // pointer and selects its document node; clicking the same spot again cycles through overlapping
-// hits; clicking empty space clears. The selection is outlined in the viewport, and the scene
-// camera's F key frames it.
+// hits; clicking empty space clears. Shift+click adds the hit, Ctrl/Cmd+click toggles it. A left
+// drag on empty space draws a selection box: every node lying inside it is selected (Shift adds,
+// Ctrl/Cmd toggles), live as the box changes; Escape puts the selection back. Alt+click opens a
+// list of every node near the pointer, occluded ones and their children included, to refine the
+// selection. The selection is outlined in the viewport, and the scene camera's F key frames it.
 import { effect } from "@preact/signals";
 import type { Engine, GameObject } from "../engine";
-import { gizmoActive, pick, setSelectionOutline, viewportCanvas } from "../engine/editor";
+import { gizmoActive, pick, screenBounds, setSelectionOutline, viewportCanvas, type ScreenRect } from "../engine/editor";
+import { pathKey, type NodePath } from "./document";
 import type { OrbitCamera } from "./OrbitCamera";
-import { docVersion, openScene, selectedWorldNode, selection } from "./state";
+import { combineSelection, selectModeFor, withDescendants, type SelectMode } from "./selectionModel";
+import { docVersion, openScene, refineList, select, selectedKeys, selectedNodes, selection } from "./state";
 
 /** Pointer travel (CSS pixels) under which a press and release count as a click, not a drag. */
 export const CLICK_SLOP = 4;
+/** How far (CSS pixels) from an Alt+click a node can be and still be listed. */
+export const REFINE_RADIUS = 24;
 
 export interface PointerSample {
   readonly x: number;
@@ -44,53 +51,181 @@ export function chooseSelection(hits: readonly string[], current: string | null,
   return index < 0 ? hits[0] : hits[(index + 1) % hits.length];
 }
 
+/** The rectangle between two canvas points. */
+export function boxBetween(a: { x: number; y: number }, b: { x: number; y: number }): ScreenRect {
+  return { left: Math.min(a.x, b.x), top: Math.min(a.y, b.y), right: Math.max(a.x, b.x), bottom: Math.max(a.y, b.y) };
+}
+
+const union = (a: ScreenRect, b: ScreenRect): ScreenRect => ({
+  left: Math.min(a.left, b.left),
+  top: Math.min(a.top, b.top),
+  right: Math.max(a.right, b.right),
+  bottom: Math.max(a.bottom, b.bottom),
+});
+const inside = (r: ScreenRect, box: ScreenRect) => r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= box.bottom;
+
+/**
+ * Document ids lying inside `box`: a node counts when everything it draws (its own renderers and
+ * those of the nodes inside it, for a prefab instance), or its origin if it draws nothing, is
+ * within the box. In the order the nodes were listed.
+ */
+export function idsInBox(bounds: readonly { node: GameObject; rect: ScreenRect }[], box: ScreenRect, idOf: (node: GameObject) => string | null): string[] {
+  const extent = new Map<string, ScreenRect>();
+  for (const { node, rect } of bounds) {
+    const id = idOf(node);
+    if (id === null) continue;
+    const e = extent.get(id);
+    extent.set(id, e ? union(e, rect) : rect);
+  }
+  return [...extent].filter(([, r]) => inside(r, box)).map(([id]) => id);
+}
+
+/**
+ * Path keys of the nodes within `radius` of a canvas point, however deep: each node near it, and
+ * for a node inside a prefab instance, the instance too. In the order the nodes were listed.
+ */
+export function keysNear(bounds: readonly { node: GameObject; rect: ScreenRect }[], x: number, y: number, radius: number, pathOf: (node: GameObject) => NodePath | null): string[] {
+  const out = new Set<string>();
+  for (const { node, rect } of bounds) {
+    const dx = Math.max(rect.left - x, 0, x - rect.right), dy = Math.max(rect.top - y, 0, y - rect.bottom);
+    if (Math.hypot(dx, dy) > radius) continue;
+    const path = pathOf(node);
+    if (!path) continue;
+    out.add(path[0]);
+    out.add(pathKey(path));
+  }
+  return [...out];
+}
+
 /** Hook selection up to the viewport. Returns a function that removes it. */
 export function installViewportSelection(engine: Engine, camera: OrbitCamera): () => void {
   const world = engine.world;
   camera.focusTarget = () => {
-    const node = selectedWorldNode();
-    return node?.isValid && node.transform ? node.transform.worldPosition : null;
+    const nodes = selectedNodes().filter((s) => s.node.isValid && s.node.transform);
+    if (nodes.length === 0) return null;
+    const sum = [0, 0, 0];
+    for (const { node } of nodes) {
+      const p = node.transform!.worldPosition;
+      sum[0] += p.x;
+      sum[1] += p.y;
+      sum[2] += p.z;
+    }
+    return sum.map((v) => v / nodes.length);
   };
 
   // Outline the selection; re-run when it changes or the document is edited (nodes may be rebuilt).
   const stopOutline = effect(() => {
     docVersion.value;
-    const node = selectedWorldNode();
-    setSelectionOutline(world, node ? [node] : []);
+    setSelectionOutline(
+      world,
+      selectedNodes().map((s) => s.node),
+    );
   });
 
   const canvas = viewportCanvas(world);
   if (!canvas) return stopOutline;
 
-  let down: PointerSample | null = null;
-  let lastClick: { x: number; y: number } | null = null;
-  const sample = (e: PointerEvent): PointerSample => {
+  const local = (e: { clientX: number; clientY: number }) => {
     const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top, button: e.button, alt: e.altKey };
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
   };
+  const sample = (e: PointerEvent): PointerSample => ({ ...local(e), button: e.button, alt: e.altKey });
+
+  let down: (PointerSample & { pointerId: number }) | null = null;
+  let lastClick: { x: number; y: number } | null = null;
+  /** The selection box being dragged: the selection before it, and its element. */
+  let box: { before: readonly string[]; element: HTMLDivElement } | null = null;
+
+  const boundsUnderScene = () => {
+    const root = openScene.value?.sync.sceneNode;
+    return root ? screenBounds(world, root) : [];
+  };
+
+  const updateBox = (e: PointerEvent) => {
+    const scene = openScene.value;
+    if (!box || !down || !scene) return;
+    const p = local(e);
+    const r = boxBetween(down, p);
+    const c = canvas.getBoundingClientRect();
+    Object.assign(box.element.style, { left: `${c.left + r.left}px`, top: `${c.top + r.top}px`, width: `${r.right - r.left}px`, height: `${r.bottom - r.top}px` });
+    const ids = idsInBox(boundsUnderScene(), r, (n) => scene.sync.nodeIdOf(n));
+    select(combineSelection(box.before, ids, selectModeFor(e)));
+  };
+  const endBox = (restore: boolean) => {
+    if (!box) return;
+    if (restore) select(box.before);
+    box.element.remove();
+    box = null;
+    down = null;
+    window.removeEventListener("keydown", onKey, true);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key !== "Escape" || !box) return;
+    e.preventDefault();
+    e.stopPropagation();
+    endBox(true);
+  };
+
   const onDown = (e: PointerEvent) => {
     // Presses on a gizmo handle drag the gizmo; they never change the selection.
     const p = sample(e);
-    down = e.button === 0 && !gizmoActive(world, p.x, p.y) ? p : null;
+    down = e.button === 0 && !gizmoActive(world, p.x, p.y) ? { ...p, pointerId: e.pointerId } : null;
+  };
+  const onMove = (e: PointerEvent) => {
+    if (!down || down.alt || !openScene.value) return;
+    if (box) return updateBox(e);
+    const p = local(e);
+    if (Math.hypot(p.x - down.x, p.y - down.y) < CLICK_SLOP) return;
+    // A left drag that didn't start on a gizmo handle: draw a selection box.
+    canvas.setPointerCapture?.(down.pointerId);
+    const element = document.createElement("div");
+    element.className = "selection-box";
+    document.body.appendChild(element);
+    box = { before: selectedKeys.peek(), element };
+    window.addEventListener("keydown", onKey, true);
+    updateBox(e);
   };
   const onUp = (e: PointerEvent) => {
+    if (box) {
+      updateBox(e);
+      return endBox(false);
+    }
     const start = down;
     down = null;
     const scene = openScene.value;
     if (!start || !scene) return;
     const p = sample(e);
+    if (start.alt && e.button === 0 && Math.hypot(p.x - start.x, p.y - start.y) < CLICK_SLOP) {
+      // Alt+click: list everything near the pointer, with children, to refine the selection.
+      const keys = keysNear(boundsUnderScene(), p.x, p.y, REFINE_RADIUS, (n) => scene.sync.pathOf(n));
+      const entries = withDescendants(scene.doc, keys);
+      if (entries.length > 0) refineList.value = { x: e.clientX, y: e.clientY, entries, before: selectedKeys.peek() };
+      return;
+    }
     if (!isPlainClick(start, p)) return;
     const hits = hitIds(pick(world, p.x, p.y), (n) => scene.sync.nodeIdOf(n));
-    const sameSpot = lastClick !== null && Math.hypot(p.x - lastClick.x, p.y - lastClick.y) < CLICK_SLOP;
-    selection.value = chooseSelection(hits, selection.value, sameSpot);
+    const mode: SelectMode = selectModeFor(e);
+    if (mode === "replace") {
+      const sameSpot = lastClick !== null && Math.hypot(p.x - lastClick.x, p.y - lastClick.y) < CLICK_SLOP;
+      selection.value = chooseSelection(hits, selection.value, sameSpot);
+    } else if (hits.length > 0) {
+      select(combineSelection(selectedKeys.peek(), [hits[0]], mode));
+    }
     lastClick = { x: p.x, y: p.y };
   };
+  const onCancel = () => endBox(true);
+
   canvas.addEventListener("pointerdown", onDown);
+  canvas.addEventListener("pointermove", onMove);
   canvas.addEventListener("pointerup", onUp);
+  canvas.addEventListener("pointercancel", onCancel);
   return () => {
+    endBox(false);
     stopOutline();
     canvas.removeEventListener("pointerdown", onDown);
+    canvas.removeEventListener("pointermove", onMove);
     canvas.removeEventListener("pointerup", onUp);
+    canvas.removeEventListener("pointercancel", onCancel);
     camera.focusTarget = null;
   };
 }

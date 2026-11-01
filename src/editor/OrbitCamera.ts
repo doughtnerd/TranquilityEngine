@@ -33,6 +33,7 @@ export class OrbitCamera extends GameBehavior {
   private camera: Camera | null = null;
   private _mode: ViewMode = "3d";
   private saved3D = { yaw: 35, pitch: -24 };
+  private lastGesture: "orbit" | "pan" | null = null;
 
   /** Where `focus()` and the F key go when no point is given (the editor points it at the selection). Null or unset: the origin. */
   focusTarget: (() => Vec3Input | null) | null = null;
@@ -85,7 +86,10 @@ export class OrbitCamera extends GameBehavior {
 
   update(): void {
     const delta = Input.mouseDelta;
-    const gesture = this.gesture();
+    // A gesture's first frame ignores the delta: it's travel from before the button went down.
+    const current = this.gesture();
+    const gesture = current === this.lastGesture ? current : null;
+    this.lastGesture = current;
     if (gesture === "orbit") {
       this.yaw -= delta.x * this.sensitivity;
       this.pitch = Mathf.clamp(this.pitch - delta.y * this.sensitivity, this.minPitch, this.maxPitch);
