@@ -19,6 +19,8 @@ import {
   MeshBasicMaterial,
   Object3D,
   OrthographicCamera,
+  Points,
+  PointsMaterial,
   PerspectiveCamera,
   PlaneGeometry,
   Raycaster,
@@ -51,6 +53,14 @@ export interface GizmoOptions {
   planar: boolean;
   /** Snap to 0.25 m, 15° or 0.1 scale steps. */
   snap: boolean;
+}
+
+/** @internal Editor overlay (e.g. collider outlines and handles), supplied every frame by the editor. */
+export interface EditorOverlay {
+  /** Polylines in world space; `color` is 0xRRGGBB. */
+  lines: { points: [number, number, number][]; closed: boolean; color: number }[];
+  /** Handles drawn as fixed-size squares on top of everything; picked by `pickOverlayHandle`. */
+  handles: { id: string; position: [number, number, number]; color: number }[];
 }
 
 /** @internal What the editor does with a gizmo drag: one start, many changes, one end. */
@@ -232,6 +242,7 @@ export class RenderBackend {
     if (this.fill) {
       this.syncOutlines();
       this.syncCameraGizmos(world);
+      this.syncOverlay();
       this.syncGizmo(world);
     }
   }
@@ -553,6 +564,91 @@ export class RenderBackend {
     return line;
   }
 
+  // --- Editor: overlay lines and handles (ADR 0022) ----------------------------------------------
+
+  private overlayProvider: (() => EditorOverlay) | null = null;
+  private overlayLines: LineSegments<BufferGeometry, LineBasicMaterial> | null = null;
+  private overlayHandles: Points<BufferGeometry, PointsMaterial> | null = null;
+  private overlayHandleIds: string[] = [];
+
+  /** @internal Editor: draw what `provider` returns every frame (null stops). */
+  setOverlayProvider(provider: (() => EditorOverlay) | null): void {
+    this.overlayProvider = provider;
+  }
+
+  /** @internal Editor: where each overlay handle is on the canvas (CSS pixels); handles behind the camera are left out. */
+  overlayHandlesOnCanvas(world: World): { id: string; x: number; y: number }[] {
+    const points = this.overlayHandles;
+    const view = this.viewCameras(world)[0];
+    const camera = view && this.cameras.get(view)?.camera;
+    if (!points || !points.visible || !camera) return [];
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    const pos = points.geometry.getAttribute("position") as Float32BufferAttribute;
+    const out: { id: string; x: number; y: number }[] = [];
+    this.overlayHandleIds.forEach((id, i) => {
+      tmpPoint.set(pos.getX(i), pos.getY(i), pos.getZ(i)).project(camera);
+      if (tmpPoint.z >= -1 && tmpPoint.z <= 1) out.push({ id, x: ((tmpPoint.x + 1) / 2) * w, y: ((1 - tmpPoint.y) / 2) * h });
+    });
+    return out;
+  }
+
+  /**
+   * @internal Editor: the id of the overlay handle under a canvas point (CSS pixels), nearest
+   * within `radius` pixels, or null.
+   */
+  pickOverlayHandle(world: World, x: number, y: number, radius = 9): string | null {
+    let best: string | null = null, bestDistance = radius;
+    for (const h of this.overlayHandlesOnCanvas(world)) {
+      const d = Math.hypot(h.x - x, h.y - y);
+      if (d <= bestDistance) {
+        bestDistance = d;
+        best = h.id;
+      }
+    }
+    return best;
+  }
+
+  private syncOverlay(): void {
+    const overlay = this.overlayProvider?.() ?? { lines: [], handles: [] };
+    // Lines: one LineSegments with per-vertex colours, refilled each frame (a few hundred vertices).
+    const segs: number[] = [], colors: number[] = [];
+    const rgb = (c: number) => [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255];
+    for (const line of overlay.lines) {
+      const p = line.points, n = line.closed ? p.length : p.length - 1;
+      const [r, g, b] = rgb(line.color);
+      for (let i = 0; i < n; i++) {
+        const a = p[i], q = p[(i + 1) % p.length];
+        segs.push(...a, ...q);
+        colors.push(r, g, b, r, g, b);
+      }
+    }
+    // Both are transparent so they draw after the (transparent) sprites, in render order.
+    this.overlayLines ??= this.addOverlayObject(
+      new LineSegments(new BufferGeometry(), new LineBasicMaterial({ vertexColors: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 })),
+      OUTLINE_ORDER - 2,
+    );
+    fillOverlayGeometry(this.overlayLines, segs, colors);
+    // Handles: fixed-size squares (points without size attenuation), drawn above the lines.
+    const hp: number[] = [], hc: number[] = [];
+    for (const h of overlay.handles) {
+      hp.push(...h.position);
+      hc.push(...rgb(h.color));
+    }
+    this.overlayHandles ??= this.addOverlayObject(
+      new Points(new BufferGeometry(), new PointsMaterial({ size: 9, sizeAttenuation: false, vertexColors: true, depthTest: false, depthWrite: false, transparent: true })),
+      OUTLINE_ORDER + 2,
+    );
+    fillOverlayGeometry(this.overlayHandles, hp, hc);
+    this.overlayHandleIds = overlay.handles.map((h) => h.id);
+  }
+
+  private addOverlayObject<T extends LineSegments<BufferGeometry, LineBasicMaterial> | Points<BufferGeometry, PointsMaterial>>(object: T, renderOrder: number): T {
+    object.frustumCulled = false;
+    object.renderOrder = renderOrder;
+    this.scene.add(object);
+    return object;
+  }
+
   // --- Editor: camera gizmos (ADR 0022) --------------------------------------------------------
 
   private readonly cameraGizmos = new Map<Camera, { icon: ThreeSprite; frustum: LineSegments<BufferGeometry, LineBasicMaterial> }>();
@@ -730,6 +826,10 @@ export class RenderBackend {
 
   dispose(): void {
     this.gizmo?.dispose();
+    this.overlayLines?.geometry.dispose();
+    this.overlayLines?.material.dispose();
+    this.overlayHandles?.geometry.dispose();
+    this.overlayHandles?.material.dispose();
     this.cameraIconMaterial?.map?.dispose();
     this.cameraIconMaterial?.dispose();
     this.resizeObserver.disconnect();
@@ -784,4 +884,26 @@ function anchorFactors(anchor: Anchor): [number, number] {
     case "bottom-right": return [1, 1];
     default: return [0.5, 0.5];
   }
+}
+
+/** Write positions and colours into an overlay object's geometry, growing its buffers only when they're too small. */
+function fillOverlayGeometry(object: { geometry: BufferGeometry; visible: boolean }, positions: number[], colors: number[]): void {
+  const g = object.geometry;
+  const count = positions.length / 3;
+  let pos = g.getAttribute("position") as Float32BufferAttribute | undefined;
+  let col = g.getAttribute("color") as Float32BufferAttribute | undefined;
+  if (!pos || pos.count < count) {
+    const capacity = Math.max(64, 2 ** Math.ceil(Math.log2(Math.max(count, 1))));
+    g.dispose(); // frees the old GPU buffers
+    pos = new Float32BufferAttribute(new Float32Array(capacity * 3), 3);
+    col = new Float32BufferAttribute(new Float32Array(capacity * 3), 3);
+    g.setAttribute("position", pos);
+    g.setAttribute("color", col);
+  }
+  (pos.array as Float32Array).set(positions);
+  (col!.array as Float32Array).set(colors);
+  pos.needsUpdate = true;
+  col!.needsUpdate = true;
+  g.setDrawRange(0, count);
+  object.visible = count > 0;
 }

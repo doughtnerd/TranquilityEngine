@@ -1,12 +1,14 @@
 // The editor session: one Editor World per open project (ADR 0016, 0026). Opening another
 // project tears the World down and boots a new one with that project's settings and assets.
 import { Engine, GameObject } from "../engine";
+import { overlayHandlesOnCanvas } from "../engine/editor";
 import { getFileSystem } from "../engine/platform/FileSystem";
 import { effect } from "@preact/signals";
 import { confirmDiscard } from "./dialogs";
 import { attachHistory, defaultHistoryPlatform, slotsFor, type AttachedHistory } from "./historyPersistence";
 import { historyLocation } from "./preferences";
 import { confirmInEditor } from "./ui/ConfirmDialog";
+import { installColliderGizmo } from "./colliderGizmo";
 import { installGizmo } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
@@ -39,7 +41,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   orbit.mode = viewMode.value;
   sceneCamera.value = orbit;
-  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine)];
+  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine)];
   session = {
     engine,
     dispose() {
@@ -50,7 +52,8 @@ export async function loadProject(project: EditorProject): Promise<void> {
   };
   currentProject.value = project;
   engine.start();
-  Object.assign(window, { engine, orbit });
+  // Debug and end-to-end test hooks.
+  Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world) });
   if (project.mainScene) openScene_(project.mainScene);
 }
 

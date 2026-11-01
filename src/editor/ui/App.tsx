@@ -1,7 +1,7 @@
 import { DockLayout } from "../layout/DockLayout";
 import { resetLayout } from "../layout/store";
 import { openProjectFolder, save, togglePlaying } from "../session";
-import { currentProject, docVersion, openScene, playState, sceneCamera, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
+import { currentProject, docVersion, openScene, pickTool, playState, sceneCamera, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
 import { AssetsPanel } from "./Assets";
 import { AssetDragGhost, ViewportDropHighlight } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -84,7 +84,7 @@ function Tools() {
           class={current === t.tool ? "active" : ""}
           aria-pressed={current === t.tool}
           title={`${t.label} (${t.key})`}
-          onClick={() => (tool.value = t.tool)}
+          onClick={() => pickTool(t.tool)}
         >
           {t.label}
         </button>

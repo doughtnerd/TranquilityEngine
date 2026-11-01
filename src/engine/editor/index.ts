@@ -11,7 +11,7 @@ import { World } from "../core/World";
 import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
-import type { GizmoHandlers, GizmoOptions } from "../render/RenderBackend";
+import type { EditorOverlay, GizmoHandlers, GizmoOptions } from "../render/RenderBackend";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 
@@ -253,8 +253,8 @@ export function resumeEditorWorld(world: World): void {
 }
 
 /** The world point on the plane z = 0 under a canvas point (CSS pixels), or null (headless, or the ray misses it). */
-export function pointOnSpritePlane(world: World, x: number, y: number): [number, number, number] | null {
-  return world.render?.pointOnPlaneZ(world, x, y, 0) ?? null;
+export function pointOnSpritePlane(world: World, x: number, y: number, z = 0): [number, number, number] | null {
+  return world.render?.pointOnPlaneZ(world, x, y, z) ?? null;
 }
 
 /**
@@ -269,4 +269,21 @@ export function localPoseUnder(node: GameObject, parent: GameObject | null): Loc
   m.decompose(position, quaternion, scale);
   const parentWorld = parent ? new Matrix4().fromArray(world.worldMatrix(parent.entity), parent.entity * 16) : null;
   return localPoseFromWorld(parentWorld, position, quaternion, scale);
+}
+
+export type { EditorOverlay } from "../render/RenderBackend";
+
+/** Draw an overlay (lines and handles) supplied by `provider` every frame; null stops. No-op headless. */
+export function setEditorOverlay(world: World, provider: (() => EditorOverlay) | null): void {
+  world.render?.setOverlayProvider(provider);
+}
+
+/** The id of the overlay handle under a canvas point, or null. */
+export function overlayHandleAt(world: World, x: number, y: number): string | null {
+  return world.render?.pickOverlayHandle(world, x, y) ?? null;
+}
+
+/** Where each overlay handle is on the canvas (CSS pixels). Empty headless. */
+export function overlayHandlesOnCanvas(world: World): { id: string; x: number; y: number }[] {
+  return world.render?.overlayHandlesOnCanvas(world) ?? [];
 }

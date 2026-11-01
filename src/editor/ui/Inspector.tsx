@@ -5,7 +5,7 @@ import { RenameNode, RevertOverrides, SetActive, SetField, isFieldOverride, path
 import { editorFor, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
 import { deleteSelected } from "../deleteSelection";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
-import { currentProject, docVersion, openScene, selectedPath, selection, status, type OpenScene } from "../state";
+import { currentProject, docVersion, editingCollider, openScene, selectedPath, selection, status, type OpenScene } from "../state";
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -142,15 +142,30 @@ function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
   );
 }
 
+const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D"]);
+
 function ComponentCard(props: { scene: OpenScene; path: NodePath; info: ComponentInfo }) {
-  const { info } = props;
+  const { info, path } = props;
   const title = info.type.replace(/^(engine|game|editor)\./, "");
+  const key = pathKey(path);
+  const e = editingCollider.value;
+  const editing = !!e && e.key === key && e.type === info.type && e.index === info.index;
   return (
     <section class="component">
       <h3>
         <input type="checkbox" checked={info.enabled} disabled aria-label={`${title} enabled`} />
         {title}
         {info.kind === "data" && <span class="badge">data</span>}
+        {COLLIDERS.has(info.type) && (
+          <button
+            class={`edit-collider${editing ? " active" : ""}`}
+            aria-pressed={editing}
+            title={editing ? "Stop editing the collider (handles hide, the transform gizmo returns)" : "Show handles in the viewport to resize this collider and move its center"}
+            onClick={() => (editingCollider.value = editing ? null : { key, type: info.type as "engine.BoxCollider2D", index: info.index })}
+          >
+            Edit Collider
+          </button>
+        )}
       </h3>
       {info.fields.length === 0 ? (
         <p class="empty">No fields</p>

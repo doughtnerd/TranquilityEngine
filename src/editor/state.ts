@@ -62,3 +62,19 @@ export function selectedWorldNode(): GameObject | null {
   const scene = openScene.value, path = selectedPath();
   return scene && path && scene.doc.has(path[0]) ? scene.sync.nodeFor(path) : null;
 }
+
+/** The collider whose handles are showing ("Edit Collider", like Unity), or null. */
+export interface EditingCollider {
+  /** Path key of the node (see `selection`). */
+  key: string;
+  type: "engine.BoxCollider2D" | "engine.CircleCollider2D";
+  /** Which collider of that type on the node. */
+  index: number;
+}
+export const editingCollider = signal<EditingCollider | null>(null);
+
+/** Pick a tool. Picking any tool, even the current one, ends collider editing so its gizmo comes back. */
+export function pickTool(t: Tool): void {
+  editingCollider.value = null;
+  tool.value = t;
+}

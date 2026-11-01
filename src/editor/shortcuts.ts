@@ -1,7 +1,7 @@
 // Editor keyboard shortcuts. Text fields keep their own keys (and undo), so shortcuts skip them.
 import { deleteSelected } from "./deleteSelection";
 import { save, togglePlaying } from "./session";
-import { openScene, snapping, tool, type Tool } from "./state";
+import { openScene, pickTool, snapping, type Tool } from "./state";
 
 function isEditable(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -62,7 +62,7 @@ export function installShortcuts(target: Window = window): () => void {
       return;
     }
     if (action.startsWith("tool:")) {
-      tool.value = action.slice(5) as Tool;
+      pickTool(action.slice(5) as Tool);
       return;
     }
     const stack = openScene.value?.stack;

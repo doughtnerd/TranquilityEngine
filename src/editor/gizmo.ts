@@ -5,7 +5,7 @@ import type { Engine } from "../engine";
 import { setGizmo, type GizmoHandlers, type GizmoOptions, type LocalPose } from "../engine/editor";
 import { SetField, type NodePath, type SceneDocument } from "./document";
 import { toSceneJSON } from "./fieldValues";
-import { docVersion, openScene, selectedPath, selectedWorldNode, snapping, tool, viewMode, type Tool } from "./state";
+import { docVersion, editingCollider, openScene, selectedPath, selectedWorldNode, snapping, tool, viewMode, type Tool } from "./state";
 
 type Mode = GizmoOptions["mode"];
 
@@ -63,7 +63,8 @@ export function installGizmo(engine: Engine): () => void {
   const stop = effect(() => {
     docVersion.value; // nodes are rebuilt by structural edits; re-target the gizmo
     openScene.value;
-    const mode = gizmoMode(tool.value);
+    // While a collider's handles are showing ("Edit Collider"), the transform gizmo steps aside.
+    const mode = editingCollider.value ? null : gizmoMode(tool.value);
     const node = mode ? selectedWorldNode() : null;
     setGizmo(world, node, { mode: mode ?? "translate", planar: viewMode.value === "2d", snap: snapping.value }, handlers);
   });
