@@ -17,6 +17,6 @@ export {
   type SetFieldOptions,
 } from "./commands";
 export { CommandStack, HISTORY_LIMIT, type HistoryFile, type HistoryState, type StackEvent, type StackListener } from "./CommandStack";
-export { applyPatch, changesBetween, diffFiles, hashFile, type DocPatch } from "./patch";
+export { applyPatch, changesBetween, diffFiles, hashFile, hashText, type DocPatch } from "./patch";
 export { WorldSync } from "./WorldSync";
 export { RebuildInstances, RevertOverrides } from "./prefabCommands";

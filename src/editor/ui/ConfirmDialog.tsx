@@ -7,6 +7,10 @@ export interface ConfirmOptions {
   /** Listed under the message (e.g. what will change). */
   items?: string[];
   confirmLabel: string;
+  /** Default "Cancel". */
+  cancelLabel?: string;
+  /** Show the confirm button as destructive (default true). */
+  danger?: boolean;
   /** A checkbox under the list, e.g. "Don't ask again"; its state comes back as `option`. */
   optionLabel?: string;
 }
@@ -71,8 +75,8 @@ export function ConfirmDialog() {
           </label>
         )}
         <div class="dialog-buttons">
-          <button onClick={() => close(false)}>Cancel</button>
-          <button ref={confirm} class="danger" onClick={() => close(true)}>
+          <button onClick={() => close(false)}>{p.cancelLabel ?? "Cancel"}</button>
+          <button ref={confirm} class={p.danger === false ? "primary" : "danger"} onClick={() => close(true)}>
             {p.confirmLabel}
           </button>
         </div>

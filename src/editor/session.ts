@@ -2,7 +2,11 @@
 // project tears the World down and boots a new one with that project's settings and assets.
 import { Engine, GameObject } from "../engine";
 import { getFileSystem } from "../engine/platform/FileSystem";
+import { effect } from "@preact/signals";
 import { confirmDiscard } from "./dialogs";
+import { attachHistory, defaultHistoryPlatform, slotsFor, type AttachedHistory } from "./historyPersistence";
+import { historyLocation } from "./preferences";
+import { confirmInEditor } from "./ui/ConfirmDialog";
 import { installGizmo } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
@@ -13,12 +17,15 @@ import { installViewportSelection } from "./viewportSelection";
 
 let session: { engine: Engine; dispose(): void } | null = null;
 let play: PlaySession | null = null;
+/** The open scene's edit history on disk (ADR 0027). */
+let history: AttachedHistory | null = null;
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** Boot an Editor World for `project` in the viewport and open its main scene. */
 export async function loadProject(project: EditorProject): Promise<void> {
   stopPlaying();
+  await detachHistory();
   session?.dispose();
   session = null;
   openScene.value?.sync.dispose();
@@ -56,13 +63,69 @@ export async function switchScene(path: string): Promise<void> {
 
 function openScene_(path: string): void {
   if (!session) return;
+  void detachHistory();
   try {
     openSceneFile(session.engine, path);
     status.value = null;
   } catch (err) {
     status.value = { kind: "error", text: `Couldn't open ${path}: ${message(err)}` };
+    return;
+  }
+  void attachToOpenScene();
+}
+
+async function detachHistory(): Promise<void> {
+  const h = history;
+  history = null;
+  await h?.detach();
+}
+
+/**
+ * Load the open scene's saved history and keep saving it. If the editor closed with unsaved
+ * changes, offer them back; declining keeps them in the history (redo, History panel).
+ */
+async function attachToOpenScene(): Promise<void> {
+  const scene = openScene.value, project = currentProject.value;
+  if (!scene || !project) return;
+  const slots = slotsFor(project, scene.path, historyLocation.value, await defaultHistoryPlatform());
+  const attached = await attachHistory(scene.stack, scene.path, slots, (err) => {
+    status.value = { kind: "error", text: `Couldn't save the edit history for ${scene.path}: ${message(err)}` };
+  });
+  if (openScene.value !== scene) {
+    await attached.detach(); // another scene opened meanwhile
+    return;
+  }
+  history = attached;
+  if (attached.mismatched) {
+    status.value = { kind: "info", text: `${scene.path} changed outside the editor, so its saved edit history no longer applies; starting a new one.` };
+  }
+  if (attached.restorable) {
+    const r = attached.restorable;
+    const when = new Date(r.time).toLocaleString();
+    const answer = await confirmInEditor({
+      title: "Restore unsaved changes?",
+      message: `${scene.path} had unsaved changes when the editor last closed (the last was "${r.label}", ${when}).`,
+      confirmLabel: "Restore",
+      cancelLabel: "Keep saved version",
+      danger: false,
+    });
+    if (openScene.value !== scene) return;
+    if (answer.ok) {
+      scene.stack.jumpTo(r.seq);
+      status.value = { kind: "info", text: `Restored the unsaved changes to ${scene.path}.` };
+    } else {
+      status.value = { kind: "info", text: "Kept the saved version. The unsaved changes are still in the edit history (redo, or the History panel)." };
+    }
   }
 }
+
+// Switching where history is kept moves writing there right away (the tree is written in full).
+effect(() => {
+  const location = historyLocation.value;
+  const scene = openScene.peek(), project = currentProject.peek(), h = history;
+  if (!scene || !project || !h) return;
+  void defaultHistoryPlatform().then((p) => h.relocate(slotsFor(project, scene.path, location, p)));
+});
 
 /** Pick a project folder and open it (Tauri only). */
 export async function openProjectFolder(): Promise<void> {

@@ -108,7 +108,11 @@ export function changesBetween(before: SceneFile, after: SceneFile): Change[] {
 
 /** A short hash of a document's content (cyrb53 over its JSON), to match history to files. */
 export function hashFile(file: SceneFile): string {
-  const str = json(file);
+  return hashText(json(file));
+}
+
+/** cyrb53: a fast 53-bit string hash, as base-36 text. Not cryptographic. */
+export function hashText(str: string): string {
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
   for (let i = 0; i < str.length; i++) {
     const ch = str.charCodeAt(i);

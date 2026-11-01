@@ -241,3 +241,4 @@ button.danger:hover { background: #a33939; }
 .status-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-action { padding: 0 8px; font-size: 12px; }
 .node-header .delete-node { margin-left: auto; flex: none; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
