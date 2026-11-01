@@ -1,6 +1,6 @@
-/* Asset browser (ADR 0022): folder tree | search + tile grid, sized to the bottom panel. */
+/* Asset browser (ADR 0022): folder tree | search + tile grid, sized to whatever dock holds it. */
 /* The tree and the grid scroll on their own, so the panel body neither pads nor scrolls. */
-.panel.assets .panel-body { padding: 0; overflow: hidden; display: flex; }
+.panel.assets .panel-body { padding: 0; overflow: hidden; display: flex; container-type: size; }
 .panel.assets .panel-body > .empty { padding: 8px 10px; }
 .asset-browser { flex: 1; display: flex; min-width: 0; min-height: 0; }
 
@@ -97,3 +97,11 @@
   opacity: 0;
 }
 .asset-tile:hover .asset-add, .asset-tile.selected .asset-add, .asset-add:focus-visible { opacity: 1; }
+
+/* Narrow docks (e.g. docked at the side): stack the folder tree above the grid. */
+@container (max-width: 420px) {
+  .asset-browser { flex-direction: column; }
+  .asset-tree { width: auto; max-height: 34%; border-right: none; border-bottom: 1px solid var(--border); }
+  .asset-bar { flex-wrap: wrap; gap: 4px; }
+  .asset-search { width: 100%; max-width: none; }
+}

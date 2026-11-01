@@ -18,7 +18,7 @@ declare global {
 const state = (page: Page) => page.evaluate(() => window.flappy!.state());
 
 /** Wait until `predicate` holds for the game state (evaluated in the page). */
-async function waitForState(page: Page, predicate: string, timeout = 10_000): Promise<FlappyState> {
+async function waitForState(page: Page, predicate: string, timeout = 20_000): Promise<FlappyState> {
   await page.waitForFunction(`(() => { const s = window.flappy?.state(); return !!s && (${predicate}); })()`, null, { timeout });
   return state(page);
 }

@@ -1,30 +1,29 @@
-import type { ComponentChildren } from "preact";
+import { DockLayout } from "../layout/DockLayout";
+import { resetLayout } from "../layout/store";
 import { openProjectFolder, save, togglePlaying } from "../session";
 import { currentProject, docVersion, openScene, playState, sceneCamera, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
 import { AssetsPanel } from "./Assets";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
 
-/** Fixed editor layout (ADR 0025): toolbar, hierarchy | viewport | inspector, assets. */
+const PANELS = { hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel /> };
+
+/** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {
   return (
     <div class={`editor${playState.value !== "edit" ? " playing" : ""}`}>
       <Toolbar />
-      <Panel class="hierarchy" title="Hierarchy">
-        <Hierarchy />
-      </Panel>
-      <section class="viewport-panel">
-        <div id="viewport" class="viewport" />
-        <ViewportHint />
-        {/* The Runtime World's canvas goes here during play mode (ADR 0022). */}
-        <div id="game-view" class="game-view" hidden={playState.value === "edit"} />
-      </section>
-      <Panel class="inspector" title="Inspector">
-        <Inspector />
-      </Panel>
-      <Panel class="assets" title="Assets">
-        <AssetsPanel />
-      </Panel>
+      <DockLayout
+        panels={PANELS}
+        viewport={
+          <>
+            <div id="viewport" class="viewport" />
+            <ViewportHint />
+            {/* The Runtime World's canvas goes here during play mode (ADR 0022). */}
+            <div id="game-view" class="game-view" hidden={playState.value === "edit"} />
+          </>
+        }
+      />
       <StatusBar />
     </div>
   );
@@ -50,6 +49,9 @@ function Toolbar() {
         Focus
       </button>
       <UndoRedo />
+      <button title="Put the panels back where they started" onClick={resetLayout}>
+        Reset Layout
+      </button>
     </header>
   );
 }
@@ -152,11 +154,3 @@ function ViewportHint() {
   return <div class="viewport-hint">{text + gizmo}</div>;
 }
 
-function Panel(props: { class: string; title: string; children: ComponentChildren }) {
-  return (
-    <section class={`panel ${props.class}`}>
-      <h2>{props.title}</h2>
-      <div class="panel-body">{props.children}</div>
-    </section>
-  );
-}

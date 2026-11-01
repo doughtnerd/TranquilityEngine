@@ -44,7 +44,7 @@ The inspector and hierarchy reflect state that changes all the time (selection, 
 
 ## Open questions
 
-- A docking layout and saved panel arrangements.
+- ~~A docking layout and saved panel arrangements.~~ Resolved 2026-11-01: an in-house docking layout (`src/editor/layout/`), no library. Panels dock on the left, right and bottom around a fixed viewport, split evenly or as tabs, can be resized, and are saved per user with a Reset Layout action.
 - Theming beyond the default dark palette.
 
 ## References
