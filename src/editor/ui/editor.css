@@ -326,3 +326,16 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .component h3 .open-script { margin-left: 4px; padding: 0 5px; font-size: 10px; line-height: 16px; color: var(--muted); background: transparent; border-color: var(--border); font-family: ui-monospace, monospace; }
 .component h3 .open-script:hover { color: var(--text); }
 .panel.code .panel-body { padding: 0; overflow: hidden; }
+
+/* New Script (ADR 0030). */
+.new-script-kinds { display: flex; gap: 14px; margin: 0 0 10px; padding: 0; border: none; }
+.new-script-kinds legend { float: left; margin-right: 6px; color: var(--muted); }
+.new-script-kinds label { display: flex; align-items: center; gap: 4px; }
+.new-script-name { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.new-script-name input { flex: 1; padding: 4px 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font: inherit; }
+.new-script-name input:focus { outline: none; border-color: var(--accent); }
+.dialog p.new-script-preview { min-height: 1.4em; font-size: 12px; font-family: ui-monospace, monospace; }
+.dialog p.new-script-preview.problem { color: #f08a8a; font-family: inherit; }
+button:disabled.primary { opacity: 0.5; }
+.add-component-menu .new-script-item { margin: 0; border: none; border-top: 1px solid var(--border); border-radius: 0 0 4px 4px; background: transparent; text-align: left; padding: 6px 12px; color: var(--accent); }
+.add-component-menu .new-script-item:hover:not(:disabled) { background: var(--button-hover); }

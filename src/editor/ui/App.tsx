@@ -6,6 +6,7 @@ import { AssetsPanel } from "./Assets";
 import { CodePanel } from "./CodePanel";
 import { AssetDragGhost, ViewportDropHighlight } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { NewScriptDialog } from "./NewScriptDialog";
 import { HistoryPanel } from "./HistoryPanel";
 import { RefineList } from "./RefineList";
 import { SettingsDialog, settingsOpen } from "./SettingsDialog";
@@ -34,6 +35,7 @@ export function App() {
       <StatusBar />
       <AssetDragGhost />
       <ConfirmDialog />
+      <NewScriptDialog />
       <SettingsDialog />
       <RefineList />
     </div>

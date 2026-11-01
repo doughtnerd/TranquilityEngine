@@ -13,6 +13,7 @@ import {
 } from "../assetBrowser";
 import { startAssetDrag } from "../assetDrag";
 import { openScript } from "../code/codeState";
+import { newScript, scriptFolderFor } from "../newScript";
 import { switchScene } from "../session";
 import { currentProject, docVersion, openScene, playState, sceneCamera, scriptsVersion, selection, status } from "../state";
 import "./assets.css";
@@ -50,6 +51,16 @@ export function AssetsPanel() {
       <div class="asset-main">
         <div class="asset-bar">
           <span class="asset-crumb">{searching ? `Results for “${query.value.trim()}”` : folder.path === "" ? project.name : folder.path}</span>
+          {project.root !== null && (
+            <button
+              class="new-script-button"
+              disabled={!project.canSave}
+              title={project.canSave ? `Write a new script in ${scriptFolderFor(folder.path)}/ (ADR 0030)` : "This project is read-only."}
+              onClick={() => void newScript({ assetFolder: folder.path })}
+            >
+              New Script
+            </button>
+          )}
           <input
             type="search"
             class="asset-search"

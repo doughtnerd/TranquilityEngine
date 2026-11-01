@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { GameObject } from "../../engine";
 import { addComponentTo, componentCatalog, whyNotAddable } from "../componentEdits";
 import type { NodePath } from "../document";
-import { status, type OpenScene } from "../state";
+import { newScript } from "../newScript";
+import { currentProject, status, type OpenScene } from "../state";
 
 /**
  * The Inspector's Add Component button (ADR 0022): a searchable list of every component type,
@@ -119,6 +120,20 @@ function Menu(props: { scene: OpenScene; targets: { path: NodePath; node: GameOb
           {items.length === 0 && <li class="empty" role="presentation">No matching components</li>}
           {rows}
         </ul>
+        {currentProject.value?.root != null && (
+          <button
+            class="new-script-item"
+            disabled={!currentProject.value.canSave}
+            title="Write a new script (or data component) and add it to the selected nodes"
+            onPointerDown={(e) => e.preventDefault() /* keep the search box focused until chosen */}
+            onClick={() => {
+              close();
+              void newScript({ addTo: targets });
+            }}
+          >
+            New script…
+          </button>
+        )}
       </div>
     </>
   );
