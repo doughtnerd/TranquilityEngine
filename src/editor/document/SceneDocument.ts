@@ -163,6 +163,12 @@ export class SceneDocument {
     this.reindex();
   }
 
+  /** @internal Replace the whole document (history navigation, ADR 0027). `file` is used as is. */
+  _replace(file: SceneFile): void {
+    this.file = file;
+    this.reindex();
+  }
+
   private reindex(): void {
     this.byId.clear();
     for (const n of this.file.nodes) {

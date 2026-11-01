@@ -40,6 +40,7 @@ Start here. These docs describe where the engine is going, why, and what is bein
 | [0024](decisions/0024-storage-via-platform-adapter.md) | Saves and settings through a platform Storage API | Accepted |
 | [0025](decisions/0025-editor-ui-dom-with-preact.md) | Editor UI: DOM panels built with Preact | Accepted |
 | [0026](decisions/0026-editor-scene-document-and-commands.md) | The editor edits a scene document through commands | Accepted |
+| [0027](decisions/0027-persistent-undo-tree.md) | Persistent, tree-shaped edit history | Accepted |
 
 ## Working with decisions
 

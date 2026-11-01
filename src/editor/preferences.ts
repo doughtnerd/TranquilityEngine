@@ -24,3 +24,9 @@ function persisted<T>(key: string, fallback: T): Signal<T> {
 
 /** Ask before deleting a node that other nodes reference (their fields are set to None). */
 export const askBeforeClearingReferences = persisted("tranquility.editor.askBeforeClearingReferences", true);
+
+/**
+ * Where edit history files go (ADR 0027): the project folder (`.tranquility/history/`, the
+ * default) or per-user storage outside the project. Read-only projects always use per-user storage.
+ */
+export const historyLocation = persisted<"project" | "user">("tranquility.editor.historyLocation", "project");
