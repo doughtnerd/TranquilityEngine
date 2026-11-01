@@ -1,4 +1,5 @@
 // Editor keyboard shortcuts. Text fields keep their own keys (and undo), so shortcuts skip them.
+import { deleteSelected } from "./deleteSelection";
 import { save, togglePlaying } from "./session";
 import { openScene, snapping, tool, type Tool } from "./state";
 
@@ -10,7 +11,7 @@ function isEditable(target: EventTarget | null): boolean {
   return el instanceof HTMLInputElement && !["checkbox", "radio", "button", "color", "range"].includes(el.type);
 }
 
-export type Shortcut = "undo" | "redo" | "save" | "play" | `tool:${Tool}`;
+export type Shortcut = "undo" | "redo" | "save" | "play" | "delete" | `tool:${Tool}`;
 
 const TOOL_KEYS: Record<string, Tool> = { q: "select", w: "move", e: "rotate", r: "scale" };
 
@@ -24,12 +25,13 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
     if (key === "p") return "play";
     return null;
   }
+  if (!e.shiftKey && !e.altKey && (key === "delete" || key === "backspace")) return "delete";
   if (!e.shiftKey && !e.altKey && TOOL_KEYS[key]) return `tool:${TOOL_KEYS[key]}`;
   return null;
 }
 
 /**
- * Ctrl/Cmd + P plays or stops; Ctrl/Cmd + S saves; Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Q/W/E/R pick the select, move,
+ * Delete or Backspace deletes the selected node; Ctrl/Cmd + P plays or stops; Ctrl/Cmd + S saves; Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Q/W/E/R pick the select, move,
  * rotate and scale tools; holding Ctrl/Cmd snaps gizmo drags. Returns a function that removes
  * the listeners.
  */
@@ -50,6 +52,12 @@ export function installShortcuts(target: Window = window): () => void {
       return;
     }
     if (!action || isEditable(e.target)) return;
+    if (action === "delete") {
+      if (document.querySelector(".dialog")) return; // a dialog is open
+      e.preventDefault();
+      void deleteSelected();
+      return;
+    }
     if (action.startsWith("tool:")) {
       tool.value = action.slice(5) as Tool;
       return;

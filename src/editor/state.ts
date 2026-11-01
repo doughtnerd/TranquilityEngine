@@ -43,7 +43,7 @@ export const snapping = signal(false);
 export const currentProject = signal<EditorProject | null>(null);
 
 /** A message for the status bar, e.g. a failed open or save. */
-export const status = signal<{ kind: "info" | "error"; text: string } | null>(null);
+export const status = signal<{ kind: "info" | "error"; text: string; action?: { label: string; run: () => void; done?: string } } | null>(null);
 
 /** Play mode: "edit", "starting" while the Runtime World boots, or "playing". */
 export const playState = signal<"edit" | "starting" | "playing">("edit");

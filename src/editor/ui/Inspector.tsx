@@ -3,6 +3,7 @@ import { Color, GameObject } from "../../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
 import { RenameNode, RevertOverrides, SetActive, SetField, isFieldOverride, pathKey, type NodePath } from "../document";
 import { editorFor, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
+import { deleteSelected } from "../deleteSelection";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
 import { currentProject, docVersion, openScene, selectedPath, selection, status, type OpenScene } from "../state";
 
@@ -48,6 +49,11 @@ export function Inspector() {
             label="Name"
             onCommit={(name) => name !== (entry.name ?? id) && scene.stack.execute(new RenameNode(id, name))}
           />
+        )}
+        {!inner && (
+          <button class="delete-node" title="Delete this node and its children (Delete)" aria-label="Delete node" onClick={() => void deleteSelected()}>
+            Delete
+          </button>
         )}
       </div>
       <dl class="node-meta">

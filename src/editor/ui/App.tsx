@@ -4,6 +4,7 @@ import { openProjectFolder, save, togglePlaying } from "../session";
 import { currentProject, docVersion, openScene, playState, sceneCamera, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
 import { AssetsPanel } from "./Assets";
 import { AssetDragGhost, ViewportDropHighlight } from "./AssetDragOverlay";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
 
@@ -28,6 +29,7 @@ export function App() {
       />
       <StatusBar />
       <AssetDragGhost />
+      <ConfirmDialog />
     </div>
   );
 }
@@ -126,7 +128,18 @@ function StatusBar() {
   const s = status.value;
   return (
     <footer class={`status-bar${s?.kind === "error" ? " error" : ""}`} aria-live="polite">
-      {s?.text ?? ""}
+      <span class="status-text">{s?.text ?? ""}</span>
+      {s?.action && (
+        <button
+          class="status-action"
+          onClick={() => {
+            s.action!.run();
+            status.value = { kind: "info", text: s.action!.done ?? "Done." };
+          }}
+        >
+          {s.action.label}
+        </button>
+      )}
     </footer>
   );
 }

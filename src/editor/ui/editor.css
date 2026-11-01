@@ -225,3 +225,19 @@ button:disabled:hover { background: var(--button); }
 body:has(.asset-drag-ghost), body:has(.asset-drag-ghost) * { cursor: copy !important; user-select: none; }
 body:has(.asset-drag-ghost.invalid), body:has(.asset-drag-ghost.invalid) * { cursor: not-allowed !important; }
 .fields .unset { display: inline-flex; align-items: center; gap: 8px; }
+.tree .row.dragging { opacity: 0.5; }
+
+/* Confirm dialog and status actions */
+.dialog-backdrop { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / 0.45); display: flex; align-items: center; justify-content: center; }
+.dialog { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 16px 18px; width: min(460px, calc(100vw - 32px)); box-shadow: 0 10px 30px rgb(0 0 0 / 0.5); }
+.dialog h2 { margin: 0 0 8px; font-size: 15px; }
+.dialog p { margin: 0 0 8px; color: var(--muted); }
+.dialog-items { margin: 0 0 10px; padding-left: 18px; max-height: 160px; overflow: auto; font-size: 12px; }
+.dialog-option { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; color: var(--muted); }
+.dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+button.danger { background: #8a2f2f; border-color: #8a2f2f; color: #fff; }
+button.danger:hover { background: #a33939; }
+.status-bar { display: flex; align-items: center; gap: 10px; }
+.status-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-action { padding: 0 8px; font-size: 12px; }
+.node-header .delete-node { margin-left: auto; flex: none; }

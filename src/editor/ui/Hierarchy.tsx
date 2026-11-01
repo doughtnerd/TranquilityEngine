@@ -2,6 +2,7 @@ import type { ComponentChildren } from "preact";
 import { signal } from "@preact/signals";
 import { pathKey, type SceneDocument } from "../document";
 import { assetDrag } from "../assetDrag";
+import { nodeDrag, startNodeDrag } from "../nodeDrag";
 import { innerNodes, type InnerNode } from "../prefabs";
 import { docVersion, openScene, selection } from "../state";
 
@@ -121,7 +122,7 @@ const prefabName = (path: string) => path.split("/").pop()!.replace(/\.(prefab|s
 
 /** How a dragged asset would land relative to the row `key` (null: the scene itself), if it's the target. */
 function dropMode(key: string | null): "into" | "before" | "after" | "root" | null {
-  const t = assetDrag.value?.target;
+  const t = assetDrag.value?.target ?? nodeDrag.value?.target;
   if (!t || t.kind !== "hierarchy") return null;
   return t.row === key ? t.mode : null;
 }
@@ -144,8 +145,9 @@ function Row(props: {
   return (
     <li role="treeitem" aria-selected={selected} aria-expanded={expandable ? open : undefined}>
       <div
-        class={`row${selected ? " selected" : ""}${props.inactive ? " inactive" : ""}${props.inner ? " inner" : ""}${drop ? ` drop-${drop}` : ""}`}
+        class={`row${selected ? " selected" : ""}${props.inactive ? " inactive" : ""}${props.inner ? " inner" : ""}${drop ? ` drop-${drop}` : ""}${nodeDrag.value?.key === rowKey ? " dragging" : ""}`}
         data-key={rowKey}
+        onPointerDown={(e) => startNodeDrag(e, rowKey)}
         style={{ paddingLeft: `${depth * 14 + 4}px` }}
         title={props.inner ? "Inside a prefab instance: edits become overrides" : undefined}
         onClick={() => (selection.value = rowKey)}

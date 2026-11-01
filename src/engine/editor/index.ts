@@ -8,7 +8,9 @@ import { getDataComponentDef, type DataComponentDef, type ScalarType } from "../
 import { Vector3 } from "../core/math";
 import { getComponentClass, getComponentId, getFields, type ComponentClass, type FieldType } from "../core/registry";
 import { World } from "../core/World";
+import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
+import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
 import type { GizmoHandlers, GizmoOptions } from "../render/RenderBackend";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
@@ -253,4 +255,18 @@ export function resumeEditorWorld(world: World): void {
 /** The world point on the plane z = 0 under a canvas point (CSS pixels), or null (headless, or the ray misses it). */
 export function pointOnSpritePlane(world: World, x: number, y: number): [number, number, number] | null {
   return world.render?.pointOnPlaneZ(world, x, y, 0) ?? null;
+}
+
+/**
+ * The local Transform values that keep `node` where it is in the world once it's moved under
+ * `parent` (null: the top of the scene). Null if the node has no Transform.
+ */
+export function localPoseUnder(node: GameObject, parent: GameObject | null): LocalPose | null {
+  if (!node.transform) return null;
+  const world = node.world;
+  const m = new Matrix4().fromArray(world.worldMatrix(node.entity), node.entity * 16);
+  const position = new ThreeVector3(), quaternion = new ThreeQuaternion(), scale = new ThreeVector3();
+  m.decompose(position, quaternion, scale);
+  const parentWorld = parent ? new Matrix4().fromArray(world.worldMatrix(parent.entity), parent.entity * 16) : null;
+  return localPoseFromWorld(parentWorld, position, quaternion, scale);
 }

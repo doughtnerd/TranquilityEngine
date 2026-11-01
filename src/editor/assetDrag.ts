@@ -56,7 +56,21 @@ function targetAt(clientX: number, clientY: number): AssetDropTarget | null {
     const r = (canvas ?? viewport).getBoundingClientRect();
     return { kind: "viewport", x: clientX - r.left, y: clientY - r.top };
   }
-  if (!el.closest(".panel.hierarchy")) return null;
+  return hierarchyTargetAt(clientX, clientY);
+}
+
+/** True if the client point is over a hierarchy row inside a prefab instance (those don't take children). */
+export function overPrefabInsides(clientX: number, clientY: number): boolean {
+  return !!(document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest(".tree .row.inner");
+}
+
+const PREFAB_INSIDES = "nodes inside a prefab can't take children here";
+
+/** The hierarchy drop target under a client point (rows carry `data-key`), or null outside the hierarchy. */
+export function hierarchyTargetAt(clientX: number, clientY: number): AssetDropTarget | null {
+  const scene = openScene.value;
+  const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+  if (!scene || !el?.closest(".panel.hierarchy")) return null;
   const row = el.closest(".tree .row") as HTMLElement | null;
   if (!row) return hierarchyDrop(scene.doc, null, 0);
   const r = row.getBoundingClientRect();
@@ -96,7 +110,7 @@ export function startAssetDrag(e: PointerEvent, path: string): void {
     const problem =
       !scene ? "Open a scene first"
       : playState.value !== "edit" ? "Stop playing to add assets"
-      : whyNotAddable(scene.doc, path) ?? (target ? null : "Drop in the viewport or the hierarchy");
+      : whyNotAddable(scene.doc, path) ?? (target ? null : overPrefabInsides(m.clientX, m.clientY) ? PREFAB_INSIDES : "drop it in the viewport or the hierarchy");
     assetDrag.value = { path, x: m.clientX, y: m.clientY, target: problem ? null : target, problem };
   };
   const finish = (apply: boolean) => {
