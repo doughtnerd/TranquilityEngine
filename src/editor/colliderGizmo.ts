@@ -32,19 +32,25 @@ function editedCollider(): { node: GameObject; collider: BoxCollider2D | CircleC
   return collider ? { node, collider, editing } : null;
 }
 
-/** What to draw this frame: outlines for every collider in the edited scene, handles for the one being edited. */
-export function colliderOverlay(engine: Engine): EditorOverlay {
-  const overlay: EditorOverlay = { lines: [], handles: [] };
-  const selected = new Set(selectedNodes().map((s) => s.node));
+/** Every box and circle collider in the edited scene, with its outline in world space. */
+export function colliderShapes(engine: Engine): { node: GameObject; points: [number, number, number][] }[] {
+  const out: { node: GameObject; points: [number, number, number][] }[] = [];
   for (const c of GameObject.findObjectsOfType(Collider2D)) {
     const node = c.node;
     if (!node.transform || !engine.world.inEditMode(node.entity)) continue;
     const pose = poseOf(node);
-    const color = selected.has(node) ? COLOR_SELECTED : COLOR;
     const center: V2 = [c.center.x, c.center.y];
-    if (c instanceof BoxCollider2D) overlay.lines.push({ points: boxCorners(pose, center, [c.size.x, c.size.y]), closed: true, color });
-    else if (c instanceof CircleCollider2D) overlay.lines.push({ points: circlePoints(pose, center, c.radius), closed: true, color });
+    if (c instanceof BoxCollider2D) out.push({ node, points: boxCorners(pose, center, [c.size.x, c.size.y]) });
+    else if (c instanceof CircleCollider2D) out.push({ node, points: circlePoints(pose, center, c.radius) });
   }
+  return out;
+}
+
+/** What to draw this frame: outlines for every collider in the edited scene, handles for the one being edited. */
+export function colliderOverlay(engine: Engine): EditorOverlay {
+  const overlay: EditorOverlay = { lines: [], handles: [] };
+  const selected = new Set(selectedNodes().map((s) => s.node));
+  for (const { node, points } of colliderShapes(engine)) overlay.lines.push({ points, closed: true, color: selected.has(node) ? COLOR_SELECTED : COLOR });
   const edited = editedCollider();
   if (edited) {
     const { node, collider } = edited;

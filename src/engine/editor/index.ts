@@ -237,6 +237,11 @@ export function screenBounds(world: World, root: GameObject): { node: GameObject
   return world.render?.screenBounds(world, root) ?? [];
 }
 
+/** A world point's place on the canvas (CSS pixels), or null (headless, or behind the camera). */
+export function worldToCanvas(world: World, point: readonly number[]): [number, number] | null {
+  return world.render?.worldToCanvas(world, point) ?? null;
+}
+
 /** Outline the renderers of these nodes (and their descendants) in the viewport until changed. */
 export function setSelectionOutline(world: World, nodes: readonly GameObject[]): void {
   world.render?.setSelectionOutline(nodes);

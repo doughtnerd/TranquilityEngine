@@ -8,7 +8,7 @@ import { openSceneFile } from "./project";
 import { bundledDemoProject, editorSettings, useProjectAssets } from "./projects";
 import { ancestorKeys, combineSelection, hierarchyEntries, rangeBetween, selectModeFor, topmostKeys, withDescendants } from "./selectionModel";
 import { openScene, sceneCamera, select, selectedKeys, selectedNodes, selection } from "./state";
-import { boxBetween, idsInBox, keysNear } from "./viewportSelection";
+import { boxBetween, colliderBounds, colliderHits, idsInBox, keysNear } from "./viewportSelection";
 
 afterEach(() => select([]));
 
@@ -88,6 +88,33 @@ describe("box and radius hits", () => {
     const pathOf = (n: GameObject) => paths[n.name];
     expect(keysNear(bounds, 85, 50, 10, pathOf)).toEqual(["sprite", "pipe", "pipe/top"]);
     expect(keysNear(bounds, 200, 200, 10, pathOf)).toEqual([]);
+  });
+});
+
+describe("collider areas", () => {
+  const ground = fake("ground"), bird = fake("bird");
+  const square = (cx: number, cy: number, half: number, z = 0): [number, number, number][] => [
+    [cx - half, cy - half, z],
+    [cx + half, cy - half, z],
+    [cx + half, cy + half, z],
+    [cx - half, cy + half, z],
+  ];
+  const shapes = [
+    { node: ground, points: square(0, 0, 10) },
+    { node: bird, points: square(1, 1, 0.7, 2) },
+  ];
+
+  it("counts a click anywhere inside a collider, smallest collider first, on each collider's plane", () => {
+    const flat = (x: number, y: number) => (z: number) => [x, y, z];
+    expect(colliderHits(shapes, flat(1.2, 0.8))).toEqual([bird, ground]);
+    expect(colliderHits(shapes, flat(5, 5))).toEqual([ground]);
+    expect(colliderHits(shapes, flat(50, 0))).toEqual([]);
+    expect(colliderHits(shapes, (z) => (z === 2 ? null : [1, 1, z]))).toEqual([ground]); // the ray misses the bird's plane
+  });
+
+  it("measures each collider's rectangle on the canvas, leaving out ones behind the camera", () => {
+    const project = (p: readonly number[]): [number, number] | null => (p[2] === 2 ? null : [p[0] * 10 + 100, 100 - p[1] * 10]);
+    expect(colliderBounds(shapes, project)).toEqual([{ node: ground, rect: { left: 0, top: 0, right: 200, bottom: 200 } }]);
   });
 });
 

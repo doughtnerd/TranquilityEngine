@@ -43,13 +43,15 @@ test("clicking in the viewport selects, cycles through overlaps, and clears on e
 
   // The Select tool shows no gizmo, so repeated clicks reach the sprites underneath.
   await page.keyboard.press("q");
-  // Centre the view on the bird, then click it: its sprite node is selected.
+  // Centre the view on the bird, then click it: inside its collider, so the Bird node is selected.
   await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
   await canvas.click({ position: centre });
-  await expect(selectedRow(page)).toHaveText("Sprite");
-  await expect(page.locator(".inspector .node-name")).toHaveValue("Sprite"); // the name is an editable field
+  await expect(selectedRow(page)).toHaveText("Bird");
+  await expect(page.locator(".inspector .node-name")).toHaveValue("Bird"); // the name is an editable field
 
-  // The same spot again: the next thing underneath (the sky, a background prefab instance).
+  // The same spot again: the sprite drawn there, then the sky (a background prefab instance).
+  await canvas.click({ position: centre });
+  await expect(selectedRow(page)).toHaveText("Sprite");
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("bg-a");
 
@@ -73,13 +75,13 @@ test("a camera drag doesn't change the selection", async ({ page }) => {
   const box = (await canvas.boundingBox())!;
   await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
   await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
-  await expect(selectedRow(page)).toHaveText("Sprite");
+  await expect(selectedRow(page)).toHaveText("Bird");
 
   await page.mouse.move(box.x + 20, box.y + 20);
   await page.mouse.down({ button: "right" }); // pans in 2D, orbits in 3D
   await page.mouse.move(box.x + 120, box.y + 80, { steps: 5 });
   await page.mouse.up({ button: "right" });
-  await expect(selectedRow(page)).toHaveText("Sprite");
+  await expect(selectedRow(page)).toHaveText("Bird");
 });
 
 test("editing a field in the inspector updates the scene, and Ctrl+Z undoes it", async ({ page }) => {
@@ -108,12 +110,12 @@ test("with the Move tool, clicking the gizmo on the selection keeps it selected"
   await expect(page.getByRole("button", { name: "Move" })).toHaveAttribute("aria-pressed", "true");
   await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
   await canvas.click({ position: centre });
-  await expect(selectedRow(page)).toHaveText("Sprite");
+  await expect(selectedRow(page)).toHaveText("Bird");
   // The gizmo loads on first use; wait until it's showing on the selection.
   await page.waitForFunction(() => (window as unknown as { engine: { world: { render: { gizmo?: { enabled: boolean } } } } }).engine.world.render.gizmo?.enabled === true);
   // The gizmo now sits over the bird: pressing its handle drags instead of selecting what's below.
   await canvas.click({ position: centre });
-  await expect(selectedRow(page)).toHaveText("Sprite");
+  await expect(selectedRow(page)).toHaveText("Bird");
 });
 
 test("scene cameras show an icon that selects the camera", async ({ page }) => {

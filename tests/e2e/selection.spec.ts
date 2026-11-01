@@ -143,3 +143,17 @@ test("the inspector edits a shared field on every selected node in one undo step
   await page.locator('.tree .row[data-key="ground-collider"]').click();
   await expect(sizeX).toHaveValue("40");
 });
+
+test("clicking anywhere inside a collider selects its node, before the sprites drawn there", async ({ page }) => {
+  await openEditor(page);
+  await page.keyboard.press("q"); // no gizmo in the way of repeated clicks
+  await page.evaluate(() => (window as unknown as Hooks).orbit.focus([0, -10, 0], 14));
+  await page.waitForTimeout(100);
+  // GroundCollider draws nothing; its origin is the middle of its 40 × 10 box, under the ground sprites.
+  const origin = await rectOf(page, "ground-collider", 0);
+  await page.mouse.click(origin.left + 30, origin.top - 10);
+  expect(await selected(page)).toEqual(["ground-collider"]);
+  await page.mouse.click(origin.left + 30, origin.top - 10); // the same spot again: what's drawn there
+  expect(await selected(page)).not.toEqual(["ground-collider"]);
+  expect((await selected(page)).length).toBe(1);
+});

@@ -509,6 +509,17 @@ export class RenderBackend {
     return hits.filter((h) => !seen.has(h.node.entity) && seen.add(h.node.entity)).map((h) => h.node);
   }
 
+  /** @internal Editor: a world point's place on the canvas (CSS pixels, origin top-left), or null if it's behind the camera. */
+  worldToCanvas(world: World, p: readonly number[]): [number, number] | null {
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    const view = this.viewCameras(world)[0];
+    const camera = view && this.cameras.get(view)?.camera;
+    if (!camera || w <= 0 || h <= 0) return null;
+    tmpPoint.set(p[0], p[1], p[2] ?? 0).project(camera);
+    if (tmpPoint.z < -1 || tmpPoint.z > 1) return null;
+    return [((tmpPoint.x + 1) / 2) * w, ((1 - tmpPoint.y) / 2) * h];
+  }
+
   /**
    * @internal Editor: where each active node under `root` with a Transform is on the canvas (CSS
    * pixels, origin top-left): the rectangle around its sprite or text, or (with neither) a point

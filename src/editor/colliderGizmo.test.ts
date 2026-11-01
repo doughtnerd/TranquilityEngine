@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine } from "../engine";
 import { colliderOverlay } from "./colliderGizmo";
-import { MIN_EXTENT, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, toLocal, toWorld, type Pose2D } from "./colliderMath";
+import { MIN_EXTENT, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";
 import { DEMO_SCENE, demoAssets, demoSettings, openSceneFile } from "./project";
 import { editingCollider, selection } from "./state";
 
@@ -30,6 +30,16 @@ describe("collider shapes in world space", () => {
     close(points[1], [0, 1.5, 0]);
     const handles = circleHandles({ ...pose, rotation: 90 }, [0, 0], 0.5);
     close(handles["radius-right"], [0, 1.5, 0]); // rim handles turn with the node
+  });
+});
+
+describe("points in collider outlines", () => {
+  it("tests containment and area in the XY plane, rotated outlines too", () => {
+    const box = boxCorners({ ...identity, rotation: 45 }, [0, 0], [2, 2]);
+    expect(pointInPolygon([0, 1.3], box)).toBe(true); // inside the turned box's top corner
+    expect(pointInPolygon([0.95, 0.95], box)).toBe(false); // outside it, though inside the unturned box
+    expect(polygonArea(box)).toBeCloseTo(4);
+    expect(polygonArea(circlePoints(identity, [0, 0], 1, 96))).toBeCloseTo(Math.PI, 2);
   });
 });
 

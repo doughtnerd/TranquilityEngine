@@ -1,13 +1,17 @@
-// Viewport selection (ADR 0022, 0026). A plain left click picks the topmost renderer under the
-// pointer and selects its document node; clicking the same spot again cycles through overlapping
+// Viewport selection (ADR 0022, 0026). A plain left click picks the smallest collider containing
+// the pointer (anywhere inside a collider counts), else the topmost renderer under it, and selects
+// its document node; clicking the same spot again cycles through overlapping
 // hits; clicking empty space clears. Shift+click adds the hit, Ctrl/Cmd+click toggles it. A left
 // drag on empty space draws a selection box: every node lying inside it is selected (Shift adds,
 // Ctrl/Cmd toggles), live as the box changes; Escape puts the selection back. Alt+click opens a
 // list of every node near the pointer, occluded ones and their children included, to refine the
-// selection. The selection is outlined in the viewport, and the scene camera's F key frames it.
+// selection. Colliders count as part of their node for the box and the list too. The selection is
+// outlined in the viewport, and the scene camera's F key frames it.
 import { effect } from "@preact/signals";
 import type { Engine, GameObject } from "../engine";
-import { gizmoActive, pick, screenBounds, setSelectionOutline, viewportCanvas, type ScreenRect } from "../engine/editor";
+import { gizmoActive, pick, pointOnSpritePlane, screenBounds, setSelectionOutline, viewportCanvas, worldToCanvas, type ScreenRect } from "../engine/editor";
+import { colliderShapes } from "./colliderGizmo";
+import { pointInPolygon, polygonArea } from "./colliderMath";
 import { pathKey, type NodePath } from "./document";
 import type { OrbitCamera } from "./OrbitCamera";
 import { combineSelection, selectModeFor, withDescendants, type SelectMode } from "./selectionModel";
@@ -97,6 +101,34 @@ export function keysNear(bounds: readonly { node: GameObject; rect: ScreenRect }
   return [...out];
 }
 
+type Shape = { node: GameObject; points: readonly (readonly number[])[] };
+
+/**
+ * Nodes whose collider outline contains the pointer, smallest collider first. `pointAt(z)` is
+ * the world point under the pointer on the plane at depth z (each collider lies in its node's plane).
+ */
+export function colliderHits(shapes: readonly Shape[], pointAt: (z: number) => readonly number[] | null): GameObject[] {
+  return shapes
+    .filter((s) => {
+      const p = s.points.length > 0 ? pointAt(s.points[0][2] ?? 0) : null;
+      return p !== null && pointInPolygon(p as [number, number], s.points);
+    })
+    .sort((a, b) => polygonArea(a.points) - polygonArea(b.points))
+    .map((s) => s.node);
+}
+
+/** Each collider's rectangle on the canvas, for the box and the Alt+click list; colliders partly behind the camera are left out. */
+export function colliderBounds(shapes: readonly Shape[], project: (p: readonly number[]) => [number, number] | null): { node: GameObject; rect: ScreenRect }[] {
+  const out: { node: GameObject; rect: ScreenRect }[] = [];
+  for (const { node, points } of shapes) {
+    const projected = points.map(project);
+    if (projected.length === 0 || projected.some((p) => p === null)) continue;
+    const xs = projected.map((p) => p![0]), ys = projected.map((p) => p![1]);
+    out.push({ node, rect: { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) } });
+  }
+  return out;
+}
+
 /** Hook selection up to the viewport. Returns a function that removes it. */
 export function installViewportSelection(engine: Engine, camera: OrbitCamera): () => void {
   const world = engine.world;
@@ -136,9 +168,12 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
   /** The selection box being dragged: the selection before it, and its element. */
   let box: { before: readonly string[]; element: HTMLDivElement } | null = null;
 
+  /** Colliders of active nodes in the edited scene. */
+  const shapes = () => colliderShapes(engine).filter((s) => s.node.activeInHierarchy);
+  /** What each node covers on the canvas: its renderers or origin, and its colliders. */
   const boundsUnderScene = () => {
     const root = openScene.value?.sync.sceneNode;
-    return root ? screenBounds(world, root) : [];
+    return root ? [...screenBounds(world, root), ...colliderBounds(shapes(), (p) => worldToCanvas(world, p))] : [];
   };
 
   const updateBox = (e: PointerEvent) => {
@@ -203,7 +238,9 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
       return;
     }
     if (!isPlainClick(start, p)) return;
-    const hits = hitIds(pick(world, p.x, p.y), (n) => scene.sync.nodeIdOf(n));
+    // Colliders containing the pointer first (smallest first), then renderers under it (topmost first).
+    const inColliders = colliderHits(shapes(), (z) => pointOnSpritePlane(world, p.x, p.y, z));
+    const hits = hitIds([...inColliders, ...pick(world, p.x, p.y)], (n) => scene.sync.nodeIdOf(n));
     const mode: SelectMode = selectModeFor(e);
     if (mode === "replace") {
       const sameSpot = lastClick !== null && Math.hypot(p.x - lastClick.x, p.y - lastClick.y) < CLICK_SLOP;
