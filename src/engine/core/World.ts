@@ -554,6 +554,29 @@ export class World {
     for (const list of this.buffers.values()) list.length = 0;
   }
 
+  // --- isolation (ADR 0032, T3) ---------------------------------------------------------------
+
+  /**
+   * @internal Throw if `value` is a node or component of another World. Engine APIs that store or
+   * link a reference call this, since Worlds can't reach each other's nodes (ADR 0032).
+   */
+  _assertOwns(value: unknown, what: string): void {
+    const other = value instanceof GameObject ? value.world : value instanceof Component ? value._node?.world : undefined;
+    if (!other || other === this) return;
+    const label = value instanceof GameObject ? String(value) : `${value!.constructor.name} component`;
+    throw new Error(`${what}: ${label} belongs to World "${other.name}", not "${this.name}". Worlds are isolated; they exchange data only through a transport (ADR 0032).`);
+  }
+
+  /** @internal `_assertOwns` on each value of a record or array, one level deep (buffer records, component inits). */
+  _assertOwnsAll(record: unknown, what: string): void {
+    if (typeof record !== "object" || record === null) return this._assertOwns(record, what);
+    this._assertOwns(record, what);
+    for (const v of Array.isArray(record) ? record : Object.values(record)) {
+      if (Array.isArray(v)) for (const item of v) this._assertOwns(item, what);
+      else this._assertOwns(v, what);
+    }
+  }
+
   // --- transforms -------------------------------------------------------------------------
 
   /** @internal Mark a node's transform (and its subtree's world transforms) as changed. */

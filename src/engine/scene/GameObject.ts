@@ -35,19 +35,23 @@ export class GameObject {
 
   // --- static API -------------------------------------------------------------------------
 
-  /** Create an empty node. */
+  /** Create an empty node in the current World. A `parent` from another World throws (ADR 0032). */
   static create(name = "GameObject", options: { parent?: GameObject | null; transform?: boolean } = {}): GameObject {
     const world = World.require();
+    world._assertOwns(options.parent, "GameObject.create parent");
     const parent = options.parent ?? world.activeScene ?? world.root;
     return world._createNode(name, parent.entity, { transform: options.transform ?? true });
   }
 
   /**
    * Instantiate a prefab file (a scene file with one root node, ADR 0013/0016) and return its
-   * root. awake/onEnable run before this returns; start runs next frame.
+   * root, in the current World. awake/onEnable run before this returns; start runs next frame.
+   * A `parent` from another World throws (ADR 0032).
    */
   static instantiate(prefabPath: string, options: InstantiateOptions = {}): GameObject {
-    return World.require()._instantiatePrefab(prefabPath, options);
+    const world = World.require();
+    world._assertOwns(options.parent, `GameObject.instantiate("${prefabPath}") parent`);
+    return world._instantiatePrefab(prefabPath, options);
   }
 
   /** Queue a node (with its subtree) or a component for destruction at the end of the frame. */
@@ -131,9 +135,13 @@ export class GameObject {
     return this.world.childEntities(this.entity).map((c) => this.world.handle(c));
   }
 
-  /** Reparent. By default the world transform is kept. Returns false if it would create a cycle. */
+  /**
+   * Reparent. By default the world transform is kept. Returns false if it would create a cycle.
+   * Throws for a parent in another World (ADR 0032).
+   */
   setParent(parent: GameObject, options: { keepWorldTransform?: boolean } = {}): boolean {
     this.check();
+    this.world._assertOwns(parent, `${this}.setParent`);
     return this.world._setParent(this.entity, parent.entity, options.keepWorldTransform ?? true);
   }
 
@@ -149,9 +157,10 @@ export class GameObject {
 
   // --- components ---------------------------------------------------------------------------
 
-  /** Attach a component to this node. */
+  /** Attach a component to this node. `init` values that are another World's nodes or components throw (ADR 0032). */
   addBehavior<T extends Component>(type: ConcreteComponentType<T>, init?: ComponentInit<T>): T {
     this.check();
+    if (init) this.world._assertOwnsAll(init, `${this}.addBehavior(${type.name})`);
     return this.world._addComponent(this.entity, type, init as Partial<T>);
   }
 
@@ -216,7 +225,7 @@ export class GameObject {
 
   /** Queue a component on this node for removal at the end of the frame. */
   removeBehavior(component: Component): void {
-    if (component.node.entity !== this.entity) throw new Error("Component is not attached to this node.");
+    if (component.node.world !== this.world || component.node.entity !== this.entity) throw new Error("Component is not attached to this node.");
     this.world._removeComponent(component);
   }
 

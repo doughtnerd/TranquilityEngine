@@ -15,7 +15,10 @@ function physics() {
   return p;
 }
 
-/** 2D physics queries and settings for the active world (ADR 0005). */
+/**
+ * 2D physics queries and settings for the current World (ADR 0005, 0032). Each World has its own
+ * physics world; queries never see another World's colliders.
+ */
 export class Physics2D {
   static get gravity(): Vector2 {
     const g = physics().gravity;

@@ -334,6 +334,7 @@ class Instantiation {
     const resolve = (scope: Map<string, Instance>, id: string) => {
       const found = scope.get(id)?.node ?? (scope === this.top ? this.hooks.resolveExternal?.(id) : undefined);
       if (!found) console.warn(`[tranquility] node reference "${id}" not found.`);
+      else this.world._assertOwns(found, `node reference "${id}"`); // never across Worlds (ADR 0032)
       return found ?? null;
     };
     for (const f of this.fixups) f.apply(resolve);
@@ -403,6 +404,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 /** @internal Instantiate every node of `file` under `parent`, then run awake/onEnable in tree order. */
 export function instantiateFile(world: World, file: SceneFile, parent: GameObject, path: string, hooks?: InstantiateHooks): GameObject[] {
+  world._assertOwns(parent, `${path}: parent`);
   return world._batch(() => {
     const job = new Instantiation(world, hooks);
     const { roots } = job.file(file, parent, path);
@@ -413,6 +415,7 @@ export function instantiateFile(world: World, file: SceneFile, parent: GameObjec
 
 /** @internal Backs `GameObject.instantiate`. */
 export function instantiatePrefab(world: World, path: string, options: InstantiateOptions): GameObject {
+  world._assertOwns(options.parent, `${path}: parent`);
   const file = loadSceneFile(path);
   const parent = options.parent ?? world.activeScene ?? world.root;
   return world._batch(() => {

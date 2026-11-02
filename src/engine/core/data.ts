@@ -189,7 +189,9 @@ export function defineBuffer<T>(id: string): BufferDef<T> {
   const def: BufferDef<T> = {
     id,
     push(record: T) {
-      World.require()._buffer(def).push(record);
+      const world = World.require();
+      world._assertOwnsAll(record, `${id}.push`); // no other World's nodes in this World's buffers (ADR 0032)
+      world._buffer(def).push(record);
     },
     read() {
       return World.require()._buffer(def) as readonly T[];

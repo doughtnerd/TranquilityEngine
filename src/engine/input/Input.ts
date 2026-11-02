@@ -1,4 +1,5 @@
 import { Vector2 } from "../core/math";
+import { World } from "../core/World";
 
 type InputEvent = { type: "down" | "up"; key: string };
 
@@ -25,6 +26,22 @@ function mouseKey(button: number): string {
 }
 
 /**
+ * The devices are the Engine's, attached once and shared; what they report reaches only Worlds
+ * that take local input (ADR 0032). A server World, or any World created with `input: false`,
+ * sees nothing pressed and zero movement. Outside any World (no active World) input is live.
+ */
+function live(): boolean {
+  return World.active?._takesInput ?? true;
+}
+
+const NONE = new Set<string>();
+const ZERO = new Vector2();
+
+function heldKeys(): Set<string> { return live() ? held : NONE; }
+function keysDown(): Set<string> { return live() ? downThisFrame : NONE; }
+function keysUp(): Set<string> { return live() ? upThisFrame : NONE; }
+
+/**
  * Keyboard and pointer input, snapshotted once per frame (ADR 0011 step 2) so `getKeyDown`
  * gives the same answer everywhere in a frame. Key names are lower-case `KeyboardEvent.key`
  * values, with `"space"`, `"escape"` and `"enter"` as friendly names.
@@ -33,22 +50,22 @@ export class Input {
   /** True while the key is held (including the frame it went down). */
   static getKey(key: string): boolean {
     const k = normalizeKey(key);
-    return held.has(k) || downThisFrame.has(k);
+    return heldKeys().has(k) || keysDown().has(k);
   }
 
   /** True only in the frame the key went down. */
   static getKeyDown(key: string): boolean {
-    return downThisFrame.has(normalizeKey(key));
+    return keysDown().has(normalizeKey(key));
   }
 
   /** True only in the frame the key was released. */
   static getKeyUp(key: string): boolean {
-    return upThisFrame.has(normalizeKey(key));
+    return keysUp().has(normalizeKey(key));
   }
 
   /** True if any key or pointer button went down this frame. */
   static get anyKeyDown(): boolean {
-    return downThisFrame.size > 0;
+    return keysDown().size > 0;
   }
 
   /** Mouse button / touch (button 0) held. */
@@ -57,16 +74,16 @@ export class Input {
   }
 
   static getMouseButtonDown(button = 0): boolean {
-    return downThisFrame.has(mouseKey(button));
+    return keysDown().has(mouseKey(button));
   }
 
   static getMouseButtonUp(button = 0): boolean {
-    return upThisFrame.has(mouseKey(button));
+    return keysUp().has(mouseKey(button));
   }
 
   /** Pointer position in canvas pixels (origin top-left). Returns a copy. */
   static get mousePosition(): Vector2 {
-    return pointer.clone();
+    return (live() ? pointer : ZERO).clone();
   }
 
   /**
@@ -74,12 +91,12 @@ export class Input {
    * starts on the canvas keeps reporting movement outside it. Returns a copy.
    */
   static get mouseDelta(): Vector2 {
-    return pointerDelta.clone();
+    return (live() ? pointerDelta : ZERO).clone();
   }
 
   /** Wheel / trackpad scroll since the last frame in pixels (+y = scrolled down). Returns a copy. */
   static get mouseScrollDelta(): Vector2 {
-    return scrollDelta.clone();
+    return (live() ? scrollDelta : ZERO).clone();
   }
 
   /** @internal Listen to keyboard on the window and pointer events on the canvas. */
@@ -143,7 +160,11 @@ export class Input {
     Input.reset();
   }
 
-  /** @internal Step 2 of the frame: apply queued events to this frame's snapshot. */
+  /**
+   * @internal Step 2 of the frame: apply queued events to this frame's snapshot. The devices are
+   * shared, so with several Worlds this runs once per Engine frame, not once per World: every
+   * World that takes input then sees the same snapshot.
+   */
   static beginFrame(): void {
     downThisFrame.clear();
     upThisFrame.clear();

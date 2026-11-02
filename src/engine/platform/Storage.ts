@@ -29,6 +29,11 @@ export class MemoryStorage implements StorageBackend {
   }
 }
 
+/**
+ * One backend per process, shared by every World of the Engine (ADR 0032): saves and settings
+ * belong to the player, not to a World, so nothing here reads the current World. Worlds that need
+ * separate saves (a local server and a client in one process) use different keys or namespaces.
+ */
 let backend: StorageBackend = new MemoryStorage();
 
 export class Storage {
