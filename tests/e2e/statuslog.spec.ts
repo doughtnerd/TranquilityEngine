@@ -67,8 +67,9 @@ test("deleting an asset asks first, listing what uses it; Don't ask again skips 
   await dialog.getByRole("checkbox", { name: "Don't ask again" }).check();
   await dialog.getByRole("button", { name: "Delete" }).click();
   await expect(background).toHaveCount(0);
-  await expect(page.locator(".status-text")).toHaveText("Deleted images/background.png. 1 file still refers to it: prefabs/background.prefab.json.");
+  await expect(page.locator(".status-text")).toHaveText("Deleted images/background.png. Removed references from prefabs/background.prefab.json.");
   expect(await page.evaluate(() => (window as unknown as Hooks).testFolder.read("images/background.png"))).toBeUndefined();
+  expect(await page.evaluate(() => (window as unknown as Hooks).testFolder.read("prefabs/background.prefab.json"))).not.toContain("background.png");
 
   // No question now; the Delete key on a focused tile works too.
   const pipe = page.locator(".asset-tile", { hasText: "PipeUp.png" });

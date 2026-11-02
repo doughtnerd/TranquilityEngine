@@ -9,6 +9,7 @@ export {
   SetComponentEnabled,
   MoveComponent,
   SetComponents,
+  ReplaceDocument,
   RemoveNode,
   RenameNode,
   ReparentNode,

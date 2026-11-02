@@ -1,4 +1,4 @@
-import { isFieldOverride, type ComponentEntry, type NodeEntry, type NodePath, type OverrideEntry, type SceneDocument } from "./SceneDocument";
+import { isFieldOverride, type ComponentEntry, type NodeEntry, type NodePath, type OverrideEntry, type SceneDocument, type SceneFile } from "./SceneDocument";
 
 /**
  * What a command changed, so the Editor World can catch up incrementally (see `WorldSync`).
@@ -440,6 +440,32 @@ export class SetComponents implements Command {
     if (this.previous) node.components = this.previous;
     else delete node.components;
     return [{ kind: "rebuild", node: this.node }];
+  }
+}
+
+/**
+ * Replace the whole document with `next` (an edit made outside the command set, e.g. taking a
+ * deleted asset out of it). Undo puts the previous document back. Every top-level node, before
+ * and after, is rebuilt.
+ */
+export class ReplaceDocument implements Command {
+  private previous: SceneFile | null = null;
+  constructor(private readonly next: SceneFile, readonly label: string) {}
+
+  apply(doc: SceneDocument): Change[] {
+    this.previous = doc.toJSON();
+    return this.swap(doc, structuredClone(this.next));
+  }
+
+  undo(doc: SceneDocument): Change[] {
+    return this.swap(doc, structuredClone(this.previous!));
+  }
+
+  private swap(doc: SceneDocument, file: SceneFile): Change[] {
+    const roots = new Set(doc.roots());
+    doc._replace(file);
+    for (const id of doc.roots()) roots.add(id);
+    return [...roots].map((node) => ({ kind: "rebuild", node }) as const);
   }
 }
 

@@ -181,6 +181,14 @@ class Instantiation {
   }
 
   private node(entry: NodeEntry, parent: GameObject, scope: Map<string, Instance>, path: string): Instance {
+    if (entry.prefab && this.hooks.onProblem && !Assets.has(entry.prefab)) {
+      // Editor: a prefab file that's gone shows as an empty node, so the rest of the scene loads.
+      this.at = [...this.prefix, entry.id];
+      this.problem(`${path}: prefab "${entry.prefab}" not found (deleted?); "${entry.name ?? entry.id}" shows as an empty node.`);
+      const node = this.world._createNode(entry.name ?? entry.id, parent.entity, { transform: true, id: entry.id });
+      if (entry.active === false) node.setActive(false);
+      return { node };
+    }
     if (entry.prefab) {
       const prefab = loadSceneFile(entry.prefab);
       // A prefab is a single node, and its instance is that node. A scene is not a node of its
