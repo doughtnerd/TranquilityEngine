@@ -1,8 +1,8 @@
 /**
  * Connections, RPCs and inputs (ADR 0033): the data game code uses for networking. No callbacks:
  * connections are nodes with a `Connection` data component, received RPCs are buffer rows, and
- * inputs are per-tick data on the player's node. Implemented by T10 (connections, RPCs) and T12
- * (inputs).
+ * inputs are per-tick data on the player's node. Connections and RPCs are T10's
+ * (`connection.ts`, `rpc.ts`, `session.ts`); inputs are T12's.
  */
 import { notYet } from "../core/worlds";
 import type { DataView, Schema } from "../core/data";
@@ -11,11 +11,8 @@ import type { GameObject } from "../scene/GameObject";
 /** The connection node a message came from or goes to. On a client, its one connection to the server. */
 export type ConnectionNode = GameObject;
 
-/** Schema of the `net.Connection` data component on connection nodes (defined by T10). */
-export const CONNECTION_FIELDS = ["id", "state", "rtt", "lastAckedTick"] as const;
-
-/** Values of `net.Connection`'s `state` field. */
-export const ConnectionStates = { connecting: 0, open: 1, closing: 2 } as const;
+/** Connection nodes' data component and its states: see `connection.ts`. */
+export { Connection, ConnectionState, type ConnectionStateValue } from "./connection";
 
 /** Who an RPC goes to: every connection (server), one or several connection nodes, or the server (client). */
 export type RpcTarget = "all" | "server" | ConnectionNode | readonly ConnectionNode[];
@@ -29,22 +26,15 @@ export interface RpcDef<S extends Schema = Schema> {
   readonly schema: S;
   /** Queue a message from the current World. Sent at the end of its frame. */
   send(values: Readonly<Record<keyof S, number>>, to?: RpcTarget): void;
-  /** Messages the current World received this frame, in arrival order. Cleared at the end of the frame. */
+  /**
+   * Messages the current World received, in arrival order: in fixedUpdate, those that arrived for
+   * this fixed step; in update and lateUpdate, those that arrived this frame. Each is seen once by
+   * each phase, then dropped.
+   */
   read(): Iterable<RpcRow<S>>;
 }
 
-/**
- * Declare an RPC type.
- *
- * ```ts
- * export const Ready = defineRpc("game.Ready", { team: u8 });
- * Ready.send({ team: 1 });                                    // a client tells the server
- * for (const m of Ready.read()) assignTeam(m.connection, m.team); // in a server system
- * ```
- */
-export function defineRpc<S extends Schema>(id: string, _schema: S): RpcDef<S> {
-  return notYet("T10", `defineRpc(${JSON.stringify(id)})`);
-}
+export { defineRpc } from "./rpc";
 
 /** A per-tick input stream (Unity's `IInputComponentData`). */
 export interface InputDef<S extends Schema = Schema> {

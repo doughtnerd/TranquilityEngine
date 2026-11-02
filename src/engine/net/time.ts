@@ -1,6 +1,7 @@
 /**
  * Network time (ADR 0033): ticks and round-trip time on Worlds joined by a transport. Read it as
- * `Time.network`, `this.time.network` or `ctx.time.network`. Filled in by T10.
+ * `Time.network`, `this.time.network` or `ctx.time.network`. Kept up to date by the World's network
+ * session (`session.ts`), which explains how clients estimate the server's tick.
  */
 export interface NetworkTime {
   /** This World's simulation tick: fixed steps since it started simulating the networked game. */

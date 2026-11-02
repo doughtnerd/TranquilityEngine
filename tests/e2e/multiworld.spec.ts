@@ -113,3 +113,46 @@ test("Play tiles the rendering Worlds; a click gives a World input; Worlds pause
   await expect(page.locator("#viewport canvas")).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+/** The same Worlds, with both clients linked to the server over loopback (ADR 0033). */
+const LINKED = JSON.stringify({
+  ...JSON.parse(PROJECT),
+  bootstrap: {
+    ...JSON.parse(PROJECT).bootstrap,
+    links: [
+      { from: "P1", to: "Server", transport: "loopback" },
+      { from: "P2", to: "Server", transport: "loopback" },
+    ],
+  },
+});
+
+/** Open connections (`net.Connection` nodes in state open) in a World of the running game. */
+const openConnections = (page: Page, world: string) =>
+  page.evaluate((name) => {
+    type Rows = Iterable<{ connection: { state: number } }>;
+    const t = (globalThis as unknown as { __tranquility?: { Connection: unknown } }).__tranquility;
+    const w = (window as unknown as { playEngine?: { _world(n: string): { _query(terms: unknown[]): Rows } | null } | null }).playEngine?._world(name);
+    if (!t || !w) return -1;
+    let n = 0;
+    for (const row of w._query([t.Connection])) if (row.connection.state === 1) n++;
+    return n;
+  }, world);
+
+test("Play connects linked Worlds, and Stop and Play again reconnect them", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto(EDITOR);
+  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await page.evaluate((project) => (window as unknown as Hooks).openTestProject({ "project.json": project }), LINKED);
+  await expect(page.locator(".tree .row .name", { hasText: /^Bird$/ })).toHaveCount(1);
+
+  for (let round = 0; round < 2; round++) {
+    await page.getByRole("button", { name: "▶ Play" }).click();
+    await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+    await expect.poll(() => openConnections(page, "Server")).toBe(2);
+    expect(await openConnections(page, "P1")).toBe(1);
+    expect(await openConnections(page, "P2")).toBe(1);
+    await page.getByRole("button", { name: /Stop/ }).click();
+    await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
+  }
+  expect(errors).toEqual([]);
+});

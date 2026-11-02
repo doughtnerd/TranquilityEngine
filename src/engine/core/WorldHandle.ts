@@ -2,9 +2,10 @@
  * World handles (ADR 0032): the only cross-World API. A handle controls a World's lifetime and
  * setup (scenes, systems, pausing) but never exposes its nodes, so Worlds stay isolated.
  */
+import { connectWorlds } from "../net/session";
 import { SceneManager } from "../scene/SceneManager";
 import { World } from "./World";
-import { notYet, type WorldHandle, type WorldTag } from "./worlds";
+import type { WorldHandle, WorldTag } from "./worlds";
 
 /** @internal What a handle needs from the Engine that owns its World. */
 export interface WorldOwner {
@@ -62,9 +63,20 @@ export class WorldHandleImpl implements WorldHandle {
     return this.live().systemNames();
   }
 
-  connect(server: WorldHandle, transport: string, _options?: Record<string, unknown>): void {
-    this.live();
-    notYet("T10", `Connecting World "${this.name}" to "${server.name}" over "${transport}"`);
+  /**
+   * Join this World (the client) to `server` over a transport (ADR 0033), as a bootstrap link does.
+   * `server` may belong to another Engine in the same page. Over loopback the client is connecting
+   * when this returns (an address is made up unless `options.address` is given); over a transport
+   * that listens asynchronously (WebSocket, in Node) it connects once the server listens, and a
+   * failure is logged. Either way the connection opens over the next frames: watch for the client's
+   * `Connection` node to become `open`.
+   */
+  connect(server: WorldHandle, transport: string, options: Record<string, unknown> = {}): void {
+    const world = this.live();
+    if (!(server instanceof WorldHandleImpl) || !server.alive) throw new Error(`Can't connect World "${this.name}" to "${server.name}": it isn't a live World.`);
+    connectWorlds(world, server.#world, transport, options).catch((err) =>
+      console.error(`[tranquility] Connecting World "${this.name}" to "${server.name}" over "${transport}" failed:`, err),
+    );
   }
 
   pause(): void {

@@ -60,7 +60,12 @@ export interface LinkConfig {
   to: string;
   /** A registered transport name: `"loopback"`, `"websocket"`, … */
   transport: string;
-  /** Transport-specific settings (an address; simulated latency for loopback). */
+  /**
+   * Settings for the link and its transport: `address` (where the server listens; loopback makes
+   * one up per Engine and server World), `port` (WebSocket servers, Node only), `url` (where a
+   * WebSocket client connects), `interpolationMs` (the client's interpolation buffer, default 100),
+   * and transport options such as loopback's `latencyMs`, `jitterMs` and `loss`.
+   */
   options?: Record<string, unknown>;
 }
 
