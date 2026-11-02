@@ -35,6 +35,25 @@ async function typeAtEnd(page: Page, text: string): Promise<void> {
   await page.keyboard.insertText(text);
 }
 
+test("the code editor loads in the background, says when it's opening a file, and opens files quickly", async ({ page }) => {
+  await openProject(page);
+  // The TypeScript worker starts once the editor is idle (the project has a script).
+  await page.waitForFunction(() => performance.getEntriesByType("resource").some((e) => /ts\.worker/.test(e.name)), null, { timeout: 20_000 });
+  await page.evaluate(() => {
+    (window as unknown as { overlaySeen: boolean }).overlaySeen = false;
+    new MutationObserver(() => {
+      if (document.querySelector(".code-loading")) (window as unknown as { overlaySeen: boolean }).overlaySeen = true;
+    }).observe(document.body, { childList: true, subtree: true });
+  });
+  await page.locator(".asset-folder", { hasText: /^data$/ }).click();
+  const start = Date.now();
+  await page.locator(".asset-tile", { hasText: "levels.json" }).dblclick();
+  await expect(editor(page).locator(".view-lines")).toContainText('"speed": 4');
+  expect(Date.now() - start).toBeLessThan(2000);
+  await expect(page.locator(".code-loading")).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { overlaySeen: boolean }).overlaySeen)).toBe(true);
+});
+
 test("JSON and JavaScript files open in the Code panel", async ({ page }) => {
   await openProject(page);
   await page.locator(".asset-folder", { hasText: /^data$/ }).click();

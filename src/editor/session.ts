@@ -17,7 +17,7 @@ import { startPlay, type PlaySession } from "./playMode";
 import { openSceneFile, saveOpenScene } from "./project";
 import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, docVersion, openScene, playState, sceneCamera, scriptProblems, scriptsVersion, selection, status, viewMode } from "./state";
-import { closeAllScripts } from "./code/codeState";
+import { closeAllScripts, preloadCodeEditor } from "./code/codeState";
 import { isScriptPath, replaceScripts } from "./scriptLoader";
 import { viewportElements } from "./ui/ScenePanel";
 import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
@@ -101,6 +101,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   // Debug and end-to-end test hooks.
   Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world), nodeRect, openTestProject });
   if (project.mainScene) openScene_(project.mainScene);
+  preloadCodeEditor(project); // so the first file opens without the wait
   if (scripts.problems.length > 0) {
     const list = scripts.problems.map((p) => `${p.path}: ${p.message}`);
     const scene = status.value?.kind === "error" ? ` · ${status.value.text}` : "";

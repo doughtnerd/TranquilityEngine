@@ -3,12 +3,10 @@ import { effect } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type * as Monaco from "monaco-editor";
 import { fileName } from "../assetBrowser";
-import { activeScript, closeScript, codeFiles, dirtyScripts, openScripts, setDirty } from "../code/codeState";
+import { activeScript, closeScript, codeFiles, codeFileText, dirtyScripts, loadMonaco, loadedMonaco, openScripts, setDirty } from "../code/codeState";
 import { openScriptExternally, saveCodeFile } from "../session";
 import { currentProject, scriptsVersion, status } from "../state";
 import { confirmInEditor } from "./ConfirmDialog";
-
-type MonacoModule = typeof import("../code/monaco");
 
 /**
  * The Code panel (ADR 0030): project scripts, JSON and JavaScript files in tabs, edited with
@@ -85,23 +83,15 @@ async function closeTab(path: string): Promise<void> {
       danger: true,
     });
     if (!answer.ok) return;
-    const saved = currentProject.value ? codeFiles(currentProject.value).get(path) : undefined;
-    if (loaded) {
-      const model = loaded.monaco.editor.getModel(loaded.monaco.Uri.parse(`file:///project/${path}`));
+    const saved = currentProject.value ? codeFileText(currentProject.value, path) : undefined;
+    if (loadedMonaco) {
+      const model = loadedMonaco.monaco.editor.getModel(loadedMonaco.monaco.Uri.parse(`file:///project/${path}`));
       if (model && saved !== undefined) model.setValue(saved);
       else model?.dispose();
     }
   }
   closeScript(path);
 }
-
-/** The project whose files Monaco's models hold: when another opens, they're dropped first. */
-let modelsProject: unknown = null;
-
-/** Monaco, once loaded (it stays loaded for the session). */
-let loaded: MonacoModule | null = null;
-let loading: Promise<MonacoModule> | null = null;
-const loadMonaco = () => (loading ??= import("../code/monaco").then((m) => (loaded = m)));
 
 /** Save the file showing (Ctrl/Cmd+S in the editor). */
 async function saveActive(editor: Monaco.editor.IStandaloneCodeEditor): Promise<void> {
@@ -110,7 +100,7 @@ async function saveActive(editor: Monaco.editor.IStandaloneCodeEditor): Promise<
   if (!path || !model || !project?.canSave) return;
   try {
     await saveCodeFile(path, model.getValue());
-    setDirty(path, model.getValue() !== codeFiles(project).get(path));
+    setDirty(path, model.getValue() !== codeFileText(project, path));
   } catch (err) {
     status.value = errorStatus(`Couldn't save ${path}`, err);
   }
@@ -119,12 +109,14 @@ async function saveActive(editor: Monaco.editor.IStandaloneCodeEditor): Promise<
 function MonacoHost() {
   const host = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  // The file being opened, while Monaco loads or its model is made: an overlay says so.
+  const [opening, setOpening] = useState<string | null>(activeScript.peek());
   useEffect(() => {
     let editor: Monaco.editor.IStandaloneCodeEditor | null = null;
     let stop: (() => void) | null = null;
     let cancelled = false;
     loadMonaco()
-      .then(({ monaco, modelFor, syncModels, disposeModels }) => {
+      .then(({ monaco, modelFor, syncProject }) => {
         if (cancelled || !host.current) return;
         editor = monaco.editor.create(host.current, {
           theme: "tranquility",
@@ -151,19 +143,18 @@ function MonacoHost() {
           scriptsVersion.value;
           const path = activeScript.value;
           if (!project) return;
-          if (modelsProject !== project) {
-            // Another project: its files replace the last one's (models and the JSON the TypeScript service knows).
-            disposeModels();
-            modelsProject = project;
-          }
+          // Another project's files replace the last one's (models and the JSON the TypeScript service knows).
           const files = codeFiles(project);
-          syncModels(files, dirtyScripts.peek());
+          syncProject(project, files, dirtyScripts.peek());
           e.updateOptions({ readOnly: !project.canSave });
-          if (!path) return e.setModel(null);
+          if (!path) {
+            setOpening(null);
+            return e.setModel(null);
+          }
           const model = modelFor(path, files.get(path) ?? "");
           if (!watchers.has(path)) {
             // Dirty while the text differs from the file on disk.
-            const onDisk = () => (currentProject.value ? codeFiles(currentProject.value).get(path) : undefined);
+            const onDisk = () => (currentProject.value ? codeFileText(currentProject.value, path) : undefined);
             watchers.set(path, model.onDidChangeContent(() => setDirty(path, model.getValue() !== onDisk())));
             model.onWillDispose(() => {
               watchers.get(path)?.dispose();
@@ -171,6 +162,8 @@ function MonacoHost() {
             });
           }
           if (e.getModel() !== model) e.setModel(model);
+          // Clear the overlay once the file has drawn.
+          requestAnimationFrame(() => activeScript.peek() === path && setOpening(null));
         });
       })
       .catch((err) => setFailed(err instanceof Error ? err.message : String(err)));
@@ -180,5 +173,16 @@ function MonacoHost() {
       editor?.dispose();
     };
   }, []);
-  return failed ? <p class="empty error">Couldn't load the code editor: {failed}</p> : <div ref={host} class="code-editor" />;
+  if (failed) return <p class="empty error">Couldn't load the code editor: {failed}</p>;
+  return (
+    <div class="code-editor-wrap">
+      <div ref={host} class="code-editor" />
+      {opening && (
+        <div class="code-loading" role="status">
+          <span class="spinner" aria-hidden="true" />
+          Opening {fileName(opening)}…
+        </div>
+      )}
+    </div>
+  );
 }

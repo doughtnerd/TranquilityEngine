@@ -7,16 +7,44 @@ import { isTextAsset, type EditorProject } from "../projects";
 
 /**
  * Every file the Code panel can show, by project path, with its text on disk: the scripts, and
- * the project's JSON and JavaScript files.
+ * the project's JSON and JavaScript files. Scenes and prefabs open in the scene view instead.
  */
 export function codeFiles(project: EditorProject): Map<string, string> {
   const files = new Map(project.scripts);
   for (const path of project.files) {
-    if (!isTextAsset(path)) continue;
+    if (!isTextAsset(path) || /\.(scene|prefab)\.json$/i.test(path)) continue;
     const text = project.textOf(path);
     if (text !== undefined) files.set(path, text);
   }
   return files;
+}
+
+/** The text on disk of one file the Code panel can show. */
+export function codeFileText(project: EditorProject, path: string): string | undefined {
+  return project.scripts.get(path) ?? (/\.(scene|prefab)\.json$/i.test(path) ? undefined : project.textOf(path));
+}
+
+type MonacoModule = typeof import("./monaco");
+
+/** Monaco, once loaded (it stays loaded for the session). */
+export let loadedMonaco: MonacoModule | null = null;
+let loading: Promise<MonacoModule> | null = null;
+/** Load Monaco (code/monaco.ts and its chunk), once. */
+export const loadMonaco = () => (loading ??= import("./monaco").then((m) => (loadedMonaco = m)));
+
+/**
+ * Load Monaco in the background once the editor is idle, so the first file opens without the
+ * wait. With scripts in the project, the TypeScript worker starts too (its first start is the
+ * slowest part, parsing the engine's declarations).
+ */
+export function preloadCodeEditor(project: EditorProject): void {
+  if (typeof window === "undefined" || typeof document === "undefined") return; // headless tests
+  const idle = (run: () => void) => ("requestIdleCallback" in window ? requestIdleCallback(run, { timeout: 5000 }) : setTimeout(run, 2000));
+  idle(() => {
+    loadMonaco()
+      .then((m) => (project.scripts.size > 0 ? m.warmUp(project, codeFiles(project)) : undefined))
+      .catch(() => {}); // opening a file reports it
+  });
 }
 
 /** Scripts open as tabs in the Code panel, by project path, in tab order. */

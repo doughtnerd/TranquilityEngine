@@ -103,8 +103,36 @@ function syncJsonLibs(files: ReadonlyMap<string, string>): void {
   }
 }
 
+/** The project whose files the models hold. */
+let modelsProject: unknown = null;
+
+/**
+ * Bring the models in line with `project`'s files (see syncModels). When another project opened,
+ * the last one's models and JSON go first.
+ */
+export function syncProject(project: unknown, files: ReadonlyMap<string, string>, dirty: ReadonlySet<string>): void {
+  if (modelsProject !== project) {
+    disposeModels();
+    modelsProject = project;
+  }
+  syncModels(files, dirty);
+}
+
+/**
+ * Get ready to open `project`'s files without a wait: make the models and start the TypeScript
+ * worker, which parses the engine's declarations and the scripts on its first request.
+ */
+export async function warmUp(project: unknown, files: ReadonlyMap<string, string>): Promise<void> {
+  syncProject(project, files, new Set());
+  const script = [...files.keys()].find((p) => p.endsWith(".ts"));
+  if (!script) return;
+  const worker = await ts.getTypeScriptWorker();
+  const client = await worker(uriOf(script));
+  await client.getSemanticDiagnostics(uriOf(script).toString());
+}
+
 /** Drop every file model (another project opened). */
-export function disposeModels(): void {
+function disposeModels(): void {
   for (const model of monaco.editor.getModels()) if (model.uri.path.startsWith("/project/")) model.dispose();
   for (const entry of jsonLibs.values()) entry.lib.dispose();
   jsonLibs.clear();
