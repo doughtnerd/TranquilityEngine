@@ -2,6 +2,17 @@
 
 Start here. These docs describe where the engine is going, why, and what is being left behind.
 
+## Guides
+
+How to use the engine. Guides describe what works today; the architecture docs and decision records below say why.
+
+| Guide | What it covers |
+| --- | --- |
+| [Worlds](guide/worlds.md) | Several Worlds per Engine: tags, bootstraps, systems and time per World, creating Worlds at runtime, isolation, async code, the Worlds panel |
+| [Multiplayer](guide/multiplayer.md) | Client and server Worlds, links and transports, RPCs, replication, inputs, prediction, the dedicated server (`npm run server`), the Network panel, known gaps |
+
+## Architecture
+
 | Doc | What it covers |
 | --- | --- |
 | [Architecture overview](architecture/overview.md) | Goals, non-goals, layers, module layout, glossary |
