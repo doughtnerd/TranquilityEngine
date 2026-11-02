@@ -1,0 +1,91 @@
+{
+  "format": "tranquility.scene@1",
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 0, 10] } },
+        { "type": "engine.Camera", "data": { "projection": "orthographic", "orthographicSize": 6.6, "backgroundColor": "#14161b" } }
+      ]
+    },
+    {
+      "id": "floor",
+      "name": "Floor",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 0, 0] } },
+        { "type": "engine.SpriteRenderer", "data": { "size": [15, 11], "color": "#232833", "sortingLayer": "Floor" } }
+      ]
+    },
+    {
+      "id": "midline",
+      "name": "MidLine",
+      "parent": "floor",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 0, 0] } },
+        { "type": "engine.SpriteRenderer", "data": { "size": [0.06, 11], "color": "#2e3542", "sortingLayer": "Floor", "orderInLayer": 1 } }
+      ]
+    },
+    {
+      "id": "wall-top",
+      "name": "WallTop",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 5.6, 0] } },
+        { "type": "engine.SpriteRenderer", "data": { "size": [15.4, 0.2], "color": "#5c6577" } }
+      ]
+    },
+    {
+      "id": "wall-bottom",
+      "name": "WallBottom",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, -5.6, 0] } },
+        { "type": "engine.SpriteRenderer", "data": { "size": [15.4, 0.2], "color": "#5c6577" } }
+      ]
+    },
+    {
+      "id": "wall-left",
+      "name": "WallLeft",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [-7.6, 0, 0] } },
+        { "type": "engine.SpriteRenderer", "data": { "size": [0.2, 11.4], "color": "#5c6577" } }
+      ]
+    },
+    {
+      "id": "wall-right",
+      "name": "WallRight",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [7.6, 0, 0] } },
+        { "type": "engine.SpriteRenderer", "data": { "size": [0.2, 11.4], "color": "#5c6577" } }
+      ]
+    },
+    {
+      "id": "actors",
+      "name": "Actors",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 0, 0] } },
+        { "type": "arena.Actors" }
+      ]
+    },
+    {
+      "id": "help",
+      "name": "Help",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "worlds": ["client"],
+          "data": { "anchor": "bottom", "offset": [0, -8], "fontSize": 16, "fontWeight": "400", "color": "#9aa0ad" }
+        }
+      ]
+    },
+    {
+      "id": "scoreboard",
+      "name": "Scoreboard",
+      "transform": false,
+      "components": [
+        { "type": "engine.Text", "worlds": ["client"], "data": { "text": "Connecting…", "anchor": "top", "offset": [0, 6], "fontSize": 24, "color": "#e8eaf0" } },
+        { "type": "arena.Hud", "data": { "help": { "$node": "help" } } }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "format": "tranquility.scene@1",
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 0, 10] } },
+        { "type": "engine.Camera", "data": { "projection": "orthographic", "orthographicSize": 6, "backgroundColor": "#14161b" } }
+      ]
+    },
+    {
+      "id": "blue",
+      "name": "BlueDisc",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [-4.5, 0.6, 0] } },
+        { "type": "engine.SpriteRenderer", "data": { "sprite": "asset:images/disc.png", "size": [1.6, 1.6], "color": "#4fc3f7" } }
+      ]
+    },
+    {
+      "id": "orange",
+      "name": "OrangeDisc",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [4.5, 0.6, 0] } },
+        { "type": "engine.SpriteRenderer", "data": { "sprite": "asset:images/disc.png", "size": [1.6, 1.6], "color": "#ffb74d" } }
+      ]
+    },
+    {
+      "id": "title",
+      "name": "Title",
+      "transform": false,
+      "components": [
+        { "type": "engine.Text", "data": { "text": "ARENA", "anchor": "top", "offset": [0, 110], "fontSize": 84, "color": "#e8eaf0" } }
+      ]
+    },
+    {
+      "id": "subtitle",
+      "name": "Subtitle",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": { "text": "a two-player netcode sample", "anchor": "top", "offset": [0, 175], "fontSize": 22, "fontWeight": "400", "color": "#9aa0ad" }
+        }
+      ]
+    },
+    {
+      "id": "host",
+      "name": "HostButton",
+      "transform": false,
+      "components": [
+        { "type": "engine.Text", "data": { "text": "[H]  Host a game", "anchor": "center", "offset": [0, 10], "fontSize": 34, "color": "#ffffff" } }
+      ]
+    },
+    {
+      "id": "join",
+      "name": "JoinButton",
+      "transform": false,
+      "components": [
+        { "type": "engine.Text", "data": { "text": "[J]  Join ws://localhost:7777", "anchor": "center", "offset": [0, 70], "fontSize": 34, "color": "#ffffff" } }
+      ]
+    },
+    {
+      "id": "status",
+      "name": "Status",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": { "text": "Press a key to choose", "anchor": "bottom", "offset": [0, -70], "fontSize": 20, "fontWeight": "400", "color": "#9aa0ad" }
+        }
+      ]
+    },
+    {
+      "id": "menu",
+      "name": "Menu",
+      "transform": false,
+      "components": [{ "type": "arena.Menu", "data": { "status": { "$node": "status" } } }]
+    }
+  ]
+}

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { Connection, ConnectionState, Engine, Replicated, defineSystem, i32, type GameObject, type RpcDef } from "../engine";
+import { Connection, ConnectionState, Engine, Input, Replicated, defineSystem, i32, type DataComponentDef, type GameObject, type RpcDef } from "../engine";
 import { World } from "../engine/core/World";
 import { connectWorld } from "../engine/net/session";
 import { loadedScriptModule } from "../editor/scriptLoader";
@@ -216,6 +216,110 @@ export function bootstrap(engine: BootstrapEngine): void {
     expect(server.engine.worlds().map((w) => w.name)).toEqual(["Host"]);
     expect(lines).toContain('[server] Skipping World "Local": it isn\'t tagged "server".');
     expect(server.listeners[0].url).toMatch(/^ws:\/\/127\.0\.0\.1:\d+\/code$/);
+  });
+});
+
+// T16: the arena sample (samples/arena) on the dedicated server, read as a data folder by path
+// (nothing in src/ imports the sample's code; startServer loads its scripts like any project's).
+// Its bootstrap has only a client World, so the server runs the `Server` template (Unity's
+// frontend pattern: in the browser a Host button creates that World).
+describe("the arena sample on tranquility-server (T16)", () => {
+  const ARENA = fileURLToPath(new URL("../../samples/arena", import.meta.url));
+  type PlayerData = { score: number; aimX: number; aimY: number };
+  interface ArenaPlayer {
+    node: GameObject;
+    ownerId: number;
+    data: PlayerData;
+  }
+
+  /** Start the server on the arena; resolves with it and the sample's `Player` component (its scripts are loaded then). */
+  async function startArena(lines: string[] = []): Promise<{ server: RunningServer; Player: DataComponentDef }> {
+    const server = await start({ projectDir: ARENA }, lines);
+    const { Player } = (await loadedScriptModule("scripts/data.ts")) as { Player: DataComponentDef };
+    return { server, Player };
+  }
+
+  /** A client Engine like the arena's after Host or Join: a client World in the arena scene that takes the keyboard. */
+  async function arenaClient(server: RunningServer): Promise<World> {
+    const engine = await Engine.create({
+      headless: true,
+      project: server.project.settings,
+      bootstrap: { worlds: [{ name: "Player", tags: ["client"], input: true, scenes: ["scenes/arena.scene.json"] }] },
+    });
+    engines.push(engine);
+    connectWorld(engine.world, "websocket", { url: server.listeners[0].url });
+    return engine.world;
+  }
+
+  /** Players (nodes with arena.Player) in a World, by owner id. */
+  function playersIn(w: World, Player: DataComponentDef): ArenaPlayer[] {
+    return w
+      ._componentsOfType(Replicated)
+      .filter((rep) => rep.node.isValid && rep.node.getData(Player))
+      .map((rep) => ({ node: rep.node, ownerId: rep.ownerId, data: rep.node.getData(Player) as unknown as PlayerData }))
+      .sort((a, b) => a.ownerId - b.ownerId);
+  }
+
+  afterEach(() => Input.reset());
+
+  it("runs the Server template; a client joins, gets a predicted player it owns, moves it with input, and leaving removes it", async () => {
+    const lines: string[] = [];
+    const { server, Player } = await startArena(lines);
+    expect(server.engine.worlds().map((w) => w.name)).toEqual(["Server"]);
+    expect(server.listeners.map((l) => l.world)).toEqual(["Server"]);
+    expect(server.tickRate).toBeCloseTo(60);
+    const serverWorld = server.engine._world("Server")!;
+
+    const client = await arenaClient(server);
+    await until(() => connectionStates(client)[0] === ConnectionState.open && playersIn(client, Player).length === 1);
+    const mine = playersIn(client, Player)[0];
+    const rep = mine.node.getBehavior(Replicated)!;
+    expect(rep.mode).toBe("predicted");
+    expect(rep.isOwnedLocally).toBe(true);
+    expect(rep.isPredictedLocally).toBe(true);
+    const onServer = playersIn(serverWorld, Player);
+    expect(onServer.map((p) => p.ownerId)).toEqual([mine.ownerId]);
+    await until(() => lines.some((l) => /World "Server": connection 1 opened/.test(l)));
+
+    // D held: the client predicts the move at once, and the server moves its player too.
+    const x0 = mine.node.transform!.position.x;
+    const serverX0 = onServer[0].node.transform!.position.x;
+    Input.simulate("down", "d");
+    await until(() => mine.node.transform!.position.x > x0 + 1 && onServer[0].node.transform!.position.x > serverX0 + 1);
+    Input.simulate("up", "d");
+    expect(mine.data.aimX).toBe(1);
+
+    // Leaving removes the player.
+    const engine = engines.pop()!;
+    engine.dispose();
+    await until(() => playersIn(serverWorld, Player).length === 0);
+  });
+
+  it("scores a hit for the shooter on the server, and both clients see the score", async () => {
+    const { server, Player } = await startArena();
+    const serverWorld = server.engine._world("Server")!;
+    const a = await arenaClient(server);
+    const b = await arenaClient(server);
+    await until(() => playersIn(serverWorld, Player).length === 2 && playersIn(a, Player).length === 2 && playersIn(b, Player).length === 2);
+    const [shooter, target] = playersIn(serverWorld, Player);
+    // Line them up across the arena; the shooter aims at the target, the target at a wall.
+    shooter.node.transform!.position.set(-3, 0, 0);
+    shooter.data.aimX = 1;
+    shooter.data.aimY = 0;
+    target.node.transform!.position.set(3, 0, 0);
+    target.data.aimX = 0;
+    target.data.aimY = 1;
+    await until(() => playersIn(a, Player).every((p) => Math.abs(Math.abs(p.node.transform!.position.x) - 3) < 0.05));
+
+    // Both clients hold Space (they share the keyboard here); only the shooter's shots can hit.
+    Input.simulate("down", "space");
+    await until(() => shooter.data.score > 0, 5000);
+    Input.simulate("up", "space");
+    expect(target.data.score).toBe(0);
+    // The target respawned at the spawn point farthest from the shooter.
+    expect(target.node.transform!.position.x).toBeCloseTo(5.5, 3);
+    // The score reaches both clients.
+    await until(() => [a, b].every((w) => playersIn(w, Player).find((p) => p.ownerId === shooter.ownerId)!.data.score === shooter.data.score));
   });
 });
 
