@@ -149,9 +149,11 @@ interface ServerPlan {
 /**
  * The project's bootstrap cut down to its server Worlds. A declarative one keeps the Worlds
  * tagged "server", the links between them, and every template (created later by name); links from
- * other Worlds to a server World say where it listens. A code bootstrap runs against an Engine
- * whose `createWorld` skips Worlds not tagged "server", returning an inert handle whose `connect`
- * records the link instead.
+ * other Worlds to a server World say where it listens. A bootstrap with no server Worlds whose
+ * templates include server-tagged ones (Unity's frontend pattern: a Host button creates the server
+ * World at runtime) runs those templates, each as a World named after its key. A code bootstrap
+ * runs against an Engine whose `createWorld` skips Worlds not tagged "server", returning an inert
+ * handle whose `connect` records the link instead.
  */
 async function serverBootstrap(project: ServerProject): Promise<ServerPlan> {
   const setting = project.settings.bootstrap;
@@ -168,11 +170,16 @@ async function serverBootstrap(project: ServerProject): Promise<ServerPlan> {
     if (err instanceof BootstrapError) throw new ServerError(`The project's bootstrap is invalid:\n${err.problems.map((p) => `  - ${p}`).join("\n")}`);
     throw err;
   }
-  const isServer = (w: WorldConfig) => (w.tags ?? DEFAULT_WORLD_TAGS).includes("server");
-  const worlds = setting.worlds.filter(isServer);
+  const isServer = (w: Omit<WorldConfig, "name">) => (w.tags ?? DEFAULT_WORLD_TAGS).includes("server");
+  let worlds = setting.worlds.filter(isServer);
   const skipped = setting.worlds.filter((w) => !isServer(w)).map((w) => w.name);
   if (worlds.length === 0) {
-    throw new ServerError(`The project's bootstrap has no Worlds tagged "server" (it has ${skipped.map((n) => `"${n}"`).join(", ")}); there's nothing for a dedicated server to run.`);
+    worlds = Object.entries(setting.templates ?? {})
+      .filter(([, t]) => isServer(t))
+      .map(([key, t]) => ({ ...t, name: key }));
+  }
+  if (worlds.length === 0) {
+    throw new ServerError(`The project's bootstrap has no Worlds or templates tagged "server" (it has ${skipped.map((n) => `"${n}"`).join(", ")}); there's nothing for a dedicated server to run.`);
   }
   const kept = new Set(worlds.map((w) => w.name));
   const links = setting.links ?? [];

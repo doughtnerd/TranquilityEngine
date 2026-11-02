@@ -131,7 +131,7 @@ describe("tranquility-server (T14)", () => {
     await expect(start({ projectDir: empty })).rejects.toThrow(/has no project\.json/);
 
     writeFileSync(join(empty, "project.json"), JSON.stringify({ bootstrap: { worlds: [{ name: "Solo" }] } }));
-    await expect(start({ projectDir: empty })).rejects.toThrow(/no Worlds tagged "server"/);
+    await expect(start({ projectDir: empty })).rejects.toThrow(/no Worlds or templates tagged "server"/);
     writeFileSync(join(empty, "project.json"), JSON.stringify({ bootstrap: { worlds: [{ name: "S", tags: ["server"], tickrate: 30 }] } }));
     await expect(start({ projectDir: empty })).rejects.toThrow(/bootstrap is invalid:\n.*unknown key "tickrate"/);
 
@@ -161,6 +161,19 @@ describe("tranquility-server (T14)", () => {
     expect(server.listeners[1].url).toMatch(/^ws:\/\/127\.0\.0\.1:\d+\/match$/);
     const { netSession } = await import("../engine/net/session");
     expect(netSession(server.engine._world("Lobby")!)!.maxConnections).toBe(3);
+  });
+
+  it("runs server-tagged templates when the bootstrap's Worlds are all clients (a Host button's layout)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tranquility-server-"));
+    temps.push(dir);
+    writeFileSync(
+      join(dir, "project.json"),
+      JSON.stringify({ bootstrap: { worlds: [{ name: "Client", tags: ["client"] }], templates: { Server: { tags: ["server"], renders: false }, Extra: { tags: ["client"] } } } }),
+    );
+    const server = await startServer({ projectDir: dir, statsIntervalMs: 0, log: () => {}, port: 0, host: "127.0.0.1" });
+    servers.push(server);
+    expect(server.engine.worlds().map((w) => w.name)).toEqual(["Server"]);
+    expect(server.listeners.map((l) => l.world)).toEqual(["Server"]);
   });
 
   it("ignores a loopback link's address (a name for editor play) and listens on the server's own port", async () => {
