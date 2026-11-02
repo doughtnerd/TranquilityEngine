@@ -6,7 +6,7 @@ import { TauriStorage } from "../platform/TauriStorage";
 import { RenderBackend } from "../render/RenderBackend";
 import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
-import { resolveBootstrap, selectSystems } from "./bootstrap";
+import { resolveBootstrap, selectSystems, templateConfig } from "./bootstrap";
 import { resolveSettings, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { listSystemCatalog } from "./systems";
 import { World, type WorldKind } from "./World";
@@ -176,17 +176,14 @@ export class Engine implements BootstrapEngine {
     return this.list.map((w) => this.handles.get(w)!);
   }
 
-  /** A WorldConfig as given, or a bootstrap template by name. */
+  /**
+   * A WorldConfig as given, or a bootstrap template by name (validated): from the declarative
+   * bootstrap passed to `Engine.create`, else from `project.json`'s.
+   */
   private resolveConfig(config: WorldConfig | string): WorldConfig {
     if (typeof config !== "string") return config;
-    const bootstrap = this.settings.bootstrap;
-    const templates = (typeof bootstrap === "object" && bootstrap.templates) || {};
-    const template = templates[config];
-    if (!template) {
-      const names = Object.keys(templates);
-      throw new Error(`No World template named "${config}" in project.json's bootstrap.templates (${names.length ? `it has ${names.join(", ")}` : "it has none"}).`);
-    }
-    return { ...template, name: template.name ?? config };
+    const declared = typeof this.options.bootstrap === "object" ? this.options.bootstrap : this.settings.bootstrap;
+    return templateConfig(declared, config);
   }
 
   /**

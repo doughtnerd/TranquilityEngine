@@ -18,7 +18,9 @@ C1 and C2 landed as stubs: `core/worlds.ts` and the additions to `World`, `Engin
 | C1 | Write the core contracts | `Engine` additions: `createWorld`, `findWorld`, the `WorldHandle` and `WorldConfig` types, `Bootstrap`. Additions to `World`: name, tags, own clock, `addSystem`/`removeSystem`. `SystemDef.worlds`. The `project.json` `bootstrap` schema in `settings.ts`. Stubs compile; tests are `todo` |
 | C2 | Write the netcode contracts | `net/Transport.ts` (channels, `send`, `receive`, connection lifecycle), `net/codec.ts` interface, `defineRpc`/`defineInput` signatures, the `Replicated` component and field `replicate` options, the `Time.network` shape |
 
-## Wave 1: multi-World core (after C1)
+## Wave 1: multi-World core (after C1), done 2026-11-02
+
+T1–T4 ran in parallel from 73c3762 and merged in order (T1, T2, T3, T4) with one conflict-free merge each. At merge, templates passed in `EngineOptions.bootstrap` were found to be ignored (fixed), and the wave 0 placeholder tests were replaced by an end-to-end client+server bootstrap test. Follow-ups carried into wave 2: World-correct spawning after `await` (parent's World, World-bound helpers, waits resuming in their World), physics events pushed to their own World, and one RenderBackend per rendering World for tiled views (T5).
 
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|

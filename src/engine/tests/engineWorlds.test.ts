@@ -232,7 +232,7 @@ describe("several Worlds per Engine (T1)", () => {
     expect(match).toMatchObject({ name: "Match", tags: ["server"] });
     engine.step(1 / 30);
     expect(entry("Match").fixedDeltaTime).toBe(1 / 30);
-    expect(() => engine.createWorld("Lobby")).toThrow(/No World template named "Lobby".*Match/);
+    expect(() => engine.createWorld("Lobby")).toThrow(/no World template named "Lobby".*Match/);
     engine.dispose();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Engine, GameBehavior, GameObject, behavior, field, getComponentOptions, getFields } from "../index";
+import { Engine, GameBehavior, GameObject, behavior, defineSystem, field, getComponentOptions, getFields } from "../index";
 import { resolveSettings } from "../core/settings";
 import { World } from "../core/World";
 import { DEFAULT_WORLD_TAGS, worldsMatch } from "../core/worlds";
@@ -37,12 +37,6 @@ describe("the World contract (C1)", () => {
     expect(resolveSettings({}).bootstrap).toBeUndefined();
   });
 
-  it("stubs the runtime World API until T1", async () => {
-    const engine = await Engine.create({ headless: true });
-    expect(() => engine.createWorld({ name: "Match" })).toThrow(/T1/);
-    expect(() => Engine.findWorld("Match")).toThrow(/T1/);
-    engine.dispose();
-  });
 });
 
 describe("component and field options (C2)", () => {
@@ -60,35 +54,6 @@ describe("component and field options (C2)", () => {
   });
 });
 
-describe("several Worlds per Engine (T1)", () => {
-  it.todo("steps two Worlds at 30 and 60 Hz independently in one loop, each with its own accumulator");
-  it.todo("pauses one World without stopping the other");
-  it.todo("makes the stepping World current: Time and SceneManager act on it, and throw outside any World's frame");
-  it.todo("creates, finds and destroys a World at runtime through a handle that doesn't expose its nodes");
-  it.todo("keeps engine.world as the default World, so single-World games behave as before");
-});
-
-describe("the system catalog (T2)", () => {
-  it.todo("defineSystem only registers; a World runs the systems added to it");
-  it.todo("a system added to one World doesn't run in another");
-  it.todo("built-in engine systems are catalog entries a World can leave out");
-  it.todo("the default bootstrap reproduces today's system order");
-});
-
-describe("isolation (T3)", () => {
-  it.todo("two Worlds in one Engine share no nodes, data, buffers or physics");
-  it.todo("assigning a node from another World to a field throws, and so does reparenting across Worlds");
-  it.todo("local input reaches only Worlds that take input");
-});
-
-describe("bootstraps (T4)", () => {
-  it.todo("the default bootstrap makes one Default World tagged default and local");
-  it.todo("a declarative client+server config makes both Worlds with the systems their tags and selections pick");
-  it.todo("templates create Worlds at runtime by name");
-  it.todo("a code bootstrap from a project script creates the Worlds");
-  it.todo("bad configs report what's wrong (duplicate names, unknown systems, links to missing Worlds)");
-});
-
 describe("bootstrap contract (C1)", () => {
   it("selects catalog systems by tags, include and exclude", async () => {
     const { selectSystems } = await import("../core/bootstrap");
@@ -102,11 +67,49 @@ describe("bootstrap contract (C1)", () => {
     expect(selectSystems({ name: "D", systems: { exclude: ["dbg"] } }, catalog)).toEqual(["a"]);
   });
 
-  it("resolves the default and function bootstraps; declarative and script ones wait for T4", async () => {
+  it("resolves the default and function bootstraps", async () => {
     const { defaultBootstrap, resolveBootstrap } = await import("../core/bootstrap");
     expect(await resolveBootstrap(undefined)).toBe(defaultBootstrap);
     const custom = () => {};
     expect(await resolveBootstrap(custom)).toBe(custom);
-    await expect(resolveBootstrap({ worlds: [] })).rejects.toThrow(/T4/);
+  });
+});
+
+// Wave 1 together (T1 Engine, T2 catalog, T4 bootstraps): each task's own tests are in
+// engineWorlds, systemCatalog, isolation and bootstrap.test.ts.
+describe("a declarative client+server bootstrap (wave 1)", () => {
+  it("creates both Worlds, each running the systems its tags pick, at its own tick rate", async () => {
+    const ran: string[] = [];
+    defineSystem({ name: "test.wave1.Server", phase: "fixedUpdate", worlds: ["server"], run: (_rows, ctx) => void ran.push(`server@${ctx.world.name}`) });
+    defineSystem({ name: "test.wave1.Client", phase: "update", worlds: ["client"], run: (_rows, ctx) => void ran.push(`client@${ctx.world.name}`) });
+    const engine = await Engine.create({
+      headless: true,
+      bootstrap: {
+        worlds: [
+          { name: "Client", tags: ["client"] },
+          { name: "Server", tags: ["server"], tickRate: 30 },
+        ],
+        templates: { Match: { tags: ["server"], tickRate: 20 } },
+      },
+    });
+    expect(engine.world.name).toBe("Client");
+    expect(engine.worlds().map((w) => w.name)).toEqual(["Client", "Server"]);
+    expect(engine.findWorld("Server")!.systems()).toContain("test.wave1.Server");
+    expect(engine.findWorld("Client")!.systems()).not.toContain("test.wave1.Server");
+    engine.step(1 / 30);
+    expect(ran).toEqual(["client@Client", "server@Server"]); // Worlds step in creation order
+
+    const match = engine.createWorld("Match");
+    expect(match.name).toBe("Match");
+    expect(match.systems()).toContain("test.wave1.Server");
+    engine.dispose();
+  });
+
+  it("reports every problem in a bad bootstrap before creating any World", async () => {
+    const error = await Engine.create({ headless: true, bootstrap: { worlds: [{ name: "A" }, { name: "A", tickRate: 0 }] } }).catch((e: unknown) => e);
+    expect((error as { problems: string[] }).problems).toEqual([
+      expect.stringMatching(/tickRate must be a positive number/),
+      expect.stringMatching(/World names must be unique/),
+    ]);
   });
 });
