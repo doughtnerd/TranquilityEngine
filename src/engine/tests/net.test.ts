@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createTransport, listTransports, registerTransport, type Transport } from "../net/Transport";
 import { defineInput, defineRpc } from "../net/messages";
-import { recordCodec } from "../net/codec";
 import { f32 } from "../index";
 
 // ADR 0033. The contract (wave 0) is tested here; each `todo` is a task's "done when" from
@@ -16,21 +15,15 @@ describe("the netcode contract (C2)", () => {
     expect(() => createTransport("nope")).toThrow(/There's no transport "nope" \(registered: .*test\.fake/);
   });
 
-  it("stubs RPCs, inputs and the codec until their tasks", () => {
+  it("stubs RPCs and inputs until their tasks", () => {
     expect(() => defineRpc("test.Ping", { t: f32 })).toThrow(/T10/);
     expect(() => defineInput("test.Move", { x: f32 })).toThrow(/T12/);
-    expect(() => recordCodec({ x: f32 })).toThrow(/T8/);
   });
 });
 
 describe("loopback transport (T7)", () => {
   it.todo("delivers reliable messages in order and unreliable ones latest-wins");
   it.todo("applies simulated latency, jitter and loss (loss delays reliable messages instead of dropping them)");
-});
-
-describe("codec (T8)", () => {
-  it.todo("round-trips bits, varints, floats and strings");
-  it.todo("round-trips schema records, quantized and delta-encoded against a baseline");
 });
 
 describe("WebSocket transport (T9)", () => {
