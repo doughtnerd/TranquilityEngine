@@ -12,7 +12,7 @@ How to implement [0032](../decisions/0032-worlds-systems-and-bootstraps.md) (Wor
 
 | Id | Task | Output |
 |---|---|---|
-| C0 | Accept 0032/0033 with the owner. Settled 2026-11-02: keep the name `Engine`; Worlds can be created at runtime (handles, as in Unity's `CreateServerWorld`); the dedicated server runs on Node; matchmaking is v2 | Records marked Accepted |
+| C0 | Accept 0032/0033 with the owner. Settled 2026-11-02: keep the name `Engine`; Worlds can be created at runtime (handles, as in Unity's `CreateServerWorld`); the dedicated server runs on Node; matchmaking is v2; Worlds step in one loop with their own rate managers, and scenes load into whichever World asks, as in Unity | Records marked Accepted |
 | C1 | Write the core contracts | `Engine` additions: `createWorld`, `findWorld`, the `WorldHandle` and `WorldConfig` types, `Bootstrap`. Additions to `World`: name, tags, own clock, `addSystem`/`removeSystem`. `SystemDef.worlds`. The `project.json` `bootstrap` schema in `settings.ts`. Stubs compile; tests are `todo` |
 | C2 | Write the netcode contracts | `net/Transport.ts` (channels, `send`, `receive`, connection lifecycle), `net/codec.ts` interface, `defineRpc`/`defineInput` signatures, the `Replicated` component and field `replicate` options, the `Time.network` shape |
 
@@ -51,7 +51,7 @@ These two tracks don't touch the same files and run side by side.
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|
 | T10 | **Connections, ticks and RPCs**: connection handshake; `Connection` nodes; fixed simulation ticks; server-tick estimate and RTT on clients; `defineRpc` buffers both ways | `net/connection.ts`, `net/time.ts`, `net/rpc.ts` | T1, T7, T8 | Over loopback with 100 ms latency, clients agree on the server tick within a tick; RPCs arrive as buffer rows |
-| T11 | **Ghost replication and interpolation**: `Replicated`; data components and marked behavior fields; spawn and despawn by prefab; scene ghosts matched by node id; per-connection snapshots with acks and delta compression; client interpolation buffer and extrapolation | `net/replication/*` | T10 (handshake contract), T8 | A server-moved node appears smoothly on two clients under simulated loss; spawns and despawns match |
+| T11 | **Ghost replication and interpolation**: `Replicated`; data components and marked behavior fields; spawn and despawn by prefab; scene ghosts matched by node id; per-World components (`worlds` tags on component declarations and instances, skipped at load in other Worlds); per-connection snapshots with acks and delta compression; client interpolation buffer and extrapolation | `net/replication/*` | T10 (handshake contract), T8 | A server-moved node appears smoothly on two clients under simulated loss; spawns and despawns match |
 | T12 | **Input streams**: `defineInput`; per-tick input on the owned node; redundant sends; the server applies inputs at their tick | `net/input.ts` | T10 | Server-side movement driven by client input matches the client's input history under loss |
 
 T11 and T12 can run at the same time once T10's handshake and tick contract is merged.

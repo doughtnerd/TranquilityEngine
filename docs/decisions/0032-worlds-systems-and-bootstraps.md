@@ -33,7 +33,8 @@ The **Engine** becomes the top-level container a game (or the editor) runs. It h
 
 - An Engine owns its Worlds, the frame loop, and the shared services that aren't game state: asset sources, storage, the input devices and the render surfaces.
 - `Engine.create(options)` builds an Engine and runs a bootstrap: the project's, or the default one. `engine.world` is the default World (the first one the bootstrap made), so today's games, tests and the editor keep working.
-- Each frame, the Engine steps every running World in creation order. While a World's frame runs, that World is the **current world**. The static facades (`Time`, `SceneManager`, `GameObject.instantiate`, `Physics2D`, …) act on it, which is what `World.active` does today. Outside any World's frame, the facades throw ("no current world") instead of guessing.
+- **Stepping follows Unity.** Unity adds every World's system groups to one player loop, so all Worlds update once per rendered frame. Each World's fixed-step group has its own rate manager that consumes real time, which means one frame can run several fixed steps to catch up, or none. Netcode's server World works the same way at its fixed tick rate. Likewise, the Engine runs one loop, and each frame it steps every running World in creation order. Each World advances its own clock from the frame's real time and runs as many fixed steps as its accumulator and tick rate call for, capped at `maxSubSteps`. A paused World skips its steps. A World running slower than the frame rate (a 30 Hz server, say) runs `fixedUpdate` on only some frames. Headless Engines (a dedicated server, tests) drive the same loop from a timer or by hand instead of `requestAnimationFrame`.
+- While a World's frame runs, that World is the **current world**. The static facades (`Time`, `SceneManager`, `GameObject.instantiate`, `Physics2D`, …) act on it, which is what `World.active` does today. Outside any World's frame, the facades throw ("no current world") instead of guessing.
 
 ### Worlds
 
@@ -119,10 +120,14 @@ The **Engine** becomes the top-level container a game (or the editor) runs. It h
 - "A user system runs in every world" (0017), replaced by a catalog plus membership.
 - One World per `Engine`. An Engine now holds several, with `engine.world` as the default.
 
+### Scenes and Worlds
+
+- **Scenes don't declare Worlds; Worlds choose their scenes, as in Unity.** In Unity, a subscene loads into whichever World asks for it (`SceneSystem.LoadSceneAsync(world, scene)`). With netcode, the same subscene usually loads into both the client and the server World. Here, a World loads the scenes its bootstrap entry lists, or that its code or handle loads. Any scene can load into any World.
+- **What differs between Worlds is decided per component, not per scene**, as Netcode for Entities does with its client-only and server-only component variants. 0033 adds a per-component "only in Worlds tagged …" option, so a shared scene can keep, say, server-side AI on the server and visual effects on the client.
+
 ## Open questions
 
-- Should Worlds step on their own timers, or in one loop where each World consumes real time through its own accumulator? Proposed: one loop.
-- Should scenes declare which Worlds may load them, or is that only bootstrap configuration?
+None left. Stepping and scene loading follow Unity, as described above.
 
 ## References
 
