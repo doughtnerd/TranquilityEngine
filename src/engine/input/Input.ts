@@ -102,6 +102,20 @@ export class Input {
   /** @internal Listen to keyboard on the window and pointer events on the canvas. */
   static attach(canvas: HTMLCanvasElement): void {
     Input.detach();
+    Input.listen(canvas);
+  }
+
+  /**
+   * @internal Move pointer input to another canvas (the editor's tiled play view gives input to
+   * another World), keeping what's held: it's the same keyboard and mouse.
+   */
+  static retarget(canvas: HTMLCanvasElement): void {
+    for (const fn of detachFns) fn();
+    detachFns = [];
+    Input.listen(canvas);
+  }
+
+  private static listen(canvas: HTMLCanvasElement): void {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return;
       const key = normalizeKey(e.key);

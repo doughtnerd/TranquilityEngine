@@ -50,6 +50,8 @@ interface PanelState {
   project: EditorProject;
   /** `project.json`'s text when the panel last read or wrote it; another change to it (the Code panel) starts over. */
   fileText: string | undefined;
+  /** The text a save in progress is writing: until it's done, the project may already hold it. */
+  writingText?: string;
   view: BootstrapView;
   history: EditHistory<Draft> | null;
   selected: WorldRef | null;
@@ -65,7 +67,7 @@ let writing: Promise<void> = Promise.resolve();
 /** The state for `project`, read again from `project.json` if that changed since the panel last saw it. */
 function stateFor(project: EditorProject): PanelState {
   const text = project.textOf(PROJECT_FILE);
-  if (state && state.project === project && state.fileText === text) return state;
+  if (state && state.project === project && (state.fileText === text || (state.writingText !== undefined && state.writingText === text))) return state;
   const view = readBootstrap(project.settings.bootstrap);
   const history = view.kind === "graph" ? new EditHistory<Draft>({ model: view.model, explicit: view.explicit }) : null;
   state = { project, fileText: text, view, history, selected: view.kind === "graph" ? { kind: "world", index: 0 } : null, saving: false, error: null };
@@ -92,6 +94,7 @@ function persist(s: PanelState): void {
     const text = withBootstrap(s.project.textOf(PROJECT_FILE) ?? "{}\n", setting);
     s.saving = true;
     version.value++;
+    s.writingText = text; // a render mid-save sees either text, and mustn't take its own save for an outside change
     try {
       await s.project.writeText(PROJECT_FILE, text);
       s.fileText = text;
@@ -100,6 +103,7 @@ function persist(s: PanelState): void {
       s.error = errorStatus(`Couldn't save the Worlds to ${PROJECT_FILE}`, err).text;
       status.value = errorStatus(`Couldn't save the Worlds to ${PROJECT_FILE}`, err);
     } finally {
+      s.writingText = undefined;
       s.saving = false;
       version.value++;
     }

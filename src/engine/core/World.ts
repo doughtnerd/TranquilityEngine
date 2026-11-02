@@ -119,6 +119,8 @@ export class World {
   /** @internal */ physics2D: Physics2DWorld | null = null;
   /** @internal The Engine that owns this World (ADR 0032): set by the Engine (T1), used by `Engine.createWorld`/`findWorld`. */
   _engine: unknown = null;
+  /** @internal Transports this World owns (ADR 0033), closed when it's destroyed: see `createWorldTransport`. */
+  readonly _transports = new Set<{ close(): void }>();
   /** @internal Whether local input reaches this World (`WorldConfig.input`): set by the Engine (T1), read by Input (T3). */
   _takesInput = true;
   /** @internal Real time not yet consumed by fixed steps (ADR 0011, 0032): each World has its own. */
@@ -530,6 +532,9 @@ export class World {
     this._flushDestroyed();
     this.physics2D?.rapier.free();
     this.physics2D = null;
+    // Its connections and listen addresses go with it (a loopback address is page-wide).
+    for (const t of this._transports) t.close();
+    this._transports.clear();
   }
 
   /** @internal Step 10: apply deferred destroys and component removals. */

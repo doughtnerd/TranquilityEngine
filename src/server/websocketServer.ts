@@ -56,7 +56,8 @@ export class NodeWebSocketTransport extends WebSocketTransport {
   override async listen(address: string | number): Promise<void> {
     if (this.server) throw new Error(`This transport is already listening on ${this.bound?.url ?? "a port"}.`);
     const { host, port, path } = parseListenAddress(address);
-    const server = new WebSocketServer({ host, port, path: path === "/" ? undefined : path });
+    // maxPayload: ws rejects bigger frames before buffering them (its default is 100 MiB).
+    const server = new WebSocketServer({ host, port, path: path === "/" ? undefined : path, maxPayload: this.limits.maxMessageBytes + 1 });
     this.server = server;
     try {
       await new Promise<void>((resolve, reject) => {
@@ -72,7 +73,7 @@ export class NodeWebSocketTransport extends WebSocketTransport {
     const local = info.address === "0.0.0.0" || info.address === "::" ? "localhost" : info.family === "IPv6" ? `[${info.address}]` : info.address;
     this.bound = { host: info.address, port: info.port, path, url: `ws://${local}:${info.port}${path === "/" ? "" : path}` };
     // After binding, a server error (rare) shouldn't crash the process; connections report their own.
-    server.on("error", () => {});
+    server.on("error", (error) => console.error(`[tranquility] WebSocket server on ${this.bound?.url ?? "?"}:`, error));
     server.on("connection", (socket, request) => this.accept(socket, `${request.socket.remoteAddress}:${request.socket.remotePort}`));
   }
 
@@ -88,6 +89,9 @@ export class NodeWebSocketTransport extends WebSocketTransport {
     const connection = this.addConnection(remote, {
       send: (data) => socket.send(data),
       close: (code, reason) => socket.close(code, reason),
+      get bufferedAmount() {
+        return socket.bufferedAmount; // for dropping stale unreliable data on a slow link
+      },
     });
     socket.on("message", (data: RawData, isBinary: boolean) => connection.handleMessage(isBinary ? data : String(data)));
     socket.on("error", (error) => connection.handleError(error.message));
@@ -97,8 +101,8 @@ export class NodeWebSocketTransport extends WebSocketTransport {
 }
 
 /** Create a Node WebSocket transport (the factory registered as "websocket" in Node). */
-export function createWebSocketServerTransport(): NodeWebSocketTransport {
-  return new NodeWebSocketTransport();
+export function createWebSocketServerTransport(options: Record<string, unknown> = {}): NodeWebSocketTransport {
+  return new NodeWebSocketTransport(options);
 }
 
 registerTransport("websocket", createWebSocketServerTransport);

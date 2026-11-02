@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createServer } from "node:net";
 import { createTransport, type Transport, type TransportConnection, type TransportEvent } from "../net/Transport";
-import { decodeFrame, encodeFrame, WebSocketTransport } from "../net/transport/websocket";
+import { DEFAULT_WEBSOCKET_LIMITS, WebSocketConnection, decodeFrame, encodeFrame, WebSocketTransport } from "../net/transport/websocket";
 import { NodeWebSocketTransport, parseListenAddress } from "../../server/websocketServer";
 
 // ADR 0033, T9: the WebSocket transport over real sockets on port 0. The client is the
@@ -195,5 +195,64 @@ describe("WebSocket transport (T9)", () => {
     expect(transport).toBeInstanceOf(NodeWebSocketTransport);
     await transport.listen("0");
     expect((transport as NodeWebSocketTransport).address!.port).toBeGreaterThan(0);
+  });
+});
+
+// Fixes from the wave 2 review: limits and back-pressure.
+describe("limits and back-pressure", () => {
+  /** A connection over a fake socket (the browser path's logic, without a network). */
+  function fakeConnection(bufferedAmount = 0) {
+    const sent: Uint8Array[] = [];
+    const closes: [number | undefined, string | undefined][] = [];
+    const socket = { bufferedAmount, send: (d: Uint8Array) => void sent.push(d), close: (code?: number, reason?: string) => void closes.push([code, reason]) };
+    const events: TransportEvent[] = [];
+    const c = new WebSocketConnection(1, "fake", socket, events, () => {}, { ...DEFAULT_WEBSOCKET_LIMITS, maxMessageBytes: 16, maxQueuedBytes: 40 });
+    c.handleOpen();
+    return { c, socket, sent, closes, events };
+  }
+
+  it("drops unreliable sends while the send buffer is backed up, and closes when reliable data can't drain", () => {
+    const f = fakeConnection(DEFAULT_WEBSOCKET_LIMITS.unreliableBacklogBytes + 1);
+    f.c.send("unreliable", new Uint8Array([1]));
+    expect(f.sent).toHaveLength(0);
+    expect(f.c.droppedUnreliable).toBe(1);
+    f.c.send("reliable", new Uint8Array([2]));
+    expect(f.sent).toHaveLength(1); // reliable data is never dropped
+    f.socket.bufferedAmount = DEFAULT_WEBSOCKET_LIMITS.maxBacklogBytes + 1;
+    f.c.send("reliable", new Uint8Array([3]));
+    expect(f.c.state).toBe("closed");
+    expect(f.events.at(-1)).toMatchObject({ kind: "close", reason: expect.stringMatching(/too slow/) });
+  });
+
+  it("closes a connection that sends a message too big, or floods between polls", () => {
+    const big = fakeConnection();
+    big.c.handleMessage(encodeFrame("reliable", new Uint8Array(17)).buffer);
+    expect(big.closes[0]).toEqual([1009, expect.stringMatching(/too big/)]);
+
+    const flood = fakeConnection();
+    for (let i = 0; i < 3; i++) flood.c.handleMessage(encodeFrame("reliable", new Uint8Array(15)).buffer);
+    expect(flood.closes[0]).toEqual([1009, expect.stringMatching(/flooding/)]);
+  });
+
+  it("reports the browser's failed connect (no reason, code 1006) and a lost connection", () => {
+    const failing = new WebSocketConnection(2, "fake", { send() {}, close() {} }, [], () => {});
+    failing.handleError("");
+    failing.handleClose(1006, "");
+    expect(failing.state).toBe("closed");
+    const f = fakeConnection();
+    f.c.handleClose(1006, "");
+    expect(f.events.at(-1)).toMatchObject({ kind: "close", reason: "connection lost (code 1006)" });
+  });
+
+  it("the Node server refuses frames over the size limit before buffering them", async () => {
+    const s = new NodeWebSocketTransport({ limits: { maxMessageBytes: 1024 } });
+    open.push(s);
+    await s.listen("ws://127.0.0.1:0");
+    const c = client();
+    const connection = c.connect(s.address!.url);
+    await pollUntil([c, s], ([ce, se]) => ce.some((e) => e.kind === "open") && se.some((e) => e.kind === "open"));
+    connection.send("reliable", new Uint8Array(4096));
+    const [clientEvents] = await pollUntil([c, s], ([ce]) => ce.some((e) => e.kind === "close"));
+    expect(clientEvents.find((e) => e.kind === "close")).toBeDefined();
   });
 });

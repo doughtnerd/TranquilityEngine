@@ -2,10 +2,11 @@
 // edited. Play snapshots the scene document (unsaved edits included), pauses the Editor World and
 // builds an Engine from the project's bootstrap (the default one: a single World, unless the
 // project says otherwise), with the project's real settings (autoloads and all), in the game view.
-// Every start-up World that loads no scene of its own plays the open scene. Stop disposes the
+// Every start-up World whose config names no scenes plays the open scene (one that says
+// `scenes: []` starts empty, as in a build). Stop disposes the
 // Engine and resumes the editor exactly as it was.
 import { Assets, Engine, type AssetSource, type Bootstrap } from "../engine";
-import { engineWorld, resumeEditorWorld } from "../engine/editor";
+import { engineWorld, engineWorldConfig, resumeEditorWorld } from "../engine/editor";
 import { createGameView, type GameView } from "./gameView";
 import type { EditorProject } from "./projects";
 import { loadedScriptModule } from "./scriptLoader";
@@ -55,7 +56,8 @@ export async function startPlay({ editor, scene, project, container }: PlayOptio
     view = container ? createGameView(container) : null;
     runtime = await Engine.create({ container: view?.main, headless: !container, project: project.settings, loadScript: loadBootstrapScript });
     for (const handle of runtime.worlds()) {
-      if (engineWorld(runtime, handle.name)!.sceneNodes.length === 0) await handle.loadScene(scene.path);
+      const named = engineWorldConfig(runtime, handle.name)?.scenes !== undefined;
+      if (!named && engineWorld(runtime, handle.name)!.sceneNodes.length === 0) await handle.loadScene(scene.path);
     }
     view?.attach(runtime);
     if (container) runtime.start(); // headless (tests): the caller steps the Engine

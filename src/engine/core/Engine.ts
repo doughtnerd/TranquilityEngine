@@ -83,6 +83,8 @@ export class Engine implements BootstrapEngine {
   private viewWorld: World | null = null;
   /** Per World: whether it wants the view, and its `input` setting (undefined: input follows the view). */
   private readonly viewWishes = new Map<World, { renders: boolean; input: boolean | undefined }>();
+  /** Each World's config as it was created (for editor tools). */
+  private readonly configs = new Map<World, WorldConfig>();
   /**
    * Editor: Worlds drawn to a surface of their own besides the main view (tiled play mode), each
    * by its own backend, since a backend draws exactly one World (ADR 0032).
@@ -178,6 +180,7 @@ export class Engine implements BootstrapEngine {
 
     // A server World doesn't want the view unless it asks; any other World does unless it says no.
     this.viewWishes.set(world, { renders: c.renders ?? !tags.includes("server"), input: c.input });
+    this.configs.set(world, c);
 
     const handle = new WorldHandleImpl(world, this);
     this.handles.set(world, handle);
@@ -240,6 +243,7 @@ export class Engine implements BootstrapEngine {
   private tearDown(world: World): void {
     World._runIn(world, () => world._destroyAll()); // releases its objects from the render surface
     this.viewWishes.delete(world);
+    this.configs.delete(world);
     this.extraViews.get(world)?.dispose();
     this.extraViews.delete(world);
     if (world === this.inputWorld) this.inputWorld = null;
@@ -282,7 +286,9 @@ export class Engine implements BootstrapEngine {
     for (const world of this.list) world._takesInput = this.viewWishes.get(world)?.input ?? world === target;
     const canvas = !target ? null : target === this.viewWorld ? this.render?.canvas : this.extraViews.get(target)?.canvas;
     if (canvas && canvas !== this.inputCanvas) {
-      Input.attach(canvas);
+      // Moving to another canvas keeps what's held: it's the same keyboard and mouse.
+      if (this.inputCanvas) Input.retarget(canvas);
+      else Input.attach(canvas);
       this.inputCanvas = canvas;
     }
   }
@@ -290,6 +296,12 @@ export class Engine implements BootstrapEngine {
   /** @internal Editor: the live World named `name`, or null. For editor tools; game code goes through handles. */
   _world(name: string): World | null {
     return this.list.find((w) => w.name === name) ?? null;
+  }
+
+  /** @internal Editor: the config the live World named `name` was created from, or null. */
+  _worldConfig(name: string): Readonly<WorldConfig> | null {
+    const world = this._world(name);
+    return world ? (this.configs.get(world) ?? null) : null;
   }
 
   /** @internal Editor: every World's view and input state, in creation order. */
@@ -326,6 +338,7 @@ export class Engine implements BootstrapEngine {
       world.render = null;
       backend.dispose();
       if (this.inputCanvas === backend.canvas) this.inputCanvas = null;
+      if (this.inputWorld === world) this.inputWorld = null; // no surface to point at: input goes back to the main view
       this.applyInput();
     };
   }
@@ -452,6 +465,7 @@ export class Engine implements BootstrapEngine {
     }
     this.handles.clear();
     this.viewWishes.clear();
+    this.configs.clear();
     for (const backend of this.extraViews.values()) backend.dispose();
     this.extraViews.clear();
     this.render?.dispose();

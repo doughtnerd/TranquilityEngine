@@ -71,6 +71,17 @@ export function createTransport(name: string, options: Record<string, unknown> =
   return factory(options);
 }
 
+/**
+ * Create a transport owned by a World: it's closed when the World is destroyed (or its Engine
+ * disposed), so connections and listen addresses never outlive it. Netcode creates transports this
+ * way; `createTransport` alone leaves closing to the caller.
+ */
+export function createWorldTransport(world: { readonly _transports: Set<{ close(): void }> }, name: string, options: Record<string, unknown> = {}): Transport {
+  const transport = createTransport(name, options);
+  world._transports.add(transport);
+  return transport;
+}
+
 /** @internal Registered transport names (for the Worlds panel). */
 export function listTransports(): string[] {
   return [...factories.keys()];

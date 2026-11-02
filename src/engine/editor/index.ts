@@ -10,6 +10,7 @@ import { Vector3 } from "../core/math";
 import { _setReplacingRegistrations, _takeRecordedRegistrations, _unregisterComponent, getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldType, type ScriptRegistrations } from "../core/registry";
 import { World } from "../core/World";
 import type { Engine, WorldViewState } from "../core/Engine";
+import type { WorldConfig } from "../core/worlds";
 import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
@@ -294,6 +295,11 @@ export function focusWorldInput(engine: Engine, worldName: string | null): void 
 /** Every World of `engine`: whether it renders, which view it has, whether it takes input, and whether it's paused. */
 export function worldViewStates(engine: Engine): WorldViewState[] {
   return engine._viewStates();
+}
+
+/** The config the live World named `name` was created from (its bootstrap entry or `createWorld` config), or null. */
+export function engineWorldConfig(engine: Engine, name: string): Readonly<WorldConfig> | null {
+  return engine._worldConfig(name);
 }
 
 /** The live World named `name` in `engine`, or null: for editor tools, which may look inside Worlds. */

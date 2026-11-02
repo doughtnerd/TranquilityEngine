@@ -33,7 +33,7 @@ T1 is the critical path. T2–T4 build against the C1 contract and merge after T
 
 ## Wave 2: editor (after wave 1) and networking foundations (after C2), done 2026-11-02
 
-T5–T9 ran in parallel from 138d6ef (each editor agent ran Playwright on its own `E2E_PORT`). T5, T6, T7 and T8 merged cleanly. T9 (WebSocket) merged after ADR 0035 (the `ws` dependency for the Node server) was accepted. Not done from the T5 row: a World picker in the hierarchy while playing (the runtime World isn't inspectable yet).
+T5–T9 ran in parallel from 138d6ef (each editor agent ran Playwright on its own `E2E_PORT`). T5, T6, T7 and T8 merged cleanly. T9 (WebSocket) merged after ADR 0035 (the `ws` dependency for the Node server) was accepted. A review then fixed: WebSocket message, flooding and send-buffer limits with latest-wins dropping of unreliable data; transports closed with their World (`createWorldTransport`, which T10 should use); play mode leaving `scenes: []` Worlds empty; the game view surviving errors; input focus keeping held keys; and a Worlds panel save race. Not done from the T5 row: a World picker in the hierarchy while playing (the runtime World isn't inspectable yet).
 
 These two tracks don't touch the same files and run side by side.
 

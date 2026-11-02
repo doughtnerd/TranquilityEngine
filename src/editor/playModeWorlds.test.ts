@@ -85,6 +85,14 @@ describe("play mode with several Worlds (ADR 0032)", () => {
     play.stop();
   });
 
+  it("leaves a World whose config says scenes: [] empty, as a build would", async () => {
+    const bootstrap: BootstrapSetting = { worlds: [{ name: "Client", tags: ["client"] }, { name: "Lobby", tags: ["server"], scenes: [] }] };
+    const play = await startPlay({ editor, scene: openScene.value!, project: withBootstrap(bootstrap) });
+    expect(engineWorld(play.engine, "Client")!.sceneNodes).toHaveLength(1);
+    expect(engineWorld(play.engine, "Lobby")!.sceneNodes).toHaveLength(0);
+    play.stop();
+  });
+
   it("Stop disposes every World and resumes the editor", async () => {
     const play = await startPlay({ editor, scene: openScene.value!, project: withBootstrap(CLIENT_SERVER) });
     const handles = play.engine.worlds();

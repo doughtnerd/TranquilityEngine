@@ -20,6 +20,32 @@ const RESERVED_BITS = 0xfe;
 
 /** WebSocket close codes (RFC 6455). */
 const CLOSE_NORMAL = 1000;
+/** WebSocket close code for "message too big" (RFC 6455). */
+const CLOSE_TOO_BIG = 1009;
+
+/** Limits that keep one slow or misbehaving peer from using unbounded memory. */
+export interface WebSocketLimits {
+  /** Largest message accepted, in bytes (the server rejects bigger frames before buffering them). Default 1 MiB. */
+  maxMessageBytes: number;
+  /** Bytes received from one connection between two polls before it's closed as flooding. Default 4 MiB. */
+  maxQueuedBytes: number;
+  /** Unreliable sends are dropped (latest-wins) while this much is waiting in the socket's send buffer. Default 64 KiB. */
+  unreliableBacklogBytes: number;
+  /** A connection whose send buffer holds more than this (reliable data it can't drop) is closed as too slow. Default 8 MiB. */
+  maxBacklogBytes: number;
+}
+
+export const DEFAULT_WEBSOCKET_LIMITS: Readonly<WebSocketLimits> = {
+  maxMessageBytes: 1024 * 1024,
+  maxQueuedBytes: 4 * 1024 * 1024,
+  unreliableBacklogBytes: 64 * 1024,
+  maxBacklogBytes: 8 * 1024 * 1024,
+};
+
+/** Limits from transport options (`createTransport("websocket", { limits: { … } })`), over the defaults. */
+export function websocketLimits(options: Record<string, unknown> = {}): WebSocketLimits {
+  return { ...DEFAULT_WEBSOCKET_LIMITS, ...((options.limits as Partial<WebSocketLimits> | undefined) ?? {}) };
+}
 
 /** @internal Prefix `data` with the 1-byte header for `channel`. */
 export function encodeFrame(channel: Channel, data: Uint8Array): Uint8Array {
@@ -50,6 +76,8 @@ function closeReason(reason: string): string {
 export interface SocketLike {
   send(data: Uint8Array): void;
   close(code?: number, reason?: string): void;
+  /** Bytes queued to send but not yet handed to the network (browser `WebSocket` and `ws` both have it). */
+  readonly bufferedAmount?: number;
 }
 
 /**
@@ -62,6 +90,10 @@ export class WebSocketConnection implements TransportConnection {
   private pending: Uint8Array[] = [];
   /** Why the socket errored, if it did; the close that follows has no reason of its own. */
   private error = "";
+  /** @internal Bytes received since the transport's last poll (reset by it). */
+  queuedBytes = 0;
+  /** Unreliable messages dropped because the send buffer was backed up (for the network panel). */
+  droppedUnreliable = 0;
 
   constructor(
     readonly id: number,
@@ -69,19 +101,32 @@ export class WebSocketConnection implements TransportConnection {
     private readonly socket: SocketLike,
     private readonly events: TransportEvent[],
     private readonly onClosed: (connection: WebSocketConnection) => void,
+    private readonly limits: WebSocketLimits = DEFAULT_WEBSOCKET_LIMITS,
   ) {}
 
   send(channel: Channel, data: Uint8Array): void {
     if (this.state === "closed") throw new Error(`Can't send on closed connection ${this.id} (${this.remote}).`);
     const frame = encodeFrame(channel, data);
-    if (this.state === "connecting") this.pending.push(frame);
-    else this.socket.send(frame);
+    if (this.state === "connecting") {
+      this.pending.push(frame);
+      return;
+    }
+    // TCP can't drop anything, so a slow link backs up the socket's buffer. Stale unreliable data
+    // (snapshots) is dropped there instead of piling up; reliable data that can't drain closes the
+    // connection rather than growing without bound.
+    const backlog = this.socket.bufferedAmount ?? 0;
+    if (channel === "unreliable" && backlog > this.limits.unreliableBacklogBytes) {
+      this.droppedUnreliable++;
+      return;
+    }
+    if (backlog > this.limits.maxBacklogBytes) return this.close(`too slow: ${backlog} bytes waiting to send`);
+    this.socket.send(frame);
   }
 
-  close(reason = "closed"): void {
+  close(reason = "closed", code = CLOSE_NORMAL): void {
     if (this.state === "closed") return;
     try {
-      this.socket.close(CLOSE_NORMAL, closeReason(reason));
+      this.socket.close(code, closeReason(reason));
     } catch {
       // Closing a socket that's already failing; the close event below is what matters.
     }
@@ -102,6 +147,9 @@ export class WebSocketConnection implements TransportConnection {
     if (message instanceof ArrayBuffer) frame = new Uint8Array(message);
     else if (ArrayBuffer.isView(message)) frame = new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
     else return this.close("protocol error: text message");
+    if (frame.byteLength > this.limits.maxMessageBytes + 1) return this.close(`message too big (${frame.byteLength} bytes)`, CLOSE_TOO_BIG);
+    this.queuedBytes += frame.byteLength;
+    if (this.queuedBytes > this.limits.maxQueuedBytes) return this.close(`flooding: ${this.queuedBytes} bytes received since the last poll`, CLOSE_TOO_BIG);
     const decoded = decodeFrame(frame);
     if (typeof decoded === "string") return this.close(`protocol error: ${decoded}`);
     this.events.push({ kind: "data", connection: this, channel: decoded.channel, data: decoded.data });
@@ -134,7 +182,12 @@ export class WebSocketTransport implements Transport {
   /** Shared with the connections, which push to it; `poll` empties it in place. */
   protected readonly events: TransportEvent[] = [];
   protected readonly connections = new Set<WebSocketConnection>();
+  protected readonly limits: WebSocketLimits;
   private nextId = 1;
+
+  constructor(options: Record<string, unknown> = {}) {
+    this.limits = websocketLimits(options);
+  }
 
   async listen(_address: string): Promise<void> {
     throw new Error(
@@ -155,6 +208,7 @@ export class WebSocketTransport implements Transport {
   }
 
   poll(): TransportEvent[] {
+    for (const connection of this.connections) connection.queuedBytes = 0;
     return this.events.splice(0);
   }
 
@@ -164,10 +218,10 @@ export class WebSocketTransport implements Transport {
 
   /** @internal Track a connection on `socket`; the caller wires the socket's callbacks to it. */
   protected addConnection(remote: string, socket: SocketLike): WebSocketConnection {
-    const connection = new WebSocketConnection(this.nextId++, remote, socket, this.events, (c) => this.connections.delete(c));
+    const connection = new WebSocketConnection(this.nextId++, remote, socket, this.events, (c) => this.connections.delete(c), this.limits);
     this.connections.add(connection);
     return connection;
   }
 }
 
-registerTransport("websocket", () => new WebSocketTransport());
+registerTransport("websocket", (options) => new WebSocketTransport(options));

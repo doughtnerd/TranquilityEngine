@@ -253,3 +253,17 @@ describe("loopback transport (T7)", () => {
     expect((t as LoopbackTransport).conditions).toEqual({ latencyMs: 5 });
   });
 });
+
+// Fix from the wave 2 review: transports go with the World that owns them.
+describe("transports owned by a World", () => {
+  it("are closed with it, freeing a loopback address for the next run", async () => {
+    const { World } = await import("../core/World");
+    const { createWorldTransport } = await import("../net/Transport");
+    const first = new World("server");
+    await createWorldTransport(first, "loopback").listen("review:game");
+    first._destroyAll(); // e.g. play mode's Stop disposing the Engine
+    const second = new World("server");
+    await expect(createWorldTransport(second, "loopback").listen("review:game")).resolves.toBeUndefined();
+    second._destroyAll();
+  });
+});

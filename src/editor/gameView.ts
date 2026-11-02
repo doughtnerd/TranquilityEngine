@@ -62,7 +62,7 @@ export function createGameView(container: HTMLElement): GameView {
       const tile = makeTile();
       const detach = attachWorldView(engine, s.name, tile.surface);
       tiles.set(s.name, { ...tile, detach });
-      tile.element.addEventListener("pointerdown", () => focusWorldInput(engine, s.name), { capture: true });
+      tile.element.addEventListener("pointerdown", () => engine.findWorld(s.name) && focusWorldInput(engine, s.name), { capture: true });
     }
 
     const tiled = tiles.size > 0;
@@ -113,8 +113,12 @@ export function createGameView(container: HTMLElement): GameView {
     attach(engine) {
       mainTile.element.addEventListener("pointerdown", () => focusWorldInput(engine, null), { capture: true });
       const loop = () => {
-        update(engine);
-        frame = requestAnimationFrame(loop);
+        frame = requestAnimationFrame(loop); // first, so an error below doesn't stop the view following its Worlds
+        try {
+          update(engine);
+        } catch (err) {
+          console.error("[tranquility] The game view couldn't update:", err);
+        }
       };
       loop();
     },
