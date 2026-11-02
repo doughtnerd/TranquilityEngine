@@ -88,6 +88,20 @@ export class World {
     return World.active;
   }
 
+  /**
+   * @internal Run `fn` with `world` as the current World (ADR 0032), then put the previous one
+   * back. The Engine uses it for each World's frame, handles for work done on a World's behalf.
+   */
+  static _runIn<T>(world: World, fn: () => T): T {
+    const previous = World.active;
+    World.active = world;
+    try {
+      return fn();
+    } finally {
+      World.active = previous;
+    }
+  }
+
   readonly kind: WorldKind;
   /** Unique within its Engine (ADR 0032). */
   readonly name: string;
@@ -107,6 +121,10 @@ export class World {
   _engine: unknown = null;
   /** @internal Whether local input reaches this World (`WorldConfig.input`): set by the Engine (T1), read by Input (T3). */
   _takesInput = true;
+  /** @internal Real time not yet consumed by fixed steps (ADR 0011, 0032): each World has its own. */
+  _accumulator = 0;
+  /** @internal A paused World skips its frames (`WorldHandle.pause`). */
+  _paused = false;
   /** @internal */ render: RenderBackend | null = null;
   /** @internal True while the Engine is running a frame; structural scene changes wait for its end. */
   _inFrame = false;

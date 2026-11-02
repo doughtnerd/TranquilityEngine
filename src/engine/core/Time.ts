@@ -1,6 +1,7 @@
+import type { NetworkTime } from "../net/time";
 import { World } from "./World";
 
-/** Frame timing for the active world (ADR 0011). */
+/** Frame timing for the current World (ADR 0011, 0032): each World has its own clock. */
 export class Time {
   /** Scaled seconds since the last frame (0 while paused). */
   static get deltaTime(): number { return World.require().time.deltaTime; }
@@ -19,4 +20,6 @@ export class Time {
   static set timeScale(value: number) { World.require().time.timeScale = Math.max(0, value); }
   static get frameCount(): number { return World.require().time.frameCount; }
   static get realtimeSinceStartup(): number { return World.require().time.realtimeSinceStartup; }
+  /** Network ticks and round-trip time on a World linked by a transport (ADR 0033); undefined otherwise. */
+  static get network(): NetworkTime | undefined { return World.require().time.network; }
 }

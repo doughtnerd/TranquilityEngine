@@ -63,7 +63,7 @@ export class SceneManager {
         }
       };
       if (world._inFrame) world._sceneOps.push(op);
-      else op();
+      else World._runIn(world, op); // after an await, another World may be current
     });
   }
 
