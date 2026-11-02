@@ -36,7 +36,7 @@ describe("default layout", () => {
 describe("moving panels", () => {
   it("to the outer edge: a new outermost dock that claims the full height", () => {
     const l = movePanel(defaultLayout(), "inspector", { kind: "edge", side: "left", placement: "outer" });
-    expect(sides(l)).toEqual(["left:inspector", "bottom:assets+code", "left:hierarchy", "right:history", "left:scene"]); // History stays on the right
+    expect(sides(l)).toEqual(["left:inspector", "bottom:assets+code", "left:hierarchy", "right:history+worlds", "left:scene"]); // History stays on the right
     const geo = computeGeometry(l, bounds);
     expect(geo.docks[0].rect).toEqual({ x: 0, y: 0, w: 240, h: 800 });
     expect(geo.docks[1].rect.x).toBe(240); // the bottom dock now starts right of it
@@ -44,7 +44,7 @@ describe("moving panels", () => {
 
   it("to the filling dock's edge: a new dock just outside it", () => {
     const l = movePanel(defaultLayout(), "assets", { kind: "edge", side: "right", placement: "inner" });
-    expect(sides(l)).toEqual(["bottom:code", "left:hierarchy", "right:inspector+history", "right:assets", "left:scene"]);
+    expect(sides(l)).toEqual(["bottom:code", "left:hierarchy", "right:inspector+history+worlds", "right:assets", "left:scene"]);
     const geo = computeGeometry(l, bounds);
     expect(geo.docks[3].rect.h).toBe(610); // inside the bottom dock, which still holds Code
     expect(geo.fill.x + geo.fill.w).toBe(geo.docks[3].rect.x); // the scene still fills the rest
@@ -52,15 +52,15 @@ describe("moving panels", () => {
 
   it("into a dock: splits it evenly at the drop position", () => {
     let l = resizeSplit(movePanel(defaultLayout(), "assets", { kind: "split", dock: "left", index: 0 }), "left", 0, 0.3);
-    expect(sides(l)).toEqual(["bottom:code", "left:assets|hierarchy", "right:inspector+history", "left:scene"]);
+    expect(sides(l)).toEqual(["bottom:code", "left:assets|hierarchy", "right:inspector+history+worlds", "left:scene"]);
     l = movePanel(l, "inspector", { kind: "split", dock: "left", index: 1 });
-    expect(sides(l)).toEqual(["bottom:code", "left:assets|inspector|hierarchy", "right:history", "left:scene"]);
+    expect(sides(l)).toEqual(["bottom:code", "left:assets|inspector|hierarchy", "right:history+worlds", "left:scene"]);
     expect(where(l, "assets").fractions).toEqual([1 / 3, 1 / 3, 1 / 3]); // uniform again after the drop
   });
 
   it("onto another panel's header: joins it as the active tab", () => {
     const l = movePanel(defaultLayout(), "inspector", { kind: "tab", group: "hierarchy" });
-    expect(sides(l)).toEqual(["bottom:assets+code", "left:hierarchy+inspector", "right:history", "left:scene"]);
+    expect(sides(l)).toEqual(["bottom:assets+code", "left:hierarchy+inspector", "right:history+worlds", "left:scene"]);
     expect(where(l, "inspector").groups[0].active).toBe("inspector");
   });
 
@@ -82,7 +82,7 @@ describe("moving panels", () => {
 describe("the scene view as a panel", () => {
   it("can join another group as a tab; the next dock in then fills the middle", () => {
     const l = movePanel(defaultLayout(), "scene", { kind: "tab", group: "assets" });
-    expect(sides(l)).toEqual(["bottom:assets+code+scene", "left:hierarchy", "right:inspector+history"]);
+    expect(sides(l)).toEqual(["bottom:assets+code+scene", "left:hierarchy", "right:inspector+history+worlds"]);
     const geo = computeGeometry(l, bounds);
     expect(geo.fill).toEqual(geo.docks[2].rect); // the Inspector's dock takes the rest
     expect(geo.fill).toEqual({ x: 240, y: 0, w: 960, h: 610 });
@@ -177,7 +177,7 @@ describe("layouts saved before a panel existed", () => {
       ],
     };
     const l = parseLayout(old)!;
-    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history|assets+code", "left:scene"]); // Code joins Assets, where there's width
+    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history+worlds|assets+code", "left:scene"]); // Code joins Assets, where there's width
     expect(l.docks[0].size).toBe(300); // the user's arrangement is kept
     expect(where(l, "history").groups[0].active).toBe("inspector");
     const geo = computeGeometry(l, bounds);
@@ -189,6 +189,14 @@ describe("layouts saved before a panel existed", () => {
       version: 1,
       docks: [{ id: "b", side: "bottom", size: 200, groups: [{ id: "g", panels: ["assets", "hierarchy"], active: "assets" }], fractions: [1] }],
     })!;
-    expect(sides(l)).toEqual(["bottom:assets+hierarchy+inspector+history+code", "left:scene"]);
+    expect(sides(l)).toEqual(["bottom:assets+hierarchy+inspector+history+code+worlds", "left:scene"]);
+  });
+
+  it("adds the Worlds panel as a tab beside History, wherever History was moved", () => {
+    const saved = movePanel(defaultLayout(), "history", { kind: "tab", group: "hierarchy" });
+    for (const d of saved.docks) for (const g of d.groups) g.panels = g.panels.filter((p) => p !== "worlds"); // saved before it existed
+    const l = parseLayout(JSON.parse(JSON.stringify(saved)))!;
+    expect(sides(l)).toEqual(["bottom:assets+code", "left:hierarchy+history+worlds", "right:inspector", "left:scene"]);
+    expect(where(l, "worlds").groups[0].active).toBe("history"); // the user's active tab is kept
   });
 });

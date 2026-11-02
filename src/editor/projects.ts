@@ -16,6 +16,7 @@ export interface EditorProject {
   /** The folder's file system (for watching scripts and opening files externally), or null for a project in memory. */
   readonly fileSystem: FileSystem | null;
   readonly canSave: boolean;
+  /** The parsed `project.json` (empty if there's none). Follows writes to it, so play mode uses the current bootstrap. */
   readonly settings: ProjectSettingsInput;
   /** Every asset by path relative to the project root: parsed JSON for `.json`, a URL otherwise. */
   readonly assets: AssetSource;
@@ -96,7 +97,6 @@ class MapProject implements EditorProject {
   constructor(
     readonly name: string,
     readonly root: string | null,
-    readonly settings: ProjectSettingsInput,
     private readonly values: Map<string, unknown>,
     private readonly texts: Map<string, string>,
     private readonly write: ((path: string, text: string) => Promise<void>) | null,
@@ -113,6 +113,11 @@ class MapProject implements EditorProject {
   /** Asset paths, sorted. Includes files written since the project opened. */
   get files(): readonly string[] {
     return (this.sortedFiles ??= [...this.values.keys()].sort());
+  }
+
+  /** Read from `project.json` each time, so it reflects edits saved since the project opened. */
+  get settings(): ProjectSettingsInput {
+    return (this.values.get("project.json") ?? {}) as ProjectSettingsInput;
   }
 
   get canSave(): boolean {
@@ -264,8 +269,7 @@ export function readOnlyProject(
   name: string,
   files: { values: Map<string, unknown>; texts: Map<string, string>; scripts?: Map<string, string>; sizes?: Map<string, number> },
 ): EditorProject {
-  const settings = (files.values.get("project.json") ?? {}) as ProjectSettingsInput;
-  return new MapProject(name, null, settings, files.values, files.texts, null, null, null, files.scripts ?? new Map(), new Set(), files.sizes ?? new Map());
+  return new MapProject(name, null, files.values, files.texts, null, null, null, files.scripts ?? new Map(), new Set(), files.sizes ?? new Map());
 }
 
 /** Join a project-relative path onto a folder path, using the folder's separator. */
@@ -338,7 +342,7 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
   const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput & { name?: string };
   const folder = root.split(/[\\/]/).filter(Boolean).pop() ?? root;
   const write = (path: string, text: string) => fs.writeText(joinPath(root, path), text);
-  return new MapProject(settings.name ?? folder, root, settings, values, texts, write, { read: readScripts }, fs, await readScripts(), folders, sizes);
+  return new MapProject(settings.name ?? folder, root, values, texts, write, { read: readScripts }, fs, await readScripts(), folders, sizes);
 }
 
 /** Settings for the Editor World: the project's, minus autoloads, with the editor's background. */
