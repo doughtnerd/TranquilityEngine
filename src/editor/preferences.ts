@@ -39,3 +39,21 @@ export const assetView = persisted<"grid" | "list">("tranquility.editor.assetVie
 
 /** The Assets panel's tile size in the grid (CSS px of the thumbnail's width). */
 export const assetTileSize = persisted("tranquility.editor.assetTileSize", 56);
+
+/**
+ * Multiplayer play mode (ADR 0033 §9, `netPlay.ts`): whether Play runs N client Worlds plus T thin
+ * clients instead of the project's own client Worlds, how many, and what thin clients send.
+ */
+export const netPlaySetup = persisted<{ enabled: boolean; clients: number; thin: number; thinInput: "random" | "zeros" }>("tranquility.editor.netPlay", {
+  enabled: false,
+  clients: 2,
+  thin: 0,
+  thinInput: "random",
+});
+
+/** The simulated network conditions on play mode's loopback links (all off by default). */
+export const netConditionsSetting = persisted<{ latencyMs: number; jitterMs: number; lossPercent: number }>("tranquility.editor.netConditions", {
+  latencyMs: 0,
+  jitterMs: 0,
+  lossPercent: 0,
+});

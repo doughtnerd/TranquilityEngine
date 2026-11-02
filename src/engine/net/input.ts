@@ -210,7 +210,7 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
     return state;
   };
 
-  return {
+  const def: InputDef<S> = {
     id,
     schema,
     get local() {
@@ -252,6 +252,18 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
       return state ? { ...state.stats } : null;
     },
   };
+  defs.set(id, def as unknown as InputDef<Schema>); // T15 tools
+  return def;
+}
+
+// --- T15 tools (additive): the editor's Network panel and thin clients --------------------------
+
+/** Defined streams, by id (the newest definition of each). */
+const defs = new Map<string, InputDef<Schema>>();
+
+/** @internal Editor tools: every defined input stream. */
+export function definedInputs(): InputDef<Schema>[] {
+  return [...defs.values()];
 }
 
 // --- client -------------------------------------------------------------------------------------

@@ -18,6 +18,12 @@ import type { EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../
 import { SpriteRenderer } from "../render/components";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
+import type { Schema } from "../core/data";
+import { definedInputs } from "../net/input";
+import { clientReplication } from "../net/replication/client";
+import { serverReplication } from "../net/replication/server";
+import { netSession, type NetPeer, type NetTraffic } from "../net/session";
+import type { LinkConditions } from "../net/Transport";
 
 export type { InstantiateHooks } from "../scene/SceneLoader";
 
@@ -405,4 +411,174 @@ export function unregisterScripts(registrations: ScriptRegistrations): void {
   for (const id of registrations.components) _unregisterComponent(id);
   for (const id of registrations.data) _undefineComponent(id);
   for (const name of registrations.systems) _undefineSystem(name);
+}
+
+// --- Network tools (ADR 0033 §9, T15) ------------------------------------------------------------
+
+/** Bytes and messages one way on a connection, copied: totals and per message kind (`net.snapshot`, `net.input:…`, `net.rpc`, `net.ping`…). */
+export interface NetTrafficInfo {
+  readonly bytes: number;
+  readonly messages: number;
+  readonly byKind: Readonly<Record<string, { readonly bytes: number; readonly messages: number }>>;
+}
+
+/** One connection of a networked World, as the Network panel shows it. */
+export interface NetPeerInfo {
+  /** The connection id the server assigned (0 on a client before the handshake). */
+  readonly id: number;
+  readonly state: "handshake" | "open" | "closed";
+  /** The other end's address, as the transport names it. */
+  readonly remote: string;
+  /** Smoothed round trip in ms (measured by the client, reported to the server). */
+  readonly rtt: number;
+  readonly sent: NetTrafficInfo;
+  readonly received: NetTrafficInfo;
+  /** Server: the size of the last snapshot sent on this connection, in bytes; null on a client. */
+  readonly snapshotBytes: number | null;
+  /** Server: the ghosts this connection has been told about; null on a client. */
+  readonly ghosts: number | null;
+  /** Server: this connection's counters per input stream (only streams it has sent input on). */
+  readonly inputs: readonly { readonly id: string; readonly received: number; readonly repeated: number; readonly late: number }[];
+}
+
+/** A networked World of an Engine, as the Network panel shows it. */
+export interface NetWorldInfo {
+  readonly world: string;
+  readonly role: "server" | "client";
+  readonly tick: number;
+  readonly serverTick: number;
+  readonly interpolationTick: number;
+  /** The client's smoothed RTT in ms (0 on a server). */
+  readonly rtt: number;
+  readonly peers: readonly NetPeerInfo[];
+  /** Client: the ghosts it has; null on a server. */
+  readonly ghosts: number | null;
+  /** Recently closed connections and why, newest last. */
+  readonly closed: readonly { readonly id: number; readonly reason: string }[];
+  /** Client prediction's counters (T13), when the engine has `predictionStats`; null otherwise. */
+  readonly prediction: Readonly<Record<string, unknown>> | null;
+}
+
+const copyTraffic = (t: NetTraffic): NetTrafficInfo => ({ bytes: t.bytes, messages: t.messages, byKind: Object.fromEntries([...t.byKind].map(([k, v]) => [k, { ...v }])) });
+
+/**
+ * Prediction (T13) lands beside these tools: its `predictionStats(world)` is looked for among the
+ * netcode modules, so the panel shows it once it exists, and nothing breaks before.
+ */
+const netModules = import.meta.glob(["../net/*.ts", "../net/prediction/*.ts", "!../net/**/*.test.ts"], { eager: true }) as Record<string, Record<string, unknown>>;
+const predictionStats = Object.values(netModules)
+  .map((m) => m.predictionStats)
+  .find((f): f is (world: World) => unknown => typeof f === "function");
+
+/** The live Worlds of `engine`, in its order. */
+const liveWorlds = (engine: Engine): World[] => engine.worlds().flatMap((h) => engine._world(h.name) ?? []);
+
+/** Every networked World of `engine`, with its connections and counters: a snapshot to show. */
+export function netWorldInfo(engine: Engine): NetWorldInfo[] {
+  const out: NetWorldInfo[] = [];
+  for (const world of liveWorlds(engine)) {
+    const session = netSession(world);
+    if (!session || (!session.isServer && !session.isClient)) continue;
+    const server = session.isServer ? serverReplication(world) : null;
+    const inputs = session.isServer ? definedInputs() : [];
+    const peerInfo = (peer: NetPeer): NetPeerInfo => {
+      const ps = server?.peerState(peer);
+      const node = peer.node;
+      return {
+        id: peer.id,
+        state: peer.state,
+        remote: peer.link.remote,
+        rtt: peer.rtt,
+        sent: copyTraffic(peer.sent),
+        received: copyTraffic(peer.received),
+        snapshotBytes: session.isServer ? (ps?.lastBytes ?? 0) : null,
+        ghosts: session.isServer ? (ps?.known.size ?? 0) : null,
+        inputs: node?.isValid ? inputs.flatMap((def) => {
+          const stats = World._runIn(world, () => def.stats(node));
+          return stats ? [{ id: def.id, ...stats }] : [];
+        }) : [],
+      };
+    };
+    let prediction: Record<string, unknown> | null = null;
+    if (predictionStats && session.isClient) {
+      try {
+        const stats = World._runIn(world, () => predictionStats(world));
+        prediction = stats && typeof stats === "object" ? { ...(stats as Record<string, unknown>) } : null;
+      } catch {
+        prediction = null;
+      }
+    }
+    const t = session.time;
+    out.push({
+      world: world.name,
+      role: session.isServer ? "server" : "client",
+      tick: session.tick,
+      serverTick: t.serverTick,
+      interpolationTick: t.interpolationTick,
+      rtt: session.isClient ? t.rtt : 0,
+      peers: session.allPeers().map(peerInfo),
+      ghosts: session.isClient ? (clientReplication(world)?.ghosts.size ?? 0) : null,
+      closed: session.closed.map((c) => ({ ...c })),
+      prediction,
+    });
+  }
+  return out;
+}
+
+/** A transport or connection that simulates conditions (loopback). */
+type Conditioned = { setConditions(c: LinkConditions): void; readonly conditions: Readonly<LinkConditions> };
+const conditioned = (t: object): t is Conditioned => typeof (t as Partial<Conditioned>).setConditions === "function" && typeof (t as Partial<Conditioned>).conditions === "object";
+
+/**
+ * Simulate `conditions` on every link of `engine` whose transport can (loopback), both ways: on
+ * the servers' listening transports (what servers send) and the clients' (what clients send).
+ * Connections with conditions of their own get them too. Applies to messages sent from now on.
+ * Returns how many transports took them.
+ */
+export function setNetConditions(engine: Engine, conditions: LinkConditions): number {
+  let n = 0;
+  for (const world of liveWorlds(engine)) {
+    const session = netSession(world);
+    if (!session) continue;
+    for (const t of session.transportList()) {
+      if (!conditioned(t)) continue;
+      t.setConditions(conditions);
+      n++;
+    }
+    for (const peer of session.allPeers()) {
+      // Only links with an override of their own; the rest follow their transport.
+      const link = peer.link as object;
+      if (conditioned(link) && link.conditions !== (peer.transport as Partial<Conditioned>).conditions) link.setConditions(conditions);
+    }
+  }
+  return n;
+}
+
+/** The conditions a conditioned transport of `engine` simulates (a client's first, so what clients send), or null if it has none. */
+export function netConditions(engine: Engine): Readonly<LinkConditions> | null {
+  const worlds = liveWorlds(engine);
+  for (const world of [...worlds.filter((w) => netSession(w)?.isClient), ...worlds]) {
+    for (const t of netSession(world)?.transportList() ?? []) if (conditioned(t)) return { ...t.conditions };
+  }
+  return null;
+}
+
+/** A defined input stream (ADR 0033 §5): its id and fields with their scalar kinds. */
+export interface InputStreamInfo {
+  readonly id: string;
+  readonly fields: readonly { readonly name: string; readonly kind: "f32" | "i32" | "u8" }[];
+}
+
+/** Every input stream the engine and the project's scripts define. */
+export function inputStreams(): InputStreamInfo[] {
+  return definedInputs().map((def) => ({ id: def.id, fields: Object.entries(def.schema as Schema).map(([name, type]) => ({ name, kind: type.kind })) }));
+}
+
+/** Write input in a client World of `engine`, as its game code would (`Input.write`): thin clients' synthetic input. False if it can't (no such World or stream, or a server). */
+export function writeWorldInput(engine: Engine, worldName: string, streamId: string, values: Readonly<Record<string, number>>): boolean {
+  const world = engine._world(worldName);
+  const def = definedInputs().find((d) => d.id === streamId);
+  if (!world || !def || netSession(world)?.isServer) return false;
+  World._runIn(world, () => def.write(values as never));
+  return true;
 }

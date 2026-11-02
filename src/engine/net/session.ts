@@ -227,6 +227,12 @@ export class NetPeer {
   /** Registered kinds: local id → wire number, and wire number - FIRST_REGISTERED → local id. */
   kindOut = new Map<number, number>();
   kindIn: number[] = [];
+  // T15 tools: traffic counters (additive; the editor's Network panel reads them). Whole session
+  // messages, header included, as handed to and received from the transport.
+  /** @internal What this end sent on the connection: totals and per message kind. */
+  readonly sent: NetTraffic = newTraffic();
+  /** @internal What arrived on the connection: totals and per message kind. */
+  readonly received: NetTraffic = newTraffic();
 
   constructor(
     readonly link: TransportConnection,
@@ -522,7 +528,9 @@ export class NetSession {
   private transmit(peer: NetPeer, channel: Channel, kind: number, tick: number, body: Uint8Array): boolean {
     if (peer.link.state === "closed") return false;
     try {
-      peer.link.send(channel, concat(varuint(kind), varuint(Math.max(0, Math.floor(tick))), body));
+      const data = concat(varuint(kind), varuint(Math.max(0, Math.floor(tick))), body);
+      peer.link.send(channel, data);
+      count(peer.sent, wireKindName(peer, kind), data.byteLength); // T15 tools
       return true;
     } catch {
       return false; // closed under us; its close event follows
@@ -622,6 +630,7 @@ export class NetSession {
     const [tick, afterTick] = readVaruint(data, afterKind);
     at = afterTick;
     const body = data.subarray(at);
+    count(peer.received, wireKindName(peer, kind), data.byteLength); // T15 tools
     if (this.role === "client" && peer.state === "open") this.newestServerTick = Math.max(this.newestServerTick, tick);
 
     if (peer.state === "handshake") {
@@ -872,6 +881,18 @@ export class NetSession {
   private nowMs(): number {
     return this.world.time.realtimeSinceStartup * 1000;
   }
+
+  // --- T15 tools (additive): what the editor's Network panel and conditions sliders read --------
+
+  /** @internal Every connection, those still in their handshake included. */
+  allPeers(): NetPeer[] {
+    return [...this.peers.values()];
+  }
+
+  /** @internal The session's transports (listening and connecting), e.g. to set loopback conditions. */
+  transportList(): readonly Transport[] {
+    return this.transports;
+  }
 }
 
 /** @internal The World's session, created (and set to close with the World) if it has none. */
@@ -1031,6 +1052,38 @@ function setMismatch(what: string, client: readonly string[], server: readonly s
 
 function round(n: number): number {
   return Math.round(n * 1000) / 1000;
+}
+
+// --- T15 tools: traffic counters (additive) ------------------------------------------------------
+
+/** @internal Bytes and messages one way on a connection, in total and per message kind (by name). */
+export interface NetTraffic {
+  bytes: number;
+  messages: number;
+  /** By kind: `net.hello`, `net.welcome`, `net.ping`, `net.pong`, `net.rpc`, or a registered kind's name (`net.snapshot`, `net.input:…`). */
+  readonly byKind: Map<string, { bytes: number; messages: number }>;
+}
+
+function newTraffic(): NetTraffic {
+  return { bytes: 0, messages: 0, byKind: new Map() };
+}
+
+function count(traffic: NetTraffic, kind: string, bytes: number): void {
+  traffic.bytes += bytes;
+  traffic.messages++;
+  let entry = traffic.byKind.get(kind);
+  if (!entry) traffic.byKind.set(kind, (entry = { bytes: 0, messages: 0 }));
+  entry.bytes += bytes;
+  entry.messages++;
+}
+
+const BUILTIN_KIND_NAMES = ["net.hello", "net.welcome", "net.ping", "net.pong", "net.rpc"];
+
+/** The name of a wire kind number on `peer` (registered kinds are numbered per connection). */
+function wireKindName(peer: NetPeer, kind: number): string {
+  if (kind < FIRST_REGISTERED) return BUILTIN_KIND_NAMES[kind] ?? `net.unknown(${kind})`;
+  const local = peer.kindIn[kind - FIRST_REGISTERED];
+  return local === undefined ? `net.unknown(${kind})` : messageKinds[local];
 }
 
 // --- built-in systems ---------------------------------------------------------------------------
