@@ -28,10 +28,10 @@ body { background: var(--bg); color: var(--text); font: 13px system-ui, sans-ser
   border-bottom: 1px solid var(--border);
 }
 .toolbar .brand { font-weight: 600; margin-right: 8px; }
-.toolbar .group { display: flex; }
-.toolbar .group button { border-radius: 0; }
-.toolbar .group button:first-child { border-radius: 4px 0 0 4px; }
-.toolbar .group button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+.toolbar .group, .scene-toolbar .group { display: flex; }
+.toolbar .group button, .scene-toolbar .group button { border-radius: 0; }
+.toolbar .group button:first-child, .scene-toolbar .group button:first-child { border-radius: 4px 0 0 4px; }
+.toolbar .group button:last-child, .scene-toolbar .group button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
 
 button {
   background: var(--button);
@@ -93,7 +93,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* The Scene panel (a dockable panel): the engine's canvas fills it. */
 .panel.scene .panel-body { position: relative; padding: 0; overflow: hidden; }
-.viewport-panel { position: absolute; inset: 0; min-width: 0; min-height: 0; }
+.scene-panel { position: absolute; inset: 0; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.scene-toolbar { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.scene-toolbar button { padding: 2px 8px; font-size: 12px; }
+.viewport-panel { position: relative; flex: 1; min-width: 0; min-height: 0; }
 .viewport-host { position: absolute; inset: 0; }
 .viewport { position: absolute; inset: 0; overflow: hidden; }
 .viewport-hint {

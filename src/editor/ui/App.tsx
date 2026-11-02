@@ -1,7 +1,7 @@
 import { DockLayout } from "../layout/DockLayout";
 import { resetLayout } from "../layout/store";
 import { openProjectFolder, reloadScripts, save, togglePlaying } from "../session";
-import { currentProject, docVersion, openScene, pickTool, playState, sceneCamera, scriptProblems, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
+import { currentProject, docVersion, openScene, playState, scriptProblems, snapping, status } from "../state";
 import { AssetsPanel } from "./Assets";
 import { CodePanel } from "./CodePanel";
 import { AssetDragGhost } from "./AssetDragOverlay";
@@ -34,24 +34,11 @@ export function App() {
 }
 
 function Toolbar() {
-  const mode = viewMode.value;
   return (
     <header class="toolbar">
       <span class="brand">TranquilityEngine Editor</span>
       <ProjectControls />
       <PlayButton />
-      <Tools />
-      <div class="group" role="group" aria-label="View mode">
-        <button class={mode === "3d" ? "active" : ""} aria-pressed={mode === "3d"} onClick={() => setViewMode("3d")}>
-          3D
-        </button>
-        <button class={mode === "2d" ? "active" : ""} aria-pressed={mode === "2d"} onClick={() => setViewMode("2d")}>
-          2D
-        </button>
-      </div>
-      <button title="Frame the selection, or the origin (F)" onClick={() => sceneCamera.value?.focus()}>
-        Focus
-      </button>
       <UndoRedo />
       <button title="Put the panels back where they started" onClick={resetLayout}>
         Reset Layout
@@ -60,32 +47,6 @@ function Toolbar() {
         Settings
       </button>
     </header>
-  );
-}
-
-const TOOLS: { tool: Tool; label: string; key: string }[] = [
-  { tool: "select", label: "Select", key: "Q" },
-  { tool: "move", label: "Move", key: "W" },
-  { tool: "rotate", label: "Rotate", key: "E" },
-  { tool: "scale", label: "Scale", key: "R" },
-];
-
-function Tools() {
-  const current = tool.value;
-  return (
-    <div class="group" role="group" aria-label="Tool">
-      {TOOLS.map((t) => (
-        <button
-          key={t.tool}
-          class={current === t.tool ? "active" : ""}
-          aria-pressed={current === t.tool}
-          title={`${t.label} (${t.key})`}
-          onClick={() => pickTool(t.tool)}
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
   );
 }
 

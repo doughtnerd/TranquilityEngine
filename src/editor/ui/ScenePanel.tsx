@@ -1,6 +1,6 @@
 import { effect } from "@preact/signals";
 import { useLayoutEffect, useRef } from "preact/hooks";
-import { playState, snapping, tool, viewMode } from "../state";
+import { pickTool, playState, sceneCamera, setViewMode, snapping, tool, viewMode, type Tool } from "../state";
 import { ViewportDropHighlight } from "./AssetDragOverlay";
 
 /** The elements the engines render into: kept for the whole session, whichever dock shows the scene. */
@@ -23,7 +23,10 @@ export function viewportElements(): { viewport: HTMLDivElement; gameView: HTMLDi
   return elements;
 }
 
-/** The Scene panel: the scene view (and the game, while playing), a movable panel like any other. */
+/**
+ * The Scene panel: a toolbar (tools, 3D/2D, Focus) over the scene view (and the game, while
+ * playing), a movable panel like any other.
+ */
 export function ScenePanel() {
   const host = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -37,10 +40,53 @@ export function ScenePanel() {
     };
   }, []);
   return (
-    <div class="scene-panel viewport-panel">
-      <div ref={host} class="viewport-host" />
-      <ViewportHint />
-      <ViewportDropHighlight />
+    <div class="scene-panel">
+      <SceneToolbar />
+      <div class="viewport-panel">
+        <div ref={host} class="viewport-host" />
+        <ViewportHint />
+        <ViewportDropHighlight />
+      </div>
+    </div>
+  );
+}
+
+const TOOLS: { tool: Tool; label: string; key: string }[] = [
+  { tool: "select", label: "Select", key: "Q" },
+  { tool: "move", label: "Move", key: "W" },
+  { tool: "rotate", label: "Rotate", key: "E" },
+  { tool: "scale", label: "Scale", key: "R" },
+];
+
+function SceneToolbar() {
+  const current = tool.value;
+  const mode = viewMode.value;
+  return (
+    <div class="scene-toolbar" role="toolbar" aria-label="Scene tools">
+      <div class="group" role="group" aria-label="Tool">
+        {TOOLS.map((t) => (
+          <button
+            key={t.tool}
+            class={current === t.tool ? "active" : ""}
+            aria-pressed={current === t.tool}
+            title={`${t.label} (${t.key})`}
+            onClick={() => pickTool(t.tool)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div class="group" role="group" aria-label="View mode">
+        <button class={mode === "3d" ? "active" : ""} aria-pressed={mode === "3d"} onClick={() => setViewMode("3d")}>
+          3D
+        </button>
+        <button class={mode === "2d" ? "active" : ""} aria-pressed={mode === "2d"} onClick={() => setViewMode("2d")}>
+          2D
+        </button>
+      </div>
+      <button title="Frame the selection, or the origin (F)" onClick={() => sceneCamera.value?.focus()}>
+        Focus
+      </button>
     </div>
   );
 }
