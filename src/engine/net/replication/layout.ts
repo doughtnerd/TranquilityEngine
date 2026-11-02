@@ -92,7 +92,8 @@ export interface Layout {
   readonly kinds: readonly ScalarType["kind"][];
 }
 
-const layouts = new Map<string, Layout>();
+/** Layouts by spec key, with what the spec's components resolved to when each was made (`resolvedFor`). */
+const layouts = new Map<string, { readonly layout: Layout; readonly resolved: readonly unknown[] }>();
 const behaviorFieldCache = new Map<ComponentClass, readonly BehaviorField[]>();
 const warned = new Set<string>();
 
@@ -148,8 +149,9 @@ const sameShapes = (a: readonly FieldShape[], b: readonly FieldShape[]) => a.len
  */
 export function layoutOf(spec: LayoutSpec): Layout {
   const key = specKey(spec);
+  const resolved = resolvedFor(spec);
   const cached = layouts.get(key);
-  if (cached) return cached;
+  if (cached && cached.resolved.every((r, i) => r === resolved[i])) return cached.layout;
 
   const schema: Record<string, ScalarType> = {};
   const encoding: Record<string, FieldEncoding> = {};
@@ -210,8 +212,24 @@ export function layoutOf(spec: LayoutSpec): Layout {
     steps: Float64Array.from(steps),
     kinds,
   };
-  layouts.set(key, layout);
+  layouts.set(key, { layout, resolved });
   return layout;
+}
+
+/**
+ * What a spec's components resolve to here now: each data component's definition and replication
+ * options, and each behavior's class. Scripts loaded again (the editor reloads them, ADR 0030; a
+ * dedicated server's tests load a project more than once) register new ones under the same ids,
+ * so a cached layout, which holds the old ones, is only reused while these are unchanged.
+ */
+function resolvedFor(spec: LayoutSpec): unknown[] {
+  const out: unknown[] = [];
+  for (const d of spec.data) {
+    const def = getDataComponentDef(d.id);
+    out.push(def, def ? replicationOf(def) : null);
+  }
+  for (const b of spec.behaviors) out.push(getComponentClass(b.id));
+  return out;
 }
 
 /** Server: the spec of a replicated node as it is now. */

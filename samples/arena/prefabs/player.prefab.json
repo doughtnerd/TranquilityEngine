@@ -1,0 +1,24 @@
+{
+  "format": "tranquility.scene@1",
+  "nodes": [
+    {
+      "id": "player",
+      "name": "Player",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 0, 0] } },
+        { "type": "net.Replicated", "data": { "mode": "predicted" } },
+        { "type": "arena.Player", "data": { "score": 0, "aimX": 1, "aimY": 0, "cooldown": 0 } },
+        { "type": "engine.SpriteRenderer", "data": { "sprite": "asset:images/disc.png", "size": [0.9, 0.9], "sortingLayer": "Players" } }
+      ]
+    },
+    {
+      "id": "aim",
+      "name": "Aim",
+      "parent": "player",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0.42, 0, 0] } },
+        { "type": "engine.SpriteRenderer", "data": { "sprite": "asset:images/disc.png", "size": [0.26, 0.26], "color": "#14161b", "sortingLayer": "Players", "orderInLayer": 1 } }
+      ]
+    }
+  ]
+}
