@@ -20,6 +20,7 @@ export function projectTsconfig(): string {
       strict: true,
       noEmit: true,
       useDefineForClassFields: true,
+      resolveJsonModule: true,
       skipLibCheck: true,
       paths: { tranquility: [`./${TYPES_DIR}/index.d.ts`] },
     },

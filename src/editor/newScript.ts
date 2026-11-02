@@ -1,5 +1,6 @@
 // New Script (ADR 0030): ask for a name, write `scripts/<Name>.ts` from a template, load it, open
 // it in the Code panel, and (from Add Component) add the new component to the selected nodes.
+import { errorStatus } from "./messages";
 import type { GameObject } from "../engine";
 import { openScript } from "./code/codeState";
 import { addComponentTo } from "./componentEdits";
@@ -51,7 +52,7 @@ export async function newScript(options: { assetFolder?: string; addTo?: readonl
   try {
     return await createScript(answer.kind, answer.name, folder, addTo);
   } catch (err) {
-    status.value = { kind: "error", text: `Couldn't create the script: ${err instanceof Error ? err.message : String(err)}` };
+    status.value = errorStatus(`Couldn't create the script`, err);
     return null;
   }
 }

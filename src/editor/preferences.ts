@@ -22,6 +22,9 @@ function persisted<T>(key: string, fallback: T): Signal<T> {
   return s;
 }
 
+/** Ask before deleting an asset or script file from the project (it can't be undone). */
+export const askBeforeDeletingAssets = persisted("tranquility.editor.askBeforeDeletingAssets", true);
+
 /** Ask before deleting a node that other nodes reference (their fields are set to None). */
 export const askBeforeClearingReferences = persisted("tranquility.editor.askBeforeClearingReferences", true);
 

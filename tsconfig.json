@@ -12,6 +12,7 @@
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "skipLibCheck": true,
+    "paths": { "tranquility": ["./src/engine/index.ts"] },
     "sourceMap": true,
     "outDir": "./dist/"
   },

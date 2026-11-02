@@ -4,11 +4,13 @@
 // across scripts).
 import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
+import JsonWorker from "monaco-editor/languages/features/json/json.worker.js?worker";
 import TsWorker from "monaco-editor/languages/features/typescript/ts.worker.js?worker";
 import engineTypes from "virtual:tranquility-types";
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
-  getWorker: (_id, label) => (label === "typescript" || label === "javascript" ? new TsWorker() : new EditorWorker()),
+  // Each language service runs in its own worker; everything else in the editor's.
+  getWorker: (_id, label) => (label === "typescript" || label === "javascript" ? new TsWorker() : label === "json" ? new JsonWorker() : new EditorWorker()),
 };
 
 const ts = monaco.typescript;
@@ -21,6 +23,7 @@ ts.typescriptDefaults.setCompilerOptions({
   noEmit: true,
   useDefineForClassFields: true,
   allowNonTsExtensions: true,
+  resolveJsonModule: true,
 });
 // Every script model, not only the one showing, so imports between scripts resolve.
 ts.typescriptDefaults.setEagerModelSync(true);
@@ -48,15 +51,19 @@ export { monaco };
 
 const uriOf = (path: string) => monaco.Uri.parse(`file:///project/${path}`);
 
-/** The model for a project script, made if needed. */
+/** Monaco's language for a project file, by extension. */
+const languageOf = (path: string) => (path.endsWith(".json") ? "json" : path.endsWith(".js") ? "javascript" : "typescript");
+
+/** The model for a project file (script, JSON or JavaScript), made if needed. */
 export function modelFor(path: string, text: string): monaco.editor.ITextModel {
-  return monaco.editor.getModel(uriOf(path)) ?? monaco.editor.createModel(text, "typescript", uriOf(path));
+  return monaco.editor.getModel(uriOf(path)) ?? monaco.editor.createModel(text, languageOf(path), uriOf(path));
 }
 
 /**
- * Bring the script models in line with `scripts` (project path → text on disk): new scripts get
- * models, models of deleted scripts go, and models without unsaved edits take the text on disk.
- * `dirty` are paths with unsaved edits, left alone.
+ * Bring the file models in line with `scripts` (project path → text on disk, every file the Code
+ * panel can show): new files get models, models of deleted files go, and models without unsaved
+ * edits take the text on disk. `dirty` are paths with unsaved edits, left alone. JSON files are
+ * also given to the TypeScript service, so scripts can import them with their types.
  */
 export function syncModels(scripts: ReadonlyMap<string, string>, dirty: ReadonlySet<string>): void {
   for (const model of monaco.editor.getModels()) {
@@ -68,9 +75,37 @@ export function syncModels(scripts: ReadonlyMap<string, string>, dirty: Readonly
     const model = modelFor(path, text);
     if (!dirty.has(path) && model.getValue() !== text) model.setValue(text);
   }
+  syncJsonLibs(scripts);
 }
 
-/** Drop every script model (another project opened). */
+/** JSON files the TypeScript service has, by path, with their text. */
+const jsonLibs = new Map<string, { text: string; lib: monaco.IDisposable }>();
+
+/** Give the TypeScript service the project's JSON files (it only reads TS and JS models), so `import x from "./a.json"` resolves with types. */
+function syncJsonLibs(files: ReadonlyMap<string, string>): void {
+  for (const [path, entry] of jsonLibs) {
+    if (files.get(path) === entry.text) continue;
+    entry.lib.dispose();
+    jsonLibs.delete(path);
+  }
+  for (const [path, text] of files) {
+    if (!path.endsWith(".json") || jsonLibs.has(path)) continue;
+    // Monaco's worker reads files with unknown extensions, .json included, as TypeScript, so give it
+    // the JSON as a module whose default export has the types TypeScript infers from it.
+    let module = "declare const json: any;\nexport default json;\n";
+    try {
+      JSON.parse(text);
+      module = `const json = ${text.trim()};\nexport default json;\n`;
+    } catch {
+      // invalid JSON: untyped (the loader reports it when a script imports it)
+    }
+    jsonLibs.set(path, { text, lib: ts.typescriptDefaults.addExtraLib(module, `file:///project/${path}`) });
+  }
+}
+
+/** Drop every file model (another project opened). */
 export function disposeModels(): void {
   for (const model of monaco.editor.getModels()) if (model.uri.path.startsWith("/project/")) model.dispose();
+  for (const entry of jsonLibs.values()) entry.lib.dispose();
+  jsonLibs.clear();
 }

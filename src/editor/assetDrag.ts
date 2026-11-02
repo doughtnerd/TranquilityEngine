@@ -2,6 +2,7 @@
 // the asset at the top level under the cursor, or in the hierarchy to add it under (or beside)
 // a node. Built on pointer events rather than HTML drag and drop, which Tauri's webview takes
 // over on Windows for its own file drops.
+import { errorStatus } from "./messages";
 import { signal } from "@preact/signals";
 import { pointOnSpritePlane } from "../engine/editor";
 import type { SceneDocument } from "./document";
@@ -52,7 +53,7 @@ function targetAt(clientX: number, clientY: number): AssetDropTarget | null {
   if (!scene || !el) return null;
   const viewport = el.closest(".viewport-panel");
   if (viewport && playState.value === "edit") {
-    const canvas = viewport.querySelector("#viewport canvas") as HTMLCanvasElement | null;
+    const canvas = viewport.querySelector("#viewport canvas") as HTMLCanvasElement | null; // the Scene panel
     const r = (canvas ?? viewport).getBoundingClientRect();
     return { kind: "viewport", x: clientX - r.left, y: clientY - r.top };
   }
@@ -126,7 +127,7 @@ export function startAssetDrag(e: PointerEvent, path: string): void {
       selection.value = id;
       status.value = { kind: "info", text: `Added ${fileName(path)}` };
     } catch (err) {
-      status.value = { kind: "error", text: `Couldn't add ${fileName(path)}: ${err instanceof Error ? err.message : String(err)}` };
+      status.value = errorStatus(`Couldn't add ${fileName(path)}`, err);
     }
   };
   const up = (m: PointerEvent) => {

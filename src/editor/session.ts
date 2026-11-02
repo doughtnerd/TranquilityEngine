@@ -1,5 +1,6 @@
 // The editor session: one Editor World per open project (ADR 0016, 0026). Opening another
 // project tears the World down and boots a new one with that project's settings and assets.
+import { errorStatus } from "./messages";
 import { Engine, GameObject } from "../engine";
 import { overlayHandlesOnCanvas, screenBounds } from "../engine/editor";
 import { pathKey } from "./document";
@@ -14,10 +15,11 @@ import { installGizmo } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
 import { openSceneFile, saveOpenScene } from "./project";
-import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
+import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, docVersion, openScene, playState, sceneCamera, scriptProblems, scriptsVersion, selection, status, viewMode } from "./state";
 import { closeAllScripts } from "./code/codeState";
-import { replaceScripts } from "./scriptLoader";
+import { isScriptPath, replaceScripts } from "./scriptLoader";
+import { viewportElements } from "./ui/ScenePanel";
 import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
 import { installViewportSelection } from "./viewportSelection";
 
@@ -76,12 +78,11 @@ export async function loadProject(project: EditorProject): Promise<void> {
   // project's (ADR 0030).
   pendingReload = false;
   closeAllScripts();
-  void import("./code/monaco").then((m) => m.disposeModels()).catch(() => {}); // only if Monaco was loaded
-  const scripts = await replaceScripts(project.scripts);
+  const scripts = await replaceScripts(project.scripts, jsonFiles(project));
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;
   void setUpScripting(project);
-  const engine = await Engine.create({ kind: "editor", container: document.getElementById("viewport")!, project: editorSettings(project) });
+  const engine = await Engine.create({ kind: "editor", container: viewportElements().viewport, project: editorSettings(project) });
   // Editor tools live under the World root, outside the edited scene, so they keep running (ADR 0026).
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   orbit.mode = viewMode.value;
@@ -101,9 +102,13 @@ export async function loadProject(project: EditorProject): Promise<void> {
   Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world), nodeRect, openTestProject });
   if (project.mainScene) openScene_(project.mainScene);
   if (scripts.problems.length > 0) {
-    const list = scripts.problems.map((p) => `${p.path}: ${p.message}`).join("; ");
+    const list = scripts.problems.map((p) => `${p.path}: ${p.message}`);
     const scene = status.value?.kind === "error" ? ` · ${status.value.text}` : "";
-    status.value = { kind: "error", text: `${scripts.problems.length === 1 ? "A script" : `${scripts.problems.length} scripts`} didn't load: ${list}${scene}` };
+    status.value = {
+      kind: "error",
+      text: `${scripts.problems.length === 1 ? "A script" : `${scripts.problems.length} scripts`} didn't load: ${list.join("; ")}${scene}`,
+      detail: list.join("\n"),
+    };
   }
 }
 
@@ -121,7 +126,7 @@ function openScene_(path: string): void {
     openSceneFile(session.engine, path);
     status.value = null;
   } catch (err) {
-    status.value = { kind: "error", text: `Couldn't open ${path}: ${message(err)}` };
+    status.value = errorStatus(`Couldn't open ${path}`, err);
     return;
   }
   void attachToOpenScene();
@@ -142,7 +147,7 @@ async function attachToOpenScene(): Promise<void> {
   if (!scene || !project) return;
   const slots = slotsFor(project, scene.path, historyLocation.value, await defaultHistoryPlatform());
   const attached = await attachHistory(scene.stack, scene.path, slots, (err) => {
-    status.value = { kind: "error", text: `Couldn't save the edit history for ${scene.path}: ${message(err)}` };
+    status.value = errorStatus(`Couldn't save the edit history for ${scene.path}`, err);
   });
   if (openScene.value !== scene) {
     await attached.detach(); // another scene opened meanwhile
@@ -195,7 +200,7 @@ export async function openProjectFolder(): Promise<void> {
     await loadProject(await openFolderProject(fs, root));
     if (!openScene.value || status.value?.kind !== "error") status.value = { kind: "info", text: `Opened ${currentProject.value?.name}` };
   } catch (err) {
-    status.value = { kind: "error", text: message(err) };
+    status.value = errorStatus(null, err);
   }
 }
 
@@ -211,7 +216,7 @@ export async function save(): Promise<void> {
     await saveOpenScene();
     status.value = { kind: "info", text: `Saved ${scene.path}` };
   } catch (err) {
-    status.value = { kind: "error", text: `Couldn't save ${scene.path}: ${message(err)}` };
+    status.value = errorStatus(`Couldn't save ${scene.path}`, err);
   }
 }
 
@@ -221,12 +226,12 @@ export async function startPlaying(): Promise<void> {
   if (!session || !scene || !project || playState.value !== "edit") return;
   playState.value = "starting";
   try {
-    play = await startPlay({ editor: session.engine, scene, project, container: document.getElementById("game-view") ?? undefined });
+    play = await startPlay({ editor: session.engine, scene, project, container: viewportElements().gameView });
     playState.value = "playing";
     status.value = { kind: "info", text: `Playing ${scene.path}. Edits made now don't affect the running game. Stop (Ctrl+P) to return.` };
   } catch (err) {
     playState.value = "edit";
-    status.value = { kind: "error", text: `Couldn't play ${scene.path}: ${message(err)}` };
+    status.value = errorStatus(`Couldn't play ${scene.path}`, err);
   }
 }
 
@@ -275,7 +280,7 @@ export async function openScriptExternally(path: string): Promise<void> {
   try {
     await project.fileSystem.openExternally(joinPath(project.root, path));
   } catch (err) {
-    status.value = { kind: "error", text: `Couldn't open ${path}: ${message(err)}` };
+    status.value = errorStatus(`Couldn't open ${path}`, err);
   }
 }
 
@@ -311,10 +316,10 @@ export async function reloadScripts(options: { outside?: boolean } = {}): Promis
   try {
     await project.rereadScripts();
   } catch (err) {
-    status.value = { kind: "error", text: `Couldn't read the scripts: ${message(err)}` };
+    status.value = errorStatus(`Couldn't read the scripts`, err);
     return;
   }
-  const result = await replaceScripts(project.scripts);
+  const result = await replaceScripts(project.scripts, jsonFiles(project));
   scriptProblems.value = result.problems;
   scriptsVersion.value++;
   const scene = openScene.value;
@@ -324,12 +329,33 @@ export async function reloadScripts(options: { outside?: boolean } = {}): Promis
   }
   status.value =
     result.problems.length > 0
-      ? { kind: "error", text: `Reloaded scripts; ${result.problems.map((p) => `${p.path}: ${p.message}`).join("; ")}` }
+      ? {
+          kind: "error",
+          text: `Reloaded scripts; ${result.problems.map((p) => `${p.path}: ${p.message}`).join("; ")}`,
+          detail: result.problems.map((p) => `${p.path}: ${p.message}`).join("\n"),
+        }
       : options.outside
         ? { kind: "info", text: "Scripts changed on disk; reloaded them." }
         : result.loaded.length === 0
           ? { kind: "info", text: "Reloaded scripts: there are none under scripts/ now." }
           : { kind: "info", text: `Reloaded ${result.loaded.length} script${result.loaded.length === 1 ? "" : "s"}.` };
+}
+
+/**
+ * Save a file from the Code panel: a script (then scripts reload), or a JSON (which must parse)
+ * or JavaScript file. Scripts also reload after saving JSON one of them mentions, since scripts
+ * can import JSON.
+ */
+export async function saveCodeFile(path: string, text: string): Promise<void> {
+  const project = currentProject.value;
+  if (!project) throw new Error("No project is open.");
+  if (isScriptPath(path)) return saveScript(path, text);
+  await project.writeFile(path, text);
+  scriptsVersion.value++;
+  docVersion.value++; // e.g. the Assets panel
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (path.endsWith(".json") && [...project.scripts.values()].some((s) => s.includes(name))) await reloadScripts();
+  else status.value = { kind: "info", text: `Saved ${path}.` };
 }
 
 /** Save a script of the current project, then reload scripts (ADR 0030). */

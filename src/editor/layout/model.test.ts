@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EDGE_BAND,
   HEADER_HEIGHT,
-  MIN_CENTER,
+  MIN_FILL,
   MIN_FRACTION,
   computeGeometry,
   defaultLayout,
@@ -20,43 +20,47 @@ const sides = (l: Layout) => l.docks.map((d) => `${d.side}:${d.groups.map((g) =>
 const where = (l: Layout, p: PanelId) => l.docks.find((d) => d.groups.some((g) => g.panels.includes(p)))!;
 
 describe("default layout", () => {
-  it("puts Assets (with the Code tab) full width at the bottom, Hierarchy left, Inspector right", () => {
+  it("puts Assets (with the Code tab) full width at the bottom, Hierarchy left, Inspector right, the scene filling the middle", () => {
     const geo = computeGeometry(defaultLayout(), bounds);
-    const [bottom, left, right] = geo.docks;
+    const [bottom, left, right, main] = geo.docks;
     expect(bottom.rect).toEqual({ x: 0, y: 800 - 190, w: 1200, h: 190 }); // outermost: full width
     expect(left.rect.h).toBe(800 - 190); // inside the bottom dock
     expect(right.rect.x + right.rect.w).toBe(1200);
-    expect(geo.center).toEqual({ x: 240, y: 0, w: 1200 - 240 - 300, h: 610 });
+    expect(main.groups[0].group.panels).toEqual(["scene"]);
+    expect(main.rect).toEqual({ x: 240, y: 0, w: 1200 - 240 - 300, h: 610 });
+    expect(geo.fill).toEqual(main.rect);
+    expect(main.handle).toBeNull(); // the filling dock has no size to drag
   });
 });
 
 describe("moving panels", () => {
   it("to the outer edge: a new outermost dock that claims the full height", () => {
     const l = movePanel(defaultLayout(), "inspector", { kind: "edge", side: "left", placement: "outer" });
-    expect(sides(l)).toEqual(["left:inspector", "bottom:assets+code", "left:hierarchy", "right:history"]); // History stays on the right
+    expect(sides(l)).toEqual(["left:inspector", "bottom:assets+code", "left:hierarchy", "right:history", "left:scene"]); // History stays on the right
     const geo = computeGeometry(l, bounds);
     expect(geo.docks[0].rect).toEqual({ x: 0, y: 0, w: 240, h: 800 });
     expect(geo.docks[1].rect.x).toBe(240); // the bottom dock now starts right of it
   });
 
-  it("to the viewport's edge: a new innermost dock beside the viewport", () => {
+  it("to the filling dock's edge: a new dock just outside it", () => {
     const l = movePanel(defaultLayout(), "assets", { kind: "edge", side: "right", placement: "inner" });
-    expect(sides(l)).toEqual(["bottom:code", "left:hierarchy", "right:inspector+history", "right:assets"]);
+    expect(sides(l)).toEqual(["bottom:code", "left:hierarchy", "right:inspector+history", "right:assets", "left:scene"]);
     const geo = computeGeometry(l, bounds);
     expect(geo.docks[3].rect.h).toBe(610); // inside the bottom dock, which still holds Code
+    expect(geo.fill.x + geo.fill.w).toBe(geo.docks[3].rect.x); // the scene still fills the rest
   });
 
   it("into a dock: splits it evenly at the drop position", () => {
     let l = resizeSplit(movePanel(defaultLayout(), "assets", { kind: "split", dock: "left", index: 0 }), "left", 0, 0.3);
-    expect(sides(l)).toEqual(["bottom:code", "left:assets|hierarchy", "right:inspector+history"]);
+    expect(sides(l)).toEqual(["bottom:code", "left:assets|hierarchy", "right:inspector+history", "left:scene"]);
     l = movePanel(l, "inspector", { kind: "split", dock: "left", index: 1 });
-    expect(sides(l)).toEqual(["bottom:code", "left:assets|inspector|hierarchy", "right:history"]);
+    expect(sides(l)).toEqual(["bottom:code", "left:assets|inspector|hierarchy", "right:history", "left:scene"]);
     expect(where(l, "assets").fractions).toEqual([1 / 3, 1 / 3, 1 / 3]); // uniform again after the drop
   });
 
   it("onto another panel's header: joins it as the active tab", () => {
     const l = movePanel(defaultLayout(), "inspector", { kind: "tab", group: "hierarchy" });
-    expect(sides(l)).toEqual(["bottom:assets+code", "left:hierarchy+inspector", "right:history"]);
+    expect(sides(l)).toEqual(["bottom:assets+code", "left:hierarchy+inspector", "right:history", "left:scene"]);
     expect(where(l, "inspector").groups[0].active).toBe("inspector");
   });
 
@@ -75,11 +79,26 @@ describe("moving panels", () => {
   });
 });
 
+describe("the scene view as a panel", () => {
+  it("can join another group as a tab; the next dock in then fills the middle", () => {
+    const l = movePanel(defaultLayout(), "scene", { kind: "tab", group: "assets" });
+    expect(sides(l)).toEqual(["bottom:assets+code+scene", "left:hierarchy", "right:inspector+history"]);
+    const geo = computeGeometry(l, bounds);
+    expect(geo.fill).toEqual(geo.docks[2].rect); // the Inspector's dock takes the rest
+    expect(geo.fill).toEqual({ x: 240, y: 0, w: 960, h: 610 });
+  });
+
+  it("other panels can be dropped into its dock, splitting it", () => {
+    const l = movePanel(defaultLayout(), "code", { kind: "split", dock: "main", index: 1 });
+    expect(sides(l).at(-1)).toBe("left:scene|code");
+  });
+});
+
 describe("resizing", () => {
-  it("clamps docks so the viewport keeps its minimum size", () => {
+  it("clamps docks so the filling dock keeps its minimum size", () => {
     const l = resizeDock(defaultLayout(), "left", 5000);
     const geo = computeGeometry(l, bounds);
-    expect(geo.center.w).toBeGreaterThanOrEqual(MIN_CENTER.w - 1);
+    expect(geo.fill.w).toBeGreaterThanOrEqual(MIN_FILL.w - 1);
     expect(l.docks[1].size).toBe(5000); // stored as asked, drawn clamped
   });
 
@@ -107,11 +126,12 @@ describe("hit testing a drag", () => {
     expect(hitTest(l, geo, "inspector", 5, 300)!.preview).toMatchObject({ x: 0, y: 0, h: 800 });
   });
 
-  it("at the viewport's edges targets new innermost docks; its middle is invalid", () => {
-    const c = geo.center;
+  it("at the filling dock's edges targets new docks beside it; its middle splits it", () => {
+    const c = geo.fill;
     expect(hitTest(l, geo, "assets", c.x + 5, 200)?.target).toEqual({ kind: "edge", side: "left", placement: "inner" });
     expect(hitTest(l, geo, "hierarchy", c.x + c.w / 2, c.y + c.h - 5)?.target).toEqual({ kind: "edge", side: "bottom", placement: "inner" });
-    expect(hitTest(l, geo, "inspector", c.x + c.w / 2, c.y + c.h / 2)).toBeNull();
+    expect(hitTest(l, geo, "inspector", c.x + c.w / 2, c.y + c.h * 0.75)?.target).toEqual({ kind: "split", dock: "main", index: 1 });
+    expect(hitTest(l, geo, "scene", c.x + c.w / 2, c.y + c.h / 2)).toBeNull(); // the scene over itself
     expect(hitTest(l, geo, "inspector", -10, 300)).toBeNull(); // outside the layout
   });
 
@@ -131,7 +151,6 @@ describe("saved layouts", () => {
     const l = movePanel(defaultLayout(), "inspector", { kind: "tab", group: "hierarchy" });
     expect(parseLayout(JSON.parse(JSON.stringify(l)))).toEqual(l);
     expect(parseLayout(null)).toBeNull();
-    expect(parseLayout({ version: 1, docks: [] })).toBeNull(); // panels missing
     const dup = structuredClone(l);
     dup.docks[0].groups[0].panels.push("inspector");
     expect(parseLayout(dup)).toBeNull();
@@ -140,7 +159,7 @@ describe("saved layouts", () => {
 });
 
 describe("layouts saved before a panel existed", () => {
-  it("adds missing panels as tabs beside the Inspector instead of discarding the layout", () => {
+  it("adds missing panels as tabs beside the Inspector, and the scene view as the filling dock", () => {
     const old = {
       version: 1,
       docks: [
@@ -158,9 +177,11 @@ describe("layouts saved before a panel existed", () => {
       ],
     };
     const l = parseLayout(old)!;
-    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history|assets+code"]); // Code joins Assets, where there's width
+    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history|assets+code", "left:scene"]); // Code joins Assets, where there's width
     expect(l.docks[0].size).toBe(300); // the user's arrangement is kept
     expect(where(l, "history").groups[0].active).toBe("inspector");
+    const geo = computeGeometry(l, bounds);
+    expect(geo.fill).toEqual({ x: 300, y: 0, w: 1200 - 300 - 260, h: 800 }); // where the fixed viewport was
   });
 
   it("uses the first group when the Inspector isn't in the layout", () => {
@@ -168,6 +189,6 @@ describe("layouts saved before a panel existed", () => {
       version: 1,
       docks: [{ id: "b", side: "bottom", size: 200, groups: [{ id: "g", panels: ["assets", "hierarchy"], active: "assets" }], fractions: [1] }],
     })!;
-    expect(sides(l)).toEqual(["bottom:assets+hierarchy+inspector+history+code"]);
+    expect(sides(l)).toEqual(["bottom:assets+hierarchy+inspector+history+code", "left:scene"]);
   });
 });

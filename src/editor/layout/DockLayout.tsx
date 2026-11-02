@@ -28,14 +28,13 @@ const drag = signal<{ panel: PanelId; x: number; y: number; hit: DropHit | null 
 const box = (r: Rect): Record<string, string> => ({ left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
 
 /**
- * Dockable, resizable editor panels around a fixed viewport (see `model.ts` for the rules).
- * Drag a panel by its header (title or tab) to move it: the highlighted area shows where it
- * will go, and dropping on an invalid spot (or pressing Escape) leaves everything as it was.
- * Drag the handles between panels, and between panels and the viewport, to resize.
- *
- * The viewport element stays mounted while panels move, since the engine renders into it.
+ * Dockable, resizable editor panels, the scene view among them (see `model.ts` for the rules).
+ * Drag a panel by its header (title or tab) to move it: the highlighted area shows where it will
+ * go, and dropping on an invalid spot (or pressing Escape) leaves everything as it was. Drag the
+ * handles between panels to resize. (The Scene panel keeps the engine's canvas alive across moves:
+ * see ScenePanel.tsx.)
  */
-export function DockLayout(props: { panels: Record<PanelId, () => ComponentChildren>; viewport: ComponentChildren }) {
+export function DockLayout(props: { panels: Record<PanelId, () => ComponentChildren> }) {
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = root.current!;
@@ -50,10 +49,6 @@ export function DockLayout(props: { panels: Record<PanelId, () => ComponentChild
   const dragging = drag.value;
   return (
     <div ref={root} class={`dock-layout${dragging ? (dragging.hit ? " dragging" : " dragging invalid") : ""}`}>
-      {/* First and always present, so moving panels never remounts the engine's canvas. */}
-      <section class="viewport-panel" style={box(geo.center)}>
-        {props.viewport}
-      </section>
       {geo.docks.map((d) => (
         <DockView key={d.dock.id} dock={d} root={root} panels={props.panels} />
       ))}
@@ -93,7 +88,7 @@ function DockView(props: { dock: DockRect; root: { current: HTMLDivElement | nul
           </section>
         </div>
       ))}
-      <ResizeHandle
+      {dock.handle && <ResizeHandle
         rect={dock.handle}
         axis={side === "bottom" ? "y" : "x"}
         label={`Resize ${side} panels`}
@@ -101,7 +96,7 @@ function DockView(props: { dock: DockRect; root: { current: HTMLDivElement | nul
           const sign = side === "left" ? 1 : -1;
           layout.value = resizeDock(start, dock.dock.id, dock.dock.size + sign * delta);
         }}
-      />
+      />}
       {dock.splits.map((r, i) => (
         <ResizeHandle
           key={i}

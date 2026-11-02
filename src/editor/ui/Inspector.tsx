@@ -1,3 +1,4 @@
+import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Color, GameObject } from "../../engine";
@@ -228,7 +229,7 @@ function PrefabActions(props: { scene: OpenScene; id: string }) {
             const prefab = scene.doc.node(id).prefab;
             status.value = { kind: "info", text: `Applied ${n} override${n === 1 ? "" : "s"} to ${prefab}. Undo restores them here; the prefab file keeps the change.` };
           } catch (err) {
-            status.value = { kind: "error", text: message(err) };
+            status.value = errorStatus(null, err);
           }
         }}
       >
@@ -263,7 +264,7 @@ function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
             selection.value = id;
             status.value = { kind: "info", text: `Created ${path}. Undo turns the node back; the file stays on disk.` };
           } catch (err) {
-            status.value = { kind: "error", text: message(err) };
+            status.value = errorStatus(null, err);
           }
         }}
       >

@@ -1,16 +1,17 @@
 // Editor panel layout (docking). Pure data and geometry, no DOM, so the rules are unit-tested.
 //
-// The viewport sits in the centre. Around it are docks, listed outermost first: each dock claims
-// a strip on one side (left, right or bottom) of whatever space the docks outside it left, so an
-// outer dock spans the full height (left/right) or width (bottom) of that space. A dock holds one
-// or more tab groups split evenly along it (stacked in side docks, side by side in the bottom
-// dock); a group shows one panel at a time, with tabs when it has more than one.
+// Every panel, the scene view included, lives in a dock. Docks are listed outermost first: each
+// claims a strip on one side (left, right or bottom) of whatever space the docks outside it left,
+// so an outer dock spans the full height (left/right) or width (bottom) of that space. The
+// innermost dock fills whatever is left (its side only sets how it splits). A dock holds one or
+// more tab groups split evenly along it (stacked in side docks, side by side in bottom docks); a
+// group shows one panel at a time, with tabs when it has more than one.
 
-export type PanelId = "hierarchy" | "inspector" | "assets" | "history" | "code";
+export type PanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code";
 export type Side = "left" | "right" | "bottom";
 
-export const PANELS: readonly PanelId[] = ["hierarchy", "inspector", "assets", "history", "code"];
-export const PANEL_TITLES: Record<PanelId, string> = { hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code" };
+export const PANELS: readonly PanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code"];
+export const PANEL_TITLES: Record<PanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code" };
 
 export interface TabGroup {
   id: string;
@@ -30,7 +31,7 @@ export interface Dock {
 
 export interface Layout {
   version: 1;
-  /** Outermost first. */
+  /** Outermost first. The last fills the space the others leave (its `size` is unused). */
   docks: Dock[];
 }
 
@@ -49,11 +50,12 @@ export interface Rect {
 
 /** Height of a group's header (title or tabs); keep in sync with the CSS. */
 export const HEADER_HEIGHT = 28;
-/** Distance from the layout's outer edge, or the viewport's edge, that targets a new dock. */
+/** Distance from the layout's outer edge, or the filling dock's edge, that targets a new dock. */
 export const EDGE_BAND = 28;
 export const DEFAULT_SIZE: Record<Side, number> = { left: 240, right: 300, bottom: 190 };
 export const MIN_DOCK = 120;
-export const MIN_CENTER = { w: 200, h: 140 };
+/** The smallest the filling (innermost) dock gets: other docks shrink to leave it this much. */
+export const MIN_FILL = { w: 200, h: 140 };
 /** Smallest share of a dock a group can be resized to. */
 export const MIN_FRACTION = 0.1;
 
@@ -67,6 +69,8 @@ export function defaultLayout(): Layout {
       { id: "bottom", side: "bottom", size: DEFAULT_SIZE.bottom, groups: [{ id: "assets", panels: ["assets", "code"], active: "assets" }], fractions: [1] },
       { id: "left", side: "left", size: DEFAULT_SIZE.left, groups: [{ id: "hierarchy", panels: ["hierarchy"], active: "hierarchy" }], fractions: [1] },
       { id: "right", side: "right", size: DEFAULT_SIZE.right, groups: [{ id: "inspector", panels: ["inspector", "history"], active: "inspector" }], fractions: [1] },
+      // Innermost: fills the middle.
+      { id: "main", side: "left", size: 0, groups: [{ id: "scene", panels: ["scene"], active: "scene" }], fractions: [1] },
     ],
   };
 }
@@ -126,7 +130,7 @@ export function movePanel(layout: Layout, panel: PanelId, target: DropTarget): L
   } else {
     const dock: Dock = { id: newId("d"), side: target.side, size: DEFAULT_SIZE[target.side], groups: [{ id: newId("g"), panels: [panel], active: panel }], fractions: [1] };
     if (target.placement === "outer") next.docks.unshift(dock);
-    else next.docks.push(dock);
+    else next.docks.splice(Math.max(0, next.docks.length - 1), 0, dock); // just outside the filling dock
   }
 
   const result = normalize(next);
@@ -171,7 +175,8 @@ export function resizeSplit(layout: Layout, dockId: string, index: number, delta
  * null (the caller falls back to the default). Guards against stale or hand-edited storage.
  * Panels missing from it (e.g. added to the editor after the layout was saved) are added as tabs
  * to the group holding the Inspector (the Code panel: the Assets panel, where there's width), or
- * the first group, so the user's arrangement survives.
+ * the first group, so the user's arrangement survives. A missing scene view (layouts from when it
+ * was fixed in the middle) gets a new innermost dock, filling the middle again.
  */
 export function parseLayout(value: unknown): Layout | null {
   try {
@@ -188,9 +193,9 @@ export function parseLayout(value: unknown): Layout | null {
       }
     }
     const result = normalize(structuredClone(l));
-    const missing = PANELS.filter((p) => !seen.includes(p));
+    if (!seen.includes("scene")) result.docks.push({ id: newId("d"), side: "left", size: 0, groups: [{ id: newId("g"), panels: ["scene"], active: "scene" }], fractions: [1] });
+    const missing = PANELS.filter((p) => !seen.includes(p) && p !== "scene");
     if (missing.length) {
-      if (result.docks.length === 0) return null;
       const groups = result.docks.flatMap((d) => d.groups);
       const holding = (p: PanelId) => groups.find((g) => g.panels.includes(p));
       for (const p of missing) (((p === "code" && holding("assets")) || holding("inspector")) ?? groups[0]).panels.push(p);
@@ -213,8 +218,8 @@ export interface DockRect {
   dock: Dock;
   rect: Rect;
   groups: GroupRect[];
-  /** The dock's resize handle, on its edge facing the viewport. */
-  handle: Rect;
+  /** The dock's resize handle, on its inner edge; null for the filling dock, which has no size of its own. */
+  handle: Rect | null;
   /** Handles between consecutive groups (index i sits between group i and i + 1). */
   splits: Rect[];
 }
@@ -222,25 +227,31 @@ export interface DockRect {
 export interface Geometry {
   bounds: Rect;
   docks: DockRect[];
-  center: Rect;
+  /** The filling (innermost) dock's area. */
+  fill: Rect;
 }
 
 const HANDLE = 6;
 
 /**
- * Lay the docks out in `bounds`, outermost first. Dock sizes are clamped so the viewport keeps
- * at least `MIN_CENTER` (the stored size is kept; only the drawn size shrinks).
+ * Lay the docks out in `bounds`, outermost first; the last fills what's left. Other docks' sizes
+ * are clamped so it keeps at least `MIN_FILL` (the stored size is kept; only the drawn size
+ * shrinks).
  */
 export function computeGeometry(layout: Layout, bounds: Rect): Geometry {
   let free: Rect = { ...bounds };
   const docks: DockRect[] = [];
-  for (const dock of layout.docks) {
+  layout.docks.forEach((dock, index) => {
     const horizontal = dock.side === "bottom";
-    const room = horizontal ? free.h - MIN_CENTER.h : free.w - MIN_CENTER.w;
+    const filling = index === layout.docks.length - 1;
+    const room = horizontal ? free.h - MIN_FILL.h : free.w - MIN_FILL.w;
     const size = Math.max(0, Math.min(dock.size, room));
     let rect: Rect;
-    let handle: Rect;
-    if (dock.side === "left") {
+    let handle: Rect | null;
+    if (filling) {
+      rect = { ...free };
+      handle = null;
+    } else if (dock.side === "left") {
       rect = { x: free.x, y: free.y, w: size, h: free.h };
       handle = { x: rect.x + size - HANDLE / 2, y: rect.y, w: HANDLE, h: rect.h };
       free = { x: free.x + size, y: free.y, w: free.w - size, h: free.h };
@@ -268,8 +279,8 @@ export function computeGeometry(layout: Layout, bounds: Rect): Geometry {
       }
     });
     docks.push({ dock, rect, groups, handle, splits });
-  }
-  return { bounds, docks, center: free };
+  });
+  return { bounds, docks, fill: docks.at(-1)?.rect ?? free };
 }
 
 const inside = (r: Rect, x: number, y: number) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
@@ -281,10 +292,10 @@ export interface DropHit {
 }
 
 /**
- * The drop target under a pointer while dragging `panel`, or null for an invalid spot (the
- * viewport's middle, the top edge, outside the layout). In order of priority: another group's
- * header (join as a tab), the layout's outer edge (new outermost dock, full height or width),
- * the viewport's edge (new innermost dock), inside a dock (split it evenly at that position).
+ * The drop target under a pointer while dragging `panel`, or null for an invalid spot (the top
+ * edge, outside the layout, where it already is). In order of priority: another group's header
+ * (join as a tab), the layout's outer edge (new outermost dock, full height or width), the filling
+ * dock's edge (a new dock just outside it), inside a dock (split it evenly at that position).
  */
 export function hitTest(layout: Layout, geo: Geometry, panel: PanelId, x: number, y: number): DropHit | null {
   const b = geo.bounds;
@@ -300,7 +311,7 @@ export function hitTest(layout: Layout, geo: Geometry, panel: PanelId, x: number
   }
 
   const band = (side: Side, outer: boolean): DropHit => {
-    const area = outer ? b : geo.center;
+    const area = outer ? b : geo.fill;
     const size = Math.min(DEFAULT_SIZE[side], side === "bottom" ? area.h / 2 : area.w / 2);
     const preview: Rect =
       side === "left" ? { x: area.x, y: area.y, w: size, h: area.h }
@@ -312,12 +323,11 @@ export function hitTest(layout: Layout, geo: Geometry, panel: PanelId, x: number
   if (x >= b.x + b.w - EDGE_BAND) return band("right", true);
   if (y >= b.y + b.h - EDGE_BAND) return band("bottom", true);
 
-  const c = geo.center;
+  const c = geo.fill;
   if (inside(c, x, y)) {
     if (x < c.x + EDGE_BAND) return band("left", false);
     if (x >= c.x + c.w - EDGE_BAND) return band("right", false);
     if (y >= c.y + c.h - EDGE_BAND) return band("bottom", false);
-    return null; // the middle of the viewport
   }
 
   for (const d of geo.docks) {

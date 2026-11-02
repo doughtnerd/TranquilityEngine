@@ -1,7 +1,23 @@
-// The Code panel's state (ADR 0030): which scripts are open in it, which one shows, and which
-// have unsaved edits. Kept apart from the Monaco code (code/monaco.ts), which loads lazily.
+// The Code panel's state (ADR 0030): which files are open in it, which one shows, and which
+// have unsaved edits. Files are project scripts (TypeScript), JSON and plain JavaScript. Kept
+// apart from the Monaco code (code/monaco.ts), which loads lazily.
 import { signal } from "@preact/signals";
 import { showPanel } from "../layout/store";
+import { isTextAsset, type EditorProject } from "../projects";
+
+/**
+ * Every file the Code panel can show, by project path, with its text on disk: the scripts, and
+ * the project's JSON and JavaScript files.
+ */
+export function codeFiles(project: EditorProject): Map<string, string> {
+  const files = new Map(project.scripts);
+  for (const path of project.files) {
+    if (!isTextAsset(path)) continue;
+    const text = project.textOf(path);
+    if (text !== undefined) files.set(path, text);
+  }
+  return files;
+}
 
 /** Scripts open as tabs in the Code panel, by project path, in tab order. */
 export const openScripts = signal<readonly string[]>([]);

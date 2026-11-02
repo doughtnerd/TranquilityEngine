@@ -46,15 +46,45 @@ test("dragging a panel to the window's outer edge docks it there at full height,
   await expect(page.locator("#viewport canvas")).toBeVisible(); // the engine's canvas survived
 });
 
-test("dropping over the middle of the viewport changes nothing", async ({ page }) => {
+test("dropping a panel where it already is changes nothing", async ({ page }) => {
   await openEditor(page);
-  const before = await box(group(page, "Inspector"));
-  const viewport = await box(page.locator(".viewport-panel"));
-  await dragTab(page, "Inspector", viewport.x + viewport.width / 2, viewport.y + viewport.height / 2, false);
+  const before = await box(group(page, "Hierarchy")); // alone in its group and dock
+  await dragTab(page, "Hierarchy", before.x + before.width / 2, before.y + before.height / 2, false);
   await expect(page.locator(".dock-layout.invalid")).toHaveCount(1);
   await expect(page.locator(".drop-preview")).toHaveCount(0);
   await page.mouse.up();
-  expect(await box(group(page, "Inspector"))).toEqual(before);
+  expect(await box(group(page, "Hierarchy"))).toEqual(before);
+});
+
+test("the scene view is a panel: it moves like the others and keeps its canvas", async ({ page }) => {
+  await openEditor(page);
+  const assets = await box(tab(page, "Assets"));
+  await dragTab(page, "Scene", assets.x + assets.width / 2, assets.y + assets.height / 2);
+  await expect(tab(page, "Scene")).toHaveAttribute("aria-selected", "true");
+  const scene = await box(group(page, "Scene"));
+  expect(scene).toEqual(await box(group(page, "Assets"))); // the same group, at the bottom
+  await expect(page.locator(".panel.scene #viewport canvas")).toBeVisible();
+  // The Inspector's dock, innermost now, fills the middle.
+  const inspector = await box(group(page, "Inspector"));
+  const hierarchy = await box(group(page, "Hierarchy"));
+  expect(inspector.x).toBeCloseTo(hierarchy.x + hierarchy.width, 0);
+
+  // Showing another tab hides it; showing it again brings the same canvas back.
+  await tab(page, "Assets").click();
+  await expect(page.locator("#viewport")).toHaveCount(0);
+  await tab(page, "Scene").click();
+  await expect(page.locator(".panel.scene #viewport canvas")).toBeVisible();
+});
+
+test("dropping a panel inside the scene's dock splits it", async ({ page }) => {
+  await openEditor(page);
+  const scene = await box(group(page, "Scene"));
+  await dragTab(page, "Code", scene.x + scene.width / 2, scene.y + scene.height * 0.8);
+  const below = await box(group(page, "Code"));
+  const sceneNow = await box(group(page, "Scene"));
+  expect(below.y).toBeGreaterThan(sceneNow.y);
+  expect(below.x).toBeCloseTo(sceneNow.x, 0);
+  await expect(page.locator(".panel.scene #viewport canvas")).toBeVisible();
 });
 
 test("dropping on another panel's header makes tabs; clicking a tab shows it", async ({ page }) => {

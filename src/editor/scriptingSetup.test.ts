@@ -40,6 +40,10 @@ describe("the generated tsconfig with the engine's declarations", () => {
     files.set(`${dir}/scripts/Mover.ts`, scriptTemplate("behavior", "Mover"));
     files.set(`${dir}/scripts/Heat.ts`, scriptTemplate("data", "Heat"));
     files.set(`${dir}/scripts/Cool.ts`, scriptTemplate("system", "Cool"));
+    files.set(`${dir}/data/levels.json`, `{ "speed": 4 }`);
+    files.set(`${dir}/scripts/Levels.ts`, `import levels from "../data/levels.json";
+export const speed: number = levels.speed;
+`);
     files.set(`${dir}/scripts/Uses.ts`, `import { Time, Vector3 } from "tranquility";\nexport const step: number = Time.deltaTime * new Vector3(1, 2, 3).x;\n`);
     const fileExists = (f: string) => files.has(f) || ts.sys.fileExists(f);
     const readFile = (f: string) => files.get(f) ?? ts.sys.readFile(f);
@@ -62,7 +66,7 @@ describe("the generated tsconfig with the engine's declarations", () => {
     });
     const program = ts.createProgram({ rootNames: config.fileNames, options: config.options, host });
     const errors = ts.getPreEmitDiagnostics(program).map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
-    expect(config.fileNames).toHaveLength(4);
+    expect(config.fileNames).toHaveLength(5);
     expect(errors).toEqual([]);
   });
 });

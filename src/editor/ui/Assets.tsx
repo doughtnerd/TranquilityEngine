@@ -1,3 +1,4 @@
+import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import {
   addAssetToScene,
@@ -12,7 +13,9 @@ import {
   type Folder,
 } from "../assetBrowser";
 import { startAssetDrag } from "../assetDrag";
+import { deleteAsset, whyNotDeletableAsset } from "../assetDelete";
 import { openScript } from "../code/codeState";
+import type { EditorProject } from "../projects";
 import { newScript, scriptFolderFor } from "../newScript";
 import { switchScene } from "../session";
 import { currentProject, docVersion, openScene, playState, sceneCamera, scriptsVersion, selection, status } from "../state";
@@ -23,7 +26,7 @@ const folderPath = signal("");
 const query = signal("");
 const selectedAsset = signal<string | null>(null);
 
-const KIND_LABELS: Record<AssetKind, string> = { scene: "Scene", prefab: "Prefab", image: "Image", audio: "Audio", json: "JSON", script: "Script", other: "File" };
+const KIND_LABELS: Record<AssetKind, string> = { scene: "Scene", prefab: "Prefab", image: "Image", audio: "Audio", json: "JSON", script: "Script", javascript: "JS", other: "File" };
 
 /**
  * The project's files (ADR 0022): a folder tree, a grid of tiles with image thumbnails, and
@@ -51,6 +54,9 @@ export function AssetsPanel() {
       <div class="asset-main">
         <div class="asset-bar">
           <span class="asset-crumb">{searching ? `Results for “${query.value.trim()}”` : folder.path === "" ? project.name : folder.path}</span>
+          {project.root !== null && (
+            <DeleteAssetButton project={project} />
+          )}
           {project.root !== null && (
             <button
               class="new-script-button"
@@ -110,12 +116,30 @@ function FolderItem(props: { folder: Folder; label: string; depth: number }) {
   );
 }
 
+/** Delete the selected asset (asking first); disabled, with the reason, when it can't be. */
+function DeleteAssetButton(props: { project: EditorProject }) {
+  const path = selectedAsset.value;
+  const reason = path ? whyNotDeletableAsset(props.project, path, openScene.value?.path ?? null) : "select an asset first";
+  return (
+    <button
+      class="delete-asset-button"
+      disabled={reason !== null}
+      title={reason ? `Can't delete: ${reason}` : `Delete ${path} from disk (Delete)`}
+      onClick={() => path && void deleteAsset(path)}
+    >
+      Delete
+    </button>
+  );
+}
+
 function AssetTile(props: { path: string; url: unknown; showFolder: boolean }) {
   const { path, url, showFolder } = props;
   const kind = assetKind(path);
   const open = openScene.value?.path === path;
   const selected = selectedAsset.value === path;
-  const opens = kind === "scene" || kind === "prefab" || kind === "script";
+  const opens = kind === "scene" || kind === "prefab" || kind === "script" || kind === "json" || kind === "javascript";
+  /** Scripts, JSON and JavaScript open in the Code panel; scenes and prefabs in the scene view. */
+  const inCodePanel = kind === "script" || kind === "json" || kind === "javascript";
   const canAdd = canAddToScene(path) && !!openScene.value && playState.value === "edit" && openScene.value.path !== path;
   return (
     <li
@@ -123,8 +147,17 @@ function AssetTile(props: { path: string; url: unknown; showFolder: boolean }) {
       role="option"
       aria-selected={selected}
       title={`${path}${opens ? " (double-click to open)" : ""}${canAddToScene(path) ? "; drag into the viewport or hierarchy to add" : ""}`}
+      tabIndex={0}
       onClick={() => (selectedAsset.value = path)}
-      onDblClick={() => (kind === "script" ? openScript(path) : opens && void switchScene(path))}
+      onFocus={() => (selectedAsset.value = path)}
+      onKeyDown={(e) => {
+        // Delete here means the file, not the scene's selected node.
+        if (e.key !== "Delete" && e.key !== "Backspace") return;
+        e.preventDefault();
+        e.stopPropagation();
+        void deleteAsset(path);
+      }}
+      onDblClick={() => (inCodePanel ? openScript(path) : opens && void switchScene(path))}
       onPointerDown={(e) => startAssetDrag(e, path)}
     >
       <div class="asset-thumb">
@@ -159,6 +192,6 @@ function addToScene(path: string): void {
     selection.value = id;
     status.value = { kind: "info", text: `Added ${fileName(path)} to ${fileName(scene.path)}` };
   } catch (err) {
-    status.value = { kind: "error", text: `Couldn't add ${fileName(path)}: ${err instanceof Error ? err.message : String(err)}` };
+    status.value = errorStatus(`Couldn't add ${fileName(path)}`, err);
   }
 }

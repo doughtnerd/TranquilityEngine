@@ -91,7 +91,10 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .drop-preview { position: absolute; z-index: 5; pointer-events: none; background: rgb(76 141 255 / 0.22); border: 2px solid var(--accent); border-radius: 3px; box-sizing: border-box; transition: left 80ms, top 80ms, width 80ms, height 80ms; }
 .drag-ghost { position: absolute; z-index: 6; pointer-events: none; padding: 3px 8px; border-radius: 3px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
 
-.viewport-panel { position: absolute; min-width: 0; min-height: 0; }
+/* The Scene panel (a dockable panel): the engine's canvas fills it. */
+.panel.scene .panel-body { position: relative; padding: 0; overflow: hidden; }
+.viewport-panel { position: absolute; inset: 0; min-width: 0; min-height: 0; }
+.viewport-host { position: absolute; inset: 0; }
 .viewport { position: absolute; inset: 0; overflow: hidden; }
 .viewport-hint {
   position: absolute;
@@ -341,3 +344,40 @@ button:disabled.primary { opacity: 0.5; }
 .add-component-menu .new-script-item:hover:not(:disabled) { background: var(--button-hover); }
 .code-external { align-self: center; margin: 0 6px 0 auto; padding: 1px 8px; font-size: 11px; }
 .code-readonly + .code-external { margin-left: 0; }
+
+/* The status bar and message log. */
+.status-bar { cursor: pointer; user-select: none; }
+.status-bar:hover { background: #23262c; }
+.status-bar.open { background: #23262c; }
+.status-toggle { color: var(--muted); font-size: 10px; }
+.status-unseen { padding: 0 6px; border-radius: 8px; background: #6b3434; color: #fff; font-size: 11px; white-space: nowrap; }
+.status-log-button { padding: 0 8px; font-size: 11px; }
+.message-log {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 25px;
+  z-index: 25;
+  height: min(45vh, 420px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -6px 20px rgb(0 0 0 / 0.4);
+  outline: none;
+}
+.message-log-bar { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--border); flex: none; }
+.message-log-title { font-weight: 600; }
+.message-log-count { flex: 1; color: var(--muted); font-size: 12px; }
+.message-log-bar button { padding: 1px 10px; font-size: 12px; }
+.message-log-list { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; user-select: text; }
+.message-log-list .empty { padding: 10px; color: var(--muted); }
+.message-entry { padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.message-entry-head { display: flex; align-items: baseline; gap: 8px; }
+.message-entry time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+.message-kind { flex: none; width: 56px; text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; color: var(--muted); }
+.message-entry.error .message-kind, .message-entry.error .message-text { color: #f08a8a; }
+.message-entry.warning .message-kind { color: #f0b46a; }
+.message-text { flex: 1; white-space: pre-wrap; word-break: break-word; }
+.message-detail-toggle { flex: none; padding: 0 6px; font-size: 11px; }
+.message-detail { margin: 4px 0 2px 120px; padding: 6px 8px; max-height: 220px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; white-space: pre-wrap; word-break: break-word; color: var(--text); }

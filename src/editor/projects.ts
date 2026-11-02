@@ -35,9 +35,26 @@ export interface EditorProject {
   textOf(path: string): string | undefined;
   /** Write a JSON file and update what the project serves for it. */
   writeText(path: string, text: string): Promise<void>;
+  /** Write a text asset (JSON, which must parse, or JavaScript) and update what the project serves for it. */
+  writeFile(path: string, text: string): Promise<void>;
+  /** Delete a file (an asset or a script) from disk and from the project. */
+  deleteFile(path: string): Promise<void>;
 }
 
-const ASSET_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|mp3|ogg|wav|json)$/i;
+const ASSET_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|mp3|ogg|wav|json|js)$/i;
+
+/** The project's JSON files with their text (scripts can import them, ADR 0030). */
+export function jsonFiles(project: EditorProject): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const path of project.files) {
+    const text = path.endsWith(".json") ? project.textOf(path) : undefined;
+    if (text !== undefined) out.set(path, text);
+  }
+  return out;
+}
+
+/** Files the project keeps as text (and the Code panel can edit): JSON, and plain JavaScript (edit only). */
+export const isTextAsset = (path: string) => /\.(json|js)$/i.test(path);
 const SKIP_DIRS = new Set(["node_modules", "dist", "target", "test-results", "playwright-report"]);
 const MIME: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
@@ -108,6 +125,35 @@ class MapProject implements EditorProject {
     this.texts.set(path, text);
     this.values.set(path, value);
   }
+
+  async writeFile(path: string, text: string): Promise<void> {
+    if (path.toLowerCase().endsWith(".json")) {
+      try {
+        JSON.parse(text);
+      } catch (err) {
+        throw new Error(`${path} isn't valid JSON, so it wasn't saved: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return this.writeText(path, text);
+    }
+    if (!this.write) throw new Error(`${this.name} is read-only. Open a project folder to save.`);
+    await this.write(path, text);
+    if (!this.values.has(path)) this.sortedFiles = null;
+    this.texts.set(path, text);
+    this.values.set(path, text);
+  }
+
+  async deleteFile(path: string): Promise<void> {
+    if (!this.write || !this.fileSystem || !this.root) throw new Error(`${this.name} is read-only.`);
+    await this.fileSystem.remove(joinPath(this.root, path));
+    const value = this.values.get(path);
+    if (typeof value === "string" && value.startsWith("blob:")) URL.revokeObjectURL(value);
+    if (this.values.delete(path)) this.sortedFiles = null;
+    this.texts.delete(path);
+    if (this.scriptMap.has(path)) {
+      this.scriptMap = new Map(this.scriptMap);
+      this.scriptMap.delete(path);
+    }
+  }
 }
 
 /** The Flappy demo, bundled into the editor. Read-only. */
@@ -167,6 +213,10 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
       } catch (err) {
         console.warn(`[editor] skipping ${path}: not valid JSON (${String(err)})`);
       }
+    } else if (isTextAsset(path)) {
+      const text = await fs.readText(joinPath(root, path));
+      values.set(path, text);
+      texts.set(path, text);
     } else {
       const bytes = await fs.readBinary(joinPath(root, path));
       const type = MIME[path.split(".").pop()!.toLowerCase()] ?? "application/octet-stream";

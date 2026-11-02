@@ -4,34 +4,25 @@ import { openProjectFolder, reloadScripts, save, togglePlaying } from "../sessio
 import { currentProject, docVersion, openScene, pickTool, playState, sceneCamera, scriptProblems, setViewMode, snapping, status, tool, viewMode, type Tool } from "../state";
 import { AssetsPanel } from "./Assets";
 import { CodePanel } from "./CodePanel";
-import { AssetDragGhost, ViewportDropHighlight } from "./AssetDragOverlay";
+import { AssetDragGhost } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { StatusBar } from "./StatusBar";
 import { NewScriptDialog } from "./NewScriptDialog";
 import { HistoryPanel } from "./HistoryPanel";
 import { RefineList } from "./RefineList";
 import { SettingsDialog, settingsOpen } from "./SettingsDialog";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
+import { ScenePanel } from "./ScenePanel";
 
-const PANELS = { hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel /> };
+const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel /> };
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {
   return (
     <div class={`editor${playState.value !== "edit" ? " playing" : ""}`}>
       <Toolbar />
-      <DockLayout
-        panels={PANELS}
-        viewport={
-          <>
-            <div id="viewport" class="viewport" />
-            <ViewportHint />
-            <ViewportDropHighlight />
-            {/* The Runtime World's canvas goes here during play mode (ADR 0022). */}
-            <div id="game-view" class="game-view" hidden={playState.value === "edit"} />
-          </>
-        }
-      />
+      <DockLayout panels={PANELS} />
       <StatusBar />
       <AssetDragGhost />
       <ConfirmDialog />
@@ -140,46 +131,6 @@ function PlayButton() {
   );
 }
 
-function StatusBar() {
-  const s = status.value;
-  return (
-    <footer class={`status-bar${s?.kind === "error" ? " error" : ""}`} aria-live="polite">
-      <span class="status-text">{s?.text ?? ""}</span>
-      {s?.action && (
-        <button
-          class="status-action"
-          onClick={() => {
-            s.action!.run();
-            status.value = { kind: "info", text: s.action!.done ?? "Done." };
-          }}
-        >
-          {s.action.label}
-        </button>
-      )}
-      <ScriptProblems />
-    </footer>
-  );
-}
-
-/**
- * Project scripts that didn't load (ADR 0030): a lasting marker in the status bar, since other
- * messages replace the status text. Clicking it puts the details in the status text.
- */
-function ScriptProblems() {
-  const problems = scriptProblems.value;
-  if (problems.length === 0) return null;
-  const lines = problems.map((p) => `${p.path}: ${p.message}`);
-  return (
-    <button
-      class="script-problems"
-      title={lines.join("\n")}
-      onClick={() => (status.value = { kind: "error", text: lines.join("; ") })}
-    >
-      ⚠ {problems.length === 1 ? "1 script didn't load" : `${problems.length} scripts didn't load`}
-    </button>
-  );
-}
-
 function UndoRedo() {
   docVersion.value; // re-render when the undo stack changes
   const stack = openScene.value?.stack;
@@ -197,12 +148,4 @@ function UndoRedo() {
   );
 }
 
-function ViewportHint() {
-  const text =
-    viewMode.value === "3d"
-      ? "Orbit: right-drag or Alt + left-drag · Pan: middle-drag or Shift + right-drag · Zoom: wheel · Focus: F"
-      : "Pan: right- or middle-drag · Zoom: wheel · Focus: F";
-  const gizmo = tool.value === "select" ? "" : ` · Hold Ctrl to snap${snapping.value ? " (on)" : ""}`;
-  return <div class="viewport-hint">{text + gizmo}</div>;
-}
 

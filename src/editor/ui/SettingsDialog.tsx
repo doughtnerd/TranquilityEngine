@@ -1,6 +1,6 @@
 import { signal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
-import { askBeforeClearingReferences, historyLocation } from "../preferences";
+import { askBeforeClearingReferences, askBeforeDeletingAssets, historyLocation } from "../preferences";
 import "./history.css";
 
 /** Whether the Settings dialog is open. */
@@ -56,6 +56,14 @@ export function SettingsDialog() {
               onChange={(e) => (askBeforeClearingReferences.value = (e.currentTarget as HTMLInputElement).checked)}
             />
             Ask before deleting a node other nodes reference
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={askBeforeDeletingAssets.value}
+              onChange={(e) => (askBeforeDeletingAssets.value = (e.currentTarget as HTMLInputElement).checked)}
+            />
+            Ask before deleting an asset or script
           </label>
         </fieldset>
         <div class="dialog-buttons">

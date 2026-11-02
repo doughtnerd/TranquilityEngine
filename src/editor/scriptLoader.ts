@@ -1,8 +1,9 @@
 // Project scripts (ADR 0030): the `.ts` files under a project's `scripts/` folder, compiled in the
 // editor with the TypeScript compiler and loaded as ES modules. Each compiled module is loaded
 // from a `data:` URL, so its imports are rewritten first: relative imports point at the other
-// scripts' URLs (loaded before it), and `"tranquility"` points at a shim module that re-exports
-// the editor's own engine. Scripts and the editor then share one registry and one World.
+// scripts' URLs (loaded before it), JSON files of the project become modules exporting their
+// contents, and `"tranquility"` points at a shim module that re-exports the editor's own engine.
+// Scripts and the editor then share one registry and one World.
 import * as engine from "../engine";
 import { unregisterScripts, withScriptRegistrations, type ScriptRegistrations } from "../engine/editor";
 
@@ -91,11 +92,15 @@ export function resolveScript(from: string, specifier: string, paths: ReadonlySe
 
 /**
  * Scripts in load order: each after the scripts it imports. Scripts in an import cycle, or that
- * import a missing script or an unsupported package, are problems (and so is anything that
- * imports them); the rest still load.
+ * import a missing script, invalid JSON or an unsupported package, are problems (and so is
+ * anything that imports them); the rest still load. `json` maps the project's JSON files to
+ * whether they parse; importing one isn't a dependency between scripts.
  */
-export function loadOrder(scripts: ReadonlyMap<string, Compiled>): { order: string[]; problems: ScriptProblem[]; deps: Map<string, string[]> } {
-  const paths = new Set(scripts.keys());
+export function loadOrder(
+  scripts: ReadonlyMap<string, Compiled>,
+  json: ReadonlyMap<string, boolean> = new Map(),
+): { order: string[]; problems: ScriptProblem[]; deps: Map<string, string[]> } {
+  const paths = new Set([...scripts.keys(), ...json.keys()]);
   const deps = new Map<string, string[]>();
   const problems = new Map<string, string>();
   for (const [path, s] of scripts) {
@@ -103,9 +108,11 @@ export function loadOrder(scripts: ReadonlyMap<string, Compiled>): { order: stri
     for (const imp of s.imports) {
       if (imp.specifier === ENGINE_MODULE) continue;
       const target = resolveScript(path, imp.specifier, paths);
-      if (target) list.push(target);
+      if (target && json.has(target)) {
+        if (!json.get(target)) problems.set(path, `can't import ${target}: it isn't valid JSON`);
+      } else if (target) list.push(target);
       else if (imp.specifier.startsWith(".")) problems.set(path, `can't find "${imp.specifier}"`);
-      else problems.set(path, `can't import "${imp.specifier}": scripts can import "${ENGINE_MODULE}" and other scripts only`);
+      else problems.set(path, `can't import "${imp.specifier}": scripts can import "${ENGINE_MODULE}", other scripts and the project's JSON files only`);
     }
     deps.set(path, [...new Set(list)]);
   }
@@ -130,7 +137,7 @@ export function loadOrder(scripts: ReadonlyMap<string, Compiled>): { order: stri
     if (ok && !problems.has(path)) order.push(path);
     return ok && !problems.has(path);
   };
-  for (const path of [...paths].sort()) visit(path, []);
+  for (const path of [...scripts.keys()].sort()) visit(path, []);
   return { order, problems: [...problems].map(([path, message]) => ({ path, message })), deps };
 }
 
@@ -177,11 +184,11 @@ export interface LoadResult {
 
 /**
  * Compile and load `scripts` (project path → source), registering their components, data
- * components and systems. Registrations replace any with the same id or name (from the editor
+ * components and systems. They can import the project's `json` files (project path → text). Registrations replace any with the same id or name (from the editor
  * build or an earlier load). A script that fails to compile or throws while loading is reported,
  * as is anything importing it; the others still load.
  */
-export async function loadScripts(scripts: ReadonlyMap<string, string>): Promise<LoadResult> {
+export async function loadScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map()): Promise<LoadResult> {
   const problems: ScriptProblem[] = [];
   const compiled = new Map<string, Compiled>();
   for (const [path, source] of scripts) {
@@ -190,8 +197,23 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>): Promise
     if ("code" in result) compiled.set(path, result);
     else problems.push(result);
   }
-  const plan = loadOrder(compiled);
+  const parsed = new Map<string, unknown>();
+  for (const [path, text] of json) {
+    try {
+      parsed.set(path, JSON.parse(text));
+    } catch {
+      // reported against the scripts that import it
+    }
+  }
+  const plan = loadOrder(compiled, new Map([...json.keys()].map((p) => [p, parsed.has(p)])));
   problems.push(...plan.problems);
+  const known = new Set([...compiled.keys(), ...json.keys()]);
+  /** A module per imported JSON file, made when first needed. */
+  const jsonUrls = new Map<string, string>();
+  const jsonUrl = (path: string) => {
+    if (!jsonUrls.has(path)) jsonUrls.set(path, moduleUrl(`export default ${JSON.stringify(parsed.get(path))};\n`));
+    return jsonUrls.get(path)!;
+  };
 
   // Every load gets fresh module URLs (a comment marks the generation), so a script whose text
   // didn't change still runs again.
@@ -206,7 +228,11 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>): Promise
         continue;
       }
       const s = compiled.get(path)!;
-      const code = rewriteImports(s.code, s.imports, (spec) => (spec === ENGINE_MODULE ? shim : urls.get(resolveScript(path, spec, new Set(compiled.keys()))!)!));
+      const code = rewriteImports(s.code, s.imports, (spec) => {
+        if (spec === ENGINE_MODULE) return shim;
+        const target = resolveScript(path, spec, known)!;
+        return parsed.has(target) ? jsonUrl(target) : urls.get(target)!;
+      });
       // No `//# sourceURL`: WebKit runs modules sharing one in a single scope, so a reload would
       // redeclare their classes. The inline source map names the file for the debugger.
       const url = moduleUrl(`${code}${stamp}`);
@@ -220,7 +246,7 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>): Promise
     }
   });
   for (const url of lastUrls) if (url.startsWith("blob:")) URL.revokeObjectURL(url);
-  lastUrls = [...urls.values()];
+  lastUrls = [...urls.values(), ...jsonUrls.values()];
   return { loaded, problems, registered };
 }
 
@@ -233,8 +259,8 @@ let current: ScriptRegistrations = { components: [], data: [], systems: [] };
  * deleted script, a renamed id, one that failed to load) are unregistered, so scenes show them as
  * missing. Pass an empty map to unload everything.
  */
-export async function replaceScripts(scripts: ReadonlyMap<string, string>): Promise<LoadResult> {
-  const result = scripts.size > 0 ? await loadScripts(scripts) : { loaded: [], problems: [], registered: { components: [], data: [], systems: [] } };
+export async function replaceScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map()): Promise<LoadResult> {
+  const result = scripts.size > 0 ? await loadScripts(scripts, json) : { loaded: [], problems: [], registered: { components: [], data: [], systems: [] } };
   const gone = (old: string[], now: string[]) => old.filter((id) => !now.includes(id));
   unregisterScripts({
     components: gone(current.components, result.registered.components),

@@ -4,7 +4,7 @@ import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export type AssetKind = "scene" | "prefab" | "image" | "audio" | "json" | "script" | "other";
+export type AssetKind = "scene" | "prefab" | "image" | "audio" | "json" | "script" | "javascript" | "other";
 
 export function assetKind(path: string): AssetKind {
   const p = path.toLowerCase();
@@ -14,6 +14,7 @@ export function assetKind(path: string): AssetKind {
   if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";
   if (p.endsWith(".json")) return "json";
   if (p.endsWith(".ts") && !p.endsWith(".d.ts")) return "script";
+  if (p.endsWith(".js")) return "javascript";
   return "other";
 }
 

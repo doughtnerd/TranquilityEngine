@@ -2,6 +2,7 @@
 // rules and indicators as dropping assets there (`hierarchyDrop`): the middle of a row makes it
 // the parent, near its top or bottom edge places the node beside it, empty space or the scene
 // header moves it to the top level.
+import { errorStatus } from "./messages";
 import { signal } from "@preact/signals";
 import { hierarchyTargetAt, overPrefabInsides, type AssetDropTarget } from "./assetDrag";
 import type { SceneDocument } from "./document";
@@ -78,7 +79,7 @@ export function startNodeDrag(e: PointerEvent, key: string): void {
       selection.value = key;
       status.value = null;
     } catch (err) {
-      status.value = { kind: "error", text: `Couldn't move it: ${err instanceof Error ? err.message : String(err)}` };
+      status.value = errorStatus(`Couldn't move it`, err);
     }
   };
   const up = (m: PointerEvent) => {

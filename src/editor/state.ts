@@ -89,8 +89,15 @@ export const scriptProblems = signal<readonly { path: string; message: string }[
 /** The open project (the bundled demo, or a folder on disk). */
 export const currentProject = signal<EditorProject | null>(null);
 
-/** A message for the status bar, e.g. a failed open or save. */
-export const status = signal<{ kind: "info" | "error"; text: string; action?: { label: string; run: () => void; done?: string } } | null>(null);
+/** A message for the status bar, e.g. a failed open or save. Every one also goes into the message log (messages.ts). */
+export interface Status {
+  kind: "info" | "error";
+  text: string;
+  /** More to read in the message log: a stack trace, or the full list behind a summary. */
+  detail?: string;
+  action?: { label: string; run: () => void; done?: string };
+}
+export const status = signal<Status | null>(null);
 
 /** Play mode: "edit", "starting" while the Runtime World boots, or "playing". */
 export const playState = signal<"edit" | "starting" | "playing">("edit");

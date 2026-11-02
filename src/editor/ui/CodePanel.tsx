@@ -1,18 +1,20 @@
+import { errorStatus } from "../messages";
 import { effect } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type * as Monaco from "monaco-editor";
 import { fileName } from "../assetBrowser";
-import { activeScript, closeScript, dirtyScripts, openScripts, setDirty } from "../code/codeState";
-import { openScriptExternally, saveScript } from "../session";
+import { activeScript, closeScript, codeFiles, dirtyScripts, openScripts, setDirty } from "../code/codeState";
+import { openScriptExternally, saveCodeFile } from "../session";
 import { currentProject, scriptsVersion, status } from "../state";
 import { confirmInEditor } from "./ConfirmDialog";
 
 type MonacoModule = typeof import("../code/monaco");
 
 /**
- * The Code panel (ADR 0030): project scripts in tabs, edited with Monaco, which loads the first
- * time the panel shows. Ctrl/Cmd+S saves the script and reloads scripts; a dot marks unsaved
- * edits. Read-only projects open scripts read-only.
+ * The Code panel (ADR 0030): project scripts, JSON and JavaScript files in tabs, edited with
+ * Monaco, which loads the first time the panel shows. Ctrl/Cmd+S saves (a script, or JSON a
+ * script imports, reloads scripts); a dot marks unsaved edits. Read-only projects open files
+ * read-only.
  */
 export function CodePanel() {
   const project = currentProject.value;
@@ -21,11 +23,12 @@ export function CodePanel() {
   const dirty = dirtyScripts.value;
   scriptsVersion.value; // the tabs follow reloads (a deleted script)
   if (!project) return <p class="empty">No project open</p>;
+  const files = codeFiles(project);
   if (tabs.length === 0) {
     return (
       <p class="empty">
         {project.scripts.size > 0
-          ? "Double-click a script in the Assets panel to open it."
+          ? "Double-click a script, JSON or JavaScript file in the Assets panel to open it."
           : project.root === null
             ? "The bundled demo's scripts are part of the editor. Open a project folder to write your own (scripts/*.ts)."
             : "This project has no scripts yet: add .ts files under scripts/."}
@@ -43,7 +46,7 @@ export function CodePanel() {
                 ●
               </span>
             )}
-            {!project.scripts.has(path) && <span class="code-tab-gone">(deleted)</span>}
+            {!files.has(path) && <span class="code-tab-gone">(deleted)</span>}
             <button
               class="code-tab-close"
               aria-label={`Close ${fileName(path)}`}
@@ -82,7 +85,7 @@ async function closeTab(path: string): Promise<void> {
       danger: true,
     });
     if (!answer.ok) return;
-    const saved = currentProject.value?.scripts.get(path);
+    const saved = currentProject.value ? codeFiles(currentProject.value).get(path) : undefined;
     if (loaded) {
       const model = loaded.monaco.editor.getModel(loaded.monaco.Uri.parse(`file:///project/${path}`));
       if (model && saved !== undefined) model.setValue(saved);
@@ -92,20 +95,24 @@ async function closeTab(path: string): Promise<void> {
   closeScript(path);
 }
 
+/** The project whose files Monaco's models hold: when another opens, they're dropped first. */
+let modelsProject: unknown = null;
+
 /** Monaco, once loaded (it stays loaded for the session). */
 let loaded: MonacoModule | null = null;
 let loading: Promise<MonacoModule> | null = null;
 const loadMonaco = () => (loading ??= import("../code/monaco").then((m) => (loaded = m)));
 
-/** Save the script showing (Ctrl/Cmd+S in the editor). */
+/** Save the file showing (Ctrl/Cmd+S in the editor). */
 async function saveActive(editor: Monaco.editor.IStandaloneCodeEditor): Promise<void> {
   const path = activeScript.value, model = editor.getModel();
-  if (!path || !model || !currentProject.value?.canSave) return;
+  const project = currentProject.value;
+  if (!path || !model || !project?.canSave) return;
   try {
-    await saveScript(path, model.getValue());
-    setDirty(path, model.getValue() !== currentProject.value?.scripts.get(path));
+    await saveCodeFile(path, model.getValue());
+    setDirty(path, model.getValue() !== codeFiles(project).get(path));
   } catch (err) {
-    status.value = { kind: "error", text: `Couldn't save ${path}: ${err instanceof Error ? err.message : String(err)}` };
+    status.value = errorStatus(`Couldn't save ${path}`, err);
   }
 }
 
@@ -117,7 +124,7 @@ function MonacoHost() {
     let stop: (() => void) | null = null;
     let cancelled = false;
     loadMonaco()
-      .then(({ monaco, modelFor, syncModels }) => {
+      .then(({ monaco, modelFor, syncModels, disposeModels }) => {
         if (cancelled || !host.current) return;
         editor = monaco.editor.create(host.current, {
           theme: "tranquility",
@@ -144,13 +151,20 @@ function MonacoHost() {
           scriptsVersion.value;
           const path = activeScript.value;
           if (!project) return;
-          syncModels(project.scripts, dirtyScripts.peek());
+          if (modelsProject !== project) {
+            // Another project: its files replace the last one's (models and the JSON the TypeScript service knows).
+            disposeModels();
+            modelsProject = project;
+          }
+          const files = codeFiles(project);
+          syncModels(files, dirtyScripts.peek());
           e.updateOptions({ readOnly: !project.canSave });
           if (!path) return e.setModel(null);
-          const model = modelFor(path, project.scripts.get(path) ?? "");
+          const model = modelFor(path, files.get(path) ?? "");
           if (!watchers.has(path)) {
             // Dirty while the text differs from the file on disk.
-            watchers.set(path, model.onDidChangeContent(() => setDirty(path, model.getValue() !== currentProject.value?.scripts.get(path))));
+            const onDisk = () => (currentProject.value ? codeFiles(currentProject.value).get(path) : undefined);
+            watchers.set(path, model.onDidChangeContent(() => setDirty(path, model.getValue() !== onDisk())));
             model.onWillDispose(() => {
               watchers.get(path)?.dispose();
               watchers.delete(path);
