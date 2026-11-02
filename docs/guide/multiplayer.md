@@ -65,6 +65,12 @@ client.connect(server, "loopback", { interpolationMs: 100 });
 
 `connect` returns at once; the connection opens over the next frames. A World can be a client or a server, not both, and a client has one connection.
 
+To join a server in another process, such as a [dedicated server](#the-dedicated-server), pass its address instead of a World (ADR 0036):
+
+```ts
+Engine.findWorld("Client")!.connect("ws://localhost:7777", "websocket");
+```
+
 ### Connection nodes
 
 Connections aren't events. Each one is a node with a `net.Connection` data component (`Connection` in code), which the engine creates and destroys:
@@ -337,7 +343,7 @@ While playing, the Network tab shows each networked World with its role, tick, s
 
 From [implementation status](../architecture/implementation-status.md) and [open questions](../architecture/open-questions.md):
 
-- **Joining a server in another process.** `WorldHandle.connect` needs a server World in the same page. There's no public call yet for a client World to join a server by URL (a dedicated server), or to connect a bootstrap link to a server that isn't in the bootstrap.
+- **Bootstrap links to a server elsewhere.** A link names two Worlds of the project; a server in another process is joined at runtime with `connect(address, transport)`.
 - **Listening at runtime (O15).** A server World created at runtime can't start listening; `WorldHandle` has `connect` but no `listen`. The dedicated server serves only the Worlds it creates at start and logs the rest.
 - **WebSocket in the browser.** A link between two Worlds in a browser page must use `loopback`; a `websocket` link there fails to start, because browsers can't listen.
 - **Not replicated:** node active state, reparenting, and components added to a ghost after the server first saw it.

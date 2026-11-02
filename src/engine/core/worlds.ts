@@ -41,11 +41,11 @@ export interface WorldConfig {
   /** Starting time scale. Default 1. */
   timeScale?: number;
   /**
-   * Whether the World draws to a surface. Default: true for the first World of an Engine that
-   * has a container, false otherwise.
+   * Whether the World wants to draw. Default: true unless it's tagged `server`. Of the Worlds that
+   * want to, the first gets the Engine's main view (the editor tiles the others, ADR 0034).
    */
   renders?: boolean;
-  /** Whether the World receives local input. Default: the same as `renders`. */
+  /** Whether the World receives local input. Default: the World with the main view does. */
   input?: boolean;
   /** Scenes loaded when the World starts, in order (the first replaces, the rest are additive). */
   scenes?: readonly string[];
@@ -64,7 +64,9 @@ export interface LinkConfig {
    * Settings for the link and its transport: `address` (where the server listens; loopback makes
    * one up per Engine and server World), `port` (WebSocket servers, Node only), `url` (where a
    * WebSocket client connects), `interpolationMs` (the client's interpolation buffer, default 100),
-   * and transport options such as loopback's `latencyMs`, `jitterMs` and `loss`.
+   * `commandSlack` (ticks a client's inputs run ahead, default 2), `handshakeTimeoutMs` (5000),
+   * `idleTimeoutMs` (15000), `maxConnections` (the server's cap, 64), and transport options such
+   * as loopback's `latencyMs`, `jitterMs` and `loss`.
    */
   options?: Record<string, unknown>;
 }

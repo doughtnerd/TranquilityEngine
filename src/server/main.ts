@@ -11,8 +11,9 @@
  *   scripts under `scripts/`, compiled with the TypeScript compiler and loaded before the Engine
  *   starts, so their components, systems, RPCs and inputs are registered (the editor's script
  *   loader, ADR 0030). Images and audio aren't loaded; their paths resolve, to `file:` URLs.
- * - Runs only the bootstrap's Worlds tagged "server" (ADR 0032), plus any templates they create
- *   later. Other Worlds (clients, local play) are skipped, and so are links between them.
+ * - Runs only the bootstrap's Worlds tagged "server" (ADR 0032), or, if it has none, its
+ *   server-tagged templates. Other Worlds (clients, local play) are skipped, and so are links
+ *   between them. Server Worlds game code creates later run but don't listen (open question O15).
  * - Has each server World listen over WebSocket: on the port (or `address`) of the bootstrap
  *   link that connects to it, else, for the first server World, on `--port` or 7777. `--port`
  *   overrides the first server World's port, `--host` the interface every World binds (default

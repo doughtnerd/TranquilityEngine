@@ -44,7 +44,7 @@
  * ## Extension points
  *
  * - Ownership (T11): `of(node)` accepts a connection node. `registerInputOwnerResolver` lets
- *   replication map another node (a ghost owned by a connection, `Replicated.owner`) to its
+ *   replication map another node (a ghost owned by a connection, `Replicated.ownerId`) to its
  *   connection node, on both ends.
  * - Prediction (T13): `inputAt(def, world, tick)` returns a client's input for a past tick, and
  *   `setInputReplayTick(world, tick)` makes `of()` return that tick's input while re-simulating

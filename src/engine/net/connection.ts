@@ -19,7 +19,7 @@ import { defineComponent, f32, i32, u8 } from "../core/data";
  * The `net.Connection` data component. Fields:
  * - `id`: the connection's id, assigned by the server when it accepts the handshake (1, 2, …;
  *   unique per server World). The client's node has the same id as the server's node for it, so
- *   ids can name owners across Worlds (`Replicated.owner`). 0 on a client until accepted.
+ *   ids can name owners across Worlds (`Replicated.ownerId`). 0 on a client until accepted.
  * - `state`: a `ConnectionState` value.
  * - `rtt`: smoothed round-trip time in milliseconds. On a server, the client's measurement, as it
  *   last reported it.
