@@ -254,8 +254,9 @@ describe("network ticks (T10)", () => {
       const net = client.time.network!;
       expect(Math.abs(netSession(client)!.estimatedServerTick - trueTick)).toBeLessThanOrEqual(1);
       expect(net.rtt).toBeCloseTo(200, 0);
-      // Prediction runs RTT/2 (6 ticks) ahead; interpolation 6 ticks behind plus the 100 ms buffer.
-      expect(Math.abs(net.serverTick - (trueTick + 6))).toBeLessThanOrEqual(1);
+      // Prediction runs RTT/2 (6 ticks) plus the command slack (2, T12) ahead; interpolation 6
+      // ticks behind plus the 100 ms buffer.
+      expect(Math.abs(net.serverTick - (trueTick + 6 + 2))).toBeLessThanOrEqual(1);
       expect(Math.abs(net.interpolationTick + net.interpolationFraction - (trueTick - 12))).toBeLessThanOrEqual(1.5);
       expect(net.tickRate).toBe(60);
     }

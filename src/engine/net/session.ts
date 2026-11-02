@@ -30,11 +30,18 @@
  * on the unreliable channel (every `PING_INTERVAL_MS`): each pong carries the server's tick
  * position when it was sent, and the client takes it as the server's position RTT/2 ago. The
  * estimate is a smoothed offset between the client's tick and the server's, so it advances by one
- * per fixed step. `serverTick` is that estimate plus RTT/2 (the prediction timeline);
+ * per fixed step. `serverTick` is that estimate plus RTT/2 plus the command slack (the prediction
+ * timeline; the slack is explained below);
  * `interpolationTick` (+ `interpolationFraction`) is the newest server tick that should have
  * arrived by now (the estimate minus RTT/2) minus the interpolation buffer (`interpolationMs`, a
  * link option, default 100). Neither goes backwards. The client's simulation rate isn't adjusted
  * (prediction's time adjustment is T13).
+ *
+ * Command slack (T12, Unity's `TargetCommandSlack`): a client's inputs (`input.ts`) are tagged with
+ * its `serverTick`. At exactly estimate + RTT/2 they'd reach the server just as it simulates that
+ * tick, so any jitter would make them late. `serverTick` therefore runs `commandSlack` ticks
+ * further ahead (a link option, default `DEFAULT_COMMAND_SLACK_TICKS`), and inputs arrive that
+ * much before the tick they're for.
  *
  * ## System order
  *
@@ -98,6 +105,9 @@ export const PING_INTERVAL_MS = 100;
 
 /** The interpolation buffer when a link doesn't set `interpolationMs`. */
 export const DEFAULT_INTERPOLATION_MS = 100;
+
+/** T12: how many ticks ahead of the server inputs aim to arrive, when a link doesn't set `commandSlack`. */
+export const DEFAULT_COMMAND_SLACK_TICKS = 2;
 
 /** Undrained messages kept per kind per World; older ones are dropped. */
 export const MAX_QUEUED = 1024;
@@ -265,6 +275,8 @@ export class NetSession {
   estimatedServerTick = 0;
   /** Client: the interpolation buffer in ms. */
   interpolationMs = DEFAULT_INTERPOLATION_MS;
+  /** Client (T12): extra ticks `serverTick` runs ahead, so inputs arrive before their tick. See the top of this file. */
+  commandSlack = DEFAULT_COMMAND_SLACK_TICKS;
 
   private role: "server" | "client" | null = null;
   private readonly transports: Transport[] = [];
@@ -378,6 +390,7 @@ export class NetSession {
     const transport = createWorldTransport(this.world, transportName, options);
     this.claim("client");
     if (typeof options.interpolationMs === "number" && options.interpolationMs >= 0) this.interpolationMs = options.interpolationMs;
+    if (typeof options.commandSlack === "number" && options.commandSlack >= 0) this.commandSlack = options.commandSlack; // T12
     this.transports.push(transport);
     const link = transport.connect(address);
     const peer = new NetPeer(link, transport);
@@ -727,7 +740,8 @@ export class NetSession {
     const position = fixed ? this.tick : this.position(false);
     this.estimatedServerTick = position + this.offset;
     const halfRtt = time.rtt / 2 / this.tickMs;
-    time.serverTick = Math.max(time.serverTick, Math.floor(this.estimatedServerTick + halfRtt));
+    // T12: plus the command slack, so inputs tagged with serverTick reach the server ahead of it.
+    time.serverTick = Math.max(time.serverTick, Math.floor(this.estimatedServerTick + halfRtt + this.commandSlack));
     const interpolation = Math.max(0, this.estimatedServerTick - halfRtt - this.interpolationMs / this.tickMs);
     const whole = Math.floor(interpolation);
     if (whole > time.interpolationTick || (whole === time.interpolationTick && interpolation - whole > time.interpolationFraction)) {
