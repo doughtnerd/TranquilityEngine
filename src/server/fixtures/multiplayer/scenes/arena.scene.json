@@ -1,0 +1,14 @@
+{
+  "format": "tranquility.scene@1",
+  "nodes": [
+    {
+      "id": "ball",
+      "name": "Ball",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 0, 0] } },
+        { "type": "net.Replicated" },
+        { "type": "fixture.Drift", "data": { "speed": 2 } }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "server-fixture",
+  "time": {
+    "fixedDeltaTime": 0.03333333333333333
+  },
+  "bootstrap": {
+    "worlds": [
+      { "name": "Client", "tags": ["client"], "scenes": ["scenes/arena.scene.json"] },
+      { "name": "Server", "tags": ["server"], "scenes": ["scenes/arena.scene.json"] }
+    ],
+    "links": [
+      { "from": "Client", "to": "Server", "transport": "websocket", "options": { "port": 7777, "url": "ws://localhost:7777" } }
+    ]
+  }
+}
