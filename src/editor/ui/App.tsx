@@ -15,8 +15,9 @@ import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
 import { ScenePanel } from "./ScenePanel";
 import { StartScreen } from "./StartScreen";
+import { WorldsPanel } from "./WorldsPanel";
 
-const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel /> };
+const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => <WorldsPanel /> };
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {
