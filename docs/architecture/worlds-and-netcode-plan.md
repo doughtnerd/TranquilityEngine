@@ -52,7 +52,9 @@ These two tracks don't touch the same files and run side by side.
 | T8 | **Codec**: schema-driven binary encoding, quantization, delta against a baseline | `net/codec.ts`, `net/bits.ts` | C2 | Round-trip and delta tests; size checks on sample schemas |
 | T9 | **WebSocket transport** for browsers, plus a Node server side | `net/transport/websocket.ts`, `server/` (socket only) | C2 | A headless Node test connects a client World to a server World over a real socket |
 
-## Wave 3: replication (after T1–T4, T7, T8)
+## Wave 3: replication (after T1–T4, T7, T8), done 2026-11-02
+
+T10 ran first; T11 and T12 then ran in parallel against T10's internal message API. Merging T11 after T12 needed only combined exports and system-order expectations. Known gaps carried forward: no idle or handshake timeouts, node activity and reparenting aren't replicated, spawn layouts aren't string-tabled, and asymmetric links can make inputs arrive late (the slack assumes RTT/2 each way).
 
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|
