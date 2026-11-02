@@ -2,7 +2,7 @@
  * World handles (ADR 0032): the only cross-World API. A handle controls a World's lifetime and
  * setup (scenes, systems, pausing) but never exposes its nodes, so Worlds stay isolated.
  */
-import { connectWorlds } from "../net/session";
+import { connectWorld, connectWorlds } from "../net/session";
 import { SceneManager } from "../scene/SceneManager";
 import { World } from "./World";
 import type { WorldHandle, WorldTag } from "./worlds";
@@ -70,9 +70,16 @@ export class WorldHandleImpl implements WorldHandle {
    * that listens asynchronously (WebSocket, in Node) it connects once the server listens, and a
    * failure is logged. Either way the connection opens over the next frames: watch for the client's
    * `Connection` node to become `open`.
+   *
+   * `server` can instead be an address (ADR 0036): a server in another process, such as a
+   * dedicated server, e.g. `connect("ws://localhost:7777", "websocket")`.
    */
-  connect(server: WorldHandle, transport: string, options: Record<string, unknown> = {}): void {
+  connect(server: WorldHandle | string, transport: string, options: Record<string, unknown> = {}): void {
     const world = this.live();
+    if (typeof server === "string") {
+      connectWorld(world, transport, { ...options, url: server, address: server });
+      return;
+    }
     if (!(server instanceof WorldHandleImpl) || !server.alive) throw new Error(`Can't connect World "${this.name}" to "${server.name}": it isn't a live World.`);
     connectWorlds(world, server.#world, transport, options).catch((err) =>
       console.error(`[tranquility] Connecting World "${this.name}" to "${server.name}" over "${transport}" failed:`, err),

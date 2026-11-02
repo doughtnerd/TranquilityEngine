@@ -21,7 +21,7 @@ Game developers write scripts that feel like Unity: a class extends `GameBehavio
 - Mobile or console targets.
 - An engine event/signal system. Behaviors communicate through method calls or data ([0017](../decisions/0017-user-systems-and-data-components.md)).
 - Visual scripting, animation timeline and terrain tools in the editor.
-- Multiplayer networking. Determinism-friendly choices are preferred where they are cheap, but networking is not designed here.
+- ~~Multiplayer networking.~~ No longer a non-goal: [0032](../decisions/0032-worlds-systems-and-bootstraps.md) and [0033](../decisions/0033-server-authoritative-netcode.md) add several Worlds per Engine and server-authoritative netcode between them (user guides: [Worlds](../guide/worlds.md), [Multiplayer](../guide/multiplayer.md)). Lockstep determinism is still not a goal.
 - Supporting browsers without WebGL2.
 
 ## Layers
@@ -70,13 +70,15 @@ src/engine/
   audio/       Howler + three positional audio, AudioSource, AudioListener
   input/       keyboard, mouse, gamepad, action mapping
   platform/    browser and Tauri adapters, Storage
-src/editor/    scene editor (Editor World, inspector, gizmos, play mode)
+  net/         sessions, transports (loopback, WebSocket), codec, RPCs, inputs, replication, prediction (ADR 0033)
+src/editor/    scene editor (Editor World, inspector, gizmos, play mode, Worlds and Network panels)
+src/server/    tranquility-server: the headless dedicated server for Node (ADR 0033, 0035)
 samples/       sample projects shipped beside the engine (Flappy Bird port; ADR 0031)
 ```
 
 ## Frame at a glance
 
-Details in [0011](../decisions/0011-frame-loop-and-system-order.md).
+Details in [0011](../decisions/0011-frame-loop-and-system-order.md). The input poll happens once per Engine frame; every step after it runs once per running World, in creation order, each on its own clock ([0032](../decisions/0032-worlds-systems-and-bootstraps.md)).
 
 ```
 requestAnimationFrame
@@ -101,11 +103,16 @@ requestAnimationFrame
 | **Data component** | A plain-data component declared with a schema, stored in typed arrays where possible ([0017](../decisions/0017-user-systems-and-data-components.md)). |
 | **Buffer** | A per-frame queue of plain records; the data-oriented replacement for events ([0017](../decisions/0017-user-systems-and-data-components.md)). |
 | **System** | Code that processes components each frame. Built-in systems are internal; user systems are opt-in ([0017](../decisions/0017-user-systems-and-data-components.md)). |
-| **World** | A self-contained runtime (Runtime, Editor, later Server) with its own root node, storage, systems and physics worlds ([0016](../decisions/0016-world-root-and-scenes-as-nodes.md)). |
+| **Engine** | The top-level container a game or the editor runs: it owns the Worlds, the frame loop and shared services (assets, storage, input devices, the screen) ([0032](../decisions/0032-worlds-systems-and-bootstraps.md)). |
+| **World** | A self-contained runtime with its own root node, storage, systems, clock and physics worlds ([0016](../decisions/0016-world-root-and-scenes-as-nodes.md)). An Engine runs one or more; each has a name and tags such as `default`, `client`, `server` or `editor` ([0032](../decisions/0032-worlds-systems-and-bootstraps.md)). |
+| **World handle** | What code outside a World holds of it: lifetime and setup (scenes, systems, pause, connect), never its nodes ([0032](../decisions/0032-worlds-systems-and-bootstraps.md)). |
+| **Bootstrap** | What decides an Engine's start-up Worlds: the default one, `project.json`'s `bootstrap` section, or a project script ([0032](../decisions/0032-worlds-systems-and-bootstraps.md)). |
+| **Link** / **Transport** | A network connection from a client World to a server World, and what carries it (loopback, WebSocket) ([0033](../decisions/0033-server-authoritative-netcode.md)). |
+| **Ghost** | A node the server World replicates to its clients, marked with `net.Replicated` ([0033](../decisions/0033-server-authoritative-netcode.md)). |
 | **Scene node** | A node created by instancing a scene/prefab file; its contents are its children ([0016](../decisions/0016-world-root-and-scenes-as-nodes.md)). |
 | **Prefab** | A scene file instanced inside another scene, with overrides ([0013](../decisions/0013-data-driven-scene-format.md)). |
 | **Backend** | A third-party library wrapped behind an engine interface (three.js, Rapier, Howler). |
 
 ## Current state
 
-On 2026-10-31 the 2021 prototype was replaced by a first vertical slice of this design in `src/engine/`, enough for the Flappy Bird demo in `src/demo/flappy/` to play end to end. [implementation-status.md](implementation-status.md) tracks what each decision record has and lacks; [legacy-codebase.md](legacy-codebase.md) records the old code.
+On 2026-10-31 the 2021 prototype was replaced by a first vertical slice of this design in `src/engine/`, enough for the Flappy Bird demo (now the sample project `samples/flappy/`, ADR 0031) to play end to end. [implementation-status.md](implementation-status.md) tracks what each decision record has and lacks; [legacy-codebase.md](legacy-codebase.md) records the old code.
