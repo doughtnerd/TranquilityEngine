@@ -523,6 +523,29 @@ describe("wave 3 review fixes", () => {
     expect(layout.codec.read(createBitReader(w.finish()))).toEqual({ 0: 3, 1: 0, 2: 1.5, 3: -4, 4: 1 });
   });
 
+  it("makes a ghost's layout again once scripts are loaded again and redefine its components", async () => {
+    // Loading scripts again (the editor's reload, ADR 0030; a dedicated server's tests loading a
+    // project twice) registers new definitions under the same ids. A layout cached by id would
+    // keep the old ones, whose values no node has, so nothing would replicate.
+    const { layoutOf } = await import("../net/replication/layout");
+    const { getDataComponentDef } = await import("../core/data");
+    const { unregisterScripts, withScriptRegistrations } = await import("../editor");
+    const load = () => withScriptRegistrations(async () => replicate(defineComponent("test.review.Reloaded", { hp: f32 })));
+    const spec = { transform: false, data: [{ id: "test.review.Reloaded", fields: [{ kind: "f32" as const, quantize: 0 }] }], behaviors: [] };
+    const dataDef = (layout: ReturnType<typeof layoutOf>) => layout.parts.flatMap((p) => (p.kind === "data" ? [p.def] : []))[0];
+
+    const first = await load();
+    const before = layoutOf(spec);
+    expect(layoutOf(spec) === before).toBe(true); // cached while nothing changed
+    expect(dataDef(before) === getDataComponentDef("test.review.Reloaded")).toBe(true);
+    const second = await load();
+    const after = layoutOf(spec);
+    expect(after === before).toBe(false);
+    expect(dataDef(after) === getDataComponentDef("test.review.Reloaded")).toBe(true);
+    unregisterScripts(second);
+    unregisterScripts(first);
+  });
+
   it("starts a reconnecting client's timeline afresh, so a restarted server gets its inputs", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const Push = defineInput("test.review.Push", { x: f32 });

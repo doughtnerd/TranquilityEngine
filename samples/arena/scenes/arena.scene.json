@@ -73,7 +73,6 @@
       "components": [
         {
           "type": "engine.Text",
-          "worlds": ["client"],
           "data": { "anchor": "bottom", "offset": [0, -8], "fontSize": 16, "fontWeight": "400", "color": "#9aa0ad" }
         }
       ]
@@ -83,7 +82,7 @@
       "name": "Scoreboard",
       "transform": false,
       "components": [
-        { "type": "engine.Text", "worlds": ["client"], "data": { "text": "Connecting…", "anchor": "top", "offset": [0, 6], "fontSize": 24, "color": "#e8eaf0" } },
+        { "type": "engine.Text", "data": { "text": "Connecting…", "anchor": "top", "offset": [0, 6], "fontSize": 24, "color": "#e8eaf0" } },
         { "type": "arena.Hud", "data": { "help": { "$node": "help" } } }
       ]
     }

@@ -21,7 +21,9 @@ import {
   SHOT_SPEED,
   SPAWN_POINTS,
   Shot,
+  connectionStates,
   players,
+  type ClientConnection,
   type PlayerView,
 } from "./data";
 
@@ -43,6 +45,23 @@ defineSystem({
     const x = (key("d", "arrowright") ? 1 : 0) - (key("a", "arrowleft") ? 1 : 0);
     const y = (key("w", "arrowup") ? 1 : 0) - (key("s", "arrowdown") ? 1 : 0);
     Move.write({ x, y, fire: key("space") ? 1 : 0 });
+  },
+});
+
+/**
+ * Notes this client World's connection state for the HUD, which as a behavior can't query data
+ * components: connecting, open, or (once a connection it had is gone) lost.
+ */
+defineSystem({
+  name: "arena.WatchConnection",
+  phase: "update",
+  worlds: ["client"],
+  query: [Connection],
+  run(rows, ctx) {
+    let state: ClientConnection = "none";
+    for (const row of rows) state = (row.connection as { state: number }).state === ConnectionState.open ? "open" : "connecting";
+    const before = connectionStates.get(ctx.world) ?? "none";
+    connectionStates.set(ctx.world, state === "none" && before !== "none" ? "lost" : state);
   },
 });
 

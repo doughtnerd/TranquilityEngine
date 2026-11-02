@@ -238,7 +238,7 @@ describe("the arena sample on tranquility-server (T16)", () => {
     return { server, Player };
   }
 
-  /** A client Engine like the arena's after Host or Join: a client World in the arena scene that takes the keyboard. */
+  /** A client Engine like the arena's after Join: a client World in the arena scene that takes the keyboard. */
   async function arenaClient(server: RunningServer): Promise<World> {
     const engine = await Engine.create({
       headless: true,
@@ -246,7 +246,7 @@ describe("the arena sample on tranquility-server (T16)", () => {
       bootstrap: { worlds: [{ name: "Player", tags: ["client"], input: true, scenes: ["scenes/arena.scene.json"] }] },
     });
     engines.push(engine);
-    connectWorld(engine.world, "websocket", { url: server.listeners[0].url });
+    engine.findWorld("Player")!.connect(server.listeners[0].url, "websocket"); // as the menu's Join does
     return engine.world;
   }
 

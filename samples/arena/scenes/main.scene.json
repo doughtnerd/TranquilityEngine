@@ -40,7 +40,7 @@
       "components": [
         {
           "type": "engine.Text",
-          "data": { "text": "a two-player netcode sample", "anchor": "top", "offset": [0, 175], "fontSize": 22, "fontWeight": "400", "color": "#9aa0ad" }
+          "data": { "text": "a two-player netcode sample", "anchor": "top", "offset": [0, 200], "fontSize": 22, "fontWeight": "400", "color": "#9aa0ad" }
         }
       ]
     },
@@ -75,7 +75,7 @@
       "id": "menu",
       "name": "Menu",
       "transform": false,
-      "components": [{ "type": "arena.Menu", "data": { "status": { "$node": "status" } } }]
+      "components": [{ "type": "arena.Menu", "data": { "status": { "$node": "status" }, "joinLabel": { "$node": "join" }, "serverUrl": "ws://localhost:7777" } }]
     }
   ]
 }

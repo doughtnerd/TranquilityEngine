@@ -50,6 +50,12 @@ export const Move = defineInput("arena.Move", { x: f32, y: f32, fire: u8 });
 
 export type PlayerView = DataView<typeof Player.schema>;
 
+/** A client World's connection to its server, as `arena.WatchConnection` last saw it. */
+export type ClientConnection = "none" | "connecting" | "open" | "lost";
+
+/** Client Worlds' connection states (keyed by World; Worlds share these modules, so state is per World). */
+export const connectionStates = new WeakMap<object, ClientConnection>();
+
 /** A player in the current World. */
 export interface PlayerInfo {
   readonly node: GameObject;
