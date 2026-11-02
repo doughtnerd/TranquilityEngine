@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 // The Flappy sample (ADR 0031): listed on the start screen, opened from the files served beside the
 // editor with its scripts loaded at runtime, and played through Play mode.
-const START = "http://localhost:4174/editor.html";
+const START = "/editor.html"; // relative to baseURL (E2E_PORT)
 
 /** The engine module the editor shares with project scripts (scriptLoader.ts). */
 type Engine = {

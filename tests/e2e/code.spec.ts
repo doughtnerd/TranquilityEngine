@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const EDITOR = "http://localhost:4174/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031)
+const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
 /** The editor's debug hooks on `window` (see session.ts). Page callbacks are serialized, so each casts `window` itself. */
 type Hooks = {
