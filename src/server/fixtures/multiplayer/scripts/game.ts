@@ -1,5 +1,7 @@
 // The dedicated server's test project (T14): a server-moved replicated node and an RPC the server
-// answers. The project's Client World is for the editor; the dedicated server skips it.
+// answers. Its Client World shows a client/server layout; the dedicated server skips it. (It can't
+// play in the editor: its link is WebSocket, and a browser page can't listen. Browser projects
+// link over loopback and join a dedicated server with `connect(address, "websocket")`, ADR 0036.)
 import { Transform, defineComponent, defineRpc, defineSystem, f32, i32, type DataView } from "tranquility";
 
 /** Moves a node right at `speed` units per second. */

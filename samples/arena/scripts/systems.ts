@@ -41,6 +41,8 @@ defineSystem({
   name: "arena.ReadInput",
   phase: "fixedUpdate",
   worlds: ["client"],
+  // The predicted move reads this step's input: write it first, so client and server agree on each tick's input.
+  before: ["arena.MovePlayers"],
   run() {
     const x = (key("d", "arrowright") ? 1 : 0) - (key("a", "arrowleft") ? 1 : 0);
     const y = (key("w", "arrowup") ? 1 : 0) - (key("s", "arrowdown") ? 1 : 0);
