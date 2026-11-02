@@ -31,7 +31,9 @@ T1–T4 ran in parallel from 73c3762 and merged in order (T1, T2, T3, T4) with o
 
 T1 is the critical path. T2–T4 build against the C1 contract and merge after T1.
 
-## Wave 2: editor (after wave 1) and networking foundations (after C2)
+## Wave 2: editor (after wave 1) and networking foundations (after C2), done 2026-11-02 except T9
+
+T5–T9 ran in parallel from 138d6ef (each editor agent ran Playwright on its own `E2E_PORT`). T5, T6, T7 and T8 merged cleanly. T9 (WebSocket) is held until ADR 0035, which adds the `ws` dependency, is accepted. Not done from the T5 row: a World picker in the hierarchy while playing (the runtime World isn't inspectable yet).
 
 These two tracks don't touch the same files and run side by side.
 
