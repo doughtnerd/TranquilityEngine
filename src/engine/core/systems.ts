@@ -1,12 +1,12 @@
 /**
- * User-defined systems and the per-phase scheduler (ADR 0011, 0017).
+ * User-defined systems, the system catalog and the per-World scheduler (ADR 0011, 0017, 0032).
  */
 import type { GameObject } from "../scene/GameObject";
 import type { Transform } from "../scene/Transform";
 import type { DataComponentDef } from "./data";
 import type { TimeState, World } from "./World";
 import { _isReplacingRegistrations, _recordRegistration } from "./registry";
-import type { WorldTag } from "./worlds";
+import { DEFAULT_SYSTEM_WORLDS, worldsMatch, type WorldTag } from "./worlds";
 
 export type Phase = "fixedUpdate" | "update" | "lateUpdate";
 
@@ -38,18 +38,37 @@ export interface SystemDef {
   /** Rows include only nodes that are active in the hierarchy and have every term. */
   readonly query?: readonly QueryTerm[];
   /**
-   * Tags of the Worlds this system is meant for (ADR 0032): bootstraps add it to Worlds with any of
-   * them. Default `["default", "local"]`. Adding it to a World by name works regardless.
+   * Tags of the Worlds this system is meant for (ADR 0032): it runs in Worlds with any of them
+   * (`"*"`: every World). Default `["default", "local"]`. Adding it to a World by name works regardless.
    */
   readonly worlds?: readonly WorldTag[];
   run(rows: Iterable<Row>, ctx: SystemContext): void;
 }
 
-const userSystems: SystemDef[] = [];
-let userSystemsVersion = 0;
+/** @internal Built-in system: a named function in a phase, run against the World passed in. */
+export interface BuiltinSystem {
+  readonly name: string;
+  readonly phase: Phase;
+  readonly after?: readonly string[];
+  readonly before?: readonly string[];
+  /** Default `["*"]`: every World. */
+  readonly worlds?: readonly WorldTag[];
+  run(world: World, dt: number): void;
+}
 
-/** Register a user system. It runs in every world, in the given phase. */
+const ALL_WORLDS: readonly WorldTag[] = ["*"];
+
+const builtinSystems: BuiltinSystem[] = [];
+const userSystems: SystemDef[] = [];
+/** Bumped whenever the catalog changes, so schedulers recompute their members. */
+let catalogVersion = 0;
+
+/**
+ * Register a user system in the catalog (ADR 0032). It runs in the Worlds whose tags its `worlds`
+ * filter matches (by default, the default World) and in any World it's added to by name.
+ */
 export function defineSystem(def: SystemDef): SystemDef {
+  if (builtinSystems.some((s) => s.name === def.name)) throw new Error(`System "${def.name}" is an engine built-in.`);
   const existing = userSystems.findIndex((s) => s.name === def.name);
   if (existing >= 0 && !_isReplacingRegistrations()) throw new Error(`System "${def.name}" is already defined.`);
   if (_isReplacingRegistrations()) {
@@ -59,8 +78,16 @@ export function defineSystem(def: SystemDef): SystemDef {
   }
   if (existing >= 0) userSystems.splice(existing, 1, def);
   else userSystems.push(def);
-  userSystemsVersion++;
+  catalogVersion++;
   return def;
+}
+
+/** @internal Add an engine built-in to the catalog, at module level. A module evaluated again (hot reload) replaces its entries. */
+export function defineBuiltinSystem(system: BuiltinSystem): void {
+  const existing = builtinSystems.findIndex((s) => s.name === system.name);
+  if (existing >= 0) builtinSystems.splice(existing, 1, system);
+  else builtinSystems.push(system);
+  catalogVersion++;
 }
 
 /** Systems the editor build defined that a script's replaced, and names scripts defined. */
@@ -77,7 +104,7 @@ export function _undefineSystem(name: string): void {
   }
   buildSystems.delete(name);
   scriptSystems.delete(name);
-  userSystemsVersion++;
+  catalogVersion++;
 }
 
 /** A system in the catalog: what can be added to a World (ADR 0032). */
@@ -90,57 +117,55 @@ export interface SystemCatalogEntry {
   readonly builtin: boolean;
 }
 
-/**
- * Every system that can be added to a World, in catalog order: defined systems now; engine
- * built-ins join it in T2.
- */
+/** Every system that can be added to a World, in catalog order: engine built-ins, then defined systems in definition order. */
 export function listSystemCatalog(): readonly SystemCatalogEntry[] {
-  return userSystems.map((s) => ({ name: s.name, phase: s.phase, worlds: s.worlds ?? ["default", "local"], builtin: false }));
-}
-
-/** @internal Built-in system: a named function in a phase. */
-export interface BuiltinSystem {
-  readonly name: string;
-  readonly phase: Phase;
-  readonly after?: readonly string[];
-  readonly before?: readonly string[];
-  run(world: World, dt: number): void;
+  return [
+    ...builtinSystems.map((s) => ({ name: s.name, phase: s.phase, worlds: s.worlds ?? ALL_WORLDS, builtin: true })),
+    ...userSystems.map((s) => ({ name: s.name, phase: s.phase, worlds: s.worlds ?? DEFAULT_SYSTEM_WORLDS, builtin: false })),
+  ];
 }
 
 type Scheduled = { name: string; builtin?: BuiltinSystem; user?: SystemDef };
 
-/** @internal */
+/**
+ * @internal A World's systems (ADR 0032): the catalog entries whose `worlds` filter matches the
+ * World's tags, plus those added by name, minus those removed. Membership follows the catalog, so
+ * systems defined later join the Worlds they match.
+ */
 export class Scheduler {
-  private builtins: BuiltinSystem[] = [];
-  private builtVersion = -1;
-  private builtinVersion = 0;
-  private lastBuiltinVersion = -1;
+  private readonly added = new Set<string>();
+  private readonly removed = new Set<string>();
+  private membershipVersion = 0;
+  private builtMembershipVersion = -1;
+  private builtCatalogVersion = -1;
   private ordered: Record<Phase, Scheduled[]> = { fixedUpdate: [], update: [], lateUpdate: [] };
 
   constructor(private readonly world: World) {}
 
-  /**
-   * Add a catalog system to this World by name (ADR 0032). A no-op until T2: today every defined
-   * system runs in every World, so callers (T1's createWorld) can call it already.
-   */
-  addSystem(_name: string): void {}
+  /** Add a catalog system to this World by name, even if its `worlds` filter doesn't match. Throws for unknown names. */
+  addSystem(name: string): void {
+    if (!builtinSystems.some((s) => s.name === name) && !userSystems.some((s) => s.name === name)) {
+      throw new Error(`Unknown system "${name}": it isn't in the system catalog (define it with defineSystem() first).`);
+    }
+    this.removed.delete(name);
+    this.added.add(name);
+    this.membershipVersion++;
+  }
 
-  /** Take a system out of this World. A no-op until T2. */
-  removeSystem(_name: string): void {}
+  /** Take a system out of this World, even if its `worlds` filter matches. */
+  removeSystem(name: string): void {
+    this.added.delete(name);
+    this.removed.add(name);
+    this.membershipVersion++;
+  }
 
   /** Every system this World runs, by name, phase by phase in execution order. */
   names(): string[] {
     return (["fixedUpdate", "update", "lateUpdate"] as Phase[]).flatMap((p) => this.order(p));
   }
 
-  addBuiltin(system: BuiltinSystem): void {
-    if (this.builtins.some((s) => s.name === system.name)) return;
-    this.builtins.push(system);
-    this.builtinVersion++;
-  }
-
   run(phase: Phase, dt: number): void {
-    if (this.builtVersion !== userSystemsVersion || this.lastBuiltinVersion !== this.builtinVersion) this.rebuild();
+    if (this.stale()) this.rebuild();
     for (const s of this.ordered[phase]) {
       if (s.builtin) s.builtin.run(this.world, dt);
       else if (s.user) this.runUser(s.user, dt);
@@ -149,21 +174,31 @@ export class Scheduler {
 
   /** Names in execution order, for debugging and tests. */
   order(phase: Phase): string[] {
-    if (this.builtVersion !== userSystemsVersion || this.lastBuiltinVersion !== this.builtinVersion) this.rebuild();
+    if (this.stale()) this.rebuild();
     return this.ordered[phase].map((s) => s.name);
   }
 
+  private stale(): boolean {
+    return this.builtCatalogVersion !== catalogVersion || this.builtMembershipVersion !== this.membershipVersion;
+  }
+
+  private isMember(name: string, worlds: readonly WorldTag[]): boolean {
+    return !this.removed.has(name) && (this.added.has(name) || worldsMatch(worlds, this.world.worldTags));
+  }
+
   private rebuild(): void {
+    const builtins = builtinSystems.filter((b) => this.isMember(b.name, b.worlds ?? ALL_WORLDS));
+    const users = userSystems.filter((u) => this.isMember(u.name, u.worlds ?? DEFAULT_SYSTEM_WORLDS));
     for (const phase of ["fixedUpdate", "update", "lateUpdate"] as Phase[]) {
       // Default order: built-ins in registration order, then user systems in definition order.
       const items: (Scheduled & { after: readonly string[]; before: readonly string[] })[] = [
-        ...this.builtins.filter((b) => b.phase === phase).map((b) => ({ name: b.name, builtin: b, after: b.after ?? [], before: b.before ?? [] })),
-        ...userSystems.filter((u) => u.phase === phase).map((u) => ({ name: u.name, user: u, after: u.after ?? [], before: u.before ?? [] })),
+        ...builtins.filter((b) => b.phase === phase).map((b) => ({ name: b.name, builtin: b, after: b.after ?? [], before: b.before ?? [] })),
+        ...users.filter((u) => u.phase === phase).map((u) => ({ name: u.name, user: u, after: u.after ?? [], before: u.before ?? [] })),
       ];
       this.ordered[phase] = topoSort(items);
     }
-    this.builtVersion = userSystemsVersion;
-    this.lastBuiltinVersion = this.builtinVersion;
+    this.builtCatalogVersion = catalogVersion;
+    this.builtMembershipVersion = this.membershipVersion;
   }
 
   private runUser(def: SystemDef, dt: number): void {

@@ -11,6 +11,7 @@
 import RAPIER from "@dimforge/rapier2d-compat";
 import { GameBehavior } from "../core/Component";
 import { defineBuffer } from "../core/data";
+import { defineBuiltinSystem } from "../core/systems";
 import { DEG2RAD, RAD2DEG } from "../core/math";
 import type { World } from "../core/World";
 import { BoxCollider2D, CircleCollider2D, Collider2D, type Collision2D } from "./Collider2D";
@@ -47,10 +48,7 @@ let rapierReady: Promise<void> | null = null;
 /** @internal Create the world's 2D physics world (initializing Rapier's WASM once). */
 export async function ensurePhysics2D(world: World): Promise<Physics2DWorld> {
   await (rapierReady ??= RAPIER.init());
-  if (!world.physics2D) {
-    world.physics2D = new Physics2DWorld(world);
-    world.physics2D.registerSystems();
-  }
+  if (!world.physics2D) world.physics2D = new Physics2DWorld(world);
   return world.physics2D;
 }
 
@@ -72,15 +70,6 @@ export class Physics2DWorld {
   }
   set gravity(g: { x: number; y: number }) {
     this.rapier.gravity = { x: g.x, y: g.y };
-  }
-
-  /** @internal Register the fixed-step systems in the order of ADR 0011. */
-  registerSystems(): void {
-    const s = this.world.scheduler;
-    s.addBuiltin({ name: "engine.PhysicsPush", phase: "fixedUpdate", after: ["engine.FixedUpdateScripts"], run: () => this.push() });
-    s.addBuiltin({ name: "engine.PhysicsStep", phase: "fixedUpdate", after: ["engine.PhysicsPush"], run: (_w, dt) => this.step(dt) });
-    s.addBuiltin({ name: "engine.PhysicsWriteBack", phase: "fixedUpdate", after: ["engine.PhysicsStep"], run: () => this.writeBack() });
-    s.addBuiltin({ name: "engine.PhysicsEvents", phase: "fixedUpdate", after: ["engine.PhysicsWriteBack"], run: () => this.dispatchEvents() });
   }
 
   /** Layer name → Rapier interaction groups (membership in the high 16 bits, filter in the low 16). */
@@ -112,9 +101,10 @@ export class Physics2DWorld {
     return g;
   }
 
-  // --- fixed-step stages ---------------------------------------------------------------------
+  // --- fixed-step stages (the built-in systems below) ------------------------------------------
 
-  private push(): void {
+  /** @internal */
+  push(): void {
     const world = this.world;
     for (const rb of world._componentsOfType(RigidBody2D)) this.pushBody(rb);
     for (const c of world._componentsOfType(Collider2D)) this.pushCollider(c);
@@ -288,12 +278,14 @@ export class Physics2DWorld {
     return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true };
   }
 
-  private step(dt: number): void {
+  /** @internal */
+  step(dt: number): void {
     this.rapier.timestep = dt;
     this.rapier.step(this.events);
   }
 
-  private writeBack(): void {
+  /** @internal */
+  writeBack(): void {
     const world = this.world;
     for (const rb of world._componentsOfType(RigidBody2D)) {
       const st = rb._state;
@@ -306,7 +298,8 @@ export class Physics2DWorld {
     }
   }
 
-  private dispatchEvents(): void {
+  /** @internal */
+  dispatchEvents(): void {
     this.events.drainCollisionEvents((h1, h2, started) => {
       const a = this.colliderByHandle.get(h1);
       const b = this.colliderByHandle.get(h2);
@@ -383,3 +376,10 @@ export class Physics2DWorld {
     c._state = null;
   }
 }
+
+// The fixed-step physics systems, in the order of ADR 0011: catalog entries for every World, doing
+// nothing in a World without a 2D physics world (ADR 0032).
+defineBuiltinSystem({ name: "engine.PhysicsPush", phase: "fixedUpdate", after: ["engine.FixedUpdateScripts"], run: (w) => w.physics2D?.push() });
+defineBuiltinSystem({ name: "engine.PhysicsStep", phase: "fixedUpdate", after: ["engine.PhysicsPush"], run: (w, dt) => w.physics2D?.step(dt) });
+defineBuiltinSystem({ name: "engine.PhysicsWriteBack", phase: "fixedUpdate", after: ["engine.PhysicsStep"], run: (w) => w.physics2D?.writeBack() });
+defineBuiltinSystem({ name: "engine.PhysicsEvents", phase: "fixedUpdate", after: ["engine.PhysicsWriteBack"], run: (w) => w.physics2D?.dispatchEvents() });
