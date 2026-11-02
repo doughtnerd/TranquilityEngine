@@ -8,7 +8,7 @@
 
 ## Context
 
-0032 lets a Realm run isolated Worlds that communicate only through a transport. The owner wants multiplayer modelled on Unity's Netcode for Entities: server Worlds run on the server, client Worlds run on the client, and a host can run both in one process.
+0032 lets an Engine run isolated Worlds that communicate only through a transport. The owner wants multiplayer modelled on Unity's Netcode for Entities: server Worlds run on the server, client Worlds run on the client, and a host can run both in one process.
 
 ### How Netcode for Entities works (summary)
 
@@ -32,11 +32,11 @@
 
 We will build server-authoritative netcode on Netcode for Entities' model, with these changes:
 
-1. **Multiplayer is a Realm layout.** Client and server are Worlds tagged `client` and `server` (0032), joined by a link in the Realm graph. A host is a server World and a client World in one Realm over a **loopback transport**: Unity's "binary worlds" host. This also gives multiplayer play mode in the editor (one server World plus N client Worlds, tiled). A single-world host is a later optimization.
+1. **Multiplayer is a layout of Worlds.** Client and server are Worlds tagged `client` and `server` (0032), joined by a link in the Worlds graph. A host is a server World and a client World in one Engine over a **loopback transport**: Unity's "binary worlds" host. A "Host" button in a game's menu creates the server World at runtime (0032's World handles), as Unity's `CreateServerWorld` does. This also gives multiplayer play mode in the editor (one server World plus N client Worlds, tiled). A single-world host is a later optimization.
 2. **Transports behind one interface.** It offers reliable-ordered and unreliable-sequenced channels. Implementations, in order:
    - **Loopback**, in-process, with simulated latency, jitter and loss for testing.
    - **WebSocket**, which works everywhere; a Node server for dedicated hosting.
-   - **WebRTC data channels**, unreliable, for browser-to-browser hosting and lower latency.
+   - **WebRTC data channels**, unreliable, for browser-to-browser hosting and lower latency. Two browsers can't open a WebRTC connection to each other until they've exchanged connection offers and network addresses through a third party (**signalling**, usually a small WebSocket server). So WebRTC hosting needs a signalling server, and both arrive later, with matchmaking.
    The engine core never sees sockets.
 3. **Replication is opt-in where data is declared.**
    - A `Replicated` component on a prefab or scene node makes it a ghost.
@@ -49,7 +49,7 @@ We will build server-authoritative netcode on Netcode for Entities' model, with 
    - **Interpolation** is the default for every replicated node. Clients render remote ghosts between snapshots with an interpolation buffer (`interpolationMs`) and short extrapolation when data is late.
    - **Prediction** comes second and starts in the data layer only. Data components marked `predicted` on owned ghosts are rolled back to each snapshot. Then the client re-runs the `fixedUpdate` systems tagged `predicted` from that tick to the present. GameBehaviors aren't re-simulated in this phase; they see the reconciled state. Predicting physics (Rapier snapshot and restore) is a later step.
 7. **Ticks and time.** Networked Worlds run their `fixedUpdate` at the project's simulation tick rate. Each World's clock gains `tick`. Client Worlds also get `serverTick`, `interpolationTick` and `rtt`, readable as `Time.network` and `ctx.time.network`.
-8. **Dedicated servers.** A headless server entry (`tranquility-server`) runs a project's server-tagged Worlds in Node with the WebSocket transport. It runs with no renderer, audio or input. Building and packaging it ties into game builds of projects (O14).
+8. **Dedicated servers run on Node.** A headless server entry (`tranquility-server`) runs a project's server-tagged Worlds in Node with the WebSocket transport. Deno and Bun aren't targeted for now. It runs with no renderer, audio or input. Building and packaging it ties into game builds of projects (O14).
 9. **Tools early.** Alongside replication, not after it:
    - Multiplayer play mode: a server plus N clients and thin clients.
    - Latency, jitter and loss sliders on the loopback.
@@ -57,7 +57,7 @@ We will build server-authoritative netcode on Netcode for Entities' model, with 
 
 ### Deferred
 
-Lag compensation, relevancy and priority beyond distance-free defaults, host migration, single-world host, client-authoritative modes, and NAT traversal beyond what WebRTC provides.
+Lag compensation, relevancy and priority, host migration, single-world host, client-authoritative modes, the WebRTC transport with its signalling server, and (v2) matchmaking and lobbies.
 
 ## Alternatives considered
 
@@ -69,7 +69,7 @@ Lag compensation, relevancy and priority beyond distance-free defaults, host mig
 ## Consequences
 
 **Positive**
-- One mental model: multiplayer is Worlds plus links in the Realm graph, and the same project runs hosted, as a dedicated server or in editor play mode.
+- One mental model: multiplayer is Worlds plus links in the Worlds graph, and the same project runs hosted, as a dedicated server or in editor play mode.
 - Browser-friendly transports, with a loopback that lets every netcode feature be tested headless in Vitest.
 - Data components get replication nearly for free.
 
@@ -84,10 +84,8 @@ Nothing.
 
 ## Open questions
 
-- Server runtime: Node only, or Deno or Bun too? Can Tauri host a listen server natively?
 - Should replication need a `Replicated` component, or be inferred from any replicated field?
 - Interest management: per-connection relevancy by distance, or explicit groups?
-- Matchmaking, lobbies and signalling: out of scope for the engine, or a minimal reference server?
 
 ## References
 

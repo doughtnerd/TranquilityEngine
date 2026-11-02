@@ -7,7 +7,7 @@ Start here. These docs describe where the engine is going, why, and what is bein
 | [Architecture overview](architecture/overview.md) | Goals, non-goals, layers, module layout, glossary |
 | [Open questions](architecture/open-questions.md) | Design decisions not yet made, with leanings |
 | [Implementation status](architecture/implementation-status.md) | What `src/engine/` implements today versus each decision record |
-| [Realms and netcode plan](architecture/realms-and-netcode-plan.md) | Task breakdown, waves and agent roles for 0032 and 0033 |
+| [Worlds and netcode plan](architecture/worlds-and-netcode-plan.md) | Task breakdown, waves and agent roles for 0032 and 0033 |
 | [Legacy codebase](architecture/legacy-codebase.md) | The 2021 prototype (removed 2026-10-31), its known problems, and what replaced each part |
 | [Decision records](decisions/) | Short-form RFC/ADR records, one decision per file |
 
@@ -46,7 +46,7 @@ Start here. These docs describe where the engine is going, why, and what is bein
 | [0029](decisions/0029-component-order-overrides.md) | Prefab overrides can reorder a node's components | Accepted |
 | [0030](decisions/0030-in-editor-scripting.md) | Write and run project scripts inside the editor | Accepted |
 | [0031](decisions/0031-samples-ship-beside-the-engine.md) | Samples are projects that ship beside the engine, not inside it | Accepted |
-| [0032](decisions/0032-realms-worlds-and-bootstraps.md) | A Realm runs several isolated Worlds, each with its own systems and clock | Proposed |
+| [0032](decisions/0032-worlds-systems-and-bootstraps.md) | The Engine runs several isolated Worlds, each with its own systems and clock | Proposed |
 | [0033](decisions/0033-server-authoritative-netcode.md) | Server-authoritative netcode between client and server Worlds | Proposed |
 
 ## Working with decisions

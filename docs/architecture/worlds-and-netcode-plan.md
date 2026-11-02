@@ -1,6 +1,6 @@
-# Plan: Realms, multiple Worlds and netcode
+# Plan: multiple Worlds and netcode
 
-How to implement [0032](../decisions/0032-realms-worlds-and-bootstraps.md) (Realms, Worlds, bootstraps) and [0033](../decisions/0033-server-authoritative-netcode.md) (netcode) with several agents working in parallel. Both records are **Proposed**; nothing here starts until they're accepted.
+How to implement [0032](../decisions/0032-worlds-systems-and-bootstraps.md) (Worlds, systems, bootstraps) and [0033](../decisions/0033-server-authoritative-netcode.md) (netcode) with several agents working in parallel. Both records are **Proposed**; nothing here starts until they're accepted.
 
 ## How the work is run
 
@@ -12,18 +12,18 @@ How to implement [0032](../decisions/0032-realms-worlds-and-bootstraps.md) (Real
 
 | Id | Task | Output |
 |---|---|---|
-| C0 | Accept 0032/0033 with the owner, resolving their open questions | Records marked Accepted |
-| C1 | Write the core contracts | `core/Realm.ts` stub: `Realm`, `RealmOptions`, `WorldConfig`, `Bootstrap`. Additions to `World`: name, tags, own clock, `addSystem`/`removeSystem`. `SystemDef.worlds`. The `project.json` `realm` schema in `settings.ts`. Stubs compile; tests are `todo` |
+| C0 | Accept 0032/0033 with the owner. Settled 2026-11-02: keep the name `Engine`; Worlds can be created at runtime (handles, as in Unity's `CreateServerWorld`); the dedicated server runs on Node; matchmaking is v2 | Records marked Accepted |
+| C1 | Write the core contracts | `Engine` additions: `createWorld`, `findWorld`, the `WorldHandle` and `WorldConfig` types, `Bootstrap`. Additions to `World`: name, tags, own clock, `addSystem`/`removeSystem`. `SystemDef.worlds`. The `project.json` `bootstrap` schema in `settings.ts`. Stubs compile; tests are `todo` |
 | C2 | Write the netcode contracts | `net/Transport.ts` (channels, `send`, `receive`, connection lifecycle), `net/codec.ts` interface, `defineRpc`/`defineInput` signatures, the `Replicated` component and field `replicate` options, the `Time.network` shape |
 
 ## Wave 1: multi-World core (after C1)
 
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|
-| T1 | **Realm and per-World clocks**: Realm loop stepping each World with its own accumulator, tick rate and time scale; current-world context; facades throw outside frames; `Engine.create()` becomes a wrapper around the default bootstrap; `this.time` on behaviors | `core/Realm.ts`, `core/Engine.ts`, `core/World.ts` (clock, context), `core/Time.ts`, `core/Component.ts` | C1 | Two Worlds at 30 and 60 Hz step independently in a headless test; all existing tests pass unchanged |
+| T1 | **Several Worlds per Engine, each with its own clock**: the Engine loop steps each World with its own accumulator, tick rate and time scale; current-world context; facades throw outside frames; `Engine.create()` runs a bootstrap and `engine.world` is the default World; `createWorld`/`findWorld` and World handles at runtime; `this.time` on behaviors | `core/Engine.ts`, new `core/WorldHandle.ts`, `core/World.ts` (clock, context), `core/Time.ts`, `core/Component.ts` | C1 | Two Worlds at 30 and 60 Hz step independently in a headless test; a World created and destroyed at runtime through a handle; all existing tests pass unchanged |
 | T2 | **System catalog and membership**: `defineSystem` only registers; per-World system lists; built-ins as catalog entries; `worlds` filters; per-World scheduler | `core/systems.ts`, the scheduler part of `core/World.ts` (coordinate with T1: T2 touches only `scheduler` wiring) | C1 | A system added to one World doesn't run in another; the default bootstrap reproduces today's order |
-| T3 | **Global singleton audit and isolation**: Input devices at Realm level, routed to Worlds; `SceneManager`, `GameObject` statics and `Physics2D` act on the current World; Storage and Assets at Realm level; cross-World reference and reparent guards | `input/`, `scene/SceneManager.ts`, `scene/GameObject.ts`, `physics/Physics2D.ts`, `platform/Storage.ts`, `render/RenderBackend.ts` (ownership only) | C1 | A test with two Worlds in one Realm shows no leakage; assigning a node from another World throws |
-| T4 | **Bootstraps**: default, declarative (`project.json` `realm`), code (`bootstrap(realm)` from a project script); validation with readable errors | new `core/bootstrap.ts`, `core/settings.ts` | C1 (T2 for system selection, against the contract) | A client+server config builds two Worlds with the right systems; bad configs report what's wrong |
+| T3 | **Global singleton audit and isolation**: Input devices at Engine level, routed to Worlds; `SceneManager`, `GameObject` statics and `Physics2D` act on the current World; Storage and Assets at Engine level; cross-World reference and reparent guards | `input/`, `scene/SceneManager.ts`, `scene/GameObject.ts`, `physics/Physics2D.ts`, `platform/Storage.ts`, `render/RenderBackend.ts` (ownership only) | C1 | A test with two Worlds in one Engine shows no leakage; assigning a node from another World throws |
+| T4 | **Bootstraps**: default, declarative (`project.json` `bootstrap`, including templates for runtime Worlds), code (`bootstrap(engine)` from a project script); validation with readable errors | new `core/bootstrap.ts`, `core/settings.ts` | C1 (T2 for system selection, against the contract) | A client+server config builds two Worlds with the right systems; bad configs report what's wrong |
 
 T1 is the critical path. T2–T4 build against the C1 contract and merge after T1.
 
@@ -35,8 +35,8 @@ These two tracks don't touch the same files and run side by side.
 
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|
-| T5 | **Play mode builds a Realm** from the project's bootstrap; tiled game views for several rendering Worlds; a World picker in the hierarchy while playing; the Editor World joins the editor's Realm | `editor/playMode.ts`, `editor/session.ts` (play parts), `ui/ScenePanel.tsx` | T1–T4 | Playing a client+server project shows the client view, and the hierarchy can switch to the server World |
-| T6 | **Realm graph panel**: Worlds as nodes, links as edges; add, rename and remove Worlds; tags, tick rate, renders and input; a per-World system checklist explaining why each system is in or out; undoable edits saved to `project.json` | new `editor/realmConfig.ts`, `ui/RealmPanel.tsx`, `ui/realm.css`, layout registration | T4 (config schema) | Building a client+server layout in the panel writes the expected `project.json` and plays |
+| T5 | **Play mode builds an Engine** from the project's bootstrap; tiled game views for several rendering Worlds, including ones created at runtime; a World picker in the hierarchy while playing; the Editor World becomes a World in the editor's Engine | `editor/playMode.ts`, `editor/session.ts` (play parts), `ui/ScenePanel.tsx` | T1–T4 | Playing a client+server project shows the client view, and the hierarchy can switch to the server World |
+| T6 | **Worlds graph panel**: start-up Worlds and templates as nodes, links as edges; add, rename and remove Worlds; tags, tick rate, renders and input; a per-World system checklist explaining why each system is in or out; undoable edits saved to `project.json` | new `editor/worldsConfig.ts`, `ui/WorldsPanel.tsx`, `ui/worlds.css`, layout registration | T4 (config schema) | Building a client+server layout in the panel writes the expected `project.json` and plays |
 
 **Networking track**
 
@@ -68,12 +68,12 @@ T11 and T12 can run at the same time once T10's handshake and tick contract is m
 
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|
-| T16 | **Multiplayer sample** (`samples/arena/`, for example): two players moving and shooting, with a score; Realm graph configured; plays hosted and with a dedicated server | `samples/arena/` | T11–T15 | Listed on the start screen; e2e tests play it hosted |
+| T16 | **Multiplayer sample** (`samples/arena/`, for example): two players moving and shooting, with a score; Worlds graph configured; a Host button creates the server World at runtime; plays hosted and with a dedicated server | `samples/arena/` | T11–T15 | Listed on the start screen; e2e tests play it hosted |
 | T17 | **Docs**: implementation status, a user guide for Worlds, bootstraps and multiplayer, and updated READMEs | `docs/` | all | Coordinator review |
 
 ## Later (not scheduled)
 
-Lag compensation, relevancy and priority, host migration, single-world host, WebRTC transport, physics prediction, runtime World creation by game code.
+Lag compensation, relevancy and priority, host migration, single-world host, WebRTC transport with a signalling server, physics prediction. v2: matchmaking and lobbies.
 
 ## Order at a glance
 
