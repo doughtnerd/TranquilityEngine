@@ -32,9 +32,13 @@ test("dragging a panel to the window's outer edge docks it there at full height,
   await openEditor(page);
   const area = await box(page.locator(".dock-layout"));
   await dragTab(page, "Inspector", area.x + 4, area.y + area.height / 2, false);
-  const preview = await box(page.locator(".drop-preview"));
-  expect(preview.x).toBeCloseTo(area.x, 0);
-  expect(preview.height).toBeCloseTo(area.height, 0);
+  // The preview re-renders after the pointer moves; wait for the last move's (an earlier step's
+  // can still be showing).
+  await expect(async () => {
+    const preview = await box(page.locator(".drop-preview"));
+    expect(preview.x).toBeCloseTo(area.x, 0);
+    expect(preview.height).toBeCloseTo(area.height, 0);
+  }).toPass({ timeout: 5000 });
   await page.mouse.up();
   await expect(page.locator(".drop-preview")).toHaveCount(0);
 
