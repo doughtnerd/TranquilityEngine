@@ -423,10 +423,10 @@ export function clientPrediction(world: World): ClientPrediction | null {
   return p;
 }
 
-/** @internal For the editor's network panel (T15): what a client World's prediction did; null if it isn't a network client. */
+/** @internal For the editor's network panel (T15): what a client World's prediction did; null if it hasn't predicted (not a network client, or not ticked yet). Creates nothing. */
 export function predictionStats(world: World): PredictionStats | null {
-  const p = clientPrediction(world);
-  return p ? { ...p.stats } : null;
+  const p = predictions.get(world);
+  return p && p.session === netSession(world) ? { ...p.stats } : null;
 }
 
 /**

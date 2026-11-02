@@ -51,6 +51,7 @@
  *   (the newest earlier one if that tick has none, as the server repeats it).
  */
 import { World } from "../core/World";
+import { _recordRegistration } from "../core/registry";
 import type { DataView, Schema } from "../core/data";
 import { _isReplacingRegistrations } from "../core/registry";
 import { defineBuiltinSystem } from "../core/systems";
@@ -253,6 +254,7 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
     },
   };
   defs.set(id, def as unknown as InputDef<Schema>); // T15 tools
+  _recordRegistration("inputs", id);
   return def;
 }
 
@@ -264,6 +266,11 @@ const defs = new Map<string, InputDef<Schema>>();
 /** @internal Editor tools: every defined input stream. */
 export function definedInputs(): InputDef<Schema>[] {
   return [...defs.values()];
+}
+
+/** @internal Editor: forget a stream a project script defined (the script was deleted, or another project opened). */
+export function _undefineInput(id: string): void {
+  defs.delete(id);
 }
 
 // --- client -------------------------------------------------------------------------------------

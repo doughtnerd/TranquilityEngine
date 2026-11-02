@@ -4,7 +4,7 @@ import { World } from "../engine/core/World";
 import { engineWorld, netWorldInfo, worldViewStates } from "../engine/editor";
 import { netSession } from "../engine/net/session";
 import type { LoopbackTransport } from "../engine/net/transport/loopback";
-import { NetStatsSampler, byCategory, clampConditions, clientLayout, createThinInput, playBootstrap, trafficCategory } from "./netPlay";
+import { NetStatsSampler, byCategory, clampConditions, clientLayout, createThinInput, playBootstrap, trafficCategory, withConditions } from "./netPlay";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay } from "./playMode";
 import { openSceneFile } from "./project";
@@ -136,6 +136,21 @@ describe("stats helpers", () => {
     expect(later.out.byCategory.snapshots).toBe(1000);
   });
 
+  it("puts conditions in loopback links' options, so links simulate them from the handshake", () => {
+    const config: BootstrapConfig = {
+      worlds: [{ name: "Client" }, { name: "Server" }, { name: "Remote" }],
+      links: [
+        { from: "Client", to: "Server", transport: "loopback", options: { address: "a", latencyMs: 5 } },
+        { from: "Remote", to: "Server", transport: "websocket", options: { url: "ws://x" } },
+      ],
+    };
+    const out = withConditions(config, { latencyMs: 120, jitterMs: 4, lossPercent: 10 }) as BootstrapConfig;
+    expect(out.links![0].options).toEqual({ address: "a", latencyMs: 120, jitterMs: 4, loss: 0.1 });
+    expect(out.links![1]).toBe(config.links![1]);
+    expect(withConditions(config, null)).toBe(config);
+    expect(withConditions("scripts/boot.ts", { latencyMs: 1, jitterMs: 0, lossPercent: 0 })).toBe("scripts/boot.ts");
+  });
+
   it("clamps conditions to the sliders' ranges", () => {
     expect(clampConditions({ latencyMs: 900, jitterMs: -3, lossPercent: Number.NaN })).toEqual({ latencyMs: 500, jitterMs: 0, lossPercent: 0 });
   });
@@ -235,6 +250,8 @@ describe("multiplayer play mode", () => {
       expect(conditions()).toEqual(Array(3).fill({ latencyMs: 80, jitterMs: 10, loss: 0.05 }));
       play.setConditions({ latencyMs: 200, jitterMs: 0, lossPercent: 0 });
       expect(conditions()).toEqual(Array(3).fill({ latencyMs: 200, jitterMs: 0, loss: 0 }));
+      play.setConditions({ latencyMs: 0, jitterMs: 0, lossPercent: 0 }); // Off
+      expect(conditions()).toEqual(Array(3).fill({ latencyMs: 0, jitterMs: 0, loss: 0 }));
     } finally {
       play.stop();
     }

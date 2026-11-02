@@ -12,7 +12,7 @@
 import { Assets, Engine, type AssetSource, type Bootstrap } from "../engine";
 import { engineWorld, engineWorldConfig, resumeEditorWorld } from "../engine/editor";
 import { createGameView, type GameView } from "./gameView";
-import { applyNetConditions, conditionsOff, createThinInput, playBootstrap, type NetConditionValues, type NetPlayBootstrap, type NetPlayOptions, type ThinInput, type ThinInputMode } from "./netPlay";
+import { applyNetConditions, conditionsOff, createThinInput, playBootstrap, withConditions, type NetConditionValues, type NetPlayBootstrap, type NetPlayOptions, type ThinInput, type ThinInputMode } from "./netPlay";
 import type { EditorProject } from "./projects";
 import { loadedScriptModule } from "./scriptLoader";
 import type { OpenScene } from "./state";
@@ -24,7 +24,10 @@ export interface PlaySession {
   readonly path: string;
   /** The multiplayer play bootstrap the Engine was built from; null when it plays the project's own. */
   readonly netPlay: NetPlayBootstrap | null;
-  /** Simulate network conditions on every loopback link from now on (links made later in the session too). */
+  /**
+   * Simulate network conditions on every loopback link from now on (links made later in the session
+   * too). All zero turns simulation off: links open now get zero, links made later keep their own.
+   */
   setConditions(conditions: NetConditionValues): void;
   /** Write the thin clients' synthetic input once (done every frame with a game view; headless tests call it). */
   updateThinInput(): void;
@@ -40,7 +43,7 @@ export interface PlayOptions {
   container?: HTMLElement;
   /** Multiplayer play: client and thin-client counts, and what thin clients send. Omit to play the project's bootstrap as it is. */
   netPlay?: NetPlayOptions & { thinInput?: ThinInputMode };
-  /** Network conditions to simulate from the start (all zero: the links keep their own settings). */
+  /** Network conditions to simulate from the start, from the links' first message (all zero: the links keep their own settings). */
   conditions?: NetConditionValues;
 }
 
@@ -62,11 +65,12 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
   editor.stop();
 
   const netPlay = netOptions ? playBootstrap(project.settings.bootstrap, netOptions) : null;
-  const settings = netPlay ? { ...project.settings, bootstrap: netPlay.bootstrap } : project.settings;
-  let runtime: Engine | null = null;
-  let view: GameView | null = null;
   /** The conditions kept applied; null while the links keep their own settings. */
   let conditions = initial && !conditionsOff(initial) ? initial : null;
+  const bootstrap = withConditions(netPlay ? netPlay.bootstrap : project.settings.bootstrap, conditions);
+  const settings = bootstrap === project.settings.bootstrap ? project.settings : { ...project.settings, bootstrap };
+  let runtime: Engine | null = null;
+  let view: GameView | null = null;
   let thin: ThinInput | null = null;
   let stopped = false;
   let frame = 0;
@@ -102,7 +106,6 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
       const named = engineWorldConfig(runtime, handle.name)?.scenes !== undefined;
       if (!named && engineWorld(runtime, handle.name)!.sceneNodes.length === 0) await handle.loadScene(scene.path);
     }
-    if (conditions) applyNetConditions(runtime, conditions);
     if (netPlay && netPlay.thin.length > 0) thin = createThinInput(runtime, netPlay.thin, netOptions?.thinInput ?? "random");
     view?.attach(runtime, { thin: netPlay?.thin ?? [] });
     if (container) runtime.start(); // headless (tests): the caller steps the Engine
@@ -118,8 +121,8 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
     netPlay,
     setConditions(c) {
       if (stopped) return;
-      conditions = c;
       applyNetConditions(engine, c);
+      conditions = conditionsOff(c) ? null : c; // off: no refreshing, so links made later keep their own settings
       startLoop();
     },
     updateThinInput() {

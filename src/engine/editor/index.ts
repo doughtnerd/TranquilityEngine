@@ -19,9 +19,9 @@ import { SpriteRenderer } from "../render/components";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 import type { Schema } from "../core/data";
-import { definedInputs } from "../net/input";
+import { _undefineInput, definedInputs } from "../net/input";
 import { clientReplication } from "../net/replication/client";
-import { predictionStats } from "../net/prediction";
+import { predictionStats, type PredictionStats } from "../net/prediction";
 import { serverReplication } from "../net/replication/server";
 import { netSession, type NetPeer, type NetTraffic } from "../net/session";
 import type { LinkConditions } from "../net/Transport";
@@ -412,6 +412,7 @@ export function unregisterScripts(registrations: ScriptRegistrations): void {
   for (const id of registrations.components) _unregisterComponent(id);
   for (const id of registrations.data) _undefineComponent(id);
   for (const name of registrations.systems) _undefineSystem(name);
+  for (const id of registrations.inputs) _undefineInput(id);
 }
 
 // --- Network tools (ADR 0033 §9, T15) ------------------------------------------------------------
@@ -456,8 +457,8 @@ export interface NetWorldInfo {
   readonly ghosts: number | null;
   /** Recently closed connections and why, newest last. */
   readonly closed: readonly { readonly id: number; readonly reason: string }[];
-  /** Client prediction's counters (T13, `predictionStats`); null for a World that isn't a network client. */
-  readonly prediction: Readonly<Record<string, unknown>> | null;
+  /** Client prediction's counters (T13); null for a World that isn't a network client or hasn't predicted yet. */
+  readonly prediction: Readonly<PredictionStats> | null;
 }
 
 const copyTraffic = (t: NetTraffic): NetTrafficInfo => ({ bytes: t.bytes, messages: t.messages, byKind: Object.fromEntries([...t.byKind].map(([k, v]) => [k, { ...v }])) });
@@ -491,15 +492,6 @@ export function netWorldInfo(engine: Engine): NetWorldInfo[] {
         }) : [],
       };
     };
-    let prediction: Record<string, unknown> | null = null;
-    if (session.isClient) {
-      try {
-        const stats = World._runIn(world, () => predictionStats(world));
-        prediction = stats ? { ...stats } : null;
-      } catch {
-        prediction = null;
-      }
-    }
     const t = session.time;
     out.push({
       world: world.name,
@@ -511,7 +503,7 @@ export function netWorldInfo(engine: Engine): NetWorldInfo[] {
       peers: session.allPeers().map(peerInfo),
       ghosts: session.isClient ? (clientReplication(world)?.ghosts.size ?? 0) : null,
       closed: session.closed.map((c) => ({ ...c })),
-      prediction,
+      prediction: predictionStats(world),
     });
   }
   return out;

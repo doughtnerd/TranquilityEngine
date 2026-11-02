@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Engine, defineInput, defineRpc, f32, i32, u8, type BootstrapConfig } from "../index";
 import { World } from "../core/World";
-import { inputStreams, netConditions, netWorldInfo, setNetConditions, writeWorldInput, type NetPeerInfo } from "../editor";
+import { inputStreams, netConditions, netWorldInfo, setNetConditions, unregisterScripts, withScriptRegistrations, writeWorldInput, type NetPeerInfo } from "../editor";
 import { netSession } from "../net/session";
 import type { LoopbackTransport } from "../net/transport/loopback";
 
@@ -147,5 +147,17 @@ describe("input streams for tools", () => {
     expect(writeWorldInput(engine, "Server", "test.tools.Steer", { x: 1 })).toBe(false);
     expect(writeWorldInput(engine, "Nowhere", "test.tools.Steer", { x: 1 })).toBe(false);
     expect(writeWorldInput(engine, "Client", "test.tools.Nothing", { x: 1 })).toBe(false);
+  });
+});
+
+describe("script input streams", () => {
+  it("are forgotten when the scripts that defined them are unregistered", async () => {
+    const registered = await withScriptRegistrations(async () => {
+      defineInput("netTools.scripted", { x: f32 });
+    });
+    expect(registered.inputs).toEqual(["netTools.scripted"]);
+    expect(inputStreams().map((s) => s.id)).toContain("netTools.scripted");
+    unregisterScripts(registered);
+    expect(inputStreams().map((s) => s.id)).not.toContain("netTools.scripted");
   });
 });

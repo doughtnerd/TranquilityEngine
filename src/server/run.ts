@@ -116,7 +116,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     shutDown();
     throw new ServerError(`The tick rate must be a positive number (got ${tickRate}).`);
   }
-  const loop = runLoop(engine, tickRate, log, options.statsIntervalMs ?? DEFAULT_STATS_INTERVAL_MS);
+  const loop = runLoop(engine, tickRate, log, options.statsIntervalMs ?? DEFAULT_STATS_INTERVAL_MS, new Set(engine.worlds().map((w) => w.name)));
   log(`[server] Running at ${round(tickRate)} steps/s. Press Ctrl+C to stop.`);
 
   let closing: Promise<void> | null = null;
@@ -241,7 +241,8 @@ function skippedWorld(config: WorldConfig, links: LinkConfig[]): WorldHandle {
  */
 function listenOptions(world: string, link: LinkConfig | undefined, first: boolean, cli: ServerOptions): { options: Record<string, unknown>; port: number; host?: string } | null {
   const { url: _url, port: _port, address: _address, ...rest } = link?.options ?? {};
-  const linked = linkAddress(world, link);
+  // Another transport's address (a loopback name) means nothing to a WebSocket server.
+  const linked = link?.transport === "websocket" ? linkAddress(world, link) : {};
   const port = first && cli.port !== undefined ? cli.port : (linked.port ?? (first ? DEFAULT_PORT : undefined));
   if (port === undefined) return null;
   if (!(Number.isInteger(port) && port >= 0 && port <= 65535)) throw new ServerError(`World "${world}": ${port} isn't a port (0 to 65535).`);
@@ -281,14 +282,15 @@ function linkAddress(world: string, link: LinkConfig | undefined): { host?: stri
  * bursting to catch up; the Worlds still see the elapsed time (capped by `time.maxFrameTime`).
  *
  * Also logs connections opening and closing on the server Worlds, and stats every `statsMs`.
+ * `started`: the Worlds the bootstrap made (the rest were created at runtime).
  */
-function runLoop(engine: Engine, rate: number, log: (line: string) => void, statsMs: number): { stop(): void } {
+function runLoop(engine: Engine, rate: number, log: (line: string) => void, statsMs: number, started: ReadonlySet<string>): { stop(): void } {
   const intervalMs = 1000 / rate;
   let last = performance.now();
   let next = last + intervalMs;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
-  const watch = connectionWatcher(engine, log);
+  const watch = connectionWatcher(engine, log, started);
 
   let steps = 0;
   let statsAt = last;
@@ -345,12 +347,21 @@ function ticksByWorld(engine: Engine): Map<string, number> {
   return out;
 }
 
-/** A function to call each frame that logs connections that opened or closed since the last call. */
-function connectionWatcher(engine: Engine, log: (line: string) => void): () => void {
+/**
+ * A function to call each frame that logs connections that opened or closed since the last call,
+ * and server Worlds created at runtime (from a template), which the server doesn't listen for:
+ * there's no API to listen at runtime yet (open question O15).
+ */
+function connectionWatcher(engine: Engine, log: (line: string) => void, started: ReadonlySet<string>): () => void {
   const known = new Map<World, Map<NetPeer, number>>();
+  const noted = new WeakSet<World>();
   return () => {
     for (const handle of engine.worlds()) {
       const world = engine._world(handle.name)!;
+      if (!started.has(handle.name) && handle.hasTag("server") && !noted.has(world)) {
+        noted.add(world);
+        if (!netSession(world)?.isServer) log(`[server] World "${handle.name}" was created at runtime; the dedicated server only listens for the bootstrap's server Worlds, so clients can't connect to it.`);
+      }
       const session = netSession(world);
       if (!session?.isServer) continue;
       let peers = known.get(world);

@@ -69,14 +69,15 @@ const idByClass = new Map<ComponentClass, string>();
 
 let replacing = false;
 
-/** @internal What scripts registered while loading (ADR 0030): component, data component and system ids. */
+/** @internal What scripts registered while loading (ADR 0030): component, data component, system and input stream ids. */
 export interface ScriptRegistrations {
   components: string[];
   data: string[];
   systems: string[];
+  inputs: string[];
 }
 
-let recorded: { components: Set<string>; data: Set<string>; systems: Set<string> } | null = null;
+let recorded: { components: Set<string>; data: Set<string>; systems: Set<string>; inputs: Set<string> } | null = null;
 
 /**
  * @internal Editor (ADR 0030): while on, registering a component, data component or system
@@ -85,7 +86,7 @@ let recorded: { components: Set<string>; data: Set<string>; systems: Set<string>
  */
 export function _setReplacingRegistrations(on: boolean): void {
   replacing = on;
-  if (on) recorded = { components: new Set(), data: new Set(), systems: new Set() };
+  if (on) recorded = { components: new Set(), data: new Set(), systems: new Set(), inputs: new Set() };
 }
 
 /** @internal True while the editor is (re)loading project scripts (see `_setReplacingRegistrations`). */
@@ -98,9 +99,9 @@ export function _recordRegistration(kind: keyof ScriptRegistrations, id: string)
 
 /** @internal What was registered since replacing was last switched on. */
 export function _takeRecordedRegistrations(): ScriptRegistrations {
-  const r = recorded ?? { components: new Set(), data: new Set(), systems: new Set() };
+  const r = recorded ?? { components: new Set(), data: new Set(), systems: new Set(), inputs: new Set() };
   recorded = null;
-  return { components: [...r.components], data: [...r.data], systems: [...r.systems] };
+  return { components: [...r.components], data: [...r.data], systems: [...r.systems], inputs: [...r.inputs] };
 }
 
 /** Classes the editor build registered that a script's registration replaced: put back when the script's goes. */

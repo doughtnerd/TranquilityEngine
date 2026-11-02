@@ -22,6 +22,7 @@ All decision records 0001–0024 are Accepted as of 2026-10-31.
 | O12 | Golden-image screenshot tests | Later | [0023](../decisions/0023-testing-vitest-and-browser-smoke-tests.md) |
 | O13 | Does "never expose three.js" (0010) also apply to physics and audio libraries? 0005 still allows a backend escape hatch for physics-specific features | Same rule: no Rapier/PhysX/Howler types in the public API | [0005](../decisions/0005-physics-backend.md), [0010](../decisions/0010-engine-graph-authoritative-over-threejs.md) |
 | O14 | How a project folder becomes a playable game build (the sample has none since 0031) | — | [0031](../decisions/0031-samples-ship-beside-the-engine.md) |
+| O15 | How a server World created at runtime (from a template) starts listening, e.g. a match World on the dedicated server. `WorldHandle` can `connect` but not `listen`, so `tranquility-server` only serves the bootstrap's server Worlds and logs the rest | A `WorldHandle.listen(transport, options)` like Unity's `NetworkStreamDriver.Listen`, with matchmaking (v2) | [0033](../decisions/0033-server-authoritative-netcode.md) |
 
 ## Resolved (2026-10-31)
 

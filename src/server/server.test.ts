@@ -163,6 +163,25 @@ describe("tranquility-server (T14)", () => {
     expect(netSession(server.engine._world("Lobby")!)!.maxConnections).toBe(3);
   });
 
+  it("ignores a loopback link's address (a name for editor play) and listens on the server's own port", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "tranquility-server-"));
+    temps.push(dir);
+    writeFileSync(
+      join(dir, "project.json"),
+      JSON.stringify({
+        bootstrap: {
+          worlds: [{ name: "Client", tags: ["client"] }, { name: "Server", tags: ["server"] }],
+          links: [{ from: "Client", to: "Server", transport: "loopback", options: { address: "arena", latencyMs: 50 } }],
+        },
+      }),
+    );
+    const lines: string[] = [];
+    const server = await startServer({ projectDir: dir, statsIntervalMs: 0, log: (l) => lines.push(l), port: 0, host: "127.0.0.1" });
+    servers.push(server);
+    expect(server.listeners).toHaveLength(1);
+    expect(server.listeners[0].url).toMatch(/^ws:\/\/127\.0\.0\.1:\d+\/?$/);
+  });
+
   it("runs a code bootstrap's server Worlds, listening where its skipped client Worlds connect", async () => {
     const dir = mkdtempSync(join(tmpdir(), "tranquility-server-"));
     temps.push(dir);

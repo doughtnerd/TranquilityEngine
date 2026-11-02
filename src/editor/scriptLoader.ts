@@ -266,7 +266,7 @@ export async function loadedScriptModule(path: string): Promise<Record<string, u
 }
 
 /** What the current project's scripts registered (the last `replaceScripts`). */
-let current: ScriptRegistrations = { components: [], data: [], systems: [] };
+let current: ScriptRegistrations = { components: [], data: [], systems: [], inputs: [] };
 
 /**
  * Load `scripts` in place of the scripts loaded before (a reload, or another project): their
@@ -276,12 +276,13 @@ let current: ScriptRegistrations = { components: [], data: [], systems: [] };
  */
 export async function replaceScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map()): Promise<LoadResult> {
   if (scripts.size === 0) loadedModules = new Map();
-  const result = scripts.size > 0 ? await loadScripts(scripts, json) : { loaded: [], problems: [], registered: { components: [], data: [], systems: [] } };
+  const result = scripts.size > 0 ? await loadScripts(scripts, json) : { loaded: [], problems: [], registered: { components: [], data: [], systems: [], inputs: [] } };
   const gone = (old: string[], now: string[]) => old.filter((id) => !now.includes(id));
   unregisterScripts({
     components: gone(current.components, result.registered.components),
     data: gone(current.data, result.registered.data),
     systems: gone(current.systems, result.registered.systems),
+    inputs: gone(current.inputs, result.registered.inputs),
   });
   current = result.registered;
   return result;

@@ -156,10 +156,25 @@ export function clampConditions(c: Partial<NetConditionValues>): NetConditionVal
 
 export const conditionsOff = (c: NetConditionValues) => c.latencyMs === 0 && c.jitterMs === 0 && c.lossPercent === 0;
 
+/** The slider values as a transport's link conditions (loss as a fraction). */
+export function linkConditions(c: NetConditionValues): { latencyMs: number; jitterMs: number; loss: number } {
+  const v = clampConditions(c);
+  return { latencyMs: v.latencyMs, jitterMs: v.jitterMs, loss: v.lossPercent / 100 };
+}
+
 /** Simulate `c` on every loopback link of `engine`, both ways. Returns how many transports took it. */
 export function applyNetConditions(engine: Engine, c: NetConditionValues): number {
-  const v = clampConditions(c);
-  return setNetConditions(engine, { latencyMs: v.latencyMs, jitterMs: v.jitterMs, loss: v.lossPercent / 100 });
+  return setNetConditions(engine, linkConditions(c));
+}
+
+/**
+ * `bootstrap` with `c` in every loopback link's options, so the links simulate it from their first
+ * message (the handshake and tick sync included); null or a code bootstrap: as it is.
+ */
+export function withConditions(bootstrap: BootstrapSetting | undefined, c: NetConditionValues | null): BootstrapSetting | undefined {
+  if (!c || !isRecord(bootstrap) || !Array.isArray(bootstrap.links)) return bootstrap;
+  const config = bootstrap as BootstrapConfig;
+  return { ...config, links: config.links!.map((l) => (l.transport === "loopback" ? { ...l, options: { ...l.options, ...linkConditions(c) } } : l)) };
 }
 
 // --- stats --------------------------------------------------------------------------------------
