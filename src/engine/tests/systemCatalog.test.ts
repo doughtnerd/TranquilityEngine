@@ -115,9 +115,9 @@ describe("the system catalog (T2)", () => {
   it("the default World keeps today's system order", async () => {
     const engine = await Engine.create({ headless: true });
     // The network systems (ADR 0033) are in every World but do nothing in one that isn't networked.
-    expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.NetReceiveTick", "engine.FixedUpdateScripts", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents"]);
+    expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.NetReceiveTick", "engine.NetInputTick", "engine.FixedUpdateScripts", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents"]);
     expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.UpdateScripts", "test.cat.Default"]);
-    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.NetSend"]);
+    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.NetInputSend", "engine.NetSend"]);
     engine.dispose();
   });
 });
