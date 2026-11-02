@@ -54,7 +54,7 @@ describe("hierarchy drop targets", () => {
 
   it("describes what releasing will do", () => {
     const { doc } = openScene.value!;
-    const drag = (target: ReturnType<typeof hierarchyDrop>, problem: string | null = null) => ({ path: "images/bird.png", x: 0, y: 0, target, problem });
+    const drag = (target: ReturnType<typeof hierarchyDrop>, problem: string | null = null) => ({ paths: ["images/bird.png"], x: 0, y: 0, target, problem });
     expect(dropDescription(drag(hierarchyDrop(doc, "bird", 0.5)), doc)).toBe("Add bird.png as a child of Bird");
     expect(dropDescription(drag(hierarchyDrop(doc, "ceiling", 0.1)), doc)).toBe("Add bird.png above Ceiling");
     expect(dropDescription(drag(null, "no kind of scene node fits this file"), doc)).toBe("bird.png: no kind of scene node fits this file");

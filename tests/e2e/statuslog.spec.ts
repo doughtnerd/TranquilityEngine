@@ -71,9 +71,9 @@ test("deleting an asset asks first, listing what uses it; Don't ask again skips 
   expect(await page.evaluate(() => (window as unknown as Hooks).testFolder.read("images/background.png"))).toBeUndefined();
   expect(await page.evaluate(() => (window as unknown as Hooks).testFolder.read("prefabs/background.prefab.json"))).not.toContain("background.png");
 
-  // No question now; the Delete key on a focused tile works too.
+  // No question now; the Delete key on a selected tile works too.
   const pipe = page.locator(".asset-tile", { hasText: "PipeUp.png" });
-  await pipe.focus();
+  await pipe.click();
   await page.keyboard.press("Delete");
   await expect(pipe).toHaveCount(0);
   await expect(page.getByRole("alertdialog")).toHaveCount(0);

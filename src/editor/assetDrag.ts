@@ -1,13 +1,16 @@
-// Dragging assets from the asset browser into the scene (ADR 0022): drop in the viewport to add
-// the asset at the top level under the cursor, or in the hierarchy to add it under (or beside)
-// a node. Built on pointer events rather than HTML drag and drop, which Tauri's webview takes
-// over on Windows for its own file drops.
+// Dragging assets from the asset browser (ADR 0022): drop in the viewport to add them at the top
+// level under the cursor, or in the hierarchy to add them under (or beside) a node; drop on a
+// folder (in the folder tree, the grid or the path bar) to move them there. Several selected
+// files drag together. Built on pointer events rather than HTML drag and drop, which Tauri's
+// webview takes over on Windows for its own file drops.
 import { errorStatus } from "./messages";
 import { signal } from "@preact/signals";
 import { pointOnSpritePlane } from "../engine/editor";
 import type { SceneDocument } from "./document";
 import { addAsset, fileName, whyNotAddable } from "./assetBrowser";
-import { openScene, playState, sceneCamera, selection, status } from "./state";
+import { entryPath, isFolderEntry } from "./assetDelete";
+import { moveAssetsTo, whyNotMoveTarget } from "./assetOps";
+import { currentProject, openScene, playState, sceneCamera, selectedKeys, status } from "./state";
 
 /** Pointer travel (CSS px) before pressing an asset tile becomes a drag. */
 const DRAG_THRESHOLD = 5;
@@ -15,10 +18,12 @@ const DRAG_THRESHOLD = 5;
 /** Where a dragged asset would go. */
 export type AssetDropTarget =
   | { kind: "viewport"; x: number; y: number }
+  | { kind: "folder"; folder: string }
   | { kind: "hierarchy"; mode: "into" | "before" | "after" | "root"; row: string | null; parent: string | null; index?: number };
 
 export interface AssetDrag {
-  path: string;
+  /** What's dragged: Assets panel entries (folders end in "/"). */
+  paths: readonly string[];
   /** Pointer position in client pixels, for the ghost label. */
   x: number;
   y: number;
@@ -46,8 +51,16 @@ export function hierarchyDrop(doc: SceneDocument, rowKey: string | null, fractio
   return { kind: "hierarchy", mode: "into", row: rowKey, parent: rowKey };
 }
 
+/** The folder under a client point (folder tiles, tree items and path parts carry `data-drop-folder`), or null. */
+function folderAt(clientX: number, clientY: number): string | null {
+  const el = (document.elementFromPoint(clientX, clientY) as HTMLElement | null)?.closest<HTMLElement>("[data-drop-folder]");
+  return el ? (el.dataset.dropFolder ?? null) : null;
+}
+
 /** The drop target under a client point, found from the DOM (rows carry `data-key`). */
 function targetAt(clientX: number, clientY: number): AssetDropTarget | null {
+  const folder = folderAt(clientX, clientY);
+  if (folder !== null) return { kind: "folder", folder };
   const scene = openScene.value;
   const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
   if (!scene || !el) return null;
@@ -78,24 +91,51 @@ export function hierarchyTargetAt(clientX: number, clientY: number): AssetDropTa
   return hierarchyDrop(scene.doc, row.dataset.key ?? null, r.height > 0 ? (clientY - r.top) / r.height : 0.5);
 }
 
-/** Add the dragged asset at `target`. Returns the new node's id. */
-function drop(path: string, target: AssetDropTarget): string {
+/** Add the dragged assets at `target` (one undo step). Returns the new nodes' ids. */
+function drop(paths: readonly string[], target: Exclude<AssetDropTarget, { kind: "folder" }>): string[] {
   const scene = openScene.value!;
-  if (target.kind === "viewport") {
-    // Under the cursor on the plane sprites live on; the camera's focus if the ray misses it.
-    const camera = sceneCamera.value;
-    const point = (camera && pointOnSpritePlane(camera.world, target.x, target.y)) ?? (camera ? camera.focusPoint.toArray() : [0, 0, 0]);
-    return addAsset(scene, path, { parent: null, position: point as [number, number, number], placeInstances: true });
+  const ids: string[] = [];
+  scene.stack.beginGroup(paths.length === 1 ? `Add ${fileName(paths[0])}` : `Add ${paths.length} assets`);
+  try {
+    if (target.kind === "viewport") {
+      // Under the cursor on the plane sprites live on; the camera's focus if the ray misses it.
+      const camera = sceneCamera.value;
+      const point = (camera && pointOnSpritePlane(camera.world, target.x, target.y)) ?? (camera ? camera.focusPoint.toArray() : [0, 0, 0]);
+      for (const path of paths) ids.push(addAsset(scene, path, { parent: null, position: point as [number, number, number], placeInstances: true }));
+    } else {
+      paths.forEach((path, i) => ids.push(addAsset(scene, path, { parent: target.parent, index: target.index === undefined ? undefined : target.index + i })));
+    }
+  } finally {
+    scene.stack.endGroup();
   }
-  return addAsset(scene, path, { parent: target.parent, index: target.index });
+  return ids;
+}
+
+/** Why the dragged entries can't go to `target`, or null if they can. */
+function problemFor(paths: readonly string[], target: AssetDropTarget): string | null {
+  if (target.kind === "folder") {
+    if (!currentProject.value?.canSave) return "this project is read-only";
+    if (playState.value !== "edit") return "stop playing to move files";
+    return whyNotMoveTarget(paths, target.folder);
+  }
+  const scene = openScene.value;
+  if (!scene) return "Open a scene first";
+  if (playState.value !== "edit") return "Stop playing to add assets";
+  if (paths.some(isFolderEntry)) return "folders can't be added to a scene";
+  for (const path of paths) {
+    const reason = whyNotAddable(scene.doc, path);
+    if (reason) return paths.length === 1 ? reason : `${fileName(path)}: ${reason}`;
+  }
+  return null;
 }
 
 /**
- * Press on an asset tile: past the threshold this drags the asset. The ghost label follows the
- * pointer and says what will happen; releasing over a valid spot adds the asset (one undoable
- * step) and selects it; anywhere else, or Escape, does nothing.
+ * Press on an asset tile: past the threshold this drags `paths` (the selection). The ghost label
+ * follows the pointer and says what will happen; releasing over a valid spot adds the assets to
+ * the scene (one undoable step, selecting them) or moves them to a folder; anywhere else, or
+ * Escape, does nothing.
  */
-export function startAssetDrag(e: PointerEvent, path: string): void {
+export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void {
   if (e.button !== 0) return;
   const startX = e.clientX, startY = e.clientY;
   let active = false;
@@ -106,13 +146,13 @@ export function startAssetDrag(e: PointerEvent, path: string): void {
       active = true;
       window.getSelection()?.removeAllRanges();
     }
-    const scene = openScene.value;
     const target = targetAt(m.clientX, m.clientY);
-    const problem =
-      !scene ? "Open a scene first"
-      : playState.value !== "edit" ? "Stop playing to add assets"
-      : whyNotAddable(scene.doc, path) ?? (target ? null : overPrefabInsides(m.clientX, m.clientY) ? PREFAB_INSIDES : "drop it in the viewport or the hierarchy");
-    assetDrag.value = { path, x: m.clientX, y: m.clientY, target: problem ? null : target, problem };
+    const problem = target
+      ? problemFor(paths, target)
+      : overPrefabInsides(m.clientX, m.clientY)
+        ? PREFAB_INSIDES
+        : (problemFor(paths, { kind: "viewport", x: 0, y: 0 }) ?? "drop it in the viewport, the hierarchy or a folder");
+    assetDrag.value = { paths, x: m.clientX, y: m.clientY, target: problem ? null : target, problem };
   };
   const finish = (apply: boolean) => {
     window.removeEventListener("pointermove", update);
@@ -122,12 +162,17 @@ export function startAssetDrag(e: PointerEvent, path: string): void {
     const state = assetDrag.value;
     assetDrag.value = null;
     if (!apply || !active || !state?.target) return;
+    const target = state.target;
+    if (target.kind === "folder") {
+      void moveAssetsTo(paths, target.folder);
+      return;
+    }
+    const name = paths.length === 1 ? fileName(paths[0]) : `${paths.length} assets`;
     try {
-      const id = drop(path, state.target);
-      selection.value = id;
-      status.value = { kind: "info", text: `Added ${fileName(path)}` };
+      selectedKeys.value = drop(paths, target);
+      status.value = { kind: "info", text: `Added ${name}` };
     } catch (err) {
-      status.value = errorStatus(`Couldn't add ${fileName(path)}`, err);
+      status.value = errorStatus(`Couldn't add ${name}`, err);
     }
   };
   const up = (m: PointerEvent) => {
@@ -149,10 +194,11 @@ export function startAssetDrag(e: PointerEvent, path: string): void {
 
 /** Text for the ghost label: what releasing here will do. */
 export function dropDescription(drag: AssetDrag, doc: SceneDocument | null): string {
-  const name = fileName(drag.path);
+  const name = drag.paths.length === 1 ? fileName(entryPath(drag.paths[0])) : `${drag.paths.length} items`;
   if (drag.problem || !drag.target) return `${name}: ${drag.problem ?? "can't drop here"}`;
   const t = drag.target;
   if (t.kind === "viewport") return `Add ${name} here`;
+  if (t.kind === "folder") return `Move ${name} to ${t.folder || "the project folder"}`;
   const label = (id: string | null) => (id && doc?.has(id) ? doc.node(id).name ?? id : "the scene");
   switch (t.mode) {
     case "into": return `Add ${name} as a child of ${label(t.row)}`;

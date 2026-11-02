@@ -51,9 +51,15 @@ export class TauriFileSystem implements FileSystem {
     await fs.mkdir(path, { recursive: true });
   }
 
-  async remove(path: string): Promise<void> {
+  async remove(path: string, options?: { recursive?: boolean }): Promise<void> {
     const fs = await import("@tauri-apps/plugin-fs");
-    await fs.remove(path);
+    await fs.remove(path, { recursive: options?.recursive ?? false });
+  }
+
+  async rename(from: string, to: string): Promise<void> {
+    const fs = await import("@tauri-apps/plugin-fs");
+    if (await fs.exists(to)) throw new Error(`"${to}" already exists.`);
+    await fs.rename(from, to);
   }
 
   async pickFolder(title?: string): Promise<string | null> {
@@ -72,6 +78,11 @@ export class TauriFileSystem implements FileSystem {
   async openExternally(path: string): Promise<void> {
     const opener = await import("@tauri-apps/plugin-opener");
     await opener.openPath(path);
+  }
+
+  async reveal(path: string): Promise<void> {
+    const opener = await import("@tauri-apps/plugin-opener");
+    await opener.revealItemInDir(path);
   }
 }
 

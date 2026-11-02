@@ -12,7 +12,7 @@ import { errorStatus } from "./messages";
 import { instancesOf } from "./prefabs";
 import { writeSceneFile } from "./project";
 import { askBeforeDeletingAssets } from "./preferences";
-import type { EditorProject } from "./projects";
+import { isWithin, type EditorProject } from "./projects";
 import { reloadScripts } from "./session";
 import { currentProject, docVersion, openScene, playState, scriptsVersion, status } from "./state";
 import { confirmInEditor } from "./ui/ConfirmDialog";
@@ -82,28 +82,68 @@ export function assetUsers(project: EditorProject, path: string, openDocument?: 
   return users;
 }
 
+/** Folder entries in an asset selection end in "/" (`images/`); files don't. */
+export const isFolderEntry = (entry: string) => entry.endsWith("/");
+/** The project path of a selection entry: `images/` → `images`. */
+export const entryPath = (entry: string) => (isFolderEntry(entry) ? entry.slice(0, -1) : entry);
+
+/** The files (assets and scripts) in `folder`, at any depth. */
+export function filesIn(project: EditorProject, folder: string): string[] {
+  return [...project.files, ...project.scripts.keys()].filter((f) => isWithin(f, folder));
+}
+
+/** Why the folder `path` can't be deleted (or moved) right now, or null if it can. */
+export function whyNotDeletableFolder(project: EditorProject, path: string, openPath: string | null): string | null {
+  if (!project.canSave) return "this project is read-only";
+  if (path === "") return "it's the project folder";
+  if (openPath && isWithin(openPath, path)) return `it holds the scene open now (${openPath}); open another scene first`;
+  if (playState.peek() !== "edit") return "stop playing first";
+  if (!project.folders.includes(path)) return "it's gone already";
+  return null;
+}
+
 /**
  * Delete an asset or script, asking first unless the user turned that off. Returns true if it was
  * deleted.
  */
-export async function deleteAsset(path: string): Promise<boolean> {
+export function deleteAsset(path: string): Promise<boolean> {
+  return deleteAssets([path]);
+}
+
+/**
+ * Delete files and folders (selection entries: folders end in "/"), asking first unless the user
+ * turned that off; one question for all of them. References to the deleted files in scenes,
+ * prefabs and project.json are removed, the open scene's as one undo step. Returns true if they
+ * were deleted.
+ */
+export async function deleteAssets(entries: readonly string[]): Promise<boolean> {
   const project = currentProject.value;
-  if (!project) return false;
+  if (!project || entries.length === 0) return false;
   const scene = openScene.value;
-  const reason = whyNotDeletableAsset(project, path, scene?.path ?? null);
-  if (reason) {
-    status.value = { kind: "info", text: `Can't delete ${fileName(path)}: ${reason}.` };
-    return false;
+  const why = (entry: string) =>
+    isFolderEntry(entry) ? whyNotDeletableFolder(project, entryPath(entry), scene?.path ?? null) : whyNotDeletableAsset(project, entry, scene?.path ?? null);
+  for (const entry of entries) {
+    const reason = why(entry);
+    if (reason) {
+      status.value = { kind: "info", text: `Can't delete ${fileName(entryPath(entry))}: ${reason}.` };
+      return false;
+    }
   }
+  // Folders take their contents with them; a file inside a deleted folder needn't be deleted again.
+  const folders = entries.filter(isFolderEntry).map(entryPath);
+  const loose = entries.filter((e) => !isFolderEntry(e) && !folders.some((f) => isWithin(e, f)));
+  const deleting = new Set([...loose, ...folders.flatMap((f) => filesIn(project, f))]);
   const open = scene && scene.stack.dirty ? { path: scene.path, text: JSON.stringify(scene.doc.toJSON()) } : null;
-  const users = assetUsers(project, path, open);
+  const users = [...new Set([...deleting].flatMap((path) => assetUsers(project, path, open)))].filter((u) => !deleting.has(u));
+  const name = entries.length === 1 ? fileName(entryPath(entries[0])) : `${entries.length} items`;
   if (askBeforeDeletingAssets.value) {
+    const contents = folders.length > 0 ? ` ${deleting.size === 1 ? "1 file" : `${deleting.size} files`} in all.` : "";
     const answer = await confirmInEditor({
-      title: `Delete ${fileName(path)}?`,
+      title: `Delete ${name}?`,
       message:
         users.length > 0
-          ? `It's deleted from disk, which can't be undone. ${users.length === 1 ? "This file uses it" : `These ${users.length} files use it`}: references in scenes, prefabs and project settings are removed (instances of it are deleted); scripts keep theirs.`
-          : "It's deleted from disk, which can't be undone. Nothing in the project uses it.",
+          ? `It's deleted from disk, which can't be undone.${contents} ${users.length === 1 ? "This file uses it" : `These ${users.length} files use it`}: references in scenes, prefabs and project settings are removed (instances of it are deleted); scripts keep theirs.`
+          : `It's deleted from disk, which can't be undone.${contents} Nothing in the project uses it.`,
       items: users,
       confirmLabel: "Delete",
       optionLabel: "Don't ask again",
@@ -112,36 +152,49 @@ export async function deleteAsset(path: string): Promise<boolean> {
     if (answer.option) askBeforeDeletingAssets.value = false;
   }
   // Things may have changed while the dialog was open.
-  if (currentProject.value !== project || whyNotDeletableAsset(project, path, openScene.value?.path ?? null)) return false;
-  const wasScript = project.scripts.has(path);
+  if (currentProject.value !== project || entries.some((e) => why(e))) return false;
+  const hadScript = [...deleting].some((p) => project.scripts.has(p));
   try {
-    await project.deleteFile(path);
+    for (const folder of folders) await project.deleteFolder(folder);
+    for (const path of loose) await project.deleteFile(path);
   } catch (err) {
-    status.value = errorStatus(`Couldn't delete ${path}`, err);
+    status.value = errorStatus(`Couldn't delete ${name}`, err);
+    docVersion.value++;
     return false;
   }
-  let cleaned: string[] = [];
+  const cleaned = new Set<string>();
+  const stack = openScene.value?.stack;
+  stack?.beginGroup(`Remove references to ${name}`);
   try {
-    cleaned = await removeReferences(project, path);
+    for (const path of deleting) for (const f of await removeReferences(project, path)) cleaned.add(f);
   } catch (err) {
-    status.value = errorStatus(`Deleted ${path}, but couldn't remove references to it`, err);
+    status.value = errorStatus(`Deleted ${name}, but couldn't remove references to it`, err);
     return true;
+  } finally {
+    stack?.endGroup();
   }
   // What's left: scripts, mostly. (The open scene's file changes when it's saved.)
-  const remaining = assetUsers(project, path).filter((u) => u !== openScene.value?.path);
+  const remaining = [...new Set([...deleting].flatMap((path) => assetUsers(project, path)))].filter((u) => u !== openScene.value?.path);
   docVersion.value++; // the Assets panel lists the project's files
   scriptsVersion.value++;
-  if (openScripts.value.includes(path)) closeScript(path);
-  if (wasScript) await reloadScripts();
+  for (const path of deleting) if (openScripts.value.includes(path)) closeScript(path);
+  if (hadScript) await reloadScripts();
+  const label = entries.length === 1 ? entryPath(entries[0]) : `${entries.length} items`;
   const parts = [
-    cleaned.length > 0 ? ` Removed references from ${cleaned.join(", ")}.` : "",
+    cleaned.size > 0 ? ` Removed references from ${[...cleaned].join(", ")}.` : "",
     remaining.length > 0 ? ` Still referred to by ${remaining.join(", ")}.` : "",
   ];
   status.value = {
     kind: "info",
-    text: `Deleted ${path}.${parts.join("")}`,
-    ...(cleaned.length + remaining.length > 0
-      ? { detail: [...cleaned.map((f) => `cleaned: ${f}`), ...remaining.map((f) => `still refers to it: ${f}`)].join("\n") }
+    text: `Deleted ${label}.${parts.join("")}`,
+    ...(entries.length > 1 || cleaned.size + remaining.length > 0
+      ? {
+          detail: [
+            ...(entries.length > 1 ? entries.map((e) => `deleted: ${entryPath(e)}`) : []),
+            ...[...cleaned].map((f) => `cleaned: ${f}`),
+            ...remaining.map((f) => `still refers to it: ${f}`),
+          ].join("\n"),
+        }
       : {}),
     ...(askBeforeDeletingAssets.value
       ? {}

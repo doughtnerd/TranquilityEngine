@@ -24,7 +24,10 @@ export interface FileSystem {
   exists(path: string): Promise<boolean>;
   /** Create the folder and any missing parents. */
   mkdir(path: string): Promise<void>;
-  remove(path: string): Promise<void>;
+  /** Delete a file, or a folder (`recursive` for one that isn't empty). */
+  remove(path: string, options?: { recursive?: boolean }): Promise<void>;
+  /** Rename or move a file or folder. Fails if `to` exists. */
+  rename(from: string, to: string): Promise<void>;
   /** Native folder picker. Returns the chosen path, or null if cancelled. */
   pickFolder(title?: string): Promise<string | null>;
   /**
@@ -34,6 +37,8 @@ export interface FileSystem {
   watch?(path: string, onChange: (paths: string[]) => void): Promise<() => void>;
   /** Open a file or folder with the system's default app (for a script: its code editor). Desktop only. */
   openExternally?(path: string): Promise<void>;
+  /** Show a file or folder in the system's file manager (Explorer, Finder). Desktop only. */
+  reveal?(path: string): Promise<void>;
 }
 
 export class UnsupportedError extends Error {
@@ -70,6 +75,7 @@ export class BrowserFileSystem implements FileSystem {
   list(): Promise<DirEntry[]> { return Promise.reject(new UnsupportedError("list")); }
   mkdir(): Promise<void> { return Promise.reject(new UnsupportedError("mkdir")); }
   remove(): Promise<void> { return Promise.reject(new UnsupportedError("remove")); }
+  rename(): Promise<void> { return Promise.reject(new UnsupportedError("rename")); }
   pickFolder(): Promise<string | null> { return Promise.reject(new UnsupportedError("pickFolder")); }
 
   private async fetch(path: string): Promise<Response> {

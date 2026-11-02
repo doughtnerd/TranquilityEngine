@@ -2,7 +2,8 @@
 // file that's gone. In scene and prefab files: nodes that are instances of it are removed (with
 // their children, and references to them set to None); component fields, overrides and nested
 // values that name it are dropped (fields go back to their defaults). In project.json: autoloads
-// of it are dropped. Pure functions on parsed files; assetDelete.ts writes the results.
+// of it are dropped. For renamed or moved files, `withMovedAssets` points references at the new
+// paths. Pure functions on parsed files; assetDelete.ts and assetOps.ts write the results.
 import type { OverrideEntry, SceneFile } from "./document";
 
 /** True for a value naming `path`: the plain path, or an `asset:` reference to it. */
@@ -100,4 +101,26 @@ export function settingsWithoutAsset(settings: Record<string, unknown>, path: st
   const autoload = settings.autoload;
   if (!Array.isArray(autoload) || !autoload.some((a) => names(a, path))) return { settings, changed: false };
   return { settings: { ...settings, autoload: autoload.filter((a) => !names(a, path)) }, changed: true };
+}
+
+/**
+ * `value` with every string naming a moved file updated: `rename` gives a path's new path, or
+ * null if it didn't move. `asset:` references keep their prefix.
+ */
+export function withMovedAssets<T>(value: T, rename: (path: string) => string | null): { value: T; changed: boolean } {
+  let changed = false;
+  const walk = (v: unknown): unknown => {
+    if (typeof v === "string") {
+      const asset = v.startsWith("asset:");
+      const to = rename(asset ? v.slice(6) : v);
+      if (to === null) return v;
+      changed = true;
+      return asset ? `asset:${to}` : to;
+    }
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    return v;
+  };
+  const out = walk(value) as T;
+  return { value: changed ? out : value, changed };
 }

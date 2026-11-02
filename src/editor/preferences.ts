@@ -33,3 +33,9 @@ export const askBeforeClearingReferences = persisted("tranquility.editor.askBefo
  * default) or per-user storage outside the project. Read-only projects always use per-user storage.
  */
 export const historyLocation = persisted<"project" | "user">("tranquility.editor.historyLocation", "project");
+
+/** How the Assets panel lists files: tiles in a grid, or rows with kind and size. */
+export const assetView = persisted<"grid" | "list">("tranquility.editor.assetView", "grid");
+
+/** The Assets panel's tile size in the grid (CSS px of the thumbnail's width). */
+export const assetTileSize = persisted("tranquility.editor.assetTileSize", 56);

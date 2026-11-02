@@ -39,7 +39,22 @@ export interface EditorProject {
   writeFile(path: string, text: string): Promise<void>;
   /** Delete a file (an asset or a script) from disk and from the project. */
   deleteFile(path: string): Promise<void>;
+  /** Every folder (project-relative, sorted), empty ones included. */
+  readonly folders: readonly string[];
+  /** A file's size in bytes, if known (the bundled demo's binary assets aren't). */
+  sizeOf(path: string): number | undefined;
+  /** Create a folder on disk (and its parents). */
+  createFolder(path: string): Promise<void>;
+  /** Rename or move a file or folder (with everything in it) on disk and in the project. */
+  move(from: string, to: string): Promise<void>;
+  /** Copy a file to `to` (which mustn't exist). */
+  copyFile(from: string, to: string): Promise<void>;
+  /** Delete a folder and everything in it from disk and from the project. */
+  deleteFolder(path: string): Promise<void>;
 }
+
+/** True if `path` is `folder` or inside it. */
+export const isWithin = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
 const ASSET_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|mp3|ogg|wav|json|js)$/i;
 
@@ -63,6 +78,12 @@ const MIME: Record<string, string> = {
 
 export const isScenePath = (path: string) => /\.(scene|prefab)\.json$/.test(path);
 
+/** An object URL serving a binary asset's bytes. */
+const blobUrl = (path: string, bytes: Uint8Array) =>
+  URL.createObjectURL(new Blob([bytes as BlobPart], { type: MIME[path.split(".").pop()!.toLowerCase()] ?? "application/octet-stream" }));
+
+const textBytes = (text: string) => new TextEncoder().encode(text).length;
+
 /** The first scene to open: `scenes/main.scene.json`, else the first scene file. */
 export function pickMainScene(files: readonly string[]): string | null {
   if (files.includes("scenes/main.scene.json")) return "scenes/main.scene.json";
@@ -84,6 +105,8 @@ class MapProject implements EditorProject {
     private readonly scriptFiles: { read: () => Promise<Map<string, string>> } | null = null,
     readonly fileSystem: FileSystem | null = null,
     private scriptMap: Map<string, string> = new Map(),
+    private readonly folderSet: Set<string> = new Set(),
+    private readonly sizes: Map<string, number> = new Map(),
   ) {
     this.mainScene = pickMainScene(this.files);
     this.assets = { has: (p) => values.has(p), get: (p) => values.get(p) };
@@ -143,12 +166,90 @@ class MapProject implements EditorProject {
   }
 
   async deleteFile(path: string): Promise<void> {
+    const { fs, root } = this.disk();
+    await fs.remove(joinPath(root, path));
+    this.forget(path);
+  }
+
+  get folders(): readonly string[] {
+    const all = new Set(this.folderSet);
+    for (const file of [...this.values.keys(), ...this.scriptMap.keys()]) {
+      for (let i = file.indexOf("/"); i >= 0; i = file.indexOf("/", i + 1)) all.add(file.slice(0, i));
+    }
+    return [...all].sort();
+  }
+
+  sizeOf(path: string): number | undefined {
+    const text = this.scriptMap.get(path) ?? this.texts.get(path);
+    return text !== undefined ? textBytes(text) : this.sizes.get(path);
+  }
+
+  async createFolder(path: string): Promise<void> {
+    const { fs, root } = this.disk();
+    await fs.mkdir(joinPath(root, path));
+    this.folderSet.add(path);
+  }
+
+  async move(from: string, to: string): Promise<void> {
+    const { fs, root } = this.disk();
+    await fs.rename(joinPath(root, from), joinPath(root, to));
+    const rename = (p: string) => (isWithin(p, from) ? to + p.slice(from.length) : p);
+    const rekey = <T>(map: Map<string, T>) => {
+      for (const [p, v] of [...map]) {
+        if (!isWithin(p, from)) continue;
+        map.delete(p);
+        map.set(rename(p), v);
+      }
+    };
+    rekey(this.values);
+    rekey(this.texts);
+    rekey(this.sizes);
+    const scripts = new Map(this.scriptMap);
+    rekey(scripts);
+    this.scriptMap = scripts;
+    for (const f of [...this.folderSet]) {
+      if (!isWithin(f, from)) continue;
+      this.folderSet.delete(f);
+      this.folderSet.add(rename(f));
+    }
+    if (!this.values.has(to) && !this.scriptMap.has(to)) this.folderSet.add(to); // a folder (perhaps empty)
+    this.sortedFiles = null;
+  }
+
+  async copyFile(from: string, to: string): Promise<void> {
+    const { fs, root } = this.disk();
+    if (this.values.has(to) || this.scriptMap.has(to) || (await fs.exists(joinPath(root, to)))) throw new Error(`"${to}" already exists.`);
+    const script = this.scriptMap.get(from);
+    if (script !== undefined) return this.writeScript(to, script);
+    const text = this.texts.get(from);
+    if (text !== undefined) return this.writeFile(to, text);
+    const bytes = await fs.readBinary(joinPath(root, from));
+    await fs.writeBinary(joinPath(root, to), bytes);
+    this.values.set(to, blobUrl(to, bytes));
+    this.sizes.set(to, bytes.length);
+    this.sortedFiles = null;
+  }
+
+  async deleteFolder(path: string): Promise<void> {
+    const { fs, root } = this.disk();
+    await fs.remove(joinPath(root, path), { recursive: true });
+    for (const p of [...this.values.keys(), ...this.scriptMap.keys()]) if (isWithin(p, path)) this.forget(p);
+    for (const f of [...this.folderSet]) if (isWithin(f, path)) this.folderSet.delete(f);
+  }
+
+  /** The folder's file system, or an error for read-only projects. */
+  private disk(): { fs: FileSystem; root: string } {
     if (!this.write || !this.fileSystem || !this.root) throw new Error(`${this.name} is read-only.`);
-    await this.fileSystem.remove(joinPath(this.root, path));
+    return { fs: this.fileSystem, root: this.root };
+  }
+
+  /** Drop a deleted file from the project. */
+  private forget(path: string): void {
     const value = this.values.get(path);
     if (typeof value === "string" && value.startsWith("blob:")) URL.revokeObjectURL(value);
     if (this.values.delete(path)) this.sortedFiles = null;
     this.texts.delete(path);
+    this.sizes.delete(path);
     if (this.scriptMap.has(path)) {
       this.scriptMap = new Map(this.scriptMap);
       this.scriptMap.delete(path);
@@ -180,13 +281,21 @@ export function joinPath(root: string, path: string): string {
 }
 
 /** Every asset file under `root` (or the files `accept` takes), as project-relative paths. Skips hidden and build folders. */
-export async function listAssetFiles(fs: FileSystem, root: string, dir = "", accept: (path: string) => boolean = (p) => ASSET_EXTENSIONS.test(p)): Promise<string[]> {
+export async function listAssetFiles(
+  fs: FileSystem,
+  root: string,
+  dir = "",
+  accept: (path: string) => boolean = (p) => ASSET_EXTENSIONS.test(p),
+  folders?: Set<string>,
+): Promise<string[]> {
   const out: string[] = [];
   for (const entry of await fs.list(dir ? joinPath(root, dir) : root)) {
     if (entry.name.startsWith(".")) continue;
     const path = dir ? `${dir}/${entry.name}` : entry.name;
     if (entry.isDirectory) {
-      if (!SKIP_DIRS.has(entry.name)) out.push(...(await listAssetFiles(fs, root, path, accept)));
+      if (SKIP_DIRS.has(entry.name)) continue;
+      folders?.add(path);
+      out.push(...(await listAssetFiles(fs, root, path, accept, folders)));
     } else if (accept(path)) {
       out.push(path);
     }
@@ -204,7 +313,9 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
   }
   const values = new Map<string, unknown>();
   const texts = new Map<string, string>();
-  for (const path of await listAssetFiles(fs, root)) {
+  const folders = new Set<string>();
+  const sizes = new Map<string, number>();
+  for (const path of await listAssetFiles(fs, root, "", undefined, folders)) {
     if (path.endsWith(".json")) {
       const text = await fs.readText(joinPath(root, path));
       try {
@@ -219,8 +330,8 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
       texts.set(path, text);
     } else {
       const bytes = await fs.readBinary(joinPath(root, path));
-      const type = MIME[path.split(".").pop()!.toLowerCase()] ?? "application/octet-stream";
-      values.set(path, URL.createObjectURL(new Blob([bytes as BlobPart], { type })));
+      values.set(path, blobUrl(path, bytes));
+      sizes.set(path, bytes.length);
     }
   }
   const readScripts = async () => {
@@ -232,7 +343,8 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
   };
   const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput & { name?: string };
   const folder = root.split(/[\\/]/).filter(Boolean).pop() ?? root;
-  return new MapProject(settings.name ?? folder, root, settings, values, texts, (path, text) => fs.writeText(joinPath(root, path), text), { read: readScripts }, fs, await readScripts());
+  const write = (path: string, text: string) => fs.writeText(joinPath(root, path), text);
+  return new MapProject(settings.name ?? folder, root, settings, values, texts, write, { read: readScripts }, fs, await readScripts(), folders, sizes);
 }
 
 /** Settings for the Editor World: the project's, minus autoloads, with the editor's background. */

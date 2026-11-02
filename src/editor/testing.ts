@@ -33,16 +33,45 @@ export class MemoryFileSystem implements FileSystem {
       const rest = k.slice(prefix.length).split("\\");
       names.set(rest[0], rest.length > 1 || names.get(rest[0]) === true);
     }
+    for (const k of this.folders) if (k.startsWith(prefix)) names.set(k.slice(prefix.length).split("\\")[0], true);
     return [...names].map(([name, isDirectory]) => ({ name, isDirectory }));
   }
   async exists(p: string) {
     const k = this.key(p);
     const folder = k.replace(/\\$/, "") + "\\";
-    return this.files.has(k) || [...this.files.keys()].some((f) => f.startsWith(folder)); // a file, or a folder holding files
+    return this.files.has(k) || this.folders.has(k) || [...this.files.keys()].some((f) => f.startsWith(folder)); // a file, or a folder
   }
-  async mkdir() {}
-  async remove(p: string) {
-    this.files.delete(this.key(p));
+  readonly folders = new Set<string>();
+  async mkdir(p: string) {
+    this.folders.add(this.key(p));
+  }
+  async remove(p: string, options?: { recursive?: boolean }) {
+    const k = this.key(p), inside = k.replace(/\\$/, "") + "\\";
+    const children = [...this.files.keys()].filter((f) => f.startsWith(inside));
+    if (children.length > 0 && !options?.recursive) throw new Error(`${p} isn't empty`);
+    for (const f of children) this.files.delete(f);
+    for (const f of [...this.folders]) if (f === k || f.startsWith(inside)) this.folders.delete(f);
+    this.files.delete(k);
+  }
+  async rename(from: string, to: string) {
+    const f = this.key(from), t = this.key(to);
+    if (await this.exists(to)) throw new Error(`"${to}" already exists.`);
+    if (this.files.has(f)) {
+      this.files.set(t, this.files.get(f)!);
+      this.files.delete(f);
+      return;
+    }
+    const inside = f + "\\";
+    for (const [k, v] of [...this.files]) {
+      if (!k.startsWith(inside)) continue;
+      this.files.set(t + k.slice(f.length), v);
+      this.files.delete(k);
+    }
+    for (const k of [...this.folders]) {
+      if (k !== f && !k.startsWith(inside)) continue;
+      this.folders.add(t + k.slice(f.length));
+      this.folders.delete(k);
+    }
   }
   async pickFolder() {
     return null;

@@ -18,6 +18,7 @@ import { openSceneFile, saveOpenScene } from "./project";
 import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, docVersion, openScene, playState, sceneCamera, scriptProblems, scriptsVersion, selection, status, viewMode } from "./state";
 import { closeAllScripts, preloadCodeEditor } from "./code/codeState";
+import { resetAssetBrowser } from "./assetSelection";
 import { isScriptPath, replaceScripts } from "./scriptLoader";
 import { viewportElements } from "./ui/ScenePanel";
 import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
@@ -78,6 +79,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   // project's (ADR 0030).
   pendingReload = false;
   closeAllScripts();
+  resetAssetBrowser();
   const scripts = await replaceScripts(project.scripts, jsonFiles(project));
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;
