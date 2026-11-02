@@ -7,6 +7,7 @@ import { CodePanel } from "./CodePanel";
 import { AssetDragGhost } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusBar } from "./StatusBar";
+import { NetworkPanel } from "./NetworkPanel";
 import { NewScriptDialog } from "./NewScriptDialog";
 import { HistoryPanel } from "./HistoryPanel";
 import { RefineList } from "./RefineList";
@@ -17,7 +18,7 @@ import { ScenePanel } from "./ScenePanel";
 import { StartScreen } from "./StartScreen";
 import { WorldsPanel } from "./WorldsPanel";
 
-const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => <WorldsPanel /> };
+const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => <WorldsPanel />, network: () => <NetworkPanel /> };
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {

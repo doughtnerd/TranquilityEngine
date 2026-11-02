@@ -5,11 +5,11 @@ import { Engine, GameObject } from "../engine";
 import { overlayHandlesOnCanvas, screenBounds } from "../engine/editor";
 import { pathKey } from "./document";
 import { getFileSystem } from "../engine/platform/FileSystem";
-import { effect } from "@preact/signals";
+import { effect, signal } from "@preact/signals";
 import { confirmDiscard } from "./dialogs";
 import { copySample, findSample, openSampleProject, type SampleInfo } from "./samples";
 import { attachHistory, defaultHistoryPlatform, slotsFor, type AttachedHistory } from "./historyPersistence";
-import { historyLocation } from "./preferences";
+import { historyLocation, netConditionsSetting, netPlaySetup } from "./preferences";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { installColliderGizmo } from "./colliderGizmo";
 import { installGizmo } from "./gizmo";
@@ -27,6 +27,8 @@ import { installViewportSelection } from "./viewportSelection";
 
 let session: { engine: Engine; dispose(): void } | null = null;
 let play: PlaySession | null = null;
+/** The running play session, for the Network panel (ADR 0033 §9); null while editing. */
+export const playing = signal<PlaySession | null>(null);
 /** The open scene's edit history on disk (ADR 0027). */
 let history: AttachedHistory | null = null;
 
@@ -283,11 +285,26 @@ export async function startPlaying(): Promise<void> {
   const scene = openScene.value, project = currentProject.value;
   if (!session || !scene || !project || playState.value !== "edit") return;
   playState.value = "starting";
+  const setup = netPlaySetup.value;
   try {
-    play = await startPlay({ editor: session.engine, scene, project, container: viewportElements().gameView });
+    play = await startPlay({
+      editor: session.engine,
+      scene,
+      project,
+      container: viewportElements().gameView,
+      netPlay: setup.enabled ? { clients: setup.clients, thin: setup.thin, thinInput: setup.thinInput } : undefined,
+      conditions: netConditionsSetting.value,
+    });
+    playing.value = play;
     playState.value = "playing";
     Object.assign(window, { playEngine: play.engine }); // debug and end-to-end test hook
-    status.value = { kind: "info", text: `Playing ${scene.path}. Edits made now don't affect the running game. Stop (Ctrl+P) to return.` };
+    const net = play.netPlay;
+    const how = net
+      ? ` with ${net.clients.length} client${net.clients.length === 1 ? "" : "s"}${net.thin.length ? ` and ${net.thin.length} thin client${net.thin.length === 1 ? "" : "s"}` : ""}`
+      : setup.enabled
+        ? " as the project sets it up (multiplayer play needs a client World linked to a server World)"
+        : "";
+    status.value = { kind: "info", text: `Playing ${scene.path}${how}. Edits made now don't affect the running game. Stop (Ctrl+P) to return.` };
   } catch (err) {
     playState.value = "edit";
     status.value = errorStatus(`Couldn't play ${scene.path}`, err);
@@ -299,6 +316,7 @@ export function stopPlaying(): void {
   if (!play) return;
   play.stop();
   play = null;
+  playing.value = null;
   Object.assign(window, { playEngine: null });
   playState.value = "edit";
   status.value = null;

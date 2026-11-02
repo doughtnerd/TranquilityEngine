@@ -1,7 +1,7 @@
 // The game view in play mode (ADR 0032, 0034): the Engine's main view, plus a tile for each other
 // World that wants to render, made and removed as Worlds come and go (game code can create them
 // at runtime). Clicking a tile gives its World local input. A strip lists every World, headless
-// ones (a server) included, with pause and resume. The elements are plain DOM rather than Preact:
+// ones (a server, multiplayer play's thin clients) included, with pause and resume. The elements are plain DOM rather than Preact:
 // each tile's surface must stay the same element for as long as its World draws into it.
 import type { Engine } from "../engine";
 import { attachWorldView, focusWorldInput, worldViewStates, type WorldViewState } from "../engine/editor";
@@ -9,8 +9,11 @@ import { attachWorldView, focusWorldInput, worldViewStates, type WorldViewState 
 export interface GameView {
   /** The main view's element: the Engine's container. */
   readonly main: HTMLElement;
-  /** Start following `engine`'s Worlds: tiles, input focus and the strip, updated every frame. */
-  attach(engine: Engine): void;
+  /**
+   * Start following `engine`'s Worlds: tiles, input focus and the strip, updated every frame.
+   * `thin`: multiplayer play's thin clients (ADR 0033 §9), noted as such in the strip.
+   */
+  attach(engine: Engine, options?: { thin?: readonly string[] }): void;
   /** Stop following, remove the tiles' surfaces and empty the container. */
   dispose(): void;
 }
@@ -45,6 +48,7 @@ export function createGameView(container: HTMLElement): GameView {
   const tiles = new Map<string, Tile>();
   let frame = 0;
   let stripKey = "";
+  let thin: ReadonlySet<string> = new Set();
 
   const update = (engine: Engine) => {
     const states = worldViewStates(engine);
@@ -86,12 +90,13 @@ export function createGameView(container: HTMLElement): GameView {
   const renderStrip = (engine: Engine, states: readonly WorldViewState[]) => {
     strip.replaceChildren(
       ...states.map((s) => {
-        const item = div(`world-item${s.paused ? " paused" : ""}`);
+        const isThin = thin.has(s.name);
+        const item = div(`world-item${s.paused ? " paused" : ""}${isThin ? " thin" : ""}`);
         item.dataset.world = s.name;
         const name = Object.assign(document.createElement("span"), { className: "world-name", textContent: s.name });
         const note = Object.assign(document.createElement("span"), {
           className: "world-note",
-          textContent: [s.renders ? "" : "headless", s.paused ? "paused" : ""].filter(Boolean).join(", "),
+          textContent: [isThin ? "thin client" : s.renders ? "" : "headless", s.paused ? "paused" : ""].filter(Boolean).join(", "),
         });
         const button = Object.assign(document.createElement("button"), { textContent: s.paused ? "Resume" : "Pause" });
         button.setAttribute("aria-label", `${s.paused ? "Resume" : "Pause"} ${s.name}`);
@@ -110,7 +115,8 @@ export function createGameView(container: HTMLElement): GameView {
 
   return {
     main: mainTile.surface,
-    attach(engine) {
+    attach(engine, options) {
+      thin = new Set(options?.thin ?? []);
       mainTile.element.addEventListener("pointerdown", () => focusWorldInput(engine, null), { capture: true });
       const loop = () => {
         frame = requestAnimationFrame(loop); // first, so an error below doesn't stop the view following its Worlds
