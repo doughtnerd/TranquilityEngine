@@ -103,6 +103,10 @@ export class World {
   /** @internal */ readonly scheduler: Scheduler;
   /** @internal */ _waits: PendingWait[] = [];
   /** @internal */ physics2D: Physics2DWorld | null = null;
+  /** @internal The Engine that owns this World (ADR 0032): set by the Engine (T1), used by `Engine.createWorld`/`findWorld`. */
+  _engine: unknown = null;
+  /** @internal Whether local input reaches this World (`WorldConfig.input`): set by the Engine (T1), read by Input (T3). */
+  _takesInput = true;
   /** @internal */ render: RenderBackend | null = null;
   /** @internal True while the Engine is running a frame; structural scene changes wait for its end. */
   _inFrame = false;

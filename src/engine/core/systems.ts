@@ -6,7 +6,7 @@ import type { Transform } from "../scene/Transform";
 import type { DataComponentDef } from "./data";
 import type { TimeState, World } from "./World";
 import { _isReplacingRegistrations, _recordRegistration } from "./registry";
-import { notYet, type WorldTag } from "./worlds";
+import type { WorldTag } from "./worlds";
 
 export type Phase = "fixedUpdate" | "update" | "lateUpdate";
 
@@ -119,15 +119,14 @@ export class Scheduler {
 
   constructor(private readonly world: World) {}
 
-  /** Add a catalog system to this World by name (ADR 0032). Today every defined system runs in every World: T2. */
-  addSystem(name: string): void {
-    notYet("T2", `Adding the system "${name}" to one World`);
-  }
+  /**
+   * Add a catalog system to this World by name (ADR 0032). A no-op until T2: today every defined
+   * system runs in every World, so callers (T1's createWorld) can call it already.
+   */
+  addSystem(_name: string): void {}
 
-  /** Take a system out of this World. T2. */
-  removeSystem(name: string): void {
-    notYet("T2", `Removing the system "${name}" from one World`);
-  }
+  /** Take a system out of this World. A no-op until T2. */
+  removeSystem(_name: string): void {}
 
   /** Every system this World runs, by name, phase by phase in execution order. */
   names(): string[] {
