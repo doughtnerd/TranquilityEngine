@@ -109,15 +109,15 @@ describe("the system catalog (T2)", () => {
   it("orders each World's members with after/before, built-ins first by default", () => {
     defineSystem({ name: "test.cat.Before", phase: "update", worlds: ["ordered"], before: ["engine.UpdateScripts"], run() {} });
     defineSystem({ name: "test.cat.After", phase: "update", worlds: ["ordered"], after: ["test.cat.Missing"], run() {} });
-    expect(world("O", ["ordered"]).scheduler.order("update")).toEqual(["engine.NetReceive", "test.cat.Before", "engine.UpdateScripts", "test.cat.After"]);
+    expect(world("O", ["ordered"]).scheduler.order("update")).toEqual(["engine.NetReceive", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "test.cat.Before", "engine.UpdateScripts", "test.cat.After"]);
   });
 
   it("the default World keeps today's system order", async () => {
     const engine = await Engine.create({ headless: true });
     // The network systems (ADR 0033) are in every World but do nothing in one that isn't networked.
     expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.NetReceiveTick", "engine.NetInputTick", "engine.FixedUpdateScripts", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents"]);
-    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.UpdateScripts", "test.cat.Default"]);
-    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.NetInputSend", "engine.NetSend"]);
+    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.UpdateScripts", "test.cat.Default"]);
+    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend"]);
     engine.dispose();
   });
 });

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { createTransport, type TransportConnection, type TransportEvent } from "../net/Transport";
+import { createTransport, createWorldTransport, type TransportConnection, type TransportEvent } from "../net/Transport";
 import { LoopbackConnection, LoopbackTransport, type LoopbackOptions } from "../net/transport/loopback";
+import { World } from "../core/World";
 
 // ADR 0033, T7: the loopback transport, on a fake clock so delivery is deterministic.
 
@@ -257,8 +258,6 @@ describe("loopback transport (T7)", () => {
 // Fix from the wave 2 review: transports go with the World that owns them.
 describe("transports owned by a World", () => {
   it("are closed with it, freeing a loopback address for the next run", async () => {
-    const { World } = await import("../core/World");
-    const { createWorldTransport } = await import("../net/Transport");
     const first = new World("server");
     await createWorldTransport(first, "loopback").listen("review:game");
     first._destroyAll(); // e.g. play mode's Stop disposing the Engine

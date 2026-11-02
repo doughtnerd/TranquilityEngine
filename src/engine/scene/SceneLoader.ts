@@ -8,7 +8,7 @@ import { Color, Vector2, Vector3 } from "../core/math";
 import { AssetRef, PlainObject, component, field, getComponentClass, getComponentId, getFields, type ComponentClass, type FieldInfo } from "../core/registry";
 import type { World } from "../core/World";
 import { Assets } from "./Assets";
-import { GameObject, type InstantiateOptions } from "./GameObject";
+import { GameObject, _componentAllowedIn, type InstantiateOptions } from "./GameObject";
 
 export const SCENE_FORMAT = "tranquility.scene";
 export const CURRENT_FORMAT_VERSION = 1;
@@ -18,6 +18,11 @@ export interface ComponentEntry {
   /** Start disabled (GameBehaviors and built-ins). */
   enabled?: boolean;
   data?: Record<string, unknown>;
+  /**
+   * Tags of the Worlds this instance is created in (ADR 0033 §3), overriding the component's own
+   * `worlds` option. Works for data components too. Omitted: the component's option, else every World.
+   */
+  worlds?: string[];
 }
 
 export interface OverrideEntry {
@@ -146,6 +151,8 @@ class Instantiation {
   private top: Map<string, Instance> | null = null;
   /** Path (as for `onNode`) of the node being filled in, for `onProblem`. */
   private at: readonly string[] = [];
+  /** Components left out of this World (per-World components), by node. */
+  private readonly skipped = new Map<GameObject, Set<string>>();
   constructor(readonly world: World, private readonly hooks: InstantiateHooks = {}) {}
 
   /** Stop on a problem, or (editor) report it so the caller can skip the thing and carry on. */
@@ -237,6 +244,7 @@ class Instantiation {
     }
     const def = getDataComponentDef(entry.type);
     if (def) {
+      if (!_componentAllowedIn(this.world, undefined, entry.worlds, entry.type)) return this.skip(node, entry.type);
       node.addData(def, data as Record<string, number>);
       return;
     }
@@ -245,9 +253,22 @@ class Instantiation {
       this.problem(`${path}: unknown component type "${entry.type}". Is the class imported and decorated with @behavior("${entry.type}")?`, entry);
       return;
     }
+    // Per-World components (ADR 0033 §3): not created in other Worlds; overrides aimed at them are skipped too.
+    if (!_componentAllowedIn(this.world, type, entry.worlds, entry.type)) return this.skip(node, entry.type);
     const c = node.addBehavior(type);
     if (entry.enabled === false) c._enabled = false; // lifecycle is deferred until the batch ends
     this.fields(c, data, scope, path);
+  }
+
+  /** Note a component left out of this World, so overrides aimed at it are skipped rather than reported. */
+  private skip(node: GameObject, id: string): void {
+    let ids = this.skipped.get(node);
+    if (!ids) this.skipped.set(node, (ids = new Set()));
+    ids.add(id);
+  }
+
+  private wasSkipped(node: GameObject, id: string): boolean {
+    return this.skipped.get(node)?.has(id) ?? false;
   }
 
   fields(c: Component, data: Record<string, unknown>, scope: Map<string, Instance>, path: string): void {
@@ -309,8 +330,8 @@ class Instantiation {
     if (o.component && o.field === undefined && o.enabled !== undefined) {
       const type = getComponentClass(o.component) as (abstract new () => Component) | undefined;
       const c = type ? node.getBehaviors(type)[o.index ?? 0] : undefined;
-      if (!c) this.problem(`${path}: override targets missing component "${o.component}".`);
-      else c._enabled = o.enabled; // lifecycle is deferred until the batch ends
+      if (c) c._enabled = o.enabled; // lifecycle is deferred until the batch ends
+      else if (!this.wasSkipped(node, o.component)) this.problem(`${path}: override targets missing component "${o.component}".`);
     }
     if (o.component && o.field !== undefined) {
       if (o.component === "engine.Transform") {
@@ -325,8 +346,8 @@ class Instantiation {
       }
       const type = getComponentClass(o.component) as (abstract new () => Component) | undefined;
       const c = type ? node.getBehaviors(type)[o.index ?? 0] : undefined;
-      if (!c) this.problem(`${path}: override targets missing component "${o.component}".`);
-      else this.fields(c, { [o.field]: o.value }, scope, path);
+      if (c) this.fields(c, { [o.field]: o.value }, scope, path);
+      else if (!this.wasSkipped(node, o.component)) this.problem(`${path}: override targets missing component "${o.component}".`);
     }
   }
 
@@ -413,6 +434,17 @@ export function instantiateFile(world: World, file: SceneFile, parent: GameObjec
   });
 }
 
+/** Roots of prefabs instantiated at runtime, and their prefab paths (handles are stable while a node lives). */
+const instantiatedPrefabs = new WeakMap<GameObject, string>();
+
+/**
+ * @internal The prefab path `node` was instantiated from with `GameObject.instantiate`, if it's
+ * the root of such an instance (replication spawns it on clients by that path, ADR 0033).
+ */
+export function _instantiatedPrefabOf(node: GameObject): string | undefined {
+  return instantiatedPrefabs.get(node);
+}
+
 /** @internal Backs `GameObject.instantiate`. */
 export function instantiatePrefab(world: World, path: string, options: InstantiateOptions): GameObject {
   world._assertOwns(options.parent, `${path}: parent`);
@@ -423,6 +455,7 @@ export function instantiatePrefab(world: World, path: string, options: Instantia
     const { roots } = job.file(file, parent, path);
     if (roots.length !== 1) throw new Error(`${path}: a prefab must have exactly one root node (has ${roots.length}).`);
     const root = roots[0];
+    instantiatedPrefabs.set(root, path);
     if (options.name) root.name = options.name;
     const t = root.transform;
     if (t && options.position) t.position = Vector3.from(options.position);
