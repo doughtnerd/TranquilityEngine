@@ -236,3 +236,88 @@ describe("several Worlds per Engine (T1)", () => {
     engine.dispose();
   });
 });
+
+// Fixes from the wave 1 review (ADR 0034).
+describe("wave 1 review fixes", () => {
+  it("lets tags keep deciding a World's systems when a system's filter changes later", async () => {
+    const { _setReplacingRegistrations } = await import("../core/registry");
+    const def = { name: "test.review.Retag", phase: "update" as const, run() {} };
+    defineSystem(def);
+    const engine = await Engine.create({ headless: true, bootstrap: { worlds: [{ name: "Default" }, { name: "Server", tags: ["server"] }] } });
+    const server = engine.findWorld("Server")!;
+    expect(engine.findWorld("Default")!.systems()).toContain("test.review.Retag");
+    expect(server.systems()).not.toContain("test.review.Retag");
+    // A project script is edited to target the server and reloaded (ADR 0030).
+    _setReplacingRegistrations(true);
+    defineSystem({ ...def, worlds: ["server"] });
+    _setReplacingRegistrations(false);
+    expect(engine.findWorld("Default")!.systems()).not.toContain("test.review.Retag");
+    expect(server.systems()).toContain("test.review.Retag");
+    engine.dispose();
+    _undefineSystem("test.review.Retag");
+  });
+
+  it("still applies a World's own include and exclude", async () => {
+    defineSystem({ name: "test.review.Srv", phase: "update", worlds: ["server"], run() {} });
+    defineSystem({ name: "test.review.Dbg", phase: "update", run() {} });
+    const engine = await Engine.create({ headless: true, bootstrap: { worlds: [{ name: "Default", systems: { include: ["test.review.Srv"], exclude: ["test.review.Dbg"] } }] } });
+    expect(engine.world.systemNames()).toContain("test.review.Srv");
+    expect(engine.world.systemNames()).not.toContain("test.review.Dbg");
+    engine.dispose();
+    _undefineSystem("test.review.Srv");
+    _undefineSystem("test.review.Dbg");
+  });
+
+  it("hands the view and input to the next World when the World that has them is destroyed", async () => {
+    const engine = await Engine.create({ headless: true });
+    const menu = engine.world;
+    expect(menu._takesInput).toBe(true);
+    // The Host flow: the menu makes a server World and a match World, then destroys itself.
+    const server = engine.createWorld({ name: "Server", tags: ["server"] });
+    const match = engine.createWorld({ name: "Match", tags: ["client"] });
+    engine.findWorld("Default")!.destroy();
+    expect(server.alive && match.alive).toBe(true);
+    expect(engine.world.name).toBe("Server"); // the next World is the default...
+    // ...but the view, and with it input, goes to the first World that wants it: not the server.
+    engine.step(1 / 60);
+    const takesInput = (name: string) => (engine as unknown as { list: World[] }).list.find((w) => w.name === name)!._takesInput;
+    expect(takesInput("Match")).toBe(true);
+    expect(takesInput("Server")).toBe(false);
+    engine.dispose();
+  });
+
+  it("leaves the Engine as it was when a World config is bad", async () => {
+    const engine = await Engine.create({ headless: true });
+    expect(() => engine.createWorld({ name: "Bad", systems: { include: ["test.review.NoSuchSystem"] } })).toThrow(/NoSuchSystem/);
+    expect(() => engine.createWorld({ name: "Bad", tickRate: -1, tags: [1 as unknown as string] })).toThrow(/tags[\s\S]*tickRate/);
+    expect(engine.worlds().map((w) => w.name)).toEqual(["Default"]);
+    expect(engine.createWorld({ name: "Bad", timeScale: 0 }).name).toBe("Bad"); // 0: starts paused
+    engine.dispose();
+  });
+
+  it("disposes a half-made Engine when a start-up scene fails to load", async () => {
+    const before = World.active;
+    await expect(Engine.create({ headless: true, bootstrap: { worlds: [{ name: "W", scenes: ["scenes/missing.scene.json"] }] } })).rejects.toThrow();
+    expect(World.active === before || World.active === null).toBe(true); // not left pointing into the failed Engine
+  });
+
+  it("keeps code after an await in its own World through this.instantiate and parents", async () => {
+    Assets.addSource({ has: (p) => p === "prefabs/coin.prefab.json", get: () => ({ format: "tranquility.scene@1", nodes: [{ id: "coin", name: "Coin" }] }) });
+    let spawner: GameBehavior | null = null;
+    class Spawner extends GameBehavior {
+      awake() {
+        spawner = this;
+      }
+    }
+    const engine = await Engine.create({ headless: true, bootstrap: { worlds: [{ name: "Client", tags: ["client"] }, { name: "Server", tags: ["server"] }] } });
+    const serverWorld = (engine as unknown as { list: World[] }).list[1];
+    World._runIn(serverWorld, () => GameObject.create("spawner").addBehavior(Spawner));
+    // After an await the frame is over and the default (Client) World is current.
+    expect(World.active!.name).toBe("Client");
+    const coin = spawner!.instantiate("prefabs/coin.prefab.json");
+    expect(coin.world).toBe(serverWorld);
+    const child = GameObject.create("child", { parent: coin });
+    expect(child.world).toBe(serverWorld);
+    engine.dispose();
+  });
+});

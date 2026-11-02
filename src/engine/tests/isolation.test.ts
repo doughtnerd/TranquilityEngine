@@ -148,12 +148,20 @@ describe("references and reparenting never cross Worlds (T3)", () => {
     expect(n.parent).toBe(a.root);
   });
 
-  it("throws when creating or instantiating under another World's node", () => {
+  it("creates under another World's node in that World (the parent decides, ADR 0034)", () => {
     const other = inWorld(b, () => GameObject.create("other"));
-    expect(() => inWorld(a, () => GameObject.create("x", { parent: other }))).toThrow(/World "B"/);
-    expect(() => inWorld(a, () => GameObject.instantiate("thing.json", { parent: other }))).toThrow(/World "B"/);
-    expect(other.children).toEqual([]);
+    // As after an await, when World A is current but the code means World B.
+    const x = inWorld(a, () => GameObject.create("x", { parent: other }));
+    expect(x.world).toBe(b);
+    expect(other.children).toEqual([x]);
     expect(a.root.children).toEqual([]);
+  });
+
+  it("this.instantiate stays in the behavior's World, and refuses another World's parent", () => {
+    class Spawner extends GameBehavior {}
+    const s = inWorld(b, () => GameObject.create("spawner").addBehavior(Spawner));
+    const mine = inWorld(a, () => GameObject.create("mine"));
+    expect(() => inWorld(a, () => s.instantiate("thing.json", { parent: mine }))).toThrow(/World "A"/);
   });
 
   it("throws when a component init or a buffer record holds another World's node", () => {

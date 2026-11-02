@@ -20,7 +20,7 @@ C1 and C2 landed as stubs: `core/worlds.ts` and the additions to `World`, `Engin
 
 ## Wave 1: multi-World core (after C1), done 2026-11-02
 
-T1–T4 ran in parallel from 73c3762 and merged in order (T1, T2, T3, T4) with one conflict-free merge each. At merge, templates passed in `EngineOptions.bootstrap` were found to be ignored (fixed), and the wave 0 placeholder tests were replaced by an end-to-end client+server bootstrap test. Follow-ups carried into wave 2: World-correct spawning after `await` (parent's World, World-bound helpers, waits resuming in their World), physics events pushed to their own World, and one RenderBackend per rendering World for tiled views (T5).
+T1–T4 ran in parallel from 73c3762 and merged in order (T1, T2, T3, T4) with one conflict-free merge each. At merge, templates passed in `EngineOptions.bootstrap` were found to be ignored (fixed), and the wave 0 placeholder tests were replaced by an end-to-end client+server bootstrap test. A review then fixed ten issues (ADR 0034): system membership follows tags, the view and input pass to the next World when theirs is destroyed, bad configs leave the Engine unchanged, parents and `this.instantiate` keep async code in its World, physics events go to their own World, and `timeScale: 0` is valid. Carried into wave 2: one RenderBackend per rendering World for tiled views (T5).
 
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|

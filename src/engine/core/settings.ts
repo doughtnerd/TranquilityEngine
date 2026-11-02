@@ -143,11 +143,13 @@ function worldProblems(world: unknown, where: string, nameRequired: boolean, kno
     problems.push(`${where}: name must be a non-empty string (got ${describe(world.name)}).`);
   }
   if (world.tags !== undefined && !isStringList(world.tags)) problems.push(`${where}: tags must be a list of strings (got ${describe(world.tags)}).`);
-  for (const key of ["tickRate", "timeScale"]) {
-    const value = world[key];
-    if (value !== undefined && !(typeof value === "number" && Number.isFinite(value) && value > 0)) {
-      problems.push(`${where}: ${key} must be a positive number (got ${describe(value)}).`);
-    }
+  const tickRate = world.tickRate;
+  if (tickRate !== undefined && !(typeof tickRate === "number" && Number.isFinite(tickRate) && tickRate > 0)) {
+    problems.push(`${where}: tickRate must be a positive number (got ${describe(tickRate)}).`);
+  }
+  const timeScale = world.timeScale;
+  if (timeScale !== undefined && !(typeof timeScale === "number" && Number.isFinite(timeScale) && timeScale >= 0)) {
+    problems.push(`${where}: timeScale must be 0 (paused) or more (got ${describe(timeScale)}).`);
   }
   for (const key of ["renders", "input"]) {
     if (world[key] !== undefined && typeof world[key] !== "boolean") problems.push(`${where}: ${key} must be true or false (got ${describe(world[key])}).`);

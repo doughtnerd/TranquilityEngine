@@ -6,8 +6,8 @@ import { TauriStorage } from "../platform/TauriStorage";
 import { RenderBackend } from "../render/RenderBackend";
 import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
-import { resolveBootstrap, selectSystems, templateConfig } from "./bootstrap";
-import { resolveSettings, type ProjectSettings, type ProjectSettingsInput } from "./settings";
+import { BootstrapError, resolveBootstrap, templateConfig } from "./bootstrap";
+import { resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { listSystemCatalog } from "./systems";
 import { World, type WorldKind } from "./World";
 import { WorldHandleImpl } from "./WorldHandle";
@@ -55,9 +55,14 @@ export class Engine implements BootstrapEngine {
   private readonly handles = new Map<World, WorldHandleImpl>();
   private readonly container: HTMLElement | null;
   private render: RenderBackend | null = null;
-  private renderWorld: World | null = null;
-  /** Set once a World has claimed rendering (and, by default, input), container or not. */
-  private renderClaimed = false;
+  /**
+   * The World that has the view (the canvas, when there's a container) and, unless its config
+   * says otherwise, local input. When it's destroyed, the view passes to the next World that
+   * wants it (ADR 0032, 0034).
+   */
+  private viewWorld: World | null = null;
+  /** Per World: whether it wants the view, and its `input` setting (undefined: input follows the view). */
+  private readonly viewWishes = new Map<World, { renders: boolean; input: boolean | undefined }>();
   /** Scene loads of the start-up Worlds, which `Engine.create` waits for; null once it's done. */
   private starting: Promise<void>[] | null = [];
   private rafId = 0;
@@ -80,11 +85,16 @@ export class Engine implements BootstrapEngine {
       kind !== "runtime" && options.bootstrap === undefined
         ? (e) => void e.createWorld(KIND_WORLDS[kind])
         : await resolveBootstrap(options.bootstrap ?? engine.settings.bootstrap);
-    await bootstrap(engine);
-    const starting = engine.starting!;
-    engine.starting = null;
-    if (!engine.defaultWorld) throw new Error("The bootstrap created no Worlds.");
-    await Promise.all(starting);
+    try {
+      await bootstrap(engine);
+      const starting = engine.starting!;
+      engine.starting = null;
+      if (!engine.defaultWorld) throw new Error("The bootstrap created no Worlds.");
+      await Promise.all(starting);
+    } catch (err) {
+      engine.dispose(); // no half-made Engine left holding a canvas and input listeners
+      throw err;
+    }
     World.active = engine.defaultWorld;
     return engine;
   }
@@ -120,39 +130,33 @@ export class Engine implements BootstrapEngine {
    */
   createWorld(config: WorldConfig | string): WorldHandle {
     const c = this.resolveConfig(config);
-    if (this.list.some((w) => w.name === c.name)) throw new Error(`There's already a World named "${c.name}" in this Engine.`);
-    if (c.tickRate !== undefined && !(c.tickRate > 0)) throw new Error(`World "${c.name}": tickRate must be a positive number (got ${c.tickRate}).`);
+    // Check everything before anything changes, so a bad config leaves the Engine as it was.
+    const problems = validateBootstrap({ worlds: [c] }, listSystemCatalog()).map((p) => p.replace(/^bootstrap\.worlds\[0\]/, "World config"));
+    if (this.list.some((w) => w.name === c.name)) problems.push(`There's already a World named "${c.name}" in this Engine.`);
+    if (problems.length > 0) throw new BootstrapError(`Can't create the World "${c.name}"`, problems);
 
     const tags = c.tags ?? DEFAULT_WORLD_TAGS;
     const kind: WorldKind = tags.includes("editor") ? "editor" : tags.includes("server") ? "server" : "runtime";
     const world = new World(kind, this.options.project ?? {}, { name: c.name, tags });
     world._engine = this;
     if (c.tickRate !== undefined) world.time.fixedDeltaTime = 1 / c.tickRate;
-    if (c.timeScale !== undefined) world.time.timeScale = Math.max(0, c.timeScale);
+    if (c.timeScale !== undefined) world.time.timeScale = c.timeScale;
 
-    // One container, so one World renders; later rendering Worlds run headless until views tile (T5).
-    const wantsRender = c.renders !== false && !this.renderClaimed;
-    if (wantsRender) this.renderClaimed = true;
-    world._takesInput = c.input ?? wantsRender;
-    if (wantsRender && this.container && !this.render) {
-      this.render = new RenderBackend(this.container, world.settings, world.kind);
-      this.renderWorld = world;
-      world.render = this.render;
-      Input.attach(this.render.canvas);
-    }
+    // Tags decide the rest of its systems, and keep deciding as the catalog changes (ADR 0032):
+    // only the World's own choices are recorded.
+    for (const name of c.systems?.include ?? []) world.addSystem(name);
+    for (const name of c.systems?.exclude ?? []) world.removeSystem(name);
 
-    const catalog = listSystemCatalog();
-    const selected = new Set(selectSystems({ ...c, tags }, catalog));
-    for (const entry of catalog) {
-      if (selected.has(entry.name)) world.addSystem(entry.name);
-      else world.removeSystem(entry.name);
-    }
+    // A server World doesn't want the view unless it asks; any other World does unless it says no.
+    this.viewWishes.set(world, { renders: c.renders ?? !tags.includes("server"), input: c.input });
+    world._takesInput = c.input ?? false;
 
     const handle = new WorldHandleImpl(world, this);
     this.handles.set(world, handle);
     this.list.push(world);
     const first = !this.defaultWorld;
     if (first) this.defaultWorld = world;
+    this.assignView();
 
     // Autoloads are game-wide nodes (a GameManager, say): they go in the default World only.
     if (first) World._runIn(world, () => SceneManager.loadAutoloads(world));
@@ -206,13 +210,35 @@ export class Engine implements BootstrapEngine {
   }
 
   private tearDown(world: World): void {
-    World._runIn(world, () => world._destroyAll());
-    if (world === this.renderWorld) {
-      this.render?.dispose();
-      this.render = null;
-      this.renderWorld = null;
-      Input.detach();
+    World._runIn(world, () => world._destroyAll()); // releases its objects from the render surface
+    this.viewWishes.delete(world);
+    if (world === this.viewWorld) {
+      world.render = null;
+      this.render?.releaseWorld();
+      this.viewWorld = null;
+      this.assignView();
     }
+  }
+
+  /**
+   * Give the view to the first World that wants it, if no World has it (ADR 0034): the canvas and
+   * render surface when there's a container, and local input unless the World's config sets
+   * `input`. Called when a World is created and when the World with the view is destroyed, so a
+   * menu World that creates a match World and destroys itself hands the screen over.
+   */
+  private assignView(): void {
+    if (this.viewWorld && this.list.includes(this.viewWorld)) return;
+    const next = this.list.find((w) => this.viewWishes.get(w)?.renders) ?? null;
+    this.viewWorld = next;
+    if (!next) return;
+    const wish = this.viewWishes.get(next)!;
+    next._takesInput = wish.input ?? true;
+    if (!this.container) return;
+    if (!this.render) {
+      this.render = new RenderBackend(this.container, next.settings, next.kind);
+      Input.attach(this.render.canvas);
+    }
+    next.render = this.render;
   }
 
   /** True while the requestAnimationFrame loop is running. */
@@ -299,7 +325,7 @@ export class Engine implements BootstrapEngine {
       world._propagateTransforms();
 
       // 8–9. Render sync and render
-      if (this.render && world === this.renderWorld) {
+      if (this.render && world === this.viewWorld) {
         this.render.sync(world);
         this.render.render(world);
       }
@@ -324,9 +350,10 @@ export class Engine implements BootstrapEngine {
       world._destroyAll();
     }
     this.handles.clear();
+    this.viewWishes.clear();
     this.render?.dispose();
     this.render = null;
-    this.renderWorld = null;
+    this.viewWorld = null;
     Input.detach();
     if (World.active && worlds.includes(World.active)) World.active = null;
   }

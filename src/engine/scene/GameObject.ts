@@ -35,23 +35,24 @@ export class GameObject {
 
   // --- static API -------------------------------------------------------------------------
 
-  /** Create an empty node in the current World. A `parent` from another World throws (ADR 0032). */
+  /**
+   * Create an empty node: in the `parent`'s World when one is given, else in the current World
+   * (ADR 0032, 0034). Passing a parent is how code after an `await` stays in its own World.
+   */
   static create(name = "GameObject", options: { parent?: GameObject | null; transform?: boolean } = {}): GameObject {
-    const world = World.require();
-    world._assertOwns(options.parent, "GameObject.create parent");
+    const world = options.parent?.world ?? World.require();
     const parent = options.parent ?? world.activeScene ?? world.root;
     return world._createNode(name, parent.entity, { transform: options.transform ?? true });
   }
 
   /**
    * Instantiate a prefab file (a scene file with one root node, ADR 0013/0016) and return its
-   * root, in the current World. awake/onEnable run before this returns; start runs next frame.
-   * A `parent` from another World throws (ADR 0032).
+   * root: in the `parent`'s World when one is given, else in the current World (ADR 0032, 0034).
+   * awake/onEnable run before this returns; start runs next frame. In a behavior,
+   * `this.instantiate` always uses the behavior's own World.
    */
   static instantiate(prefabPath: string, options: InstantiateOptions = {}): GameObject {
-    const world = World.require();
-    world._assertOwns(options.parent, `GameObject.instantiate("${prefabPath}") parent`);
-    return world._instantiatePrefab(prefabPath, options);
+    return (options.parent?.world ?? World.require())._instantiatePrefab(prefabPath, options);
   }
 
   /** Queue a node (with its subtree) or a component for destruction at the end of the frame. */

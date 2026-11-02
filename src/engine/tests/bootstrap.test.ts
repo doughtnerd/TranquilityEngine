@@ -139,7 +139,7 @@ describe("bootstraps (T4)", () => {
     expect(problems).toEqual([
       'bootstrap.worlds[0] ("Server"): tickRate must be a positive number (got 0).',
       `bootstrap.worlds[0] ("Server"): systems.include names an unknown system: "t4.Nope". Known systems: ${known}.`,
-      'bootstrap.worlds[1] ("Server"): timeScale must be a positive number (got "fast").',
+      'bootstrap.worlds[1] ("Server"): timeScale must be 0 (paused) or more (got "fast").',
       `bootstrap.worlds[1] ("Server"): systems.exclude names unknown systems: "t4.Gone", "t4.Missing". Known systems: ${known}.`,
       'bootstrap.worlds[1] ("Server"): another World is already named "Server"; World names must be unique.',
       'bootstrap.worlds[2]: unknown key "tickrate" (expected name, tags, tickRate, timeScale, renders, input, scenes, systems).',

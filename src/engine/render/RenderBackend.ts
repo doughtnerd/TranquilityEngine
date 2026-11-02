@@ -452,6 +452,14 @@ export class RenderBackend {
     r.render(this.uiScene, this.uiCamera);
   }
 
+  /**
+   * @internal Free the surface for another World (ADR 0034), after its World was destroyed (which
+   * released its objects). The Engine hands the view to the next World that wants it.
+   */
+  releaseWorld(): void {
+    this.owner = null;
+  }
+
   private claim(world: World): void {
     this.owner ??= world;
     if (this.owner !== world) throw new Error(`This render surface draws World "${this.owner.name}"; World "${world.name}" needs its own (ADR 0032).`);

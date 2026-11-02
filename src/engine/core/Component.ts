@@ -1,4 +1,4 @@
-import type { GameObject } from "../scene/GameObject";
+import type { GameObject, InstantiateOptions } from "../scene/GameObject";
 import type { Transform } from "../scene/Transform";
 import type { TimeState, World } from "./World";
 
@@ -68,6 +68,18 @@ export abstract class Component {
    */
   get time(): Readonly<TimeState> {
     return this._node.world.time;
+  }
+
+  /**
+   * Instantiate a prefab in this component's World (ADR 0034), like `GameObject.instantiate`.
+   * Use it in code that may run after an `await`: by then the frame is over and the current World
+   * is the Engine's default one, which may not be this component's. A `parent` from another
+   * World throws.
+   */
+  instantiate(prefabPath: string, options: InstantiateOptions = {}): GameObject {
+    const world = this._node.world;
+    world._assertOwns(options.parent, `${this.constructor.name}.instantiate("${prefabPath}") parent`);
+    return world._instantiatePrefab(prefabPath, options);
   }
 
   // Internal hooks used by built-in components. Game code uses the lifecycle methods instead.

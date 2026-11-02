@@ -305,7 +305,7 @@ export class Physics2DWorld {
       const b = this.colliderByHandle.get(h2);
       if (!a || !b || a._destroyed || b._destroyed) return;
       const trigger = a.isTrigger || b.isTrigger;
-      (trigger ? TriggerEvents2D : CollisionEvents2D).push({ a, b, started });
+      this.world._buffer(trigger ? TriggerEvents2D : CollisionEvents2D).push({ a, b, started }); // this World's, whichever is current
       this.notify(a, b, trigger, started);
       this.notify(b, a, trigger, started);
     });

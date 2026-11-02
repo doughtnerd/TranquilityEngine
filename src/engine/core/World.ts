@@ -569,9 +569,13 @@ export class World {
 
   /** @internal `_assertOwns` on each value of a record or array, one level deep (buffer records, component inits). */
   _assertOwnsAll(record: unknown, what: string): void {
-    if (typeof record !== "object" || record === null) return this._assertOwns(record, what);
+    if (typeof record !== "object" || record === null) return;
     this._assertOwns(record, what);
-    for (const v of Array.isArray(record) ? record : Object.values(record)) {
+    // No arrays allocated: this runs on every buffer push (physics events, gameplay records).
+    const values = record as Record<string, unknown>;
+    for (const key in values) {
+      const v = values[key];
+      if (typeof v !== "object" || v === null) continue;
       if (Array.isArray(v)) for (const item of v) this._assertOwns(item, what);
       else this._assertOwns(v, what);
     }
