@@ -278,7 +278,7 @@ export async function save(): Promise<void> {
   }
 }
 
-/** Play the open scene in a Runtime World shown in the game view (ADR 0022). */
+/** Play the open scene in an Engine built from the project's bootstrap, shown in the game view (ADR 0022, 0032). */
 export async function startPlaying(): Promise<void> {
   const scene = openScene.value, project = currentProject.value;
   if (!session || !scene || !project || playState.value !== "edit") return;
@@ -286,6 +286,7 @@ export async function startPlaying(): Promise<void> {
   try {
     play = await startPlay({ editor: session.engine, scene, project, container: viewportElements().gameView });
     playState.value = "playing";
+    Object.assign(window, { playEngine: play.engine }); // debug and end-to-end test hook
     status.value = { kind: "info", text: `Playing ${scene.path}. Edits made now don't affect the running game. Stop (Ctrl+P) to return.` };
   } catch (err) {
     playState.value = "edit";
@@ -293,11 +294,12 @@ export async function startPlaying(): Promise<void> {
   }
 }
 
-/** Leave play mode: dispose the Runtime World and resume editing (and reload scripts saved meanwhile). */
+/** Leave play mode: dispose the game's Engine and resume editing (and reload scripts saved meanwhile). */
 export function stopPlaying(): void {
   if (!play) return;
   play.stop();
   play = null;
+  Object.assign(window, { playEngine: null });
   playState.value = "edit";
   status.value = null;
   if (pendingReload) void reloadScripts();

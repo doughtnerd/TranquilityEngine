@@ -247,7 +247,22 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>, json: Re
   });
   for (const url of lastUrls) if (url.startsWith("blob:")) URL.revokeObjectURL(url);
   lastUrls = [...urls.values(), ...jsonUrls.values()];
+  loadedModules = urls;
   return { loaded, problems, registered };
+}
+
+/** The last load's module URLs, by script path. */
+let loadedModules = new Map<string, string>();
+
+/**
+ * The module of a script the last load loaded (`import()` of its URL again gives the same module
+ * instance without running it again), e.g. a code bootstrap for play mode. Throws if the script
+ * didn't load.
+ */
+export async function loadedScriptModule(path: string): Promise<Record<string, unknown>> {
+  const url = loadedModules.get(path);
+  if (!url) throw new Error(`The script "${path}" isn't loaded: it doesn't exist, isn't under scripts/, or has a problem (see the status bar).`);
+  return (await import(/* @vite-ignore */ url)) as Record<string, unknown>;
 }
 
 /** What the current project's scripts registered (the last `replaceScripts`). */
@@ -260,6 +275,7 @@ let current: ScriptRegistrations = { components: [], data: [], systems: [] };
  * missing. Pass an empty map to unload everything.
  */
 export async function replaceScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map()): Promise<LoadResult> {
+  if (scripts.size === 0) loadedModules = new Map();
   const result = scripts.size > 0 ? await loadScripts(scripts, json) : { loaded: [], problems: [], registered: { components: [], data: [], systems: [] } };
   const gone = (old: string[], now: string[]) => old.filter((id) => !now.includes(id));
   unregisterScripts({

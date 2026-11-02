@@ -9,6 +9,7 @@ import { _undefineSystem } from "../core/systems";
 import { Vector3 } from "../core/math";
 import { _setReplacingRegistrations, _takeRecordedRegistrations, _unregisterComponent, getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldType, type ScriptRegistrations } from "../core/registry";
 import { World } from "../core/World";
+import type { Engine, WorldViewState } from "../core/Engine";
 import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
@@ -270,6 +271,34 @@ export function resumeEditorWorld(world: World): void {
   World.active = world;
   const canvas = world.render?.canvas;
   if (canvas) Input.attach(canvas);
+}
+
+// --- Several Worlds in play mode (ADR 0032, 0034) -----------------------------------------------
+
+export type { WorldViewState } from "../core/Engine";
+
+/**
+ * Draw the World named `worldName` to a surface of its own in `element` (a tile of the game
+ * view), besides the Engine's main view. Returns a function that removes it; it also goes when the
+ * World is destroyed or takes over the main view, or the Engine is disposed.
+ */
+export function attachWorldView(engine: Engine, worldName: string, element: HTMLElement): () => void {
+  return engine._attachView(worldName, element);
+}
+
+/** Give local input to the World named `worldName` (null: back to the main view's World), except Worlds whose config sets `input`. */
+export function focusWorldInput(engine: Engine, worldName: string | null): void {
+  engine._focusInput(worldName);
+}
+
+/** Every World of `engine`: whether it renders, which view it has, whether it takes input, and whether it's paused. */
+export function worldViewStates(engine: Engine): WorldViewState[] {
+  return engine._viewStates();
+}
+
+/** The live World named `name` in `engine`, or null: for editor tools, which may look inside Worlds. */
+export function engineWorld(engine: Engine, name: string): World | null {
+  return engine._world(name);
 }
 
 /** The world point on the plane z = 0 under a canvas point (CSS pixels), or null (headless, or the ray misses it). */

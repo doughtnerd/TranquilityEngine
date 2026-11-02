@@ -1,18 +1,22 @@
-// Play mode (ADR 0022): run the open scene in a fresh Runtime World without touching what's being
+// Play mode (ADR 0022, 0032): run the open scene in a fresh Engine without touching what's being
 // edited. Play snapshots the scene document (unsaved edits included), pauses the Editor World and
-// boots a Runtime World with the project's real settings (autoloads and all) in the game view.
-// Stop disposes the Runtime World and resumes the editor exactly as it was.
-import { Assets, Engine, SceneManager, type AssetSource } from "../engine";
-import { resumeEditorWorld } from "../engine/editor";
+// builds an Engine from the project's bootstrap (the default one: a single World, unless the
+// project says otherwise), with the project's real settings (autoloads and all), in the game view.
+// Every start-up World that loads no scene of its own plays the open scene. Stop disposes the
+// Engine and resumes the editor exactly as it was.
+import { Assets, Engine, type AssetSource, type Bootstrap } from "../engine";
+import { engineWorld, resumeEditorWorld } from "../engine/editor";
+import { createGameView, type GameView } from "./gameView";
 import type { EditorProject } from "./projects";
+import { loadedScriptModule } from "./scriptLoader";
 import type { OpenScene } from "./state";
 
 export interface PlaySession {
-  /** The Runtime World's engine. */
+  /** The game's Engine, with the Worlds the project's bootstrap made. */
   readonly engine: Engine;
   /** The scene path being played. */
   readonly path: string;
-  /** Dispose the Runtime World and resume the Editor World. */
+  /** Dispose the game's Engine and resume the Editor World. */
   stop(): void;
 }
 
@@ -20,17 +24,18 @@ export interface PlayOptions {
   editor: Engine;
   scene: OpenScene;
   project: EditorProject;
-  /** Element for the game's canvas; omit to run headless (tests). */
+  /** Element for the game view (its Worlds' canvases); omit to run headless (tests). */
   container?: HTMLElement;
 }
 
 /**
- * Start playing `scene`. Throws (with the editor resumed) if the scene can't load, e.g. a script
- * error in `awake`.
+ * Start playing `scene`. Throws (with the editor resumed) if the Engine or the scene can't start,
+ * e.g. a bad bootstrap or a script error in `awake`.
  */
 export async function startPlay({ editor, scene, project, container }: PlayOptions): Promise<PlaySession> {
-  // The Runtime World loads the scene by path; serve the document as it is now under that path.
-  // A deep copy, so edits made during play don't reach the game even when it reloads the scene.
+  // Worlds load the scene by path; serve the document as it is now under that path, to every
+  // World that loads it. A deep copy, so edits made during play don't reach the game even when it
+  // reloads the scene.
   const snapshot = structuredClone(scene.doc.toJSON());
   const overlay: AssetSource = { has: (p) => p === scene.path, get: () => structuredClone(snapshot) };
   Assets.addSource(overlay);
@@ -38,16 +43,22 @@ export async function startPlay({ editor, scene, project, container }: PlayOptio
   editor.stop();
 
   let runtime: Engine | null = null;
+  let view: GameView | null = null;
   const resume = () => {
     runtime?.dispose();
+    view?.dispose();
     Assets.removeSource(overlay);
     resumeEditorWorld(editor.world);
     if (editorWasRunning) editor.start();
   };
   try {
-    runtime = await Engine.create({ container, headless: !container, project: project.settings });
-    await SceneManager.load(scene.path);
-    if (container) runtime.start(); // headless (tests): the caller steps the Runtime World
+    view = container ? createGameView(container) : null;
+    runtime = await Engine.create({ container: view?.main, headless: !container, project: project.settings, loadScript: loadBootstrapScript });
+    for (const handle of runtime.worlds()) {
+      if (engineWorld(runtime, handle.name)!.sceneNodes.length === 0) await handle.loadScene(scene.path);
+    }
+    view?.attach(runtime);
+    if (container) runtime.start(); // headless (tests): the caller steps the Engine
   } catch (err) {
     resume();
     throw err;
@@ -62,4 +73,9 @@ export async function startPlay({ editor, scene, project, container }: PlayOptio
       resume();
     },
   };
+}
+
+/** A code bootstrap (`"bootstrap": "scripts/Bootstrap.ts"`, ADR 0032): the `bootstrap` export of the project script, as the editor loaded it. */
+async function loadBootstrapScript(path: string): Promise<Bootstrap> {
+  return (await loadedScriptModule(path)).bootstrap as Bootstrap;
 }

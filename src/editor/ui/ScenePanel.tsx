@@ -7,8 +7,8 @@ import { ViewportDropHighlight } from "./AssetDragOverlay";
 let elements: { viewport: HTMLDivElement; gameView: HTMLDivElement } | null = null;
 
 /**
- * The Editor World's container (`#viewport`) and the Runtime World's during play mode
- * (`#game-view`, ADR 0022). They outlive the Scene panel: when it moves to another dock, or
+ * The Editor World's container (`#viewport`) and the game view during play mode
+ * (`#game-view`, ADR 0022, tiled when several Worlds render). They outlive the Scene panel: when it moves to another dock, or
  * another tab hides it, they're detached and re-attached rather than recreated, so the engine
  * keeps its canvas and WebGL context.
  */
