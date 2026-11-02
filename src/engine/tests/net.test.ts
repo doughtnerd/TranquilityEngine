@@ -20,13 +20,8 @@ describe("the netcode contract (C2)", () => {
   });
 });
 
-// Connections, ticks and RPCs (T10) are tested in session.test.ts and sessionWebSocket.test.ts.
-
-describe("replication (T11)", () => {
-  it.todo("a server-moved replicated node appears smoothly on two clients under simulated loss");
-  it.todo("spawns by prefab and despawns match on every client; scene nodes match by id");
-  it.todo("per-World components aren't created in Worlds whose tags they exclude");
-});
+// Connections, ticks and RPCs (T10) are tested in session.test.ts and sessionWebSocket.test.ts;
+// replication and per-World components (T11) in replication.test.ts.
 
 describe("inputs (T12)", () => {
   it.todo("server-side movement driven by client input matches the client's input history under loss");

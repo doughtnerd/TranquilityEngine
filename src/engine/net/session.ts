@@ -560,6 +560,9 @@ export class NetSession {
     if (peer.state === "handshake") {
       if (this.role === "server" && kind === MSG_HELLO) return this.accept(peer, createBitReader(body));
       if (this.role === "client" && kind === MSG_WELCOME) return this.welcomed(peer, tick, createBitReader(body));
+      // The server sends unreliably (snapshots) once it has accepted, so those can overtake a
+      // delayed or retransmitted welcome: drop them, as if lost.
+      if (this.role === "client" && channel === "unreliable") return;
       throw new Error(`message ${kind} before the handshake completed`);
     }
     switch (kind) {

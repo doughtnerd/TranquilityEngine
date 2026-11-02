@@ -1,7 +1,9 @@
 import { Component } from "../core/Component";
 import type { DataComponentDef, DataView, Schema } from "../core/data";
 import { Vector3, type Vec3Input } from "../core/math";
+import { getComponentId, getComponentOptions, type ComponentClass } from "../core/registry";
 import { World } from "../core/World";
+import { worldsMatch, type WorldTag } from "../core/worlds";
 import type { Transform } from "./Transform";
 
 type ComponentType<T extends Component> = abstract new () => T;
@@ -158,10 +160,16 @@ export class GameObject {
 
   // --- components ---------------------------------------------------------------------------
 
-  /** Attach a component to this node. `init` values that are another World's nodes or components throw (ADR 0032). */
+  /**
+   * Attach a component to this node. `init` values that are another World's nodes or components
+   * throw (ADR 0032). A component registered for other Worlds (`@behavior(id, { worlds })`, ADR
+   * 0033) isn't attached: you get a detached instance that never runs and that `getBehavior`
+   * doesn't find (see `_componentAllowedIn`).
+   */
   addBehavior<T extends Component>(type: ConcreteComponentType<T>, init?: ComponentInit<T>): T {
     this.check();
     if (init) this.world._assertOwnsAll(init, `${this}.addBehavior(${type.name})`);
+    if (!_componentAllowedIn(this.world, type)) return detachedComponent(this, type, init);
     return this.world._addComponent(this.entity, type, init as Partial<T>);
   }
 
@@ -171,6 +179,7 @@ export class GameObject {
    */
   addChildBehavior<T extends Component>(type: ConcreteComponentType<T>, options: { name?: string; position?: Vec3Input; init?: ComponentInit<T> } = {}): T {
     this.check();
+    if (!_componentAllowedIn(this.world, type)) return detachedComponent(this, type, options.init);
     const child = this.world._createNode(options.name ?? type.name, this.entity);
     this.world.setComponentNode(child.entity, true);
     if (options.position) child.transform!.position = Vector3.from(options.position);
@@ -265,4 +274,39 @@ export class GameObject {
   toString(): string {
     return this.isValid ? `GameObject(${this.name})` : "GameObject(destroyed)";
   }
+}
+
+// --- per-World components (ADR 0033 §3) ---------------------------------------------------------
+
+/** Component ids already noted as skipped, per World, so each is noted once. */
+const skippedNoted = new WeakMap<World, Set<string>>();
+
+/**
+ * @internal Whether a component may be created in `world` (ADR 0033 §3): its class's `worlds`
+ * option, or an instance's own `worlds` (a scene file's component entry), must match the World's
+ * tags. Without either it's created everywhere, so engine built-ins work in every World. Editor
+ * Worlds take every component, so a scene edits whole. A skip is by design, not a problem, so it's
+ * noted once per World and component id on `console.debug` rather than warned.
+ */
+export function _componentAllowedIn(world: World, type: ComponentClass | undefined, instanceWorlds?: readonly WorldTag[], id?: string): boolean {
+  if (world.kind === "editor") return true;
+  const filter = instanceWorlds ?? (type ? getComponentOptions(type).worlds : undefined);
+  if (filter === undefined || worldsMatch(filter, world.worldTags)) return true;
+  const name = id ?? (type ? (getComponentId(type) ?? type.name) : "?");
+  let noted = skippedNoted.get(world);
+  if (!noted) skippedNoted.set(world, (noted = new Set()));
+  if (!noted.has(name)) {
+    noted.add(name);
+    console.debug(`[tranquility] "${name}" isn't created in World "${world.name}": it's for Worlds tagged ${filter.map((t) => `"${t}"`).join(", ") || "(none)"}.`);
+  }
+  return false;
+}
+
+/** A component that isn't attached (it's for other Worlds): it knows its node, but never runs. */
+function detachedComponent<T extends Component>(node: GameObject, type: ConcreteComponentType<T>, init?: ComponentInit<T>): T {
+  const c = new type();
+  c._node = node;
+  c._destroyed = true;
+  if (init) Object.assign(c, init);
+  return c;
 }
