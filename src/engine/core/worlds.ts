@@ -115,8 +115,11 @@ export interface WorldHandle {
   removeSystem(name: string): void;
   /** The World's systems by name, in execution order per phase. */
   systems(): readonly string[];
-  /** Join this World (client side) to `server` over a transport (ADR 0033, wave 3). */
-  connect(server: WorldHandle, transport: string, options?: Record<string, unknown>): void;
+  /**
+   * Join this World (client side) to `server` over a transport (ADR 0033): a World of this page,
+   * or the address of a server elsewhere, such as a dedicated server's `"ws://host:7777"` (ADR 0036).
+   */
+  connect(server: WorldHandle | string, transport: string, options?: Record<string, unknown>): void;
   pause(): void;
   resume(): void;
   /** Destroy the World and everything in it. */

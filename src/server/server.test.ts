@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { Connection, ConnectionState, Engine, Replicated, defineSystem, i32, type GameObject, type RpcDef } from "../engine";
 import { World } from "../engine/core/World";
-import { connectWorld } from "../engine/net/session";
 import { loadedScriptModule } from "../editor/scriptLoader";
 import { parseArgs } from "./main";
 import { ServerError, startServer, type RunningServer, type ServerOptions } from "./run";
@@ -41,7 +40,7 @@ async function client(url: string): Promise<World> {
     bootstrap: { worlds: [{ name: "Player", tags: ["client"], scenes: ["scenes/arena.scene.json"] }] },
   });
   engines.push(engine);
-  connectWorld(engine.world, "websocket", { url });
+  engine.findWorld("Player")!.connect(url, "websocket"); // by address (ADR 0036), as a browser client joins
   return engine.world;
 }
 

@@ -233,6 +233,7 @@ function skippedWorld(config: WorldConfig, links: LinkConfig[]): WorldHandle {
     removeSystem() {},
     systems: () => [],
     connect(server, transport, options) {
+      if (typeof server === "string") return; // a client of some other server: nothing to listen for here
       links.push({ from: config.name, to: server.name, transport, ...(options ? { options } : {}) });
     },
     pause() {},
