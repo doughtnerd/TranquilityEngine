@@ -55,7 +55,7 @@ export const raw = import.meta.glob("../demo/flappy/**/*.json", { eager: true, q
 export function demoFolder(): MemoryFileSystem {
   const fs = new MemoryFileSystem();
   for (const [key, text] of Object.entries(raw)) fs.files.set(joinPath(ROOT, key.slice("../demo/flappy/".length)), text);
-  for (const img of ["PipeDown.png", "PipeUp.png", "background.png", "flappyBird.png", "flower.jpg", "ground.jpg", "moderncraft.png"]) {
+  for (const img of ["PipeDown.png", "PipeUp.png", "background.png", "flappyBird.png", "ground.jpg"]) {
     fs.files.set(joinPath(ROOT, `images/${img}`), new Uint8Array([137, 80, 78, 71]));
   }
   for (const mp3 of ["foo.mp3", "town.mp3"]) fs.files.set(joinPath(ROOT, `music/${mp3}`), new Uint8Array([1, 2, 3]));

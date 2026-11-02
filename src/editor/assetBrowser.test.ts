@@ -75,12 +75,12 @@ describe("asset browser: adding to the scene (ADR 0026)", () => {
   it("builds a prefab instance entry and a sprite node entry", () => {
     const { doc } = openScene.value!;
     expect(prefabInstanceEntry(doc, "prefabs/pipe-pair.prefab.json")).toEqual({ id: "pipe-pair", prefab: "prefabs/pipe-pair.prefab.json" });
-    expect(spriteNodeEntry(doc, "images/flower.jpg", [1, 2, 0])).toEqual({
-      id: "flower",
-      name: "Flower",
+    expect(spriteNodeEntry(doc, "images/flappyBird.png", [1, 2, 0])).toEqual({
+      id: "flappy-bird",
+      name: "FlappyBird",
       components: [
         { type: "engine.Transform", data: { position: [1, 2, 0] } },
-        { type: "engine.SpriteRenderer", data: { sprite: "asset:images/flower.jpg" } }, // no size: pixels per unit decides
+        { type: "engine.SpriteRenderer", data: { sprite: "asset:images/flappyBird.png" } }, // no size: pixels per unit decides
       ],
     });
   });
@@ -109,10 +109,10 @@ describe("asset browser: adding to the scene (ADR 0026)", () => {
 
   it("adds a sprite for an image at the given position, under the selected node", () => {
     const scene = openScene.value!;
-    const id = addAssetToScene(scene, "images/flower.jpg", "bird", [3, 1, 0]);
+    const id = addAssetToScene(scene, "images/flappyBird.png", "bird", [3, 1, 0]);
     expect(scene.doc.parentOf(id)).toBe("bird");
     const node = scene.sync.nodeFor(id)!;
-    expect(node.getBehavior(SpriteRenderer)!.sprite).toBe("images/flower.jpg");
+    expect(node.getBehavior(SpriteRenderer)!.sprite).toBe("images/flappyBird.png");
     expect(node.transform!.position.toArray()).toEqual([3, 1, 0]);
   });
 

@@ -82,10 +82,10 @@ test("dropping in the hierarchy's empty space adds at the scene's top level", as
   await openEditor(page);
   await showFolder(page, "images");
   const tree = await box(page.locator(".panel.hierarchy .panel-body"));
-  await dragAsset(page, "flower.jpg", tree.x + tree.width / 2, tree.y + tree.height - 10, false);
+  await dragAsset(page, "flappyBird.png", tree.x + tree.width / 2, tree.y + tree.height - 10, false);
   await expect(page.locator(".scene-name")).toHaveClass(/drop-into/);
   await page.mouse.up();
-  await expect(rootNames(page).last()).toHaveText("Flower");
+  await expect(rootNames(page).last()).toHaveText("FlappyBird");
 });
 
 test("assets with no node type, and invalid spots, change nothing", async ({ page }) => {
@@ -100,7 +100,7 @@ test("assets with no node type, and invalid spots, change nothing", async ({ pag
 
   await showFolder(page, "images");
   const inspector = await box(page.locator(".panel.inspector"));
-  await dragAsset(page, "flower.jpg", inspector.x + inspector.width / 2, inspector.y + 100); // the inspector isn't a drop zone
+  await dragAsset(page, "flappyBird.png", inspector.x + inspector.width / 2, inspector.y + 100); // the inspector isn't a drop zone
 
   expect(await page.locator(".tree .row").count()).toBe(before);
   await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
