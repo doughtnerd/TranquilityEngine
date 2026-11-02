@@ -6,7 +6,7 @@ import { TauriStorage } from "../platform/TauriStorage";
 import { RenderBackend } from "../render/RenderBackend";
 import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
-import { BootstrapError, resolveBootstrap, templateConfig } from "./bootstrap";
+import { BootstrapError, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
 import { resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { listSystemCatalog } from "./systems";
 import { World, type WorldKind } from "./World";
@@ -34,6 +34,26 @@ export interface EngineOptions {
    * project's `bootstrap` setting, else the default bootstrap (one World).
    */
   bootstrap?: BootstrapSetting | Bootstrap;
+  /**
+   * Imports a code bootstrap's script (`"bootstrap": "scripts/Bootstrap.ts"`) and returns its
+   * `bootstrap` export. The editor passes its script loader (ADR 0030); games import the function
+   * and pass it as `bootstrap` instead.
+   */
+  loadScript?: ResolveBootstrapOptions["loadScript"];
+}
+
+/** @internal Editor: one World's place in the Engine's views and input, from `Engine._viewStates`. */
+export interface WorldViewState {
+  readonly name: string;
+  /** It wants to render (`WorldConfig.renders`, or the default for its tags). */
+  readonly renders: boolean;
+  /** It has the Engine's main view (ADR 0034). */
+  readonly mainView: boolean;
+  /** It draws to a surface of its own besides the main view (`Engine._attachView`). */
+  readonly extraView: boolean;
+  /** Local input reaches it. */
+  readonly takesInput: boolean;
+  readonly paused: boolean;
 }
 
 /**
@@ -63,6 +83,15 @@ export class Engine implements BootstrapEngine {
   private viewWorld: World | null = null;
   /** Per World: whether it wants the view, and its `input` setting (undefined: input follows the view). */
   private readonly viewWishes = new Map<World, { renders: boolean; input: boolean | undefined }>();
+  /**
+   * Editor: Worlds drawn to a surface of their own besides the main view (tiled play mode), each
+   * by its own backend, since a backend draws exactly one World (ADR 0032).
+   */
+  private readonly extraViews = new Map<World, RenderBackend>();
+  /** Editor: the World `_focusInput` gave local input to; null: input follows the main view. */
+  private inputWorld: World | null = null;
+  /** The canvas Input listens to: the input World's, when it has one. */
+  private inputCanvas: HTMLCanvasElement | null = null;
   /** Scene loads of the start-up Worlds, which `Engine.create` waits for; null once it's done. */
   private starting: Promise<void>[] | null = [];
   private rafId = 0;
@@ -84,7 +113,7 @@ export class Engine implements BootstrapEngine {
     const bootstrap: Bootstrap =
       kind !== "runtime" && options.bootstrap === undefined
         ? (e) => void e.createWorld(KIND_WORLDS[kind])
-        : await resolveBootstrap(options.bootstrap ?? engine.settings.bootstrap);
+        : await resolveBootstrap(options.bootstrap ?? engine.settings.bootstrap, { loadScript: options.loadScript });
     try {
       await bootstrap(engine);
       const starting = engine.starting!;
@@ -149,7 +178,6 @@ export class Engine implements BootstrapEngine {
 
     // A server World doesn't want the view unless it asks; any other World does unless it says no.
     this.viewWishes.set(world, { renders: c.renders ?? !tags.includes("server"), input: c.input });
-    world._takesInput = c.input ?? false;
 
     const handle = new WorldHandleImpl(world, this);
     this.handles.set(world, handle);
@@ -212,33 +240,105 @@ export class Engine implements BootstrapEngine {
   private tearDown(world: World): void {
     World._runIn(world, () => world._destroyAll()); // releases its objects from the render surface
     this.viewWishes.delete(world);
+    this.extraViews.get(world)?.dispose();
+    this.extraViews.delete(world);
+    if (world === this.inputWorld) this.inputWorld = null;
     if (world === this.viewWorld) {
       world.render = null;
       this.render?.releaseWorld();
       this.viewWorld = null;
-      this.assignView();
     }
+    this.assignView();
   }
 
   /**
    * Give the view to the first World that wants it, if no World has it (ADR 0034): the canvas and
    * render surface when there's a container, and local input unless the World's config sets
-   * `input`. Called when a World is created and when the World with the view is destroyed, so a
-   * menu World that creates a match World and destroys itself hands the screen over.
+   * `input`. Called when a World is created and when one is destroyed, so a menu World that
+   * creates a match World and destroys itself hands the screen over.
    */
   private assignView(): void {
-    if (this.viewWorld && this.list.includes(this.viewWorld)) return;
-    const next = this.list.find((w) => this.viewWishes.get(w)?.renders) ?? null;
-    this.viewWorld = next;
-    if (!next) return;
-    const wish = this.viewWishes.get(next)!;
-    next._takesInput = wish.input ?? true;
-    if (!this.container) return;
-    if (!this.render) {
-      this.render = new RenderBackend(this.container, next.settings, next.kind);
-      Input.attach(this.render.canvas);
+    if (!this.viewWorld || !this.list.includes(this.viewWorld)) {
+      const next = this.list.find((w) => this.viewWishes.get(w)?.renders) ?? null;
+      this.viewWorld = next;
+      if (next && this.container) {
+        // A World drawn to a surface of its own (an editor tile) gives it up for the main view.
+        this.extraViews.get(next)?.dispose();
+        this.extraViews.delete(next);
+        this.render ??= new RenderBackend(this.container, next.settings, next.kind);
+        next.render = this.render;
+      }
     }
-    next.render = this.render;
+    this.applyInput();
+  }
+
+  /**
+   * Local input goes to one World (ADR 0034): the one `_focusInput` picked, while it lives, else
+   * the World with the main view. A World whose config sets `input` keeps that. Input listens to
+   * the chosen World's canvas, if it has one.
+   */
+  private applyInput(): void {
+    const target = this.inputWorld ?? this.viewWorld;
+    for (const world of this.list) world._takesInput = this.viewWishes.get(world)?.input ?? world === target;
+    const canvas = !target ? null : target === this.viewWorld ? this.render?.canvas : this.extraViews.get(target)?.canvas;
+    if (canvas && canvas !== this.inputCanvas) {
+      Input.attach(canvas);
+      this.inputCanvas = canvas;
+    }
+  }
+
+  /** @internal Editor: the live World named `name`, or null. For editor tools; game code goes through handles. */
+  _world(name: string): World | null {
+    return this.list.find((w) => w.name === name) ?? null;
+  }
+
+  /** @internal Editor: every World's view and input state, in creation order. */
+  _viewStates(): WorldViewState[] {
+    return this.list.map((w) => ({
+      name: w.name,
+      renders: this.viewWishes.get(w)?.renders ?? false,
+      mainView: w === this.viewWorld,
+      extraView: this.extraViews.has(w),
+      takesInput: w._takesInput,
+      paused: w._paused,
+    }));
+  }
+
+  /**
+   * @internal Editor: draw the World named `name` to a surface of its own in `element` (a tile of
+   * the tiled game view), synced and rendered in that World's frame. Returns a function that
+   * removes the surface; it also goes when the World is destroyed, takes the main view, or the
+   * Engine is disposed. The main view (ADR 0034) stays as it is: its World can't have a second.
+   */
+  _attachView(name: string, element: HTMLElement): () => void {
+    const world = this._world(name);
+    if (!world) throw new Error(`There's no World named "${name}" in this Engine.`);
+    if (world === this.viewWorld) throw new Error(`World "${name}" has the main view already.`);
+    if (this.extraViews.has(world)) throw new Error(`World "${name}" has a view already.`);
+    const backend = new RenderBackend(element, world.settings, world.kind);
+    this.extraViews.set(world, backend);
+    world.render = backend;
+    this.applyInput(); // if it has input, Input listens to its canvas now
+    return () => {
+      if (this.extraViews.get(world) !== backend) return; // gone with its World, or replaced
+      this.extraViews.delete(world);
+      // Its three.js objects live in this backend and go with it; the World runs on without a surface.
+      world.render = null;
+      backend.dispose();
+      if (this.inputCanvas === backend.canvas) this.inputCanvas = null;
+      this.applyInput();
+    };
+  }
+
+  /**
+   * @internal Editor: give local input to the World named `name` and take it from the others,
+   * except Worlds whose config sets `input` (ADR 0034). Null gives it back to the main view's World.
+   */
+  _focusInput(name: string | null): void {
+    const world = name === null ? null : this._world(name);
+    if (name !== null && !world) throw new Error(`There's no World named "${name}" in this Engine.`);
+    this.inputWorld = world;
+    this.applyInput();
   }
 
   /** True while the requestAnimationFrame loop is running. */
@@ -324,10 +424,11 @@ export class Engine implements BootstrapEngine {
       // 7. Transform propagation
       world._propagateTransforms();
 
-      // 8–9. Render sync and render
-      if (this.render && world === this.viewWorld) {
-        this.render.sync(world);
-        this.render.render(world);
+      // 8–9. Render sync and render: to the main view, or to the World's own surface (editor tiles)
+      const surface = world === this.viewWorld ? this.render : this.extraViews.get(world);
+      if (surface) {
+        surface.sync(world);
+        surface.render(world);
       }
     } finally {
       // 10. End of frame: deferred destroys, buffers, then scene loads
@@ -351,9 +452,13 @@ export class Engine implements BootstrapEngine {
     }
     this.handles.clear();
     this.viewWishes.clear();
+    for (const backend of this.extraViews.values()) backend.dispose();
+    this.extraViews.clear();
     this.render?.dispose();
     this.render = null;
     this.viewWorld = null;
+    this.inputWorld = null;
+    this.inputCanvas = null;
     Input.detach();
     if (World.active && worlds.includes(World.active)) World.active = null;
   }
