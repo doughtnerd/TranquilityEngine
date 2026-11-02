@@ -21,11 +21,6 @@ describe("the netcode contract (C2)", () => {
   });
 });
 
-describe("loopback transport (T7)", () => {
-  it.todo("delivers reliable messages in order and unreliable ones latest-wins");
-  it.todo("applies simulated latency, jitter and loss (loss delays reliable messages instead of dropping them)");
-});
-
 describe("WebSocket transport (T9)", () => {
   it.todo("connects a headless client World to a headless server World over a real socket in Node");
 });
