@@ -93,7 +93,8 @@ describe("traffic counters", () => {
       ["Server", "server", 2],
     ]);
     expect(info(engine, "Server").peers.map((p) => p.id).sort()).toEqual([1, 2]);
-    expect(info(engine, "A").prediction).toBeNull(); // no predictionStats yet (T13), or nothing to report
+    expect(info(engine, "A").prediction).toMatchObject({ predictedTicks: expect.any(Number), mispredictions: 0 }); // T13's counters
+    expect(info(engine, "Server").prediction).toBeNull();
   });
 });
 

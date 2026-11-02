@@ -21,6 +21,7 @@ import { SceneInstance, applyTransform, assignField, instantiateFile, type Insta
 import type { Schema } from "../core/data";
 import { definedInputs } from "../net/input";
 import { clientReplication } from "../net/replication/client";
+import { predictionStats } from "../net/prediction";
 import { serverReplication } from "../net/replication/server";
 import { netSession, type NetPeer, type NetTraffic } from "../net/session";
 import type { LinkConditions } from "../net/Transport";
@@ -455,20 +456,11 @@ export interface NetWorldInfo {
   readonly ghosts: number | null;
   /** Recently closed connections and why, newest last. */
   readonly closed: readonly { readonly id: number; readonly reason: string }[];
-  /** Client prediction's counters (T13), when the engine has `predictionStats`; null otherwise. */
+  /** Client prediction's counters (T13, `predictionStats`); null for a World that isn't a network client. */
   readonly prediction: Readonly<Record<string, unknown>> | null;
 }
 
 const copyTraffic = (t: NetTraffic): NetTrafficInfo => ({ bytes: t.bytes, messages: t.messages, byKind: Object.fromEntries([...t.byKind].map(([k, v]) => [k, { ...v }])) });
-
-/**
- * Prediction (T13) lands beside these tools: its `predictionStats(world)` is looked for among the
- * netcode modules, so the panel shows it once it exists, and nothing breaks before.
- */
-const netModules = import.meta.glob(["../net/*.ts", "../net/prediction/*.ts", "!../net/**/*.test.ts"], { eager: true }) as Record<string, Record<string, unknown>>;
-const predictionStats = Object.values(netModules)
-  .map((m) => m.predictionStats)
-  .find((f): f is (world: World) => unknown => typeof f === "function");
 
 /** The live Worlds of `engine`, in its order. */
 const liveWorlds = (engine: Engine): World[] => engine.worlds().flatMap((h) => engine._world(h.name) ?? []);
@@ -500,10 +492,10 @@ export function netWorldInfo(engine: Engine): NetWorldInfo[] {
       };
     };
     let prediction: Record<string, unknown> | null = null;
-    if (predictionStats && session.isClient) {
+    if (session.isClient) {
       try {
         const stats = World._runIn(world, () => predictionStats(world));
-        prediction = stats && typeof stats === "object" ? { ...(stats as Record<string, unknown>) } : null;
+        prediction = stats ? { ...stats } : null;
       } catch {
         prediction = null;
       }

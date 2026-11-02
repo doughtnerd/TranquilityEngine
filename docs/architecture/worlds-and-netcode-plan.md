@@ -64,7 +64,9 @@ T10 ran first; T11 and T12 then ran in parallel against T10's internal message A
 
 T11 and T12 can run at the same time once T10's handshake and tick contract is merged.
 
-## Wave 4: prediction, server runtime and tools (after wave 3)
+## Wave 4: prediction, server runtime and tools (after wave 3), done 2026-11-02
+
+T13, T14 and T15 ran in parallel from wave 3's review fixes and merged in order T14, T13, T15 without conflicts. At merge, T15's lookup of `predictionStats` (written before T13 existed) became a direct import, so the Network panel shows prediction counters for client Worlds. Not done from the T15 row: bandwidth per ghost type (the panel shows bytes per message kind and snapshot size). Not yet reviewed.
 
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|
