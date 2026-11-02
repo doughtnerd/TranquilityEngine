@@ -13,6 +13,10 @@
  *    { replicate: true })` (or `predicted`), in component order: numbers as f32 (with their
  *    `quantize`), booleans as u8. Fields of other types aren't replicated (warned once).
  *
+ * A layout's predicted values (T13, `predictedPlan` at the bottom) are the transform, the data
+ * fields listed in `replicate(def, { predicted })` and the behavior fields declared `predicted`;
+ * on the owning client `prediction.ts` simulates them instead of taking received states.
+ *
  * Both ends build a layout from a `LayoutSpec` (sent with the ghost's spawn). The spec carries each
  * component's field shapes (type and quantize step), so a client can always decode a ghost's
  * record: parts for a component it doesn't know, or whose fields differ from the server's, are
@@ -63,6 +67,8 @@ interface BehaviorField {
   readonly name: string;
   readonly boolean: boolean;
   readonly quantize?: number;
+  /** Declared `predicted` (T13). */
+  readonly predicted: boolean;
 }
 
 type Part =
@@ -107,7 +113,7 @@ export function behaviorFields(type: ComponentClass): readonly BehaviorField[] {
       warnOnce(`${type.name}.${f.name}`, `${getComponentId(type) ?? type.name}.${f.name} is declared with replicate, but only Number and Boolean fields replicate; it isn't sent.`);
       continue;
     }
-    list.push({ name: f.name, boolean: f.type === Boolean, quantize: f.type === Number ? f.options.quantize : undefined });
+    list.push({ name: f.name, boolean: f.type === Boolean, quantize: f.type === Number ? f.options.quantize : undefined, predicted: !!f.options.predicted });
   }
   behaviorFieldCache.set(type, (out = list));
   return out;
@@ -298,16 +304,21 @@ export function bind(layout: Layout, node: GameObject, rep: Replicated): Binding
   return { node, rep, targets };
 }
 
-/** Client: write values (in layout order) to the bound node. */
-export function applyState(layout: Layout, binding: Binding, values: ArrayLike<number>): void {
+/**
+ * Client: write values (in layout order) to the bound node. With `skipPredicted`, the values the
+ * owning client predicts (T13, `predictedPlan`) are left alone: prediction owns them.
+ */
+export function applyState(layout: Layout, binding: Binding, values: ArrayLike<number>, skipPredicted = false): void {
   const { node, rep } = binding;
   rep.ownerId = values[0];
   rep.mode = values[1] === 1 ? "predicted" : "interpolated";
   const world = node.world;
   const e = node.entity;
+  const skip = skipPredicted ? predictedPlan(layout).mask : null;
   layout.parts.forEach((part, p) => {
     let at = part.at;
     if (part.kind === "transform") {
+      if (skip) return; // a replicated transform is always predicted
       let changed = false;
       const put = (array: Float32Array, offset: number, v: number) => {
         if (array[offset] !== Math.fround(v)) {
@@ -326,11 +337,157 @@ export function applyState(layout: Layout, binding: Binding, values: ArrayLike<n
     const target = binding.targets[p];
     if (!target || part.kind === "ignored") return;
     if (part.kind === "data") {
-      for (const f of part.fields) target[f] = values[at++];
+      for (const f of part.fields) {
+        if (!skip?.[at]) target[f] = values[at];
+        at++;
+      }
     } else {
-      for (const f of part.fields) target[f.name] = f.boolean ? values[at++] !== 0 : values[at++];
+      for (const f of part.fields) {
+        if (!skip?.[at]) target[f.name] = f.boolean ? values[at] !== 0 : values[at];
+        at++;
+      }
     }
   });
+}
+
+// --- prediction (T13) ---------------------------------------------------------------------------
+
+/** A predicted value's tolerance, relative to its size, for unquantized f32 fields. */
+const F32_TOLERANCE = 1e-5;
+
+/** @internal T13: which of a layout's values the owning client predicts, and where they live. */
+export interface PredictedPlan {
+  /** Per layout value: 1 if predicted. */
+  readonly mask: Uint8Array;
+  /** The predicted values' layout indices, in order: a predicted state is these values. */
+  readonly indices: readonly number[];
+  /** Per predicted value: how far apart a prediction and the server's value may be (quantization). */
+  readonly tolerance: Float64Array;
+  /** Per predicted value: compared as an integer (i32, u8). */
+  readonly integer: Uint8Array;
+  /** Per predicted value: its tolerance scales with its size (unquantized f32: at least 1). */
+  readonly relative: Uint8Array;
+  /** The transform's layout index (its 10 values come first in `indices`), or -1. */
+  readonly transformAt: number;
+  /** Predicted data and behavior fields, after the transform: their part and field name. */
+  readonly fields: readonly { readonly part: number; readonly name: string; readonly boolean: boolean }[];
+}
+
+const plans = new WeakMap<Layout, PredictedPlan>();
+
+/**
+ * @internal T13: a layout's predicted values: the transform (if replicated), data fields listed in
+ * `replicate(def, { predicted })` that are sent, and behavior fields declared `predicted`.
+ */
+export function predictedPlan(layout: Layout): PredictedPlan {
+  let plan = plans.get(layout);
+  if (plan) return plan;
+  const mask = new Uint8Array(layout.size);
+  const fields: { part: number; name: string; boolean: boolean }[] = [];
+  let transformAt = -1;
+  layout.parts.forEach((part, p) => {
+    if (part.kind === "transform") {
+      transformAt = part.at;
+      mask.fill(1, part.at, part.at + 10);
+    } else if (part.kind === "data") {
+      const predicted = replicationOf(part.def)?.predicted ?? [];
+      for (const name of predicted) {
+        const i = part.fields.indexOf(name);
+        if (i < 0) {
+          warnOnce(`predicted:${part.def.id}.${name}`, `${part.def.id}.${name} is listed as predicted but isn't replicated (not in "fields"); it isn't predicted.`);
+          continue;
+        }
+        mask[part.at + i] = 1;
+      }
+      part.fields.forEach((name, i) => mask[part.at + i] && fields.push({ part: p, name, boolean: false }));
+    } else if (part.kind === "behavior") {
+      part.fields.forEach((f, i) => {
+        if (!f.predicted) return;
+        mask[part.at + i] = 1;
+        fields.push({ part: p, name: f.name, boolean: f.boolean });
+      });
+    }
+  });
+  const indices: number[] = [];
+  for (let i = 0; i < layout.size; i++) if (mask[i]) indices.push(i);
+  const tolerance = new Float64Array(indices.length);
+  const integer = new Uint8Array(indices.length);
+  const relative = new Uint8Array(indices.length);
+  indices.forEach((at, i) => {
+    // A quantized value is off by up to half a step; allow one step, so float noise never trips it.
+    if (layout.steps[at] > 0) tolerance[i] = layout.steps[at];
+    else if (layout.kinds[at] === "f32") {
+      tolerance[i] = F32_TOLERANCE;
+      relative[i] = 1;
+    } else integer[i] = 1;
+  });
+  plans.set(layout, (plan = { mask, indices, tolerance, integer, relative, transformAt, fields }));
+  return plan;
+}
+
+/** @internal T13: the predicted values of a full (received) state. */
+export function pickPredicted(plan: PredictedPlan, state: GhostState): number[] {
+  return plan.indices.map((i) => state[i]);
+}
+
+/** @internal T13: the bound node's predicted values now. */
+export function readPredicted(plan: PredictedPlan, binding: Binding): number[] {
+  const out: number[] = [];
+  const { node } = binding;
+  if (plan.transformAt >= 0) {
+    const world = node.world;
+    const e = node.entity;
+    for (let i = 0; i < 3; i++) out.push(world.tPos[e * 3 + i]);
+    for (let i = 0; i < 4; i++) out.push(world.tRot[e * 4 + i]);
+    for (let i = 0; i < 3; i++) out.push(world.tScl[e * 3 + i]);
+  }
+  for (const f of plan.fields) {
+    const v = binding.targets[f.part]?.[f.name];
+    out.push(f.boolean ? (v ? 1 : 0) : typeof v === "number" ? v : 0);
+  }
+  return out;
+}
+
+/** @internal T13: write predicted values (from `readPredicted` or `pickPredicted`) to the bound node. */
+export function applyPredicted(plan: PredictedPlan, binding: Binding, values: ArrayLike<number>): void {
+  const { node } = binding;
+  let at = 0;
+  if (plan.transformAt >= 0) {
+    const world = node.world;
+    const e = node.entity;
+    for (let i = 0; i < 3; i++) world.tPos[e * 3 + i] = values[at++];
+    // Received rotations are quantized, a little off unit length; normalize.
+    const len = Math.hypot(values[at], values[at + 1], values[at + 2], values[at + 3]) || 1;
+    for (let i = 0; i < 4; i++) world.tRot[e * 4 + i] = values[at++] / len;
+    for (let i = 0; i < 3; i++) world.tScl[e * 3 + i] = values[at++];
+    world.markTransformDirty(e);
+  }
+  for (const f of plan.fields) {
+    const target = binding.targets[f.part];
+    const v = values[at++];
+    if (target) target[f.name] = f.boolean ? v !== 0 : v;
+  }
+}
+
+/**
+ * @internal T13: how far a predicted state is from the server's: the largest difference of any
+ * value beyond its tolerance, or 0 if every value is within it (a correct prediction).
+ */
+export function predictionError(plan: PredictedPlan, predicted: ArrayLike<number>, authoritative: ArrayLike<number>): number {
+  let error = 0;
+  for (let i = 0; i < plan.indices.length; i++) {
+    const a = predicted[i], b = authoritative[i];
+    let d: number;
+    if (plan.integer[i]) d = (a | 0) === (b | 0) ? 0 : Math.abs((a | 0) - (b | 0));
+    else {
+      d = Math.abs(Math.fround(a) - b);
+      const tolerance = plan.relative[i] ? plan.tolerance[i] * Math.max(1, Math.abs(b)) : plan.tolerance[i];
+      if (d <= tolerance) d = 0;
+      else if (!(d > 0)) d = Infinity; // NaN
+    }
+    if (d > error) error = d;
+  }
+  return error;
 }
 
 /**

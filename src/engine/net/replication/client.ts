@@ -13,8 +13,10 @@
  * from the last two states for up to `MAX_EXTRAPOLATION_MS`, then holds. A newly spawned or
  * matched ghost shows its first state at once.
  *
- * Owned `"predicted"` ghosts (`Replicated.isPredictedLocally`) show the newest state directly
- * for now; T13 replaces that with prediction and rollback.
+ * Owned `"predicted"` ghosts (`Replicated.isPredictedLocally`) aren't interpolated: their
+ * predicted values (`predictedPlan` in `layout.ts`) are simulated ahead and corrected by
+ * `prediction.ts` (T13), which reads their received states; their other values take the newest
+ * state. A ghost's first state is applied whole when its node is found or made.
  *
  * When the connection to the server goes (or a new one replaces it), ghosts the client
  * instantiated are destroyed and scene ghosts become ordinary nodes again.
@@ -113,7 +115,8 @@ export class ClientReplication {
       const binding = g.binding;
       // Destroyed on this side (its scene unloaded, say): find or make it again.
       if (binding && !binding.node.isValid) g.node = g.binding = null;
-      else if (binding?.rep.isPredictedLocally) applyState(g.layout, binding, states[states.length - 1].values); // T13 predicts these
+      // Predicted values belong to prediction (T13, `prediction.ts`); the rest take the newest state.
+      else if (binding?.rep.isPredictedLocally) applyState(g.layout, binding, states[states.length - 1].values, true);
       else if (binding) applyState(g.layout, binding, this.sample(g, at, maxAhead));
       // Every ghost, shown or not: one waiting for its scene, or a predicted one, still gets a state each snapshot.
       this.prune(g, at);

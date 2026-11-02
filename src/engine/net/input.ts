@@ -47,7 +47,8 @@
  *   replication map another node (a ghost owned by a connection, `Replicated.owner`) to its
  *   connection node, on both ends.
  * - Prediction (T13): `inputAt(def, world, tick)` returns a client's input for a past tick, and
- *   `setInputReplayTick(world, tick)` makes `of()` return that tick's input while re-simulating.
+ *   `setInputReplayTick(world, tick)` makes `of()` return that tick's input while re-simulating
+ *   (the newest earlier one if that tick has none, as the server repeats it).
  */
 import { World } from "../core/World";
 import type { DataView, Schema } from "../core/data";
@@ -239,7 +240,7 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
       const state = stream.clients.get(world);
       if (!state) return null;
       const replay = replayTicks.get(world);
-      if (replay !== undefined) return (state.history.get(replay) as Readonly<DataView<S>> | undefined) ?? null;
+      if (replay !== undefined) return replayed(state, replay) as Readonly<DataView<S>> | null;
       return state.current as Readonly<DataView<S>>;
     },
     stats(node) {
@@ -254,6 +255,20 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
 }
 
 // --- client -------------------------------------------------------------------------------------
+
+/**
+ * Prediction (T13): a client's input for a replayed tick. A tick with no input of its own (its
+ * step was skipped, or not committed yet) gets the newest earlier one, as the server would repeat
+ * it; the tick being written gets the current input.
+ */
+function replayed(state: ClientState, tick: number): Readonly<Values> | null {
+  if (state.pending && tick === state.tick) return state.current;
+  for (let t = Math.min(tick, state.newest); t >= 0 && t > state.newest - CLIENT_HISTORY; t--) {
+    const v = state.history.get(t);
+    if (v) return v;
+  }
+  return null;
+}
 
 /** Store the pending input under its tick and send it with the ones before it. */
 function commit(stream: Stream, session: NetSession, state: ClientState): void {
