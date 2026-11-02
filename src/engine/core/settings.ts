@@ -1,3 +1,5 @@
+import type { BootstrapSetting } from "./worlds";
+
 /** Project settings, normally loaded from the game's `project.json`. */
 export interface ProjectSettings {
   name: string;
@@ -30,6 +32,8 @@ export interface ProjectSettings {
   };
   /** Scene/prefab files instanced under the World root at startup; they persist across scene loads (ADR 0016). */
   autoload: string[];
+  /** Which Worlds the Engine creates at start (ADR 0032). Omitted: the default bootstrap, one World. */
+  bootstrap?: BootstrapSetting;
 }
 
 export type ProjectSettingsInput = {
@@ -57,5 +61,6 @@ export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettin
     physics: { ...defaultSettings.physics, ...input.physics },
     render: { ...defaultSettings.render, ...input.render },
     autoload: input.autoload ?? [],
+    ...(input.bootstrap !== undefined ? { bootstrap: input.bootstrap } : {}), // validated by the bootstrap (T4)
   };
 }

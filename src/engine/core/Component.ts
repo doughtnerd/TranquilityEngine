@@ -1,6 +1,6 @@
 import type { GameObject } from "../scene/GameObject";
 import type { Transform } from "../scene/Transform";
-import type { World } from "./World";
+import type { TimeState, World } from "./World";
 
 /**
  * Base class for everything attached to a node: built-in engine components and user
@@ -60,6 +60,14 @@ export abstract class Component {
   /** @internal */
   get world(): World {
     return this._node.world;
+  }
+
+  /**
+   * This component's World's clock (ADR 0032): the same values as `Time`, but safe to read
+   * outside the World's frame too (after an `await`, say).
+   */
+  get time(): Readonly<TimeState> {
+    return this._node.world.time;
   }
 
   // Internal hooks used by built-in components. Game code uses the lifecycle methods instead.

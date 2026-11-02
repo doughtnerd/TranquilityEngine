@@ -3,11 +3,13 @@
  * are never part of this surface (ADR 0010).
  */
 export { Engine, type EngineOptions } from "./core/Engine";
-export type { WorldKind } from "./core/World";
+export type { WorldKind, TimeState } from "./core/World";
+export type { Bootstrap, BootstrapConfig, BootstrapEngine, BootstrapSetting, LinkConfig, SystemSelection, WorldConfig, WorldHandle, WorldTag } from "./core/worlds";
+export type { NetworkTime } from "./net/time";
 export { Component, GameBehavior, Waits, type LifecycleHooks } from "./core/Component";
 export { Time } from "./core/Time";
 export { Color, Mathf, Quaternion, Vector2, Vector3, DEG2RAD, RAD2DEG, type Vec2Like, type Vec3Like, type Vec2Input, type Vec3Input } from "./core/math";
-export { AssetRef, PlainObject, behavior, component, field, getComponentClass, getComponentId, getFields, registerComponent } from "./core/registry";
+export { AssetRef, PlainObject, behavior, component, field, getComponentClass, getComponentId, getComponentOptions, getFields, registerComponent, type ComponentOptions, type FieldOptions } from "./core/registry";
 export { defineBuffer, defineComponent, f32, i32, u8, type BufferDef, type DataComponentDef, type DataView } from "./core/data";
 export { defineSystem, type Phase, type Row, type SystemContext, type SystemDef } from "./core/systems";
 export type { ProjectSettings, ProjectSettingsInput } from "./core/settings";

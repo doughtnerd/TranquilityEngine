@@ -1,6 +1,6 @@
 # 0032. The Engine runs several isolated Worlds, each with its own systems and clock
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0011, 0016, 0017)

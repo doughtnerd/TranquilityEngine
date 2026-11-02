@@ -1,6 +1,6 @@
 # Plan: multiple Worlds and netcode
 
-How to implement [0032](../decisions/0032-worlds-systems-and-bootstraps.md) (Worlds, systems, bootstraps) and [0033](../decisions/0033-server-authoritative-netcode.md) (netcode) with several agents working in parallel. Both records are **Proposed**; nothing here starts until they're accepted.
+How to implement [0032](../decisions/0032-worlds-systems-and-bootstraps.md) (Worlds, systems, bootstraps) and [0033](../decisions/0033-server-authoritative-netcode.md) (netcode) with several agents working in parallel. Both records were accepted on 2026-11-02.
 
 ## How the work is run
 
@@ -8,7 +8,9 @@ How to implement [0032](../decisions/0032-worlds-systems-and-bootstraps.md) (Wor
 - **Implementer agents.** Each owns one task's files (listed below) and doesn't edit files another running task owns. If it needs a contract change, it stops and asks the coordinator. Each task ends with its unit tests passing, plus e2e tests where it touches the editor. Each implementer commits only to its own branch.
 - **Waves.** Tasks in the same wave run at the same time. A wave starts when the tasks it depends on are merged, or when it only needs a contract that has already landed.
 
-## Wave 0: contracts (coordinator, sequential)
+## Wave 0: contracts (coordinator, sequential), done 2026-11-02
+
+C1 and C2 landed as stubs: `core/worlds.ts` and the additions to `World`, `Engine`, `Component`, `systems.ts`, `settings.ts` and `registry.ts`; and `net/` (`Transport.ts`, `codec.ts`, `messages.ts`, `replication.ts`, `time.ts`). Stubs throw `notYet(task, …)`. Each task's done-when criteria are `it.todo` entries in `src/engine/tests/worlds.test.ts` and `net.test.ts`, for the implementer to turn into tests. The public index exports the core types and `NetworkTime`. T10 and T12 export `defineRpc` and `defineInput` when they implement them, and T11 registers `net.Replicated`.
 
 | Id | Task | Output |
 |---|---|---|

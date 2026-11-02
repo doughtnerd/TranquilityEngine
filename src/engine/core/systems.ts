@@ -6,6 +6,7 @@ import type { Transform } from "../scene/Transform";
 import type { DataComponentDef } from "./data";
 import type { TimeState, World } from "./World";
 import { _isReplacingRegistrations, _recordRegistration } from "./registry";
+import type { WorldTag } from "./worlds";
 
 export type Phase = "fixedUpdate" | "update" | "lateUpdate";
 
@@ -36,6 +37,11 @@ export interface SystemDef {
   readonly before?: readonly string[];
   /** Rows include only nodes that are active in the hierarchy and have every term. */
   readonly query?: readonly QueryTerm[];
+  /**
+   * Tags of the Worlds this system is meant for (ADR 0032): bootstraps add it to Worlds with any of
+   * them. Default `["default", "local"]`. Adding it to a World by name works regardless.
+   */
+  readonly worlds?: readonly WorldTag[];
   run(rows: Iterable<Row>, ctx: SystemContext): void;
 }
 

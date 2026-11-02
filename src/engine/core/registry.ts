@@ -27,9 +27,36 @@ export type FieldType =
   // here to avoid import cycles.
   | (abstract new (...args: never[]) => unknown);
 
+/** Options on a declared field (ADR 0033). */
+export interface FieldOptions {
+  /** Replicate this field from server to clients on replicated nodes (T11). */
+  replicate?: boolean;
+  /** Roll back and re-simulate this field on the owning client (T13). Implies `replicate`. */
+  predicted?: boolean;
+  /** Send numbers rounded to this step (e.g. 0.01) to save bandwidth (T8, T11). */
+  quantize?: number;
+}
+
 export interface FieldInfo {
   readonly name: string;
   readonly type: FieldType;
+  readonly options?: FieldOptions;
+}
+
+/** Options on a registered component class (ADR 0033). */
+export interface ComponentOptions {
+  /**
+   * Tags of the Worlds this component exists in (client-only, server-only…). In other Worlds it
+   * isn't created when a scene loads. Default: every World (T11).
+   */
+  worlds?: readonly import("./worlds").WorldTag[];
+}
+
+const componentOptions = new Map<ComponentClass, ComponentOptions>();
+
+/** The options a component class was registered with. */
+export function getComponentOptions(type: ComponentClass): ComponentOptions {
+  return componentOptions.get(type) ?? {};
 }
 
 const FIELDS = Symbol("tranquility.fields");
@@ -95,7 +122,8 @@ export function _unregisterComponent(id: string): void {
 }
 
 /** Register a component class under a stable id. Usually applied with `@behavior` / `@component`. */
-export function registerComponent(id: string, type: ComponentClass): void {
+export function registerComponent(id: string, type: ComponentClass, options?: ComponentOptions): void {
+  if (options) componentOptions.set(type, options);
   const existing = classById.get(id);
   if (existing && existing !== type) {
     if (!replacing) throw new Error(`Component id "${id}" is already registered to a different class.`);
@@ -109,24 +137,24 @@ export function registerComponent(id: string, type: ComponentClass): void {
 }
 
 /** Class decorator: register a GameBehavior under a stable id used by scene files. */
-export function behavior(id: string) {
+export function behavior(id: string, options?: ComponentOptions) {
   return function <T extends ComponentClass>(value: T, _context: ClassDecoratorContext): void {
-    registerComponent(id, value);
+    registerComponent(id, value, options);
   };
 }
 
 /** Class decorator for built-in engine components. Same as `@behavior`. */
 export const component = behavior;
 
-/** Field decorator: declare a serializable field and its type. */
-export function field(type: FieldType) {
+/** Field decorator: declare a serializable field and its type (and, for netcode, how it replicates). */
+export function field(type: FieldType, options?: FieldOptions) {
   return function (_value: undefined, context: ClassFieldDecoratorContext): void {
     const meta = context.metadata as Record<symbol, FieldInfo[] | undefined>;
     // Metadata objects inherit from the parent class's metadata; copy before mutating.
     if (!Object.prototype.hasOwnProperty.call(meta, FIELDS)) {
       meta[FIELDS] = [...(meta[FIELDS] ?? [])];
     }
-    meta[FIELDS]!.push({ name: String(context.name), type });
+    meta[FIELDS]!.push(options ? { name: String(context.name), type, options } : { name: String(context.name), type });
   };
 }
 

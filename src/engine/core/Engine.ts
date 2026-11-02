@@ -8,6 +8,7 @@ import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
 import type { ProjectSettingsInput } from "./settings";
 import { World, type WorldKind } from "./World";
+import { notYet, type Bootstrap, type BootstrapSetting, type WorldConfig, type WorldHandle } from "./worlds";
 
 export interface EngineOptions {
   /** Project settings (usually the game's `project.json`). */
@@ -21,10 +22,16 @@ export interface EngineOptions {
   storage?: StorageBackend;
   /** "runtime" for games (default); "editor" for the scene editor's Editor World (ADR 0016, 0022). */
   kind?: WorldKind;
+  /**
+   * Which Worlds to create (ADR 0032): a declarative config or a code bootstrap. Default: the
+   * project's `bootstrap` setting, else the default bootstrap (one World).
+   */
+  bootstrap?: BootstrapSetting | Bootstrap;
 }
 
 /**
- * Owns a World and drives it frame by frame (ADR 0011).
+ * Owns the Worlds and drives them frame by frame (ADR 0011, 0032). Today it holds one World;
+ * wave 1 (T1) makes it hold several, created by a bootstrap or at runtime through handles.
  *
  * ```ts
  * const engine = await Engine.create({ container, project, assets });
@@ -62,6 +69,34 @@ export class Engine {
     Storage.use(options.storage ?? (await defaultStorage(world.settings.name, headless)));
     SceneManager.loadAutoloads(world);
     return new Engine(world, render);
+  }
+
+  /**
+   * Create a World in the Engine that's running the current World (ADR 0032), e.g. from a menu's
+   * "Host" button. `config` is a WorldConfig or the name of a bootstrap template.
+   */
+  static createWorld(config: WorldConfig | string): WorldHandle {
+    return notYet("T1", `Engine.createWorld(${JSON.stringify(typeof config === "string" ? config : config.name)})`);
+  }
+
+  /** A handle on a World of the current World's Engine, by name, or null. */
+  static findWorld(name: string): WorldHandle | null {
+    return notYet("T1", `Engine.findWorld(${JSON.stringify(name)})`);
+  }
+
+  /** Create a World in this Engine. See `Engine.createWorld`. */
+  createWorld(config: WorldConfig | string): WorldHandle {
+    return notYet("T1", `engine.createWorld(${JSON.stringify(typeof config === "string" ? config : config.name)})`);
+  }
+
+  /** A handle on one of this Engine's Worlds, by name, or null. */
+  findWorld(name: string): WorldHandle | null {
+    return notYet("T1", `engine.findWorld(${JSON.stringify(name)})`);
+  }
+
+  /** Handles on every World, in creation (and step) order. For the editor and bootstraps, not game scripts. */
+  worlds(): readonly WorldHandle[] {
+    return notYet("T1", "engine.worlds()");
   }
 
   /** True while the requestAnimationFrame loop is running. */

@@ -1,6 +1,6 @@
 # 0033. Server-authoritative netcode between client and server Worlds
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -16,6 +16,8 @@ import { Scheduler, type QueryTerm, type Row } from "./systems";
 import { resolveSettings, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import type { Physics2DWorld } from "../physics/Physics2DWorld";
 import type { RenderBackend } from "../render/RenderBackend";
+import type { NetworkTime } from "../net/time";
+import type { WorldTag } from "./worlds";
 
 export type WorldKind = "runtime" | "editor" | "server";
 
@@ -35,7 +37,23 @@ export interface TimeState {
   frameCount: number;
   fixedStepCount: number;
   realtimeSinceStartup: number;
+  /** Network ticks and round-trip time, on Worlds linked by a transport (ADR 0033); undefined otherwise. */
+  network?: NetworkTime;
 }
+
+/** What a World is called and tagged (ADR 0032). */
+export interface WorldIdentity {
+  /** Unique within its Engine. */
+  name?: string;
+  tags?: readonly WorldTag[];
+}
+
+/** The name and tags a World of `kind` gets when none are given (until tags replace WorldKind, ADR 0032). */
+const KIND_IDENTITY: Record<WorldKind, { name: string; tags: readonly WorldTag[] }> = {
+  runtime: { name: "Default", tags: ["default", "local"] },
+  editor: { name: "Editor", tags: ["editor"] },
+  server: { name: "Server", tags: ["server"] },
+};
 
 const NONE = -1;
 const FLAG_COMPONENT_NODE = 1;
@@ -56,6 +74,13 @@ export class World {
   }
 
   readonly kind: WorldKind;
+  /** Unique within its Engine (ADR 0032). */
+  readonly name: string;
+  /**
+   * The World's tags: they decide which systems bootstraps add and which per-World components load
+   * (ADR 0032, 0033). (Not `tags`: that's the per-node tag storage.)
+   */
+  readonly worldTags: readonly WorldTag[];
   readonly settings: ProjectSettings;
   readonly time: TimeState;
   readonly root: GameObject;
@@ -119,8 +144,10 @@ export class World {
   private dataStores = new Map<DataComponentDef, DataStore>();
   private buffers = new Map<BufferDef<unknown>, unknown[]>();
 
-  constructor(kind: WorldKind = "runtime", settings: ProjectSettingsInput | ProjectSettings = {}) {
+  constructor(kind: WorldKind = "runtime", settings: ProjectSettingsInput | ProjectSettings = {}, identity: WorldIdentity = {}) {
     this.kind = kind;
+    this.name = identity.name ?? KIND_IDENTITY[kind].name;
+    this.worldTags = [...(identity.tags ?? KIND_IDENTITY[kind].tags)];
     this.settings = resolveSettings(settings as ProjectSettingsInput);
     this.time = {
       time: 0,

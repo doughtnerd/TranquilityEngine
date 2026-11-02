@@ -46,8 +46,8 @@ Start here. These docs describe where the engine is going, why, and what is bein
 | [0029](decisions/0029-component-order-overrides.md) | Prefab overrides can reorder a node's components | Accepted |
 | [0030](decisions/0030-in-editor-scripting.md) | Write and run project scripts inside the editor | Accepted |
 | [0031](decisions/0031-samples-ship-beside-the-engine.md) | Samples are projects that ship beside the engine, not inside it | Accepted |
-| [0032](decisions/0032-worlds-systems-and-bootstraps.md) | The Engine runs several isolated Worlds, each with its own systems and clock | Proposed |
-| [0033](decisions/0033-server-authoritative-netcode.md) | Server-authoritative netcode between client and server Worlds | Proposed |
+| [0032](decisions/0032-worlds-systems-and-bootstraps.md) | The Engine runs several isolated Worlds, each with its own systems and clock | Accepted |
+| [0033](decisions/0033-server-authoritative-netcode.md) | Server-authoritative netcode between client and server Worlds | Accepted |
 
 ## Working with decisions
 
