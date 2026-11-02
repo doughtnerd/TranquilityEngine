@@ -1,6 +1,6 @@
 # 0035. The Node WebSocket server uses the `ws` package
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

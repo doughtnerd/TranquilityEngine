@@ -21,10 +21,6 @@ describe("the netcode contract (C2)", () => {
   });
 });
 
-describe("WebSocket transport (T9)", () => {
-  it.todo("connects a headless client World to a headless server World over a real socket in Node");
-});
-
 describe("connections, ticks and RPCs (T10)", () => {
   it.todo("a connection appears as a node with net.Connection on both sides, and goes when it closes");
   it.todo("clients agree on the server tick within one tick at 100 ms simulated latency");

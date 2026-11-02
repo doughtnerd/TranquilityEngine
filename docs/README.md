@@ -49,6 +49,7 @@ Start here. These docs describe where the engine is going, why, and what is bein
 | [0032](decisions/0032-worlds-systems-and-bootstraps.md) | The Engine runs several isolated Worlds, each with its own systems and clock | Accepted |
 | [0033](decisions/0033-server-authoritative-netcode.md) | Server-authoritative netcode between client and server Worlds | Accepted |
 | [0034](decisions/0034-current-world-view-and-async.md) | Between frames the default World is current; the view passes between Worlds | Accepted |
+| [0035](decisions/0035-ws-for-the-node-websocket-server.md) | The Node WebSocket server uses the `ws` package | Accepted |
 
 ## Working with decisions
 
