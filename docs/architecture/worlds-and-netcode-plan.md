@@ -74,9 +74,11 @@ T13, T14 and T15 ran in parallel from wave 3's review fixes and merged in order 
 | T14 | **Dedicated server entry**: `tranquility-server <project>` runs server-tagged Worlds headless in Node over WebSocket | `server/`, a package script | T4, T9, T10 | A Node server and a browser client play the multiplayer sample |
 | T15 | **Multiplayer play mode and network tools**: server plus N clients and thin clients on loopback; latency, jitter and loss sliders; a stats panel (bandwidth per ghost type, RTT, mispredictions) | `editor/netPlay.ts`, `ui/NetworkPanel.tsx` | T5, T7, T11 | Play with 2 clients plus 1 thin client from the editor, with stats updating live |
 
-## Wave 5: proof (after wave 4)
+## Wave 5: proof (after wave 4), done 2026-11-02
 
-T17 is done (2026-11-02): user guides in `docs/guide/` ([Worlds](../guide/worlds.md), [Multiplayer](../guide/multiplayer.md)), the 0032–0035 rows of `implementation-status.md` checked against the code (rows added for 0034 and 0035), and the READMEs and overview updated. It ran beside T16, so the guide's paragraph on `samples/arena/` is to be checked against the sample at merge.
+T17 is done (2026-11-02): user guides in `docs/guide/` ([Worlds](../guide/worlds.md), [Multiplayer](../guide/multiplayer.md)), the 0032–0035 rows of `implementation-status.md` checked against the code (rows added for 0034 and 0035), and the READMEs and overview updated. It ran beside T16; the guide's paragraph on `samples/arena/` was checked against the sample at merge.
+
+T16 is done: `samples/arena/`, a 2D arena following Unity's frontend pattern (the bootstrap starts only `Client` on a menu; Host creates the `Server` template at runtime and connects over loopback, P adds `Client 2`, Join connects to a dedicated server by address). Predicted movement, server-spawned shots, server-authoritative scores. It needed `WorldHandle.connect(address, …)` (ADR 0036, proposed), `tranquility-server` running server-tagged templates, and a fix to the replication layout cache across script reloads. Not yet reviewed.
 
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|

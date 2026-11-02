@@ -4,7 +4,7 @@ Multiplayer in TranquilityEngine is a layout of [Worlds](worlds.md). The server 
 
 The model follows Unity's Netcode for Entities: the server is authoritative, it simulates at fixed ticks, nodes it replicates are called **ghosts**, clients interpolate other players and predict their own. The design is in [ADR 0033](../decisions/0033-server-authoritative-netcode.md). This guide is about using it.
 
-> **Sample (being built; coordinator to adjust at merge).** `samples/arena/` is a small multiplayer game that uses everything below. Open it from the editor's start screen and use **Host**, **Add local player** or **Join**, or run its dedicated server with `npm run server -- samples/arena`.
+> **Sample.** `samples/arena/` is a small multiplayer game that uses everything below. Open it from the editor's start screen and use **Host**, **Add local player** or **Join**, or run its dedicated server with `npm run server -- samples/arena`.
 
 ## Client and server Worlds
 
