@@ -6,7 +6,7 @@ import type { Transform } from "../scene/Transform";
 import type { DataComponentDef } from "./data";
 import type { TimeState, World } from "./World";
 import { _isReplacingRegistrations, _recordRegistration } from "./registry";
-import type { WorldTag } from "./worlds";
+import { notYet, type WorldTag } from "./worlds";
 
 export type Phase = "fixedUpdate" | "update" | "lateUpdate";
 
@@ -80,6 +80,24 @@ export function _undefineSystem(name: string): void {
   userSystemsVersion++;
 }
 
+/** A system in the catalog: what can be added to a World (ADR 0032). */
+export interface SystemCatalogEntry {
+  readonly name: string;
+  readonly phase: Phase;
+  /** Its `worlds` filter, with the default filled in. */
+  readonly worlds: readonly WorldTag[];
+  /** An engine built-in (scripts, physics, transforms) rather than a defined system. */
+  readonly builtin: boolean;
+}
+
+/**
+ * Every system that can be added to a World, in catalog order: defined systems now; engine
+ * built-ins join it in T2.
+ */
+export function listSystemCatalog(): readonly SystemCatalogEntry[] {
+  return userSystems.map((s) => ({ name: s.name, phase: s.phase, worlds: s.worlds ?? ["default", "local"], builtin: false }));
+}
+
 /** @internal Built-in system: a named function in a phase. */
 export interface BuiltinSystem {
   readonly name: string;
@@ -100,6 +118,21 @@ export class Scheduler {
   private ordered: Record<Phase, Scheduled[]> = { fixedUpdate: [], update: [], lateUpdate: [] };
 
   constructor(private readonly world: World) {}
+
+  /** Add a catalog system to this World by name (ADR 0032). Today every defined system runs in every World: T2. */
+  addSystem(name: string): void {
+    notYet("T2", `Adding the system "${name}" to one World`);
+  }
+
+  /** Take a system out of this World. T2. */
+  removeSystem(name: string): void {
+    notYet("T2", `Removing the system "${name}" from one World`);
+  }
+
+  /** Every system this World runs, by name, phase by phase in execution order. */
+  names(): string[] {
+    return (["fixedUpdate", "update", "lateUpdate"] as Phase[]).flatMap((p) => this.order(p));
+  }
 
   addBuiltin(system: BuiltinSystem): void {
     if (this.builtins.some((s) => s.name === system.name)) return;

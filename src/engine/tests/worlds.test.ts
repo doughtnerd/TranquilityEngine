@@ -88,3 +88,25 @@ describe("bootstraps (T4)", () => {
   it.todo("a code bootstrap from a project script creates the Worlds");
   it.todo("bad configs report what's wrong (duplicate names, unknown systems, links to missing Worlds)");
 });
+
+describe("bootstrap contract (C1)", () => {
+  it("selects catalog systems by tags, include and exclude", async () => {
+    const { selectSystems } = await import("../core/bootstrap");
+    const catalog = [
+      { name: "a", phase: "update" as const, worlds: ["default", "local"], builtin: false },
+      { name: "srv", phase: "update" as const, worlds: ["server"], builtin: false },
+      { name: "dbg", phase: "update" as const, worlds: ["default"], builtin: false },
+    ];
+    expect(selectSystems({ name: "D" }, catalog)).toEqual(["a", "dbg"]);
+    expect(selectSystems({ name: "S", tags: ["server"], systems: { include: ["a"] } }, catalog)).toEqual(["a", "srv"]);
+    expect(selectSystems({ name: "D", systems: { exclude: ["dbg"] } }, catalog)).toEqual(["a"]);
+  });
+
+  it("resolves the default and function bootstraps; declarative and script ones wait for T4", async () => {
+    const { defaultBootstrap, resolveBootstrap } = await import("../core/bootstrap");
+    expect(await resolveBootstrap(undefined)).toBe(defaultBootstrap);
+    const custom = () => {};
+    expect(await resolveBootstrap(custom)).toBe(custom);
+    await expect(resolveBootstrap({ worlds: [] })).rejects.toThrow(/T4/);
+  });
+});

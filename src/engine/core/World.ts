@@ -67,6 +67,21 @@ export class World {
   /** The world static facades (Time, Input, GameObject.instantiate…) act on. */
   static active: World | null = null;
 
+  /** Add a catalog system to this World by name (ADR 0032; T2). */
+  addSystem(name: string): void {
+    this.scheduler.addSystem(name);
+  }
+
+  /** Take a system out of this World (T2). */
+  removeSystem(name: string): void {
+    this.scheduler.removeSystem(name);
+  }
+
+  /** The systems this World runs, by name, in execution order per phase. */
+  systemNames(): string[] {
+    return this.scheduler.names();
+  }
+
   /** @internal */
   static require(): World {
     if (!World.active) throw new Error("No active World. Create an Engine first.");
