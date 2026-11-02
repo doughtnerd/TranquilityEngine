@@ -6,7 +6,8 @@ import { TauriStorage } from "../platform/TauriStorage";
 import { RenderBackend } from "../render/RenderBackend";
 import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
-import { BootstrapError, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
+import { connectWorlds } from "../net/session";
+import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
 import { resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { listSystemCatalog } from "./systems";
 import { World, type WorldKind } from "./World";
@@ -112,15 +113,18 @@ export class Engine implements BootstrapEngine {
 
     // The editor's Engine holds just the Editor World unless it's told otherwise (ADR 0022).
     const kind = options.kind ?? "runtime";
-    const bootstrap: Bootstrap =
-      kind !== "runtime" && options.bootstrap === undefined
-        ? (e) => void e.createWorld(KIND_WORLDS[kind])
-        : await resolveBootstrap(options.bootstrap ?? engine.settings.bootstrap, { loadScript: options.loadScript });
+    const ownWorld = kind !== "runtime" && options.bootstrap === undefined;
+    const setting = options.bootstrap ?? engine.settings.bootstrap;
+    const bootstrap: Bootstrap = ownWorld ? (e) => void e.createWorld(KIND_WORLDS[kind]) : await resolveBootstrap(setting, { loadScript: options.loadScript });
     try {
       await bootstrap(engine);
       const starting = engine.starting!;
       engine.starting = null;
       if (!engine.defaultWorld) throw new Error("The bootstrap created no Worlds.");
+      // A declarative bootstrap's links (ADR 0033): each `from` World connects to its `to` World.
+      for (const link of ownWorld ? [] : bootstrapLinks(setting)) {
+        await connectWorlds(engine._world(link.from)!, engine._world(link.to)!, link.transport, link.options ?? {});
+      }
       await Promise.all(starting);
     } catch (err) {
       engine.dispose(); // no half-made Engine left holding a canvas and input listeners

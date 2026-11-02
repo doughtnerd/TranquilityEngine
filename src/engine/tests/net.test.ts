@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createTransport, listTransports, registerTransport, type Transport } from "../net/Transport";
-import { defineInput, defineRpc } from "../net/messages";
+import { defineInput } from "../net/messages";
 import { f32 } from "../index";
 
 // ADR 0033. The contract (wave 0) is tested here; each `todo` is a task's "done when" from
@@ -15,17 +15,12 @@ describe("the netcode contract (C2)", () => {
     expect(() => createTransport("nope")).toThrow(/There's no transport "nope" \(registered: .*test\.fake/);
   });
 
-  it("stubs RPCs and inputs until their tasks", () => {
-    expect(() => defineRpc("test.Ping", { t: f32 })).toThrow(/T10/);
+  it("stubs inputs until their task", () => {
     expect(() => defineInput("test.Move", { x: f32 })).toThrow(/T12/);
   });
 });
 
-describe("connections, ticks and RPCs (T10)", () => {
-  it.todo("a connection appears as a node with net.Connection on both sides, and goes when it closes");
-  it.todo("clients agree on the server tick within one tick at 100 ms simulated latency");
-  it.todo("RPCs arrive as buffer rows tagged with their connection, both ways");
-});
+// Connections, ticks and RPCs (T10) are tested in session.test.ts and sessionWebSocket.test.ts.
 
 describe("replication (T11)", () => {
   it.todo("a server-moved replicated node appears smoothly on two clients under simulated loss");

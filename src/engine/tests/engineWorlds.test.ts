@@ -143,7 +143,6 @@ describe("several Worlds per Engine (T1)", () => {
     expect(entry("Match").scenes).toEqual(["arena", "hud"]);
     expect(SceneManager.scenes).toEqual([]); // nothing leaked into the default World
     expect(Array.isArray(match.systems())).toBe(true);
-    expect(() => match.connect(engine.findWorld("Default")!, "loopback")).toThrow(/T10/);
 
     const frames = entry("Match").frames;
     match.destroy();

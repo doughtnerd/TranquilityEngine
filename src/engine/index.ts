@@ -6,6 +6,7 @@ export { Engine, type EngineOptions } from "./core/Engine";
 export type { WorldKind, TimeState } from "./core/World";
 export type { Bootstrap, BootstrapConfig, BootstrapEngine, BootstrapSetting, LinkConfig, SystemSelection, WorldConfig, WorldHandle, WorldTag } from "./core/worlds";
 export type { NetworkTime } from "./net/time";
+export { Connection, ConnectionState, defineRpc, type ConnectionNode, type ConnectionStateValue, type RpcDef, type RpcRow, type RpcTarget } from "./net/messages";
 export { Component, GameBehavior, Waits, type LifecycleHooks } from "./core/Component";
 export { Time } from "./core/Time";
 export { Color, Mathf, Quaternion, Vector2, Vector3, DEG2RAD, RAD2DEG, type Vec2Like, type Vec3Like, type Vec2Input, type Vec3Input } from "./core/math";
