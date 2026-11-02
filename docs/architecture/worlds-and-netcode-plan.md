@@ -66,7 +66,7 @@ T11 and T12 can run at the same time once T10's handshake and tick contract is m
 
 ## Wave 4: prediction, server runtime and tools (after wave 3), done 2026-11-02
 
-T13, T14 and T15 ran in parallel from wave 3's review fixes and merged in order T14, T13, T15 without conflicts. At merge, T15's lookup of `predictionStats` (written before T13 existed) became a direct import, so the Network panel shows prediction counters for client Worlds. Not done from the T15 row: bandwidth per ghost type (the panel shows bytes per message kind and snapshot size). Not yet reviewed.
+T13, T14 and T15 ran in parallel from wave 3's review fixes and merged in order T14, T13, T15 without conflicts. At merge, T15's lookup of `predictionStats` (written before T13 existed) became a direct import, so the Network panel shows prediction counters for client Worlds. Not done from the T15 row: bandwidth per ghost type (the panel shows bytes per message kind and snapshot size). A review then fixed: the dedicated server takes listen addresses only from `websocket` links and logs server Worlds created at runtime as not served (O15); play mode's simulated conditions reach the handshake; input streams go with their scripts. After it, the dedicated server runs server-tagged templates when the bootstrap has no server Worlds.
 
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|
@@ -75,6 +75,8 @@ T13, T14 and T15 ran in parallel from wave 3's review fixes and merged in order 
 | T15 | **Multiplayer play mode and network tools**: server plus N clients and thin clients on loopback; latency, jitter and loss sliders; a stats panel (bandwidth per ghost type, RTT, mispredictions) | `editor/netPlay.ts`, `ui/NetworkPanel.tsx` | T5, T7, T11 | Play with 2 clients plus 1 thin client from the editor, with stats updating live |
 
 ## Wave 5: proof (after wave 4)
+
+T17 is done (2026-11-02): user guides in `docs/guide/` ([Worlds](../guide/worlds.md), [Multiplayer](../guide/multiplayer.md)), the 0032–0035 rows of `implementation-status.md` checked against the code (rows added for 0034 and 0035), and the READMEs and overview updated. It ran beside T16, so the guide's paragraph on `samples/arena/` is to be checked against the sample at merge.
 
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|
