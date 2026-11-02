@@ -394,3 +394,19 @@ button:disabled.primary { opacity: 0.5; }
 .message-text { flex: 1; white-space: pre-wrap; word-break: break-word; }
 .message-detail-toggle { flex: none; padding: 0 6px; font-size: 11px; }
 .message-detail { margin: 4px 0 2px 120px; padding: 6px 8px; max-height: 220px; overflow: auto; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; font-size: 11px; white-space: pre-wrap; word-break: break-word; color: var(--text); }
+
+/* The start screen (ADR 0031): over the panels while no project is open. */
+.start-screen { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; background: rgb(20 22 26 / 0.86); padding: 16px; }
+.start-card { width: min(560px, 100%); max-height: 100%; overflow: auto; background: #212329; border: 1px solid #2c3036; border-radius: 8px; padding: 20px 24px; box-shadow: 0 10px 30px rgb(0 0 0 / 0.5); }
+.start-card h1 { margin: 0 0 12px; font-size: 18px; font-weight: 600; }
+.start-card h2 { margin: 16px 0 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.start-card .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.start-card .primary:disabled { opacity: 0.5; }
+.start-note { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.sample-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.sample { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; background: #1b1d21; }
+.sample-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sample-name { font-weight: 600; }
+.sample-description { color: var(--muted); font-size: 12px; }
+.sample-meta { color: #5a5f68; font-size: 11px; }
+.sample-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }

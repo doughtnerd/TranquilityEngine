@@ -1,4 +1,4 @@
-import { GameBehavior, GameObject, Input, Mathf, RigidBody2D, Time, behavior, field, type Collider2D, type Collision2D } from "../../../engine";
+import { GameBehavior, GameObject, Input, Mathf, RigidBody2D, Time, behavior, field, type Collider2D, type Collision2D } from "tranquility";
 import { BirdEvents } from "../data";
 
 export function flapPressed(): boolean {

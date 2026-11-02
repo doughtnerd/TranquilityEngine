@@ -1,4 +1,4 @@
-import { GameBehavior, GameObject, SceneManager, Storage, Text, behavior, field } from "../../../engine";
+import { GameBehavior, GameObject, SceneManager, Storage, Text, behavior, field } from "tranquility";
 import { BirdEvents, GameState } from "../data";
 import { Bird, flapPressed } from "./Bird";
 import { PipeSpawner } from "./PipeSpawner";

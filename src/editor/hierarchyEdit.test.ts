@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
-import { GameManager } from "../demo/flappy/behaviors/GameManager";
+import { GameManager } from "../../samples/flappy/scripts/behaviors/GameManager";
 import { deleteNode, moveNode, referencesInto, whyNotDeletable, whyNotMovable } from "./hierarchyEdit";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
-import { bundledDemoProject, editorSettings, useProjectAssets } from "./projects";
+import { editorSettings, useProjectAssets } from "./projects";
 import { openScene, sceneCamera } from "./state";
+import { sampleProject } from "./testing";
 
 beforeEach(async () => {
   Input.reset();
-  const project = bundledDemoProject();
+  const project = sampleProject();
   useProjectAssets(project);
   const engine = await Engine.create({ headless: true, kind: "editor", project: editorSettings(project) });
   sceneCamera.value = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));

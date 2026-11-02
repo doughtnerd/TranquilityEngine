@@ -1,6 +1,6 @@
 import { DockLayout } from "../layout/DockLayout";
 import { resetLayout } from "../layout/store";
-import { openProjectFolder, reloadScripts, save, togglePlaying } from "../session";
+import { closeProject, openProjectFolder, reloadScripts, save, togglePlaying } from "../session";
 import { currentProject, docVersion, openScene, playState, scriptProblems, snapping, status } from "../state";
 import { AssetsPanel } from "./Assets";
 import { CodePanel } from "./CodePanel";
@@ -14,6 +14,7 @@ import { SettingsDialog, settingsOpen } from "./SettingsDialog";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
 import { ScenePanel } from "./ScenePanel";
+import { StartScreen } from "./StartScreen";
 
 const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel /> };
 
@@ -23,6 +24,7 @@ export function App() {
     <div class={`editor${playState.value !== "edit" ? " playing" : ""}`}>
       <Toolbar />
       <DockLayout panels={PANELS} />
+      {!currentProject.value && <StartScreen />}
       <StatusBar />
       <AssetDragGhost />
       <ConfirmDialog />
@@ -69,7 +71,12 @@ function ProjectControls() {
           Reload Scripts
         </button>
       )}
-      <span class="project-name" title={project?.root ?? "Bundled with the editor"}>
+      {project && (
+        <button title="Close the project and go back to the start screen" onClick={() => void closeProject()}>
+          Close
+        </button>
+      )}
+      <span class="project-name" title={project?.root ?? "A sample served beside the editor"}>
         {project?.name ?? "No project"}
       </span>
     </div>

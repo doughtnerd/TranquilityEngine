@@ -7,6 +7,7 @@ import { pathKey } from "./document";
 import { getFileSystem } from "../engine/platform/FileSystem";
 import { effect } from "@preact/signals";
 import { confirmDiscard } from "./dialogs";
+import { copySample, findSample, openSampleProject, type SampleInfo } from "./samples";
 import { attachHistory, defaultHistoryPlatform, slotsFor, type AttachedHistory } from "./historyPersistence";
 import { historyLocation } from "./preferences";
 import { confirmInEditor } from "./ui/ConfirmDialog";
@@ -33,13 +34,15 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 
 /** Boot an Editor World for `project` in the viewport and open its main scene. */
 /**
- * End-to-end test hook: open the bundled demo's files as a project folder in memory, plus `extra`
+ * End-to-end test hook: open the Flappy sample's files as a project folder in memory, plus `extra`
  * files (project path → text, e.g. scripts), as if opened from disk. The folder is left on
  * `window.testFolder` (path → contents) so tests can see what the editor wrote.
  */
-async function openTestProject(extra: Record<string, string> = {}): Promise<void> {
-  const { demoFolder, ROOT } = await import("./testing");
-  const fs = demoFolder();
+export async function openTestProject(extra: Record<string, string> = {}): Promise<void> {
+  const [{ MemoryFileSystem }, sample] = await Promise.all([import("./memoryFs"), findSample("flappy")]);
+  const ROOT = "C:\\Games\\flappy";
+  const fs = new MemoryFileSystem();
+  await copySample(sample, fs, ROOT);
   for (const [path, text] of Object.entries(extra)) fs.files.set(joinPath(ROOT, path), text);
   Object.assign(window, { testFolder: { read: (path: string) => fs.files.get(joinPath(ROOT, path)) } });
   await loadProject(await openFolderProject(fs, ROOT));
@@ -101,7 +104,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   currentProject.value = project;
   engine.start();
   // Debug and end-to-end test hooks.
-  Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world), nodeRect, openTestProject });
+  Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world), nodeRect });
   if (project.mainScene) openScene_(project.mainScene);
   preloadCodeEditor(project); // so the first file opens without the wait
   if (scripts.problems.length > 0) {
@@ -205,6 +208,58 @@ export async function openProjectFolder(): Promise<void> {
   } catch (err) {
     status.value = errorStatus(null, err);
   }
+}
+
+/** Open a sample (ADR 0031) read-only, from the files served beside the editor. */
+export async function openSample(sample: SampleInfo): Promise<void> {
+  if (!(await confirmDiscard())) return;
+  try {
+    status.value = { kind: "info", text: `Opening the ${sample.name} sample…` };
+    await loadProject(await openSampleProject(sample));
+    if (status.value?.kind !== "error") status.value = { kind: "info", text: `Opened the ${sample.name} sample (read-only). Make a copy to edit it.` };
+  } catch (err) {
+    status.value = errorStatus(`Couldn't open the ${sample.name} sample`, err);
+  }
+}
+
+/** Copy a sample into a folder the user picks and open the copy, to edit it (desktop editor). */
+export async function copySampleToFolder(sample: SampleInfo): Promise<void> {
+  const fs = await getFileSystem();
+  if (!fs.canWrite) {
+    status.value = { kind: "info", text: "Copying a sample needs the desktop editor (npm run tauri:dev)." };
+    return;
+  }
+  if (!(await confirmDiscard())) return;
+  const root = await fs.pickFolder(`Choose an empty folder for your copy of ${sample.name}`);
+  if (!root) return;
+  try {
+    status.value = { kind: "info", text: `Copying ${sample.name} to ${root}…` };
+    await copySample(sample, fs, root);
+    await loadProject(await openFolderProject(fs, root));
+    if (status.value?.kind !== "error") status.value = { kind: "info", text: `Copied ${sample.name} to ${root}.` };
+  } catch (err) {
+    status.value = errorStatus(`Couldn't copy ${sample.name}`, err);
+  }
+}
+
+/** Close the project and go back to the start screen. */
+export async function closeProject(): Promise<void> {
+  if (!currentProject.value || !(await confirmDiscard())) return;
+  stopPlaying();
+  await detachHistory();
+  session?.dispose();
+  session = null;
+  openScene.value?.sync.dispose();
+  openScene.value = null;
+  selection.value = null;
+  closeAllScripts();
+  resetAssetBrowser();
+  currentProject.value = null;
+  const scripts = await replaceScripts(new Map(), new Map());
+  scriptProblems.value = scripts.problems;
+  scriptsVersion.value++;
+  docVersion.value++;
+  status.value = null;
 }
 
 /** Save the open scene to disk. */

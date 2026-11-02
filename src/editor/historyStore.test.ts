@@ -6,9 +6,9 @@ import { attachHistory, slotsFor } from "./historyPersistence";
 import { HistoryStore, projectSlots, readSlot, userSlots, type SlotBackend } from "./historyStore";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile, saveOpenScene } from "./project";
-import { bundledDemoProject, editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
+import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, openScene, sceneCamera } from "./state";
-import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
+import { MemoryFileSystem, ROOT, demoFolder, sampleProject } from "./testing";
 
 /** A slot backend in memory, optionally tearing the next write (simulating a crash mid-write). */
 function memorySlots(): SlotBackend & { slots: Record<string, string>; tearNext: boolean } {
@@ -98,7 +98,7 @@ describe("history files on disk", () => {
   it("goes in the project folder by default, per user when asked or when the project is read-only", () => {
     expect(slotsFor(project, "scenes/main.scene.json", "project", platform()).where).toBe(joinPath(ROOT, ".tranquility/history"));
     expect(slotsFor(project, "scenes/main.scene.json", "user", platform()).where).toBe("per-user storage");
-    expect(slotsFor(bundledDemoProject(), "scenes/main.scene.json", "project", platform()).where).toBe("per-user storage");
+    expect(slotsFor(sampleProject(), "scenes/main.scene.json", "project", platform()).where).toBe("per-user storage");
   });
 
   it("survives the editor closing with unsaved changes, and offers them back", async () => {

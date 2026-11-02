@@ -5,9 +5,10 @@ import { localPoseFromWorld, type LocalPose } from "../engine/render/gizmoMath";
 import { SetField } from "./document";
 import { gizmoEdit, gizmoMode } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
-import { DEMO_SCENE, demoAssets, demoSettings, openSceneFile } from "./project";
+import { openSceneFile } from "./project";
 import { shortcutFor } from "./shortcuts";
 import { openScene, sceneCamera } from "./state";
+import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
 const DEG = Math.PI / 180;
 const quat = (zDeg: number) => new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), zDeg * DEG);

@@ -1,6 +1,6 @@
+import "../sampleTypes";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import "../../demo/flappy/game";
-import { GameManager } from "../../demo/flappy/behaviors/GameManager";
+import { GameManager } from "../../../samples/flappy/scripts/behaviors/GameManager";
 import { Assets, BoxCollider2D, Color, Engine, SpriteRenderer } from "../../engine";
 import { getDataComponentDef } from "../../engine/core/data";
 import {
@@ -21,7 +21,7 @@ import {
 
 // The Flappy demo's scene and prefabs, keyed by asset path ("scenes/main.scene.json").
 const files = Object.fromEntries(
-  Object.entries(import.meta.glob("../../demo/flappy/{scenes,prefabs}/*.json", { eager: true, import: "default" })).map(([k, v]) => [k.replace("../../demo/flappy/", ""), v]),
+  Object.entries(import.meta.glob("../../../samples/flappy/{scenes,prefabs}/*.json", { eager: true, import: "default" })).map(([k, v]) => [k.replace("../../../samples/flappy/", ""), v]),
 );
 const raw = files["scenes/main.scene.json"] as SceneFile;
 const original = JSON.stringify(raw);

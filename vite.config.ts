@@ -1,25 +1,16 @@
-// Dev server and GAME build (ADR 0015). `npm run dev` serves index.html with the engine imported
-// from src/; `npm run build:game` bundles the Flappy demo (engine, three.js, Rapier, Howler and
-// assets included) into dist/game/, the folder a Tauri shell loads. The engine library bundle
-// has its own config: vite.engine.config.ts.
+// Dev server (ADR 0015): `npm run dev` serves the editor at /editor.html (/ redirects there) with
+// the engine imported from src/, and the sample projects at /samples/ (ADR 0031). The editor
+// bundle and the engine library have their own configs: vite.editor.config.ts and
+// vite.engine.config.ts. There's no standalone game build until project game builds are designed.
 import { defineConfig } from "vite";
-import { engineTypes, typescriptTranspile } from "./vite.shared.ts";
+import { engineTypes, samples, typescriptTranspile } from "./vite.shared.ts";
 
 export default defineConfig({
-  plugins: [typescriptTranspile(), engineTypes()],
+  plugins: [typescriptTranspile(), engineTypes(), samples()],
   // Monaco's language workers (the editor's Code panel, ADR 0030) are ES modules.
   worker: { format: "es" },
   oxc: false,
   // Tauri (src-tauri/) expects a fixed dev port, its own output left on screen, and Rust sources unwatched.
   clearScreen: false,
   server: { port: 3000, strictPort: true, watch: { ignored: ["**/src-tauri/**"] } },
-  preview: { port: 4173, strictPort: true },
-  build: {
-    outDir: "dist/game",
-    emptyOutDir: true,
-    sourcemap: true,
-    // The main chunk is ~4 MiB because @dimforge/rapier2d-compat embeds its WASM as base64
-    // (plus three.js). Fine for Tauri; loading the non-compat WASM separately would shrink it.
-    chunkSizeWarningLimit: 5 * 1024,
-  },
 });

@@ -1,4 +1,4 @@
-import { AssetRef, GameBehavior, GameObject, Mathf, behavior, field } from "../../../engine";
+import { AssetRef, GameBehavior, GameObject, Mathf, behavior, field } from "tranquility";
 
 /** Spawns pipe pairs at random heights while enabled (ADR 0018 waits drive the loop). */
 @behavior("game.PipeSpawner")

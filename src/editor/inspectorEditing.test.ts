@@ -4,9 +4,10 @@ import { listComponents } from "../engine/editor";
 import { RenameNode, SetActive, SetField } from "./document";
 import { colorToJSON, editorFor, parseNumber, toSceneJSON } from "./fieldValues";
 import { OrbitCamera } from "./OrbitCamera";
-import { DEMO_SCENE, demoAssets, demoSettings, openSceneFile } from "./project";
+import { openSceneFile } from "./project";
 import { shortcutFor } from "./shortcuts";
 import { openScene, sceneCamera } from "./state";
+import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
 describe("field values (scene-file JSON)", () => {
   it("picks editors from declared types", () => {

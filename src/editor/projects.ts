@@ -1,21 +1,19 @@
 // Editor projects (ADR 0026): where scenes, prefabs and assets come from, and where saves go.
-// - The bundled Flappy demo: always available, read-only (works in a plain browser).
 // - A project folder on disk, opened through the platform FileSystem (Tauri): read and write.
+// - A read-only project from files in memory: a sample served beside the editor (ADR 0031).
 //
-// A folder project's own scripts (`scripts/**/*.ts`, ADR 0030) are read here and loaded by the
-// session (scriptLoader.ts). The demo's script types are compiled into the editor, so the
-// bundled demo (which works in a plain browser) needs no loading.
+// A project's own scripts (`scripts/**/*.ts`, ADR 0030) are read here and loaded by the session
+// (scriptLoader.ts). No game code is compiled into the editor.
 import { Assets, type AssetSource, type ProjectSettingsInput } from "../engine";
 import type { FileSystem } from "../engine/platform/FileSystem";
-import "../demo/flappy/game"; // registers the demo's behaviors, data components and systems
 import { isScriptPath } from "./scriptLoader";
 
 export interface EditorProject {
   /** Shown in the toolbar. */
   readonly name: string;
-  /** The folder on disk, or null for the bundled demo. */
+  /** The folder on disk, or null for a read-only project in memory (a sample). */
   readonly root: string | null;
-  /** The folder's file system (for watching scripts and opening files externally), or null for the bundled demo. */
+  /** The folder's file system (for watching scripts and opening files externally), or null for a project in memory. */
   readonly fileSystem: FileSystem | null;
   readonly canSave: boolean;
   readonly settings: ProjectSettingsInput;
@@ -41,7 +39,7 @@ export interface EditorProject {
   deleteFile(path: string): Promise<void>;
   /** Every folder (project-relative, sorted), empty ones included. */
   readonly folders: readonly string[];
-  /** A file's size in bytes, if known (the bundled demo's binary assets aren't). */
+  /** A file's size in bytes, if known. */
   sizeOf(path: string): number | undefined;
   /** Create a folder on disk (and its parents). */
   createFolder(path: string): Promise<void>;
@@ -257,21 +255,17 @@ class MapProject implements EditorProject {
   }
 }
 
-/** The Flappy demo, bundled into the editor. Read-only. */
-export function bundledDemoProject(): EditorProject {
-  const ROOT = "../demo/flappy/";
-  const rel = (key: string) => key.slice(ROOT.length);
-  const values = new Map<string, unknown>();
-  const texts = new Map<string, string>();
-  const binaries = import.meta.glob("../demo/flappy/**/*.{png,jpg,jpeg,mp3}", { eager: true, import: "default" });
-  const raw = import.meta.glob("../demo/flappy/**/*.json", { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
-  for (const [key, url] of Object.entries(binaries)) values.set(rel(key), url);
-  for (const [key, text] of Object.entries(raw)) {
-    texts.set(rel(key), text);
-    values.set(rel(key), JSON.parse(text));
-  }
-  const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput;
-  return new MapProject("Flappy demo (read-only)", null, settings, values, texts, null);
+/**
+ * A read-only project from files in memory: `values` by project path (parsed JSON, text for
+ * JavaScript, a URL for binary assets), `texts` (JSON and JavaScript source), `scripts` and,
+ * where known, file `sizes`.
+ */
+export function readOnlyProject(
+  name: string,
+  files: { values: Map<string, unknown>; texts: Map<string, string>; scripts?: Map<string, string>; sizes?: Map<string, number> },
+): EditorProject {
+  const settings = (files.values.get("project.json") ?? {}) as ProjectSettingsInput;
+  return new MapProject(name, null, settings, files.values, files.texts, null, null, null, files.scripts ?? new Map(), new Set(), files.sizes ?? new Map());
 }
 
 /** Join a project-relative path onto a folder path, using the folder's separator. */

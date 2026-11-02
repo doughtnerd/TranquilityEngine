@@ -1,89 +1,20 @@
-// Test helpers for editor tests (not part of the editor build).
-import type { DirEntry, FileSystem } from "../engine/platform/FileSystem";
-import { joinPath } from "./projects";
+// Test helpers for editor tests (not part of the editor build): the Flappy sample's files, with
+// its types registered (sampleTypes.ts).
+import type { AssetSource, ProjectSettingsInput } from "../engine";
+import "./sampleTypes";
+import { MemoryFileSystem } from "./memoryFs";
+import { editorSettings, joinPath, readOnlyProject, type EditorProject } from "./projects";
 
-/** An in-memory FileSystem with Windows-style paths, like Tauri's on Windows. */
-export class MemoryFileSystem implements FileSystem {
-  readonly canWrite = true;
-  readonly files = new Map<string, string | Uint8Array>();
-  readonly writes: string[] = [];
-  private key = (p: string) => p.replace(/\//g, "\\");
-  async readText(p: string) {
-    const v = this.files.get(this.key(p));
-    if (typeof v !== "string") throw new Error(`no text file ${p}`);
-    return v;
-  }
-  async writeText(p: string, text: string) {
-    this.writes.push(this.key(p));
-    this.files.set(this.key(p), text);
-  }
-  async readBinary(p: string) {
-    const v = this.files.get(this.key(p));
-    if (!(v instanceof Uint8Array)) throw new Error(`no binary file ${p}`);
-    return v;
-  }
-  async writeBinary(p: string, data: Uint8Array) {
-    this.files.set(this.key(p), data);
-  }
-  async list(dir: string): Promise<DirEntry[]> {
-    const prefix = this.key(dir).replace(/\\$/, "") + "\\";
-    const names = new Map<string, boolean>();
-    for (const k of this.files.keys()) {
-      if (!k.startsWith(prefix)) continue;
-      const rest = k.slice(prefix.length).split("\\");
-      names.set(rest[0], rest.length > 1 || names.get(rest[0]) === true);
-    }
-    for (const k of this.folders) if (k.startsWith(prefix)) names.set(k.slice(prefix.length).split("\\")[0], true);
-    return [...names].map(([name, isDirectory]) => ({ name, isDirectory }));
-  }
-  async exists(p: string) {
-    const k = this.key(p);
-    const folder = k.replace(/\\$/, "") + "\\";
-    return this.files.has(k) || this.folders.has(k) || [...this.files.keys()].some((f) => f.startsWith(folder)); // a file, or a folder
-  }
-  readonly folders = new Set<string>();
-  async mkdir(p: string) {
-    this.folders.add(this.key(p));
-  }
-  async remove(p: string, options?: { recursive?: boolean }) {
-    const k = this.key(p), inside = k.replace(/\\$/, "") + "\\";
-    const children = [...this.files.keys()].filter((f) => f.startsWith(inside));
-    if (children.length > 0 && !options?.recursive) throw new Error(`${p} isn't empty`);
-    for (const f of children) this.files.delete(f);
-    for (const f of [...this.folders]) if (f === k || f.startsWith(inside)) this.folders.delete(f);
-    this.files.delete(k);
-  }
-  async rename(from: string, to: string) {
-    const f = this.key(from), t = this.key(to);
-    if (await this.exists(to)) throw new Error(`"${to}" already exists.`);
-    if (this.files.has(f)) {
-      this.files.set(t, this.files.get(f)!);
-      this.files.delete(f);
-      return;
-    }
-    const inside = f + "\\";
-    for (const [k, v] of [...this.files]) {
-      if (!k.startsWith(inside)) continue;
-      this.files.set(t + k.slice(f.length), v);
-      this.files.delete(k);
-    }
-    for (const k of [...this.folders]) {
-      if (k !== f && !k.startsWith(inside)) continue;
-      this.folders.add(t + k.slice(f.length));
-      this.folders.delete(k);
-    }
-  }
-  async pickFolder() {
-    return null;
-  }
-}
+export { MemoryFileSystem };
 
 export const ROOT = "C:\\Games\\flappy";
-export const raw = import.meta.glob("../demo/flappy/**/*.json", { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
+/** The Flappy sample's JSON files (ADR 0031), keyed by their path from here. */
+export const raw = import.meta.glob("../../samples/flappy/**/*.json", { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
+const SAMPLE = "../../samples/flappy/";
 
 export function demoFolder(): MemoryFileSystem {
   const fs = new MemoryFileSystem();
-  for (const [key, text] of Object.entries(raw)) fs.files.set(joinPath(ROOT, key.slice("../demo/flappy/".length)), text);
+  for (const [key, text] of Object.entries(raw)) fs.files.set(joinPath(ROOT, key.slice(SAMPLE.length)), text);
   for (const img of ["PipeDown.png", "PipeUp.png", "background.png", "flappyBird.png", "ground.jpg"]) {
     fs.files.set(joinPath(ROOT, `images/${img}`), new Uint8Array([137, 80, 78, 71]));
   }
@@ -94,3 +25,35 @@ export function demoFolder(): MemoryFileSystem {
   return fs;
 }
 
+/**
+ * The Flappy sample as a read-only project (its JSON parsed, images and audio as their paths),
+ * without its scripts: its types are registered already (sampleTypes.ts).
+ */
+export function sampleProject(): EditorProject {
+  const values = new Map<string, unknown>();
+  const texts = new Map<string, string>();
+  for (const [key, text] of Object.entries(raw)) {
+    const path = key.slice(SAMPLE.length);
+    if (path === "tsconfig.json" || path.startsWith(".")) continue;
+    texts.set(path, text);
+    values.set(path, JSON.parse(text));
+  }
+  const binaries = import.meta.glob("../../samples/flappy/**/*.{png,jpg,jpeg,mp3}", { eager: true, query: "?url", import: "default" }) as Record<string, string>;
+  for (const [key, url] of Object.entries(binaries)) values.set(key.slice(SAMPLE.length), url);
+  return readOnlyProject("Flappy sample", { values, texts });
+}
+
+let sample: EditorProject | null = null;
+const cachedSample = () => (sample ??= sampleProject());
+
+/** The sample's assets. */
+export function demoAssets(): AssetSource {
+  return cachedSample().assets;
+}
+
+/** The sample's settings for an Editor World. */
+export function demoSettings(): ProjectSettingsInput {
+  return editorSettings(cachedSample());
+}
+
+export const DEMO_SCENE = "scenes/main.scene.json";

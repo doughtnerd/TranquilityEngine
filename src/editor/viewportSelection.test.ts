@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { OrbitCamera } from "./OrbitCamera";
-import { DEMO_SCENE, demoAssets, demoSettings, openSceneFile } from "./project";
+import { openSceneFile } from "./project";
 import { openScene, sceneCamera, selection } from "./state";
 import { chooseSelection, hitIds, installViewportSelection, isPlainClick } from "./viewportSelection";
+import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
 describe("click versus drag", () => {
   it("counts a left press and release with little movement as a click", () => {

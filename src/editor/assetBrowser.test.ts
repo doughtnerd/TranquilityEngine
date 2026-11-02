@@ -16,10 +16,11 @@ import {
 } from "./assetBrowser";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
-import { bundledDemoProject, editorSettings, useProjectAssets } from "./projects";
+import { editorSettings, useProjectAssets } from "./projects";
 import { openScene, sceneCamera } from "./state";
+import { sampleProject } from "./testing";
 
-const demo = bundledDemoProject();
+const demo = sampleProject();
 
 describe("asset browser: folders and search", () => {
   it("builds a sorted folder tree from project paths", () => {

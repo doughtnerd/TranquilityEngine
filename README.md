@@ -12,16 +12,14 @@ The engine is being rebuilt around three.js, Rapier physics, a hidden ECS core a
 
 ## Quick Demo
 ![Basic Demo](./demo/BasicDemo.gif)
-The v1 demo is a Flappy Bird clone in `src/demo/flappy/`. To play it (space, up arrow or click to flap):
+The v1 demo is a Flappy Bird clone, shipped as a sample project in `samples/flappy/` (samples come with the engine but aren't built into it). To play it, start the editor, open the Flappy Bird sample from the start screen and press **Play** (space, up arrow or click to flap):
 ```shell
 npm install
 npm run dev
 ```
-Run the engine tests with `npm test`, the browser smoke tests with `npm run test:e2e` (run `npm run test:e2e:install` first), and typecheck with `npm run typecheck`. `npm run build` writes the game to `dist/game/`, the editor to `dist/editor/` and the engine library to `dist/engine/`.
+The editor is at http://localhost:3000/editor.html (`/` goes there). Run the engine tests with `npm test`, the browser smoke tests with `npm run test:e2e` (run `npm run test:e2e:install` first), and typecheck with `npm run typecheck`. `npm run build` writes the editor, with the samples beside it, to `dist/editor/` and the engine library to `dist/engine/`.
 
-The scene editor is at http://localhost:3000/editor.html while `npm run dev` runs. In a browser it opens the bundled Flappy demo read-only; run `npm run tauri:editor:dev` for the desktop editor, where **Open Project…** opens a project folder (one with a `project.json`, such as `src/demo/flappy`) and **Save** / Ctrl+S writes scenes back to disk.
-
-To run as a desktop app with [Tauri](https://v2.tauri.app/), install Rust ([rustup](https://rustup.rs/)) and then run `npm run tauri:dev` for the game or `npm run tauri:editor:dev` for the editor. `npm run tauri:build` and `npm run tauri:editor:build` produce installers.
+In a browser the editor opens samples read-only. Run `npm run tauri:dev` for the desktop editor, where **Open Project…** opens a project folder (one with a `project.json`), **Make a Copy…** copies a sample into a folder to edit it, and **Save** / Ctrl+S writes scenes back to disk. Desktop builds need [Tauri](https://v2.tauri.app/): install Rust ([rustup](https://rustup.rs/)) first. `npm run tauri:build` produces installers.
 ## Current Features
 Again, these might be subject to change throughout development but the features that currently exist are described below.
 

@@ -1,20 +1,21 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Tranquility Flappy",
+  "productName": "Tranquility Editor",
   "version": "0.1.0",
-  "identifier": "dev.tranquility.flappy",
+  "identifier": "dev.tranquility.editor",
   "build": {
-    "frontendDist": "../dist/game",
+    "frontendDist": "../dist/editor",
     "devUrl": "http://localhost:3000",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build:game"
+    "beforeBuildCommand": "npm run build:editor"
   },
   "app": {
     "windows": [
       {
-        "title": "TranquilityEngine · Flappy",
-        "width": 720,
-        "height": 680,
+        "title": "TranquilityEngine · Editor",
+        "url": "editor.html",
+        "width": 1280,
+        "height": 800,
         "resizable": true,
         "fullscreen": false
       }

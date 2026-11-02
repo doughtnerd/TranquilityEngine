@@ -1,24 +1,9 @@
 // Opening and saving scenes in the Editor World (ADR 0026).
-import { Assets, Camera, DEG2RAD, GameObject, type AssetSource, type Engine, type ProjectSettingsInput } from "../engine";
+import { Assets, Camera, DEG2RAD, GameObject, type Engine } from "../engine";
 import { CommandStack, SceneDocument, WorldSync, type SceneFile } from "./document";
 import { formatSceneJSON, originalLayout } from "./document/format";
-import { bundledDemoProject, editorSettings, type EditorProject } from "./projects";
+import type { EditorProject } from "./projects";
 import { currentProject, docVersion, openScene, sceneCamera, selection, setViewMode } from "./state";
-
-let demo: EditorProject | null = null;
-const bundledDemo = () => (demo ??= bundledDemoProject());
-
-/** The bundled demo's assets (tests and the browser editor). */
-export function demoAssets(): AssetSource {
-  return bundledDemo().assets;
-}
-
-/** The bundled demo's settings for an Editor World. */
-export function demoSettings(): ProjectSettingsInput {
-  return editorSettings(bundledDemo());
-}
-
-export const DEMO_SCENE = "scenes/main.scene.json";
 
 /** Open a scene file into the Editor World and frame it in the scene view. Throws if it can't load. */
 export function openSceneFile(engine: Engine, path: string): void {

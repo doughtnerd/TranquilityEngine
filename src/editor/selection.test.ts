@@ -5,10 +5,11 @@ import { AddNode } from "./document";
 import { deleteNodes } from "./hierarchyEdit";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
-import { bundledDemoProject, editorSettings, useProjectAssets } from "./projects";
+import { editorSettings, useProjectAssets } from "./projects";
 import { ancestorKeys, combineSelection, hierarchyEntries, rangeBetween, selectModeFor, topmostKeys, withDescendants } from "./selectionModel";
 import { openScene, sceneCamera, select, selectedKeys, selectedNodes, selection } from "./state";
 import { boxBetween, colliderBounds, colliderHits, idsInBox, keysNear } from "./viewportSelection";
+import { sampleProject } from "./testing";
 
 afterEach(() => select([]));
 
@@ -121,7 +122,7 @@ describe("collider areas", () => {
 describe("with the demo scene open", () => {
   beforeEach(async () => {
     Input.reset();
-    const project = bundledDemoProject();
+    const project = sampleProject();
     useProjectAssets(project);
     const engine = await Engine.create({ headless: true, kind: "editor", project: editorSettings(project) });
     sceneCamera.value = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));

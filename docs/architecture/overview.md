@@ -71,7 +71,7 @@ src/engine/
   input/       keyboard, mouse, gamepad, action mapping
   platform/    browser and Tauri adapters, Storage
 src/editor/    scene editor (Editor World, inspector, gizmos, play mode)
-src/demo/      sample games (Flappy Bird port)
+samples/       sample projects shipped beside the engine (Flappy Bird port; ADR 0031)
 ```
 
 ## Frame at a glance

@@ -21,6 +21,7 @@ All decision records 0001–0024 are Accepted as of 2026-10-31.
 | O11 | Monorepo layout (`packages/engine`, `packages/editor`, demos) and npm workspaces | Yes, once the editor starts | [0015](../decisions/0015-vite-build-tooling.md) |
 | O12 | Golden-image screenshot tests | Later | [0023](../decisions/0023-testing-vitest-and-browser-smoke-tests.md) |
 | O13 | Does "never expose three.js" (0010) also apply to physics and audio libraries? 0005 still allows a backend escape hatch for physics-specific features | Same rule: no Rapier/PhysX/Howler types in the public API | [0005](../decisions/0005-physics-backend.md), [0010](../decisions/0010-engine-graph-authoritative-over-threejs.md) |
+| O14 | How a project folder becomes a playable game build (the sample has none since 0031) | — | [0031](../decisions/0031-samples-ship-beside-the-engine.md) |
 
 ## Resolved (2026-10-31)
 

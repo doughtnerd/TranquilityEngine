@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 // The Assets panel as a file browser, on a writable in-memory copy of the demo project.
-const EDITOR = "http://localhost:4174/editor.html";
+const EDITOR = "http://localhost:4174/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031)
 
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };

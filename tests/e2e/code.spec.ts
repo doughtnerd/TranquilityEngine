@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const EDITOR = "http://localhost:4174/editor.html";
+const EDITOR = "http://localhost:4174/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031)
 
 /** The editor's debug hooks on `window` (see session.ts). Page callbacks are serialized, so each casts `window` itself. */
 type Hooks = {
@@ -72,7 +72,7 @@ test("editing marks the tab; Ctrl+S saves the script, reloads scripts and leaves
 
   await page.keyboard.press("ControlOrMeta+s");
   await expect(tab(page, "Wheel.ts").locator(".code-tab-dirty")).toHaveCount(0);
-  await expect(page.locator(".status-text")).toHaveText("Reloaded 2 scripts.");
+  await expect(page.locator(".status-text")).toHaveText("Reloaded 7 scripts."); // the two here and the sample's five
   expect(await page.evaluate(() => (window as unknown as Hooks).testFolder.read("scripts/Wheel.ts"))).toContain("// saved from the Code panel");
 });
 

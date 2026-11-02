@@ -6,20 +6,17 @@
   "main": "./dist/engine/engine.js",
   "scripts": {
     "dev": "vite",
-    "build": "npm run typecheck && npm run build:game && npm run build:editor && npm run build:engine",
-    "build:game": "vite build",
+    "build": "npm run typecheck && npm run build:editor && npm run build:engine",
     "build:editor": "vite build --config vite.editor.config.ts",
     "build:engine": "vite build --config vite.engine.config.ts && tsc -p tsconfig.engine.json",
-    "preview": "vite preview",
+    "preview": "vite preview --config vite.editor.config.ts",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium webkit",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
-    "tauri:editor:dev": "tauri dev --config src-tauri/tauri.editor.conf.json",
-    "tauri:editor:build": "tauri build --config src-tauri/tauri.editor.conf.json"
+    "tauri:build": "tauri build"
   },
   "author": "",
   "license": "MIT",

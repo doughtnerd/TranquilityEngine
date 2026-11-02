@@ -1,4 +1,4 @@
-import { GameObject, Transform, defineSystem, type DataView } from "../../engine";
+import { GameObject, Transform, defineSystem, type DataView } from "tranquility";
 import { Despawn, GameState, Scroller } from "./data";
 
 type ScrollerView = DataView<typeof Scroller.schema>;

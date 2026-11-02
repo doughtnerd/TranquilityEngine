@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const EDITOR = process.env.EDITOR_URL ?? "http://localhost:4174/editor.html";
+const EDITOR = process.env.EDITOR_URL ?? "http://localhost:4174/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031)
 
 declare global {
   interface Window {

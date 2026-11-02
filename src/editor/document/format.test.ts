@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatSceneJSON, nodeTexts, originalLayout } from "./format";
 
-const raw = import.meta.glob("../../demo/flappy/{scenes,prefabs}/*.json", { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
+const raw = import.meta.glob("../../../samples/flappy/{scenes,prefabs}/*.json", { eager: true, query: "?raw", import: "default" }) as Record<string, string>;
 const files = Object.entries(raw).map(([key, text]) => ({ name: key.split("/").pop()!, text: text.replace(/\r\n/g, "\n") }));
 
 describe("scene file formatting (ADR 0026)", () => {

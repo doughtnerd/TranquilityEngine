@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const EDITOR = "http://localhost:4174/editor.html";
+const EDITOR = "http://localhost:4174/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031)
 
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
@@ -103,7 +103,7 @@ test("a component's checkbox switches it off and on; Transform and data componen
 test("components reorder by dragging the grip, or with Alt+arrow keys", async ({ page }) => {
   await openEditor(page);
   await row(page, "bird").click();
-  const titles = async () => (await cards(page).allTextContents()).map((t) => t.replace(/[⠿✕]|Edit Collider/g, "").trim().replace(/data$/, ""));
+  const titles = async () => (await cards(page).allTextContents()).map((t) => t.replace(/[⠿✕]|\{ \}|Edit Collider/g, "").trim().replace(/data$/, ""));
   expect(await titles()).toEqual(["Transform", "RigidBody2D", "CircleCollider2D", "Bird"]);
 
   // Drag RigidBody2D's grip below the Bird script.
@@ -142,7 +142,7 @@ test("on a plain node, data components reorder among the rest", async ({ page })
     await page.getByRole("button", { name: "Add Component" }).click();
     await menuOptions(page).filter({ hasText: new RegExp(`^${name}$`) }).click();
   }
-  const titles = async () => (await cards(page).allTextContents()).map((t) => t.replace(/[⠿✕]|Edit Collider|data/g, "").trim());
+  const titles = async () => (await cards(page).allTextContents()).map((t) => t.replace(/[⠿✕]|\{ \}|Edit Collider|data/g, "").trim());
   expect(await titles()).toEqual(["Transform", "BoxCollider2D", "Scroller", "Bird"]);
   await page.getByRole("button", { name: "Reorder Scroller" }).focus();
   await page.keyboard.press("Alt+ArrowDown");

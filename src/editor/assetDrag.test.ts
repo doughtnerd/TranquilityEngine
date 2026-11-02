@@ -6,14 +6,15 @@ import { dropDescription, hierarchyDrop } from "./assetDrag";
 import { OrbitCamera } from "./OrbitCamera";
 import { innerNodes } from "./prefabs";
 import { openSceneFile } from "./project";
-import { bundledDemoProject, editorSettings, useProjectAssets } from "./projects";
+import { editorSettings, useProjectAssets } from "./projects";
 import { openScene, sceneCamera } from "./state";
+import { sampleProject } from "./testing";
 
 let engine: Engine;
 
 beforeEach(async () => {
   Input.reset();
-  const project = bundledDemoProject();
+  const project = sampleProject();
   useProjectAssets(project);
   engine = await Engine.create({ headless: true, kind: "editor", project: editorSettings(project) });
   sceneCamera.value = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const EDITOR = "http://localhost:4174/editor.html";
+const EDITOR = "http://localhost:4174/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031)
 
 declare global {
   interface Window {
@@ -33,7 +33,7 @@ test("searches across folders and adds a prefab to the scene as an undoable step
   await openEditor(page);
   await assets(page).getByRole("searchbox", { name: "Search assets" }).fill("pipe");
   const names = assets(page).locator(".asset-name");
-  await expect(names).toHaveText(["pipe-pair.prefab.json", "PipeDown.png", "PipeUp.png"]);
+  await expect(names).toHaveText(["pipe-pair.prefab.json", "PipeDown.png", "PipeSpawner.ts", "PipeUp.png"]); // the sample's scripts are project files
 
   await assets(page).getByRole("button", { name: "Add pipe-pair.prefab.json to the scene" }).click();
   await expect(page.locator(".tree .row.selected .name")).toHaveText("pipe-pair");

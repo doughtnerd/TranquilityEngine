@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { OrbitCamera } from "./OrbitCamera";
-import { DEMO_SCENE, demoAssets, demoSettings, openSceneFile } from "./project";
+import { openSceneFile } from "./project";
 import { openScene, sceneCamera, selection, viewMode } from "./state";
+import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
 let engine: Engine;
 let orbit: OrbitCamera;

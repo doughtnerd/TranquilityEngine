@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine } from "../engine";
 import { colliderOverlay } from "./colliderGizmo";
 import { MIN_EXTENT, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";
-import { DEMO_SCENE, demoAssets, demoSettings, openSceneFile } from "./project";
+import { openSceneFile } from "./project";
 import { editingCollider, selection } from "./state";
+import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose2D = { position: [0, 0, 0], rotation: 0, scale: [1, 1] };

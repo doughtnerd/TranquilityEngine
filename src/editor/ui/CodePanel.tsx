@@ -28,7 +28,7 @@ export function CodePanel() {
         {project.scripts.size > 0
           ? "Double-click a script, JSON or JavaScript file in the Assets panel to open it."
           : project.root === null
-            ? "The bundled demo's scripts are part of the editor. Open a project folder to write your own (scripts/*.ts)."
+            ? "This project has no scripts."
             : "This project has no scripts yet: add .ts files under scripts/."}
       </p>
     );

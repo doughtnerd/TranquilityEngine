@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, Input, SceneManager } from "../engine";
 import { World } from "../engine/core/World";
-import { GameManager } from "../demo/flappy/behaviors/GameManager";
+import { GameManager } from "../../samples/flappy/scripts/behaviors/GameManager";
 import { SetField } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay } from "./playMode";
 import { openSceneFile } from "./project";
-import { bundledDemoProject, editorSettings, useProjectAssets, type EditorProject } from "./projects";
+import { editorSettings, useProjectAssets, type EditorProject } from "./projects";
 import { openScene, sceneCamera } from "./state";
+import { sampleProject } from "./testing";
 
 let editor: Engine;
 let project: EditorProject;
@@ -15,7 +16,7 @@ const frame = 1 / 60;
 
 beforeEach(async () => {
   Input.reset();
-  project = bundledDemoProject();
+  project = sampleProject();
   useProjectAssets(project);
   editor = await Engine.create({ headless: true, kind: "editor", project: editorSettings(project) });
   sceneCamera.value = OrbitCamera.create(GameObject.create("SceneCamera", { parent: editor.world.root }));

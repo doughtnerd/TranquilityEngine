@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, getComponentClass } from "../engine";
-import { Bird } from "../demo/flappy/behaviors/Bird";
+import { Bird } from "../../samples/flappy/scripts/behaviors/Bird";
 import { listComponents } from "../engine/editor";
 import { removeMissingComponent, whyNotRemovableMissing } from "./componentEdits";
 import { AddComponent, SetOverrides, type SceneFile } from "./document";
