@@ -16,6 +16,8 @@
 import { defineBuiltinSystem } from "../../core/systems";
 import { clientReplication } from "./client";
 import { serverReplication } from "./server";
+// Prediction (T13) works on ghosts, so it comes with replication: engine.PredictionTick and engine.PredictionSmooth.
+import "../prediction";
 
 defineBuiltinSystem({
   name: "engine.ReplicationReceive",

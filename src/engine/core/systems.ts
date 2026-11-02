@@ -42,6 +42,23 @@ export interface SystemDef {
    * (`"*"`: every World). Default `["default", "local"]`. Adding it to a World by name works regardless.
    */
   readonly worlds?: readonly WorldTag[];
+  /**
+   * A predicted system (ADR 0033 §6, T13; Unity's `PredictedSimulationSystemGroup`): it moves the
+   * state the owning client predicts. fixedUpdate only. Default false.
+   *
+   * On servers and in Worlds that aren't networked it runs like any other system. On a network
+   * client it runs on the prediction timeline (`net/prediction.ts`):
+   * - its rows are only the ghosts this client predicts (`Replicated.isPredictedLocally`), not
+   *   their children or any other node;
+   * - it runs once per predicted tick (`time.network.serverTick`), so a fixed step can run it
+   *   more than once (catching up skipped ticks) or not at all (its tick was already simulated);
+   * - when a snapshot corrects a prediction, it runs again for the ticks since that snapshot
+   *   (re-simulation), with `Move.of(node)` returning each tick's input.
+   * So keep it deterministic, and let it change only its rows' predicted values (the transform,
+   * data fields listed in `replicate(def, { predicted })`, behavior fields declared
+   * `{ predicted: true }`). On a client, predicted systems always run after `engine.PredictionTick`.
+   */
+  readonly predicted?: boolean;
   run(rows: Iterable<Row>, ctx: SystemContext): void;
 }
 
@@ -58,6 +75,27 @@ export interface BuiltinSystem {
 
 const ALL_WORLDS: readonly WorldTag[] = ["*"];
 
+/** The built-in that drives the prediction timeline (`net/prediction.ts`); predicted systems run after it. */
+const PREDICTION_SYSTEM = "engine.PredictionTick";
+
+/** @internal How a World's predicted systems run in this fixed step (T13, `net/prediction.ts`). */
+export interface PredictedRun {
+  /** Run them in this step's pass (false: this step's tick was already simulated). */
+  readonly run: boolean;
+  /** Their rows: only the nodes this accepts. */
+  readonly includes: (node: GameObject) => boolean;
+}
+
+/** Decides how a World's predicted systems run in its fixed step; null: like any other system. */
+type PredictionDriver = (world: World) => PredictedRun | null;
+
+let predictionDriver: PredictionDriver | null = null;
+
+/** @internal Prediction (T13) takes over predicted systems on network clients. */
+export function _setPredictionDriver(driver: PredictionDriver | null): void {
+  predictionDriver = driver;
+}
+
 const builtinSystems: BuiltinSystem[] = [];
 const userSystems: SystemDef[] = [];
 /** Bumped whenever the catalog changes, so schedulers recompute their members. */
@@ -68,6 +106,7 @@ let catalogVersion = 0;
  * filter matches (by default, the default World) and in any World it's added to by name.
  */
 export function defineSystem(def: SystemDef): SystemDef {
+  if (def.predicted && def.phase !== "fixedUpdate") throw new Error(`System "${def.name}": predicted systems run in fixedUpdate (got "${def.phase}").`);
   if (builtinSystems.some((s) => s.name === def.name)) throw new Error(`System "${def.name}" is an engine built-in.`);
   const existing = userSystems.findIndex((s) => s.name === def.name);
   if (existing >= 0 && !_isReplacingRegistrations()) throw new Error(`System "${def.name}" is already defined.`);
@@ -166,10 +205,22 @@ export class Scheduler {
 
   run(phase: Phase, dt: number): void {
     if (this.stale()) this.rebuild();
+    // Asked when the first predicted system is reached, so after engine.PredictionTick has run.
+    let predicted: PredictedRun | null | undefined;
     for (const s of this.ordered[phase]) {
       if (s.builtin) s.builtin.run(this.world, dt);
-      else if (s.user) this.runUser(s.user, dt);
+      else if (s.user?.predicted && predictionDriver) {
+        if (predicted === undefined) predicted = predictionDriver(this.world);
+        if (!predicted) this.runUser(s.user, dt);
+        else if (predicted.run) this.runUser(s.user, dt, predicted.includes);
+      } else if (s.user) this.runUser(s.user, dt);
     }
+  }
+
+  /** @internal Prediction (T13): run this World's predicted systems once, in order, on the rows `includes` accepts. */
+  runPredicted(dt: number, includes: (node: GameObject) => boolean): void {
+    if (this.stale()) this.rebuild();
+    for (const s of this.ordered.fixedUpdate) if (s.user?.predicted) this.runUser(s.user, dt, includes);
   }
 
   /** Names in execution order, for debugging and tests. */
@@ -193,7 +244,7 @@ export class Scheduler {
       // Default order: built-ins in registration order, then user systems in definition order.
       const items: (Scheduled & { after: readonly string[]; before: readonly string[] })[] = [
         ...builtins.filter((b) => b.phase === phase).map((b) => ({ name: b.name, builtin: b, after: b.after ?? [], before: b.before ?? [] })),
-        ...users.filter((u) => u.phase === phase).map((u) => ({ name: u.name, user: u, after: u.after ?? [], before: u.before ?? [] })),
+        ...users.filter((u) => u.phase === phase).map((u) => ({ name: u.name, user: u, after: u.predicted ? [...(u.after ?? []), PREDICTION_SYSTEM] : (u.after ?? []), before: u.before ?? [] })),
       ];
       this.ordered[phase] = topoSort(items);
     }
@@ -201,7 +252,7 @@ export class Scheduler {
     this.builtMembershipVersion = this.membershipVersion;
   }
 
-  private runUser(def: SystemDef, dt: number): void {
+  private runUser(def: SystemDef, dt: number, includes?: (node: GameObject) => boolean): void {
     const world = this.world;
     const ctx: SystemContext = {
       world,
@@ -210,11 +261,17 @@ export class Scheduler {
       single: <V>(d: DataComponentDef) => world._singleData(d) as V | null,
     };
     try {
-      def.run(def.query ? world._query(def.query) : [], ctx);
+      const rows = def.query ? world._query(def.query) : [];
+      def.run(includes ? filterRows(rows, includes) : rows, ctx);
     } catch (err) {
       console.error(`[tranquility] System "${def.name}" threw:`, err);
     }
   }
+}
+
+/** The rows whose node `includes` accepts, passed through as they come (rows are reused). */
+function* filterRows(rows: Iterable<Row>, includes: (node: GameObject) => boolean): Generator<Row> {
+  for (const row of rows) if (includes(row.node)) yield row;
 }
 
 /** Stable topological sort honoring `after`/`before` constraints; unknown names are ignored. */
