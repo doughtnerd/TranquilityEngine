@@ -45,7 +45,7 @@ export class Camera extends Component {
   /** Clear color; null uses the project's display background color. */
   @field(Color) backgroundColor: Color | null = null;
 
-  /** The enabled camera with the lowest depth in the active world. */
+  /** The enabled camera with the lowest depth in the current World (ADR 0032). */
   static get main(): Camera | null {
     const cams = World.require()._componentsOfType(Camera).filter((c) => c.isActiveAndEnabled);
     return cams.sort((a, b) => a.depth - b.depth)[0] ?? null;

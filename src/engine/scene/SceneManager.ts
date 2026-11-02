@@ -13,7 +13,9 @@ export interface LoadSceneOptions {
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
 
 /**
- * Loads scene files as scene nodes under the World root (ADR 0016).
+ * Loads scene files as scene nodes under the World root (ADR 0016). Acts on the current World
+ * (ADR 0032): the one whose frame is running, else the Engine's default World. A load captures
+ * that World when called, so the swap lands there even though it happens later.
  *
  * ```ts
  * await SceneManager.load("scenes/level1.scene.json");

@@ -130,6 +130,11 @@ export class RenderBackend {
   private readonly resizeObserver: ResizeObserver;
   private readonly warnedLayers = new Set<string>();
   private readonly clearColor: ThreeColor;
+  /**
+   * The one World this backend draws (ADR 0032): its three.js scene holds that World's objects
+   * only, so a second World needs its own surface. Claimed by the first `sync` or `render`.
+   */
+  private owner: World | null = null;
 
   constructor(private readonly container: HTMLElement, private readonly settings: ProjectSettings, kind: WorldKind = "runtime") {
     this.canvas = document.createElement("canvas");
@@ -245,6 +250,7 @@ export class RenderBackend {
 
   /** Step 8: mirror engine components into three.js. */
   sync(world: World): void {
+    this.claim(world);
     for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     for (const t of world._componentsOfType(Text)) this.syncText(t);
@@ -426,6 +432,7 @@ export class RenderBackend {
 
   /** Step 9: render each enabled camera in depth order, then the UI. */
   render(world: World): void {
+    this.claim(world);
     const r = this.renderer;
     const cams = this.viewCameras(world);
     if (!cams.length) {
@@ -443,6 +450,11 @@ export class RenderBackend {
     });
     r.clearDepth();
     r.render(this.uiScene, this.uiCamera);
+  }
+
+  private claim(world: World): void {
+    this.owner ??= world;
+    if (this.owner !== world) throw new Error(`This render surface draws World "${this.owner.name}"; World "${world.name}" needs its own (ADR 0032).`);
   }
 
   /** Enabled cameras that draw the view, in depth order. */
