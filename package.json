@@ -4,12 +4,16 @@
   "description": "",
   "private": true,
   "main": "./dist/engine/engine.js",
+  "bin": {
+    "tranquility-server": "src/server/cli.mjs"
+  },
   "scripts": {
     "dev": "vite",
     "build": "npm run typecheck && npm run build:editor && npm run build:engine",
     "build:editor": "vite build --config vite.editor.config.ts",
     "build:engine": "vite build --config vite.engine.config.ts && tsc -p tsconfig.engine.json",
     "preview": "vite preview --config vite.editor.config.ts",
+    "server": "node src/server/cli.mjs",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium webkit",
