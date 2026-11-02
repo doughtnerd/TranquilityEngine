@@ -118,9 +118,10 @@ export interface WorldHandle {
   destroy(): void;
 }
 
-/** True if a `worlds` filter (a system's or component's) admits a World with `tags`. */
+/** True if a `worlds` filter (a system's or component's) admits a World with `tags`. A filter containing `"*"` admits every World. */
 export function worldsMatch(filter: readonly WorldTag[] | undefined, tags: readonly WorldTag[]): boolean {
-  return (filter ?? DEFAULT_SYSTEM_WORLDS).some((t) => tags.includes(t));
+  const f = filter ?? DEFAULT_SYSTEM_WORLDS;
+  return f.includes("*") || f.some((t) => tags.includes(t));
 }
 
 /** @internal Thrown by contract stubs until their task lands (see docs/architecture/worlds-and-netcode-plan.md). */

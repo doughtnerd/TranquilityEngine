@@ -12,7 +12,7 @@ import { Transform } from "../scene/Transform";
 import { Component, GameBehavior, type FrameHook, type PendingWait } from "./Component";
 import { DataStore, type BufferDef, type DataComponentDef } from "./data";
 import { Mat4 } from "./math";
-import { Scheduler, type QueryTerm, type Row } from "./systems";
+import { Scheduler, defineBuiltinSystem, type QueryTerm, type Row } from "./systems";
 import { resolveSettings, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import type { Physics2DWorld } from "../physics/Physics2DWorld";
 import type { RenderBackend } from "../render/RenderBackend";
@@ -204,7 +204,6 @@ export class World {
     this.inWorld[root] = 1;
     this.activeInHierarchy[root] = 1;
     this.root = this.handle(root);
-    this.registerScriptSystems();
   }
 
   // --- nodes ----------------------------------------------------------------------------
@@ -662,12 +661,6 @@ export class World {
 
   // --- internals ----------------------------------------------------------------------------
 
-  private registerScriptSystems(): void {
-    this.scheduler.addBuiltin({ name: "engine.FixedUpdateScripts", phase: "fixedUpdate", run: (w) => w._runHook("fixedUpdate") });
-    this.scheduler.addBuiltin({ name: "engine.UpdateScripts", phase: "update", run: (w) => w._runHook("update") });
-    this.scheduler.addBuiltin({ name: "engine.LateUpdateScripts", phase: "lateUpdate", run: (w) => w._runHook("lateUpdate") });
-  }
-
   private invoke(b: GameBehavior, hook: keyof GameBehavior): void {
     if (this.inEditMode(b._node.entity)) return; // scripts don't run in a scene being edited (ADR 0026)
     try {
@@ -848,6 +841,11 @@ export class World {
     for (const s of this.dataStores.values()) s.grow(capacity);
   }
 }
+
+// Script hooks as built-in catalog systems, in every World (ADR 0011, 0032).
+defineBuiltinSystem({ name: "engine.FixedUpdateScripts", phase: "fixedUpdate", run: (w) => w._runHook("fixedUpdate") });
+defineBuiltinSystem({ name: "engine.UpdateScripts", phase: "update", run: (w) => w._runHook("update") });
+defineBuiltinSystem({ name: "engine.LateUpdateScripts", phase: "lateUpdate", run: (w) => w._runHook("lateUpdate") });
 
 function removeItem<T>(list: T[], item: T): void {
   const i = list.indexOf(item);
