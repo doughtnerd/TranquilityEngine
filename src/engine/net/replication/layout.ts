@@ -13,8 +13,10 @@
  *    { replicate: true })` (or `predicted`), in component order: numbers as f32 (with their
  *    `quantize`), booleans as u8. Fields of other types aren't replicated (warned once).
  *
- * Both ends build a layout from a `LayoutSpec` (sent with the ghost's spawn) and their own
- * registrations, which must match: the game's code is the same on both ends.
+ * Both ends build a layout from a `LayoutSpec` (sent with the ghost's spawn). The spec carries each
+ * component's field shapes (type and quantize step), so a client can always decode a ghost's
+ * record: parts for a component it doesn't know, or whose fields differ from the server's, are
+ * decoded and ignored (warned once) instead of making the whole snapshot unreadable.
  */
 import type { Component } from "../../core/Component";
 import { getDataComponentDef, f32, i32, u8, type DataComponentDef, type ScalarType } from "../../core/data";
@@ -24,6 +26,8 @@ import type { GameObject } from "../../scene/GameObject";
 import { recordCodec, type FieldEncoding, type RecordCodec } from "../codec";
 import type { Replicated } from "../Replicated";
 import { replicationOf } from "../replication";
+
+const SCALARS: Record<ScalarType["kind"], ScalarType> = { f32, i32, u8 };
 
 /** Position step: 1 mm. */
 export const POSITION_STEP = 0.001;
@@ -35,13 +39,19 @@ export const SCALE_STEP = 0.001;
 /** A ghost's values, in layout order. Never mutated once stored (states are shared between peers and ticks). */
 export type GhostState = readonly number[];
 
+/** One replicated field as it's encoded: its type and quantize step (0: full precision). */
+export interface FieldShape {
+  readonly kind: ScalarType["kind"];
+  readonly quantize: number;
+}
+
 /** What a ghost replicates, as sent in its spawn. */
 export interface LayoutSpec {
   readonly transform: boolean;
-  /** Data component ids, sorted. */
-  readonly data: readonly string[];
-  /** Behaviors with replicated fields: component id, and which of the node's components of that class (0 = first). */
-  readonly behaviors: readonly { readonly id: string; readonly index: number }[];
+  /** Replicated data components, by id (sorted), with their fields' shapes. */
+  readonly data: readonly { readonly id: string; readonly fields: readonly FieldShape[] }[];
+  /** Behaviors with replicated fields: component id, which of the node's components of that class (0 = first), and the fields' shapes. */
+  readonly behaviors: readonly { readonly id: string; readonly index: number; readonly fields: readonly FieldShape[] }[];
 }
 
 /** How a field is interpolated: lerped, part of the rotation quaternion, or snapped. */
@@ -58,7 +68,9 @@ interface BehaviorField {
 type Part =
   | { readonly kind: "transform"; readonly at: number }
   | { readonly kind: "data"; readonly def: DataComponentDef; readonly fields: readonly string[]; readonly at: number }
-  | { readonly kind: "behavior"; readonly type: ComponentClass; readonly index: number; readonly fields: readonly BehaviorField[]; readonly at: number };
+  | { readonly kind: "behavior"; readonly type: ComponentClass; readonly index: number; readonly fields: readonly BehaviorField[]; readonly at: number }
+  /** A component this end doesn't know, or knows differently: decoded (the shapes say how) and ignored. */
+  | { readonly kind: "ignored"; readonly at: number };
 
 export interface Layout {
   /** The spec as a string: equal strings, equal layouts. */
@@ -101,11 +113,33 @@ export function behaviorFields(type: ComponentClass): readonly BehaviorField[] {
   return out;
 }
 
+const shapesKey = (fields: readonly FieldShape[]) => fields.map((f) => `${f.kind}${f.quantize ? `/${f.quantize}` : ""}`).join(" ");
+
 function specKey(spec: LayoutSpec): string {
-  return `${spec.transform ? "T" : "-"}|${spec.data.join(",")}|${spec.behaviors.map((b) => `${b.id}#${b.index}`).join(",")}`;
+  return `${spec.transform ? "T" : "-"}|${spec.data.map((d) => `${d.id}(${shapesKey(d.fields)})`).join(",")}|${spec.behaviors.map((b) => `${b.id}#${b.index}(${shapesKey(b.fields)})`).join(",")}`;
 }
 
-/** The layout for `spec` (cached). Throws if this end doesn't know one of its components. */
+/** The shapes of a data component's replicated fields, as this end defines them. */
+function dataShapes(def: DataComponentDef): FieldShape[] {
+  const options = replicationOf(def);
+  if (!options) return [];
+  return (options.fields ?? def.fields).map((f) => {
+    const kind = def.schema[f].kind;
+    return { kind, quantize: kind === "f32" ? Math.fround(options.encoding?.[f]?.quantize ?? 0) : 0 }; // float32, as the spawn carries it
+  });
+}
+
+/** The shapes of a behavior class's replicated fields, as this end defines them. */
+function behaviorShapes(type: ComponentClass): FieldShape[] {
+  return behaviorFields(type).map((f) => ({ kind: f.boolean ? "u8" : "f32", quantize: f.boolean ? 0 : Math.fround(f.quantize ?? 0) }));
+}
+
+const sameShapes = (a: readonly FieldShape[], b: readonly FieldShape[]) => a.length === b.length && a.every((f, i) => f.kind === b[i].kind && f.quantize === b[i].quantize);
+
+/**
+ * The layout for `spec` (cached). Its record follows the spec's shapes, so it always decodes; a
+ * component this end lacks, or defines with other fields, becomes an ignored part (warned once).
+ */
 export function layoutOf(spec: LayoutSpec): Layout {
   const key = specKey(spec);
   const cached = layouts.get(key);
@@ -134,23 +168,30 @@ export function layoutOf(spec: LayoutSpec): Layout {
     for (let i = 0; i < 4; i++) add(f32, ROTATION, ROTATION_STEP);
     for (let i = 0; i < 3; i++) add(f32, LERP, SCALE_STEP);
   }
-  for (const id of spec.data) {
-    const def = getDataComponentDef(id);
-    const options = def ? replicationOf(def) : null;
-    if (!def || !options) throw new Error(`data component "${id}" isn't defined or replicated in this World's code`);
-    const fields = options.fields ?? def.fields;
-    parts.push({ kind: "data", def, fields, at: interpolation.length });
-    for (const f of fields) {
-      const type = def.schema[f];
-      add(type, type.kind === "f32" ? LERP : SNAP, type.kind === "f32" ? options.encoding?.[f]?.quantize : undefined);
+  const addShapes = (fields: readonly FieldShape[]) => {
+    for (const f of fields) add(SCALARS[f.kind], f.kind === "f32" ? LERP : SNAP, f.quantize || undefined);
+  };
+  for (const d of spec.data) {
+    const def = getDataComponentDef(d.id);
+    const at = interpolation.length;
+    if (def && replicationOf(def) && sameShapes(dataShapes(def), d.fields)) {
+      parts.push({ kind: "data", def, fields: replicationOf(def)!.fields ?? def.fields, at });
+    } else {
+      warnOnce(`data:${d.id}`, `Replicated data component "${d.id}" ${def ? "is replicated differently here than on the server" : "isn't defined here"}; its values are ignored.`);
+      parts.push({ kind: "ignored", at });
     }
+    addShapes(d.fields);
   }
   for (const b of spec.behaviors) {
     const type = getComponentClass(b.id);
-    if (!type) throw new Error(`component "${b.id}" isn't registered in this World's code`);
-    const fields = behaviorFields(type);
-    parts.push({ kind: "behavior", type, index: b.index, fields, at: interpolation.length });
-    for (const f of fields) add(f.boolean ? u8 : f32, f.boolean ? SNAP : LERP, f.quantize);
+    const at = interpolation.length;
+    if (type && sameShapes(behaviorShapes(type), b.fields)) {
+      parts.push({ kind: "behavior", type, index: b.index, fields: behaviorFields(type), at });
+    } else {
+      warnOnce(`behavior:${b.id}`, `Replicated fields of "${b.id}" ${type ? "differ here from the server's" : "belong to a component that isn't registered here"}; they're ignored.`);
+      parts.push({ kind: "ignored", at });
+    }
+    addShapes(b.fields);
   }
 
   const layout: Layout = {
@@ -172,9 +213,9 @@ export function specOf(world: World, node: GameObject, rep: Replicated): LayoutS
   const data = world
     ._dataComponentsOf(node.entity)
     .filter((def) => replicationOf(def))
-    .map((def) => def.id)
-    .sort();
-  const behaviors: { id: string; index: number }[] = [];
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((def) => ({ id: def.id, fields: dataShapes(def) }));
+  const behaviors: { id: string; index: number; fields: FieldShape[] }[] = [];
   const seen = new Map<ComponentClass, number>();
   for (const c of world._componentsOf(node.entity)) {
     const type = c.constructor as ComponentClass;
@@ -183,7 +224,7 @@ export function specOf(world: World, node: GameObject, rep: Replicated): LayoutS
     if (c === (rep as Component)) continue;
     const id = getComponentId(type);
     if (!id || behaviorFields(type).length === 0) continue;
-    behaviors.push({ id, index });
+    behaviors.push({ id, index, fields: behaviorShapes(type) });
   }
   return { transform: rep.replicateTransform && !!node.transform, data, behaviors };
 }
@@ -201,6 +242,8 @@ export function readState(layout: Layout, node: GameObject, rep: Replicated): Gh
       for (let i = 0; i < 3; i++) out[at++] = world.tPos[e * 3 + i];
       for (let i = 0; i < 4; i++) out[at++] = world.tRot[e * 4 + i];
       for (let i = 0; i < 3; i++) out[at++] = world.tScl[e * 3 + i];
+    } else if (part.kind === "ignored") {
+      continue; // only a client builds these
     } else if (part.kind === "data") {
       const view = node.getData(part.def) as Record<string, number> | null;
       for (const f of part.fields) out[at++] = view ? view[f] : 0;
@@ -248,6 +291,7 @@ export function bind(layout: Layout, node: GameObject, rep: Replicated): Binding
       if (!node.transform) node.world._addTransform(node.entity);
       return null;
     }
+    if (part.kind === "ignored") return null;
     if (part.kind === "data") return (node.getData(part.def) ?? node.addData(part.def)) as Record<string, unknown>;
     return (node.getBehaviors(part.type as abstract new () => Component)[part.index] as unknown as Record<string, unknown>) ?? null;
   });
@@ -280,7 +324,7 @@ export function applyState(layout: Layout, binding: Binding, values: ArrayLike<n
       return;
     }
     const target = binding.targets[p];
-    if (!target) return;
+    if (!target || part.kind === "ignored") return;
     if (part.kind === "data") {
       for (const f of part.fields) target[f] = values[at++];
     } else {

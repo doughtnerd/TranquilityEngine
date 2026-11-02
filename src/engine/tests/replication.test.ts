@@ -9,6 +9,8 @@ import {
   Vector3,
   behavior,
   defineComponent,
+  defineInput,
+  defineSystem,
   f32,
   field,
   i32,
@@ -454,5 +456,127 @@ describe("per-World components (T11)", () => {
     expect(node.transform!.position.x).toBe(0);
     // Built-ins and unrestricted components work everywhere.
     expect(world(engine, "Solo").activeScene!.find("Ball")!.getBehavior(Replicated)).not.toBeNull();
+  });
+});
+
+// Fixes from the wave 3 review.
+Assets.addSource(
+  Assets.fromObject({
+    "scenes/yard.scene.json": {
+      format: "tranquility.scene@1",
+      nodes: [{ id: "projectiles", name: "Projectiles", components: [transformOf(10, 0)] }],
+    },
+  }),
+);
+
+describe("wave 3 review fixes", () => {
+  it("keeps a predicted ghost's state history bounded", async () => {
+    const engine = await create(clientsAndServer(1, { latencyMs: 20 }));
+    const server = world(engine, "Server");
+    step(engine, 10);
+    const p1Id = clientReplication(world(engine, "P1"))!.session.serverPeer!.id;
+    const crate = inWorld(server, () => GameObject.instantiate("prefabs/crate.json"));
+    inWorld(server, () => Object.assign(crate.getBehavior(Replicated)!, { ownerId: p1Id, mode: "predicted" }));
+    step(engine, 1200); // 20 s: one state a tick if never pruned
+    const [g] = clientReplication(world(engine, "P1"))!.ghosts.values();
+    expect(g.states.length).toBeLessThan(20);
+  });
+
+  it("spawns a prefab under a plain scene parent in the same place on clients", async () => {
+    const engine = await create(clientsAndServer(1, { latencyMs: 20 }, ["scenes/yard.scene.json"]));
+    const server = world(engine, "Server");
+    step(engine, 10);
+    const container = server.sceneNodes[0].children.find((c) => c.name === "Projectiles")!;
+    const crate = inWorld(server, () => GameObject.instantiate("prefabs/crate.json", { parent: container, position: [1, 0, 0] }));
+    step(engine, 60);
+    expect(crate.transform!.worldPosition.x).toBeCloseTo(11);
+    const [ghost] = ghosts(world(engine, "P1")).values();
+    expect(ghost.parent!.name).toBe("Projectiles");
+    world(engine, "P1")._propagateTransforms();
+    expect(ghost.transform!.worldPosition.x).toBeCloseTo(11, 2);
+  });
+
+  it("reads Move.of(playerNode) through the player's ownerId", async () => {
+    const Steer = defineInput("test.review.Steer", { x: f32 });
+    const engine = await create(clientsAndServer(1, { latencyMs: 20 }));
+    const server = world(engine, "Server");
+    step(engine, 10);
+    const p1Id = clientReplication(world(engine, "P1"))!.session.serverPeer!.id;
+    const player = inWorld(server, () => GameObject.instantiate("prefabs/crate.json"));
+    inWorld(server, () => (player.getBehavior(Replicated)!.ownerId = p1Id));
+    defineSystem({ name: "test.review.steer", phase: "fixedUpdate", worlds: ["client"], run: () => Steer.write({ x: 0.5 }) });
+    step(engine, 60);
+    expect(inWorld(server, () => Steer.of(player))?.x).toBe(0.5);
+  });
+
+  it("decodes a ghost whose components this end doesn't know, and ignores them", async () => {
+    const { layoutOf } = await import("../net/replication/layout");
+    const { createBitReader, createBitWriter } = await import("../net/codec");
+    const layout = layoutOf({
+      transform: false,
+      data: [{ id: "test.review.Unknown", fields: [{ kind: "f32", quantize: 0 }, { kind: "i32", quantize: 0 }] }],
+      behaviors: [{ id: "test.review.UnknownBehavior", index: 0, fields: [{ kind: "u8", quantize: 0 }] }],
+    });
+    expect(layout.size).toBe(2 + 2 + 1); // ownerId, mode, then the unknown parts' fields
+    const w = createBitWriter();
+    layout.codec.write(w, { 0: 3, 1: 0, 2: 1.5, 3: -4, 4: 1 } as Record<string, number>);
+    expect(layout.codec.read(createBitReader(w.finish()))).toEqual({ 0: 3, 1: 0, 2: 1.5, 3: -4, 4: 1 });
+  });
+
+  it("starts a reconnecting client's timeline afresh, so a restarted server gets its inputs", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const Push = defineInput("test.review.Push", { x: f32 });
+    const engine = await create(clientsAndServer(1, { latencyMs: 20 }));
+    step(engine, 1200); // the client's timeline is ~1200 ticks on
+    expect(world(engine, "P1").time.network!.serverTick).toBeGreaterThan(1000);
+    engine.findWorld("Server")!.destroy();
+    step(engine, 5);
+    const restarted = engine.createWorld({ name: "Server2", tags: ["server"] });
+    engine.findWorld("P1")!.connect(restarted, "loopback", { now, latencyMs: 20 });
+    defineSystem({ name: "test.review.push", phase: "fixedUpdate", worlds: ["client"], run: () => Push.write({ x: 1 }) });
+    step(engine, 60);
+    const net = world(engine, "P1").time.network!;
+    expect(net.serverTick).toBeLessThan(100);
+    const server2 = world(engine, "Server2");
+    const conn = netSession(server2)!.openPeers()[0].node!;
+    expect(inWorld(server2, () => Push.of(conn))?.x).toBe(1);
+  });
+
+  it("times out a connection that never finishes its handshake, and one that goes quiet", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const engine = await create(clientsAndServer(1, { latencyMs: 20, address: "review:timeouts" }));
+    step(engine, 10);
+    // Someone opens a connection and never says hello.
+    const { createTransport } = await import("../net/Transport");
+    const raw = createTransport("loopback", { now });
+    const link = raw.connect("review:timeouts");
+    step(engine, 6 * 60);
+    const events = raw.poll();
+    expect(events.find((e) => e.kind === "close")).toMatchObject({ reason: expect.stringMatching(/handshake didn't finish/) });
+    expect(link.state).toBe("closed");
+    raw.close();
+    // The server stops answering (paused): the client gives up after the idle timeout.
+    engine.findWorld("Server")!.pause();
+    step(engine, 16 * 60);
+    expect(netSession(world(engine, "P1"))!.closed.at(-1)?.reason).toMatch(/Nothing arrived/);
+  });
+
+  it("refuses connections past maxConnections", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const engine = await create(clientsAndServer(2, { latencyMs: 10, maxConnections: 1 }));
+    step(engine, 30);
+    const reasons = ["P1", "P2"].map((n) => netSession(world(engine, n))!.closed.at(-1)?.reason ?? "open");
+    expect(reasons.filter((r) => /is full/.test(r))).toHaveLength(1);
+    expect(netSession(world(engine, "Server"))!.openPeers()).toHaveLength(1);
+  });
+
+  it("removeBehavior on a component kept out of the World does nothing", async () => {
+    const engine = await create(clientsAndServer(1));
+    const p1 = world(engine, "P1");
+    const node = inWorld(p1, () => GameObject.create("n"));
+    const mover = node.addBehavior(Mover); // server-only: a detached stand-in here
+    expect(() => node.removeBehavior(mover)).not.toThrow();
+    step(engine, 2);
+    expect(node.getBehavior(Mover)).toBeNull();
   });
 });

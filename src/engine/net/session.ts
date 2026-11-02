@@ -97,8 +97,8 @@ import type { NetworkTime } from "./time";
 import "./transport/loopback";
 import "./transport/websocket";
 
-/** Bumped whenever the wire format or handshake changes; both ends must match. */
-export const NET_PROTOCOL_VERSION = 1;
+/** Bumped whenever the wire format or handshake changes; both ends must match. (2: field shapes in replication spawns.) */
+export const NET_PROTOCOL_VERSION = 2;
 
 /** How often a client pings its server, for RTT and the server-tick estimate. */
 export const PING_INTERVAL_MS = 100;
@@ -111,6 +111,17 @@ export const DEFAULT_COMMAND_SLACK_TICKS = 2;
 
 /** Undrained messages kept per kind per World; older ones are dropped. */
 export const MAX_QUEUED = 1024;
+
+/** A connection that hasn't finished its handshake this long after opening is closed (link option `handshakeTimeoutMs`). */
+export const DEFAULT_HANDSHAKE_TIMEOUT_MS = 5000;
+/**
+ * A connection nothing has arrived on for this long is closed as lost (link option `idleTimeoutMs`).
+ * Clients ping every 100 ms and servers answer, so a live link is never quiet this long; a
+ * paused World (the editor's Pause) stops answering, so its peers time out after this.
+ */
+export const DEFAULT_IDLE_TIMEOUT_MS = 15_000;
+/** Connections a server accepts at once, counting ones still in their handshake (listen option `maxConnections`). */
+export const DEFAULT_MAX_CONNECTIONS = 64;
 
 const MSG_HELLO = 0;
 const MSG_WELCOME = 1;
@@ -205,6 +216,10 @@ export class NetPeer {
   rtt = 0;
   /** Queued for sending, in order. */
   readonly outbox: Outgoing[] = [];
+  /** When the connection started (the session's clock, ms), for the handshake timeout. */
+  openedAt = 0;
+  /** When anything last arrived on it, for the idle timeout. */
+  heardAt = 0;
   private ackedTick = 0;
   /** RPC wire numbers by id, and RPCs by wire number. Filled when the handshake completes. */
   rpcOut = new Map<string, number>();
@@ -277,6 +292,10 @@ export class NetSession {
   interpolationMs = DEFAULT_INTERPOLATION_MS;
   /** Client (T12): extra ticks `serverTick` runs ahead, so inputs arrive before their tick. See the top of this file. */
   commandSlack = DEFAULT_COMMAND_SLACK_TICKS;
+  handshakeTimeoutMs = DEFAULT_HANDSHAKE_TIMEOUT_MS;
+  idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS;
+  /** Server: connections accepted at once. */
+  maxConnections = DEFAULT_MAX_CONNECTIONS;
 
   private role: "server" | "client" | null = null;
   private readonly transports: Transport[] = [];
@@ -360,6 +379,8 @@ export class NetSession {
     this.claim("server", true);
     const transport = createWorldTransport(this.world, transportName, options);
     this.claim("server");
+    this.applyOptions(options);
+    if (typeof options.maxConnections === "number" && options.maxConnections >= 1) this.maxConnections = Math.floor(options.maxConnections);
     this.transports.push(transport);
     const listener: Listener = { transport, ready: Promise.resolve(address), address: null };
     this.listeners.set(key, listener);
@@ -391,13 +412,36 @@ export class NetSession {
     this.claim("client");
     if (typeof options.interpolationMs === "number" && options.interpolationMs >= 0) this.interpolationMs = options.interpolationMs;
     if (typeof options.commandSlack === "number" && options.commandSlack >= 0) this.commandSlack = options.commandSlack; // T12
+    this.applyOptions(options);
     this.transports.push(transport);
     const link = transport.connect(address);
     const peer = new NetPeer(link, transport);
+    peer.openedAt = peer.heardAt = this.nowMs();
     peer.node = this.createNode("Connection (server)", 0, ConnectionState.connecting);
     this.peers.set(link, peer);
+    this.resetTimeline(); // a new server (perhaps restarted, at tick 0): start its timeline afresh
+  }
+
+  /** Timeouts from link or listen options. */
+  private applyOptions(options: Record<string, unknown>): void {
+    if (typeof options.handshakeTimeoutMs === "number" && options.handshakeTimeoutMs > 0) this.handshakeTimeoutMs = options.handshakeTimeoutMs;
+    if (typeof options.idleTimeoutMs === "number" && options.idleTimeoutMs > 0) this.idleTimeoutMs = options.idleTimeoutMs;
+  }
+
+  /**
+   * Client: forget the server's timeline. serverTick and interpolationTick never go back while
+   * connected; across connections they must, or a client reconnecting to a restarted server would
+   * tag inputs far ahead (the server drops them) and hold every ghost at its last state.
+   */
+  private resetTimeline(): void {
     this.synced = false;
+    this.offset = 0;
+    this.estimatedServerTick = 0;
     this.newestServerTick = -1;
+    this.pings.clear();
+    const t = this.time;
+    t.serverTick = t.interpolationTick = 0;
+    t.interpolationFraction = 0;
   }
 
   /** Close every connection and transport; the World is going. */
@@ -522,9 +566,12 @@ export class NetSession {
       }
       for (const event of events) this.handle(transport, event);
     }
-    // A server kicks a client by destroying its connection node.
-    for (const peer of this.peers.values()) {
+    // A server kicks a client by destroying its connection node; quiet and stalled connections time out.
+    const now = this.nowMs();
+    for (const peer of [...this.peers.values()]) {
       if (peer.state === "open" && peer.node && !peer.node.isValid) peer.link.close("The connection node was destroyed.");
+      else if (peer.state === "handshake" && now - peer.openedAt > this.handshakeTimeoutMs) this.drop(peer, `The handshake didn't finish within ${this.handshakeTimeoutMs} ms.`);
+      else if (peer.state === "open" && now - peer.heardAt > this.idleTimeoutMs) this.drop(peer, `Nothing arrived for ${this.idleTimeoutMs} ms; the connection is lost.`);
     }
     this.updateTime(fixed);
   }
@@ -543,12 +590,19 @@ export class NetSession {
         const peer = this.peers.get(link);
         if (peer) this.sendHello(peer);
       } else if (!this.peers.has(link)) {
-        this.peers.set(link, new NetPeer(link, transport));
+        if (this.peers.size >= this.maxConnections) {
+          link.close(`The server World "${this.world.name}" is full (${this.maxConnections} connections).`);
+          return;
+        }
+        const peer = new NetPeer(link, transport);
+        peer.openedAt = peer.heardAt = this.nowMs();
+        this.peers.set(link, peer);
       }
       return;
     }
     const peer = this.peers.get(link);
     if (!peer) return;
+    peer.heardAt = this.nowMs();
     if (event.kind === "close") {
       this.removePeer(peer, event.reason, true);
       return;
@@ -633,9 +687,14 @@ export class NetSession {
     } else if (Math.abs(tickRate - this.tickRate) > this.tickRate * 1e-4) {
       reason = `Tick rate mismatch: ${who} runs at ${round(tickRate)} ticks per second, the server World "${this.world.name}" at ${round(this.tickRate)}. Linked Worlds must use the same tick rate.`;
     } else {
+      // Input streams carry their schema in their kind's name (`net.input:id(fields)`): a difference
+      // there is the game's definitions, like an RPC's, not the engine's.
+      const isInput = (k: string) => k.startsWith("net.input:");
+      const input = (k: string) => k.slice("net.input:".length);
       reason =
         setMismatch("RPC", theirRpcs, [...rpcs.values()].map((e) => e.descriptor)) ||
-        setMismatch("message kind", theirKinds, messageKinds, " (the client and server run different engine versions)");
+        setMismatch("input", theirKinds.filter(isInput).map(input), messageKinds.filter(isInput).map(input)) ||
+        setMismatch("message kind", theirKinds.filter((k) => !isInput(k)), messageKinds.filter((k) => !isInput(k)), " (the client and server run different engine versions)");
     }
     if (reason) {
       peer.link.close(reason);
@@ -775,11 +834,17 @@ export class NetSession {
     }
     this.closed.push({ id: peer.id, reason });
     if (this.closed.length > 16) this.closed.shift();
-    if (this.role === "client") this.synced = false;
+    if (this.role === "client") this.resetTimeline();
     if (log && (this.role === "client" || !wasOpen)) {
       const what = this.role === "client" ? "its connection to the server" : `a connection from ${peer.link.remote}`;
       console.warn(`[tranquility] World "${this.world.name}" ${wasOpen ? "lost" : "couldn't open"} ${what}: ${reason}`);
     }
+  }
+
+  /** Close a connection from this end, with a reason both ends see. */
+  private drop(peer: NetPeer, reason: string): void {
+    if (peer.link.state !== "closed") peer.link.close(reason);
+    this.removePeer(peer, reason, true);
   }
 
   private pushRow(id: string, row: Readonly<Record<string, unknown>>): void {

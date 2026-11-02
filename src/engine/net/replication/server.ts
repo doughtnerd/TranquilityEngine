@@ -96,6 +96,10 @@ interface PeerState {
   readonly history: Map<number, Sent>;
   /** Bytes of the last snapshot sent (for tests and tools). */
   lastBytes: number;
+  /** Bits each ghost took in the last snapshot written for this connection, to choose before writing when it's over budget. */
+  lastCosts: Map<number, number>;
+  /** Bits of the last snapshot written in full (before choosing), or 0. */
+  lastFullBits: number;
 }
 
 /** @internal Replication settings of a server World. */
@@ -150,7 +154,7 @@ export class ServerReplication {
     for (const g of this.ghosts.values()) g.state = readState(g.layout, g.node, g.rep);
     for (const peer of session.openPeers()) {
       let ps = this.peers.get(peer);
-      if (!ps) this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), history: new Map(), lastBytes: 0 }));
+      if (!ps) this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), history: new Map(), lastBytes: 0, lastCosts: new Map(), lastFullBits: 0 }));
       for (const id of despawned) {
         if (ps.known.delete(id)) ps.despawns.add(id);
       }
@@ -239,26 +243,38 @@ export class ServerReplication {
       const g = this.ghostById(id);
       if (g) all.push(g);
     }
-    let attempt = this.write(ps, tick, base, all);
     const budget = this.maxSnapshotBytes * 8;
-    if (attempt.bits > budget) {
-      // Too big: unacked spawns first (oldest first), then the ghosts longest unsent, by importance.
+    // Too big: unacked spawns first (oldest first), then the ghosts longest unsent, by importance.
+    const choose = (costs: Map<number, number>, headerBits: number, fallbackCost: number) => {
       const ranked = [...all].sort((a, b) => {
         const pa = ps.known.get(a.id)!, pb = ps.known.get(b.id)!;
         if (pa.spawnAcked !== pb.spawnAcked) return pa.spawnAcked ? 1 : -1;
         if (!pa.spawnAcked) return a.id - b.id;
         return (tick - pb.lastSentTick) * Math.max(0, b.rep.importance) - (tick - pa.lastSentTick) * Math.max(0, a.rep.importance);
       });
-      let used = attempt.headerBits;
+      let used = headerBits;
       const chosen: ServerGhost[] = [];
       for (const g of ranked) {
-        const cost = attempt.costs.get(g.id) ?? 0;
+        const cost = costs.get(g.id) ?? fallbackCost;
         if (used + cost > budget * 0.95 && chosen.length > 0) continue;
         chosen.push(g);
         used += cost;
       }
-      chosen.sort((a, b) => a.id - b.id);
-      attempt = this.write(ps, tick, base, chosen);
+      return chosen.sort((a, b) => a.id - b.id);
+    };
+    let attempt;
+    if (ps.lastFullBits > budget && ps.lastCosts.size > 0) {
+      // Over budget last time too: choose from last tick's sizes and write once (a ghost not sent
+      // then is costed as the largest one, to stay safe), instead of writing everything to measure.
+      const largest = Math.max(...ps.lastCosts.values());
+      attempt = this.write(ps, tick, base, choose(ps.lastCosts, 0, largest));
+      if (attempt.bits > budget) attempt = this.write(ps, tick, base, choose(attempt.costs, attempt.headerBits, largest));
+      for (const [id, bits] of attempt.costs) ps.lastCosts.set(id, bits);
+    } else {
+      attempt = this.write(ps, tick, base, all);
+      ps.lastFullBits = attempt.bits;
+      ps.lastCosts = attempt.costs;
+      if (attempt.bits > budget) attempt = this.write(ps, tick, base, choose(attempt.costs, attempt.headerBits, 0));
     }
     for (const id of attempt.sent.states.keys()) ps.known.get(id)!.lastSentTick = tick;
     ps.history.set(tick, attempt.sent);
@@ -341,7 +357,11 @@ function spawnOf(world: World, node: GameObject, ghostOf: (node: GameObject) => 
       if (n === node) {
         const parent = node.parent;
         const parentGhost = parent ? ghostOf(parent) : 0;
-        return { kind: SPAWN_PREFAB, path, parent: parent === world.root ? 1 : parentGhost ? parentGhost + 2 : 0 };
+        const code = parent === world.root ? 1 : parentGhost ? parentGhost + 2 : 0;
+        // A plain scene node as parent (a "Projectiles" container): clients find it by its scene
+        // path, so local transforms mean the same there.
+        const parentNode = code === 0 && parent ? scenePathOf(world, parent) : null;
+        return parentNode ? { kind: SPAWN_PREFAB, path, parent: code, parentNode } : { kind: SPAWN_PREFAB, path, parent: code };
       }
       const owner = ghostOf(n);
       if (!owner) return `it's inside an instance of "${path}" whose root isn't replicated (give the root a Replicated component too).`;
@@ -359,6 +379,21 @@ function spawnOf(world: World, node: GameObject, ghostOf: (node: GameObject) => 
     ids.push(world.ids[n.entity]);
   }
   return "it isn't from a prefab instantiated with GameObject.instantiate or from a scene, so clients can't make or find it.";
+}
+
+/** Where a node sits in a loaded scene (its scene's source and occurrence, and node ids below it), or null if it isn't in one. */
+function scenePathOf(world: World, node: GameObject): { source: string; occurrence: number; ids: string[] } | null {
+  const ids: string[] = [];
+  for (let n: GameObject | null = node; n && n !== world.root; n = n.parent) {
+    if (n.parent === world.root && n.isSceneNode) {
+      const source = n.getBehavior(SceneInstance)?.source;
+      if (!source || ids.includes("")) return null;
+      const occurrence = world.sceneNodes.filter((s) => s.getBehavior(SceneInstance)?.source === source).indexOf(n);
+      return { source, occurrence: Math.max(0, occurrence), ids: ids.reverse() };
+    }
+    ids.push(world.ids[n.entity]);
+  }
+  return null;
 }
 
 const servers = new WeakMap<World, ServerReplication>();

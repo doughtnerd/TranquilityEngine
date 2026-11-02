@@ -12,6 +12,7 @@ import { World } from "../core/World";
 import { component, field } from "../core/registry";
 import type { GameObject } from "../scene/GameObject";
 import type { ReplicatedSettings, ReplicationMode } from "./replication";
+import { registerInputOwnerResolver } from "./input";
 import { netSession } from "./session";
 // The replication systems and message kinds come with the component.
 import "./replication/systems";
@@ -61,6 +62,17 @@ export class Replicated extends Component implements ReplicatedSettings {
     return node.getBehavior(Replicated)?.isOwnedLocally ?? false;
   }
 }
+
+// Inputs (T12) for an owned ghost: `Move.of(playerNode)` reads its owner's connection's input on
+// the server, and the local input on the owning client.
+registerInputOwnerResolver((world, node) => {
+  const rep = node.getBehavior(Replicated);
+  const session = netSession(world);
+  if (!rep || !session || rep.ownerId === 0) return null;
+  if (session.isServer) return session.openPeers().find((p) => p.id === rep.ownerId)?.node ?? null;
+  const peer = session.serverPeer;
+  return peer?.state === "open" && peer.id === rep.ownerId ? peer.node : null;
+});
 
 function ownedIn(world: World, owner: number): boolean {
   const session = netSession(world);

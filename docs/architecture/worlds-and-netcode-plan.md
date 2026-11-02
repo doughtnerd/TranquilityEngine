@@ -54,7 +54,7 @@ These two tracks don't touch the same files and run side by side.
 
 ## Wave 3: replication (after T1–T4, T7, T8), done 2026-11-02
 
-T10 ran first; T11 and T12 then ran in parallel against T10's internal message API. Merging T11 after T12 needed only combined exports and system-order expectations. Known gaps carried forward: no idle or handshake timeouts, node activity and reparenting aren't replicated, spawn layouts aren't string-tabled, and asymmetric links can make inputs arrive late (the slack assumes RTT/2 each way).
+T10 ran first; T11 and T12 then ran in parallel against T10's internal message API. Merging T11 after T12 needed only combined exports and system-order expectations. A review then fixed: timelines reset on reconnect, handshake/idle timeouts and a connection cap, field shapes in spawns (unknown components are skipped, not fatal), spawn parents that are plain scene nodes, bounded state history, `Move.of(playerNode)` through `ownerId`, and single encoding of over-budget snapshots. Known gaps carried forward: node activity and reparenting aren't replicated, spawn layouts aren't string-tabled, and asymmetric links can make inputs arrive late (the slack assumes RTT/2 each way).
 
 | Id | Task | Owns | Depends on | Done when |
 |---|---|---|---|---|

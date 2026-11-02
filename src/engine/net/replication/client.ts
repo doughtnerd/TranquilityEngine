@@ -108,20 +108,14 @@ export class ClientReplication {
     const at = net.interpolationTick + net.interpolationFraction;
     const maxAhead = (MAX_EXTRAPOLATION_MS / 1000) * this.session.tickRate;
     for (const g of this.ghosts.values()) {
-      const binding = g.binding;
-      if (!binding) continue;
-      if (!binding.node.isValid) {
-        // Destroyed on this side (its scene unloaded, say): find or make it again.
-        g.node = g.binding = null;
-        continue;
-      }
       const states = g.states;
       if (states.length === 0) continue;
-      if (binding.rep.isPredictedLocally) {
-        applyState(g.layout, binding, states[states.length - 1].values); // T13 predicts these
-        continue;
-      }
-      applyState(g.layout, binding, this.sample(g, at, maxAhead));
+      const binding = g.binding;
+      // Destroyed on this side (its scene unloaded, say): find or make it again.
+      if (binding && !binding.node.isValid) g.node = g.binding = null;
+      else if (binding?.rep.isPredictedLocally) applyState(g.layout, binding, states[states.length - 1].values); // T13 predicts these
+      else if (binding) applyState(g.layout, binding, this.sample(g, at, maxAhead));
+      // Every ghost, shown or not: one waiting for its scene, or a predicted one, still gets a state each snapshot.
       this.prune(g, at);
     }
   }
@@ -228,7 +222,13 @@ export class ClientReplication {
     let node: GameObject | null = null;
     if (spawn.kind === SPAWN_PREFAB) {
       let parent: GameObject | undefined;
-      if (spawn.parent === 1) parent = world.root;
+      if (spawn.parentNode) {
+        const p = spawn.parentNode;
+        const scene = world.sceneNodes.filter((s) => s.getBehavior(SceneInstance)?.source === p.source)[p.occurrence];
+        const found = scene ? descend(world, scene, p.ids) : null;
+        if (!found) return false; // its scene isn't loaded yet
+        parent = found;
+      } else if (spawn.parent === 1) parent = world.root;
       else if (spawn.parent >= 2) {
         const owner = this.ghosts.get(spawn.parent - 2)?.node;
         if (!owner) return false;
