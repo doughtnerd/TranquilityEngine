@@ -30,6 +30,29 @@ export async function writeMaterial(project: EditorProject, path: string, settin
 /** True if two settings would write the same file. */
 export const sameMaterial = (a: MaterialSettings, b: MaterialSettings) => formatMaterial(a) === formatMaterial(b);
 
+/** Each material's writes in progress, so edits apply one after another. */
+const writing = new Map<string, Promise<unknown>>();
+
+/**
+ * Change a material asset: `patch` (or what it returns for the settings as they are then) is
+ * applied to the file's settings once the edits before it have been written, so quick edits in a
+ * row never undo one another. Resolves true if the file changed.
+ */
+export function editMaterial(project: EditorProject, path: string, patch: Partial<MaterialSettings> | ((current: MaterialSettings) => Partial<MaterialSettings>)): Promise<boolean> {
+  const run = async () => {
+    const { settings } = readMaterial(project, path);
+    const next = { ...settings, ...(typeof patch === "function" ? patch(settings) : patch) };
+    if (sameMaterial(next, settings)) return false;
+    await writeMaterial(project, path, next);
+    return true;
+  };
+  const result = (writing.get(path) ?? Promise.resolve()).then(run, run);
+  const settled = result.catch(() => undefined);
+  writing.set(path, settled);
+  void settled.then(() => writing.get(path) === settled && writing.delete(path));
+  return result;
+}
+
 /** Where New Material goes by default: `materials/` if the project has it, else the folder given. */
 export function materialFolder(folder: string): string {
   return folder === "" && currentProject.value?.folders.includes("materials") ? "materials" : folder;

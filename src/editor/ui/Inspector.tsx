@@ -1,6 +1,6 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
 import type { FieldChoice } from "../../engine/core/registry";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
@@ -34,7 +34,7 @@ import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
 import { showsAssetInspector } from "../assetImport";
-import { assetKind } from "../assetBrowser";
+import { assetKind, listedFiles } from "../assetBrowser";
 import { BUILTIN_MESHES } from "../../engine/scene/models";
 import { liveInspecting } from "../runtimeInspect";
 import { RuntimeInspector } from "./RuntimeInspector";
@@ -647,20 +647,23 @@ function assetListFor(type: string, field: string): string {
 
 /** The asset suggestions asset fields offer as you type (ADR 0043, 0044). */
 function AssetLists() {
-  docVersion.value; // files come and go
-  const files = (currentProject.value?.files ?? []).filter((f) => !f.endsWith(".meta.json"));
-  const options = (list: readonly string[]) => list.map((f) => <option key={f} value={f} />);
-  const models = files.filter((f) => assetKind(f) === "model");
-  return (
-    <>
-      <datalist id="asset-list-mesh">
-        {options(BUILTIN_MESHES.map((m) => `builtin:${m}`))}
-        {options(models)}
-      </datalist>
-      <datalist id="asset-list-material">{options(files.filter((f) => assetKind(f) === "material"))}</datalist>
-      <datalist id="asset-list-all">{options(files)}</datalist>
-    </>
-  );
+  const version = docVersion.value; // files come and go
+  const project = currentProject.value;
+  // Built when the project's files change, not on every Inspector render.
+  return useMemo(() => {
+    const files = listedFiles(project?.files ?? []);
+    const options = (list: readonly string[]) => list.map((f) => <option key={f} value={f} />);
+    return (
+      <>
+        <datalist id="asset-list-mesh">
+          {options(BUILTIN_MESHES.map((m) => `builtin:${m}`))}
+          {options(files.filter((f) => assetKind(f) === "model"))}
+        </datalist>
+        <datalist id="asset-list-material">{options(files.filter((f) => assetKind(f) === "material"))}</datalist>
+        <datalist id="asset-list-all">{options(files)}</datalist>
+      </>
+    );
+  }, [project, version, project?.files]);
 }
 
 function TextInput(props: { value: string; label: string; class?: string; placeholder?: string; list?: string; onCommit: (v: string) => void }) {

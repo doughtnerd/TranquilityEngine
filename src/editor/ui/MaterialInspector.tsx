@@ -1,7 +1,7 @@
 import { Color } from "../../engine";
 import { colorHex, type MaterialSettings } from "../../engine/scene/material";
 import { assetKind, fileName } from "../assetBrowser";
-import { readMaterial, sameMaterial, writeMaterial } from "../materialAssets";
+import { editMaterial, readMaterial } from "../materialAssets";
 import { errorStatus } from "../messages";
 import { currentProject, docVersion, status } from "../state";
 import "./assetInspector.css";
@@ -22,12 +22,10 @@ export function MaterialInspector(props: { path: string }) {
   const images = project.files.filter((f) => assetKind(f) === "image");
   const lit = settings.shader === "lit";
 
-  const set = async (patch: Partial<MaterialSettings>) => {
-    const next = { ...settings, ...patch };
-    if (sameMaterial(next, settings)) return;
+  // Edits queue up and each applies to the file as the one before left it (`editMaterial`).
+  const set = async (patch: Partial<MaterialSettings> | ((current: MaterialSettings) => Partial<MaterialSettings>)) => {
     try {
-      await writeMaterial(project, path, next);
-      docVersion.value++;
+      if (await editMaterial(project, path, patch)) docVersion.value++;
     } catch (err) {
       status.value = errorStatus(`Couldn't save ${fileName(path)}`, err);
     }
@@ -78,11 +76,15 @@ export function MaterialInspector(props: { path: string }) {
       </select>
     </label>
   );
-  const color = (label: string, value: Color, onValue: (c: Color) => void, alpha: boolean) => (
+  /** A colour row; `onValue` gets how to change the colour as it is when the edit is applied. */
+  const color = (label: string, value: Color, onValue: (change: (current: Color) => Color) => void, alpha: boolean) => (
     <label class="import-row">
       <span>{label}</span>
       <span class="material-color">
-        <input type="color" aria-label={label} disabled={readOnly} value={value.toHex()} onChange={(e) => onValue(withAlpha(Color.from((e.currentTarget as HTMLInputElement).value), value.a))} />
+        <input type="color" aria-label={label} disabled={readOnly} value={value.toHex()} onChange={(e) => {
+          const picked = Color.from((e.currentTarget as HTMLInputElement).value);
+          onValue((current) => withAlpha(picked, current.a));
+        }} />
         <code>{colorHex(value)}</code>
         {alpha && (
           <input
@@ -96,7 +98,7 @@ export function MaterialInspector(props: { path: string }) {
             value={+value.a.toFixed(3)}
             onChange={(e) => {
               const a = Number((e.currentTarget as HTMLInputElement).value);
-              if (Number.isFinite(a)) onValue(withAlpha(value, Math.min(1, Math.max(0, a))));
+              if (Number.isFinite(a)) onValue((current) => withAlpha(current, Math.min(1, Math.max(0, a))));
             }}
           />
         )}
@@ -128,7 +130,7 @@ export function MaterialInspector(props: { path: string }) {
             <option value="unlit">Unlit</option>
           </select>
         </label>
-        {color("Color", settings.color, (c) => void set({ color: c }), true)}
+        {color("Color", settings.color, (change) => void set((now) => ({ color: change(now.color) })), true)}
         {texture("Texture", settings.texture, (v) => void set({ texture: v }))}
         <div class="import-row">
           <span>Tiling</span>
@@ -144,7 +146,7 @@ export function MaterialInspector(props: { path: string }) {
                 onChange={(e) => {
                   const v = Number((e.currentTarget as HTMLInputElement).value);
                   if (!Number.isFinite(v) || v === 0) return;
-                  void set({ tiling: i === 0 ? [v, settings.tiling[1]] : [settings.tiling[0], v] });
+                  void set((now) => ({ tiling: i === 0 ? [v, now.tiling[1]] : [now.tiling[0], v] }));
                 }}
               />
             ))}
@@ -155,7 +157,7 @@ export function MaterialInspector(props: { path: string }) {
             {number("Metalness", settings.metalness, (v) => void set({ metalness: v }), [0, 1])}
             {number("Roughness", settings.roughness, (v) => void set({ roughness: v }), [0, 1])}
             {texture("Normal Map", settings.normalMap, (v) => void set({ normalMap: v }))}
-            {color("Emission", settings.emission, (c) => void set({ emission: c }), false)}
+            {color("Emission", settings.emission, (change) => void set((now) => ({ emission: change(now.emission) })), false)}
           </>
         )}
         <label class="import-row">

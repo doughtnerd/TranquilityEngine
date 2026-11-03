@@ -2,7 +2,7 @@ import { Component } from "../core/Component";
 import { Vector3 } from "../core/math";
 import { AssetRef, PlainObject, component, field } from "../core/registry";
 import type { GameObject } from "../scene/GameObject";
-import type { PhysicsMaterial2D } from "./Collider2D";
+import type { PhysicsMaterial } from "./Collider2D";
 import type { ColliderHandleState3D } from "./Physics3DWorld";
 import { RigidBody } from "./RigidBody";
 
@@ -17,7 +17,7 @@ export abstract class Collider extends Component {
   @field(Boolean) isTrigger = false;
   /** Collision layer name from project settings. */
   @field(String, { choices: (s) => s.physics.layers }) layer = "Default";
-  @field(PlainObject) material: PhysicsMaterial2D = { friction: 0.5, bounciness: 0 };
+  @field(PlainObject) material: PhysicsMaterial = { friction: 0.5, bounciness: 0 };
 
   /** @internal */ _state: ColliderHandleState3D | null = null;
 

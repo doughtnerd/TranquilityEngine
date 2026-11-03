@@ -184,3 +184,18 @@ describe("3D physics on Rapier (ADR 0045)", () => {
     expect(engine.world.physics2D).toBeNull();
   });
 });
+
+describe("3D physics auto-detection", () => {
+  it("sees 3D bodies added to prefab instances as overrides", async () => {
+    Assets.clearSources();
+    Assets.addSource(
+      Assets.fromObject({
+        "p.prefab.json": { format: "myco.scene@1", nodes: [{ id: "root", components: [{ type: "engine.Transform" }] }] },
+        "s.json": { format: "myco.scene@1", nodes: [{ id: "i", prefab: "p.prefab.json", overrides: [{ addComponent: { type: "engine.RigidBody" } }] }] },
+      }),
+    );
+    const engine = await Engine.create({ headless: true, project });
+    await SceneManager.load("s.json");
+    expect(engine.world.physics3D).not.toBeNull();
+  });
+});

@@ -21,11 +21,13 @@ import {
   dragCapsuleHeight,
   dragCapsuleRadius,
   dragSphereRadius,
+  meshOutline,
   meshWire,
   sphereHandles3D,
   sphereWire,
   worldCenter,
   type BoxFace3D,
+  type MeshOutline,
   type Pose3D,
   type V3,
   type Wire,
@@ -119,6 +121,9 @@ export function colliderShapes(engine: Engine): { node: GameObject; points: [num
   return out;
 }
 
+/** Each mesh collider's outline, worked out once per mesh. */
+const outlines = new WeakMap<object, MeshOutline>();
+
 /** Every 3D collider in the edited scene, as a wireframe in world space. Mesh colliders whose model is loading are left out. */
 export function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire }[] {
   const out: { node: GameObject; wire: Wire }[] = [];
@@ -131,8 +136,11 @@ export function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire
     else if (c instanceof SphereCollider) out.push({ node, wire: sphereWire(pose, center, c.radius) });
     else if (c instanceof CapsuleCollider) out.push({ node, wire: capsuleWire(pose, center, c.radius, c.height, c.direction) });
     else if (c instanceof MeshCollider) {
-      const mesh = meshTriangleData(c.mesh, node);
-      if (mesh) out.push({ node, wire: meshWire(pose, center, mesh.vertices, mesh.indices) });
+      const mesh = meshTriangleData(c.mesh, node); // the same object while the mesh is unchanged
+      if (!mesh) continue;
+      let outline = outlines.get(mesh);
+      if (!outline) outlines.set(mesh, (outline = meshOutline(mesh.vertices, mesh.indices)));
+      out.push({ node, wire: meshWire(pose, center, mesh.vertices, mesh.indices, outline) });
     }
   }
   return out;

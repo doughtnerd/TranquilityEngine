@@ -44,7 +44,10 @@ let rapierReady: Promise<void> | null = null;
 
 /** @internal Initialize Rapier 3D's WASM once. */
 export function initRapier3D(): Promise<void> {
-  return (rapierReady ??= RAPIER.init());
+  return (rapierReady ??= RAPIER.init().catch((err: unknown) => {
+    rapierReady = null; // tried again next time
+    throw err;
+  }));
 }
 
 const m4 = new Matrix4();
@@ -162,8 +165,8 @@ export class Physics3DWorld {
     const [fx, fy, fz] = rb._force, [tx, ty, tz] = rb._torque;
     if (fx || fy || fz) body.addForce({ x: fx, y: fy, z: fz }, true);
     if (tx || ty || tz) body.addTorque({ x: tx, y: ty, z: tz }, true);
-    rb._force = [0, 0, 0];
-    rb._torque = [0, 0, 0];
+    rb._force.fill(0);
+    rb._torque.fill(0);
   }
 
   private createBody(rb: RigidBody): BodyHandleState3D {
@@ -190,6 +193,20 @@ export class Physics3DWorld {
     body.setAdditionalMassProperties(mass, { x: 0, y: 0, z: 0 }, { x: mass / 6, y: mass / 6, z: mass / 6 }, { x: 0, y: 0, z: 0, w: 1 }, true);
   }
 
+  /** Each collider's world scale and the transform version it was read at, so it's read only when the node moved. */
+  private readonly scales = new WeakMap<Collider, { version: number; scale: [number, number, number] }>();
+
+  private worldScale(c: Collider, e: number): readonly number[] {
+    if (!c.node.transform) return [1, 1, 1];
+    const version = this.world.tVersion[e];
+    const cached = this.scales.get(c);
+    if (cached && cached.version === version) return cached.scale;
+    m4.fromArray(this.world.worldMatrix(e), e * 16).decompose(pos, rot, scl);
+    const scale: [number, number, number] = [Math.abs(scl.x), Math.abs(scl.y), Math.abs(scl.z)];
+    this.scales.set(c, { version, scale });
+    return scale;
+  }
+
   /** The meshes a MeshCollider takes its shape from: its own mesh, else its node's MeshRenderer's. Null while loading. */
   private colliderMeshes(c: MeshCollider): readonly ModelMesh[] | null {
     const ref = c.mesh || c.node.getBehavior(MeshRenderer)?.mesh || "";
@@ -204,7 +221,7 @@ export class Physics3DWorld {
     const active = c.isActiveAndEnabled;
     const body = active ? c.attachedRigidbody : null;
     const e = c.node.entity;
-    const ws = c.node.transform ? worldPose(this.world, e).s : [1, 1, 1];
+    const ws = this.worldScale(c, e);
     const signature = [c._shapeSignature(), c.isTrigger, c.layer, c.material?.friction, c.material?.bounciness, ...ws.map((v) => v.toFixed(4)), c.center.x, c.center.y, c.center.z].join("|");
     const meshes = c instanceof MeshCollider && active ? this.colliderMeshes(c) : null;
     if (c instanceof MeshCollider && active && meshes === null) return; // its model is loading

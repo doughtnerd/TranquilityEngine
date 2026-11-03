@@ -186,26 +186,37 @@ export function dragCapsuleHeight(t: number, pose: Pose3D, direction: "x" | "y" 
 /** Above this many triangles a mesh collider is drawn as the box around it. */
 export const MESH_WIRE_TRIANGLES = 2000;
 
-/** A mesh collider's triangle edges in world space (or its bounding box, for big meshes). */
-export function meshWire(pose: Pose3D, center: readonly number[], vertices: readonly number[], indices: readonly number[]): Wire {
-  const c = worldCenter(pose, center);
-  const world = (i: number): V3 => at(pose, c, [vertices[i * 3] * pose.scale[0], vertices[i * 3 + 1] * pose.scale[1], vertices[i * 3 + 2] * pose.scale[2]]);
+/** What a mesh collider is drawn as, in mesh space: its triangle edges (vertex index pairs, shared edges once), or for a big mesh its bounds. */
+export type MeshOutline = { edges: number[] } | { boxCenter: V3; boxSize: V3 };
+
+/** A mesh's outline (see `MeshOutline`). Costly for big meshes: work it out once per mesh. */
+export function meshOutline(vertices: readonly number[], indices: readonly number[]): MeshOutline {
   if (indices.length / 3 > MESH_WIRE_TRIANGLES) {
     const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
     for (let i = 0; i < vertices.length; i += 3) for (let k = 0; k < 3; k++) (min[k] = Math.min(min[k], vertices[i + k])), (max[k] = Math.max(max[k], vertices[i + k]));
-    const mid = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
-    return boxWire(pose, add(center, mid), sub(max, min));
+    return { boxCenter: [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2], boxSize: sub(max, min) };
   }
-  const wire: Wire = [];
-  const seen = new Set<string>();
+  const edges: number[] = [];
+  const seen = new Set<number>();
+  const n = vertices.length / 3;
   for (let t = 0; t + 2 < indices.length; t += 3) {
     for (const [p, q] of [[indices[t], indices[t + 1]], [indices[t + 1], indices[t + 2]], [indices[t + 2], indices[t]]]) {
-      const key = p < q ? `${p},${q}` : `${q},${p}`;
+      const key = p < q ? p * n + q : q * n + p;
       if (seen.has(key)) continue;
       seen.add(key);
-      wire.push([world(p), world(q)]);
+      edges.push(p, q);
     }
   }
+  return { edges };
+}
+
+/** A mesh collider's triangle edges in world space (or its bounding box, for big meshes). */
+export function meshWire(pose: Pose3D, center: readonly number[], vertices: readonly number[], indices: readonly number[], outline: MeshOutline = meshOutline(vertices, indices)): Wire {
+  if ("boxSize" in outline) return boxWire(pose, add(center, outline.boxCenter), outline.boxSize);
+  const c = worldCenter(pose, center);
+  const world = (i: number): V3 => at(pose, c, [vertices[i * 3] * pose.scale[0], vertices[i * 3 + 1] * pose.scale[1], vertices[i * 3 + 2] * pose.scale[2]]);
+  const wire: Wire = [];
+  for (let i = 0; i + 1 < outline.edges.length; i += 2) wire.push([world(outline.edges[i]), world(outline.edges[i + 1])]);
   return wire;
 }
 

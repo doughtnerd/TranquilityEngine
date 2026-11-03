@@ -16,7 +16,7 @@ import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
 import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
 import { Camera, MeshRenderer, SpriteRenderer } from "../render/components";
-import { meshesIfLoaded } from "../scene/models";
+import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, _instantiatedPrefabOf, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 import type { Schema } from "../core/data";
@@ -414,12 +414,15 @@ export function lightWireCount(world: World): number {
 /**
  * A mesh reference's triangles in mesh space (ADR 0044) as vertex positions and index triples,
  * for drawing a MeshCollider; null while its model loads (the load starts here), empty arrays
- * when it has none. An empty reference uses `node`'s MeshRenderer's mesh.
+ * when it has none. An empty reference uses `node`'s MeshRenderer's mesh. The same object while
+ * the meshes stay the same, so callers can cache what they derive from it.
  */
-export function meshTriangleData(ref: string, node?: GameObject): { vertices: number[]; indices: number[] } | null {
+export function meshTriangleData(ref: string, node?: GameObject): { readonly vertices: readonly number[]; readonly indices: readonly number[] } | null {
   const mesh = ref || node?.getBehavior(MeshRenderer)?.mesh || "";
   const meshes = meshesIfLoaded(mesh);
   if (!meshes) return null;
+  const cached = triangleCache.get(mesh);
+  if (cached && cached.meshes.length === meshes.length && cached.meshes.every((m, i) => m === meshes[i])) return cached.data;
   const vertices: number[] = [], indices: number[] = [];
   for (const m of meshes) {
     const pos = m.geometry.getAttribute("position");
@@ -429,8 +432,12 @@ export function meshTriangleData(ref: string, node?: GameObject): { vertices: nu
     const count = index ? index.count : pos.count;
     for (let i = 0; i < count; i++) indices.push(base + (index ? index.getX(i) : i));
   }
-  return { vertices, indices };
+  const data = { vertices, indices };
+  triangleCache.set(mesh, { meshes: [...meshes], data });
+  return data;
 }
+
+const triangleCache = new Map<string, { meshes: readonly ModelMesh[]; data: { vertices: number[]; indices: number[] } }>();
 
 /**
  * The box around the meshes `node`'s MeshRenderer draws, in the node's own space (before its

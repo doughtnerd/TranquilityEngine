@@ -32,14 +32,26 @@ export function usesPhysics3D(path: string, seen = new Set<string>()): boolean {
   } catch {
     return false;
   }
-  return file.nodes.some((n) => (n.components ?? []).some((c) => PHYSICS_3D_TYPES.has(c.type)) || (n.prefab !== undefined && usesPhysics3D(n.prefab, seen)));
+  return file.nodes.some(
+    (n) =>
+      (n.components ?? []).some((c) => PHYSICS_3D_TYPES.has(c.type)) ||
+      // A prefab instance's overrides can add components too.
+      (n.overrides ?? []).some((o) => o.addComponent !== undefined && PHYSICS_3D_TYPES.has(o.addComponent.type)) ||
+      (n.prefab !== undefined && usesPhysics3D(n.prefab, seen)),
+  );
 }
 
 let loading: Promise<typeof import("./Physics3DWorld")> | null = null;
 
 /** @internal Create the World's 3D physics world, loading Rapier 3D's WASM once. */
 export async function ensurePhysics3D(world: World): Promise<Physics3DWorld> {
-  const mod = await (loading ??= import("./Physics3DWorld").then(async (m) => (await m.initRapier3D(), m)));
+  loading ??= import("./Physics3DWorld")
+    .then(async (m) => (await m.initRapier3D(), m))
+    .catch((err: unknown) => {
+      loading = null; // a failed fetch or WASM start (say, a network hiccup) is tried again next time
+      throw err;
+    });
+  const mod = await loading;
   if (!world.physics3D) world.physics3D = new mod.Physics3DWorld(world);
   return world.physics3D;
 }

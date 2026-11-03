@@ -14,6 +14,8 @@ import {
   dragCapsuleHeight,
   dragCapsuleRadius,
   dragSphereRadius,
+  MESH_WIRE_TRIANGLES,
+  meshOutline,
   meshWire,
   rotate,
   sphereHandles3D,
@@ -76,7 +78,8 @@ describe("3D collider wireframes and handles (ADR 0045)", () => {
     close(centerDelta({ ...identity, rotation: turnY90, scale: [2, 1, 1] }, [0, 0, -2]), [1, 0, 0]);
   });
 
-  it("draws mesh colliders by their triangle edges, shared edges once", () => {
+  it("draws mesh colliders by their triangle edges, shared edges once, or their bounds when big", () => {
+    expect(meshOutline([0, 0, 0, 2, 0, 0, 2, 4, 0], Array.from({ length: (MESH_WIRE_TRIANGLES + 1) * 3 }, (_, i) => i % 3))).toEqual({ boxCenter: [1, 2, 0], boxSize: [2, 4, 0] });
     const quad = meshWire(identity, [0, 0, 0], [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0], [0, 1, 2, 0, 2, 3]);
     expect(quad).toHaveLength(5);
   });

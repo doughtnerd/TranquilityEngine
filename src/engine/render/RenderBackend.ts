@@ -141,6 +141,8 @@ interface LightEntry {
 interface MaterialEntry {
   raw: unknown;
   material: Material | null;
+  /** Textures made for this material alone (tiled or linear copies), freed with it. */
+  textures: Texture[];
 }
 
 interface CameraEntry {
@@ -235,6 +237,9 @@ export class RenderBackend {
     this.renderer = new WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.autoClear = false;
+    // On from the start (it costs nothing until a light casts shadows), so materials are always
+    // compiled with shadows and a light that starts casting them later shows them at once.
+    this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = PCFShadowMap;
     const sun = new DirectionalLight(0xffffff, 1);
     sun.position.set(4, 10, 6);
@@ -614,7 +619,9 @@ export class RenderBackend {
     const cached = this.materialAssets.get(path);
     if (cached && cached.raw === raw) return cached.material;
     cached?.material?.dispose();
+    for (const t of cached?.textures ?? []) t.dispose();
     let material: Material | null = null;
+    const owned: Texture[] = [];
     if (raw === undefined) {
       this.warnMaterial(path, `material "${path}" isn't in the project; using the default material.`);
     } else {
@@ -640,6 +647,7 @@ export class RenderBackend {
           t.repeat.set(tx, ty);
           if (tx !== 1 || ty !== 1) t.wrapS = t.wrapT = RepeatWrapping;
           t.needsUpdate = true;
+          owned.push(t);
           return t;
         };
         const load = (ref: string, apply: (tex: Texture) => void) => {
@@ -660,7 +668,7 @@ export class RenderBackend {
         this.warnMaterial(path, `${(err as Error).message} Using the default material.`);
       }
     }
-    this.materialAssets.set(path, { raw, material });
+    this.materialAssets.set(path, { raw, material, textures: owned });
     return material;
   }
 
@@ -723,7 +731,6 @@ export class RenderBackend {
     }
     if (!(light instanceof AmbientLight)) {
       light.castShadow = l.castShadows;
-      if (l.castShadows) this.renderer.shadowMap.enabled = true;
       if (light instanceof DirectionalLight) {
         const half = Math.max(1, l.shadowArea) / 2;
         const cam = light.shadow.camera;
@@ -1647,7 +1654,10 @@ export class RenderBackend {
     this.gizmo?.dispose();
     for (const m of [...this.meshRenderers.keys()]) this.release(m);
     for (const l of [...this.lights.keys()]) this.release(l);
-    for (const e of this.materialAssets.values()) e.material?.dispose();
+    for (const e of this.materialAssets.values()) {
+      e.material?.dispose();
+      for (const t of e.textures) t.dispose();
+    }
     for (const m of this.lightIconMaterials.values()) {
       m.map?.dispose();
       m.dispose();
