@@ -7,6 +7,7 @@ import { art, PRODUCT_NAME } from "../brand";
 import { AboutDialog, aboutOpen } from "./AboutDialog";
 import { AssetsPanel } from "./Assets";
 import { CodePanel } from "./CodePanel";
+import { ShaderGraphPanel } from "./ShaderGraphPanel";
 import { AssetDragGhost } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ExportDialog, exportOpen } from "./ExportDialog";
@@ -27,7 +28,7 @@ import { NewProjectDialog } from "./NewProjectDialog";
 import { ProjectMenu } from "./ProjectMenu";
 import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 
-const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => <WorldsPanel />, network: () => <NetworkPanel />, project: () => <ProjectSettingsPanel /> };
+const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => <WorldsPanel />, network: () => <NetworkPanel />, project: () => <ProjectSettingsPanel />, shadergraph: () => <ShaderGraphPanel /> };
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {

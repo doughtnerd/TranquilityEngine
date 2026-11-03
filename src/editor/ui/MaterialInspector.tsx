@@ -1,9 +1,13 @@
 import { Color } from "../../engine";
-import { colorHex, type MaterialSettings } from "../../engine/scene/material";
+import { compileShaderGraph } from "../../engine/render/shaderGraph/compile";
+import { colorHex, materialGraph, type MaterialSettings } from "../../engine/scene/material";
+import type { GraphValue } from "../../engine/scene/shaderGraph";
 import { assetKind, fileName } from "../assetBrowser";
 import { editMaterial, readMaterial } from "../materialAssets";
 import { errorStatus } from "../messages";
+import { createMaterialForGraph, openShaderGraphAsset, readShaderGraph } from "../shaderGraphAssets";
 import { currentProject, docVersion, status } from "../state";
+import { PropertyValue } from "./ShaderGraphPanel";
 import "./assetInspector.css";
 
 const withAlpha = (c: Color, a: number) => new Color(c.r, c.g, c.b, a);
@@ -20,7 +24,11 @@ export function MaterialInspector(props: { path: string }) {
   const { settings, problems } = readMaterial(project, path);
   const readOnly = !project.canSave;
   const images = project.files.filter((f) => assetKind(f) === "image");
+  const graphs = project.files.filter((f) => assetKind(f) === "shadergraph");
   const lit = settings.shader === "lit";
+  const graphPath = materialGraph(settings);
+  const graphFile = graphPath?.replace(/^asset:/, "") ?? null;
+  const graph = graphFile && project.files.includes(graphFile) ? readShaderGraph(project, graphFile).graph : null;
 
   // Edits queue up and each applies to the file as the one before left it (`editMaterial`).
   const set = async (patch: Partial<MaterialSettings> | ((current: MaterialSettings) => Partial<MaterialSettings>)) => {
@@ -128,8 +136,51 @@ export function MaterialInspector(props: { path: string }) {
           <select aria-label="Shader" disabled={readOnly} value={settings.shader} onChange={(e) => void set({ shader: (e.currentTarget as HTMLSelectElement).value as MaterialSettings["shader"] })}>
             <option value="lit">Lit (physically based)</option>
             <option value="unlit">Unlit</option>
+            {graphs.map((f) => (
+              <option key={f} value={`asset:${f}`}>
+                Shader Graph: {fileName(f)}
+              </option>
+            ))}
+            {graphFile && !graphs.includes(graphFile) && <option value={settings.shader}>{graphFile} (missing)</option>}
           </select>
         </label>
+        {graphPath && (
+          <>
+            {graph?.properties.map((p) => {
+              const own = settings.properties[p.name];
+              const reset = () => void set((now) => ({ properties: Object.fromEntries(Object.entries(now.properties).filter(([k]) => k !== p.name)) }));
+              return (
+                <div key={p.name} class="import-row">
+                  <span title={own === undefined ? "The graph's default" : "Set by this material"}>
+                    {p.name}
+                    {own !== undefined && "*"}
+                  </span>
+                  <span class="material-pair">
+                    <PropertyValue
+                      name={p.name}
+                      type={p.type}
+                      value={own ?? p.value}
+                      images={images}
+                      disabled={readOnly}
+                      onValue={(v: GraphValue) => void set((now) => ({ properties: { ...now.properties, [p.name]: v } }))}
+                    />
+                    {own !== undefined && (
+                      <button title="Use the graph's default" aria-label={`Reset ${p.name}`} disabled={readOnly} onClick={reset}>
+                        Reset
+                      </button>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+            {graph && graph.properties.length === 0 && <p class="asset-inspector-note">The graph has no properties to set.</p>}
+            {graphFile && graphs.includes(graphFile) && (
+              <button onClick={() => openShaderGraphAsset(graphFile)}>Edit Shader Graph</button>
+            )}
+          </>
+        )}
+        {!graphPath && (
+          <>
         {color("Color", settings.color, (change) => void set((now) => ({ color: change(now.color) })), true)}
         {texture("Texture", settings.texture, (v) => void set({ texture: v }))}
         <div class="import-row">
@@ -164,8 +215,46 @@ export function MaterialInspector(props: { path: string }) {
           <span>Double Sided</span>
           <input type="checkbox" aria-label="Double Sided" disabled={readOnly} checked={settings.doubleSided} onChange={(e) => void set({ doubleSided: (e.currentTarget as HTMLInputElement).checked })} />
         </label>
+          </>
+        )}
       </div>
       <p class="asset-inspector-note">{readOnly ? "This project is read-only." : "Changes save to the file as you make them."}</p>
+    </div>
+  );
+}
+
+/** A shader graph asset in the Inspector (ADR 0047): what it is, its problems, and buttons to edit it or make a material. */
+export function ShaderGraphInspector(props: { path: string }) {
+  docVersion.value;
+  const project = currentProject.value;
+  if (!project) return <p class="empty">Nothing selected</p>;
+  const { graph, problems } = readShaderGraph(project, props.path);
+  const all = [...problems, ...compileShaderGraph(graph).problems];
+  return (
+    <div class="inspector-body asset-inspector" aria-label="Shader Graph">
+      <div class="asset-inspector-head">
+        <span class="asset-inspector-kind">Shader Graph</span>
+        <span class="asset-inspector-name" title={props.path}>
+          {fileName(props.path)}
+        </span>
+      </div>
+      {all.length > 0 && (
+        <ul class="asset-inspector-problems">
+          {all.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      )}
+      <div class="component asset-import-card">
+        <h3>Shader Graph</h3>
+        <p class="asset-inspector-note">
+          {graph.target === "lit" ? "Lit" : "Unlit"}, {graph.surface}{graph.doubleSided ? ", double-sided" : ""}; {graph.nodes.length} nodes, {graph.properties.length} properties.
+        </p>
+        <div class="material-pair">
+          <button class="primary" onClick={() => openShaderGraphAsset(props.path)}>Open in Shader Graph</button>
+          <button disabled={!project.canSave} onClick={() => void createMaterialForGraph(props.path)}>New Material</button>
+        </div>
+      </div>
     </div>
   );
 }

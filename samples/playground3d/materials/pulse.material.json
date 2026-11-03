@@ -1,0 +1,7 @@
+{
+  "format": "myco.material@1",
+  "shader": "asset:shaders/pulse.shadergraph.json",
+  "properties": {
+    "Tint": "#7a5cff"
+  }
+}

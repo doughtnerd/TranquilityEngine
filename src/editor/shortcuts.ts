@@ -59,8 +59,10 @@ export function installShortcuts(target: Window = window): () => void {
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Control" || e.key === "Meta") snapping.value = true;
     const action = shortcutFor(e);
-    // The Code panel's editor has its own keys (Ctrl/Cmd+S saves the script, Ctrl/Cmd+Z undoes typing); only Play passes through.
+    // The Code panel's editor has its own keys (Ctrl/Cmd+S saves the script, Ctrl/Cmd+Z undoes typing), and the
+    // Shader Graph panel its own undo, delete and duplicate (ADR 0046); only Play and Save pass through.
     if (action !== "play" && (e.target as Element | null)?.closest?.(".monaco-editor")) return;
+    if (action !== "play" && action !== "save" && (e.target as Element | null)?.closest?.(".shader-graph")) return;
     if (action === "play") {
       e.preventDefault(); // not the browser's print dialog
       togglePlaying();

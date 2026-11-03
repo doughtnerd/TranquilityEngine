@@ -442,7 +442,8 @@
         {
           "type": "engine.MeshRenderer",
           "data": {
-            "mesh": "builtin:capsule"
+            "mesh": "builtin:capsule",
+            "material": "asset:materials/pulse.material.json"
           }
         },
         {

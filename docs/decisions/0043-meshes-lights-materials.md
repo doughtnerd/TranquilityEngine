@@ -4,7 +4,7 @@
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0004, 0010, 0013, 0014, 0022, 0040, 0044
+- **Related:** 0004, 0010, 0013, 0014, 0022, 0040, 0044, 0047
 
 ## Context
 
@@ -53,7 +53,7 @@ Nothing.
 
 ## Open questions
 
-- Custom shaders as `Shader` assets (0004) and how a material names one.
+- ~~Custom shaders as `Shader` assets (0004) and how a material names one.~~ Shader graphs, named by a material's `shader` (0047).
 - Several materials on one renderer (one per geometry group); today a material asset replaces all of a model's.
 - Skyboxes and environment maps as assets, replacing the built-in studio environment.
 - Cascaded shadows for large outdoor scenes; baked lighting.

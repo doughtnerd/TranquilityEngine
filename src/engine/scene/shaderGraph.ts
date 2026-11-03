@@ -1,0 +1,266 @@
+/**
+ * Shader graph assets (ADR 0047): `*.shadergraph.json` files holding a node graph that compiles to
+ * a shader extending the built-in lit or unlit material. Materials name one as their `shader`.
+ *
+ * ```jsonc
+ * {
+ *   "format": "myco.shadergraph@1",
+ *   "target": "lit",                 // "lit" (default) | "unlit"
+ *   "surface": "opaque",             // "opaque" (default) | "transparent"
+ *   "doubleSided": false,
+ *   "properties": [{ "name": "Tint", "type": "color", "value": "#ff8800" }],
+ *   "nodes": [{ "id": "output", "type": "output", "position": [300, 0] }],
+ *   "edges": [{ "from": "n1.out", "to": "output.baseColor" }]
+ * }
+ * ```
+ */
+
+export const SHADER_GRAPH_FORMAT = "myco.shadergraph@1";
+export const SHADER_GRAPH_SUFFIX = ".shadergraph.json";
+
+/** True for a shader graph asset path (with or without `asset:`). */
+export const isShaderGraphPath = (path: string): boolean => path.toLowerCase().endsWith(SHADER_GRAPH_SUFFIX);
+
+export type ShaderGraphTarget = "lit" | "unlit";
+export type ShaderGraphSurface = "opaque" | "transparent";
+export type GraphPropertyType = "float" | "vector2" | "vector3" | "vector4" | "color" | "texture";
+export const GRAPH_PROPERTY_TYPES: readonly GraphPropertyType[] = ["float", "vector2", "vector3", "vector4", "color", "texture"];
+
+/** A property value: a number (float), 2–4 numbers (vectors), `#rrggbb[aa]` (color) or an asset path (texture, may be empty). */
+export type GraphValue = number | number[] | string;
+
+/** A property exposed to materials. */
+export interface GraphProperty {
+  name: string;
+  type: GraphPropertyType;
+  value: GraphValue;
+}
+
+/** An unconnected input's value: a number, or 2–4 numbers. */
+export type InputValue = number | number[];
+
+export interface GraphNode {
+  /** Unique within the graph; letters, digits, `_` and `-` (no dots: edges use `node.port`). */
+  id: string;
+  type: string;
+  position: [number, number];
+  /** Values for unconnected inputs, by port id. */
+  inputs?: Record<string, InputValue>;
+  /** The node's options (property name, swizzle mask, space, texture, colour…). */
+  settings?: Record<string, string>;
+}
+
+/** A connection from an output port to an input port, each written `nodeId.portId`. */
+export interface GraphEdge {
+  from: string;
+  to: string;
+}
+
+export interface ShaderGraph {
+  target: ShaderGraphTarget;
+  surface: ShaderGraphSurface;
+  doubleSided: boolean;
+  properties: GraphProperty[];
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
+export const OUTPUT_NODE_TYPE = "output";
+
+/** A new graph: just the output (master) node. */
+export const defaultShaderGraph = (): ShaderGraph => ({
+  target: "lit",
+  surface: "opaque",
+  doubleSided: false,
+  properties: [],
+  nodes: [{ id: "output", type: OUTPUT_NODE_TYPE, position: [0, 0] }],
+  edges: [],
+});
+
+/** Split `node.port`. */
+export function splitPortRef(ref: string): { node: string; port: string } {
+  const dot = ref.lastIndexOf(".");
+  return dot < 0 ? { node: ref, port: "" } : { node: ref.slice(0, dot), port: ref.slice(dot + 1) };
+}
+
+export const portRef = (node: string, port: string) => `${node}.${port}`;
+
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const HEX = /^#([0-9a-f]{6}|[0-9a-f]{8})$/i;
+const NODE_ID = /^[A-Za-z0-9_-]+$/;
+
+/** The default value of a new property of `type`. */
+export function defaultPropertyValue(type: GraphPropertyType): GraphValue {
+  switch (type) {
+    case "float":
+      return 0;
+    case "vector2":
+      return [0, 0];
+    case "vector3":
+      return [0, 0, 0];
+    case "vector4":
+      return [0, 0, 0, 0];
+    case "color":
+      return "#ffffff";
+    case "texture":
+      return "";
+  }
+}
+
+/** The number of components of a vector property type (1 for float). */
+export const propertySize = (type: GraphPropertyType): number => (type === "vector2" ? 2 : type === "vector3" ? 3 : type === "vector4" || type === "color" ? 4 : 1);
+
+/** `value` if it suits a property of `type`, else null. */
+export function checkPropertyValue(type: GraphPropertyType, value: unknown): GraphValue | null {
+  if (type === "float") return isNum(value) ? value : null;
+  if (type === "color") return typeof value === "string" && HEX.test(value) ? value.toLowerCase() : null;
+  if (type === "texture") return typeof value === "string" ? value : null;
+  const n = propertySize(type);
+  return Array.isArray(value) && value.length === n && value.every(isNum) ? [...value] : null;
+}
+
+/**
+ * Read a shader graph file's parsed JSON. Anything malformed is skipped and listed in `problems`;
+ * throws only for something that isn't a shader graph of this format. A graph without an output
+ * node gets one.
+ */
+export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph: ShaderGraph; problems: string[] } {
+  if (!isObject(raw)) throw new Error(`${where}: expected an object with "format": "${SHADER_GRAPH_FORMAT}".`);
+  if (raw.format !== SHADER_GRAPH_FORMAT) throw new Error(`${where}: unknown format ${JSON.stringify(raw.format)}; expected "${SHADER_GRAPH_FORMAT}".`);
+  const problems: string[] = [];
+  const graph: ShaderGraph = { ...defaultShaderGraph(), nodes: [] };
+  if (raw.target !== undefined) {
+    if (raw.target === "lit" || raw.target === "unlit") graph.target = raw.target;
+    else problems.push(`${where}: "target" should be "lit" or "unlit"; using "lit".`);
+  }
+  if (raw.surface !== undefined) {
+    if (raw.surface === "opaque" || raw.surface === "transparent") graph.surface = raw.surface;
+    else problems.push(`${where}: "surface" should be "opaque" or "transparent"; using "opaque".`);
+  }
+  if (raw.doubleSided !== undefined) {
+    if (typeof raw.doubleSided === "boolean") graph.doubleSided = raw.doubleSided;
+    else problems.push(`${where}: "doubleSided" should be true or false.`);
+  }
+  if (Array.isArray(raw.properties)) {
+    for (const p of raw.properties) {
+      if (!isObject(p) || typeof p.name !== "string" || !p.name.trim() || !GRAPH_PROPERTY_TYPES.includes(p.type as GraphPropertyType)) {
+        problems.push(`${where}: skipped a property without a name and a type (${GRAPH_PROPERTY_TYPES.join(", ")}).`);
+        continue;
+      }
+      if (graph.properties.some((q) => q.name === p.name)) {
+        problems.push(`${where}: skipped a second property named "${p.name}".`);
+        continue;
+      }
+      const type = p.type as GraphPropertyType;
+      let value = p.value === undefined ? defaultPropertyValue(type) : checkPropertyValue(type, p.value);
+      if (value === null) {
+        problems.push(`${where}: property "${p.name}" has a bad value for a ${type}; using the default.`);
+        value = defaultPropertyValue(type);
+      }
+      graph.properties.push({ name: p.name, type, value });
+    }
+  } else if (raw.properties !== undefined) problems.push(`${where}: "properties" should be a list.`);
+  if (Array.isArray(raw.nodes)) {
+    for (const n of raw.nodes) {
+      if (!isObject(n) || typeof n.id !== "string" || !NODE_ID.test(n.id) || typeof n.type !== "string") {
+        problems.push(`${where}: skipped a node without an id (letters, digits, _ and -) and a type.`);
+        continue;
+      }
+      if (graph.nodes.some((m) => m.id === n.id)) {
+        problems.push(`${where}: skipped a second node with id "${n.id}".`);
+        continue;
+      }
+      const pos = Array.isArray(n.position) && n.position.length === 2 && n.position.every(isNum) ? ([n.position[0], n.position[1]] as [number, number]) : ([0, 0] as [number, number]);
+      const node: GraphNode = { id: n.id, type: n.type, position: pos };
+      if (isObject(n.inputs)) {
+        const inputs: Record<string, InputValue> = {};
+        for (const [k, v] of Object.entries(n.inputs)) {
+          if (isNum(v)) inputs[k] = v;
+          else if (Array.isArray(v) && v.length >= 2 && v.length <= 4 && v.every(isNum)) inputs[k] = [...v];
+          else problems.push(`${where}: node "${n.id}" input "${k}" should be a number or 2–4 numbers.`);
+        }
+        if (Object.keys(inputs).length) node.inputs = inputs;
+      }
+      if (isObject(n.settings)) {
+        const settings: Record<string, string> = {};
+        for (const [k, v] of Object.entries(n.settings)) {
+          if (typeof v === "string") settings[k] = v;
+          else problems.push(`${where}: node "${n.id}" setting "${k}" should be text.`);
+        }
+        if (Object.keys(settings).length) node.settings = settings;
+      }
+      graph.nodes.push(node);
+    }
+  } else if (raw.nodes !== undefined) problems.push(`${where}: "nodes" should be a list.`);
+  const outputs = graph.nodes.filter((n) => n.type === OUTPUT_NODE_TYPE);
+  if (outputs.length === 0) graph.nodes.unshift({ id: graph.nodes.some((n) => n.id === "output") ? "output-1" : "output", type: OUTPUT_NODE_TYPE, position: [0, 0] });
+  else if (outputs.length > 1) {
+    problems.push(`${where}: only one output node is used; removed the others.`);
+    graph.nodes = graph.nodes.filter((n) => n.type !== OUTPUT_NODE_TYPE || n === outputs[0]);
+  }
+  if (Array.isArray(raw.edges)) {
+    const ids = new Set(graph.nodes.map((n) => n.id));
+    for (const e of raw.edges) {
+      if (!isObject(e) || typeof e.from !== "string" || typeof e.to !== "string") {
+        problems.push(`${where}: skipped an edge without "from" and "to".`);
+        continue;
+      }
+      const from = splitPortRef(e.from), to = splitPortRef(e.to);
+      if (!ids.has(from.node) || !ids.has(to.node) || !from.port || !to.port) {
+        problems.push(`${where}: skipped an edge ${e.from} → ${e.to} to a node that isn't there.`);
+        continue;
+      }
+      if (graph.edges.some((f) => f.to === e.to)) {
+        problems.push(`${where}: ${e.to} has more than one connection; kept the first.`);
+        continue;
+      }
+      graph.edges.push({ from: e.from, to: e.to });
+    }
+  } else if (raw.edges !== undefined) problems.push(`${where}: "edges" should be a list.`);
+  return { graph, problems };
+}
+
+/** A shader graph file's JSON: the format, the settings that differ from the defaults, then the graph. */
+export function shaderGraphJSON(graph: ShaderGraph): Record<string, unknown> {
+  const out: Record<string, unknown> = { format: SHADER_GRAPH_FORMAT };
+  if (graph.target !== "lit") out.target = graph.target;
+  if (graph.surface !== "opaque") out.surface = graph.surface;
+  if (graph.doubleSided) out.doubleSided = true;
+  out.properties = graph.properties.map((p) => ({ name: p.name, type: p.type, value: Array.isArray(p.value) ? [...p.value] : p.value }));
+  out.nodes = graph.nodes.map((n) => {
+    const node: Record<string, unknown> = { id: n.id, type: n.type, position: [Math.round(n.position[0]), Math.round(n.position[1])] };
+    if (n.inputs && Object.keys(n.inputs).length) node.inputs = { ...n.inputs };
+    if (n.settings && Object.keys(n.settings).length) node.settings = { ...n.settings };
+    return node;
+  });
+  out.edges = graph.edges.map((e) => ({ from: e.from, to: e.to }));
+  return out;
+}
+
+/** Shader graph file text: two-space JSON with number lists and each node, property and edge on one line. */
+export function formatShaderGraph(graph: ShaderGraph): string {
+  const json = shaderGraphJSON(graph);
+  const lines = ["{"];
+  const entries = Object.entries(json);
+  entries.forEach(([key, value], i) => {
+    const comma = i < entries.length - 1 ? "," : "";
+    if (Array.isArray(value)) {
+      if (value.length === 0) lines.push(`  ${JSON.stringify(key)}: []${comma}`);
+      else {
+        lines.push(`  ${JSON.stringify(key)}: [`);
+        value.forEach((item, j) => lines.push(`    ${oneLine(item)}${j < value.length - 1 ? "," : ""}`));
+        lines.push(`  ]${comma}`);
+      }
+    } else lines.push(`  ${JSON.stringify(key)}: ${JSON.stringify(value)}${comma}`);
+  });
+  lines.push("}");
+  return `${lines.join("\n")}\n`;
+}
+
+/** Compact one-line JSON with a space after colons and commas: `{ "id": "n1", "position": [0, 0] }`. */
+function oneLine(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(oneLine).join(", ")}]`;
+  if (isObject(value)) return `{ ${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)}: ${oneLine(v)}`).join(", ")} }`;
+  return JSON.stringify(value);
+}

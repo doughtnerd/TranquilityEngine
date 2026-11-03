@@ -5,7 +5,7 @@
  * ```jsonc
  * {
  *   "format": "myco.material@1",
- *   "shader": "lit",                    // "lit" (default) | "unlit"
+ *   "shader": "lit",                    // "lit" (default) | "unlit" | a shader graph's path (ADR 0047)
  *   "color": "#ffffffff",               // base colour, #rrggbb or #rrggbbaa; alpha < 1 is see-through
  *   "texture": "asset:textures/a.png",  // base colour texture, multiplied by color (default none)
  *   "tiling": [1, 1],                   // how often the textures repeat across the mesh (default once)
@@ -13,11 +13,16 @@
  *   "metalness": 0,                     // lit: 0 (default) … 1
  *   "roughness": 0.5,                   // lit: 0 (mirror) … 1 (default 0.5)
  *   "emission": "#000000",              // lit: light the surface gives off (default none)
- *   "doubleSided": false                // draw back faces too (default false)
+ *   "doubleSided": false,               // draw back faces too (default false)
+ *   "properties": { "Tint": "#ff0000" } // shader graph materials: values for the graph's properties
  * }
  * ```
+ *
+ * A material whose shader is a shader graph draws with the graph; the fixed fields (colour,
+ * texture, metalness…) don't apply to it, and `properties` override the graph's defaults by name.
  */
 import { Color } from "../core/math";
+import { isShaderGraphPath, type GraphValue } from "./shaderGraph";
 
 export const MATERIAL_FORMAT = "myco.material@1";
 export const MATERIAL_SUFFIX = ".material.json";
@@ -25,7 +30,11 @@ export const MATERIAL_SUFFIX = ".material.json";
 /** True for a material asset path. */
 export const isMaterialPath = (path: string): boolean => path.toLowerCase().endsWith(MATERIAL_SUFFIX);
 
-export type MaterialShader = "lit" | "unlit";
+/** `lit`, `unlit`, or the path of a shader graph asset (`asset:shaders/water.shadergraph.json`). */
+export type MaterialShader = "lit" | "unlit" | (string & {});
+
+/** The shader graph a material draws with, or null for the built-in shaders. */
+export const materialGraph = (settings: Pick<MaterialSettings, "shader">): string | null => (settings.shader !== "lit" && settings.shader !== "unlit" ? settings.shader : null);
 
 /** A material asset's settings. */
 export interface MaterialSettings {
@@ -43,6 +52,8 @@ export interface MaterialSettings {
   /** Emitted colour (black: none). Lit only. */
   emission: Color;
   doubleSided: boolean;
+  /** Shader graph materials: values for the graph's properties, by name (the rest use the graph's defaults). */
+  properties: Record<string, GraphValue>;
 }
 
 export const defaultMaterialSettings = (): MaterialSettings => ({
@@ -55,6 +66,7 @@ export const defaultMaterialSettings = (): MaterialSettings => ({
   roughness: 0.5,
   emission: Color.black,
   doubleSided: false,
+  properties: {},
 });
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -91,8 +103,17 @@ export function parseMaterial(raw: unknown, where = "material"): { settings: Mat
     else bad(key, "an asset path");
   };
   if (raw.shader !== undefined) {
-    if (raw.shader === "lit" || raw.shader === "unlit") settings.shader = raw.shader;
-    else bad("shader", '"lit" or "unlit"');
+    if (raw.shader === "lit" || raw.shader === "unlit" || (typeof raw.shader === "string" && isShaderGraphPath(raw.shader))) settings.shader = raw.shader;
+    else bad("shader", '"lit", "unlit" or a shader graph (*.shadergraph.json)');
+  }
+  if (raw.properties !== undefined) {
+    if (isObject(raw.properties)) {
+      for (const [name, v] of Object.entries(raw.properties)) {
+        const ok = typeof v === "string" || (typeof v === "number" && Number.isFinite(v)) || (Array.isArray(v) && v.length >= 2 && v.length <= 4 && v.every((n) => typeof n === "number" && Number.isFinite(n)));
+        if (ok) settings.properties[name] = Array.isArray(v) ? [...v] : (v as GraphValue);
+        else problems.push(`${where}: property "${name}" should be a number, 2–4 numbers, a colour or a texture path; using the graph's default.`);
+      }
+    } else bad("properties", "an object of property values by name");
   }
   settings.color = color("color", settings.color);
   settings.emission = color("emission", settings.emission);
@@ -131,6 +152,7 @@ export function materialJSON(settings: MaterialSettings): Record<string, unknown
   if (settings.roughness !== d.roughness) out.roughness = settings.roughness;
   if (colorHex(settings.emission) !== colorHex(d.emission)) out.emission = colorHex(settings.emission);
   if (settings.doubleSided) out.doubleSided = true;
+  if (Object.keys(settings.properties).length) out.properties = Object.fromEntries(Object.entries(settings.properties).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v]));
   return out;
 }
 

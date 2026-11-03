@@ -63,7 +63,10 @@ import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import type { GameObject } from "../scene/GameObject";
 import { Camera, Light, MeshRenderer, SpriteRenderer, Text, type Anchor } from "./components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
-import { parseMaterial } from "../scene/material";
+import { materialGraph, parseMaterial } from "../scene/material";
+import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../scene/shaderGraph";
+import { compileShaderGraph } from "./shaderGraph/compile";
+import { createGraphMaterial, createSharedGraphUniforms, type GraphMaterial } from "./shaderGraph/threeMaterial";
 import type { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { frustumSegments } from "./cameraGizmo";
 import { localPoseFromWorld, type LocalPose } from "./gizmoMath";
@@ -140,9 +143,13 @@ interface LightEntry {
 /** A material asset made into a three.js material, rebuilt when its JSON changes. */
 interface MaterialEntry {
   raw: unknown;
+  /** A shader graph material's graph JSON (ADR 0047), so editing the graph rebuilds it. */
+  graphRaw?: unknown;
   material: Material | null;
   /** Textures made for this material alone (tiled or linear copies), freed with it. */
   textures: Texture[];
+  /** A shader graph material and its shadow materials. */
+  graph?: GraphMaterial;
 }
 
 interface CameraEntry {
@@ -213,6 +220,10 @@ export class RenderBackend {
   private readonly lights = new Map<Light, LightEntry>();
   private readonly materialAssets = new Map<string, MaterialEntry>();
   private readonly warnedMaterials = new Set<string>();
+  /** Time and drawing-buffer size, shared by every shader graph material (ADR 0047). */
+  private readonly graphUniforms = createSharedGraphUniforms();
+  /** Shadow materials for graph materials that move their vertices. */
+  private readonly graphShadows = new WeakMap<Material, GraphMaterial>();
   /** Lit meshes without a material of their own (ADR 0043). */
   private readonly defaultMaterial = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0 });
   /** The light a World without Lights gets: a soft ambient light and a sun from above and in front. */
@@ -559,6 +570,9 @@ export class RenderBackend {
         const own = m.materials.length > 1 && m.geometry.groups.length > 1 ? [...m.materials] : m.materials[0];
         const mesh = new Mesh(m.geometry, material ?? own ?? this.defaultMaterial);
         mesh.matrixAutoUpdate = false;
+        const shadows = material && this.graphShadows.get(material);
+        if (shadows?.depth) mesh.customDepthMaterial = shadows.depth;
+        if (shadows?.distance) mesh.customDistanceMaterial = shadows.distance;
         this.scene.add(mesh);
         return mesh;
       });
@@ -610,20 +624,45 @@ export class RenderBackend {
    */
   private materialAsset(path: string): Material | null {
     if (!path) return null;
-    let raw: unknown;
-    try {
-      raw = Assets.has(path) ? Assets.json(path) : undefined;
-    } catch {
-      raw = undefined;
+    const read = (p: string): unknown => {
+      try {
+        return Assets.has(p) ? Assets.json(p) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const raw = read(path);
+    // A material naming a shader graph, or a renderer naming the graph itself, depends on the graph's JSON too.
+    let graphPath: string | null = isShaderGraphPath(path) ? path : null;
+    if (!graphPath && raw !== undefined) {
+      try {
+        graphPath = materialGraph(parseMaterial(raw).settings);
+      } catch {
+        graphPath = null;
+      }
     }
+    const graphRaw = graphPath ? read(graphPath) : undefined;
     const cached = this.materialAssets.get(path);
-    if (cached && cached.raw === raw) return cached.material;
+    if (cached && cached.raw === raw && cached.graphRaw === graphRaw) return cached.material;
     cached?.material?.dispose();
+    cached?.graph?.dispose();
     for (const t of cached?.textures ?? []) t.dispose();
     let material: Material | null = null;
+    let graph: GraphMaterial | undefined;
     const owned: Texture[] = [];
     if (raw === undefined) {
       this.warnMaterial(path, `material "${path}" isn't in the project; using the default material.`);
+    } else if (graphPath) {
+      const where = path.replace(/^asset:/, "");
+      try {
+        const properties: Record<string, GraphValue> = graphPath === path ? {} : parseMaterial(raw, where).settings.properties;
+        if (graphRaw === undefined) throw new Error(`shader graph "${graphPath.replace(/^asset:/, "")}" isn't in the project.`);
+        graph = this.graphMaterial(graphRaw, graphPath.replace(/^asset:/, ""), properties);
+        material = graph.material;
+      } catch (err) {
+        const message = `${where}: ${(err as Error).message} Using the default material.`;
+        this.warnMaterial(message, message);
+      }
     } else {
       try {
         const { settings, problems } = parseMaterial(raw, path.replace(/^asset:/, ""));
@@ -668,8 +707,18 @@ export class RenderBackend {
         this.warnMaterial(path, `${(err as Error).message} Using the default material.`);
       }
     }
-    this.materialAssets.set(path, { raw, material, textures: owned });
+    this.materialAssets.set(path, { raw, graphRaw, material, textures: owned, graph });
     return material;
+  }
+
+  /** A shader graph's JSON compiled into a material (ADR 0047); problems are warned once each. */
+  private graphMaterial(graphRaw: unknown, where: string, properties: Record<string, GraphValue>): GraphMaterial {
+    const { graph, problems } = parseShaderGraph(graphRaw, where);
+    const compiled = compileShaderGraph(graph);
+    for (const p of [...problems, ...compiled.problems.map((q) => `${where}: ${q}`)]) this.warnMaterial(p, p);
+    const made = createGraphMaterial(compiled, properties, this.graphUniforms, (p) => this.texture(p));
+    this.graphShadows.set(made.material, made);
+    return made;
   }
 
   private warnMaterial(key: string, message: string): void {
@@ -855,6 +904,8 @@ export class RenderBackend {
   render(world: World): void {
     this.claim(world);
     const r = this.renderer;
+    this.graphUniforms.time.value = world.time.time;
+    r.getDrawingBufferSize(this.graphUniforms.resolution.value);
     const cams = this.viewCameras(world);
     if (!cams.length) {
       r.setClearColor(this.clearColor, 1);
@@ -1656,6 +1707,7 @@ export class RenderBackend {
     for (const l of [...this.lights.keys()]) this.release(l);
     for (const e of this.materialAssets.values()) {
       e.material?.dispose();
+      e.graph?.dispose();
       for (const t of e.textures) t.dispose();
     }
     for (const m of this.lightIconMaterials.values()) {
