@@ -78,6 +78,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0050](decisions/0050-graphics-quality-tiers.md) | Graphics quality tiers in project.json, chosen by the player through `Graphics.quality` | Proposed |
 | [0051](decisions/0051-post-processing.md) | Post-processing on pmndrs `postprocessing` and N8AO, set by a PostProcessing component and gated by quality tier | Proposed |
 | [0052](decisions/0052-physical-materials.md) | A physical material and graph target for clearcoat, sheen, transmission, iridescence and anisotropy | Proposed |
+| [0053](decisions/0053-environments-and-cascaded-shadows.md) | HDR environments and skyboxes through an Environment component; cascaded shadows set by quality tier | Proposed |
 
 ## Working with decisions
 

@@ -240,3 +240,23 @@ export class PostProcessing extends Component {
   /** Offset of the colour split, as a fraction of the screen (0.002 = default). */
   @field(Number) chromaticAberrationAmount = 0.002;
 }
+
+/**
+ * The scene environment (ADR 0053): image-based lighting and the skybox. One per World; the first
+ * active one wins. Without one, lit materials reflect the built-in studio room.
+ */
+@component("engine.Environment")
+export class Environment extends Component {
+  /** An .hdr, .exr, .png or .jpg equirectangular image. Empty: the built-in studio room. */
+  @field(AssetRef) map = "";
+  /** Strength of the environment lighting (1 = unchanged). */
+  @field(Number) intensity = 1;
+  /** Draw the map as the background. Off keeps the camera's background colour. */
+  @field(Boolean) skybox = true;
+  /** Brightness of the skybox (1 = unchanged). */
+  @field(Number) skyboxIntensity = 1;
+  /** Blur of the skybox, 0 to 1. */
+  @field(Number) skyboxBlur = 0;
+  /** Rotation of the environment around the Y axis, in degrees. */
+  @field(Number) rotation = 0;
+}

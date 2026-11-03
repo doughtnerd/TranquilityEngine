@@ -7,8 +7,8 @@
  * "graphics": {
  *   "defaultTier": "High",
  *   "tiers": [
- *     { "name": "Low", "renderScale": 0.75, "antialias": "off", "shadows": "low", "anisotropy": 1, "shaderLevel": "low", "postProcessing": false, "bloom": false, "ambientOcclusion": "off", "depthOfField": false },
- *     { "name": "High", "renderScale": 1, "antialias": "msaa", "shadows": "high", "anisotropy": 8, "shaderLevel": "high", "postProcessing": true, "bloom": true, "ambientOcclusion": "medium", "depthOfField": true }
+ *     { "name": "Low", "renderScale": 0.75, "antialias": "off", "shadows": "low", "shadowCascades": 1, "shadowDistance": 30, "anisotropy": 1, "shaderLevel": "low", "postProcessing": false, "bloom": false, "ambientOcclusion": "off", "depthOfField": false },
+ *     { "name": "High", "renderScale": 1, "antialias": "msaa", "shadows": "high", "shadowCascades": 3, "shadowDistance": 80, "anisotropy": 8, "shaderLevel": "high", "postProcessing": true, "bloom": true, "ambientOcclusion": "medium", "depthOfField": true }
  *   ]
  * }
  * ```
@@ -40,6 +40,13 @@ export interface QualityTier {
   renderScale: number;
   antialias: AntialiasMode;
   shadows: ShadowQuality;
+  /**
+   * Cascaded shadow maps (ADR 0053), 1 to 4 (a whole number). Above 1, the first directional
+   * light with shadows is drawn with cascaded shadow maps following the main camera; 1 is off.
+   */
+  shadowCascades: number;
+  /** How far the shadow cascades reach from the camera, in metres (10–1000). */
+  shadowDistance: number;
   /** Texture filtering at grazing angles: 1 (off) to 16, capped at what the GPU supports. */
   anisotropy: number;
   shaderLevel: ShaderLevel;
@@ -67,10 +74,10 @@ export interface GraphicsSettings {
 export const defaultGraphics = (): GraphicsSettings => ({
   defaultTier: "High",
   tiers: [
-    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false },
-    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false },
-    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true },
-    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true },
+    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", shadowCascades: 1, shadowDistance: 30, anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false },
+    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", shadowCascades: 2, shadowDistance: 50, anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false },
+    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true },
+    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 120, anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true },
   ],
 });
 
@@ -78,7 +85,7 @@ export const defaultGraphics = (): GraphicsSettings => ({
 export const defaultTier = (name: string): QualityTier => ({ ...defaultGraphics().tiers[2], name });
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField"];
+const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField"];
 
 /**
  * Read a `graphics` section leniently: bad values are reported and replaced by the default
@@ -107,6 +114,14 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
       if (t.renderScale !== undefined) {
         if (typeof t.renderScale === "number" && t.renderScale >= 0.25 && t.renderScale <= 2) tier.renderScale = t.renderScale;
         else bad("renderScale", "a number from 0.25 to 2");
+      }
+      if (t.shadowCascades !== undefined) {
+        if (typeof t.shadowCascades === "number" && Number.isInteger(t.shadowCascades) && t.shadowCascades >= 1 && t.shadowCascades <= 4) tier.shadowCascades = t.shadowCascades;
+        else bad("shadowCascades", "a whole number from 1 to 4");
+      }
+      if (t.shadowDistance !== undefined) {
+        if (typeof t.shadowDistance === "number" && t.shadowDistance >= 10 && t.shadowDistance <= 1000) tier.shadowDistance = t.shadowDistance;
+        else bad("shadowDistance", "a number from 10 to 1000");
       }
       if (t.anisotropy !== undefined) {
         if (typeof t.anisotropy === "number" && Number.isInteger(t.anisotropy) && t.anisotropy >= 1 && t.anisotropy <= 16) tier.anisotropy = t.anisotropy;

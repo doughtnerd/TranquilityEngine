@@ -21,6 +21,7 @@ import {
 import { Assets } from "../scene/Assets";
 import { meshesIfLoaded, type BuiltinMesh } from "../scene/models";
 import type { GraphValue, ShaderGraph } from "../scene/shaderGraph";
+import { Graphics } from "./Graphics";
 import { compileShaderGraph, type CompiledShaderGraph } from "./shaderGraph/compile";
 import { createGraphMaterial, createSharedGraphUniforms, type GraphMaterial, type LoadTexture } from "./shaderGraph/threeMaterial";
 
@@ -63,6 +64,8 @@ export class MaterialPreview {
   private readonly textures = previewTextures();
   private readonly resizeObserver: ResizeObserver;
   private graph: GraphMaterial | null = null;
+  /** What `setGraph` last drew, to rebuild when the quality tier changes a Quality Branch. */
+  private last: { graph: ShaderGraph; properties: Record<string, GraphValue>; usesShaderLevel: boolean; version: number } | null = null;
   private frame = 0;
   private yaw = 0.6;
   private pitch = 0.35;
@@ -122,7 +125,8 @@ export class MaterialPreview {
 
   /** Draw `graph` (with a material's `properties`, if given). Returns the compiled graph. */
   setGraph(graph: ShaderGraph, properties: Record<string, GraphValue> = {}): CompiledShaderGraph {
-    const compiled = compileShaderGraph(graph);
+    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
+    this.last = { graph, properties, usesShaderLevel: compiled.usesShaderLevel, version: Graphics._version };
     this.graph?.dispose();
     this.shaderFailed = false;
     this.onShaderError?.(null);
@@ -160,6 +164,7 @@ export class MaterialPreview {
   }
 
   private render(): void {
+    if (this.last && this.last.usesShaderLevel && this.last.version !== Graphics._version) this.setGraph(this.last.graph, this.last.properties);
     this.shared.time.value = (performance.now() - this.start) / 1000;
     this.renderer.getDrawingBufferSize(this.shared.resolution.value);
     const r = this.camera.position.length();
@@ -227,10 +232,11 @@ export class NodePreviewRenderer {
 
   /** Draw `graph` (a node's preview graph) into `target`. False if its shader didn't compile. */
   draw(graph: ShaderGraph, target: HTMLCanvasElement): boolean {
-    const key = JSON.stringify(graph);
+    const level = Graphics.tier.shaderLevel;
+    const key = `${level}|${JSON.stringify(graph)}`;
     let e = this.entries.get(key);
     if (!e) {
-      const compiled = compileShaderGraph(graph);
+      const compiled = compileShaderGraph(graph, { shaderLevel: level });
       e = { compiled, graph: createGraphMaterial(compiled, {}, this.shared, this.textures.load), used: true, failed: false };
       this.entries.set(key, e);
     }

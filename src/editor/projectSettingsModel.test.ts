@@ -232,6 +232,13 @@ describe("the Project panel's settings", () => {
       expect(graphicsOf(d).tiers[0]).toMatchObject({ postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, antialias: "fxaa" });
     });
 
+    it("sets the shadow cascade values of a tier", () => {
+      let d = setTierValue(readDraft({}), 2, "shadowCascades", 4);
+      d = setTierValue(d, 2, "shadowDistance", 200);
+      expect(graphicsOf(d).tiers[2]).toMatchObject({ shadowCascades: 4, shadowDistance: 200 });
+      expect(settingsProblems(d)).toEqual([]);
+    });
+
     it("reorders tiers within bounds", () => {
       const d = moveTier(readDraft({}), 0, 1);
       expect(names(d)).toEqual(["Medium", "Low", "High", "Ultra"]);
@@ -245,7 +252,7 @@ describe("the Project panel's settings", () => {
       d = setTierValue(d, 0, "antialias", "msaa");
       d = setTierValue(d, 0, "anisotropy", 2);
       d = setTierValue(d, 0, "shaderLevel", "medium");
-      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false });
+      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false });
       expect(settingsProblems(d)).toEqual([]);
       expect(graphicsOf(setDefaultTier(d, "Low")).defaultTier).toBe("Low");
       expect(setDefaultTier(d, "Nope")).toBe(d);

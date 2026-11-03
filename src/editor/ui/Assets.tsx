@@ -44,6 +44,7 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   prefab: "Prefab",
   image: "Image",
   sprite: "Sprite",
+  environment: "Environment",
   audio: "Audio",
   model: "Model",
   material: "Material",

@@ -67,11 +67,13 @@ import { SHADOW_MAP_SIZE } from "../core/graphics";
 import { Graphics } from "./Graphics";
 import { resolvePostEffects, type PostSettings, type ResolvedPost } from "./postEffects";
 import type { PostEffects, PostProcessStack, ToneMappingName } from "./PostProcessStack";
+import type { CascadedShadows, CascadeSettings } from "./cascadedShadows";
+import { loadEquirectangular, prefilter } from "./environmentMap";
 import type { World, WorldKind } from "../core/World";
 import { Assets, sidecarValue } from "../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import type { GameObject } from "../scene/GameObject";
-import { Camera, Light, MeshRenderer, PostProcessing, SpriteRenderer, Text, type Anchor } from "./components";
+import { Camera, Environment, Light, MeshRenderer, PostProcessing, SpriteRenderer, Text, type Anchor } from "./components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import { colorHex, materialGraph, parseMaterial } from "../scene/material";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../scene/shaderGraph";
@@ -164,6 +166,8 @@ interface MaterialEntry {
   graph?: GraphMaterial;
   /** Sub-graph files the graph uses, with the JSON they had (ADR 0048): a change rebuilds it. */
   deps?: [string, unknown][];
+  /** The shader level a graph with Quality Branch nodes was compiled for (ADR 0050): another tier's level rebuilds it. */
+  level?: string;
 }
 
 /** A renderer's own copy of its material, holding its property overrides (ADR 0049). */
@@ -561,6 +565,145 @@ export class RenderBackend {
     }
   }
 
+  // --- Environment (ADR 0053) ----------------------------------------------------------------------
+
+  /** The loaded environment map: its path, the prefiltered lighting texture and the sky texture. */
+  private envMap: { path: string; lighting: Texture | null; sky: Texture | null; loading: boolean } | null = null;
+
+  /**
+   * The World's first active Environment component sets lighting and sky: its map (loaded and
+   * prefiltered on demand), intensities, blur and rotation. Without one, the built-in studio room
+   * lights lit materials at 0.4 and there's no sky.
+   */
+  private syncEnvironment(world: World): void {
+    let env: Environment | null = null;
+    for (const e of world._componentsOfType(Environment)) {
+      if (e.isActiveAndEnabled) {
+        env = e;
+        break;
+      }
+    }
+    const path = env?.map.replace(/^asset:/, "") ?? "";
+    if (path !== (this.envMap?.path ?? "")) this.loadEnvironmentMap(path);
+    const map = this.envMap;
+    const s = this.scene;
+    s.environment = map?.lighting ?? this.environment;
+    s.environmentIntensity = env ? Math.max(0, env.intensity) * (map?.lighting ? 1 : 0.4) : 0.4;
+    const sky = env?.skybox && map ? (env.skyboxBlur > 0 ? map.lighting : map.sky) : null;
+    s.background = sky ?? null;
+    s.backgroundIntensity = env ? Math.max(0, env.skyboxIntensity) : 1;
+    s.backgroundBlurriness = env ? Math.min(1, Math.max(0, env.skyboxBlur)) : 0;
+    const turn = env ? (env.rotation * Math.PI) / 180 : 0;
+    s.environmentRotation.set(0, turn, 0);
+    s.backgroundRotation.set(0, turn, 0);
+  }
+
+  private loadEnvironmentMap(path: string): void {
+    this.envMap?.lighting?.dispose();
+    this.envMap?.sky?.dispose();
+    if (!path) {
+      this.envMap = null;
+      return;
+    }
+    const entry: NonNullable<RenderBackend["envMap"]> = { path, lighting: null, sky: null, loading: true };
+    this.envMap = entry;
+    let url: string;
+    try {
+      url = Assets.url(path);
+    } catch {
+      console.warn(`[myco] environment map "${path}" isn't in the project; using the built-in environment.`);
+      return;
+    }
+    loadEquirectangular(url, path)
+      .then((tex) => {
+        if (this.envMap !== entry) return tex.dispose(); // replaced meanwhile
+        entry.sky = tex;
+        entry.lighting = prefilter(this.renderer, tex);
+        entry.loading = false;
+      })
+      .catch((err) => console.error(`[myco] failed to load environment map "${path}":`, err));
+  }
+
+  // --- Cascaded shadows (ADR 0053) -------------------------------------------------------------------
+
+  private cascades: CascadedShadows | null = null;
+  private cascadesLoading = false;
+  private cascadeLight: DirectionalLight | null = null;
+
+  /**
+   * On tiers with cascades, the first enabled directional light with shadows is drawn through
+   * three's CSM following `camera`: the light itself is hidden and CSM's cascade lights take over.
+   */
+  private syncCascades(world: World, camera: ThreeCamera | null): void {
+    const tier = Graphics.tier;
+    let source: { l: Light; light: DirectionalLight } | null = null;
+    if (camera && tier.shadowCascades > 1 && tier.shadows !== "off") {
+      for (const l of world._componentsOfType(Light)) {
+        const entry = this.lights.get(l);
+        if (l.type === "directional" && l.castShadows && l.isActiveAndEnabled && entry?.light instanceof DirectionalLight) {
+          source = { l, light: entry.light };
+          break;
+        }
+      }
+    }
+    if (!source || !camera) {
+      this.dropCascades();
+      return;
+    }
+    tmpDir.setFromMatrixColumn(source.light.matrix, 3); // position
+    const target = (source.light.target as Object3D).matrix;
+    const dir = new ThreeVector3().setFromMatrixColumn(target, 3).sub(tmpDir).normalize();
+    const settings: CascadeSettings = {
+      cascades: tier.shadowCascades,
+      distance: tier.shadowDistance,
+      mapSize: SHADOW_MAP_SIZE[tier.shadows],
+      color: source.light.color,
+      intensity: source.light.intensity,
+      direction: dir,
+      castShadows: true,
+    };
+    if (this.cascades && (this.cascades.needsRebuild(camera, settings) || this.cascadeLight !== source.light)) this.dropCascades();
+    if (!this.cascades) {
+      if (!this.cascadesLoading) {
+        this.cascadesLoading = true;
+        const light = source.light;
+        import("./cascadedShadows")
+          .then((m) => m.CascadedShadows.create(camera, this.scene, settings))
+          .then((c) => {
+            this.cascadesLoading = false;
+            this.cascades = c;
+            this.cascadeLight = light;
+          })
+          .catch((err) => {
+            this.cascadesLoading = false;
+            console.error("[myco] cascaded shadows couldn't start:", err);
+          });
+      }
+      return; // ordinary shadows until it's ready
+    }
+    source.light.visible = false; // the cascade lights replace it
+    this.cascades.update(settings);
+    const cascades = this.cascades;
+    this.scene.traverse((o) => {
+      const m = (o as Mesh).material as Material | Material[] | undefined;
+      if (!m || !(o as Mesh).isMesh) return;
+      for (const x of Array.isArray(m) ? m : [m]) if ((x as MeshStandardMaterial).isMeshStandardMaterial) cascades.setupMaterial(x);
+    });
+  }
+
+  private dropCascades(): void {
+    if (!this.cascades) return;
+    this.cascades.dispose();
+    this.cascades = null;
+    if (this.cascadeLight) this.cascadeLight.visible = true;
+    this.cascadeLight = null;
+  }
+
+  /** @internal Tests: whether cascaded shadows are active, and the environment map's state. */
+  lightingState(): { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean } {
+    return { cascades: !!this.cascades, environment: this.envMap?.path ?? "", environmentLoaded: !!this.envMap?.lighting, skybox: this.scene.background !== null };
+  }
+
   /** Step 8: mirror engine components into three.js. */
   sync(world: World): void {
     this.claim(world);
@@ -568,6 +711,7 @@ export class RenderBackend {
     for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s);
     for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
     this.syncLights(world);
+    this.syncEnvironment(world);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     for (const t of world._componentsOfType(Text)) this.syncText(t);
     if (this.fill) {
@@ -766,7 +910,8 @@ export class RenderBackend {
     }
     const graphRaw = graphPath ? read(graphPath) : undefined;
     const cached = this.materialAssets.get(path);
-    if (cached && cached.raw === raw && cached.graphRaw === graphRaw && (cached.deps ?? []).every(([p, v]) => read(p) === v)) return cached.material;
+    const levelOk = !cached?.level || cached.level === Graphics.tier.shaderLevel; // Quality Branch nodes (ADR 0050)
+    if (cached && levelOk && cached.raw === raw && cached.graphRaw === graphRaw && (cached.deps ?? []).every(([p, v]) => read(p) === v)) return cached.material;
     cached?.material?.dispose();
     cached?.graph?.dispose();
     for (const t of cached?.textures ?? []) t.dispose();
@@ -851,7 +996,8 @@ export class RenderBackend {
       }
     }
     const deps = graph?.compiled.dependencies.map((p): [string, unknown] => [p, read(p)]);
-    this.materialAssets.set(path, { raw, graphRaw, material, textures: owned, graph, deps });
+    const level = graph?.compiled.usesShaderLevel ? Graphics.tier.shaderLevel : undefined;
+    this.materialAssets.set(path, { raw, graphRaw, material, textures: owned, graph, deps, level });
     return material;
   }
 
@@ -955,7 +1101,7 @@ export class RenderBackend {
   /** A shader graph's JSON compiled into a material (ADR 0047); problems are warned once each. */
   private graphMaterial(graphRaw: unknown, where: string, properties: Record<string, GraphValue>): GraphMaterial {
     const { graph, problems } = parseShaderGraph(graphRaw, where);
-    const compiled = compileShaderGraph(graph);
+    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
     for (const p of [...problems, ...compiled.problems.map((q) => `${where}: ${q}`)]) this.warnMaterial(p, p);
     const made = createGraphMaterial(compiled, properties, this.graphUniforms, (p, linear) => this.texture(p, linear));
     this.graphShadows.set(made.material, made);
@@ -1147,6 +1293,7 @@ export class RenderBackend {
     this.graphUniforms.time.value = world.time.time;
     r.getDrawingBufferSize(this.graphUniforms.resolution.value);
     const cams = this.viewCameras(world);
+    this.syncCascades(world, cams[0] ? (this.cameras.get(cams[0])!.camera as ThreeCamera) : null);
     // Post-processing (ADR 0051): the main (lowest-depth) camera's PostProcessing component, filtered by the tier.
     const resolved = resolvePostEffects(cams[0] ? (this.postSettings(cams[0]) ?? (this.fill ? this.scenePostSettings(world) : null)) : null, Graphics.tier);
     const stack = resolved.composer ? this.postStack() : null; // null while the libraries load
@@ -2056,6 +2203,9 @@ export class RenderBackend {
   }
 
   dispose(): void {
+    this.dropCascades();
+    this.envMap?.lighting?.dispose();
+    this.envMap?.sky?.dispose();
     this.post?.dispose();
     this.post = null;
     this.depthOnly?.dispose();

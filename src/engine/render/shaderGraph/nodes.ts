@@ -5,6 +5,7 @@
 import { Assets, normalizeAssetPath } from "../../scene/Assets";
 import type { GraphNode, GraphProperty, GraphPropertyType, InputValue, ShaderGraph } from "../../scene/shaderGraph";
 import { OUTPUT_NODE_TYPE, parseShaderGraph } from "../../scene/shaderGraph";
+import type { ShaderLevel } from "../../core/graphics";
 
 /** A value's GLSL type; `texture` is a `sampler2D` uniform. */
 export type ValueType = "float" | "vec2" | "vec3" | "vec4" | "texture";
@@ -53,6 +54,8 @@ export interface EmitContext {
   type: ValueType;
   settings: Record<string, string>;
   stage: ShaderStage;
+  /** The shader level the graph is compiled for (ADR 0050). */
+  shaderLevel: ShaderLevel;
   /** A built-in value's expression in this stage. */
   builtin(b: Builtin | "time" | "resolution"): string;
   /** Add a helper function (from `HELPERS`) to this stage's declarations. */
@@ -79,6 +82,8 @@ export interface NodeDef {
   settings?: SettingDef[];
   /** Only runs in the fragment shader (it can't feed the vertex offset). */
   fragmentOnly?: boolean;
+  /** Quality Branch: the compiler evaluates only the input for the shader level, so the other branches cost nothing. */
+  branch?: boolean;
   /** Ports that depend on the node's settings or the graph, when they do. */
   ports?(node: GraphNode, graph: ShaderGraph): { inputs: PortDef[]; outputs: PortDef[] };
   /** GLSL expressions for the outputs, by port id. */
@@ -271,6 +276,16 @@ export const NODES: readonly NodeDef[] = [
     inputs: [],
     outputs: [out("float", "time", "Time"), out("float", "sine", "Sine Time"), out("float", "cosine", "Cosine Time")],
     emit: (c) => ({ time: c.builtin("time"), sine: `sin(${c.builtin("time")})`, cosine: `cos(${c.builtin("time")})` }),
+  },
+  {
+    type: "qualityBranch",
+    title: "Quality Branch",
+    category: "Input",
+    keywords: "quality tier level lod branch performance",
+    branch: true,
+    inputs: [dyn("low", "Low", 0), dyn("medium", "Medium", 0), dyn("high", "High", 0)],
+    outputs: [out("dynamic")],
+    emit: (c) => ({ out: c.in[c.shaderLevel] }),
   },
   { type: "uv", title: "UV", category: "Input", keywords: "texcoord coordinates", inputs: [], outputs: [out("vec2")], emit: (c) => ({ out: c.builtin("uv") }) },
   {

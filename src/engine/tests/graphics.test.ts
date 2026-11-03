@@ -8,7 +8,7 @@ import { MemoryStorage, Storage } from "../platform/Storage";
 // Graphics class that switches the active tier.
 
 const DEFAULT_NAMES = ["Low", "Medium", "High", "Ultra"];
-const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true };
+const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true };
 
 afterEach(() => {
   Graphics._configure(defaultGraphics());
@@ -26,8 +26,8 @@ describe("parseGraphics", () => {
     const raw = {
       defaultTier: "Only",
       tiers: [
-        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false },
-        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true },
+        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", shadowCascades: 1, shadowDistance: 20, anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false },
+        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 500, anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true },
       ],
     };
     const { graphics, problems } = parseGraphics(raw);
@@ -49,6 +49,23 @@ describe("parseGraphics", () => {
     expect(problems.some((p) => p.includes("shadows"))).toBe(true);
     expect(problems.some((p) => p.includes("antialias"))).toBe(true);
     expect(problems.some((p) => p.includes("shaderLevel"))).toBe(true);
+  });
+
+  it("has the default shadow cascade settings per tier", () => {
+    const tiers = defaultGraphics().tiers;
+    expect(tiers.map((t) => [t.shadowCascades, t.shadowDistance])).toEqual([[1, 30], [2, 50], [3, 80], [4, 120]]);
+  });
+
+  it("keeps valid cascade values and reports bad ones", () => {
+    const ok = parseGraphics({ defaultTier: "A", tiers: [{ name: "A", shadowCascades: 2, shadowDistance: 250 }] });
+    expect(ok.problems).toEqual([]);
+    expect(ok.graphics.tiers[0]).toMatchObject({ shadowCascades: 2, shadowDistance: 250 });
+    for (const [key, value] of [["shadowCascades", 0], ["shadowCascades", 5], ["shadowCascades", 2.5], ["shadowDistance", 5]] as const) {
+      const { graphics, problems } = parseGraphics({ defaultTier: "A", tiers: [{ name: "A", [key]: value }] });
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toContain(key);
+      expect(graphics.tiers[0][key]).toBe(HIGH[key]);
+    }
   });
 
   it("reports an unknown tier key", () => {

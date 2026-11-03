@@ -235,7 +235,7 @@ export function moveTier(draft: SettingsDraft, index: number, by: number): Setti
   return withGraphics(draft, moved(g.tiers, index, by), g.defaultTier);
 }
 
-export type TierValueKey = "renderScale" | "antialias" | "shadows" | "anisotropy" | "shaderLevel" | "postProcessing" | "bloom" | "ambientOcclusion" | "depthOfField";
+export type TierValueKey = "renderScale" | "antialias" | "shadows" | "shadowCascades" | "shadowDistance" | "anisotropy" | "shaderLevel" | "postProcessing" | "bloom" | "ambientOcclusion" | "depthOfField";
 
 /** Set one value of a tier (as given: a bad one is reported by `settingsProblems`). */
 export function setTierValue(draft: SettingsDraft, index: number, key: TierValueKey, value: unknown): SettingsDraft {

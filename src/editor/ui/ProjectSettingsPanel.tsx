@@ -513,6 +513,8 @@ function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: Editor
 
 const LEVEL_LABELS: Record<string, string> = { off: "Off", low: "Low", medium: "Medium", high: "High", ultra: "Ultra", msaa: "MSAA", smaa: "SMAA", fxaa: "FXAA" };
 const ANISOTROPY_LEVELS = [1, 2, 4, 8, 16];
+const CASCADE_COUNTS = [1, 2, 3, 4];
+const CASCADE_LABELS: Record<string, string> = { 1: "1 (off)" };
 const AO_OPTIONS = ["off", "low", "medium", "high", "ultra"] as const;
 
 /** The graphics quality tiers (ADR 0050), lowest first, as compact cards. */
@@ -520,7 +522,7 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
   const { draft, problems, set } = props;
   const g = graphicsOf(draft);
   const value = (i: number, key: TierValueKey, v: unknown) => set(`Set ${g.tiers[i].name} ${key}`, setTierValue(draft, i, key, v));
-  const choice = (i: number, key: TierValueKey, label: string, options: readonly (string | number)[], disabled = false) => {
+  const choice = (i: number, key: TierValueKey, label: string, options: readonly (string | number)[], disabled = false, labels: Record<string, string> = LEVEL_LABELS) => {
     const name = g.tiers[i].name;
     const current = g.tiers[i][key];
     return (
@@ -535,7 +537,7 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
       >
         {options.map((o) => (
           <option key={o} value={String(o)}>
-            {LEVEL_LABELS[String(o)] ?? String(o)}
+            {labels[String(o)] ?? String(o)}
           </option>
         ))}
       </select>
@@ -600,6 +602,26 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
             <label>
               <span class="tier-label">Shadows</span>
               {choice(i, "shadows", "shadows", SHADOW_QUALITIES)}
+            </label>
+            <label class={t.shadows === "off" ? "disabled" : ""}>
+              <span class="tier-label">Shadow cascades</span>
+              {choice(i, "shadowCascades", "shadow cascades", CASCADE_COUNTS, t.shadows === "off", CASCADE_LABELS)}
+            </label>
+            <label class={t.shadows === "off" ? "disabled" : ""}>
+              <span class="tier-label">Shadow distance</span>
+              <input
+                type="number"
+                min={10}
+                max={1000}
+                step={10}
+                aria-label={`${t.name} shadow distance`}
+                value={t.shadowDistance}
+                disabled={t.shadows === "off"}
+                onChange={(e) => {
+                  const n = (e.currentTarget as HTMLInputElement).valueAsNumber;
+                  if (Number.isFinite(n)) value(i, "shadowDistance", n);
+                }}
+              />
             </label>
             <label>
               <span class="tier-label">Anisotropy</span>

@@ -7,6 +7,7 @@
  * dependency order, so a value used twice is computed once. Problems never stop a compile: an
  * unknown node, a missing property or a loop is reported, and the input it fed reads its default.
  */
+import type { ShaderLevel } from "../../core/graphics";
 import { Color } from "../../core/math";
 import { normalizeAssetPath } from "../../scene/Assets";
 import { OUTPUT_NODE_TYPE, portRef, splitPortRef, type GraphNode, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../scene/shaderGraph";
@@ -71,6 +72,8 @@ export interface CompiledShaderGraph {
   dynamicTypes: Record<string, ValueType>;
   /** Sub-graph files the graph uses (asset paths without `asset:`): a change to one changes the shader. */
   dependencies: string[];
+  /** The graph has a Quality Branch, so the shader depends on the shader level (it is part of `key`). */
+  usesShaderLevel: boolean;
   /** A hash of the generated code: equal keys mean the same shader program. */
   key: string;
 }
@@ -264,7 +267,9 @@ function nodeTypes(scope: Scope, id: string): NodeTypes {
 const GLSL_TYPE = (t: ValueType) => (t === "texture" ? "sampler2D" : t);
 
 /** Compile a graph (or a sub-graph, drawn as its first output). Never throws for a bad graph; see `problems`. */
-export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
+export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: ShaderLevel } = {}): CompiledShaderGraph {
+  const shaderLevel = options.shaderLevel ?? "high";
+  let usesShaderLevel = false;
   const problems: string[] = [];
   const nodeProblems: Record<string, string[]> = {};
   const dependencies = new Set<string>();
@@ -380,7 +385,9 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
       const ports = nodePorts(node, scope.graph);
       const { dynamic } = nodeTypes(scope, id);
       const ins: Record<string, string> = {};
-      for (const p of ports.inputs) ins[p.id] = this.input(scope, node, p, dynamic);
+      if (def.branch) usesShaderLevel = true;
+      // A branch node evaluates only the input for the shader level; the others are never reached.
+      for (const p of ports.inputs) ins[p.id] = def.branch && p.id !== shaderLevel ? literal(0, dynamic, false) : this.input(scope, node, p, dynamic);
       const settings: Record<string, string> = {};
       for (const s of def.settings ?? []) settings[s.id] = node.settings?.[s.id] ?? s.default;
       const problem = (m: string) => scope.problem(id, m);
@@ -389,6 +396,7 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
         type: dynamic,
         settings,
         stage: this.stage,
+        shaderLevel,
         builtin: (b) => this.builtin(b),
         helper: (h) => this.helper(h),
         texture: (path) => textureUniform(path),
@@ -589,7 +597,7 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
   const target = sub ? "unlit" : graph.target;
   const surface = sub ? "opaque" : graph.surface;
   const linearKey = uniforms.filter((u) => u.linear).map((u) => u.name).join(",");
-  const key = hash([target, surface, graph.doubleSided, vertexDeclarations, vertexBody, offset, fragmentDeclarations, fragmentBody, normal, alphaClip, linearKey, JSON.stringify(physical)].join("\u0000"));
+  const key = hash([target, surface, graph.doubleSided, vertexDeclarations, vertexBody, offset, fragmentDeclarations, fragmentBody, normal, alphaClip, linearKey, JSON.stringify(physical), usesShaderLevel ? shaderLevel : ""].join("\u0000"));
 
   return {
     target,
@@ -603,6 +611,7 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
     portTypes,
     dynamicTypes,
     dependencies: [...dependencies],
+    usesShaderLevel,
     key,
   };
 }

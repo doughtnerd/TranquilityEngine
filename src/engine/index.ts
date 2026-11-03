@@ -29,7 +29,7 @@ export { Assets, type AssetSource } from "./scene/Assets";
 export type { ImportSettings, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
-export { Camera, Light, MeshRenderer, PostProcessing, SpriteRenderer, Text, type Anchor, type LightType, type MaterialPropertyValue, type Projection, type ToneMapping } from "./render/components";
+export { Camera, Environment, Light, MeshRenderer, PostProcessing, SpriteRenderer, Text, type Anchor, type LightType, type MaterialPropertyValue, type Projection, type ToneMapping } from "./render/components";
 
 export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
 export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D, type PhysicsMaterial, type PhysicsMaterial2D } from "./physics/Collider2D";
