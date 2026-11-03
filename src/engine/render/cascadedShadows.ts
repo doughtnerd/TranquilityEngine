@@ -16,7 +16,16 @@ export interface CascadeSettings {
   castShadows: boolean;
 }
 
-type CompileHook = (shader: never, renderer: WebGLRenderer) => void;
+/** The cascade lights' shadow camera depth range, metres (CSM's defaults, set explicitly because the bias depends on it). */
+const LIGHT_NEAR = 1;
+const LIGHT_FAR = 2000;
+/**
+ * Shadow bias is in the shadow camera's normalized depth, so it scales with its depth range: 2 cm here.
+ * A fixed -0.0005 was about a metre over 2000 m, which erased most of small objects' shadows.
+ */
+const SHADOW_BIAS = -0.02 / (LIGHT_FAR - LIGHT_NEAR);
+
+type CompileHook =(shader: never, renderer: WebGLRenderer) => void;
 
 interface Saved {
   hadOwnHook: boolean;
@@ -62,7 +71,9 @@ export class CascadedShadows {
       maxFar: s.distance,
       mode: "practical",
       shadowMapSize: s.mapSize,
-      shadowBias: -0.0005,
+      lightNear: LIGHT_NEAR,
+      lightFar: LIGHT_FAR,
+      shadowBias: SHADOW_BIAS,
       lightDirection: s.direction.clone().normalize(),
       lightIntensity: s.intensity,
     });
