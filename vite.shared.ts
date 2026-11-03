@@ -151,3 +151,54 @@ export function samples(): Plugin {
     },
   };
 }
+
+/** The prebuilt game player (ADR 0041), built by vite.player.config.ts. */
+const PLAYER_DIR = fileURLToPath(new URL("./dist/player/", import.meta.url));
+
+/** Player build: list every output file in `files.json`, for the exporters to copy (ADR 0041). */
+export function playerFileList(): Plugin {
+  return {
+    name: "myco:player-files",
+    enforce: "post",
+    generateBundle(_options, bundle) {
+      const files = Object.keys(bundle).sort();
+      this.emitFile({ type: "asset", fileName: "files.json", source: `${JSON.stringify({ files }, null, 2)}\n` });
+    },
+  };
+}
+
+/** The player's files as `dist/player/files.json` lists them, or null if the player isn't built. */
+export function playerManifest(): { files: string[] } | null {
+  const list = join(PLAYER_DIR, "files.json");
+  return existsSync(list) ? (JSON.parse(readFileSync(list, "utf8")) as { files: string[] }) : null;
+}
+
+/**
+ * Ship the prebuilt player beside the editor (ADR 0041), as samples are: the dev server serves
+ * dist/player/ at /player/ (once `npm run build:player` has run), and the editor build copies it
+ * to `player/`, so the editor's Export can fetch the player files and write them into a build.
+ */
+export function playerFiles(): Plugin {
+  return {
+    name: "myco:player",
+    configureServer(server) {
+      server.middlewares.use("/player", (req, res, next) => {
+        const path = decodeURIComponent((req.url ?? "/").split("?")[0]).replace(/^\/+/, "");
+        const manifest = playerManifest();
+        if (!manifest || !(path === "files.json" || manifest.files.includes(path))) return next();
+        const ext = path.split(".").pop()!.toLowerCase();
+        res.setHeader("Content-Type", ext === "js" ? "text/javascript" : ext === "html" ? "text/html" : (SAMPLE_TYPES[ext] ?? "application/octet-stream"));
+        res.end(readFileSync(join(PLAYER_DIR, ...path.split("/"))));
+      });
+    },
+    generateBundle() {
+      const manifest = playerManifest();
+      if (!manifest) {
+        this.warn("dist/player/ isn't built, so the editor build has no player to export games with. Run `npm run build:player` first.");
+        return;
+      }
+      this.emitFile({ type: "asset", fileName: "player/files.json", source: readFileSync(join(PLAYER_DIR, "files.json")) });
+      for (const file of manifest.files) this.emitFile({ type: "asset", fileName: `player/${file}`, source: readFileSync(join(PLAYER_DIR, ...file.split("/"))) });
+    },
+  };
+}

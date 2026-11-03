@@ -1,12 +1,13 @@
 // EDITOR bundle (ADR 0022): editor.html + src/editor/ as a complete app in dist/editor/, the
 // folder the editor's Tauri shell loads, with the sample projects copied beside it in
-// dist/editor/samples/ (ADR 0031). In dev, the main server serves it at /editor.html.
+// dist/editor/samples/ (ADR 0031) and the prebuilt game player in dist/editor/player/ (ADR 0041,
+// built first by `npm run build:editor`). In dev, the main server serves it at /editor.html.
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import { engineTypes, samples, typescriptTranspile } from "./vite.shared.ts";
+import { engineTypes, playerFiles, samples, typescriptTranspile } from "./vite.shared.ts";
 
 export default defineConfig({
-  plugins: [typescriptTranspile(), engineTypes(), samples()],
+  plugins: [typescriptTranspile(), engineTypes(), samples(), playerFiles()],
   // Monaco's language workers (the editor's Code panel, ADR 0030) are ES modules.
   worker: { format: "es" },
   oxc: false,

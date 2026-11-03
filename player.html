@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Myco Engine</title>
+    <!-- The game player (ADR 0041): copied into every web build as index.html. It loads the game
+         from the files beside it (game.json, project/, code/); see src/player/main.ts. -->
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: #d8dce3; font: 15px/1.5 system-ui, sans-serif; }
+      #game { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+      #player-message { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; }
+      #player-message[hidden] { display: none; }
+      #player-message div { max-width: 560px; white-space: pre-wrap; }
+      #player-message code { background: rgb(255 255 255 / 0.1); padding: 1px 5px; border-radius: 3px; }
+    </style>
+    <script>
+      // Browsers won't load the player's JavaScript modules from a file:// page, so explain instead of showing nothing.
+      if (location.protocol === "file:") {
+        document.addEventListener("DOMContentLoaded", function () {
+          var box = document.getElementById("player-message");
+          box.innerHTML =
+            "<div><strong>This game needs to be served over HTTP.</strong>\n\nBrowsers don't run it from a file on disk. In this folder, run <code>node serve.mjs</code> " +
+            "(or <code>npx serve .</code>, or <code>python -m http.server</code>) and open the address it prints. README.txt has more.</div>";
+          box.hidden = false;
+        });
+      }
+    </script>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="player-message" role="alert" hidden></div>
+    <script type="module" src="/src/player/main.ts"></script>
+  </body>
+</html>
