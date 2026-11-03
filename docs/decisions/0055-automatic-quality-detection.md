@@ -1,6 +1,6 @@
 # 0055. Automatic graphics quality: a first guess from the GPU, then adjusting to the frame rate
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

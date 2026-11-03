@@ -1,6 +1,6 @@
 # 0056. Camera viewports, and post-processing on every camera
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

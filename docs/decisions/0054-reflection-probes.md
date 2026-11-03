@@ -1,6 +1,6 @@
 # 0054. Reflection probes capture local environment maps for the meshes inside them
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
