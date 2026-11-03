@@ -44,6 +44,13 @@ export class Camera extends Component {
   @field(Number) depth = 0;
   /** Clear color; null uses the project's display background color. */
   @field(Color) backgroundColor: Color | null = null;
+  /**
+   * The camera's rectangle on the canvas: the bottom-left corner as fractions of the canvas, like
+   * Unity's Viewport Rect (ADR 0056). The default 0,0 / 1,1 covers the whole canvas.
+   */
+  @field(Vector2) viewportPosition = new Vector2(0, 0);
+  /** The camera's rectangle on the canvas: its width and height as fractions of the canvas (ADR 0056). */
+  @field(Vector2) viewportSize = new Vector2(1, 1);
 
   /** The enabled camera with the lowest depth in the current World (ADR 0032). */
   static get main(): Camera | null {
@@ -259,4 +266,33 @@ export class Environment extends Component {
   @field(Number) skyboxBlur = 0;
   /** Rotation of the environment around the Y axis, in degrees. */
   @field(Number) rotation = 0;
+}
+
+export type ProbeRefresh = "onLoad" | "everyFrame";
+
+/**
+ * Captures the scene around its node into a local environment map (ADR 0054). Lit and physical
+ * meshes whose bounds centre lies inside the probe's box reflect it instead of the global
+ * Environment; where boxes overlap, the smallest wins.
+ */
+@component("engine.ReflectionProbe")
+export class ReflectionProbe extends Component {
+  /** The box of influence in metres, centred on the node. */
+  @field(Vector3) size = new Vector3(10, 10, 10);
+  /** Strength of the reflections. */
+  @field(Number) intensity = 1;
+  /** `onLoad` captures once after the scene loads; `everyFrame` recaptures continuously. */
+  @field(String, { choices: ["onLoad", "everyFrame"] }) refresh: ProbeRefresh = "onLoad";
+
+  /** @internal Bumped by `capture()`; the render backend recaptures when it changes. */
+  _captureRequests = 0;
+
+  /** Recapture the surroundings on the next frame, e.g. after the scene around the probe changed. */
+  capture(): void {
+    this._captureRequests++;
+  }
+
+  override _onDetach(): void {
+    this.world.render?.release(this);
+  }
 }

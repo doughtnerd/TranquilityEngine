@@ -66,14 +66,15 @@ import type { ProjectSettings } from "../core/settings";
 import { SHADOW_MAP_SIZE } from "../core/graphics";
 import { Graphics } from "./Graphics";
 import { resolvePostEffects, type PostSettings, type ResolvedPost } from "./postEffects";
-import type { PostEffects, PostProcessStack, ToneMappingName } from "./PostProcessStack";
+import type { PostEffects, PostProcessStack, PostViewport, ToneMappingName } from "./PostProcessStack";
 import type { CascadedShadows, CascadeSettings } from "./cascadedShadows";
 import { loadEquirectangular, prefilter } from "./environmentMap";
 import type { World, WorldKind } from "../core/World";
 import { Assets, sidecarValue } from "../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import type { GameObject } from "../scene/GameObject";
-import { Camera, Environment, Light, MeshRenderer, PostProcessing, SpriteRenderer, Text, type Anchor } from "./components";
+import { Camera, Environment, Light, MeshRenderer, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor } from "./components";
+import { PROBE_RESOLUTION, ProbeCapture, pickProbe, type ProbeBox } from "./reflectionProbes";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import { colorHex, materialGraph, parseMaterial } from "../scene/material";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../scene/shaderGraph";
@@ -176,6 +177,16 @@ interface RendererMaterial {
   material: Material;
   graph?: GraphMaterial;
   version: number;
+  /** The reflection probe's map it holds (ADR 0054); undefined: apply again. */
+  probe?: Texture | null;
+}
+
+/** A camera's viewport (ADR 0056) in CSS pixels from the canvas's bottom-left. */
+function cameraViewport(c: Camera, width: number, height: number): PostViewport {
+  const clamp = (n: number) => Math.min(1, Math.max(0, n));
+  const x = clamp(c.viewportPosition.x), y = clamp(c.viewportPosition.y);
+  const w = Math.min(clamp(c.viewportSize.x), 1 - x), h = Math.min(clamp(c.viewportSize.y), 1 - y);
+  return { x: x * width, y: y * height, width: Math.max(1, w * width), height: Math.max(1, h * height) };
 }
 
 const BUILTIN_PROPERTIES = new Set([
@@ -554,6 +565,16 @@ export class RenderBackend {
       }
     } else if (c instanceof Camera) {
       this.cameras.delete(c);
+      this.stacks.get(c)?.dispose();
+      this.stacks.delete(c);
+    } else if (c instanceof ReflectionProbe) {
+      const p = this.probes.get(c);
+      p?.capture?.dispose();
+      if (p?.gizmo) {
+        this.scene.remove(p.gizmo);
+        p.gizmo.geometry.dispose();
+      }
+      this.probes.delete(c);
     } else if (c instanceof Text) {
       const e = this.texts.get(c);
       if (e) {
@@ -829,7 +850,14 @@ export class RenderBackend {
     }
     if (!this.environmentLoading) this.environmentLoading = this.loadEnvironment();
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
-    const material = this.rendererMaterial(r, this.materialAsset(r.material));
+    const e0 = r.node.entity;
+    tmpWorld.fromArray(world.worldMatrix(e0), e0 * 16);
+    const probe = this.probeFor(sources);
+    // A mesh drawn with its model's own material (one, shared by all its meshes) or the default one
+    // takes a reflection probe too (ADR 0054), through a copy of that material.
+    const own = sources?.length && sources.every((m) => m.materials.length <= 1 && m.materials[0] === sources[0].materials[0]) ? (sources[0].materials[0] ?? this.defaultMaterial) : null;
+    const asset = this.materialAsset(r.material);
+    const material = this.rendererMaterial(r, asset ?? (probe ? own : null), probe);
     const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
     if (!same || entry.material !== material) {
       for (const o of entry.objects) this.scene.remove(o);
@@ -1005,10 +1033,12 @@ export class RenderBackend {
    * The material a renderer draws with: its material asset's, or (with property overrides,
    * ADR 0049) its own copy, sharing the shader program, with the overrides applied.
    */
-  private rendererMaterial(r: MeshRenderer, base: Material | null): Material | null {
+  private rendererMaterial(r: MeshRenderer, base: Material | null, probe: { texture: Texture; intensity: number } | null = null): Material | null {
     const overrides = r._materialProperties;
     let entry = this.rendererMaterials.get(r);
-    if (!base || overrides.size === 0) {
+    // A reflection probe (ADR 0054) also needs the renderer's own copy, holding the probe's map.
+    const env = base && (base as MeshStandardMaterial).isMeshStandardMaterial ? probe : null;
+    if (!base || (overrides.size === 0 && !env)) {
       if (entry) this.releaseRendererMaterial(r);
       return base;
     }
@@ -1034,8 +1064,20 @@ export class RenderBackend {
     if (entry.version !== r._materialPropertiesVersion) {
       entry.version = r._materialPropertiesVersion;
       if (entry.graph && baseGraph) entry.graph.setProperties({ ...baseGraph.properties, ...values });
-      else this.applyBuiltinProperties(entry.material, base, values);
+      else {
+        this.applyBuiltinProperties(entry.material, base, values);
+        entry.probe = undefined; // the copy took the base's envMap: apply the probe again
+      }
     }
+    const lit = entry.material as MeshStandardMaterial;
+    const tex = env?.texture ?? null;
+    if (entry.probe !== tex) {
+      const had = !!lit.envMap;
+      lit.envMap = tex;
+      if (had !== !!tex) lit.needsUpdate = true;
+      entry.probe = tex;
+    }
+    lit.envMapIntensity = env ? env.intensity : 1;
     return entry.material;
   }
 
@@ -1192,7 +1234,9 @@ export class RenderBackend {
       this.cameras.set(c, entry);
     }
     const { camera } = entry;
-    const aspect = this.aspect;
+    // The camera's aspect ratio follows its viewport rectangle (ADR 0056).
+    const vw = Math.max(0.001, Math.min(1, c.viewportSize.x)), vh = Math.max(0.001, Math.min(1, c.viewportSize.y));
+    const aspect = this.aspect * (vw / vh);
     if (camera instanceof OrthographicCamera) {
       const s = c.orthographicSize;
       camera.left = -s * aspect;
@@ -1294,65 +1338,91 @@ export class RenderBackend {
     r.getDrawingBufferSize(this.graphUniforms.resolution.value);
     const cams = this.viewCameras(world);
     this.syncCascades(world, cams[0] ? (this.cameras.get(cams[0])!.camera as ThreeCamera) : null);
-    // Post-processing (ADR 0051): the main (lowest-depth) camera's PostProcessing component, filtered by the tier.
-    const resolved = resolvePostEffects(cams[0] ? (this.postSettings(cams[0]) ?? (this.fill ? this.scenePostSettings(world) : null)) : null, Graphics.tier);
-    const stack = resolved.composer ? this.postStack() : null; // null while the libraries load
-    const frame = { resolved, composed: false };
-    this.lastPost = frame;
-    // The composer tone-maps at its end; rendering directly, the renderer does, so the look matches.
-    const sceneToneMapping = TONE_MAPPING[stack ? "none" : resolved.toneMapping];
-    r.toneMappingExposure = resolved.exposure;
+    this.syncProbes(world);
+    const cw = this.canvas.clientWidth, ch = this.canvas.clientHeight;
+    this.lastPost = null;
     if (!cams.length) {
       r.setClearColor(this.clearColor, 1);
       r.clear(true, true, true);
     }
+    // Cameras in depth order, each in its viewport (ADR 0056). The first clears the canvas; a later
+    // one with a background colour clears its rectangle, one without draws over (an overlay).
     cams.forEach((c, i) => {
       const camera = this.cameras.get(c)!.camera as ThreeCamera;
-      r.toneMapping = sceneToneMapping;
-      if (i === 0) {
-        r.setClearColor(c.backgroundColor ? new ThreeColor(c.backgroundColor.toHex()) : this.clearColor, 1);
-        if (stack) {
-          try {
-            this.renderComposed(stack, resolved.composer!, camera, world.time.deltaTime);
-            frame.composed = true;
-            return;
-          } catch (err) {
-            // A broken effect mustn't take the frame with it: drop post-processing and draw directly.
-            this.postFailed = true;
-            this.post = null;
-            this.scene.overrideMaterial = null;
-            console.error("[myco] post-processing failed; rendering without it:", err);
-            r.toneMapping = TONE_MAPPING[resolved.toneMapping];
-          }
-        }
-        r.clear(true, true, true);
-      } else {
-        r.toneMapping = TONE_MAPPING[resolved.toneMapping]; // other cameras draw directly, with the same tone mapping
-        r.clearDepth();
+      const vp = cameraViewport(c, cw, ch);
+      const full = vp.x <= 0 && vp.y <= 0 && vp.width >= cw && vp.height >= ch;
+      // Post-processing (ADR 0051, 0056): each camera's own component, filtered by the tier; the editor's view previews the scene camera's.
+      const resolved = resolvePostEffects(this.postSettings(c) ?? (i === 0 && this.fill ? this.scenePostSettings(world) : null), Graphics.tier);
+      const frame = { resolved, composed: false };
+      if (i === 0) this.lastPost = frame;
+      r.toneMappingExposure = resolved.exposure;
+      r.setClearColor(c.backgroundColor ? new ThreeColor(c.backgroundColor.toHex()) : this.clearColor, 1);
+      const stack = resolved.composer ? this.stackFor(c) : null; // null while the libraries load
+      if (stack && this.composeSafely(stack, resolved.composer!, camera, world.time.deltaTime, { overlay: i > 0 && !c.backgroundColor, viewport: full ? undefined : vp, helpers: i === 0 && this.fill })) {
+        frame.composed = true;
+        return;
       }
+      // Directly: the renderer tone-maps, so a camera looks the same with or without the composer.
+      r.toneMapping = TONE_MAPPING[resolved.toneMapping];
+      this.setViewportRect(full ? null : vp);
+      if (i === 0 || c.backgroundColor) r.clear(true, true, true);
+      else r.clearDepth();
       r.render(this.scene, camera);
+      this.setViewportRect(null);
     });
     r.clearDepth();
     r.toneMapping = NoToneMapping; // the UI is never tone mapped
     r.render(this.uiScene, this.uiCamera);
-    if (this.fill) {
-      r.toneMapping = TONE_MAPPING[resolved.toneMapping];
-      this.renderCameraPreview();
+    if (this.fill) this.renderCameraPreview(world.time.deltaTime);
+  }
+
+  /** Draw (and clear) only inside `vp`, CSS pixels from the bottom-left; null: the whole canvas. */
+  private setViewportRect(vp: PostViewport | null): void {
+    const r = this.renderer;
+    if (vp) {
+      r.setScissorTest(true);
+      r.setViewport(vp.x, vp.y, vp.width, vp.height);
+      r.setScissor(vp.x, vp.y, vp.width, vp.height);
+    } else {
+      r.setScissorTest(false);
+      r.setViewport(0, 0, this.canvas.clientWidth, this.canvas.clientHeight);
+    }
+  }
+
+  /** Render through a composer; a failure turns post-processing off (with an error) instead of losing the frame. False if it didn't draw. */
+  private composeSafely(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number, opts: { overlay: boolean; viewport?: PostViewport; helpers: boolean }): boolean {
+    try {
+      this.renderComposed(stack, effects, camera, dt, opts);
+      return true;
+    } catch (err) {
+      this.postFailed = true;
+      for (const s of this.stacks.values()) s.dispose();
+      this.stacks.clear();
+      this.scene.overrideMaterial = null;
+      this.setViewportRect(null);
+      console.error("[myco] post-processing failed; rendering without it:", err);
+      return false;
     }
   }
 
   // --- Post-processing (ADR 0051) ------------------------------------------------------------------
 
-  private post: PostProcessStack | null = null;
-  private postLoading: Promise<void> | null = null;
+  /** Each camera's composer (ADR 0056), and the size each was last given. */
+  private readonly stacks = new Map<Camera, PostProcessStack>();
+  private readonly stacksLoading = new Set<Camera>();
+  private readonly stackSizes = new WeakMap<PostProcessStack, string>();
   private postFailed = false;
-  private postSize = "";
   private depthOnly: MeshBasicMaterial | null = null;
   private lastPost: { resolved: ResolvedPost; composed: boolean } | null = null;
 
   /** @internal Tests and the editor: what the last frame resolved and whether the composer drew it. */
   postState(): { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null } {
-    return { composed: !!this.lastPost?.composed, loaded: !!this.post, toneMapping: this.lastPost?.resolved.toneMapping ?? "none", effects: this.lastPost?.resolved.composer ?? null };
+    return { composed: !!this.lastPost?.composed, loaded: this.stacks.size > 0, toneMapping: this.lastPost?.resolved.toneMapping ?? "none", effects: this.lastPost?.resolved.composer ?? null };
+  }
+
+  /** @internal Tests: how many cameras have a composer. */
+  stackCount(): number {
+    return this.stacks.size;
   }
 
   /** A camera's PostProcessing component, if it has an enabled one. */
@@ -1372,15 +1442,21 @@ export class RenderBackend {
     return null;
   }
 
-  /** The post-processing stack, loading the libraries on first use (games without it never download them). Null until loaded. */
-  private postStack(): PostProcessStack | null {
-    if (this.post || this.postFailed) return this.post;
-    this.postLoading ??= import("./PostProcessStack")
+  /** A camera's composer, loading the libraries on first use (games without post-processing never download them). Null until ready. */
+  private stackFor(c: Camera): PostProcessStack | null {
+    if (this.postFailed) return null;
+    const s = this.stacks.get(c);
+    if (s || this.stacksLoading.has(c)) return s ?? null;
+    this.stacksLoading.add(c);
+    import("./PostProcessStack")
       .then((m) => m.PostProcessStack.create(this.renderer))
-      .then((s) => {
-        this.post = s;
+      .then((stack) => {
+        this.stacksLoading.delete(c);
+        if (this.cameras.has(c) || this.preview?.camera === c) this.stacks.set(c, stack);
+        else stack.dispose(); // the camera went meanwhile
       })
       .catch((err) => {
+        this.stacksLoading.delete(c);
         this.postFailed = true;
         console.error("[myco] post-processing couldn't start; rendering without it:", err);
       });
@@ -1391,20 +1467,23 @@ export class RenderBackend {
    * The main camera through the composer. In the editor, the grid, gizmos and outlines stay out
    * of the effects: they draw afterwards, over a depth-only pass so meshes still hide the grid.
    */
-  private renderComposed(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number): void {
+  private renderComposed(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number, opts: { overlay: boolean; viewport?: PostViewport; helpers: boolean }): void {
     const r = this.renderer;
-    const helpers = this.fill ? this.editorHelpers() : [];
-    for (const o of helpers) o.visible = false;
-    const size = `${this.canvas.clientWidth}x${this.canvas.clientHeight}@${r.getPixelRatio()}`;
-    if (size !== this.postSize) {
-      this.postSize = size;
-      stack.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
+    r.toneMapping = NoToneMapping; // the composer tone-maps at its end
+    const helpers = opts.helpers ? this.editorHelpers() : [];
+    const hidden = opts.helpers ? helpers : this.editorHelpers(); // helpers never go through effects
+    for (const o of hidden) o.visible = false;
+    const w = opts.viewport?.width ?? this.canvas.clientWidth, h = opts.viewport?.height ?? this.canvas.clientHeight;
+    const size = `${w}x${h}@${r.getPixelRatio()}`;
+    if (this.stackSizes.get(stack) !== size) {
+      this.stackSizes.set(stack, size);
+      stack.setSize(w, h);
     }
     try {
-      stack.configure(effects, this.scene, camera);
-      stack.render(dt);
+      stack.configure(effects, this.scene, camera, { overlay: opts.overlay });
+      stack.render(dt, opts.viewport);
     } finally {
-      for (const o of helpers) o.visible = true;
+      for (const o of hidden) o.visible = true;
     }
     if (!helpers.length) return;
     r.toneMapping = NoToneMapping;
@@ -1426,7 +1505,113 @@ export class RenderBackend {
     const helpers: (Object3D | null)[] = [this.grid, this.axes, this.overlayLines, this.overlayHandles, this.gizmo?.getHelper() ?? null, this.lightWires, ...this.outlines, ...this.boxOutlines];
     for (const g of this.cameraGizmos.values()) helpers.push(g.icon, g.frustum);
     for (const icon of this.lightGizmos.values()) helpers.push(icon);
+    for (const p of this.probes.values()) helpers.push(p.gizmo);
     return helpers.filter((o): o is Object3D => !!o && o.visible);
+  }
+
+  // --- Reflection probes (ADR 0054) ----------------------------------------------------------------
+
+  private readonly probes = new Map<ReflectionProbe, { capture: ProbeCapture | null; captured: boolean; requests: number; box: ProbeBox; gizmo: LineSegments<BufferGeometry, LineBasicMaterial> | null }>();
+  private probeBoxes: { box: ProbeBox; texture: Texture; intensity: number }[] = [];
+  private probeIds = 0;
+  private probeRound = 0;
+
+  /**
+   * Capture each active probe once the scene's meshes and textures have loaded (and again when
+   * asked, or round-robin for `everyFrame` probes), at the tier's resolution; the boxes of the
+   * captured ones decide which meshes reflect which probe.
+   */
+  private syncProbes(world: World): void {
+    const resolution = PROBE_RESOLUTION[Graphics.tier.reflectionProbes];
+    const seen = new Set<ReflectionProbe>();
+    const live: [ReflectionProbe, NonNullable<ReturnType<RenderBackend["probes"]["get"]>>][] = [];
+    for (const p of world._componentsOfType(ReflectionProbe)) {
+      let entry = this.probes.get(p);
+      if (!entry) {
+        entry = { capture: null, captured: false, requests: p._captureRequests, box: { id: ++this.probeIds, center: { x: 0, y: 0, z: 0 }, size: { x: 1, y: 1, z: 1 } }, gizmo: null };
+        this.probes.set(p, entry);
+      }
+      seen.add(p);
+      const e = p.node.entity;
+      tmpWorld.fromArray(world.worldMatrix(e), e * 16);
+      tmpPoint.setFromMatrixPosition(tmpWorld);
+      const moved = entry.box.center.x !== tmpPoint.x || entry.box.center.y !== tmpPoint.y || entry.box.center.z !== tmpPoint.z;
+      entry.box.center = { x: tmpPoint.x, y: tmpPoint.y, z: tmpPoint.z };
+      entry.box.size = { x: Math.abs(p.size.x), y: Math.abs(p.size.y), z: Math.abs(p.size.z) };
+      this.syncProbeGizmo(p, entry);
+      if (!p.isActiveAndEnabled || !resolution) continue;
+      if (entry.capture && entry.capture.resolution !== resolution) {
+        entry.capture.dispose();
+        entry.capture = null;
+        entry.captured = false;
+      }
+      if (moved && entry.captured && p.refresh === "onLoad") entry.captured = false; // moved: recapture where it is now
+      live.push([p, entry]);
+    }
+    for (const [p, entry] of [...this.probes]) {
+      if (seen.has(p)) continue;
+      entry.capture?.dispose();
+      if (entry.gizmo) this.scene.remove(entry.gizmo);
+      this.probes.delete(p);
+    }
+    const ready = this.loading.size === 0 && [...this.meshRenderers.values()].every((m) => m.sources !== null);
+    if (ready) {
+      const every = live.filter(([p]) => p.refresh === "everyFrame");
+      for (const [p, entry] of live) {
+        const asked = entry.requests !== p._captureRequests;
+        if (!entry.captured || asked) this.captureProbe(p, entry);
+      }
+      // everyFrame probes: one recaptured per frame, round-robin.
+      if (every.length) {
+        const [p, entry] = every[this.probeRound++ % every.length];
+        this.captureProbe(p, entry);
+      }
+    }
+    this.probeBoxes = live.filter(([, e]) => e.captured && e.capture?.texture).map(([p, e]) => ({ box: e.box, texture: e.capture!.texture!, intensity: Math.max(0, p.intensity) }));
+  }
+
+  private captureProbe(p: ReflectionProbe, entry: NonNullable<ReturnType<RenderBackend["probes"]["get"]>>): void {
+    entry.capture ??= new ProbeCapture(this.renderer, PROBE_RESOLUTION[Graphics.tier.reflectionProbes]);
+    const c = entry.box.center;
+    entry.capture.capture(this.scene, new ThreeVector3(c.x, c.y, c.z), this.editorHelpers());
+    entry.captured = true;
+    entry.requests = p._captureRequests;
+  }
+
+  /** Editor: a selected probe's box, as a wireframe. */
+  private syncProbeGizmo(p: ReflectionProbe, entry: NonNullable<ReturnType<RenderBackend["probes"]["get"]>>): void {
+    if (!this.fill) return;
+    if (!entry.gizmo) {
+      const box = new BufferGeometry();
+      const v = [-1, -1, -1, 1, -1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, -1, 1, -1, -1, 1, -1, -1, -1, -1, -1, -1, 1, 1, -1, 1, 1, -1, 1, 1, 1, 1, 1, 1, 1, -1, 1, 1, -1, 1, 1, -1, -1, 1, -1, -1, -1, -1, -1, 1, 1, -1, -1, 1, -1, 1, 1, 1, -1, 1, 1, 1, -1, 1, -1, -1, 1, 1].map((n) => n / 2);
+      box.setAttribute("position", new Float32BufferAttribute(v, 3));
+      entry.gizmo = new LineSegments(box, new LineBasicMaterial({ color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+      entry.gizmo.matrixAutoUpdate = false;
+      entry.gizmo.renderOrder = OUTLINE_ORDER;
+      this.scene.add(entry.gizmo);
+    }
+    const g = entry.gizmo;
+    g.visible = p.isActiveAndEnabled && this.isOutlined(p.node);
+    g.matrix.makeScale(Math.max(entry.box.size.x, 0.001), Math.max(entry.box.size.y, 0.001), Math.max(entry.box.size.z, 0.001)).setPosition(entry.box.center.x, entry.box.center.y, entry.box.center.z);
+    g.matrixWorldNeedsUpdate = true;
+  }
+
+  /** The probe a mesh reflects: the smallest box holding the centre of its bounds, if any. */
+  private probeFor(sources: readonly ModelMesh[] | null): { texture: Texture; intensity: number } | null {
+    if (!this.probeBoxes.length || !sources?.length) return null;
+    const geo = sources[0].geometry;
+    geo.boundingBox ?? geo.computeBoundingBox();
+    geo.boundingBox!.getCenter(tmpCorner).applyMatrix4(tmpWorld);
+    const box = pickProbe({ x: tmpCorner.x, y: tmpCorner.y, z: tmpCorner.z }, this.probeBoxes.map((p) => p.box));
+    const hit = box && this.probeBoxes.find((p) => p.box === box);
+    return hit ? { texture: hit.texture, intensity: hit.intensity } : null;
+  }
+
+  /** @internal Tests: each probe's state. */
+  probeState(): { captured: number; probes: number; reflecting: number } {
+    let reflecting = 0;
+    for (const e of this.rendererMaterials.values()) if (e.probe) reflecting++;
+    return { captured: this.probeBoxes.length, probes: this.probes.size, reflecting };
   }
 
   // --- Editor: camera preview (ADR 0022) --------------------------------------------------------
@@ -1434,6 +1619,8 @@ export class RenderBackend {
   private preview: { camera: Camera; frame: HTMLElement } | null = null;
   /** @internal Editor: true if the last frame drew a camera preview. */
   cameraPreviewDrawn = false;
+  /** @internal Tests: true if the last camera preview went through the camera's composer (ADR 0056). */
+  cameraPreviewComposed = false;
 
   /**
    * @internal Editor: draw what `camera` (a camera in the edited scene) sees into the part of the
@@ -1444,7 +1631,7 @@ export class RenderBackend {
     this.preview = camera && frame ? { camera, frame } : null;
   }
 
-  private renderCameraPreview(): void {
+  private renderCameraPreview(dt: number): void {
     this.cameraPreviewDrawn = false;
     const p = this.preview;
     const entry = p && p.camera.node.isValid && p.camera.isActiveAndEnabled ? this.cameras.get(p.camera) : undefined;
@@ -1468,19 +1655,27 @@ export class RenderBackend {
     for (const o of shown) o.visible = false;
     const r = this.renderer;
     const bottom = ch - y - h;
-    r.setScissorTest(true);
-    r.setViewport(x, bottom, w, h);
-    r.setScissor(x, bottom, w, h);
+    const vp: PostViewport = { x, y: bottom, width: w, height: h };
     const bg = p.camera.backgroundColor;
     r.setClearColor(bg ? new ThreeColor(bg.toHex()) : this.clearColor, 1);
-    r.clear(true, true, true);
-    r.render(this.scene, camera);
+    // The previewed camera's own effects (ADR 0056), through its composer, drawn into the inset.
+    const resolved = resolvePostEffects(this.postSettings(p.camera), Graphics.tier);
+    r.toneMappingExposure = resolved.exposure;
+    const stack = resolved.composer ? this.stackFor(p.camera) : null;
+    const composed = !!stack && this.composeSafely(stack, resolved.composer!, camera, dt, { overlay: false, viewport: vp, helpers: false });
+    this.setViewportRect(vp);
+    if (!composed) {
+      r.toneMapping = TONE_MAPPING[resolved.toneMapping];
+      r.clear(true, true, true);
+      r.render(this.scene, camera);
+    }
+    r.toneMapping = NoToneMapping;
     r.clearDepth();
     r.render(this.uiScene, this.uiCamera);
-    r.setScissorTest(false);
-    r.setViewport(0, 0, cw, ch);
+    this.setViewportRect(null);
     for (const o of shown) o.visible = true;
     this.cameraPreviewDrawn = true;
+    this.cameraPreviewComposed = composed;
   }
 
   /**
@@ -2204,10 +2399,11 @@ export class RenderBackend {
 
   dispose(): void {
     this.dropCascades();
+    for (const s of this.stacks.values()) s.dispose();
+    this.stacks.clear();
+    for (const p of this.probes.values()) p.capture?.dispose();
     this.envMap?.lighting?.dispose();
     this.envMap?.sky?.dispose();
-    this.post?.dispose();
-    this.post = null;
     this.depthOnly?.dispose();
     this.gizmo?.dispose();
     for (const m of [...this.meshRenderers.keys()]) this.release(m);

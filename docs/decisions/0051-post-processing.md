@@ -1,6 +1,6 @@
 # 0051. Post-processing on pmndrs `postprocessing` and N8AO, set by a PostProcessing component and gated by quality tier
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0056 (effects on every camera)
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

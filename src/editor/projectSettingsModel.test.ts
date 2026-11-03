@@ -10,7 +10,9 @@ import {
   moveTier,
   removeTier,
   renameTier,
+  setAutoDetect,
   setDefaultTier,
+  setTargetFrameRate,
   setTierValue,
   moveAutoload,
   moveSortingLayer,
@@ -232,6 +234,17 @@ describe("the Project panel's settings", () => {
       expect(graphicsOf(d).tiers[0]).toMatchObject({ postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, antialias: "fxaa" });
     });
 
+    it("sets automatic detection and the target frame rate, keeping them through tier edits", () => {
+      let d = setAutoDetect(readDraft({}), true);
+      d = setTargetFrameRate(d, 90);
+      expect(graphicsOf(d)).toMatchObject({ autoDetect: true, targetFrameRate: 90 });
+      d = setTierValue(addTier(d), 0, "reflectionProbes", "high");
+      expect(graphicsOf(d)).toMatchObject({ autoDetect: true, targetFrameRate: 90 });
+      expect(graphicsOf(d).tiers[0].reflectionProbes).toBe("high");
+      expect(graphicsOf(setAutoDetect(d, false)).autoDetect).toBe(false);
+      expect(graphicsOf(setTargetFrameRate(d, 5)).targetFrameRate).toBe(60);
+    });
+
     it("sets the shadow cascade values of a tier", () => {
       let d = setTierValue(readDraft({}), 2, "shadowCascades", 4);
       d = setTierValue(d, 2, "shadowDistance", 200);
@@ -252,7 +265,7 @@ describe("the Project panel's settings", () => {
       d = setTierValue(d, 0, "antialias", "msaa");
       d = setTierValue(d, 0, "anisotropy", 2);
       d = setTierValue(d, 0, "shaderLevel", "medium");
-      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false });
+      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off" });
       expect(settingsProblems(d)).toEqual([]);
       expect(graphicsOf(setDefaultTier(d, "Low")).defaultTier).toBe("Low");
       expect(setDefaultTier(d, "Nope")).toBe(d);

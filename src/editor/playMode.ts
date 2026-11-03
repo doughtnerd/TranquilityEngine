@@ -115,7 +115,7 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
   };
   try {
     view = container ? createGameView(container) : null;
-    runtime = await Engine.create({ container: view?.main, headless: !container, project: settings, loadScript: loadBootstrapScript });
+    runtime = await Engine.create({ container: view?.main, headless: !container, project: settings, loadScript: loadBootstrapScript, quality: "keep" }); // keep the scene view's previewed tier
     for (const handle of runtime.worlds()) {
       const named = engineWorldConfig(runtime, handle.name)?.scenes !== undefined;
       if (!named && engineWorld(runtime, handle.name)!.sceneNodes.length === 0) await handle.loadScene(scene.path);

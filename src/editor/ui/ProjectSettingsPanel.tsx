@@ -1,7 +1,7 @@
 import { signal } from "@preact/signals";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import { ANTIALIAS_MODES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
+import { ANTIALIAS_MODES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
 import { reloadGraphics } from "../graphicsPreview";
 import { errorStatus } from "../messages";
@@ -29,7 +29,9 @@ import {
   renameTier,
   sectionsKey,
   setCollides,
+  setAutoDetect,
   setDefaultTier,
+  setTargetFrameRate,
   setGravity,
   setName,
   setTierValue,
@@ -563,6 +565,30 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
           ))}
         </select>
       </Row>
+      <Row label="Detect the tier on first run" problems={[]}>
+        <input
+          type="checkbox"
+          aria-label="Detect tier automatically"
+          checked={g.autoDetect}
+          onChange={(e) => set("Set automatic tier detection", setAutoDetect(draft, (e.currentTarget as HTMLInputElement).checked))}
+        />
+      </Row>
+      <Row label="Target frame rate" problems={[]}>
+        <input
+          type="number"
+          min={20}
+          max={240}
+          step={1}
+          aria-label="Target frame rate"
+          value={g.targetFrameRate}
+          disabled={!g.autoDetect}
+          onChange={(e) => {
+            const n = (e.currentTarget as HTMLInputElement).valueAsNumber;
+            if (Number.isFinite(n)) set("Set target frame rate", setTargetFrameRate(draft, n));
+          }}
+        />
+      </Row>
+      <p class="project-settings-hint">Without a saved player choice, the game guesses a tier from the GPU and steps down if it can't keep this frame rate.</p>
       {g.tiers.map((t, i) => (
         <div key={i} class="tier-card" data-tier={t.name}>
           <div class="tier-card-head">
@@ -646,6 +672,10 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
             <label class={t.postProcessing ? "" : "disabled"}>
               <span class="tier-label">Depth of field</span>
               {toggle(i, "depthOfField", "depth of field", !t.postProcessing)}
+            </label>
+            <label>
+              <span class="tier-label">Reflection probes</span>
+              {choice(i, "reflectionProbes", "reflection probes", PROBE_QUALITIES)}
             </label>
           </div>
         </div>

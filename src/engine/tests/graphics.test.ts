@@ -8,7 +8,7 @@ import { MemoryStorage, Storage } from "../platform/Storage";
 // Graphics class that switches the active tier.
 
 const DEFAULT_NAMES = ["Low", "Medium", "High", "Ultra"];
-const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true };
+const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium" };
 
 afterEach(() => {
   Graphics._configure(defaultGraphics());
@@ -26,8 +26,8 @@ describe("parseGraphics", () => {
     const raw = {
       defaultTier: "Only",
       tiers: [
-        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", shadowCascades: 1, shadowDistance: 20, anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false },
-        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 500, anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true },
+        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", shadowCascades: 1, shadowDistance: 20, anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off" },
+        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 500, anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true, reflectionProbes: "high" },
       ],
     };
     const { graphics, problems } = parseGraphics(raw);
@@ -92,6 +92,29 @@ describe("parseGraphics", () => {
     expect(problems).toEqual([]);
     expect(graphics.tiers[0]).toMatchObject(raw.tiers[0]);
     expect(graphics.tiers[1]).toMatchObject(raw.tiers[1]);
+  });
+
+  it("reads reflection probe quality, reporting a bad value and using the High tier's", () => {
+    const ok = parseGraphics({ defaultTier: "A", tiers: [{ name: "A", reflectionProbes: "high" }, { name: "B", reflectionProbes: "off" }] });
+    expect(ok.graphics.tiers.map((t) => t.reflectionProbes)).toEqual(["high", "off"]);
+    expect(ok.problems).toEqual([]);
+    const bad = parseGraphics({ defaultTier: "A", tiers: [{ name: "A", reflectionProbes: "ultra" }] });
+    expect(bad.graphics.tiers[0].reflectionProbes).toBe("medium");
+    expect(bad.problems).toHaveLength(1);
+    expect(bad.problems[0]).toContain("reflectionProbes");
+    expect(defaultGraphics().tiers.map((t) => t.reflectionProbes)).toEqual(["off", "low", "medium", "high"]);
+  });
+
+  it("reads autoDetect and targetFrameRate, defaulting and reporting bad values", () => {
+    const d = parseGraphics(undefined).graphics;
+    expect([d.autoDetect, d.targetFrameRate]).toEqual([false, 60]);
+    const ok = parseGraphics({ autoDetect: true, targetFrameRate: 30 });
+    expect([ok.graphics.autoDetect, ok.graphics.targetFrameRate, ok.problems]).toEqual([true, 30, []]);
+    const bad = parseGraphics({ autoDetect: "yes", targetFrameRate: 500 });
+    expect([bad.graphics.autoDetect, bad.graphics.targetFrameRate]).toEqual([false, 60]);
+    expect(bad.problems).toHaveLength(2);
+    expect(parseGraphics({ targetFrameRate: 10 }).problems).toHaveLength(1);
+    expect(parseGraphics({ targetFrameRate: "60" }).problems).toHaveLength(1);
   });
 
   it("reports a bad boolean or ambient occlusion value and uses the High tier's", () => {

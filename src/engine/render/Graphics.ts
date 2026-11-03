@@ -6,22 +6,74 @@
  */
 import { defaultGraphics, type GraphicsSettings, type QualityTier } from "../core/graphics";
 import { Storage } from "../platform/Storage";
+import { guessTier, tierForGuess, type DeviceInfo } from "./qualityDetect";
 
 /** The Storage key (namespace "settings") holding the player's chosen tier. */
 export const QUALITY_KEY = "graphics.quality";
+/** The Storage key (namespace "settings") holding the tier automatic detection chose (ADR 0055). */
+export const AUTO_QUALITY_KEY = "graphics.autoQuality";
 
 let settings: GraphicsSettings = defaultGraphics();
 let current: QualityTier = settings.tiers.find((t) => t.name === settings.defaultTier)!;
 let version = 0;
+let autoDetected = false;
+let device: DeviceInfo | null = null;
+
+/** What the browser says about the machine (ADR 0055): the GPU's name, cores, memory and screen. Read once. */
+function deviceInfo(): DeviceInfo {
+  if (device) return device;
+  const info: DeviceInfo = {};
+  const nav = globalThis.navigator as (Navigator & { deviceMemory?: number }) | undefined;
+  if (nav?.hardwareConcurrency) info.cores = nav.hardwareConcurrency;
+  if (typeof nav?.deviceMemory === "number") info.memoryGB = nav.deviceMemory;
+  if (typeof screen !== "undefined") info.screenPixels = screen.width * screen.height * (globalThis.devicePixelRatio || 1) ** 2;
+  try {
+    const gl = typeof document !== "undefined" ? document.createElement("canvas").getContext("webgl2") : null;
+    if (gl) {
+      const ext = gl.getExtension("WEBGL_debug_renderer_info");
+      info.gpu = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
+    }
+  } catch {
+    // No GPU name: the guess falls back to the project's default.
+  }
+  return (device = info);
+}
 
 const pick = (name: string | undefined): QualityTier | undefined => (name === undefined ? undefined : settings.tiers.find((t) => t.name === name));
 
 export class Graphics {
-  /** @internal Set by the Engine from `project.json`, with the player's saved choice if it still names a tier. */
-  static _configure(graphics: GraphicsSettings, saved?: unknown): void {
+  /**
+   * @internal Set by the Engine from `project.json`, with the player's saved choice if it still
+   * names a tier, else (with `autoDetect`) the tier detection chose earlier (ADR 0055).
+   */
+  static _configure(graphics: GraphicsSettings, saved?: unknown, auto?: unknown): void {
     settings = graphics;
-    current = pick(typeof saved === "string" ? saved : undefined) ?? pick(graphics.defaultTier) ?? graphics.tiers[0];
+    const player = pick(typeof saved === "string" ? saved : undefined);
+    const detected = graphics.autoDetect && !player ? pick(typeof auto === "string" ? auto : undefined) : undefined;
+    current = player ?? detected ?? pick(graphics.defaultTier) ?? graphics.tiers[0];
+    autoDetected = !!detected;
     version++;
+  }
+
+  /** True when the active tier was chosen by automatic detection (ADR 0055) rather than the player or the project's default. */
+  static get autoDetected(): boolean {
+    return autoDetected;
+  }
+
+  /**
+   * The tier the machine's GPU suggests (ADR 0055), among the project's tiers: a guess from the
+   * GPU's name, cores and memory. It doesn't apply it; set `Graphics.quality` to use it.
+   */
+  static detectQuality(): string {
+    return tierForGuess(guessTier(deviceInfo()).guess, Graphics.tiers, settings.defaultTier);
+  }
+
+  /** @internal The Engine's automatic detection: apply a tier and remember it as detected, not as the player's choice. */
+  static _applyDetected(name: string): void {
+    if (!Graphics._apply(name)) return;
+    autoDetected = true;
+    void Storage.save(AUTO_QUALITY_KEY, name, "settings").catch(() => undefined);
   }
 
   /** @internal Bumped whenever the active tier or its values change, so render backends re-apply it. */
@@ -46,6 +98,7 @@ export class Graphics {
 
   static set quality(name: string) {
     if (!Graphics._apply(name)) return;
+    autoDetected = false;
     void Storage.save(QUALITY_KEY, name, "settings").catch((err) => console.warn("[myco] couldn't save the graphics quality:", err));
   }
 

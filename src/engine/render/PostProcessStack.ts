@@ -10,11 +10,17 @@
  * The composer renders into a half-float target; tone mapping and sRGB output happen in the last pass, so the backend must keep
  * `renderer.toneMapping` at NoToneMapping while this runs. Only `renderer.toneMappingExposure` is touched here.
  *
+ * Overlay mode (ADR 0056): the scene renders on a transparent background and the last pass alpha-blends over the canvas
+ * instead of overwriting it. Viewport (ADR 0056): pmndrs' screen pass calls `renderer.setRenderTarget(null)` and draws a
+ * fullscreen quad without touching the viewport, and three applies the renderer's viewport/scissor when the target is null
+ * (internal targets use their own), so setting the renderer's viewport and scissor around `composer.render` lands the
+ * final pass in the rectangle.
+ *
  * `configure()` rebuilds passes only when the key changes (which effects are on, the AA pass, the AO quality, the
  * scene or the camera); everything else (intensities, radii, multisampling) updates values in place.
  */
 import type { Camera, Scene, WebGLRenderer } from "three";
-import { HalfFloatType, Vector2 } from "three";
+import { Color, HalfFloatType, NormalBlending, Vector2, Vector4 } from "three";
 import type * as PP from "postprocessing";
 
 export type ToneMappingName = "none" | "aces" | "agx" | "neutral";
@@ -37,8 +43,9 @@ export interface PostEffects {
  * Identifies the pass layout: equal keys mean `configure` can update values in place, different keys mean a rebuild.
  * Deliberately excludes every numeric value and the multisample count (a plain property on the composer).
  */
-export function stackKey(effects: PostEffects): string {
+export function stackKey(effects: PostEffects, overlay = false): string {
   return [
+    overlay ? "overlay" : "base",
     effects.toneMapping,
     effects.antialias === "smaa" || effects.antialias === "fxaa" ? effects.antialias : "no-aa-pass",
     effects.bloom ? "bloom" : "-",
@@ -55,9 +62,24 @@ export function composerSamples(effects: PostEffects): number {
   return effects.antialias === "msaa" && !effects.ambientOcclusion ? 4 : 0;
 }
 
+/** A rectangle on the canvas, in CSS pixels from the bottom-left. */
+export interface PostViewport { x: number; y: number; width: number; height: number }
+
+/**
+ * The viewport in whole drawing-buffer pixels: the edges are rounded (not the size), so neighbouring rectangles that share
+ * an edge in CSS pixels share it in buffer pixels too. Width and height are at least 1.
+ */
+export function viewportPixels(viewport: PostViewport, pixelRatio: number): PostViewport {
+  const x0 = Math.round(viewport.x * pixelRatio);
+  const y0 = Math.round(viewport.y * pixelRatio);
+  const x1 = Math.round((viewport.x + viewport.width) * pixelRatio);
+  const y1 = Math.round((viewport.y + viewport.height) * pixelRatio);
+  return { x: x0, y: y0, width: Math.max(1, x1 - x0), height: Math.max(1, y1 - y0) };
+}
+
 /** The structural part of the key plus the objects the passes are bound to. */
-function fullKey(effects: PostEffects, scene: Scene, camera: Camera): string {
-  return `${stackKey(effects)}#${scene.uuid}#${camera.uuid}`;
+function fullKey(effects: PostEffects, scene: Scene, camera: Camera, overlay: boolean): string {
+  return `${stackKey(effects, overlay)}#${scene.uuid}#${camera.uuid}`;
 }
 
 // n8ao ships no type declarations: the little we use of it.
@@ -77,6 +99,8 @@ interface Built {
   ao: N8AOPostPassLike | null;
   main: PP.EffectPass | null;
   aa: PP.EffectPass | null;
+  /** Overlay only: a plain copy to the screen, when no effect or AA pass is last. */
+  copy: PP.CopyPass | null;
   bloom?: PP.BloomEffect;
   grade?: { hs: PP.HueSaturationEffect; bc: PP.BrightnessContrastEffect };
   vignette?: PP.VignetteEffect;
@@ -106,9 +130,10 @@ export class PostProcessStack {
   }
 
   /** Use these effects for `scene` seen by `camera`. Rebuilds the passes only when the structure changes; otherwise updates values in place. */
-  configure(effects: PostEffects, scene: Scene, camera: Camera): void {
-    const key = fullKey(effects, scene, camera);
-    if (!this.built || this.built.key !== key) this.build(key, effects, scene, camera);
+  configure(effects: PostEffects, scene: Scene, camera: Camera, options?: { overlay?: boolean }): void {
+    const overlay = options?.overlay === true;
+    const key = fullKey(effects, scene, camera, overlay);
+    if (!this.built || this.built.key !== key) this.build(key, effects, scene, camera, overlay);
     this.update(effects);
   }
 
@@ -120,10 +145,33 @@ export class PostProcessStack {
     this.composer.setSize(this.width, this.height, false);
   }
 
-  /** Render to the canvas (clears it first). */
-  render(deltaSeconds: number): void {
+  /**
+   * Render to the canvas (clears it first, unless this is an overlay). With a `viewport` (CSS pixels from the canvas's
+   * bottom-left) only that rectangle is drawn; the caller sizes the stack to the viewport with `setSize`.
+   */
+  render(deltaSeconds: number, viewport?: PostViewport): void {
     if (!this.built) return;
-    this.composer.render(deltaSeconds);
+    if (!viewport) {
+      this.composer.render(deltaSeconds);
+      return;
+    }
+    const r = this.renderer;
+    const ratio = r.getPixelRatio();
+    const px = viewportPixels(viewport, ratio);
+    const prevViewport = r.getViewport(new Vector4());
+    const prevScissor = r.getScissor(new Vector4());
+    const prevScissorTest = r.getScissorTest();
+    // The renderer multiplies by the pixel ratio and rounds; dividing the whole-pixel values first round-trips them.
+    r.setViewport(px.x / ratio, px.y / ratio, px.width / ratio, px.height / ratio);
+    r.setScissor(px.x / ratio, px.y / ratio, px.width / ratio, px.height / ratio);
+    r.setScissorTest(true);
+    try {
+      this.composer.render(deltaSeconds);
+    } finally {
+      r.setViewport(prevViewport);
+      r.setScissor(prevScissor);
+      r.setScissorTest(prevScissorTest);
+    }
   }
 
   dispose(): void {
@@ -139,13 +187,19 @@ export class PostProcessStack {
     this.composer.removeAllPasses();
     if (!b) return;
     // EffectPass.dispose() disposes its effects too.
-    for (const pass of [b.render, b.ao, b.main, b.aa]) pass?.dispose();
+    for (const pass of [b.render, b.ao, b.main, b.aa, b.copy]) pass?.dispose();
   }
 
-  private build(key: string, e: PostEffects, scene: Scene, camera: Camera): void {
+  private build(key: string, e: PostEffects, scene: Scene, camera: Camera, overlay: boolean): void {
     this.teardown();
     const pp = this.pp;
-    const b: Built = { key, render: new pp.RenderPass(scene, camera), ao: null, main: null, aa: null };
+    const b: Built = { key, render: new pp.RenderPass(scene, camera), ao: null, main: null, aa: null, copy: null };
+    if (overlay) {
+      // Transparent background: ignore the scene's and clear to alpha 0 (the stack never clears the canvas itself).
+      b.render.ignoreBackground = true;
+      b.render.clearPass.overrideClearColor = new Color(0, 0, 0);
+      b.render.clearPass.overrideClearAlpha = 0;
+    }
     this.composer.setMainScene(scene);
     this.composer.setMainCamera(camera);
     this.composer.addPass(b.render);
@@ -188,6 +242,20 @@ export class PostProcessStack {
     if (e.antialias === "smaa") b.aa = new pp.EffectPass(camera, new pp.SMAAEffect({}));
     else if (e.antialias === "fxaa") b.aa = new pp.EffectPass(camera, new pp.FXAAEffect({}));
     if (b.aa) this.composer.addPass(b.aa);
+
+    if (overlay) {
+      // A lone RenderPass would render straight to the canvas and clear it; always finish with a blended screen pass.
+      if (!b.aa && !b.main) {
+        b.copy = new pp.CopyPass();
+        this.composer.addPass(b.copy);
+      }
+      // pmndrs' fullscreen materials default to NoBlending; blend the (straight-alpha) result over the canvas instead.
+      const last = b.aa ?? b.main ?? b.copy;
+      if (last) {
+        last.fullscreenMaterial.transparent = true;
+        last.fullscreenMaterial.blending = NormalBlending;
+      }
+    }
 
     this.built = b;
   }

@@ -199,7 +199,10 @@ export const moveAutoload = (d: SettingsDraft, index: number, by: number): Setti
 /** The draft's tiers (leniently read: the default tiers when there's no section). */
 export const graphicsOf = (d: SettingsDraft): GraphicsSettings => parseGraphics(d.graphics).graphics;
 
-const withGraphics = (draft: SettingsDraft, tiers: QualityTier[], defaultName: string): SettingsDraft => ({ ...draft, graphics: { defaultTier: defaultName, tiers } });
+const withGraphics = (draft: SettingsDraft, tiers: QualityTier[], defaultName: string): SettingsDraft => {
+  const g = graphicsOf(draft);
+  return { ...draft, graphics: { ...draft.graphics, defaultTier: defaultName, tiers, autoDetect: g.autoDetect, targetFrameRate: g.targetFrameRate } };
+};
 
 /** The highest tier's name (the last: tiers run lowest first). */
 const highest = (tiers: readonly QualityTier[]) => tiers[tiers.length - 1].name;
@@ -235,13 +238,25 @@ export function moveTier(draft: SettingsDraft, index: number, by: number): Setti
   return withGraphics(draft, moved(g.tiers, index, by), g.defaultTier);
 }
 
-export type TierValueKey = "renderScale" | "antialias" | "shadows" | "shadowCascades" | "shadowDistance" | "anisotropy" | "shaderLevel" | "postProcessing" | "bloom" | "ambientOcclusion" | "depthOfField";
+export type TierValueKey = "renderScale" | "antialias" | "shadows" | "shadowCascades" | "shadowDistance" | "anisotropy" | "shaderLevel" | "postProcessing" | "bloom" | "ambientOcclusion" | "depthOfField" | "reflectionProbes";
 
 /** Set one value of a tier (as given: a bad one is reported by `settingsProblems`). */
 export function setTierValue(draft: SettingsDraft, index: number, key: TierValueKey, value: unknown): SettingsDraft {
   const g = graphicsOf(draft);
   if (g.tiers[index] === undefined) return draft;
   return withGraphics(draft, g.tiers.map((t, i) => (i === index ? { ...t, [key]: value } : t)), g.defaultTier);
+}
+
+/** Turn automatic tier detection on or off (ADR 0055). */
+export function setAutoDetect(draft: SettingsDraft, on: boolean): SettingsDraft {
+  const g = graphicsOf(draft);
+  return { ...draft, graphics: { ...withGraphics(draft, g.tiers, g.defaultTier).graphics, autoDetect: on } };
+}
+
+/** Set the frame rate automatic detection aims for (as given: a bad one is reported by `settingsProblems`). */
+export function setTargetFrameRate(draft: SettingsDraft, fps: number): SettingsDraft {
+  const g = graphicsOf(draft);
+  return { ...draft, graphics: { ...withGraphics(draft, g.tiers, g.defaultTier).graphics, targetFrameRate: fps } };
 }
 
 export function setDefaultTier(draft: SettingsDraft, name: string): SettingsDraft {

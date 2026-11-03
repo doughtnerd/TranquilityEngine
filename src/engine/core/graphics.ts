@@ -6,9 +6,11 @@
  * ```jsonc
  * "graphics": {
  *   "defaultTier": "High",
+ *   "autoDetect": false,
+ *   "targetFrameRate": 60,
  *   "tiers": [
- *     { "name": "Low", "renderScale": 0.75, "antialias": "off", "shadows": "low", "shadowCascades": 1, "shadowDistance": 30, "anisotropy": 1, "shaderLevel": "low", "postProcessing": false, "bloom": false, "ambientOcclusion": "off", "depthOfField": false },
- *     { "name": "High", "renderScale": 1, "antialias": "msaa", "shadows": "high", "shadowCascades": 3, "shadowDistance": 80, "anisotropy": 8, "shaderLevel": "high", "postProcessing": true, "bloom": true, "ambientOcclusion": "medium", "depthOfField": true }
+ *     { "name": "Low", "renderScale": 0.75, "antialias": "off", "shadows": "low", "shadowCascades": 1, "shadowDistance": 30, "anisotropy": 1, "shaderLevel": "low", "postProcessing": false, "bloom": false, "ambientOcclusion": "off", "depthOfField": false, "reflectionProbes": "off" },
+ *     { "name": "High", "renderScale": 1, "antialias": "msaa", "shadows": "high", "shadowCascades": 3, "shadowDistance": 80, "anisotropy": 8, "shaderLevel": "high", "postProcessing": true, "bloom": true, "ambientOcclusion": "medium", "depthOfField": true, "reflectionProbes": "medium" }
  *   ]
  * }
  * ```
@@ -31,6 +33,13 @@ export const AO_QUALITIES: readonly AOQuality[] = ["off", "low", "medium", "high
 /** The level shader graphs' Quality Branch nodes take (ADR 0050). */
 export type ShaderLevel = "low" | "medium" | "high";
 export const SHADER_LEVELS: readonly ShaderLevel[] = ["low", "medium", "high"];
+
+/**
+ * Reflection probe capture resolution (ADR 0054): off (probes ignored, the global environment
+ * only), or low/medium/high for 128/256/512 pixels per cube face.
+ */
+export type ProbeQualityName = "off" | "low" | "medium" | "high";
+export const PROBE_QUALITIES: readonly ProbeQualityName[] = ["off", "low", "medium", "high"];
 
 /** One quality tier. */
 export interface QualityTier {
@@ -61,6 +70,8 @@ export interface QualityTier {
   ambientOcclusion: AOQuality;
   /** Whether depth of field may run (needs `postProcessing`; a camera's PostProcessing component must ask for it). */
   depthOfField: boolean;
+  /** Reflection probe capture resolution (ADR 0054): "off" ignores probes; low/medium/high capture 128/256/512 px per face. */
+  reflectionProbes: ProbeQualityName;
 }
 
 export interface GraphicsSettings {
@@ -68,16 +79,22 @@ export interface GraphicsSettings {
   tiers: QualityTier[];
   /** The tier used until the player picks one. */
   defaultTier: string;
+  /** Pick the tier from the GPU on first run, and step down if the frame rate falls short (ADR 0055). */
+  autoDetect: boolean;
+  /** The frame rate automatic detection aims for (20–240). */
+  targetFrameRate: number;
 }
 
 /** The tiers a project gets when its `project.json` has no `graphics` section. */
 export const defaultGraphics = (): GraphicsSettings => ({
   defaultTier: "High",
+  autoDetect: false,
+  targetFrameRate: 60,
   tiers: [
-    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", shadowCascades: 1, shadowDistance: 30, anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false },
-    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", shadowCascades: 2, shadowDistance: 50, anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false },
-    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true },
-    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 120, anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true },
+    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", shadowCascades: 1, shadowDistance: 30, anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off" },
+    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", shadowCascades: 2, shadowDistance: 50, anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "low" },
+    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium" },
+    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 120, anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, reflectionProbes: "high" },
   ],
 });
 
@@ -85,7 +102,7 @@ export const defaultGraphics = (): GraphicsSettings => ({
 export const defaultTier = (name: string): QualityTier => ({ ...defaultGraphics().tiers[2], name });
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField"];
+const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField", "reflectionProbes"];
 
 /**
  * Read a `graphics` section leniently: bad values are reported and replaced by the default
@@ -95,7 +112,7 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
   const problems: string[] = [];
   if (raw === undefined) return { graphics: defaultGraphics(), problems };
   if (!isObject(raw)) return { graphics: defaultGraphics(), problems: [`${where} must be an object with "tiers" and "defaultTier"; using the default tiers.`] };
-  for (const key of Object.keys(raw)) if (key !== "tiers" && key !== "defaultTier") problems.push(`${where}: unknown setting "${key}".`);
+  for (const key of Object.keys(raw)) if (key !== "tiers" && key !== "defaultTier" && key !== "autoDetect" && key !== "targetFrameRate") problems.push(`${where}: unknown setting "${key}".`);
   const tiers: QualityTier[] = [];
   if (Array.isArray(raw.tiers)) {
     raw.tiers.forEach((t: unknown, i) => {
@@ -127,7 +144,7 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
         if (typeof t.anisotropy === "number" && Number.isInteger(t.anisotropy) && t.anisotropy >= 1 && t.anisotropy <= 16) tier.anisotropy = t.anisotropy;
         else bad("anisotropy", "a whole number from 1 to 16");
       }
-      const choice = <K extends "antialias" | "shadows" | "shaderLevel" | "ambientOcclusion">(key: K, options: readonly QualityTier[K][]) => {
+      const choice = <K extends "antialias" | "shadows" | "shaderLevel" | "ambientOcclusion" | "reflectionProbes">(key: K, options: readonly QualityTier[K][]) => {
         const v = t[key];
         if (v === undefined) return;
         if (options.includes(v as QualityTier[K])) tier[key] = v as QualityTier[K];
@@ -137,6 +154,7 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
       choice("shadows", SHADOW_QUALITIES);
       choice("shaderLevel", SHADER_LEVELS);
       choice("ambientOcclusion", AO_QUALITIES);
+      choice("reflectionProbes", PROBE_QUALITIES);
       for (const key of ["postProcessing", "bloom", "depthOfField"] as const) {
         if (t[key] === undefined) continue;
         if (typeof t[key] === "boolean") tier[key] = t[key] as boolean;
@@ -155,5 +173,15 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
     if (raw.defaultTier !== undefined) problems.push(`${where}.defaultTier names no tier (${JSON.stringify(raw.defaultTier)}); using "${fallback}".`);
     chosen = fallback;
   }
-  return { graphics: { tiers, defaultTier: chosen }, problems };
+  let autoDetect = false;
+  if (raw.autoDetect !== undefined) {
+    if (typeof raw.autoDetect === "boolean") autoDetect = raw.autoDetect;
+    else problems.push(`${where}.autoDetect should be true or false; using false.`);
+  }
+  let targetFrameRate = 60;
+  if (raw.targetFrameRate !== undefined) {
+    if (typeof raw.targetFrameRate === "number" && raw.targetFrameRate >= 20 && raw.targetFrameRate <= 240) targetFrameRate = raw.targetFrameRate;
+    else problems.push(`${where}.targetFrameRate should be a number from 20 to 240; using 60.`);
+  }
+  return { graphics: { tiers, defaultTier: chosen, autoDetect, targetFrameRate }, problems };
 }

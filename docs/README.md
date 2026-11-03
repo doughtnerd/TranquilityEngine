@@ -79,6 +79,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0051](decisions/0051-post-processing.md) | Post-processing on pmndrs `postprocessing` and N8AO, set by a PostProcessing component and gated by quality tier | Accepted |
 | [0052](decisions/0052-physical-materials.md) | A physical material and graph target for clearcoat, sheen, transmission, iridescence and anisotropy | Accepted |
 | [0053](decisions/0053-environments-and-cascaded-shadows.md) | HDR environments and skyboxes through an Environment component; cascaded shadows set by quality tier | Accepted |
+| [0054](decisions/0054-reflection-probes.md) | Reflection probes capture local environment maps for the meshes inside them | Proposed |
+| [0055](decisions/0055-automatic-quality-detection.md) | Automatic graphics quality: a first guess from the GPU, then adjusting to the frame rate | Proposed |
+| [0056](decisions/0056-camera-viewports-and-per-camera-effects.md) | Camera viewports, and post-processing on every camera | Proposed |
 
 ## Working with decisions
 
