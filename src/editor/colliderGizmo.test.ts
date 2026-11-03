@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Engine } from "../engine";
+import { Engine, PolygonCollider2D } from "../engine";
+import { AddComponent, SetField } from "./document";
 import { colliderOverlay } from "./colliderGizmo";
 import { MIN_EXTENT, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";
 import { openSceneFile } from "./project";
-import { editingCollider, selection } from "./state";
+import { editingCollider, openScene, selection } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
@@ -99,5 +100,22 @@ describe("the overlay with the demo scene open", () => {
 
     selection.value = "bird"; // a stale edit target draws nothing
     expect(colliderOverlay(engine).handles).toEqual([]);
+  });
+
+  it("outlines polygon (closed) and edge (open) colliders, with vertex and insert handles when edited (ADR 0039)", () => {
+    const { stack, sync } = openScene.value!;
+    stack.execute(new AddComponent("bird", { type: "engine.PolygonCollider2D", data: { points: [[0, 0], [1, 0], [0, 1]] } }));
+    stack.execute(new AddComponent("bird", { type: "engine.EdgeCollider2D", data: { points: [[0, 0], [2, 0]] } }));
+    const node = sync.nodeFor("bird")!;
+    expect(node.getBehavior(PolygonCollider2D)!.points).toEqual([[0, 0], [1, 0], [0, 1]]);
+    selection.value = "bird";
+    const lines = colliderOverlay(engine).lines;
+    expect(lines.filter((l) => l.points.length === 3 && l.closed)).toHaveLength(1);
+    expect(lines.filter((l) => l.points.length === 2 && !l.closed)).toHaveLength(1);
+    editingCollider.value = { key: "bird", type: "engine.PolygonCollider2D", index: 0 };
+    const ids = colliderOverlay(engine).handles.map((h) => h.id).sort();
+    expect(ids).toEqual(["center", "insert:0", "insert:1", "insert:2", "vertex:0", "vertex:1", "vertex:2"]);
+    stack.execute(new SetField("bird", "engine.PolygonCollider2D", "points", [[0, 0], [1, 0], [1, 1], [0, 1]]));
+    expect(colliderOverlay(engine).handles.filter((h) => h.id.startsWith("vertex:"))).toHaveLength(4);
   });
 });

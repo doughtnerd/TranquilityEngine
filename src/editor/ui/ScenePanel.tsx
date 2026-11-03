@@ -1,7 +1,9 @@
 import { effect } from "@preact/signals";
 import { useLayoutEffect, useRef } from "preact/hooks";
+import { cleanSnap, snapSettings } from "../sceneTools";
 import { pickTool, playState, sceneCamera, setViewMode, snapping, tool, viewMode, type Tool } from "../state";
 import { ViewportDropHighlight } from "./AssetDragOverlay";
+import { CameraPreviewFrame, SceneToolButtons } from "./SceneTools";
 
 /** The elements the engines render into: kept for the whole session, whichever dock shows the scene. */
 let elements: { viewport: HTMLDivElement; gameView: HTMLDivElement } | null = null;
@@ -45,6 +47,7 @@ export function ScenePanel() {
       <div class="viewport-panel">
         <div ref={host} class="viewport-host" />
         <ViewportHint />
+        <CameraPreviewFrame />
         <ViewportDropHighlight />
       </div>
     </div>
@@ -87,6 +90,7 @@ function SceneToolbar() {
       <button title="Frame the selection, or the origin (F)" onClick={() => sceneCamera.value?.focus()}>
         Focus
       </button>
+      <SceneToolButtons />
     </div>
   );
 }
@@ -96,6 +100,7 @@ function ViewportHint() {
     viewMode.value === "3d"
       ? "Orbit: right-drag or Alt + left-drag · Pan: middle-drag or Shift + right-drag · Zoom: wheel · Focus: F"
       : "Pan: right- or middle-drag · Zoom: wheel · Focus: F";
-  const gizmo = tool.value === "select" ? "" : ` · Hold Ctrl to snap${snapping.value ? " (on)" : ""}`;
+  const always = cleanSnap(snapSettings.value).always;
+  const gizmo = tool.value === "select" ? "" : always ? " · Snapping" : ` · Hold Ctrl to snap${snapping.value ? " (on)" : ""}`;
   return <div class="viewport-hint">{text + gizmo}</div>;
 }

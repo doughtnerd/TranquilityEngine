@@ -2,7 +2,7 @@
 // anything unreadable falls back to the default).
 import { effect, signal, type Signal } from "@preact/signals";
 
-function persisted<T>(key: string, fallback: T): Signal<T> {
+export function persisted<T>(key: string, fallback: T): Signal<T> {
   let initial = fallback;
   try {
     // Fall back to the key under the engine's former name (ADR 0037), so preferences carry over.
