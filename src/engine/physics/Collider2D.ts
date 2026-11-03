@@ -58,6 +58,47 @@ export class CircleCollider2D extends Collider2D {
   }
 }
 
+/** A collider outline point in local units, as `[x, y]` (scene files store points the same way). */
+export type ColliderPoint2D = [number, number];
+
+/**
+ * A polygon collider (ADR 0039): the outline through `points`, in order, closed back to the first.
+ * Points are in local units, scaled, rotated and offset (`center`) with the node like the other
+ * colliders. Either winding works. A concave polygon is split into convex parts; one that crosses
+ * itself collides along its outline only.
+ */
+@component("engine.PolygonCollider2D")
+export class PolygonCollider2D extends Collider2D {
+  /** The outline's vertices, at least 3. Changes (even in place) rebuild the shape on the next physics step. */
+  @field(PlainObject) points: ColliderPoint2D[] = [
+    [-0.5, -0.5],
+    [0.5, -0.5],
+    [0.5, 0.5],
+    [-0.5, 0.5],
+  ];
+
+  override _shapeSignature(): string {
+    return `polygon:${JSON.stringify(this.points)}`;
+  }
+}
+
+/**
+ * An edge collider (ADR 0039): an open polyline through `points`, in local units. It has no
+ * inside, so it suits ground, walls and slopes.
+ */
+@component("engine.EdgeCollider2D")
+export class EdgeCollider2D extends Collider2D {
+  /** The line's vertices, at least 2. Changes (even in place) rebuild the shape on the next physics step. */
+  @field(PlainObject) points: ColliderPoint2D[] = [
+    [-0.5, 0],
+    [0.5, 0],
+  ];
+
+  override _shapeSignature(): string {
+    return `edge:${JSON.stringify(this.points)}`;
+  }
+}
+
 /** Passed to onCollisionEnter/Exit. */
 export interface Collision2D {
   /** The other collider. */

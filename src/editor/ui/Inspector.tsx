@@ -274,7 +274,7 @@ function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
   );
 }
 
-const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D"]);
+const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D"]);
 
 /** One component, shared by every node in `paths` (`infos` holds each node's copy, in the same order). */
 /** Where a dragged component would land: next to the component `type`#`index`, before or after it. */
@@ -393,7 +393,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
           <button
             class={`edit-collider${editing ? " active" : ""}`}
             aria-pressed={editing}
-            title={editing ? "Stop editing the collider (handles hide, the transform gizmo returns)" : "Show handles in the viewport to resize this collider and move its center"}
+            title={editing ? "Stop editing the collider (handles hide, the transform gizmo returns)" : info.type.endsWith("PolygonCollider2D") || info.type.endsWith("EdgeCollider2D") ? "Show handles in the viewport: drag vertices, press an edge's middle handle to add one, Ctrl+click a vertex to remove it" : "Show handles in the viewport to resize this collider and move its center"}
             onClick={() => (editingCollider.value = editing ? null : { key, type: info.type as "engine.BoxCollider2D", index: info.index })}
           >
             Edit Collider

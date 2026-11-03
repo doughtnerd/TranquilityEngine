@@ -52,8 +52,16 @@ export interface GizmoOptions {
   mode: "translate" | "rotate" | "scale";
   /** 2D view: move/scale on X and Y only, rotate around Z only. */
   planar: boolean;
-  /** Snap to 0.25 m, 15° or 0.1 scale steps. */
+  /** Snap drags to `snapSteps` (default 0.25 m, 15° and 0.1 scale steps). */
   snap: boolean;
+  /** Snap steps: metres for moves, degrees for turns, a factor for scaling. */
+  snapSteps?: { move: number; rotate: number; scale: number };
+  /** Move and turn along the world's axes (default) or the node's own (the active node's for several). */
+  space?: "world" | "local";
+  /** Several nodes: the gizmo sits at their centre (default) or on the active node's origin. */
+  pivot?: "center" | "pivot";
+  /** Which of the nodes is the active one (default: the last). */
+  activeIndex?: number;
 }
 
 /** @internal Editor overlay (e.g. collider outlines and handles), supplied every frame by the editor. */
@@ -156,8 +164,9 @@ export class RenderBackend {
     // empty scene has a frame of reference.
     this.fill = kind === "editor";
     if (kind === "editor") {
-      this.grid = new GridHelper(40, 40, 0x5a606b, 0x3a3f47);
-      this.scene.add(this.grid, new AxesHelper(1.5));
+      this.grid = makeGrid(1);
+      this.axes = new AxesHelper(1.5);
+      this.scene.add(this.grid, this.axes);
     }
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -167,11 +176,36 @@ export class RenderBackend {
 
   private readonly fill: boolean;
   private grid: GridHelper | null = null;
+  private axes: AxesHelper | null = null;
+  private gridPlane: "xz" | "xy" = "xz";
+  private gridCell = 1;
 
   /** @internal Editor: lay the grid on the ground (XZ, 3D view) or facing the camera (XY, 2D view). */
   setEditorGridPlane(plane: "xz" | "xy"): void {
+    this.gridPlane = plane;
     if (!this.grid) return;
     this.grid.rotation.x = plane === "xy" ? Math.PI / 2 : 0;
+  }
+
+  /** @internal Editor: the grid's cell size in metres, and whether it shows. */
+  setEditorGrid(cellSize: number, visible: boolean): void {
+    if (!this.grid) return;
+    const cell = cellSize > 0 && Number.isFinite(cellSize) ? cellSize : 1;
+    if (cell !== this.gridCell) {
+      this.scene.remove(this.grid);
+      this.grid.geometry.dispose();
+      (this.grid.material as LineBasicMaterial).dispose();
+      this.grid = makeGrid(cell);
+      this.gridCell = cell;
+      this.scene.add(this.grid);
+      this.setEditorGridPlane(this.gridPlane);
+    }
+    this.grid.visible = visible;
+  }
+
+  /** @internal Editor: the grid's cell size, line count and visibility (for tests). */
+  editorGrid(): { cellSize: number; visible: boolean; divisions: number } | null {
+    return this.grid ? { cellSize: this.gridCell, visible: this.grid.visible, divisions: gridDivisions(this.gridCell) } : null;
   }
 
   /** Width / height that cameras render at: the canvas when filling, else the reference resolution. */
@@ -450,6 +484,63 @@ export class RenderBackend {
     });
     r.clearDepth();
     r.render(this.uiScene, this.uiCamera);
+    if (this.fill) this.renderCameraPreview();
+  }
+
+  // --- Editor: camera preview (ADR 0022) --------------------------------------------------------
+
+  private preview: { camera: Camera; frame: HTMLElement } | null = null;
+  /** @internal Editor: true if the last frame drew a camera preview. */
+  cameraPreviewDrawn = false;
+
+  /**
+   * @internal Editor: draw what `camera` (a camera in the edited scene) sees into the part of the
+   * canvas under `frame`, picture-in-picture, without the editor's grid, gizmos and overlays.
+   * Null stops.
+   */
+  setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void {
+    this.preview = camera && frame ? { camera, frame } : null;
+  }
+
+  private renderCameraPreview(): void {
+    this.cameraPreviewDrawn = false;
+    const p = this.preview;
+    const entry = p && p.camera.node.isValid && p.camera.isActiveAndEnabled ? this.cameras.get(p.camera) : undefined;
+    if (!p || !entry) return;
+    const canvasRect = this.canvas.getBoundingClientRect(), frame = p.frame.getBoundingClientRect();
+    const x = frame.left - canvasRect.left, y = frame.top - canvasRect.top, w = frame.width, h = frame.height;
+    const cw = this.canvas.clientWidth, ch = this.canvas.clientHeight;
+    if (w < 2 || h < 2 || cw <= 0 || ch <= 0) return;
+    const camera = entry.camera;
+    const aspect = w / h;
+    if (camera instanceof OrthographicCamera) {
+      const s = p.camera.orthographicSize;
+      camera.left = -s * aspect;
+      camera.right = s * aspect;
+    } else {
+      camera.aspect = aspect;
+    }
+    camera.updateProjectionMatrix(); // the next sync puts the editor's aspect back
+    // The game's view has none of the editor's helpers.
+    const helpers: (Object3D | null)[] = [this.grid, this.axes, this.overlayLines, this.overlayHandles, this.gizmo?.getHelper() ?? null, ...this.outlines];
+    for (const g of this.cameraGizmos.values()) helpers.push(g.icon, g.frustum);
+    const shown = helpers.filter((o): o is Object3D => !!o && o.visible);
+    for (const o of shown) o.visible = false;
+    const r = this.renderer;
+    const bottom = ch - y - h;
+    r.setScissorTest(true);
+    r.setViewport(x, bottom, w, h);
+    r.setScissor(x, bottom, w, h);
+    const bg = p.camera.backgroundColor;
+    r.setClearColor(bg ? new ThreeColor(bg.toHex()) : this.clearColor, 1);
+    r.clear(true, true, true);
+    r.render(this.scene, camera);
+    r.clearDepth();
+    r.render(this.uiScene, this.uiCamera);
+    r.setScissorTest(false);
+    r.setViewport(0, 0, cw, ch);
+    for (const o of shown) o.visible = true;
+    this.cameraPreviewDrawn = true;
   }
 
   /**
@@ -904,13 +995,16 @@ export class RenderBackend {
     const c = this.gizmo;
     if (!c) return;
     const { mode, planar, snap } = this.gizmoOptions;
+    const steps = this.gizmoOptions.snapSteps ?? { move: 0.25, rotate: 15, scale: 0.1 };
+    const step = (n: number) => (n > 0 && Number.isFinite(n) ? n : null);
     c.setMode(mode);
+    c.setSpace(this.gizmoOptions.space === "local" ? "local" : "world");
     c.showX = !(planar && mode === "rotate");
     c.showY = !(planar && mode === "rotate");
     c.showZ = !planar || mode === "rotate";
-    c.setTranslationSnap(snap ? 0.25 : null);
-    c.setRotationSnap(snap ? Math.PI / 12 : null);
-    c.setScaleSnap(snap ? 0.1 : null);
+    c.setTranslationSnap(snap ? step(steps.move) : null);
+    c.setRotationSnap(snap && step(steps.rotate) ? (steps.rotate * Math.PI) / 180 : null);
+    c.setScaleSnap(snap ? step(steps.scale) : null);
   }
 
   private gizmoMatrices(world: World): { proxy: Matrix4; targets: Matrix4[] } {
@@ -965,10 +1059,17 @@ export class RenderBackend {
         tmpWorld.fromArray(world.worldMatrix(e), e * 16);
         tmpWorld.decompose(proxy.position, proxy.quaternion, proxy.scale);
       } else {
-        proxy.position.set(0, 0, 0);
-        for (const n of nodes) proxy.position.add(tmpPoint.setFromMatrixPosition(tmpWorld.fromArray(world.worldMatrix(n.entity), n.entity * 16)));
-        proxy.position.divideScalar(nodes.length);
-        proxy.quaternion.identity();
+        // Several: at their centre or on the active node's origin; turned like the active node in local space.
+        const { pivot, space, activeIndex } = this.gizmoOptions;
+        const active = nodes[Math.min(Math.max(activeIndex ?? nodes.length - 1, 0), nodes.length - 1)];
+        tmpWorld.fromArray(world.worldMatrix(active.entity), active.entity * 16);
+        tmpWorld.decompose(proxy.position, proxy.quaternion, proxy.scale);
+        if (pivot !== "pivot") {
+          proxy.position.set(0, 0, 0);
+          for (const n of nodes) proxy.position.add(tmpPoint.setFromMatrixPosition(tmpWorld.fromArray(world.worldMatrix(n.entity), n.entity * 16)));
+          proxy.position.divideScalar(nodes.length);
+        }
+        if (space !== "local") proxy.quaternion.identity();
         proxy.scale.set(1, 1, 1);
       }
       proxy.updateMatrixWorld(true);
@@ -993,6 +1094,17 @@ export class RenderBackend {
     this.renderer.dispose();
     this.canvas.remove();
   }
+}
+
+/** Grid lines per side for a cell size: about 40 m across, between 10 and 400 lines. */
+function gridDivisions(cell: number): number {
+  return Math.min(400, Math.max(10, Math.round(40 / cell)));
+}
+
+/** The editor grid: `cell` metres between lines. */
+function makeGrid(cell: number): GridHelper {
+  const n = gridDivisions(cell);
+  return new GridHelper(n * cell, n, 0x5a606b, 0x3a3f47);
 }
 
 /** A small camera glyph for editor camera icons: a body and lens, light with a dark outline. */

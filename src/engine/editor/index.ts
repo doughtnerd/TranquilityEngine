@@ -15,7 +15,7 @@ import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from 
 import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
 import type { EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
-import { SpriteRenderer } from "../render/components";
+import { Camera, SpriteRenderer } from "../render/components";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 import type { Schema } from "../core/data";
@@ -331,6 +331,59 @@ export function localPoseUnder(node: GameObject, parent: GameObject | null): Loc
   m.decompose(position, quaternion, scale);
   const parentWorld = parent ? new Matrix4().fromArray(world.worldMatrix(parent.entity), parent.entity * 16) : null;
   return localPoseFromWorld(parentWorld, position, quaternion, scale);
+}
+
+/** Set the scene view grid's cell size (metres) and whether it shows. No-op headless. */
+export function setEditorGrid(world: World, cellSize: number, visible: boolean): void {
+  world.render?.setEditorGrid(cellSize, visible);
+}
+
+/** The scene view grid's cell size, lines per side and visibility; null headless. */
+export function editorGrid(world: World): { cellSize: number; visible: boolean; divisions: number } | null {
+  return world.render?.editorGrid() ?? null;
+}
+
+/**
+ * Draw what the Camera on `camera` sees into the canvas under `frame`, picture-in-picture (null
+ * stops). The camera is one in the edited scene; the editor's helpers aren't drawn. No-op headless.
+ */
+export function setCameraPreview(world: World, camera: GameObject | null, frame: HTMLElement | null): void {
+  world.render?.setCameraPreview(camera?.getBehavior(Camera) ?? null, frame);
+}
+
+/** True if the last frame drew a camera preview. */
+export function cameraPreviewDrawn(world: World): boolean {
+  return world.render?.cameraPreviewDrawn ?? false;
+}
+
+/**
+ * The world-space box around `node`'s sprite (its quad's corners through the node's world
+ * matrix), or around its origin when it has none (or the texture isn't loaded, or headless).
+ */
+export function worldBounds(node: GameObject): { min: [number, number, number]; max: [number, number, number] } {
+  const world = node.world;
+  const m = new Matrix4().fromArray(world.worldMatrix(node.entity), node.entity * 16);
+  const size = spriteSize(node);
+  const corners = size
+    ? [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(([x, y]) => new ThreeVector3(x * size[0], y * size[1], 0).applyMatrix4(m))
+    : [new ThreeVector3().setFromMatrixPosition(m)];
+  const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (const c of corners) {
+    const a = c.toArray();
+    for (let i = 0; i < 3; i++) {
+      min[i] = Math.min(min[i], a[i]);
+      max[i] = Math.max(max[i], a[i]);
+    }
+  }
+  return { min, max };
+}
+
+/** A world point in `node`'s parent's space: the local position that puts `node`'s origin there. */
+export function localPositionFor(node: GameObject, point: readonly number[]): [number, number, number] {
+  const parent = node.parent;
+  const p = new ThreeVector3(point[0], point[1], point[2] ?? 0);
+  if (parent?.transform) p.applyMatrix4(new Matrix4().fromArray(node.world.worldMatrix(parent.entity), parent.entity * 16).invert());
+  return [p.x, p.y, p.z];
 }
 
 export type { EditorOverlay } from "../render/RenderBackend";

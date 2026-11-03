@@ -28,7 +28,7 @@ export { Assets, type AssetSource } from "./scene/Assets";
 export { Camera, SpriteRenderer, Text, type Anchor, type Projection } from "./render/components";
 
 export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
-export { BoxCollider2D, CircleCollider2D, Collider2D, type Collision2D } from "./physics/Collider2D";
+export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D } from "./physics/Collider2D";
 export { Physics2D, type RaycastHit2D } from "./physics/Physics2D";
 export { CollisionEvents2D, TriggerEvents2D, type PhysicsEvent2D } from "./physics/Physics2DWorld";
 

@@ -1,0 +1,49 @@
+/* Scene view tool settings (ADR 0022): toolbar toggles, snap and align popovers, camera preview. */
+.scene-toolbar button.active,
+.scene-toolbar button[aria-pressed="true"].snap-toggle,
+.scene-toolbar button[aria-pressed="true"].camera-preview-toggle { background: var(--accent); border-color: var(--accent); color: #fff; }
+.scene-toolbar .snap-settings { padding: 2px 6px; }
+
+.scene-popover {
+  position: fixed;
+  z-index: 40;
+  min-width: 200px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.snap-form { display: grid; gap: 6px; }
+.snap-row { display: grid; grid-template-columns: 1fr 64px 14px; align-items: center; gap: 6px; }
+.snap-row input[type="text"] { width: 100%; box-sizing: border-box; }
+.snap-row .unit { color: var(--muted); }
+.snap-row.check { grid-template-columns: auto 1fr; }
+
+.align-grid { display: grid; gap: 4px; }
+.align-row { display: flex; gap: 4px; }
+.align-row button { flex: 1; padding: 2px 8px; font-size: 12px; white-space: nowrap; }
+
+.camera-preview {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: clamp(160px, 28%, 360px);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
+  pointer-events: none; /* the scene view underneath keeps its clicks */
+}
+.camera-preview-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 1px 6px;
+  background: rgb(0 0 0 / 0.55);
+  color: var(--text);
+  font-size: 11px;
+}
+.editor.playing .camera-preview { display: none; }

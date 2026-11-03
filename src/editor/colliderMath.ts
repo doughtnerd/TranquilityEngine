@@ -122,3 +122,68 @@ export function polygonArea(points: readonly (readonly number[])[]): number {
   for (let i = 0, j = points.length - 1; i < points.length; j = i++) twice += points[j][0] * points[i][1] - points[i][0] * points[j][1];
   return Math.abs(twice) / 2;
 }
+
+// --- Polygon and edge colliders (ADR 0039) ------------------------------------------------------
+
+/** Fewest points a polygon (closed) or edge (open) collider keeps when removing vertices. */
+export const minPoints = (closed: boolean) => (closed ? 3 : 2);
+
+/** A points collider's outline in world space: each point offset by `center`, then posed. */
+export function pointsOutline(pose: Pose2D, center: V2, points: readonly V2[]): [number, number, number][] {
+  return points.map((p) => toWorld(pose, [center[0] + p[0], center[1] + p[1]]));
+}
+
+/**
+ * Handles for a points collider: `vertex:i` on each point, `insert:i` at the middle of the edge
+ * from point i to the next (the closing edge too when `closed`), and `center`.
+ */
+export function pointsHandles(pose: Pose2D, center: V2, points: readonly V2[], closed: boolean): Record<string, [number, number, number]> {
+  const out: Record<string, [number, number, number]> = {};
+  const n = points.length, edges = closed ? n : n - 1;
+  points.forEach((p, i) => (out[`vertex:${i}`] = toWorld(pose, [center[0] + p[0], center[1] + p[1]])));
+  for (let i = 0; i < edges; i++) {
+    const a = points[i], b = points[(i + 1) % n];
+    out[`insert:${i}`] = toWorld(pose, [center[0] + (a[0] + b[0]) / 2, center[1] + (a[1] + b[1]) / 2]);
+  }
+  out.center = toWorld(pose, center);
+  return out;
+}
+
+/** Parse a points-collider handle id. */
+export function pointsHandle(id: string): { kind: "vertex" | "insert"; index: number } | { kind: "center" } | null {
+  if (id === "center") return { kind: "center" };
+  const m = /^(vertex|insert):(\d+)$/.exec(id);
+  return m ? { kind: m[1] as "vertex" | "insert", index: Number(m[2]) } : null;
+}
+
+/** `points` with point `index` moved to `p`. */
+export function movePoint(points: readonly V2[], index: number, p: V2): [number, number][] {
+  return points.map((q, i) => (i === index ? [p[0], p[1]] : [q[0], q[1]]));
+}
+
+/** `points` with a new point after `index` (on the edge to the next point), at `p` (default: the edge's middle). */
+export function insertPoint(points: readonly V2[], index: number, p?: V2): [number, number][] {
+  const a = points[index], b = points[(index + 1) % points.length];
+  const at: [number, number] = p ? [p[0], p[1]] : [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const out = points.map((q) => [q[0], q[1]] as [number, number]);
+  out.splice(index + 1, 0, at);
+  return out;
+}
+
+/** `points` without point `index`, or null if that would leave fewer than the minimum. */
+export function removePoint(points: readonly V2[], index: number, closed: boolean): [number, number][] | null {
+  if (points.length <= minPoints(closed) || index < 0 || index >= points.length) return null;
+  return points.filter((_, i) => i !== index).map((q) => [q[0], q[1]]);
+}
+
+/** Read a points field (plain `[x, y]` pairs, or anything with x and y), dropping malformed entries. */
+export function readPoints(value: unknown): [number, number][] {
+  if (!Array.isArray(value)) return [];
+  const out: [number, number][] = [];
+  for (const p of value) {
+    const x = Array.isArray(p) ? p[0] : (p as { x?: unknown } | null)?.x;
+    const y = Array.isArray(p) ? p[1] : (p as { y?: unknown } | null)?.y;
+    if (typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y)) out.push([x, y]);
+  }
+  return out;
+}

@@ -14,7 +14,8 @@ import { defineBuffer } from "../core/data";
 import { defineBuiltinSystem } from "../core/systems";
 import { DEG2RAD, RAD2DEG } from "../core/math";
 import type { World } from "../core/World";
-import { BoxCollider2D, CircleCollider2D, Collider2D, type Collision2D } from "./Collider2D";
+import { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type Collision2D } from "./Collider2D";
+import { cleanPoints, convexParts } from "./polygon";
 import { RigidBody2D } from "./RigidBody2D";
 
 /** Physics events for systems (ADR 0017). Filled during fixed steps, cleared at end of frame. */
@@ -251,6 +252,8 @@ export class Physics2DWorld {
       desc = RAPIER.ColliderDesc.cuboid(Math.abs((c.size.x * ws.x) / 2), Math.abs((c.size.y * ws.y) / 2));
     } else if (c instanceof CircleCollider2D) {
       desc = RAPIER.ColliderDesc.ball(Math.abs(c.radius * Math.max(Math.abs(ws.x), Math.abs(ws.y))));
+    } else if (c instanceof PolygonCollider2D || c instanceof EdgeCollider2D) {
+      desc = this.pointsShape(c, ws);
     } else {
       throw new Error(`Unsupported collider type ${c.constructor.name}.`);
     }
@@ -276,6 +279,34 @@ export class Physics2DWorld {
     const collider = this.rapier.createCollider(desc, body?._state?.body);
     this.colliderByHandle.set(collider.handle, c);
     return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true };
+  }
+
+  /**
+   * A polygon (convex hull, or a compound of convex parts when concave) or an edge (polyline),
+   * from the collider's points scaled by the node's world scale. A polygon that can't be split
+   * (it crosses itself) collides along its closed outline; too few points make a tiny ball.
+   */
+  private pointsShape(c: PolygonCollider2D | EdgeCollider2D, ws: { x: number; y: number }): RAPIER.ColliderDesc {
+    const scaled = cleanPoints(Array.isArray(c.points) ? c.points : []).map(([x, y]) => [x * ws.x, y * ws.y] as [number, number]);
+    const flat = (pts: readonly (readonly number[])[]) => new Float32Array(pts.flatMap((p) => [p[0], p[1]]));
+    if (c instanceof PolygonCollider2D) {
+      const parts = convexParts(scaled);
+      if (parts?.length === 1) {
+        const hull = RAPIER.ColliderDesc.convexHull(flat(parts[0]));
+        if (hull) return hull;
+      } else if (parts) {
+        const shapes = parts.map((p) => new RAPIER.ConvexPolygon(flat(p), true));
+        return RAPIER.ColliderDesc.compound(shapes, shapes.map(() => ({ x: 0, y: 0 })), shapes.map(() => 0));
+      }
+      if (scaled.length >= 2) {
+        console.warn(`[myco] ${c.node.name}: PolygonCollider2D points don't make a simple polygon; colliding along its outline.`);
+        return RAPIER.ColliderDesc.polyline(flat([...scaled, scaled[0]]));
+      }
+    } else if (scaled.length >= 2) {
+      return RAPIER.ColliderDesc.polyline(flat(scaled));
+    }
+    console.warn(`[myco] ${c.node.name}: ${c.constructor.name} needs more points.`);
+    return RAPIER.ColliderDesc.ball(1e-4);
   }
 
   /** @internal */
