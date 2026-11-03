@@ -4,8 +4,12 @@ import { errorStatus } from "./messages";
 import { Engine, GameObject } from "../engine";
 import { overlayHandlesOnCanvas, screenBounds } from "../engine/editor";
 import { pathKey } from "./document";
-import { getFileSystem } from "../engine/platform/FileSystem";
+import type { FileSystem } from "../engine/platform/FileSystem";
 import { effect, signal } from "@preact/signals";
+import { FsaFileSystem, ensureWritable } from "./fsaFileSystem";
+import { scaffoldProject, type ProjectTemplate } from "./newProject";
+import { NO_FOLDERS_NOTE, projectFileSystem } from "./projectFs";
+import { recentProjects, recentVersion, type RecentProject } from "./recentProjects";
 import { confirmDiscard } from "./dialogs";
 import { copySample, findSample, openSampleProject, type SampleInfo } from "./samples";
 import { attachHistory, defaultHistoryPlatform, slotsFor, type AttachedHistory } from "./historyPersistence";
@@ -193,23 +197,114 @@ effect(() => {
   void defaultHistoryPlatform().then((p) => h.relocate(slotsFor(project, scene.path, location, p)));
 });
 
-/** Pick a project folder and open it (Tauri only). */
-export async function openProjectFolder(): Promise<void> {
-  const fs = await getFileSystem();
-  if (!fs.canWrite) {
-    status.value = { kind: "info", text: "Opening project folders needs the desktop editor (npm run tauri:editor:dev)." };
-    return;
-  }
-  if (!(await confirmDiscard())) return;
-  const root = await fs.pickFolder("Open project folder");
-  if (!root) return;
+/** The folder file system (desktop, or a Chromium browser), or null with a note in the status bar. */
+async function folders(): Promise<FileSystem | null> {
+  const fs = await projectFileSystem();
+  if (!fs) status.value = { kind: "info", text: NO_FOLDERS_NOTE };
+  return fs;
+}
+
+/** Add an opened folder project to the recent projects list (a browser folder by its handle). */
+async function rememberProject(project: EditorProject): Promise<void> {
+  const fs = project.fileSystem, root = project.root;
+  if (!fs || !root) return;
   try {
-    status.value = { kind: "info", text: `Opening ${root}…` };
-    await loadProject(await openFolderProject(fs, root));
-    if (!openScene.value || status.value?.kind !== "error") status.value = { kind: "info", text: `Opened ${currentProject.value?.name}` };
+    if (fs instanceof FsaFileSystem) {
+      const handle = await fs.directoryHandle(root);
+      await recentProjects().add({ name: project.name, path: handle.name, handle });
+    } else {
+      await recentProjects().add({ name: project.name, path: root });
+    }
+    recentVersion.value++;
+  } catch (err) {
+    console.warn(`[editor] couldn't add ${root} to the recent projects: ${message(err)}`);
+  }
+}
+
+/** Open the project in folder `root` and remember it. */
+async function openFolder(fs: FileSystem, root: string, opening = `Opening ${root}…`): Promise<void> {
+  status.value = { kind: "info", text: opening };
+  await loadProject(await openFolderProject(fs, root));
+  if (!openScene.value || status.value?.kind !== "error") status.value = { kind: "info", text: `Opened ${currentProject.value?.name}` };
+  void rememberProject(currentProject.value!);
+}
+
+/** Pick a project folder and open it (the desktop editor, or a Chromium browser). */
+export async function openProjectFolder(): Promise<void> {
+  const fs = await folders();
+  if (!fs || !(await confirmDiscard())) return;
+  try {
+    const root = await fs.pickFolder("Open project folder");
+    if (!root) return;
+    await openFolder(fs, root);
   } catch (err) {
     status.value = errorStatus(null, err);
   }
+}
+
+/**
+ * Reopen a recent project. A browser folder asks for access again first (it lapses when the tab
+ * closes); a desktop folder the editor can no longer reach (folder access lasts a session) is
+ * picked again in the folder dialog, starting there.
+ */
+export async function openRecentProject(entry: RecentProject): Promise<void> {
+  const fs = await folders();
+  if (!fs || !(await confirmDiscard())) return;
+  try {
+    if (entry.kind === "handle") {
+      const handle = await recentProjects().handle(entry.id);
+      if (!handle || !(fs instanceof FsaFileSystem)) throw new Error(`The editor no longer has access to ${entry.name}. Open its folder again with Open Project….`);
+      if (!(await ensureWritable(handle))) {
+        status.value = { kind: "info", text: `${entry.name} wasn't opened: the browser wasn't given access to its folder.` };
+        return;
+      }
+      await openFolder(fs, await fs.mount(handle), `Opening ${entry.name}…`);
+      return;
+    }
+    let root: string | null = entry.path;
+    let reachable = false;
+    try {
+      reachable = await fs.exists(joinPath(root, "project.json"));
+    } catch {
+      // out of the file system's scope since a restart: pick it again below
+    }
+    if (!reachable) {
+      root = await fs.pickFolder(`Open ${entry.name} (confirm its folder)`, entry.path);
+      if (!root) return;
+    }
+    await openFolder(fs, root);
+  } catch (err) {
+    status.value = errorStatus(`Couldn't open ${entry.name}`, err);
+  }
+}
+
+/** Pick the folder a new project goes in (the project gets its own folder inside it). Null if cancelled or unavailable. */
+export async function pickProjectLocation(): Promise<{ fs: FileSystem; path: string } | null> {
+  const fs = await folders();
+  if (!fs) return null;
+  try {
+    const path = await fs.pickFolder("Choose where the new project's folder goes");
+    return path ? { fs, path } : null;
+  } catch (err) {
+    status.value = errorStatus("Couldn't choose a folder", err);
+    return null;
+  }
+}
+
+/** Create a project in a new folder `name` inside `parent`, then open it (ADR 0038). Throws if it can't be created. */
+export async function createProject(fs: FileSystem, parent: string, name: string, template: ProjectTemplate): Promise<void> {
+  if (!(await confirmDiscard())) return;
+  const root = joinPath(parent, name.trim());
+  status.value = { kind: "info", text: `Creating ${name.trim()}…` };
+  let declarations: Readonly<Record<string, string>> | undefined;
+  try {
+    declarations = (await import("virtual:myco-types")).default;
+  } catch (err) {
+    console.warn(`[editor] the engine's declarations aren't available; the project's scripting files are written when it opens: ${message(err)}`);
+  }
+  await scaffoldProject(fs, root, { name, template, declarations });
+  await openFolder(fs, root, `Opening ${name.trim()}…`);
+  if (status.value?.kind !== "error") status.value = { kind: "info", text: `Created ${name.trim()} in ${root}.` };
 }
 
 /** Open a sample (ADR 0031) read-only, from the files served beside the editor. */
@@ -224,20 +319,16 @@ export async function openSample(sample: SampleInfo): Promise<void> {
   }
 }
 
-/** Copy a sample into a folder the user picks and open the copy, to edit it (desktop editor). */
+/** Copy a sample into a folder the user picks and open the copy, to edit it (desktop editor, or a Chromium browser). */
 export async function copySampleToFolder(sample: SampleInfo): Promise<void> {
-  const fs = await getFileSystem();
-  if (!fs.canWrite) {
-    status.value = { kind: "info", text: "Copying a sample needs the desktop editor (npm run tauri:dev)." };
-    return;
-  }
-  if (!(await confirmDiscard())) return;
-  const root = await fs.pickFolder(`Choose an empty folder for your copy of ${sample.name}`);
-  if (!root) return;
+  const fs = await folders();
+  if (!fs || !(await confirmDiscard())) return;
   try {
+    const root = await fs.pickFolder(`Choose an empty folder for your copy of ${sample.name}`);
+    if (!root) return;
     status.value = { kind: "info", text: `Copying ${sample.name} to ${root}…` };
     await copySample(sample, fs, root);
-    await loadProject(await openFolderProject(fs, root));
+    await openFolder(fs, root, `Opening ${root}…`);
     if (status.value?.kind !== "error") status.value = { kind: "info", text: `Copied ${sample.name} to ${root}.` };
   } catch (err) {
     status.value = errorStatus(`Couldn't copy ${sample.name}`, err);

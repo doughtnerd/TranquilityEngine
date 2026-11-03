@@ -1,0 +1,43 @@
+/* Project panel (ADR 0038): project.json's settings beyond the Worlds. */
+.panel.project .panel-body { padding: 0; overflow: hidden; display: flex; }
+.project-settings { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; outline: none; }
+.project-settings-toolbar { flex: none; display: flex; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.project-settings-status { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.project-settings-status.saved { color: #c3dd9f; }
+.project-settings-status.unsaved { color: #f0b46a; }
+.project-settings-body { flex: 1; overflow: auto; min-height: 0; padding: 4px 8px 12px; }
+.project-settings-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+.project-settings-section { padding: 6px 0 8px; border-bottom: 1px solid var(--border); }
+.project-settings-section:last-child { border-bottom: 0; }
+.project-settings-section h4 { margin: 4px 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.project-settings-row { display: grid; grid-template-columns: minmax(90px, 38%) 1fr; align-items: center; gap: 6px; margin-bottom: 4px; }
+.project-settings-row.invalid .project-settings-label { color: #f08a8a; }
+.project-settings-row.invalid input[type="text"] { border-color: #e07a6a; }
+.project-settings-label { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-settings-value { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.project-settings-value input[type="text"] { width: 100%; min-width: 0; box-sizing: border-box; }
+.project-settings-value .worlds-number { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; }
+.project-settings-pair { display: flex; gap: 6px; min-width: 0; flex: 1; }
+.project-settings-color { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.project-settings-color input[type="color"] { flex: none; width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); background: transparent; }
+.project-settings-hint { margin: 2px 0 4px; font-size: 11px; color: var(--muted); }
+.project-settings-none { margin: 2px 0; font-size: 12px; color: var(--muted); }
+.project-settings-problems { margin: 6px 0; padding: 6px 8px 6px 22px; border: 1px solid #6b3a34; border-radius: 4px; background: rgb(224 122 106 / 0.08); color: #f0a090; font-size: 12px; }
+.project-settings-problems.warning { border-color: #6b5634; background: rgb(240 180 106 / 0.08); color: #f0c48a; }
+.project-settings-list { margin: 8px 0 4px; display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+.project-settings-list-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; width: 100%; }
+.project-settings-list-head .project-settings-hint { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-settings-item { display: flex; align-items: center; gap: 3px; width: 100%; }
+.project-settings-item input[type="text"] { flex: 1; min-width: 0; }
+.project-settings-item.invalid input[type="text"] { border-color: #e07a6a; }
+.project-settings-item button.icon { flex: none; width: 22px; height: 22px; padding: 0; line-height: 1; }
+.project-settings-path { flex: 1; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-settings-item.invalid .project-settings-path { color: #f08a8a; }
+
+.collision-matrix { border-collapse: collapse; font-size: 11px; }
+.collision-matrix th { font-weight: normal; color: var(--muted); padding: 1px 4px; }
+.collision-matrix th[scope="row"] { text-align: right; white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+.collision-matrix .collision-col { height: 80px; vertical-align: bottom; padding: 0; width: 22px; }
+.collision-matrix .collision-col span { display: inline-block; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; max-height: 80px; overflow: hidden; text-overflow: ellipsis; }
+.collision-matrix td { padding: 0; text-align: center; width: 22px; height: 20px; }
+.collision-matrix input { margin: 0; }

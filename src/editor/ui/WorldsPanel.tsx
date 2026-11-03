@@ -35,9 +35,8 @@ import {
   type WorldRef,
   type WorldsModel,
 } from "../worldsConfig";
+import { PROJECT_FILE, queueProjectFileWrite } from "../projectFile";
 import "./worlds.css";
-
-const PROJECT_FILE = "project.json";
 
 /** An undoable panel state: the model, and whether it's written out (false: the project has no bootstrap and runs the default one). */
 interface Draft {
@@ -62,12 +61,16 @@ interface PanelState {
 let state: PanelState | null = null;
 /** Bumped when the panel's state changes, so it re-renders. */
 const version = signal(0);
-let writing: Promise<void> = Promise.resolve();
 
 /** The state for `project`, read again from `project.json` if that changed since the panel last saw it. */
 function stateFor(project: EditorProject): PanelState {
   const text = project.textOf(PROJECT_FILE);
   if (state && state.project === project && (state.fileText === text || (state.writingText !== undefined && state.writingText === text))) return state;
+  // Another key changed (the Project panel's save): keep the draft and its undo history.
+  if (state && state.project === project && state.writingText === undefined && sameJson(bootstrapIn(state.fileText), project.settings.bootstrap)) {
+    state.fileText = text;
+    return state;
+  }
   const view = readBootstrap(project.settings.bootstrap);
   const history = view.kind === "graph" ? new EditHistory<Draft>({ model: view.model, explicit: view.explicit }) : null;
   state = { project, fileText: text, view, history, selected: view.kind === "graph" ? { kind: "world", index: 0 } : null, saving: false, error: null };
@@ -75,6 +78,15 @@ function stateFor(project: EditorProject): PanelState {
 }
 
 const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** The bootstrap in a `project.json` text (undefined if it has none or doesn't parse). */
+function bootstrapIn(text: string | undefined): unknown {
+  try {
+    return text === undefined ? undefined : (JSON.parse(text) as { bootstrap?: unknown }).bootstrap;
+  } catch {
+    return undefined;
+  }
+}
 
 /** The bootstrap a draft writes: undefined while it's still the implicit default. */
 const settingOf = (draft: Draft) => (draft.explicit ? modelToConfig(draft.model) : undefined);
@@ -85,7 +97,7 @@ const settingOf = (draft: Draft) => (draft.explicit ? modelToConfig(draft.model)
  * them. Writes run one at a time and always write the latest draft.
  */
 function persist(s: PanelState): void {
-  writing = writing.then(async () => {
+  void queueProjectFileWrite(async () => {
     if (state !== s || !s.history || !s.project.canSave) return;
     const draft = s.history.current;
     if (modelProblems(draft.model, listSystemCatalog()).length > 0) return;
@@ -622,7 +634,7 @@ function TriState(props: { id: string; value: boolean | undefined; defaultLabel:
 }
 
 /** Text that commits on Enter or blur and reverts on Escape (an empty value field clears itself after committing). */
-function TextField(props: { value: string; label: string; class?: string; placeholder?: string; onCommit: (v: string) => void }) {
+export function TextField(props: { value: string; label: string; class?: string; placeholder?: string; onCommit: (v: string) => void }) {
   const [draft, setDraft] = useState(props.value);
   useEffect(() => setDraft(props.value), [props.value]);
   const commit = () => {
@@ -653,7 +665,7 @@ function TextField(props: { value: string; label: string; class?: string; placeh
 }
 
 /** An optional number: empty means the default (shown as the placeholder); text that isn't a number reverts. */
-function NumberField(props: { id: string; value: number | undefined; placeholder: string; label: string; suffix?: string; onCommit: (v: number | undefined) => void }) {
+export function NumberField(props: { id: string; value: number | undefined; placeholder: string; label: string; suffix?: string; onCommit: (v: number | undefined) => void }) {
   const shown = props.value === undefined ? "" : String(props.value);
   const [draft, setDraft] = useState(shown);
   useEffect(() => setDraft(shown), [shown]);
