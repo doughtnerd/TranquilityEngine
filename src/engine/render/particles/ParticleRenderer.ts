@@ -1,7 +1,7 @@
 // Internal (ADR 0057): plays a World's ParticleSystem components through one three.quarks
 // BatchedRenderer. Loaded on demand by the render backend, so games without particles never load
 // quarks. three.js and quarks types stay inside src/engine/render (ADR 0010).
-import { type BufferGeometry, type Material, Matrix4, type Scene } from "three";
+import { type BufferGeometry, type Material, Matrix4, type Object3D, type Scene } from "three";
 import { BatchedRenderer, type ParticleSystem as QuarksSystem } from "three.quarks";
 import { PARTICLE_SCALE } from "../../core/graphics";
 import { Assets } from "../../scene/Assets";
@@ -9,7 +9,7 @@ import { GameObject } from "../../scene/GameObject";
 import { parseParticleEffect, type ParticleEffect, type ParticleRenderer as RendererSettings } from "../../scene/particles";
 import type { ParticleSystem } from "../components";
 import { Graphics } from "../Graphics";
-import { buildEffect, type BuiltEmitter } from "./quarksEffect";
+import { buildEffect, linearRGB, type BuiltEmitter } from "./quarksEffect";
 
 /** What the particle renderer needs from the render backend. */
 export interface ParticleHost {
@@ -39,6 +39,10 @@ interface Instance {
   effect: ParticleEffect | null;
   emitters: BuiltEmitter[] | null;
   scale: { value: number };
+  /** The component's tint (linear), read by the start colours as particles are born. */
+  tint: { value: [number, number, number, number] };
+  /** Seconds since the build key was last checked (it's checked a few times a second, not every frame). */
+  keyAge: number;
   state: "playing" | "paused" | "stopped";
   time: number;
   /** Editor: simulated last frame (selected, or Simulate All). */
@@ -52,6 +56,8 @@ interface Instance {
 const tmp = new Matrix4();
 /** Editor preview: a finished one-shot effect plays again after this many seconds. */
 const PREVIEW_REPEAT_GAP = 0.6;
+/** Seconds between checks of a built effect's materials. */
+const KEY_CHECK_INTERVAL = 0.25;
 
 export class ParticleRenderer {
   private readonly batch = new BatchedRenderer();
@@ -87,23 +93,28 @@ export class ParticleRenderer {
       inst.key = "";
     }
     if (!inst) {
-      inst = { raw, key: "", effect: this.parse(c, raw), emitters: null, scale: { value: 1 }, state: c.playOnAwake ? "playing" : "stopped", time: 0, shown: false, idle: 0, started: false };
+      inst = { raw, key: "", effect: this.parse(c, raw), emitters: null, scale: { value: 1 }, tint: { value: [1, 1, 1, 1] }, keyAge: 0, state: c.playOnAwake ? "playing" : "stopped", time: 0, shown: false, idle: 0, started: false };
       this.instances.set(c, inst);
     }
     inst.scale.value = PARTICLE_SCALE[Graphics.tier.particles] * Math.max(0, c.emissionScale);
+    const t = c.tint;
+    inst.tint.value = [...linearRGB(t.r, t.g, t.b), t.a];
     if (!inst.effect) return;
 
-    // Rebuild when the tint or a material changes (a texture finishing loading, a material asset edited).
-    const key = this.buildKey(c, inst.effect);
+    // Rebuild when a material changes (a texture finishing loading, a material asset edited), checked
+    // at once while unbuilt and a few times a second after.
+    inst.keyAge += unscaledDeltaTime;
+    const key = !inst.key || inst.keyAge >= KEY_CHECK_INTERVAL ? this.buildKey(inst.effect) : inst.key;
+    if (key === inst.key) inst.keyAge = inst.keyAge >= KEY_CHECK_INTERVAL ? 0 : inst.keyAge;
     if (key !== inst.key) {
+      inst.keyAge = 0;
       this.disposeEmitters(inst);
       inst.key = key;
-      const t = c.tint;
       inst.emitters = buildEffect(inst.effect, {
         material: (r) => this.host.material(r),
         geometry: (m) => this.host.geometry(m),
         scale: inst.scale,
-        tint: [srgbToLinear(t.r), srgbToLinear(t.g), srgbToLinear(t.b), t.a],
+        tint: inst.tint,
       });
       if (!inst.emitters) {
         inst.key = ""; // something is still loading: try again next frame
@@ -245,8 +256,8 @@ export class ParticleRenderer {
     }
   }
 
-  private buildKey(c: ParticleSystem, effect: ParticleEffect): string {
-    const parts = [c.tint.toHex(), String(c.tint.a)];
+  private buildKey(effect: ParticleEffect): string {
+    const parts: string[] = [];
     for (const e of effect.emitters) {
       if (!e.enabled) continue;
       const m = this.host.material(e.renderer);
@@ -266,6 +277,11 @@ export class ParticleRenderer {
   private disposeEmitters(inst: Instance): void {
     for (const e of inst.emitters ?? []) e.system.dispose();
     inst.emitters = null;
+  }
+
+  /** The batches' parent, for passes that must leave particles out. */
+  get root(): Object3D {
+    return this.batch;
   }
 
   /** Restart every previewed effect (the editor overlay's Restart). */
@@ -301,4 +317,3 @@ export class ParticleRenderer {
 }
 
 const emitEnded = (s: QuarksSystem) => (s as unknown as { emitEnded: boolean }).emitEnded;
-const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));

@@ -735,6 +735,7 @@ export class RenderBackend {
     this.scene.traverse((o) => {
       const m = (o as Mesh).material as Material | Material[] | undefined;
       if (!m || !(o as Mesh).isMesh) return;
+      if (o.parent === this.particles?.root) return; // particle batches: quarks' own shaders, which CSM's patches don't fit
       for (const x of Array.isArray(m) ? m : [m]) if ((x as MeshStandardMaterial).isMeshStandardMaterial) cascades.setupMaterial(x);
     });
   }
@@ -1519,11 +1520,16 @@ export class RenderBackend {
     r.toneMapping = NoToneMapping;
     r.clearDepth();
     this.depthOnly ??= new MeshBasicMaterial({ colorWrite: false });
+    // Particles too: their batches draw instanced quads that only their own shader places, so under
+    // an override material they'd write depth as one quad at the origin.
+    const particles = this.particles?.root.visible ? this.particles.root : null;
     for (const o of helpers) o.visible = false;
+    if (particles) particles.visible = false;
     this.scene.overrideMaterial = this.depthOnly;
     r.render(this.scene, camera); // depth only, so meshes hide the grid
     this.scene.overrideMaterial = null;
     for (const o of helpers) o.visible = true;
+    if (particles) particles.visible = true;
     const others = this.scene.children.filter((o) => o.visible && !helpers.includes(o));
     for (const o of others) o.visible = false;
     r.render(this.scene, camera);
@@ -1569,6 +1575,7 @@ export class RenderBackend {
             },
             selected: (c) => this.isOutlined(c.node),
           });
+          Object.assign(this.particles.preview, this.particlePreview); // what the editor set before it loaded
         })
         .catch((err) => console.error("[myco] particles couldn't start:", err))
         .finally(() => (this.particlesLoading = false));
@@ -1615,7 +1622,6 @@ export class RenderBackend {
 
   /** @internal Tests and the editor: what the particle renderer is playing (null before it loads). */
   particleState(): ReturnType<ParticleRenderer["state"]> | null {
-    if (this.particles) Object.assign(this.particles.preview, this.particlePreview);
     return this.particles?.state() ?? null;
   }
 

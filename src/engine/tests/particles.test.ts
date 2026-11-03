@@ -69,7 +69,7 @@ describe("particle effect format (ADR 0057)", () => {
 });
 
 describe("translation to three.quarks", () => {
-  const ctx = (scale = 1) => ({ material: () => new MeshBasicMaterial(), geometry: () => null, scale: { value: scale }, tint: [1, 1, 1, 1] as [number, number, number, number] });
+  const ctx = (scale = 1) => ({ material: () => new MeshBasicMaterial(), geometry: () => null, scale: { value: scale }, tint: { value: [1, 1, 1, 1] as [number, number, number, number] } });
 
   it("turns curves into piecewise Béziers that pass through the keys", () => {
     const c = curveGen([[0.2, 1], [0.6, 5]]);
@@ -84,9 +84,9 @@ describe("translation to three.quarks", () => {
   });
 
   it("converts sRGB hex colours to linear", () => {
-    const c = linearColor("#808080", [1, 1, 1, 0.5]);
+    const c = linearColor("#80808080");
     expect(c.x).toBeCloseTo(new Color().setStyle("#808080").r, 3); // three's linear conversion
-    expect(c.w).toBeCloseTo(0.5);
+    expect(c.w).toBeCloseTo(128 / 255);
   });
 
   it("builds one system per enabled emitter, and links sub-emitters", () => {
@@ -104,8 +104,13 @@ describe("translation to three.quarks", () => {
     expect(built[0].system.behaviors.some((b) => b.type === "EmitSubParticleSystem")).toBe(true);
   });
 
-  it("waits while a material is loading", () => {
+  it("waits while a material is loading, without building the emitters that are ready", () => {
     expect(buildEffect(defaultParticleEffect(), { ...ctx(), material: () => null })).toBeNull();
+    let asked = 0;
+    const two: ParticleEffect = { emitters: [defaultEmitter("A"), { ...defaultEmitter("B"), renderer: { ...defaultEmitter().renderer, texture: "slow.png" } }] };
+    const material = new MeshBasicMaterial();
+    expect(buildEffect(two, { ...ctx(), material: (r) => (asked++, r.texture ? null : material) })).toBeNull();
+    expect(asked).toBe(2); // checked both before building either
   });
 
   it("bounces particles off the collision plane, or kills them there", () => {
@@ -157,6 +162,27 @@ describe("ParticleRenderer", () => {
     expect(c._state.count).toBeLessThanOrEqual(52);
     expect(c._state.playing).toBe(true);
     expect(c._state.time).toBeCloseTo(1, 1);
+  });
+
+  it("clamps bursts to the particle limit", () => {
+    const { renderer } = makeRenderer();
+    const effect: ParticleEffect = { emitters: [{ ...defaultEmitter("E"), startLife: 10, maxParticles: 10, emission: { rateOverTime: 0, rateOverDistance: 0, bursts: [{ time: 0, count: 200, cycles: 1, interval: 0.1, probability: 1 }] } }] };
+    const c = fakeSystem(effect);
+    for (let i = 0; i < 10; i++) renderer.sync([c], 1 / 60, 1 / 60);
+    expect(c._state.count).toBe(10);
+  });
+
+  it("applies a changed tint to new particles without rebuilding the effect", () => {
+    const { renderer } = makeRenderer();
+    const c = fakeSystem(steady(60));
+    for (let i = 0; i < 30; i++) renderer.sync([c], 1 / 60, 1 / 60);
+    const before = c._state.count;
+    (c as { tint: EngineColor }).tint = new EngineColor(1, 0, 0, 1);
+    for (let i = 0; i < 30; i++) renderer.sync([c], 1 / 60, 1 / 60);
+    expect(c._state.count).toBeGreaterThan(before); // kept going: not restarted
+    const inst = (renderer as unknown as { instances: Map<unknown, { emitters: { system: { particles: { color: { y: number } }[]; particleNum: number } }[] }> }).instances.get(c)!;
+    const s = inst.emitters[0].system;
+    expect(s.particles[s.particleNum - 1].color.y).toBe(0); // the newest particle is red
   });
 
   it("scales emission with emissionScale and pauses with the World's time", () => {

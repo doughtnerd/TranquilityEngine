@@ -1,6 +1,6 @@
 // Internal (ADR 0057): translates `myco.particles@1` effects into three.quarks particle systems.
 // three.js and quarks types are allowed here and never reach the public API (ADR 0010).
-import { Euler, type BufferGeometry, type Material, Matrix4 } from "three";
+import { Color, Euler, type BufferGeometry, type Material, Matrix4, SRGBColorSpace } from "three";
 import {
   ApplyForce,
   Bezier,
@@ -77,8 +77,8 @@ export interface EffectContext {
   geometry(mesh: string): BufferGeometry | null;
   /** Multiplies emission and max particles (quality tier × the component's emission scale); read every frame. */
   readonly scale: { value: number };
-  /** Multiplies start colours (linear RGB and alpha). */
-  tint: [number, number, number, number];
+  /** Multiplies start colours (linear RGB and alpha); read as each particle is born, so it can change live. */
+  readonly tint: { value: [number, number, number, number] };
 }
 
 /** One emitter of a built effect. */
@@ -96,6 +96,12 @@ export interface BuiltEmitter {
 
 /** Build every enabled emitter of `effect`, or null if something it needs is still loading. */
 export function buildEffect(effect: ParticleEffect, ctx: EffectContext): BuiltEmitter[] | null {
+  // Everything loaded first, so a slow texture doesn't build and throw away the other emitters each frame.
+  for (const e of effect.emitters) {
+    if (!e.enabled) continue;
+    if (!ctx.material(e.renderer)) return null;
+    if (e.renderer.mode === "mesh" && !ctx.geometry(e.renderer.mesh)) return null;
+  }
   const subs = subEmitterNames(effect);
   const built = new Map<string, BuiltEmitter>();
   const out: BuiltEmitter[] = [];
@@ -133,7 +139,9 @@ function buildEmitter(e: ParticleEmitterSettings, ctx: EffectContext, subEmitter
   const max = { value: e.maxParticles };
   let system: ParticleSystem | null = null;
   const count = () => system?.particleNum ?? 0;
-  const capped = (g: NumberGen) => new Capped(g, ctx.scale, () => count() < max.value * ctx.scale.value);
+  const room = () => Math.max(0, Math.floor(max.value * ctx.scale.value) - count());
+  const capped = (g: NumberGen) => new Capped(g, ctx.scale, room, false);
+  const cappedBurst = (g: NumberGen) => new Capped(g, ctx.scale, room, true);
 
   system = new ParticleSystem({
     duration: e.duration,
@@ -145,10 +153,10 @@ function buildEmitter(e: ParticleEmitterSettings, ctx: EffectContext, subEmitter
     startSpeed: numberGen(e.startSpeed),
     startSize: numberGen(e.startSize),
     startRotation: numberGen(e.startRotation, DEG),
-    startColor: colorGen(e.startColor, ctx.tint),
+    startColor: new Tinted(colorGen(e.startColor), ctx.tint),
     emissionOverTime: capped(numberGen(e.emission.rateOverTime)),
     emissionOverDistance: capped(numberGen(e.emission.rateOverDistance)),
-    emissionBursts: e.emission.bursts.map((b) => ({ time: b.time, count: capped(numberGen(b.count)), cycle: b.cycles, interval: b.interval, probability: b.probability })),
+    emissionBursts: e.emission.bursts.map((b) => ({ time: b.time, count: cappedBurst(numberGen(b.count)), cycle: b.cycles, interval: b.interval, probability: b.probability })),
     onlyUsedByOther: subEmitter,
     shape: shapeOf(e.shape),
     material,
@@ -168,6 +176,9 @@ function buildEmitter(e: ParticleEmitterSettings, ctx: EffectContext, subEmitter
     blendTiles: r.blendTiles,
     renderOrder: r.renderOrder,
   });
+  // First, so particles from bursts and sub-emitters beyond the limit go before anything else runs.
+  const sys = system;
+  sys.addBehavior(new CapParticles(sys, () => Math.max(1, Math.floor(max.value * ctx.scale.value))));
   if (e.gravity !== 0) system.addBehavior(new ApplyForce(new QVector3(0, -1, 0), new ConstantValue(GRAVITY * e.gravity)));
   for (const b of e.behaviors) {
     if (b.enabled === false) continue;
@@ -220,31 +231,61 @@ export function numberGen(v: ParticleNumber, scale = 1): NumberGen {
   return new RandomBetweenCurves(curveGen(v.randomCurves[0], scale), curveGen(v.randomCurves[1], scale));
 }
 
-/** sRGB `#rrggbb[aa]` as quarks' linear RGBA, times `tint`. */
-export function linearColor(hex: string, tint: readonly number[] = [1, 1, 1, 1]): QVector4 {
-  const [r, g, b, a] = parseHexColor(hex);
-  return new QVector4(srgbToLinear(r) * tint[0], srgbToLinear(g) * tint[1], srgbToLinear(b) * tint[2], a * tint[3]);
+const tmpColor = new Color();
+
+/** sRGB components (0–1) as linear RGB, through three's colour management. */
+export function linearRGB(r: number, g: number, b: number): [number, number, number] {
+  tmpColor.setRGB(r, g, b, SRGBColorSpace);
+  return [tmpColor.r, tmpColor.g, tmpColor.b];
 }
 
-const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+/** sRGB `#rrggbb[aa]` as quarks' linear RGBA. */
+export function linearColor(hex: string): QVector4 {
+  const [r, g, b, a] = parseHexColor(hex);
+  const [lr, lg, lb] = linearRGB(r, g, b);
+  return new QVector4(lr, lg, lb, a);
+}
 
-function gradientGen(g: ParticleGradient, tint: readonly number[] = [1, 1, 1, 1]): Gradient {
+function gradientGen(g: ParticleGradient): Gradient {
   const colors = g.colors.length ? g.colors : [[0, "#ffffff"] as [number, string]];
   return new Gradient(
     colors.map(([t, c]) => {
-      const l = linearColor(c, tint);
+      const l = linearColor(c);
       return [new QVector3(l.x, l.y, l.z), t] as [QVector3, number];
     }),
-    (g.alphas.length ? g.alphas : [[0, 1] as [number, number]]).map(([t, a]) => [a * tint[3], t] as [number, number]),
+    (g.alphas.length ? g.alphas : [[0, 1] as [number, number]]).map(([t, a]) => [a, t] as [number, number]),
   );
 }
 
 /** A colour value as a quarks colour generator (start colours). */
-export function colorGen(v: ParticleColor, tint: readonly number[] = [1, 1, 1, 1]): ColorGenerator | FunctionColorGenerator {
-  if (typeof v === "string") return new ConstantColor(linearColor(v, tint));
-  if ("random" in v) return new ColorRange(linearColor(v.random[0], tint), linearColor(v.random[1], tint));
-  if ("gradient" in v) return gradientGen(v.gradient, tint);
-  return new RandomColorBetweenGradient(gradientGen(v.randomGradients[0], tint), gradientGen(v.randomGradients[1], tint));
+export function colorGen(v: ParticleColor): ColorGenerator | FunctionColorGenerator {
+  if (typeof v === "string") return new ConstantColor(linearColor(v));
+  if ("random" in v) return new ColorRange(linearColor(v.random[0]), linearColor(v.random[1]));
+  if ("gradient" in v) return gradientGen(v.gradient);
+  return new RandomColorBetweenGradient(gradientGen(v.randomGradients[0]), gradientGen(v.randomGradients[1]));
+}
+
+/** A start colour times the component's tint, read as each particle is born (so a script can change it live). */
+class Tinted implements ColorGenerator {
+  readonly type = "value" as const;
+  constructor(
+    private readonly inner: ColorGenerator | FunctionColorGenerator,
+    private readonly tint: { value: readonly number[] },
+  ) {}
+  startGen(memory: GeneratorMemory): void {
+    this.inner.startGen(memory);
+  }
+  genColor(memory: GeneratorMemory, color: QVector4, t = 0): QVector4 {
+    (this.inner as FunctionColorGenerator).genColor(memory, color, t);
+    const k = this.tint.value;
+    return color.set(color.x * k[0], color.y * k[1], color.z * k[2], color.w * k[3]);
+  }
+  toJSON(): never {
+    throw new Error("Tinted isn't serialized.");
+  }
+  clone(): ColorGenerator {
+    return new Tinted(this.inner.clone() as ColorGenerator, this.tint);
+  }
 }
 
 /** A colour value as a function of life (over-life behaviours): constants and ranges become flat gradients. */
@@ -286,28 +327,55 @@ class RandomBetweenCurves implements FunctionValueGenerator {
 }
 
 /**
- * An emission count scaled by the quality tier and the component, and zero while the emitter is
- * at its particle limit (quarks has no limit of its own).
+ * An emission count scaled by the quality tier and the component, limited by the room left under
+ * the emitter's particle limit (quarks has no limit of its own): a rate is zero while there's no
+ * room, a burst is clamped to it.
  */
 class Capped implements ValueGenerator, FunctionValueGenerator {
   readonly type = "value" as unknown as "function" & "value";
   constructor(
     private readonly inner: NumberGen,
     private readonly scale: { value: number },
-    private readonly room: () => boolean,
+    private readonly room: () => number,
+    private readonly burst: boolean,
   ) {}
   startGen(memory: GeneratorMemory): void {
     this.inner.startGen(memory);
   }
   genValue(memory: GeneratorMemory, t = 0): number {
-    return this.room() ? (this.inner as FunctionValueGenerator).genValue(memory, t) * this.scale.value : 0;
+    const room = this.room();
+    if (room <= 0) return 0;
+    const n = (this.inner as FunctionValueGenerator).genValue(memory, t) * this.scale.value;
+    return this.burst ? Math.min(n, room) : n;
   }
   toJSON(): never {
     throw new Error("Capped isn't serialized.");
   }
   clone(): Capped {
-    return new Capped(this.inner.clone() as NumberGen, this.scale, this.room);
+    return new Capped(this.inner.clone() as NumberGen, this.scale, this.room, this.burst);
   }
+}
+
+/** Drops particles beyond the limit (sub-emitters spawn into a system without asking it). */
+class CapParticles implements Behavior {
+  readonly type = "CapParticles";
+  constructor(
+    private readonly system: { particleNum: number },
+    private readonly max: () => number,
+  ) {}
+  initialize(): void {}
+  update(): void {}
+  frameUpdate(): void {
+    const max = this.max();
+    if (this.system.particleNum > max) this.system.particleNum = max;
+  }
+  toJSON(): never {
+    throw new Error("CapParticles isn't serialized.");
+  }
+  clone(): Behavior {
+    return new CapParticles(this.system, this.max);
+  }
+  reset(): void {}
 }
 
 // --- shapes and behaviours ------------------------------------------------------------------------

@@ -66,7 +66,7 @@ export function ParticleEffectInspector(props: { path: string }) {
       <h3>{fileName(props.path)}</h3>
       <p class="hint">Particle effect. ParticleSystem components play it; edits show in the scene straight away.</p>
       {project && !project.canSave && <p class="hint">Read-only: open a project folder (or copy the sample) to edit.</p>}
-      <EffectAssetEditor path={props.path} />
+      <EffectAssetEditor key={props.path} path={props.path} />
     </div>
   );
 }
@@ -92,7 +92,7 @@ export function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; 
             Select Asset
           </button>
         </div>
-        {missing ? <p class="hint">"{asset}" isn't in the project.</p> : <EffectAssetEditor path={asset} />}
+        {missing ? <p class="hint">"{asset}" isn't in the project.</p> : <EffectAssetEditor key={asset} path={asset} />}
       </div>
     );
   }
@@ -139,7 +139,24 @@ export function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; 
           ))}
         </ul>
       )}
-      <ParticleEffectEditor effect={parsed.effect} onChange={(next) => set("embeddedEffect", particleEffectJSON(next))} assetList={assetList} />
+      <div onPointerDownCapture={() => groupGesture(scene)}>
+        <ParticleEffectEditor effect={parsed.effect} onChange={(next) => set("embeddedEffect", particleEffectJSON(next))} assetList={assetList} />
+      </div>
     </div>
   );
+}
+
+/**
+ * Make one pointer gesture in the effect editor (dragging a curve key or gradient stop, scrubbing)
+ * one undo step: a group opens on pointer down and closes on the pointer's release.
+ */
+function groupGesture(scene: OpenScene): void {
+  scene.stack.beginGroup("Edit particle effect");
+  const end = () => {
+    window.removeEventListener("pointerup", end, true);
+    window.removeEventListener("pointercancel", end, true);
+    scene.stack.endGroup();
+  };
+  window.addEventListener("pointerup", end, true);
+  window.addEventListener("pointercancel", end, true);
 }

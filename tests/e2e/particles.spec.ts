@@ -48,6 +48,18 @@ test("a Particle System from the Create menu plays while selected, and its embed
   await expect.poll(async () => (await editorParticles(page))?.previewed?.count ?? 0, { timeout: 15_000 }).toBeGreaterThan(100);
   await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveAttribute("title", /Set embeddedEffect/);
 
+  // Dragging a gradient stop is one undo step, however many moves it takes.
+  await page.getByRole("button", { name: "Color over Lifetime color expand" }).click();
+  const stop = page.locator(".particle-effect-editor .gradient-stop").last();
+  const at = (await stop.boundingBox())!;
+  await page.mouse.move(at.x + at.width / 2, at.y + at.height / 2);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) await page.mouse.move(at.x + at.width / 2 - i * 4, at.y + at.height / 2);
+  await page.mouse.up();
+  await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveAttribute("title", /Edit particle effect/);
+  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Undo", exact: true })).toHaveAttribute("title", /Set embeddedEffect/);
+
   // Pause freezes it.
   await overlay.getByRole("button", { name: "Pause" }).click();
   const paused = (await editorParticles(page))?.previewed?.time ?? 0;
