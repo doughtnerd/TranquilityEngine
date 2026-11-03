@@ -8,15 +8,21 @@ import {
   AxesHelper,
   BufferGeometry,
   CanvasTexture,
+  ClampToEdgeWrapping,
   Float32BufferAttribute,
   GridHelper,
   Color as ThreeColor,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   LineBasicMaterial,
   LineLoop,
   LineSegments,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  MirroredRepeatWrapping,
+  NearestFilter,
+  NearestMipmapNearestFilter,
   Object3D,
   Quaternion,
   OrthographicCamera,
@@ -25,6 +31,7 @@ import {
   PerspectiveCamera,
   PlaneGeometry,
   Raycaster,
+  RepeatWrapping,
   Scene,
   Sprite as ThreeSprite,
   SpriteMaterial,
@@ -39,13 +46,15 @@ import {
 import type { Component } from "../core/Component";
 import type { ProjectSettings } from "../core/settings";
 import type { World, WorldKind } from "../core/World";
-import { Assets } from "../scene/Assets";
+import { Assets, sidecarValue } from "../scene/Assets";
+import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import type { GameObject } from "../scene/GameObject";
 import { Camera, SpriteRenderer, Text, type Anchor } from "./components";
 import type { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { frustumSegments } from "./cameraGizmo";
 import { localPoseFromWorld, type LocalPose } from "./gizmoMath";
 import { rayQuadDistance } from "./picking";
+import { spriteFrame } from "./spriteFrame";
 
 /** @internal Editor gizmo settings (ADR 0022). */
 export interface GizmoOptions {
@@ -83,6 +92,12 @@ export interface ScreenRect {
 interface SpriteEntry {
   mesh: Mesh<PlaneGeometry, MeshBasicMaterial>;
   spritePath: string | null;
+  /** Its own quad with a slice's UVs (ADR 0040), or null while it draws the whole texture with the shared quad. */
+  geometry: PlaneGeometry | null;
+  /** The UVs `geometry` has, as a key. */
+  uvKey: string;
+  /** Size in node units (before the node's scale), once the texture has loaded. */
+  size: [number, number] | null;
 }
 
 interface CameraEntry {
@@ -101,6 +116,7 @@ interface TextEntry {
 
 const tmpWorld = new Matrix4();
 const tmpScale = new Matrix4();
+const tmpPivot = new Matrix4();
 const raycaster = new Raycaster();
 const ndc = new ThreeVector2();
 
@@ -124,6 +140,9 @@ export class RenderBackend {
   private readonly loader = new TextureLoader();
   private readonly textures = new Map<string, Texture>();
   private readonly loading = new Map<string, Promise<Texture>>();
+  /** The sidecar each loaded texture's sampling came from (ADR 0040), so a changed sidecar is applied again. */
+  private readonly textureMeta = new Map<string, object | undefined>();
+  private readonly warnedSlices = new Set<string>();
   private readonly sprites = new Map<SpriteRenderer, SpriteEntry>();
   private readonly cameras = new Map<Camera, CameraEntry>();
   private readonly texts = new Map<Text, TextEntry>();
@@ -217,6 +236,7 @@ export class RenderBackend {
     if (!p) {
       p = this.loader.loadAsync(Assets.url(path)).then((tex) => {
         tex.colorSpace = SRGBColorSpace;
+        this.applySampling(path, tex);
         this.textures.set(path, tex);
         this.loading.delete(path);
         return tex;
@@ -226,6 +246,20 @@ export class RenderBackend {
     return p;
   }
 
+  /** Filtering, wrapping and mipmaps from the image's import settings (ADR 0040). */
+  private applySampling(path: string, tex: Texture): void {
+    this.textureMeta.set(path, sidecarValue(path));
+    const settings: ImportSettings = Assets.importSettings(path);
+    const point = settings.filter === "point";
+    tex.magFilter = point ? NearestFilter : LinearFilter;
+    tex.generateMipmaps = settings.mipmaps;
+    tex.minFilter = settings.mipmaps ? (point ? NearestMipmapNearestFilter : LinearMipmapLinearFilter) : point ? NearestFilter : LinearFilter;
+    const wrap = settings.wrap === "repeat" ? RepeatWrapping : settings.wrap === "mirror" ? MirroredRepeatWrapping : ClampToEdgeWrapping;
+    tex.wrapS = wrap;
+    tex.wrapT = wrap;
+    tex.needsUpdate = true;
+  }
+
   /** @internal Release three.js objects for a removed component. */
   release(c: Component): void {
     if (c instanceof SpriteRenderer) {
@@ -233,6 +267,7 @@ export class RenderBackend {
       if (e) {
         this.scene.remove(e.mesh);
         e.mesh.material.dispose();
+        e.geometry?.dispose();
         this.sprites.delete(c);
       }
     } else if (c instanceof Camera) {
@@ -282,26 +317,30 @@ export class RenderBackend {
       mesh.matrixAutoUpdate = false;
       mesh.frustumCulled = false;
       this.scene.add(mesh);
-      entry = { mesh, spritePath: null };
+      entry = { mesh, spritePath: null, geometry: null, uvKey: "", size: null };
       this.sprites.set(s, entry);
     }
     const { mesh } = entry;
     const material = mesh.material;
+    // `images/sheet.png#walk_0` draws the slice walk_0 of images/sheet.png (ADR 0040).
+    const { path: image, slice } = splitSpriteRef(s.sprite);
 
     if (entry.spritePath !== s.sprite) {
       entry.spritePath = s.sprite;
-      const tex = s.sprite ? this.textures.get(s.sprite) : null;
+      const tex = image ? this.textures.get(image) : null;
       material.map = tex ?? null;
       material.needsUpdate = true;
-      if (s.sprite && !tex) {
+      if (image && !tex) {
         const requested = s.sprite;
-        this.texture(requested)
+        this.texture(image)
           .then(() => {
             if (entry!.spritePath === requested) entry!.spritePath = null; // re-resolve next sync
           })
-          .catch((err) => console.error(`[myco] failed to load texture "${requested}":`, err));
+          .catch((err) => console.error(`[myco] failed to load texture "${image}":`, err));
       }
     }
+    // A sidecar rewritten since the texture loaded (the editor's import settings): sample it anew.
+    if (material.map && image && this.textureMeta.get(image) !== sidecarValue(image)) this.applySampling(image, material.map);
 
     const ready = !s.sprite || !!material.map;
     mesh.visible = s.isActiveAndEnabled && ready;
@@ -311,21 +350,47 @@ export class RenderBackend {
     material.opacity = s.color.a;
     mesh.renderOrder = this.sortOrder(s.sortingLayer, s.orderInLayer);
 
-    let w = 1, h = 1;
-    if (s.size) {
+    let w = 1, h = 1, px = 0.5, py = 0.5;
+    if (material.map) {
+      const img = material.map.image as { width: number; height: number };
+      const frame = spriteFrame(Assets.importSettings(image), slice, img.width, img.height, { component: s.pixelsPerUnit, project: this.settings.render.pixelsPerUnit }, s.size);
+      [w, h] = frame.size;
+      [px, py] = frame.pivot;
+      if (frame.missingSlice && !this.warnedSlices.has(s.sprite)) {
+        this.warnedSlices.add(s.sprite);
+        console.warn(`[myco] ${image} has no slice named "${slice}" (in ${image}.meta.json); drawing the whole image.`);
+      }
+      this.setSpriteUVs(entry, frame.uv);
+    } else if (s.size) {
       w = s.size.x;
       h = s.size.y;
-    } else if (material.map) {
-      const img = material.map.image as { width: number; height: number };
-      const ppu = s.pixelsPerUnit > 0 ? s.pixelsPerUnit : this.settings.render.pixelsPerUnit;
-      w = img.width / ppu;
-      h = img.height / ppu;
     }
+    entry.size = material.map || s.size ? [w, h] : null;
     const e = s.node.entity;
     tmpWorld.fromArray(world.worldMatrix(e), e * 16);
+    // Scale the unit quad to size with the pivot at the node's origin (flips mirror about it).
     tmpScale.makeScale(s.flipX ? -w : w, s.flipY ? -h : h, 1);
-    mesh.matrix.multiplyMatrices(tmpWorld, tmpScale);
+    tmpPivot.makeTranslation(0.5 - px, 0.5 - py, 0);
+    mesh.matrix.multiplyMatrices(tmpWorld, tmpScale).multiply(tmpPivot);
     mesh.matrixWorldNeedsUpdate = true;
+  }
+
+  /** Draw a slice's part of the texture (its own quad), or the whole texture (the shared quad). */
+  private setSpriteUVs(entry: SpriteEntry, uv: [number, number, number, number] | null): void {
+    const key = uv ? uv.join(",") : "";
+    if (key === entry.uvKey) return;
+    entry.uvKey = key;
+    if (!uv) {
+      entry.mesh.geometry = this.quad;
+      entry.geometry?.dispose();
+      entry.geometry = null;
+      return;
+    }
+    entry.geometry ??= new PlaneGeometry(1, 1);
+    const [u0, v0, u1, v1] = uv;
+    // PlaneGeometry's vertices: top-left, top-right, bottom-left, bottom-right.
+    entry.geometry.setAttribute("uv", new Float32BufferAttribute([u0, v1, u1, v1, u0, v0, u1, v0], 2));
+    entry.mesh.geometry = entry.geometry;
   }
 
   private syncCamera(world: World, c: Camera): void {
@@ -535,10 +600,7 @@ export class RenderBackend {
    */
   spriteSize(s: SpriteRenderer): [number, number] | null {
     if (s.size) return [s.size.x, s.size.y];
-    const img = this.sprites.get(s)?.mesh.material.map?.image as { width: number; height: number } | undefined;
-    if (!img) return null;
-    const ppu = s.pixelsPerUnit > 0 ? s.pixelsPerUnit : this.settings.render.pixelsPerUnit;
-    return [img.width / ppu, img.height / ppu];
+    return this.sprites.get(s)?.size ?? null;
   }
 
   /** @internal Editor: a world point's place on the canvas (CSS pixels, origin top-left), or null if it's behind the camera. */

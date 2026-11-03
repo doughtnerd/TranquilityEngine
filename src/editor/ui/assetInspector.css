@@ -1,0 +1,29 @@
+/* Asset Inspector (ADR 0040): an image's or audio file's import settings, in the Inspector panel. */
+.asset-inspector-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; min-width: 0; }
+.asset-inspector-kind { flex: none; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.asset-inspector-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-inspector-preview { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-bottom: 8px; padding: 8px; border-radius: 4px; background: var(--bg); }
+.asset-inspector-preview img { max-width: 100%; max-height: 160px; object-fit: contain; image-rendering: pixelated; }
+.asset-inspector-size { font-size: 11px; color: var(--muted); }
+.asset-inspector-problems { margin: 0 0 8px; padding-left: 18px; font-size: 12px; color: #f08a8a; }
+.import-row { display: grid; grid-template-columns: minmax(90px, 40%) 1fr; gap: 8px; align-items: center; font-size: 12px; margin: 4px 0; }
+.import-row > span:first-child { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-row input[type="checkbox"] { justify-self: start; margin: 0; }
+.asset-inspector input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 5px;
+  font: inherit;
+}
+.asset-inspector input[type="number"]:focus { outline: none; border-color: var(--accent); }
+.import-pivot { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 4px; }
+.import-sprites { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.import-count { color: var(--text); }
+.asset-inspector-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.asset-inspector-note { margin: 8px 0 0; font-size: 11px; color: var(--muted); }
+.asset-inspector-note code { font-size: 11px; }

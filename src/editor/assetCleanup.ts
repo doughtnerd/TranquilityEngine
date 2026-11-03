@@ -6,8 +6,12 @@
 // paths. Pure functions on parsed files; assetDelete.ts and assetOps.ts write the results.
 import type { OverrideEntry, SceneFile } from "./document";
 
-/** True for a value naming `path`: the plain path, or an `asset:` reference to it. */
-const names = (value: unknown, path: string) => value === path || value === `asset:${path}`;
+/**
+ * True for a value naming `path`: the plain path, an `asset:` reference to it, or a reference to
+ * one of its slices (`asset:images/sheet.png#walk_0`, ADR 0040).
+ */
+const names = (value: unknown, path: string) =>
+  typeof value === "string" && (value === path || value === `asset:${path}` || value.startsWith(`${path}#`) || value.startsWith(`asset:${path}#`));
 
 /**
  * `value` without anything naming `path` (object keys and array items naming it go), and with
@@ -105,14 +109,24 @@ export function settingsWithoutAsset(settings: Record<string, unknown>, path: st
 
 /**
  * `value` with every string naming a moved file updated: `rename` gives a path's new path, or
- * null if it didn't move. `asset:` references keep their prefix.
+ * null if it didn't move. `asset:` references keep their prefix. A slice reference
+ * (`images/sheet.png#walk_0`, ADR 0040) is offered to `rename` whole first (so renaming a slice
+ * is a move of `sheet.png#walk_0`), then as its image, keeping the `#name`.
  */
 export function withMovedAssets<T>(value: T, rename: (path: string) => string | null): { value: T; changed: boolean } {
   let changed = false;
+  const renameRef = (path: string): string | null => {
+    const whole = rename(path);
+    if (whole !== null) return whole;
+    const hash = path.indexOf("#");
+    if (hash < 0) return null;
+    const image = rename(path.slice(0, hash));
+    return image === null ? null : image + path.slice(hash);
+  };
   const walk = (v: unknown): unknown => {
     if (typeof v === "string") {
       const asset = v.startsWith("asset:");
-      const to = rename(asset ? v.slice(6) : v);
+      const to = renameRef(asset ? v.slice(6) : v);
       if (to === null) return v;
       changed = true;
       return asset ? `asset:${to}` : to;

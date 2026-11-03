@@ -6,6 +6,7 @@
 // (scriptLoader.ts). No game code is compiled into the editor.
 import { Assets, type AssetSource, type ProjectSettingsInput } from "../engine";
 import type { FileSystem } from "../engine/platform/FileSystem";
+import { isSidecarPath, sidecarPath } from "../engine/scene/importSettings";
 import { isScriptPath } from "./scriptLoader";
 
 export interface EditorProject {
@@ -36,7 +37,7 @@ export interface EditorProject {
   writeText(path: string, text: string): Promise<void>;
   /** Write a text asset (JSON, which must parse, or JavaScript) and update what the project serves for it. */
   writeFile(path: string, text: string): Promise<void>;
-  /** Delete a file (an asset or a script) from disk and from the project. */
+  /** Delete a file (an asset or a script) from disk and from the project, with its import settings sidecar (ADR 0040). */
   deleteFile(path: string): Promise<void>;
   /** Every folder (project-relative, sorted), empty ones included. */
   readonly folders: readonly string[];
@@ -44,9 +45,9 @@ export interface EditorProject {
   sizeOf(path: string): number | undefined;
   /** Create a folder on disk (and its parents). */
   createFolder(path: string): Promise<void>;
-  /** Rename or move a file or folder (with everything in it) on disk and in the project. */
+  /** Rename or move a file or folder (with everything in it) on disk and in the project. A file takes its sidecar along. */
   move(from: string, to: string): Promise<void>;
-  /** Copy a file to `to` (which mustn't exist). */
+  /** Copy a file to `to` (which mustn't exist), with a copy of its sidecar. */
   copyFile(from: string, to: string): Promise<void>;
   /** Delete a folder and everything in it from disk and from the project. */
   deleteFolder(path: string): Promise<void>;
@@ -172,6 +173,12 @@ class MapProject implements EditorProject {
     const { fs, root } = this.disk();
     await fs.remove(joinPath(root, path));
     this.forget(path);
+    // Its import settings go with it (ADR 0040).
+    const meta = sidecarPath(path);
+    if (!isSidecarPath(path) && this.values.has(meta)) {
+      await fs.remove(joinPath(root, meta));
+      this.forget(meta);
+    }
   }
 
   get folders(): readonly string[] {
@@ -196,6 +203,23 @@ class MapProject implements EditorProject {
   async move(from: string, to: string): Promise<void> {
     const { fs, root } = this.disk();
     await fs.rename(joinPath(root, from), joinPath(root, to));
+    this.rekeyMoved(from, to);
+    // A file's import settings go with it (ADR 0040). A sidecar already at the new name belongs
+    // to no file (that name was free), so it's replaced rather than adopted.
+    const meta = sidecarPath(from), toMeta = sidecarPath(to);
+    if (isSidecarPath(from) || !this.values.has(to)) return;
+    if (this.values.has(toMeta)) {
+      await fs.remove(joinPath(root, toMeta));
+      this.forget(toMeta);
+    }
+    if (this.values.has(meta)) {
+      await fs.rename(joinPath(root, meta), joinPath(root, toMeta));
+      this.rekeyMoved(meta, toMeta);
+    }
+  }
+
+  /** Update the project's maps after `from` moved to `to` on disk. */
+  private rekeyMoved(from: string, to: string): void {
     const rename = (p: string) => (isWithin(p, from) ? to + p.slice(from.length) : p);
     const rekey = <T>(map: Map<string, T>) => {
       for (const [p, v] of [...map]) {
@@ -220,6 +244,15 @@ class MapProject implements EditorProject {
   }
 
   async copyFile(from: string, to: string): Promise<void> {
+    await this.copyOne(from, to);
+    // A copy gets a copy of the import settings (ADR 0040), replacing a stray sidecar at its name.
+    const meta = sidecarPath(from), toMeta = sidecarPath(to);
+    if (isSidecarPath(from) || !this.values.has(meta)) return;
+    if (this.values.has(toMeta)) await this.deleteFile(toMeta);
+    await this.copyOne(meta, toMeta);
+  }
+
+  private async copyOne(from: string, to: string): Promise<void> {
     const { fs, root } = this.disk();
     if (this.values.has(to) || this.scriptMap.has(to) || (await fs.exists(joinPath(root, to)))) throw new Error(`"${to}" already exists.`);
     const script = this.scriptMap.get(from);

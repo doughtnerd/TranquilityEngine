@@ -3,7 +3,10 @@
 // files: scenes, prefabs and project.json are rewritten (the open scene as one undo step, kept
 // when it's saved), and instances of a changed prefab in the open scene are rebuilt. Scripts
 // aren't edited, so ones that mention a moved file are listed. Deleting is in assetDelete.ts.
+// A file's import settings sidecar (`<file>.meta.json`, ADR 0040) moves, copies and deletes with
+// it (projects.ts), and references to its slices (`<file>#<slice>`) are updated like the file's.
 import { signal } from "@preact/signals";
+import { isSidecarPath, sidecarAsset } from "../engine/scene/importSettings";
 import { fileName, folderOf } from "./assetBrowser";
 import { withMovedAssets } from "./assetCleanup";
 import { assetUsers, entryPath, filesIn, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
@@ -179,6 +182,19 @@ async function updateReferences(project: EditorProject, moves: readonly (readonl
   return { cleaned, scriptUsers };
 }
 
+/**
+ * Point references to renamed slices of `image` (ADR 0040) at their new names: each pair is an
+ * old and a new slice name. Like a file move: scenes, prefabs and project.json are rewritten and
+ * the open scene changes as one undo step. Returns the files updated.
+ */
+export async function renameSliceReferences(project: EditorProject, image: string, renames: readonly (readonly [string, string])[]): Promise<string[]> {
+  const moves = renames.filter(([a, b]) => a !== b).map(([a, b]) => [`${image}#${a}`, `${image}#${b}`] as const);
+  if (moves.length === 0) return [];
+  const { cleaned } = await updateReferences(project, moves);
+  docVersion.value++;
+  return cleaned;
+}
+
 /** Rename a file or folder (a selection entry) to `name` in the same folder. */
 export async function renameAsset(entry: string, name: string): Promise<boolean> {
   const path = entryPath(entry);
@@ -239,7 +255,9 @@ export async function copyAssets(entries: readonly string[], folder: string): Pr
       if (isFolderEntry(entry)) {
         if (isWithin(folder, path)) throw new Error(`can't copy ${fileName(path)} into itself`);
         const target = freePath(project, folder, fileName(path), true);
-        const inside = filesIn(project, path);
+        // Sidecars come with their files (ADR 0040); only strays are copied on their own.
+        const all = filesIn(project, path);
+        const inside = all.filter((f) => !isSidecarPath(f) || !all.includes(sidecarAsset(f)));
         await project.createFolder(target);
         for (const f of project.folders.filter((d) => isWithin(d, path) && d !== path)) await project.createFolder(target + f.slice(path.length));
         for (const f of inside) await project.copyFile(f, target + f.slice(path.length));

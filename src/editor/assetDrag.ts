@@ -116,6 +116,7 @@ function problemFor(paths: readonly string[], target: AssetDropTarget): string |
   if (target.kind === "folder") {
     if (!currentProject.value?.canSave) return "this project is read-only";
     if (playState.value !== "edit") return "stop playing to move files";
+    if (paths.some((p) => p.includes("#"))) return "slices live in their image; move the image instead"; // ADR 0040
     return whyNotMoveTarget(paths, target.folder);
   }
   const scene = openScene.value;

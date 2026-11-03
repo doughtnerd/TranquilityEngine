@@ -9,15 +9,20 @@ import { Assets } from "../scene/Assets";
 
 const howls = new Map<string, Howl>();
 
+/** A clip's Howl. Its import settings (ADR 0040) can ask to stream it (HTML5 audio) rather than decode it up front. */
 function howlFor(path: string, loop: boolean): Howl {
-  const key = `${path}|${loop}`;
+  const stream = Assets.importSettings(path).stream;
+  const key = `${path}|${loop}|${stream}`;
   let h = howls.get(key);
   if (!h) {
-    h = new Howl({ src: [Assets.url(path)], loop, preload: true, html5: false });
+    h = new Howl({ src: [Assets.url(path)], loop, preload: true, html5: stream });
     howls.set(key, h);
   }
   return h;
 }
+
+/** The clip's import volume (ADR 0040), which scales every playback of it. */
+const clipVolume = (path: string) => Assets.importSettings(path).volume;
 
 /** Plays a clip from its node. Spatial playback (three.js PositionalAudio) is not implemented yet. */
 @component("engine.AudioSource")
@@ -39,7 +44,7 @@ export class AudioSource extends Component {
     this.stop();
     this.howl = howlFor(this.clip, this.loop);
     this.soundId = this.howl.play();
-    this.howl.volume(this.volume, this.soundId);
+    this.howl.volume(this.volume * clipVolume(this.clip), this.soundId);
   }
 
   pause(): void {
@@ -73,9 +78,10 @@ export class AudioSource extends Component {
 export const Audio = {
   /** Fire-and-forget playback of a clip. */
   playOneShot(clip: string, volume = 1): void {
-    const h = howlFor(clip.replace(/^asset:/, ""), false);
+    const path = clip.replace(/^asset:/, "");
+    const h = howlFor(path, false);
     const id = h.play();
-    h.volume(volume, id);
+    h.volume(volume * clipVolume(path), id);
   },
 
   /** Master volume, 0..1. */

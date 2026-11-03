@@ -24,6 +24,7 @@ export { Transform } from "./scene/Transform";
 export { SceneManager, type LoadSceneOptions } from "./scene/SceneManager";
 export { SceneInstance, registerSceneMigration, type SceneFile } from "./scene/SceneLoader";
 export { Assets, type AssetSource } from "./scene/Assets";
+export type { ImportSettings, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
 
 export { Camera, SpriteRenderer, Text, type Anchor, type Projection } from "./render/components";
 

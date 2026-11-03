@@ -9,6 +9,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusBar } from "./StatusBar";
 import { NetworkPanel } from "./NetworkPanel";
 import { NewScriptDialog } from "./NewScriptDialog";
+import { SpriteEditorDialog } from "./SpriteEditor";
 import { HistoryPanel } from "./HistoryPanel";
 import { RefineList } from "./RefineList";
 import { SettingsDialog, settingsOpen } from "./SettingsDialog";
@@ -31,6 +32,7 @@ export function App() {
       <AssetDragGhost />
       <ConfirmDialog />
       <NewScriptDialog />
+      <SpriteEditorDialog />
       <SettingsDialog />
       <RefineList />
     </div>
