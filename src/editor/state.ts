@@ -27,6 +27,13 @@ export interface OpenScene {
 
 export const openScene = signal<OpenScene | null>(null);
 
+/**
+ * Every open scene tab, in tab order (ADR 0026). `openScene` is the active one, which every panel,
+ * Save and Play act on; the others keep their document, undo history and dirty state, with no
+ * nodes in the Editor World until they're active again.
+ */
+export const openScenes = signal<readonly OpenScene[]>([]);
+
 /** Bumped whenever the open document changes, so panels that read it re-render. */
 export const docVersion = signal(0);
 

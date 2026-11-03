@@ -27,6 +27,7 @@ import {
 } from "../assetSelection";
 import { openScript } from "../code/codeState";
 import { newScript, scriptFolderFor } from "../newScript";
+import { createScene } from "../newScene";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { switchScene } from "../session";
@@ -127,6 +128,7 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
   };
   const newItems: MenuItem[] = [
     { label: "New Folder", disabled: readOnly, run: () => void makeFolder(pasteFolder(entries)) },
+    { label: "New Scene", disabled: readOnly, run: () => void createScene(pasteFolder(entries)) },
     ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),
   ];
   if (entries.length === 0) {

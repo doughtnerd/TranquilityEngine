@@ -1,6 +1,7 @@
 import { DockLayout } from "../layout/DockLayout";
 import { resetLayout } from "../layout/store";
 import { closeProject, openProjectFolder, reloadScripts, save, togglePlaying } from "../session";
+import { createScene } from "../newScene";
 import { currentProject, docVersion, openScene, playState, scriptProblems, snapping, status } from "../state";
 import { AssetsPanel } from "./Assets";
 import { CodePanel } from "./CodePanel";
@@ -68,6 +69,11 @@ function ProjectControls() {
       <button disabled={!canSave} title={saveTitle} onClick={() => void save()}>
         Save
       </button>
+      {project && (
+        <button disabled={!project.canSave} title={project.canSave ? "Create a scene with a camera and open it" : "This project is read-only."} onClick={() => void createScene()}>
+          New Scene
+        </button>
+      )}
       {project?.root != null && (
         <button title="Read the scripts under scripts/ again and reload them (ADR 0030)" onClick={() => void reloadScripts()}>
           Reload Scripts

@@ -63,6 +63,36 @@ export function moveNode(scene: OpenScene, id: string, parent: string | null, in
   return true;
 }
 
+/**
+ * Move several nodes (none inside another) under `parent` at `index` (undefined: last), keeping
+ * their order, as one undo step. Each keeps its place in the world, as with `moveNode`. Returns
+ * false if none of them moved.
+ */
+export function moveNodes(scene: OpenScene, ids: readonly string[], parent: string | null, index?: number): boolean {
+  if (ids.length === 1) return moveNode(scene, ids[0], parent, index);
+  const { doc, stack } = scene;
+  for (const id of ids) {
+    const reason = whyNotMovable(doc, id, parent);
+    if (reason) throw new Error(reason);
+  }
+  // They go, in order, just before the first sibling at or after `index` that isn't moving.
+  const moving = new Set(ids);
+  const siblings = doc.children(parent);
+  let anchor: string | null = null;
+  if (index !== undefined) anchor = siblings.slice(index).find((s) => !moving.has(s)) ?? null;
+  let moved = false;
+  stack.beginGroup(`Move ${ids.length} nodes`);
+  try {
+    for (const id of ids) {
+      const at = anchor === null ? undefined : doc.children(parent).indexOf(anchor);
+      if (moveNode(scene, id, parent, at)) moved = true;
+    }
+  } finally {
+    stack.endGroup();
+  }
+  return moved;
+}
+
 /** References from nodes outside `id`'s subtree to nodes inside it: the ones deleting it breaks. */
 export function referencesInto(doc: SceneDocument, id: string | readonly string[]): NodeReference[] {
   const inside = new Set((typeof id === "string" ? [id] : id).flatMap((i) => doc.subtree(i)));

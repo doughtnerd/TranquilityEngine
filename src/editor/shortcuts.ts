@@ -1,5 +1,6 @@
 // Editor keyboard shortcuts. Text fields keep their own keys (and undo), so shortcuts skip them.
 import { deleteSelected } from "./deleteSelection";
+import { copySelection, cutSelection, duplicateSelection, pasteClipboard } from "./hierarchyActions";
 import { save, togglePlaying } from "./session";
 import { openScene, pickTool, snapping, type Tool } from "./state";
 
@@ -11,7 +12,10 @@ function isEditable(target: EventTarget | null): boolean {
   return el instanceof HTMLInputElement && !["checkbox", "radio", "button", "color", "range"].includes(el.type);
 }
 
-export type Shortcut = "undo" | "redo" | "back" | "forward" | "save" | "play" | "delete" | `tool:${Tool}`;
+export type Shortcut = "undo" | "redo" | "back" | "forward" | "save" | "play" | "delete" | "copy" | "cut" | "paste" | "paste-child" | "duplicate" | `tool:${Tool}`;
+
+/** Node clipboard shortcuts: the Assets panel and text fields keep their own Ctrl/Cmd+C/X/V/D. */
+const CLIPBOARD_SHORTCUTS: readonly Shortcut[] = ["copy", "cut", "paste", "paste-child", "duplicate"];
 
 const TOOL_KEYS: Record<string, Tool> = { q: "select", w: "move", e: "rotate", r: "scale" };
 
@@ -26,6 +30,11 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
     if (key === "y") return "redo";
     if (key === "s") return "save";
     if (key === "p") return "play";
+    if (e.altKey) return null;
+    if (key === "c" && !e.shiftKey) return "copy";
+    if (key === "x" && !e.shiftKey) return "cut";
+    if (key === "v") return e.shiftKey ? "paste-child" : "paste";
+    if (key === "d" && !e.shiftKey) return "duplicate";
     return null;
   }
   if (!e.shiftKey && !e.altKey && (key === "delete" || key === "backspace")) return "delete";
@@ -34,6 +43,7 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
 }
 
 /**
+ * Ctrl/Cmd + C/X/V/D copy, cut, paste and duplicate the selected nodes (+ Shift + V pastes as a child);
  * Delete or Backspace deletes the selected node; Ctrl/Cmd + P plays or stops; Ctrl/Cmd + S saves; Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Ctrl/Cmd + Alt + Z / + Shift step back / forward through history in creation order; Q/W/E/R pick the select, move,
  * rotate and scale tools; holding Ctrl/Cmd snaps gizmo drags. Returns a function that removes
  * the listeners.
@@ -61,6 +71,15 @@ export function installShortcuts(target: Window = window): () => void {
       if (document.querySelector(".dialog")) return; // a dialog is open
       e.preventDefault();
       void deleteSelected();
+      return;
+    }
+    if (CLIPBOARD_SHORTCUTS.includes(action)) {
+      if ((e.target as Element | null)?.closest?.(".asset-browser, .dialog") || document.querySelector(".dialog")) return;
+      e.preventDefault(); // Ctrl+D would bookmark the page
+      if (action === "copy") copySelection();
+      else if (action === "cut") cutSelection();
+      else if (action === "paste" || action === "paste-child") pasteClipboard(action === "paste-child");
+      else duplicateSelection();
       return;
     }
     if (action.startsWith("tool:")) {
