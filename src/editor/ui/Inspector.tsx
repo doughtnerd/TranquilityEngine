@@ -659,7 +659,7 @@ function AssetLists() {
           {options(BUILTIN_MESHES.map((m) => `builtin:${m}`))}
           {options(files.filter((f) => assetKind(f) === "model"))}
         </datalist>
-        <datalist id="asset-list-material">{options(files.filter((f) => assetKind(f) === "material"))}</datalist>
+        <datalist id="asset-list-material">{options(files.filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph"))}</datalist>
         <datalist id="asset-list-all">{options(files)}</datalist>
       </>
     );

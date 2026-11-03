@@ -1,29 +1,40 @@
 import { signal } from "@preact/signals";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import { ANTIALIAS_MODES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
+import { reloadGraphics } from "../graphicsPreview";
 import { errorStatus } from "../messages";
 import { PROJECT_FILE, queueProjectFileWrite } from "../projectFile";
 import {
   addAutoload,
   addLayer,
   addSortingLayer,
+  addTier,
   autoloadsOf,
   collides,
+  graphicsOf,
   layersOf,
   MAX_LAYERS,
   moveAutoload,
   moveSortingLayer,
+  moveTier,
   readDraft,
   removeAutoload,
   removeLayer,
   removeSortingLayer,
+  removeTier,
   renameLayer,
   renameSortingLayer,
+  renameTier,
   sectionsKey,
   setCollides,
+  setAutoDetect,
+  setDefaultTier,
+  setTargetFrameRate,
   setGravity,
   setName,
+  setTierValue,
   settingsProblems,
   settingsWarnings,
   setValue,
@@ -31,6 +42,7 @@ import {
   withSettings,
   type SettingsDraft,
   type SettingsProblem,
+  type TierValueKey,
 } from "../projectSettingsModel";
 import type { EditorProject } from "../projects";
 import { currentProject, docVersion, status } from "../state";
@@ -86,6 +98,7 @@ function persist(s: PanelState): void {
       s.fileText = text;
       s.savedKey = sectionsKey(draft);
       s.error = null;
+      reloadGraphics(graphicsOf(draft)); // the running editor uses the new tiers
       docVersion.value++; // the toolbar shows the project's name
     } catch (err) {
       s.error = errorStatus(`Couldn't save the project settings to ${PROJECT_FILE}`, err).text;
@@ -222,6 +235,10 @@ export function ProjectSettingsPanel() {
               onRemove={(i) => set("Remove sorting layer", removeSortingLayer(draft, i))}
               onMove={(i, by) => set("Reorder sorting layers", moveSortingLayer(draft, i, by))}
             />
+          </Section>
+
+          <Section title="Graphics">
+            <Tiers draft={draft} problems={problemsAt("graphics")} set={set} />
           </Section>
 
           <Section title="Autoloads">
@@ -492,6 +509,179 @@ function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: Editor
           ))}
         </select>
       )}
+    </div>
+  );
+}
+
+const LEVEL_LABELS: Record<string, string> = { off: "Off", low: "Low", medium: "Medium", high: "High", ultra: "Ultra", msaa: "MSAA", smaa: "SMAA", fxaa: "FXAA" };
+const ANISOTROPY_LEVELS = [1, 2, 4, 8, 16];
+const CASCADE_COUNTS = [1, 2, 3, 4];
+const CASCADE_LABELS: Record<string, string> = { 1: "1 (off)" };
+const AO_OPTIONS = ["off", "low", "medium", "high", "ultra"] as const;
+
+/** The graphics quality tiers (ADR 0050), lowest first, as compact cards. */
+function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: (label: string, next: SettingsDraft) => void }) {
+  const { draft, problems, set } = props;
+  const g = graphicsOf(draft);
+  const value = (i: number, key: TierValueKey, v: unknown) => set(`Set ${g.tiers[i].name} ${key}`, setTierValue(draft, i, key, v));
+  const choice = (i: number, key: TierValueKey, label: string, options: readonly (string | number)[], disabled = false, labels: Record<string, string> = LEVEL_LABELS) => {
+    const name = g.tiers[i].name;
+    const current = g.tiers[i][key];
+    return (
+      <select
+        aria-label={`${name} ${label}`}
+        value={String(current)}
+        disabled={disabled}
+        onChange={(e) => {
+          const raw = (e.currentTarget as HTMLSelectElement).value;
+          value(i, key, typeof current === "number" ? Number(raw) : raw);
+        }}
+      >
+        {options.map((o) => (
+          <option key={o} value={String(o)}>
+            {labels[String(o)] ?? String(o)}
+          </option>
+        ))}
+      </select>
+    );
+  };
+  const toggle = (i: number, key: "postProcessing" | "bloom" | "depthOfField", label: string, disabled = false) => (
+    <input
+      type="checkbox"
+      aria-label={`${g.tiers[i].name} ${label}`}
+      checked={g.tiers[i][key]}
+      disabled={disabled}
+      onChange={(e) => value(i, key, (e.currentTarget as HTMLInputElement).checked)}
+    />
+  );
+  return (
+    <div class={`project-settings-list project-settings-tiers${problems.length ? " invalid" : ""}`} role="group" aria-label="Graphics tiers">
+      <Row label="Default tier" problems={[]}>
+        <select aria-label="Default tier" value={g.defaultTier} onChange={(e) => set("Set default tier", setDefaultTier(draft, (e.currentTarget as HTMLSelectElement).value))}>
+          {g.tiers.map((t) => (
+            <option key={t.name} value={t.name}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label="Detect the tier on first run" problems={[]}>
+        <input
+          type="checkbox"
+          aria-label="Detect tier automatically"
+          checked={g.autoDetect}
+          onChange={(e) => set("Set automatic tier detection", setAutoDetect(draft, (e.currentTarget as HTMLInputElement).checked))}
+        />
+      </Row>
+      <Row label="Target frame rate" problems={[]}>
+        <input
+          type="number"
+          min={20}
+          max={240}
+          step={1}
+          aria-label="Target frame rate"
+          value={g.targetFrameRate}
+          disabled={!g.autoDetect}
+          onChange={(e) => {
+            const n = (e.currentTarget as HTMLInputElement).valueAsNumber;
+            if (Number.isFinite(n)) set("Set target frame rate", setTargetFrameRate(draft, n));
+          }}
+        />
+      </Row>
+      <p class="project-settings-hint">Without a saved player choice, the game guesses a tier from the GPU and steps down if it can't keep this frame rate.</p>
+      {g.tiers.map((t, i) => (
+        <div key={i} class="tier-card" data-tier={t.name}>
+          <div class="tier-card-head">
+            <TextField value={t.name} label={`Tier ${i + 1} name`} onCommit={(v) => set(`Rename tier to ${v.trim()}`, renameTier(draft, i, v.trim()))} />
+            <span class="tier-buttons">
+              <button class="icon" aria-label={`Move ${t.name} up`} title="Move up (lower quality)" disabled={i === 0} onClick={() => set("Reorder tiers", moveTier(draft, i, -1))}>
+                ↑
+              </button>
+              <button class="icon" aria-label={`Move ${t.name} down`} title="Move down (higher quality)" disabled={i === g.tiers.length - 1} onClick={() => set("Reorder tiers", moveTier(draft, i, 1))}>
+                ↓
+              </button>
+              <button class="icon" aria-label={`Remove ${t.name}`} title="Remove this tier" disabled={g.tiers.length <= 1} onClick={() => set(`Remove tier ${t.name}`, removeTier(draft, i))}>
+                ×
+              </button>
+            </span>
+          </div>
+          <div class="tier-fields">
+            <label>
+              <span class="tier-label">Render scale</span>
+              <input
+                type="number"
+                min={0.25}
+                max={2}
+                step={0.05}
+                aria-label={`${t.name} render scale`}
+                value={t.renderScale}
+                onChange={(e) => {
+                  const n = (e.currentTarget as HTMLInputElement).valueAsNumber;
+                  if (Number.isFinite(n)) value(i, "renderScale", n);
+                }}
+              />
+            </label>
+            <label>
+              <span class="tier-label">Anti-aliasing</span>
+              {choice(i, "antialias", "anti-aliasing", ANTIALIAS_MODES)}
+            </label>
+            <label>
+              <span class="tier-label">Shadows</span>
+              {choice(i, "shadows", "shadows", SHADOW_QUALITIES)}
+            </label>
+            <label class={t.shadows === "off" ? "disabled" : ""}>
+              <span class="tier-label">Shadow cascades</span>
+              {choice(i, "shadowCascades", "shadow cascades", CASCADE_COUNTS, t.shadows === "off", CASCADE_LABELS)}
+            </label>
+            <label class={t.shadows === "off" ? "disabled" : ""}>
+              <span class="tier-label">Shadow distance</span>
+              <input
+                type="number"
+                min={10}
+                max={1000}
+                step={10}
+                aria-label={`${t.name} shadow distance`}
+                value={t.shadowDistance}
+                disabled={t.shadows === "off"}
+                onChange={(e) => {
+                  const n = (e.currentTarget as HTMLInputElement).valueAsNumber;
+                  if (Number.isFinite(n)) value(i, "shadowDistance", n);
+                }}
+              />
+            </label>
+            <label>
+              <span class="tier-label">Anisotropy</span>
+              {choice(i, "anisotropy", "anisotropy", ANISOTROPY_LEVELS)}
+            </label>
+            <label>
+              <span class="tier-label">Shader level</span>
+              {choice(i, "shaderLevel", "shader level", SHADER_LEVELS)}
+            </label>
+            <label>
+              <span class="tier-label">Post-processing</span>
+              {toggle(i, "postProcessing", "post-processing")}
+            </label>
+            <label class={t.postProcessing ? "" : "disabled"}>
+              <span class="tier-label">Bloom</span>
+              {toggle(i, "bloom", "bloom", !t.postProcessing)}
+            </label>
+            <label class={t.postProcessing ? "" : "disabled"}>
+              <span class="tier-label">Ambient occlusion</span>
+              {choice(i, "ambientOcclusion", "ambient occlusion", AO_OPTIONS, !t.postProcessing)}
+            </label>
+            <label class={t.postProcessing ? "" : "disabled"}>
+              <span class="tier-label">Depth of field</span>
+              {toggle(i, "depthOfField", "depth of field", !t.postProcessing)}
+            </label>
+            <label>
+              <span class="tier-label">Reflection probes</span>
+              {choice(i, "reflectionProbes", "reflection probes", PROBE_QUALITIES)}
+            </label>
+          </div>
+        </div>
+      ))}
+      <button onClick={() => set("Add tier", addTier(draft))}>Add Tier</button>
+      <p class="project-settings-hint">Players pick a tier in game with Graphics.quality; the Scene view's Quality menu previews one.</p>
     </div>
   );
 }

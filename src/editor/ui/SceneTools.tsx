@@ -4,6 +4,7 @@ import { actionLabel, alignTargets, minNodes, runAlign, type AlignAction, type A
 import { previewCamera, previewFrame, selectedCamera } from "../cameraPreview";
 import { cameraPreviewEnabled, cleanSnap, gizmoPivot, gizmoSpace, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, type SnapSettings } from "../sceneTools";
 import { docVersion, openScene, sceneCamera, selectedKeys, viewMode } from "../state";
+import { previewedQuality, previewQuality, qualityTiers } from "../graphicsPreview";
 import "./scene-tools.css";
 
 /**
@@ -41,6 +42,17 @@ export function SceneToolButtons() {
       >
         Preview
       </button>
+      <select
+        class="quality-select"
+        aria-label="Quality"
+        title="Preview a graphics quality tier in the editor (players choose theirs with Graphics.quality)"
+        value={previewedQuality.value}
+        onChange={(e) => previewQuality((e.currentTarget as HTMLSelectElement).value)}
+      >
+        {qualityTiers.value.map((name) => (
+          <option key={name} value={name}>{name}</option>
+        ))}
+      </select>
     </>
   );
 }

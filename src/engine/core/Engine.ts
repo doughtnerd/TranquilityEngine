@@ -9,6 +9,9 @@ import { SceneManager } from "../scene/SceneManager";
 import { connectWorlds } from "../net/session";
 import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
 import { resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
+import { parseGraphics } from "./graphics";
+import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
+import { FrameMonitor } from "../render/qualityDetect";
 import { listSystemCatalog } from "./systems";
 import { World, type WorldKind } from "./World";
 import { WorldHandleImpl } from "./WorldHandle";
@@ -30,6 +33,12 @@ export interface EngineOptions {
    * project's bootstrap.
    */
   kind?: WorldKind;
+  /**
+   * Graphics quality (ADR 0050, 0055): `"player"` (default) activates the player's saved tier, or
+   * detects one when the project allows it; `"keep"` leaves the active tier alone (the editor's
+   * Play mode, so its previewed tier stays).
+   */
+  quality?: "player" | "keep";
   /**
    * Which Worlds to create (ADR 0032): a declarative config or a code bootstrap. Default: the
    * project's `bootstrap` setting, else the default bootstrap (one World).
@@ -98,6 +107,9 @@ export class Engine implements BootstrapEngine {
   /** Scene loads of the start-up Worlds, which `Engine.create` waits for; null once it's done. */
   private starting: Promise<void>[] | null = [];
   private rafId = 0;
+  /** Automatic quality (ADR 0055): watches the first seconds of play and steps the tier down if they're slow. */
+  private qualityMonitor: FrameMonitor | null = null;
+  private monitorFrames = 0;
   private lastTime = 0;
   private running = false;
 
@@ -110,6 +122,21 @@ export class Engine implements BootstrapEngine {
     const engine = new Engine(options);
     for (const source of ([] as AssetSource[]).concat(options.assets ?? [])) Assets.addSource(source);
     Storage.use(options.storage ?? (await defaultStorage(engine.settings.name, !engine.container)));
+    // Graphics quality (ADR 0050): the project's tiers, and the player's saved choice; with
+    // `autoDetect`, a detected tier until the player picks one (ADR 0055).
+    for (const p of parseGraphics(options.project?.graphics).problems) console.warn(`[myco] project.json ${p}`);
+    if ((options.quality ?? "player") === "player") {
+      const graphics = engine.settings.graphics;
+      const saved = await Storage.load(QUALITY_KEY, "settings").catch(() => undefined);
+      const auto = graphics.autoDetect ? await Storage.load(AUTO_QUALITY_KEY, "settings").catch(() => undefined) : undefined;
+      Graphics._configure(graphics, saved, auto);
+      const detect = graphics.autoDetect && !!engine.container && (options.kind ?? "runtime") === "runtime" && (saved === undefined || Graphics.autoDetected);
+      if (detect) {
+        if (!Graphics.autoDetected) Graphics._applyDetected(Graphics.detectQuality());
+        engine.qualityMonitor = new FrameMonitor({ targetFps: graphics.targetFrameRate });
+        engine.qualityMonitor.setAtLowest(Graphics.tiers.indexOf(Graphics.quality) <= 0);
+      }
+    }
 
     // The editor's Engine holds just the Editor World unless it's told otherwise (ADR 0022).
     const kind = options.kind ?? "runtime";
@@ -378,6 +405,28 @@ export class Engine implements BootstrapEngine {
     this.rafId = requestAnimationFrame(frame);
   }
 
+  /** Feed the quality monitor (ADR 0055), from the 30th frame on so start-up and the first load are past. */
+  private watchQuality(dt: number): void {
+    const monitor = this.qualityMonitor;
+    if (!monitor || ++this.monitorFrames < 30) return;
+    if (!Graphics.autoDetected) {
+      this.qualityMonitor = null; // the player chose a tier meanwhile
+      return;
+    }
+    const verdict = monitor.frame(dt);
+    if (verdict === "done") this.qualityMonitor = null;
+    else if (verdict === "stepDown") {
+      const tiers = Graphics.tiers;
+      const i = tiers.indexOf(Graphics.quality);
+      if (i > 0) {
+        Graphics._applyDetected(tiers[i - 1]);
+        console.info(`[myco] graphics quality stepped down to "${tiers[i - 1]}" to keep the frame rate up.`);
+      }
+      monitor.steppedDown();
+      monitor.setAtLowest(i - 1 <= 0);
+    }
+  }
+
   stop(): void {
     if (!this.running) return; // never started (headless, stepped by hand): nothing to cancel
     this.running = false;
@@ -390,6 +439,7 @@ export class Engine implements BootstrapEngine {
    * own clock (ADR 0032). Afterwards the default World is current again.
    */
   step(dt: number): void {
+    this.watchQuality(dt);
     // 2. Input snapshot: once per Engine frame, shared by the Worlds that take input
     Input.beginFrame();
     for (const world of [...this.list]) {

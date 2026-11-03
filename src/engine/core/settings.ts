@@ -1,3 +1,4 @@
+import { parseGraphics, type GraphicsSettings } from "./graphics";
 import type { BootstrapSetting } from "./worlds";
 
 /** Project settings, normally loaded from the game's `project.json`. */
@@ -31,6 +32,8 @@ export interface ProjectSettings {
     /** Default sprite pixels per world unit (ADR 0014). */
     pixelsPerUnit: number;
   };
+  /** Graphics quality tiers (ADR 0050). Omitted: Low, Medium, High and Ultra, defaulting to High. */
+  graphics: GraphicsSettings;
   /** Scene/prefab files instanced under the World root at startup; they persist across scene loads (ADR 0016). */
   autoload: string[];
   /** Which Worlds the Engine creates at start (ADR 0032). Omitted: the default bootstrap, one World. */
@@ -51,6 +54,7 @@ export const defaultSettings: ProjectSettings = {
   time: { fixedDeltaTime: 1 / 60, maxSubSteps: 5, maxFrameTime: 0.25 },
   physics: { gravity: [0, -9.81], layers: ["Default"] },
   render: { sortingLayers: ["Default"], pixelsPerUnit: 100 },
+  graphics: parseGraphics(undefined).graphics,
   autoload: [],
 };
 
@@ -61,6 +65,7 @@ export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettin
     time: { ...defaultSettings.time, ...input.time },
     physics: { ...defaultSettings.physics, ...input.physics },
     render: { ...defaultSettings.render, ...input.render },
+    graphics: parseGraphics(input.graphics).graphics, // problems are reported by the Engine and the Project panel
     autoload: input.autoload ?? [],
     ...(input.bootstrap !== undefined ? { bootstrap: input.bootstrap } : {}), // checked by validateBootstrap when the bootstrap runs
   };

@@ -30,6 +30,7 @@ import { openScript } from "../code/codeState";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
 import { createMaterial } from "../materialAssets";
+import { createShaderGraph, createShaderSubGraph, openShaderGraphAsset } from "../shaderGraphAssets";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { switchScene } from "../session";
@@ -43,9 +44,12 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   prefab: "Prefab",
   image: "Image",
   sprite: "Sprite",
+  environment: "Environment",
   audio: "Audio",
   model: "Model",
   material: "Material",
+  shadergraph: "Shader Graph",
+  shadersubgraph: "Sub Graph",
   json: "JSON",
   script: "Script",
   javascript: "JS",
@@ -103,11 +107,12 @@ function openEntry(entry: string): void {
   if (isSliceEntry(entry)) return openSpriteEditor(splitSliceEntry(entry).image);
   const kind = assetKind(entry);
   if (kind === "image") return openSpriteEditor(entry);
+  if (kind === "shadergraph" || kind === "shadersubgraph") return openShaderGraphAsset(entry);
   if (kind === "script" || kind === "json" || kind === "javascript") openScript(entry);
   else if (kind === "scene" || kind === "prefab") void switchScene(entry);
 }
 
-const opens = (entry: string) => isFolderEntry(entry) || ["scene", "prefab", "script", "json", "javascript", "image", "sprite"].includes(assetKind(entry));
+const opens = (entry: string) => isFolderEntry(entry) || ["scene", "prefab", "script", "json", "javascript", "image", "sprite", "shadergraph", "shadersubgraph"].includes(assetKind(entry));
 
 /** Why `entries` can't be changed (renamed, moved, deleted), or null. */
 function whyNotEditable(project: EditorProject, entries: readonly string[]): string | null {
@@ -150,6 +155,8 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
     { label: "New Folder", disabled: readOnly, run: () => void makeFolder(pasteFolder(entries)) },
     { label: "New Scene", disabled: readOnly, run: () => void createScene(pasteFolder(entries)) },
     { label: "New Material", disabled: readOnly, run: () => void createMaterial(pasteFolder(entries)).then((made) => made && select([made])) },
+    { label: "New Shader Graph", disabled: readOnly, run: () => void createShaderGraph(pasteFolder(entries)).then((made) => made && select([made])) },
+    { label: "New Shader Sub Graph", disabled: readOnly, run: () => void createShaderSubGraph(pasteFolder(entries)).then((made) => made && select([made])) },
     ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),
   ];
   if (entries.length === 0) {

@@ -4,7 +4,16 @@ import {
   addAutoload,
   addLayer,
   addSortingLayer,
+  addTier,
   collides,
+  graphicsOf,
+  moveTier,
+  removeTier,
+  renameTier,
+  setAutoDetect,
+  setDefaultTier,
+  setTargetFrameRate,
+  setTierValue,
   moveAutoload,
   moveSortingLayer,
   readDraft,
@@ -175,5 +184,98 @@ describe("the Project panel's settings", () => {
     await expect(slow).rejects.toThrow("disk full");
     await next;
     expect(order).toEqual(["first", "second"]);
+  });
+
+  describe("graphics tiers", () => {
+    const names = (d: SettingsDraft) => graphicsOf(d).tiers.map((x) => x.name);
+
+    it("starts from the default tiers and leaves the section absent until edited", () => {
+      const d = readDraft({});
+      expect(d.graphics).toBeUndefined();
+      expect(names(d)).toEqual(["Low", "Medium", "High", "Ultra"]);
+      expect(withSettings("{}\n", d, {})).toBe("{}\n");
+      expect(readDraft({ graphics: { defaultTier: "A", tiers: [{ name: "A" }] } }).graphics).toEqual({ defaultTier: "A", tiers: [{ name: "A" }] });
+    });
+
+    it("adds uniquely named tiers with the High tier's values", () => {
+      let d = addTier(readDraft({}));
+      d = addTier(d);
+      expect(names(d)).toEqual(["Low", "Medium", "High", "Ultra", "Tier", "Tier 2"]);
+      expect(graphicsOf(d).tiers[4]).toEqual({ ...graphicsOf(d).tiers[2], name: "Tier" });
+      expect(graphicsOf(d).defaultTier).toBe("High");
+    });
+
+    it("removes tiers, never the last, and moves the default to the highest remaining", () => {
+      let d = removeTier(readDraft({}), 2); // High, the default
+      expect(names(d)).toEqual(["Low", "Medium", "Ultra"]);
+      expect(graphicsOf(d).defaultTier).toBe("Ultra");
+      d = removeTier(d, 0);
+      expect(graphicsOf(d).defaultTier).toBe("Ultra");
+      d = removeTier(removeTier(d, 1), 0);
+      expect(names(d)).toEqual(["Medium"]);
+      expect(removeTier(d, 0)).toBe(d);
+    });
+
+    it("renames tiers, keeping the default, and refuses empty or duplicate names", () => {
+      const d = renameTier(readDraft({}), 2, "Best");
+      expect(names(d)).toEqual(["Low", "Medium", "Best", "Ultra"]);
+      expect(graphicsOf(d).defaultTier).toBe("Best");
+      expect(renameTier(d, 0, "Medium")).toBe(d);
+      expect(renameTier(d, 0, "  ")).toBe(d);
+      expect(graphicsOf(renameTier(d, 0, "Potato")).defaultTier).toBe("Best");
+    });
+
+    it("sets the post-processing values of a tier", () => {
+      let d = setTierValue(readDraft({}), 0, "postProcessing", true);
+      d = setTierValue(d, 0, "bloom", true);
+      d = setTierValue(d, 0, "ambientOcclusion", "high");
+      d = setTierValue(d, 0, "depthOfField", true);
+      d = setTierValue(d, 0, "antialias", "fxaa");
+      expect(graphicsOf(d).tiers[0]).toMatchObject({ postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, antialias: "fxaa" });
+    });
+
+    it("sets automatic detection and the target frame rate, keeping them through tier edits", () => {
+      let d = setAutoDetect(readDraft({}), true);
+      d = setTargetFrameRate(d, 90);
+      expect(graphicsOf(d)).toMatchObject({ autoDetect: true, targetFrameRate: 90 });
+      d = setTierValue(addTier(d), 0, "reflectionProbes", "high");
+      expect(graphicsOf(d)).toMatchObject({ autoDetect: true, targetFrameRate: 90 });
+      expect(graphicsOf(d).tiers[0].reflectionProbes).toBe("high");
+      expect(graphicsOf(setAutoDetect(d, false)).autoDetect).toBe(false);
+      expect(graphicsOf(setTargetFrameRate(d, 5)).targetFrameRate).toBe(60);
+    });
+
+    it("sets the shadow cascade values of a tier", () => {
+      let d = setTierValue(readDraft({}), 2, "shadowCascades", 4);
+      d = setTierValue(d, 2, "shadowDistance", 200);
+      expect(graphicsOf(d).tiers[2]).toMatchObject({ shadowCascades: 4, shadowDistance: 200 });
+      expect(settingsProblems(d)).toEqual([]);
+    });
+
+    it("reorders tiers within bounds", () => {
+      const d = moveTier(readDraft({}), 0, 1);
+      expect(names(d)).toEqual(["Medium", "Low", "High", "Ultra"]);
+      expect(moveTier(d, 0, -1)).toBe(d);
+      expect(moveTier(d, 3, 1)).toBe(d);
+    });
+
+    it("sets tier values and the default tier", () => {
+      let d = setTierValue(readDraft({}), 0, "renderScale", 0.5);
+      d = setTierValue(d, 0, "shadows", "off");
+      d = setTierValue(d, 0, "antialias", "msaa");
+      d = setTierValue(d, 0, "anisotropy", 2);
+      d = setTierValue(d, 0, "shaderLevel", "medium");
+      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off" });
+      expect(settingsProblems(d)).toEqual([]);
+      expect(graphicsOf(setDefaultTier(d, "Low")).defaultTier).toBe("Low");
+      expect(setDefaultTier(d, "Nope")).toBe(d);
+    });
+
+    it("reports bad values as problems for the graphics section", () => {
+      const d = setTierValue(readDraft({}), 1, "renderScale", 5);
+      expect(fields(d)).toEqual(["graphics"]);
+      expect(messages(d)[0]).toContain("renderScale");
+      expect(messages(readDraft({ graphics: { tiers: [] } }))).toEqual([expect.stringContaining("no usable tier")]);
+    });
   });
 });

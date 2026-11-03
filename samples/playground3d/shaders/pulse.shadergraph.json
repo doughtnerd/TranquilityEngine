@@ -1,0 +1,31 @@
+{
+  "format": "myco.shadergraph@1",
+  "properties": [
+    { "name": "Tint", "type": "color", "value": "#3fa7ff" },
+    { "name": "Speed", "type": "float", "value": 2 }
+  ],
+  "nodes": [
+    { "id": "output", "type": "output", "position": [420, -40], "inputs": { "roughness": 0.35 } },
+    { "id": "tint", "type": "property", "position": [-60, -140], "settings": { "property": "Tint" } },
+    { "id": "time", "type": "time", "position": [-560, 120] },
+    { "id": "speed", "type": "property", "position": [-560, 230], "settings": { "property": "Speed" } },
+    { "id": "multiply1", "type": "multiply", "position": [-340, 140] },
+    { "id": "sine1", "type": "sine", "position": [-140, 160] },
+    { "id": "remap1", "type": "remap", "position": [40, 120], "inputs": { "outMin": 0.2 } },
+    { "id": "fresnel1", "type": "fresnel", "position": [40, 0], "inputs": { "power": 2.5 } },
+    { "id": "multiply2", "type": "multiply", "position": [240, 60] },
+    { "id": "multiply3", "type": "multiply", "position": [240, -80] }
+  ],
+  "edges": [
+    { "from": "time.time", "to": "multiply1.a" },
+    { "from": "speed.out", "to": "multiply1.b" },
+    { "from": "multiply1.out", "to": "sine1.in" },
+    { "from": "sine1.out", "to": "remap1.in" },
+    { "from": "fresnel1.out", "to": "multiply2.a" },
+    { "from": "remap1.out", "to": "multiply2.b" },
+    { "from": "tint.out", "to": "multiply3.a" },
+    { "from": "multiply2.out", "to": "multiply3.b" },
+    { "from": "tint.out", "to": "output.baseColor" },
+    { "from": "multiply3.out", "to": "output.emission" }
+  ]
+}

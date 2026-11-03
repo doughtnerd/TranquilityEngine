@@ -112,6 +112,8 @@
   border: 1px solid var(--border-strong);
   border-radius: 5px;
   box-shadow: 0 6px 18px var(--shadow);
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
 }
 .context-menu button { display: flex; justify-content: space-between; gap: 16px; width: 100%; border: none; border-radius: 0; background: none; padding: 3px 12px; text-align: left; font-size: calc(12px * var(--ui-scale)); }
 .context-menu button:hover:not(:disabled), .context-menu button:focus-visible { background: var(--selection); color: var(--selection-text); outline: none; box-shadow: none; }

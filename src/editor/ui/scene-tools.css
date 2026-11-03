@@ -3,6 +3,7 @@
 .scene-toolbar button[aria-pressed="true"].snap-toggle,
 .scene-toolbar button[aria-pressed="true"].camera-preview-toggle { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .scene-toolbar .snap-settings { padding: 2px 6px; }
+.scene-toolbar .quality-select { background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font: inherit; font-size: 12px; padding: 2px 4px; }
 
 .scene-popover {
   position: fixed;

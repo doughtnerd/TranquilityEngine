@@ -32,6 +32,7 @@ import { isScriptPath, replaceScripts } from "./scriptLoader";
 import { viewportElements } from "./ui/ScenePanel";
 import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
 import { installViewportSelection } from "./viewportSelection";
+import { reloadGraphics } from "./graphicsPreview";
 
 let session: { engine: Engine; dispose(): void } | null = null;
 let play: PlaySession | null = null;
@@ -95,6 +96,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   scriptsVersion.value++;
   void setUpScripting(project);
   const engine = await Engine.create({ kind: "editor", container: viewportElements().viewport, project: editorSettings(project) });
+  reloadGraphics(engine.settings.graphics); // the Quality menu lists the project's tiers
   // Editor tools live under the World root, outside the edited scene, so they keep running (ADR 0026).
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   orbit.mode = viewMode.value;

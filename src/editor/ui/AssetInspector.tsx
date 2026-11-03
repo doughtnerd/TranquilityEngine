@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { ImportSettings } from "../../engine/scene/importSettings";
 import { assetKind, fileName } from "../assetBrowser";
-import { MaterialInspector } from "./MaterialInspector";
+import { MaterialInspector, ShaderGraphInspector } from "./MaterialInspector";
 import { importKind, inspectedAsset, openSpriteEditor, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
 import { errorStatus } from "../messages";
 import { PIVOT_PRESETS, pivotLabel } from "../spriteSlicing";
@@ -11,10 +11,11 @@ import "./assetInspector.css";
 /** The project's pixels per unit (100 by default, ADR 0014). */
 const projectPPU = (settings: { render?: { pixelsPerUnit?: number } }) => settings.render?.pixelsPerUnit ?? 100;
 
-/** The selected asset in the Inspector: a material's settings (ADR 0043), or a file's import settings. */
+/** The selected asset in the Inspector: a material's settings (ADR 0043), a shader graph (ADR 0047), or a file's import settings. */
 export function AssetInspector() {
   const path = inspectedAsset.value;
-  return path && assetKind(path) === "material" ? <MaterialInspector path={path} /> : <ImportInspector />;
+  const kind = path ? assetKind(path) : null;
+  return path && kind === "material" ? <MaterialInspector path={path} /> : path && (kind === "shadergraph" || kind === "shadersubgraph") ? <ShaderGraphInspector path={path} /> : <ImportInspector />;
 }
 
 const KIND_TITLES = { image: "Image", audio: "Audio", model: "Model" } as const;

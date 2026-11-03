@@ -3,7 +3,7 @@
  * The render backend mirrors them into three.js objects each frame.
  */
 import { Component } from "../core/Component";
-import { Color, Vector2 } from "../core/math";
+import { Color, Vector2, Vector3 } from "../core/math";
 import { AssetRef, component, field } from "../core/registry";
 import { World } from "../core/World";
 
@@ -44,6 +44,13 @@ export class Camera extends Component {
   @field(Number) depth = 0;
   /** Clear color; null uses the project's display background color. */
   @field(Color) backgroundColor: Color | null = null;
+  /**
+   * The camera's rectangle on the canvas: the bottom-left corner as fractions of the canvas, like
+   * Unity's Viewport Rect (ADR 0056). The default 0,0 / 1,1 covers the whole canvas.
+   */
+  @field(Vector2) viewportPosition = new Vector2(0, 0);
+  /** The camera's rectangle on the canvas: its width and height as fractions of the canvas (ADR 0056). */
+  @field(Vector2) viewportSize = new Vector2(1, 1);
 
   /** The enabled camera with the lowest depth in the current World (ADR 0032). */
   static get main(): Camera | null {
@@ -104,10 +111,50 @@ export class MeshRenderer extends Component {
   /** Show shadows cast onto it. */
   @field(Boolean) receiveShadows = true;
 
+  private readonly materialProperties = new Map<string, MaterialPropertyValue>();
+  /** @internal Bumped when the property overrides change, so the render backend applies them. */
+  _materialPropertiesVersion = 0;
+
+  /**
+   * Override one of the material's properties for this renderer only (ADR 0049), like Unity's
+   * MaterialPropertyBlock: the material asset and other renderers are unchanged. Names are a
+   * shader graph's property names, or `color`, `emission`, `metalness`, `roughness` and
+   * `texture` for the built-in lit and unlit materials. A texture is an asset path.
+   */
+  setMaterialProperty(name: string, value: MaterialPropertyValue): void {
+    this.materialProperties.set(name, value instanceof Color || value instanceof Vector2 || value instanceof Vector3 ? value.clone() : Array.isArray(value) ? [...value] : value);
+    this._materialPropertiesVersion++;
+  }
+
+  /** The value set with `setMaterialProperty`, or undefined when the material's own value is used. */
+  getMaterialProperty(name: string): MaterialPropertyValue | undefined {
+    return this.materialProperties.get(name);
+  }
+
+  /** Go back to the material's own value for one property. */
+  clearMaterialProperty(name: string): void {
+    if (this.materialProperties.delete(name)) this._materialPropertiesVersion++;
+  }
+
+  /** Go back to the material's own values for every property. */
+  clearMaterialProperties(): void {
+    if (this.materialProperties.size === 0) return;
+    this.materialProperties.clear();
+    this._materialPropertiesVersion++;
+  }
+
+  /** @internal The overrides, by name. */
+  get _materialProperties(): ReadonlyMap<string, MaterialPropertyValue> {
+    return this.materialProperties;
+  }
+
   override _onDetach(): void {
     this.world.render?.release(this);
   }
 }
+
+/** A value for `MeshRenderer.setMaterialProperty`: a number, vector, colour, 2–4 numbers, or a texture's asset path. */
+export type MaterialPropertyValue = number | Vector2 | Vector3 | Color | readonly number[] | string;
 
 export type LightType = "directional" | "point" | "spot" | "ambient";
 
@@ -134,6 +181,116 @@ export class Light extends Component {
    */
   @field(Boolean) castShadows = false;
   @field(Number) shadowArea = 20;
+
+  override _onDetach(): void {
+    this.world.render?.release(this);
+  }
+}
+
+export type ToneMapping = "none" | "aces" | "agx" | "neutral";
+
+/**
+ * Post-processing for the camera on the same node (ADR 0051). Effects run when this component
+ * asks for them and the graphics quality tier allows them. The main (lowest-depth) camera gets
+ * them in this version; other cameras draw without effects.
+ */
+@component("engine.PostProcessing")
+export class PostProcessing extends Component {
+  /** Tone mapping curve applied to the HDR scene. */
+  @field(String, { choices: ["none", "aces", "agx", "neutral"] }) toneMapping: ToneMapping = "agx";
+  /** Exposure multiplier applied before tone mapping (1 = unchanged). */
+  @field(Number) exposure = 1;
+
+  /** Bloom glow around bright areas. */
+  @field(Boolean) bloom = false;
+  /** Strength of the bloom glow (1 = default). */
+  @field(Number) bloomIntensity = 1;
+  /** Brightness above which pixels bloom, 0 to 1 (luminance). */
+  @field(Number) bloomThreshold = 0.9;
+  /** Spread of the bloom glow, 0 to 1. */
+  @field(Number) bloomRadius = 0.85;
+
+  /** Ambient occlusion: darkens creases and contact points. */
+  @field(Boolean) ambientOcclusion = false;
+  /** Strength of the ambient occlusion (2 = default). */
+  @field(Number) aoIntensity = 2;
+  /** Radius of the occlusion search, in metres. */
+  @field(Number) aoRadius = 1;
+
+  /** Brightness offset, -1 to 1 (0 = unchanged). */
+  @field(Number) brightness = 0;
+  /** Contrast, -1 to 1 (0 = unchanged). */
+  @field(Number) contrast = 0;
+  /** Saturation, -1 (greyscale) to 1 (0 = unchanged). */
+  @field(Number) saturation = 0;
+  /** Hue rotation in degrees (0 = unchanged). */
+  @field(Number) hue = 0;
+
+  /** Darkens the edges of the screen. */
+  @field(Boolean) vignette = false;
+  /** How dark the vignette gets, 0 to 1. */
+  @field(Number) vignetteDarkness = 0.5;
+  /** How far in from the edges the vignette starts, 0 to 1. */
+  @field(Number) vignetteOffset = 0.5;
+
+  /** Blurs what is out of focus. */
+  @field(Boolean) depthOfField = false;
+  /** Distance to the focused plane, in metres. */
+  @field(Number) focusDistance = 10;
+  /** Depth range around the focus distance that stays sharp, in metres. */
+  @field(Number) focusRange = 5;
+  /** Size of the out-of-focus blur (bokeh) shapes. */
+  @field(Number) bokehScale = 2;
+
+  /** Splits red, green and blue at the screen edges. */
+  @field(Boolean) chromaticAberration = false;
+  /** Offset of the colour split, as a fraction of the screen (0.002 = default). */
+  @field(Number) chromaticAberrationAmount = 0.002;
+}
+
+/**
+ * The scene environment (ADR 0053): image-based lighting and the skybox. One per World; the first
+ * active one wins. Without one, lit materials reflect the built-in studio room.
+ */
+@component("engine.Environment")
+export class Environment extends Component {
+  /** An .hdr, .exr, .png or .jpg equirectangular image. Empty: the built-in studio room. */
+  @field(AssetRef) map = "";
+  /** Strength of the environment lighting (1 = unchanged). */
+  @field(Number) intensity = 1;
+  /** Draw the map as the background. Off keeps the camera's background colour. */
+  @field(Boolean) skybox = true;
+  /** Brightness of the skybox (1 = unchanged). */
+  @field(Number) skyboxIntensity = 1;
+  /** Blur of the skybox, 0 to 1. */
+  @field(Number) skyboxBlur = 0;
+  /** Rotation of the environment around the Y axis, in degrees. */
+  @field(Number) rotation = 0;
+}
+
+export type ProbeRefresh = "onLoad" | "everyFrame";
+
+/**
+ * Captures the scene around its node into a local environment map (ADR 0054). Lit and physical
+ * meshes whose bounds centre lies inside the probe's box reflect it instead of the global
+ * Environment; where boxes overlap, the smallest wins.
+ */
+@component("engine.ReflectionProbe")
+export class ReflectionProbe extends Component {
+  /** The box of influence in metres, centred on the node. */
+  @field(Vector3) size = new Vector3(10, 10, 10);
+  /** Strength of the reflections. */
+  @field(Number) intensity = 1;
+  /** `onLoad` captures once after the scene loads; `everyFrame` recaptures continuously. */
+  @field(String, { choices: ["onLoad", "everyFrame"] }) refresh: ProbeRefresh = "onLoad";
+
+  /** @internal Bumped by `capture()`; the render backend recaptures when it changes. */
+  _captureRequests = 0;
+
+  /** Recapture the surroundings on the next frame, e.g. after the scene around the probe changed. */
+  capture(): void {
+    this._captureRequests++;
+  }
 
   override _onDetach(): void {
     this.world.render?.release(this);

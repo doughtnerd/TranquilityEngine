@@ -29,6 +29,14 @@
             "projection": "perspective",
             "fieldOfView": 55
           }
+        },
+        {
+          "type": "engine.PostProcessing",
+          "data": {
+            "bloom": true,
+            "ambientOcclusion": true,
+            "vignette": true
+          }
         }
       ]
     },
@@ -442,7 +450,8 @@
         {
           "type": "engine.MeshRenderer",
           "data": {
-            "mesh": "builtin:capsule"
+            "mesh": "builtin:capsule",
+            "material": "asset:materials/pulse.material.json"
           }
         },
         {
