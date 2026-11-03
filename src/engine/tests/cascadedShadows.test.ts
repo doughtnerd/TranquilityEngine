@@ -34,6 +34,19 @@ describe("cascaded shadows (ADR 0053)", () => {
     csm.dispose();
   });
 
+  it("biases shadows by centimetres, not metres, over the cascade lights' long depth range", async () => {
+    // Bias is in normalized shadow depth; a fixed -0.0005 over CSM's 2000 m range pushed shadows
+    // about a metre toward the light, leaving a half-metre ball only a crescent of shadow.
+    const { scene, csm } = await make();
+    for (const light of lightsOf(scene)) {
+      const cam = light.shadow.camera;
+      const metres = -light.shadow.bias * (cam.far - cam.near);
+      expect(metres).toBeGreaterThan(0);
+      expect(metres).toBeLessThanOrEqual(0.05);
+    }
+    csm.dispose();
+  });
+
   it("chains the material's own onBeforeCompile ahead of CSM's and extends the cache key", async () => {
     const { csm } = await make();
     const material = new MeshStandardMaterial();
