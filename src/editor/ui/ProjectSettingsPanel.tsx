@@ -1,29 +1,38 @@
 import { signal } from "@preact/signals";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import { ANTIALIAS_MODES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
+import { reloadGraphics } from "../graphicsPreview";
 import { errorStatus } from "../messages";
 import { PROJECT_FILE, queueProjectFileWrite } from "../projectFile";
 import {
   addAutoload,
   addLayer,
   addSortingLayer,
+  addTier,
   autoloadsOf,
   collides,
+  graphicsOf,
   layersOf,
   MAX_LAYERS,
   moveAutoload,
   moveSortingLayer,
+  moveTier,
   readDraft,
   removeAutoload,
   removeLayer,
   removeSortingLayer,
+  removeTier,
   renameLayer,
   renameSortingLayer,
+  renameTier,
   sectionsKey,
   setCollides,
+  setDefaultTier,
   setGravity,
   setName,
+  setTierValue,
   settingsProblems,
   settingsWarnings,
   setValue,
@@ -31,6 +40,7 @@ import {
   withSettings,
   type SettingsDraft,
   type SettingsProblem,
+  type TierValueKey,
 } from "../projectSettingsModel";
 import type { EditorProject } from "../projects";
 import { currentProject, docVersion, status } from "../state";
@@ -86,6 +96,7 @@ function persist(s: PanelState): void {
       s.fileText = text;
       s.savedKey = sectionsKey(draft);
       s.error = null;
+      reloadGraphics(graphicsOf(draft)); // the running editor uses the new tiers
       docVersion.value++; // the toolbar shows the project's name
     } catch (err) {
       s.error = errorStatus(`Couldn't save the project settings to ${PROJECT_FILE}`, err).text;
@@ -222,6 +233,10 @@ export function ProjectSettingsPanel() {
               onRemove={(i) => set("Remove sorting layer", removeSortingLayer(draft, i))}
               onMove={(i, by) => set("Reorder sorting layers", moveSortingLayer(draft, i, by))}
             />
+          </Section>
+
+          <Section title="Graphics">
+            <Tiers draft={draft} problems={problemsAt("graphics")} set={set} />
           </Section>
 
           <Section title="Autoloads">
@@ -492,6 +507,92 @@ function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: Editor
           ))}
         </select>
       )}
+    </div>
+  );
+}
+
+const LEVEL_LABELS: Record<string, string> = { off: "Off", low: "Low", medium: "Medium", high: "High", ultra: "Ultra", msaa: "MSAA" };
+const ANISOTROPY_LEVELS = [1, 2, 4, 8, 16];
+
+/** The graphics quality tiers (ADR 0050), lowest first, as a compact table. */
+function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: (label: string, next: SettingsDraft) => void }) {
+  const { draft, problems, set } = props;
+  const g = graphicsOf(draft);
+  const value = (i: number, key: TierValueKey, v: unknown) => set(`Set ${g.tiers[i].name} ${key}`, setTierValue(draft, i, key, v));
+  const choice = (i: number, key: TierValueKey, label: string, options: readonly (string | number)[]) => {
+    const name = g.tiers[i].name;
+    const current = g.tiers[i][key];
+    return (
+      <select
+        aria-label={`${name} ${label}`}
+        value={String(current)}
+        onChange={(e) => {
+          const raw = (e.currentTarget as HTMLSelectElement).value;
+          value(i, key, typeof current === "number" ? Number(raw) : raw);
+        }}
+      >
+        {options.map((o) => (
+          <option key={o} value={String(o)}>
+            {LEVEL_LABELS[String(o)] ?? String(o)}
+          </option>
+        ))}
+      </select>
+    );
+  };
+  return (
+    <div class={`project-settings-list project-settings-tiers${problems.length ? " invalid" : ""}`} role="group" aria-label="Graphics tiers">
+      <Row label="Default tier" problems={[]}>
+        <select aria-label="Default tier" value={g.defaultTier} onChange={(e) => set("Set default tier", setDefaultTier(draft, (e.currentTarget as HTMLSelectElement).value))}>
+          {g.tiers.map((t) => (
+            <option key={t.name} value={t.name}>
+              {t.name}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <div class="tier-row tier-head" aria-hidden="true">
+        <span>Name</span>
+        <span>Render scale</span>
+        <span>Anti-aliasing</span>
+        <span>Shadows</span>
+        <span>Anisotropy</span>
+        <span>Shader level</span>
+        <span />
+      </div>
+      {g.tiers.map((t, i) => (
+        <div key={i} class="tier-row" data-tier={t.name}>
+          <TextField value={t.name} label={`Tier ${i + 1} name`} onCommit={(v) => set(`Rename tier to ${v.trim()}`, renameTier(draft, i, v.trim()))} />
+          <input
+            type="number"
+            min={0.25}
+            max={2}
+            step={0.05}
+            aria-label={`${t.name} render scale`}
+            value={t.renderScale}
+            onChange={(e) => {
+              const n = (e.currentTarget as HTMLInputElement).valueAsNumber;
+              if (Number.isFinite(n)) value(i, "renderScale", n);
+            }}
+          />
+          {choice(i, "antialias", "anti-aliasing", ANTIALIAS_MODES)}
+          {choice(i, "shadows", "shadows", SHADOW_QUALITIES)}
+          {choice(i, "anisotropy", "anisotropy", ANISOTROPY_LEVELS)}
+          {choice(i, "shaderLevel", "shader level", SHADER_LEVELS)}
+          <span class="tier-buttons">
+            <button class="icon" aria-label={`Move ${t.name} up`} title="Move up (lower quality)" disabled={i === 0} onClick={() => set("Reorder tiers", moveTier(draft, i, -1))}>
+              ↑
+            </button>
+            <button class="icon" aria-label={`Move ${t.name} down`} title="Move down (higher quality)" disabled={i === g.tiers.length - 1} onClick={() => set("Reorder tiers", moveTier(draft, i, 1))}>
+              ↓
+            </button>
+            <button class="icon" aria-label={`Remove ${t.name}`} title="Remove this tier" disabled={g.tiers.length <= 1} onClick={() => set(`Remove tier ${t.name}`, removeTier(draft, i))}>
+              ×
+            </button>
+          </span>
+        </div>
+      ))}
+      <button onClick={() => set("Add tier", addTier(draft))}>Add Tier</button>
+      <p class="project-settings-hint">Players pick a tier in game with Graphics.quality; the Scene view's Quality menu previews one.</p>
     </div>
   );
 }

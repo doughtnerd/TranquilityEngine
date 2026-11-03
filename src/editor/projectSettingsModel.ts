@@ -2,10 +2,11 @@
 // display, time, physics, render, autoloads) as a draft, edited by pure functions, checked, and
 // written back into the file's text one top-level key at a time so the rest keeps its layout.
 import { defaultSettings, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
+import { defaultTier, parseGraphics, type GraphicsSettings, type QualityTier } from "../engine/core/graphics";
 import { uniqueName, withMember } from "./worldsConfig";
 
 /** The top-level keys the Project panel edits (the Worlds panel edits `bootstrap`). */
-export const SETTINGS_SECTIONS = ["name", "display", "time", "physics", "render", "autoload", "build"] as const;
+export const SETTINGS_SECTIONS = ["name", "display", "time", "physics", "render", "autoload", "graphics", "build"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** The panel's sections of `project.json`, as written (missing values fall back to the engine's defaults). */
@@ -16,6 +17,8 @@ export interface SettingsDraft {
   physics?: Partial<ProjectSettings["physics"]> & Record<string, unknown>;
   render?: Partial<ProjectSettings["render"]> & Record<string, unknown>;
   autoload?: string[];
+  /** Graphics quality tiers (ADR 0050), as written; read leniently by `parseGraphics`. */
+  graphics?: Record<string, unknown>;
   /** Game export settings (ADR 0041), read by the exporter; other keys in it are kept. */
   build?: { icon?: string; identifier?: string; version?: string } & Record<string, unknown>;
 }
@@ -191,6 +194,62 @@ export const addAutoload = (d: SettingsDraft, path: string): SettingsDraft => ({
 export const removeAutoload = (d: SettingsDraft, index: number): SettingsDraft => ({ ...d, autoload: autoloadsOf(d).filter((_, i) => i !== index) });
 export const moveAutoload = (d: SettingsDraft, index: number, by: number): SettingsDraft => ({ ...d, autoload: moved(autoloadsOf(d), index, by) });
 
+// --- graphics quality tiers (ADR 0050) ------------------------------------------------------------
+
+/** The draft's tiers (leniently read: the default tiers when there's no section). */
+export const graphicsOf = (d: SettingsDraft): GraphicsSettings => parseGraphics(d.graphics).graphics;
+
+const withGraphics = (draft: SettingsDraft, tiers: QualityTier[], defaultName: string): SettingsDraft => ({ ...draft, graphics: { defaultTier: defaultName, tiers } });
+
+/** The highest tier's name (the last: tiers run lowest first). */
+const highest = (tiers: readonly QualityTier[]) => tiers[tiers.length - 1].name;
+
+export function addTier(draft: SettingsDraft): SettingsDraft {
+  const g = graphicsOf(draft);
+  const name = uniqueName("Tier", g.tiers.map((t) => t.name));
+  return withGraphics(draft, [...g.tiers, defaultTier(name)], g.defaultTier);
+}
+
+/** Remove a tier. The last one stays; a removed default gives way to the highest remaining tier. */
+export function removeTier(draft: SettingsDraft, index: number): SettingsDraft {
+  const g = graphicsOf(draft);
+  const gone = g.tiers[index];
+  if (gone === undefined || g.tiers.length <= 1) return draft;
+  const tiers = g.tiers.filter((_, i) => i !== index);
+  return withGraphics(draft, tiers, gone.name === g.defaultTier ? highest(tiers) : g.defaultTier);
+}
+
+/** Rename a tier (empty and duplicate names are refused), keeping it the default if it was. */
+export function renameTier(draft: SettingsDraft, index: number, name: string): SettingsDraft {
+  const g = graphicsOf(draft);
+  const old = g.tiers[index];
+  if (old === undefined || name.trim() === "" || old.name === name) return draft;
+  if (g.tiers.some((t, i) => i !== index && t.name === name)) return draft;
+  return withGraphics(draft, g.tiers.map((t, i) => (i === index ? { ...t, name } : t)), old.name === g.defaultTier ? name : g.defaultTier);
+}
+
+/** Move a tier towards lower (-1) or higher (+1) quality. */
+export function moveTier(draft: SettingsDraft, index: number, by: number): SettingsDraft {
+  const g = graphicsOf(draft);
+  if (index < 0 || index >= g.tiers.length || index + by < 0 || index + by >= g.tiers.length) return draft;
+  return withGraphics(draft, moved(g.tiers, index, by), g.defaultTier);
+}
+
+export type TierValueKey = "renderScale" | "antialias" | "shadows" | "anisotropy" | "shaderLevel";
+
+/** Set one value of a tier (as given: a bad one is reported by `settingsProblems`). */
+export function setTierValue(draft: SettingsDraft, index: number, key: TierValueKey, value: unknown): SettingsDraft {
+  const g = graphicsOf(draft);
+  if (g.tiers[index] === undefined) return draft;
+  return withGraphics(draft, g.tiers.map((t, i) => (i === index ? { ...t, [key]: value } : t)), g.defaultTier);
+}
+
+export function setDefaultTier(draft: SettingsDraft, name: string): SettingsDraft {
+  const g = graphicsOf(draft);
+  if (!g.tiers.some((t) => t.name === name)) return draft;
+  return withGraphics(draft, g.tiers, name);
+}
+
 // --- validation -----------------------------------------------------------------------------------
 
 const isPositive = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
@@ -273,6 +332,8 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
       });
     }
   }
+
+  for (const message of parseGraphics(draft.graphics).problems) p("graphics", message);
 
   // The export's own checks (src/export/desktop.ts), so a bad value shows here rather than at export.
   const build = draft.build ?? {};

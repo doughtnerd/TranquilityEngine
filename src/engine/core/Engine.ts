@@ -9,6 +9,8 @@ import { SceneManager } from "../scene/SceneManager";
 import { connectWorlds } from "../net/session";
 import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
 import { resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
+import { parseGraphics } from "./graphics";
+import { Graphics, QUALITY_KEY } from "../render/Graphics";
 import { listSystemCatalog } from "./systems";
 import { World, type WorldKind } from "./World";
 import { WorldHandleImpl } from "./WorldHandle";
@@ -110,6 +112,9 @@ export class Engine implements BootstrapEngine {
     const engine = new Engine(options);
     for (const source of ([] as AssetSource[]).concat(options.assets ?? [])) Assets.addSource(source);
     Storage.use(options.storage ?? (await defaultStorage(engine.settings.name, !engine.container)));
+    // Graphics quality (ADR 0050): the project's tiers, and the player's saved choice.
+    for (const p of parseGraphics(options.project?.graphics).problems) console.warn(`[myco] project.json ${p}`);
+    Graphics._configure(engine.settings.graphics, await Storage.load(QUALITY_KEY, "settings").catch(() => undefined));
 
     // The editor's Engine holds just the Editor World unless it's told otherwise (ADR 0022).
     const kind = options.kind ?? "runtime";

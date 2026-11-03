@@ -75,6 +75,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0047](decisions/0047-shader-graph-assets-compile-to-glsl.md) | Shader graph assets compile to GLSL that extends the built-in lit and unlit materials; materials name a graph as their shader | Accepted |
 | [0048](decisions/0048-shader-sub-graphs-and-custom-functions.md) | Shader sub-graphs, custom function nodes, normal-map sampling and node previews | Accepted |
 | [0049](decisions/0049-runtime-material-properties.md) | Scripts set material properties per MeshRenderer, like Unity's MaterialPropertyBlock | Accepted |
+| [0050](decisions/0050-graphics-quality-tiers.md) | Graphics quality tiers in project.json, chosen by the player through `Graphics.quality` | Proposed |
 
 ## Working with decisions
 

@@ -18,6 +18,8 @@ export { AssetRef, PlainObject, behavior, component, field, getComponentClass, g
 export { defineBuffer, defineComponent, f32, i32, u8, type BufferDef, type DataComponentDef, type DataView } from "./core/data";
 export { defineSystem, type Phase, type Row, type SystemContext, type SystemDef } from "./core/systems";
 export type { ProjectSettings, ProjectSettingsInput } from "./core/settings";
+export type { AntialiasMode, GraphicsSettings, QualityTier, ShaderLevel, ShadowQuality } from "./core/graphics";
+export { Graphics } from "./render/Graphics";
 
 export { GameObject, type InstantiateOptions } from "./scene/GameObject";
 export { Transform } from "./scene/Transform";

@@ -57,6 +57,8 @@ import {
 } from "three";
 import type { Component } from "../core/Component";
 import type { ProjectSettings } from "../core/settings";
+import { SHADOW_MAP_SIZE } from "../core/graphics";
+import { Graphics } from "./Graphics";
 import type { World, WorldKind } from "../core/World";
 import { Assets, sidecarValue } from "../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
@@ -262,6 +264,12 @@ export class RenderBackend {
    * only, so a second World needs its own surface. Claimed by the first `sync` or `render`.
    */
   private owner: World | null = null;
+  /** The `Graphics._version` last applied (ADR 0050), and what was applied. */
+  private appliedQuality = -1;
+  private quality = { tier: "", pixelRatio: 1, shadows: false, shadowMapSize: 0, anisotropy: 1 };
+  /** Whether the context was created with MSAA (fixed for its lifetime). */
+  private readonly msaa: boolean;
+  private warnedAntialias = false;
 
   constructor(private readonly container: HTMLElement, private readonly settings: ProjectSettings, kind: WorldKind = "runtime") {
     this.canvas = document.createElement("canvas");
@@ -271,12 +279,12 @@ export class RenderBackend {
     this.canvas.style.touchAction = "none";
     container.appendChild(this.canvas);
 
-    this.renderer = new WebGLRenderer({ canvas: this.canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // MSAA is fixed at context creation, so the tier's antialias applies from the next start (ADR 0050).
+    this.msaa = Graphics.tier.antialias === "msaa";
+    this.renderer = new WebGLRenderer({ canvas: this.canvas, antialias: this.msaa });
     this.renderer.autoClear = false;
-    // On from the start (it costs nothing until a light casts shadows), so materials are always
-    // compiled with shadows and a light that starts casting them later shows them at once.
-    this.renderer.shadowMap.enabled = true;
+    // Shadows are on unless the tier says "off" (applyQuality): then materials are compiled with
+    // shadows and a light that starts casting them later shows them at once.
     this.renderer.shadowMap.type = PCFShadowMap;
     const sun = new DirectionalLight(0xffffff, 1);
     sun.position.set(4, 10, 6);
@@ -302,6 +310,62 @@ export class RenderBackend {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
+    this.applyQuality();
+  }
+
+  /** @internal Tests and the editor: the quality settings this backend last applied. */
+  qualityState(): { tier: string; pixelRatio: number; shadows: boolean; shadowMapSize: number; anisotropy: number; msaa: boolean } {
+    return { ...this.quality, msaa: this.msaa };
+  }
+
+  /** Apply the active graphics quality tier (ADR 0050); runs again whenever `Graphics._version` changes. */
+  private applyQuality(): void {
+    const tier = Graphics.tier;
+    const r = this.renderer;
+    this.appliedQuality = Graphics._version;
+    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2) * tier.renderScale);
+    this.resize(); // setPixelRatio alone leaves the drawing buffer at the old size
+    const shadows = tier.shadows !== "off";
+    if (r.shadowMap.enabled !== shadows) {
+      r.shadowMap.enabled = shadows;
+      this.recompileMaterials(); // shadow code is compiled into the shaders
+    }
+    const anisotropy = Math.max(1, Math.min(tier.anisotropy, r.capabilities.getMaxAnisotropy() || 1));
+    const textures = [...this.textures.values(), ...this.linearTextures.values()];
+    for (const e of this.materialAssets.values()) textures.push(...e.textures);
+    for (const t of textures) this.setAnisotropy(t, anisotropy);
+    for (const e of this.lights.values()) this.applyShadowSize(e.light);
+    this.quality = { tier: tier.name, pixelRatio: r.getPixelRatio(), shadows, shadowMapSize: SHADOW_MAP_SIZE[tier.shadows], anisotropy };
+    if ((tier.antialias === "msaa") !== this.msaa && !this.warnedAntialias) {
+      this.warnedAntialias = true;
+      console.info("[myco] Anti-aliasing changes take effect the next time the game starts.");
+    }
+  }
+
+  /** Flag every material in the scene (and the default one) to recompile. */
+  private recompileMaterials(): void {
+    this.defaultMaterial.needsUpdate = true;
+    this.scene.traverse((o) => {
+      const m = (o as Mesh).material as Material | Material[] | undefined;
+      if (Array.isArray(m)) for (const x of m) x.needsUpdate = true;
+      else if (m) m.needsUpdate = true;
+    });
+  }
+
+  private setAnisotropy(t: Texture, a: number): void {
+    if (t.anisotropy === a) return;
+    t.anisotropy = a;
+    t.needsUpdate = true;
+  }
+
+  /** Give a light's shadow map the active tier's size, dropping the old map if the size changed. */
+  private applyShadowSize(light: LightEntry["light"]): void {
+    if (light instanceof AmbientLight) return;
+    const size = SHADOW_MAP_SIZE[Graphics.tier.shadows];
+    if (!size || light.shadow.mapSize.x === size) return;
+    light.shadow.mapSize.set(size, size);
+    light.shadow.map?.dispose();
+    light.shadow.map = null;
   }
 
   private readonly fill: boolean;
@@ -402,6 +466,7 @@ export class RenderBackend {
         if (!t) {
           t = tex.clone();
           t.colorSpace = NoColorSpace;
+          t.anisotropy = this.quality.anisotropy;
           t.needsUpdate = true;
           this.linearTextures.set(path, t);
         }
@@ -435,6 +500,7 @@ export class RenderBackend {
     const wrap = settings.wrap === "repeat" ? RepeatWrapping : settings.wrap === "mirror" ? MirroredRepeatWrapping : ClampToEdgeWrapping;
     tex.wrapS = wrap;
     tex.wrapT = wrap;
+    tex.anisotropy = this.quality.anisotropy;
     tex.needsUpdate = true;
   }
 
@@ -484,6 +550,7 @@ export class RenderBackend {
   /** Step 8: mirror engine components into three.js. */
   sync(world: World): void {
     this.claim(world);
+    if (Graphics._version !== this.appliedQuality) this.applyQuality();
     for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s);
     for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
     this.syncLights(world);
@@ -724,6 +791,7 @@ export class RenderBackend {
           const [tx, ty] = settings.tiling;
           if (tx === 1 && ty === 1 && !linear) return tex;
           const t = tex.clone(); // its own repeat and colour space; shares the image
+          t.anisotropy = this.quality.anisotropy;
           t.colorSpace = linear ? NoColorSpace : SRGBColorSpace;
           t.repeat.set(tx, ty);
           if (tx !== 1 || ty !== 1) t.wrapS = t.wrapT = RepeatWrapping;
@@ -918,11 +986,9 @@ export class RenderBackend {
           cam.near = -half * 2; // shadows from in front of and behind the light's node
           cam.far = half * 2;
           cam.updateProjectionMatrix();
-          light.shadow.mapSize.set(2048, 2048);
-          light.shadow.map?.dispose();
-          light.shadow.map = null;
         }
       }
+      this.applyShadowSize(light);
     }
     return true;
   }
@@ -1032,6 +1098,7 @@ export class RenderBackend {
   /** Step 9: render each enabled camera in depth order, then the UI. */
   render(world: World): void {
     this.claim(world);
+    if (Graphics._version !== this.appliedQuality) this.applyQuality();
     const r = this.renderer;
     this.graphUniforms.time.value = world.time.time;
     r.getDrawingBufferSize(this.graphUniforms.resolution.value);
