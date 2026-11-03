@@ -62,10 +62,10 @@ export class TauriFileSystem implements FileSystem {
     await fs.rename(from, to);
   }
 
-  async pickFolder(title?: string): Promise<string | null> {
+  async pickFolder(title?: string, defaultPath?: string): Promise<string | null> {
     const dialog = await import("@tauri-apps/plugin-dialog");
     // `recursive` makes the dialog plugin allow the whole folder tree in the fs scope.
-    const picked = await dialog.open({ directory: true, multiple: false, recursive: true, title });
+    const picked = await dialog.open({ directory: true, multiple: false, recursive: true, title, defaultPath });
     return typeof picked === "string" ? picked : null;
   }
 

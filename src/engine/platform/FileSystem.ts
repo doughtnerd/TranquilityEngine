@@ -4,7 +4,8 @@
  *
  * Under Tauri, files go through the fs and dialog plugins (`TauriFileSystem`). In a plain
  * browser only reads work, by fetching URLs from the dev server; writes, directory listing and
- * the folder dialog throw `UnsupportedError`.
+ * the folder dialog throw `UnsupportedError`. (The editor opens folders in Chromium browsers
+ * through its own File System Access implementation, `src/editor/fsaFileSystem.ts`, ADR 0038.)
  */
 export interface DirEntry {
   name: string;
@@ -28,8 +29,8 @@ export interface FileSystem {
   remove(path: string, options?: { recursive?: boolean }): Promise<void>;
   /** Rename or move a file or folder. Fails if `to` exists. */
   rename(from: string, to: string): Promise<void>;
-  /** Native folder picker. Returns the chosen path, or null if cancelled. */
-  pickFolder(title?: string): Promise<string | null>;
+  /** Native folder picker, starting at `defaultPath` where supported. Returns the chosen path, or null if cancelled. */
+  pickFolder(title?: string, defaultPath?: string): Promise<string | null>;
   /**
    * Call `onChange` with the paths that changed in folder `path` (at any depth), batched a
    * moment after the changes. Returns a function that stops watching. Desktop only.

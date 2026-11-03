@@ -422,16 +422,24 @@ export function formatJsonValue(value: unknown, indent = "", unit = "  ", nl = "
  * it can't scan is rewritten whole (2-space JSON with a trailing newline).
  */
 export function withBootstrap(text: string, setting: BootstrapConfig | string | undefined): string {
+  return withMember(text, "bootstrap", setting);
+}
+
+/**
+ * A JSON object's text with its top-level `key` set to `setting` (or removed, for undefined), the
+ * way `withBootstrap` sets `bootstrap`: every other key keeps its text exactly.
+ */
+export function withMember(text: string, key: string, setting: unknown): string {
   const nl = text.includes("\r\n") ? "\r\n" : "\n";
   const members = topLevelMembers(text);
   if (!members) {
     const json = JSON.parse(text) as Record<string, unknown>;
-    return `${formatJsonValue({ ...json, bootstrap: setting })}\n`;
+    return `${formatJsonValue({ ...json, [key]: setting })}\n`;
   }
   const first = members[0];
   const unit = first ? text.slice(text.lastIndexOf("\n", first.keyStart) + 1, first.keyStart) || "  " : "  ";
   const value = setting === undefined ? undefined : formatJsonValue(setting, unit, unit, nl);
-  const at = members.findIndex((m) => m.key === "bootstrap");
+  const at = members.findIndex((m) => m.key === key);
   if (at >= 0) {
     const m = members[at];
     if (value !== undefined) return text.slice(0, m.valueStart) + value + text.slice(m.valueEnd);
@@ -440,7 +448,7 @@ export function withBootstrap(text: string, setting: BootstrapConfig | string | 
     return next ? text.slice(0, m.keyStart) + text.slice(next.keyStart) : text.slice(0, text.indexOf("{") + 1) + text.slice(text.lastIndexOf("}"));
   }
   if (value === undefined) return text;
-  const entry = `"bootstrap": ${value}`;
+  const entry = `${JSON.stringify(key)}: ${value}`;
   const last = members.at(-1);
   if (last) return `${text.slice(0, last.valueEnd)},${nl}${unit}${entry}${text.slice(last.valueEnd)}`;
   const close = text.lastIndexOf("}");

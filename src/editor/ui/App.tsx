@@ -1,6 +1,6 @@
 import { DockLayout } from "../layout/DockLayout";
 import { resetLayout } from "../layout/store";
-import { closeProject, openProjectFolder, reloadScripts, save, togglePlaying } from "../session";
+import { closeProject, reloadScripts, save, togglePlaying } from "../session";
 import { currentProject, docVersion, openScene, playState, scriptProblems, snapping, status } from "../state";
 import { AssetsPanel } from "./Assets";
 import { CodePanel } from "./CodePanel";
@@ -18,8 +18,11 @@ import { Inspector } from "./Inspector";
 import { ScenePanel } from "./ScenePanel";
 import { StartScreen } from "./StartScreen";
 import { WorldsPanel } from "./WorldsPanel";
+import { NewProjectDialog } from "./NewProjectDialog";
+import { ProjectMenu } from "./ProjectMenu";
+import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 
-const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => <WorldsPanel />, network: () => <NetworkPanel /> };
+const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => <WorldsPanel />, network: () => <NetworkPanel />, project: () => <ProjectSettingsPanel /> };
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {
@@ -33,6 +36,7 @@ export function App() {
       <ConfirmDialog />
       <NewScriptDialog />
       <ExportDialog />
+      <NewProjectDialog />
       <SettingsDialog />
       <RefineList />
     </div>
@@ -64,9 +68,7 @@ function ProjectControls() {
   const saveTitle = !project?.canSave ? "This project is read-only. Open a project folder to save." : `Save ${scene?.path ?? ""} (Ctrl+S)`;
   return (
     <div class="group" role="group" aria-label="Project">
-      <button title="Open a project folder (desktop editor)" onClick={() => void openProjectFolder()}>
-        Open Project…
-      </button>
+      <ProjectMenu />
       <button disabled={!canSave} title={saveTitle} onClick={() => void save()}>
         Save
       </button>

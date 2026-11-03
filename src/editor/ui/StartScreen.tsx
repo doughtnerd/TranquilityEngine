@@ -1,8 +1,9 @@
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
-import { isTauri } from "../../engine/platform/FileSystem";
+import { canOpenFolders } from "../projectFs";
 import { listSamples, type SampleInfo } from "../samples";
-import { copySampleToFolder, openProjectFolder, openSample } from "../session";
+import { copySampleToFolder, openSample } from "../session";
+import { StartProjects } from "./StartProjects";
 
 /** The samples served beside the editor, once listed (null while loading). */
 const samples = signal<SampleInfo[] | null>(null);
@@ -24,26 +25,21 @@ async function run(id: string, action: () => Promise<void>): Promise<void> {
 }
 
 /**
- * What the editor shows with no project open (ADR 0031): Open Project… (desktop editor) and the
- * samples that ship beside the editor, to open read-only or (desktop) copy into a folder to edit.
+ * What the editor shows with no project open (ADR 0031, 0038): the projects section (New
+ * Project…, Open Project…, recent projects; `StartProjects`) and the samples that ship beside the
+ * editor, to open read-only or (where folders open) copy into a folder to edit.
  */
 export function StartScreen() {
   useEffect(() => {
     if (samples.value === null) void listSamples().then((list) => (samples.value = list));
   }, []);
-  const desktop = isTauri();
+  const desktop = canOpenFolders(); // the desktop editor, or a browser that can open folders (ADR 0038)
   const list = samples.value;
   return (
     <div class="start-screen" role="dialog" aria-label="Start">
       <div class="start-card">
         <h1>Myco Engine</h1>
-        <section>
-          <h2>Projects</h2>
-          <button class="primary" disabled={!desktop} onClick={() => void openProjectFolder()}>
-            Open Project…
-          </button>
-          {!desktop && <p class="start-note">Opening project folders needs the desktop editor (npm run tauri:dev). Samples open here read-only.</p>}
-        </section>
+        <StartProjects />
         <section>
           <h2>Samples</h2>
           {list === null ? (

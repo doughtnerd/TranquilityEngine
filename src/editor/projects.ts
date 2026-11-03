@@ -95,7 +95,7 @@ class MapProject implements EditorProject {
   private sortedFiles: string[] | null = null;
 
   constructor(
-    readonly name: string,
+    private readonly baseName: string,
     readonly root: string | null,
     private readonly values: Map<string, unknown>,
     private readonly texts: Map<string, string>,
@@ -105,9 +105,16 @@ class MapProject implements EditorProject {
     private scriptMap: Map<string, string> = new Map(),
     private readonly folderSet: Set<string> = new Set(),
     private readonly sizes: Map<string, number> = new Map(),
+    /** Name the project after `project.json`'s `name` (following edits to it), with `baseName` as the fallback. */
+    private readonly namedBySettings = false,
   ) {
     this.mainScene = pickMainScene(this.files);
     this.assets = { has: (p) => values.has(p), get: (p) => values.get(p) };
+  }
+
+  get name(): string {
+    const named = this.namedBySettings ? (this.settings as { name?: unknown }).name : undefined;
+    return typeof named === "string" && named.trim() !== "" ? named : this.baseName;
   }
 
   /** Asset paths, sorted. Includes files written since the project opened. */
@@ -339,10 +346,9 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
     }
     return scripts;
   };
-  const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput & { name?: string };
   const folder = root.split(/[\\/]/).filter(Boolean).pop() ?? root;
   const write = (path: string, text: string) => fs.writeText(joinPath(root, path), text);
-  return new MapProject(settings.name ?? folder, root, values, texts, write, { read: readScripts }, fs, await readScripts(), folders, sizes);
+  return new MapProject(folder, root, values, texts, write, { read: readScripts }, fs, await readScripts(), folders, sizes, true);
 }
 
 /** Settings for the Editor World: the project's, minus autoloads, with the editor's background. */

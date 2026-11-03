@@ -33,7 +33,9 @@ export function defaultHistoryPlatform(): Promise<HistoryPlatform> {
 
 /** Where a project's history goes: its folder when asked for and writable, otherwise per-user storage. */
 export function slotsFor(project: EditorProject, scene: string, location: HistoryLocation, p: HistoryPlatform): SlotBackend {
-  if (location === "project" && project.canSave && project.root && p.fs) return projectSlots(p.fs, project.root, scene);
+  // The project's own file system first: a browser folder (ADR 0038) isn't the platform's.
+  const fs = project.fileSystem?.canWrite ? project.fileSystem : p.fs;
+  if (location === "project" && project.canSave && project.root && fs) return projectSlots(fs, project.root, scene);
   return userSlots(p.userStorage, project.root ?? `bundled:${project.name}`, scene);
 }
 

@@ -98,7 +98,7 @@ test.describe("Flappy web build", () => {
   });
 });
 
-test("the editor's Export… dialog: the player ships beside the editor; a browser editor explains, and shows the desktop command", async ({ page }) => {
+test("the editor's Export… dialog: the player ships beside the editor; a browser editor without folder access explains, and shows the desktop command", async ({ page, browserName }) => {
   const errors = trackErrors(page);
   await page.goto("/editor.html?sample=flappy"); // relative to baseURL (E2E_PORT)
   await expect(page.locator(".project-name")).toHaveText("Flappy Bird (sample, read-only)");
@@ -109,8 +109,13 @@ test("the editor's Export… dialog: the player ships beside the editor; a brows
   await page.getByRole("button", { name: "Export…" }).click();
   const dialog = page.getByRole("dialog", { name: "Build / Export" });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("this browser editor can't do");
-  await expect(dialog.getByRole("button", { name: "Choose Folder and Export…" })).toBeDisabled();
+  if (browserName === "chromium") {
+    // Chromium opens folders through File System Access (ADR 0038), so the web build can be written.
+    await expect(dialog.getByRole("button", { name: "Choose Folder and Export…" })).toBeEnabled();
+  } else {
+    await expect(dialog).toContainText("this browser editor can't do");
+    await expect(dialog.getByRole("button", { name: "Choose Folder and Export…" })).toBeDisabled();
+  }
   await dialog.getByLabel("Desktop app").check();
   await expect(dialog.locator(".export-command")).toContainText("npm run export -- \"<projectDir>\" --target desktop");
   await dialog.getByRole("button", { name: "Close" }).click();
