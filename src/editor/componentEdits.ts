@@ -16,6 +16,7 @@ import {
   SetOverrides,
   sameTarget,
   type ComponentEntry,
+  type NodeEntry,
   type NodePath,
   type OverrideEntry,
   type SceneDocument,
@@ -112,7 +113,7 @@ export function overridesWithout(list: readonly OverrideEntry[], target: readonl
       if (order.length > 0) out.push({ ...structuredClone(o), order });
       return;
     }
-    if (o.component === type && (o.field !== undefined || o.enabled !== undefined) && sameTarget(o.target, target)) {
+    if (o.component === type && (o.field !== undefined || o.enabled !== undefined || o.worlds !== undefined) && sameTarget(o.target, target)) {
       const at = o.index ?? 0;
       if (at === index) return;
       if (at > index) {
@@ -157,9 +158,9 @@ export function removeComponentFrom(scene: OpenScene, targets: readonly { path: 
 const countOf = (node: GameObject, type: string) => listComponents(node).filter((c) => c.type === type).length;
 
 /** Where a live component comes from: an entry in the node's own list, the prefab, or an `addComponent` override. */
-type Origin = { kind: "file"; position: number } | { kind: "prefab" } | { kind: "added"; at: number } | null;
+export type Origin = { kind: "file"; position: number } | { kind: "prefab" } | { kind: "added"; at: number } | null;
 
-function originOf(doc: SceneDocument, path: NodePath, info: ComponentInfo, liveCount: number): Origin {
+export function originOf(doc: SceneDocument, path: NodePath, info: ComponentInfo, liveCount: number): Origin {
   const [id, ...target] = path;
   if (!doc.isPrefabInstance(id)) {
     const positions = (doc.node(id).components ?? []).flatMap((c, i) => (c.type === info.type ? [i] : []));
@@ -304,8 +305,25 @@ export function removeMissingComponent(scene: OpenScene, path: NodePath, type: s
  * its own, or a missing file).
  */
 function prefabOrder(doc: SceneDocument, id: string, target: readonly string[], overrides: readonly OverrideEntry[]): string[] | null {
+  const node = prefabNodeEntry(doc, id, target);
+  if (!node) return null;
+  const order = (node.components ?? []).map((c) => c.type).filter((t) => t !== "engine.Transform" && !isDataComponent(t));
+  for (const o of overrides) {
+    if (!sameTarget(o.target, target)) continue;
+    if (o.removeComponent && order.includes(o.removeComponent)) order.splice(order.indexOf(o.removeComponent), 1);
+    if (o.addComponent && !isDataComponent(o.addComponent.type)) order.push(o.addComponent.type);
+  }
+  return order;
+}
+
+/**
+ * The plain node entry in a prefab file that the node at `target` inside instance `id` comes
+ * from, following nested instances. Null when that can't be told from the files alone (a node
+ * inside a nested instance that has overrides of its own, a sub-scene's own node, a missing file).
+ */
+export function prefabNodeEntry(doc: SceneDocument, id: string, target: readonly string[]): NodeEntry | null {
   let path = doc.node(id).prefab!;
-  let ids = [...target];
+  const ids = [...target];
   for (;;) {
     if (!Assets.has(path)) return null;
     const file = Assets.json<SceneFile>(path);
@@ -322,13 +340,7 @@ function prefabOrder(doc: SceneDocument, id: string, target: readonly string[], 
       path = node.prefab;
       continue;
     }
-    const order = (node.components ?? []).map((c) => c.type).filter((t) => t !== "engine.Transform" && !isDataComponent(t));
-    for (const o of overrides) {
-      if (!sameTarget(o.target, target)) continue;
-      if (o.removeComponent && order.includes(o.removeComponent)) order.splice(order.indexOf(o.removeComponent), 1);
-      if (o.addComponent && !isDataComponent(o.addComponent.type)) order.push(o.addComponent.type);
-    }
-    return order;
+    return node;
   }
 }
 

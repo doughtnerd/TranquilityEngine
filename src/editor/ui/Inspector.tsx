@@ -1,10 +1,24 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { Color, GameObject } from "../../engine";
+import { Color, GameObject, Quaternion } from "../../engine";
+import type { FieldChoice } from "../../engine/core/registry";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
 import { RenameNode, RevertOverrides, SetActive, SetField, isFieldOverride, pathKey, type NodePath } from "../document";
-import { editorFor, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
+import { choicesFor, defaultItem, editorFor, itemEditorFor, itemField, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
+import {
+  cleanTag,
+  componentWorlds,
+  effectiveWorlds,
+  isEveryWorld,
+  knownWorldTags,
+  setComponentWorlds,
+  setNodeTags,
+  tagsOverridden,
+  worldsBadge,
+  type WorldsSetting,
+} from "../inspectorEdits";
+import "./inspector-fields.css";
 import {
   inFileOrder,
   moveComponent,
@@ -88,6 +102,7 @@ export function Inspector() {
           </>
         )}
       </dl>
+      <NodeTags scene={scene} paths={[path]} />
       {entry.prefab && !inner && <PrefabActions scene={scene} id={id} />}
       {!entry.prefab && <CreatePrefabButton scene={scene} id={id} />}
       {components.map((c) => (
@@ -138,6 +153,7 @@ function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
       <p class="multi-names" title={names.join(", ")}>
         {names.join(", ")}
       </p>
+      <NodeTags scene={scene} paths={paths} />
       {shared.length === 0 && <p class="empty">No components in common</p>}
       {shared.map((c) => (
         <ComponentCard
@@ -355,6 +371,14 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
     const node = scene.sync.nodeFor(paths[0]);
     if (anchor && node) moveComponent(scene, paths[0], node, info, anchor, by > 0);
   };
+  // Worlds (ADR 0033 §3): which World tags each node's copy is created in.
+  const worlds = checks.flatMap((c) => {
+    if (!c.target) return [];
+    const setting = componentWorlds(scene.doc, c.target.path, c.target.info, listComponents(c.target.node).filter((o) => o.type === info.type).length);
+    return setting ? [{ target: c.target, setting }] : [];
+  });
+  const badges = new Set(worlds.map((w) => worldsBadge(effectiveWorlds(w.setting))));
+  const badge = badges.size > 1 ? MIXED : [...badges][0] ?? null;
   return (
     <section class={`component${dropHere}${allEnabled ? "" : " off"}`} {...(reorderable ? { "data-reorder": "", "data-type": info.type, "data-index": String(info.index) } : {})}>
       <h3>
@@ -384,6 +408,11 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
         />
         {title}
         {info.kind === "data" && <span class="badge">data</span>}
+        {badge && (
+          <span class="badge worlds-badge" title={badge === MIXED ? "The selected nodes differ in which Worlds have this component" : `Created only in Worlds tagged ${badge}`}>
+            {badge}
+          </span>
+        )}
         {script && (
           <button class="open-script" title={`Open ${script} in the Code panel`} aria-label={`Open ${title} script`} onClick={() => openScript(script)}>
             {"{ }"}
@@ -399,6 +428,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
             Edit Collider
           </button>
         )}
+        {worlds.length > 0 && <ComponentMenu scene={scene} title={title} worlds={worlds} />}
         {info.type !== "engine.Transform" && (
           <button
             class="remove-component"
@@ -444,7 +474,12 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
         const previous = scene.doc.isPrefabInstance(id)
           ? scene.doc.overrideValue(id, target, info.type, field.name, info.index)
           : scene.doc.fieldValue(id, info.type, field.name, info.index);
-        const json = toSceneJSON(editor, valueFor(i), { field: field.name, previous, nodeId: (n) => scene.sync.nodeIdOf(n) });
+        const json = toSceneJSON(editor, valueFor(i), {
+          field: field.name,
+          previous,
+          nodeId: (n) => scene.sync.nodeIdOf(n),
+          itemEditor: editor === "list" ? itemEditorFor(field) : undefined,
+        });
         scene.stack.execute(new SetField(id, info.type, field.name, json, { index: info.index, target }));
       });
     if (paths.length === 1) write();
@@ -454,8 +489,7 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
   /** Set one axis of a vector on every node, keeping each node's other axes. */
   const commitAxis = (axis: number, n: number) =>
     commitEach((i) => {
-      const own = values[i] as { toArray(): number[] } | null | undefined;
-      const base = own ? own.toArray() : editor === "vector2" ? [1, 1] : [0, 0, 0];
+      const base = axesBase(values[i], editor);
       return base.map((old, j) => (j === axis ? n : old));
     });
   const revert = () =>
@@ -485,8 +519,21 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
 
 const isNumeric = (e: FieldEditor) => e === "number" || e === "integer";
 
+/** A vector's (or a quaternion's Euler angles') axes, or a default when it's unset. */
+function axesBase(value: unknown, editor: FieldEditor): number[] {
+  if (value instanceof Quaternion) return roundAngles(value.toEuler().toArray());
+  if (Array.isArray(value)) return [...value];
+  if (value && typeof value === "object" && "toArray" in value) return (value as { toArray(): number[] }).toArray();
+  return editor === "vector2" ? [1, 1] : [0, 0, 0];
+}
+
+/** Euler angles from a quaternion, rounded so a typed 30 doesn't read back as 29.999999. */
+const roundAngles = (a: number[]) => a.map((n) => Math.round(n * 1e4) / 1e4);
+
 /** A comparable form of a field value, to tell whether several nodes' values differ. */
 function valueKey(v: unknown, scene: OpenScene): string {
+  if (Array.isArray(v)) return `[${v.map((x) => valueKey(x, scene)).join(",")}]`;
+  if (v instanceof Quaternion) return `quat:${JSON.stringify(roundAngles(v.toEuler().toArray()))}`;
   if (v instanceof Color) return `color:${v.toHex()}:${v.a}`;
   if (v instanceof GameObject) return `node:${scene.sync.nodeIdOf(v)}`;
   if (v && typeof v === "object" && "toArray" in v) return JSON.stringify((v as { toArray(): number[] }).toArray());
@@ -550,6 +597,16 @@ function FieldEditorView(props: {
       return <NodeRefInput value={v instanceof GameObject ? scene.sync.nodeIdOf(v) : null} mixed={mixed} scene={scene} label={field.name} onCommit={onCommit} />;
     case "object":
       return mixed ? <span class="none">{MIXED} (differs)</span> : <ObjectInput value={(v ?? {}) as Record<string, unknown>} onCommit={onCommit} />;
+    case "choice":
+      return <ChoiceInput choices={choicesFor(field, currentProject.value?.settings) ?? []} value={v} mixed={mixed} label={field.name} onCommit={onCommit} />;
+    case "quaternion": {
+      // Edited as Euler angles in degrees (ADR 0019).
+      if (v === null || v === undefined) return <span class="none">None</span>;
+      const axes = values.map((x) => (x instanceof Quaternion ? roundAngles(x.toEuler().toArray()) : [0, 0, 0]));
+      return <VectorInput value={axes[0].map((n, i) => (axes.every((a) => a[i] === n) ? n : null))} label={field.name} onCommitAxis={props.onCommitAxis} />;
+    }
+    case "list":
+      return <ListInput field={field} mixed={mixed} scene={scene} onCommit={onCommit} />;
     default:
       return <span>{JSON.stringify(v)}</span>;
   }
@@ -707,6 +764,296 @@ function ObjectInput(props: { value: Record<string, unknown>; onCommit: (v: Reco
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * A dropdown of a field's declared choices (ADR 0042). A value that isn't one of them (set by
+ * hand in the file, or a layer that was renamed) shows as such until another is picked.
+ */
+function ChoiceInput(props: { choices: readonly FieldChoice[]; value: unknown; mixed?: boolean; label: string; onCommit: (v: string | number) => void }) {
+  const { choices, value, mixed } = props;
+  const at = choices.findIndex((c) => c.value === value);
+  const MIXED_VALUE = "\u0000mixed";
+  const OTHER = "\u0000other";
+  return (
+    <select
+      class="choice-input"
+      aria-label={props.label}
+      value={mixed ? MIXED_VALUE : at >= 0 ? String(at) : OTHER}
+      onChange={(e) => {
+        const picked = (e.currentTarget as HTMLSelectElement).value;
+        const choice = choices[Number(picked)];
+        if (picked !== MIXED_VALUE && picked !== OTHER && choice) props.onCommit(choice.value);
+      }}
+    >
+      {mixed && (
+        <option value={MIXED_VALUE} disabled>
+          {MIXED}
+        </option>
+      )}
+      {!mixed && at < 0 && (
+        <option value={OTHER} disabled>
+          {value === undefined || value === null || value === "" ? "(none)" : `${String(value)} (not a choice)`}
+        </option>
+      )}
+      {choices.map((c, i) => (
+        <option key={i} value={String(i)}>
+          {c.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * A list field (ADR 0042): each item with the editor for its type, moved up or down or removed,
+ * and an Add button that repeats the last item (or adds a blank one). The whole list is written
+ * on every change, so on a prefab instance one override replaces the prefab's list. With several
+ * nodes whose lists differ it shows the active node's list under a dash; an edit replaces every
+ * node's list with the edited one.
+ */
+function ListInput(props: { field: FieldValue; mixed: boolean; scene: OpenScene; onCommit: (items: unknown[]) => void }) {
+  const { field, mixed, scene } = props;
+  const items = Array.isArray(field.value) ? (field.value as unknown[]) : [];
+  const editor = itemEditorFor(field);
+  const choices = editor === "choice" ? choicesFor(field, currentProject.value?.settings) : null;
+  const name = humanize(field.name);
+  const write = (next: unknown[]) => props.onCommit(next);
+  const replace = (i: number, v: unknown) => write(items.map((x, j) => (j === i ? v : x)));
+  const move = (i: number, by: -1 | 1) => {
+    const next = [...items];
+    const [item] = next.splice(i, 1);
+    next.splice(i + by, 0, item);
+    write(next);
+  };
+  const add = () => {
+    const last = items[items.length - 1];
+    const copy = items.length === 0 ? defaultItem(editor, choices) : copyItem(last);
+    write([...items, copy]);
+  };
+  return (
+    <div class="list-field" role="group" aria-label={`${name} list`}>
+      <div class="list-head">
+        <span class="list-count">
+          {mixed ? `${MIXED} lists differ; edits replace every list` : `${items.length} item${items.length === 1 ? "" : "s"}`}
+        </span>
+        <button class="list-add" aria-label={`Add ${field.name} item`} title={`Add an item to ${name}`} onClick={add}>
+          + Add
+        </button>
+      </div>
+      {items.map((item, i) => {
+        const f = itemField(field, i, item);
+        return (
+          <div key={i} class="list-item">
+            <span class="list-index">{i}</span>
+            <div class="list-value">
+              <FieldEditorView
+                editor={editor}
+                field={f}
+                values={[item]}
+                mixed={false}
+                scene={scene}
+                onCommit={(v) => replace(i, v)}
+                onCommitAxis={(axis, n) => replace(i, axesBase(item, editor).map((old, j) => (j === axis ? n : old)))}
+              />
+            </div>
+            <span class="list-buttons">
+              <button aria-label={`Move ${field.name} item ${i} up`} title="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
+                ↑
+              </button>
+              <button aria-label={`Move ${field.name} item ${i} down`} title="Move down" disabled={i === items.length - 1} onClick={() => move(i, 1)}>
+                ↓
+              </button>
+              <button class="list-remove" aria-label={`Remove ${field.name} item ${i}`} title="Remove this item" onClick={() => write(items.filter((_, j) => j !== i))}>
+                ✕
+              </button>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A copy of a list item, for Add (vectors and colors are live objects; nodes are shared references). */
+function copyItem(item: unknown): unknown {
+  if (item instanceof GameObject || item === null || typeof item !== "object") return item;
+  if (item instanceof Quaternion) return roundAngles(item.toEuler().toArray());
+  if (item instanceof Color) return item.clone();
+  if ("toArray" in item) return (item as { toArray(): number[] }).toArray();
+  return structuredClone(item);
+}
+
+/**
+ * The menu on a component's header: which Worlds it's created in (ADR 0033 §3). "Every World",
+ * or only Worlds with the ticked tags; "Use default" goes back to the prefab's or the
+ * component's own setting. On plain nodes this writes the component entry's `worlds`; on prefab
+ * instances, an override. With several nodes selected, a change applies to each.
+ */
+function ComponentMenu(props: { scene: OpenScene; title: string; worlds: { target: { path: NodePath; node: GameObject; info: ComponentInfo }; setting: WorldsSetting }[] }) {
+  const { scene, title, worlds } = props;
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: Event) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", close, true);
+    document.addEventListener("keydown", close, true);
+    return () => {
+      document.removeEventListener("pointerdown", close, true);
+      document.removeEventListener("keydown", close, true);
+    };
+  }, [open]);
+  const active = worlds[worlds.length - 1].setting;
+  const current = effectiveWorlds(active);
+  const all = worlds.map((w) => effectiveWorlds(w.setting));
+  const tags = knownWorldTags(currentProject.value?.settings, all.flatMap((w) => w ?? []));
+  const targets = worlds.map((w) => w.target);
+  const anyOwn = worlds.some((w) => w.setting.own !== undefined);
+  const same = (a: readonly string[] | undefined, b: readonly string[] | undefined) =>
+    isEveryWorld(a) === isEveryWorld(b) && (isEveryWorld(a) || (a!.length === b!.length && a!.every((t) => b!.includes(t))));
+  /** Set `next` on every node; where it matches what a node inherits, drop the node's own setting instead. */
+  const set = (next: readonly string[]) => {
+    scene.stack.beginGroup(`Set Worlds of ${title}`);
+    try {
+      for (const { target, setting } of worlds) {
+        if (same(next, setting.inherited)) {
+          if (setting.own !== undefined) setComponentWorlds(scene, [target], undefined);
+        } else if (setting.own === undefined || !same(next, setting.own)) {
+          setComponentWorlds(scene, [target], next);
+        }
+      }
+    } finally {
+      scene.stack.endGroup();
+    }
+  };
+  const toggle = (tag: string, on: boolean) => {
+    const base = isEveryWorld(current) ? [] : current!.filter((t) => t !== tag);
+    set(on ? [...base, tag] : base);
+  };
+  const everyAll = all.every(isEveryWorld);
+  const everySome = all.some(isEveryWorld);
+  const describe = (w: readonly string[] | undefined) => (isEveryWorld(w) ? "every World" : w!.length === 0 ? "no Worlds" : w!.join(", "));
+  return (
+    <span class="component-menu-wrap" ref={ref}>
+      <button
+        class={`component-menu-button${open ? " active" : ""}`}
+        aria-label={`${title} options`}
+        aria-haspopup="true"
+        aria-expanded={open}
+        title="More: which Worlds have this component"
+        onClick={() => setOpen(!open)}
+      >
+      </button>
+      {open && (
+        <div class="component-menu" role="dialog" aria-label={`Worlds for ${title}`}>
+          <div class="menu-heading">Worlds</div>
+          <p class="menu-note">Create {title} only in Worlds with these tags. Editor Worlds always have it.</p>
+          <label class="menu-check">
+            <input
+              type="checkbox"
+              checked={everyAll}
+              indeterminate={!everyAll && everySome}
+              onChange={(e) => set((e.currentTarget as HTMLInputElement).checked ? ["*"] : [])}
+            />
+            Every World
+          </label>
+          {tags.map((tag) => {
+            const has = all.map((w) => !isEveryWorld(w) && w!.includes(tag));
+            return (
+              <label key={tag} class="menu-check tag">
+                <input
+                  type="checkbox"
+                  aria-label={`World tag ${tag}`}
+                  checked={has.every(Boolean)}
+                  indeterminate={!has.every(Boolean) && has.some(Boolean)}
+                  onChange={(e) => toggle(tag, (e.currentTarget as HTMLInputElement).checked)}
+                />
+                {tag}
+              </label>
+            );
+          })}
+          <input
+            type="text"
+            class="menu-add-tag"
+            aria-label="Add a World tag"
+            placeholder="Other tag…"
+            value={draft}
+            onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              const tag = cleanTag(draft);
+              if (tag && tag !== "*") toggle(tag, true);
+              setDraft("");
+            }}
+          />
+          <button
+            class="menu-reset"
+            disabled={!anyOwn}
+            title={anyOwn ? "Remove the setting made here" : "Nothing is set here"}
+            onClick={() => setComponentWorlds(scene, targets, undefined)}
+          >
+            Use default ({describe(active.inherited)})
+          </button>
+        </div>
+      )}
+    </span>
+  );
+}
+
+/**
+ * A node's tags (ADR 0042) as chips: ✕ removes one, typing in the box and pressing Enter adds
+ * one. With several nodes, tags only some have are dimmed; adding or removing acts on all. On a
+ * prefab instance (or a node inside one) the tags are an override, which ↺ reverts.
+ */
+function NodeTags(props: { scene: OpenScene; paths: NodePath[] }) {
+  const { scene, paths } = props;
+  const [draft, setDraft] = useState("");
+  const lists = paths.map((p) => scene.sync.nodeFor(p)?.tags ?? []);
+  const union = [...new Set(lists.flat())];
+  const overridden = paths.some((p) => tagsOverridden(scene.doc, p));
+  const add = () => {
+    const tag = cleanTag(draft);
+    setDraft("");
+    if (tag) setNodeTags(scene, paths, (cur) => (cur.includes(tag) ? cur : [...cur, tag]), `Add tag ${tag}`);
+  };
+  return (
+    <div class={`node-tags${overridden ? " overridden" : ""}`} role="group" aria-label="Tags">
+      <span class="node-tags-label">Tags</span>
+      {union.map((tag) => {
+        const partial = !lists.every((l) => l.includes(tag));
+        return (
+          <span key={tag} class={`tag-chip${partial ? " partial" : ""}`} title={partial ? "Only some of the selected nodes have this tag" : undefined}>
+            <span class="tag-name">{tag}</span>
+            <button aria-label={`Remove tag ${tag}`} title={`Remove ${tag}`} onClick={() => setNodeTags(scene, paths, (cur) => cur.filter((t) => t !== tag), `Remove tag ${tag}`)}>
+              ✕
+            </button>
+          </span>
+        );
+      })}
+      <input
+        type="text"
+        class="tag-input"
+        aria-label="Add tag"
+        placeholder={union.length === 0 ? "Add a tag…" : "+ tag"}
+        value={draft}
+        onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") add();
+          if (e.key === "Escape") setDraft("");
+        }}
+        onBlur={add}
+      />
+      {overridden && (
+        <button class="revert" aria-label="Revert tags" title="Tags overridden in this scene. Revert to the prefab's tags" onClick={() => setNodeTags(scene, paths.filter((p) => tagsOverridden(scene.doc, p)), () => undefined, "Revert tags")}>
+          ↺
+        </button>
+      )}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import {
   RevertOverrides,
   SceneDocument,
   SetComponentEnabled,
+  SetComponentWorlds,
   SetComponents,
   SetField,
   SetOverrides,
@@ -94,7 +95,7 @@ export function isOverridden(doc: SceneDocument, path: NodePath, type: string, f
 /** Overrides Apply writes into the prefab: field values, added or removed components, and components switched on or off. */
 const applicable = (o: OverrideEntry) =>
   (o.component !== undefined && o.field !== undefined && o.value !== undefined) ||
-  (o.component !== undefined && o.field === undefined && o.enabled !== undefined) ||
+  (o.component !== undefined && o.field === undefined && (o.enabled !== undefined || o.worlds !== undefined)) ||
   o.addComponent !== undefined ||
   o.removeComponent !== undefined ||
   o.order !== undefined;
@@ -122,6 +123,10 @@ function applyOverride(prefab: SceneDocument, nodeId: string, inner: readonly st
   if (o.component && o.enabled !== undefined) {
     const at = positions(o.component)[o.index ?? 0];
     if (at !== undefined) new SetComponentEnabled(nodeId, at, o.enabled).apply(prefab);
+  }
+  if (o.component && o.worlds !== undefined) {
+    const at = positions(o.component)[o.index ?? 0];
+    if (at !== undefined) new SetComponentWorlds(nodeId, at, o.worlds).apply(prefab);
   }
   if (o.order) {
     // Scripts and engine components take the listed order in the slots they fill; Transform and

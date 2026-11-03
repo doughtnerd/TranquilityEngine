@@ -104,6 +104,14 @@ describe("Apply (ADR 0022)", () => {
     expect(top.components!.find((c) => c.type === "engine.BoxCollider2D")!.enabled).toBe(false);
   });
 
+  it("writes a component's Worlds override into the prefab (ADR 0042)", async () => {
+    const scene = openScene.value!;
+    scene.stack.execute(new SetOverrides("bg-a", "Set Worlds", [{ component: "game.Scroller", worlds: ["client"] }]));
+    expect(await applyOverrides(scene, project, "bg-a")).toBe(1);
+    const tile = fileOf("prefabs/background.prefab.json").nodes[0];
+    expect(tile.components!.find((c) => c.type === "game.Scroller")).toEqual({ type: "game.Scroller", worlds: ["client"], data: { speed: 0.5, wrapWidth: 32 } });
+  });
+
   it("writes an order override as the prefab's component order, leaving Transform and data components in place", async () => {
     const scene = openScene.value!;
     scene.stack.execute(

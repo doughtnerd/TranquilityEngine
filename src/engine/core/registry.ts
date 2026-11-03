@@ -17,17 +17,57 @@ export const AssetRef = { kind: "asset" } as const;
 /** Marker for fields that hold arbitrary JSON-compatible objects (deep-copied on load). */
 export const PlainObject = { kind: "object" } as const;
 
-export type FieldType =
+/** The type of a single value: a field, or one item of a list field. */
+export type ScalarFieldType =
   | NumberConstructor
   | BooleanConstructor
   | StringConstructor
   | typeof AssetRef
   | typeof PlainObject
-  // Engine classes (Vector2, Vector3, Color, GameObject) are passed by reference; typed loosely
-  // here to avoid import cycles.
+  // Engine classes (Vector2, Vector3, Quaternion, Color, GameObject) are passed by reference;
+  // typed loosely here to avoid import cycles.
   | (abstract new (...args: never[]) => unknown);
 
-/** Options on a declared field (ADR 0033). */
+/**
+ * A list field (ADR 0042): the item type in brackets, `@field([Number])`, `@field([Vector2])`,
+ * `@field([GameObject])`. The value is a plain array; scene files store a JSON array of items in
+ * their usual form. Lists don't nest.
+ */
+export type ListFieldType = readonly [ScalarFieldType];
+
+export type FieldType = ScalarFieldType | ListFieldType;
+
+/** True for a list field type (`[Number]`). */
+export function isListType(type: unknown): type is ListFieldType {
+  return Array.isArray(type);
+}
+
+/** The item type of a list field, or the type itself for any other field. */
+export function itemType(type: FieldType): ScalarFieldType {
+  return isListType(type) ? type[0] : type;
+}
+
+/** One choice of a dropdown field, with the label the editor shows. */
+export interface FieldChoice {
+  readonly label: string;
+  readonly value: string | number;
+}
+
+/**
+ * The values a field may take, shown as a dropdown in the editor (ADR 0042):
+ * - a list of values: `["dynamic", "kinematic", "static"]` or `[1, 2, 4]`;
+ * - an object of labels to values, such as a TypeScript enum: `{ Idle: 0, Run: 1 }` (a numeric
+ *   enum's reverse entries are skipped);
+ * - a function of the project settings, for lists that live there: `(s) => s.render.sortingLayers`.
+ *
+ * Choices only guide the editor; scene files and scripts may still hold other values.
+ */
+export type FieldChoices =
+  | readonly (string | number)[]
+  | Readonly<Record<string, string | number>>
+  | ((settings: import("./settings").ProjectSettings) => readonly (string | number)[]);
+
+/** Options on a declared field (ADR 0033, 0038). */
 export interface FieldOptions {
   /** Replicate this field from server to clients on replicated nodes (T11). */
   replicate?: boolean;
@@ -35,6 +75,22 @@ export interface FieldOptions {
   predicted?: boolean;
   /** Send numbers rounded to this step (e.g. 0.01) to save bandwidth (T8, T11). */
   quantize?: number;
+  /** The values this field (or each item of a list field) may take; the editor shows a dropdown. */
+  choices?: FieldChoices;
+}
+
+/**
+ * The choices of a field as labelled values, or null if it has none. `settings` feeds choices
+ * that come from the project settings (without them those resolve to an empty list).
+ */
+export function resolveChoices(choices: FieldChoices | undefined, settings?: import("./settings").ProjectSettings): FieldChoice[] | null {
+  if (choices === undefined) return null;
+  const label = (v: string | number) => String(v);
+  if (typeof choices === "function") return settings ? choices(settings).map((value) => ({ label: label(value), value })) : [];
+  if (Array.isArray(choices)) return (choices as readonly (string | number)[]).map((value) => ({ label: label(value), value }));
+  return Object.entries(choices as Record<string, string | number>)
+    .filter(([key, value]) => !(typeof value === "string" && /^-?\d+(\.\d+)?$/.test(key))) // a numeric enum's reverse entries (`0: "Idle"`)
+    .map(([key, value]) => ({ label: key, value }));
 }
 
 export interface FieldInfo {
@@ -149,6 +205,9 @@ export const component = behavior;
 
 /** Field decorator: declare a serializable field and its type (and, for netcode, how it replicates). */
 export function field(type: FieldType, options?: FieldOptions) {
+  if (isListType(type) && (type.length !== 1 || isListType(type[0]) || type[0] === undefined)) {
+    throw new Error(`@field: a list field names one item type in brackets, e.g. @field([Number]); lists don't nest.`);
+  }
   return function (_value: undefined, context: ClassFieldDecoratorContext): void {
     const meta = context.metadata as Record<symbol, FieldInfo[] | undefined>;
     // Metadata objects inherit from the parent class's metadata; copy before mutating.
