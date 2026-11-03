@@ -4,8 +4,8 @@
  */
 import { Component } from "../core/Component";
 import { getDataComponentDef } from "../core/data";
-import { Color, Vector2, Vector3 } from "../core/math";
-import { AssetRef, PlainObject, component, field, getComponentClass, getComponentId, getFields, type ComponentClass, type FieldInfo } from "../core/registry";
+import { Color, Quaternion, Vector2, Vector3 } from "../core/math";
+import { AssetRef, PlainObject, component, field, getComponentClass, getComponentId, getFields, isListType, type ComponentClass, type FieldInfo, type ScalarFieldType } from "../core/registry";
 import type { World } from "../core/World";
 import { Assets } from "./Assets";
 import { GameObject, _componentAllowedIn, type InstantiateOptions } from "./GameObject";
@@ -38,6 +38,13 @@ export interface OverrideEntry {
   value?: unknown;
   /** With `component` (and `index`) but no `field`: start that component enabled or disabled (ADR 0028). */
   enabled?: boolean;
+  /**
+   * With `component` (and `index`) but no `field`: the tags of the Worlds that component is
+   * created in, replacing the prefab entry's `worlds` (ADR 0033 §3, 0038). `["*"]` is every World.
+   */
+  worlds?: string[];
+  /** The node's tags, replacing the prefab's (ADR 0038). */
+  tags?: string[];
   /**
    * The order of the node's components, as component ids (repeated for several of a type). Ones
    * not listed follow, in their order; listed ones that aren't there are skipped (ADR 0029).
@@ -154,6 +161,10 @@ class Instantiation {
   private at: readonly string[] = [];
   /** Components left out of this World (per-World components), by node. */
   private readonly skipped = new Map<GameObject, Set<string>>();
+  /** `worlds` overrides from prefab instances, by node path, component id and index (`a/b#type#0`). */
+  private readonly worldsOverrides = new Map<string, string[]>();
+  /** A prefab root's node path → its instance's path, which overrides target with an empty `target`. */
+  private readonly rootAliases = new Map<string, string>();
   constructor(readonly world: World, private readonly hooks: InstantiateHooks = {}) {}
 
   /** Stop on a problem, or (editor) report it so the caller can skip the thing and carry on. */
@@ -209,6 +220,7 @@ class Instantiation {
         this.world.setSceneNode(container.entity);
         container.addBehavior(SceneInstance, { source: entry.prefab });
       }
+      this.noteWorldsOverrides(entry, prefab);
       this.prefix.push(entry.id);
       let created: { roots: GameObject[]; ids: Map<string, Instance> };
       try {
@@ -233,19 +245,55 @@ class Instantiation {
     if (entry.tags) node.tags = entry.tags;
     if (entry.active === false) node.setActive(false);
     this.at = [...this.prefix, entry.id];
-    for (const c of entry.components ?? []) this.component(node, c, scope, path);
+    const counts = new Map<string, number>();
+    for (const c of entry.components ?? []) {
+      const index = counts.get(c.type) ?? 0;
+      counts.set(c.type, index + 1);
+      this.component(node, c, scope, path, this.worldsOverride(c.type, index));
+    }
     return { node };
   }
 
-  component(node: GameObject, entry: ComponentEntry, scope: Map<string, Instance>, path: string): void {
+  /**
+   * Record an instance's `worlds` overrides before its prefab's nodes are created, since they
+   * decide whether a component is created at all. Outer instances' overrides win over nested
+   * ones (they're recorded first).
+   */
+  private noteWorldsOverrides(entry: NodeEntry, prefab: SceneFile): void {
+    const base = [...this.prefix, entry.id];
+    if (!isScenePath(entry.prefab!)) {
+      const root = prefab.nodes.find((n) => !n.parent);
+      if (root) this.rootAliases.set([...base, root.id].join("/"), base.join("/"));
+    }
+    for (const o of entry.overrides ?? []) {
+      if (!o.component || o.field !== undefined || o.worlds === undefined) continue;
+      const key = `${[...base, ...(o.target ?? [])].join("/")}#${o.component}#${o.index ?? 0}`;
+      if (!this.worldsOverrides.has(key)) this.worldsOverrides.set(key, o.worlds);
+    }
+  }
+
+  /** A `worlds` override for component `index` of `type` on the node being created, if an instance set one. */
+  private worldsOverride(type: string, index: number): string[] | undefined {
+    if (this.worldsOverrides.size === 0) return undefined;
+    let key: string | undefined = this.at.join("/");
+    while (key !== undefined) {
+      const found = this.worldsOverrides.get(`${key}#${type}#${index}`);
+      if (found) return found;
+      key = this.rootAliases.get(key);
+    }
+    return undefined;
+  }
+
+  component(node: GameObject, entry: ComponentEntry, scope: Map<string, Instance>, path: string, worldsOverride?: readonly string[]): void {
     const data = entry.data ?? {};
+    const worlds = worldsOverride ?? entry.worlds;
     if (entry.type === "engine.Transform") {
       applyTransform(node, data);
       return;
     }
     const def = getDataComponentDef(entry.type);
     if (def) {
-      if (!_componentAllowedIn(this.world, undefined, entry.worlds, entry.type)) return this.skip(node, entry.type);
+      if (!_componentAllowedIn(this.world, undefined, worlds, entry.type)) return this.skip(node, entry.type);
       node.addData(def, data as Record<string, number>);
       return;
     }
@@ -255,7 +303,7 @@ class Instantiation {
       return;
     }
     // Per-World components (ADR 0033 §3): not created in other Worlds; overrides aimed at them are skipped too.
-    if (!_componentAllowedIn(this.world, type, entry.worlds, entry.type)) return this.skip(node, entry.type);
+    if (!_componentAllowedIn(this.world, type, worlds, entry.type)) return this.skip(node, entry.type);
     const c = node.addBehavior(type);
     if (entry.enabled === false) c._enabled = false; // lifecycle is deferred until the batch ends
     this.fields(c, data, scope, path);
@@ -307,6 +355,7 @@ class Instantiation {
 
   private applyOverride(node: GameObject, o: OverrideEntry, scope: Map<string, Instance>, path: string): void {
     if (o.name !== undefined) node.name = o.name;
+    if (o.tags !== undefined) node.tags = o.tags;
     if (o.active !== undefined) node.setActive(o.active);
     if (o.removeComponent) {
       const type = getComponentClass(o.removeComponent);
@@ -377,28 +426,66 @@ export function assignField(
   const key = info.name;
   const target = c as unknown as Record<string, unknown>;
   const t = info.type;
+  if (isListType(t)) {
+    // A list field (ADR 0038): a new array, each item converted like a field of the item type.
+    if (raw === null || raw === undefined) {
+      target[key] = [];
+      return;
+    }
+    if (!Array.isArray(raw)) {
+      console.warn(`[myco] ${path}: field "${key}" expects a list (a JSON array).`);
+      return;
+    }
+    const out: unknown[] = new Array(raw.length).fill(null);
+    raw.forEach((item, i) => {
+      // A reference may resolve right away (editor writes) or after the batch (loads); either way it fills its slot.
+      const value = convertValue(t[0], item, null, (id) => ref(id, (node) => { out[i] = node; }), `${key}[${i}]`, path);
+      if (value !== SKIP) out[i] = value;
+    });
+    target[key] = out;
+    return;
+  }
+  const value = convertValue(t, raw, target[key], (id) => ref(id, (node) => { target[key] = node; }), key, path);
+  if (value !== SKIP) target[key] = value;
+}
+
+/** Returned by `convertValue` when the field keeps its current value (updated in place, or a reference set later). */
+const SKIP = Symbol("skip");
+
+/**
+ * One scene-file value converted to its declared type. Vectors and quaternions are copied into
+ * `current` when it's a live view (the result is then SKIP); node references go to `ref`.
+ */
+function convertValue(t: ScalarFieldType, raw: unknown, current: unknown, ref: (id: string) => void, name: string, path: string): unknown {
   if (t === GameObject) {
     const r = raw as { $node?: string } | null;
-    if (r === null) target[key] = null;
-    else if (r && typeof r.$node === "string") ref(r.$node, (node) => { target[key] = node; });
-    else console.warn(`[myco] ${path}: field "${key}" expects {"$node": "<id>"}.`);
-  } else if (t === Vector2) {
-    const cur = target[key];
-    if (cur instanceof Vector2) cur.copy(raw as number[]);
-    else target[key] = Vector2.from(raw as number[]);
-  } else if (t === Vector3) {
-    const cur = target[key];
-    if (cur instanceof Vector3) cur.copy(raw as number[]);
-    else target[key] = Vector3.from(raw as number[]);
-  } else if (t === Color) {
-    target[key] = Color.from(raw as string);
-  } else if (t === AssetRef) {
-    target[key] = typeof raw === "string" ? raw.replace(/^asset:/, "") : raw;
-  } else if (t === PlainObject) {
-    target[key] = mergeDeep(target[key], raw);
-  } else {
-    target[key] = raw;
+    if (r === null || r === undefined) return null;
+    if (typeof r.$node === "string") ref(r.$node);
+    else console.warn(`[myco] ${path}: field "${name}" expects {"$node": "<id>"}.`);
+    return SKIP;
   }
+  if (t === Vector2) {
+    if (raw === null) return null;
+    if (current instanceof Vector2) return (current.copy(raw as number[]), SKIP);
+    return Vector2.from(raw as number[]);
+  }
+  if (t === Vector3) {
+    if (raw === null) return null;
+    if (current instanceof Vector3) return (current.copy(raw as number[]), SKIP);
+    return Vector3.from(raw as number[]);
+  }
+  if (t === Quaternion) {
+    // Euler degrees `[x, y, z]` (as the editor writes it), or a raw quaternion `[x, y, z, w]`.
+    if (raw === null) return null;
+    const a = raw as number[];
+    const q = a.length >= 4 ? new Quaternion(a[0], a[1], a[2], a[3]) : Quaternion.fromEuler(a[0] ?? 0, a[1] ?? 0, a[2] ?? 0);
+    if (current instanceof Quaternion) return (current.copy(q), SKIP);
+    return q;
+  }
+  if (t === Color) return raw === null ? null : Color.from(raw as string);
+  if (t === AssetRef) return typeof raw === "string" ? raw.replace(/^asset:/, "") : raw;
+  if (t === PlainObject) return mergeDeep(current, raw);
+  return raw;
 }
 
 /** @internal Apply Transform data from a scene file (`position`, `rotation`, `scale`). */

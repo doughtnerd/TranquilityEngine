@@ -95,7 +95,16 @@ export function deleteNodes(scene: OpenScene, ids: readonly string[]): NodeRefer
   const refs = referencesInto(doc, ids);
   stack.beginGroup(ids.length === 1 ? `Delete ${doc.node(ids[0]).name ?? ids[0]}` : `Delete ${ids.length} nodes`);
   try {
-    for (const r of refs) stack.execute(new SetField(r.path[0], r.type, r.field, null, { index: r.index, target: r.path.slice(1) }));
+    for (const r of refs) {
+      let value: unknown = null;
+      if (r.element !== undefined) {
+        // An item of a list field (ADR 0038): set just that item to None.
+        const [id, ...target] = r.path;
+        const list = doc.isPrefabInstance(id) ? doc.overrideValue(id, target, r.type, r.field, r.index) : doc.fieldValue(id, r.type, r.field, r.index);
+        value = Array.isArray(list) ? list.map((item, i) => (i === r.element ? null : item)) : null;
+      }
+      stack.execute(new SetField(r.path[0], r.type, r.field, value, { index: r.index, target: r.path.slice(1) }));
+    }
     for (const id of ids) stack.execute(new RemoveNode(id));
   } finally {
     stack.endGroup();

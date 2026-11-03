@@ -17,7 +17,7 @@ export abstract class Collider2D extends Component {
   /** Triggers report overlaps (onTriggerEnter/Exit) but don't collide. */
   @field(Boolean) isTrigger = false;
   /** Collision layer name from project settings. */
-  @field(String) layer = "Default";
+  @field(String, { choices: (s) => s.physics.layers }) layer = "Default";
   @field(PlainObject) material: PhysicsMaterial2D = { friction: 0.5, bounciness: 0 };
 
   /** @internal */ _state: ColliderHandleState | null = null;

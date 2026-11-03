@@ -7,7 +7,7 @@ import { Component } from "../core/Component";
 import { _undefineComponent, getDataComponentDef, listDataComponentIds, type DataComponentDef, type ScalarType } from "../core/data";
 import { _undefineSystem } from "../core/systems";
 import { Vector3 } from "../core/math";
-import { _setReplacingRegistrations, _takeRecordedRegistrations, _unregisterComponent, getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldType, type ScriptRegistrations } from "../core/registry";
+import { _setReplacingRegistrations, _takeRecordedRegistrations, _unregisterComponent, getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldOptions, type FieldType, type ScriptRegistrations } from "../core/registry";
 import { World } from "../core/World";
 import type { Engine, WorldViewState } from "../core/Engine";
 import type { WorldConfig } from "../core/worlds";
@@ -77,6 +77,8 @@ export interface FieldValue {
   /** Declared type: a field type (`Number`, `Vector3`, `GameObject`, `AssetRef`…) or a data component scalar type. */
   readonly type: FieldType | ScalarType;
   readonly value: unknown;
+  /** The field's declared options (choices for a dropdown, netcode settings), if any. */
+  readonly options?: FieldOptions;
 }
 
 export type ComponentKind = "transform" | "behavior" | "data";
@@ -130,7 +132,7 @@ export function listComponents(node: GameObject): ComponentInfo[] {
       index,
       component: c,
       enabled: c.enabled,
-      fields: getFields(cls).map((f) => ({ name: f.name, type: f.type, value: values[f.name] })),
+      fields: getFields(cls).map((f) => (f.options ? { name: f.name, type: f.type, value: values[f.name], options: f.options } : { name: f.name, type: f.type, value: values[f.name] })),
     });
   }
   for (const def of world._dataComponentsOf(node.entity)) {

@@ -18,7 +18,7 @@ export interface RigidBody2DConstraints {
  */
 @component("engine.RigidBody2D")
 export class RigidBody2D extends Component {
-  @field(String) bodyType: BodyType = "dynamic";
+  @field(String, { choices: ["dynamic", "kinematic", "static"] }) bodyType: BodyType = "dynamic";
   @field(Number) mass = 1;
   @field(Boolean) useGravity = true;
   @field(Number) gravityScale = 1;
@@ -27,7 +27,7 @@ export class RigidBody2D extends Component {
   /** Angular damping. */
   @field(Number) angularDrag = 0.05;
   @field(PlainObject) constraints: RigidBody2DConstraints = { freezePosition: { x: false, y: false }, freezeRotation: false };
-  @field(String) collisionDetection: "discrete" | "continuous" = "discrete";
+  @field(String, { choices: ["discrete", "continuous"] }) collisionDetection: "discrete" | "continuous" = "discrete";
   /** Reserved: render interpolation between fixed steps is not implemented yet. */
   @field(Boolean) interpolate = false;
 

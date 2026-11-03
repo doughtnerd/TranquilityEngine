@@ -20,7 +20,7 @@ import "./replication/systems";
 @component("net.Replicated")
 export class Replicated extends Component implements ReplicatedSettings {
   /** `"interpolated"` (default) or `"predicted"` (the owning client predicts it, T13). */
-  @field(String) mode: ReplicationMode = "interpolated";
+  @field(String, { choices: ["interpolated", "predicted"] }) mode: ReplicationMode = "interpolated";
   /** The owning connection's id (`Connection.id`); 0: the server owns it. (Not `owner`: that's every component's owning node.) */
   @field(Number) ownerId = 0;
   /** Relative priority when a snapshot is full (1 = normal). */

@@ -141,11 +141,15 @@ export class SceneDocument {
         for (const [field, value] of Object.entries(c.data ?? {})) {
           const to = refId(value);
           if (to) out.push({ path: [n.id], type: c.type, index, field, to });
+          listRefs(value, (element, id) => out.push({ path: [n.id], type: c.type, index, field, to: id, element }));
         }
       }
       for (const o of n.overrides ?? []) {
+        if (!o.component || o.field === undefined) continue;
+        const path = [n.id, ...(o.target ?? [])];
         const to = refId(o.value);
-        if (to && o.component && o.field !== undefined) out.push({ path: [n.id, ...(o.target ?? [])], type: o.component, index: o.index ?? 0, field: o.field, to });
+        if (to) out.push({ path, type: o.component, index: o.index ?? 0, field: o.field, to });
+        listRefs(o.value, (element, id) => out.push({ path, type: o.component!, index: o.index ?? 0, field: o.field!, to: id, element }));
       }
     }
     return out;
@@ -187,6 +191,17 @@ export interface NodeReference {
   readonly field: string;
   /** Id of the referenced node. */
   readonly to: string;
+  /** For a list field (ADR 0038): which item holds the reference. */
+  readonly element?: number;
+}
+
+/** Report each `{"$node": id}` item of a list value. */
+function listRefs(value: unknown, found: (element: number, id: string) => void): void {
+  if (!Array.isArray(value)) return;
+  value.forEach((item, i) => {
+    const id = refId(item);
+    if (id) found(i, id);
+  });
 }
 
 function refId(value: unknown): string | null {

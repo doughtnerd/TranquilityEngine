@@ -63,6 +63,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0035](decisions/0035-ws-for-the-node-websocket-server.md) | The Node WebSocket server uses the `ws` package | Accepted |
 | [0036](decisions/0036-connect-a-world-by-address.md) | A client World connects to a remote server by address | Accepted |
 | [0037](decisions/0037-rename-to-myco-engine.md) | The engine is renamed Myco Engine, by Foxfire Studios | Accepted |
+| [0038](decisions/0038-inspector-field-types.md) | List fields, field choices, and per-instance Worlds and tags overrides | Proposed |
 
 ## Working with decisions
 

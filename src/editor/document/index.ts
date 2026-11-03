@@ -24,3 +24,4 @@ export { CommandStack, HISTORY_LIMIT, type HistoryFile, type HistoryState, type 
 export { applyPatch, changesBetween, diffFiles, hashFile, hashText, type DocPatch } from "./patch";
 export { WorldSync } from "./WorldSync";
 export { RebuildInstances, RevertOverrides, SetOverrides } from "./prefabCommands";
+export { SetComponentWorlds, SetTags } from "./nodeCommands";

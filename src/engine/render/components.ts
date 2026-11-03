@@ -20,7 +20,7 @@ export class SpriteRenderer extends Component {
   @field(Boolean) flipX = false;
   @field(Boolean) flipY = false;
   /** Sorting layer name from project settings (back to front). */
-  @field(String) sortingLayer = "Default";
+  @field(String, { choices: (s) => s.render.sortingLayers }) sortingLayer = "Default";
   @field(Number) orderInLayer = 0;
 
   override _onDetach(): void {
@@ -33,7 +33,7 @@ export type Projection = "orthographic" | "perspective";
 /** Renders the scene from its node's position, looking down -Z. */
 @component("engine.Camera")
 export class Camera extends Component {
-  @field(String) projection: Projection = "orthographic";
+  @field(String, { choices: ["orthographic", "perspective"] }) projection: Projection = "orthographic";
   /** Half the vertical view size in world units (orthographic). */
   @field(Number) orthographicSize = 5;
   /** Vertical field of view in degrees (perspective). */
@@ -75,9 +75,9 @@ export class Text extends Component {
   @field(Color) color = Color.white;
   @field(Color) outlineColor: Color | null = null;
   @field(Number) outlineWidth = 0;
-  @field(String) anchor: Anchor = "center";
+  @field(String, { choices: ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"] }) anchor: Anchor = "center";
   @field(Vector2) offset = new Vector2(0, 0);
-  @field(String) align: "left" | "center" | "right" = "center";
+  @field(String, { choices: ["left", "center", "right"] }) align: "left" | "center" | "right" = "center";
   @field(Number) lineHeight = 1.2;
 
   override _onDetach(): void {
