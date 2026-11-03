@@ -201,7 +201,8 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
   if (raw.format !== SHADER_GRAPH_FORMAT && raw.format !== SHADER_SUBGRAPH_FORMAT) throw new Error(`${where}: unknown format ${JSON.stringify(raw.format)}; expected "${SHADER_GRAPH_FORMAT}".`);
   const problems: string[] = [];
   const graph: ShaderGraph = { ...defaultShaderGraph(), nodes: [] };
-  if (raw.format === SHADER_SUBGRAPH_FORMAT) graph.subgraph = { outputs: parsePorts(raw.outputs, `${where} outputs`, problems, false) };
+  // Sub-graph outputs may be textures: the compiler passes the texture's uniform through (GLSL can't hold one in a variable).
+  if (raw.format === SHADER_SUBGRAPH_FORMAT) graph.subgraph = { outputs: parsePorts(raw.outputs, `${where} outputs`, problems, true) };
   if (raw.target !== undefined) {
     if (raw.target === "lit" || raw.target === "unlit") graph.target = raw.target;
     else problems.push(`${where}: "target" should be "lit" or "unlit"; using "lit".`);

@@ -198,8 +198,12 @@ test("the read-only sample shows its graph and every node type compiles in WebGL
   // Each node type, wired into Base Color (and, where it can run per vertex, Vertex Offset), compiles and draws.
   for (const def of NODES) {
     if (def.type === "output") continue;
-    const out = def.outputs.find((p) => p.type !== "texture")?.id ?? "out";
+    const number = def.outputs.find((p) => p.type !== "texture");
     const vertex = !def.fragmentOnly;
+    // A node with only a texture output (Texture 2D Asset) is sampled by a Sample Texture 2D node;
+    // nodes with no outputs until they're set up (Sub Graph, Custom Function) just compile.
+    const textureOnly = !number && def.outputs.length > 0;
+    const out = number ? `n.${number.id}` : textureOnly ? "s.rgb" : null;
     const graph = {
       target: "lit",
       surface: "opaque",
@@ -208,8 +212,12 @@ test("the read-only sample shows its graph and every node type compiles in WebGL
       nodes: [
         { id: "output", type: "output", position: [0, 0] },
         { id: "n", type: def.type, position: [0, 0], ...(def.type === "property" ? { settings: { property: "P" } } : {}) },
+        ...(textureOnly ? [{ id: "s", type: "sampleTexture", position: [0, 0] }] : []),
       ],
-      edges: [{ from: `n.${out}`, to: "output.baseColor" }, ...(vertex ? [{ from: `n.${out}`, to: "output.vertexOffset" }] : [])],
+      edges: [
+        ...(textureOnly ? [{ from: `n.${def.outputs[0].id}`, to: "s.texture" }] : []),
+        ...(out ? [{ from: out, to: "output.baseColor" }, ...(vertex ? [{ from: out, to: "output.vertexOffset" }] : [])] : []),
+      ],
     };
     const pixel = await page.evaluate((g) => {
       const p = (window as unknown as Hooks).shaderGraphPreview!;

@@ -183,7 +183,8 @@ describe("compiling shader graphs to GLSL", () => {
       const n = node("n", def.type, def.type === "property" ? { settings: { property: "P" } } : {});
       const g = graph([n], [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }] });
       const out = nodePorts(n, g).outputs.find((p) => p.type !== "texture");
-      if (out) g.edges.push({ from: `n.${out.id}`, to: "output.baseColor" });
+      if (!out) continue; // texture-only nodes (Texture 2D Asset) are tested with Sample Texture 2D
+      g.edges.push({ from: `n.${out.id}`, to: "output.baseColor" });
       const c = compileShaderGraph(g);
       expect(c.problems, def.type).toEqual([]);
       expect(c.fragment.body, def.type).toContain("m1_");

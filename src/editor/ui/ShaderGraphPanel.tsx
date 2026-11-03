@@ -1143,7 +1143,7 @@ function SubGraphOutputs(props: { graph: ShaderGraph; readOnly: boolean; commit(
       <PortList
         title="Outputs"
         ports={graph.subgraph!.outputs}
-        textures={false}
+        textures
         readOnly={props.readOnly}
         onAdd={() => commit(addSubGraphOutput(graph))}
         onRename={(a, b) => commit(renameSubGraphOutput(graph, a, b))}

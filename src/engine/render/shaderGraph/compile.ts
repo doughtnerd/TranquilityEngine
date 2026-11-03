@@ -440,6 +440,11 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
       for (const o of ports.outputs) {
         const type = o.type as ValueType;
         const expr = this.input(inner, output, { id: o.id, label: o.label, type, default: 0 }, type);
+        if (type === "texture") {
+          // A sampler can't be a local: the output stands for the uniform it leads back to.
+          result[o.id] = { expr, type };
+          continue;
+        }
         const local = this.local(scope, node.id, o.id);
         this.lines.push(`${type} ${local} = ${expr};`);
         result[o.id] = { expr: local, type };
@@ -495,7 +500,12 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
   if (sub) {
     // A sub-graph draws its first output, unlit (its preview).
     const first = sub.outputs[0];
-    if (first) {
+    if (first?.type === "texture") {
+      // A texture output previews as the texture across the mesh's UVs.
+      const uniform = fragment.input(root, output, { id: first.name, label: first.name, type: "texture" }, "texture");
+      baseColor = `mOut_base`;
+      fragment.lines.push(`vec3 mOut_base = texture(${uniform}, vMycoUv).rgb;`);
+    } else if (first) {
       const value = fragment.surface(output, { id: first.name, label: first.name, type: first.type, default: 0 });
       baseColor = `mOut_base`;
       fragment.lines.push(`vec3 mOut_base = ${convert(value, first.type, "vec3")};`);

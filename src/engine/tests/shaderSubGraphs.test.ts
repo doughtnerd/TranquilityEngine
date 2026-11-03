@@ -65,9 +65,9 @@ describe("shader sub-graphs", () => {
       outputs: [{ name: "a b", type: "vec3" }, { name: "Out", type: "texture" }],
       nodes: [{ id: "f", type: "customFunction", function: { name: "gl_x", body: "" } }],
     });
-    expect(g.subgraph!.outputs).toEqual([]);
+    expect(g.subgraph!.outputs).toEqual([{ name: "Out", type: "texture" }]); // texture outputs are allowed
     expect(g.nodes.find((n) => n.id === "f")!.function).toBeUndefined();
-    expect(problems).toHaveLength(3);
+    expect(problems).toHaveLength(2);
   });
 
   it("expand inline, binding their properties to the node's inputs", () => {
@@ -110,6 +110,48 @@ describe("shader sub-graphs", () => {
     // Without its file a Sub Graph node has no ports, so its connections are reported.
     const gone = compileShaderGraph(graph([node("s", "subgraph", { settings: { subgraph: "gone.shadersubgraph.json" } })], [["s.Out", "output.baseColor"]]));
     expect(gone.problems.join()).toMatch(/port that isn't there/);
+  });
+
+  it("output textures by passing the texture's uniform through", () => {
+    // tex.shadersubgraph.json: Texture = its Texture 2D Asset node; Map = its Map input.
+    const sub = {
+      format: "myco.shadersubgraph@1",
+      outputs: [{ name: "Texture", type: "texture" }, { name: "Map", type: "texture" }],
+      properties: [{ name: "Map", type: "texture", value: "asset:images/default.png" }],
+      nodes: [
+        { id: "output", type: "output", position: [0, 0] },
+        { id: "asset", type: "textureAsset", position: [0, 0], settings: { texture: "asset:images/a.png" } },
+        { id: "map", type: "property", position: [0, 0], settings: { property: "Map" } },
+      ],
+      edges: [{ from: "asset.out", to: "output.Texture" }, { from: "map.out", to: "output.Map" }],
+    };
+    useAssets({ "tex.shadersubgraph.json": sub });
+    const g = graph(
+      [
+        node("s", "subgraph", { settings: { subgraph: "tex.shadersubgraph.json" } }),
+        node("a", "sampleTexture"),
+        node("b", "sampleTexture", { settings: { type: "normal" } }),
+        node("p", "property", { settings: { property: "Mine" } }),
+        node("s2", "subgraph", { settings: { subgraph: "tex.shadersubgraph.json" } }),
+        node("c", "sampleTexture"),
+      ],
+      [["s.Texture", "a.texture"], ["s.Map", "b.texture"], ["a.rgb", "output.baseColor"], ["b.rgb", "output.normal"], ["p.out", "s2.Map"], ["s2.Map", "c.texture"], ["c.r", "output.alpha"]],
+      { properties: [{ name: "Mine", type: "texture", value: "asset:images/mine.png" }] },
+    );
+    expect(nodePorts(g.nodes[1], g).outputs.map((o) => o.type)).toEqual(["texture", "texture"]);
+    const c = compileShaderGraph(g);
+    expect(c.problems).toEqual([]);
+    const uniform = (value: string) => c.uniforms.find((u) => u.value === value)!;
+    expect(c.fragment.body).toContain(`texture(${uniform("asset:images/a.png").name}, vMycoUv)`); // the sub-graph's own texture
+    expect(uniform("asset:images/default.png").linear).toBe(true); // an unconnected input reads the property's default, here as a normal map
+    expect(c.fragment.body).toContain("texture(uP0_Mine, vMycoUv)"); // a connected input passes the graph's property through
+  });
+
+  it("preview a first texture output as the texture", () => {
+    const { graph: sub } = parseShaderGraph({ format: "myco.shadersubgraph@1", outputs: [{ name: "T", type: "texture" }], nodes: [{ id: "output", type: "output", position: [0, 0] }, { id: "a", type: "textureAsset", position: [0, 0], settings: { texture: "x.png" } }], edges: [{ from: "a.out", to: "output.T" }] });
+    const c = compileShaderGraph(sub);
+    expect(c.problems).toEqual([]);
+    expect(c.fragment.body).toContain("vec3 mOut_base = texture(uTex0, vMycoUv).rgb;");
   });
 
   it("compile on their own as their first output, unlit", () => {

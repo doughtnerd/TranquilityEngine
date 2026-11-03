@@ -244,7 +244,7 @@ export const NODES: readonly NodeDef[] = [
     outputs: [],
     ports: (_node, graph) => ({
       inputs: graph.subgraph
-        ? graph.subgraph.outputs.map((o) => ({ id: o.name, label: o.name, type: o.type, default: 0 }))
+        ? graph.subgraph.outputs.map((o) => ({ id: o.name, label: o.name, type: o.type, ...(o.type === "texture" ? {} : { default: 0 }) }))
         : OUTPUT_INPUTS.filter((p) => graph.target === "lit" || !p.litOnly),
       outputs: [],
     }),
@@ -371,6 +371,16 @@ export const NODES: readonly NodeDef[] = [
       const rgb = normal ? `(${s}.rgb * 2.0 - 1.0)` : `${s}.rgb`;
       return { rgba: normal ? `vec4(${rgb}, ${s}.a)` : s, rgb, r: `${rgb}.r`, g: `${rgb}.g`, b: `${rgb}.b`, a: `${s}.a` };
     },
+  },
+  {
+    type: "textureAsset",
+    title: "Texture 2D Asset",
+    category: "Input",
+    keywords: "texture image asset sampler",
+    inputs: [],
+    outputs: [out("texture", "out", "Texture")],
+    settings: [{ id: "texture", label: "Texture", kind: "texture", default: "" }],
+    emit: (c) => ({ out: c.texture(c.settings.texture ?? "") }),
   },
   {
     type: "subgraph",

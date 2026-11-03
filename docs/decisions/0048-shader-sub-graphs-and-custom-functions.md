@@ -78,7 +78,7 @@ Nothing.
 ## Open questions
 
 - Custom function bodies from `.glsl` assets; keywords and shader variants.
-- Sub-graph outputs of texture type.
+- ~~Sub-graph outputs of texture type.~~ Allowed (2026-11-03): GLSL can't hold a texture in a variable, so the compiler passes through the uniform the output leads back to (a texture property, a Texture 2D Asset node, or the sub-graph's texture input); the output must lead to one fixed texture. A sub-graph whose first output is a texture previews it across the mesh's UVs.
 
 ## References
 
