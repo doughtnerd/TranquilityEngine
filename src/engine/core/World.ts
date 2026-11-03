@@ -15,6 +15,7 @@ import { Mat4 } from "./math";
 import { Scheduler, defineBuiltinSystem, type QueryTerm, type Row } from "./systems";
 import { resolveSettings, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import type { Physics2DWorld } from "../physics/Physics2DWorld";
+import type { Physics3DWorld } from "../physics/Physics3DWorld";
 import type { RenderBackend } from "../render/RenderBackend";
 import type { NetworkTime } from "../net/time";
 import type { WorldTag } from "./worlds";
@@ -117,6 +118,7 @@ export class World {
   /** @internal */ readonly scheduler: Scheduler;
   /** @internal */ _waits: PendingWait[] = [];
   /** @internal */ physics2D: Physics2DWorld | null = null;
+  /** @internal Created by `ensurePhysics3D` (ADR 0045). */ physics3D: Physics3DWorld | null = null;
   /** @internal The Engine that owns this World (ADR 0032): set by the Engine (T1), used by `Engine.createWorld`/`findWorld`. */
   _engine: unknown = null;
   /** @internal Transports this World owns (ADR 0033), closed when it's destroyed: see `createWorldTransport`. */
@@ -532,6 +534,8 @@ export class World {
     this._flushDestroyed();
     this.physics2D?.rapier.free();
     this.physics2D = null;
+    this.physics3D?.rapier.free();
+    this.physics3D = null;
     // Its connections and listen addresses go with it (a loopback address is page-wide).
     for (const t of this._transports) t.close();
     this._transports.clear();

@@ -1,5 +1,9 @@
 import { World } from "../core/World";
 import { ensurePhysics2D } from "../physics/Physics2DWorld";
+import { ensurePhysics3D, usesPhysics3D } from "../physics/physics3d";
+import { Assets } from "./Assets";
+import { isMaterialPath } from "./material";
+import { isModelPath, loadModel } from "./models";
 import type { GameObject } from "./GameObject";
 import { splitSpriteRef } from "./importSettings";
 import { SceneInstance, collectAssetRefs, instantiateFile, loadSceneFile } from "./SceneLoader";
@@ -42,10 +46,23 @@ export class SceneManager {
     const world = World.require();
     const file = loadSceneFile(path);
     if (file.settings?.physics === "2d") await ensurePhysics2D(world);
-    if (file.settings?.physics === "3d") console.warn(`[myco] ${path}: 3D physics is not implemented yet; scene loads without it.`);
+    // 3D physics when the scene says so, or (saying nothing) when it has 3D bodies or colliders (ADR 0045).
+    if (file.settings?.physics === "3d" || (file.settings?.physics === undefined && usesPhysics3D(path))) await ensurePhysics3D(world);
 
-    // A slice reference (`images/sheet.png#walk_0`, ADR 0040) preloads its image.
-    const images = [...new Set([...collectAssetRefs(path)].map((p) => splitSpriteRef(p).path))].filter((p) => IMAGE.test(p));
+    // A slice reference (`images/sheet.png#walk_0`, ADR 0040) preloads its image; a mesh
+    // reference (`models/a.fbx#Body`, ADR 0044) its model; a material (ADR 0043) its textures.
+    const refs = [...new Set([...collectAssetRefs(path)].map((p) => splitSpriteRef(p).path))];
+    for (const m of refs.filter(isMaterialPath)) {
+      try {
+        const raw = Assets.has(m) ? Assets.json<Record<string, unknown>>(m) : null;
+        for (const key of ["texture", "normalMap"]) if (typeof raw?.[key] === "string" && raw[key]) refs.push(splitSpriteRef(raw[key] as string).path);
+      } catch {
+        // reported when the material is drawn
+      }
+    }
+    const images = [...new Set(refs.filter((p) => IMAGE.test(p)))];
+    const models = refs.filter((p) => isModelPath(p) && Assets.has(p));
+    await Promise.all(models.map((m) => loadModel(m).catch((err) => console.error(`[myco] failed to load the model "${m}":`, err))));
     if (world.render && images.length) await world.render.preloadTextures(images, options.onProgress);
     options.onProgress?.(1);
 

@@ -1,0 +1,69 @@
+; FBX 7.4.0 project file
+; Myco Engine 3D Playground sample: a two-mesh robot, written by hand as ASCII FBX.
+FBXHeaderExtension:  {
+	FBXHeaderVersion: 1003
+	FBXVersion: 7400
+}
+GlobalSettings:  {
+	Version: 1000
+	Properties70:  {
+		P: "UpAxis", "int", "Integer", "",1
+		P: "UnitScaleFactor", "double", "Number", "",100
+	}
+}
+Objects:  {
+	Geometry: 1000, "Geometry::Body", "Mesh" {
+		Vertices: *24 {
+			a: -0.4,-0.6,0.25,0.4,-0.6,0.25,0.4,0.6,0.25,-0.4,0.6,0.25,-0.4,-0.6,-0.25,0.4,-0.6,-0.25,0.4,0.6,-0.25,-0.4,0.6,-0.25
+		}
+		PolygonVertexIndex: *24 {
+			a: 0,1,2,-4,5,4,7,-7,1,5,6,-3,4,0,3,-8,3,2,6,-8,4,5,1,-1
+		}
+		GeometryVersion: 124
+	}
+	Model: 2000, "Model::Body", "Mesh" {
+		Version: 232
+		Properties70:  {
+			P: "Lcl Translation", "Lcl Translation", "", "A",0,0.6,0
+		}
+	}
+	Material: 3000, "Material::BodyPaint", "" {
+		Version: 102
+		ShadingModel: "phong"
+		Properties70:  {
+			P: "DiffuseColor", "Color", "", "A",0.3,0.45,0.9
+			P: "Shininess", "double", "Number", "",30
+		}
+	}
+	Geometry: 1001, "Geometry::Head", "Mesh" {
+		Vertices: *24 {
+			a: -0.25,-0.25,0.25,0.25,-0.25,0.25,0.25,0.25,0.25,-0.25,0.25,0.25,-0.25,-0.25,-0.25,0.25,-0.25,-0.25,0.25,0.25,-0.25,-0.25,0.25,-0.25
+		}
+		PolygonVertexIndex: *24 {
+			a: 0,1,2,-4,5,4,7,-7,1,5,6,-3,4,0,3,-8,3,2,6,-8,4,5,1,-1
+		}
+		GeometryVersion: 124
+	}
+	Model: 2001, "Model::Head", "Mesh" {
+		Version: 232
+		Properties70:  {
+			P: "Lcl Translation", "Lcl Translation", "", "A",0,1.5,0
+		}
+	}
+	Material: 3001, "Material::HeadPaint", "" {
+		Version: 102
+		ShadingModel: "phong"
+		Properties70:  {
+			P: "DiffuseColor", "Color", "", "A",0.9,0.9,0.95
+			P: "Shininess", "double", "Number", "",30
+		}
+	}
+}
+Connections:  {
+	C: "OO",2000,0
+	C: "OO",1000,2000
+	C: "OO",3000,2000
+	C: "OO",2001,0
+	C: "OO",1001,2001
+	C: "OO",3001,2001
+}

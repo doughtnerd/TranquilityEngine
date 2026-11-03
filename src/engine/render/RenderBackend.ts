@@ -5,10 +5,15 @@
  * three.js objects kept flat under one root, with `matrixAutoUpdate = false`.
  */
 import {
+  AmbientLight,
   AxesHelper,
+  Box3,
   BufferGeometry,
   CanvasTexture,
   ClampToEdgeWrapping,
+  DirectionalLight,
+  DoubleSide,
+  FrontSide,
   Float32BufferAttribute,
   GridHelper,
   Color as ThreeColor,
@@ -17,13 +22,18 @@ import {
   LineBasicMaterial,
   LineLoop,
   LineSegments,
+  type Material,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  MeshStandardMaterial,
   MirroredRepeatWrapping,
   NearestFilter,
   NearestMipmapNearestFilter,
+  NoColorSpace,
   Object3D,
+  PCFSoftShadowMap,
+  PointLight,
   Quaternion,
   OrthographicCamera,
   Points,
@@ -33,6 +43,7 @@ import {
   Raycaster,
   RepeatWrapping,
   Scene,
+  SpotLight,
   Sprite as ThreeSprite,
   SpriteMaterial,
   SRGBColorSpace,
@@ -49,7 +60,9 @@ import type { World, WorldKind } from "../core/World";
 import { Assets, sidecarValue } from "../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import type { GameObject } from "../scene/GameObject";
-import { Camera, SpriteRenderer, Text, type Anchor } from "./components";
+import { Camera, Light, MeshRenderer, SpriteRenderer, Text, type Anchor } from "./components";
+import { meshesIfLoaded, type ModelMesh } from "../scene/models";
+import { parseMaterial } from "../scene/material";
 import type { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { frustumSegments } from "./cameraGizmo";
 import { localPoseFromWorld, type LocalPose } from "./gizmoMath";
@@ -108,6 +121,27 @@ interface SpriteEntry {
   size: [number, number] | null;
 }
 
+interface MeshEntry {
+  /** One three.js mesh per model mesh drawn. */
+  objects: Mesh[];
+  /** The model meshes and material they were made from. */
+  sources: readonly ModelMesh[] | null;
+  material: Material | null;
+}
+
+interface LightEntry {
+  light: DirectionalLight | PointLight | SpotLight | AmbientLight;
+  type: string;
+  /** Where directional and spot lights point (one metre down the node's -Z). */
+  target: Object3D | null;
+}
+
+/** A material asset made into a three.js material, rebuilt when its JSON changes. */
+interface MaterialEntry {
+  raw: unknown;
+  material: Material | null;
+}
+
 interface CameraEntry {
   camera: OrthographicCamera | PerspectiveCamera;
   projection: string;
@@ -148,6 +182,13 @@ const CAMERA_ICON_PICK_RADIUS = 16;
 const tmpPoint = new ThreeVector3();
 /** Draw outlines above every sprite (sprites sort by layer * 10000 + order). */
 const OUTLINE_ORDER = 1e9;
+/** Meshes are depth-tested and drawn before sprites, so in picking they come below every sprite. */
+const MESH_ORDER = -1e12;
+/** Editor light icons: size (fraction of view height), as camera icons. */
+const LIGHT_ICON_SIZE = 0.055;
+const tmpBox = new Box3();
+const tmpDir = new ThreeVector3();
+const tmpCorner = new ThreeVector3();
 
 export class RenderBackend {
   readonly canvas: HTMLCanvasElement;
@@ -165,6 +206,14 @@ export class RenderBackend {
   private readonly sprites = new Map<SpriteRenderer, SpriteEntry>();
   private readonly cameras = new Map<Camera, CameraEntry>();
   private readonly texts = new Map<Text, TextEntry>();
+  private readonly meshRenderers = new Map<MeshRenderer, MeshEntry>();
+  private readonly lights = new Map<Light, LightEntry>();
+  private readonly materialAssets = new Map<string, MaterialEntry>();
+  private readonly warnedMaterials = new Set<string>();
+  /** Lit meshes without a material of their own (ADR 0043). */
+  private readonly defaultMaterial = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0 });
+  /** The light a World without Lights gets: a soft ambient light and a sun from above and in front. */
+  private readonly defaultLights: Object3D[];
   private readonly resizeObserver: ResizeObserver;
   private readonly warnedLayers = new Set<string>();
   private readonly clearColor: ThreeColor;
@@ -185,6 +234,14 @@ export class RenderBackend {
     this.renderer = new WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.autoClear = false;
+    this.renderer.shadowMap.type = PCFSoftShadowMap;
+    const sun = new DirectionalLight(0xffffff, 1);
+    sun.position.set(4, 10, 6);
+    this.defaultLights = [new AmbientLight(0xffffff, 0.35), sun];
+    for (const l of this.defaultLights) {
+      l.visible = false;
+      this.scene.add(l);
+    }
     this.clearColor = new ThreeColor(settings.display.backgroundColor);
 
     const { width, height } = settings.display;
@@ -333,6 +390,25 @@ export class RenderBackend {
         e.geometry?.dispose();
         this.sprites.delete(c);
       }
+    } else if (c instanceof MeshRenderer) {
+      const e = this.meshRenderers.get(c);
+      if (e) {
+        for (const o of e.objects) this.scene.remove(o);
+        this.meshRenderers.delete(c);
+      }
+    } else if (c instanceof Light) {
+      const e = this.lights.get(c);
+      if (e) {
+        this.scene.remove(e.light);
+        if (e.target) this.scene.remove(e.target);
+        e.light.dispose();
+        this.lights.delete(c);
+      }
+      const g = this.lightGizmos.get(c);
+      if (g) {
+        this.scene.remove(g);
+        this.lightGizmos.delete(c);
+      }
     } else if (c instanceof Camera) {
       this.cameras.delete(c);
     } else if (c instanceof Text) {
@@ -350,11 +426,14 @@ export class RenderBackend {
   sync(world: World): void {
     this.claim(world);
     for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s);
+    for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
+    this.syncLights(world);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     for (const t of world._componentsOfType(Text)) this.syncText(t);
     if (this.fill) {
       this.syncOutlines();
       this.syncCameraGizmos(world);
+      this.syncLightGizmos(world);
       this.syncOverlay();
       this.syncGizmo(world);
     }
@@ -454,6 +533,188 @@ export class RenderBackend {
     // PlaneGeometry's vertices: top-left, top-right, bottom-left, bottom-right.
     entry.geometry.setAttribute("uv", new Float32BufferAttribute([u0, v1, u1, v1, u0, v0, u1, v0], 2));
     entry.mesh.geometry = entry.geometry;
+  }
+
+  // --- Meshes, materials and lights (ADR 0043) -----------------------------------------------------
+
+  private syncMesh(world: World, r: MeshRenderer): void {
+    let entry = this.meshRenderers.get(r);
+    if (!entry) {
+      entry = { objects: [], sources: null, material: null };
+      this.meshRenderers.set(r, entry);
+    }
+    const sources = meshesIfLoaded(r.mesh); // null while the model loads
+    const material = this.materialAsset(r.material);
+    const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
+    if (!same || entry.material !== material) {
+      for (const o of entry.objects) this.scene.remove(o);
+      entry.objects = (sources ?? []).map((m) => {
+        const own = m.materials.length > 1 && m.geometry.groups.length > 1 ? [...m.materials] : m.materials[0];
+        const mesh = new Mesh(m.geometry, material ?? own ?? this.defaultMaterial);
+        mesh.matrixAutoUpdate = false;
+        this.scene.add(mesh);
+        return mesh;
+      });
+      entry.sources = sources;
+      entry.material = material;
+    }
+    const visible = r.isActiveAndEnabled;
+    if (!visible) {
+      for (const o of entry.objects) o.visible = false;
+      return;
+    }
+    const e = r.node.entity;
+    tmpWorld.fromArray(world.worldMatrix(e), e * 16);
+    for (const o of entry.objects) {
+      o.visible = true;
+      o.castShadow = r.castShadows;
+      o.receiveShadow = r.receiveShadows;
+      o.matrix.copy(tmpWorld);
+      o.matrixWorldNeedsUpdate = true;
+    }
+  }
+
+  /**
+   * The three.js material for a material asset, or null for none (empty, missing, or not a
+   * material: warned once). Rebuilt when the asset's JSON changes (the editor's Material inspector).
+   */
+  private materialAsset(path: string): Material | null {
+    if (!path) return null;
+    let raw: unknown;
+    try {
+      raw = Assets.has(path) ? Assets.json(path) : undefined;
+    } catch {
+      raw = undefined;
+    }
+    const cached = this.materialAssets.get(path);
+    if (cached && cached.raw === raw) return cached.material;
+    cached?.material?.dispose();
+    let material: Material | null = null;
+    if (raw === undefined) {
+      this.warnMaterial(path, `material "${path}" isn't in the project; using the default material.`);
+    } else {
+      try {
+        const { settings, problems } = parseMaterial(raw, path.replace(/^asset:/, ""));
+        for (const p of problems) this.warnMaterial(`${path}|${p}`, p);
+        const color = new ThreeColor().setRGB(settings.color.r, settings.color.g, settings.color.b, SRGBColorSpace);
+        const common = { color, transparent: settings.color.a < 1, opacity: settings.color.a, side: settings.doubleSided ? DoubleSide : FrontSide };
+        const m =
+          settings.shader === "unlit"
+            ? new MeshBasicMaterial(common)
+            : new MeshStandardMaterial({
+                ...common,
+                metalness: settings.metalness,
+                roughness: settings.roughness,
+                emissive: new ThreeColor().setRGB(settings.emission.r, settings.emission.g, settings.emission.b, SRGBColorSpace),
+              });
+        const tiled = (tex: Texture, linear: boolean): Texture => {
+          const [tx, ty] = settings.tiling;
+          if (tx === 1 && ty === 1 && !linear) return tex;
+          const t = tex.clone(); // its own repeat and colour space; shares the image
+          t.colorSpace = linear ? NoColorSpace : SRGBColorSpace;
+          t.repeat.set(tx, ty);
+          if (tx !== 1 || ty !== 1) t.wrapS = t.wrapT = RepeatWrapping;
+          t.needsUpdate = true;
+          return t;
+        };
+        const load = (ref: string, apply: (tex: Texture) => void) => {
+          const image = ref.replace(/^asset:/, "");
+          if (!image) return;
+          this.texture(image)
+            .then((tex) => {
+              if (this.materialAssets.get(path)?.material !== m) return; // replaced meanwhile
+              apply(tex);
+              m.needsUpdate = true;
+            })
+            .catch((err) => console.error(`[myco] failed to load texture "${image}" for ${path}:`, err));
+        };
+        load(settings.texture, (tex) => (m.map = tiled(tex, false)));
+        if (m instanceof MeshStandardMaterial) load(settings.normalMap, (tex) => (m.normalMap = tiled(tex, true)));
+        material = m;
+      } catch (err) {
+        this.warnMaterial(path, `${(err as Error).message} Using the default material.`);
+      }
+    }
+    this.materialAssets.set(path, { raw, material });
+    return material;
+  }
+
+  private warnMaterial(key: string, message: string): void {
+    if (this.warnedMaterials.has(key)) return;
+    this.warnedMaterials.add(key);
+    console.warn(`[myco] ${message}`);
+  }
+
+  private syncLights(world: World): void {
+    let any = false;
+    for (const l of world._componentsOfType(Light)) any = this.syncLight(world, l) || any;
+    // A World with no Light of its own gets the default ones, so meshes never draw black.
+    for (const d of this.defaultLights) d.visible = !any;
+  }
+
+  /** Mirror one Light; true if it lights the scene. */
+  private syncLight(world: World, l: Light): boolean {
+    let entry = this.lights.get(l);
+    if (!entry || entry.type !== l.type) {
+      if (entry) this.release(l);
+      const light =
+        l.type === "point" ? new PointLight() : l.type === "spot" ? new SpotLight() : l.type === "ambient" ? new AmbientLight() : new DirectionalLight();
+      light.matrixAutoUpdate = false;
+      let target: Object3D | null = null;
+      if (light instanceof DirectionalLight || light instanceof SpotLight) {
+        target = new Object3D();
+        target.matrixAutoUpdate = false;
+        light.target = target;
+        this.scene.add(target);
+        light.shadow.bias = -0.0005;
+        light.shadow.normalBias = 0.02;
+      }
+      this.scene.add(light);
+      entry = { light, type: l.type, target };
+      this.lights.set(l, entry);
+    }
+    const { light, target } = entry;
+    light.visible = l.isActiveAndEnabled;
+    if (!light.visible) return false;
+    light.color.setRGB(l.color.r, l.color.g, l.color.b, SRGBColorSpace);
+    light.intensity = Math.max(0, l.intensity);
+    const e = l.node.entity;
+    tmpWorld.fromArray(world.worldMatrix(e), e * 16);
+    tmpPoint.setFromMatrixPosition(tmpWorld);
+    light.matrix.makeTranslation(tmpPoint.x, tmpPoint.y, tmpPoint.z);
+    light.matrixWorldNeedsUpdate = true;
+    if (target) {
+      tmpDir.setFromMatrixColumn(tmpWorld, 2).normalize().negate(); // -Z, where cameras look too
+      target.matrix.makeTranslation(tmpPoint.x + tmpDir.x, tmpPoint.y + tmpDir.y, tmpPoint.z + tmpDir.z);
+      target.matrixWorldNeedsUpdate = true;
+    }
+    if (light instanceof PointLight || light instanceof SpotLight) {
+      light.distance = Math.max(0, l.range);
+      light.decay = 2;
+    }
+    if (light instanceof SpotLight) {
+      light.angle = (Math.min(Math.max(l.spotAngle, 1), 179) / 2) * (Math.PI / 180);
+      light.penumbra = Math.min(Math.max(l.spotSoftness, 0), 1);
+    }
+    if (!(light instanceof AmbientLight)) {
+      light.castShadow = l.castShadows;
+      if (l.castShadows) this.renderer.shadowMap.enabled = true;
+      if (light instanceof DirectionalLight) {
+        const half = Math.max(1, l.shadowArea) / 2;
+        const cam = light.shadow.camera;
+        if (cam.right !== half) {
+          cam.left = cam.bottom = -half;
+          cam.right = cam.top = half;
+          cam.near = -half * 2; // shadows from in front of and behind the light's node
+          cam.far = half * 2;
+          cam.updateProjectionMatrix();
+          light.shadow.mapSize.set(2048, 2048);
+          light.shadow.map?.dispose();
+          light.shadow.map = null;
+        }
+      }
+    }
+    return true;
   }
 
   private syncCamera(world: World, c: Camera): void {
@@ -616,8 +877,9 @@ export class RenderBackend {
     }
     camera.updateProjectionMatrix(); // the next sync puts the editor's aspect back
     // The game's view has none of the editor's helpers.
-    const helpers: (Object3D | null)[] = [this.grid, this.axes, this.overlayLines, this.overlayHandles, this.gizmo?.getHelper() ?? null, ...this.outlines];
+    const helpers: (Object3D | null)[] = [this.grid, this.axes, this.overlayLines, this.overlayHandles, this.gizmo?.getHelper() ?? null, this.lightWires, ...this.outlines, ...this.boxOutlines];
     for (const g of this.cameraGizmos.values()) helpers.push(g.icon, g.frustum);
+    for (const icon of this.lightGizmos.values()) helpers.push(icon);
     const shown = helpers.filter((o): o is Object3D => !!o && o.visible);
     for (const o of shown) o.visible = false;
     const r = this.renderer;
@@ -698,14 +960,27 @@ export class RenderBackend {
       }
     }
 
-    // Camera icons: a small circle on screen around each icon, above every sprite.
+    // Meshes: depth-tested, so nearest first, below every sprite.
     if (camera) {
-      for (const [c, entry] of this.cameraGizmos) {
-        if (!entry.icon.visible) continue;
-        tmpPoint.setFromMatrixPosition(entry.icon.matrixWorld).project(camera);
+      for (const [r, entry] of this.meshRenderers) {
+        for (const o of entry.objects) {
+          if (!o.visible) continue;
+          o.updateMatrixWorld();
+          const hit = raycaster.intersectObject(o, false)[0];
+          if (hit) hits.push({ node: r.node, order: MESH_ORDER, distance: hit.distance });
+        }
+      }
+    }
+
+    // Camera and light icons: a small circle on screen around each icon, above every sprite.
+    if (camera) {
+      const icons: [GameObject, ThreeSprite][] = [...[...this.cameraGizmos].map(([c, g]): [GameObject, ThreeSprite] => [c.node, g.icon]), ...[...this.lightGizmos].map(([l, icon]): [GameObject, ThreeSprite] => [l.node, icon])];
+      for (const [node, icon] of icons) {
+        if (!icon.visible) continue;
+        tmpPoint.setFromMatrixPosition(icon.matrixWorld).project(camera);
         if (tmpPoint.z < -1 || tmpPoint.z > 1) continue; // behind the camera or beyond far
         const sx = ((tmpPoint.x + 1) / 2) * w, sy = ((1 - tmpPoint.y) / 2) * h;
-        if (Math.hypot(sx - x, sy - y) <= CAMERA_ICON_PICK_RADIUS) hits.push({ node: c.node, order: OUTLINE_ORDER, distance: 0 });
+        if (Math.hypot(sx - x, sy - y) <= CAMERA_ICON_PICK_RADIUS) hits.push({ node, order: OUTLINE_ORDER, distance: 0 });
       }
     }
 
@@ -721,6 +996,34 @@ export class RenderBackend {
   spriteSize(s: SpriteRenderer): [number, number] | null {
     if (s.size) return [s.size.x, s.size.y];
     return this.sprites.get(s)?.size ?? null;
+  }
+
+  /**
+   * @internal Editor: the world-space box around the meshes of `node`'s MeshRenderers, or null if
+   * it has none drawn (no MeshRenderer, or its model hasn't loaded).
+   */
+  meshBounds(node: GameObject): { min: [number, number, number]; max: [number, number, number] } | null {
+    tmpBox.makeEmpty();
+    for (const [r, entry] of this.meshRenderers) {
+      if (r.node !== node) continue;
+      for (const o of entry.objects) {
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        o.updateMatrixWorld();
+        tmpBox.union(new Box3().copy(o.geometry.boundingBox!).applyMatrix4(o.matrixWorld));
+      }
+    }
+    return tmpBox.isEmpty() ? null : { min: tmpBox.min.toArray(), max: tmpBox.max.toArray() };
+  }
+
+  /** @internal Editor: the ray under a canvas point (CSS pixels) through the camera that draws the view, or null. */
+  rayAt(world: World, x: number, y: number): { origin: [number, number, number]; direction: [number, number, number] } | null {
+    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    const view = this.viewCameras(world)[0];
+    const camera = view && this.cameras.get(view)?.camera;
+    if (!camera || w <= 0 || h <= 0) return null;
+    ndc.set((x / w) * 2 - 1, -(y / h) * 2 + 1);
+    raycaster.setFromCamera(ndc, camera);
+    return { origin: raycaster.ray.origin.toArray(), direction: raycaster.ray.direction.toArray() };
   }
 
   /** @internal Editor: a world point's place on the canvas (CSS pixels, origin top-left), or null if it's behind the camera. */
@@ -744,8 +1047,12 @@ export class RenderBackend {
     const view = this.viewCameras(world)[0];
     const camera = view && this.cameras.get(view)?.camera;
     if (!camera || w <= 0 || h <= 0) return [];
-    const sprites = new Map<GameObject, Mesh>(), texts = new Map<GameObject, Mesh>();
+    const sprites = new Map<GameObject, Mesh>(), texts = new Map<GameObject, Mesh>(), meshes = new Map<GameObject, Mesh[]>();
     for (const [s, entry] of this.sprites) if (entry.mesh.visible) sprites.set(s.node, entry.mesh);
+    for (const [r, entry] of this.meshRenderers) {
+      const shown = entry.objects.filter((o) => o.visible);
+      if (shown.length) meshes.set(r.node, [...(meshes.get(r.node) ?? []), ...shown]);
+    }
     for (const [t, entry] of this.texts) if (entry.mesh.visible) texts.set(t.node, entry.mesh);
     const { width: W, height: H } = this.settings.display;
 
@@ -773,6 +1080,19 @@ export class RenderBackend {
         sprite.updateMatrixWorld();
         for (const [cx, cy] of [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]]) {
           if (!add(rect, tmpPoint.set(cx, cy, 0).applyMatrix4(sprite.matrixWorld))) return null;
+        }
+        return rect;
+      }
+      const drawn = meshes.get(node);
+      if (drawn) {
+        for (const o of drawn) {
+          if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+          o.updateMatrixWorld();
+          const { min, max } = o.geometry.boundingBox!;
+          for (let i = 0; i < 8; i++) {
+            tmpCorner.set(i & 1 ? max.x : min.x, i & 2 ? max.y : min.y, i & 4 ? max.z : min.z).applyMatrix4(o.matrixWorld);
+            if (!add(rect, tmpPoint.copy(tmpCorner))) return null;
+          }
         }
         return rect;
       }
@@ -810,15 +1130,30 @@ export class RenderBackend {
     return [origin.x + direction.x * t, origin.y + direction.y * t, z];
   }
 
-  /** @internal Editor: outline the sprites of these nodes and their descendants, every frame. */
+  /**
+   * @internal Editor: the world point on a plane (through `point`, facing `normal`) under a canvas
+   * point (CSS pixels); null if the ray misses it.
+   */
+  pointOnPlane(world: World, x: number, y: number, normal: readonly number[], point: readonly number[]): [number, number, number] | null {
+    const ray = this.rayAt(world, x, y);
+    if (!ray) return null;
+    const [ox, oy, oz] = ray.origin, [dx, dy, dz] = ray.direction;
+    const denom = normal[0] * dx + normal[1] * dy + normal[2] * dz;
+    if (Math.abs(denom) < 1e-6) return null;
+    const t = (normal[0] * (point[0] - ox) + normal[1] * (point[1] - oy) + normal[2] * (point[2] - oz)) / denom;
+    if (t < 0) return null;
+    return [ox + dx * t, oy + dy * t, oz + dz * t];
+  }
+
+  /** @internal Editor: outline the sprites and meshes of these nodes and their descendants, every frame. */
   setSelectionOutline(nodes: readonly GameObject[]): void {
     this.outlined.clear();
     for (const n of nodes) this.outlined.add(n);
   }
 
-  /** Position one outline per selected sprite (called from `sync`, after sprites). */
+  /** Position one outline per selected sprite, and a box around each selected mesh (called from `sync`, after renderers). */
   private syncOutlines(): void {
-    let used = 0;
+    let used = 0, boxes = 0;
     if (this.outlined.size > 0) {
       for (const [s, entry] of this.sprites) {
         if (!entry.mesh.visible || !this.isOutlined(s.node)) continue;
@@ -828,8 +1163,44 @@ export class RenderBackend {
         line.visible = true;
         used++;
       }
+      for (const [r, entry] of this.meshRenderers) {
+        if (!this.isOutlined(r.node)) continue;
+        for (const o of entry.objects) {
+          if (!o.visible) continue;
+          if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+          const b = o.geometry.boundingBox!;
+          const box = this.boxOutlines[boxes] ?? this.createBoxOutline();
+          b.getCenter(tmpPoint);
+          b.getSize(tmpCorner).max(new ThreeVector3(1e-4, 1e-4, 1e-4));
+          box.matrix.copy(o.matrix).multiply(tmpScale.makeTranslation(tmpPoint.x, tmpPoint.y, tmpPoint.z)).multiply(tmpPivot.makeScale(tmpCorner.x, tmpCorner.y, tmpCorner.z));
+          box.matrixWorldNeedsUpdate = true;
+          box.visible = true;
+          boxes++;
+        }
+      }
     }
     for (let i = used; i < this.outlines.length; i++) this.outlines[i].visible = false;
+    for (let i = boxes; i < this.boxOutlines.length; i++) this.boxOutlines[i].visible = false;
+  }
+
+  private readonly boxOutlines: LineSegments[] = [];
+  private boxOutlineGeometry: BufferGeometry | null = null;
+
+  /** A unit cube's twelve edges in the selection colour, scaled onto a mesh's bounds. */
+  private createBoxOutline(): LineSegments {
+    if (!this.boxOutlineGeometry) {
+      const c = (i: number) => [i & 1 ? 0.5 : -0.5, i & 2 ? 0.5 : -0.5, i & 4 ? 0.5 : -0.5];
+      const edges = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
+      this.boxOutlineGeometry = new BufferGeometry().setAttribute("position", new Float32BufferAttribute(edges.flatMap(([a, b]) => [...c(a), ...c(b)]), 3));
+    }
+    this.outlineMaterial ??= new LineBasicMaterial({ color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true });
+    const box = new LineSegments(this.boxOutlineGeometry, this.outlineMaterial);
+    box.matrixAutoUpdate = false;
+    box.frustumCulled = false;
+    box.renderOrder = OUTLINE_ORDER;
+    this.scene.add(box);
+    this.boxOutlines.push(box);
+    return box;
   }
 
   private isOutlined(node: GameObject): boolean {
@@ -1009,6 +1380,86 @@ export class RenderBackend {
     return entry;
   }
 
+  // --- Editor: light gizmos (ADR 0043) -----------------------------------------------------------
+
+  private readonly lightGizmos = new Map<Light, ThreeSprite>();
+  private readonly lightIconMaterials = new Map<string, SpriteMaterial>();
+  private lightWires: LineSegments<BufferGeometry, LineBasicMaterial> | null = null;
+
+  /**
+   * Lights in the edited scene show as clickable icons (constant size on screen) and wireframes:
+   * a directional light's direction, a spot light's cone, and (selected) a point light's range.
+   * Selected lights are drawn in the selection colour.
+   */
+  private syncLightGizmos(world: World): void {
+    const seen = new Set<Light>();
+    const view = this.viewCameras(world)[0];
+    const viewCamera = view && this.cameras.get(view)?.camera;
+    const iconScale = viewCamera instanceof OrthographicCamera ? (LIGHT_ICON_SIZE * (viewCamera.top - viewCamera.bottom)) / viewCamera.zoom : LIGHT_ICON_SIZE;
+    const segs: number[] = [], colors: number[] = [];
+    const rgb = (c: number) => [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255];
+    for (const l of world._componentsOfType(Light)) {
+      if (!world.inEditMode(l.node.entity)) continue;
+      seen.add(l);
+      let icon = this.lightGizmos.get(l);
+      if (!icon) {
+        icon = new ThreeSprite(this.lightIconMaterial(l.type));
+        icon.renderOrder = OUTLINE_ORDER;
+        this.scene.add(icon);
+        this.lightGizmos.set(l, icon);
+      }
+      icon.material = this.lightIconMaterial(l.type);
+      icon.visible = l.node.activeInHierarchy;
+      if (!icon.visible) continue;
+      const e = l.node.entity;
+      tmpWorld.fromArray(world.worldMatrix(e), e * 16);
+      icon.position.setFromMatrixPosition(tmpWorld);
+      icon.scale.set(iconScale, iconScale, 1);
+      icon.updateMatrixWorld();
+      const selected = this.isOutlined(l.node);
+      const [r, g, b] = rgb(selected ? this.editorColors.outline : this.editorColors.cameraGizmo);
+      for (const [a, q] of lightSegments(l, tmpWorld, selected)) {
+        segs.push(...a, ...q);
+        colors.push(r, g, b, r, g, b);
+      }
+    }
+    for (const [l, icon] of this.lightGizmos) {
+      if (seen.has(l) && l.node.isValid) continue;
+      this.scene.remove(icon);
+      this.lightGizmos.delete(l);
+    }
+    this.lightWires ??= this.addOverlayObject(
+      new LineSegments(new BufferGeometry(), new LineBasicMaterial({ vertexColors: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 })),
+      OUTLINE_ORDER - 1,
+    );
+    fillOverlayGeometry(this.lightWires, segs, colors);
+  }
+
+  private lightIconMaterial(type: string): SpriteMaterial {
+    let m = this.lightIconMaterials.get(type);
+    if (!m) {
+      m = new SpriteMaterial({ map: lightIconTexture(type), sizeAttenuation: false, depthTest: false, depthWrite: false, transparent: true });
+      this.lightIconMaterials.set(type, m);
+    }
+    return m;
+  }
+
+  /** @internal Editor: where each light icon in the edited scene is on the canvas (for tests), by node name. */
+  lightIconsOnCanvas(world: World): { node: GameObject; x: number; y: number }[] {
+    const out: { node: GameObject; x: number; y: number }[] = [];
+    for (const [l, icon] of this.lightGizmos) {
+      if (!icon.visible) continue;
+      const p = this.worldToCanvas(world, icon.position.toArray());
+      if (p) out.push({ node: l.node, x: p[0], y: p[1] });
+    }
+    return out;
+  }
+
+  /** @internal Editor: how many light wireframe segments were drawn last frame (for tests). */
+  lightWireCount(): number {
+    return this.lightWires?.visible ? this.lightWires.geometry.drawRange.count / 2 : 0;
+  }
+
   // --- Editor: transform gizmo (ADR 0022) ------------------------------------------------------
 
   private gizmo: TransformControls | null = null;
@@ -1169,6 +1620,17 @@ export class RenderBackend {
 
   dispose(): void {
     this.gizmo?.dispose();
+    for (const m of [...this.meshRenderers.keys()]) this.release(m);
+    for (const l of [...this.lights.keys()]) this.release(l);
+    for (const e of this.materialAssets.values()) e.material?.dispose();
+    for (const m of this.lightIconMaterials.values()) {
+      m.map?.dispose();
+      m.dispose();
+    }
+    this.lightWires?.geometry.dispose();
+    this.lightWires?.material.dispose();
+    this.boxOutlineGeometry?.dispose();
+    this.defaultMaterial.dispose();
     this.overlayLines?.geometry.dispose();
     this.overlayLines?.material.dispose();
     this.overlayHandles?.geometry.dispose();
@@ -1223,6 +1685,106 @@ function cameraIconTexture(): CanvasTexture {
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
   return texture;
+}
+
+/** A light's icon: a sun (directional), a bulb (point), a lamp shade (spot) or a soft disc (ambient), light with a dark outline. */
+function lightIconTexture(type: string): CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext("2d")!;
+  ctx.lineJoin = ctx.lineCap = "round";
+  ctx.strokeStyle = "#1b1d21";
+  ctx.fillStyle = "#ffe08a";
+  const both = (path: () => void, width = 6) => {
+    ctx.lineWidth = width;
+    path();
+    ctx.stroke();
+    path();
+    ctx.fill();
+  };
+  if (type === "directional") {
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4, c = Math.cos(a), s = Math.sin(a);
+      ctx.lineWidth = 9;
+      ctx.beginPath();
+      ctx.moveTo(32 + c * 20, 32 + s * 20);
+      ctx.lineTo(32 + c * 28, 32 + s * 28);
+      ctx.stroke();
+      ctx.strokeStyle = "#ffe08a";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.strokeStyle = "#1b1d21";
+    }
+    both(() => (ctx.beginPath(), ctx.arc(32, 32, 13, 0, Math.PI * 2)));
+  } else if (type === "spot") {
+    both(() => {
+      ctx.beginPath();
+      ctx.moveTo(24, 10);
+      ctx.lineTo(40, 10);
+      ctx.lineTo(54, 46);
+      ctx.lineTo(10, 46);
+      ctx.closePath();
+    });
+    both(() => (ctx.beginPath(), ctx.arc(32, 52, 6, 0, Math.PI * 2)), 4);
+  } else if (type === "ambient") {
+    ctx.globalAlpha = 0.9;
+    both(() => (ctx.beginPath(), ctx.arc(32, 32, 22, 0, Math.PI * 2)));
+    ctx.fillStyle = "#1b1d21";
+    ctx.font = "bold 26px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("A", 32, 33);
+  } else {
+    both(() => (ctx.beginPath(), ctx.arc(32, 26, 17, 0, Math.PI * 2)));
+    both(() => (ctx.beginPath(), ctx.roundRect(24, 42, 16, 12, 3)), 4);
+  }
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
+}
+
+type Seg = [[number, number, number], [number, number, number]];
+
+/**
+ * A light's wireframe in world space (the node's world matrix `m`): a directional light's arrow,
+ * a spot light's cone, a point light's range (when selected).
+ */
+export function lightSegments(l: Pick<Light, "type" | "range" | "spotAngle">, m: Matrix4, selected: boolean): Seg[] {
+  const p = new ThreeVector3().setFromMatrixPosition(m);
+  const x = new ThreeVector3().setFromMatrixColumn(m, 0).normalize();
+  const y = new ThreeVector3().setFromMatrixColumn(m, 1).normalize();
+  const fwd = new ThreeVector3().setFromMatrixColumn(m, 2).normalize().negate();
+  const at = (v: ThreeVector3): [number, number, number] => [v.x, v.y, v.z];
+  const out: Seg[] = [];
+  const circle = (center: ThreeVector3, u: ThreeVector3, v: ThreeVector3, r: number, n = 32) => {
+    for (let i = 0; i < n; i++) {
+      const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;
+      const q0 = center.clone().addScaledVector(u, Math.cos(a0) * r).addScaledVector(v, Math.sin(a0) * r);
+      const q1 = center.clone().addScaledVector(u, Math.cos(a1) * r).addScaledVector(v, Math.sin(a1) * r);
+      out.push([at(q0), at(q1)]);
+    }
+  };
+  if (l.type === "directional") {
+    // Four parallel rays around the node and an arrowhead on the middle one.
+    const tip = p.clone().addScaledVector(fwd, 2);
+    out.push([at(p), at(tip)]);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const o = p.clone().addScaledVector(x, dx * 0.3).addScaledVector(y, dy * 0.3);
+      out.push([at(o), at(o.clone().addScaledVector(fwd, 1.2))]);
+      out.push([at(tip), at(tip.clone().addScaledVector(fwd, -0.3).addScaledVector(x, dx * 0.12).addScaledVector(y, dy * 0.12))]);
+    }
+  } else if (l.type === "spot") {
+    const d = l.range > 0 ? l.range : 5;
+    const r = d * Math.tan((Math.min(Math.max(l.spotAngle, 1), 179) / 2) * (Math.PI / 180));
+    const base = p.clone().addScaledVector(fwd, d);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) out.push([at(p), at(base.clone().addScaledVector(x, dx * r).addScaledVector(y, dy * r))]);
+    circle(base, x, y, r);
+  } else if (l.type === "point" && selected && l.range > 0) {
+    circle(p, x, y, l.range);
+    circle(p, x, fwd, l.range);
+    circle(p, y, fwd, l.range);
+  }
+  return out;
 }
 
 function anchorFactors(anchor: Anchor): [number, number] {

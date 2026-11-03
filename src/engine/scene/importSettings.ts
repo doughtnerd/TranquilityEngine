@@ -15,7 +15,10 @@
  *     { "name": "walk_0", "rect": [0, 0, 16, 16], "pivot": [0.5, 0], "border": [2, 2, 2, 2] }
  *   ],
  *   "volume": 0.8,                // audio: multiplies every playback's volume (default 1)
- *   "stream": true                // audio: stream (HTML5 audio) instead of decoding up front (default false)
+ *   "stream": true,               // audio: stream (HTML5 audio) instead of decoding up front (default false)
+ *   "scale": 0.01,                // models: multiplies the model's size (default 1)
+ *   "upAxis": "z",                // models: the axis that is up in the file, "y" (default) or "z" (ADR 0044)
+ *   "normals": "calculate"        // models: "import" (default; calculated when the file has none) or "calculate"
  * }
  * ```
  *
@@ -27,6 +30,10 @@ export const SIDECAR_SUFFIX = ".meta.json";
 
 export type TextureFilter = "linear" | "point";
 export type TextureWrap = "clamp" | "repeat" | "mirror";
+/** The axis that points up in a model file (ADR 0044); the engine's up is +Y. */
+export type ModelUpAxis = "y" | "z";
+/** A model's normals: the file's (calculated when it has none), or always calculated smooth. */
+export type ModelNormals = "import" | "calculate";
 
 /** A named rectangle of an image, drawn as its own sprite. */
 export interface SpriteSlice {
@@ -49,6 +56,10 @@ export interface ImportSettings {
   sprites: SpriteSlice[];
   volume: number;
   stream: boolean;
+  /** Models (ADR 0044): multiplies the model's size. */
+  scale: number;
+  upAxis: ModelUpAxis;
+  normals: ModelNormals;
 }
 
 export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSettings>({
@@ -60,6 +71,9 @@ export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<I
   sprites: [],
   volume: 1,
   stream: false,
+  scale: 1,
+  upAxis: "y",
+  normals: "import",
 });
 
 /** A copy of the defaults (safe to change). */
@@ -135,6 +149,18 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
     if (typeof raw.stream === "boolean") settings.stream = raw.stream;
     else bad("stream", "true or false");
   }
+  if (raw.scale !== undefined) {
+    if (typeof raw.scale === "number" && raw.scale > 0 && Number.isFinite(raw.scale)) settings.scale = raw.scale;
+    else bad("scale", "a number > 0");
+  }
+  if (raw.upAxis !== undefined) {
+    if (raw.upAxis === "y" || raw.upAxis === "z") settings.upAxis = raw.upAxis;
+    else bad("upAxis", '"y" or "z"');
+  }
+  if (raw.normals !== undefined) {
+    if (raw.normals === "import" || raw.normals === "calculate") settings.normals = raw.normals;
+    else bad("normals", '"import" or "calculate"');
+  }
   if (raw.sprites !== undefined) {
     if (!Array.isArray(raw.sprites)) bad("sprites", "a list");
     else {
@@ -180,6 +206,9 @@ export function importSettingsJSON(settings: ImportSettings): Record<string, unk
   if (!samePair(settings.pivot, d.pivot)) out.pivot = [...settings.pivot];
   if (settings.volume !== d.volume) out.volume = settings.volume;
   if (settings.stream !== d.stream) out.stream = settings.stream;
+  if (settings.scale !== d.scale) out.scale = settings.scale;
+  if (settings.upAxis !== d.upAxis) out.upAxis = settings.upAxis;
+  if (settings.normals !== d.normals) out.normals = settings.normals;
   if (settings.sprites.length > 0) {
     out.sprites = settings.sprites.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}) }));
   }

@@ -103,10 +103,12 @@ export interface LifecycleHooks {
   lateUpdate?(): void;
   onDisable?(): void;
   onDestroy?(): void;
-  onTriggerEnter?(other: import("../physics/Collider2D").Collider2D): void;
-  onTriggerExit?(other: import("../physics/Collider2D").Collider2D): void;
-  onCollisionEnter?(collision: import("../physics/Collider2D").Collision2D): void;
-  onCollisionExit?(collision: import("../physics/Collider2D").Collision2D): void;
+  /** The other collider: a Collider2D in 2D physics, a Collider in 3D physics. */
+  onTriggerEnter?(other: import("../physics/Collider2D").Collider2D | import("../physics/Collider").Collider): void;
+  onTriggerExit?(other: import("../physics/Collider2D").Collider2D | import("../physics/Collider").Collider): void;
+  /** A Collision2D in 2D physics, a Collision in 3D physics. */
+  onCollisionEnter?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
+  onCollisionExit?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
 }
 
 export type FrameHook = "fixedUpdate" | "update" | "lateUpdate";

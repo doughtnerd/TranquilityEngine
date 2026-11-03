@@ -84,3 +84,58 @@ export class Text extends Component {
     this.world.render?.release(this);
   }
 }
+
+/**
+ * Draws a mesh with a material (ADR 0043, 0044). `mesh` is a model asset (`asset:models/robot.fbx`
+ * draws all its meshes, `asset:models/robot.fbx#Body` one of them) or a built-in mesh
+ * (`builtin:cube`, `sphere`, `capsule`, `cylinder`, `plane`, `quad`). Meshes are lit by the
+ * World's Lights; a World with no Light gets a default sun and ambient light.
+ */
+@component("engine.MeshRenderer")
+export class MeshRenderer extends Component {
+  @field(AssetRef) mesh = "builtin:cube";
+  /**
+   * A material asset (`asset:materials/wood.material.json`). Empty: the model's own materials,
+   * or the default material (white, lit) for meshes without one.
+   */
+  @field(AssetRef) material = "";
+  /** Cast shadows from Lights with `castShadows` on. */
+  @field(Boolean) castShadows = true;
+  /** Show shadows cast onto it. */
+  @field(Boolean) receiveShadows = true;
+
+  override _onDetach(): void {
+    this.world.render?.release(this);
+  }
+}
+
+export type LightType = "directional" | "point" | "spot" | "ambient";
+
+/**
+ * A light (ADR 0043). Directional and spot lights shine down their node's -Z axis (like a
+ * Camera); point lights shine every way; ambient light lights everything evenly. Intensity is
+ * physical: 1 is full brightness for a directional light, and point and spot lights fade with the
+ * square of distance (1 = full brightness at 1 m), reaching nothing beyond `range`.
+ */
+@component("engine.Light")
+export class Light extends Component {
+  @field(String, { choices: ["directional", "point", "spot", "ambient"] }) type: LightType = "directional";
+  @field(Color) color = Color.white;
+  @field(Number) intensity = 1;
+  /** Point and spot: how far the light reaches, in metres (0 = no limit). */
+  @field(Number) range = 10;
+  /** Spot: the cone's full angle in degrees. */
+  @field(Number) spotAngle = 30;
+  /** Spot: how soft the cone's edge is, 0 (hard) to 1. */
+  @field(Number) spotSoftness = 0.2;
+  /**
+   * Directional, point and spot: cast shadows from meshes with `castShadows`. A directional
+   * light's shadows cover `shadowArea` metres around its node.
+   */
+  @field(Boolean) castShadows = false;
+  @field(Number) shadowArea = 20;
+
+  override _onDetach(): void {
+    this.world.render?.release(this);
+  }
+}

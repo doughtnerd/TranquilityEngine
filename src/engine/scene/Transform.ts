@@ -4,6 +4,9 @@ import type { GameObject } from "./GameObject";
 
 const tmpA = new Float32Array(16);
 const tmpB = new Float32Array(16);
+const tmpP = new Float32Array(3);
+const tmpQ = new Float32Array(4);
+const tmpS = new Float32Array(3);
 
 /**
  * A node's position, rotation and scale (ADR 0008, 0010).
@@ -95,6 +98,22 @@ export class Transform {
     this.rotation2D = degrees - parentRot;
   }
 
+  /** World-space rotation. Returns a copy; assigning turns the node. */
+  get worldRotation(): Quaternion {
+    Mat4.decompose(this.world.worldMatrix(this.e), this.e * 16, tmpP, 0, tmpQ, 0, tmpS, 0);
+    return new Quaternion(tmpQ[0], tmpQ[1], tmpQ[2], tmpQ[3]);
+  }
+  set worldRotation(q: Quaternion) {
+    const parent = this.world.parentEntity(this.e);
+    if (parent < 0 || !this.world.hasTransform[parent]) {
+      this._rotation.copy(q);
+      return;
+    }
+    Mat4.decompose(this.world.worldMatrix(parent), parent * 16, tmpP, 0, tmpQ, 0, tmpS, 0);
+    // local = inverse(parent) * world
+    this._rotation.copy(new Quaternion(-tmpQ[0], -tmpQ[1], -tmpQ[2], tmpQ[3]).multiply(q).normalize());
+  }
+
   /** World-space scale (lossy, from matrix column lengths). */
   get worldScale(): Vector3 {
     const m = this.world.worldMatrix(this.e), o = this.e * 16;
@@ -141,6 +160,12 @@ export class Transform {
     }
     this.worldPosition = [x, y, this.worldPosition.z];
     this.worldRotation2D = degrees;
+  }
+
+  /** @internal Set world position and rotation in one go (used by 3D physics write-back). */
+  _setWorldPose3D(x: number, y: number, z: number, q: Quaternion): void {
+    this.worldPosition = [x, y, z];
+    this.worldRotation = q;
   }
 
   /** @internal */
