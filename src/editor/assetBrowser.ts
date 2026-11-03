@@ -1,11 +1,12 @@
 // Asset browser logic (ADR 0022): the project's files as a folder tree, search, and the scene
 // nodes that adding an asset creates. No UI here; `ui/Assets.tsx` renders it.
 import { isSidecarPath } from "../engine/scene/importSettings";
+import { loadModel, meshNamesIfLoaded } from "../engine/scene/models";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "json" | "script" | "javascript" | "other";
+export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "json" | "script" | "javascript" | "other";
 
 /** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
 export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
@@ -27,6 +28,8 @@ export function assetKind(path: string): AssetKind {
   if (p.endsWith(".prefab.json")) return "prefab";
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(p)) return "image";
   if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";
+  if (/\.(obj|fbx)$/.test(p)) return "model";
+  if (p.endsWith(".material.json")) return "material";
   if (p.endsWith(".json")) return "json";
   if (p.endsWith(".ts") && !p.endsWith(".d.ts")) return "script";
   if (p.endsWith(".js")) return "javascript";
@@ -162,8 +165,38 @@ export function spriteNodeEntry(doc: SceneDocument, imagePath: string, position:
   };
 }
 
-/** True for assets that have a scene node to become: prefabs and scenes, images, audio. */
-export const canAddToScene = (path: string) => ["prefab", "scene", "image", "sprite", "audio"].includes(assetKind(path));
+/**
+ * A model's node (ADR 0044): a Transform at `position` and a MeshRenderer drawing the whole
+ * model; for a model of several meshes, an empty node with one child per mesh instead (each child
+ * at the parent's origin draws `#mesh`, which is in model space), so parts can be hidden, given
+ * their own material or a collider. The root comes first. Until the model has loaded (see
+ * `prepareAssets`), it's one node drawing the whole model.
+ */
+export function modelNodeEntries(doc: SceneDocument, modelPath: string, position: Vec3 = [0, 0, 0]): NodeEntry[] {
+  const name = fileName(modelPath).replace(/\.[^.]+$/, "");
+  const id = uniqueId(doc, idBase(modelPath));
+  const title = name.charAt(0).toUpperCase() + name.slice(1);
+  const meshes = meshNamesIfLoaded(modelPath) ?? [];
+  if (meshes.length <= 1) {
+    return [{ id, name: title, components: [{ type: "engine.Transform", data: { position: [...position] } }, { type: "engine.MeshRenderer", data: { mesh: `asset:${modelPath}` } }] }];
+  }
+  const taken = new Set([id]);
+  const children: NodeEntry[] = meshes.map((mesh) => {
+    let child = uniqueId(doc, `${id}-${idBase(`${mesh}.x`)}`);
+    for (let n = 2; taken.has(child); n++) child = uniqueId(doc, `${id}-${idBase(`${mesh}.x`)}-${n}`);
+    taken.add(child);
+    return { id: child, name: mesh, parent: id, components: [{ type: "engine.Transform", data: {} }, { type: "engine.MeshRenderer", data: { mesh: `asset:${modelPath}#${mesh}` } }] };
+  });
+  return [{ id, name: title, components: [{ type: "engine.Transform", data: { position: [...position] } }] }, ...children];
+}
+
+/** Load what adding these assets needs to know first: models' meshes. Never rejects (a model that fails adds as one node). */
+export async function prepareAssets(paths: readonly string[]): Promise<void> {
+  await Promise.all(paths.filter((p) => assetKind(p) === "model").map((p) => loadModel(p).catch(() => undefined)));
+}
+
+/** True for assets that have a scene node to become: prefabs and scenes, images, audio, models. */
+export const canAddToScene = (path: string) => ["prefab", "scene", "image", "sprite", "audio", "model"].includes(assetKind(path));
 
 /**
  * Why `path` can't be added to the document, or null if it can: assets with no node type, and
@@ -198,6 +231,8 @@ export function nodeForAsset(doc: SceneDocument, path: string, options: AddOptio
       return spriteNodeEntry(doc, path, options.position);
     case "audio":
       return audioNodeEntry(doc, path, options.position);
+    case "model":
+      return modelNodeEntries(doc, path, options.position)[0];
     default:
       return null;
   }
@@ -208,7 +243,8 @@ export function addAsset(scene: OpenScene, path: string, options: AddOptions = {
   const reason = whyNotAddable(scene.doc, path);
   const entry = reason ? null : nodeForAsset(scene.doc, path, options);
   if (!entry) throw new Error(reason ?? `"${path}" can't be added to a scene.`);
-  scene.stack.execute(new AddNode(entry, { parent: options.parent ?? null, index: options.index }));
+  const entries = assetKind(path) === "model" ? modelNodeEntries(scene.doc, path, options.position) : [entry];
+  scene.stack.execute(new AddNode(entries, { parent: options.parent ?? null, index: options.index }));
   return entry.id;
 }
 

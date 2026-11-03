@@ -296,7 +296,7 @@ function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
   );
 }
 
-const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D"]);
+const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D", "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider"]);
 
 /** One component, shared by every node in `paths` (`infos` holds each node's copy, in the same order). */
 /** Where a dragged component would land: next to the component `type`#`index`, before or after it. */

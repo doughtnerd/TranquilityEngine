@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { ImportSettings } from "../../engine/scene/importSettings";
-import { fileName } from "../assetBrowser";
+import { assetKind, fileName } from "../assetBrowser";
+import { MaterialInspector } from "./MaterialInspector";
 import { importKind, inspectedAsset, openSpriteEditor, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
 import { errorStatus } from "../messages";
 import { PIVOT_PRESETS, pivotLabel } from "../spriteSlicing";
@@ -10,12 +11,20 @@ import "./assetInspector.css";
 /** The project's pixels per unit (100 by default, ADR 0014). */
 const projectPPU = (settings: { render?: { pixelsPerUnit?: number } }) => settings.render?.pixelsPerUnit ?? 100;
 
-/**
- * The selected image or audio file's import settings (ADR 0040), stored in its sidecar
- * `<file>.meta.json`. Edits are a draft until Apply writes the sidecar; Revert drops them, as does
- * selecting something else. Images open the Sprite Editor to slice them.
- */
+/** The selected asset in the Inspector: a material's settings (ADR 0043), or a file's import settings. */
 export function AssetInspector() {
+  const path = inspectedAsset.value;
+  return path && assetKind(path) === "material" ? <MaterialInspector path={path} /> : <ImportInspector />;
+}
+
+const KIND_TITLES = { image: "Image", audio: "Audio", model: "Model" } as const;
+
+/**
+ * The selected image, audio file or model's import settings (ADR 0040, 0044), stored in its
+ * sidecar `<file>.meta.json`. Edits are a draft until Apply writes the sidecar; Revert drops them,
+ * as does selecting something else. Images open the Sprite Editor to slice them.
+ */
+function ImportInspector() {
   docVersion.value; // the sidecar may be rewritten (Sprite Editor, moves)
   const path = inspectedAsset.value;
   const project = currentProject.value;
@@ -42,7 +51,7 @@ export function AssetInspector() {
   return (
     <div class="inspector-body asset-inspector" aria-label="Import settings">
       <div class="asset-inspector-head">
-        <span class="asset-inspector-kind">{kind === "image" ? "Image" : "Audio"}</span>
+        <span class="asset-inspector-kind">{KIND_TITLES[kind]}</span>
         <span class="asset-inspector-name" title={path}>
           {fileName(path)}
         </span>
@@ -106,6 +115,38 @@ export function AssetInspector() {
                 </button>
               </span>
             </div>
+          </>
+        ) : kind === "model" ? (
+          <>
+            <label class="import-row">
+              <span>Scale</span>
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                aria-label="Scale"
+                title="Multiplies the model's size: 0.01 turns centimetres into metres"
+                value={draft.scale}
+                onChange={(e) => {
+                  const v = Number((e.currentTarget as HTMLInputElement).value);
+                  set({ scale: Number.isFinite(v) && v > 0 ? v : 1 });
+                }}
+              />
+            </label>
+            <label class="import-row">
+              <span>Up Axis</span>
+              <select aria-label="Up Axis" value={draft.upAxis} onChange={(e) => set({ upAxis: (e.currentTarget as HTMLSelectElement).value as ImportSettings["upAxis"] })}>
+                <option value="y">Y up</option>
+                <option value="z">Z up (Blender, 3ds Max…)</option>
+              </select>
+            </label>
+            <label class="import-row">
+              <span>Normals</span>
+              <select aria-label="Normals" value={draft.normals} onChange={(e) => set({ normals: (e.currentTarget as HTMLSelectElement).value as ImportSettings["normals"] })}>
+                <option value="import">From the file</option>
+                <option value="calculate">Calculate</option>
+              </select>
+            </label>
           </>
         ) : (
           <>

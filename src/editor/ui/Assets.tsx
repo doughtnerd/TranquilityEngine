@@ -1,7 +1,7 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addAssetToScene, assetKind, canAddToScene, fileName, folderOf, isSliceEntry, listedFiles, searchFiles, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
+import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, searchFiles, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
 import { importKind, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { deleteAssets, entryPath, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "../assetDelete";
@@ -29,6 +29,7 @@ import {
 import { openScript } from "../code/codeState";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
+import { createMaterial } from "../materialAssets";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { switchScene } from "../session";
@@ -43,6 +44,8 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   image: "Image",
   sprite: "Sprite",
   audio: "Audio",
+  model: "Model",
+  material: "Material",
   json: "JSON",
   script: "Script",
   javascript: "JS",
@@ -146,6 +149,7 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
   const newItems: MenuItem[] = [
     { label: "New Folder", disabled: readOnly, run: () => void makeFolder(pasteFolder(entries)) },
     { label: "New Scene", disabled: readOnly, run: () => void createScene(pasteFolder(entries)) },
+    { label: "New Material", disabled: readOnly, run: () => void createMaterial(pasteFolder(entries)).then((made) => made && select([made])) },
     ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),
   ];
   if (entries.length === 0) {
@@ -584,7 +588,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
-            addToScene(entry);
+            void addToScene(entry);
           }}
         >
           +
@@ -710,7 +714,9 @@ function ContextMenu() {
   );
 }
 
-function addToScene(path: string): void {
+async function addToScene(path: string): Promise<void> {
+  if (!openScene.value) return;
+  await prepareAssets([path]); // a model's meshes
   const scene = openScene.value;
   if (!scene) return;
   try {

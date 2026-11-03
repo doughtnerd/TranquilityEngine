@@ -393,3 +393,8 @@ export function clearModelCache(): void {
   cache.clear();
   warned.clear();
 }
+
+/** @internal The names of a model's meshes if it has loaded (starting the load if not), else null. */
+export function meshNamesIfLoaded(path: string): string[] | null {
+  return meshesIfLoaded(splitSpriteRef(normalizeAssetPath(path)).path)?.map((m) => m.name) ?? null;
+}

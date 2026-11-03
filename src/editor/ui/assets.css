@@ -126,3 +126,5 @@
   .asset-bar { flex-wrap: wrap; gap: 4px; }
   .asset-search { width: 100%; max-width: none; }
 }
+.kind-model .asset-kind { color: var(--accent); }
+.kind-material .asset-kind { color: var(--success); }

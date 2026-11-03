@@ -5,12 +5,12 @@
 // webview takes over on Windows for its own file drops.
 import { errorStatus } from "./messages";
 import { signal } from "@preact/signals";
-import { pointOnSpritePlane } from "../engine/editor";
+import { pointOnGround, pointOnSpritePlane } from "../engine/editor";
 import type { SceneDocument } from "./document";
-import { addAsset, fileName, whyNotAddable } from "./assetBrowser";
+import { addAsset, fileName, prepareAssets, whyNotAddable } from "./assetBrowser";
 import { entryPath, isFolderEntry } from "./assetDelete";
 import { moveAssetsTo, whyNotMoveTarget } from "./assetOps";
-import { currentProject, openScene, playState, sceneCamera, selectedKeys, status } from "./state";
+import { currentProject, openScene, playState, sceneCamera, selectedKeys, status, viewMode } from "./state";
 
 /** Pointer travel (CSS px) before pressing an asset tile becomes a drag. */
 const DRAG_THRESHOLD = 5;
@@ -91,17 +91,25 @@ export function hierarchyTargetAt(clientX: number, clientY: number): AssetDropTa
   return hierarchyDrop(scene.doc, row.dataset.key ?? null, r.height > 0 ? (clientY - r.top) / r.height : 0.5);
 }
 
+/**
+ * Where a viewport drop lands: under the cursor on the plane sprites live on (2D view) or on the
+ * ground (3D view, y = 0); the camera's focus if the ray misses it.
+ */
+export function viewportDropPoint(x: number, y: number): [number, number, number] {
+  const camera = sceneCamera.value;
+  if (!camera) return [0, 0, 0];
+  const hit = viewMode.value === "3d" ? pointOnGround(camera.world, x, y) : pointOnSpritePlane(camera.world, x, y);
+  return hit ?? (camera.focusPoint.toArray() as [number, number, number]);
+}
+
 /** Add the dragged assets at `target` (one undo step). Returns the new nodes' ids. */
-function drop(paths: readonly string[], target: Exclude<AssetDropTarget, { kind: "folder" }>): string[] {
+function drop(paths: readonly string[], target: Exclude<AssetDropTarget, { kind: "folder" }>, point: [number, number, number]): string[] {
   const scene = openScene.value!;
   const ids: string[] = [];
   scene.stack.beginGroup(paths.length === 1 ? `Add ${fileName(paths[0])}` : `Add ${paths.length} assets`);
   try {
     if (target.kind === "viewport") {
-      // Under the cursor on the plane sprites live on; the camera's focus if the ray misses it.
-      const camera = sceneCamera.value;
-      const point = (camera && pointOnSpritePlane(camera.world, target.x, target.y)) ?? (camera ? camera.focusPoint.toArray() : [0, 0, 0]);
-      for (const path of paths) ids.push(addAsset(scene, path, { parent: null, position: point as [number, number, number], placeInstances: true }));
+      for (const path of paths) ids.push(addAsset(scene, path, { parent: null, position: point, placeInstances: true }));
     } else {
       paths.forEach((path, i) => ids.push(addAsset(scene, path, { parent: target.parent, index: target.index === undefined ? undefined : target.index + i })));
     }
@@ -169,12 +177,18 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
       return;
     }
     const name = paths.length === 1 ? fileName(paths[0]) : `${paths.length} assets`;
-    try {
-      selectedKeys.value = drop(paths, target);
-      status.value = { kind: "info", text: `Added ${name}` };
-    } catch (err) {
-      status.value = errorStatus(`Couldn't add ${name}`, err);
-    }
+    const point = target.kind === "viewport" ? viewportDropPoint(target.x, target.y) : ([0, 0, 0] as [number, number, number]);
+    const scene = openScene.value;
+    // Models load first, to know their meshes (ADR 0044).
+    void prepareAssets(paths).then(() => {
+      if (openScene.value !== scene || !scene) return;
+      try {
+        selectedKeys.value = drop(paths, target, point);
+        status.value = { kind: "info", text: `Added ${name}` };
+      } catch (err) {
+        status.value = errorStatus(`Couldn't add ${name}`, err);
+      }
+    });
   };
   const up = (m: PointerEvent) => {
     if (active) update(m);
