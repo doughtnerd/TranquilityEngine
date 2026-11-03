@@ -25,6 +25,14 @@ interface Saved {
   key: () => string;
 }
 
+/**
+ * The instance each material is set up by. CSM keeps the compiled shader of every material it sets
+ * up and, on dispose, deletes its uniforms from it; a material set up by two instances at once (two
+ * render backends sharing it) would lose them under the instance still using them. So a material
+ * belongs to one live instance at a time.
+ */
+const owners = new WeakMap<Material, CascadedShadows>();
+
 export class CascadedShadows {
   private readonly saved = new Map<Material, Saved>();
   private readonly materials = new WeakSet<Material>();
@@ -92,6 +100,9 @@ export class CascadedShadows {
   /** Sets a material up for CSM, chaining any existing onBeforeCompile (the material's runs first, then CSM's). */
   setupMaterial(material: Material): void {
     if (this.materials.has(material)) return;
+    const owner = owners.get(material);
+    if (owner && owner !== this) return; // another live instance owns it (see `owners`)
+    owners.set(material, this);
     this.materials.add(material);
 
     const original = material.onBeforeCompile as unknown as CompileHook;
@@ -126,6 +137,7 @@ export class CascadedShadows {
       if (saved.hadOwnKey) material.customProgramCacheKey = saved.key;
       else delete (material as { customProgramCacheKey?: unknown }).customProgramCacheKey;
       this.materials.delete(material);
+      if (owners.get(material) === this) owners.delete(material);
     }
     this.saved.clear();
     this.csm.remove();

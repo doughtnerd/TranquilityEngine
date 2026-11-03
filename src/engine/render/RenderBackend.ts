@@ -277,6 +277,25 @@ export class RenderBackend {
   private readonly graphUniforms = createSharedGraphUniforms();
   /** Shadow materials for graph materials that move their vertices. */
   private readonly graphShadows = new WeakMap<Material, GraphMaterial>();
+  /** This backend's copies of materials shared by every World (a model's own), dropped when the shared one is disposed. */
+  private readonly localMaterials = new Map<Material, Material>();
+
+  /** This backend's copy of a material shared between Worlds. */
+  private localMaterial(shared: Material): Material {
+    let local = this.localMaterials.get(shared);
+    if (!local) {
+      local = shared.clone();
+      this.localMaterials.set(shared, local);
+      const copy = local;
+      shared.addEventListener("dispose", () => {
+        if (this.localMaterials.get(shared) !== copy) return;
+        this.localMaterials.delete(shared);
+        copy.dispose();
+      });
+    }
+    return local;
+  }
+
   /** Renderers with property overrides, and their own materials. */
   private readonly rendererMaterials = new Map<MeshRenderer, RendererMaterial>();
   /** Linear (non-sRGB) copies of textures, for normal maps sampled in shader graphs. */
@@ -855,14 +874,16 @@ export class RenderBackend {
     const probe = this.probeFor(sources);
     // A mesh drawn with its model's own material (one, shared by all its meshes) or the default one
     // takes a reflection probe too (ADR 0054), through a copy of that material.
-    const own = sources?.length && sources.every((m) => m.materials.length <= 1 && m.materials[0] === sources[0].materials[0]) ? (sources[0].materials[0] ?? this.defaultMaterial) : null;
+    const own = sources?.length && sources.every((m) => m.materials.length <= 1 && m.materials[0] === sources[0].materials[0]) ? (sources[0].materials[0] ? this.localMaterial(sources[0].materials[0]) : this.defaultMaterial) : null;
     const asset = this.materialAsset(r.material);
     const material = this.rendererMaterial(r, asset ?? (probe ? own : null), probe);
     const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
     if (!same || entry.material !== material) {
       for (const o of entry.objects) this.scene.remove(o);
       entry.objects = (sources ?? []).map((m) => {
-        const own = m.materials.length > 1 && m.geometry.groups.length > 1 ? [...m.materials] : m.materials[0];
+        // A model's own materials are shared by every World: draw this backend's copies of them, so
+        // per-backend state (cascaded shadows' setup, ADR 0053) never lands on the shared objects.
+        const own = m.materials.length > 1 && m.geometry.groups.length > 1 ? m.materials.map((x) => this.localMaterial(x)) : m.materials[0] && this.localMaterial(m.materials[0]);
         const mesh = new Mesh(m.geometry, material ?? own ?? this.defaultMaterial);
         mesh.matrixAutoUpdate = false;
         const shadows = material && this.graphShadows.get(material);
@@ -2399,6 +2420,8 @@ export class RenderBackend {
 
   dispose(): void {
     this.dropCascades();
+    for (const m of this.localMaterials.values()) m.dispose();
+    this.localMaterials.clear();
     for (const s of this.stacks.values()) s.dispose();
     this.stacks.clear();
     for (const p of this.probes.values()) p.capture?.dispose();
