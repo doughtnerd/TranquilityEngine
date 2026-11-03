@@ -6,7 +6,7 @@ import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "shadergraph" | "shadersubgraph" | "environment" | "json" | "script" | "javascript" | "other";
+export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "shadergraph" | "shadersubgraph" | "particles" | "environment" | "json" | "script" | "javascript" | "other";
 
 /** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
 export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
@@ -33,6 +33,7 @@ export function assetKind(path: string): AssetKind {
   if (p.endsWith(".material.json")) return "material";
   if (p.endsWith(".shadergraph.json")) return "shadergraph";
   if (p.endsWith(".shadersubgraph.json")) return "shadersubgraph";
+  if (p.endsWith(".particles.json")) return "particles";
   if (p.endsWith(".json")) return "json";
   if (p.endsWith(".ts") && !p.endsWith(".d.ts")) return "script";
   if (p.endsWith(".js")) return "javascript";
@@ -151,6 +152,19 @@ export function audioNodeEntry(doc: SceneDocument, audioPath: string, position: 
   };
 }
 
+/** A node playing a particle effect asset (ADR 0057), named after the file. */
+export function particleNodeEntry(doc: SceneDocument, effectPath: string, position: Vec3 = [0, 0, 0]): NodeEntry {
+  const name = fileName(effectPath).replace(/\.particles\.json$/i, "");
+  return {
+    id: uniqueId(doc, idBase(effectPath)),
+    name: name.charAt(0).toUpperCase() + name.slice(1),
+    components: [
+      { type: "engine.Transform", data: { position: [...position] } },
+      { type: "engine.ParticleSystem", data: { effect: `asset:${effectPath}` } },
+    ],
+  };
+}
+
 /**
  * A sprite node showing an image, or a slice of one (`images/sheet.png#walk_0`, named after the
  * slice): a Transform at `position` and a SpriteRenderer sized by pixels per unit.
@@ -199,7 +213,7 @@ export async function prepareAssets(paths: readonly string[]): Promise<void> {
 }
 
 /** True for assets that have a scene node to become: prefabs and scenes, images, audio, models. */
-export const canAddToScene = (path: string) => ["prefab", "scene", "image", "sprite", "audio", "model"].includes(assetKind(path));
+export const canAddToScene = (path: string) => ["prefab", "scene", "image", "sprite", "audio", "model", "particles"].includes(assetKind(path));
 
 /**
  * Why `path` can't be added to the document, or null if it can: assets with no node type, and
@@ -236,6 +250,8 @@ export function nodeForAsset(doc: SceneDocument, path: string, options: AddOptio
       return audioNodeEntry(doc, path, options.position);
     case "model":
       return modelNodeEntries(doc, path, options.position)[0];
+    case "particles":
+      return particleNodeEntry(doc, path, options.position);
     default:
       return null;
   }

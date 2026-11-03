@@ -1,0 +1,70 @@
+{
+  "format": "myco.particles@1",
+  "emitters": [
+    {
+      "name": "Flames",
+      "duration": 2,
+      "looping": true,
+      "prewarm": true,
+      "startLife": { "random": [0.6, 1.1] },
+      "startSpeed": { "random": [0.6, 1.2] },
+      "startSize": { "random": [0.35, 0.6] },
+      "startRotation": { "random": [0, 360] },
+      "startColor": "#ffffffff",
+      "space": "world",
+      "maxParticles": 200,
+      "emission": { "rateOverTime": 60, "rateOverDistance": 0, "bursts": [] },
+      "shape": { "type": "cone", "radius": 0.25, "angle": 8, "thickness": 1 },
+      "behaviors": [
+        { "type": "colorOverLife", "color": { "gradient": { "colors": [[0, "#fff2b0"], [0.35, "#ff9a2e"], [1, "#c22a0a"]], "alphas": [[0, 0], [0.15, 1], [0.7, 0.6], [1, 0]] } } },
+        { "type": "sizeOverLife", "size": { "curve": [[0, 0.6], [0.3, 1], [1, 0.2]] } },
+        { "type": "rotationOverLife", "speed": { "random": [-60, 60] } },
+        { "type": "noise", "frequency": 1.5, "power": 0.4, "positionAmount": 0.3, "rotationAmount": 0 }
+      ],
+      "renderer": { "mode": "billboard", "blending": "additive" }
+    },
+    {
+      "name": "Smoke",
+      "duration": 3,
+      "looping": true,
+      "prewarm": true,
+      "startDelay": 0,
+      "startLife": { "random": [2, 3.5] },
+      "startSpeed": { "random": [0.5, 0.9] },
+      "startSize": { "random": [0.4, 0.7] },
+      "startRotation": { "random": [0, 360] },
+      "startColor": "#5a554fff",
+      "space": "world",
+      "maxParticles": 150,
+      "emission": { "rateOverTime": 10, "rateOverDistance": 0, "bursts": [] },
+      "shape": { "type": "cone", "radius": 0.2, "angle": 12, "thickness": 1, "position": [0, 0.8, 0] },
+      "behaviors": [
+        { "type": "colorOverLife", "color": { "gradient": { "colors": [[0, "#6b645c"], [1, "#9a958f"]], "alphas": [[0, 0], [0.2, 0.45], [1, 0]] } } },
+        { "type": "sizeOverLife", "size": { "curve": [[0, 0.8], [1, 3]] } },
+        { "type": "rotationOverLife", "speed": { "random": [-25, 25] } },
+        { "type": "forceOverLife", "x": 0.25, "y": 0, "z": 0 }
+      ],
+      "renderer": { "mode": "billboard", "blending": "alpha", "renderOrder": -1 }
+    },
+    {
+      "name": "Sparks",
+      "duration": 1.5,
+      "looping": true,
+      "startLife": { "random": [0.8, 1.6] },
+      "startSpeed": { "random": [2, 3.5] },
+      "startSize": { "random": [0.03, 0.06] },
+      "startColor": { "random": ["#ffd27aff", "#ff7a1cff"] },
+      "gravity": 0.6,
+      "space": "world",
+      "maxParticles": 120,
+      "emission": { "rateOverTime": 8, "rateOverDistance": 0, "bursts": [{ "time": 0.4, "count": { "random": [4, 9] }, "cycles": 1, "interval": 0.1, "probability": 0.7 }] },
+      "shape": { "type": "cone", "radius": 0.2, "angle": 25, "thickness": 1, "position": [0, 0.2, 0] },
+      "behaviors": [
+        { "type": "colorOverLife", "color": { "gradient": { "colors": [[0, "#ffffff"], [1, "#ffffff"]], "alphas": [[0, 1], [0.8, 1], [1, 0]] } } },
+        { "type": "noise", "frequency": 2, "power": 1.5, "positionAmount": 1, "rotationAmount": 0 },
+        { "type": "collision", "height": 0, "bounce": 0.3, "kill": false }
+      ],
+      "renderer": { "mode": "stretched", "blending": "additive", "speedScale": 0.05, "lengthScale": 1 }
+    }
+  ]
+}

@@ -18,7 +18,7 @@ export { AssetRef, PlainObject, behavior, component, field, getComponentClass, g
 export { defineBuffer, defineComponent, f32, i32, u8, type BufferDef, type DataComponentDef, type DataView } from "./core/data";
 export { defineSystem, type Phase, type Row, type SystemContext, type SystemDef } from "./core/systems";
 export type { ProjectSettings, ProjectSettingsInput } from "./core/settings";
-export type { AntialiasMode, GraphicsSettings, QualityTier, ShaderLevel, ShadowQuality } from "./core/graphics";
+export type { AntialiasMode, GraphicsSettings, ParticleQuality, QualityTier, ShaderLevel, ShadowQuality } from "./core/graphics";
 export { Graphics } from "./render/Graphics";
 
 export { GameObject, type InstantiateOptions } from "./scene/GameObject";
@@ -29,7 +29,7 @@ export { Assets, type AssetSource } from "./scene/Assets";
 export type { ImportSettings, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
-export { Camera, Environment, Light, MeshRenderer, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type LightType, type MaterialPropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";
+export { Camera, Environment, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type LightType, type MaterialPropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";
 
 export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
 export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D, type PhysicsMaterial, type PhysicsMaterial2D } from "./physics/Collider2D";

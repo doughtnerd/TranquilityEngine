@@ -5,11 +5,13 @@
  * three.js objects kept flat under one root, with `matrixAutoUpdate = false`.
  */
 import {
+  AdditiveBlending,
   AmbientLight,
   AxesHelper,
   Box3,
   BufferGeometry,
   CanvasTexture,
+  DataTexture,
   ClampToEdgeWrapping,
   DirectionalLight,
   DoubleSide,
@@ -33,6 +35,7 @@ import {
   NearestMipmapNearestFilter,
   NoColorSpace,
   NoToneMapping,
+  NormalBlending,
   ACESFilmicToneMapping,
   AgXToneMapping,
   NeutralToneMapping,
@@ -49,6 +52,7 @@ import {
   PlaneGeometry,
   Raycaster,
   RepeatWrapping,
+  RGBAFormat,
   Scene,
   SpotLight,
   Sprite as ThreeSprite,
@@ -73,7 +77,9 @@ import type { World, WorldKind } from "../core/World";
 import { Assets, sidecarValue } from "../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import type { GameObject } from "../scene/GameObject";
-import { Camera, Environment, Light, MeshRenderer, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor } from "./components";
+import { Camera, Environment, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor } from "./components";
+import type { ParticlePreview, ParticleRenderer } from "./particles/ParticleRenderer";
+import type { ParticleRenderer as ParticleRendererSettings } from "../scene/particles";
 import { PROBE_RESOLUTION, ProbeCapture, pickProbe, type ProbeBox } from "./reflectionProbes";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import { colorHex, materialGraph, parseMaterial } from "../scene/material";
@@ -586,6 +592,8 @@ export class RenderBackend {
       this.cameras.delete(c);
       this.stacks.get(c)?.dispose();
       this.stacks.delete(c);
+    } else if (c instanceof ParticleSystem) {
+      this.particles?.release(c);
     } else if (c instanceof ReflectionProbe) {
       const p = this.probes.get(c);
       p?.capture?.dispose();
@@ -727,6 +735,7 @@ export class RenderBackend {
     this.scene.traverse((o) => {
       const m = (o as Mesh).material as Material | Material[] | undefined;
       if (!m || !(o as Mesh).isMesh) return;
+      if (o.parent === this.particles?.root) return; // particle batches: quarks' own shaders, which CSM's patches don't fit
       for (const x of Array.isArray(m) ? m : [m]) if ((x as MeshStandardMaterial).isMeshStandardMaterial) cascades.setupMaterial(x);
     });
   }
@@ -754,6 +763,7 @@ export class RenderBackend {
     this.syncEnvironment(world);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     for (const t of world._componentsOfType(Text)) this.syncText(t);
+    this.syncParticles(world);
     if (this.fill) {
       this.syncOutlines();
       this.syncCameraGizmos(world);
@@ -1510,11 +1520,16 @@ export class RenderBackend {
     r.toneMapping = NoToneMapping;
     r.clearDepth();
     this.depthOnly ??= new MeshBasicMaterial({ colorWrite: false });
+    // Particles too: their batches draw instanced quads that only their own shader places, so under
+    // an override material they'd write depth as one quad at the origin.
+    const particles = this.particles?.root.visible ? this.particles.root : null;
     for (const o of helpers) o.visible = false;
+    if (particles) particles.visible = false;
     this.scene.overrideMaterial = this.depthOnly;
     r.render(this.scene, camera); // depth only, so meshes hide the grid
     this.scene.overrideMaterial = null;
     for (const o of helpers) o.visible = true;
+    if (particles) particles.visible = true;
     const others = this.scene.children.filter((o) => o.visible && !helpers.includes(o));
     for (const o of others) o.visible = false;
     r.render(this.scene, camera);
@@ -1528,6 +1543,86 @@ export class RenderBackend {
     for (const icon of this.lightGizmos.values()) helpers.push(icon);
     for (const p of this.probes.values()) helpers.push(p.gizmo);
     return helpers.filter((o): o is Object3D => !!o && o.visible);
+  }
+
+  // --- Particles (ADR 0057) -------------------------------------------------------------------------
+
+  private particles: ParticleRenderer | null = null;
+  private particlesLoading = false;
+  /** Unlit particle materials for emitters without a material asset, by texture and blending. */
+  private readonly particleMaterials = new Map<string, MeshBasicMaterial>();
+  private particleDot: Texture | null = null;
+
+  /**
+   * Plays the World's ParticleSystems through three.quarks, imported the first time the World has
+   * one (so games without particles never load it).
+   */
+  private syncParticles(world: World): void {
+    const systems = world._componentsOfType(ParticleSystem);
+    if (!this.particles) {
+      if (!systems.length || this.particlesLoading) return;
+      this.particlesLoading = true;
+      import("./particles/ParticleRenderer")
+        .then((m) => {
+          this.particles = new m.ParticleRenderer({
+            scene: this.scene,
+            editor: this.fill,
+            material: (r) => this.particleMaterial(r),
+            geometry: (mesh) => meshesIfLoaded(mesh)?.[0]?.geometry ?? null,
+            worldMatrix: (c, out) => {
+              const e = c.node.entity;
+              out.fromArray((this.owner ?? world).worldMatrix(e), e * 16);
+            },
+            selected: (c) => this.isOutlined(c.node),
+          });
+          Object.assign(this.particles.preview, this.particlePreview); // what the editor set before it loaded
+        })
+        .catch((err) => console.error("[myco] particles couldn't start:", err))
+        .finally(() => (this.particlesLoading = false));
+      return;
+    }
+    this.particles.sync(systems, world.time.deltaTime, world.time.unscaledDeltaTime);
+  }
+
+  /** The material a particle emitter draws with: its material asset, or an unlit one with its texture (a soft dot by default). Null while a texture loads. */
+  private particleMaterial(r: ParticleRendererSettings): Material | null {
+    if (r.material) {
+      const m = this.materialAsset(r.material);
+      if (m) return m;
+    }
+    let map: Texture | null;
+    if (r.texture) {
+      map = this.textures.get(r.texture) ?? null;
+      if (!map) {
+        this.texture(r.texture).catch((err) => this.warnMaterial(`particles|${r.texture}`, `failed to load particle texture "${r.texture}": ${(err as Error).message}`));
+        return null;
+      }
+    } else map = this.particleDot ??= makeParticleDot();
+    const key = `${r.texture}|${r.blending}`;
+    let m = this.particleMaterials.get(key);
+    if (!m) {
+      m = new MeshBasicMaterial({ map, transparent: true, depthWrite: false, blending: r.blending === "additive" ? AdditiveBlending : NormalBlending, premultipliedAlpha: r.blending === "premultiplied" });
+      this.particleMaterials.set(key, m);
+    }
+    return m;
+  }
+
+  /** @internal Editor: the scene view's particle preview (play/pause, speed, Simulate All). */
+  setParticlePreview(preview: Partial<ParticlePreview>): void {
+    this.particlePreview = { ...this.particlePreview, ...preview };
+    if (this.particles) Object.assign(this.particles.preview, this.particlePreview);
+  }
+
+  private particlePreview: ParticlePreview = { playing: true, speed: 1, simulateAll: false };
+
+  /** @internal Editor: restart the previewed particle effects. */
+  restartParticlePreview(): void {
+    this.particles?.restartAll();
+  }
+
+  /** @internal Tests and the editor: what the particle renderer is playing (null before it loads). */
+  particleState(): ReturnType<ParticleRenderer["state"]> | null {
+    return this.particles?.state() ?? null;
   }
 
   // --- Reflection probes (ADR 0054) ----------------------------------------------------------------
@@ -2420,6 +2515,9 @@ export class RenderBackend {
 
   dispose(): void {
     this.dropCascades();
+    this.particles?.dispose();
+    for (const m of this.particleMaterials.values()) m.dispose();
+    this.particleDot?.dispose();
     for (const m of this.localMaterials.values()) m.dispose();
     this.localMaterials.clear();
     for (const s of this.stacks.values()) s.dispose();
@@ -2639,4 +2737,26 @@ function fillOverlayGeometry(object: { geometry: BufferGeometry; visible: boolea
   col!.needsUpdate = true;
   g.setDrawRange(0, count);
   object.visible = count > 0;
+}
+
+/** A soft round dot: the default particle texture (white, alpha falling off from the centre). */
+function makeParticleDot(): Texture {
+  const size = 64;
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const d = Math.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) / (size / 2);
+      const a = Math.max(0, 1 - d);
+      const i = (y * size + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = 255;
+      data[i + 3] = Math.round(a * a * (3 - 2 * a) * 255);
+    }
+  }
+  const tex = new DataTexture(data, size, size, RGBAFormat);
+  tex.colorSpace = SRGBColorSpace;
+  tex.magFilter = LinearFilter;
+  tex.minFilter = LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.needsUpdate = true;
+  return tex;
 }

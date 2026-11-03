@@ -33,6 +33,7 @@ import {
 import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
+import { ParticleSystemEffect } from "./ParticleInspector";
 import { showsAssetInspector } from "../assetImport";
 import { assetKind, listedFiles } from "../assetBrowser";
 import { BUILTIN_MESHES } from "../../engine/scene/models";
@@ -389,6 +390,8 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
   });
   const badges = new Set(worlds.map((w) => worldsBadge(effectiveWorlds(w.setting))));
   const badge = badges.size > 1 ? MIXED : [...badges][0] ?? null;
+  // A ParticleSystem's effect is edited below its fields, not as raw JSON (ADR 0057).
+  const particles = info.type === "engine.ParticleSystem";
   return (
     <section class={`component${dropHere}${allEnabled ? "" : " off"}`} {...(reorderable ? { "data-reorder": "", "data-type": info.type, "data-index": String(info.index) } : {})}>
       <h3>
@@ -458,10 +461,21 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
         <p class="empty">No fields</p>
       ) : (
         <div class="fields">
-          {info.fields.map((f) => (
-            <FieldRow key={f.name} {...props} info={info} values={infos.map((i) => i.fields.find((o) => o.name === f.name)?.value)} field={f} />
-          ))}
+          {info.fields
+            .filter((f) => !(particles && f.name === "embeddedEffect"))
+            .map((f) => (
+              <FieldRow key={f.name} {...props} info={info} values={infos.map((i) => i.fields.find((o) => o.name === f.name)?.value)} field={f} />
+            ))}
         </div>
+      )}
+      {particles && paths.length === 1 && (
+        <ParticleSystemEffect
+          scene={scene}
+          path={paths[0]}
+          index={info.index}
+          effectPath={String(info.fields.find((f) => f.name === "effect")?.value ?? "")}
+          embedded={info.fields.find((f) => f.name === "embeddedEffect")?.value}
+        />
       )}
     </section>
   );
@@ -642,6 +656,7 @@ function axesOf(values: unknown[]): (number | null)[] {
 function assetListFor(type: string, field: string): string {
   if (field === "mesh" && (type === "engine.MeshRenderer" || type === "engine.MeshCollider")) return "asset-list-mesh";
   if (field === "material" && type === "engine.MeshRenderer") return "asset-list-material";
+  if (field === "effect" && type === "engine.ParticleSystem") return "asset-list-particles";
   return "asset-list-all";
 }
 
@@ -660,6 +675,7 @@ function AssetLists() {
           {options(files.filter((f) => assetKind(f) === "model"))}
         </datalist>
         <datalist id="asset-list-material">{options(files.filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph"))}</datalist>
+        <datalist id="asset-list-particles">{options(files.filter((f) => assetKind(f) === "particles"))}</datalist>
         <datalist id="asset-list-all">{options(files)}</datalist>
       </>
     );

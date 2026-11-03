@@ -30,6 +30,7 @@ import { openScript } from "../code/codeState";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
 import { createMaterial } from "../materialAssets";
+import { createParticleEffect } from "../particleAssets";
 import { createShaderGraph, createShaderSubGraph, openShaderGraphAsset } from "../shaderGraphAssets";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
@@ -50,6 +51,7 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   material: "Material",
   shadergraph: "Shader Graph",
   shadersubgraph: "Sub Graph",
+  particles: "Particle Effect",
   json: "JSON",
   script: "Script",
   javascript: "JS",
@@ -156,6 +158,7 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
     { label: "New Scene", disabled: readOnly, run: () => void createScene(pasteFolder(entries)) },
     { label: "New Material", disabled: readOnly, run: () => void createMaterial(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Shader Graph", disabled: readOnly, run: () => void createShaderGraph(pasteFolder(entries)).then((made) => made && select([made])) },
+    { label: "New Particle Effect", disabled: readOnly, run: () => void createParticleEffect(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Shader Sub Graph", disabled: readOnly, run: () => void createShaderSubGraph(pasteFolder(entries)).then((made) => made && select([made])) },
     ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),
   ];

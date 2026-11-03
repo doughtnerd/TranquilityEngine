@@ -2,10 +2,11 @@
 // text, a 3D shape (with a matching collider, as in Unity) or a light (ADR 0043), at the top of
 // the scene, beside a node or under it. Each is one undo step.
 import { uniqueId } from "./assetBrowser";
+import { defaultParticleEffect, particleEffectJSON } from "../engine/scene/particles";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import type { OpenScene } from "./state";
 
-export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "reflection-probe";
+export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "reflection-probe" | "particle-system";
 type Shape3D = "cube" | "sphere" | "capsule" | "cylinder" | "plane";
 type LightKind = "directional" | "point" | "spot" | "ambient";
 
@@ -27,6 +28,7 @@ export const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: 
   { kind: "spot-light", label: "Spot Light", name: "Spot Light" },
   { kind: "ambient-light", label: "Ambient Light", name: "Ambient Light" },
   { kind: "reflection-probe", label: "Reflection Probe", name: "Reflection Probe" },
+  { kind: "particle-system", label: "Particle System", name: "Particle System" },
 ];
 
 /** The collider each 3D shape comes with. */
@@ -87,6 +89,9 @@ export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: stri
       };
     case "reflection-probe":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ReflectionProbe", data: {} }] };
+    case "particle-system":
+      // A new embedded effect (ADR 0057): the default fountain, ready to edit or save as an asset.
+      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ParticleSystem", data: { embeddedEffect: particleEffectJSON(defaultParticleEffect()) } }] };
     default: {
       // A light: directional and spot lights point down and away, like a sun in the afternoon.
       const type = kind.replace(/-light$/, "");

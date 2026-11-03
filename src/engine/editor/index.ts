@@ -382,6 +382,24 @@ export function setCameraPreview(world: World, camera: GameObject | null, frame:
   world.render?.setCameraPreview(camera?.getBehavior(Camera) ?? null, frame);
 }
 
+/**
+ * The scene view's particle preview (ADR 0057): in an editor World, selected ParticleSystems (or
+ * every one, with `simulateAll`) play at `speed`, paused when `playing` is off. No-op headless.
+ */
+export function setParticlePreview(world: World, preview: { playing?: boolean; speed?: number; simulateAll?: boolean }): void {
+  world.render?.setParticlePreview(preview);
+}
+
+/** Restart the previewed particle effects. */
+export function restartParticlePreview(world: World): void {
+  world.render?.restartParticlePreview();
+}
+
+/** What the particle renderer is playing (null headless, or before it has loaded). */
+export function particleState(world: World): { systems: number; emitters: number; particles: number; batches: number; previewed: { time: number; count: number } | null } | null {
+  return world.render?.particleState() ?? null;
+}
+
 /** True if the last frame drew a camera preview. */
 export function cameraPreviewDrawn(world: World): boolean {
   return world.render?.cameraPreviewDrawn ?? false;

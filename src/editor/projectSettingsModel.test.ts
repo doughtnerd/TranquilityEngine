@@ -241,6 +241,8 @@ describe("the Project panel's settings", () => {
       d = setTierValue(addTier(d), 0, "reflectionProbes", "high");
       expect(graphicsOf(d)).toMatchObject({ autoDetect: true, targetFrameRate: 90 });
       expect(graphicsOf(d).tiers[0].reflectionProbes).toBe("high");
+      d = setTierValue(d, 0, "particles", "low");
+      expect(graphicsOf(d).tiers[0].particles).toBe("low");
       expect(graphicsOf(setAutoDetect(d, false)).autoDetect).toBe(false);
       expect(graphicsOf(setTargetFrameRate(d, 5)).targetFrameRate).toBe(60);
     });
@@ -265,7 +267,7 @@ describe("the Project panel's settings", () => {
       d = setTierValue(d, 0, "antialias", "msaa");
       d = setTierValue(d, 0, "anisotropy", 2);
       d = setTierValue(d, 0, "shaderLevel", "medium");
-      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off" });
+      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" });
       expect(settingsProblems(d)).toEqual([]);
       expect(graphicsOf(setDefaultTier(d, "Low")).defaultTier).toBe("Low");
       expect(setDefaultTier(d, "Nope")).toBe(d);

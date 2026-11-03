@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultGraphics, parseGraphics, SHADOW_MAP_SIZE, type QualityTier } from "../core/graphics";
+import { defaultGraphics, PARTICLE_SCALE, parseGraphics, SHADOW_MAP_SIZE, type QualityTier } from "../core/graphics";
 import { resolveSettings } from "../core/settings";
 import { Graphics, QUALITY_KEY } from "../render/Graphics";
 import { MemoryStorage, Storage } from "../platform/Storage";
@@ -8,7 +8,7 @@ import { MemoryStorage, Storage } from "../platform/Storage";
 // Graphics class that switches the active tier.
 
 const DEFAULT_NAMES = ["Low", "Medium", "High", "Ultra"];
-const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium" };
+const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high" };
 
 afterEach(() => {
   Graphics._configure(defaultGraphics());
@@ -26,8 +26,8 @@ describe("parseGraphics", () => {
     const raw = {
       defaultTier: "Only",
       tiers: [
-        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", shadowCascades: 1, shadowDistance: 20, anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off" },
-        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 500, anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true, reflectionProbes: "high" },
+        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", shadowCascades: 1, shadowDistance: 20, anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" },
+        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 500, anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true, reflectionProbes: "high", particles: "medium" },
       ],
     };
     const { graphics, problems } = parseGraphics(raw);
@@ -103,6 +103,18 @@ describe("parseGraphics", () => {
     expect(bad.problems).toHaveLength(1);
     expect(bad.problems[0]).toContain("reflectionProbes");
     expect(defaultGraphics().tiers.map((t) => t.reflectionProbes)).toEqual(["off", "low", "medium", "high"]);
+  });
+
+  it("reads particle quality, reporting a bad value and using the High tier's", () => {
+    const ok = parseGraphics({ defaultTier: "A", tiers: [{ name: "A", particles: "low" }, { name: "B", particles: "medium" }] });
+    expect(ok.graphics.tiers.map((t) => t.particles)).toEqual(["low", "medium"]);
+    expect(ok.problems).toEqual([]);
+    const bad = parseGraphics({ defaultTier: "A", tiers: [{ name: "A", particles: "ultra" }] });
+    expect(bad.graphics.tiers[0].particles).toBe("high");
+    expect(bad.problems).toHaveLength(1);
+    expect(bad.problems[0]).toContain("particles");
+    expect(defaultGraphics().tiers.map((t) => t.particles)).toEqual(["low", "medium", "high", "high"]);
+    expect(PARTICLE_SCALE).toEqual({ low: 0.25, medium: 0.5, high: 1 });
   });
 
   it("reads autoDetect and targetFrameRate, defaulting and reporting bad values", () => {

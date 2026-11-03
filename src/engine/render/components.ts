@@ -4,7 +4,7 @@
  */
 import { Component } from "../core/Component";
 import { Color, Vector2, Vector3 } from "../core/math";
-import { AssetRef, component, field } from "../core/registry";
+import { AssetRef, PlainObject, component, field } from "../core/registry";
 import { World } from "../core/World";
 
 /** Draws a textured quad (ADR 0014). */
@@ -290,6 +290,91 @@ export class ReflectionProbe extends Component {
   /** Recapture the surroundings on the next frame, e.g. after the scene around the probe changed. */
   capture(): void {
     this._captureRequests++;
+  }
+
+  override _onDetach(): void {
+    this.world.render?.release(this);
+  }
+}
+
+/** A ParticleSystem command, run by the render backend on its next frame. */
+export type ParticleCommand = { op: "play" | "pause" | "restart" | "clear" } | { op: "stop"; clear: boolean } | { op: "emit"; count: number };
+
+/**
+ * Plays a particle effect at its node (ADR 0057): a `*.particles.json` asset, or an effect stored
+ * in the component itself. Particles follow the World's time, so pausing time pauses them, and they
+ * are cosmetic: never replicated, simulated on each client.
+ */
+@component("engine.ParticleSystem")
+export class ParticleSystem extends Component {
+  /** A particle effect asset (`asset:effects/sparks.particles.json`). Empty: `embeddedEffect`. */
+  @field(AssetRef) effect = "";
+  /** An effect stored in the component (the `myco.particles@1` format), used when `effect` is empty. */
+  @field(PlainObject) embeddedEffect: Record<string, unknown> | null = null;
+  /** Start playing when the node is created. Off: wait for `play()`. */
+  @field(Boolean) playOnAwake = true;
+  /** Simulation speed (1 = normal), on top of the World's time scale. */
+  @field(Number) timeScale = 1;
+  /** Multiplies the particles' start colours. */
+  @field(Color) tint = Color.white;
+  /** Multiplies emission rates, bursts and the particle limit. */
+  @field(Number) emissionScale = 1;
+  /** Destroy the node once a non-looping effect has finished and its last particle is gone. */
+  @field(Boolean) destroyOnFinish = false;
+
+  /** @internal Commands for the render backend, in order. */
+  _commands: ParticleCommand[] = [];
+  /** @internal Written by the render backend each frame. */
+  _state = { playing: false, paused: false, time: 0, count: 0, alive: false };
+
+  /** Start, or resume after `pause()`. */
+  play(): void {
+    this._commands.push({ op: "play" });
+  }
+
+  /** Freeze the effect where it is; `play()` resumes it. */
+  pause(): void {
+    this._commands.push({ op: "pause" });
+  }
+
+  /** Stop emitting. Particles already out live out their lives, unless `clear` removes them at once. */
+  stop(options: { clear?: boolean } = {}): void {
+    this._commands.push({ op: "stop", clear: !!options.clear });
+  }
+
+  /** Start again from the beginning, removing the particles already out. */
+  restart(): void {
+    this._commands.push({ op: "restart" });
+  }
+
+  /** Remove every particle, without stopping. */
+  clear(): void {
+    this._commands.push({ op: "clear" });
+  }
+
+  /** Emit `count` particles at once from every emitter (sub-emitters aside). */
+  emit(count: number): void {
+    this._commands.push({ op: "emit", count: Math.max(0, Math.floor(count)) });
+  }
+
+  /** True while emitting (not paused or stopped). */
+  get isPlaying(): boolean {
+    return this._state.playing;
+  }
+
+  /** True while emitting or any particle is still alive. */
+  get isAlive(): boolean {
+    return this._state.alive;
+  }
+
+  /** Seconds since the effect started (or restarted). */
+  get playTime(): number {
+    return this._state.time;
+  }
+
+  /** Particles alive now, across every emitter. */
+  get particleCount(): number {
+    return this._state.count;
   }
 
   override _onDetach(): void {

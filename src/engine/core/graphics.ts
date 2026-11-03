@@ -9,8 +9,8 @@
  *   "autoDetect": false,
  *   "targetFrameRate": 60,
  *   "tiers": [
- *     { "name": "Low", "renderScale": 0.75, "antialias": "off", "shadows": "low", "shadowCascades": 1, "shadowDistance": 30, "anisotropy": 1, "shaderLevel": "low", "postProcessing": false, "bloom": false, "ambientOcclusion": "off", "depthOfField": false, "reflectionProbes": "off" },
- *     { "name": "High", "renderScale": 1, "antialias": "msaa", "shadows": "high", "shadowCascades": 3, "shadowDistance": 80, "anisotropy": 8, "shaderLevel": "high", "postProcessing": true, "bloom": true, "ambientOcclusion": "medium", "depthOfField": true, "reflectionProbes": "medium" }
+ *     { "name": "Low", "renderScale": 0.75, "antialias": "off", "shadows": "low", "shadowCascades": 1, "shadowDistance": 30, "anisotropy": 1, "shaderLevel": "low", "postProcessing": false, "bloom": false, "ambientOcclusion": "off", "depthOfField": false, "reflectionProbes": "off", "particles": "low" },
+ *     { "name": "High", "renderScale": 1, "antialias": "msaa", "shadows": "high", "shadowCascades": 3, "shadowDistance": 80, "anisotropy": 8, "shaderLevel": "high", "postProcessing": true, "bloom": true, "ambientOcclusion": "medium", "depthOfField": true, "reflectionProbes": "medium", "particles": "high" }
  *   ]
  * }
  * ```
@@ -40,6 +40,15 @@ export const SHADER_LEVELS: readonly ShaderLevel[] = ["low", "medium", "high"];
  */
 export type ProbeQualityName = "off" | "low" | "medium" | "high";
 export const PROBE_QUALITIES: readonly ProbeQualityName[] = ["off", "low", "medium", "high"];
+
+/**
+ * Particle budget (ADR 0057): low/medium/high multiply every ParticleSystem's emission rate and
+ * max particles by `PARTICLE_SCALE`.
+ */
+export type ParticleQuality = "low" | "medium" | "high";
+export const PARTICLE_QUALITIES: readonly ParticleQuality[] = ["low", "medium", "high"];
+/** The factor emission and max particles are multiplied by for each particle quality. */
+export const PARTICLE_SCALE: Record<ParticleQuality, number> = { low: 0.25, medium: 0.5, high: 1 };
 
 /** One quality tier. */
 export interface QualityTier {
@@ -72,6 +81,8 @@ export interface QualityTier {
   depthOfField: boolean;
   /** Reflection probe capture resolution (ADR 0054): "off" ignores probes; low/medium/high capture 128/256/512 px per face. */
   reflectionProbes: ProbeQualityName;
+  /** Particle budget (ADR 0057): scales every ParticleSystem's emission and max particles by `PARTICLE_SCALE`. */
+  particles: ParticleQuality;
 }
 
 export interface GraphicsSettings {
@@ -91,10 +102,10 @@ export const defaultGraphics = (): GraphicsSettings => ({
   autoDetect: false,
   targetFrameRate: 60,
   tiers: [
-    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", shadowCascades: 1, shadowDistance: 30, anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off" },
-    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", shadowCascades: 2, shadowDistance: 50, anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "low" },
-    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium" },
-    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 120, anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, reflectionProbes: "high" },
+    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", shadowCascades: 1, shadowDistance: 30, anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" },
+    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", shadowCascades: 2, shadowDistance: 50, anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "low", particles: "medium" },
+    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high" },
+    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 120, anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, reflectionProbes: "high", particles: "high" },
   ],
 });
 
@@ -102,7 +113,7 @@ export const defaultGraphics = (): GraphicsSettings => ({
 export const defaultTier = (name: string): QualityTier => ({ ...defaultGraphics().tiers[2], name });
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField", "reflectionProbes"];
+const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField", "reflectionProbes", "particles"];
 
 /**
  * Read a `graphics` section leniently: bad values are reported and replaced by the default
@@ -144,7 +155,7 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
         if (typeof t.anisotropy === "number" && Number.isInteger(t.anisotropy) && t.anisotropy >= 1 && t.anisotropy <= 16) tier.anisotropy = t.anisotropy;
         else bad("anisotropy", "a whole number from 1 to 16");
       }
-      const choice = <K extends "antialias" | "shadows" | "shaderLevel" | "ambientOcclusion" | "reflectionProbes">(key: K, options: readonly QualityTier[K][]) => {
+      const choice = <K extends "antialias" | "shadows" | "shaderLevel" | "ambientOcclusion" | "reflectionProbes" | "particles">(key: K, options: readonly QualityTier[K][]) => {
         const v = t[key];
         if (v === undefined) return;
         if (options.includes(v as QualityTier[K])) tier[key] = v as QualityTier[K];
@@ -155,6 +166,7 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
       choice("shaderLevel", SHADER_LEVELS);
       choice("ambientOcclusion", AO_QUALITIES);
       choice("reflectionProbes", PROBE_QUALITIES);
+      choice("particles", PARTICLE_QUALITIES);
       for (const key of ["postProcessing", "bloom", "depthOfField"] as const) {
         if (t[key] === undefined) continue;
         if (typeof t[key] === "boolean") tier[key] = t[key] as boolean;
