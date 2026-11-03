@@ -1,6 +1,6 @@
 # 0047. Shader graph assets compile to GLSL that extends the built-in lit and unlit materials; materials name a graph as their shader
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -71,10 +71,10 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0043](decisions/0043-meshes-lights-materials.md) | Meshes, lights and material assets: a default lit material and default lighting | Proposed |
 | [0044](decisions/0044-obj-fbx-model-import.md) | OBJ and FBX models import through three.js's loaders, as meshes in model space | Proposed |
 | [0045](decisions/0045-3d-physics-rapier3d.md) | 3D physics on Rapier 3D, loaded on demand, with the 2D API's shape | Proposed |
-| [0046](decisions/0046-shader-graph-editor-on-xyflow-system.md) | The shader graph editor is a Preact panel on xyflow's framework-free core (`@xyflow/system`) | Proposed |
-| [0047](decisions/0047-shader-graph-assets-compile-to-glsl.md) | Shader graph assets compile to GLSL that extends the built-in lit and unlit materials; materials name a graph as their shader | Proposed |
-| [0048](decisions/0048-shader-sub-graphs-and-custom-functions.md) | Shader sub-graphs, custom function nodes, normal-map sampling and node previews | Proposed |
-| [0049](decisions/0049-runtime-material-properties.md) | Scripts set material properties per MeshRenderer, like Unity's MaterialPropertyBlock | Proposed |
+| [0046](decisions/0046-shader-graph-editor-on-xyflow-system.md) | The shader graph editor is a Preact panel on xyflow's framework-free core (`@xyflow/system`) | Accepted |
+| [0047](decisions/0047-shader-graph-assets-compile-to-glsl.md) | Shader graph assets compile to GLSL that extends the built-in lit and unlit materials; materials name a graph as their shader | Accepted |
+| [0048](decisions/0048-shader-sub-graphs-and-custom-functions.md) | Shader sub-graphs, custom function nodes, normal-map sampling and node previews | Accepted |
+| [0049](decisions/0049-runtime-material-properties.md) | Scripts set material properties per MeshRenderer, like Unity's MaterialPropertyBlock | Accepted |
 
 ## Working with decisions
 

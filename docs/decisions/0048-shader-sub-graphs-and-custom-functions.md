@@ -1,6 +1,6 @@
 # 0048. Shader sub-graphs, custom function nodes, normal-map sampling and node previews
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

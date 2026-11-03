@@ -1,6 +1,6 @@
 # 0046. The shader graph editor is a Preact panel on xyflow's framework-free core (`@xyflow/system`)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

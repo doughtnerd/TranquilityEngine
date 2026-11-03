@@ -1,6 +1,6 @@
 # 0049. Scripts set material properties per MeshRenderer, like Unity's MaterialPropertyBlock
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
