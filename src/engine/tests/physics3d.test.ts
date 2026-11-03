@@ -36,7 +36,7 @@ class EventReader extends GameBehavior {
 }
 
 const project = { physics: { gravity: [0, -10] as [number, number], layers: ["Default", "Player", "Ghost"], collisionMatrix: { Player: ["Default"], Default: ["Default"] } } };
-const dataUrl = (path: string) => `data:application/octet-stream;base64,${readFileSync(new URL(`../../../samples/showcase3d/${path}`, import.meta.url)).toString("base64")}`;
+const dataUrl = (path: string) => `data:application/octet-stream;base64,${readFileSync(new URL(`../../../samples/playground3d/${path}`, import.meta.url)).toString("base64")}`;
 
 async function setup(settings: Record<string, unknown> = { physics: "3d" }) {
   events.length = 0;

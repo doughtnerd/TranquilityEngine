@@ -5,7 +5,7 @@ import { defaultImportSettings, formatImportSettings, parseImportSettings } from
 import { colorHex, defaultMaterialSettings, formatMaterial, parseMaterial } from "../scene/material";
 import { clearModelCache, loadMeshes, meshesIfLoaded, meshTriangles, modelMeshNames } from "../scene/models";
 
-const file = (path: string) => readFileSync(new URL(`../../../samples/showcase3d/${path}`, import.meta.url));
+const file = (path: string) => readFileSync(new URL(`../../../samples/playground3d/${path}`, import.meta.url));
 const dataUrl = (path: string) => `data:application/octet-stream;base64,${file(path).toString("base64")}`;
 
 function useAssets(extra: Record<string, unknown> = {}) {

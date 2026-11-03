@@ -1,0 +1,20 @@
+{
+  "name": "3D Playground",
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "backgroundColor": "#9ec5e8"
+  },
+  "time": {
+    "fixedDeltaTime": 0.016666666666666666
+  },
+  "physics": {
+    "gravity": [0, -9.81],
+    "layers": ["Default"]
+  },
+  "render": {
+    "sortingLayers": ["Default"],
+    "pixelsPerUnit": 100
+  },
+  "autoload": []
+}

@@ -28,8 +28,8 @@ test("Add Component searches the list and adds a collider fitted to the sprite; 
   await search.pressSequentially("box f"); // an "f" typed here doesn't reframe the camera
   expect(await page.evaluate(() => (window as unknown as Hooks).orbit.focusPoint.toArray())).toEqual(focusBefore);
   await expect(menuOptions(page)).toHaveCount(0);
-  await search.fill("box");
-  await expect(menuOptions(page)).toHaveText(["BoxCollider2D"]);
+  await search.fill("box 2");
+  await expect(menuOptions(page)).toHaveText(["BoxCollider2D"]); // "box" alone finds the 3D BoxCollider too
   await search.press("Enter");
 
   await expect(page.getByRole("dialog", { name: "Add component" })).toHaveCount(0);

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, BoxCollider, Engine, MeshRenderer } from "../engine";
 import { addAsset, prepareAssets, whyNotAddable } from "./assetBrowser";
+import { newComponentEntry } from "./componentEdits";
 import {
   boxHandles3D,
   boxWire,
@@ -137,7 +138,7 @@ describe("creating 3D nodes", () => {
 describe("adding models from the Assets panel (ADR 0044)", () => {
   it("adds a one-mesh model as one node, and a model of several meshes as a node with a child per mesh", async () => {
     const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
-    const file = (p: string) => `data:application/octet-stream;base64,${readFileSync(new URL(`../../samples/showcase3d/${p}`, import.meta.url)).toString("base64")}`;
+    const file = (p: string) => `data:application/octet-stream;base64,${readFileSync(new URL(`../../samples/playground3d/${p}`, import.meta.url)).toString("base64")}`;
     const extra = Assets.fromObject({ "models/robot.fbx": file("models/robot.fbx"), "models/crate.obj": file("models/crate.obj"), "models/crate.mtl": file("models/crate.mtl") });
     Assets.addSource(extra);
     try {
@@ -158,5 +159,20 @@ describe("adding models from the Assets panel (ADR 0044)", () => {
       Assets.removeSource(extra);
       engine.dispose();
     }
+  });
+});
+
+describe("adding a 3D collider beside a mesh (ADR 0045)", () => {
+  it("fits a box, sphere or capsule around the mesh", async () => {
+    const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
+    openSceneFile(engine, DEMO_SCENE);
+    const scene = openScene.value!;
+    const id = createNode(scene, "capsule");
+    const node = scene.sync.nodeFor(id)!;
+    expect(newComponentEntry(node, "engine.BoxCollider")).toEqual({ type: "engine.BoxCollider", data: { center: [0, 0, 0], size: [1, 2, 1] } });
+    expect(newComponentEntry(node, "engine.SphereCollider").data).toEqual({ center: [0, 0, 0], radius: 1 });
+    expect(newComponentEntry(node, "engine.CapsuleCollider").data).toEqual({ center: [0, 0, 0], radius: 0.5, height: 2 });
+    expect(newComponentEntry(scene.sync.nodeFor("bird")!, "engine.BoxCollider")).toEqual({ type: "engine.BoxCollider" }); // no mesh
+    engine.dispose();
   });
 });

@@ -433,6 +433,27 @@ export function meshTriangleData(ref: string, node?: GameObject): { vertices: nu
 }
 
 /**
+ * The box around the meshes `node`'s MeshRenderer draws, in the node's own space (before its
+ * scale); null without a MeshRenderer, or while its model loads.
+ */
+export function meshLocalBounds(node: GameObject): { min: [number, number, number]; max: [number, number, number] } | null {
+  const ref = node.getBehavior(MeshRenderer)?.mesh;
+  const meshes = ref ? meshesIfLoaded(ref) : null;
+  if (!meshes?.length) return null;
+  const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (const m of meshes) {
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    const b = m.geometry.boundingBox!;
+    const lo = b.min.toArray(), hi = b.max.toArray();
+    for (let i = 0; i < 3; i++) {
+      min[i] = Math.min(min[i], lo[i]);
+      max[i] = Math.max(max[i], hi[i]);
+    }
+  }
+  return { min, max };
+}
+
+/**
  * The world-space box around `node`'s mesh (ADR 0043) or sprite (its quad's corners through the
  * node's world matrix), or around its origin when it has neither (or the model or texture isn't
  * loaded, or headless).

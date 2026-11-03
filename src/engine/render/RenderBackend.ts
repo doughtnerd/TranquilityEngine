@@ -32,7 +32,8 @@ import {
   NearestMipmapNearestFilter,
   NoColorSpace,
   Object3D,
-  PCFSoftShadowMap,
+  PCFShadowMap,
+  PMREMGenerator,
   PointLight,
   Quaternion,
   OrthographicCamera,
@@ -234,7 +235,7 @@ export class RenderBackend {
     this.renderer = new WebGLRenderer({ canvas: this.canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.autoClear = false;
-    this.renderer.shadowMap.type = PCFSoftShadowMap;
+    this.renderer.shadowMap.type = PCFShadowMap;
     const sun = new DirectionalLight(0xffffff, 1);
     sun.position.set(4, 10, 6);
     this.defaultLights = [new AmbientLight(0xffffff, 0.35), sun];
@@ -543,6 +544,7 @@ export class RenderBackend {
       entry = { objects: [], sources: null, material: null };
       this.meshRenderers.set(r, entry);
     }
+    if (!this.environmentLoading) this.environmentLoading = this.loadEnvironment();
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
     const material = this.materialAsset(r.material);
     const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
@@ -573,6 +575,29 @@ export class RenderBackend {
       o.matrixWorldNeedsUpdate = true;
     }
   }
+
+  private environmentLoading: Promise<void> | null = null;
+
+  /**
+   * A soft studio environment that lit materials reflect (ADR 0043), so metals and glossy
+   * surfaces don't draw black. Loaded with the first mesh, so 2D games never load it.
+   */
+  private async loadEnvironment(): Promise<void> {
+    try {
+      const { RoomEnvironment } = await import("three/examples/jsm/environments/RoomEnvironment.js");
+      const pmrem = new PMREMGenerator(this.renderer);
+      const room = new RoomEnvironment();
+      this.environment = pmrem.fromScene(room, 0.04).texture;
+      room.dispose();
+      pmrem.dispose();
+      this.scene.environment = this.environment;
+      this.scene.environmentIntensity = 0.4;
+    } catch (err) {
+      console.warn("[myco] couldn't make the default environment:", err);
+    }
+  }
+
+  private environment: Texture | null = null;
 
   /**
    * The three.js material for a material asset, or null for none (empty, missing, or not a
@@ -1630,6 +1655,7 @@ export class RenderBackend {
     this.lightWires?.geometry.dispose();
     this.lightWires?.material.dispose();
     this.boxOutlineGeometry?.dispose();
+    this.environment?.dispose();
     this.defaultMaterial.dispose();
     this.overlayLines?.geometry.dispose();
     this.overlayLines?.material.dispose();

@@ -1,0 +1,455 @@
+{
+  "format": "myco.scene@1",
+  "settings": {
+    "physics": "3d"
+  },
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              4,
+              11
+            ],
+            "rotation": [
+              -18,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Camera",
+          "data": {
+            "projection": "perspective",
+            "fieldOfView": 55
+          }
+        }
+      ]
+    },
+    {
+      "id": "sun",
+      "name": "Sun",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              8,
+              0
+            ],
+            "rotation": [
+              -55,
+              35,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "directional",
+            "intensity": 1.6,
+            "castShadows": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "ambient",
+      "name": "Ambient Light",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "ambient",
+            "intensity": 0.45
+          }
+        }
+      ]
+    },
+    {
+      "id": "lamp",
+      "name": "Lamp",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -3,
+              1.5,
+              2
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "point",
+            "color": [
+              1,
+              0.7,
+              0.4,
+              1
+            ],
+            "intensity": 6,
+            "range": 6
+          }
+        }
+      ]
+    },
+    {
+      "id": "ground",
+      "name": "Ground",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:plane",
+            "material": "asset:materials/ground.material.json"
+          }
+        },
+        {
+          "type": "engine.MeshCollider",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "robot",
+      "name": "Robot",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              3,
+              0,
+              -1
+            ],
+            "rotation": [
+              0,
+              -30,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "robot-body",
+      "name": "Body",
+      "parent": "robot",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/robot.fbx#Body",
+            "material": "asset:materials/metal.material.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "robot-head",
+      "name": "Head",
+      "parent": "robot",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/robot.fbx#Head"
+          }
+        }
+      ]
+    },
+    {
+      "id": "robot-collider",
+      "name": "Collider",
+      "parent": "robot",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0.875,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {
+            "size": [
+              0.8,
+              1.75,
+              0.5
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "orb",
+      "name": "Orb",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -3,
+              1.5,
+              2
+            ],
+            "scale": [
+              0.4,
+              0.4,
+              0.4
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere",
+            "material": "asset:materials/glow.material.json",
+            "castShadows": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "crate-1",
+      "name": "Crate 1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              3,
+              0
+            ],
+            "rotation": [
+              10,
+              15.0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/crate.obj"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {}
+        },
+        {
+          "type": "engine.RigidBody",
+          "data": {
+            "mass": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "crate-2",
+      "name": "Crate 2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0.3,
+              4.5,
+              0.2
+            ],
+            "rotation": [
+              35,
+              52.5,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/crate.obj"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {}
+        },
+        {
+          "type": "engine.RigidBody",
+          "data": {
+            "mass": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "crate-3",
+      "name": "Crate 3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -0.2,
+              6,
+              -0.3
+            ],
+            "rotation": [
+              60,
+              90.0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/crate.obj"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {}
+        },
+        {
+          "type": "engine.RigidBody",
+          "data": {
+            "mass": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "crate-4",
+      "name": "Crate 4",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              1.6,
+              5,
+              0.8
+            ],
+            "rotation": [
+              20,
+              30.0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/crate.obj"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {}
+        },
+        {
+          "type": "engine.RigidBody",
+          "data": {
+            "mass": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "ball",
+      "name": "Ball",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -1.2,
+              7,
+              0.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere",
+            "material": "asset:materials/metal.material.json"
+          }
+        },
+        {
+          "type": "engine.SphereCollider",
+          "data": {
+            "material": {
+              "friction": 0.3,
+              "bounciness": 0.6
+            }
+          }
+        },
+        {
+          "type": "engine.RigidBody",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar",
+      "name": "Pillar",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -2,
+              1,
+              -2
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:capsule"
+          }
+        },
+        {
+          "type": "engine.CapsuleCollider",
+          "data": {}
+        }
+      ]
+    }
+  ]
+}
