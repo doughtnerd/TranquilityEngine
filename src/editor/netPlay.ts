@@ -5,8 +5,15 @@
 //   project.json. The project's bootstrap is the model: its first client World (one that connects
 //   to a server World over a link, preferably tagged `client`) is duplicated as `Client 1…N` and
 //   `Thin 1…T`, each with that World's links, in place of the project's client Worlds. Server
-//   Worlds, other Worlds and templates stay as they are. A project without a client/server layout
-//   (no links, or a code bootstrap) plays as it is.
+//   Worlds, other Worlds and templates stay as they are.
+// - The Host pattern (Unity's frontend, like `samples/arena`): a bootstrap with no links whose
+//   server World is a `server`-tagged template the game creates at runtime (a Host button). Play
+//   creates that template as a World up front (named as the game would create it, so the game's
+//   `Engine.findWorld` finds it) and copies the project's client World (its first `client`-tagged
+//   World, else its first World) as `Client 1…N` and `Thin 1…T`, each linked to it over loopback.
+//   By default the copies load the server template's scenes instead of their own (a menu), so they
+//   join the game straight away; `clientScenes: "own"` keeps their own.
+//   A project with neither layout (or a code bootstrap) plays as it is.
 // - Thin clients are client Worlds that don't render or take local input. They load the server
 //   with synthetic input on every input stream the game defines (`defineInput`): `"random"` walks
 //   each f32 field in -1..1 (steps of up to ±0.25 per write), rounds i32 fields of the same walk
@@ -23,11 +30,16 @@ export const MAX_THIN_CLIENTS = 8;
 
 export type ThinInputMode = "random" | "zeros";
 
+/** Host pattern: which scenes the client copies load: the server template's (join the game directly), or their own (a menu). */
+export type ClientScenes = "server" | "own";
+
 export interface NetPlayOptions {
   /** Client Worlds that render and take input, 1–4. */
   clients: number;
   /** Thin clients, 0–8. */
   thin: number;
+  /** Host pattern only: the scenes the client copies load. Default `"server"`. */
+  clientScenes?: ClientScenes;
 }
 
 /** A play-time bootstrap made from the project's, and the Worlds it made. */
@@ -39,6 +51,10 @@ export interface NetPlayBootstrap {
   thin: string[];
   /** The project World the clients copy. */
   template: string;
+  /** How the clients reach a server: the project's links, or (Host pattern) a server template Play created as a World. */
+  pattern: "links" | "host";
+  /** Host pattern: the server World Play created from the template; null for `links`. */
+  server: string | null;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -65,7 +81,7 @@ export function clientLayout(setting: BootstrapSetting | undefined): { template:
  */
 export function playBootstrap(setting: BootstrapSetting | undefined, options: NetPlayOptions): NetPlayBootstrap | null {
   const layout = clientLayout(setting);
-  if (!layout) return null;
+  if (!layout) return hostBootstrap(setting, options);
   const config = setting as BootstrapConfig;
   const { template, replaced } = layout;
   const kept = config.worlds.filter((w) => !replaced.has(w.name));
@@ -95,6 +111,60 @@ export function playBootstrap(setting: BootstrapSetting | undefined, options: Ne
     clients,
     thin,
     template: template.name,
+    pattern: "links",
+    server: null,
+  };
+}
+
+/**
+ * The Host pattern's layout (see the top of this file): the client World Play copies and the
+ * server template it creates, or null when the bootstrap isn't laid out that way (it has links,
+ * a server World of its own, or no `server`-tagged template).
+ */
+export function hostLayout(setting: BootstrapSetting | undefined): { client: WorldConfig; server: WorldConfig; templateKey: string } | null {
+  if (!isRecord(setting) || !Array.isArray(setting.worlds)) return null;
+  const config = setting as BootstrapConfig;
+  if (Array.isArray(config.links) && config.links.length > 0) return null;
+  const isServer = (w: { tags?: readonly string[] }) => (w.tags ?? []).includes("server");
+  if (config.worlds.some(isServer)) return null;
+  const entry = isRecord(config.templates) ? Object.entries(config.templates).find(([, t]) => isRecord(t) && isServer(t)) : undefined;
+  const client = config.worlds.find((w) => (w.tags ?? []).includes("client")) ?? config.worlds[0];
+  if (!entry || !client) return null;
+  const [templateKey, template] = entry;
+  return { client, server: { ...template, name: template.name ?? templateKey }, templateKey };
+}
+
+/** The Host pattern's play bootstrap, or null without that layout. */
+function hostBootstrap(setting: BootstrapSetting | undefined, options: NetPlayOptions): NetPlayBootstrap | null {
+  const layout = hostLayout(setting);
+  if (!layout) return null;
+  const config = setting as BootstrapConfig;
+  const { client, server } = layout;
+  const kept = config.worlds.filter((w) => w !== client);
+  const taken = [...kept.map((w) => w.name), server.name];
+  const name = (base: string) => {
+    const n = uniqueName(base, taken);
+    taken.push(n);
+    return n;
+  };
+  const clients = Array.from({ length: clamp(options.clients, 1, MAX_CLIENTS) }, (_, i) => name(`Client ${i + 1}`));
+  const thin = Array.from({ length: clamp(options.thin, 0, MAX_THIN_CLIENTS) }, (_, i) => name(`Thin ${i + 1}`));
+  // Join directly: the copies load what the server loads (when its template names scenes).
+  const scenes = (options.clientScenes ?? "server") === "server" && server.scenes !== undefined ? { scenes: [...server.scenes] } : {};
+  const made: WorldConfig[] = [
+    ...clients.map((n) => ({ ...client, ...scenes, name: n })),
+    ...thin.map((n) => ({ ...client, ...scenes, name: n, renders: false, input: false })),
+  ];
+  const at = config.worlds.indexOf(client);
+  const links: LinkConfig[] = made.map((w) => ({ from: w.name, to: server.name, transport: "loopback" }));
+  return {
+    // The server goes last, as when the game creates it after its client World.
+    bootstrap: { ...config, worlds: [...kept.slice(0, at), ...made, ...kept.slice(at), server], links },
+    clients,
+    thin,
+    template: client.name,
+    pattern: "host",
+    server: server.name,
   };
 }
 
@@ -212,11 +282,22 @@ export interface TrafficRate {
   byCategory: Record<TrafficCategory, number>;
 }
 
+/** One ghost type's share of a connection's snapshots (server side). */
+export interface GhostTypeRate {
+  readonly type: string;
+  /** Bytes per second over the rate window. */
+  readonly bytesPerSecond: number;
+  /** Bytes since the connection opened. */
+  readonly bytes: number;
+}
+
 export interface PeerStats extends NetPeerInfo {
   /** Identifies the connection across samples. */
   readonly key: string;
   readonly in: TrafficRate;
   readonly out: TrafficRate;
+  /** Server: bandwidth per ghost type, highest rate first. Empty on a client. */
+  readonly ghostTypeRates: readonly GhostTypeRate[];
 }
 
 export interface WorldStats extends Omit<NetWorldInfo, "peers"> {
@@ -231,7 +312,7 @@ const RATE_WINDOW_MS = 1000;
  * second, and its rate is the difference over that window.
  */
 export class NetStatsSampler {
-  private readonly history = new Map<string, { at: number; sent: NetTrafficInfo; received: NetTrafficInfo }[]>();
+  private readonly history = new Map<string, { at: number; sent: NetTrafficInfo; received: NetTrafficInfo; ghostTypes: NetPeerInfo["ghostTypes"] }[]>();
 
   sample(worlds: readonly NetWorldInfo[], now: number): WorldStats[] {
     const seen = new Set<string>();
@@ -242,11 +323,17 @@ export class NetStatsSampler {
         const key = `${w.world}|${p.id}|${p.remote}`;
         seen.add(key);
         const list = this.history.get(key) ?? [];
-        list.push({ at: now, sent: p.sent, received: p.received });
+        list.push({ at: now, sent: p.sent, received: p.received, ghostTypes: p.ghostTypes ?? [] });
         while (list.length > 2 && now - list[1].at >= RATE_WINDOW_MS) list.shift();
         this.history.set(key, list);
         const first = list[0];
-        return { ...p, key, in: rate(first.received, p.received, now - first.at), out: rate(first.sent, p.sent, now - first.at) };
+        return {
+          ...p,
+          key,
+          in: rate(first.received, p.received, now - first.at),
+          out: rate(first.sent, p.sent, now - first.at),
+          ghostTypeRates: ghostTypeRates(first.ghostTypes, p.ghostTypes ?? [], now - first.at),
+        };
       }),
     }));
     for (const key of [...this.history.keys()]) if (!seen.has(key)) this.history.delete(key);
@@ -262,6 +349,19 @@ function rate(from: NetTrafficInfo, to: NetTrafficInfo, ms: number): TrafficRate
     messagesPerSecond: per(to.messages - from.messages),
     byCategory: Object.fromEntries(TRAFFIC_CATEGORIES.map((c) => [c, per(b[c].bytes - a[c].bytes)])) as Record<TrafficCategory, number>,
   };
+}
+
+/** Per ghost type: the bytes between two samples as a rate, plus the total; highest rate first (then most bytes). */
+export function ghostTypeRates(from: NetPeerInfo["ghostTypes"], to: NetPeerInfo["ghostTypes"], ms: number): GhostTypeRate[] {
+  const before = new Map(from.map((t) => [t.type, t.bytes]));
+  return to
+    .map((t) => ({ type: t.type, bytes: t.bytes, bytesPerSecond: ms > 0 ? ((t.bytes - (before.get(t.type) ?? 0)) * 1000) / ms : 0 }))
+    .sort((a, b) => b.bytesPerSecond - a.bytesPerSecond || b.bytes - a.bytes || a.type.localeCompare(b.type));
+}
+
+/** A ghost type as the panel shows it: the file's name without folders or `.prefab.json`/`.scene.json`, then any node path. */
+export function ghostTypeLabel(type: string): string {
+  return type.replace(/[^#›]*?([^/#›]+?)(\.(prefab|scene))?\.json/, "$1");
 }
 
 /** `1234` → `"1.2 KB"`. */

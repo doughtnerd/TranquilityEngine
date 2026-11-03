@@ -45,11 +45,13 @@ export const assetTileSize = persisted("myco.editor.assetTileSize", 56);
  * Multiplayer play mode (ADR 0033 §9, `netPlay.ts`): whether Play runs N client Worlds plus T thin
  * clients instead of the project's own client Worlds, how many, and what thin clients send.
  */
-export const netPlaySetup = persisted<{ enabled: boolean; clients: number; thin: number; thinInput: "random" | "zeros" }>("myco.editor.netPlay", {
+export const netPlaySetup = persisted<{ enabled: boolean; clients: number; thin: number; thinInput: "random" | "zeros"; clientScenes?: "server" | "own" }>("myco.editor.netPlay", {
   enabled: false,
   clients: 2,
   thin: 0,
   thinInput: "random",
+  // Host pattern (a server template): the clients load the server's scenes and join directly, or their own (a menu).
+  clientScenes: "server",
 });
 
 /** The simulated network conditions on play mode's loopback links (all off by default). */

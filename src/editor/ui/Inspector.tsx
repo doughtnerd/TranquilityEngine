@@ -34,6 +34,8 @@ import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
 import { showsAssetInspector } from "../assetImport";
+import { liveInspecting } from "../runtimeInspect";
+import { RuntimeInspector } from "./RuntimeInspector";
 import { openScript, scriptFor } from "../code/codeState";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
 import { currentProject, docVersion, editingCollider, openScene, scriptsVersion, selectedKeys, selection, status, type OpenScene } from "../state";
@@ -49,6 +51,7 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
  * selected node in one undo step.
  */
 export function Inspector() {
+  if (liveInspecting()) return <RuntimeInspector />; // a live World of the running game
   if (showsAssetInspector()) return <AssetInspector />; // an image or audio file selected in the Assets panel (ADR 0040)
   docVersion.value; // re-render when the document changes
   const scene = openScene.value;

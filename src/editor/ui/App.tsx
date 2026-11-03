@@ -12,6 +12,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ExportDialog, exportOpen } from "./ExportDialog";
 import { StatusBar } from "./StatusBar";
 import { NetworkPanel } from "./NetworkPanel";
+import { PlayControls } from "./PlayControls";
 import { NewScriptDialog } from "./NewScriptDialog";
 import { SpriteEditorDialog } from "./SpriteEditor";
 import { HistoryPanel } from "./HistoryPanel";
@@ -58,6 +59,7 @@ function Toolbar() {
       </button>
       <ProjectControls />
       <PlayButton />
+      <PlayControls />
       <UndoRedo />
       <button title="Put the panels back where they started" onClick={resetLayout}>
         Reset Layout

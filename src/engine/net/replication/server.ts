@@ -67,6 +67,8 @@ interface ServerGhost {
   readonly node: GameObject;
   readonly layout: Layout;
   readonly spawn: SpawnInfo;
+  /** What kind of ghost it is, for bandwidth per ghost type (tools): its prefab path, or for a scene ghost its scene and node path. */
+  readonly type: string;
   /** This tick's values (read once per sent tick, shared by every connection). */
   state: GhostState;
 }
@@ -100,6 +102,11 @@ interface PeerState {
   lastCosts: Map<number, number>;
   /** Bits of the last snapshot written in full (before choosing), or 0. */
   lastFullBits: number;
+  /**
+   * Bits sent on this connection per ghost type (`ServerGhost.type`) since it opened: each ghost's
+   * spawn and state in the snapshots actually sent (tools: bandwidth per ghost type).
+   */
+  readonly typeBits: Map<string, number>;
 }
 
 /** @internal Replication settings of a server World. */
@@ -154,7 +161,7 @@ export class ServerReplication {
     for (const g of this.ghosts.values()) g.state = readState(g.layout, g.node, g.rep);
     for (const peer of session.openPeers()) {
       let ps = this.peers.get(peer);
-      if (!ps) this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), history: new Map(), lastBytes: 0, lastCosts: new Map(), lastFullBits: 0 }));
+      if (!ps) this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), history: new Map(), lastBytes: 0, lastCosts: new Map(), lastFullBits: 0, typeBits: new Map() }));
       for (const id of despawned) {
         if (ps.known.delete(id)) ps.despawns.add(id);
       }
@@ -204,11 +211,22 @@ export class ServerReplication {
       const id = ids.get(rep)!;
       rep._ghostId = id;
       const layout = layoutOf(specOf(world, node, rep));
-      const ghost: ServerGhost = { id, rep, node, layout, spawn, state: [] };
+      const ghost: ServerGhost = { id, rep, node, layout, spawn, type: "", state: [] };
+      (ghost as { type: string }).type = this.typeOf(ghost);
       this.ghosts.set(rep, ghost);
       this.byId.set(id, ghost);
     }
     return despawned;
+  }
+
+  /** A ghost's type (see `ServerGhost.type`); a nested ghost is named after its instance's prefab and its id path in it. */
+  private typeOf(g: ServerGhost): string {
+    const s = g.spawn;
+    if (s.kind === SPAWN_PREFAB) return s.path;
+    if (s.kind === SPAWN_SCENE) return `${s.source}#${s.ids.join("/")}`;
+    let root: string | undefined;
+    for (let n: GameObject | null = g.node; n && root === undefined; n = n.parent) root = _instantiatedPrefabOf(n);
+    return `${root ?? "?"} › ${s.ids.join("/")}`;
   }
 
   private acked(peer: NetPeer, tick: number): void {
@@ -276,7 +294,11 @@ export class ServerReplication {
       ps.lastCosts = attempt.costs;
       if (attempt.bits > budget) attempt = this.write(ps, tick, base, choose(attempt.costs, attempt.headerBits, 0));
     }
-    for (const id of attempt.sent.states.keys()) ps.known.get(id)!.lastSentTick = tick;
+    for (const id of attempt.sent.states.keys()) {
+      ps.known.get(id)!.lastSentTick = tick;
+      const g = this.byId.get(id);
+      if (g) ps.typeBits.set(g.type, (ps.typeBits.get(g.type) ?? 0) + (attempt.costs.get(id) ?? 0));
+    }
     ps.history.set(tick, attempt.sent);
     for (const t of ps.history.keys()) if (t < tick - BASELINE_WINDOW) ps.history.delete(t);
     return attempt.bytes;

@@ -10,6 +10,8 @@ import { combineSelection, rangeBetween } from "../selectionModel";
 import { docVersion, isSelected, openScene, select, selectedKeys } from "../state";
 import { HierarchyMenu, openCreateMenu, openHierarchyMenu } from "./HierarchyMenu";
 import "./hierarchy.css";
+import { liveInspecting } from "../runtimeInspect";
+import { RuntimeHierarchy, WorldPicker } from "./RuntimeHierarchy";
 
 /** Collapsed scene nodes, by path key. */
 const collapsed = signal<ReadonlySet<string>>(new Set());
@@ -74,6 +76,7 @@ function rowMenu(e: MouseEvent, key: string): void {
  */
 export function Hierarchy() {
   docVersion.value; // re-render when the document changes
+  if (liveInspecting()) return <RuntimeHierarchy />; // a live World of the running game
   const scene = openScene.value;
   if (!scene) return <p class="empty">No scene open</p>;
   const filter = activeFilter.value;
@@ -86,6 +89,7 @@ export function Hierarchy() {
         openHierarchyMenu(e.clientX, e.clientY, null);
       }}
     >
+      <WorldPicker />
       <div class="hierarchy-header">
         <div class={`scene-name${dropMode(null) === "root" ? " drop-into" : ""}`} title={scene.path}>
           {scene.path.split("/").pop()}

@@ -21,6 +21,7 @@ import { installGizmo } from "./gizmo";
 import { installViewportTheme } from "./viewportTheme";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
+import { applyKept, endLiveInspection, takeKept, type KeptValues } from "./runtimeInspect";
 import { openSceneFile, saveOpenScene } from "./project";
 import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, docVersion, editingCollider, openScene, openScenes, playState, sceneCamera, scriptProblems, scriptsVersion, select, selectedKeys, selection, setViewMode, status, viewMode, type OpenScene } from "./state";
@@ -483,7 +484,7 @@ export async function startPlaying(): Promise<void> {
       scene,
       project,
       container: viewportElements().gameView,
-      netPlay: setup.enabled ? { clients: setup.clients, thin: setup.thin, thinInput: setup.thinInput } : undefined,
+      netPlay: setup.enabled ? { clients: setup.clients, thin: setup.thin, thinInput: setup.thinInput, clientScenes: setup.clientScenes ?? "server" } : undefined,
       conditions: netConditionsSetting.value,
     });
     playing.value = play;
@@ -491,9 +492,9 @@ export async function startPlaying(): Promise<void> {
     Object.assign(window, { playEngine: play.engine }); // debug and end-to-end test hook
     const net = play.netPlay;
     const how = net
-      ? ` with ${net.clients.length} client${net.clients.length === 1 ? "" : "s"}${net.thin.length ? ` and ${net.thin.length} thin client${net.thin.length === 1 ? "" : "s"}` : ""}`
+      ? ` with ${net.clients.length} client${net.clients.length === 1 ? "" : "s"}${net.thin.length ? ` and ${net.thin.length} thin client${net.thin.length === 1 ? "" : "s"}` : ""}${net.server ? ` on the ${net.server} World` : ""}`
       : setup.enabled
-        ? " as the project sets it up (multiplayer play needs a client World linked to a server World)"
+        ? " as the project sets it up (multiplayer play needs a client World linked to a server World, or a server template)"
         : "";
     status.value = { kind: "info", text: `Playing ${scene.path}${how}. Edits made now don't affect the running game. Stop (Ctrl+P) to return.` };
   } catch (err) {
@@ -505,13 +506,29 @@ export async function startPlaying(): Promise<void> {
 /** Leave play mode: dispose the game's Engine and resume editing (and reload scripts saved meanwhile). */
 export function stopPlaying(): void {
   if (!play) return;
+  const keptValues = takeKept(); // "Keep values" from the live Inspector (runtimeInspect.ts)
+  endLiveInspection();
   play.stop();
   play = null;
   playing.value = null;
   Object.assign(window, { playEngine: null });
   playState.value = "edit";
   status.value = null;
+  if (keptValues.length > 0) writeKeptValues(keptValues);
   if (pendingReload) void reloadScripts();
+}
+
+/** Write values kept during play into the open scene as one undo step, and say what happened. */
+function writeKeptValues(list: KeptValues[]): void {
+  const scene = openScene.value;
+  if (!scene) return;
+  try {
+    const { written, skipped } = applyKept(scene, list);
+    const text = `Kept play-mode changes: ${written} field${written === 1 ? "" : "s"} written to ${scene.path} (Undo reverts them)${skipped.length ? `; ${skipped.length} skipped: ${skipped.join(" ")}` : "."}`;
+    status.value = { kind: skipped.length && !written ? "error" : "info", text, detail: skipped.length ? skipped.join("\n") : undefined };
+  } catch (err) {
+    status.value = errorStatus("Couldn't keep the play-mode changes", err);
+  }
 }
 
 /** Stops watching the current project's scripts folder. */

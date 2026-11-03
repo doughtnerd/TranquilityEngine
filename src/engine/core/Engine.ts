@@ -399,6 +399,34 @@ export class Engine implements BootstrapEngine {
     if (this.defaultWorld) World.active = this.defaultWorld;
   }
 
+  /**
+   * @internal Editor: advance only the World named `name` one frame by `dt` (play mode's per-World
+   * Step), paused or not. Input isn't snapshotted again, so keys pressed meanwhile show next frame.
+   */
+  _stepWorld(name: string, dt: number): void {
+    const world = this._world(name);
+    if (!world) throw new Error(`There's no World named "${name}" in this Engine.`);
+    this.stepWorld(world, dt);
+    if (this.defaultWorld) World.active = this.defaultWorld;
+  }
+
+  /**
+   * @internal Editor: draw every World's view again without stepping (after an edit while the
+   * game is paused): transforms are propagated, then each surface is synced and rendered.
+   */
+  _redraw(): void {
+    for (const world of this.list) {
+      const surface = world === this.viewWorld ? this.render : this.extraViews.get(world);
+      if (!surface) continue;
+      World._runIn(world, () => {
+        world._propagateTransforms();
+        surface.sync(world);
+        surface.render(world);
+      });
+    }
+    if (this.defaultWorld) World.active = this.defaultWorld;
+  }
+
   /** One World's frame, with it as the current World. Order follows ADR 0011. */
   private stepWorld(world: World, dt: number): void {
     const time = world.time;
