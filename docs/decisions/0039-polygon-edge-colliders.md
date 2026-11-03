@@ -1,6 +1,6 @@
 # 0039. Polygon and edge colliders for 2D physics
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

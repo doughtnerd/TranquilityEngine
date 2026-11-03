@@ -1,6 +1,6 @@
 # 0042. List fields, field choices, and per-instance Worlds and tags overrides
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
