@@ -163,6 +163,8 @@ ${built ? `Installers: ${built}\n` : ""}Building the app needs Rust (https://rus
   npx @tauri-apps/cli build      installers in src-tauri/target/release/bundle/
   npx @tauri-apps/cli dev        (or run it without installing)
 
+On Windows, keep this folder's path short: the Rust linker fails on paths past 260 characters.
+
 Saves are files in the app data folder of the identifier in src-tauri/tauri.conf.json.
 `;
 }
