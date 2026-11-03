@@ -28,7 +28,7 @@ import { netSession, type NetPeer, type NetTraffic } from "../net/session";
 import type { LinkConditions } from "../net/Transport";
 
 export type { InstantiateHooks } from "../scene/SceneLoader";
-export { MaterialPreview, type PreviewMesh } from "../render/MaterialPreview";
+export { MaterialPreview, NodePreviewRenderer, type PreviewMesh } from "../render/MaterialPreview";
 
 /** One node of a World, as listed by `listNodes`. */
 export interface NodeInfo {

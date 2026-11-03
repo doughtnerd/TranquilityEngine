@@ -22,7 +22,7 @@ import {
   type WebGLProgramParametersWithUniforms,
 } from "three";
 import { checkPropertyValue, type GraphValue } from "../../scene/shaderGraph";
-import { linearColor, SHARED_UNIFORMS, type CompiledShaderGraph, type CompiledUniform } from "./compile";
+import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, type CompiledUniform } from "./compile";
 
 /** The uniforms every graph material shares (time, drawing-buffer size), owned by whoever draws them. */
 export interface SharedGraphUniforms {
@@ -48,8 +48,17 @@ export interface GraphMaterial {
   /** Shadow materials that move vertices as the graph does; null without a vertex offset. */
   depth: MeshDepthMaterial | null;
   distance: MeshDistanceMaterial | null;
+  /** The compiled graph it was made from. */
+  compiled: CompiledShaderGraph;
+  /** The property values it was made with (a material's, over the graph's defaults). */
+  properties: Record<string, GraphValue>;
+  /** Set every property from `values` (missing ones go back to the graph's defaults), without recompiling (ADR 0049). */
+  setProperties(values: Record<string, GraphValue>): void;
   dispose(): void;
 }
+
+/** Load a texture asset; `linear` asks for data (normal maps) rather than sRGB colour. */
+export type LoadTexture = (path: string, linear: boolean) => Promise<Texture>;
 
 /** Insert `code` after the first `anchor` in `source`; throws if three's shader no longer has it. */
 function after(source: string, anchor: string, code: string): string {
@@ -89,7 +98,10 @@ export function patchFragmentShader(source: string, c: CompiledShaderGraph): str
 /** A property's value for a uniform: the material's override if it suits the type, else the graph's default. */
 function uniformValue(u: CompiledUniform, overrides: Record<string, GraphValue>): unknown {
   let v: GraphValue = u.value;
-  if (u.property && u.propertyType && overrides[u.property] !== undefined) v = checkPropertyValue(u.propertyType, overrides[u.property]) ?? u.value;
+  const own = u.property ? overrides[u.property] : undefined;
+  // A colour given as numbers (sRGB 0–1, from a script) instead of "#rrggbb".
+  if (u.propertyType === "color" && Array.isArray(own) && own.length >= 3) return new Vector4(srgbToLinear(own[0]), srgbToLinear(own[1]), srgbToLinear(own[2]), own[3] ?? 1);
+  if (u.property && u.propertyType && own !== undefined) v = checkPropertyValue(u.propertyType, own) ?? u.value;
   if (u.type === "sampler2D") return v;
   if (u.propertyType === "color") return new Vector4(...linearColor(String(v)));
   if (u.type === "float") return typeof v === "number" ? v : 0;
@@ -101,27 +113,35 @@ function uniformValue(u: CompiledUniform, overrides: Record<string, GraphValue>)
  * A three.js material for a compiled graph. `overrides` are a material's property values;
  * `loadTexture` fetches texture assets (slots read white until they load).
  */
-export function createGraphMaterial(c: CompiledShaderGraph, overrides: Record<string, GraphValue>, shared: SharedGraphUniforms, loadTexture: (path: string) => Promise<Texture>, onTexture?: () => void): GraphMaterial {
+export function createGraphMaterial(c: CompiledShaderGraph, overrides: Record<string, GraphValue>, shared: SharedGraphUniforms, loadTexture: LoadTexture, onTexture?: () => void): GraphMaterial {
   const uniforms: Record<string, IUniform> = { [SHARED_UNIFORMS.time]: shared.time, [SHARED_UNIFORMS.resolution]: shared.resolution };
   let disposed = false;
-  for (const u of c.uniforms) {
-    const value = uniformValue(u, overrides);
-    if (u.type !== "sampler2D") {
-      uniforms[u.name] = { value };
-      continue;
+  /** Each texture slot's path, so setting the same texture again doesn't reload it. */
+  const slotPaths = new Map<string, string>();
+  const apply = (values: Record<string, GraphValue>) => {
+    for (const u of c.uniforms) {
+      const value = uniformValue(u, values);
+      if (u.type !== "sampler2D") {
+        if (uniforms[u.name]) uniforms[u.name].value = value;
+        else uniforms[u.name] = { value };
+        continue;
+      }
+      const slot = (uniforms[u.name] ??= { value: whiteTexture() }) as IUniform<Texture>;
+      const path = String(value).replace(/^asset:/, "");
+      if (slotPaths.get(u.name) === path) continue;
+      slotPaths.set(u.name, path);
+      slot.value = whiteTexture();
+      if (path)
+        loadTexture(path, !!u.linear)
+          .then((tex) => {
+            if (disposed || slotPaths.get(u.name) !== path) return;
+            slot.value = tex;
+            onTexture?.();
+          })
+          .catch((err) => console.error(`[myco] failed to load texture "${path}" for a shader graph:`, err));
     }
-    const slot: IUniform<Texture> = { value: whiteTexture() };
-    uniforms[u.name] = slot;
-    const path = String(value).replace(/^asset:/, "");
-    if (path)
-      loadTexture(path)
-        .then((tex) => {
-          if (disposed) return;
-          slot.value = tex;
-          onTexture?.();
-        })
-        .catch((err) => console.error(`[myco] failed to load texture "${path}" for a shader graph:`, err));
-  }
+  };
+  apply(overrides);
   const transparent = c.surface === "transparent";
   const common = { transparent, depthWrite: !transparent, side: c.doubleSided ? DoubleSide : FrontSide };
   const material = c.target === "lit" ? new MeshStandardMaterial({ ...common, color: 0xffffff }) : new MeshBasicMaterial({ ...common, color: 0xffffff });
@@ -150,6 +170,9 @@ export function createGraphMaterial(c: CompiledShaderGraph, overrides: Record<st
     material,
     depth,
     distance,
+    compiled: c,
+    properties: { ...overrides },
+    setProperties: apply,
     dispose() {
       disposed = true;
       material.dispose();

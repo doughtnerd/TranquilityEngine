@@ -1,0 +1,26 @@
+{
+  "format": "myco.shadergraph@1",
+  "properties": [
+    { "name": "Shallow", "type": "color", "value": "#5fd3e6" },
+    { "name": "Deep", "type": "color", "value": "#0b3d6e" }
+  ],
+  "nodes": [
+    { "id": "output", "type": "output", "position": [400, -120], "inputs": { "roughness": 0.15 } },
+    { "id": "ripple1", "type": "subgraph", "position": [-300, 20], "settings": { "subgraph": "asset:shaders/ripple.shadersubgraph.json" } },
+    { "id": "shallow", "type": "property", "position": [-300, -200], "settings": { "property": "Shallow" } },
+    { "id": "deep", "type": "property", "position": [-300, -100], "settings": { "property": "Deep" } },
+    { "id": "lerp1", "type": "lerp", "position": [80, -120] }
+  ],
+  "edges": [
+    { "from": "deep.out", "to": "lerp1.a" },
+    { "from": "shallow.out", "to": "lerp1.b" },
+    { "from": "ripple1.Height", "to": "lerp1.t" },
+    { "from": "lerp1.out", "to": "output.baseColor" }
+  ],
+  "groups": [
+    { "id": "group1", "title": "Colour", "nodes": ["shallow", "deep", "lerp1"] }
+  ],
+  "notes": [
+    { "id": "note1", "position": [-300, 300], "size": [240, 80], "text": "Ripple is a sub-graph with a Custom Function node inside." }
+  ]
+}

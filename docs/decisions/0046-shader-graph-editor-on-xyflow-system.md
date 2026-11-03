@@ -4,7 +4,7 @@
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0004, 0010, 0025, 0026, 0043, 0047
+- **Related:** 0004, 0010, 0025, 0026, 0043, 0047, 0048
 
 ## Context
 

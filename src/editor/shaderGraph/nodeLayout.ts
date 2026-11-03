@@ -8,6 +8,8 @@ export const HEADER = 26;
 export const ROW = 22;
 export const PAD = 6;
 export const BASE_WIDTH = 176;
+/** A node preview's height (ADR 0048), under the rows. */
+export const PREVIEW = 120;
 /** Extra width per inline number field beyond the first. */
 const FIELD_WIDTH = 40;
 
@@ -17,7 +19,12 @@ export interface NodeBox {
   width: number;
   height: number;
   rows: NodeRow[];
+  /** The preview's top, relative to the node, or null without one (collapsed, or no number output). */
+  previewTop: number | null;
 }
+
+/** True if a node can show a preview: it has a number output and isn't the output node or a property (as in Unity). */
+export const hasPreview = (node: GraphNode, graph: ShaderGraph) => node.type !== "output" && node.type !== "property" && nodePorts(node, graph).outputs.some((p) => p.type !== "texture");
 
 /** How many number fields an input shows inline (0: none). */
 export function inlineFields(port: PortDef, connected: boolean, dynamic: ValueType): number {
@@ -33,7 +40,9 @@ export function nodeBox(node: GraphNode, graph: ShaderGraph, connected: (port: s
   const rows: NodeRow[] = [...ports.outputs.map((port) => ({ kind: "output" as const, port })), ...ports.inputs.map((port) => ({ kind: "input" as const, port })), ...settings.map((setting) => ({ kind: "setting" as const, setting }))];
   const fields = Math.max(1, ...ports.inputs.map((p) => inlineFields(p, connected(p.id), dynamic)));
   const width = BASE_WIDTH + (fields - 1) * FIELD_WIDTH + (node.type === "output" ? 24 : 0);
-  return { width, height: HEADER + rows.length * ROW + PAD, rows };
+  const rowsBottom = HEADER + rows.length * ROW + PAD;
+  const preview = node.preview !== false && hasPreview(node, graph);
+  return { width, height: rowsBottom + (preview ? PREVIEW : 0), rows, previewTop: preview ? rowsBottom : null };
 }
 
 /** A port's centre relative to the node's top-left, or null if the node has no such port. */
@@ -48,6 +57,11 @@ export function nodeTitle(node: GraphNode): string {
   const def = nodeDef(node.type);
   if (!def) return node.type;
   if (node.type === "property") return node.settings?.property || "Property";
+  if (node.type === "customFunction") return node.function?.name || def.title;
+  if (node.type === "subgraph") {
+    const path = node.settings?.subgraph ?? "";
+    return path ? path.slice(path.lastIndexOf("/") + 1).replace(/\.shadersubgraph\.json$/i, "") : def.title;
+  }
   return def.title;
 }
 

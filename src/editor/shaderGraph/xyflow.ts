@@ -13,6 +13,7 @@ import {
   Position,
   XYDrag,
   XYHandle,
+  XYMinimap,
   XYPanZoom,
   getBezierPath,
   pointToRendererPoint,
@@ -109,7 +110,18 @@ export interface PaneOptions {
 }
 
 /** Pan with the middle or right mouse button, zoom with the wheel or a pinch. Left drags are left to box selection. */
-export function createPane(dom: HTMLElement, o: PaneOptions): { setView(v: View): void; panBy(dx: number, dy: number): Promise<boolean>; destroy(): void } {
+export interface Pane {
+  setView(v: View): void;
+  panBy(dx: number, dy: number): Promise<boolean>;
+  /**
+   * Make `dom` a minimap of the pane: dragging it pans, the wheel zooms. `viewScale` is graph
+   * units per minimap pixel. Returns a function that detaches it.
+   */
+  attachMinimap(dom: Element, viewScale: () => number): () => void;
+  destroy(): void;
+}
+
+export function createPane(dom: HTMLElement, o: PaneOptions): Pane {
   const pz: PanZoomInstance = XYPanZoom({
     domNode: dom,
     minZoom: 0.2,
@@ -147,6 +159,29 @@ export function createPane(dom: HTMLElement, o: PaneOptions): { setView(v: View)
       const v = pz.getViewport();
       await pz.setViewport({ x: v.x - dx, y: v.y - dy, zoom: v.zoom });
       return dx !== 0 || dy !== 0;
+    },
+    attachMinimap: (el, viewScale) => {
+      const map = XYMinimap({
+        domNode: el,
+        panZoom: pz,
+        getTransform: () => {
+          const v = pz.getViewport();
+          return [v.x, v.y, v.zoom];
+        },
+        getViewScale: viewScale,
+      });
+      map.update({
+        translateExtent: [
+          [-Infinity, -Infinity],
+          [Infinity, Infinity],
+        ],
+        width: dom.clientWidth,
+        height: dom.clientHeight,
+        inversePan: true,
+        pannable: true,
+        zoomable: true,
+      });
+      return () => map.destroy();
     },
     destroy: () => pz.destroy(),
   };

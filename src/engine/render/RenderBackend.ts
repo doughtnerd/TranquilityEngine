@@ -63,8 +63,10 @@ import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import type { GameObject } from "../scene/GameObject";
 import { Camera, Light, MeshRenderer, SpriteRenderer, Text, type Anchor } from "./components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
-import { materialGraph, parseMaterial } from "../scene/material";
+import { colorHex, materialGraph, parseMaterial } from "../scene/material";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../scene/shaderGraph";
+import { Color, Vector2, Vector3 } from "../core/math";
+import type { MaterialPropertyValue } from "./components";
 import { compileShaderGraph } from "./shaderGraph/compile";
 import { createGraphMaterial, createSharedGraphUniforms, type GraphMaterial } from "./shaderGraph/threeMaterial";
 import type { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
@@ -150,6 +152,26 @@ interface MaterialEntry {
   textures: Texture[];
   /** A shader graph material and its shadow materials. */
   graph?: GraphMaterial;
+  /** Sub-graph files the graph uses, with the JSON they had (ADR 0048): a change rebuilds it. */
+  deps?: [string, unknown][];
+}
+
+/** A renderer's own copy of its material, holding its property overrides (ADR 0049). */
+interface RendererMaterial {
+  base: Material;
+  material: Material;
+  graph?: GraphMaterial;
+  version: number;
+}
+
+const BUILTIN_PROPERTIES = new Set(["color", "emission", "metalness", "roughness", "texture"]);
+
+/** A script's property value as material-file data: colours as `#rrggbbaa`, vectors as number lists. */
+function toGraphValue(v: MaterialPropertyValue): GraphValue {
+  if (v instanceof Color) return colorHex(v);
+  if (v instanceof Vector2) return [v.x, v.y];
+  if (v instanceof Vector3) return [v.x, v.y, v.z];
+  return Array.isArray(v) ? [...v] : (v as number | string);
 }
 
 interface CameraEntry {
@@ -224,6 +246,10 @@ export class RenderBackend {
   private readonly graphUniforms = createSharedGraphUniforms();
   /** Shadow materials for graph materials that move their vertices. */
   private readonly graphShadows = new WeakMap<Material, GraphMaterial>();
+  /** Renderers with property overrides, and their own materials. */
+  private readonly rendererMaterials = new Map<MeshRenderer, RendererMaterial>();
+  /** Linear (non-sRGB) copies of textures, for normal maps sampled in shader graphs. */
+  private readonly linearTextures = new Map<string, Texture>();
   /** Lit meshes without a material of their own (ADR 0043). */
   private readonly defaultMaterial = new MeshStandardMaterial({ color: 0xffffff, roughness: 0.5, metalness: 0 });
   /** The light a World without Lights gets: a soft ambient light and a sun from above and in front. */
@@ -366,7 +392,22 @@ export class RenderBackend {
     );
   }
 
-  private texture(path: string): Promise<Texture> {
+  private texture(path: string, linear = false): Promise<Texture> {
+    if (linear) {
+      // Normal maps in shader graphs (ADR 0048): a copy that samples the same image without sRGB decoding.
+      const copy = this.linearTextures.get(path);
+      if (copy) return Promise.resolve(copy);
+      return this.texture(path).then((tex) => {
+        let t = this.linearTextures.get(path);
+        if (!t) {
+          t = tex.clone();
+          t.colorSpace = NoColorSpace;
+          t.needsUpdate = true;
+          this.linearTextures.set(path, t);
+        }
+        return t;
+      });
+    }
     const cached = this.textures.get(path);
     if (cached) return Promise.resolve(cached);
     let p = this.loading.get(path);
@@ -413,6 +454,7 @@ export class RenderBackend {
         for (const o of e.objects) this.scene.remove(o);
         this.meshRenderers.delete(c);
       }
+      this.releaseRendererMaterial(c);
     } else if (c instanceof Light) {
       const e = this.lights.get(c);
       if (e) {
@@ -562,7 +604,7 @@ export class RenderBackend {
     }
     if (!this.environmentLoading) this.environmentLoading = this.loadEnvironment();
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
-    const material = this.materialAsset(r.material);
+    const material = this.rendererMaterial(r, this.materialAsset(r.material));
     const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
     if (!same || entry.material !== material) {
       for (const o of entry.objects) this.scene.remove(o);
@@ -643,7 +685,7 @@ export class RenderBackend {
     }
     const graphRaw = graphPath ? read(graphPath) : undefined;
     const cached = this.materialAssets.get(path);
-    if (cached && cached.raw === raw && cached.graphRaw === graphRaw) return cached.material;
+    if (cached && cached.raw === raw && cached.graphRaw === graphRaw && (cached.deps ?? []).every(([p, v]) => read(p) === v)) return cached.material;
     cached?.material?.dispose();
     cached?.graph?.dispose();
     for (const t of cached?.textures ?? []) t.dispose();
@@ -707,8 +749,95 @@ export class RenderBackend {
         this.warnMaterial(path, `${(err as Error).message} Using the default material.`);
       }
     }
-    this.materialAssets.set(path, { raw, graphRaw, material, textures: owned, graph });
+    const deps = graph?.compiled.dependencies.map((p): [string, unknown] => [p, read(p)]);
+    this.materialAssets.set(path, { raw, graphRaw, material, textures: owned, graph, deps });
     return material;
+  }
+
+  /**
+   * The material a renderer draws with: its material asset's, or (with property overrides,
+   * ADR 0049) its own copy, sharing the shader program, with the overrides applied.
+   */
+  private rendererMaterial(r: MeshRenderer, base: Material | null): Material | null {
+    const overrides = r._materialProperties;
+    let entry = this.rendererMaterials.get(r);
+    if (!base || overrides.size === 0) {
+      if (entry) this.releaseRendererMaterial(r);
+      return base;
+    }
+    if (entry && entry.base !== base) {
+      this.releaseRendererMaterial(r);
+      entry = undefined;
+    }
+    const values: Record<string, GraphValue> = {};
+    for (const [k, v] of overrides) values[k] = toGraphValue(v);
+    const baseGraph = this.graphShadows.get(base);
+    if (!entry) {
+      if (baseGraph) {
+        const graph = createGraphMaterial(baseGraph.compiled, { ...baseGraph.properties, ...values }, this.graphUniforms, (p, linear) => this.texture(p, linear));
+        this.graphShadows.set(graph.material, graph);
+        entry = { base, material: graph.material, graph, version: r._materialPropertiesVersion };
+      } else {
+        entry = { base, material: base.clone(), version: -1 };
+      }
+      this.rendererMaterials.set(r, entry);
+      const known = baseGraph ? new Set(baseGraph.compiled.uniforms.flatMap((u) => (u.property ? [u.property] : []))) : BUILTIN_PROPERTIES;
+      for (const k of overrides.keys()) if (!known.has(k)) this.warnMaterial(`${r.material}|prop|${k}`, `${r.node.name}: its material has no property "${k}"; setMaterialProperty ignores it.`);
+    }
+    if (entry.version !== r._materialPropertiesVersion) {
+      entry.version = r._materialPropertiesVersion;
+      if (entry.graph && baseGraph) entry.graph.setProperties({ ...baseGraph.properties, ...values });
+      else this.applyBuiltinProperties(entry.material, base, values);
+    }
+    return entry.material;
+  }
+
+  /** A built-in material's copy: the base's values, then the overrides. */
+  private applyBuiltinProperties(m: Material, base: Material, values: Record<string, GraphValue>): void {
+    m.copy(base);
+    const mat = m as MeshStandardMaterial;
+    const color = (v: GraphValue, into: ThreeColor) => {
+      const c = typeof v === "string" ? Color.from(v) : Array.isArray(v) ? Color.from(v) : null;
+      if (c) into.setRGB(c.r, c.g, c.b, SRGBColorSpace);
+      return c;
+    };
+    if (values.color !== undefined && mat.color) {
+      const c = color(values.color, mat.color);
+      if (c) {
+        mat.opacity = c.a;
+        mat.transparent = c.a < 1;
+      }
+    }
+    if (values.emission !== undefined && mat.emissive) color(values.emission, mat.emissive);
+    if (typeof values.metalness === "number" && "metalness" in mat) mat.metalness = values.metalness;
+    if (typeof values.roughness === "number" && "roughness" in mat) mat.roughness = values.roughness;
+    if (typeof values.texture === "string") {
+      const image = values.texture.replace(/^asset:/, "");
+      if (!image) mat.map = null;
+      else
+        this.texture(image)
+          .then((tex) => {
+            if (this.rendererMaterialsHas(m)) {
+              mat.map = tex;
+              mat.needsUpdate = true;
+            }
+          })
+          .catch((err) => console.error(`[myco] failed to load texture "${image}":`, err));
+    }
+    m.needsUpdate = true;
+  }
+
+  private rendererMaterialsHas(m: Material): boolean {
+    for (const e of this.rendererMaterials.values()) if (e.material === m) return true;
+    return false;
+  }
+
+  private releaseRendererMaterial(r: MeshRenderer): void {
+    const e = this.rendererMaterials.get(r);
+    if (!e) return;
+    if (e.graph) e.graph.dispose();
+    else e.material.dispose();
+    this.rendererMaterials.delete(r);
   }
 
   /** A shader graph's JSON compiled into a material (ADR 0047); problems are warned once each. */
@@ -716,7 +845,7 @@ export class RenderBackend {
     const { graph, problems } = parseShaderGraph(graphRaw, where);
     const compiled = compileShaderGraph(graph);
     for (const p of [...problems, ...compiled.problems.map((q) => `${where}: ${q}`)]) this.warnMaterial(p, p);
-    const made = createGraphMaterial(compiled, properties, this.graphUniforms, (p) => this.texture(p));
+    const made = createGraphMaterial(compiled, properties, this.graphUniforms, (p, linear) => this.texture(p, linear));
     this.graphShadows.set(made.material, made);
     return made;
   }
@@ -1719,6 +1848,9 @@ export class RenderBackend {
     this.boxOutlineGeometry?.dispose();
     this.environment?.dispose();
     this.defaultMaterial.dispose();
+    for (const r of [...this.rendererMaterials.keys()]) this.releaseRendererMaterial(r);
+    for (const t of this.linearTextures.values()) t.dispose();
+    this.linearTextures.clear();
     this.overlayLines?.geometry.dispose();
     this.overlayLines?.material.dispose();
     this.overlayHandles?.geometry.dispose();

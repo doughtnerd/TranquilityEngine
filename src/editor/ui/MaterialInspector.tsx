@@ -230,10 +230,11 @@ export function ShaderGraphInspector(props: { path: string }) {
   if (!project) return <p class="empty">Nothing selected</p>;
   const { graph, problems } = readShaderGraph(project, props.path);
   const all = [...problems, ...compileShaderGraph(graph).problems];
+  const sub = !!graph.subgraph;
   return (
     <div class="inspector-body asset-inspector" aria-label="Shader Graph">
       <div class="asset-inspector-head">
-        <span class="asset-inspector-kind">Shader Graph</span>
+        <span class="asset-inspector-kind">{sub ? "Sub Graph" : "Shader Graph"}</span>
         <span class="asset-inspector-name" title={props.path}>
           {fileName(props.path)}
         </span>
@@ -246,13 +247,15 @@ export function ShaderGraphInspector(props: { path: string }) {
         </ul>
       )}
       <div class="component asset-import-card">
-        <h3>Shader Graph</h3>
+        <h3>{sub ? "Sub Graph" : "Shader Graph"}</h3>
         <p class="asset-inspector-note">
-          {graph.target === "lit" ? "Lit" : "Unlit"}, {graph.surface}{graph.doubleSided ? ", double-sided" : ""}; {graph.nodes.length} nodes, {graph.properties.length} properties.
+          {sub
+            ? `${graph.properties.length} inputs, ${graph.subgraph!.outputs.length} outputs; ${graph.nodes.length} nodes. Use it in a graph with a Sub Graph node.`
+            : `${graph.target === "lit" ? "Lit" : "Unlit"}, ${graph.surface}${graph.doubleSided ? ", double-sided" : ""}; ${graph.nodes.length} nodes, ${graph.properties.length} properties.`}
         </p>
         <div class="material-pair">
           <button class="primary" onClick={() => openShaderGraphAsset(props.path)}>Open in Shader Graph</button>
-          <button disabled={!project.canSave} onClick={() => void createMaterialForGraph(props.path)}>New Material</button>
+          {!sub && <button disabled={!project.canSave} onClick={() => void createMaterialForGraph(props.path)}>New Material</button>}
         </div>
       </div>
     </div>

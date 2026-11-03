@@ -1,14 +1,32 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
-import { MaterialPreview, type PreviewMesh } from "../../engine/editor";
-import { compileShaderGraph, shaderGraphListing, type CompiledShaderGraph } from "../../engine/render/shaderGraph/compile";
+import { MaterialPreview, NodePreviewRenderer, type PreviewMesh } from "../../engine/editor";
+import { compileShaderGraph, nodePreviewGraph, shaderGraphListing, type CompiledShaderGraph } from "../../engine/render/shaderGraph/compile";
 import { NODES, nodeDef, type PortDef, type SettingDef, type ValueType } from "../../engine/render/shaderGraph/nodes";
-import { formatShaderGraph, GRAPH_PROPERTY_TYPES, portRef, propertySize, splitPortRef, type GraphNode, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../engine/scene/shaderGraph";
+import { formatShaderGraph, GRAPH_PROPERTY_TYPES, isPortName, portRef, propertySize, splitPortRef, type CustomFunction, type FunctionPort, type GraphGroup, type GraphNode, type GraphNote, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../engine/scene/shaderGraph";
 import { assetKind, fileName } from "../assetBrowser";
 import { errorStatus } from "../messages";
 import type { EditorProject } from "../projects";
 import {
   addNode,
+  addNote,
   addProperty,
+  addSubGraphOutput,
+  copyNodes,
+  defaultFunction,
+  freePortName,
+  groupNodes,
+  pasteNodes,
+  removeNote,
+  removeSubGraphOutput,
+  renameSubGraphOutput,
+  setFunction,
+  setGroupTitle,
+  setPreview,
+  setSubGraphOutputType,
+  ungroup,
+  updateNote,
+  whyNotPortName,
+  type GraphClipboard,
   categoryRank,
   connect,
   disconnect,
@@ -29,14 +47,16 @@ import {
   whyNotConnect,
   whyNotPropertyName,
 } from "../shaderGraph/graphEdit";
-import { HEADER, ROW, inlineFields, nodeBox, nodeTitle, portOffset, settingValue, type NodeBox } from "../shaderGraph/nodeLayout";
-import { NO_DRAG, NO_PAN, NO_WHEEL, createNodeDrag, createPane, handleProps, startConnection, toGraph, wirePath, type CanvasNode, type DraftWire, type Point, type View } from "../shaderGraph/xyflow";
+import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, settingValue, type NodeBox } from "../shaderGraph/nodeLayout";
+import { NO_DRAG, NO_PAN, NO_WHEEL, createNodeDrag, createPane, handleProps, startConnection, toGraph, wirePath, type CanvasNode, type DraftWire, type Pane, type Point, type View } from "../shaderGraph/xyflow";
 import { createMaterialForGraph, graphHistory, openShaderGraph, readShaderGraph, recordEdit, writeShaderGraph, createShaderGraph, openShaderGraphAsset } from "../shaderGraphAssets";
 import { currentProject, docVersion, status } from "../state";
 import "./shaderGraph.css";
 
 /** Each graph's view (pan and zoom) this session, so switching tabs keeps it. */
 const views = new Map<string, View>();
+/** Nodes copied with Ctrl+C or cut with Ctrl+X, pasted into any graph (ADR 0048). */
+let clipboard: GraphClipboard | null = null;
 
 /** What a dropped connection or the node search connects a new node to. */
 type Pending = { side: "output" | "input"; ref: string; type: ValueType | "dynamic" } | null;
@@ -83,10 +103,13 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   const [maximized, setMaximized] = useState(false);
   const [shaderError, setShaderError] = useState<string | null>(null);
   const [, setHistoryTick] = useState(0);
+  const [paneSize, setPaneSize] = useState({ w: 600, h: 400 });
+  /** The last pointer position over the canvas (CSS pixels in the pane), where pastes land. */
+  const pointer = useRef<Point | null>(null);
 
   const root = useRef<HTMLDivElement>(null);
   const pane = useRef<HTMLDivElement>(null);
-  const paneApi = useRef<ReturnType<typeof createPane> | null>(null);
+  const paneApi = useRef<Pane | null>(null);
   const flowId = useMemo(() => `sg${Math.random().toString(36).slice(2, 8)}`, []);
   /** The file text last read or written, to tell our own writes from changes made elsewhere. */
   const fileText = useRef(formatShaderGraph(graph));
@@ -212,7 +235,12 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
       },
     });
     if (!views.has(path)) frameAll();
-    return () => paneApi.current?.destroy();
+    const resize = new ResizeObserver(() => setPaneSize({ w: el.clientWidth, h: el.clientHeight }));
+    resize.observe(el);
+    return () => {
+      resize.disconnect();
+      paneApi.current?.destroy();
+    };
   }, []);
 
   const panBy = (dx: number, dy: number) => paneApi.current?.panBy(dx, dy) ?? Promise.resolve(false);
@@ -281,7 +309,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   };
 
   const onPaneDown = (e: PointerEvent) => {
-    if (e.button !== 0 || (e.target as Element).closest(".sg-node, .sg-search, .sg-wire-hit")) return;
+    if (e.button !== 0 || (e.target as Element).closest(".sg-node, .sg-search, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap")) return;
     root.current?.focus({ preventScroll: true });
     setSearch(null);
     setSelectedEdge(null);
@@ -320,6 +348,49 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     }
   };
 
+  const pasteHere = () => {
+    if (!clipboard || readOnly) return;
+    const at = toGraph(pointer.current ?? paneCenter(), live.current.view);
+    const made = pasteNodes(graph, clipboard, [at.x, at.y]);
+    commit(made.graph);
+    setSelection(new Set(made.ids));
+  };
+
+  const groupSelection = () => {
+    if (selection.size === 0) return;
+    commit(groupNodes(graph, selection).graph);
+  };
+
+  const addNoteHere = () => {
+    const at = toGraph(paneCenter(), live.current.view);
+    commit(addNote(graph, [at.x - 100, at.y - 50]).graph);
+  };
+
+  /** Drag a group by its title: its nodes move together, as one undo step. */
+  const startGroupDrag = (e: PointerEvent, group: GraphGroup) => {
+    if (e.button !== 0 || readOnly || isFieldTarget(e.target)) return;
+    e.stopPropagation();
+    const start = { x: e.clientX, y: e.clientY };
+    const base = new Map(graph.nodes.filter((n) => group.nodes.includes(n.id)).map((n) => [n.id, { x: n.position[0], y: n.position[1] }]));
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    let last = base;
+    const move = (m: PointerEvent) => {
+      const z = live.current.view.zoom;
+      const dx = (m.clientX - start.x) / z, dy = (m.clientY - start.y) / z;
+      last = new Map([...base].map(([id, p]) => [id, { x: p.x + dx, y: p.y + dy }]));
+      setDragging(last);
+    };
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+      setDragging(null);
+      commit(moveNodes(live.current.graph, new Map([...last].map(([id, p]) => [id, [p.x, p.y] as [number, number]]))));
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     if (isFieldTarget(e.target)) return;
     const key = e.key.toLowerCase();
@@ -332,6 +403,18 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
       commit(made.graph);
       setSelection(new Set(made.ids));
     } else if (mod && key === "a") setSelection(new Set(graph.nodes.map((n) => n.id)));
+    else if (mod && (key === "c" || key === "x")) {
+      const clip = copyNodes(graph, selection);
+      if (clip) {
+        clipboard = clip;
+        void navigator.clipboard?.writeText(JSON.stringify(clip)).catch(() => undefined);
+        if (key === "x") {
+          commit(removeNodes(graph, selection));
+          setSelection(new Set());
+        }
+      }
+    } else if (mod && key === "v") pasteHere();
+    else if (mod && key === "g") groupSelection();
     else if (!mod && (key === "delete" || key === "backspace")) deleteSelection();
     else if (!mod && key === " ") openSearch(paneCenter(), null);
     else if (!mod && key === "f") frameAll();
@@ -350,8 +433,9 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     const p = toGraph(at, view);
     const made = addNode(graph, type, [p.x, p.y - HEADER], settings);
     let next = made.graph;
+    if (type === "customFunction") next = setFunction(next, made.id, defaultFunction());
     if (pending?.side === "output") {
-      const input = firstInputFor(type, pending.type === "dynamic" ? "float" : pending.type, next);
+      const input = firstInputFor(type, pending.type === "dynamic" ? "float" : pending.type, next, settings);
       if (input) next = connect(next, pending.ref, portRef(made.id, input));
     } else if (pending?.side === "input") {
       const output = firstOutputFor(type, pending.type, next, settings);
@@ -394,6 +478,36 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   }, [codeKey]);
   useEffect(() => preview.current?.setMesh(mesh), [mesh]);
 
+  // Node previews (ADR 0048): one offscreen renderer draws each node's preview about ten times a second.
+  const previewGraphs = useMemo(() => {
+    const m = new Map<string, ShaderGraph>();
+    for (const n of graph.nodes) {
+      const g = n.preview === false ? null : nodePreviewGraph(graph, n.id);
+      if (g) m.set(n.id, g);
+    }
+    return m;
+  }, [codeKey]);
+  const previewGraphsRef = useRef(previewGraphs);
+  previewGraphsRef.current = previewGraphs;
+  useEffect(() => {
+    const renderer = new NodePreviewRenderer(PREVIEW - 8);
+    const draw = () => {
+      if (document.hidden || !pane.current) return;
+      renderer.begin();
+      for (const canvas of pane.current.querySelectorAll<HTMLCanvasElement>("canvas[data-preview]")) {
+        const g = previewGraphsRef.current.get(canvas.dataset.preview!);
+        if (g) canvas.classList.toggle("failed", !renderer.draw(g, canvas));
+      }
+      renderer.end();
+    };
+    draw();
+    const timer = setInterval(draw, 100);
+    return () => {
+      clearInterval(timer);
+      renderer.dispose();
+    };
+  }, []);
+
   // --- drawing ---------------------------------------------------------------------------------------
 
   const nodeById = new Map(canvasNodes.map((n) => [n.id, n]));
@@ -405,7 +519,18 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   };
 
   const images = project.files.filter((f) => assetKind(f) === "image");
+  const subgraphs = project.files.filter((f) => assetKind(f) === "shadersubgraph" && f !== path);
   const problems = [...parseProblems, ...compiled.problems];
+  const sub = !!graph.subgraph;
+  const selectedNode = selection.size === 1 ? graph.nodes.find((n) => selection.has(n.id)) : undefined;
+  const groupRect = (g: GraphGroup) => {
+    const members = canvasNodes.filter((n) => g.nodes.includes(n.id));
+    if (members.length === 0) return null;
+    const pad = 16, head = 28;
+    const x0 = Math.min(...members.map((n) => n.x)) - pad, y0 = Math.min(...members.map((n) => n.y)) - pad - head;
+    const x1 = Math.max(...members.map((n) => n.x + n.width)) + pad, y1 = Math.max(...members.map((n) => n.y + n.height)) + pad;
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  };
 
   return (
     <div class={`shader-graph${maximized ? " maximized" : ""}`} ref={root} tabIndex={0} onKeyDown={onKeyDown} aria-label="Shader Graph">
@@ -413,6 +538,9 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
         <span class="sg-name" title={path}>
           {fileName(path)}
         </span>
+        {sub && <span class="sg-kind">Sub Graph</span>}
+        {!sub && (
+          <>
         <label>
           Target{" "}
           <select aria-label="Target" disabled={readOnly} value={graph.target} onChange={(e) => commit(setGraphOptions(graph, { target: (e.currentTarget as HTMLSelectElement).value as ShaderGraph["target"] }))}>
@@ -430,6 +558,8 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
         <label>
           <input type="checkbox" aria-label="Double Sided" disabled={readOnly} checked={graph.doubleSided} onChange={(e) => commit(setGraphOptions(graph, { doubleSided: (e.currentTarget as HTMLInputElement).checked }))} /> Double Sided
         </label>
+          </>
+        )}
         <span class="sg-spacer" />
         <button title="Undo (Ctrl+Z)" disabled={readOnly || history.undo.length === 0} onClick={undo}>
           Undo
@@ -440,15 +570,23 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
         <button title="Add a node (Space, or right-click the canvas)" disabled={readOnly} onClick={() => openSearch(paneCenter(), null)}>
           Add Node
         </button>
+        <button title="Put the selected nodes in a group (Ctrl+G)" disabled={readOnly || selection.size === 0} onClick={groupSelection}>
+          Group
+        </button>
+        <button title="Add a sticky note" disabled={readOnly} onClick={addNoteHere}>
+          Note
+        </button>
         <button title="Show every node (F)" onClick={() => frameAll()}>
           Frame
         </button>
         <button class={showGlsl ? "active" : ""} aria-pressed={showGlsl} title="Show the GLSL this graph compiles to" onClick={() => setShowGlsl(!showGlsl)}>
           GLSL
         </button>
-        <button title="Create a material that draws with this graph" disabled={readOnly} onClick={() => void createMaterialForGraph(path)}>
-          New Material
-        </button>
+        {!sub && (
+          <button title="Create a material that draws with this graph" disabled={readOnly} onClick={() => void createMaterialForGraph(path)}>
+            New Material
+          </button>
+        )}
         <button aria-pressed={maximized} title={maximized ? "Back into the layout" : "Fill the window"} onClick={() => setMaximized(!maximized)}>
           {maximized ? "Restore" : "Maximize"}
         </button>
@@ -456,6 +594,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
       <div class="sg-body">
         <aside class="sg-side">
           <Blackboard
+            sub={sub}
             graph={graph}
             images={images}
             readOnly={readOnly}
@@ -466,6 +605,8 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
               setSelection(new Set([made.id]));
             }}
           />
+          {sub && <SubGraphOutputs graph={graph} readOnly={readOnly} commit={commit} />}
+          {selectedNode?.type === "customFunction" && <FunctionEditor key={selectedNode.id} node={selectedNode} graph={graph} readOnly={readOnly} commit={commit} />}
           <div class="sg-preview-card">
             <div class="sg-preview-head">
               <span>Preview</span>
@@ -480,8 +621,34 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
             <div class="sg-preview" ref={previewHost} aria-label="Shader preview" title="Drag to turn" />
           </div>
         </aside>
-        <div class="sg-pane" ref={pane} onPointerDown={onPaneDown} onContextMenu={(e) => e.preventDefault()}>
+        <div
+          class="sg-pane"
+          ref={pane}
+          onPointerDown={onPaneDown}
+          onPointerMove={(e) => {
+            const r = pane.current!.getBoundingClientRect();
+            pointer.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+          }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <div class="sg-viewport" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
+            {graph.groups?.map((g) => {
+              const r = groupRect(g);
+              if (!r) return null;
+              return (
+                <div key={g.id} class="sg-group" style={{ left: px(r.x), top: px(r.y), width: px(r.w), height: px(r.h) }} aria-label={`Group ${g.title}`}>
+                  <div class={`sg-group-head ${NO_PAN}`} onPointerDown={(e) => startGroupDrag(e, g)}>
+                    <input type="text" class={NO_DRAG} aria-label="Group title" disabled={readOnly} value={g.title} onChange={(e) => commit(setGroupTitle(graph, g.id, (e.currentTarget as HTMLInputElement).value))} />
+                    <button title="Ungroup (the nodes stay)" aria-label={`Ungroup ${g.title}`} disabled={readOnly} onClick={() => commit(ungroup(graph, g.id))}>
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {graph.notes?.map((n) => (
+              <NoteView key={n.id} note={n} zoom={view.zoom} readOnly={readOnly} onChange={(patch) => commit(updateNote(live.current.graph, n.id, patch))} onRemove={() => commit(removeNote(live.current.graph, n.id))} />
+            ))}
             <svg class="sg-wires">
               {graph.edges.map((e) => {
                 if (e.to === detached) return null;
@@ -512,6 +679,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
                 connected={connectedInputs}
                 flowId={flowId}
                 images={images}
+                subgraphs={subgraphs}
                 readOnly={readOnly}
                 onDown={onNodeDown}
                 onPortDown={onPortDown}
@@ -531,7 +699,8 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
             ))}
           </div>
           {box && <div class="sg-box" style={{ left: px(Math.min(box.a.x, box.b.x)), top: px(Math.min(box.a.y, box.b.y)), width: px(Math.abs(box.b.x - box.a.x)), height: px(Math.abs(box.b.y - box.a.y)) }} />}
-          {search && <NodeSearch graph={graph} at={search.at} pending={search.pending} onPick={(type, settings) => addFromSearch(type, settings, search.at, search.pending)} onClose={closeSearch} />}
+          <Minimap nodes={canvasNodes} view={view} size={paneSize} pane={paneApi} />
+          {search && <NodeSearch graph={graph} subgraphs={subgraphs} at={search.at} pending={search.pending} onPick={(type, settings) => addFromSearch(type, settings, search.at, search.pending)} onClose={closeSearch} />}
           {(problems.length > 0 || shaderError) && (
             <ul class="sg-problems" aria-label="Shader graph problems">
               {shaderError && <li class="error">WebGL couldn't compile the generated shader: {shaderError}</li>}
@@ -571,6 +740,7 @@ function NodeView(props: {
   connected: ReadonlySet<string>;
   flowId: string;
   images: string[];
+  subgraphs: string[];
   readOnly: boolean;
   onDown(e: PointerEvent, id: string): void;
   onPortDown(e: MouseEvent, node: GraphNode, port: PortDef, side: "input" | "output"): void;
@@ -606,8 +776,14 @@ function NodeView(props: {
       onPointerDown={(e) => props.onDown(e, node.id)}
     >
       <div class={`sg-node-header cat-${(def?.category ?? "Input").toLowerCase()}`} style={{ height: px(HEADER) }}>
-        {title}
+        <span class="sg-node-title">{title}</span>
+        {node.type !== "output" && node.type !== "property" && (box.previewTop !== null || node.preview === false) && (
+          <button class={`sg-preview-toggle ${NO_DRAG}`} title={node.preview === false ? "Show the preview" : "Hide the preview"} aria-label={`${node.preview === false ? "Show" : "Hide"} ${title} preview`} disabled={props.readOnly} onClick={() => props.commit(setPreview(graph, node.id, node.preview === false))}>
+            {node.preview === false ? "▸" : "▾"}
+          </button>
+        )}
       </div>
+      {box.previewTop !== null && <canvas class="sg-node-preview" data-preview={node.id} width={PREVIEW - 8} height={PREVIEW - 8} style={{ top: px(box.previewTop), left: px((box.width - (PREVIEW - 8)) / 2) }} aria-label={`${title} preview`} />}
       {box.rows.map((r, i) => {
         const top = HEADER + i * ROW;
         if (r.kind === "output") {
@@ -633,7 +809,7 @@ function NodeView(props: {
         }
         return (
           <div key={`s-${r.setting.id}`} class="sg-row setting" style={{ top: px(top), height: px(ROW) }}>
-            <SettingField node={node} setting={r.setting} graph={graph} images={props.images} readOnly={props.readOnly} onValue={(v) => props.commit(setSetting(graph, node.id, r.setting.id, v))} />
+            <SettingField node={node} setting={r.setting} graph={graph} images={props.images} subgraphs={props.subgraphs} readOnly={props.readOnly} onValue={(v) => props.commit(setSetting(graph, node.id, r.setting.id, v))} />
           </div>
         );
       })}
@@ -682,7 +858,7 @@ function InlineValue(props: { node: GraphNode; port: PortDef; dynamic: ValueType
   );
 }
 
-function SettingField(props: { node: GraphNode; setting: SettingDef; graph: ShaderGraph; images: string[]; readOnly: boolean; onValue(v: string): void }) {
+function SettingField(props: { node: GraphNode; setting: SettingDef; graph: ShaderGraph; images: string[]; subgraphs: string[]; readOnly: boolean; onValue(v: string): void }) {
   const { node, setting, graph } = props;
   const value = settingValue(node, setting);
   const label = `${nodeTitle(node)} ${setting.label}`;
@@ -697,6 +873,8 @@ function SettingField(props: { node: GraphNode; setting: SettingDef; graph: Shad
   );
   let field;
   if (setting.kind === "select") field = select((setting.options ?? []).map((o) => ({ value: o, label: o[0].toUpperCase() + o.slice(1) })));
+  else if (setting.kind === "subgraph")
+    field = select([{ value: "", label: "(pick a sub-graph)" }, ...props.subgraphs.map((f) => ({ value: `asset:${f}`, label: fileName(f) })), ...(value && !props.subgraphs.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
   else if (setting.kind === "property") field = select([{ value: "", label: "(pick a property)" }, ...graph.properties.map((p) => ({ value: p.name, label: p.name }))]);
   else if (setting.kind === "texture")
     field = select([{ value: "", label: "White" }, ...props.images.map((f) => ({ value: `asset:${f}`, label: fileName(f) })), ...(value && !props.images.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
@@ -721,23 +899,27 @@ interface SearchItem {
   settings?: Record<string, string>;
 }
 
-function NodeSearch(props: { graph: ShaderGraph; at: Point; pending: Pending; onPick(type: string, settings?: Record<string, string>): void; onClose(): void }) {
+function NodeSearch(props: { graph: ShaderGraph; subgraphs: string[]; at: Point; pending: Pending; onPick(type: string, settings?: Record<string, string>): void; onClose(): void }) {
   const { graph, pending } = props;
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus(), []);
   const all: SearchItem[] = useMemo(() => {
-    const items: SearchItem[] = graph.properties.map((p) => ({ key: `property:${p.name}`, type: "property", title: p.name, category: "Properties", words: `${p.name} property ${p.type}`.toLowerCase(), settings: { property: p.name } }));
+    const items: SearchItem[] = graph.properties.map((p) => ({ key: `property:${p.name}`, type: "property", title: p.name, category: graph.subgraph ? "Inputs" : "Properties", words: `${p.name} property ${p.type}`.toLowerCase(), settings: { property: p.name } }));
+    for (const f of props.subgraphs) {
+      const name = fileName(f).replace(/\.shadersubgraph\.json$/i, "");
+      items.push({ key: `subgraph:${f}`, type: "subgraph", title: name, category: "Sub Graphs", words: `${name} sub graph subgraph`.toLowerCase(), settings: { subgraph: `asset:${f}` } });
+    }
     for (const d of [...NODES].sort((a, b) => categoryRank(a.category) - categoryRank(b.category))) {
-      if (d.type === "output" || d.type === "property") continue;
+      if (d.type === "output" || d.type === "property" || d.type === "subgraph") continue;
       items.push({ key: d.type, type: d.type, title: d.title, category: d.category, words: `${d.title} ${d.category} ${d.keywords ?? ""} ${d.type}`.toLowerCase() });
     }
     return items;
-  }, [graph]);
+  }, [graph, props.subgraphs]);
   const fits = (item: SearchItem) => {
     if (!pending) return true;
-    if (pending.side === "output") return firstInputFor(item.type, pending.type === "dynamic" ? "float" : pending.type, graph) !== null;
+    if (pending.side === "output") return firstInputFor(item.type, pending.type === "dynamic" ? "float" : pending.type, graph, item.settings) !== null;
     return firstOutputFor(item.type, pending.type, graph, item.settings) !== null;
   };
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -779,12 +961,12 @@ function NodeSearch(props: { graph: ShaderGraph; at: Point; pending: Pending; on
 
 const PROPERTY_LABELS: Record<GraphPropertyType, string> = { float: "Float", vector2: "Vector 2", vector3: "Vector 3", vector4: "Vector 4", color: "Color", texture: "Texture" };
 
-function Blackboard(props: { graph: ShaderGraph; images: string[]; readOnly: boolean; commit(g: ShaderGraph): void; placeNode(name: string): void }) {
+function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[]; readOnly: boolean; commit(g: ShaderGraph): void; placeNode(name: string): void }) {
   const { graph, readOnly, commit } = props;
   return (
     <div class="sg-blackboard" aria-label="Properties">
       <div class="sg-blackboard-head">
-        <span>Properties</span>
+        <span>{props.sub ? "Inputs" : "Properties"}</span>
         <select
           aria-label="Add property"
           disabled={readOnly}
@@ -803,7 +985,7 @@ function Blackboard(props: { graph: ShaderGraph; images: string[]; readOnly: boo
           ))}
         </select>
       </div>
-      {graph.properties.length === 0 && <p class="sg-hint">Properties are values each material sets. Add one, then place it in the graph.</p>}
+      {graph.properties.length === 0 && <p class="sg-hint">{props.sub ? "Inputs are the Sub Graph node's inputs. Add one, then place it in the graph." : "Properties are values each material sets. Add one, then place it in the graph."}</p>}
       {graph.properties.map((p, i) => (
         <div key={p.name} class="sg-property" aria-label={`Property ${p.name}`}>
           <div class="sg-property-row">
@@ -895,5 +1077,192 @@ export function PropertyValue(props: { name: string; type: GraphPropertyType; va
         }} />
       ))}
     </span>
+  );
+}
+
+// --- sub-graph outputs and custom functions (ADR 0048) -------------------------------------------------
+
+const PORT_TYPES: FunctionPort["type"][] = ["float", "vec2", "vec3", "vec4", "texture"];
+
+/** A list of named, typed ports: a sub-graph's outputs or a custom function's inputs or outputs. */
+function PortList(props: {
+  title: string;
+  ports: FunctionPort[];
+  textures: boolean;
+  readOnly: boolean;
+  onAdd(): void;
+  onRename(from: string, to: string): void;
+  onType(name: string, type: FunctionPort["type"]): void;
+  onRemove(name: string): void;
+}) {
+  return (
+    <div class="sg-ports" aria-label={props.title}>
+      <div class="sg-ports-head">
+        <span>{props.title}</span>
+        <button aria-label={`Add to ${props.title}`} title="Add a port" disabled={props.readOnly} onClick={props.onAdd}>
+          +
+        </button>
+      </div>
+      {props.ports.map((p) => (
+        <div key={p.name} class="sg-property-row">
+          <input
+            type="text"
+            aria-label={`${props.title} ${p.name} name`}
+            disabled={props.readOnly}
+            value={p.name}
+            onChange={(e) => {
+              const name = (e.currentTarget as HTMLInputElement).value;
+              const why = whyNotPortName(name, props.ports.map((q) => q.name).filter((n) => n !== p.name));
+              if (why) {
+                status.value = { kind: "error", text: `Can't rename ${p.name}: ${why}.` };
+                (e.currentTarget as HTMLInputElement).value = p.name;
+              } else props.onRename(p.name, name);
+            }}
+          />
+          <select aria-label={`${props.title} ${p.name} type`} disabled={props.readOnly} value={p.type} onChange={(e) => props.onType(p.name, (e.currentTarget as HTMLSelectElement).value as FunctionPort["type"])}>
+            {PORT_TYPES.filter((t) => props.textures || t !== "texture").map((t) => (
+              <option key={t} value={t}>
+                {t === "texture" ? "Texture" : t}
+              </option>
+            ))}
+          </select>
+          <button class="danger" aria-label={`Remove ${p.name}`} title="Remove" disabled={props.readOnly} onClick={() => props.onRemove(p.name)}>
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A sub-graph's outputs: the Sub Graph node's outputs, and its output node's ports. */
+function SubGraphOutputs(props: { graph: ShaderGraph; readOnly: boolean; commit(g: ShaderGraph): void }) {
+  const { graph, commit } = props;
+  return (
+    <div class="sg-side-card">
+      <PortList
+        title="Outputs"
+        ports={graph.subgraph!.outputs}
+        textures={false}
+        readOnly={props.readOnly}
+        onAdd={() => commit(addSubGraphOutput(graph))}
+        onRename={(a, b) => commit(renameSubGraphOutput(graph, a, b))}
+        onType={(n, t) => commit(setSubGraphOutputType(graph, n, t))}
+        onRemove={(n) => commit(removeSubGraphOutput(graph, n))}
+      />
+    </div>
+  );
+}
+
+/** The selected Custom Function node's name, ports and GLSL body. */
+function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; readOnly: boolean; commit(g: ShaderGraph): void }) {
+  const { node, graph, commit } = props;
+  const f: CustomFunction = node.function ?? defaultFunction();
+  const set = (next: CustomFunction, renamed?: Record<string, string>) => commit(setFunction(graph, node.id, next, renamed));
+  const side = (key: "inputs" | "outputs", title: string) => (
+    <PortList
+      title={title}
+      ports={f[key]}
+      textures={key === "inputs"}
+      readOnly={props.readOnly}
+      onAdd={() => set({ ...f, [key]: [...f[key], { name: freePortName([...f.inputs, ...f.outputs].map((p) => p.name), key === "inputs" ? "In" : "Out"), type: "float" }] })}
+      onRename={(a, b) => set({ ...f, [key]: f[key].map((p) => (p.name === a ? { ...p, name: b } : p)) }, { [a]: b })}
+      onType={(n, t) => set({ ...f, [key]: f[key].map((p) => (p.name === n ? { ...p, type: t } : p)) })}
+      onRemove={(n) => set({ ...f, [key]: f[key].filter((p) => p.name !== n) })}
+    />
+  );
+  return (
+    <div class="sg-side-card sg-function" aria-label="Custom Function">
+      <div class="sg-blackboard-head">
+        <span>Custom Function</span>
+      </div>
+      <label class="sg-property-row">
+        <span>Name</span>
+        <input
+          type="text"
+          aria-label="Function name"
+          disabled={props.readOnly}
+          value={f.name}
+          onChange={(e) => {
+            const name = (e.currentTarget as HTMLInputElement).value;
+            if (isPortName(name)) set({ ...f, name });
+            else {
+              status.value = { kind: "error", text: `"${name}" isn't a GLSL function name (letters, digits and _, not starting with a digit).` };
+              (e.currentTarget as HTMLInputElement).value = f.name;
+            }
+          }}
+        />
+      </label>
+      {side("inputs", "Inputs")}
+      {side("outputs", "Outputs")}
+      <textarea class="sg-function-body" aria-label="Function body" spellcheck={false} disabled={props.readOnly} value={f.body} onChange={(e) => set({ ...f, body: (e.currentTarget as HTMLTextAreaElement).value })} />
+      <p class="sg-hint">GLSL ES 3.0. Assign every output; inputs and outputs are named as above. uMycoTime is the time in seconds.</p>
+    </div>
+  );
+}
+
+// --- notes and the minimap -----------------------------------------------------------------------------
+
+/** A sticky note: drag its top bar, resize from the corner, type in it. */
+function NoteView(props: { note: GraphNote; zoom: number; readOnly: boolean; onChange(patch: Partial<Omit<GraphNote, "id">>): void; onRemove(): void }) {
+  const { note } = props;
+  const [live, setLive] = useState<{ position: [number, number]; size: [number, number] } | null>(null);
+  const pos = live?.position ?? note.position, size = live?.size ?? note.size;
+  const drag = (e: PointerEvent, resize: boolean) => {
+    if (e.button !== 0 || props.readOnly || isFieldTarget(e.target)) return;
+    e.stopPropagation();
+    const start = { x: e.clientX, y: e.clientY };
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    let last = { position: note.position, size: note.size };
+    const move = (m: PointerEvent) => {
+      const dx = (m.clientX - start.x) / props.zoom, dy = (m.clientY - start.y) / props.zoom;
+      last = resize ? { position: note.position, size: [note.size[0] + dx, note.size[1] + dy] } : { position: [note.position[0] + dx, note.position[1] + dy], size: note.size };
+      setLive(last);
+    };
+    const up = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+      setLive(null);
+      props.onChange(last);
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", up);
+  };
+  return (
+    <div class={`sg-note ${NO_PAN}`} style={{ left: px(pos[0]), top: px(pos[1]), width: px(size[0]), height: px(size[1]) }} aria-label="Sticky note">
+      <div class="sg-note-head" onPointerDown={(e) => drag(e, false)}>
+        <button aria-label="Remove note" title="Remove the note" disabled={props.readOnly} onClick={props.onRemove}>
+          ✕
+        </button>
+      </div>
+      <textarea class={`${NO_DRAG} ${NO_WHEEL}`} aria-label="Note text" disabled={props.readOnly} value={note.text} placeholder="Note" onChange={(e) => props.onChange({ text: (e.currentTarget as HTMLTextAreaElement).value })} />
+      <div class="sg-note-resize" onPointerDown={(e) => drag(e, true)} />
+    </div>
+  );
+}
+
+const MINIMAP = { w: 180, h: 120 };
+
+/** Every node and the visible area, small: drag to pan, wheel to zoom (xyflow's minimap). */
+function Minimap(props: { nodes: CanvasNode[]; view: View; size: { w: number; h: number }; pane: { current: Pane | null } }) {
+  const { nodes, view, size } = props;
+  const svg = useRef<SVGSVGElement>(null);
+  const scale = useRef(1);
+  const v0 = toGraph({ x: 0, y: 0 }, view), v1 = toGraph({ x: size.w, y: size.h }, view);
+  const xs = [v0.x, v1.x, ...nodes.flatMap((n) => [n.x, n.x + n.width])], ys = [v0.y, v1.y, ...nodes.flatMap((n) => [n.y, n.y + n.height])];
+  const x0 = Math.min(...xs), y0 = Math.min(...ys), x1 = Math.max(...xs), y1 = Math.max(...ys);
+  scale.current = Math.max((x1 - x0) / MINIMAP.w, (y1 - y0) / MINIMAP.h, 0.01);
+  const s = scale.current;
+  const ox = (MINIMAP.w - (x1 - x0) / s) / 2, oy = (MINIMAP.h - (y1 - y0) / s) / 2;
+  const mx = (x: number) => ox + (x - x0) / s, my = (y: number) => oy + (y - y0) / s;
+  useEffect(() => props.pane.current?.attachMinimap(svg.current!, () => scale.current), [props.pane.current]);
+  return (
+    <svg ref={svg} class={`sg-minimap ${NO_PAN} ${NO_WHEEL}`} width={MINIMAP.w} height={MINIMAP.h} aria-label="Minimap">
+      {nodes.map((n) => (
+        <rect key={n.id} class={n.selected ? "selected" : ""} x={mx(n.x)} y={my(n.y)} width={n.width / s} height={n.height / s} rx={2} />
+      ))}
+      <rect class="sg-minimap-view" x={mx(v0.x)} y={my(v0.y)} width={(v1.x - v0.x) / s} height={(v1.y - v0.y) / s} />
+    </svg>
   );
 }

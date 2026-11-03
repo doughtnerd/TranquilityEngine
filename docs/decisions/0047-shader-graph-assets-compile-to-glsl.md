@@ -4,7 +4,7 @@
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0004, 0010, 0013, 0040, 0041, 0043, 0046
+- **Related:** 0004, 0010, 0013, 0040, 0041, 0043, 0046, 0048, 0049
 
 ## Context
 
@@ -84,8 +84,8 @@ Nothing. 0043's open question on custom shaders is answered here.
 
 ## Open questions
 
-- A runtime API for setting graph material properties from scripts.
-- Custom-function nodes (user GLSL), sub-graphs, keywords and variants.
+- ~~A runtime API for setting graph material properties from scripts.~~ Per-renderer overrides (0049).
+- ~~Custom-function nodes (user GLSL), sub-graphs~~ (0048), keywords and variants.
 - Several materials per renderer (0043's open question) applies to graph materials too.
 
 ## References

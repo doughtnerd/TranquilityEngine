@@ -1,0 +1,25 @@
+{
+  "format": "myco.shadersubgraph@1",
+  "outputs": [
+    { "name": "Height", "type": "float" }
+  ],
+  "properties": [
+    { "name": "Rings", "type": "float", "value": 30 },
+    { "name": "Speed", "type": "float", "value": 3 }
+  ],
+  "nodes": [
+    { "id": "output", "type": "output", "position": [320, 0] },
+    { "id": "uv", "type": "uv", "position": [-320, -200] },
+    { "id": "time", "type": "time", "position": [-320, 0] },
+    { "id": "rings", "type": "property", "position": [-320, 220], "settings": { "property": "Rings" } },
+    { "id": "speed", "type": "property", "position": [-320, 310], "settings": { "property": "Speed" } },
+    { "id": "ripple", "type": "customFunction", "position": [20, 0], "function": { "name": "ripple", "inputs": [{ "name": "uv", "type": "vec2" }, { "name": "t", "type": "float" }, { "name": "rings", "type": "float" }, { "name": "speed", "type": "float" }], "outputs": [{ "name": "height", "type": "float" }], "body": "float d = length(uv - 0.5);\nheight = 0.5 + 0.5 * sin(d * rings - t * speed);" } }
+  ],
+  "edges": [
+    { "from": "uv.out", "to": "ripple.uv" },
+    { "from": "time.time", "to": "ripple.t" },
+    { "from": "rings.out", "to": "ripple.rings" },
+    { "from": "speed.out", "to": "ripple.speed" },
+    { "from": "ripple.height", "to": "output.Height" }
+  ]
+}

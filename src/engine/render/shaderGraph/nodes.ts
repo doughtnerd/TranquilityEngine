@@ -2,8 +2,9 @@
  * The shader graph node library (ADR 0047): each node type's ports, settings and the GLSL it
  * emits. Shared by the compiler and the editor's Shader Graph panel, so both agree on every port.
  */
-import type { GraphNode, GraphPropertyType, InputValue, ShaderGraph } from "../../scene/shaderGraph";
-import { OUTPUT_NODE_TYPE } from "../../scene/shaderGraph";
+import { Assets, normalizeAssetPath } from "../../scene/Assets";
+import type { GraphNode, GraphProperty, GraphPropertyType, InputValue, ShaderGraph } from "../../scene/shaderGraph";
+import { OUTPUT_NODE_TYPE, parseShaderGraph } from "../../scene/shaderGraph";
 
 /** A value's GLSL type; `texture` is a `sampler2D` uniform. */
 export type ValueType = "float" | "vec2" | "vec3" | "vec4" | "texture";
@@ -29,12 +30,14 @@ export interface PortDef {
   litOnly?: boolean;
   /** Output node: only applied when connected (or, for alpha clip, when above 0). */
   optional?: boolean;
+  /** Texture inputs: the texture an unconnected input reads (a Sub Graph's texture property default). */
+  texture?: string;
 }
 
 export interface SettingDef {
   id: string;
   label: string;
-  kind: "select" | "text" | "color" | "texture" | "property";
+  kind: "select" | "text" | "color" | "texture" | "property" | "subgraph";
   options?: readonly string[];
   default: string;
 }
@@ -58,6 +61,8 @@ export interface EmitContext {
   property(name: string): { uniform: string; type: ValueType } | null;
   /** A `#rrggbb[aa]` colour (sRGB) as a linear `vec4` literal. */
   color(hex: string): string;
+  /** Record how a texture uniform is sampled: as a colour (sRGB-decoded) or linear data (normal maps). */
+  sampleMode(uniform: string, linear: boolean): void;
   problem(message: string): void;
 }
 
@@ -174,7 +179,48 @@ function binary(type: string, title: string, fn: (a: string, b: string) => strin
 const SWIZZLE = /^[xyzw]{1,4}$|^[rgba]{1,4}$/;
 const swizzleType = (mask: string): ValueType => (["float", "vec2", "vec3", "vec4"] as const)[Math.max(0, mask.length - 1)];
 
-const propertyType = (t: GraphPropertyType): ValueType => (t === "float" ? "float" : t === "vector2" ? "vec2" : t === "vector3" ? "vec3" : t === "texture" ? "texture" : "vec4");
+export const propertyType = (t: GraphPropertyType): ValueType => (t === "float" ? "float" : t === "vector2" ? "vec2" : t === "vector3" ? "vec3" : t === "texture" ? "texture" : "vec4");
+
+/** A `#rrggbb[aa]` colour as sRGB components `[r, g, b, a]` (0–1). */
+const hexComponents = (hex: string): number[] => {
+  const h = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(hex) ? hex : "#ffffff";
+  return [1, 3, 5, 7].map((i) => (i < h.length ? parseInt(h.slice(i, i + 2), 16) / 255 : 1));
+};
+
+/** A sub-graph property as the Sub Graph node's input: its value is the input's default. */
+export function propertyPort(p: GraphProperty): PortDef {
+  const type = propertyType(p.type);
+  const value = p.type === "color" ? hexComponents(String(p.value)) : typeof p.value === "number" || Array.isArray(p.value) ? p.value : undefined;
+  return { id: p.name, label: p.name, type, default: value, color: p.type === "color", ...(p.type === "texture" ? { texture: String(p.value) } : {}) };
+}
+
+/** A sub-graph file read through `Assets`: the graph, an error, or null when there's no such file. */
+export type ResolvedSubGraph = { graph: ShaderGraph; error?: undefined } | { graph?: undefined; error: string } | null;
+const parsedSubGraphs = new WeakMap<object, ResolvedSubGraph>();
+
+/** Read a sub-graph (ADR 0048) by asset path; parsed once per version of the file. */
+export function resolveSubGraph(path: string): ResolvedSubGraph {
+  const p = normalizeAssetPath(path);
+  if (!p || !Assets.has(p)) return null;
+  let raw: unknown;
+  try {
+    raw = Assets.json(p);
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+  if (typeof raw !== "object" || raw === null) return { error: `${p} isn't a sub-graph` };
+  let r = parsedSubGraphs.get(raw);
+  if (!r) {
+    try {
+      const { graph } = parseShaderGraph(raw, p);
+      r = graph.subgraph ? { graph } : { error: `${p} is a shader graph, not a sub-graph` };
+    } catch (err) {
+      r = { error: (err as Error).message };
+    }
+    parsedSubGraphs.set(raw, r);
+  }
+  return r;
+}
 
 /** The output (master) node's inputs, in the order the panel shows them. */
 export const OUTPUT_INPUTS: readonly PortDef[] = [
@@ -196,7 +242,12 @@ export const NODES: readonly NodeDef[] = [
     category: "Output",
     inputs: [...OUTPUT_INPUTS],
     outputs: [],
-    ports: (_node, graph) => ({ inputs: OUTPUT_INPUTS.filter((p) => graph.target === "lit" || !p.litOnly), outputs: [] }),
+    ports: (_node, graph) => ({
+      inputs: graph.subgraph
+        ? graph.subgraph.outputs.map((o) => ({ id: o.name, label: o.name, type: o.type, default: 0 }))
+        : OUTPUT_INPUTS.filter((p) => graph.target === "lit" || !p.litOnly),
+      outputs: [],
+    }),
     emit: () => ({}),
   },
 
@@ -308,11 +359,46 @@ export const NODES: readonly NodeDef[] = [
     keywords: "texture image sampler map",
     inputs: [{ id: "texture", label: "Texture", type: "texture" }, uvIn()],
     outputs: [out("vec4", "rgba", "RGBA"), out("vec3", "rgb", "RGB"), out("float", "r", "R"), out("float", "g", "G"), out("float", "b", "B"), out("float", "a", "A")],
-    settings: [{ id: "texture", label: "Texture", kind: "texture", default: "" }],
+    settings: [
+      { id: "texture", label: "Texture", kind: "texture", default: "" },
+      { id: "type", label: "Type", kind: "select", options: ["default", "normal"], default: "default" },
+    ],
     emit: (c) => {
+      const normal = c.settings.type === "normal";
+      c.sampleMode(c.in.texture, normal);
       const s = `texture(${c.in.texture}, ${c.in.uv})`;
-      return { rgba: s, rgb: `${s}.rgb`, r: `${s}.r`, g: `${s}.g`, b: `${s}.b`, a: `${s}.a` };
+      // Normal maps hold tangent-space directions as 0–1 colours: unpack them to -1…1.
+      const rgb = normal ? `(${s}.rgb * 2.0 - 1.0)` : `${s}.rgb`;
+      return { rgba: normal ? `vec4(${rgb}, ${s}.a)` : s, rgb, r: `${rgb}.r`, g: `${rgb}.g`, b: `${rgb}.b`, a: `${s}.a` };
     },
+  },
+  {
+    type: "subgraph",
+    title: "Sub Graph",
+    category: "Input",
+    keywords: "subgraph function reuse",
+    inputs: [],
+    outputs: [],
+    settings: [{ id: "subgraph", label: "Sub Graph", kind: "subgraph", default: "" }],
+    ports: (node) => {
+      const r = resolveSubGraph(node.settings?.subgraph ?? "");
+      if (!r?.graph) return { inputs: [], outputs: [] };
+      return { inputs: r.graph.properties.map(propertyPort), outputs: (r.graph.subgraph?.outputs ?? []).map((o) => ({ id: o.name, label: o.name, type: o.type })) };
+    },
+    emit: () => ({}), // expanded inline by the compiler
+  },
+  {
+    type: "customFunction",
+    title: "Custom Function",
+    category: "Input",
+    keywords: "glsl code custom function",
+    inputs: [],
+    outputs: [],
+    ports: (node) => ({
+      inputs: (node.function?.inputs ?? []).map((p) => ({ id: p.name, label: p.name, type: p.type, default: 0 })),
+      outputs: (node.function?.outputs ?? []).map((p) => ({ id: p.name, label: p.name, type: p.type })),
+    }),
+    emit: () => ({}), // emitted as a function by the compiler
   },
 
   // Math

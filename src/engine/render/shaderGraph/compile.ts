@@ -8,8 +8,9 @@
  * unknown node, a missing property or a loop is reported, and the input it fed reads its default.
  */
 import { Color } from "../../core/math";
+import { normalizeAssetPath } from "../../scene/Assets";
 import { OUTPUT_NODE_TYPE, portRef, splitPortRef, type GraphNode, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../scene/shaderGraph";
-import { HELPER_DEPS, HELPERS, OUTPUT_INPUTS, PORT_SIZE, canConnectTypes, nodeDef, nodePorts, type Builtin, type EmitContext, type HelperName, type PortDef, type ShaderStage, type ValueType } from "./nodes";
+import { HELPER_DEPS, HELPERS, OUTPUT_INPUTS, PORT_SIZE, canConnectTypes, nodeDef, nodePorts, resolveSubGraph, type Builtin, type EmitContext, type HelperName, type PortDef, type ShaderStage, type ValueType } from "./nodes";
 
 /** Uniforms every compiled graph may read; the backend owns their values. */
 export const SHARED_UNIFORMS = { time: "uMycoTime", resolution: "uMycoResolution" } as const;
@@ -22,6 +23,8 @@ export interface CompiledUniform {
   propertyType?: GraphPropertyType;
   /** The value: the property's default, or an inline texture's path ("" reads white). */
   value: GraphValue;
+  /** Textures: sampled as linear data (normal maps), not sRGB colour (ADR 0048). */
+  linear?: boolean;
 }
 
 export interface CompiledShaderGraph {
@@ -61,6 +64,8 @@ export interface CompiledShaderGraph {
   portTypes: Record<string, ValueType>;
   /** Resolved type of each node's dynamic ports. */
   dynamicTypes: Record<string, ValueType>;
+  /** Sub-graph files the graph uses (asset paths without `asset:`): a change to one changes the shader. */
+  dependencies: string[];
   /** A hash of the generated code: equal keys mean the same shader program. */
   key: string;
 }
@@ -172,51 +177,44 @@ interface NodeTypes {
   outputs: Record<string, ValueType>;
 }
 
-/** Compile a graph. Never throws for a bad graph; see `problems`. */
-export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
-  const problems: string[] = [];
-  const nodeProblems: Record<string, string[]> = {};
-  const nodes = new Map(graph.nodes.map((n) => [n.id, n]));
-  const index = new Map(graph.nodes.map((n, i) => [n.id, i]));
-  const problem = (id: string, message: string) => {
-    const list = (nodeProblems[id] ??= []);
-    if (list.includes(message)) return;
-    list.push(message);
-    const node = nodes.get(id);
-    problems.push(`${(node && nodeDef(node.type)?.title) ?? node?.type ?? id} (${id}): ${message}`);
-  };
+type Source = { node: string; port: string };
 
-  // --- types ---------------------------------------------------------------------------------------
-  const incoming = new Map<string, { node: string; port: string }>();
-  const types = new Map<string, NodeTypes>();
-  const typing = new Set<string>();
-  const nodeTypes = (id: string): NodeTypes => {
-    const known = types.get(id);
-    if (known) return known;
-    const node = nodes.get(id);
-    if (!node || typing.has(id)) return { dynamic: "float", outputs: {} };
-    typing.add(id);
-    const ports = nodePorts(node, graph);
-    let width = 1;
-    for (const p of ports.inputs) {
-      if (p.type !== "dynamic") continue;
-      const src = incoming.get(portRef(id, p.id));
-      const t = src ? outputType(src) : inlineType(node.inputs?.[p.id]);
-      width = Math.max(width, sizeOf(t));
-    }
-    const dynamic = SIZE_TYPE[width];
-    const outputs: Record<string, ValueType> = {};
-    for (const o of ports.outputs) outputs[o.id] = o.type === "dynamic" ? dynamic : o.type;
-    typing.delete(id);
-    const result = { dynamic, outputs };
-    types.set(id, result);
-    return result;
-  };
-  const outputType = (src: { node: string; port: string }): ValueType => nodeTypes(src.node).outputs[src.port] ?? "float";
+/** One graph being compiled: the root graph, or a sub-graph expanded inside it (ADR 0048). */
+interface Scope {
+  graph: ShaderGraph;
+  nodes: Map<string, GraphNode>;
+  index: Map<string, number>;
+  incoming: Map<string, Source>;
+  types: Map<string, NodeTypes>;
+  typing: Set<string>;
+  /** Prefix for the locals of this scope's nodes, so two uses of a sub-graph don't collide. */
+  prefix: string;
+  /** A sub-graph's property values, from its Sub Graph node's inputs; null for the root graph (uniforms). */
+  bindings: Map<string, Value> | null;
+  /** Report a problem about one of this scope's nodes. */
+  problem(id: string, message: string): void;
+  /** Sub-graph files this scope sits inside, to refuse one that contains itself. */
+  stack: string[];
+}
 
+const titleOf = (node: GraphNode | undefined, id: string) => (node && nodeDef(node.type)?.title) ?? node?.type ?? id;
+
+function makeScope(graph: ShaderGraph, prefix: string, bindings: Map<string, Value> | null, problem: Scope["problem"], stack: string[]): Scope {
+  const scope: Scope = {
+    graph,
+    nodes: new Map(graph.nodes.map((n) => [n.id, n])),
+    index: new Map(graph.nodes.map((n, i) => [n.id, i])),
+    incoming: new Map(),
+    types: new Map(),
+    typing: new Set(),
+    prefix,
+    bindings,
+    problem,
+    stack,
+  };
   for (const e of graph.edges) {
     const from = splitPortRef(e.from), to = splitPortRef(e.to);
-    const a = nodes.get(from.node), b = nodes.get(to.node);
+    const a = scope.nodes.get(from.node), b = scope.nodes.get(to.node);
     const out = a && nodePorts(a, graph).outputs.find((p) => p.id === from.port);
     const inp = b && nodePorts(b, graph).inputs.find((p) => p.id === to.port);
     if (!out || !inp) {
@@ -227,31 +225,90 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
       problem(to.node, `${inp.label} can't take ${out.type === "texture" ? "a texture" : "a number or vector"}`);
       continue;
     }
-    if (!incoming.has(e.to)) incoming.set(e.to, from);
+    if (!scope.incoming.has(e.to)) scope.incoming.set(e.to, from);
   }
+  return scope;
+}
+
+function nodeTypes(scope: Scope, id: string): NodeTypes {
+  const known = scope.types.get(id);
+  if (known) return known;
+  const node = scope.nodes.get(id);
+  if (!node || scope.typing.has(id)) return { dynamic: "float", outputs: {} };
+  scope.typing.add(id);
+  const ports = nodePorts(node, scope.graph);
+  let width = 1;
+  for (const p of ports.inputs) {
+    if (p.type !== "dynamic") continue;
+    const src = scope.incoming.get(portRef(id, p.id));
+    const t = src ? (nodeTypes(scope, src.node).outputs[src.port] ?? "float") : inlineType(node.inputs?.[p.id]);
+    width = Math.max(width, sizeOf(t));
+  }
+  const dynamic = SIZE_TYPE[width];
+  const outputs: Record<string, ValueType> = {};
+  for (const o of ports.outputs) outputs[o.id] = o.type === "dynamic" ? dynamic : o.type;
+  scope.typing.delete(id);
+  const result = { dynamic, outputs };
+  scope.types.set(id, result);
+  return result;
+}
+
+const GLSL_TYPE = (t: ValueType) => (t === "texture" ? "sampler2D" : t);
+
+/** Compile a graph (or a sub-graph, drawn as its first output). Never throws for a bad graph; see `problems`. */
+export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
+  const problems: string[] = [];
+  const nodeProblems: Record<string, string[]> = {};
+  const dependencies = new Set<string>();
+  const root = makeScope(
+    graph,
+    "",
+    null,
+    (id, message) => {
+      const list = (nodeProblems[id] ??= []);
+      if (list.includes(message)) return;
+      list.push(message);
+      problems.push(`${titleOf(graph.nodes.find((n) => n.id === id), id)} (${id}): ${message}`);
+    },
+    [],
+  );
 
   // --- uniforms ------------------------------------------------------------------------------------
   const uniforms: CompiledUniform[] = [];
-  const propertyUniform = (name: string): { uniform: string; type: ValueType } | null => {
+  const propertyUniform = (name: string): Value | null => {
     const i = graph.properties.findIndex((p) => p.name === name);
     if (i < 0) return null;
     const p = graph.properties[i];
     const uname = `uP${i}_${ident(p.name)}`;
     if (!uniforms.some((u) => u.name === uname)) uniforms.push({ name: uname, type: PROPERTY_GLSL[p.type], property: p.name, propertyType: p.type, value: p.value });
-    return { uniform: uname, type: valueTypeOf(PROPERTY_GLSL[p.type]) };
+    return { expr: uname, type: valueTypeOf(PROPERTY_GLSL[p.type]) };
   };
-  const textureUniform = (path: string): string => {
-    const existing = uniforms.find((u) => u.type === "sampler2D" && u.property === undefined && u.value === path);
+  const textureUniform = (path: string, linear = false): string => {
+    const existing = uniforms.find((u) => u.type === "sampler2D" && u.property === undefined && u.value === path && !!u.linear === linear);
     if (existing) return existing.name;
     const name = `uTex${uniforms.filter((u) => u.type === "sampler2D" && u.property === undefined).length}`;
-    uniforms.push({ name, type: "sampler2D", value: path });
+    uniforms.push({ name, type: "sampler2D", value: path, ...(linear ? { linear: true } : {}) });
     return name;
+  };
+  /** How each texture uniform is sampled; a property sampled both ways reads as colour. */
+  const modes = new Map<string, Set<boolean>>();
+  const sampleMode = (name: string, linear: boolean, problem: (m: string) => void) => {
+    const u = uniforms.find((v) => v.name === name);
+    if (!u) return;
+    const set = modes.get(name) ?? new Set<boolean>();
+    set.add(linear);
+    modes.set(name, set);
+    if (set.size > 1) {
+      problem(`texture property "${u.property ?? u.value}" is sampled both as a colour and as a normal map; it reads as a colour`);
+      delete u.linear;
+    } else if (linear) u.linear = true;
   };
 
   // --- stages --------------------------------------------------------------------------------------
   class Stage {
     readonly lines: string[] = [];
     readonly helpers = new Set<HelperName>();
+    readonly functions = new Map<string, string>();
     readonly values = new Map<string, Record<string, Value> | null>();
     readonly visiting = new Set<string>();
     constructor(readonly stage: ShaderStage) {}
@@ -267,43 +324,58 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
       this.helpers.add(name);
     }
 
-    input(node: GraphNode, port: PortDef, dynamic: ValueType): string {
+    input(scope: Scope, node: GraphNode, port: PortDef, dynamic: ValueType): string {
       const want: ValueType = port.type === "dynamic" ? dynamic : port.type;
-      const src = incoming.get(portRef(node.id, port.id));
+      const src = scope.incoming.get(portRef(node.id, port.id));
       if (src) {
-        const v = this.node(src.node)?.[src.port];
+        const v = this.node(scope, src.node)?.[src.port];
         if (v) return convert(v.expr, v.type, want);
       }
-      if (want === "texture") return textureUniform(node.settings?.[port.id] ?? "");
+      if (want === "texture") return textureUniform(node.settings?.[port.id] ?? port.texture ?? "", node.type === "sampleTexture" && node.settings?.type === "normal");
       if (port.bind) return convert(this.builtin(port.bind), BUILTIN_TYPES[port.bind], want);
       return literal(node.inputs?.[port.id] ?? port.default ?? 0, want, !!port.color);
     }
 
-    node(id: string): Record<string, Value> | null {
-      if (this.values.has(id)) return this.values.get(id)!;
-      if (this.visiting.has(id)) {
-        problem(id, "is part of a loop; the connection that closes it is ignored");
+    local(scope: Scope, id: string, port: string): string {
+      return `m${scope.prefix}${scope.index.get(id)}_${ident(port)}`;
+    }
+
+    node(scope: Scope, id: string): Record<string, Value> | null {
+      const key = `${scope.prefix}|${id}`;
+      if (this.values.has(key)) return this.values.get(key)!;
+      if (this.visiting.has(key)) {
+        scope.problem(id, "is part of a loop; the connection that closes it is ignored");
         return null;
       }
-      const node = nodes.get(id)!;
+      const node = scope.nodes.get(id)!;
       const def = nodeDef(node.type);
       if (!def || def.type === OUTPUT_NODE_TYPE) {
-        if (!def) problem(id, `unknown node type "${node.type}"`);
-        this.values.set(id, null);
+        if (!def) scope.problem(id, `unknown node type "${node.type}"`);
+        this.values.set(key, null);
         return null;
       }
       if (def.fragmentOnly && this.stage === "vertex") {
-        problem(id, "only works per pixel, so it can't feed Vertex Offset");
-        this.values.set(id, null);
+        scope.problem(id, "only works per pixel, so it can't feed Vertex Offset");
+        this.values.set(key, null);
         return null;
       }
-      this.visiting.add(id);
-      const ports = nodePorts(node, graph);
-      const { dynamic } = nodeTypes(id);
+      this.visiting.add(key);
+      const result = node.type === "subgraph" ? this.subgraph(scope, node) : node.type === "customFunction" ? this.customFunction(scope, node) : this.builtinNode(scope, node);
+      this.visiting.delete(key);
+      this.values.set(key, result);
+      return result;
+    }
+
+    builtinNode(scope: Scope, node: GraphNode): Record<string, Value> {
+      const def = nodeDef(node.type)!;
+      const id = node.id;
+      const ports = nodePorts(node, scope.graph);
+      const { dynamic } = nodeTypes(scope, id);
       const ins: Record<string, string> = {};
-      for (const p of ports.inputs) ins[p.id] = this.input(node, p, dynamic);
+      for (const p of ports.inputs) ins[p.id] = this.input(scope, node, p, dynamic);
       const settings: Record<string, string> = {};
       for (const s of def.settings ?? []) settings[s.id] = node.settings?.[s.id] ?? s.default;
+      const problem = (m: string) => scope.problem(id, m);
       const ctx: EmitContext = {
         in: ins,
         type: dynamic,
@@ -311,10 +383,14 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
         stage: this.stage,
         builtin: (b) => this.builtin(b),
         helper: (h) => this.helper(h),
-        texture: textureUniform,
-        property: propertyUniform,
+        texture: (path) => textureUniform(path),
+        property: (name) => {
+          const v = scope.bindings ? (scope.bindings.get(name) ?? null) : propertyUniform(name);
+          return v && { uniform: v.expr, type: v.type };
+        },
         color: (hex) => literal(linearColor(hex), "vec4", false),
-        problem: (m) => problem(id, m),
+        sampleMode: (u, linear) => sampleMode(u, linear, problem),
+        problem,
       };
       const exprs = def.emit(ctx);
       const result: Record<string, Value> = {};
@@ -325,20 +401,82 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
           result[o.id] = { expr: expr ?? textureUniform(""), type };
           continue;
         }
-        const name = `m${index.get(id)}_${ident(o.id)}`;
+        const name = this.local(scope, id, o.id);
         this.lines.push(`${type} ${name} = ${expr ?? literal(0, type, false)};`);
         result[o.id] = { expr: name, type };
       }
-      this.visiting.delete(id);
-      this.values.set(id, result);
+      return result;
+    }
+
+    /** A Sub Graph node: the sub-graph's nodes, expanded inline with its properties bound to the node's inputs. */
+    subgraph(scope: Scope, node: GraphNode): Record<string, Value> | null {
+      const path = normalizeAssetPath(node.settings?.subgraph ?? "");
+      if (!path) {
+        scope.problem(node.id, "pick a sub-graph");
+        return null;
+      }
+      dependencies.add(path);
+      const r = resolveSubGraph(path);
+      if (!r) {
+        scope.problem(node.id, `the sub-graph "${path}" isn't in the project`);
+        return null;
+      }
+      if (r.error !== undefined) {
+        scope.problem(node.id, r.error);
+        return null;
+      }
+      if (scope.stack.includes(path)) {
+        scope.problem(node.id, `the sub-graph "${path}" contains itself`);
+        return null;
+      }
+      const sub = r.graph;
+      const ports = nodePorts(node, scope.graph);
+      const bindings = new Map<string, Value>();
+      for (const p of ports.inputs) bindings.set(p.id, { expr: this.input(scope, node, p, p.type as ValueType), type: p.type as ValueType });
+      const name = path.slice(path.lastIndexOf("/") + 1);
+      const inner = makeScope(sub, `${scope.prefix}${scope.index.get(node.id)}s`, bindings, (id, m) => scope.problem(node.id, `in ${name}, ${titleOf(sub.nodes.find((n) => n.id === id), id)}: ${m}`), [...scope.stack, path]);
+      const output = sub.nodes.find((n) => n.type === OUTPUT_NODE_TYPE)!;
+      const result: Record<string, Value> = {};
+      for (const o of ports.outputs) {
+        const type = o.type as ValueType;
+        const expr = this.input(inner, output, { id: o.id, label: o.label, type, default: 0 }, type);
+        const local = this.local(scope, node.id, o.id);
+        this.lines.push(`${type} ${local} = ${expr};`);
+        result[o.id] = { expr: local, type };
+      }
+      return result;
+    }
+
+    /** A Custom Function node: its GLSL as a function, called with the node's inputs. */
+    customFunction(scope: Scope, node: GraphNode): Record<string, Value> | null {
+      const f = node.function;
+      if (!f) {
+        scope.problem(node.id, "has no function");
+        return null;
+      }
+      const fn = `${ident(f.name)}_${scope.prefix}${scope.index.get(node.id)}`;
+      const params = [...f.inputs.map((p) => `${GLSL_TYPE(p.type)} ${p.name}`), ...f.outputs.map((p) => `out ${GLSL_TYPE(p.type)} ${p.name}`)];
+      this.functions.set(fn, `void ${fn}(${params.join(", ")}) {\n${f.body}\n}`);
+      const ports = nodePorts(node, scope.graph);
+      const args = ports.inputs.map((p) => this.input(scope, node, p, p.type as ValueType));
+      const result: Record<string, Value> = {};
+      const outs: string[] = [];
+      for (const o of ports.outputs) {
+        const type = o.type as ValueType;
+        const local = this.local(scope, node.id, o.id);
+        this.lines.push(`${type} ${local} = ${literal(0, type, false)};`);
+        outs.push(local);
+        result[o.id] = { expr: local, type };
+      }
+      this.lines.push(`${fn}(${[...args, ...outs].join(", ")});`);
       return result;
     }
 
     /** Evaluate an output-node input into a local, returning its name. */
     surface(output: GraphNode, port: PortDef): string {
       const want = port.type as ValueType;
-      const expr = this.input(output, port, want);
-      const name = `mOut_${port.id}`;
+      const expr = this.input(root, output, port, want);
+      const name = `mOut_${ident(port.id)}`;
       this.lines.push(`${want} ${name} = ${expr};`);
       return name;
     }
@@ -347,32 +485,46 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
   const vertex = new Stage("vertex");
   const fragment = new Stage("fragment");
   const output = graph.nodes.find((n) => n.type === OUTPUT_NODE_TYPE) ?? { id: "output", type: OUTPUT_NODE_TYPE, position: [0, 0] as [number, number] };
-  const lit = graph.target === "lit";
+  const sub = graph.subgraph;
+  const lit = graph.target === "lit" && !sub;
   const port = (id: string) => OUTPUT_INPUTS.find((p) => p.id === id)!;
-  const connected = (id: string) => incoming.has(portRef(output.id, id));
+  const connected = (id: string) => root.incoming.has(portRef(output.id, id));
 
-  const offset = connected("vertexOffset") ? vertex.surface(output, port("vertexOffset")) : null;
-  const baseColor = fragment.surface(output, port("baseColor"));
-  const alpha = fragment.surface(output, port("alpha"));
-  const metalness = lit ? fragment.surface(output, port("metalness")) : null;
-  const roughness = lit ? fragment.surface(output, port("roughness")) : null;
-  const emission = lit ? fragment.surface(output, port("emission")) : null;
-  const normal = lit && connected("normal") ? fragment.surface(output, port("normal")) : null;
-  const clipValue = output.inputs?.alphaClip;
-  const alphaClip = connected("alphaClip") || (typeof clipValue === "number" && clipValue > 0) ? fragment.surface(output, port("alphaClip")) : null;
+  let offset: string | null = null, baseColor: string, alpha: string;
+  let metalness: string | null = null, roughness: string | null = null, emission: string | null = null, normal: string | null = null, alphaClip: string | null = null;
+  if (sub) {
+    // A sub-graph draws its first output, unlit (its preview).
+    const first = sub.outputs[0];
+    if (first) {
+      const value = fragment.surface(output, { id: first.name, label: first.name, type: first.type, default: 0 });
+      baseColor = `mOut_base`;
+      fragment.lines.push(`vec3 mOut_base = ${convert(value, first.type, "vec3")};`);
+    } else baseColor = "vec3(1.0)";
+    alpha = "1.0";
+  } else {
+    offset = connected("vertexOffset") ? vertex.surface(output, port("vertexOffset")) : null;
+    baseColor = fragment.surface(output, port("baseColor"));
+    alpha = fragment.surface(output, port("alpha"));
+    metalness = lit ? fragment.surface(output, port("metalness")) : null;
+    roughness = lit ? fragment.surface(output, port("roughness")) : null;
+    emission = lit ? fragment.surface(output, port("emission")) : null;
+    normal = lit && connected("normal") ? fragment.surface(output, port("normal")) : null;
+    const clipValue = output.inputs?.alphaClip;
+    alphaClip = connected("alphaClip") || (typeof clipValue === "number" && clipValue > 0) ? fragment.surface(output, port("alphaClip")) : null;
+  }
   if (normal) fragment.helper("tangentFrame");
 
   // Types for every node, reached or not (the editor colours all wires).
   const portTypes: Record<string, ValueType> = {};
   const dynamicTypes: Record<string, ValueType> = {};
   for (const n of graph.nodes) {
-    const t = nodeTypes(n.id);
+    const t = nodeTypes(root, n.id);
     dynamicTypes[n.id] = t.dynamic;
     for (const [p, type] of Object.entries(t.outputs)) portTypes[portRef(n.id, p)] = type;
   }
 
   const uniformLines = [`uniform float ${SHARED_UNIFORMS.time};`, `uniform vec2 ${SHARED_UNIFORMS.resolution};`, ...uniforms.map((u) => `uniform ${u.type} ${u.name};`)];
-  const helperText = (s: Stage) => (Object.keys(HELPERS) as HelperName[]).filter((h) => s.helpers.has(h)).map((h) => HELPERS[h]);
+  const helperText = (s: Stage) => [...(Object.keys(HELPERS) as HelperName[]).filter((h) => s.helpers.has(h)).map((h) => HELPERS[h]), ...s.functions.values()];
   const vertexDeclarations = ["// Myco shader graph", ...uniformLines, ...VARYINGS.map((v) => `varying ${v};`), ...helperText(vertex)].join("\n");
   const fragmentDeclarations = [
     "// Myco shader graph",
@@ -391,12 +543,15 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
   ].join("\n");
   const vertexBody = vertex.lines.join("\n");
   const fragmentBody = fragment.lines.join("\n");
-  const key = hash([graph.target, graph.surface, graph.doubleSided, vertexDeclarations, vertexBody, offset, fragmentDeclarations, fragmentBody, normal, alphaClip].join("\u0000"));
+  const target = sub ? "unlit" : graph.target;
+  const surface = sub ? "opaque" : graph.surface;
+  const linearKey = uniforms.filter((u) => u.linear).map((u) => u.name).join(",");
+  const key = hash([target, surface, graph.doubleSided, vertexDeclarations, vertexBody, offset, fragmentDeclarations, fragmentBody, normal, alphaClip, linearKey].join("\u0000"));
 
   return {
-    target: graph.target,
-    surface: graph.surface,
-    doubleSided: graph.doubleSided,
+    target,
+    surface,
+    doubleSided: !sub && graph.doubleSided,
     vertex: { declarations: vertexDeclarations, body: vertexBody, offset, varyings },
     fragment: { declarations: fragmentDeclarations, body: fragmentBody, baseColor, alpha, metalness, roughness, emission, normal, alphaClip },
     uniforms,
@@ -404,7 +559,31 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
     nodeProblems,
     portTypes,
     dynamicTypes,
+    dependencies: [...dependencies],
     key,
+  };
+}
+
+/**
+ * The graph that previews one node (ADR 0048): unlit, with the node's first number output in
+ * Base Color and nothing else connected to the output. Null for nodes without a number output.
+ */
+export function nodePreviewGraph(graph: ShaderGraph, nodeId: string): ShaderGraph | null {
+  const node = graph.nodes.find((n) => n.id === nodeId);
+  if (!node || node.type === OUTPUT_NODE_TYPE) return null;
+  const out = nodePorts(node, graph).outputs.find((p) => p.type !== "texture");
+  if (!out) return null;
+  const output = graph.nodes.find((n) => n.type === OUTPUT_NODE_TYPE);
+  const outputId = output?.id ?? "output";
+  const nodes = graph.nodes.map((n) => (n.type === OUTPUT_NODE_TYPE ? { id: n.id, type: n.type, position: n.position } : n));
+  if (!output) nodes.push({ id: outputId, type: OUTPUT_NODE_TYPE, position: [0, 0] });
+  return {
+    target: "unlit",
+    surface: "opaque",
+    doubleSided: false,
+    properties: graph.properties,
+    nodes,
+    edges: [...graph.edges.filter((e) => splitPortRef(e.to).node !== outputId), { from: portRef(nodeId, out.id), to: portRef(outputId, "baseColor") }],
   };
 }
 

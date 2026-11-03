@@ -7,6 +7,9 @@ import {
   AmbientLight,
   DirectionalLight,
   Mesh,
+  NoColorSpace,
+  OrthographicCamera,
+  PlaneGeometry,
   PerspectiveCamera,
   PMREMGenerator,
   Scene,
@@ -19,7 +22,32 @@ import { Assets } from "../scene/Assets";
 import { meshesIfLoaded, type BuiltinMesh } from "../scene/models";
 import type { GraphValue, ShaderGraph } from "../scene/shaderGraph";
 import { compileShaderGraph, type CompiledShaderGraph } from "./shaderGraph/compile";
-import { createGraphMaterial, createSharedGraphUniforms, type GraphMaterial } from "./shaderGraph/threeMaterial";
+import { createGraphMaterial, createSharedGraphUniforms, type GraphMaterial, type LoadTexture } from "./shaderGraph/threeMaterial";
+
+/** Load project textures for previews, cached; linear copies for normal maps. */
+function previewTextures(): { load: LoadTexture; clear(): void } {
+  const loader = new TextureLoader();
+  const cache = new Map<string, Promise<Texture>>();
+  const load: LoadTexture = (path, linear) => {
+    const key = `${linear ? "L" : "S"}${path}`;
+    let p = cache.get(key);
+    if (!p) {
+      p = loader.loadAsync(Assets.url(path)).then((tex) => {
+        tex.colorSpace = linear ? NoColorSpace : SRGBColorSpace;
+        return tex;
+      });
+      cache.set(key, p);
+    }
+    return p;
+  };
+  return {
+    load,
+    clear() {
+      for (const p of cache.values()) void p.then((t) => t.dispose(), () => undefined);
+      cache.clear();
+    },
+  };
+}
 
 export type PreviewMesh = Extract<BuiltinMesh, "sphere" | "cube" | "capsule" | "plane" | "quad">;
 
@@ -32,8 +60,7 @@ export class MaterialPreview {
   private readonly camera = new PerspectiveCamera(35, 1, 0.1, 50);
   private readonly mesh = new Mesh();
   private readonly shared = createSharedGraphUniforms();
-  private readonly textures = new Map<string, Promise<Texture>>();
-  private readonly loader = new TextureLoader();
+  private readonly textures = previewTextures();
   private readonly resizeObserver: ResizeObserver;
   private graph: GraphMaterial | null = null;
   private frame = 0;
@@ -99,26 +126,13 @@ export class MaterialPreview {
     this.graph?.dispose();
     this.shaderFailed = false;
     this.onShaderError?.(null);
-    this.graph = createGraphMaterial(compiled, properties, this.shared, (path) => this.texture(path));
+    this.graph = createGraphMaterial(compiled, properties, this.shared, this.textures.load);
     this.mesh.material = this.graph.material;
     return compiled;
   }
 
-  private texture(path: string): Promise<Texture> {
-    let p = this.textures.get(path);
-    if (!p) {
-      p = this.loader.loadAsync(Assets.url(path)).then((tex) => {
-        tex.colorSpace = SRGBColorSpace;
-        return tex;
-      });
-      this.textures.set(path, p);
-    }
-    return p;
-  }
-
   /** Forget loaded textures (the project's images changed). */
   clearTextures(): void {
-    for (const p of this.textures.values()) void p.then((t) => t.dispose(), () => undefined);
     this.textures.clear();
   }
 
@@ -173,5 +187,80 @@ export class MaterialPreview {
     this.scene.environment?.dispose();
     this.renderer.dispose();
     this.canvas.remove();
+  }
+}
+
+/**
+ * @internal Editor: draws node previews (ADR 0048), each a quad with an unlit graph material, with
+ * one offscreen WebGL renderer for every node, copied into each node's 2D canvas, so a large
+ * graph doesn't need a WebGL context per node.
+ */
+export class NodePreviewRenderer {
+  private readonly renderer: WebGLRenderer;
+  private readonly scene = new Scene();
+  private readonly camera = new OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0.1, 10);
+  private readonly mesh = new Mesh(new PlaneGeometry(1, 1));
+  private readonly shared = createSharedGraphUniforms();
+  private readonly textures = previewTextures();
+  /** Compiled graphs and their materials by the graph's JSON; ones not drawn in a pass are freed. */
+  private readonly entries = new Map<string, { compiled: CompiledShaderGraph; graph: GraphMaterial; used: boolean; failed: boolean }>();
+  private readonly start = performance.now();
+  private failed = false;
+
+  constructor(readonly size = 96) {
+    const canvas = document.createElement("canvas");
+    this.renderer = new WebGLRenderer({ canvas, antialias: false, alpha: true, preserveDrawingBuffer: true });
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(size, size, false);
+    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.debug.onShaderError = () => (this.failed = true);
+    this.camera.position.set(0, 0, 1);
+    this.scene.add(this.mesh);
+  }
+
+  /** Start a pass over every preview: advances time. */
+  begin(): void {
+    this.shared.time.value = (performance.now() - this.start) / 1000;
+    this.shared.resolution.value.set(this.size, this.size);
+    for (const e of this.entries.values()) e.used = false;
+  }
+
+  /** Draw `graph` (a node's preview graph) into `target`. False if its shader didn't compile. */
+  draw(graph: ShaderGraph, target: HTMLCanvasElement): boolean {
+    const key = JSON.stringify(graph);
+    let e = this.entries.get(key);
+    if (!e) {
+      const compiled = compileShaderGraph(graph);
+      e = { compiled, graph: createGraphMaterial(compiled, {}, this.shared, this.textures.load), used: true, failed: false };
+      this.entries.set(key, e);
+    }
+    e.used = true;
+    this.mesh.material = e.graph.material;
+    this.failed = false;
+    this.renderer.render(this.scene, this.camera);
+    // three.js reports a broken program once, when it first compiles; remember it.
+    if (this.failed) e.failed = true;
+    const ctx = target.getContext("2d");
+    if (!ctx) return !e.failed;
+    ctx.clearRect(0, 0, target.width, target.height);
+    if (!e.failed) ctx.drawImage(this.renderer.domElement, 0, 0, target.width, target.height);
+    return !e.failed;
+  }
+
+  /** End a pass: free the materials of previews that weren't drawn. */
+  end(): void {
+    for (const [k, e] of this.entries) {
+      if (e.used) continue;
+      e.graph.dispose();
+      this.entries.delete(k);
+    }
+  }
+
+  dispose(): void {
+    for (const e of this.entries.values()) e.graph.dispose();
+    this.entries.clear();
+    this.textures.clear();
+    this.mesh.geometry.dispose();
+    this.renderer.dispose();
   }
 }

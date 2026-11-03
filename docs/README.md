@@ -73,6 +73,8 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0045](decisions/0045-3d-physics-rapier3d.md) | 3D physics on Rapier 3D, loaded on demand, with the 2D API's shape | Proposed |
 | [0046](decisions/0046-shader-graph-editor-on-xyflow-system.md) | The shader graph editor is a Preact panel on xyflow's framework-free core (`@xyflow/system`) | Proposed |
 | [0047](decisions/0047-shader-graph-assets-compile-to-glsl.md) | Shader graph assets compile to GLSL that extends the built-in lit and unlit materials; materials name a graph as their shader | Proposed |
+| [0048](decisions/0048-shader-sub-graphs-and-custom-functions.md) | Shader sub-graphs, custom function nodes, normal-map sampling and node previews | Proposed |
+| [0049](decisions/0049-runtime-material-properties.md) | Scripts set material properties per MeshRenderer, like Unity's MaterialPropertyBlock | Proposed |
 
 ## Working with decisions
 

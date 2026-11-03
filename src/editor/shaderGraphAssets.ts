@@ -2,7 +2,7 @@
 // reading and writing them, which one the Shader Graph panel has open, and each graph's undo
 // history for the session.
 import { signal } from "@preact/signals";
-import { defaultShaderGraph, formatShaderGraph, parseShaderGraph, type ShaderGraph } from "../engine/scene/shaderGraph";
+import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph, parseShaderGraph, type ShaderGraph } from "../engine/scene/shaderGraph";
 import { defaultMaterialSettings } from "../engine/scene/material";
 import { fileName } from "./assetBrowser";
 import { freePath } from "./assetOps";
@@ -86,16 +86,21 @@ const readOnly = (project: EditorProject, what: string) => {
 };
 
 /** Create `New Shader Graph.shadergraph.json` in `folder`. Returns its path, or null. */
-export async function createShaderGraph(folder: string): Promise<string | null> {
+export const createShaderGraph = (folder: string) => createGraphFile(folder, "New Shader Graph.shadergraph.json", defaultShaderGraph(), "shader graphs");
+
+/** Create `New Sub Graph.shadersubgraph.json` in `folder` (ADR 0048). Returns its path, or null. */
+export const createShaderSubGraph = (folder: string) => createGraphFile(folder, "New Sub Graph.shadersubgraph.json", defaultShaderSubGraph(), "sub-graphs");
+
+async function createGraphFile(folder: string, name: string, graph: ShaderGraph, what: string): Promise<string | null> {
   const project = currentProject.value;
   if (!project) return null;
   if (!project.canSave) {
-    readOnly(project, "shader graphs");
+    readOnly(project, what);
     return null;
   }
-  const path = freePath(project, shaderGraphFolder(folder), "New Shader Graph.shadergraph.json");
+  const path = freePath(project, shaderGraphFolder(folder), name);
   try {
-    await project.writeText(path, formatShaderGraph(defaultShaderGraph()));
+    await project.writeText(path, formatShaderGraph(graph));
   } catch (err) {
     status.value = errorStatus(`Couldn't create ${path}`, err);
     return null;

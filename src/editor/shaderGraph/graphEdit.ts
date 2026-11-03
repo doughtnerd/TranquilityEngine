@@ -6,7 +6,11 @@ import {
   defaultPropertyValue,
   portRef,
   splitPortRef,
+  isPortName,
+  type CustomFunction,
+  type FunctionPort,
   type GraphNode,
+  type GraphNote,
   type GraphProperty,
   type GraphPropertyType,
   type GraphValue,
@@ -42,6 +46,10 @@ export function removeNodes(graph: ShaderGraph, ids: Iterable<string>): ShaderGr
   const g = clone(graph);
   g.nodes = g.nodes.filter((n) => !gone.has(n.id));
   g.edges = g.edges.filter((e) => !gone.has(splitPortRef(e.from).node) && !gone.has(splitPortRef(e.to).node));
+  if (g.groups) {
+    g.groups = g.groups.map((gr) => ({ ...gr, nodes: gr.nodes.filter((id) => !gone.has(id)) })).filter((gr) => gr.nodes.length > 0);
+    if (g.groups.length === 0) delete g.groups;
+  }
   return g;
 }
 
@@ -251,15 +259,218 @@ const CATEGORY_ORDER = { Input: 0, Math: 1, Vector: 2, Color: 3, Noise: 4, Light
 export const categoryRank = (category: keyof typeof CATEGORY_ORDER) => CATEGORY_ORDER[category];
 
 /** The first input of a node type that an output of `type` can connect to, or null. */
-export function firstInputFor(nodeType: string, type: ValueType, graph: ShaderGraph): string | null {
+export function firstInputFor(nodeType: string, type: ValueType, graph: ShaderGraph, settings?: Record<string, string>): string | null {
   const def = nodeDef(nodeType);
   if (!def) return null;
-  const ports = nodePorts({ id: "_", type: nodeType, position: [0, 0] }, graph);
+  const ports = nodePorts({ id: "_", type: nodeType, position: [0, 0], settings, function: nodeType === "customFunction" ? defaultFunction() : undefined }, graph);
   return ports.inputs.find((p) => canConnectTypes(type, p.type))?.id ?? null;
 }
 
 /** The first output of a node type that can connect to an input of `type`, or null. */
 export function firstOutputFor(nodeType: string, type: ValueType | "dynamic", graph: ShaderGraph, settings?: Record<string, string>): string | null {
-  const ports = nodePorts({ id: "_", type: nodeType, position: [0, 0], settings }, graph);
+  const ports = nodePorts({ id: "_", type: nodeType, position: [0, 0], settings, function: nodeType === "customFunction" ? defaultFunction() : undefined }, graph);
   return ports.outputs.find((p) => canConnectTypes(p.type, type))?.id ?? null;
+}
+
+// --- copy and paste (ADR 0048) ----------------------------------------------------------------------
+
+/** Nodes copied from a graph: the nodes, the connections between them, and the properties they read. */
+export interface GraphClipboard {
+  format: "myco.shadergraph.clipboard@1";
+  nodes: GraphNode[];
+  edges: { from: string; to: string }[];
+  properties: GraphProperty[];
+}
+
+/** Copy nodes (not the output node) with the connections between them and the properties they read. */
+export function copyNodes(graph: ShaderGraph, ids: Iterable<string>): GraphClipboard | null {
+  const picked = new Set([...ids].filter((id) => graph.nodes.some((n) => n.id === id && n.type !== OUTPUT_NODE_TYPE)));
+  if (picked.size === 0) return null;
+  const nodes = graph.nodes.filter((n) => picked.has(n.id)).map((n) => structuredClone(n));
+  const used = new Set(nodes.filter((n) => n.type === "property").map((n) => n.settings?.property));
+  return {
+    format: "myco.shadergraph.clipboard@1",
+    nodes,
+    edges: graph.edges.filter((e) => picked.has(splitPortRef(e.from).node) && picked.has(splitPortRef(e.to).node)).map((e) => ({ ...e })),
+    properties: graph.properties.filter((p) => used.has(p.name)).map((p) => structuredClone(p)),
+  };
+}
+
+/** Read a clipboard from text (the system clipboard), or null if it isn't one. */
+export function parseClipboard(text: string): GraphClipboard | null {
+  try {
+    const v = JSON.parse(text) as GraphClipboard;
+    return v && v.format === "myco.shadergraph.clipboard@1" && Array.isArray(v.nodes) && Array.isArray(v.edges) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Paste copied nodes with new ids, their top-left corner at `at`, keeping their connections;
+ * properties they read that the graph lacks are added.
+ */
+export function pasteNodes(graph: ShaderGraph, clip: GraphClipboard, at: [number, number]): { graph: ShaderGraph; ids: string[] } {
+  const g = clone(graph);
+  for (const p of clip.properties ?? []) if (!g.properties.some((q) => q.name === p.name)) g.properties.push(structuredClone(p));
+  const x0 = Math.min(...clip.nodes.map((n) => n.position[0])), y0 = Math.min(...clip.nodes.map((n) => n.position[1]));
+  const map = new Map<string, string>();
+  const taken = new Set<string>();
+  for (const n of clip.nodes) {
+    if (n.type === OUTPUT_NODE_TYPE) continue;
+    const copy = structuredClone(n);
+    copy.id = newNodeId(g, n.type, taken);
+    taken.add(copy.id);
+    copy.position = [Math.round(at[0] + n.position[0] - x0), Math.round(at[1] + n.position[1] - y0)];
+    map.set(n.id, copy.id);
+    g.nodes.push(copy);
+  }
+  for (const e of clip.edges) {
+    const from = splitPortRef(e.from), to = splitPortRef(e.to);
+    if (map.has(from.node) && map.has(to.node)) g.edges.push({ from: portRef(map.get(from.node)!, from.port), to: portRef(map.get(to.node)!, to.port) });
+  }
+  return { graph: dropInvalidEdges(g), ids: [...map.values()] };
+}
+
+// --- groups and notes -------------------------------------------------------------------------------
+
+const newId = (prefix: string, taken: readonly { id: string }[]) => {
+  for (let i = 1; ; i++) if (!taken.some((t) => t.id === `${prefix}${i}`)) return `${prefix}${i}`;
+};
+
+/** Put nodes in a new group (taking them out of any other). */
+export function groupNodes(graph: ShaderGraph, ids: Iterable<string>, title = "Group"): { graph: ShaderGraph; id: string | null } {
+  const members = [...ids].filter((id) => graph.nodes.some((n) => n.id === id));
+  if (members.length === 0) return { graph, id: null };
+  const g = clone(graph);
+  const groups = (g.groups ?? []).map((gr) => ({ ...gr, nodes: gr.nodes.filter((id) => !members.includes(id)) })).filter((gr) => gr.nodes.length > 0);
+  const id = newId("group", graph.groups ?? []);
+  groups.push({ id, title, nodes: members });
+  g.groups = groups;
+  return { graph: g, id };
+}
+
+/** Remove a group (its nodes stay). */
+export function ungroup(graph: ShaderGraph, id: string): ShaderGraph {
+  if (!graph.groups?.some((gr) => gr.id === id)) return graph;
+  const g = clone(graph);
+  g.groups = g.groups!.filter((gr) => gr.id !== id);
+  if (g.groups.length === 0) delete g.groups;
+  return g;
+}
+
+export function setGroupTitle(graph: ShaderGraph, id: string, title: string): ShaderGraph {
+  const g = clone(graph);
+  const gr = g.groups?.find((x) => x.id === id);
+  if (!gr || gr.title === title) return graph;
+  gr.title = title;
+  return g;
+}
+
+/** Add a sticky note at `position`. */
+export function addNote(graph: ShaderGraph, position: [number, number], text = ""): { graph: ShaderGraph; id: string } {
+  const g = clone(graph);
+  const id = newId("note", graph.notes ?? []);
+  (g.notes ??= []).push({ id, position: [Math.round(position[0]), Math.round(position[1])], size: [200, 100], text });
+  return { graph: g, id };
+}
+
+/** Change a note's text, position or size. */
+export function updateNote(graph: ShaderGraph, id: string, patch: Partial<Omit<GraphNote, "id">>): ShaderGraph {
+  const g = clone(graph);
+  const n = g.notes?.find((x) => x.id === id);
+  if (!n) return graph;
+  if (patch.text !== undefined) n.text = patch.text;
+  if (patch.position) n.position = [Math.round(patch.position[0]), Math.round(patch.position[1])];
+  if (patch.size) n.size = [Math.max(80, Math.round(patch.size[0])), Math.max(40, Math.round(patch.size[1]))];
+  return JSON.stringify(n) === JSON.stringify(graph.notes!.find((x) => x.id === id)) ? graph : g;
+}
+
+export function removeNote(graph: ShaderGraph, id: string): ShaderGraph {
+  if (!graph.notes?.some((n) => n.id === id)) return graph;
+  const g = clone(graph);
+  g.notes = g.notes!.filter((n) => n.id !== id);
+  if (g.notes.length === 0) delete g.notes;
+  return g;
+}
+
+// --- sub-graph outputs and custom functions -----------------------------------------------------------
+
+/** A port name not in `names`: `Out`, `Out2`… */
+export function freePortName(names: readonly string[], base: string): string {
+  if (!names.includes(base)) return base;
+  for (let i = 2; ; i++) if (!names.includes(`${base}${i}`)) return `${base}${i}`;
+}
+
+/** Why `name` can't name a port among `others`, or null. */
+export function whyNotPortName(name: string, others: readonly string[]): string | null {
+  if (!isPortName(name)) return "a port name is letters, digits and _ (not starting with a digit, no __ or gl_)";
+  if (others.includes(name)) return `there's already a port named "${name}"`;
+  return null;
+}
+
+const outputNodeId = (g: ShaderGraph) => g.nodes.find((n) => n.type === OUTPUT_NODE_TYPE)?.id ?? "output";
+
+/** Sub-graphs: add an output. */
+export function addSubGraphOutput(graph: ShaderGraph, type: FunctionPort["type"] = "vec4"): ShaderGraph {
+  if (!graph.subgraph) return graph;
+  const g = clone(graph);
+  g.subgraph!.outputs.push({ name: freePortName(g.subgraph!.outputs.map((o) => o.name), "Out"), type });
+  return g;
+}
+
+/** Sub-graphs: rename an output, keeping what's connected to it. */
+export function renameSubGraphOutput(graph: ShaderGraph, from: string, to: string): ShaderGraph {
+  const outs = graph.subgraph?.outputs;
+  if (!outs || from === to || whyNotPortName(to, outs.map((o) => o.name).filter((n) => n !== from))) return graph;
+  const g = clone(graph);
+  g.subgraph!.outputs.find((o) => o.name === from)!.name = to;
+  const out = outputNodeId(g);
+  for (const e of g.edges) if (e.to === portRef(out, from)) e.to = portRef(out, to);
+  return g;
+}
+
+export function setSubGraphOutputType(graph: ShaderGraph, name: string, type: FunctionPort["type"]): ShaderGraph {
+  const g = clone(graph);
+  const o = g.subgraph?.outputs.find((x) => x.name === name);
+  if (!o || o.type === type) return graph;
+  o.type = type;
+  return dropInvalidEdges(g);
+}
+
+export function removeSubGraphOutput(graph: ShaderGraph, name: string): ShaderGraph {
+  if (!graph.subgraph?.outputs.some((o) => o.name === name)) return graph;
+  const g = clone(graph);
+  g.subgraph!.outputs = g.subgraph!.outputs.filter((o) => o.name !== name);
+  return dropInvalidEdges(g);
+}
+
+/** A new Custom Function node's code. */
+export const defaultFunction = (): CustomFunction => ({ name: "myFunction", inputs: [{ name: "In", type: "vec3" }], outputs: [{ name: "Out", type: "vec3" }], body: "Out = In;" });
+
+/**
+ * Change a Custom Function node's code. `renamed` maps old port names to new ones (inputs and
+ * outputs), so connections follow; connections to ports that no longer fit go.
+ */
+export function setFunction(graph: ShaderGraph, nodeId: string, fn: CustomFunction, renamed: Record<string, string> = {}): ShaderGraph {
+  const g = clone(graph);
+  const n = g.nodes.find((m) => m.id === nodeId);
+  if (!n) return graph;
+  n.function = structuredClone(fn);
+  for (const e of g.edges) {
+    const from = splitPortRef(e.from), to = splitPortRef(e.to);
+    if (from.node === nodeId && renamed[from.port]) e.from = portRef(nodeId, renamed[from.port]);
+    if (to.node === nodeId && renamed[to.port]) e.to = portRef(nodeId, renamed[to.port]);
+  }
+  return dropInvalidEdges(g);
+}
+
+/** Show or collapse a node's preview. */
+export function setPreview(graph: ShaderGraph, nodeId: string, shown: boolean): ShaderGraph {
+  const g = clone(graph);
+  const n = g.nodes.find((m) => m.id === nodeId);
+  if (!n || (n.preview !== false) === shown) return graph;
+  if (shown) delete n.preview;
+  else n.preview = false;
+  return g;
 }

@@ -179,7 +179,7 @@ describe("compiling shader graphs to GLSL", () => {
 
   it("compiles every node type without problems", () => {
     for (const def of NODES) {
-      if (def.type === "output") continue;
+      if (def.type === "output" || def.type === "subgraph" || def.type === "customFunction") continue; // they need files or code of their own (tested below)
       const n = node("n", def.type, def.type === "property" ? { settings: { property: "P" } } : {});
       const g = graph([n], [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }] });
       const out = nodePorts(n, g).outputs.find((p) => p.type !== "texture");

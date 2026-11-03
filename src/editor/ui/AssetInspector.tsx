@@ -15,7 +15,7 @@ const projectPPU = (settings: { render?: { pixelsPerUnit?: number } }) => settin
 export function AssetInspector() {
   const path = inspectedAsset.value;
   const kind = path ? assetKind(path) : null;
-  return path && kind === "material" ? <MaterialInspector path={path} /> : path && kind === "shadergraph" ? <ShaderGraphInspector path={path} /> : <ImportInspector />;
+  return path && kind === "material" ? <MaterialInspector path={path} /> : path && (kind === "shadergraph" || kind === "shadersubgraph") ? <ShaderGraphInspector path={path} /> : <ImportInspector />;
 }
 
 const KIND_TITLES = { image: "Image", audio: "Audio", model: "Model" } as const;

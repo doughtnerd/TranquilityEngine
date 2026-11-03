@@ -13,13 +13,21 @@
  *   "edges": [{ "from": "n1.out", "to": "output.baseColor" }]
  * }
  * ```
+ *
+ * Sub-graphs (ADR 0048) are `*.shadersubgraph.json` files, `"format": "myco.shadersubgraph@1"`:
+ * the same shape without `target`, `surface` and `doubleSided`, plus `"outputs"` (the output node's
+ * ports). Optional `groups` and `notes` only organise the editor's canvas.
  */
 
 export const SHADER_GRAPH_FORMAT = "myco.shadergraph@1";
 export const SHADER_GRAPH_SUFFIX = ".shadergraph.json";
+export const SHADER_SUBGRAPH_FORMAT = "myco.shadersubgraph@1";
+export const SHADER_SUBGRAPH_SUFFIX = ".shadersubgraph.json";
 
 /** True for a shader graph asset path (with or without `asset:`). */
 export const isShaderGraphPath = (path: string): boolean => path.toLowerCase().endsWith(SHADER_GRAPH_SUFFIX);
+/** True for a shader sub-graph asset path. */
+export const isShaderSubGraphPath = (path: string): boolean => path.toLowerCase().endsWith(SHADER_SUBGRAPH_SUFFIX);
 
 export type ShaderGraphTarget = "lit" | "unlit";
 export type ShaderGraphSurface = "opaque" | "transparent";
@@ -39,6 +47,35 @@ export interface GraphProperty {
 /** An unconnected input's value: a number, or 2–4 numbers. */
 export type InputValue = number | number[];
 
+/** A port of a custom function or a sub-graph output: a GLSL name and a value type. */
+export interface FunctionPort {
+  name: string;
+  type: "float" | "vec2" | "vec3" | "vec4" | "texture";
+}
+
+/** A Custom Function node's GLSL (ADR 0048): `void name(inputs, out outputs) { body }`. */
+export interface CustomFunction {
+  name: string;
+  inputs: FunctionPort[];
+  outputs: FunctionPort[];
+  body: string;
+}
+
+/** A titled box around nodes on the canvas. */
+export interface GraphGroup {
+  id: string;
+  title: string;
+  nodes: string[];
+}
+
+/** A sticky note on the canvas. */
+export interface GraphNote {
+  id: string;
+  position: [number, number];
+  size: [number, number];
+  text: string;
+}
+
 export interface GraphNode {
   /** Unique within the graph; letters, digits, `_` and `-` (no dots: edges use `node.port`). */
   id: string;
@@ -48,6 +85,10 @@ export interface GraphNode {
   inputs?: Record<string, InputValue>;
   /** The node's options (property name, swizzle mask, space, texture, colour…). */
   settings?: Record<string, string>;
+  /** Custom Function nodes: their ports and GLSL. */
+  function?: CustomFunction;
+  /** False: the node's preview is collapsed in the editor. */
+  preview?: false;
 }
 
 /** A connection from an output port to an input port, each written `nodeId.portId`. */
@@ -63,6 +104,10 @@ export interface ShaderGraph {
   properties: GraphProperty[];
   nodes: GraphNode[];
   edges: GraphEdge[];
+  /** Set for a sub-graph: its outputs (the output node's ports). */
+  subgraph?: { outputs: FunctionPort[] };
+  groups?: GraphGroup[];
+  notes?: GraphNote[];
 }
 
 export const OUTPUT_NODE_TYPE = "output";
@@ -77,9 +122,35 @@ export const defaultShaderGraph = (): ShaderGraph => ({
   edges: [],
 });
 
+/** A new sub-graph: an output node with one `vec4` output, `Out`. */
+export const defaultShaderSubGraph = (): ShaderGraph => ({ ...defaultShaderGraph(), subgraph: { outputs: [{ name: "Out", type: "vec4" }] } });
+
+const FUNCTION_TYPES = ["float", "vec2", "vec3", "vec4", "texture"] as const;
+const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** True for a name usable as a port of a custom function or sub-graph output (a GLSL identifier, `__`-free). */
+export const isPortName = (name: string): boolean => IDENT.test(name) && !name.includes("__") && !name.startsWith("gl_");
+
+function parsePorts(raw: unknown, where: string, problems: string[], allowTexture: boolean): FunctionPort[] {
+  const out: FunctionPort[] = [];
+  if (!Array.isArray(raw)) return out;
+  for (const p of raw) {
+    if (!isObject(p) || typeof p.name !== "string" || !isPortName(p.name) || !FUNCTION_TYPES.includes(p.type as FunctionPort["type"]) || (!allowTexture && p.type === "texture")) {
+      problems.push(`${where}: skipped a port without a GLSL name and a type.`);
+      continue;
+    }
+    if (out.some((q) => q.name === p.name)) {
+      problems.push(`${where}: skipped a second port named "${p.name}".`);
+      continue;
+    }
+    out.push({ name: p.name, type: p.type as FunctionPort["type"] });
+  }
+  return out;
+}
+
 /** Split `node.port`. */
 export function splitPortRef(ref: string): { node: string; port: string } {
-  const dot = ref.lastIndexOf(".");
+  const dot = ref.indexOf("."); // node ids have no dots; port ids (a sub-graph's property names) may
   return dot < 0 ? { node: ref, port: "" } : { node: ref.slice(0, dot), port: ref.slice(dot + 1) };
 }
 
@@ -127,9 +198,10 @@ export function checkPropertyValue(type: GraphPropertyType, value: unknown): Gra
  */
 export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph: ShaderGraph; problems: string[] } {
   if (!isObject(raw)) throw new Error(`${where}: expected an object with "format": "${SHADER_GRAPH_FORMAT}".`);
-  if (raw.format !== SHADER_GRAPH_FORMAT) throw new Error(`${where}: unknown format ${JSON.stringify(raw.format)}; expected "${SHADER_GRAPH_FORMAT}".`);
+  if (raw.format !== SHADER_GRAPH_FORMAT && raw.format !== SHADER_SUBGRAPH_FORMAT) throw new Error(`${where}: unknown format ${JSON.stringify(raw.format)}; expected "${SHADER_GRAPH_FORMAT}".`);
   const problems: string[] = [];
   const graph: ShaderGraph = { ...defaultShaderGraph(), nodes: [] };
+  if (raw.format === SHADER_SUBGRAPH_FORMAT) graph.subgraph = { outputs: parsePorts(raw.outputs, `${where} outputs`, problems, false) };
   if (raw.target !== undefined) {
     if (raw.target === "lit" || raw.target === "unlit") graph.target = raw.target;
     else problems.push(`${where}: "target" should be "lit" or "unlit"; using "lit".`);
@@ -190,6 +262,18 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
         }
         if (Object.keys(settings).length) node.settings = settings;
       }
+      if (n.function !== undefined) {
+        const f = n.function;
+        if (isObject(f) && typeof f.name === "string" && isPortName(f.name) && typeof (f.body ?? "") === "string") {
+          node.function = {
+            name: f.name,
+            inputs: parsePorts(f.inputs, `${where}: node "${n.id}" inputs`, problems, true),
+            outputs: parsePorts(f.outputs, `${where}: node "${n.id}" outputs`, problems, false),
+            body: typeof f.body === "string" ? f.body : "",
+          };
+        } else problems.push(`${where}: node "${n.id}" has a function without a GLSL name.`);
+      }
+      if (n.preview === false) node.preview = false;
       graph.nodes.push(node);
     }
   } else if (raw.nodes !== undefined) problems.push(`${where}: "nodes" should be a list.`);
@@ -218,23 +302,54 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
       graph.edges.push({ from: e.from, to: e.to });
     }
   } else if (raw.edges !== undefined) problems.push(`${where}: "edges" should be a list.`);
+  if (Array.isArray(raw.groups)) {
+    const ids = new Set(graph.nodes.map((n) => n.id));
+    const groups: GraphGroup[] = [];
+    for (const g of raw.groups) {
+      if (!isObject(g) || typeof g.id !== "string" || !Array.isArray(g.nodes)) {
+        problems.push(`${where}: skipped a group without an id and nodes.`);
+        continue;
+      }
+      groups.push({ id: g.id, title: typeof g.title === "string" ? g.title : "", nodes: g.nodes.filter((id): id is string => typeof id === "string" && ids.has(id)) });
+    }
+    if (groups.length) graph.groups = groups;
+  }
+  if (Array.isArray(raw.notes)) {
+    const notes: GraphNote[] = [];
+    for (const n of raw.notes) {
+      const pair = (v: unknown, d: [number, number]): [number, number] => (Array.isArray(v) && v.length === 2 && v.every(isNum) ? [v[0], v[1]] : d);
+      if (!isObject(n) || typeof n.id !== "string") {
+        problems.push(`${where}: skipped a note without an id.`);
+        continue;
+      }
+      notes.push({ id: n.id, position: pair(n.position, [0, 0]), size: pair(n.size, [200, 100]), text: typeof n.text === "string" ? n.text : "" });
+    }
+    if (notes.length) graph.notes = notes;
+  }
   return { graph, problems };
 }
 
 /** A shader graph file's JSON: the format, the settings that differ from the defaults, then the graph. */
 export function shaderGraphJSON(graph: ShaderGraph): Record<string, unknown> {
-  const out: Record<string, unknown> = { format: SHADER_GRAPH_FORMAT };
-  if (graph.target !== "lit") out.target = graph.target;
-  if (graph.surface !== "opaque") out.surface = graph.surface;
-  if (graph.doubleSided) out.doubleSided = true;
+  const out: Record<string, unknown> = { format: graph.subgraph ? SHADER_SUBGRAPH_FORMAT : SHADER_GRAPH_FORMAT };
+  if (graph.subgraph) out.outputs = graph.subgraph.outputs.map((p) => ({ ...p }));
+  else {
+    if (graph.target !== "lit") out.target = graph.target;
+    if (graph.surface !== "opaque") out.surface = graph.surface;
+    if (graph.doubleSided) out.doubleSided = true;
+  }
   out.properties = graph.properties.map((p) => ({ name: p.name, type: p.type, value: Array.isArray(p.value) ? [...p.value] : p.value }));
   out.nodes = graph.nodes.map((n) => {
     const node: Record<string, unknown> = { id: n.id, type: n.type, position: [Math.round(n.position[0]), Math.round(n.position[1])] };
     if (n.inputs && Object.keys(n.inputs).length) node.inputs = { ...n.inputs };
     if (n.settings && Object.keys(n.settings).length) node.settings = { ...n.settings };
+    if (n.function) node.function = { name: n.function.name, inputs: n.function.inputs.map((p) => ({ ...p })), outputs: n.function.outputs.map((p) => ({ ...p })), body: n.function.body };
+    if (n.preview === false) node.preview = false;
     return node;
   });
   out.edges = graph.edges.map((e) => ({ from: e.from, to: e.to }));
+  if (graph.groups?.length) out.groups = graph.groups.map((g) => ({ id: g.id, title: g.title, nodes: [...g.nodes] }));
+  if (graph.notes?.length) out.notes = graph.notes.map((n) => ({ id: n.id, position: [Math.round(n.position[0]), Math.round(n.position[1])], size: [Math.round(n.size[0]), Math.round(n.size[1])], text: n.text }));
   return out;
 }
 

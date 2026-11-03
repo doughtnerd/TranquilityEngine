@@ -101,5 +101,39 @@
 
 .sg-problems { position: absolute; left: 8px; right: 8px; bottom: 8px; margin: 0; padding: 6px 10px 6px 24px; max-height: 30%; overflow: auto; background: var(--warning-soft); color: var(--text); border: 1px solid var(--warning); border-radius: 6px; font-size: calc(12px * var(--ui-scale)); }
 .sg-problems li.error { color: var(--danger); }
-.sg-readonly { position: absolute; top: 8px; right: 12px; margin: 0; color: var(--muted); }
+.sg-readonly { position: absolute; top: 8px; left: 12px; margin: 0; color: var(--muted); }
 .sg-glsl { width: 42%; flex: none; margin: 0; padding: 8px; overflow: auto; border-left: 1px solid var(--border); background: var(--bg-sunken); color: var(--text); font-family: var(--font-code); font-size: var(--font-size-code); white-space: pre; }
+
+/* Sub-graphs, custom functions, previews, groups, notes and the minimap (ADR 0048). */
+.sg-kind { color: var(--accent); font-weight: 600; }
+.sg-side-card { border-top: 1px solid var(--border); padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; overflow: auto; max-height: 45%; }
+.sg-side-card input, .sg-side-card select, .sg-side-card textarea { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font: inherit; min-width: 0; box-sizing: border-box; }
+.sg-side-card .sg-property-row > input[type="text"] { flex: 1; }
+.sg-side-card .sg-property-row > span { color: var(--muted); }
+.sg-ports-head { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: calc(11px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px; }
+.sg-ports-head button, .sg-ports button { padding: 0 6px; }
+.sg-function-body { min-height: 110px; resize: vertical; font-family: var(--font-code); font-size: var(--font-size-code); white-space: pre; }
+
+.sg-node-header { gap: 4px; }
+.sg-node-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sg-preview-toggle { padding: 0 4px; background: transparent; border: none; color: var(--muted); line-height: 1; }
+.sg-preview-toggle:hover { color: var(--text); background: transparent; }
+.sg-node-preview { position: absolute; border-radius: 4px; background-color: var(--bg-sunken); background-image: linear-gradient(45deg, var(--border) 25%, transparent 25%, transparent 75%, var(--border) 75%), linear-gradient(45deg, var(--border) 25%, transparent 25%, transparent 75%, var(--border) 75%); background-size: 12px 12px; background-position: 0 0, 6px 6px; }
+.sg-node-preview.failed { outline: 2px solid var(--danger); }
+
+.sg-group { position: absolute; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--accent-faint); }
+.sg-group-head { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 6px; cursor: grab; }
+.sg-group-head input { flex: 1; min-width: 0; background: transparent; border: none; color: var(--text-strong); font: inherit; font-weight: 600; }
+.sg-group-head input:focus { background: var(--input-bg); outline: 1px solid var(--accent); }
+.sg-group-head button { padding: 0 6px; }
+
+.sg-note { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; background: var(--warning-soft); border: 1px solid var(--warning); border-radius: 4px; box-shadow: 0 2px 8px var(--shadow); }
+.sg-note-head { height: 16px; display: flex; justify-content: flex-end; cursor: grab; }
+.sg-note-head button { padding: 0 4px; line-height: 1; font-size: calc(10px * var(--ui-scale)); background: transparent; border: none; color: var(--muted); }
+.sg-note textarea { flex: 1; resize: none; background: transparent; border: none; color: var(--text); font: inherit; padding: 2px 6px 6px; outline: none; }
+.sg-note-resize { position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--warning) 50%); border-radius: 0 0 4px 0; }
+
+.sg-minimap { position: absolute; right: 8px; top: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; opacity: 0.92; cursor: grab; }
+.sg-minimap rect { fill: var(--border-strong); }
+.sg-minimap rect.selected { fill: var(--accent); }
+.sg-minimap .sg-minimap-view { fill: var(--accent-faint); stroke: var(--accent); stroke-width: 1; }

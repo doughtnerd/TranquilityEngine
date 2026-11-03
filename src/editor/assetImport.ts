@@ -59,7 +59,7 @@ export const inspectedAsset = computed<string | null>(() => {
   const sel = selectedAssets.value;
   if (sel.length !== 1) return null;
   const entry = isSliceEntry(sel[0]) ? splitSliceEntry(sel[0]).image : sel[0];
-  return importKind(entry) || assetKind(entry) === "material" || assetKind(entry) === "shadergraph" ? entry : null;
+  return importKind(entry) || ["material", "shadergraph", "shadersubgraph"].includes(assetKind(entry)) ? entry : null;
 });
 
 /** True when the Inspector panel should show the Asset Inspector instead of a node. */

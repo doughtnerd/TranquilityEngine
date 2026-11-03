@@ -3,7 +3,7 @@
  * The render backend mirrors them into three.js objects each frame.
  */
 import { Component } from "../core/Component";
-import { Color, Vector2 } from "../core/math";
+import { Color, Vector2, Vector3 } from "../core/math";
 import { AssetRef, component, field } from "../core/registry";
 import { World } from "../core/World";
 
@@ -104,10 +104,50 @@ export class MeshRenderer extends Component {
   /** Show shadows cast onto it. */
   @field(Boolean) receiveShadows = true;
 
+  private readonly materialProperties = new Map<string, MaterialPropertyValue>();
+  /** @internal Bumped when the property overrides change, so the render backend applies them. */
+  _materialPropertiesVersion = 0;
+
+  /**
+   * Override one of the material's properties for this renderer only (ADR 0049), like Unity's
+   * MaterialPropertyBlock: the material asset and other renderers are unchanged. Names are a
+   * shader graph's property names, or `color`, `emission`, `metalness`, `roughness` and
+   * `texture` for the built-in lit and unlit materials. A texture is an asset path.
+   */
+  setMaterialProperty(name: string, value: MaterialPropertyValue): void {
+    this.materialProperties.set(name, value instanceof Color || value instanceof Vector2 || value instanceof Vector3 ? value.clone() : Array.isArray(value) ? [...value] : value);
+    this._materialPropertiesVersion++;
+  }
+
+  /** The value set with `setMaterialProperty`, or undefined when the material's own value is used. */
+  getMaterialProperty(name: string): MaterialPropertyValue | undefined {
+    return this.materialProperties.get(name);
+  }
+
+  /** Go back to the material's own value for one property. */
+  clearMaterialProperty(name: string): void {
+    if (this.materialProperties.delete(name)) this._materialPropertiesVersion++;
+  }
+
+  /** Go back to the material's own values for every property. */
+  clearMaterialProperties(): void {
+    if (this.materialProperties.size === 0) return;
+    this.materialProperties.clear();
+    this._materialPropertiesVersion++;
+  }
+
+  /** @internal The overrides, by name. */
+  get _materialProperties(): ReadonlyMap<string, MaterialPropertyValue> {
+    return this.materialProperties;
+  }
+
   override _onDetach(): void {
     this.world.render?.release(this);
   }
 }
+
+/** A value for `MeshRenderer.setMaterialProperty`: a number, vector, colour, 2–4 numbers, or a texture's asset path. */
+export type MaterialPropertyValue = number | Vector2 | Vector3 | Color | readonly number[] | string;
 
 export type LightType = "directional" | "point" | "spot" | "ambient";
 
