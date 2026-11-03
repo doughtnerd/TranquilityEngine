@@ -26,6 +26,7 @@ import {
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
   MirroredRepeatWrapping,
   NearestFilter,
@@ -166,7 +167,11 @@ interface RendererMaterial {
   version: number;
 }
 
-const BUILTIN_PROPERTIES = new Set(["color", "emission", "metalness", "roughness", "texture"]);
+const BUILTIN_PROPERTIES = new Set([
+  "color", "emission", "metalness", "roughness", "texture",
+  "clearcoat", "clearcoatRoughness", "sheen", "sheenColor", "sheenRoughness", "transmission", "thickness", "ior",
+  "iridescence", "iridescenceIOR", "anisotropy", "anisotropyRotation", "specularIntensity", "specularColor",
+]);
 
 /** A script's property value as material-file data: colours as `#rrggbbaa`, vectors as number lists. */
 function toGraphValue(v: MaterialPropertyValue): GraphValue {
@@ -778,15 +783,34 @@ export class RenderBackend {
         for (const p of problems) this.warnMaterial(`${path}|${p}`, p);
         const color = new ThreeColor().setRGB(settings.color.r, settings.color.g, settings.color.b, SRGBColorSpace);
         const common = { color, transparent: settings.color.a < 1, opacity: settings.color.a, side: settings.doubleSided ? DoubleSide : FrontSide };
+        const lit = {
+          ...common,
+          metalness: settings.metalness,
+          roughness: settings.roughness,
+          emissive: new ThreeColor().setRGB(settings.emission.r, settings.emission.g, settings.emission.b, SRGBColorSpace),
+        };
         const m =
           settings.shader === "unlit"
             ? new MeshBasicMaterial(common)
-            : new MeshStandardMaterial({
-                ...common,
-                metalness: settings.metalness,
-                roughness: settings.roughness,
-                emissive: new ThreeColor().setRGB(settings.emission.r, settings.emission.g, settings.emission.b, SRGBColorSpace),
-              });
+            : settings.shader === "physical"
+              ? new MeshPhysicalMaterial({
+                  ...lit,
+                  clearcoat: settings.clearcoat,
+                  clearcoatRoughness: settings.clearcoatRoughness,
+                  sheen: settings.sheen,
+                  sheenColor: new ThreeColor().setRGB(settings.sheenColor.r, settings.sheenColor.g, settings.sheenColor.b, SRGBColorSpace),
+                  sheenRoughness: settings.sheenRoughness,
+                  transmission: settings.transmission,
+                  thickness: settings.thickness,
+                  ior: settings.ior,
+                  iridescence: settings.iridescence,
+                  iridescenceIOR: settings.iridescenceIOR,
+                  anisotropy: settings.anisotropy,
+                  anisotropyRotation: (settings.anisotropyRotation * Math.PI) / 180,
+                  specularIntensity: settings.specularIntensity,
+                  specularColor: new ThreeColor().setRGB(settings.specularColor.r, settings.specularColor.g, settings.specularColor.b, SRGBColorSpace),
+                })
+              : new MeshStandardMaterial(lit);
         const tiled = (tex: Texture, linear: boolean): Texture => {
           const [tx, ty] = settings.tiling;
           if (tx === 1 && ty === 1 && !linear) return tex;
@@ -877,6 +901,17 @@ export class RenderBackend {
       }
     }
     if (values.emission !== undefined && mat.emissive) color(values.emission, mat.emissive);
+    const phys = mat as unknown as Record<string, unknown>;
+    for (const k of ["clearcoat", "clearcoatRoughness", "sheen", "sheenRoughness", "transmission", "thickness", "ior", "iridescence", "iridescenceIOR", "anisotropy", "specularIntensity"]) {
+      const v = values[k];
+      if (typeof v === "number" && k in mat) phys[k] = v;
+    }
+    if (typeof values.anisotropyRotation === "number" && "anisotropyRotation" in mat) phys.anisotropyRotation = (values.anisotropyRotation * Math.PI) / 180;
+    for (const k of ["sheenColor", "specularColor"]) {
+      const v = values[k];
+      const into = phys[k];
+      if (v !== undefined && into instanceof ThreeColor) color(v, into);
+    }
     if (typeof values.metalness === "number" && "metalness" in mat) mat.metalness = values.metalness;
     if (typeof values.roughness === "number" && "roughness" in mat) mat.roughness = values.roughness;
     if (typeof values.texture === "string") {

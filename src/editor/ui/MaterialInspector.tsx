@@ -25,7 +25,8 @@ export function MaterialInspector(props: { path: string }) {
   const readOnly = !project.canSave;
   const images = project.files.filter((f) => assetKind(f) === "image");
   const graphs = project.files.filter((f) => assetKind(f) === "shadergraph");
-  const lit = settings.shader === "lit";
+  const physical = settings.shader === "physical";
+  const lit = settings.shader === "lit" || physical;
   const graphPath = materialGraph(settings);
   const graphFile = graphPath?.replace(/^asset:/, "") ?? null;
   const graph = graphFile && project.files.includes(graphFile) ? readShaderGraph(project, graphFile).graph : null;
@@ -135,6 +136,7 @@ export function MaterialInspector(props: { path: string }) {
           <span>Shader</span>
           <select aria-label="Shader" disabled={readOnly} value={settings.shader} onChange={(e) => void set({ shader: (e.currentTarget as HTMLSelectElement).value as MaterialSettings["shader"] })}>
             <option value="lit">Lit (physically based)</option>
+            <option value="physical">Physical (clearcoat, sheen, glass…)</option>
             <option value="unlit">Unlit</option>
             {graphs.map((f) => (
               <option key={f} value={`asset:${f}`}>
@@ -209,6 +211,30 @@ export function MaterialInspector(props: { path: string }) {
             {number("Roughness", settings.roughness, (v) => void set({ roughness: v }), [0, 1])}
             {texture("Normal Map", settings.normalMap, (v) => void set({ normalMap: v }))}
             {color("Emission", settings.emission, (change) => void set((now) => ({ emission: change(now.emission) })), false)}
+          </>
+        )}
+        {physical && (
+          <>
+            <h4 class="material-group">Clearcoat</h4>
+            {number("Clearcoat", settings.clearcoat, (v) => void set({ clearcoat: v }), [0, 1])}
+            {number("Clearcoat Roughness", settings.clearcoatRoughness, (v) => void set({ clearcoatRoughness: v }), [0, 1])}
+            <h4 class="material-group">Sheen</h4>
+            {number("Sheen", settings.sheen, (v) => void set({ sheen: v }), [0, 1])}
+            {color("Sheen Color", settings.sheenColor, (change) => void set((now) => ({ sheenColor: change(now.sheenColor) })), false)}
+            {number("Sheen Roughness", settings.sheenRoughness, (v) => void set({ sheenRoughness: v }), [0, 1])}
+            <h4 class="material-group">Transmission</h4>
+            {number("Transmission", settings.transmission, (v) => void set({ transmission: v }), [0, 1])}
+            {number("Thickness", settings.thickness, (v) => void set({ thickness: Math.max(0, v) }))}
+            {number("IOR", settings.ior, (v) => void set({ ior: v }), [1, 2.333])}
+            <h4 class="material-group">Iridescence</h4>
+            {number("Iridescence", settings.iridescence, (v) => void set({ iridescence: v }), [0, 1])}
+            {number("Iridescence IOR", settings.iridescenceIOR, (v) => void set({ iridescenceIOR: v }), [1, 2.333])}
+            <h4 class="material-group">Anisotropy</h4>
+            {number("Anisotropy", settings.anisotropy, (v) => void set({ anisotropy: v }), [0, 1])}
+            {number("Anisotropy Rotation", settings.anisotropyRotation, (v) => void set({ anisotropyRotation: v }))}
+            <h4 class="material-group">Specular</h4>
+            {number("Specular Intensity", settings.specularIntensity, (v) => void set({ specularIntensity: v }), [0, 1])}
+            {color("Specular Color", settings.specularColor, (change) => void set((now) => ({ specularColor: change(now.specularColor) })), false)}
           </>
         )}
         <label class="import-row">

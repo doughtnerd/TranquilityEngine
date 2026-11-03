@@ -26,8 +26,10 @@ export interface PortDef {
   color?: boolean;
   /** Output node: computed in the vertex shader. */
   vertex?: boolean;
-  /** Output node: only for lit graphs. */
+  /** Output node: only for lit (and physical) graphs. */
   litOnly?: boolean;
+  /** Output node: only for physical graphs (ADR 0052); compiled in only when connected or away from its default. */
+  physicalOnly?: boolean;
   /** Output node: only applied when connected (or, for alpha clip, when above 0). */
   optional?: boolean;
   /** Texture inputs: the texture an unconnected input reads (a Sub Graph's texture property default). */
@@ -231,6 +233,15 @@ export const OUTPUT_INPUTS: readonly PortDef[] = [
   { ...float("roughness", "Roughness", 0.5), litOnly: true },
   vec("vec3", "emission", "Emission", [0, 0, 0], { color: true, litOnly: true }),
   vec("vec3", "normal", "Normal (Tangent)", [0, 0, 1], { litOnly: true, optional: true }),
+  { ...float("clearcoat", "Clearcoat", 0), physicalOnly: true },
+  { ...float("clearcoatRoughness", "Clearcoat Roughness", 0), physicalOnly: true },
+  vec("vec3", "sheenColor", "Sheen Color", [0, 0, 0], { color: true, physicalOnly: true }),
+  { ...float("sheenRoughness", "Sheen Roughness", 1), physicalOnly: true },
+  { ...float("transmission", "Transmission", 0), physicalOnly: true },
+  { ...float("thickness", "Thickness", 0), physicalOnly: true },
+  { ...float("ior", "IOR", 1.5), physicalOnly: true },
+  { ...float("iridescence", "Iridescence", 0), physicalOnly: true },
+  { ...float("specularIntensity", "Specular Intensity", 1), physicalOnly: true },
   { ...float("alphaClip", "Alpha Clip", 0), optional: true },
 ];
 
@@ -245,7 +256,7 @@ export const NODES: readonly NodeDef[] = [
     ports: (_node, graph) => ({
       inputs: graph.subgraph
         ? graph.subgraph.outputs.map((o) => ({ id: o.name, label: o.name, type: o.type, ...(o.type === "texture" ? {} : { default: 0 }) }))
-        : OUTPUT_INPUTS.filter((p) => graph.target === "lit" || !p.litOnly),
+        : OUTPUT_INPUTS.filter((p) => (p.physicalOnly ? graph.target === "physical" : graph.target !== "unlit" || !p.litOnly)),
       outputs: [],
     }),
     emit: () => ({}),

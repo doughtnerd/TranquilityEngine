@@ -545,6 +545,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
           Target{" "}
           <select aria-label="Target" disabled={readOnly} value={graph.target} onChange={(e) => commit(setGraphOptions(graph, { target: (e.currentTarget as HTMLSelectElement).value as ShaderGraph["target"] }))}>
             <option value="lit">Lit</option>
+            <option value="physical">Physical</option>
             <option value="unlit">Unlit</option>
           </select>
         </label>

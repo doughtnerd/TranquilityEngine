@@ -35,4 +35,5 @@
 .material-color code { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .material-color input[type="number"] { width: 56px; flex: none; }
 .material-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.material-group { margin: 10px 0 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .asset-inspector select { min-width: 0; max-width: 100%; }

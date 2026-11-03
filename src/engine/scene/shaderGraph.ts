@@ -29,7 +29,7 @@ export const isShaderGraphPath = (path: string): boolean => path.toLowerCase().e
 /** True for a shader sub-graph asset path. */
 export const isShaderSubGraphPath = (path: string): boolean => path.toLowerCase().endsWith(SHADER_SUBGRAPH_SUFFIX);
 
-export type ShaderGraphTarget = "lit" | "unlit";
+export type ShaderGraphTarget = "lit" | "unlit" | "physical";
 export type ShaderGraphSurface = "opaque" | "transparent";
 export type GraphPropertyType = "float" | "vector2" | "vector3" | "vector4" | "color" | "texture";
 export const GRAPH_PROPERTY_TYPES: readonly GraphPropertyType[] = ["float", "vector2", "vector3", "vector4", "color", "texture"];
@@ -204,7 +204,7 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
   // Sub-graph outputs may be textures: the compiler passes the texture's uniform through (GLSL can't hold one in a variable).
   if (raw.format === SHADER_SUBGRAPH_FORMAT) graph.subgraph = { outputs: parsePorts(raw.outputs, `${where} outputs`, problems, true) };
   if (raw.target !== undefined) {
-    if (raw.target === "lit" || raw.target === "unlit") graph.target = raw.target;
+    if (raw.target === "lit" || raw.target === "unlit" || raw.target === "physical") graph.target = raw.target;
     else problems.push(`${where}: "target" should be "lit" or "unlit"; using "lit".`);
   }
   if (raw.surface !== undefined) {

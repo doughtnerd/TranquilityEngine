@@ -12,7 +12,9 @@ import {
   MeshBasicMaterial,
   MeshDepthMaterial,
   MeshDistanceMaterial,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
+  ShaderChunk,
   RGBADepthPacking,
   SRGBColorSpace,
   type Texture,
@@ -44,7 +46,7 @@ export function whiteTexture(): DataTexture {
 }
 
 export interface GraphMaterial {
-  material: MeshStandardMaterial | MeshBasicMaterial;
+  material: MeshStandardMaterial | MeshPhysicalMaterial | MeshBasicMaterial;
   /** Shadow materials that move vertices as the graph does; null without a vertex offset. */
   depth: MeshDepthMaterial | null;
   distance: MeshDistanceMaterial | null;
@@ -86,11 +88,55 @@ export function patchFragmentShader(source: string, c: CompiledShaderGraph): str
   const f = c.fragment;
   let s = beforeMain(source, f.declarations, `${f.body}\n`);
   s = after(s, "#include <color_fragment>", `diffuseColor = vec4(${f.baseColor}, ${f.alpha});${f.alphaClip ? `\nif (diffuseColor.a < ${f.alphaClip}) discard;` : ""}`);
-  if (c.target === "lit") {
+  if (c.target !== "unlit") {
     s = after(s, "#include <roughnessmap_fragment>", `roughnessFactor = ${f.roughness};`);
     s = after(s, "#include <metalnessmap_fragment>", `metalnessFactor = ${f.metalness};`);
     if (f.normal) s = after(s, "#include <normal_fragment_maps>", `normal = normalize(mycoTangentFrame(-vViewPosition, normal, vMycoUv) * ${f.normal});`);
     s = after(s, "#include <emissivemap_fragment>", `totalEmissiveRadiance = ${f.emission};`);
+  }
+  if (c.target === "physical" && f.physical) s = patchPhysical(s, f.physical);
+  return s;
+}
+
+/**
+ * Physical graphs (ADR 0052): overwrite three's physical values after `lights_physical_fragment`
+ * with the graph's, following the same clamps three applies; transmission and thickness are set
+ * inside `transmission_fragment`, so that chunk is inlined with the graph's values.
+ */
+function patchPhysical(source: string, p: NonNullable<CompiledShaderGraph["fragment"]["physical"]>): string {
+  const lines: string[] = [];
+  if (p.ior || p.specularIntensity) {
+    lines.push(
+      "#ifdef IOR",
+      p.ior ? `material.ior = ${p.ior};` : "",
+      `float mycoSpecularIntensity = ${p.specularIntensity ?? "specularIntensity"};`,
+      "material.specularF90 = mix(mycoSpecularIntensity, 1.0, metalnessFactor);",
+      "material.specularColor = min(pow2((material.ior - 1.0) / (material.ior + 1.0)) * specularColor, vec3(1.0)) * mycoSpecularIntensity;",
+      "material.specularColorBlended = mix(material.specularColor, diffuseColor.rgb, metalnessFactor);",
+      "#endif",
+    );
+  }
+  if (p.clearcoat) {
+    lines.push(
+      "#ifdef USE_CLEARCOAT",
+      `material.clearcoat = saturate(${p.clearcoat});`,
+      `material.clearcoatRoughness = min(max(${p.clearcoatRoughness}, 0.045) + geometryRoughness, 1.0);`,
+      "#endif",
+    );
+  }
+  if (p.sheenColor) lines.push("#ifdef USE_SHEEN", `material.sheenColor = ${p.sheenColor};`, `material.sheenRoughness = clamp(${p.sheenRoughness}, 0.0001, 1.0);`, "#endif");
+  if (p.iridescence) lines.push("#ifdef USE_IRIDESCENCE", `material.iridescence = saturate(${p.iridescence});`, "#endif");
+  let s = after(source, "#include <lights_physical_fragment>", lines.filter(Boolean).join("\n"));
+  if (p.transmission) {
+    let chunk = ShaderChunk.transmission_fragment;
+    const set = (from: string, to: string) => {
+      if (!chunk.includes(from)) throw new Error(`shader graph: three.js transmission_fragment has no "${from}" to patch`);
+      chunk = chunk.replace(from, to);
+    };
+    set("material.transmission = transmission;", `material.transmission = saturate(${p.transmission});`);
+    set("material.thickness = thickness;", `material.thickness = max(${p.thickness}, 0.0);`);
+    if (!s.includes("#include <transmission_fragment>")) throw new Error('shader graph: three.js shader has no "#include <transmission_fragment>" to patch');
+    s = s.replace("#include <transmission_fragment>", chunk);
   }
   return s;
 }
@@ -144,7 +190,20 @@ export function createGraphMaterial(c: CompiledShaderGraph, overrides: Record<st
   apply(overrides);
   const transparent = c.surface === "transparent";
   const common = { transparent, depthWrite: !transparent, side: c.doubleSided ? DoubleSide : FrontSide };
-  const material = c.target === "lit" ? new MeshStandardMaterial({ ...common, color: 0xffffff }) : new MeshBasicMaterial({ ...common, color: 0xffffff });
+  const material =
+    c.target === "physical"
+      ? new MeshPhysicalMaterial({ ...common, color: 0xffffff })
+      : c.target === "lit"
+        ? new MeshStandardMaterial({ ...common, color: 0xffffff })
+        : new MeshBasicMaterial({ ...common, color: 0xffffff });
+  if (material instanceof MeshPhysicalMaterial && c.fragment.physical) {
+    // three emits a feature's define only while its value is above zero; the graph supplies the real value.
+    const p = c.fragment.physical;
+    if (p.clearcoat) material.clearcoat = 1;
+    if (p.sheenColor) material.sheen = 1;
+    if (p.transmission) material.transmission = 1;
+    if (p.iridescence) material.iridescence = 1;
+  }
   const key = `myco-graph-${c.key}`;
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
     Object.assign(shader.uniforms, uniforms);

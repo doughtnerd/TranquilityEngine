@@ -52,6 +52,11 @@ export interface CompiledShaderGraph {
     emission: string | null;
     /** The tangent-space normal's expression, or null when Normal isn't connected. */
     normal: string | null;
+    /**
+     * Physical graphs (ADR 0052): the features compiled in, each value's expression. A feature
+     * is present only when its input is connected or away from its default.
+     */
+    physical: Partial<Record<PhysicalInput, string>> | null;
     /** The alpha clip threshold's expression, or null when clipping is off. */
     alphaClip: string | null;
   };
@@ -69,6 +74,9 @@ export interface CompiledShaderGraph {
   /** A hash of the generated code: equal keys mean the same shader program. */
   key: string;
 }
+
+/** The physical target's output inputs (ADR 0052). */
+export type PhysicalInput = "clearcoat" | "clearcoatRoughness" | "sheenColor" | "sheenRoughness" | "transmission" | "thickness" | "ior" | "iridescence" | "specularIntensity";
 
 const VARYINGS = ["vec2 vMycoUv", "vec3 vMycoObjPos", "vec3 vMycoWorldPos", "vec3 vMycoObjNormal", "vec3 vMycoWorldNormal"];
 
@@ -491,12 +499,14 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
   const fragment = new Stage("fragment");
   const output = graph.nodes.find((n) => n.type === OUTPUT_NODE_TYPE) ?? { id: "output", type: OUTPUT_NODE_TYPE, position: [0, 0] as [number, number] };
   const sub = graph.subgraph;
-  const lit = graph.target === "lit" && !sub;
+  const lit = graph.target !== "unlit" && !sub;
+  const physicalTarget = graph.target === "physical" && !sub;
   const port = (id: string) => OUTPUT_INPUTS.find((p) => p.id === id)!;
   const connected = (id: string) => root.incoming.has(portRef(output.id, id));
 
   let offset: string | null = null, baseColor: string, alpha: string;
   let metalness: string | null = null, roughness: string | null = null, emission: string | null = null, normal: string | null = null, alphaClip: string | null = null;
+  let physical: Partial<Record<PhysicalInput, string>> | null = null;
   if (sub) {
     // A sub-graph draws its first output, unlit (its preview).
     const first = sub.outputs[0];
@@ -521,6 +531,29 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
     normal = lit && connected("normal") ? fragment.surface(output, port("normal")) : null;
     const clipValue = output.inputs?.alphaClip;
     alphaClip = connected("alphaClip") || (typeof clipValue === "number" && clipValue > 0) ? fragment.surface(output, port("alphaClip")) : null;
+    if (physicalTarget) {
+      // Each feature compiles in only when it's used: connected, or its inline value away from the default.
+      const used = (id: PhysicalInput) => {
+        if (connected(id)) return true;
+        const v = output.inputs?.[id], d = port(id).default;
+        return v !== undefined && JSON.stringify(v) !== JSON.stringify(d) && (Array.isArray(v) ? v.some((x) => x !== 0) || id !== "sheenColor" : true);
+      };
+      physical = {};
+      const add = (id: PhysicalInput) => (physical![id] = fragment.surface(output, port(id)));
+      if (used("clearcoat")) {
+        add("clearcoat");
+        add("clearcoatRoughness");
+      }
+      if (used("sheenColor")) {
+        add("sheenColor");
+        add("sheenRoughness");
+      }
+      if (used("transmission")) {
+        add("transmission");
+        add("thickness");
+      }
+      for (const id of ["iridescence", "ior", "specularIntensity"] as const) if (used(id)) add(id);
+    }
   }
   if (normal) fragment.helper("tangentFrame");
 
@@ -556,14 +589,14 @@ export function compileShaderGraph(graph: ShaderGraph): CompiledShaderGraph {
   const target = sub ? "unlit" : graph.target;
   const surface = sub ? "opaque" : graph.surface;
   const linearKey = uniforms.filter((u) => u.linear).map((u) => u.name).join(",");
-  const key = hash([target, surface, graph.doubleSided, vertexDeclarations, vertexBody, offset, fragmentDeclarations, fragmentBody, normal, alphaClip, linearKey].join("\u0000"));
+  const key = hash([target, surface, graph.doubleSided, vertexDeclarations, vertexBody, offset, fragmentDeclarations, fragmentBody, normal, alphaClip, linearKey, JSON.stringify(physical)].join("\u0000"));
 
   return {
     target,
     surface,
     doubleSided: !sub && graph.doubleSided,
     vertex: { declarations: vertexDeclarations, body: vertexBody, offset, varyings },
-    fragment: { declarations: fragmentDeclarations, body: fragmentBody, baseColor, alpha, metalness, roughness, emission, normal, alphaClip },
+    fragment: { declarations: fragmentDeclarations, body: fragmentBody, baseColor, alpha, metalness, roughness, emission, normal, physical, alphaClip },
     uniforms,
     problems,
     nodeProblems,
@@ -606,10 +639,11 @@ export function shaderGraphListing(c: CompiledShaderGraph): string {
     ...(c.fragment.roughness ? [`roughnessFactor = ${c.fragment.roughness};`] : []),
     ...(c.fragment.normal ? [`normal = normalize(mycoTangentFrame(-vViewPosition, normal, vMycoUv) * ${c.fragment.normal});`] : []),
     ...(c.fragment.emission ? [`totalEmissiveRadiance = ${c.fragment.emission};`] : []),
+    ...Object.entries(c.fragment.physical ?? {}).map(([k, v]) => `material.${k} = ${v}; // physical`),
   ];
   const indent = (s: string) => s.split("\n").filter(Boolean).map((l) => `  ${l}`).join("\n");
   return [
-    `// ---- vertex (${c.target === "lit" ? "MeshStandardMaterial" : "MeshBasicMaterial"}) ----`,
+    `// ---- vertex (${c.target === "physical" ? "MeshPhysicalMaterial" : c.target === "lit" ? "MeshStandardMaterial" : "MeshBasicMaterial"}) ----`,
     c.vertex.declarations,
     "",
     "void main() {",
