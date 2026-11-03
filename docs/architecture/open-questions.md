@@ -45,7 +45,7 @@ All decision records 0001–0024 are Accepted as of 2026-10-31.
 | Scene format versioning | Version + migrations | [0013](../decisions/0013-data-driven-scene-format.md) |
 | UI | In-canvas only, pmndrs uikit | [0020](../decisions/0020-in-canvas-ui-with-uikit.md) |
 | Renderer | `WebGLRenderer` (WebGL2) for v1 | [0004](../decisions/0004-threejs-render-pipeline.md) |
-| Particles | three.quarks; effects are `*.particles.json` assets edited in a particle graph (Proposed) | [0021](../decisions/0021-particles-with-three-quarks.md), [0057](../decisions/0057-particle-effects-and-the-particlesystem-component.md), [0058](../decisions/0058-particle-graph-editor.md) |
+| Particles | three.quarks; effects are `*.particles.json` assets edited in a particle graph | [0021](../decisions/0021-particles-with-three-quarks.md), [0057](../decisions/0057-particle-effects-and-the-particlesystem-component.md), [0058](../decisions/0058-particle-graph-editor.md) |
 | Sprite batching | Instanced per atlas | [0014](../decisions/0014-unified-2d-and-3d.md) |
 | Saves/settings | Platform Storage API (Tauri files, browser IndexedDB) | [0024](../decisions/0024-storage-via-platform-adapter.md) |
 | Asset references | Paths for v1, bundled by Vite | [0013](../decisions/0013-data-driven-scene-format.md) |

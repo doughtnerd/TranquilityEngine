@@ -1,6 +1,6 @@
 # 0057. Particle effects are assets in our own format, played by a ParticleSystem component on three.quarks
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

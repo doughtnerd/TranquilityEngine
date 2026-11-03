@@ -1,6 +1,6 @@
 # 0058. A particle graph editor: a node view of particle effect assets, on the shader graph's canvas
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
