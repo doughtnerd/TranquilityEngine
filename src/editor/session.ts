@@ -22,7 +22,8 @@ import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
 import { openSceneFile, saveOpenScene } from "./project";
 import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { currentProject, docVersion, openScene, playState, sceneCamera, scriptProblems, scriptsVersion, selection, status, viewMode } from "./state";
+import { currentProject, docVersion, editingCollider, openScene, openScenes, playState, sceneCamera, scriptProblems, scriptsVersion, select, selectedKeys, selection, setViewMode, status, viewMode, type OpenScene } from "./state";
+import type { ViewMode } from "./OrbitCamera";
 import { closeAllScripts, preloadCodeEditor } from "./code/codeState";
 import { resetAssetBrowser } from "./assetSelection";
 import { isScriptPath, replaceScripts } from "./scriptLoader";
@@ -34,8 +35,8 @@ let session: { engine: Engine; dispose(): void } | null = null;
 let play: PlaySession | null = null;
 /** The running play session, for the Network panel (ADR 0033 §9); null while editing. */
 export const playing = signal<PlaySession | null>(null);
-/** The open scene's edit history on disk (ADR 0027). */
-let history: AttachedHistory | null = null;
+/** Each open scene's edit history on disk (ADR 0027), kept saving while its tab is open. */
+const histories = new Map<OpenScene, AttachedHistory>();
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -76,12 +77,9 @@ function nodeRect(key: string): { left: number; top: number; right: number; bott
 
 export async function loadProject(project: EditorProject): Promise<void> {
   stopPlaying();
-  await detachHistory();
+  await closeAllScenes();
   session?.dispose();
   session = null;
-  openScene.value?.sync.dispose();
-  openScene.value = null;
-  selection.value = null;
   docVersion.value++;
 
   useProjectAssets(project);
@@ -125,48 +123,151 @@ export async function loadProject(project: EditorProject): Promise<void> {
   }
 }
 
-/** Open a scene or prefab of the current project, asking first if there are unsaved changes. */
+/**
+ * Open a scene or prefab of the current project in a tab of its own (ADR 0026), or switch to its
+ * tab if it's open already. Other tabs keep their unsaved changes.
+ */
 export async function switchScene(path: string): Promise<void> {
-  if (openScene.value?.path === path || !(await confirmDiscard())) return;
+  if (openScene.value?.path === path) return;
+  const open = openScenes.value.find((s) => s.path === path);
+  if (open) return activateScene(open);
   stopPlaying();
   openScene_(path);
 }
 
 function openScene_(path: string): void {
   if (!session) return;
-  void detachHistory();
+  const previous = openScene.peek();
+  if (previous) deactivate(previous);
   try {
     openSceneFile(session.engine, path);
     status.value = null;
   } catch (err) {
     status.value = errorStatus(`Couldn't open ${path}`, err);
+    if (previous) activate(previous);
     return;
   }
-  void attachToOpenScene();
+  const scene = openScene.peek()!;
+  openScenes.value = [...openScenes.peek().filter((s) => s !== scene), scene];
+  void attachToOpenScene(scene);
 }
 
-async function detachHistory(): Promise<void> {
-  const h = history;
-  history = null;
-  await h?.detach();
+/** What a tab remembers while another is active: its selection and the scene view's camera. */
+interface TabView {
+  selection: readonly string[];
+  camera: { mode: ViewMode; focus: number[]; distance: number; yaw: number; pitch: number } | null;
+}
+const tabViews = new WeakMap<OpenScene, TabView>();
+
+/** Put the active tab aside: remember its view, and take its nodes out of the Editor World. */
+function deactivate(scene: OpenScene): void {
+  const orbit = sceneCamera.peek();
+  tabViews.set(scene, {
+    selection: selectedKeys.peek(),
+    camera: orbit ? { mode: viewMode.peek(), focus: orbit.focusPoint.toArray(), distance: orbit.distance, yaw: orbit.yaw, pitch: orbit.pitch } : null,
+  });
+  scene.sync.dispose();
+  editingCollider.value = null;
+}
+
+/** Make `scene` the active tab (the previous one already put aside): rebuild its nodes and view. */
+function activate(scene: OpenScene): void {
+  try {
+    scene.sync.build();
+  } catch (err) {
+    status.value = errorStatus(`Couldn't show ${scene.path}`, err);
+  }
+  openScene.value = scene;
+  const view = tabViews.get(scene);
+  select((view?.selection ?? []).filter((k) => scene.doc.has(k.split("/")[0])));
+  const orbit = sceneCamera.peek();
+  if (view?.camera && orbit) {
+    setViewMode(view.camera.mode);
+    orbit.yaw = view.camera.yaw;
+    orbit.pitch = view.camera.pitch;
+    orbit.focus(view.camera.focus, view.camera.distance);
+  }
+  docVersion.value++;
+}
+
+/** Switch to the open scene tab `scene` (unsaved changes in the others stay). Play mode stops first. */
+export function activateScene(scene: OpenScene): void {
+  const current = openScene.peek();
+  if (current === scene || !openScenes.peek().includes(scene)) return;
+  stopPlaying();
+  if (current) deactivate(current);
+  activate(scene);
+}
+
+/**
+ * Close a scene tab, asking first if it has unsaved changes (they stay in its edit history and
+ * are offered back when it's opened again). Closing the active tab switches to its neighbour.
+ * Returns true if it closed.
+ */
+export async function closeScene(scene: OpenScene): Promise<boolean> {
+  if (!openScenes.peek().includes(scene)) return false;
+  if (scene.stack.dirty) {
+    const answer = await confirmInEditor({
+      title: `Close ${scene.path.split("/").pop()}?`,
+      message: `${scene.path} has unsaved changes. Closing it without saving discards them; they stay in its edit history and are offered back when you open it again.`,
+      confirmLabel: "Close without saving",
+      cancelLabel: "Cancel",
+    });
+    if (!answer.ok || !openScenes.peek().includes(scene)) return false;
+  }
+  const list = openScenes.peek();
+  const at = list.indexOf(scene);
+  const rest = list.filter((s) => s !== scene);
+  openScenes.value = rest;
+  tabViews.delete(scene);
+  const h = histories.get(scene);
+  histories.delete(scene);
+  void h?.detach();
+  scene.sync.dispose();
+  if (openScene.peek() === scene) {
+    stopPlaying();
+    editingCollider.value = null;
+    const next = rest[Math.min(at, rest.length - 1)];
+    if (next) activate(next);
+    else {
+      openScene.value = null;
+      select([]);
+      docVersion.value++;
+    }
+  }
+  return true;
+}
+
+/** Close every scene tab without asking (the project is closing) and stop saving their histories. */
+async function closeAllScenes(): Promise<void> {
+  const all = new Set(openScenes.peek());
+  const active = openScene.peek();
+  if (active) all.add(active);
+  for (const s of all) s.sync.dispose();
+  openScenes.value = [];
+  openScene.value = null;
+  selection.value = null;
+  const detaching = [...histories.values()].map((h) => h.detach());
+  histories.clear();
+  await Promise.all(detaching);
 }
 
 /**
  * Load the open scene's saved history and keep saving it. If the editor closed with unsaved
  * changes, offer them back; declining keeps them in the history (redo, History panel).
  */
-async function attachToOpenScene(): Promise<void> {
-  const scene = openScene.value, project = currentProject.value;
-  if (!scene || !project) return;
+async function attachToOpenScene(scene: OpenScene): Promise<void> {
+  const project = currentProject.value;
+  if (!project) return;
   const slots = slotsFor(project, scene.path, historyLocation.value, await defaultHistoryPlatform());
   const attached = await attachHistory(scene.stack, scene.path, slots, (err) => {
     status.value = errorStatus(`Couldn't save the edit history for ${scene.path}`, err);
   });
-  if (openScene.value !== scene) {
-    await attached.detach(); // another scene opened meanwhile
+  if (!openScenes.peek().includes(scene) || histories.has(scene)) {
+    await attached.detach(); // its tab closed meanwhile
     return;
   }
-  history = attached;
+  histories.set(scene, attached);
   if (attached.mismatched) {
     status.value = { kind: "info", text: `${scene.path} changed outside the editor, so its saved edit history no longer applies; starting a new one.` };
   }
@@ -180,7 +281,7 @@ async function attachToOpenScene(): Promise<void> {
       cancelLabel: "Keep saved version",
       danger: false,
     });
-    if (openScene.value !== scene) return;
+    if (!openScenes.peek().includes(scene)) return;
     if (answer.ok) {
       scene.stack.jumpTo(r.seq);
       status.value = { kind: "info", text: `Restored the unsaved changes to ${scene.path}.` };
@@ -193,9 +294,9 @@ async function attachToOpenScene(): Promise<void> {
 // Switching where history is kept moves writing there right away (the tree is written in full).
 effect(() => {
   const location = historyLocation.value;
-  const scene = openScene.peek(), project = currentProject.peek(), h = history;
-  if (!scene || !project || !h) return;
-  void defaultHistoryPlatform().then((p) => h.relocate(slotsFor(project, scene.path, location, p)));
+  const project = currentProject.peek();
+  if (!project) return;
+  for (const [scene, h] of histories) void defaultHistoryPlatform().then((p) => h.relocate(slotsFor(project, scene.path, location, p)));
 });
 
 /** The folder file system (desktop, or a Chromium browser), or null with a note in the status bar. */
@@ -340,12 +441,9 @@ export async function copySampleToFolder(sample: SampleInfo): Promise<void> {
 export async function closeProject(): Promise<void> {
   if (!currentProject.value || !(await confirmDiscard())) return;
   stopPlaying();
-  await detachHistory();
+  await closeAllScenes();
   session?.dispose();
   session = null;
-  openScene.value?.sync.dispose();
-  openScene.value = null;
-  selection.value = null;
   closeAllScripts();
   resetAssetBrowser();
   currentProject.value = null;

@@ -14,6 +14,7 @@ import { colliderShapes } from "./colliderGizmo";
 import { pointInPolygon, polygonArea } from "./colliderMath";
 import { pathKey, type NodePath } from "./document";
 import type { OrbitCamera } from "./OrbitCamera";
+import { isLocked } from "./nodeVisibility";
 import { combineSelection, selectModeFor, withDescendants, type SelectMode } from "./selectionModel";
 import { docVersion, openScene, refineList, select, selectedKeys, selectedNodes, selection } from "./state";
 
@@ -173,7 +174,12 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
   /** What each node covers on the canvas: its renderers or origin, and its colliders. */
   const boundsUnderScene = () => {
     const root = openScene.value?.sync.sceneNode;
-    return root ? [...screenBounds(world, root), ...colliderBounds(shapes(), (p) => worldToCanvas(world, p))] : [];
+    return root ? [...screenBounds(world, root), ...colliderBounds(shapes(), (p) => worldToCanvas(world, p))].filter((b) => pickable(b.node)) : [];
+  };
+  /** False for nodes locked in the hierarchy (by themselves or an ancestor): the viewport can't pick them. */
+  const pickable = (node: GameObject) => {
+    const scene = openScene.value, path = scene?.sync.pathOf(node);
+    return !scene || !path || !isLocked(scene.doc, pathKey(path));
   };
 
   const updateBox = (e: PointerEvent) => {
@@ -240,7 +246,7 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
     if (!isPlainClick(start, p)) return;
     // Colliders containing the pointer first (smallest first), then renderers under it (topmost first).
     const inColliders = colliderHits(shapes(), (z) => pointOnSpritePlane(world, p.x, p.y, z));
-    const hits = hitIds([...inColliders, ...pick(world, p.x, p.y)], (n) => scene.sync.nodeIdOf(n));
+    const hits = hitIds([...inColliders, ...pick(world, p.x, p.y)].filter(pickable), (n) => scene.sync.nodeIdOf(n));
     const mode: SelectMode = selectModeFor(e);
     if (mode === "replace") {
       const sameSpot = lastClick !== null && Math.hypot(p.x - lastClick.x, p.y - lastClick.y) < CLICK_SLOP;

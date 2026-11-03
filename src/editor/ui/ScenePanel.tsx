@@ -4,6 +4,7 @@ import { cleanSnap, snapSettings } from "../sceneTools";
 import { pickTool, playState, sceneCamera, setViewMode, snapping, tool, viewMode, type Tool } from "../state";
 import { ViewportDropHighlight } from "./AssetDragOverlay";
 import { CameraPreviewFrame, SceneToolButtons } from "./SceneTools";
+import { SceneTabs } from "./SceneTabs";
 
 /** The elements the engines render into: kept for the whole session, whichever dock shows the scene. */
 let elements: { viewport: HTMLDivElement; gameView: HTMLDivElement } | null = null;
@@ -43,6 +44,7 @@ export function ScenePanel() {
   }, []);
   return (
     <div class="scene-panel">
+      <SceneTabs />
       <SceneToolbar />
       <div class="viewport-panel">
         <div ref={host} class="viewport-host" />
