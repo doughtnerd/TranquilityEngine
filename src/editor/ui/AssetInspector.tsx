@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { ImportSettings } from "../../engine/scene/importSettings";
 import { assetKind, fileName } from "../assetBrowser";
 import { MaterialInspector, ShaderGraphInspector } from "./MaterialInspector";
+import { ParticleEffectInspector } from "./ParticleInspector";
 import { importKind, inspectedAsset, openSpriteEditor, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
 import { errorStatus } from "../messages";
 import { PIVOT_PRESETS, pivotLabel } from "../spriteSlicing";
@@ -15,6 +16,7 @@ const projectPPU = (settings: { render?: { pixelsPerUnit?: number } }) => settin
 export function AssetInspector() {
   const path = inspectedAsset.value;
   const kind = path ? assetKind(path) : null;
+  if (path && kind === "particles") return <ParticleEffectInspector path={path} />;
   return path && kind === "material" ? <MaterialInspector path={path} /> : path && (kind === "shadergraph" || kind === "shadersubgraph") ? <ShaderGraphInspector path={path} /> : <ImportInspector />;
 }
 

@@ -1,0 +1,123 @@
+/* Particle effect editor (ADR 0057): emitter tabs, module sections, curve and gradient editors. */
+.particle-effect-editor { border: 0; margin: 0; padding: 0; min-width: 0; font-size: 12px; color: var(--text); }
+.particle-effect-editor.read-only .pe-mini, .particle-effect-editor.read-only .pe-add { opacity: 0.5; pointer-events: none; }
+.particle-effect-editor input, .particle-effect-editor select, .particle-effect-editor button { font: inherit; }
+.particle-effect-editor .pe-empty { color: var(--muted); margin: 8px 0; }
+
+/* --- emitter tabs and head --- */
+.pe-tabs { display: flex; flex-wrap: wrap; gap: 2px; margin-bottom: 6px; border-bottom: 1px solid var(--border); }
+.pe-tab { padding: 3px 9px; border: 1px solid transparent; border-bottom: none; border-radius: 3px 3px 0 0; background: transparent; color: var(--muted); cursor: pointer; }
+.pe-tab:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+.pe-tab.active { color: var(--text-strong); background: var(--surface); border-color: var(--border); }
+.pe-tab.off { text-decoration: line-through; }
+.pe-tab.pe-add { padding: 3px 8px; }
+.pe-emitter-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.pe-emitter-head .pe-name { flex: 1; min-width: 0; }
+
+/* --- buttons and inputs --- */
+.pe-mini { padding: 0 6px; font-size: 11px; line-height: 18px; color: var(--muted); background: var(--button); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; }
+.pe-mini:hover:not(:disabled) { color: var(--text); background: var(--button-hover); }
+.pe-mini:disabled { opacity: 0.35; cursor: default; }
+.pe-mini.pe-danger:hover:not(:disabled) { color: var(--danger-text); background: var(--danger-strong); }
+.particle-effect-editor input.pe-text,
+.particle-effect-editor input.pe-num,
+.particle-effect-editor select {
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 5px;
+}
+.particle-effect-editor input.pe-text { width: 100%; }
+.particle-effect-editor input.pe-num { width: 100%; }
+.particle-effect-editor input:focus, .particle-effect-editor select:focus { outline: none; border-color: var(--accent); }
+.particle-effect-editor select { max-width: 100%; }
+.particle-effect-editor input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
+.pe-color { width: 28px; height: 20px; padding: 0; flex: none; border: 1px solid var(--border); border-radius: 3px; background: var(--input-bg); }
+
+/* --- sections --- */
+.pe-section { margin: 0 0 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); }
+.pe-section > summary { display: flex; align-items: center; gap: 6px; padding: 4px 8px; font-weight: 600; cursor: pointer; user-select: none; }
+.pe-section[open] > summary { border-bottom: 1px solid var(--border); }
+.pe-section-body { padding: 4px 8px 6px; }
+.pe-badge { padding: 0 6px; border-radius: 9px; background: var(--badge); color: var(--badge-text); font-size: 10px; font-weight: 400; line-height: 16px; }
+
+/* --- rows --- */
+.pe-value-row { margin: 2px 0; }
+.pe-row { display: grid; grid-template-columns: minmax(70px, 38%) minmax(0, 1fr) auto; gap: 6px; align-items: center; margin: 2px 0; }
+.pe-row > .pe-value:last-child { grid-column: 2 / 4; }
+.pe-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-value { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.pe-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; width: 100%; }
+.pe-pair > .pe-color-field { min-width: 0; }
+.pe-vec { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; width: 100%; }
+.pe-axis { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.pe-axis em { color: var(--muted); font-style: normal; font-size: 10px; text-transform: uppercase; }
+.pe-color-field { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.pe-color-field .pe-num { width: 44px; flex: none; }
+/* The mode picker is a small arrow button, as in Unity: its options say Constant, Random, Curve…, and the value beside it shows which. */
+.particle-effect-editor select.pe-mode { width: 20px; flex: none; font-size: 11px; padding: 1px 0; color: transparent; text-shadow: none; }
+.particle-effect-editor select.pe-mode option { color: var(--text); }
+.pe-list-head { display: flex; align-items: center; justify-content: space-between; margin: 6px 0 2px; color: var(--muted); }
+
+/* --- cards (bursts, behaviours, sub-emitters) --- */
+.pe-card { margin: 4px 0; border: 1px solid var(--border); border-left: 2px solid var(--accent); border-radius: 3px; background: var(--surface); }
+.pe-card.off { opacity: 0.55; border-left-color: var(--border-strong); }
+.pe-card-head { display: flex; align-items: center; gap: 4px; padding: 2px 6px; }
+.pe-card-title { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-card-body, .pe-card > .pe-row, .pe-card > .pe-value-row { padding: 0 6px; }
+.pe-card-body { padding-bottom: 4px; }
+.pe-fold { padding: 0 3px; border: none; background: transparent; color: var(--muted); cursor: pointer; }
+.pe-fold:hover { color: var(--text); }
+.pe-add-behavior { width: 100%; margin-top: 4px; }
+
+/* --- collapsed curve / gradient previews --- */
+.pe-expand { display: flex; align-items: center; gap: 4px; width: 100%; padding: 1px 3px; border: 1px solid var(--border); border-radius: 3px; background: var(--input-bg); color: inherit; cursor: pointer; }
+.pe-expand:hover { border-color: var(--border-strong); }
+.pe-expand.open { border-color: var(--accent); }
+.curve-preview { flex: 1; min-width: 0; height: 18px; }
+.curve-preview polyline { fill: none; stroke: var(--accent); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+.gradient-bar {
+  background-image: var(--gradient), repeating-conic-gradient(var(--border) 0% 25%, var(--bg-sunken) 0% 50%);
+  background-size: 100% 100%, 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+.gradient-preview { flex: 1; min-width: 0; height: 14px; display: block; }
+
+/* --- curve editor --- */
+.curve-editor, .gradient-editor { margin: 3px 0 6px; padding: 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); }
+.curve-svg { display: block; width: 100%; max-width: 100%; aspect-ratio: 200 / 80; touch-action: none; user-select: none; cursor: crosshair; }
+.curve-svg:focus-visible { outline: 1px solid var(--focus-ring); }
+.curve-bg { fill: var(--input-bg); }
+.curve-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; }
+.curve-zero { stroke: var(--border-strong); stroke-width: 1; }
+.curve-line { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.curve-key { fill: var(--panel); stroke: var(--accent); stroke-width: 1.5; cursor: grab; }
+.curve-key:hover { fill: var(--accent-soft); }
+.curve-key.selected { fill: var(--accent); }
+.curve-label { fill: var(--faint); font-size: 7px; pointer-events: none; }
+.curve-readout, .gradient-readout { display: flex; align-items: center; gap: 6px; min-height: 22px; margin-top: 4px; }
+.curve-readout label, .gradient-readout label { display: flex; align-items: center; gap: 3px; flex: 1; min-width: 0; }
+.curve-readout em, .gradient-readout em { color: var(--muted); font-style: normal; font-size: 10px; }
+.curve-hint { color: var(--faint); font-size: 11px; }
+
+/* --- gradient editor --- */
+.gradient-stops { position: relative; height: 14px; margin: 0 6px; }
+.gradient-main { height: 22px; margin: 0 6px; cursor: copy; }
+.gradient-stop {
+  position: absolute;
+  width: 10px;
+  height: 12px;
+  margin-left: -5px;
+  padding: 0;
+  border: 1px solid var(--text);
+  background: var(--stop);
+  cursor: grab;
+  touch-action: none;
+}
+.gradient-stop.color { top: 1px; clip-path: polygon(50% 0, 100% 35%, 100% 100%, 0 100%, 0 35%); }
+.gradient-stop.alpha { bottom: 1px; clip-path: polygon(0 0, 100% 0, 100% 65%, 50% 100%, 0 65%); }
+.gradient-stop.selected { border-color: var(--accent); box-shadow: var(--glow); z-index: 1; }

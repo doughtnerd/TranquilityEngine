@@ -1,7 +1,7 @@
 import { signal } from "@preact/signals";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import { ANTIALIAS_MODES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
+import { ANTIALIAS_MODES, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
 import { reloadGraphics } from "../graphicsPreview";
 import { errorStatus } from "../messages";
@@ -676,6 +676,10 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
             <label>
               <span class="tier-label">Reflection probes</span>
               {choice(i, "reflectionProbes", "reflection probes", PROBE_QUALITIES)}
+            </label>
+            <label>
+              <span class="tier-label">Particles</span>
+              {choice(i, "particles", "particles", PARTICLE_QUALITIES)}
             </label>
           </div>
         </div>

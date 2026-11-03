@@ -459,6 +459,28 @@
           "data": {}
         }
       ]
+    },
+    {
+      "id": "campfire",
+      "name": "Campfire",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              2.5,
+              0,
+              2.5
+            ]
+          }
+        },
+        {
+          "type": "engine.ParticleSystem",
+          "data": {
+            "effect": "asset:effects/campfire.particles.json"
+          }
+        }
+      ]
     }
   ]
 }
