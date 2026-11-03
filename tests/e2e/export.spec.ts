@@ -146,3 +146,34 @@ test.describe("Arena web build", () => {
     expect(errors).toEqual([]);
   });
 });
+
+test.describe("3D Playground web build", () => {
+  let served: Served | undefined;
+  test.beforeAll(async () => {
+    served = await exportAndServe("playground3d");
+  });
+  test.afterAll(() => stop(served));
+
+  test("loads its OBJ and FBX models and materials, and the crates fall under 3D physics (ADR 0043–0045)", async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto(served!.url);
+    await expect(page).toHaveTitle("3D Playground");
+    await expect.poll(() => frames(page), { timeout: 20_000 }).toBeGreaterThan(10);
+    type Myco = {
+      MeshRenderer: unknown;
+      RigidBody: unknown;
+      GameObject: { findObjectsOfType(type: unknown): { node: { name: string; transform: { position: { y: number } } } }[] };
+    };
+    const state = () =>
+      page.evaluate(() => {
+        const m = (globalThis as unknown as { __myco: Myco }).__myco;
+        const drawn = m.GameObject.findObjectsOfType(m.MeshRenderer).map((r) => r.node.name);
+        const heights = m.GameObject.findObjectsOfType(m.RigidBody).map((b) => b.node.transform.position.y);
+        return { drawn: drawn.sort(), highest: Math.max(...heights) };
+      });
+    await expect.poll(async () => (await state()).drawn).toEqual(["Ball", "Body", "Crate 1", "Crate 2", "Crate 3", "Crate 4", "Ground", "Head", "Orb", "Pillar"]);
+    // Everything starts 3 m or higher; after a few seconds it has all landed on the ground.
+    await expect.poll(async () => (await state()).highest, { timeout: 15_000 }).toBeLessThan(3);
+    expect(errors).toEqual([]);
+  });
+});

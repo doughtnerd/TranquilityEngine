@@ -28,6 +28,7 @@
   "license": "MIT",
   "dependencies": {
     "@dimforge/rapier2d-compat": "^0.21.0",
+    "@dimforge/rapier3d-compat": "^0.21.0",
     "@preact/signals": "^2.11.4",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-dialog": "^2.8.4",

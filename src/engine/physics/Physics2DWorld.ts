@@ -15,6 +15,7 @@ import { defineBuiltinSystem } from "../core/systems";
 import { DEG2RAD, RAD2DEG } from "../core/math";
 import type { World } from "../core/World";
 import { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type Collision2D } from "./Collider2D";
+import { layerGroups } from "./layers";
 import { cleanPoints, convexParts } from "./polygon";
 import { RigidBody2D } from "./RigidBody2D";
 
@@ -75,22 +76,7 @@ export class Physics2DWorld {
 
   /** Layer name → Rapier interaction groups (membership in the high 16 bits, filter in the low 16). */
   private buildLayerGroups(): void {
-    const { layers, collisionMatrix } = this.world.settings.physics;
-    if (layers.length > 16) throw new Error("At most 16 physics layers are supported.");
-    const filters = layers.map(() => (collisionMatrix ? 0 : 0xffff));
-    if (collisionMatrix) {
-      for (const [a, list] of Object.entries(collisionMatrix)) {
-        const ia = layers.indexOf(a);
-        if (ia < 0) throw new Error(`collisionMatrix: unknown layer "${a}".`);
-        for (const b of list) {
-          const ib = layers.indexOf(b);
-          if (ib < 0) throw new Error(`collisionMatrix: unknown layer "${b}".`);
-          filters[ia] |= 1 << ib;
-          filters[ib] |= 1 << ia;
-        }
-      }
-    }
-    layers.forEach((name, i) => this.layerGroups.set(name, ((1 << i) << 16) | filters[i]));
+    for (const [name, groups] of layerGroups(this.world.settings.physics)) this.layerGroups.set(name, groups);
   }
 
   private groupsFor(layer: string): number {

@@ -68,6 +68,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted |
 | [0041](decisions/0041-game-builds.md) | Games build to a static web player, packaged for desktop through Tauri | Accepted |
 | [0042](decisions/0042-inspector-field-types.md) | List fields, field choices, and per-instance Worlds and tags overrides | Accepted |
+| [0043](decisions/0043-meshes-lights-materials.md) | Meshes, lights and material assets: a default lit material and default lighting | Proposed |
+| [0044](decisions/0044-obj-fbx-model-import.md) | OBJ and FBX models import through three.js's loaders, as meshes in model space | Proposed |
+| [0045](decisions/0045-3d-physics-rapier3d.md) | 3D physics on Rapier 3D, loaded on demand, with the 2D API's shape | Proposed |
 
 ## Working with decisions
 

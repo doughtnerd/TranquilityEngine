@@ -15,7 +15,8 @@ export interface ProjectSettings {
     maxFrameTime: number;
   };
   physics: {
-    gravity: [number, number];
+    /** Gravity in m/s²: `[x, y]`, or `[x, y, z]` for 3D physics (z is 0 when left out, ADR 0045). */
+    gravity: [number, number] | [number, number, number];
     /** Named collision layers (max 16). Index 0 is the default layer. */
     layers: string[];
     /**

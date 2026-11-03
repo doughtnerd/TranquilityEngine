@@ -14,12 +14,12 @@ import { selectedAssets } from "./assetSelection";
 import type { EditorProject } from "./projects";
 import { selectedKeys } from "./state";
 
-export type ImportKind = "image" | "audio";
+export type ImportKind = "image" | "audio" | "model";
 
 /** The kind of import settings an asset has, or null if it has none. */
 export function importKind(path: string): ImportKind | null {
   const kind = assetKind(path);
-  return kind === "image" || kind === "audio" ? kind : null;
+  return kind === "image" || kind === "audio" || kind === "model" ? kind : null;
 }
 
 export interface ReadSettings {
@@ -51,14 +51,15 @@ export async function writeImportSettings(project: EditorProject, path: string, 
 export const sameSettings = (a: ImportSettings, b: ImportSettings) => formatImportSettings(a) === formatImportSettings(b);
 
 /**
- * The asset the Asset Inspector shows: the one image or audio file selected in the Assets panel
- * (a selected slice shows its image), or null. The Inspector shows it when no node is selected.
+ * The asset the Asset Inspector shows: the one image, audio file, model or material selected in
+ * the Assets panel (a selected slice shows its image), or null. The Inspector shows it when no
+ * node is selected.
  */
 export const inspectedAsset = computed<string | null>(() => {
   const sel = selectedAssets.value;
   if (sel.length !== 1) return null;
   const entry = isSliceEntry(sel[0]) ? splitSliceEntry(sel[0]).image : sel[0];
-  return importKind(entry) ? entry : null;
+  return importKind(entry) || assetKind(entry) === "material" ? entry : null;
 });
 
 /** True when the Inspector panel should show the Asset Inspector instead of a node. */

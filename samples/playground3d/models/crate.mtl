@@ -1,0 +1,5 @@
+# Material library for crate.obj
+newmtl Wood
+Kd 0.72 0.50 0.28
+Ks 0.1 0.1 0.1
+Ns 20

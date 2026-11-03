@@ -160,9 +160,12 @@ export function removeLayer(draft: SettingsDraft, index: number): SettingsDraft 
   return withLayers(draft, layers.filter((_, i) => i !== index), pairs);
 }
 
-export function setGravity(draft: SettingsDraft, axis: 0 | 1, value: number): SettingsDraft {
-  const gravity: [number, number] = [...(draft.physics?.gravity ?? defaultSettings.physics.gravity)];
-  gravity[axis] = value;
+/** Set one axis of gravity; z (3D physics, ADR 0045) is kept only while it's not 0. */
+export function setGravity(draft: SettingsDraft, axis: 0 | 1 | 2, value: number): SettingsDraft {
+  const g: number[] = [...(draft.physics?.gravity ?? defaultSettings.physics.gravity)];
+  while (g.length < 3) g.push(0);
+  g[axis] = value;
+  const gravity = g[2] === 0 ? [g[0], g[1]] : g.slice(0, 3);
   return setValue(draft, "physics", "gravity", gravity);
 }
 
@@ -233,8 +236,8 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
   if (isPositive(fixed) && isPositive(maxFrame) && fixed > maxFrame) p("time.fixedDeltaTime", "The fixed timestep is longer than the max frame time, so no fixed step would ever run.");
 
   const physics = draft.physics ?? {};
-  if (physics.gravity !== undefined && !(Array.isArray(physics.gravity) && physics.gravity.length === 2 && physics.gravity.every((g) => typeof g === "number" && Number.isFinite(g)))) {
-    p("physics.gravity", "Gravity must be two numbers, x and y.");
+  if (physics.gravity !== undefined && !(Array.isArray(physics.gravity) && (physics.gravity.length === 2 || physics.gravity.length === 3) && physics.gravity.every((g) => typeof g === "number" && Number.isFinite(g)))) {
+    p("physics.gravity", "Gravity must be two numbers, x and y, or three with z.");
   }
   if (physics.layers !== undefined) nameList(physics.layers, "physics.layers", "Physics layers", problems);
   const layers = layersOf(draft);

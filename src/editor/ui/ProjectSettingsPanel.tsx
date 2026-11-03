@@ -200,6 +200,7 @@ export function ProjectSettingsPanel() {
               <span class="project-settings-pair">
                 <NumberField id="ps-gx" label="Gravity x" value={gravity?.[0]} placeholder={String(defaultSettings.physics.gravity[0])} suffix="x" onCommit={(v) => set("Set gravity", setGravity(draft, 0, v ?? defaultSettings.physics.gravity[0]))} />
                 <NumberField id="ps-gy" label="Gravity y" value={gravity?.[1]} placeholder={String(defaultSettings.physics.gravity[1])} suffix="y" onCommit={(v) => set("Set gravity", setGravity(draft, 1, v ?? defaultSettings.physics.gravity[1]))} />
+                <NumberField id="ps-gz" label="Gravity z" value={gravity?.[2]} placeholder="0" suffix="z" onCommit={(v) => set("Set gravity", setGravity(draft, 2, v ?? 0))} />
               </span>
             </Row>
             <Layers s={s} draft={draft} problems={problems} />

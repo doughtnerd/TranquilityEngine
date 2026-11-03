@@ -5,10 +5,13 @@ import type { GameObject } from "../scene/GameObject";
 import type { ColliderHandleState } from "./Physics2DWorld";
 import { RigidBody2D } from "./RigidBody2D";
 
-export interface PhysicsMaterial2D {
+/** A collider's surface, in 2D and 3D: how it slides and how it bounces. */
+export interface PhysicsMaterial {
   friction: number;
   bounciness: number;
 }
+/** The 2D name `PhysicsMaterial` had first. */
+export type PhysicsMaterial2D = PhysicsMaterial;
 
 /** Base class for 2D colliders (ADR 0005). Without a RigidBody2D on the node or an ancestor, a collider is static. */
 export abstract class Collider2D extends Component {
@@ -18,7 +21,7 @@ export abstract class Collider2D extends Component {
   @field(Boolean) isTrigger = false;
   /** Collision layer name from project settings. */
   @field(String, { choices: (s) => s.physics.layers }) layer = "Default";
-  @field(PlainObject) material: PhysicsMaterial2D = { friction: 0.5, bounciness: 0 };
+  @field(PlainObject) material: PhysicsMaterial = { friction: 0.5, bounciness: 0 };
 
   /** @internal */ _state: ColliderHandleState | null = null;
 

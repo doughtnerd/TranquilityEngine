@@ -15,7 +15,8 @@ import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from 
 import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
 import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
-import { Camera, SpriteRenderer } from "../render/components";
+import { Camera, MeshRenderer, SpriteRenderer } from "../render/components";
+import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, _instantiatedPrefabOf, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 import type { Schema } from "../core/data";
@@ -385,12 +386,89 @@ export function cameraPreviewDrawn(world: World): boolean {
   return world.render?.cameraPreviewDrawn ?? false;
 }
 
+/** The world point on the ground (the plane y = `y`) under a canvas point, or null (headless, or the ray misses it). */
+export function pointOnGround(world: World, x: number, y: number, height = 0): [number, number, number] | null {
+  return world.render?.pointOnPlane(world, x, y, [0, 1, 0], [0, height, 0]) ?? null;
+}
+
+/** The world point on a plane (through `point`, facing `normal`) under a canvas point, or null. */
+export function pointOnPlane(world: World, x: number, y: number, normal: readonly number[], point: readonly number[]): [number, number, number] | null {
+  return world.render?.pointOnPlane(world, x, y, normal, point) ?? null;
+}
+
+/** The ray under a canvas point (CSS pixels) through the view's camera, or null headless. */
+export function rayAt(world: World, x: number, y: number): { origin: [number, number, number]; direction: [number, number, number] } | null {
+  return world.render?.rayAt(world, x, y) ?? null;
+}
+
+/** Where each light icon in the edited scene is on the canvas (CSS pixels). Empty headless. */
+export function lightIconsOnCanvas(world: World): { node: GameObject; x: number; y: number }[] {
+  return world.render?.lightIconsOnCanvas(world) ?? [];
+}
+
+/** How many light wireframe segments the last frame drew (0 headless). */
+export function lightWireCount(world: World): number {
+  return world.render?.lightWireCount() ?? 0;
+}
+
 /**
- * The world-space box around `node`'s sprite (its quad's corners through the node's world
- * matrix), or around its origin when it has none (or the texture isn't loaded, or headless).
+ * A mesh reference's triangles in mesh space (ADR 0044) as vertex positions and index triples,
+ * for drawing a MeshCollider; null while its model loads (the load starts here), empty arrays
+ * when it has none. An empty reference uses `node`'s MeshRenderer's mesh. The same object while
+ * the meshes stay the same, so callers can cache what they derive from it.
+ */
+export function meshTriangleData(ref: string, node?: GameObject): { readonly vertices: readonly number[]; readonly indices: readonly number[] } | null {
+  const mesh = ref || node?.getBehavior(MeshRenderer)?.mesh || "";
+  const meshes = meshesIfLoaded(mesh);
+  if (!meshes) return null;
+  const cached = triangleCache.get(mesh);
+  if (cached && cached.meshes.length === meshes.length && cached.meshes.every((m, i) => m === meshes[i])) return cached.data;
+  const vertices: number[] = [], indices: number[] = [];
+  for (const m of meshes) {
+    const pos = m.geometry.getAttribute("position");
+    const base = vertices.length / 3;
+    for (let i = 0; i < pos.count; i++) vertices.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+    const index = m.geometry.getIndex();
+    const count = index ? index.count : pos.count;
+    for (let i = 0; i < count; i++) indices.push(base + (index ? index.getX(i) : i));
+  }
+  const data = { vertices, indices };
+  triangleCache.set(mesh, { meshes: [...meshes], data });
+  return data;
+}
+
+const triangleCache = new Map<string, { meshes: readonly ModelMesh[]; data: { vertices: number[]; indices: number[] } }>();
+
+/**
+ * The box around the meshes `node`'s MeshRenderer draws, in the node's own space (before its
+ * scale); null without a MeshRenderer, or while its model loads.
+ */
+export function meshLocalBounds(node: GameObject): { min: [number, number, number]; max: [number, number, number] } | null {
+  const ref = node.getBehavior(MeshRenderer)?.mesh;
+  const meshes = ref ? meshesIfLoaded(ref) : null;
+  if (!meshes?.length) return null;
+  const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  for (const m of meshes) {
+    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+    const b = m.geometry.boundingBox!;
+    const lo = b.min.toArray(), hi = b.max.toArray();
+    for (let i = 0; i < 3; i++) {
+      min[i] = Math.min(min[i], lo[i]);
+      max[i] = Math.max(max[i], hi[i]);
+    }
+  }
+  return { min, max };
+}
+
+/**
+ * The world-space box around `node`'s mesh (ADR 0043) or sprite (its quad's corners through the
+ * node's world matrix), or around its origin when it has neither (or the model or texture isn't
+ * loaded, or headless).
  */
 export function worldBounds(node: GameObject): { min: [number, number, number]; max: [number, number, number] } {
   const world = node.world;
+  const mesh = world.render?.meshBounds(node);
+  if (mesh) return mesh;
   const m = new Matrix4().fromArray(world.worldMatrix(node.entity), node.entity * 16);
   const size = spriteSize(node);
   const corners = size

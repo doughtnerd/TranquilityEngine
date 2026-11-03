@@ -1,6 +1,6 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
 import type { FieldChoice } from "../../engine/core/registry";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
@@ -34,6 +34,8 @@ import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
 import { showsAssetInspector } from "../assetImport";
+import { assetKind, listedFiles } from "../assetBrowser";
+import { BUILTIN_MESHES } from "../../engine/scene/models";
 import { liveInspecting } from "../runtimeInspect";
 import { RuntimeInspector } from "./RuntimeInspector";
 import { openScript, scriptFor } from "../code/codeState";
@@ -72,6 +74,7 @@ export function Inspector() {
   const key = pathKey(path);
   return (
     <div class="inspector-body">
+      <AssetLists />
       <div class="node-header">
         <input
           type="checkbox"
@@ -134,6 +137,7 @@ function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
   const key = paths.map(pathKey).join("|");
   return (
     <div class="inspector-body">
+      <AssetLists />
       <div class="node-header">
         <input
           type="checkbox"
@@ -296,7 +300,7 @@ function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
   );
 }
 
-const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D"]);
+const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D", "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider"]);
 
 /** One component, shared by every node in `paths` (`infos` holds each node's copy, in the same order). */
 /** Where a dragged component would land: next to the component `type`#`index`, before or after it. */
@@ -517,7 +521,7 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
         )}
       </div>
       <div class="value">
-        <FieldEditorView editor={editor} field={field} values={values} mixed={mixed} scene={scene} onCommit={commit} onCommitAxis={commitAxis} />
+        <FieldEditorView editor={editor} field={field} values={values} mixed={mixed} scene={scene} componentType={props.info.type} onCommit={commit} onCommitAxis={commitAxis} />
       </div>
     </>
   );
@@ -556,6 +560,8 @@ function FieldEditorView(props: {
   values: unknown[];
   mixed: boolean;
   scene: OpenScene;
+  /** The component the field belongs to, for asset suggestions. */
+  componentType?: string;
   onCommit: (value: unknown) => void;
   onCommitAxis: (axis: number, value: number) => void;
 }) {
@@ -576,8 +582,9 @@ function FieldEditorView(props: {
         />
       );
     case "string":
-    case "asset":
       return <TextInput value={mixed ? "" : String(v ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} onCommit={onCommit} />;
+    case "asset":
+      return <TextInput value={mixed ? "" : String(v ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} list={assetListFor(props.componentType ?? "", field.name)} onCommit={onCommit} />;
     case "color":
       return <ColorInput value={v instanceof Color ? v : Color.white} mixed={mixed} label={field.name} onCommit={onCommit} />;
     case "vector2":
@@ -627,7 +634,39 @@ function axesOf(values: unknown[]): (number | null)[] {
 }
 
 /** Text that commits on Enter or blur and reverts on Escape. */
-function TextInput(props: { value: string; label: string; class?: string; placeholder?: string; onCommit: (v: string) => void }) {
+/**
+ * The id of a `<datalist>` suggesting values for an asset field (see `AssetLists`): meshes
+ * (models and built-in meshes) for MeshRenderer and MeshCollider, materials for a material,
+ * every asset otherwise.
+ */
+function assetListFor(type: string, field: string): string {
+  if (field === "mesh" && (type === "engine.MeshRenderer" || type === "engine.MeshCollider")) return "asset-list-mesh";
+  if (field === "material" && type === "engine.MeshRenderer") return "asset-list-material";
+  return "asset-list-all";
+}
+
+/** The asset suggestions asset fields offer as you type (ADR 0043, 0044). */
+function AssetLists() {
+  const version = docVersion.value; // files come and go
+  const project = currentProject.value;
+  // Built when the project's files change, not on every Inspector render.
+  return useMemo(() => {
+    const files = listedFiles(project?.files ?? []);
+    const options = (list: readonly string[]) => list.map((f) => <option key={f} value={f} />);
+    return (
+      <>
+        <datalist id="asset-list-mesh">
+          {options(BUILTIN_MESHES.map((m) => `builtin:${m}`))}
+          {options(files.filter((f) => assetKind(f) === "model"))}
+        </datalist>
+        <datalist id="asset-list-material">{options(files.filter((f) => assetKind(f) === "material"))}</datalist>
+        <datalist id="asset-list-all">{options(files)}</datalist>
+      </>
+    );
+  }, [project, version, project?.files]);
+}
+
+function TextInput(props: { value: string; label: string; class?: string; placeholder?: string; list?: string; onCommit: (v: string) => void }) {
   const [draft, setDraft] = useState(props.value);
   useEffect(() => setDraft(props.value), [props.value]);
   const commit = () => draft !== props.value && props.onCommit(draft);
@@ -637,6 +676,7 @@ function TextInput(props: { value: string; label: string; class?: string; placeh
       class={props.class}
       aria-label={props.label}
       placeholder={props.placeholder}
+      list={props.list}
       value={draft}
       onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
       onBlur={commit}

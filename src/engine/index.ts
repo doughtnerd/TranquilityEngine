@@ -24,14 +24,20 @@ export { Transform } from "./scene/Transform";
 export { SceneManager, type LoadSceneOptions } from "./scene/SceneManager";
 export { SceneInstance, registerSceneMigration, type SceneFile } from "./scene/SceneLoader";
 export { Assets, type AssetSource } from "./scene/Assets";
-export type { ImportSettings, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
+export type { ImportSettings, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
+export type { MaterialSettings, MaterialShader } from "./scene/material";
 
-export { Camera, SpriteRenderer, Text, type Anchor, type Projection } from "./render/components";
+export { Camera, Light, MeshRenderer, SpriteRenderer, Text, type Anchor, type LightType, type Projection } from "./render/components";
 
 export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
-export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D } from "./physics/Collider2D";
+export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D, type PhysicsMaterial, type PhysicsMaterial2D } from "./physics/Collider2D";
 export { Physics2D, type RaycastHit2D } from "./physics/Physics2D";
 export { CollisionEvents2D, TriggerEvents2D, type PhysicsEvent2D } from "./physics/Physics2DWorld";
+
+export { RigidBody, type RigidBodyConstraints } from "./physics/RigidBody";
+export { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type CapsuleDirection, type Collision } from "./physics/Collider";
+export { Physics, type RaycastHit } from "./physics/Physics";
+export { CollisionEvents, TriggerEvents, type PhysicsEvent } from "./physics/physics3d";
 
 export { Audio, AudioSource } from "./audio/AudioSource";
 export { Input } from "./input/Input";

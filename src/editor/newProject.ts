@@ -8,7 +8,7 @@ export type ProjectTemplate = "2d" | "3d";
 
 export const PROJECT_TEMPLATES: readonly { id: ProjectTemplate; label: string; hint: string }[] = [
   { id: "2d", label: "Empty 2D", hint: "An orthographic camera and 2D physics" },
-  { id: "3d", label: "Empty 3D", hint: "A perspective camera, no physics" },
+  { id: "3d", label: "Empty 3D", hint: "A perspective camera, a sun and 3D physics" },
 ];
 
 /** Why `name` can't name a project folder, or null if it can. */
@@ -36,7 +36,7 @@ export function newProjectJson(name: string, template: ProjectTemplate): string 
   });
 }
 
-/** The new project's main scene: a camera (orthographic in 2D, perspective in 3D). */
+/** The new project's main scene: a camera (orthographic in 2D; perspective with a sun in 3D, ADR 0043). */
 export function newMainScene(template: ProjectTemplate): string {
   const camera =
     template === "2d"
@@ -48,10 +48,19 @@ export function newMainScene(template: ProjectTemplate): string {
           { type: "engine.Transform", data: { position: [0, 2, 10] } },
           { type: "engine.Camera", data: { projection: "perspective", fieldOfView: 60 } },
         ];
+  const sun = {
+    id: "sun",
+    name: "Sun",
+    components: [
+      { type: "engine.Transform", data: { position: [0, 5, 0], rotation: [-50, 30, 0] } },
+      { type: "engine.Light", data: { type: "directional", castShadows: true } },
+    ],
+  };
+  const ambient = { id: "ambient", name: "Ambient Light", components: [{ type: "engine.Transform", data: {} }, { type: "engine.Light", data: { type: "ambient", intensity: 0.35 } }] };
   return json({
     format: "myco.scene@1",
-    settings: { physics: template === "2d" ? "2d" : "none" },
-    nodes: [{ id: "camera", name: "Camera", components: camera }],
+    settings: { physics: template === "2d" ? "2d" : "3d" },
+    nodes: [{ id: "camera", name: "Camera", components: camera }, ...(template === "3d" ? [sun, ambient] : [])],
   });
 }
 

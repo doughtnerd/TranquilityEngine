@@ -6,7 +6,7 @@
 // node's list (data components too); on an instance it's an `order` override (ADR 0029) of its
 // scripts and engine components.
 import { Assets, type GameObject } from "../engine";
-import { componentCatalog, isDataComponent, isEditableComponent, listComponents, spriteSize, type ComponentInfo } from "../engine/editor";
+import { componentCatalog, isDataComponent, isEditableComponent, listComponents, meshLocalBounds, spriteSize, type ComponentInfo } from "../engine/editor";
 import { isScenePath } from "../engine/scene/SceneLoader";
 import {
   AddComponent,
@@ -38,14 +38,23 @@ export function whyNotAddable(node: GameObject, type: string): string | null {
 }
 
 /**
- * The entry to add for `type` on `node`. A collider added beside a sprite starts out fitted to
- * it, as in Unity: a box the sprite's size, a circle around its larger side.
+ * The entry to add for `type` on `node`. A collider added beside a sprite or mesh starts out
+ * fitted to it, as in Unity: a box the sprite's size, a circle around its larger side; a 3D box
+ * around the mesh, a sphere around its largest side, an upright capsule around it (ADR 0045).
  */
 export function newComponentEntry(node: GameObject, type: string): ComponentEntry {
   const size = type === "engine.BoxCollider2D" || type === "engine.CircleCollider2D" ? spriteSize(node) : null;
   const round = (n: number) => Math.round(n * 1e4) / 1e4;
   if (size && type === "engine.BoxCollider2D") return { type, data: { size: size.map(round) } };
   if (size && type === "engine.CircleCollider2D") return { type, data: { radius: round(Math.max(...size) / 2) } };
+  const bounds = type === "engine.BoxCollider" || type === "engine.SphereCollider" || type === "engine.CapsuleCollider" ? meshLocalBounds(node) : null;
+  if (bounds) {
+    const extent = bounds.max.map((v, i) => v - bounds.min[i]);
+    const center = bounds.max.map((v, i) => round((v + bounds.min[i]) / 2));
+    if (type === "engine.BoxCollider") return { type, data: { center, size: extent.map(round) } };
+    if (type === "engine.SphereCollider") return { type, data: { center, radius: round(Math.max(...extent) / 2) } };
+    return { type, data: { center, radius: round(Math.max(extent[0], extent[2]) / 2), height: round(extent[1]) } };
+  }
   return { type };
 }
 
