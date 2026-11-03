@@ -50,7 +50,7 @@ We will treat Flappy as a **sample**: an ordinary project in `samples/flappy/` t
 
 ## Open questions
 
-- How a project folder becomes a game build (O14).
+- ~~How a project folder becomes a game build (O14).~~ Answered by [0041](0041-game-builds.md): a static web player build, packaged for desktop through Tauri.
 - Recent projects on the start screen.
 
 ## References

@@ -46,10 +46,12 @@ function typescript(): Promise<TS> {
  * Compile one script to JavaScript with the editor's own settings (`typescriptTranspile()` in
  * vite.shared.ts: ES2022, ES modules, define-semantics class fields, standard decorators), with
  * an inline source map so stack traces and the debugger show the TypeScript. Only syntax errors
- * stop it; type errors are the code editor's business.
+ * stop it; type errors are the code editor's business. Game builds (ADR 0041) pass
+ * `sourceMap: false`, so they don't ship the TypeScript.
  */
-export async function compileScript(path: string, source: string): Promise<Compiled | ScriptProblem> {
+export async function compileScript(path: string, source: string, options: { sourceMap?: boolean } = {}): Promise<Compiled | ScriptProblem> {
   const ts = await typescript();
+  const sourceMap = options.sourceMap ?? true;
   const out = ts.transpileModule(source, {
     fileName: path,
     reportDiagnostics: true,
@@ -57,8 +59,8 @@ export async function compileScript(path: string, source: string): Promise<Compi
       target: ts.ScriptTarget.ES2022,
       module: ts.ModuleKind.ESNext,
       useDefineForClassFields: true,
-      inlineSourceMap: true,
-      inlineSources: true,
+      inlineSourceMap: sourceMap,
+      inlineSources: sourceMap,
     },
   });
   const error = out.diagnostics?.find((d) => d.category === ts.DiagnosticCategory.Error);

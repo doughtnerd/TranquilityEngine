@@ -38,6 +38,8 @@ export interface ServerProject {
   readonly json: ReadonlyMap<string, string>;
   /** The scripts' source, by path. */
   readonly scripts: ReadonlyMap<string, string>;
+  /** Every file read, project-relative and sorted (hidden files and dependency and build folders left out). For game builds (ADR 0041). */
+  readonly files: readonly string[];
 }
 
 /** Folders never read: dependencies, build output, and hidden folders (the editor's `.myco/`). */
@@ -82,6 +84,7 @@ export async function readProject(dir: string): Promise<ServerProject> {
     assets: { has: (p) => values.has(p), get: (p) => values.get(p) },
     json,
     scripts,
+    files,
   };
 }
 

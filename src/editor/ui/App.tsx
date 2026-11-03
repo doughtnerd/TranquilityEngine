@@ -6,6 +6,7 @@ import { AssetsPanel } from "./Assets";
 import { CodePanel } from "./CodePanel";
 import { AssetDragGhost } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ExportDialog, exportOpen } from "./ExportDialog";
 import { StatusBar } from "./StatusBar";
 import { NetworkPanel } from "./NetworkPanel";
 import { NewScriptDialog } from "./NewScriptDialog";
@@ -31,6 +32,7 @@ export function App() {
       <AssetDragGhost />
       <ConfirmDialog />
       <NewScriptDialog />
+      <ExportDialog />
       <SettingsDialog />
       <RefineList />
     </div>
@@ -71,6 +73,11 @@ function ProjectControls() {
       {project?.root != null && (
         <button title="Read the scripts under scripts/ again and reload them (ADR 0030)" onClick={() => void reloadScripts()}>
           Reload Scripts
+        </button>
+      )}
+      {project && (
+        <button title="Build / Export: make a playable web build or desktop app of the project (ADR 0041)" onClick={() => (exportOpen.value = true)}>
+          Export…
         </button>
       )}
       {project && (

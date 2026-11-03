@@ -11,5 +11,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["vite.config.ts", "vite.engine.config.ts", "vite.editor.config.ts", "vite.shared.ts", "vitest.config.mts", "playwright.config.ts", "tests/**/*"]
+  "include": ["vite.config.ts", "vite.engine.config.ts", "vite.editor.config.ts", "vite.player.config.ts", "vite.shared.ts", "vitest.config.mts", "playwright.config.ts", "tests/**/*"]
 }
