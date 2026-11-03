@@ -14,7 +14,7 @@ import type { WorldConfig } from "../core/worlds";
 import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
-import type { EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
+import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
 import { SpriteRenderer } from "../render/components";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
@@ -256,6 +256,13 @@ export function worldToCanvas(world: World, point: readonly number[]): [number, 
 /** Outline the renderers of these nodes (and their descendants) in the viewport until changed. */
 export function setSelectionOutline(world: World, nodes: readonly GameObject[]): void {
   world.render?.setSelectionOutline(nodes);
+}
+
+export type { EditorColors } from "../render/RenderBackend";
+
+/** Recolour the viewport's background, grid, selection outline and camera gizmos (the editor's theme). No-op headless. */
+export function setEditorColors(world: World, colors: EditorColors): void {
+  world.render?.setEditorColors(colors);
 }
 
 export type { GizmoHandlers, GizmoOptions } from "../render/RenderBackend";

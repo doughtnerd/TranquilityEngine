@@ -104,10 +104,21 @@ const tmpScale = new Matrix4();
 const raycaster = new Raycaster();
 const ndc = new ThreeVector2();
 
-/** Editor selection outline colour (ADR 0022). */
-const OUTLINE_COLOR = 0x4c8dff;
-/** Editor camera gizmos: unselected wireframe colour, icon size (fraction of view height) and click radius (CSS px). */
-const CAMERA_GIZMO_COLOR = 0xc9ccd1;
+/**
+ * @internal Editor overlay colours (ADR 0022), 0xRRGGBB: the viewport background, the grid's lines
+ * and centre lines, the selection outline and unselected camera wireframes. The editor sets them
+ * from its theme (`setEditorColors`).
+ */
+export interface EditorColors {
+  background: number;
+  grid: number;
+  gridCenter: number;
+  outline: number;
+  cameraGizmo: number;
+}
+
+const DEFAULT_EDITOR_COLORS: EditorColors = { background: 0x24272d, grid: 0x3a3f47, gridCenter: 0x5a606b, outline: 0x4c8dff, cameraGizmo: 0xc9ccd1 };
+/** Editor camera gizmos: icon size (fraction of view height) and click radius (CSS px). */
 const CAMERA_ICON_SIZE = 0.065;
 const CAMERA_ICON_PICK_RADIUS = 16;
 const tmpPoint = new ThreeVector3();
@@ -156,7 +167,7 @@ export class RenderBackend {
     // empty scene has a frame of reference.
     this.fill = kind === "editor";
     if (kind === "editor") {
-      this.grid = new GridHelper(40, 40, 0x5a606b, 0x3a3f47);
+      this.grid = new GridHelper(40, 40, this.editorColors.gridCenter, this.editorColors.grid);
       this.scene.add(this.grid, new AxesHelper(1.5));
     }
 
@@ -167,6 +178,23 @@ export class RenderBackend {
 
   private readonly fill: boolean;
   private grid: GridHelper | null = null;
+  private editorColors: EditorColors = { ...DEFAULT_EDITOR_COLORS };
+
+  /** @internal Editor: recolour the overlays and (editor Worlds) the background (the editor's theme). */
+  setEditorColors(colors: EditorColors): void {
+    this.editorColors = { ...colors };
+    if (this.fill) this.clearColor.setHex(colors.background);
+    this.outlineMaterial?.color.setHex(colors.outline);
+    if (this.grid) {
+      // GridHelper bakes its colours into vertex colours: rebuild it, keeping its plane.
+      const old = this.grid;
+      this.grid = new GridHelper(40, 40, colors.gridCenter, colors.grid);
+      this.grid.rotation.copy(old.rotation);
+      this.scene.remove(old);
+      old.dispose();
+      this.scene.add(this.grid);
+    }
+  }
 
   /** @internal Editor: lay the grid on the ground (XZ, 3D view) or facing the camera (XY, 2D view). */
   setEditorGridPlane(plane: "xz" | "xy"): void {
@@ -663,7 +691,7 @@ export class RenderBackend {
       "position",
       new Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3),
     );
-    this.outlineMaterial ??= new LineBasicMaterial({ color: OUTLINE_COLOR, depthTest: false, depthWrite: false, transparent: true });
+    this.outlineMaterial ??= new LineBasicMaterial({ color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true });
     const line = new LineLoop(this.outlineGeometry, this.outlineMaterial);
     line.matrixAutoUpdate = false;
     line.frustumCulled = false;
@@ -791,7 +819,7 @@ export class RenderBackend {
       positions.copyArray(frustumSegments({ projection: c.projection, orthographicSize: c.orthographicSize, fieldOfView: c.fieldOfView, aspect, near: c.near, far: c.far }));
       positions.needsUpdate = true;
       entry.frustum.geometry.computeBoundingSphere();
-      entry.frustum.material.color.setHex(this.isOutlined(c.node) ? OUTLINE_COLOR : CAMERA_GIZMO_COLOR);
+      entry.frustum.material.color.setHex(this.isOutlined(c.node) ? this.editorColors.outline : this.editorColors.cameraGizmo);
       entry.icon.position.setFromMatrixPosition(tmpWorld);
       entry.icon.scale.set(iconScale, iconScale, 1);
       entry.icon.updateMatrixWorld();
@@ -817,7 +845,7 @@ export class RenderBackend {
     icon.scale.set(CAMERA_ICON_SIZE, CAMERA_ICON_SIZE, 1);
     icon.renderOrder = OUTLINE_ORDER;
     const geometry = new BufferGeometry().setAttribute("position", new Float32BufferAttribute(new Float32Array(24 * 3), 3));
-    const frustum = new LineSegments(geometry, new LineBasicMaterial({ color: CAMERA_GIZMO_COLOR, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+    const frustum = new LineSegments(geometry, new LineBasicMaterial({ color: this.editorColors.cameraGizmo, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
     frustum.matrixAutoUpdate = false;
     frustum.frustumCulled = false;
     frustum.renderOrder = OUTLINE_ORDER - 1;

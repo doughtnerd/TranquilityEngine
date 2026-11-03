@@ -1,12 +1,14 @@
 // Monaco for the Code panel (ADR 0030), loaded the first time the panel shows. Sets up its
 // workers, a TypeScript service that knows the engine's types as the `"myco"` package,
-// the editor's colours, and one model per project script (so autocomplete and errors work
-// across scripts).
+// the editor's colours (from the editor theme, theme.ts), and one model per project script (so
+// autocomplete and errors work across scripts).
+import { effect } from "@preact/signals";
 import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import JsonWorker from "monaco-editor/languages/features/json/json.worker.js?worker";
 import TsWorker from "monaco-editor/languages/features/typescript/ts.worker.js?worker";
 import engineTypes from "virtual:myco-types";
+import { codeAppearance, monacoColors } from "../theme";
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
   // Each language service runs in its own worker; everything else in the editor's.
@@ -33,20 +35,16 @@ ts.typescriptDefaults.addExtraLib(JSON.stringify({ name: "myco", types: "index.d
 // Scripts written before the rename import "tranquility" (ADR 0037): the same declarations.
 ts.typescriptDefaults.addExtraLib('export * from "myco";', "file:///node_modules/tranquility/index.d.ts");
 
-monaco.editor.defineTheme("myco", {
-  base: "vs-dark",
-  inherit: true,
-  rules: [],
-  colors: {
-    "editor.background": "#1b1d21",
-    "editor.lineHighlightBackground": "#23262c",
-    "editorLineNumber.foreground": "#5a5f68",
-    "editorGutter.background": "#1b1d21",
-    "editorWidget.background": "#212329",
-    "editorWidget.border": "#2c3036",
-    "editor.selectionBackground": "#2d4166",
-    focusBorder: "#4c8dff",
-  },
+// The "myco" theme follows Settings > Appearance: redefined from the editor theme's tokens on change.
+effect(() => {
+  const { kind, tokens } = codeAppearance.value;
+  monaco.editor.defineTheme("myco", {
+    base: kind === "light" ? "vs" : kind === "high-contrast" ? "hc-black" : "vs-dark",
+    inherit: true,
+    rules: [],
+    colors: monacoColors(tokens),
+  });
+  monaco.editor.setTheme("myco");
 });
 
 export { monaco };

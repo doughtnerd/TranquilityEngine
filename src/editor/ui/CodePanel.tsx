@@ -6,6 +6,7 @@ import { fileName } from "../assetBrowser";
 import { activeScript, closeScript, codeFiles, codeFileText, dirtyScripts, loadMonaco, loadedMonaco, openScripts, setDirty } from "../code/codeState";
 import { openScriptExternally, saveCodeFile } from "../session";
 import { currentProject, scriptsVersion, status } from "../state";
+import { codeAppearance } from "../theme";
 import { confirmInEditor } from "./ConfirmDialog";
 
 /**
@@ -121,7 +122,8 @@ function MonacoHost() {
         editor = monaco.editor.create(host.current, {
           theme: "myco",
           automaticLayout: true,
-          fontSize: 13,
+          fontFamily: codeAppearance.peek().font,
+          fontSize: codeAppearance.peek().size,
           minimap: { enabled: false },
           scrollBeyondLastLine: false,
           tabSize: 2,
@@ -136,9 +138,15 @@ function MonacoHost() {
           void saveActive(e);
         };
         host.current.addEventListener("keydown", onSaveKey, true);
+        // The code font follows Settings > Appearance.
+        const stopFont = effect(() => {
+          const { font, size } = codeAppearance.value;
+          e.updateOptions({ fontFamily: font, fontSize: size });
+          monaco.editor.remeasureFonts();
+        });
         const watchers = new Map<string, Monaco.IDisposable>();
         // Follow the project's scripts, the tab showing, and read-only-ness.
-        stop = effect(() => {
+        const stopFiles = effect(() => {
           const project = currentProject.value;
           scriptsVersion.value;
           const path = activeScript.value;
@@ -165,6 +173,10 @@ function MonacoHost() {
           // Clear the overlay once the file has drawn.
           requestAnimationFrame(() => activeScript.peek() === path && setOpening(null));
         });
+        stop = () => {
+          stopFiles();
+          stopFont();
+        };
       })
       .catch((err) => setFailed(err instanceof Error ? err.message : String(err)));
     return () => {

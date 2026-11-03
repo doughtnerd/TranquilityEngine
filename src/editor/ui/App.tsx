@@ -2,6 +2,8 @@ import { DockLayout } from "../layout/DockLayout";
 import { resetLayout } from "../layout/store";
 import { closeProject, openProjectFolder, reloadScripts, save, togglePlaying } from "../session";
 import { currentProject, docVersion, openScene, playState, scriptProblems, snapping, status } from "../state";
+import { art, PRODUCT_NAME } from "../brand";
+import { AboutDialog, aboutOpen } from "./AboutDialog";
 import { AssetsPanel } from "./Assets";
 import { CodePanel } from "./CodePanel";
 import { AssetDragGhost } from "./AssetDragOverlay";
@@ -32,6 +34,7 @@ export function App() {
       <ConfirmDialog />
       <NewScriptDialog />
       <SettingsDialog />
+      <AboutDialog />
       <RefineList />
     </div>
   );
@@ -40,7 +43,10 @@ export function App() {
 function Toolbar() {
   return (
     <header class="toolbar">
-      <span class="brand">Myco Engine Editor</span>
+      <button class="brand" title={`About ${PRODUCT_NAME}`} aria-label={`About ${PRODUCT_NAME}`} onClick={() => (aboutOpen.value = true)}>
+        <img src={art.mycoIcon} alt="" width={22} height={22} />
+        <span>{PRODUCT_NAME}</span>
+      </button>
       <ProjectControls />
       <PlayButton />
       <UndoRedo />

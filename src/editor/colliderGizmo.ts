@@ -8,10 +8,10 @@ import { overlayHandleAt, pointOnSpritePlane, setEditorOverlay, viewportCanvas, 
 import { boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, tidy, toLocal, type BoxHandle, type CircleHandle, type Pose2D, type V2 } from "./colliderMath";
 import { SetField } from "./document";
 import { editingCollider, openScene, playState, selectedNodes, selectedWorldNode, selection, type EditingCollider } from "./state";
+import { theme, viewportColors } from "./theme";
 
 const COLOR = 0x3fae5a;
 const COLOR_SELECTED = 0x9dff9d;
-const HANDLE = 0x4c8dff;
 const HANDLE_CENTER = 0xffffff;
 
 /** A node's 2D world pose for collider math. */
@@ -58,7 +58,8 @@ export function colliderOverlay(engine: Engine): EditorOverlay {
     const center: V2 = [collider.center.x, collider.center.y];
     const handles: Record<string, [number, number, number]> =
       collider instanceof BoxCollider2D ? boxHandles(pose, center, [collider.size.x, collider.size.y]) : circleHandles(pose, center, collider.radius);
-    for (const [id, position] of Object.entries(handles)) overlay.handles.push({ id, position, color: id === "center" ? HANDLE_CENTER : HANDLE });
+    const handle = viewportColors(theme.peek()).handle; // the theme's accent
+    for (const [id, position] of Object.entries(handles)) overlay.handles.push({ id, position, color: id === "center" ? HANDLE_CENTER : handle });
   }
   return overlay;
 }

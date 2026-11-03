@@ -3,6 +3,7 @@ import { useEffect } from "preact/hooks";
 import { isTauri } from "../../engine/platform/FileSystem";
 import { listSamples, type SampleInfo } from "../samples";
 import { copySampleToFolder, openProjectFolder, openSample } from "../session";
+import { StartFooter, StartHeader } from "./StartBrand";
 
 /** The samples served beside the editor, once listed (null while loading). */
 const samples = signal<SampleInfo[] | null>(null);
@@ -36,7 +37,7 @@ export function StartScreen() {
   return (
     <div class="start-screen" role="dialog" aria-label="Start">
       <div class="start-card">
-        <h1>Myco Engine</h1>
+        <StartHeader />
         <section>
           <h2>Projects</h2>
           <button class="primary" disabled={!desktop} onClick={() => void openProjectFolder()}>
@@ -76,6 +77,7 @@ export function StartScreen() {
             </ul>
           )}
         </section>
+        <StartFooter />
       </div>
     </div>
   );
