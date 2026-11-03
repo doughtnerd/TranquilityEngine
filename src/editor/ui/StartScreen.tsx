@@ -3,6 +3,7 @@ import { useEffect } from "preact/hooks";
 import { canOpenFolders } from "../projectFs";
 import { listSamples, type SampleInfo } from "../samples";
 import { copySampleToFolder, openSample } from "../session";
+import { StartFooter, StartHeader } from "./StartBrand";
 import { StartProjects } from "./StartProjects";
 
 /** The samples served beside the editor, once listed (null while loading). */
@@ -38,7 +39,7 @@ export function StartScreen() {
   return (
     <div class="start-screen" role="dialog" aria-label="Start">
       <div class="start-card">
-        <h1>Myco Engine</h1>
+        <StartHeader />
         <StartProjects />
         <section>
           <h2>Samples</h2>
@@ -72,6 +73,7 @@ export function StartScreen() {
             </ul>
           )}
         </section>
+        <StartFooter />
       </div>
     </div>
   );

@@ -30,10 +30,10 @@ import {
 import { SetField } from "./document";
 import { cleanSnap, snapActive, snapSettings, snapTo } from "./sceneTools";
 import { editingCollider, openScene, playState, selectedNodes, selectedWorldNode, selection, status, type EditingCollider } from "./state";
+import { theme, viewportColors } from "./theme";
 
 const COLOR = 0x3fae5a;
 const COLOR_SELECTED = 0x9dff9d;
-const HANDLE = 0x4c8dff;
 const HANDLE_CENTER = 0xffffff;
 const HANDLE_INSERT = 0x9a7bd8;
 
@@ -100,8 +100,9 @@ export function colliderOverlay(engine: Engine): EditorOverlay {
         : collider instanceof CircleCollider2D
           ? circleHandles(pose, center, collider.radius)
           : pointsHandles(pose, center, readPoints(collider.points), collider instanceof PolygonCollider2D);
+    const handle = viewportColors(theme.peek()).handle; // the theme's accent
     for (const [id, position] of Object.entries(handles)) {
-      overlay.handles.push({ id, position, color: id === "center" ? HANDLE_CENTER : id.startsWith("insert:") ? HANDLE_INSERT : HANDLE });
+      overlay.handles.push({ id, position, color: id === "center" ? HANDLE_CENTER : id.startsWith("insert:") ? HANDLE_INSERT : handle });
     }
   }
   return overlay;

@@ -1,0 +1,73 @@
+/* Branding (Myco Engine by Foxfire Studios) and the Settings dialog's sections. */
+
+/* Toolbar: the Myco icon and name, a button that opens About. */
+.toolbar .brand { display: inline-flex; align-items: center; gap: 7px; margin-right: 8px; padding: 2px 8px 2px 2px; background: transparent; border-color: transparent; font-weight: 600; color: var(--text-strong); letter-spacing: 0.02em; }
+.toolbar .brand:hover { background: var(--hover); }
+.toolbar .brand img { width: calc(22px * var(--ui-scale)); height: calc(22px * var(--ui-scale)); border-radius: 5px; box-shadow: 0 0 8px var(--accent-soft); }
+.toolbar { background: var(--panel); box-shadow: 0 1px 0 var(--accent-faint); }
+
+/* Start screen header and footer. The logo art is on black, so it sits in a black banner in every theme. */
+.start-brand { display: flex; flex-direction: column; align-items: center; margin: -20px -24px 4px; padding: 14px 24px 10px; background: #000; border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; }
+.start-card h1.start-title { margin: 0; line-height: 0; }
+.start-logo { width: min(240px, 60vw); height: auto; display: block; }
+.start-tagline { margin: 2px 0 0; color: #b9c7c4; font-size: calc(12px * var(--ui-scale)); letter-spacing: 0.08em; text-transform: uppercase; }
+.start-footer { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 18px -24px -20px; padding: 8px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.start-footer img { width: 20px; height: 20px; border-radius: 50%; }
+.start-footer-sep { color: var(--faint); }
+
+/* A button that reads as a link. */
+button.link-button { background: none; border: none; padding: 0 2px; color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
+button.link-button:hover { background: none; color: var(--accent-hover); }
+
+/* About */
+.about-dialog { width: min(440px, calc(100vw - 32px)); }
+.about-hero { margin: -16px -18px 12px; padding: 12px 0 6px; display: flex; justify-content: center; background: #000; border-radius: 6px 6px 0 0; border-bottom: 1px solid var(--border); }
+.about-hero img { width: 240px; height: auto; }
+.about-dialog h2 { margin-bottom: 2px; }
+.dialog p.about-version { margin: 0 0 10px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.about-studio { display: flex; align-items: center; gap: 10px; margin: 12px 0 14px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+.about-studio img { width: 40px; height: 40px; border-radius: 50%; flex: none; }
+.about-studio-name { font-weight: 600; }
+.about-credits { color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+
+/* Settings: tabs for sections, rows of labelled controls, colour overrides and a live preview. */
+.dialog.settings-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 40px); display: flex; flex-direction: column; }
+.settings-tabs { display: flex; gap: 2px; margin: 0 0 10px; border-bottom: 1px solid var(--border); }
+.settings-tabs .settings-tab { background: none; border: none; border-radius: 4px 4px 0 0; padding: 5px 12px; color: var(--muted); }
+.settings-tabs .settings-tab:hover { color: var(--text); background: var(--hover); }
+.settings-tabs .settings-tab.active { color: var(--text-strong); box-shadow: inset 0 -2px 0 var(--accent); background: none; }
+.settings-body { overflow: auto; min-height: 0; flex: 1; padding-right: 2px; }
+.settings-dialog .settings-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; flex-wrap: wrap; }
+.settings-dialog .settings-row-label { display: flex; align-items: center; gap: 8px; margin: 0; }
+.settings-label { min-width: 110px; color: var(--muted); }
+.settings-dialog .settings-row .note { margin: 0; }
+.settings-dialog select, .settings-dialog input[type="text"], .settings-dialog input[type="number"] {
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 3px 6px;
+  font: inherit;
+}
+.settings-dialog select:focus, .settings-dialog input[type="text"]:focus, .settings-dialog input[type="number"]:focus { outline: none; border-color: var(--accent); box-shadow: var(--glow); }
+.settings-font-input { flex: 1; min-width: 160px; }
+.settings-size { width: 64px; }
+.settings-colors { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2px 14px; margin: 8px 0 4px; }
+.settings-color { display: flex; align-items: center; gap: 6px; }
+.settings-dialog .settings-color label { flex: 1; margin: 2px 0; }
+.settings-color input[type="color"] { width: 30px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: none; cursor: pointer; }
+.settings-color.changed span { color: var(--text-strong); font-weight: 600; }
+.settings-hex { color: var(--muted); font-family: var(--font-code); font-size: calc(11px * var(--ui-scale)); }
+.settings-reset-one { padding: 0 6px; line-height: 1.4; }
+.theme-preview { margin-top: 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--panel); overflow: hidden; font-size: calc(12px * var(--ui-scale)); }
+.theme-preview-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: var(--bg); border-bottom: 1px solid var(--border); color: var(--muted); }
+.theme-preview-bar > span:first-child { flex: 1; text-transform: uppercase; letter-spacing: 0.04em; font-size: calc(11px * var(--ui-scale)); }
+.theme-preview-chip { padding: 1px 8px; border-radius: 3px; background: var(--accent); color: var(--accent-text); box-shadow: 0 0 8px var(--accent-soft); }
+.theme-preview-chip.two { background: var(--success-strong); color: var(--success-text); box-shadow: 0 0 8px var(--accent2-soft); }
+.theme-preview-row { padding: 2px 8px; }
+.theme-preview-row.selected { background: var(--selection); color: var(--selection-text); }
+.theme-preview-row.muted { color: var(--muted); }
+.theme-preview-row .warn { color: var(--warning); }
+.theme-preview-row .err { color: var(--danger); }
+.theme-preview-code { display: block; padding: 4px 8px; background: var(--bg-sunken); color: var(--text); border-top: 1px solid var(--border); }
+.dialog-buttons .settings-about { margin-right: auto; }

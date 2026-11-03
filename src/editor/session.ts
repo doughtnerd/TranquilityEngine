@@ -18,6 +18,7 @@ import { confirmInEditor } from "./ui/ConfirmDialog";
 import { installSceneView } from "./cameraPreview";
 import { installColliderGizmo } from "./colliderGizmo";
 import { installGizmo } from "./gizmo";
+import { installViewportTheme } from "./viewportTheme";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
 import { openSceneFile, saveOpenScene } from "./project";
@@ -97,7 +98,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   orbit.mode = viewMode.value;
   sceneCamera.value = orbit;
-  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installSceneView(engine)];
+  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installSceneView(engine), installViewportTheme(engine)];
   session = {
     engine,
     dispose() {
