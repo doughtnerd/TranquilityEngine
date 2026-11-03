@@ -33,10 +33,10 @@ const Health = defineComponent("test.isolation.Health", { hp: f32 });
 const Hits = defineBuffer<{ target: GameObject; amount: number }>("test.isolation.Hits");
 
 const files = {
-  "level.scene.json": { format: "tranquility.scene@1", settings: { physics: "2d" }, nodes: [{ id: "player", name: "Player" }] },
-  "thing.json": { format: "tranquility.scene@1", nodes: [{ id: "thing", name: "Thing" }] },
+  "level.scene.json": { format: "myco.scene@1", settings: { physics: "2d" }, nodes: [{ id: "player", name: "Player" }] },
+  "thing.json": { format: "myco.scene@1", nodes: [{ id: "thing", name: "Thing" }] },
   "ref.json": {
-    format: "tranquility.scene@1",
+    format: "myco.scene@1",
     nodes: [{ id: "a", name: "A", components: [{ type: "test.isolation.Pointer", data: { target: { $node: "outside" } } }] }],
   },
 };

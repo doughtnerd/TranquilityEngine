@@ -123,7 +123,7 @@ export function createGameView(container: HTMLElement): GameView {
         try {
           update(engine);
         } catch (err) {
-          console.error("[tranquility] The game view couldn't update:", err);
+          console.error("[myco] The game view couldn't update:", err);
         }
       };
       loop();

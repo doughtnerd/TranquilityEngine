@@ -12,7 +12,7 @@ import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
 
 let fs: MemoryFileSystem;
 let project: EditorProject;
-const SPAWNER = `import { GameBehavior, behavior, field, AssetRef } from "tranquility";
+const SPAWNER = `import { GameBehavior, behavior, field, AssetRef } from "myco";
 @behavior("game.Spawner2")
 export class Spawner2 extends GameBehavior {
   @field(AssetRef) prefab = "prefabs/pipe-pair.prefab.json";

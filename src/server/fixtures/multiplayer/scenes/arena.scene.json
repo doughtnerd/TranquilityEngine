@@ -1,5 +1,5 @@
 {
-  "format": "tranquility.scene@1",
+  "format": "myco.scene@1",
   "nodes": [
     {
       "id": "ball",

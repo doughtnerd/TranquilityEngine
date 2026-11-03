@@ -18,7 +18,7 @@ import { currentProject, docVersion, openScene, playState, scriptsVersion, statu
 import { confirmInEditor } from "./ui/ConfirmDialog";
 
 const isSceneFile = (json: Record<string, unknown>): json is SceneFile & Record<string, unknown> =>
-  typeof json.format === "string" && json.format.startsWith("tranquility.scene@") && Array.isArray(json.nodes);
+  typeof json.format === "string" && /^(myco|tranquility)\.scene@/.test(json.format) && Array.isArray(json.nodes);
 
 /**
  * Take the deleted `path` out of the project's scenes, prefabs and settings: files on disk are

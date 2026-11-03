@@ -200,7 +200,7 @@ export class Engine implements BootstrapEngine {
       loading = loading.then(() => (handle.alive ? handle.loadScene(path, { additive: i > 0 }) : undefined));
     });
     if (this.starting) this.starting.push(loading);
-    else loading.catch((err) => console.error(`[tranquility] World "${c.name}" couldn't load its scenes:`, err));
+    else loading.catch((err) => console.error(`[myco] World "${c.name}" couldn't load its scenes:`, err));
     return handle;
   }
 

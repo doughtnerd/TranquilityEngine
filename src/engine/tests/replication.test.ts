@@ -89,19 +89,19 @@ const transformOf = (x: number, y = 0) => ({ type: "engine.Transform", data: { p
 Assets.addSource(
   Assets.fromObject({
     "prefabs/ball.json": {
-      format: "tranquility.scene@1",
+      format: "myco.scene@1",
       nodes: [{ id: "ball", name: "Ball", components: [{ type: "net.Replicated" }, { type: "test.repl.Mover" }] }],
     },
     "prefabs/aimer.json": {
-      format: "tranquility.scene@1",
+      format: "myco.scene@1",
       nodes: [{ id: "aimer", name: "Aimer", components: [{ type: "net.Replicated" }, { type: "test.repl.Aimer" }] }],
     },
     "prefabs/crate.json": {
-      format: "tranquility.scene@1",
+      format: "myco.scene@1",
       nodes: [{ id: "crate", name: "Crate", components: [{ type: "net.Replicated" }] }],
     },
     "prefabs/tank.json": {
-      format: "tranquility.scene@1",
+      format: "myco.scene@1",
       nodes: [
         { id: "tank", name: "Tank", components: [{ type: "net.Replicated" }, { type: "test.repl.Stats" }, { type: "test.repl.Health", data: { current: 10, max: 10, team: 1 } }] },
         { id: "turret", name: "Turret", parent: "tank", components: [{ type: "net.Replicated" }, transformOf(0, 1)] },
@@ -109,7 +109,7 @@ Assets.addSource(
       ],
     },
     "scenes/arena.scene.json": {
-      format: "tranquility.scene@1",
+      format: "myco.scene@1",
       nodes: [
         { id: "floor", name: "Floor", components: [transformOf(0, -5)] },
         { id: "door", name: "Door", components: [{ type: "net.Replicated" }, transformOf(3, 0), { type: "test.repl.Health", data: { current: 5, max: 5 } }] },
@@ -119,7 +119,7 @@ Assets.addSource(
       ],
     },
     "scenes/split.scene.json": {
-      format: "tranquility.scene@1",
+      format: "myco.scene@1",
       nodes: [
         {
           id: "brain",
@@ -463,7 +463,7 @@ describe("per-World components (T11)", () => {
 Assets.addSource(
   Assets.fromObject({
     "scenes/yard.scene.json": {
-      format: "tranquility.scene@1",
+      format: "myco.scene@1",
       nodes: [{ id: "projectiles", name: "Projectiles", components: [transformOf(10, 0)] }],
     },
   }),

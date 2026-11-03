@@ -1,4 +1,4 @@
-import { Engine, GameBehavior, GameObject, Input, Text, behavior, field } from "tranquility";
+import { Engine, GameBehavior, GameObject, Input, Text, behavior, field } from "myco";
 import { SECOND_CLIENT_WORLD, SERVER_WORLD, connectionStates, players } from "../data";
 
 /**

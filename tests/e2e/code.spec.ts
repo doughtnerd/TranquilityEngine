@@ -9,7 +9,7 @@ type Hooks = {
   testFolder: { read(path: string): string | undefined };
 };
 
-const WHEEL = `import { GameBehavior, behavior, field } from "tranquility";
+const WHEEL = `import { GameBehavior, behavior, field } from "myco";
 import { spin } from "./util";
 
 @behavior("game.Wheel")
@@ -21,7 +21,7 @@ export class Wheel extends GameBehavior {
   }
 }
 `;
-const UTIL = `import type { Transform } from "tranquility";
+const UTIL = `import type { Transform } from "myco";
 
 export function spin(t: Transform, degrees: number): void {
   t.rotate2D(degrees);
@@ -56,7 +56,7 @@ test("double-clicking a script opens it in the Code panel, typed against the eng
   await expect(page.locator(".dock-tab.active", { hasText: "Code" })).toBeVisible();
   await expect(tab(page, "Wheel.ts")).toHaveClass(/active/);
   await expect(editor(page).locator(".view-lines")).toContainText("export class Wheel extends GameBehavior", { timeout: 20_000 });
-  // No errors: "tranquility" and "./util" both resolve. A mistake gets squiggled.
+  // No errors: "myco" and "./util" both resolve. A mistake gets squiggled.
   await page.waitForTimeout(1500);
   await expect(editor(page).locator(".squiggly-error")).toHaveCount(0);
   await typeAtEnd(page, "\nconst broken: number = this.nope;");

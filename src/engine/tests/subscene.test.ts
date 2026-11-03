@@ -5,7 +5,7 @@ import { SceneInstance } from "../scene/SceneLoader";
 const files: Record<string, unknown> = {
   // A chunk of level: two top-level nodes, one with a child.
   "scenes/chunk.scene.json": {
-    format: "tranquility.scene@1",
+    format: "myco.scene@1",
     nodes: [
       { id: "rock", name: "Rock", components: [{ type: "engine.Transform", data: { position: [1, 0, 0] } }] },
       { id: "tree", name: "Tree", components: [{ type: "engine.Transform", data: { position: [3, 0, 0] } }] },
@@ -13,7 +13,7 @@ const files: Record<string, unknown> = {
     ],
   },
   "scenes/level.scene.json": {
-    format: "tranquility.scene@1",
+    format: "myco.scene@1",
     nodes: [
       { id: "ground", name: "Ground" },
       {

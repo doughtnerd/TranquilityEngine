@@ -8,7 +8,7 @@ type Hooks = {
   testFolder: { read(path: string): string | undefined };
 };
 
-const WHEEL = `import { GameBehavior, behavior, field } from "tranquility";
+const WHEEL = `import { GameBehavior, behavior, field } from "myco";
 @behavior("game.Wheel")
 export class Wheel extends GameBehavior {
   @field(Number) speed = 1;

@@ -59,7 +59,7 @@ export function getComponentOptions(type: ComponentClass): ComponentOptions {
   return componentOptions.get(type) ?? {};
 }
 
-const FIELDS = Symbol("tranquility.fields");
+const FIELDS = Symbol("myco.fields");
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type ComponentClass<T = unknown> = abstract new () => T;

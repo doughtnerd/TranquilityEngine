@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AddNode, CommandStack, ReparentNode, SceneDocument, SetField, applyPatch, changesBetween, diffFiles, hashFile, type SceneFile } from "./index";
 
 const file = (): SceneFile => ({
-  format: "tranquility.scene@1",
+  format: "myco.scene@1",
   settings: { physics: "2d" },
   nodes: [
     { id: "a", name: "A", components: [{ type: "engine.Transform", data: { position: [0, 0, 0] } }] },

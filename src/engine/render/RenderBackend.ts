@@ -204,7 +204,7 @@ export class RenderBackend {
     await Promise.all(
       paths.map((p) =>
         this.texture(p)
-          .catch((err) => console.error(`[tranquility] failed to load texture "${p}":`, err))
+          .catch((err) => console.error(`[myco] failed to load texture "${p}":`, err))
           .finally(() => onProgress?.(++done / paths.length)),
       ),
     );
@@ -267,7 +267,7 @@ export class RenderBackend {
     if (index < 0) {
       if (!this.warnedLayers.has(layer)) {
         this.warnedLayers.add(layer);
-        console.warn(`[tranquility] unknown sorting layer "${layer}"; add it to project settings render.sortingLayers.`);
+        console.warn(`[myco] unknown sorting layer "${layer}"; add it to project settings render.sortingLayers.`);
       }
       index = 0;
     }
@@ -299,7 +299,7 @@ export class RenderBackend {
           .then(() => {
             if (entry!.spritePath === requested) entry!.spritePath = null; // re-resolve next sync
           })
-          .catch((err) => console.error(`[tranquility] failed to load texture "${requested}":`, err));
+          .catch((err) => console.error(`[myco] failed to load texture "${requested}":`, err));
       }
     }
 

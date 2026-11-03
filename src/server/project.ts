@@ -6,7 +6,7 @@
  *
  * Scripts load through the editor's script loader (`src/editor/scriptLoader.ts`), which only
  * depends on the engine: in Node it imports each compiled script from a `data:` URL, with
- * `"tranquility"` pointing at this process's engine. So the server and the editor compile scripts
+ * `"myco"` pointing at this process's engine. So the server and the editor compile scripts
  * the same way. Reading the folder is separate from the editor's `projects.ts`, which reads
  * through the platform FileSystem and serves binary assets as blob URLs.
  */
@@ -40,7 +40,7 @@ export interface ServerProject {
   readonly scripts: ReadonlyMap<string, string>;
 }
 
-/** Folders never read: dependencies, build output, and hidden folders (the editor's `.tranquility/`). */
+/** Folders never read: dependencies, build output, and hidden folders (the editor's `.myco/`). */
 const SKIP_DIRS = new Set(["node_modules", "dist", "target", "test-results", "playwright-report"]);
 
 /** Read a project folder. Throws a `ServerError` if it isn't one or a JSON file doesn't parse. */

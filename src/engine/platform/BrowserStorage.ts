@@ -8,7 +8,7 @@ export class BrowserStorage implements StorageBackend {
 
   private open(): Promise<IDBDatabase> {
     return (this.db ??= new Promise((resolve, reject) => {
-      const req = indexedDB.open(`tranquility:${this.gameName}`, 1);
+      const req = indexedDB.open(`myco:${this.gameName}`, 1);
       req.onupgradeneeded = () => {
         for (const ns of ["saves", "settings", "cache"]) req.result.createObjectStore(ns);
       };

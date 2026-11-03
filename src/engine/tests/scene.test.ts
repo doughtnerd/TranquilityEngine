@@ -16,7 +16,7 @@ const Speed = defineComponent("test.Speed", { value: f32 });
 
 const files: Record<string, unknown> = {
   "prefabs/thing.json": {
-    format: "tranquility.scene@1",
+    format: "myco.scene@1",
     nodes: [
       { id: "root", name: "Thing", components: [{ type: "test.Holder", data: { amount: 2, target: { $node: "inner" } } }] },
       { id: "inner", name: "Inner", parent: "root", components: [{ type: "test.Speed", data: { value: 3 } }] },
@@ -24,7 +24,7 @@ const files: Record<string, unknown> = {
     ],
   },
   "prefabs/outer.json": {
-    format: "tranquility.scene@1",
+    format: "myco.scene@1",
     nodes: [
       { id: "o", name: "Outer" },
       {
@@ -36,7 +36,7 @@ const files: Record<string, unknown> = {
     ],
   },
   "scenes/main.json": {
-    format: "tranquility.scene@1",
+    format: "myco.scene@1",
     nodes: [
       { id: "a", name: "A", components: [{ type: "engine.Transform", data: { position: [1, 2, 0] } }] },
       {
@@ -51,10 +51,10 @@ const files: Record<string, unknown> = {
       { id: "ref", name: "Ref", components: [{ type: "test.Holder", data: { target: { $node: "a" } } }] },
     ],
   },
-  "scenes/other.json": { format: "tranquility.scene@1", nodes: [{ id: "x", name: "X" }] },
-  "scenes/old.json": { format: "tranquility.scene@0", nodes: [{ id: "y", title: "Old" }] },
-  "scenes/future.json": { format: "tranquility.scene@99", nodes: [] },
-  "prefabs/persistent.json": { format: "tranquility.scene@1", nodes: [{ id: "p", name: "Persistent", transform: false }] },
+  "scenes/other.json": { format: "myco.scene@1", nodes: [{ id: "x", name: "X" }] },
+  "scenes/old.json": { format: "myco.scene@0", nodes: [{ id: "y", title: "Old" }] },
+  "scenes/future.json": { format: "myco.scene@99", nodes: [] },
+  "prefabs/persistent.json": { format: "myco.scene@1", nodes: [{ id: "p", name: "Persistent", transform: false }] },
 };
 
 afterEach(() => Assets.clearSources());
@@ -141,5 +141,13 @@ describe("scene format (ADR 0013, 0016)", () => {
     const old = await SceneManager.load("scenes/old.json");
     expect(old.find("Old")).not.toBeNull();
     await expect(SceneManager.load("scenes/future.json")).rejects.toThrow(/newer/);
+  });
+});
+
+describe("scene files under the engine's former name (ADR 0037)", () => {
+  it("reads tranquility.scene@1 as myco.scene@1", async () => {
+    const { migrateSceneFile } = await import("../scene/SceneLoader");
+    const file = { format: "tranquility.scene@1", nodes: [{ id: "a", name: "A" }] };
+    expect(migrateSceneFile(file as never).nodes).toEqual(file.nodes);
   });
 });

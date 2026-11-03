@@ -17,7 +17,7 @@ const onDisk = (path: string) => fs.files.get(joinPath(ROOT, path));
 beforeEach(async () => {
   Input.reset();
   fs = demoFolder();
-  fs.files.set(joinPath(ROOT, "scripts/Spinner.ts"), `import { GameBehavior, behavior } from "tranquility";\n@behavior("game.Spinner")\nexport class Spinner extends GameBehavior {}\n`);
+  fs.files.set(joinPath(ROOT, "scripts/Spinner.ts"), `import { GameBehavior, behavior } from "myco";\n@behavior("game.Spinner")\nexport class Spinner extends GameBehavior {}\n`);
   project = await openFolderProject(fs, ROOT);
   useProjectAssets(project);
   currentProject.value = project;

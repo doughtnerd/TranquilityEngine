@@ -1,5 +1,5 @@
 /**
- * TranquilityEngine public API. Game code imports from here only; three.js, Rapier and Howler
+ * Myco Engine public API. Game code imports from here only; three.js, Rapier and Howler
  * are never part of this surface (ADR 0010).
  */
 export { Engine, type EngineOptions } from "./core/Engine";

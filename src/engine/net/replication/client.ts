@@ -92,7 +92,7 @@ export class ClientReplication {
       } catch (err) {
         if (!this.errorLogged) {
           this.errorLogged = true;
-          console.error(`[tranquility] World "${this.world.name}" can't read a snapshot from its server (do both run the same game code?): ${(err as Error).message}`);
+          console.error(`[myco] World "${this.world.name}" can't read a snapshot from its server (do both run the same game code?): ${(err as Error).message}`);
         }
       }
     }
@@ -241,7 +241,7 @@ export class ClientReplication {
         node = world._instantiatePrefab(spawn.path, { parent });
       } catch (err) {
         g.failed = (err as Error).message;
-        console.error(`[tranquility] World "${world.name}" can't spawn ghost ${g.id} from "${spawn.path}": ${g.failed}`);
+        console.error(`[myco] World "${world.name}" can't spawn ghost ${g.id} from "${spawn.path}": ${g.failed}`);
         return false;
       }
       g.instantiated = true;
@@ -259,7 +259,7 @@ export class ClientReplication {
     const rep = node.getBehavior(Replicated) ?? node.addBehavior(Replicated);
     if (rep._isGhost && rep._ghostId !== g.id && this.ghosts.get(rep._ghostId)?.node === node) {
       g.failed = `its node ${node} is already ghost ${rep._ghostId}`;
-      console.error(`[tranquility] World "${world.name}": ghost ${g.id} ${g.failed}.`);
+      console.error(`[myco] World "${world.name}": ghost ${g.id} ${g.failed}.`);
       return false;
     }
     rep._ghostId = g.id;

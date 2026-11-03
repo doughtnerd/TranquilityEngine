@@ -36,7 +36,7 @@ export function StartScreen() {
   return (
     <div class="start-screen" role="dialog" aria-label="Start">
       <div class="start-card">
-        <h1>TranquilityEngine</h1>
+        <h1>Myco Engine</h1>
         <section>
           <h2>Projects</h2>
           <button class="primary" disabled={!desktop} onClick={() => void openProjectFolder()}>

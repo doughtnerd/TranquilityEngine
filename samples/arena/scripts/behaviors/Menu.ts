@@ -1,4 +1,4 @@
-import { Engine, GameBehavior, GameObject, Input, Text, behavior, field, type WorldHandle } from "tranquility";
+import { Engine, GameBehavior, GameObject, Input, Text, behavior, field, type WorldHandle } from "myco";
 import { ARENA_SCENE, DEDICATED_SERVER_URL, SERVER_WORLD } from "../data";
 
 /**

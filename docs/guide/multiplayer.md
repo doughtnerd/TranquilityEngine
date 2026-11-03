@@ -1,6 +1,6 @@
 # Multiplayer
 
-Multiplayer in TranquilityEngine is a layout of [Worlds](worlds.md). The server simulates the game in a World tagged `server`. Each player runs a World tagged `client` that sends its input and draws what the server sends back. A **link** joins a client World to a server World over a **transport**. The same project runs hosted (server and client in one page), as a dedicated server in Node, or in the editor with several clients.
+Multiplayer in Myco Engine is a layout of [Worlds](worlds.md). The server simulates the game in a World tagged `server`. Each player runs a World tagged `client` that sends its input and draws what the server sends back. A **link** joins a client World to a server World over a **transport**. The same project runs hosted (server and client in one page), as a dedicated server in Node, or in the editor with several clients.
 
 The model follows Unity's Netcode for Entities: the server is authoritative, it simulates at fixed ticks, nodes it replicates are called **ghosts**, clients interpolate other players and predict their own. The design is in [ADR 0033](../decisions/0033-server-authoritative-netcode.md). This guide is about using it.
 
@@ -56,7 +56,7 @@ Because browsers can't listen, a link between two Worlds in a browser page must 
 A client World can join a server World while the game runs, for example when a menu's **Host** button creates them:
 
 ```ts
-import { Engine } from "tranquility";
+import { Engine } from "myco";
 
 const server = Engine.createWorld({ name: "Server", tags: ["server"], scenes: ["scenes/arena.scene.json"] });
 const client = Engine.createWorld({ name: "Client", tags: ["client"], scenes: ["scenes/arena.scene.json"] });
@@ -89,7 +89,7 @@ Connections aren't events. Each one is a node with a `net.Connection` data compo
 "A player joined" is a query. This server system gives each new connection a player:
 
 ```ts
-import { Connection, ConnectionState, GameObject, Replicated, defineSystem } from "tranquility";
+import { Connection, ConnectionState, GameObject, Replicated, defineSystem } from "myco";
 
 const players = new Map<number, GameObject>(); // assumes one server World in the page
 
@@ -135,7 +135,7 @@ Clients ping 10 times a second to keep the estimate. Neither client tick goes ba
 An RPC is a reliable one-off message, declared with `defineRpc`. Sending queues it; it goes at the end of the frame. The receiving World reads what arrived as rows, each tagged with the connection node it came from:
 
 ```ts
-import { defineRpc, defineSystem, u8 } from "tranquility";
+import { defineRpc, defineSystem, u8 } from "myco";
 
 export const ChooseTeam = defineRpc("game.ChooseTeam", { team: u8 });
 export const TeamChosen = defineRpc("game.TeamChosen", { team: u8 });
@@ -182,7 +182,7 @@ On the server, game code sets `ownerId` and `mode`. On clients, read them. `Repl
 - Data components marked with `replicate()`, on both ends:
 
   ```ts
-  import { defineComponent, f32, replicate } from "tranquility";
+  import { defineComponent, f32, replicate } from "myco";
 
   export const Health = defineComponent("game.Health", { current: f32, max: f32 });
   replicate(Health, { encoding: { current: { quantize: 0.1 } } });
@@ -193,7 +193,7 @@ On the server, game code sets `ownerId` and `mode`. On clients, read them. `Repl
 - Behavior fields declared with `replicate`:
 
   ```ts
-  import { GameBehavior, behavior, field } from "tranquility";
+  import { GameBehavior, behavior, field } from "myco";
 
   @behavior("game.Score")
   export class Score extends GameBehavior {
@@ -222,7 +222,7 @@ Clients draw ghosts they don't predict at `interpolationTick`, between the two s
 Player input is a per-tick stream, declared with `defineInput`. The client writes it every fixed tick. Each packet repeats the last few ticks (`redundancy`, default 3), so a lost packet loses nothing. The server applies each input at the tick it was written for.
 
 ```ts
-import { Input, defineInput, defineSystem, f32 } from "tranquility";
+import { Input, defineInput, defineSystem, f32 } from "myco";
 
 export const Move = defineInput("game.Move", { x: f32, y: f32 });
 
@@ -253,7 +253,7 @@ Interpolated ghosts lag behind by RTT/2 plus `interpolationMs`. For the player's
 3. Move them in a `predicted` system that runs on both ends:
 
 ```ts
-import { Transform, defineComponent, defineSystem, f32, replicate } from "tranquility";
+import { Transform, defineComponent, defineSystem, f32, replicate } from "myco";
 import { Move } from "./input";
 
 export const Player = defineComponent("game.Player", { speed: f32, vx: f32, vy: f32 });
@@ -294,7 +294,7 @@ GameBehaviors aren't predicted or re-simulated. They run once per frame as usual
 
 ## The dedicated server
 
-`tranquility-server` runs a project's server Worlds headless in Node and has them listen over WebSocket:
+`myco-server` runs a project's server Worlds headless in Node and has them listen over WebSocket:
 
 ```sh
 npm run server -- path/to/project

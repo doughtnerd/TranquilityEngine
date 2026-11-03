@@ -19,7 +19,7 @@ let systemRows = 0;
 defineSystem({ name: "test.editor.CountSpin", phase: "update", query: [Spin], run(rows) { for (const _ of rows) systemRows++; } });
 
 const prefab: SceneFile = {
-  format: "tranquility.scene@1",
+  format: "myco.scene@1",
   nodes: [
     { id: "root", name: "Thing", components: [{ type: "engine.SpriteRenderer", data: { color: "#ff0000" } }] },
     { id: "inner", name: "Inner", parent: "root" },
@@ -27,7 +27,7 @@ const prefab: SceneFile = {
 };
 
 const scene: SceneFile = {
-  format: "tranquility.scene@1",
+  format: "myco.scene@1",
   nodes: [
     { id: "a", name: "A", components: [{ type: "engine.Transform", data: { position: [1, 2, 3] } }, { type: "test.editor.Spin", data: { rate: 2 } }] },
     { id: "b", name: "B", parent: "a", components: [{ type: "test.editor.Probe", data: { speed: 4, target: { $node: "a" } } }] },

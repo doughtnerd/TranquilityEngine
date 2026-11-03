@@ -1,7 +1,7 @@
 // The arena's data (ADR 0017, 0033): components, the input stream and the rules every World
 // shares. Client and server load the same scripts, so both ends define the same replicated
 // components and inputs, as the handshake requires.
-import { GameObject, Replicated, defineComponent, defineInput, f32, i32, replicate, u8, type DataView } from "tranquility";
+import { GameObject, Replicated, defineComponent, defineInput, f32, i32, replicate, u8, type DataView } from "myco";
 
 /** Scenes and the Worlds the menu makes (templates in project.json's bootstrap). */
 export const ARENA_SCENE = "scenes/arena.scene.json";

@@ -8,7 +8,7 @@ import { ROOT, demoFolder } from "./testing";
 
 
 const SPIN = `
-import { GameBehavior, behavior, field } from "tranquility";
+import { GameBehavior, behavior, field } from "myco";
 import { defaultSpeed } from "./util";
 
 @behavior("game.Spin")
@@ -45,9 +45,9 @@ describe("compiling", () => {
     if (!("code" in out)) throw new Error(out.message);
     expect(out.code).toContain("__esDecorate"); // standard decorators, lowered like the editor build
     expect(out.code).toContain("sourceMappingURL=data:");
-    expect(out.imports.map((i) => i.specifier)).toEqual(["tranquility", "./util"]);
+    expect(out.imports.map((i) => i.specifier)).toEqual(["myco", "./util"]);
     const first = out.imports[0];
-    expect(out.code.slice(first.start, first.end)).toBe("tranquility");
+    expect(out.code.slice(first.start, first.end)).toBe("myco");
   });
 
   it("reports syntax errors with a line number; type errors don't stop it", async () => {
@@ -56,10 +56,10 @@ describe("compiling", () => {
   });
 
   it("rewrites specifiers in place", () => {
-    const code = `import { a } from "./a"; export * from "tranquility";`;
+    const code = `import { a } from "./a"; export * from "myco";`;
     const imports = [
       { specifier: "./a", start: code.indexOf("./a"), end: code.indexOf("./a") + 3 },
-      { specifier: "tranquility", start: code.indexOf("tranquility"), end: code.indexOf("tranquility") + 11 },
+      { specifier: "myco", start: code.indexOf("myco"), end: code.indexOf("myco") + 4 },
     ];
     expect(rewriteImports(code, imports, (s) => (s === "./a" ? "data:A" : "data:E"))).toBe(`import { a } from "data:A"; export * from "data:E";`);
   });
@@ -70,7 +70,7 @@ describe("load order", () => {
     new Map(Object.entries(imports).map(([path, specs]) => [path, { path, code: "", imports: specs.map((specifier) => ({ specifier, start: 0, end: 0 })) }]));
 
   it("loads each script after the scripts it imports", () => {
-    const plan = loadOrder(compiled({ "scripts/a.ts": ["./b", "tranquility"], "scripts/b.ts": ["./c"], "scripts/c.ts": [] }));
+    const plan = loadOrder(compiled({ "scripts/a.ts": ["./b", "myco"], "scripts/b.ts": ["./c"], "scripts/c.ts": [] }));
     expect(plan.order).toEqual(["scripts/c.ts", "scripts/b.ts", "scripts/a.ts"]);
     expect(plan.problems).toEqual([]);
   });
@@ -111,7 +111,7 @@ describe("loading into the editor", () => {
     const engine = await Engine.create({ headless: true, kind: "editor" });
     const scene = instantiateDocument(
       engine.world,
-      { format: "tranquility.scene@1", nodes: [{ id: "wheel", components: [{ type: "engine.Transform" }, { type: "game.Spin", data: { speed: 7 } }] }] },
+      { format: "myco.scene@1", nodes: [{ id: "wheel", components: [{ type: "engine.Transform" }, { type: "game.Spin", data: { speed: 7 } }] }] },
       "scenes/test.scene.json",
     );
     const wheel = scene.children[0] as GameObject;
@@ -122,7 +122,7 @@ describe("loading into the editor", () => {
 
   it("loading again replaces the registrations instead of throwing", async () => {
     const data = (speed: number) => `
-      import { defineComponent, defineSystem, f32, GameBehavior, behavior, field } from "tranquility";
+      import { defineComponent, defineSystem, f32, GameBehavior, behavior, field } from "myco";
       export const Wind = defineComponent("game.Wind", { strength: f32 });
       defineSystem({ name: "game.Blow", phase: "update", query: [Wind], run() {} });
       @behavior("game.Fan") export class Fan extends GameBehavior { @field(Number) speed = ${speed}; }
@@ -161,5 +161,14 @@ describe("project folders", () => {
     expect([...project.scripts.keys()]).toEqual(["scripts/Spin.ts"]);
     expect(project.scripts.get("scripts/Spin.ts")).toBe(SPIN);
     expect(project.files).not.toContain("scripts/Spin.ts"); // not an asset
+  });
+});
+
+describe("the engine's former name (ADR 0037)", () => {
+  it("loads scripts that import \"tranquility\" as the engine", async () => {
+    const { loadScripts } = await import("./scriptLoader");
+    const result = await loadScripts(new Map([["scripts/legacy.ts", `import { Mathf } from "tranquility";\nexport const half = Mathf.clamp(5, 0, 1);\n`]]));
+    expect(result.problems).toEqual([]);
+    expect(result.loaded).toEqual(["scripts/legacy.ts"]);
   });
 });

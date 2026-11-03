@@ -1,11 +1,11 @@
 {
-  "name": "tranquility-engine",
+  "name": "myco-engine",
   "version": "1.0.0",
   "description": "",
   "private": true,
   "main": "./dist/engine/engine.js",
   "bin": {
-    "tranquility-server": "src/server/cli.mjs"
+    "myco-server": "src/server/cli.mjs"
   },
   "scripts": {
     "dev": "vite",

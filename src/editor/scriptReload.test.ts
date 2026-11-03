@@ -13,7 +13,7 @@ import { currentProject, openScene, playState, sceneCamera, scriptProblems, stat
 import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
 
 const wheel = (extra = "") => `
-import { GameBehavior, behavior, field } from "tranquility";
+import { GameBehavior, behavior, field } from "myco";
 @behavior("game.Wheel")
 export class Wheel extends GameBehavior {
   @field(Number) speed = 1;
@@ -122,7 +122,7 @@ describe("reloading scripts (ADR 0030)", () => {
 
 describe("switching projects", () => {
   it("unregisters the old project's types, putting back the editor build's", async () => {
-    await open({ "scripts/Bird.ts": `import { GameBehavior, behavior } from "tranquility";\n@behavior("game.Bird") export class Bird extends GameBehavior {}\n` }, false);
+    await open({ "scripts/Bird.ts": `import { GameBehavior, behavior } from "myco";\n@behavior("game.Bird") export class Bird extends GameBehavior {}\n` }, false);
     expect(getComponentClass("game.Bird")).not.toBe(Bird); // the project's Bird replaced the demo's
     await replaceScripts(new Map());
     expect(getComponentClass("game.Bird")).toBe(Bird);

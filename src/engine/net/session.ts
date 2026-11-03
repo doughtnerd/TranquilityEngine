@@ -507,14 +507,14 @@ export class NetSession {
       for (const m of peer.outbox.splice(0)) {
         const kind = typeof m.kind === "number" ? peer.kindOut.get(m.kind) : MSG_RPC;
         if (kind === undefined) {
-          console.error(`[tranquility] Net message "${messageKinds[m.kind as number]}" was registered after World "${this.world.name}" connected; it can't be sent on that connection.`);
+          console.error(`[myco] Net message "${messageKinds[m.kind as number]}" was registered after World "${this.world.name}" connected; it can't be sent on that connection.`);
           continue;
         }
         let body = m.body;
         if (typeof m.kind !== "number") {
           const index = peer.rpcOut.get(m.kind.id);
           if (index === undefined) {
-            console.error(`[tranquility] RPC "${m.kind.id}" was defined after World "${this.world.name}" connected; it can't be sent on that connection.`);
+            console.error(`[myco] RPC "${m.kind.id}" was defined after World "${this.world.name}" connected; it can't be sent on that connection.`);
             continue;
           }
           body = concat(varuint(index), m.body);
@@ -569,7 +569,7 @@ export class NetSession {
       try {
         events = transport.poll();
       } catch (err) {
-        console.error(`[tranquility] World "${this.world.name}": polling a transport failed:`, err);
+        console.error(`[myco] World "${this.world.name}": polling a transport failed:`, err);
         continue;
       }
       for (const event of events) this.handle(transport, event);
@@ -846,7 +846,7 @@ export class NetSession {
     if (this.role === "client") this.resetTimeline();
     if (log && (this.role === "client" || !wasOpen)) {
       const what = this.role === "client" ? "its connection to the server" : `a connection from ${peer.link.remote}`;
-      console.warn(`[tranquility] World "${this.world.name}" ${wasOpen ? "lost" : "couldn't open"} ${what}: ${reason}`);
+      console.warn(`[myco] World "${this.world.name}" ${wasOpen ? "lost" : "couldn't open"} ${what}: ${reason}`);
     }
   }
 

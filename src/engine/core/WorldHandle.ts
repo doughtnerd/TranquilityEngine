@@ -82,7 +82,7 @@ export class WorldHandleImpl implements WorldHandle {
     }
     if (!(server instanceof WorldHandleImpl) || !server.alive) throw new Error(`Can't connect World "${this.name}" to "${server.name}": it isn't a live World.`);
     connectWorlds(world, server.#world, transport, options).catch((err) =>
-      console.error(`[tranquility] Connecting World "${this.name}" to "${server.name}" over "${transport}" failed:`, err),
+      console.error(`[myco] Connecting World "${this.name}" to "${server.name}" over "${transport}" failed:`, err),
     );
   }
 

@@ -22,7 +22,7 @@ describe("scene file formatting (ADR 0026)", () => {
 
   it("formats new content Prettier-style: inline when it fits, broken when it doesn't", () => {
     const out = formatSceneJSON({
-      format: "tranquility.scene@1",
+      format: "myco.scene@1",
       nodes: [
         { id: "a", name: "A" },
         { id: "b", components: [{ type: "game.Long", data: { text: "x".repeat(120) } }] },
@@ -31,7 +31,7 @@ describe("scene file formatting (ADR 0026)", () => {
     expect(out).toBe(
       [
         "{",
-        '  "format": "tranquility.scene@1",',
+        '  "format": "myco.scene@1",',
         '  "nodes": [',
         '    { "id": "a", "name": "A" },',
         "    {",

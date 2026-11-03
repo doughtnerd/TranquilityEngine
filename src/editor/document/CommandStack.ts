@@ -31,7 +31,7 @@ export interface HistoryState {
 
 /** The history tree as written to a history file (ADR 0027). */
 export interface HistoryFile {
-  format: "tranquility.history@1";
+  format: "myco.history@1";
   /** Project-relative path of the scene this history belongs to. */
   scene: string;
   root: number;
@@ -245,7 +245,7 @@ export class CommandStack {
   /** The tree as a history file for `scene`. */
   toFile(scene: string): HistoryFile {
     return {
-      format: "tranquility.history@1",
+      format: "myco.history@1",
       scene,
       root: this.rootSeq,
       current: this.currentSeq,
@@ -261,7 +261,8 @@ export class CommandStack {
    * state matches the document, in which case nothing changes.
    */
   load(file: HistoryFile): { matched: number; lastCurrent: number } | null {
-    if (file.format !== "tranquility.history@1" || !Array.isArray(file.states)) return null;
+    if ((file.format as string) !== "myco.history@1" && (file.format as string) !== "tranquility.history@1") return null; // the former name's (ADR 0037) too
+    if (!Array.isArray(file.states)) return null;
     const hash = hashFile(this.doc.toJSON());
     const byHash = file.states.filter((s) => s.hash === hash);
     if (byHash.length === 0) return null;

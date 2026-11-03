@@ -27,7 +27,7 @@ export function defaultHistoryPlatform(): Promise<HistoryPlatform> {
       const { TauriStorage } = await import("../engine/platform/TauriStorage");
       return { fs, userStorage: await TauriStorage.create(fs) };
     }
-    return { fs: fs.canWrite ? fs : null, userStorage: typeof indexedDB !== "undefined" ? new BrowserStorage("tranquility-editor") : new MemoryStorage() };
+    return { fs: fs.canWrite ? fs : null, userStorage: typeof indexedDB !== "undefined" ? new BrowserStorage("myco-editor") : new MemoryStorage() };
   })());
 }
 

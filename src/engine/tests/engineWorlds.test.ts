@@ -6,8 +6,8 @@ import { World } from "../core/World";
 // ADR 0032, T1: several Worlds per Engine, each with its own clock, stepped in one loop.
 
 const files: Record<string, unknown> = {
-  "scenes/arena.scene.json": { format: "tranquility.scene@1", nodes: [{ id: "floor", name: "Floor" }] },
-  "scenes/hud.scene.json": { format: "tranquility.scene@1", nodes: [{ id: "score", name: "Score" }] },
+  "scenes/arena.scene.json": { format: "myco.scene@1", nodes: [{ id: "floor", name: "Floor" }] },
+  "scenes/hud.scene.json": { format: "myco.scene@1", nodes: [{ id: "score", name: "Score" }] },
 };
 
 /** What a probe system saw in each World, by World name. */
@@ -301,7 +301,7 @@ describe("wave 1 review fixes", () => {
   });
 
   it("keeps code after an await in its own World through this.instantiate and parents", async () => {
-    Assets.addSource({ has: (p) => p === "prefabs/coin.prefab.json", get: () => ({ format: "tranquility.scene@1", nodes: [{ id: "coin", name: "Coin" }] }) });
+    Assets.addSource({ has: (p) => p === "prefabs/coin.prefab.json", get: () => ({ format: "myco.scene@1", nodes: [{ id: "coin", name: "Coin" }] }) });
     let spawner: GameBehavior | null = null;
     class Spawner extends GameBehavior {
       awake() {

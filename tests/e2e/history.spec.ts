@@ -57,7 +57,7 @@ test("Settings: history location is remembered, and the reference prompt checkbo
   await openEditor(page);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Settings" });
-  await expect(dialog.getByLabel("Project folder (.tranquility/history)")).toBeChecked();
+  await expect(dialog.getByLabel("Project folder (.myco/history)")).toBeChecked();
   await dialog.getByLabel("Per user (outside the project)").check();
   await expect(dialog.getByLabel("Ask before deleting a node other nodes reference")).toBeChecked();
   await dialog.getByLabel("Ask before deleting a node other nodes reference").uncheck();
@@ -69,7 +69,7 @@ test("Settings: history location is remembered, and the reference prompt checkbo
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(dialog.getByLabel("Per user (outside the project)")).toBeChecked();
   await expect(dialog.getByLabel("Ask before deleting a node other nodes reference")).not.toBeChecked();
-  expect(await page.evaluate(() => localStorage.getItem("tranquility.editor.historyLocation"))).toBe('"user"');
+  expect(await page.evaluate(() => localStorage.getItem("myco.editor.historyLocation"))).toBe('"user"');
   await dialog.getByRole("button", { name: "Close" }).click();
   await expect(dialog).toHaveCount(0);
 });

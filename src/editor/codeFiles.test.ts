@@ -11,7 +11,7 @@ import { currentProject, sceneCamera, status } from "./state";
 import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
 
 const LEVELS = `{ "speed": 4, "names": ["one", "two"] }`;
-const RACER = `import { GameBehavior, behavior, field } from "tranquility";
+const RACER = `import { GameBehavior, behavior, field } from "myco";
 import levels from "../data/levels.json";
 @behavior("game.Racer")
 export class Racer extends GameBehavior {

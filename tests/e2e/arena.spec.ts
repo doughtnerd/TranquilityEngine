@@ -34,7 +34,7 @@ interface PlayerState {
 const playersIn = (page: Page, world: string) =>
   page.evaluate((name) => {
     type Rep = { node: { name: string; isValid: boolean; transform: { position: { x: number; y: number } } }; ownerId: number; isOwnedLocally: boolean };
-    const t = (globalThis as unknown as { __tranquility?: { Replicated: unknown } }).__tranquility;
+    const t = (globalThis as unknown as { __myco?: { Replicated: unknown } }).__myco;
     const w = (window as unknown as { playEngine?: { _world(n: string): { _componentsOfType(type: unknown): Rep[] } | null } | null }).playEngine?._world(name);
     if (!t || !w) return [];
     return w
@@ -48,7 +48,7 @@ const playersIn = (page: Page, world: string) =>
 const scoreboard = (page: Page, world: string) =>
   page.evaluate((name) => {
     type TextC = { node: { name: string }; text: string };
-    const t = (globalThis as unknown as { __tranquility?: { Text: unknown } }).__tranquility;
+    const t = (globalThis as unknown as { __myco?: { Text: unknown } }).__myco;
     const w = (window as unknown as { playEngine?: { _world(n: string): { _componentsOfType(type: unknown): TextC[] } | null } | null }).playEngine?._world(name);
     return w?._componentsOfType(t!.Text).find((c) => c.node.name === "Scoreboard")?.text ?? null;
   }, world);
@@ -112,7 +112,7 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
   // A hit: line the players up on the server (P1 aiming at P2), give Client the keyboard, fire.
   await page.evaluate(() => {
     type Node = { name: string; isValid: boolean; transform: { position: { set(x: number, y: number, z: number): void } } };
-    const t = (globalThis as unknown as { __tranquility: { Replicated: unknown } }).__tranquility;
+    const t = (globalThis as unknown as { __myco: { Replicated: unknown } }).__myco;
     const w = (window as unknown as { playEngine: { _world(n: string): { _componentsOfType(type: unknown): { node: Node; ownerId: number }[] } } }).playEngine._world("Server");
     for (const rep of w._componentsOfType(t.Replicated)) {
       if (rep.node.name !== "Player") continue;
@@ -164,7 +164,7 @@ test("Play: Join connects to a dedicated server, which spawns a player the keybo
     await expect.poll(() => worldNames(page)).toEqual(["Client"]);
     // Point Join at this server (the scene says ws://localhost:7777, the server's default port).
     await page.evaluate((url) => {
-      const t = (globalThis as unknown as { __tranquility: { getComponentClass(id: string): unknown } }).__tranquility;
+      const t = (globalThis as unknown as { __myco: { getComponentClass(id: string): unknown } }).__myco;
       const w = (window as unknown as { playEngine: { _world(n: string): { _componentsOfType(type: unknown): { serverUrl: string }[] } } }).playEngine._world("Client");
       w._componentsOfType(t.getComponentClass("arena.Menu"))[0].serverUrl = url;
     }, server.url);

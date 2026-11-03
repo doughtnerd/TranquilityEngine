@@ -297,7 +297,7 @@ export function _componentAllowedIn(world: World, type: ComponentClass | undefin
   if (!noted) skippedNoted.set(world, (noted = new Set()));
   if (!noted.has(name)) {
     noted.add(name);
-    console.debug(`[tranquility] "${name}" isn't created in World "${world.name}": it's for Worlds tagged ${filter.map((t) => `"${t}"`).join(", ") || "(none)"}.`);
+    console.debug(`[myco] "${name}" isn't created in World "${world.name}": it's for Worlds tagged ${filter.map((t) => `"${t}"`).join(", ") || "(none)"}.`);
   }
   return false;
 }

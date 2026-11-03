@@ -1,5 +1,5 @@
 import ts from "typescript";
-import declarations from "virtual:tranquility-types";
+import declarations from "virtual:myco-types";
 import { describe, expect, it } from "vitest";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { joinPath } from "./projects";
@@ -16,7 +16,7 @@ describe("files for external editors", () => {
     expect(await writeScriptingFiles(fs, ROOT, { "index.d.ts": "export {};", "core/World.d.ts": "export {};" })).toEqual({ tsconfig: true, types: true });
     expect(fs.files.get(at("tsconfig.json"))).toBe(projectTsconfig());
     expect(fs.files.get(at(`${TYPES_DIR}/core/World.d.ts`))).toBe("export {};");
-    expect(JSON.parse(fs.files.get(at(`${TYPES_DIR}/package.json`)) as string)).toEqual({ name: "tranquility", types: "index.d.ts" });
+    expect(JSON.parse(fs.files.get(at(`${TYPES_DIR}/package.json`)) as string)).toEqual({ name: "myco", types: "index.d.ts" });
   });
 
   it("keeps an existing tsconfig.json, and rewrites declarations only when they change", async () => {
@@ -44,7 +44,7 @@ describe("the generated tsconfig with the engine's declarations", () => {
     files.set(`${dir}/scripts/Levels.ts`, `import levels from "../data/levels.json";
 export const speed: number = levels.speed;
 `);
-    files.set(`${dir}/scripts/Uses.ts`, `import { Time, Vector3 } from "tranquility";\nexport const step: number = Time.deltaTime * new Vector3(1, 2, 3).x;\n`);
+    files.set(`${dir}/scripts/Uses.ts`, `import { Time, Vector3 } from "myco";\nexport const step: number = Time.deltaTime * new Vector3(1, 2, 3).x;\n`);
     const fileExists = (f: string) => files.has(f) || ts.sys.fileExists(f);
     const readFile = (f: string) => files.get(f) ?? ts.sys.readFile(f);
 

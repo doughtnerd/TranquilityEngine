@@ -1,4 +1,4 @@
-import { GameBehavior, GameObject, SceneManager, Storage, Text, behavior, field } from "tranquility";
+import { GameBehavior, GameObject, SceneManager, Storage, Text, behavior, field } from "myco";
 import { BirdEvents, GameState } from "../data";
 import { Bird, flapPressed } from "./Bird";
 import { PipeSpawner } from "./PipeSpawner";

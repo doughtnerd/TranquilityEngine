@@ -6,7 +6,7 @@ import { openScene } from "./state";
 export async function confirmDialog(message: string, okLabel = "OK"): Promise<boolean> {
   if (isTauri()) {
     const { ask } = await import("@tauri-apps/plugin-dialog");
-    return ask(message, { title: "TranquilityEngine Editor", kind: "warning", okLabel, cancelLabel: "Cancel" });
+    return ask(message, { title: "Myco Engine Editor", kind: "warning", okLabel, cancelLabel: "Cancel" });
   }
   return window.confirm(message);
 }

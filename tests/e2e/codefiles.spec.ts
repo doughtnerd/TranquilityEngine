@@ -9,7 +9,7 @@ type Hooks = {
 };
 
 const LEVELS = `{ "speed": 4, "names": ["one", "two"] }\n`;
-const RACER = `import { GameBehavior, behavior, field } from "tranquility";
+const RACER = `import { GameBehavior, behavior, field } from "myco";
 import levels from "../data/levels.json";
 
 @behavior("game.Racer")

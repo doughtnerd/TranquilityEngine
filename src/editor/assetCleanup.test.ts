@@ -3,7 +3,7 @@ import { sceneWithoutAsset, settingsWithoutAsset } from "./assetCleanup";
 import type { SceneFile } from "./document";
 
 const file: SceneFile = {
-  format: "tranquility.scene@1",
+  format: "myco.scene@1",
   nodes: [
     { id: "pipe", prefab: "prefabs/pipe.prefab.json", overrides: [{ component: "engine.Transform", field: "position", value: [1, 2, 0] }] },
     { id: "label", parent: "pipe", components: [{ type: "engine.Transform" }] }, // a child of the instance

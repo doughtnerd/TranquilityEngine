@@ -147,7 +147,7 @@ function Stats() {
       try {
         setWorlds(sampler.sample(netWorldInfo(session.engine), performance.now()));
       } catch (err) {
-        console.error("[tranquility] The Network panel couldn't read the stats:", err);
+        console.error("[myco] The Network panel couldn't read the stats:", err);
       }
     };
     refresh();

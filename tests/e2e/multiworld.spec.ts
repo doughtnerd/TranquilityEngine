@@ -44,7 +44,7 @@ type Engine = {
 /** The GameManager state in the default World (P1) of the running game, or null. */
 const gameState = (page: Page) =>
   page.evaluate(() => {
-    const t = (globalThis as unknown as { __tranquility?: Engine }).__tranquility;
+    const t = (globalThis as unknown as { __myco?: Engine }).__myco;
     const type = t?.getComponentClass("game.GameManager");
     const manager = type ? t!.GameObject.findObjectOfType(type) : null;
     return manager ? (manager.state as string) : null;
@@ -130,7 +130,7 @@ const LINKED = JSON.stringify({
 const openConnections = (page: Page, world: string) =>
   page.evaluate((name) => {
     type Rows = Iterable<{ connection: { state: number } }>;
-    const t = (globalThis as unknown as { __tranquility?: { Connection: unknown } }).__tranquility;
+    const t = (globalThis as unknown as { __myco?: { Connection: unknown } }).__myco;
     const w = (window as unknown as { playEngine?: { _world(n: string): { _query(terms: unknown[]): Rows } | null } | null }).playEngine?._world(name);
     if (!t || !w) return -1;
     let n = 0;

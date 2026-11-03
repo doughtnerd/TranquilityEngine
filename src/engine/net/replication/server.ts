@@ -198,7 +198,7 @@ export class ServerReplication {
       const spawn = spawnOf(world, node, ghostOf);
       if (typeof spawn === "string") {
         this.unspawnable.add(rep);
-        console.warn(`[tranquility] World "${world.name}": ${node} has a Replicated component but can't be replicated: ${spawn}`);
+        console.warn(`[myco] World "${world.name}": ${node} has a Replicated component but can't be replicated: ${spawn}`);
         continue;
       }
       const id = ids.get(rep)!;

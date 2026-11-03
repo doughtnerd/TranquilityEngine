@@ -12,7 +12,7 @@ import type { Plugin } from "vite";
  */
 export function typescriptTranspile(): Plugin {
   return {
-    name: "tranquility:tsc-transpile",
+    name: "myco:tsc-transpile",
     enforce: "pre",
     transform(code, id) {
       const file = id.split("?")[0];
@@ -36,19 +36,19 @@ export function typescriptTranspile(): Plugin {
 }
 
 /** The module the editor imports the engine's declarations from (ADR 0030). */
-const ENGINE_TYPES = "virtual:tranquility-types";
+const ENGINE_TYPES = "virtual:myco-types";
 
 /**
- * The engine's public type declarations as a virtual module, `virtual:tranquility-types`: an
+ * The engine's public type declarations as a virtual module, `virtual:myco-types`: an
  * object of `.d.ts` text by path (`index.d.ts`, `core/World.d.ts`, ...), emitted in memory with
  * `tsconfig.engine.json`'s settings (internals stripped, editor access left out). The editor's
- * code editor serves them as the `"tranquility"` package (ADR 0030). Regenerated when an engine
+ * code editor serves them as the `"myco"` package (ADR 0030). Regenerated when an engine
  * source file changes.
  */
 export function engineTypes(): Plugin {
   const resolved = `\0${ENGINE_TYPES}`;
   return {
-    name: "tranquility:engine-types",
+    name: "myco:engine-types",
     resolveId: (id) => (id === ENGINE_TYPES ? resolved : null),
     load(id) {
       if (id !== resolved) return null;
@@ -83,7 +83,7 @@ export interface SampleInfo {
 }
 
 const SAMPLES_DIR = fileURLToPath(new URL("./samples/", import.meta.url));
-/** Left out of samples: hidden folders (the editor's .tranquility/), and the tsconfig.json the editor writes when a copy opens. sample.json is read for the list. */
+/** Left out of samples: hidden folders (the editor's .myco/), and the tsconfig.json the editor writes when a copy opens. sample.json is read for the list. */
 const skipSampleFile = (path: string) => path.split("/").some((part) => part.startsWith(".") || part === "node_modules") || path === "tsconfig.json";
 
 function sampleFiles(dir: string, root = dir): { path: string; size: number }[] {
@@ -122,7 +122,7 @@ const SAMPLE_TYPES: Record<string, string> = { json: "application/json", png: "i
  */
 export function samples(): Plugin {
   return {
-    name: "tranquility:samples",
+    name: "myco:samples",
     configureServer(server) {
       // Before Vite's own middleware, which would compile the scripts.
       server.middlewares.use("/samples", (req, res, next) => {

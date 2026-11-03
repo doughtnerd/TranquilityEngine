@@ -85,7 +85,7 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
         applyNetConditions(runtime, conditions);
       }
     } catch (err) {
-      console.error("[tranquility] Multiplayer play couldn't update:", err);
+      console.error("[myco] Multiplayer play couldn't update:", err);
     }
   };
   const startLoop = () => {

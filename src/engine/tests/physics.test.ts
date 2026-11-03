@@ -43,7 +43,7 @@ const project = {
 async function setup() {
   events.length = 0;
   Assets.clearSources();
-  Assets.addSource(Assets.fromObject({ "s.json": { format: "tranquility.scene@1", settings: { physics: "2d" }, nodes: [] } }));
+  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", settings: { physics: "2d" }, nodes: [] } }));
   const engine = await Engine.create({ headless: true, project });
   await SceneManager.load("s.json");
   return engine;

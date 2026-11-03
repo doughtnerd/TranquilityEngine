@@ -57,7 +57,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   }),
 }));
 
-vi.mock("@tauri-apps/api/path", () => ({ appDataDir: async () => "C:/AppData/dev.tranquility.flappy/" }));
+vi.mock("@tauri-apps/api/path", () => ({ appDataDir: async () => "C:/AppData/com.foxfirestudios.myco.flappy/" }));
 
 beforeEach(() => {
   disk.clear();
@@ -95,7 +95,7 @@ describe("TauriStorage (ADR 0024)", () => {
   it("stores one JSON file per key under <appDataDir>/<namespace>/", async () => {
     const storage = await TauriStorage.create(new TauriFileSystem());
     await storage.save("saves", "best", 12);
-    expect(disk.get("C:/AppData/dev.tranquility.flappy/saves/best.json")).toBe("12");
+    expect(disk.get("C:/AppData/com.foxfirestudios.myco.flappy/saves/best.json")).toBe("12");
     expect(await storage.load("saves", "best")).toBe(12);
     expect(await storage.load("saves", "missing")).toBeUndefined();
   });
@@ -105,7 +105,7 @@ describe("TauriStorage (ADR 0024)", () => {
     await storage.save("settings", "audio/volume", { music: 0.5 });
     await storage.save("settings", "audio/volume", { music: 0.8 });
     await storage.save("settings", "lang", "en");
-    expect(disk.has("C:/AppData/dev.tranquility.flappy/settings/audio%2Fvolume.json")).toBe(true);
+    expect(disk.has("C:/AppData/com.foxfirestudios.myco.flappy/settings/audio%2Fvolume.json")).toBe(true);
     expect((await storage.list("settings")).sort()).toEqual(["audio/volume", "lang"]);
     expect(await storage.load("settings", "audio/volume")).toEqual({ music: 0.8 });
     await storage.delete("settings", "lang");

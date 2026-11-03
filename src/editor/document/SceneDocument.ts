@@ -18,7 +18,7 @@ export function sameTarget(a: readonly string[] | undefined, b: readonly string[
 
 /**
  * The scene file being edited (ADR 0026): the source of truth for the editor. Holds the parsed
- * `tranquility.scene@1` JSON exactly as authored (no defaults are added), indexes nodes by id and
+ * `myco.scene@1` JSON exactly as authored (no defaults are added), indexes nodes by id and
  * answers read queries. Change it only through commands (`commands.ts`) so edits can be undone.
  *
  * Sibling order is the order of entries in the file's `nodes` array.

@@ -40,7 +40,7 @@ export function App() {
 function Toolbar() {
   return (
     <header class="toolbar">
-      <span class="brand">TranquilityEngine Editor</span>
+      <span class="brand">Myco Engine Editor</span>
       <ProjectControls />
       <PlayButton />
       <UndoRedo />

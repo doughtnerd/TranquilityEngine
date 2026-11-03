@@ -1,4 +1,4 @@
-import { GameBehavior, behavior } from "tranquility";
+import { GameBehavior, behavior } from "myco";
 
 /**
  * Marks the arena scene's node that players and shots go under. The server spawns them there; a

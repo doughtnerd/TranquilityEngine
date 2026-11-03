@@ -4,11 +4,11 @@
 import { effect, signal } from "@preact/signals";
 import { activatePanel, defaultLayout, parseLayout, type Layout, type PanelId } from "./model";
 
-const STORAGE_KEY = "tranquility.editor.layout";
+const STORAGE_KEY = "myco.editor.layout";
 
 function load(): Layout {
   try {
-    const raw = globalThis.localStorage?.getItem(STORAGE_KEY);
+    const raw = globalThis.localStorage?.getItem(STORAGE_KEY) ?? globalThis.localStorage?.getItem("tranquility.editor.layout"); // the former name's (ADR 0037)
     return (raw && parseLayout(JSON.parse(raw))) || defaultLayout();
   } catch {
     return defaultLayout();

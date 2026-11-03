@@ -77,10 +77,10 @@ describe("installed", () => {
 
   it("logs console errors and warnings, still passing them to the console", () => {
     const err = new Error("texture failed");
-    console.error("[tranquility] failed to load texture:", err);
+    console.error("[myco] failed to load texture:", err);
     console.warn("[editor] careful");
     expect(messageLog.value.map((e) => [e.kind, e.text])).toEqual([
-      ["error", "[tranquility] failed to load texture: texture failed"],
+      ["error", "[myco] failed to load texture: texture failed"],
       ["warning", "[editor] careful"],
     ]);
     expect(messageLog.value[0].detail).toBe(err.stack);

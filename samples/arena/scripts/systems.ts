@@ -3,7 +3,7 @@
 // - client and server: the predicted movement system (on a client it moves only the player it
 //   owns, ahead of the server, and re-runs when a snapshot corrects it);
 // - the server only: a player per connection, firing, shots and hits, scores.
-import { Color, Connection, ConnectionState, GameObject, Input, Mathf, Replicated, SpriteRenderer, Transform, defineSystem, type DataView } from "tranquility";
+import { Color, Connection, ConnectionState, GameObject, Input, Mathf, Replicated, SpriteRenderer, Transform, defineSystem, type DataView } from "myco";
 import { Actors } from "./behaviors/Actors";
 import {
   FIRE_COOLDOWN,

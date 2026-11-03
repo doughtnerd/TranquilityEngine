@@ -20,7 +20,7 @@ export function scriptTemplate(kind: ScriptKind, name: string): string {
   const id = scriptId(name);
   switch (kind) {
     case "behavior":
-      return `import { GameBehavior, behavior, field } from "tranquility";
+      return `import { GameBehavior, behavior, field } from "myco";
 
 /** ${name}: what it does. Add it to nodes from the Inspector's Add Component list. */
 @behavior("${id}")
@@ -38,13 +38,13 @@ export class ${name} extends GameBehavior {
 }
 `;
     case "data":
-      return `import { defineComponent, f32 } from "tranquility";
+      return `import { defineComponent, f32 } from "myco";
 
 /** ${name}: numbers stored on nodes. Systems query for it; add it to nodes from the Inspector. */
 export const ${name} = defineComponent("${id}", { value: f32 });
 `;
     case "system":
-      return `import { Transform, defineSystem } from "tranquility";
+      return `import { Transform, defineSystem } from "myco";
 
 /** ${name}: runs every frame over every node that has all the components in \`query\`. */
 defineSystem({

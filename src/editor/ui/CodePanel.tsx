@@ -119,7 +119,7 @@ function MonacoHost() {
       .then(({ monaco, modelFor, syncProject }) => {
         if (cancelled || !host.current) return;
         editor = monaco.editor.create(host.current, {
-          theme: "tranquility",
+          theme: "myco",
           automaticLayout: true,
           fontSize: 13,
           minimap: { enabled: false },

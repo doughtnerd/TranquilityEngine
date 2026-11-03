@@ -336,7 +336,7 @@ async function setUpScripting(project: EditorProject): Promise<void> {
   const fs = project.fileSystem, root = project.root;
   if (!fs || !root || !project.canSave) return;
   try {
-    const { default: declarations } = await import("virtual:tranquility-types");
+    const { default: declarations } = await import("virtual:myco-types");
     await writeScriptingFiles(fs, root, declarations);
   } catch (err) {
     console.warn(`[editor] couldn't write the project's tsconfig.json and engine types: ${message(err)}`);

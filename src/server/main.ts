@@ -1,9 +1,9 @@
 /**
- * `tranquility-server`: a headless dedicated server (T14, ADR 0033 §8, 0035).
+ * `myco-server`: a headless dedicated server (T14, ADR 0033 §8, 0035).
  *
  * ```sh
  * npm run server -- <projectDir> [--port N] [--host H] [--max-connections N] [--tick-rate N]
- * npx tranquility-server <projectDir> …     # the same, through package.json's `bin`
+ * npx myco-server <projectDir> …     # the same, through package.json's `bin`
  * ```
  *
  * What it does:
@@ -36,7 +36,7 @@
 import { DEFAULT_MAX_CONNECTIONS } from "../engine/net/session";
 import { DEFAULT_PORT, ServerError, startServer, type RunningServer, type ServerOptions } from "./run";
 
-export const USAGE = `Usage: tranquility-server <projectDir> [options]
+export const USAGE = `Usage: myco-server <projectDir> [options]
 
 Runs a project's server Worlds headless and has them listen over WebSocket.
 
@@ -107,7 +107,7 @@ export async function main(argv: readonly string[]): Promise<number | undefined>
     options = parseArgs(argv);
   } catch (err) {
     if (!(err instanceof UsageError)) throw err;
-    console.error(`tranquility-server: ${err.message}\n\n${USAGE}`);
+    console.error(`myco-server: ${err.message}\n\n${USAGE}`);
     return 2;
   }
   if (options === "help") {
@@ -119,7 +119,7 @@ export async function main(argv: readonly string[]): Promise<number | undefined>
   try {
     server = await startServer(options);
   } catch (err) {
-    console.error(err instanceof ServerError ? `tranquility-server: ${err.message}` : err);
+    console.error(err instanceof ServerError ? `myco-server: ${err.message}` : err);
     return 1;
   }
 

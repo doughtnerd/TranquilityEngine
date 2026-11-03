@@ -1,6 +1,6 @@
 # 0036. A client World connects to a remote server by address
 
-- **Status:** Proposed (implemented; awaiting acceptance)
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

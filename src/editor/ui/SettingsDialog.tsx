@@ -39,7 +39,7 @@ export function SettingsDialog() {
           <legend>Edit history location</legend>
           <label>
             <input type="radio" name="history-location" checked={location === "project"} onChange={() => (historyLocation.value = "project")} />
-            Project folder (.tranquility/history)
+            Project folder (.myco/history)
           </label>
           <label>
             <input type="radio" name="history-location" checked={location === "user"} onChange={() => (historyLocation.value = "user")} />

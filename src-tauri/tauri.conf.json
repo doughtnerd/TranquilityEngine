@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Tranquility Editor",
+  "productName": "Myco Engine",
   "version": "0.1.0",
-  "identifier": "dev.tranquility.editor",
+  "identifier": "com.foxfirestudios.myco.editor",
   "build": {
     "frontendDist": "../dist/editor",
     "devUrl": "http://localhost:3000",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "TranquilityEngine · Editor",
+        "title": "Myco Engine · Editor",
         "url": "editor.html",
         "width": 1280,
         "height": 800,

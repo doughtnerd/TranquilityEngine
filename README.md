@@ -1,4 +1,4 @@
-# TranquilityEngine
+# Myco Engine
 
 ## What is it?
 A JavaScript based 2D/3D game engine based on the Unity Game Engine.

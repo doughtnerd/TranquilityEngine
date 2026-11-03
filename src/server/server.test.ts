@@ -66,7 +66,7 @@ function ghost(w: World): GameObject | null {
   return null;
 }
 
-describe("tranquility-server (T14)", () => {
+describe("myco-server (T14)", () => {
   it("runs the server World, which a client joins and sees its replicated node move", async () => {
     const lines: string[] = [];
     const server = await start({}, lines);
@@ -125,7 +125,7 @@ describe("tranquility-server (T14)", () => {
 
   it("fails clearly for a missing folder, a folder without project.json and a port in use", async () => {
     await expect(start({ projectDir: join(FIXTURE, "missing") })).rejects.toThrow(/There's no folder/);
-    const empty = mkdtempSync(join(tmpdir(), "tranquility-server-"));
+    const empty = mkdtempSync(join(tmpdir(), "myco-server-"));
     temps.push(empty);
     await expect(start({ projectDir: empty })).rejects.toThrow(/has no project\.json/);
 
@@ -141,7 +141,7 @@ describe("tranquility-server (T14)", () => {
   });
 
   it("uses the bootstrap link's port and options unless the command line overrides them", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "tranquility-server-"));
+    const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
     temps.push(dir);
     writeFileSync(
       join(dir, "project.json"),
@@ -163,7 +163,7 @@ describe("tranquility-server (T14)", () => {
   });
 
   it("runs server-tagged templates when the bootstrap's Worlds are all clients (a Host button's layout)", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "tranquility-server-"));
+    const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
     temps.push(dir);
     writeFileSync(
       join(dir, "project.json"),
@@ -176,7 +176,7 @@ describe("tranquility-server (T14)", () => {
   });
 
   it("ignores a loopback link's address (a name for editor play) and listens on the server's own port", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "tranquility-server-"));
+    const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
     temps.push(dir);
     writeFileSync(
       join(dir, "project.json"),
@@ -195,13 +195,13 @@ describe("tranquility-server (T14)", () => {
   });
 
   it("runs a code bootstrap's server Worlds, listening where its skipped client Worlds connect", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "tranquility-server-"));
+    const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
     temps.push(dir);
     mkdirSync(join(dir, "scripts"));
     writeFileSync(join(dir, "project.json"), JSON.stringify({ bootstrap: "scripts/Bootstrap.ts" }));
     writeFileSync(
       join(dir, "scripts", "Bootstrap.ts"),
-      `import type { BootstrapEngine } from "tranquility";
+      `import type { BootstrapEngine } from "myco";
 export function bootstrap(engine: BootstrapEngine): void {
   const host = engine.createWorld({ name: "Host", tags: ["server"] });
   const local = engine.createWorld({ name: "Local", tags: ["client"] });
@@ -222,7 +222,7 @@ export function bootstrap(engine: BootstrapEngine): void {
 // (nothing in src/ imports the sample's code; startServer loads its scripts like any project's).
 // Its bootstrap has only a client World, so the server runs the `Server` template (Unity's
 // frontend pattern: in the browser a Host button creates that World).
-describe("the arena sample on tranquility-server (T16)", () => {
+describe("the arena sample on myco-server (T16)", () => {
   const ARENA = fileURLToPath(new URL("../../samples/arena", import.meta.url));
   type PlayerData = { score: number; aimX: number; aimY: number };
   interface ArenaPlayer {
@@ -322,7 +322,7 @@ describe("the arena sample on tranquility-server (T16)", () => {
   });
 });
 
-describe("tranquility-server's command line", () => {
+describe("myco-server's command line", () => {
   it("parses flags", () => {
     expect(parseArgs(["proj", "--port", "7000", "--host=0.0.0.0", "--max-connections", "8", "--tick-rate", "20"])).toEqual({
       projectDir: "proj",
@@ -341,10 +341,10 @@ describe("tranquility-server's command line", () => {
     const cli = fileURLToPath(new URL("./cli.mjs", import.meta.url));
     const help = spawnSync(process.execPath, [cli, "--help"], { encoding: "utf8" });
     expect(help.status).toBe(0);
-    expect(help.stdout).toMatch(/^Usage: tranquility-server <projectDir>/);
+    expect(help.stdout).toMatch(/^Usage: myco-server <projectDir>/);
     // Loads the whole engine through the TypeScript hooks before failing on the folder.
     const bad = spawnSync(process.execPath, [cli, join(FIXTURE, "missing")], { encoding: "utf8" });
     expect(bad.status).toBe(1);
-    expect(bad.stderr).toMatch(/tranquility-server: There's no folder/);
+    expect(bad.stderr).toMatch(/myco-server: There's no folder/);
   }, 20_000);
 });

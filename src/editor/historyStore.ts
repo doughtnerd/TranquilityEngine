@@ -17,7 +17,7 @@ export interface SlotBackend {
 }
 
 interface Envelope {
-  format: "tranquility.history-slot@1";
+  format: "myco.history-slot@1";
   generation: number;
   /** `hashText` of `JSON.stringify(history)`. */
   checksum: string;
@@ -29,7 +29,7 @@ export function readSlot(text: string | null): Envelope | null {
   if (!text) return null;
   try {
     const e = JSON.parse(text) as Envelope;
-    if (e?.format !== "tranquility.history-slot@1" || typeof e.generation !== "number" || !e.history) return null;
+    if ((e?.format !== "myco.history-slot@1" && (e?.format as string) !== "tranquility.history-slot@1") || typeof e.generation !== "number" || !e.history) return null;
     return hashText(JSON.stringify(e.history)) === e.checksum ? e : null;
   } catch {
     return null;
@@ -52,7 +52,7 @@ export class HistoryStore {
   /** Write `history` as the next generation, into the slot that doesn't hold the current one. */
   async save(history: HistoryFile): Promise<void> {
     const generation = this.generation + 1;
-    const envelope: Envelope = { format: "tranquility.history-slot@1", generation, checksum: hashText(JSON.stringify(history)), history };
+    const envelope: Envelope = { format: "myco.history-slot@1", generation, checksum: hashText(JSON.stringify(history)), history };
     await this.backend.write(generation % 2 === 1 ? "a" : "b", JSON.stringify(envelope));
     this.generation = generation;
   }
@@ -66,13 +66,13 @@ export class HistoryStore {
   }
 }
 
-/** History files in the project folder: `.tranquility/history/<scene path>.history.<slot>.json`. */
+/** History files in the project folder: `.myco/history/<scene path>.history.<slot>.json`. */
 export function projectSlots(fs: FileSystem, root: string, scene: string): SlotBackend {
   const folder = scene.includes("/") ? scene.slice(0, scene.lastIndexOf("/")) : "";
-  const dir = joinPath(root, `.tranquility/history${folder ? `/${folder}` : ""}`);
-  const file = (slot: "a" | "b") => joinPath(root, `.tranquility/history/${scene}.history.${slot}.json`);
+  const dir = joinPath(root, `.myco/history${folder ? `/${folder}` : ""}`);
+  const file = (slot: "a" | "b") => joinPath(root, `.myco/history/${scene}.history.${slot}.json`);
   return {
-    where: joinPath(root, ".tranquility/history"),
+    where: joinPath(root, ".myco/history"),
     async read(slot) {
       return (await fs.exists(file(slot))) ? fs.readText(file(slot)) : null;
     },

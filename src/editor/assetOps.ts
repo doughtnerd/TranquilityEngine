@@ -160,7 +160,7 @@ async function updateReferences(project: EditorProject, moves: readonly (readonl
     const json = JSON.parse(text) as Record<string, unknown>;
     const result = withMovedAssets(json, rename);
     if (!result.changed) continue;
-    if (typeof json.format === "string" && json.format.startsWith("tranquility.scene@")) {
+    if (typeof json.format === "string" && /^(myco|tranquility)\.scene@/.test(json.format)) {
       await writeSceneFile(project, file, result.value as unknown as SceneFile);
       if (scene) scene.sync.apply(instancesOf(scene.doc, file).map((node) => ({ kind: "rebuild", node }) as const));
     } else {

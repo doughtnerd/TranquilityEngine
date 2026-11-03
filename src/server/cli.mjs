@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The `tranquility-server` command (T14): runs src/server/main.ts from source. See main.ts for
+// The `myco-server` command (T14): runs src/server/main.ts from source. See main.ts for
 // usage. The engine is TypeScript with standard decorators, so the hooks in tsLoader.mjs compile
 // it with the `typescript` package as it loads.
 import * as nodeModule from "node:module";

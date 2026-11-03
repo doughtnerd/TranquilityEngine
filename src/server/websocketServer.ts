@@ -73,7 +73,7 @@ export class NodeWebSocketTransport extends WebSocketTransport {
     const local = info.address === "0.0.0.0" || info.address === "::" ? "localhost" : info.family === "IPv6" ? `[${info.address}]` : info.address;
     this.bound = { host: info.address, port: info.port, path, url: `ws://${local}:${info.port}${path === "/" ? "" : path}` };
     // After binding, a server error (rare) shouldn't crash the process; connections report their own.
-    server.on("error", (error) => console.error(`[tranquility] WebSocket server on ${this.bound?.url ?? "?"}:`, error));
+    server.on("error", (error) => console.error(`[myco] WebSocket server on ${this.bound?.url ?? "?"}:`, error));
     server.on("connection", (socket, request) => this.accept(socket, `${request.socket.remoteAddress}:${request.socket.remotePort}`));
   }
 

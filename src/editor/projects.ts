@@ -307,7 +307,7 @@ export async function listAssetFiles(
  */
 export async function openFolderProject(fs: FileSystem, root: string): Promise<EditorProject> {
   if (!(await fs.exists(joinPath(root, "project.json")))) {
-    throw new Error(`"${root}" isn't a TranquilityEngine project: it has no project.json.`);
+    throw new Error(`"${root}" isn't a Myco Engine project: it has no project.json.`);
   }
   const values = new Map<string, unknown>();
   const texts = new Map<string, string>();

@@ -134,7 +134,7 @@ defineSystem({
 Assets.addSource(
   Assets.fromObject({
     "prefabs/pred-player.json": {
-      format: "tranquility.scene@1",
+      format: "myco.scene@1",
       nodes: [
         {
           id: "player",

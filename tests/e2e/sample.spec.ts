@@ -13,7 +13,7 @@ type Engine = {
 /** The sample's GameManager state in the running game (null before it exists). */
 const gameState = (page: Page) =>
   page.evaluate(() => {
-    const t = (globalThis as unknown as { __tranquility?: Engine }).__tranquility;
+    const t = (globalThis as unknown as { __myco?: Engine }).__myco;
     const type = t?.getComponentClass("game.GameManager");
     const manager = type ? t!.GameObject.findObjectOfType(type) : null;
     return manager ? (manager.state as string) : null;

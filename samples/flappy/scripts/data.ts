@@ -1,4 +1,4 @@
-import { defineBuffer, defineComponent, f32, u8 } from "tranquility";
+import { defineBuffer, defineComponent, f32, u8 } from "myco";
 
 /** Moves a node left at `speed`; with `wrapWidth > 0` it leapfrogs to stay on screen (two tiles). */
 export const Scroller = defineComponent("game.Scroller", { speed: f32, wrapWidth: f32 });

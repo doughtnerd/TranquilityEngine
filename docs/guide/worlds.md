@@ -64,7 +64,7 @@ For setups the declarative form can't express, point `bootstrap` at a project sc
 The script exports a function named `bootstrap` that creates the start-up Worlds:
 
 ```ts
-import type { Bootstrap } from "tranquility";
+import type { Bootstrap } from "myco";
 
 export const bootstrap: Bootstrap = (engine) => {
   const server = engine.createWorld({ name: "Server", tags: ["server"], scenes: ["scenes/arena.scene.json"] });
@@ -80,7 +80,7 @@ The editor and the dedicated server load the script themselves. Code that calls 
 `defineSystem` registers a system in a catalog. It doesn't run anywhere by itself. A World runs the catalog systems whose `worlds` filter matches one of its tags:
 
 ```ts
-import { defineSystem } from "tranquility";
+import { defineSystem } from "myco";
 
 defineSystem({
   name: "game.ApplyDamage",
@@ -105,7 +105,7 @@ defineSystem({
 GameBehaviors run in every World where their component exists. By default a component exists in every World that loads its scene. To keep one out of some Worlds, give it a filter:
 
 ```ts
-import { GameBehavior, behavior } from "tranquility";
+import { GameBehavior, behavior } from "myco";
 
 @behavior("game.EnemyAI", { worlds: ["server", "local"] })
 export class EnemyAI extends GameBehavior {
@@ -134,7 +134,7 @@ The Engine has one loop. Each frame it steps every running World once, in creati
 Game code can create Worlds while it runs, for example from a menu's **Host** button. `Engine.createWorld` takes a World config or a template name and returns a **World handle**:
 
 ```ts
-import { Engine, GameBehavior, Input, behavior } from "tranquility";
+import { Engine, GameBehavior, Input, behavior } from "myco";
 
 @behavior("game.MainMenu")
 export class MainMenu extends GameBehavior {
@@ -190,7 +190,7 @@ JavaScript can't carry the current World across an `await`. Code after an `await
 - `handle.loadScene(path)`: the handle's World. `SceneManager.load` captures the current World when you call it, so call it before the `await`, not after.
 
 ```ts
-import { GameBehavior, behavior } from "tranquility";
+import { GameBehavior, behavior } from "myco";
 
 @behavior("game.Spawner")
 export class Spawner extends GameBehavior {

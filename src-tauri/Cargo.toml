@@ -1,7 +1,7 @@
 [package]
-name = "tranquility"
+name = "myco"
 version = "0.1.0"
-description = "TranquilityEngine desktop shell (Tauri) for games and the editor"
+description = "Myco Engine desktop shell (Tauri) for games and the editor"
 authors = ["Chris Carlson"]
 license = "MIT"
 repository = ""
@@ -11,7 +11,7 @@ rust-version = "1.90"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "tranquility_lib"
+name = "myco_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

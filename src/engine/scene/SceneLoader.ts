@@ -10,7 +10,7 @@ import type { World } from "../core/World";
 import { Assets } from "./Assets";
 import { GameObject, _componentAllowedIn, type InstantiateOptions } from "./GameObject";
 
-export const SCENE_FORMAT = "tranquility.scene";
+export const SCENE_FORMAT = "myco.scene";
 export const CURRENT_FORMAT_VERSION = 1;
 
 export interface ComponentEntry {
@@ -77,7 +77,8 @@ export function registerSceneMigration(from: number, migrate: Migration): void {
 
 /** Parse the format header and run migrations up to the current version. */
 export function migrateSceneFile(file: SceneFile, path = "<inline>"): SceneFile {
-  const match = /^tranquility\.scene@(\d+)$/.exec(file.format ?? "");
+  // "tranquility.scene@N": the same format under the engine's former name (ADR 0037).
+  const match = /^(?:myco|tranquility)\.scene@(\d+)$/.exec(file.format ?? "");
   if (!match) throw new Error(`${path}: missing or invalid "format" (expected "${SCENE_FORMAT}@${CURRENT_FORMAT_VERSION}").`);
   let version = Number(match[1]);
   if (version > CURRENT_FORMAT_VERSION) throw new Error(`${path}: format version ${version} is newer than this engine supports (${CURRENT_FORMAT_VERSION}).`);
@@ -277,7 +278,7 @@ class Instantiation {
     for (const [key, raw] of Object.entries(data)) {
       const info = declared.find((f) => f.name === key);
       if (!info) {
-        console.warn(`[tranquility] ${path}: "${key}" is not a declared field of ${getComponentId(type) ?? type.name}; ignored.`);
+        console.warn(`[myco] ${path}: "${key}" is not a declared field of ${getComponentId(type) ?? type.name}; ignored.`);
         continue;
       }
       assignField(c, info, raw, (id, assign) => this.fixups.push({ apply: (resolve) => assign(resolve(scope, id)) }), path);
@@ -354,7 +355,7 @@ class Instantiation {
   resolveFixups(): void {
     const resolve = (scope: Map<string, Instance>, id: string) => {
       const found = scope.get(id)?.node ?? (scope === this.top ? this.hooks.resolveExternal?.(id) : undefined);
-      if (!found) console.warn(`[tranquility] node reference "${id}" not found.`);
+      if (!found) console.warn(`[myco] node reference "${id}" not found.`);
       else this.world._assertOwns(found, `node reference "${id}"`); // never across Worlds (ADR 0032)
       return found ?? null;
     };
@@ -380,7 +381,7 @@ export function assignField(
     const r = raw as { $node?: string } | null;
     if (r === null) target[key] = null;
     else if (r && typeof r.$node === "string") ref(r.$node, (node) => { target[key] = node; });
-    else console.warn(`[tranquility] ${path}: field "${key}" expects {"$node": "<id>"}.`);
+    else console.warn(`[myco] ${path}: field "${key}" expects {"$node": "<id>"}.`);
   } else if (t === Vector2) {
     const cur = target[key];
     if (cur instanceof Vector2) cur.copy(raw as number[]);

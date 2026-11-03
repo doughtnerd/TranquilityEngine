@@ -264,7 +264,7 @@ export class Scheduler {
       const rows = def.query ? world._query(def.query) : [];
       def.run(includes ? filterRows(rows, includes) : rows, ctx);
     } catch (err) {
-      console.error(`[tranquility] System "${def.name}" threw:`, err);
+      console.error(`[myco] System "${def.name}" threw:`, err);
     }
   }
 }

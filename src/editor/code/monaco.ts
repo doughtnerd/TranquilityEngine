@@ -1,12 +1,12 @@
 // Monaco for the Code panel (ADR 0030), loaded the first time the panel shows. Sets up its
-// workers, a TypeScript service that knows the engine's types as the `"tranquility"` package,
+// workers, a TypeScript service that knows the engine's types as the `"myco"` package,
 // the editor's colours, and one model per project script (so autocomplete and errors work
 // across scripts).
 import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import JsonWorker from "monaco-editor/languages/features/json/json.worker.js?worker";
 import TsWorker from "monaco-editor/languages/features/typescript/ts.worker.js?worker";
-import engineTypes from "virtual:tranquility-types";
+import engineTypes from "virtual:myco-types";
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
   // Each language service runs in its own worker; everything else in the editor's.
@@ -28,10 +28,12 @@ ts.typescriptDefaults.setCompilerOptions({
 // Every script model, not only the one showing, so imports between scripts resolve.
 ts.typescriptDefaults.setEagerModelSync(true);
 // The engine's declarations, served as the package scripts import.
-for (const [path, text] of Object.entries(engineTypes)) ts.typescriptDefaults.addExtraLib(text, `file:///node_modules/tranquility/${path}`);
-ts.typescriptDefaults.addExtraLib(JSON.stringify({ name: "tranquility", types: "index.d.ts" }), "file:///node_modules/tranquility/package.json");
+for (const [path, text] of Object.entries(engineTypes)) ts.typescriptDefaults.addExtraLib(text, `file:///node_modules/myco/${path}`);
+ts.typescriptDefaults.addExtraLib(JSON.stringify({ name: "myco", types: "index.d.ts" }), "file:///node_modules/myco/package.json");
+// Scripts written before the rename import "tranquility" (ADR 0037): the same declarations.
+ts.typescriptDefaults.addExtraLib('export * from "myco";', "file:///node_modules/tranquility/index.d.ts");
 
-monaco.editor.defineTheme("tranquility", {
+monaco.editor.defineTheme("myco", {
   base: "vs-dark",
   inherit: true,
   rules: [],

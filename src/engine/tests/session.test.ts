@@ -84,7 +84,7 @@ describe("connections (T10)", () => {
   });
 
   it("gives each client its own connection and id, and keeps connection nodes across scene loads", async () => {
-    Assets.addSource(Assets.fromObject({ "scenes/net.scene.json": { format: "tranquility.scene@1", nodes: [{ id: "a", name: "A" }] } }));
+    Assets.addSource(Assets.fromObject({ "scenes/net.scene.json": { format: "myco.scene@1", nodes: [{ id: "a", name: "A" }] } }));
     const engine = await create({
       worlds: [
         { name: "P1", tags: ["client"] },

@@ -330,7 +330,7 @@ export class World {
     // A component node moved away from its owner becomes a normal node (ADR 0009).
     if (this.isComponentNode(e)) {
       this.setComponentNode(e, false);
-      console.warn(`[tranquility] Component node "${this.names[e]}" was reparented and is now a normal node.`);
+      console.warn(`[myco] Component node "${this.names[e]}" was reparented and is now a normal node.`);
     }
     this.markTransformDirty(e);
     this.orderDirty = true;
@@ -698,10 +698,10 @@ export class World {
     try {
       const result = (b[hook] as () => unknown).call(b);
       if (result instanceof Promise) {
-        result.catch((err) => console.error(`[tranquility] ${b.constructor.name}.${String(hook)} rejected:`, err));
+        result.catch((err) => console.error(`[myco] ${b.constructor.name}.${String(hook)} rejected:`, err));
       }
     } catch (err) {
-      console.error(`[tranquility] ${b.constructor.name}.${String(hook)} threw:`, err);
+      console.error(`[myco] ${b.constructor.name}.${String(hook)} threw:`, err);
     }
   }
 
@@ -888,7 +888,7 @@ function safePredicate(w: PendingWait): boolean {
   try {
     return !!w.predicate?.();
   } catch (err) {
-    console.error("[tranquility] wait.until predicate threw:", err);
+    console.error("[myco] wait.until predicate threw:", err);
     return true;
   }
 }

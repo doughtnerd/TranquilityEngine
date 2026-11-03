@@ -95,7 +95,7 @@ export class Physics2DWorld {
   private groupsFor(layer: string): number {
     const g = this.layerGroups.get(layer);
     if (g === undefined) {
-      console.warn(`[tranquility] unknown physics layer "${layer}"; using "${this.world.settings.physics.layers[0]}".`);
+      console.warn(`[myco] unknown physics layer "${layer}"; using "${this.world.settings.physics.layers[0]}".`);
       return this.layerGroups.get(this.world.settings.physics.layers[0])!;
     }
     return g;
@@ -328,7 +328,7 @@ export class Physics2DWorld {
         try {
           fn.call(comp, trigger ? other : collision);
         } catch (err) {
-          console.error(`[tranquility] ${comp.constructor.name}.${hook} threw:`, err);
+          console.error(`[myco] ${comp.constructor.name}.${hook} threw:`, err);
         }
       }
     }

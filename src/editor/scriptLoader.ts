@@ -2,13 +2,16 @@
 // editor with the TypeScript compiler and loaded as ES modules. Each compiled module is loaded
 // from a `data:` URL, so its imports are rewritten first: relative imports point at the other
 // scripts' URLs (loaded before it), JSON files of the project become modules exporting their
-// contents, and `"tranquility"` points at a shim module that re-exports the editor's own engine.
+// contents, and `"myco"` points at a shim module that re-exports the editor's own engine.
 // Scripts and the editor then share one registry and one World.
 import * as engine from "../engine";
 import { unregisterScripts, withScriptRegistrations, type ScriptRegistrations } from "../engine/editor";
 
 /** The bare specifier scripts import the engine by. */
-export const ENGINE_MODULE = "tranquility";
+export const ENGINE_MODULE = "myco";
+/** The engine's former name (ADR 0037), still accepted so existing scripts keep working. */
+export const LEGACY_ENGINE_MODULE = "tranquility";
+const isEngineModule = (specifier: string) => specifier === ENGINE_MODULE || specifier === LEGACY_ENGINE_MODULE;
 
 /** Where scripts live in a project, and which files count. */
 export const isScriptPath = (path: string) => path.startsWith("scripts/") && path.endsWith(".ts") && !path.endsWith(".d.ts");
@@ -106,7 +109,7 @@ export function loadOrder(
   for (const [path, s] of scripts) {
     const list: string[] = [];
     for (const imp of s.imports) {
-      if (imp.specifier === ENGINE_MODULE) continue;
+      if (isEngineModule(imp.specifier)) continue;
       const target = resolveScript(path, imp.specifier, paths);
       if (target && json.has(target)) {
         if (!json.get(target)) problems.set(path, `can't import ${target}: it isn't valid JSON`);
@@ -164,12 +167,12 @@ const moduleUrl = (code: string) =>
 /** Blob URLs of the last load's modules, revoked once the next load has run. */
 let lastUrls: string[] = [];
 
-/** A module that re-exports the editor's engine, for `import … from "tranquility"`. */
+/** A module that re-exports the editor's engine, for `import … from "myco"`. */
 function engineShimUrl(): string {
-  const g = globalThis as { __tranquility?: unknown };
-  g.__tranquility = engine;
+  const g = globalThis as { __myco?: unknown };
+  g.__myco = engine;
   const names = Object.keys(engine).filter((n) => /^[A-Za-z_$][\w$]*$/.test(n));
-  return dataUrl(`const e = globalThis.__tranquility;\nexport const { ${names.join(", ")} } = e;\n`);
+  return dataUrl(`const e = globalThis.__myco;\nexport const { ${names.join(", ")} } = e;\n`);
 }
 
 let generation = 0;
@@ -217,7 +220,7 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>, json: Re
 
   // Every load gets fresh module URLs (a comment marks the generation), so a script whose text
   // didn't change still runs again.
-  const stamp = `\n// tranquility-load ${++generation}\n`;
+  const stamp = `\n// myco-load ${++generation}\n`;
   const shim = engineShimUrl();
   const urls = new Map<string, string>();
   const loaded: string[] = [];
@@ -229,7 +232,7 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>, json: Re
       }
       const s = compiled.get(path)!;
       const code = rewriteImports(s.code, s.imports, (spec) => {
-        if (spec === ENGINE_MODULE) return shim;
+        if (isEngineModule(spec)) return shim;
         const target = resolveScript(path, spec, known)!;
         return parsed.has(target) ? jsonUrl(target) : urls.get(target)!;
       });

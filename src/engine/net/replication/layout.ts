@@ -100,7 +100,7 @@ const warned = new Set<string>();
 function warnOnce(key: string, message: string): void {
   if (warned.has(key)) return;
   warned.add(key);
-  console.warn(`[tranquility] ${message}`);
+  console.warn(`[myco] ${message}`);
 }
 
 /** A behavior class's replicated fields (numbers and booleans), cached. */

@@ -2,7 +2,7 @@
 
 ## What the engine is
 
-TranquilityEngine is a 2D & 3D game engine written in TypeScript. Games run in a browser runtime and ship as desktop apps through [Tauri](../decisions/0003-tauri-platform-browser-runtime.md).
+Myco Engine is a 2D & 3D game engine written in TypeScript. Games run in a browser runtime and ship as desktop apps through [Tauri](../decisions/0003-tauri-platform-browser-runtime.md).
 
 Game developers write scripts that feel like Unity: a class extends `GameBehavior` and implements lifecycle methods such as `awake`, `start`, `update` and `onDestroy`. Scenes are graphs of nodes, closer to Godot, where everything in a scene is some kind of node. Underneath, the engine is an Entity-Component-System, but that is an implementation detail game code never has to touch.
 
@@ -72,7 +72,7 @@ src/engine/
   platform/    browser and Tauri adapters, Storage
   net/         sessions, transports (loopback, WebSocket), codec, RPCs, inputs, replication, prediction (ADR 0033)
 src/editor/    scene editor (Editor World, inspector, gizmos, play mode, Worlds and Network panels)
-src/server/    tranquility-server: the headless dedicated server for Node (ADR 0033, 0035)
+src/server/    myco-server: the headless dedicated server for Node (ADR 0033, 0035)
 samples/       sample projects shipped beside the engine (Flappy Bird port; ADR 0031)
 ```
 

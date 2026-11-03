@@ -6,8 +6,8 @@ import type { FileSystem } from "../engine/platform/FileSystem";
 import { hashText } from "./document";
 import { joinPath } from "./projects";
 
-/** Where the engine's declarations go in a project, served to TypeScript as the `"tranquility"` package. */
-export const TYPES_DIR = ".tranquility/types/tranquility";
+/** Where the engine's declarations go in a project, served to TypeScript as the `"myco"` package. */
+export const TYPES_DIR = ".myco/types/myco";
 
 /** The `tsconfig.json` a project gets (only if it has none): scripts compiled as the editor compiles them. */
 export function projectTsconfig(): string {
@@ -22,7 +22,8 @@ export function projectTsconfig(): string {
       useDefineForClassFields: true,
       resolveJsonModule: true,
       skipLibCheck: true,
-      paths: { tranquility: [`./${TYPES_DIR}/index.d.ts`] },
+      // "tranquility": the engine's former name (ADR 0037), for scripts written before the rename.
+      paths: { myco: [`./${TYPES_DIR}/index.d.ts`], tranquility: [`./${TYPES_DIR}/index.d.ts`] },
     },
     include: ["scripts/**/*.ts"],
   };
@@ -51,7 +52,7 @@ export async function writeScriptingFiles(fs: FileSystem, root: string, declarat
       await fs.mkdir(file.slice(0, Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\"))));
       await fs.writeText(file, text);
     }
-    await fs.writeText(joinPath(root, `${TYPES_DIR}/package.json`), `${JSON.stringify({ name: "tranquility", types: "index.d.ts" }, null, 2)}\n`);
+    await fs.writeText(joinPath(root, `${TYPES_DIR}/package.json`), `${JSON.stringify({ name: "myco", types: "index.d.ts" }, null, 2)}\n`);
     await fs.writeText(stampPath, `${stamp}\n`);
     result.types = true;
   }
