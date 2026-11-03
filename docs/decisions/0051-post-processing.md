@@ -1,6 +1,6 @@
 # 0051. Post-processing on pmndrs `postprocessing` and N8AO, set by a PostProcessing component and gated by quality tier
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

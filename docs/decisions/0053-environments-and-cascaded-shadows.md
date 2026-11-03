@@ -1,6 +1,6 @@
 # 0053. HDR environments and skyboxes through an Environment component; cascaded shadows set by quality tier
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

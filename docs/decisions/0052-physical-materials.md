@@ -1,6 +1,6 @@
 # 0052. A physical material and graph target for clearcoat, sheen, transmission, iridescence and anisotropy
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

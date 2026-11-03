@@ -1,6 +1,6 @@
 # 0050. Graphics quality tiers in project.json, chosen by the player through `Graphics.quality`
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
