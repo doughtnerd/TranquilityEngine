@@ -6,6 +6,12 @@
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite"],
       "port": 3000
+    },
+    {
+      "name": "editor-build-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "preview", "--config", "vite.editor.config.ts", "--port", "4192", "--strictPort"],
+      "port": 4192
     }
   ]
 }

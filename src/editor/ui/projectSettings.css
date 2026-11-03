@@ -43,9 +43,16 @@
 .collision-matrix input { margin: 0; }
 
 .project-settings-tiers { align-items: stretch; }
-.project-settings-tiers.invalid .tier-row input { border-color: var(--danger); }
-.tier-row { display: grid; grid-template-columns: minmax(70px, 1.3fr) 70px repeat(4, minmax(60px, 1fr)) auto; gap: 4px; align-items: center; width: 100%; }
-.tier-row input, .tier-row select { min-width: 0; width: 100%; box-sizing: border-box; }
-.tier-head { font-size: 11px; color: var(--muted); }
+.project-settings-tiers.invalid .tier-card input { border-color: var(--danger); }
+.tier-card { display: flex; flex-direction: column; gap: 6px; width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+.tier-card-head { display: flex; align-items: center; gap: 4px; }
+.tier-card-head > :first-child { flex: 1; min-width: 0; }
+.tier-card-head input { min-width: 0; width: 100%; box-sizing: border-box; background: var(--input-bg); color: var(--text); }
+.tier-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
+.tier-fields label { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tier-fields label.disabled .tier-label { opacity: 0.5; }
+.tier-label { font-size: 11px; color: var(--muted); }
+.tier-fields select, .tier-fields input[type="number"] { min-width: 0; width: 100%; box-sizing: border-box; background: var(--input-bg); color: var(--text); }
+.tier-fields input[type="checkbox"] { align-self: flex-start; margin: 2px 0; }
 .tier-buttons { display: flex; gap: 2px; }
 .tier-buttons button.icon { flex: none; width: 22px; height: 22px; padding: 0; line-height: 1; }

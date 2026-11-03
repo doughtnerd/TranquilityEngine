@@ -179,3 +179,64 @@ export class Light extends Component {
     this.world.render?.release(this);
   }
 }
+
+export type ToneMapping = "none" | "aces" | "agx" | "neutral";
+
+/**
+ * Post-processing for the camera on the same node (ADR 0051). Effects run when this component
+ * asks for them and the graphics quality tier allows them. The main (lowest-depth) camera gets
+ * them in this version; other cameras draw without effects.
+ */
+@component("engine.PostProcessing")
+export class PostProcessing extends Component {
+  /** Tone mapping curve applied to the HDR scene. */
+  @field(String, { choices: ["none", "aces", "agx", "neutral"] }) toneMapping: ToneMapping = "agx";
+  /** Exposure multiplier applied before tone mapping (1 = unchanged). */
+  @field(Number) exposure = 1;
+
+  /** Bloom glow around bright areas. */
+  @field(Boolean) bloom = false;
+  /** Strength of the bloom glow (1 = default). */
+  @field(Number) bloomIntensity = 1;
+  /** Brightness above which pixels bloom, 0 to 1 (luminance). */
+  @field(Number) bloomThreshold = 0.9;
+  /** Spread of the bloom glow, 0 to 1. */
+  @field(Number) bloomRadius = 0.85;
+
+  /** Ambient occlusion: darkens creases and contact points. */
+  @field(Boolean) ambientOcclusion = false;
+  /** Strength of the ambient occlusion (2 = default). */
+  @field(Number) aoIntensity = 2;
+  /** Radius of the occlusion search, in metres. */
+  @field(Number) aoRadius = 1;
+
+  /** Brightness offset, -1 to 1 (0 = unchanged). */
+  @field(Number) brightness = 0;
+  /** Contrast, -1 to 1 (0 = unchanged). */
+  @field(Number) contrast = 0;
+  /** Saturation, -1 (greyscale) to 1 (0 = unchanged). */
+  @field(Number) saturation = 0;
+  /** Hue rotation in degrees (0 = unchanged). */
+  @field(Number) hue = 0;
+
+  /** Darkens the edges of the screen. */
+  @field(Boolean) vignette = false;
+  /** How dark the vignette gets, 0 to 1. */
+  @field(Number) vignetteDarkness = 0.5;
+  /** How far in from the edges the vignette starts, 0 to 1. */
+  @field(Number) vignetteOffset = 0.5;
+
+  /** Blurs what is out of focus. */
+  @field(Boolean) depthOfField = false;
+  /** Distance to the focused plane, in metres. */
+  @field(Number) focusDistance = 10;
+  /** Depth range around the focus distance that stays sharp, in metres. */
+  @field(Number) focusRange = 5;
+  /** Size of the out-of-focus blur (bokeh) shapes. */
+  @field(Number) bokehScale = 2;
+
+  /** Splits red, green and blue at the screen edges. */
+  @field(Boolean) chromaticAberration = false;
+  /** Offset of the colour split, as a fraction of the screen (0.002 = default). */
+  @field(Number) chromaticAberrationAmount = 0.002;
+}

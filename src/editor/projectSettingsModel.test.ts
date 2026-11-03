@@ -223,6 +223,15 @@ describe("the Project panel's settings", () => {
       expect(graphicsOf(renameTier(d, 0, "Potato")).defaultTier).toBe("Best");
     });
 
+    it("sets the post-processing values of a tier", () => {
+      let d = setTierValue(readDraft({}), 0, "postProcessing", true);
+      d = setTierValue(d, 0, "bloom", true);
+      d = setTierValue(d, 0, "ambientOcclusion", "high");
+      d = setTierValue(d, 0, "depthOfField", true);
+      d = setTierValue(d, 0, "antialias", "fxaa");
+      expect(graphicsOf(d).tiers[0]).toMatchObject({ postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, antialias: "fxaa" });
+    });
+
     it("reorders tiers within bounds", () => {
       const d = moveTier(readDraft({}), 0, 1);
       expect(names(d)).toEqual(["Medium", "Low", "High", "Ultra"]);
@@ -236,7 +245,7 @@ describe("the Project panel's settings", () => {
       d = setTierValue(d, 0, "antialias", "msaa");
       d = setTierValue(d, 0, "anisotropy", 2);
       d = setTierValue(d, 0, "shaderLevel", "medium");
-      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", anisotropy: 2, shaderLevel: "medium" });
+      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false });
       expect(settingsProblems(d)).toEqual([]);
       expect(graphicsOf(setDefaultTier(d, "Low")).defaultTier).toBe("Low");
       expect(setDefaultTier(d, "Nope")).toBe(d);

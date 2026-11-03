@@ -29,6 +29,14 @@
             "projection": "perspective",
             "fieldOfView": 55
           }
+        },
+        {
+          "type": "engine.PostProcessing",
+          "data": {
+            "bloom": true,
+            "ambientOcclusion": true,
+            "vignette": true
+          }
         }
       ]
     },

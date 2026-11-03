@@ -76,6 +76,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0048](decisions/0048-shader-sub-graphs-and-custom-functions.md) | Shader sub-graphs, custom function nodes, normal-map sampling and node previews | Accepted |
 | [0049](decisions/0049-runtime-material-properties.md) | Scripts set material properties per MeshRenderer, like Unity's MaterialPropertyBlock | Accepted |
 | [0050](decisions/0050-graphics-quality-tiers.md) | Graphics quality tiers in project.json, chosen by the player through `Graphics.quality` | Proposed |
+| [0051](decisions/0051-post-processing.md) | Post-processing on pmndrs `postprocessing` and N8AO, set by a PostProcessing component and gated by quality tier | Proposed |
 | [0052](decisions/0052-physical-materials.md) | A physical material and graph target for clearcoat, sheen, transmission, iridescence and anisotropy | Proposed |
 
 ## Working with decisions

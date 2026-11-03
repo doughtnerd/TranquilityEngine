@@ -7,8 +7,8 @@
  * "graphics": {
  *   "defaultTier": "High",
  *   "tiers": [
- *     { "name": "Low", "renderScale": 0.75, "antialias": "off", "shadows": "low", "anisotropy": 1, "shaderLevel": "low" },
- *     { "name": "High", "renderScale": 1, "antialias": "msaa", "shadows": "high", "anisotropy": 8, "shaderLevel": "high" }
+ *     { "name": "Low", "renderScale": 0.75, "antialias": "off", "shadows": "low", "anisotropy": 1, "shaderLevel": "low", "postProcessing": false, "bloom": false, "ambientOcclusion": "off", "depthOfField": false },
+ *     { "name": "High", "renderScale": 1, "antialias": "msaa", "shadows": "high", "anisotropy": 8, "shaderLevel": "high", "postProcessing": true, "bloom": true, "ambientOcclusion": "medium", "depthOfField": true }
  *   ]
  * }
  * ```
@@ -20,9 +20,13 @@ export const SHADOW_QUALITIES: readonly ShadowQuality[] = ["off", "low", "medium
 /** Shadow map size in pixels for each quality (0: no shadows). */
 export const SHADOW_MAP_SIZE: Record<ShadowQuality, number> = { off: 0, low: 512, medium: 1024, high: 2048, ultra: 4096 };
 
-/** Edge smoothing: none, or multisampling (MSAA). */
-export type AntialiasMode = "off" | "msaa";
-export const ANTIALIAS_MODES: readonly AntialiasMode[] = ["off", "msaa"];
+/** Edge smoothing: none, multisampling (MSAA), or a post-process filter (SMAA, FXAA). */
+export type AntialiasMode = "off" | "msaa" | "smaa" | "fxaa";
+export const ANTIALIAS_MODES: readonly AntialiasMode[] = ["off", "msaa", "smaa", "fxaa"];
+
+/** Ambient occlusion quality: off, or the sample count and resolution it runs at (ADR 0051). */
+export type AOQuality = "off" | "low" | "medium" | "high" | "ultra";
+export const AO_QUALITIES: readonly AOQuality[] = ["off", "low", "medium", "high", "ultra"];
 
 /** The level shader graphs' Quality Branch nodes take (ADR 0050). */
 export type ShaderLevel = "low" | "medium" | "high";
@@ -39,6 +43,17 @@ export interface QualityTier {
   /** Texture filtering at grazing angles: 1 (off) to 16, capped at what the GPU supports. */
   anisotropy: number;
   shaderLevel: ShaderLevel;
+  /**
+   * Whether post-processing runs at all (ADR 0051). An effect runs only when a camera's
+   * PostProcessing component asks for it and the tier allows it; `false` turns every effect off.
+   */
+  postProcessing: boolean;
+  /** Whether bloom may run (needs `postProcessing`; a camera's PostProcessing component must ask for it). */
+  bloom: boolean;
+  /** The ambient occlusion quality allowed (needs `postProcessing`; "off" disallows it). */
+  ambientOcclusion: AOQuality;
+  /** Whether depth of field may run (needs `postProcessing`; a camera's PostProcessing component must ask for it). */
+  depthOfField: boolean;
 }
 
 export interface GraphicsSettings {
@@ -52,10 +67,10 @@ export interface GraphicsSettings {
 export const defaultGraphics = (): GraphicsSettings => ({
   defaultTier: "High",
   tiers: [
-    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", anisotropy: 1, shaderLevel: "low" },
-    { name: "Medium", renderScale: 1, antialias: "msaa", shadows: "medium", anisotropy: 4, shaderLevel: "medium" },
-    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", anisotropy: 8, shaderLevel: "high" },
-    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", anisotropy: 16, shaderLevel: "high" },
+    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false },
+    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false },
+    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true },
+    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true },
   ],
 });
 
@@ -63,7 +78,7 @@ export const defaultGraphics = (): GraphicsSettings => ({
 export const defaultTier = (name: string): QualityTier => ({ ...defaultGraphics().tiers[2], name });
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "anisotropy", "shaderLevel"];
+const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField"];
 
 /**
  * Read a `graphics` section leniently: bad values are reported and replaced by the default
@@ -97,7 +112,7 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
         if (typeof t.anisotropy === "number" && Number.isInteger(t.anisotropy) && t.anisotropy >= 1 && t.anisotropy <= 16) tier.anisotropy = t.anisotropy;
         else bad("anisotropy", "a whole number from 1 to 16");
       }
-      const choice = <K extends "antialias" | "shadows" | "shaderLevel">(key: K, options: readonly QualityTier[K][]) => {
+      const choice = <K extends "antialias" | "shadows" | "shaderLevel" | "ambientOcclusion">(key: K, options: readonly QualityTier[K][]) => {
         const v = t[key];
         if (v === undefined) return;
         if (options.includes(v as QualityTier[K])) tier[key] = v as QualityTier[K];
@@ -106,6 +121,12 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
       choice("antialias", ANTIALIAS_MODES);
       choice("shadows", SHADOW_QUALITIES);
       choice("shaderLevel", SHADER_LEVELS);
+      choice("ambientOcclusion", AO_QUALITIES);
+      for (const key of ["postProcessing", "bloom", "depthOfField"] as const) {
+        if (t[key] === undefined) continue;
+        if (typeof t[key] === "boolean") tier[key] = t[key] as boolean;
+        else bad(key, "true or false");
+      }
       tiers.push(tier);
     });
   } else if (raw.tiers !== undefined) problems.push(`${where}.tiers must be a list of tiers; using the default tiers.`);

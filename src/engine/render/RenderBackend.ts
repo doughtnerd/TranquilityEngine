@@ -32,6 +32,11 @@ import {
   NearestFilter,
   NearestMipmapNearestFilter,
   NoColorSpace,
+  NoToneMapping,
+  ACESFilmicToneMapping,
+  AgXToneMapping,
+  NeutralToneMapping,
+  type ToneMapping as ThreeToneMapping,
   Object3D,
   PCFShadowMap,
   PMREMGenerator,
@@ -60,11 +65,13 @@ import type { Component } from "../core/Component";
 import type { ProjectSettings } from "../core/settings";
 import { SHADOW_MAP_SIZE } from "../core/graphics";
 import { Graphics } from "./Graphics";
+import { resolvePostEffects, type PostSettings, type ResolvedPost } from "./postEffects";
+import type { PostEffects, PostProcessStack, ToneMappingName } from "./PostProcessStack";
 import type { World, WorldKind } from "../core/World";
 import { Assets, sidecarValue } from "../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import type { GameObject } from "../scene/GameObject";
-import { Camera, Light, MeshRenderer, SpriteRenderer, Text, type Anchor } from "./components";
+import { Camera, Light, MeshRenderer, PostProcessing, SpriteRenderer, Text, type Anchor } from "./components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import { colorHex, materialGraph, parseMaterial } from "../scene/material";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../scene/shaderGraph";
@@ -228,6 +235,8 @@ const LIGHT_ICON_SIZE = 0.055;
 const tmpBox = new Box3();
 const tmpDir = new ThreeVector3();
 const tmpCorner = new ThreeVector3();
+/** The renderer's tone mapping for each PostProcessing `toneMapping` (ADR 0051). */
+const TONE_MAPPING: Record<ToneMappingName, ThreeToneMapping> = { none: NoToneMapping, aces: ACESFilmicToneMapping, agx: AgXToneMapping, neutral: NeutralToneMapping };
 
 export class RenderBackend {
   readonly canvas: HTMLCanvasElement;
@@ -1138,22 +1147,139 @@ export class RenderBackend {
     this.graphUniforms.time.value = world.time.time;
     r.getDrawingBufferSize(this.graphUniforms.resolution.value);
     const cams = this.viewCameras(world);
+    // Post-processing (ADR 0051): the main (lowest-depth) camera's PostProcessing component, filtered by the tier.
+    const resolved = resolvePostEffects(cams[0] ? (this.postSettings(cams[0]) ?? (this.fill ? this.scenePostSettings(world) : null)) : null, Graphics.tier);
+    const stack = resolved.composer ? this.postStack() : null; // null while the libraries load
+    const frame = { resolved, composed: false };
+    this.lastPost = frame;
+    // The composer tone-maps at its end; rendering directly, the renderer does, so the look matches.
+    const sceneToneMapping = TONE_MAPPING[stack ? "none" : resolved.toneMapping];
+    r.toneMappingExposure = resolved.exposure;
     if (!cams.length) {
       r.setClearColor(this.clearColor, 1);
       r.clear(true, true, true);
     }
     cams.forEach((c, i) => {
+      const camera = this.cameras.get(c)!.camera as ThreeCamera;
+      r.toneMapping = sceneToneMapping;
       if (i === 0) {
         r.setClearColor(c.backgroundColor ? new ThreeColor(c.backgroundColor.toHex()) : this.clearColor, 1);
+        if (stack) {
+          try {
+            this.renderComposed(stack, resolved.composer!, camera, world.time.deltaTime);
+            frame.composed = true;
+            return;
+          } catch (err) {
+            // A broken effect mustn't take the frame with it: drop post-processing and draw directly.
+            this.postFailed = true;
+            this.post = null;
+            this.scene.overrideMaterial = null;
+            console.error("[myco] post-processing failed; rendering without it:", err);
+            r.toneMapping = TONE_MAPPING[resolved.toneMapping];
+          }
+        }
         r.clear(true, true, true);
       } else {
+        r.toneMapping = TONE_MAPPING[resolved.toneMapping]; // other cameras draw directly, with the same tone mapping
         r.clearDepth();
       }
-      r.render(this.scene, this.cameras.get(c)!.camera as ThreeCamera);
+      r.render(this.scene, camera);
     });
     r.clearDepth();
+    r.toneMapping = NoToneMapping; // the UI is never tone mapped
     r.render(this.uiScene, this.uiCamera);
-    if (this.fill) this.renderCameraPreview();
+    if (this.fill) {
+      r.toneMapping = TONE_MAPPING[resolved.toneMapping];
+      this.renderCameraPreview();
+    }
+  }
+
+  // --- Post-processing (ADR 0051) ------------------------------------------------------------------
+
+  private post: PostProcessStack | null = null;
+  private postLoading: Promise<void> | null = null;
+  private postFailed = false;
+  private postSize = "";
+  private depthOnly: MeshBasicMaterial | null = null;
+  private lastPost: { resolved: ResolvedPost; composed: boolean } | null = null;
+
+  /** @internal Tests and the editor: what the last frame resolved and whether the composer drew it. */
+  postState(): { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null } {
+    return { composed: !!this.lastPost?.composed, loaded: !!this.post, toneMapping: this.lastPost?.resolved.toneMapping ?? "none", effects: this.lastPost?.resolved.composer ?? null };
+  }
+
+  /** A camera's PostProcessing component, if it has an enabled one. */
+  private postSettings(c: Camera): PostSettings | null {
+    const p = c.node.getComponent(PostProcessing);
+    return p && p.isActiveAndEnabled ? ({ ...p, enabled: true } as unknown as PostSettings) : null;
+  }
+
+  /**
+   * Editor: the scene view previews the effects of the scene's first camera with a PostProcessing
+   * component, minus depth of field (focused for the game's camera, it would blur the editor's view).
+   */
+  private scenePostSettings(world: World): PostSettings | null {
+    for (const p of world._componentsOfType(PostProcessing)) {
+      if (p.isActiveAndEnabled && p.node.getComponent(Camera)) return { ...(p as unknown as PostSettings), enabled: true, depthOfField: false };
+    }
+    return null;
+  }
+
+  /** The post-processing stack, loading the libraries on first use (games without it never download them). Null until loaded. */
+  private postStack(): PostProcessStack | null {
+    if (this.post || this.postFailed) return this.post;
+    this.postLoading ??= import("./PostProcessStack")
+      .then((m) => m.PostProcessStack.create(this.renderer))
+      .then((s) => {
+        this.post = s;
+      })
+      .catch((err) => {
+        this.postFailed = true;
+        console.error("[myco] post-processing couldn't start; rendering without it:", err);
+      });
+    return null;
+  }
+
+  /**
+   * The main camera through the composer. In the editor, the grid, gizmos and outlines stay out
+   * of the effects: they draw afterwards, over a depth-only pass so meshes still hide the grid.
+   */
+  private renderComposed(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number): void {
+    const r = this.renderer;
+    const helpers = this.fill ? this.editorHelpers() : [];
+    for (const o of helpers) o.visible = false;
+    const size = `${this.canvas.clientWidth}x${this.canvas.clientHeight}@${r.getPixelRatio()}`;
+    if (size !== this.postSize) {
+      this.postSize = size;
+      stack.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
+    }
+    try {
+      stack.configure(effects, this.scene, camera);
+      stack.render(dt);
+    } finally {
+      for (const o of helpers) o.visible = true;
+    }
+    if (!helpers.length) return;
+    r.toneMapping = NoToneMapping;
+    r.clearDepth();
+    this.depthOnly ??= new MeshBasicMaterial({ colorWrite: false });
+    for (const o of helpers) o.visible = false;
+    this.scene.overrideMaterial = this.depthOnly;
+    r.render(this.scene, camera); // depth only, so meshes hide the grid
+    this.scene.overrideMaterial = null;
+    for (const o of helpers) o.visible = true;
+    const others = this.scene.children.filter((o) => o.visible && !helpers.includes(o));
+    for (const o of others) o.visible = false;
+    r.render(this.scene, camera);
+    for (const o of others) o.visible = true;
+  }
+
+  /** The editor's helpers in the scene that are showing: grid, axes, gizmos, outlines, overlays. */
+  private editorHelpers(): Object3D[] {
+    const helpers: (Object3D | null)[] = [this.grid, this.axes, this.overlayLines, this.overlayHandles, this.gizmo?.getHelper() ?? null, this.lightWires, ...this.outlines, ...this.boxOutlines];
+    for (const g of this.cameraGizmos.values()) helpers.push(g.icon, g.frustum);
+    for (const icon of this.lightGizmos.values()) helpers.push(icon);
+    return helpers.filter((o): o is Object3D => !!o && o.visible);
   }
 
   // --- Editor: camera preview (ADR 0022) --------------------------------------------------------
@@ -1191,10 +1317,7 @@ export class RenderBackend {
     }
     camera.updateProjectionMatrix(); // the next sync puts the editor's aspect back
     // The game's view has none of the editor's helpers.
-    const helpers: (Object3D | null)[] = [this.grid, this.axes, this.overlayLines, this.overlayHandles, this.gizmo?.getHelper() ?? null, this.lightWires, ...this.outlines, ...this.boxOutlines];
-    for (const g of this.cameraGizmos.values()) helpers.push(g.icon, g.frustum);
-    for (const icon of this.lightGizmos.values()) helpers.push(icon);
-    const shown = helpers.filter((o): o is Object3D => !!o && o.visible);
+    const shown = this.editorHelpers();
     for (const o of shown) o.visible = false;
     const r = this.renderer;
     const bottom = ch - y - h;
@@ -1933,6 +2056,9 @@ export class RenderBackend {
   }
 
   dispose(): void {
+    this.post?.dispose();
+    this.post = null;
+    this.depthOnly?.dispose();
     this.gizmo?.dispose();
     for (const m of [...this.meshRenderers.keys()]) this.release(m);
     for (const l of [...this.lights.keys()]) this.release(l);

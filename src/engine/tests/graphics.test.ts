@@ -8,7 +8,7 @@ import { MemoryStorage, Storage } from "../platform/Storage";
 // Graphics class that switches the active tier.
 
 const DEFAULT_NAMES = ["Low", "Medium", "High", "Ultra"];
-const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", anisotropy: 8, shaderLevel: "high" };
+const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true };
 
 afterEach(() => {
   Graphics._configure(defaultGraphics());
@@ -26,8 +26,8 @@ describe("parseGraphics", () => {
     const raw = {
       defaultTier: "Only",
       tiers: [
-        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", anisotropy: 2, shaderLevel: "low" },
-        { name: "Only", renderScale: 1.5, antialias: "msaa", shadows: "ultra", anisotropy: 16, shaderLevel: "medium" },
+        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false },
+        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true },
       ],
     };
     const { graphics, problems } = parseGraphics(raw);
@@ -39,7 +39,7 @@ describe("parseGraphics", () => {
   it("reports each bad value and replaces it with the High tier's value", () => {
     const raw = {
       defaultTier: "Bad",
-      tiers: [{ name: "Bad", renderScale: 5, anisotropy: 3.5, shadows: "extreme", antialias: "fxaa", shaderLevel: "max" }],
+      tiers: [{ name: "Bad", renderScale: 5, anisotropy: 3.5, shadows: "extreme", antialias: "taa", shaderLevel: "max" }],
     };
     const { graphics, problems } = parseGraphics(raw);
     expect(graphics.tiers).toEqual([{ name: "Bad", ...HIGH }]);
@@ -52,15 +52,47 @@ describe("parseGraphics", () => {
   });
 
   it("reports an unknown tier key", () => {
-    const { problems } = parseGraphics({ defaultTier: "A", tiers: [{ name: "A", bloom: true }] });
+    const { problems } = parseGraphics({ defaultTier: "A", tiers: [{ name: "A", ssr: true }] });
     expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain("bloom");
+    expect(problems[0]).toContain("ssr");
   });
 
   it("reports an unknown top-level key", () => {
     const { problems } = parseGraphics({ defaultTier: "A", tiers: [{ name: "A" }], extra: 1 });
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain("extra");
+  });
+
+  it("keeps valid post-processing values and accepts smaa and fxaa", () => {
+    const raw = {
+      defaultTier: "A",
+      tiers: [
+        { name: "A", antialias: "smaa", postProcessing: false, bloom: false, ambientOcclusion: "ultra", depthOfField: false },
+        { name: "B", antialias: "fxaa", postProcessing: true, bloom: true, ambientOcclusion: "low", depthOfField: true },
+      ],
+    };
+    const { graphics, problems } = parseGraphics(raw);
+    expect(problems).toEqual([]);
+    expect(graphics.tiers[0]).toMatchObject(raw.tiers[0]);
+    expect(graphics.tiers[1]).toMatchObject(raw.tiers[1]);
+  });
+
+  it("reports a bad boolean or ambient occlusion value and uses the High tier's", () => {
+    const { graphics, problems } = parseGraphics({
+      defaultTier: "A",
+      tiers: [{ name: "A", postProcessing: "yes", bloom: 1, depthOfField: null, ambientOcclusion: "extreme" }],
+    });
+    expect(graphics.tiers[0]).toEqual({ name: "A", ...HIGH });
+    expect(problems).toHaveLength(4);
+    for (const key of ["postProcessing", "bloom", "depthOfField", "ambientOcclusion"]) expect(problems.some((p) => p.includes(key))).toBe(true);
+  });
+
+  it("has the documented post-processing defaults per tier", () => {
+    const [low, medium, high, ultra] = defaultGraphics().tiers;
+    expect([low.postProcessing, low.bloom, low.ambientOcclusion, low.depthOfField, low.antialias]).toEqual([false, false, "off", false, "off"]);
+    expect([medium.postProcessing, medium.bloom, medium.ambientOcclusion, medium.depthOfField, medium.antialias]).toEqual([true, true, "off", false, "smaa"]);
+    expect([high.ambientOcclusion, high.depthOfField, high.antialias]).toEqual(["medium", true, "msaa"]);
+    expect([ultra.ambientOcclusion, ultra.depthOfField, ultra.antialias]).toEqual(["high", true, "msaa"]);
   });
 
   it("skips a tier without a name", () => {

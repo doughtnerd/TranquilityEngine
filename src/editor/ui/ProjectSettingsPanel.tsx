@@ -511,21 +511,23 @@ function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: Editor
   );
 }
 
-const LEVEL_LABELS: Record<string, string> = { off: "Off", low: "Low", medium: "Medium", high: "High", ultra: "Ultra", msaa: "MSAA" };
+const LEVEL_LABELS: Record<string, string> = { off: "Off", low: "Low", medium: "Medium", high: "High", ultra: "Ultra", msaa: "MSAA", smaa: "SMAA", fxaa: "FXAA" };
 const ANISOTROPY_LEVELS = [1, 2, 4, 8, 16];
+const AO_OPTIONS = ["off", "low", "medium", "high", "ultra"] as const;
 
-/** The graphics quality tiers (ADR 0050), lowest first, as a compact table. */
+/** The graphics quality tiers (ADR 0050), lowest first, as compact cards. */
 function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: (label: string, next: SettingsDraft) => void }) {
   const { draft, problems, set } = props;
   const g = graphicsOf(draft);
   const value = (i: number, key: TierValueKey, v: unknown) => set(`Set ${g.tiers[i].name} ${key}`, setTierValue(draft, i, key, v));
-  const choice = (i: number, key: TierValueKey, label: string, options: readonly (string | number)[]) => {
+  const choice = (i: number, key: TierValueKey, label: string, options: readonly (string | number)[], disabled = false) => {
     const name = g.tiers[i].name;
     const current = g.tiers[i][key];
     return (
       <select
         aria-label={`${name} ${label}`}
         value={String(current)}
+        disabled={disabled}
         onChange={(e) => {
           const raw = (e.currentTarget as HTMLSelectElement).value;
           value(i, key, typeof current === "number" ? Number(raw) : raw);
@@ -539,6 +541,15 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
       </select>
     );
   };
+  const toggle = (i: number, key: "postProcessing" | "bloom" | "depthOfField", label: string, disabled = false) => (
+    <input
+      type="checkbox"
+      aria-label={`${g.tiers[i].name} ${label}`}
+      checked={g.tiers[i][key]}
+      disabled={disabled}
+      onChange={(e) => value(i, key, (e.currentTarget as HTMLInputElement).checked)}
+    />
+  );
   return (
     <div class={`project-settings-list project-settings-tiers${problems.length ? " invalid" : ""}`} role="group" aria-label="Graphics tiers">
       <Row label="Default tier" problems={[]}>
@@ -550,45 +561,71 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
           ))}
         </select>
       </Row>
-      <div class="tier-row tier-head" aria-hidden="true">
-        <span>Name</span>
-        <span>Render scale</span>
-        <span>Anti-aliasing</span>
-        <span>Shadows</span>
-        <span>Anisotropy</span>
-        <span>Shader level</span>
-        <span />
-      </div>
       {g.tiers.map((t, i) => (
-        <div key={i} class="tier-row" data-tier={t.name}>
-          <TextField value={t.name} label={`Tier ${i + 1} name`} onCommit={(v) => set(`Rename tier to ${v.trim()}`, renameTier(draft, i, v.trim()))} />
-          <input
-            type="number"
-            min={0.25}
-            max={2}
-            step={0.05}
-            aria-label={`${t.name} render scale`}
-            value={t.renderScale}
-            onChange={(e) => {
-              const n = (e.currentTarget as HTMLInputElement).valueAsNumber;
-              if (Number.isFinite(n)) value(i, "renderScale", n);
-            }}
-          />
-          {choice(i, "antialias", "anti-aliasing", ANTIALIAS_MODES)}
-          {choice(i, "shadows", "shadows", SHADOW_QUALITIES)}
-          {choice(i, "anisotropy", "anisotropy", ANISOTROPY_LEVELS)}
-          {choice(i, "shaderLevel", "shader level", SHADER_LEVELS)}
-          <span class="tier-buttons">
-            <button class="icon" aria-label={`Move ${t.name} up`} title="Move up (lower quality)" disabled={i === 0} onClick={() => set("Reorder tiers", moveTier(draft, i, -1))}>
-              ↑
-            </button>
-            <button class="icon" aria-label={`Move ${t.name} down`} title="Move down (higher quality)" disabled={i === g.tiers.length - 1} onClick={() => set("Reorder tiers", moveTier(draft, i, 1))}>
-              ↓
-            </button>
-            <button class="icon" aria-label={`Remove ${t.name}`} title="Remove this tier" disabled={g.tiers.length <= 1} onClick={() => set(`Remove tier ${t.name}`, removeTier(draft, i))}>
-              ×
-            </button>
-          </span>
+        <div key={i} class="tier-card" data-tier={t.name}>
+          <div class="tier-card-head">
+            <TextField value={t.name} label={`Tier ${i + 1} name`} onCommit={(v) => set(`Rename tier to ${v.trim()}`, renameTier(draft, i, v.trim()))} />
+            <span class="tier-buttons">
+              <button class="icon" aria-label={`Move ${t.name} up`} title="Move up (lower quality)" disabled={i === 0} onClick={() => set("Reorder tiers", moveTier(draft, i, -1))}>
+                ↑
+              </button>
+              <button class="icon" aria-label={`Move ${t.name} down`} title="Move down (higher quality)" disabled={i === g.tiers.length - 1} onClick={() => set("Reorder tiers", moveTier(draft, i, 1))}>
+                ↓
+              </button>
+              <button class="icon" aria-label={`Remove ${t.name}`} title="Remove this tier" disabled={g.tiers.length <= 1} onClick={() => set(`Remove tier ${t.name}`, removeTier(draft, i))}>
+                ×
+              </button>
+            </span>
+          </div>
+          <div class="tier-fields">
+            <label>
+              <span class="tier-label">Render scale</span>
+              <input
+                type="number"
+                min={0.25}
+                max={2}
+                step={0.05}
+                aria-label={`${t.name} render scale`}
+                value={t.renderScale}
+                onChange={(e) => {
+                  const n = (e.currentTarget as HTMLInputElement).valueAsNumber;
+                  if (Number.isFinite(n)) value(i, "renderScale", n);
+                }}
+              />
+            </label>
+            <label>
+              <span class="tier-label">Anti-aliasing</span>
+              {choice(i, "antialias", "anti-aliasing", ANTIALIAS_MODES)}
+            </label>
+            <label>
+              <span class="tier-label">Shadows</span>
+              {choice(i, "shadows", "shadows", SHADOW_QUALITIES)}
+            </label>
+            <label>
+              <span class="tier-label">Anisotropy</span>
+              {choice(i, "anisotropy", "anisotropy", ANISOTROPY_LEVELS)}
+            </label>
+            <label>
+              <span class="tier-label">Shader level</span>
+              {choice(i, "shaderLevel", "shader level", SHADER_LEVELS)}
+            </label>
+            <label>
+              <span class="tier-label">Post-processing</span>
+              {toggle(i, "postProcessing", "post-processing")}
+            </label>
+            <label class={t.postProcessing ? "" : "disabled"}>
+              <span class="tier-label">Bloom</span>
+              {toggle(i, "bloom", "bloom", !t.postProcessing)}
+            </label>
+            <label class={t.postProcessing ? "" : "disabled"}>
+              <span class="tier-label">Ambient occlusion</span>
+              {choice(i, "ambientOcclusion", "ambient occlusion", AO_OPTIONS, !t.postProcessing)}
+            </label>
+            <label class={t.postProcessing ? "" : "disabled"}>
+              <span class="tier-label">Depth of field</span>
+              {toggle(i, "depthOfField", "depth of field", !t.postProcessing)}
+            </label>
+          </div>
         </div>
       ))}
       <button onClick={() => set("Add tier", addTier(draft))}>Add Tier</button>
