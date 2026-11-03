@@ -23,6 +23,7 @@ All decision records 0001–0024 are Accepted as of 2026-10-31.
 | O13 | Does "never expose three.js" (0010) also apply to physics and audio libraries? 0005 still allows a backend escape hatch for physics-specific features | Same rule: no Rapier/PhysX/Howler types in the public API | [0005](../decisions/0005-physics-backend.md), [0010](../decisions/0010-engine-graph-authoritative-over-threejs.md) |
 | ~~O14~~ | ~~How a project folder becomes a playable game build (the sample has none since 0031)~~ | Resolved: a static web build (a prebuilt player plus the project's files and compiled scripts, `npm run export` or the editor's Export…), packaged for desktop through a generated Tauri project | [0041](../decisions/0041-game-builds.md) |
 | O15 | How a server World created at runtime (from a template) starts listening, e.g. a match World on the dedicated server. `WorldHandle` can `connect` but not `listen`, so `myco-server` only serves the bootstrap's server Worlds and logs the rest | A `WorldHandle.listen(transport, options)` like Unity's `NetworkStreamDriver.Listen`, with matchmaking (v2) | [0033](../decisions/0033-server-authoritative-netcode.md) |
+| O16 | GPU particles / a Unity-style VFX Graph (operators, millions of particles, GPU events). WebGL2 has no compute shaders | Deferred by the owner (2026-11-03). When taken up: texture-based simulation on WebGL2 behind a compiler that could target WebGPU later, reusing the particle graph's editor layer | [0057](../decisions/0057-particle-effects-and-the-particlesystem-component.md), [0058](../decisions/0058-particle-graph-editor.md) |
 
 ## Resolved (2026-10-31)
 
@@ -44,7 +45,7 @@ All decision records 0001–0024 are Accepted as of 2026-10-31.
 | Scene format versioning | Version + migrations | [0013](../decisions/0013-data-driven-scene-format.md) |
 | UI | In-canvas only, pmndrs uikit | [0020](../decisions/0020-in-canvas-ui-with-uikit.md) |
 | Renderer | `WebGLRenderer` (WebGL2) for v1 | [0004](../decisions/0004-threejs-render-pipeline.md) |
-| Particles | three.quarks | [0021](../decisions/0021-particles-with-three-quarks.md) |
+| Particles | three.quarks; effects are `*.particles.json` assets edited in a particle graph (Proposed) | [0021](../decisions/0021-particles-with-three-quarks.md), [0057](../decisions/0057-particle-effects-and-the-particlesystem-component.md), [0058](../decisions/0058-particle-graph-editor.md) |
 | Sprite batching | Instanced per atlas | [0014](../decisions/0014-unified-2d-and-3d.md) |
 | Saves/settings | Platform Storage API (Tauri files, browser IndexedDB) | [0024](../decisions/0024-storage-via-platform-adapter.md) |
 | Asset references | Paths for v1, bundled by Vite | [0013](../decisions/0013-data-driven-scene-format.md) |
