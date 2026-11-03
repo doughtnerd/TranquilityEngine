@@ -1,7 +1,7 @@
 // The Hierarchy's menus (ADR 0022): the "+" Create menu in its header and the right-click menu on
 // rows and empty space. Same look and keys as the Assets panel's menu (`.context-menu`).
 import { signal } from "@preact/signals";
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
 import { deleteSelected } from "../deleteSelection";
 import { copySelection, createNodeIn, cutSelection, duplicateSelection, nodeClipboard, pasteClipboardAt, whyNotPasteAt } from "../hierarchyActions";
 import { NEW_NODE_KINDS, whyNotCreatable } from "../nodeCreate";
@@ -118,8 +118,15 @@ export function HierarchyMenu() {
       window.removeEventListener("blur", close);
     };
   }, [m]);
+  // Keep it on screen: measured once drawn, moved up to fit, and scrolling when taller than the window.
+  useLayoutEffect(() => {
+    const menu = el.current;
+    if (!menu) return;
+    const r = menu.getBoundingClientRect();
+    if (r.bottom > window.innerHeight - 4) menu.style.top = `${Math.max(4, window.innerHeight - r.height - 4)}px`;
+  }, [m]);
   if (!m) return null;
-  // Keep it on screen.
+  // A first guess before it's measured.
   const rows = m.items.filter((i) => !i.separator).length, seps = m.items.length - rows;
   const x = Math.min(m.x, window.innerWidth - 230), y = Math.min(m.y, window.innerHeight - rows * 24 - seps * 9 - 12);
   return (
