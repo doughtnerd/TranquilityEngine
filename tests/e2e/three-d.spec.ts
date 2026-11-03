@@ -141,12 +141,12 @@ test("dropping an FBX model in the viewport adds a node with a child per mesh; a
   await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("0");
 
   await page.locator('.tree .row[data-key="robot-2-head"]').click();
-  await expect(card(page, "MeshRenderer").getByRole("textbox", { name: "mesh" })).toHaveValue("models/robot.fbx#Head");
+  await expect(card(page, "MeshRenderer").getByRole("combobox", { name: "mesh" })).toHaveValue("models/robot.fbx#Head");
   await expect.poll(async () => (await drawnMeshes(page)).filter((n) => n === "Head").length).toBe(1);
 
   await page.locator(".asset-tile", { hasText: "crate.obj" }).getByRole("button", { name: /^Add crate/ }).click();
   await expect(page.locator(".tree .row.selected .name")).toHaveText("Crate");
-  await expect(card(page, "MeshRenderer").getByRole("textbox", { name: "mesh" })).toHaveValue("models/crate.obj");
+  await expect(card(page, "MeshRenderer").getByRole("combobox", { name: "mesh" })).toHaveValue("models/crate.obj");
   await page.keyboard.press("ControlOrMeta+z");
   await expect(row(page, "Crate")).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -240,7 +240,7 @@ test("sphere and capsule collider handles set the radius and height; lights from
   await page.getByRole("button", { name: "Create node" }).click();
   await menuItem(page, "Create Spot Light").click();
   await expect(page.locator(".tree .row.selected .name")).toHaveText("Spot Light");
-  await expect(card(page, "Light").getByRole("combobox", { name: "type" })).toHaveValue("spot");
+  await expect(card(page, "Light").getByRole("combobox", { name: "type" }).locator("option:checked")).toHaveText("spot");
   await expect
     .poll(() =>
       page.evaluate(() => {

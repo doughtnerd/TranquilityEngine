@@ -37,12 +37,14 @@ import {
 import { Assets, normalizeAssetPath, sidecarValue } from "./Assets";
 import { splitSpriteRef, type ImportSettings } from "./importSettings";
 
-/** True for a model file the engine imports. */
+/** @internal True for a model file the engine imports. */
 export const isModelPath = (path: string): boolean => /\.(obj|fbx)$/i.test(splitSpriteRef(path).path);
 
+/** @internal */
 export const BUILTIN_PREFIX = "builtin:";
-/** The engine's own meshes, by the name after `builtin:`. */
+/** @internal The engine's own meshes, by the name after `builtin:`. */
 export const BUILTIN_MESHES = ["cube", "sphere", "capsule", "cylinder", "plane", "quad"] as const;
+/** @internal */
 export type BuiltinMesh = (typeof BUILTIN_MESHES)[number];
 
 /** @internal One mesh of a model, in model space. */
@@ -270,7 +272,7 @@ async function parseModel(path: string, url: string, settings: ImportSettings): 
   return data;
 }
 
-/** The model's meshes with their place in the file and the import settings baked into copies of their geometry. */
+/** @internal The model's meshes with their place in the file and the import settings baked into copies of their geometry. */
 export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale" | "upAxis" | "normals">): ModelData {
   root.updateMatrixWorld(true);
   const importMatrix = new Matrix4().makeScale(settings.scale, settings.scale, settings.scale);
