@@ -3,8 +3,11 @@
  * `"asset:images/bird.png"`, relative to the game's asset root).
  *
  * The game registers one or more sources at startup, usually `Assets.fromGlob` over a Vite
- * `import.meta.glob` of its asset folder (ADR 0015).
+ * `import.meta.glob` of its asset folder (ADR 0015). Import settings sidecars (`*.meta.json`,
+ * ADR 0040) are JSON assets like any other, so the same glob carries them.
  */
+import { defaultImportSettings, parseImportSettings, sidecarPath, splitSpriteRef, type ImportSettings } from "./importSettings";
+
 export interface AssetSource {
   has(path: string): boolean;
   /** Parsed JSON for `.json` files, a URL string for binary assets. */
@@ -16,6 +19,24 @@ const sources: AssetSource[] = [];
 /** Strip the `asset:` prefix and leading `./` or `/`. */
 export function normalizeAssetPath(path: string): string {
   return path.replace(/^asset:/, "").replace(/^\.?\//, "");
+}
+
+const defaults: ImportSettings = Object.freeze({ ...defaultImportSettings(), pivot: Object.freeze([0.5, 0.5]) as [number, number], sprites: Object.freeze([]) as unknown as [] });
+/** Parsed sidecars by their raw JSON value, so a sidecar rewritten in the editor is parsed again. */
+const parsedSidecars = new WeakMap<object, ImportSettings>();
+
+/**
+ * @internal The raw JSON of the sidecar for `path` (a slice reference reads its image's), or
+ * undefined if there's none. The same object until the sidecar changes, so it can be compared.
+ */
+export function sidecarValue(path: string): object | undefined {
+  const p = sidecarPath(splitSpriteRef(path).path);
+  for (const s of sources) {
+    if (!s.has(p)) continue;
+    const v = s.get(p);
+    return typeof v === "object" && v !== null ? v : undefined;
+  }
+  return undefined;
 }
 
 export const Assets = {
@@ -50,6 +71,30 @@ export const Assets = {
     if (typeof v === "string") return v;
     if (v && typeof (v as { default?: unknown }).default === "string") return (v as { default: string }).default;
     throw new Error(`Asset "${normalizeAssetPath(path)}" is not a binary asset.`);
+  },
+
+  /**
+   * An asset's import settings (ADR 0040), read from its sidecar `<path>.meta.json`; the defaults
+   * when it has none. A slice reference (`images/a.png#walk_0`) reads its image's. Problems in
+   * the sidecar are reported once each as warnings, and the defaults used for those values.
+   */
+  importSettings(path: string): ImportSettings {
+    const raw = sidecarValue(path);
+    if (raw === undefined) return defaults;
+    let cached = parsedSidecars.get(raw);
+    if (!cached) {
+      const where = sidecarPath(splitSpriteRef(path).path);
+      try {
+        const { settings, problems } = parseImportSettings(raw, where);
+        for (const p of problems) console.warn(`[myco] ${p}`);
+        cached = settings;
+      } catch (err) {
+        console.warn(`[myco] ${(err as Error).message} Using the defaults.`);
+        cached = defaults;
+      }
+      parsedSidecars.set(raw, cached);
+    }
+    return cached;
   },
 
   /** Parsed JSON asset (scenes, prefabs, project settings). */

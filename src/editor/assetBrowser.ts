@@ -1,12 +1,27 @@
 // Asset browser logic (ADR 0022): the project's files as a folder tree, search, and the scene
 // nodes that adding an asset creates. No UI here; `ui/Assets.tsx` renders it.
+import { isSidecarPath } from "../engine/scene/importSettings";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export type AssetKind = "scene" | "prefab" | "image" | "audio" | "json" | "script" | "javascript" | "other";
+export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "json" | "script" | "javascript" | "other";
+
+/** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
+export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
+/** True for a slice entry (an image path with `#name`). */
+export const isSliceEntry = (entry: string) => entry.includes("#") && assetKind(entry) === "sprite";
+/** The image a slice entry belongs to, and the slice's name. */
+export function splitSliceEntry(entry: string): { image: string; slice: string } {
+  const i = entry.indexOf("#");
+  return { image: entry.slice(0, i), slice: entry.slice(i + 1) };
+}
+/** Files the Assets panel lists: everything but import settings sidecars, which travel with their files. */
+export const listedFiles = (files: readonly string[]) => files.filter((f) => !isSidecarPath(f));
 
 export function assetKind(path: string): AssetKind {
+  const hash = path.indexOf("#");
+  if (hash >= 0) return assetKind(path.slice(0, hash)) === "image" ? "sprite" : "other";
   const p = path.toLowerCase();
   if (p.endsWith(".scene.json")) return "scene";
   if (p.endsWith(".prefab.json")) return "prefab";
@@ -130,11 +145,15 @@ export function audioNodeEntry(doc: SceneDocument, audioPath: string, position: 
   };
 }
 
-/** A sprite node showing an image: a Transform at `position` and a SpriteRenderer sized by pixels per unit. */
+/**
+ * A sprite node showing an image, or a slice of one (`images/sheet.png#walk_0`, named after the
+ * slice): a Transform at `position` and a SpriteRenderer sized by pixels per unit.
+ */
 export function spriteNodeEntry(doc: SceneDocument, imagePath: string, position: readonly [number, number, number] = [0, 0, 0]): NodeEntry {
-  const name = fileName(imagePath).replace(/\.[^.]+$/, "");
+  const slice = imagePath.includes("#") ? splitSliceEntry(imagePath).slice : null;
+  const name = slice ?? fileName(imagePath).replace(/\.[^.]+$/, "");
   return {
-    id: uniqueId(doc, idBase(imagePath)),
+    id: uniqueId(doc, slice !== null ? idBase(`${slice}.x`) : idBase(imagePath)),
     name: name.charAt(0).toUpperCase() + name.slice(1),
     components: [
       { type: "engine.Transform", data: { position: [...position] } },
@@ -144,7 +163,7 @@ export function spriteNodeEntry(doc: SceneDocument, imagePath: string, position:
 }
 
 /** True for assets that have a scene node to become: prefabs and scenes, images, audio. */
-export const canAddToScene = (path: string) => ["prefab", "scene", "image", "audio"].includes(assetKind(path));
+export const canAddToScene = (path: string) => ["prefab", "scene", "image", "sprite", "audio"].includes(assetKind(path));
 
 /**
  * Why `path` can't be added to the document, or null if it can: assets with no node type, and
@@ -175,6 +194,7 @@ export function nodeForAsset(doc: SceneDocument, path: string, options: AddOptio
     case "scene":
       return prefabInstanceEntry(doc, path, options.placeInstances ? options.position : undefined);
     case "image":
+    case "sprite":
       return spriteNodeEntry(doc, path, options.position);
     case "audio":
       return audioNodeEntry(doc, path, options.position);

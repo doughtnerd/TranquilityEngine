@@ -1,6 +1,7 @@
 import { World } from "../core/World";
 import { ensurePhysics2D } from "../physics/Physics2DWorld";
 import type { GameObject } from "./GameObject";
+import { splitSpriteRef } from "./importSettings";
 import { SceneInstance, collectAssetRefs, instantiateFile, loadSceneFile } from "./SceneLoader";
 
 export interface LoadSceneOptions {
@@ -43,7 +44,8 @@ export class SceneManager {
     if (file.settings?.physics === "2d") await ensurePhysics2D(world);
     if (file.settings?.physics === "3d") console.warn(`[myco] ${path}: 3D physics is not implemented yet; scene loads without it.`);
 
-    const images = [...collectAssetRefs(path)].filter((p) => IMAGE.test(p));
+    // A slice reference (`images/sheet.png#walk_0`, ADR 0040) preloads its image.
+    const images = [...new Set([...collectAssetRefs(path)].map((p) => splitSpriteRef(p).path))].filter((p) => IMAGE.test(p));
     if (world.render && images.length) await world.render.preloadTextures(images, options.onProgress);
     options.onProgress?.(1);
 

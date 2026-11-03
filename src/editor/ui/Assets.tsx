@@ -1,7 +1,8 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
-import { useEffect, useRef } from "preact/hooks";
-import { addAssetToScene, assetKind, canAddToScene, fileName, folderOf, searchFiles, type AssetKind } from "../assetBrowser";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { addAssetToScene, assetKind, canAddToScene, fileName, folderOf, isSliceEntry, listedFiles, searchFiles, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
+import { importKind, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { deleteAssets, entryPath, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "../assetDelete";
 import { assetClipboard, duplicateAssets, newFolder, pasteAssets, renameAsset, splitExtension } from "../assetOps";
@@ -31,14 +32,16 @@ import { createScene } from "../newScene";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { switchScene } from "../session";
-import { currentProject, docVersion, openScene, playState, sceneCamera, scriptsVersion, selection, status } from "../state";
+import { currentProject, docVersion, openScene, playState, sceneCamera, scriptsVersion, select as selectNodes, selection, status } from "../state";
 import "./assets.css";
+import "./assetSlices.css";
 
 const KIND_LABELS: Record<AssetKind | "folder", string> = {
   folder: "Folder",
   scene: "Scene",
   prefab: "Prefab",
   image: "Image",
+  sprite: "Sprite",
   audio: "Audio",
   json: "JSON",
   script: "Script",
@@ -57,6 +60,15 @@ interface MenuItem {
 }
 const menu = signal<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
+/** Images whose slices are listed under them (ADR 0040). */
+const expandedImages = signal<ReadonlySet<string>>(new Set());
+
+/** The slices of an image, from its sidecar (ADR 0040). */
+const slicesOf = (project: EditorProject, image: string) => (assetKind(image) === "image" ? readImportSettings(project, image).settings.sprites : []);
+
+/** Entries that are files or folders: slices are listed, but they aren't files to rename, move, copy or delete. */
+const fileEntries = (entries: readonly string[]) => entries.filter((e) => !isSliceEntry(e));
+
 /** The selection box while dragging on empty space, in client pixels. */
 const box = signal<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
@@ -67,27 +79,32 @@ const dropTarget = (path: string) => {
 };
 
 const kindOf = (entry: string): AssetKind | "folder" => (isFolderEntry(entry) ? "folder" : assetKind(entry));
-const nameOf = (entry: string) => fileName(entryPath(entry));
+const nameOf = (entry: string) => (isSliceEntry(entry) ? splitSliceEntry(entry).slice : fileName(entryPath(entry)));
 const toggleKey = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.metaKey;
 
 /** What the panel lists: the folder's subfolders then its files, or the search results. */
 function listedEntries(project: EditorProject, folder: string, query: string): string[] {
-  const files = [...project.files, ...project.scripts.keys()];
+  // Sidecars (`*.meta.json`) travel with their files and aren't listed (ADR 0040).
+  const files = [...listedFiles(project.files), ...project.scripts.keys()];
   if (query.trim()) return searchFiles(files.sort(), query);
   const subfolders = project.folders.filter((f) => parentFolder(f) === folder).sort((a, b) => fileName(a).localeCompare(fileName(b)));
   const here = files.filter((f) => folderOf(f) === folder).sort((a, b) => fileName(a).localeCompare(fileName(b)));
-  return [...subfolders.map((f) => `${f}/`), ...here];
+  // An expanded image's slices follow it.
+  const withSlices = here.flatMap((f) => (expandedImages.value.has(f) ? [f, ...slicesOf(project, f).map((s) => sliceEntry(f, s.name))] : [f]));
+  return [...subfolders.map((f) => `${f}/`), ...withSlices];
 }
 
 /** Open an entry: a folder shows, scenes and prefabs open in the scene view, code files in the Code panel. */
 function openEntry(entry: string): void {
   if (isFolderEntry(entry)) return openFolder(entryPath(entry));
+  if (isSliceEntry(entry)) return openSpriteEditor(splitSliceEntry(entry).image);
   const kind = assetKind(entry);
+  if (kind === "image") return openSpriteEditor(entry);
   if (kind === "script" || kind === "json" || kind === "javascript") openScript(entry);
   else if (kind === "scene" || kind === "prefab") void switchScene(entry);
 }
 
-const opens = (entry: string) => isFolderEntry(entry) || ["scene", "prefab", "script", "json", "javascript"].includes(assetKind(entry));
+const opens = (entry: string) => isFolderEntry(entry) || ["scene", "prefab", "script", "json", "javascript", "image", "sprite"].includes(assetKind(entry));
 
 /** Why `entries` can't be changed (renamed, moved, deleted), or null. */
 function whyNotEditable(project: EditorProject, entries: readonly string[]): string | null {
@@ -139,9 +156,15 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
       ...(fs?.reveal && project.root ? [{ label: "Show in File Manager", run: reveal(folderPath.value) }] : []),
     ];
   }
+  if (entries.every(isSliceEntry)) {
+    const image = splitSliceEntry(entries[0]).image;
+    return [{ label: "Sprite Editor…", shortcut: "Enter", run: () => openSpriteEditor(image) }];
+  }
+  entries = fileEntries(entries);
   const editable = whyNotEditable(project, entries);
+  const sliceable = entries.length === 1 && assetKind(entries[0]) === "image";
   return [
-    ...(entries.length === 1 && opens(entries[0]) ? [{ label: "Open", shortcut: "Enter", run: () => openEntry(entries[0]) }] : []),
+    ...(entries.length === 1 && opens(entries[0]) ? [{ label: sliceable ? "Sprite Editor…" : "Open", shortcut: "Enter", run: () => openEntry(entries[0]) }] : []),
     { label: "Rename", shortcut: "F2", disabled: entries.length > 1 ? "rename one at a time" : editable, run: () => startRename(entries[0]) },
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: readOnly, run: () => void duplicateAssets(entries).then((made) => made.length > 0 && select(made)) },
     { label: "", separator: true },
@@ -310,7 +333,8 @@ function FolderItem(props: { project: EditorProject; folders: readonly string[];
 
 /** Delete the selection (asking first); disabled, with the reason, when it can't be. */
 function DeleteButton(props: { project: EditorProject; selected: readonly string[] }) {
-  const { project, selected } = props;
+  const { project } = props;
+  const selected = fileEntries(props.selected);
   const reason = whyNotEditable(project, selected);
   const what = selected.length === 1 ? entryPath(selected[0]) : `${selected.length} items`;
   return (
@@ -336,7 +360,8 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
 
   const onKeyDown = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement).closest("input, textarea")) return;
-    const sel = selectedAssets.value.filter((x) => entries.includes(x));
+    const listed = selectedAssets.value.filter((x) => entries.includes(x));
+    const sel = fileEntries(listed);
     const handled = () => {
       e.preventDefault();
       e.stopPropagation(); // not the editor's shortcuts (Delete would delete the scene's selection)
@@ -367,8 +392,8 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
     }
     if ((e.key === "Delete" || e.key === "Backspace") && !e.shiftKey && sel.length > 0) return (handled(), void deleteAssets(sel));
     if (e.key === "F2" && sel.length === 1 && !whyNotEditable(project, sel)) return (handled(), startRename(sel[0]));
-    if (e.key === "Enter" && sel.length === 1) return (handled(), openEntry(sel[0]));
-    if (e.key === "Escape" && sel.length > 0) return (handled(), select([]));
+    if (e.key === "Enter" && listed.length === 1) return (handled(), openEntry(listed[0]));
+    if (e.key === "Escape" && listed.length > 0) return (handled(), select([]));
   };
 
   /** Press on empty space: drag a selection box (Shift adds, Ctrl/Cmd toggles); a click clears the selection. */
@@ -469,7 +494,11 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
   const { project, entry, entries, selected, showFolder } = props;
   const kind = kindOf(entry);
   const path = entryPath(entry);
-  const url = isFolderEntry(entry) ? undefined : project.assets.get(path);
+  const slice = isSliceEntry(entry) ? splitSliceEntry(entry) : null;
+  const url = isFolderEntry(entry) ? undefined : project.assets.get(slice ? slice.image : path);
+  const sliceRect = slice ? slicesOf(project, slice.image).find((s) => s.name === slice.slice)?.rect : undefined;
+  const sliceCount = kind === "image" ? slicesOf(project, path).length : 0;
+  const expanded = expandedImages.value.has(path);
   const open = openScene.value?.path === entry;
   const cut = !!assetClipboard.value?.cut && assetClipboard.value.entries.includes(entry);
   const addable = !isFolderEntry(entry) && canAddToScene(entry);
@@ -505,6 +534,8 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         const mods = { shift: e.shiftKey, toggle: toggleKey(e) };
         const next = clickSelection(entries, sel, assetAnchor.value, entry, mods);
         select(next.selected, entry, next.anchor);
+        // Clicking one image or audio file shows its import settings, in place of the selected node (ADR 0040).
+        if (!mods.shift && !mods.toggle && next.selected.length === 1 && importKind(slice ? slice.image : path)) selectNodes([]);
       }}
       onDblClick={() => openEntry(entry)}
       onContextMenu={(e) => {
@@ -514,8 +545,32 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
       }}
     >
       <div class="asset-thumb">
-        {kind === "image" && typeof url === "string" ? <img src={url} alt="" draggable={false} /> : <span class="asset-kind">{KIND_LABELS[kind]}</span>}
+        {kind === "image" && typeof url === "string" ? (
+          <img src={url} alt="" draggable={false} />
+        ) : slice && sliceRect && typeof url === "string" ? (
+          <SliceThumb url={url} rect={sliceRect} />
+        ) : (
+          <span class="asset-kind">{KIND_LABELS[kind]}</span>
+        )}
       </div>
+      {sliceCount > 0 && (
+        <button
+          class={`asset-expand${expanded ? " expanded" : ""}`}
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Hide" : "Show"} the slices of ${nameOf(entry)}`}
+          title={`${sliceCount} slice${sliceCount === 1 ? "" : "s"}`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            const next = new Set(expandedImages.value);
+            if (expanded) next.delete(path);
+            else next.add(path);
+            expandedImages.value = next;
+          }}
+        >
+          {expanded ? "▾" : "▸"} {sliceCount}
+        </button>
+      )}
       {renamingAsset.value === entry ? <RenameInput entry={entry} /> : <span class="asset-name">{nameOf(entry)}</span>}
       {list && <span class="asset-col-kind">{KIND_LABELS[kind]}</span>}
       {list && <span class="asset-col-size">{isFolderEntry(entry) ? "" : formatSize(project.sizeOf(path))}</span>}
@@ -536,6 +591,31 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         </button>
       )}
     </li>
+  );
+}
+
+/** Natural sizes of images by URL, for slice thumbnails. */
+const imageSizes = new Map<string, [number, number]>();
+
+/** A slice's part of its image, scaled to fit the thumbnail (ADR 0040). */
+function SliceThumb(props: { url: string; rect: readonly [number, number, number, number] }) {
+  const { url, rect } = props;
+  const [size, setSize] = useState(imageSizes.get(url) ?? null);
+  useEffect(() => {
+    if (size) return;
+    const img = new Image();
+    img.onload = () => {
+      imageSizes.set(url, [img.naturalWidth, img.naturalHeight]);
+      setSize([img.naturalWidth, img.naturalHeight]);
+    };
+    img.src = url;
+  }, [url]);
+  if (!size) return null;
+  // An SVG viewBox on the slice's rectangle scales just that part to the thumbnail.
+  return (
+    <svg class="asset-slice-thumb" viewBox={`${rect[0]} ${rect[1]} ${rect[2]} ${rect[3]}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <image href={url} width={size[0]} height={size[1]} style={{ imageRendering: "pixelated" }} />
+    </svg>
   );
 }
 

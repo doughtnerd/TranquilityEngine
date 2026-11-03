@@ -32,6 +32,8 @@ import {
 } from "../componentEdits";
 import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
+import { AssetInspector } from "./AssetInspector";
+import { showsAssetInspector } from "../assetImport";
 import { openScript, scriptFor } from "../code/codeState";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
 import { currentProject, docVersion, editingCollider, openScene, scriptsVersion, selectedKeys, selection, status, type OpenScene } from "../state";
@@ -47,6 +49,7 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
  * selected node in one undo step.
  */
 export function Inspector() {
+  if (showsAssetInspector()) return <AssetInspector />; // an image or audio file selected in the Assets panel (ADR 0040)
   docVersion.value; // re-render when the document changes
   const scene = openScene.value;
   if (!scene) return <p class="empty">Nothing selected</p>;

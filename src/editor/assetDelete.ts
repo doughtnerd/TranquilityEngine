@@ -29,7 +29,8 @@ const isSceneFile = (json: Record<string, unknown>): json is SceneFile & Record<
 export async function removeReferences(project: EditorProject, path: string): Promise<string[]> {
   const scene = openScene.value;
   const cleaned: string[] = [];
-  const mentions = (text: string | undefined) => !!text && (text.includes(`"${path}"`) || text.includes(`"asset:${path}"`));
+  // Slice references (`"asset:images/sheet.png#walk_0"`, ADR 0040) count too.
+  const mentions = (text: string | undefined) => !!text && [`"${path}"`, `"asset:${path}"`, `"${path}#`, `"asset:${path}#`].some((q) => text.includes(q));
   for (const file of project.files) {
     if (!file.endsWith(".json") || file === scene?.path || !mentions(project.textOf(file))) continue;
     const json = JSON.parse(project.textOf(file)!) as Record<string, unknown>;
@@ -74,7 +75,7 @@ export function whyNotDeletableAsset(project: EditorProject, path: string, openP
  * scene's unsaved document, if it does.
  */
 export function assetUsers(project: EditorProject, path: string, openDocument?: { path: string; text: string } | null): string[] {
-  const quoted = [`"${path}"`, `"asset:${path}"`, `'${path}'`, `'asset:${path}'`];
+  const quoted = [`"${path}"`, `"asset:${path}"`, `'${path}'`, `'asset:${path}'`, `"${path}#`, `"asset:${path}#`, `'${path}#`, `'asset:${path}#`]; // with slices (ADR 0040)
   const mentions = (text: string | undefined) => !!text && quoted.some((q) => text.includes(q));
   const users = project.files.filter((f) => f !== path && f.endsWith(".json") && mentions(project.textOf(f)));
   for (const [script, text] of project.scripts) if (script !== path && mentions(text)) users.push(script);
