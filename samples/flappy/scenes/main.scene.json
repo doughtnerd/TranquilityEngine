@@ -1,0 +1,138 @@
+{
+  "format": "myco.scene@1",
+  "settings": { "physics": "2d" },
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 0, 10] } },
+        {
+          "type": "engine.Camera",
+          "data": { "projection": "orthographic", "orthographicSize": 10, "backgroundColor": "#4ec0ca" }
+        }
+      ]
+    },
+
+    { "id": "bg-a", "prefab": "prefabs/background.prefab.json" },
+    {
+      "id": "bg-b",
+      "prefab": "prefabs/background.prefab.json",
+      "overrides": [{ "component": "engine.Transform", "field": "position", "value": [32, 3, 0] }]
+    },
+
+    { "id": "ground-a", "prefab": "prefabs/ground.prefab.json" },
+    {
+      "id": "ground-b",
+      "prefab": "prefabs/ground.prefab.json",
+      "overrides": [{ "component": "engine.Transform", "field": "position", "value": [32, -13, 0] }]
+    },
+    {
+      "id": "ground-collider",
+      "name": "GroundCollider",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, -13, 0] } },
+        { "type": "engine.BoxCollider2D", "data": { "size": [40, 10], "layer": "Ground" } }
+      ]
+    },
+    {
+      "id": "ceiling",
+      "name": "Ceiling",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [0, 11, 0] } },
+        { "type": "engine.BoxCollider2D", "data": { "size": [40, 1], "layer": "Bounds" } }
+      ]
+    },
+
+    {
+      "id": "bird",
+      "name": "Bird",
+      "tags": ["Player"],
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [-4, 1, 0] } },
+        {
+          "type": "engine.RigidBody2D",
+          "data": {
+            "bodyType": "dynamic",
+            "mass": 1,
+            "collisionDetection": "continuous",
+            "constraints": { "freezePosition": { "x": true, "y": false }, "freezeRotation": true }
+          }
+        },
+        { "type": "engine.CircleCollider2D", "data": { "radius": 0.7, "layer": "Player" } },
+        { "type": "game.Bird", "data": { "visual": { "$node": "bird-sprite" } } }
+      ]
+    },
+    {
+      "id": "bird-sprite",
+      "name": "Sprite",
+      "parent": "bird",
+      "components": [
+        {
+          "type": "engine.SpriteRenderer",
+          "data": { "sprite": "asset:images/flappyBird.png", "size": [3.4, 3.4], "sortingLayer": "Player" }
+        }
+      ]
+    },
+
+    {
+      "id": "spawner",
+      "name": "PipeSpawner",
+      "transform": false,
+      "components": [{ "type": "game.PipeSpawner", "enabled": false }]
+    },
+
+    {
+      "id": "score",
+      "name": "ScoreLabel",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": {
+            "anchor": "top",
+            "offset": [0, 40],
+            "fontSize": 72,
+            "outlineColor": "#3b2b1a",
+            "outlineWidth": 6
+          }
+        }
+      ]
+    },
+    {
+      "id": "message",
+      "name": "MessageLabel",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": {
+            "anchor": "top",
+            "offset": [0, 150],
+            "fontSize": 34,
+            "outlineColor": "#3b2b1a",
+            "outlineWidth": 5
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "game",
+      "name": "GameManager",
+      "transform": false,
+      "components": [
+        { "type": "game.GameState", "data": { "scrolling": 1 } },
+        {
+          "type": "game.GameManager",
+          "data": {
+            "bird": { "$node": "bird" },
+            "spawner": { "$node": "spawner" },
+            "scoreLabel": { "$node": "score" },
+            "messageLabel": { "$node": "message" }
+          }
+        }
+      ]
+    }
+  ]
+}

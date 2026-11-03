@@ -1,0 +1,292 @@
+// The Project panel's model (ADR 0038): the parts of `project.json` beyond the bootstrap (name,
+// display, time, physics, render, autoloads) as a draft, edited by pure functions, checked, and
+// written back into the file's text one top-level key at a time so the rest keeps its layout.
+import { defaultSettings, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
+import { uniqueName, withMember } from "./worldsConfig";
+
+/** The top-level keys the Project panel edits (the Worlds panel edits `bootstrap`). */
+export const SETTINGS_SECTIONS = ["name", "display", "time", "physics", "render", "autoload", "build"] as const;
+export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+
+/** The panel's sections of `project.json`, as written (missing values fall back to the engine's defaults). */
+export interface SettingsDraft {
+  name?: string;
+  display?: Partial<ProjectSettings["display"]> & Record<string, unknown>;
+  time?: Partial<ProjectSettings["time"]> & Record<string, unknown>;
+  physics?: Partial<ProjectSettings["physics"]> & Record<string, unknown>;
+  render?: Partial<ProjectSettings["render"]> & Record<string, unknown>;
+  autoload?: string[];
+  /** Game export settings (ADR 0041), read by the exporter; other keys in it are kept. */
+  build?: { icon?: string; identifier?: string; version?: string } & Record<string, unknown>;
+}
+
+/** A problem, with the field it's about (`"display.width"`, `"physics.layers.2"`), for highlighting. */
+export interface SettingsProblem {
+  field: string;
+  message: string;
+}
+
+/** Physics layers are bits in a 16-bit collision mask. */
+export const MAX_LAYERS = 16;
+
+/** The panel's sections from parsed `project.json` settings (a deep copy). */
+export function readDraft(settings: ProjectSettingsInput | Record<string, unknown>): SettingsDraft {
+  const out: Record<string, unknown> = {};
+  for (const key of SETTINGS_SECTIONS) {
+    const value = (settings as Record<string, unknown>)[key];
+    if (value !== undefined) out[key] = structuredClone(value);
+  }
+  return out as SettingsDraft;
+}
+
+/** The draft's sections as one comparable string. */
+export const sectionsKey = (draft: SettingsDraft) => JSON.stringify(SETTINGS_SECTIONS.map((k) => draft[k] ?? null));
+
+/**
+ * `project.json`'s text with the draft's sections written in. Only sections that differ from
+ * `previous` (the file's parsed settings) are rewritten; an unset section is removed.
+ */
+export function withSettings(text: string, draft: SettingsDraft, previous: ProjectSettingsInput | Record<string, unknown>): string {
+  let out = text;
+  for (const key of SETTINGS_SECTIONS) {
+    const next = draft[key];
+    if (JSON.stringify(next) === JSON.stringify((previous as Record<string, unknown>)[key])) continue;
+    out = withMember(out, key, next);
+  }
+  return out;
+}
+
+// --- reading values with defaults -----------------------------------------------------------------
+
+export const layersOf = (d: SettingsDraft): string[] => d.physics?.layers ?? defaultSettings.physics.layers;
+export const sortingLayersOf = (d: SettingsDraft): string[] => d.render?.sortingLayers ?? defaultSettings.render.sortingLayers;
+export const autoloadsOf = (d: SettingsDraft): string[] => d.autoload ?? [];
+
+/** Set one value in a section (undefined removes it, so the default applies); drops a section left empty. */
+export function setValue<S extends "display" | "time" | "physics" | "render" | "build">(draft: SettingsDraft, section: S, key: string, value: unknown): SettingsDraft {
+  const next: Record<string, unknown> = { ...(draft[section] ?? {}) };
+  if (value === undefined) delete next[key];
+  else next[key] = value;
+  return { ...draft, [section]: Object.keys(next).length > 0 ? next : undefined };
+}
+
+export function setName(draft: SettingsDraft, name: string): SettingsDraft {
+  return { ...draft, name: name.trim() === "" ? undefined : name.trim() };
+}
+
+// --- physics layers and the collision matrix ------------------------------------------------------
+
+/** Pair key for two layer names, order-free. */
+const pairKey = (a: string, b: string) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
+
+/** Every colliding pair (by name). With no matrix, every layer collides with every layer, itself included. */
+function pairsOf(draft: SettingsDraft): Set<string> {
+  const layers = layersOf(draft);
+  const matrix = draft.physics?.collisionMatrix;
+  const pairs = new Set<string>();
+  if (!matrix) {
+    for (let i = 0; i < layers.length; i++) for (let j = i; j < layers.length; j++) pairs.add(pairKey(layers[i], layers[j]));
+    return pairs;
+  }
+  for (const [a, list] of Object.entries(matrix)) if (Array.isArray(list)) for (const b of list) pairs.add(pairKey(a, b));
+  return pairs;
+}
+
+/** Whether layers `a` and `b` collide (the engine's rule: the matrix is symmetric). */
+export function collides(draft: SettingsDraft, a: string, b: string): boolean {
+  return pairsOf(draft).has(pairKey(a, b));
+}
+
+/** The matrix for a set of pairs: each pair listed under its earlier layer, or none at all when every pair collides. */
+function matrixOf(layers: readonly string[], pairs: Set<string>): Record<string, string[]> | undefined {
+  let all = true;
+  const out: Record<string, string[]> = {};
+  for (let i = 0; i < layers.length; i++) {
+    for (let j = i; j < layers.length; j++) {
+      if (!pairs.has(pairKey(layers[i], layers[j]))) {
+        all = false;
+        continue;
+      }
+      (out[layers[i]] ??= []).push(layers[j]);
+    }
+  }
+  return all ? undefined : out;
+}
+
+function withLayers(draft: SettingsDraft, layers: string[], pairs: Set<string>): SettingsDraft {
+  const physics: Record<string, unknown> = { ...(draft.physics ?? {}), layers };
+  const matrix = matrixOf(layers, pairs);
+  if (matrix === undefined) delete physics.collisionMatrix;
+  else physics.collisionMatrix = matrix;
+  return { ...draft, physics };
+}
+
+export function setCollides(draft: SettingsDraft, a: string, b: string, on: boolean): SettingsDraft {
+  const pairs = pairsOf(draft);
+  if (on) pairs.add(pairKey(a, b));
+  else pairs.delete(pairKey(a, b));
+  const physics: Record<string, unknown> = { ...(draft.physics ?? {}) };
+  const matrix = matrixOf(layersOf(draft), pairs);
+  if (matrix === undefined) delete physics.collisionMatrix;
+  else physics.collisionMatrix = matrix;
+  return { ...draft, physics };
+}
+
+/** Add a layer. It collides with everything until unchecked (with no matrix), or with nothing (with one). */
+export function addLayer(draft: SettingsDraft): SettingsDraft {
+  const layers = layersOf(draft);
+  const name = uniqueName("Layer", layers);
+  const pairs = pairsOf(draft);
+  if (draft.physics?.collisionMatrix === undefined) for (const l of [...layers, name]) pairs.add(pairKey(name, l));
+  return withLayers(draft, [...layers, name], pairs);
+}
+
+/** Rename a layer, in the matrix too. (Colliders name their layer; they aren't updated.) */
+export function renameLayer(draft: SettingsDraft, index: number, name: string): SettingsDraft {
+  const layers = [...layersOf(draft)];
+  const old = layers[index];
+  if (old === undefined || old === name) return draft;
+  layers[index] = name;
+  const rename = (n: string) => (n === old ? name : n);
+  const pairs = new Set([...pairsOf(draft)].map((k) => k.split("\u0000")).map(([a, b]) => pairKey(rename(a), rename(b))));
+  return withLayers(draft, layers, pairs);
+}
+
+export function removeLayer(draft: SettingsDraft, index: number): SettingsDraft {
+  const layers = layersOf(draft);
+  const gone = layers[index];
+  if (gone === undefined || layers.length <= 1) return draft;
+  const pairs = new Set([...pairsOf(draft)].filter((k) => !k.split("\u0000").includes(gone)));
+  return withLayers(draft, layers.filter((_, i) => i !== index), pairs);
+}
+
+export function setGravity(draft: SettingsDraft, axis: 0 | 1, value: number): SettingsDraft {
+  const gravity: [number, number] = [...(draft.physics?.gravity ?? defaultSettings.physics.gravity)];
+  gravity[axis] = value;
+  return setValue(draft, "physics", "gravity", gravity);
+}
+
+// --- lists: sorting layers, autoloads --------------------------------------------------------------
+
+function moved<T>(list: readonly T[], index: number, by: number): T[] {
+  const to = index + by;
+  if (to < 0 || to >= list.length) return [...list];
+  const out = [...list];
+  const [item] = out.splice(index, 1);
+  out.splice(to, 0, item);
+  return out;
+}
+
+export const addSortingLayer = (d: SettingsDraft) => setValue(d, "render", "sortingLayers", [...sortingLayersOf(d), uniqueName("Layer", sortingLayersOf(d))]);
+export const renameSortingLayer = (d: SettingsDraft, index: number, name: string) =>
+  setValue(d, "render", "sortingLayers", sortingLayersOf(d).map((l, i) => (i === index ? name : l)));
+export const removeSortingLayer = (d: SettingsDraft, index: number) => setValue(d, "render", "sortingLayers", sortingLayersOf(d).filter((_, i) => i !== index));
+/** Move a sorting layer towards the back (-1) or front (+1). */
+export const moveSortingLayer = (d: SettingsDraft, index: number, by: number) => setValue(d, "render", "sortingLayers", moved(sortingLayersOf(d), index, by));
+
+export const addAutoload = (d: SettingsDraft, path: string): SettingsDraft => ({ ...d, autoload: [...autoloadsOf(d), path] });
+export const removeAutoload = (d: SettingsDraft, index: number): SettingsDraft => ({ ...d, autoload: autoloadsOf(d).filter((_, i) => i !== index) });
+export const moveAutoload = (d: SettingsDraft, index: number, by: number): SettingsDraft => ({ ...d, autoload: moved(autoloadsOf(d), index, by) });
+
+// --- validation -----------------------------------------------------------------------------------
+
+const isPositive = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0;
+const isPositiveInt = (v: unknown) => isPositive(v) && Number.isInteger(v);
+const COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+
+function nameList(list: unknown, field: string, what: string, problems: SettingsProblem[]): void {
+  if (!Array.isArray(list)) {
+    problems.push({ field, message: `${what} must be a list of names.` });
+    return;
+  }
+  if (list.length === 0) problems.push({ field, message: `There must be at least one ${what.replace(/s$/, "")}.` });
+  const seen = new Set<string>();
+  list.forEach((name, i) => {
+    if (typeof name !== "string" || name.trim() === "") problems.push({ field: `${field}.${i}`, message: `${what}: entry ${i + 1} needs a name.` });
+    else if (seen.has(name)) problems.push({ field: `${field}.${i}`, message: `${what}: "${name}" is listed twice.` });
+    else seen.add(name);
+  });
+}
+
+/**
+ * Everything wrong with the draft, as sentences. `files` (the project's files) lets autoloads be
+ * checked for existing. Problems keep the draft from being saved.
+ */
+export function settingsProblems(draft: SettingsDraft, files?: readonly string[]): SettingsProblem[] {
+  const problems: SettingsProblem[] = [];
+  const p = (field: string, message: string) => problems.push({ field, message });
+  if (draft.name !== undefined && (typeof draft.name !== "string" || draft.name.trim() === "")) p("name", "The project name can't be empty.");
+
+  const display = draft.display ?? {};
+  for (const key of ["width", "height"] as const) {
+    if (display[key] !== undefined && !isPositiveInt(display[key])) p(`display.${key}`, `Display ${key} must be a whole number of pixels above 0.`);
+  }
+  if (display.backgroundColor !== undefined && (typeof display.backgroundColor !== "string" || !COLOR.test(display.backgroundColor))) {
+    p("display.backgroundColor", "Background colour must be a hex colour such as #1d1f24.");
+  }
+
+  const time = draft.time ?? {};
+  if (time.fixedDeltaTime !== undefined && !isPositive(time.fixedDeltaTime)) p("time.fixedDeltaTime", "The fixed timestep must be above 0 seconds.");
+  if (time.maxFrameTime !== undefined && !isPositive(time.maxFrameTime)) p("time.maxFrameTime", "The max frame time must be above 0 seconds.");
+  if (time.maxSubSteps !== undefined && !isPositiveInt(time.maxSubSteps)) p("time.maxSubSteps", "Max sub-steps must be a whole number above 0.");
+  const fixed = time.fixedDeltaTime ?? defaultSettings.time.fixedDeltaTime, maxFrame = time.maxFrameTime ?? defaultSettings.time.maxFrameTime;
+  if (isPositive(fixed) && isPositive(maxFrame) && fixed > maxFrame) p("time.fixedDeltaTime", "The fixed timestep is longer than the max frame time, so no fixed step would ever run.");
+
+  const physics = draft.physics ?? {};
+  if (physics.gravity !== undefined && !(Array.isArray(physics.gravity) && physics.gravity.length === 2 && physics.gravity.every((g) => typeof g === "number" && Number.isFinite(g)))) {
+    p("physics.gravity", "Gravity must be two numbers, x and y.");
+  }
+  if (physics.layers !== undefined) nameList(physics.layers, "physics.layers", "Physics layers", problems);
+  const layers = layersOf(draft);
+  if (Array.isArray(layers) && layers.length > MAX_LAYERS) p("physics.layers", `There can be at most ${MAX_LAYERS} physics layers.`);
+  const matrix = physics.collisionMatrix;
+  if (matrix !== undefined) {
+    if (typeof matrix !== "object" || matrix === null || Array.isArray(matrix)) p("physics.collisionMatrix", "The collision matrix must be an object of layer lists.");
+    else {
+      const unknown = new Set<string>();
+      for (const [a, list] of Object.entries(matrix)) {
+        if (!layers.includes(a)) unknown.add(a);
+        if (!Array.isArray(list)) p("physics.collisionMatrix", `The collision matrix entry for "${a}" must be a list of layers.`);
+        else for (const b of list) if (!layers.includes(b)) unknown.add(String(b));
+      }
+      if (unknown.size > 0) p("physics.collisionMatrix", `The collision matrix names ${[...unknown].map((n) => `"${n}"`).join(", ")}, which ${unknown.size === 1 ? "isn't a physics layer" : "aren't physics layers"}.`);
+    }
+  }
+
+  const render = draft.render ?? {};
+  if (render.sortingLayers !== undefined) nameList(render.sortingLayers, "render.sortingLayers", "Sorting layers", problems);
+  if (render.pixelsPerUnit !== undefined && !isPositive(render.pixelsPerUnit)) p("render.pixelsPerUnit", "Pixels per unit must be above 0.");
+
+  if (draft.autoload !== undefined) {
+    if (!Array.isArray(draft.autoload)) p("autoload", "Autoloads must be a list of scene or prefab files.");
+    else {
+      const seen = new Set<string>();
+      draft.autoload.forEach((path, i) => {
+        const field = `autoload.${i}`;
+        if (typeof path !== "string" || !/\.(scene|prefab)\.json$/.test(path)) p(field, `Autoload ${i + 1} must be a .scene.json or .prefab.json file.`);
+        else if (seen.has(path)) p(field, `${path} is autoloaded twice.`);
+        else if (files && !files.includes(path)) p(field, `${path} isn't in the project.`);
+        seen.add(String(path));
+      });
+    }
+  }
+
+  // The export's own checks (src/export/desktop.ts), so a bad value shows here rather than at export.
+  const build = draft.build ?? {};
+  if (build.identifier !== undefined && !(typeof build.identifier === "string" && /^[A-Za-z][\w-]*(\.[A-Za-z][\w-]*)+$/.test(build.identifier))) {
+    p("build.identifier", "The app identifier must be a reverse-DNS name like com.example.mygame.");
+  }
+  if (build.version !== undefined && !(typeof build.version === "string" && /^\d+\.\d+\.\d+$/.test(build.version))) p("build.version", "The version must look like 1.2.3.");
+  if (build.icon !== undefined) {
+    if (typeof build.icon !== "string" || !/\.(png|svg)$/i.test(build.icon)) p("build.icon", "The icon must be a .png or .svg file.");
+    else if (files && !files.includes(build.icon)) p("build.icon", `${build.icon} isn't in the project.`);
+  }
+  return problems;
+}
+
+/** Notes that don't stop a save: things that work but are probably unintended. */
+export function settingsWarnings(draft: SettingsDraft): string[] {
+  const out: string[] = [];
+  if (!sortingLayersOf(draft).includes("Default")) out.push('There\'s no "Default" sorting layer, which sprites use unless they name another.');
+  return out;
+}

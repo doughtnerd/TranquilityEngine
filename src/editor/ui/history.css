@@ -1,0 +1,35 @@
+/* History panel (ADR 0027) */
+.panel.history .panel-body { padding: 0; overflow: hidden; display: flex; }
+.history-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.history-hint { flex: none; padding: 4px 8px; font-size: calc(11px * var(--ui-scale)); color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-list { flex: 1; position: relative; overflow: auto; min-height: 0; }
+.history-gutter { position: absolute; left: 0; top: 0; }
+.history-edge { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
+.history-dot { fill: var(--panel); stroke: var(--muted); stroke-width: 1.5; }
+.history-dot.saved { stroke: var(--success); }
+.history-dot.current { fill: var(--accent); stroke: var(--accent); }
+.history-row {
+  position: absolute;
+  right: 0;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 4px;
+  font-size: calc(12px * var(--ui-scale));
+  cursor: pointer;
+  white-space: nowrap;
+  border-radius: 3px;
+}
+.history-row:hover { background: var(--hover); }
+.history-row.current { background: var(--selection); color: var(--selection-text); }
+.history-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.history-saved { flex: none; padding: 0 5px; border-radius: 3px; background: var(--success-soft); color: var(--success); font-size: calc(10px * var(--ui-scale)); }
+.history-time { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.history-row.current .history-time { color: inherit; opacity: 0.8; }
+
+/* Settings dialog */
+.settings-dialog fieldset { border: 1px solid var(--border); border-radius: 4px; margin: 0 0 12px; padding: 8px 10px; }
+.settings-dialog legend { padding: 0 4px; font-weight: 600; font-size: calc(12px * var(--ui-scale)); }
+.settings-dialog label { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.settings-dialog .note { margin: 6px 0 0; font-size: calc(12px * var(--ui-scale)); color: var(--muted); }

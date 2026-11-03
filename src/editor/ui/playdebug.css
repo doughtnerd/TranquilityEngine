@@ -1,0 +1,28 @@
+/* Play mode debugging (ADR 0022): pause/step, the World picker, the live Hierarchy and Inspector. */
+.play-controls .pause-button.active { color: var(--accent); border-color: var(--accent); }
+
+.world-picker { padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.world-picker label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.world-picker select { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
+
+.live-name { display: flex; align-items: center; gap: 6px; }
+.live-badge { font-size: 10px; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 4px; font-weight: normal; }
+.live-tree .row .badge.live-kind-ghost { color: var(--accent); }
+.live-tree .row .badge.live-kind-connection, .live-tree .row .badge.live-kind-scene { color: var(--muted); }
+.link-button { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0 4px; font: inherit; }
+
+.runtime-inspector .keep-actions { padding: 4px 0; display: flex; gap: 6px; }
+.runtime-inspector .keep-note { margin: 2px 0 6px; color: var(--muted); font-size: 11px; }
+.runtime-inspector .component h3 .keep-values { margin-left: auto; font-size: 10px; padding: 0 6px; }
+.runtime-inspector .component.kept { border-color: var(--accent); }
+.runtime-inspector .kept-badge { color: var(--accent); }
+.runtime-inspector .live-json { font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; }
+.kept-list { margin: 4px 0 8px; font-size: 11px; color: var(--muted); }
+.kept-list summary { cursor: pointer; }
+.kept-list ul { margin: 2px 0; padding-left: 16px; }
+
+.world-strip .world-step { margin-left: 2px; }
+
+/* The Network panel's bandwidth per ghost type, under a connection's traffic by kind. */
+.network-kinds .network-ghost-types { margin-top: 4px; }
+.network-kinds .network-ghost-types td:first-child { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

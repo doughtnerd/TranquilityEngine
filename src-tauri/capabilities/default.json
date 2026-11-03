@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the game and editor windows (both use the label \"main\"). Storage (ADR 0024) reads and writes the app data folder. The editor (ADR 0026) reads and writes project folders the user picks: fs:read-all and fs:write-all enable the commands without any fixed paths, and the dialog plugin adds each picked folder to the fs scope for the session. core:window:allow-destroy lets the editor's unsaved-changes guard close the window after asking. fs:allow-watch / fs:allow-unwatch let the editor reload scripts edited outside it, and opener:allow-open-path opens a script in the system's code editor (ADR 0030), and opener:allow-reveal-item-in-dir shows an asset in the file manager.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "fs:default",
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive",
+    "fs:read-all",
+    "fs:write-all",
+    "dialog:default",
+    "fs:allow-watch",
+    "fs:allow-unwatch",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "**" }]
+    },
+    "opener:allow-reveal-item-in-dir",
+    "core:window:allow-destroy"
+  ]
+}

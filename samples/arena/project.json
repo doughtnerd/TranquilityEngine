@@ -1,0 +1,24 @@
+{
+  "name": "arena",
+  "display": {
+    "width": 800,
+    "height": 600,
+    "backgroundColor": "#14161b"
+  },
+  "time": {
+    "fixedDeltaTime": 0.016666666666666666
+  },
+  "render": {
+    "sortingLayers": ["Floor", "Default", "Shots", "Players"],
+    "pixelsPerUnit": 100
+  },
+  "bootstrap": {
+    "worlds": [
+      { "name": "Client", "tags": ["client"], "scenes": ["scenes/main.scene.json"] }
+    ],
+    "templates": {
+      "Server": { "tags": ["server"], "renders": false, "input": false, "scenes": ["scenes/arena.scene.json"] },
+      "Client 2": { "tags": ["client"], "renders": true, "scenes": ["scenes/arena.scene.json"] }
+    }
+  }
+}

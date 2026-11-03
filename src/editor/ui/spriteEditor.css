@@ -1,0 +1,86 @@
+/* Sprite Editor (ADR 0040): a large dialog with the image on the left and slice tools at the side. */
+.dialog-backdrop.sprite-editor-backdrop { z-index: 29; } /* under the confirm dialog (30), which asks before discarding */
+.sprite-editor {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, calc(100vw - 32px));
+  height: min(760px, calc(100vh - 32px));
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px var(--shadow);
+  outline: none;
+}
+.sprite-editor-head, .sprite-editor-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+.sprite-editor-head { border-bottom: 1px solid var(--border); }
+.sprite-editor-foot { border-top: 1px solid var(--border); justify-content: flex-end; }
+.sprite-editor-head h2 { margin: 0; font-size: 14px; }
+.sprite-editor-file { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sprite-editor-spacer { flex: 1; }
+.sprite-editor-state { margin-right: auto; color: var(--muted); font-size: 12px; }
+.sprite-zoom { display: flex; align-items: center; gap: 6px; }
+.sprite-zoom button { padding: 0 8px; }
+.sprite-zoom-value { min-width: 44px; text-align: center; font-size: 12px; color: var(--muted); }
+
+.sprite-editor-body { flex: 1; min-height: 0; display: flex; }
+.sprite-editor-view {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  /* A checkerboard shows transparency. */
+  background-color: var(--bg);
+  background-image: linear-gradient(45deg, var(--border) 25%, transparent 25%, transparent 75%, var(--border) 75%), linear-gradient(45deg, var(--border) 25%, transparent 25%, transparent 75%, var(--border) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+.sprite-stage { position: relative; flex: none; cursor: crosshair; user-select: none; touch-action: none; box-shadow: 0 0 0 1px var(--border); }
+.sprite-stage img { display: block; width: 100%; height: 100%; image-rendering: pixelated; pointer-events: none; }
+.sprite-slice { position: absolute; box-sizing: border-box; border: 1px solid rgb(255 255 255 / 0.75); box-shadow: 0 0 0 1px var(--shadow); cursor: move; }
+.sprite-slice:hover { border-color: #fff; }
+.sprite-slice.selected { border-color: var(--accent); background: var(--accent-soft); z-index: 1; }
+.sprite-slice-name { position: absolute; left: 2px; top: 1px; max-width: calc(100% - 4px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; pointer-events: none; }
+.sprite-drawing { position: absolute; box-sizing: border-box; border: 1px dashed var(--accent); background: var(--accent-soft); pointer-events: none; }
+.sprite-pivot { position: absolute; width: 8px; height: 8px; margin: -5px 0 0 -5px; border: 1px solid #fff; border-radius: 50%; background: var(--accent); pointer-events: none; }
+.sprite-handle { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; background: #fff; border: 1px solid var(--accent); box-sizing: border-box; }
+.handle-nw { left: 0; top: 0; cursor: nwse-resize; }
+.handle-n { left: 50%; top: 0; cursor: ns-resize; }
+.handle-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.handle-e { left: 100%; top: 50%; cursor: ew-resize; }
+.handle-se { left: 100%; top: 100%; cursor: nwse-resize; }
+.handle-s { left: 50%; top: 100%; cursor: ns-resize; }
+.handle-sw { left: 0; top: 100%; cursor: nesw-resize; }
+.handle-w { left: 0; top: 50%; cursor: ew-resize; }
+
+.sprite-editor-side { flex: none; width: 280px; overflow: auto; border-left: 1px solid var(--border); padding: 8px 12px; display: flex; flex-direction: column; gap: 12px; font-size: 12px; }
+.sprite-editor-side h3 { margin: 0 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.sprite-field { display: grid; grid-template-columns: 84px 1fr; align-items: center; gap: 6px; margin: 3px 0; min-width: 0; }
+.sprite-field > span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sprite-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.sprite-pair .sprite-field { grid-template-columns: auto 1fr; }
+.sprite-editor-side input[type="number"], .sprite-editor-side input[type="text"], .sprite-editor-side select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 5px;
+  font: inherit;
+}
+.sprite-editor-side input:focus, .sprite-editor-side select:focus { outline: none; border-color: var(--accent); }
+.sprite-check { display: flex; align-items: center; gap: 6px; margin: 4px 0; color: var(--muted); }
+.sprite-buttons { display: flex; gap: 6px; margin-top: 6px; }
+.sprite-problem { margin: 2px 0; color: var(--danger); }
+.sprite-hint { margin: 0; color: var(--muted); }
+.sprite-border { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 6px; margin-top: 4px; }
+.sprite-border-label { grid-column: 1 / -1; color: var(--muted); }
+.sprite-border .sprite-field { grid-template-columns: auto 1fr; }
+.sprite-list-section { min-height: 0; }
+.sprite-list { list-style: none; margin: 0; padding: 0; max-height: 200px; overflow: auto; }
+.sprite-list button { width: 100%; text-align: left; background: none; border: none; border-radius: 3px; padding: 1px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sprite-list button:hover { background: var(--button-hover); }
+.sprite-list button.active { background: var(--accent); color: var(--accent-text); }

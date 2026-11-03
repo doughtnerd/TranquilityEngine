@@ -1,4 +1,4 @@
-# TranquilityEngine
+# Myco Engine
 
 ## What is it?
 A JavaScript based 2D/3D game engine based on the Unity Game Engine.
@@ -8,12 +8,20 @@ I've taken a look at the JS based game engine landscape and of them, the only on
 ## Limitations
 This project is in active development and as such, might not have every feature 100% complete. It is also currently limited to WebGL for rendering. Lastly, this documentation will change as new features become complete and may not always reflect the current state of the engine.
 
+The engine is being rebuilt around three.js, Rapier physics, a hidden ECS core and Tauri. See the [design docs](docs/README.md) for the architecture and decision records, and [implementation status](docs/architecture/implementation-status.md) for what exists today. Sections below the demo describe the original 2021 prototype and are out of date.
+
 ## Quick Demo
 ![Basic Demo](./demo/BasicDemo.gif)
-To see a very basic example of the game engine operating run:
+The v1 demo is a Flappy Bird clone, shipped as a sample project in `samples/flappy/` (samples come with the engine but aren't built into it). To play it, start the editor, open the Flappy Bird sample from the start screen and press **Play** (space, up arrow or click to flap):
 ```shell
-npm run start
+npm install
+npm run dev
 ```
+The editor is at http://localhost:3000/editor.html (`/` goes there). Run the engine tests with `npm test`, the browser smoke tests with `npm run test:e2e` (run `npm run test:e2e:install` first), and typecheck with `npm run typecheck`. `npm run build` writes the editor, with the samples beside it, to `dist/editor/` and the engine library to `dist/engine/`.
+
+In a browser the editor opens samples read-only. Run `npm run tauri:dev` for the desktop editor, where **Open Project…** opens a project folder (one with a `project.json`), **Make a Copy…** copies a sample into a folder to edit it, and **Save** / Ctrl+S writes scenes back to disk. Desktop builds need [Tauri](https://v2.tauri.app/): install Rust ([rustup](https://rustup.rs/)) first. `npm run tauri:build` produces installers.
+
+An Engine can run several Worlds at once, for example a client and a server, and multiplayer is built on that: server-authoritative, with replication, inputs and client prediction. The [Worlds guide](docs/guide/worlds.md) and the [Multiplayer guide](docs/guide/multiplayer.md) explain how to set them up. `npm run server -- <projectDir>` runs a project's server Worlds headless in Node over WebSocket (`--help` lists the options).
 ## Current Features
 Again, these might be subject to change throughout development but the features that currently exist are described below.
 

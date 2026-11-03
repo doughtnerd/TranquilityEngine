@@ -1,0 +1,4 @@
+{
+  "name": "Flappy Bird",
+  "description": "A one-button 2D game: sprites, 2D physics, prefabs, data components and systems, scripts, audio and a saved high score."
+}

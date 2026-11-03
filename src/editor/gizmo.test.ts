@@ -1,0 +1,105 @@
+import { Matrix4, Quaternion, Vector3 } from "three";
+import { beforeEach, describe, expect, it } from "vitest";
+import { Engine, GameObject, Input } from "../engine";
+import { localPoseFromWorld, type LocalPose } from "../engine/render/gizmoMath";
+import { SetField } from "./document";
+import { gizmoEdit, gizmoMode } from "./gizmo";
+import { OrbitCamera } from "./OrbitCamera";
+import { openSceneFile } from "./project";
+import { shortcutFor } from "./shortcuts";
+import { openScene, sceneCamera } from "./state";
+import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
+
+const DEG = Math.PI / 180;
+const quat = (zDeg: number) => new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), zDeg * DEG);
+
+describe("gizmo math: world pose → local Transform values", () => {
+  it("is the world pose itself under the World root", () => {
+    const pose = localPoseFromWorld(null, new Vector3(1, 2, 3), quat(30), new Vector3(2, 2, 1));
+    expect(pose).toEqual({ position: [1, 2, 3], rotation: [0, 0, 30], scale: [2, 2, 1] });
+  });
+
+  it("removes a moved, rotated and scaled parent", () => {
+    const parent = new Matrix4().compose(new Vector3(10, 0, 0), quat(90), new Vector3(2, 2, 2));
+    // A child at local (1, 0, 0), rotated 10° locally, sits at world (10, 2, 0) rotated 100°, scale 2.
+    const pose = localPoseFromWorld(parent, new Vector3(10, 2, 0), quat(100), new Vector3(2, 2, 2));
+    expect(pose.position).toEqual([1, 0, 0]);
+    expect(pose.rotation[2]).toBeCloseTo(10, 4);
+    expect(pose.scale).toEqual([1, 1, 1]);
+  });
+
+  it("cleans float noise and negative zero", () => {
+    const pose = localPoseFromWorld(null, new Vector3(0.1 + 0.2, -0, 0), new Quaternion(), new Vector3(1, 1, 1));
+    expect(pose.position).toEqual([0.3, 0, 0]);
+    expect(Object.is(pose.position[1], -0)).toBe(false);
+  });
+});
+
+describe("gizmo edits (ADR 0026)", () => {
+  beforeEach(async () => {
+    Input.reset();
+    const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
+    sceneCamera.value = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
+    openSceneFile(engine, DEMO_SCENE);
+  });
+
+  const asPose = (): LocalPose => ({ position: [2, 3, 0], rotation: [0, 0, 45], scale: [1.5, 1.5, 1] });
+
+  it("each mode edits its own Transform field", () => {
+    const { doc } = openScene.value!;
+    expect(gizmoEdit(doc, "bird", "translate", asPose()).field).toBe("position");
+    expect(gizmoEdit(doc, "bird", "rotate", asPose()).field).toBe("rotation");
+    expect(gizmoEdit(doc, "bird", "scale", asPose()).value).toEqual([1.5, 1.5, 1]);
+  });
+
+  it("a drag is one undo step that moves the node in the World", () => {
+    const { doc, stack, sync } = openScene.value!;
+    const before = JSON.stringify(doc.toJSON());
+    stack.beginGroup("Move Bird");
+    for (const y of [1.5, 2, 2.5]) stack.execute(gizmoEdit(doc, "bird", "translate", { ...asPose(), position: [-4, y, 0] }));
+    stack.endGroup();
+    expect(sync.nodeFor("bird")!.transform!.position.toArray()).toEqual([-4, 2.5, 0]);
+    expect(stack.undoLabel).toBe("Move Bird");
+    stack.undo();
+    expect(JSON.stringify(doc.toJSON())).toBe(before);
+  });
+
+  it("keeps a 2D rotation stored as one angle", () => {
+    const { doc, stack } = openScene.value!;
+    stack.execute(gizmoEdit(doc, "bird", "rotate", asPose())); // no rotation in the file yet: Euler array
+    expect(doc.fieldValue("bird", "engine.Transform", "rotation")).toEqual([0, 0, 45]);
+    stack.undo();
+
+    // A node whose file stores a single 2D angle keeps that form.
+    stack.execute(new SetField("bird", "engine.Transform", "rotation", 10));
+    expect(gizmoEdit(doc, "bird", "rotate", asPose()).value).toBe(45);
+  });
+
+  it("on a prefab instance the drag writes an override", () => {
+    const { doc, stack } = openScene.value!;
+    stack.execute(gizmoEdit(doc, "bg-a", "translate", { ...asPose(), position: [5, 3, 0] }));
+    expect(doc.overrides("bg-a").some((o) => o.field === "position")).toBe(true);
+  });
+});
+
+describe("tool shortcuts", () => {
+  const key = (k: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }> = {}) =>
+    shortcutFor({ key: k, ctrlKey: false, metaKey: false, shiftKey: false, ...mods });
+
+  it("maps Q/W/E/R to tools, ignoring modified keys", () => {
+    expect(key("q")).toBe("tool:select");
+    expect(key("w")).toBe("tool:move");
+    expect(key("E")).toBe("tool:rotate");
+    expect(key("r")).toBe("tool:scale");
+    expect(key("r", { ctrlKey: true })).toBeNull();
+    expect(key("w", { altKey: true })).toBeNull();
+    expect(key("z", { ctrlKey: true })).toBe("undo");
+  });
+
+  it("select shows no gizmo; the others pick a mode", () => {
+    expect(gizmoMode("select")).toBeNull();
+    expect(gizmoMode("move")).toBe("translate");
+    expect(gizmoMode("rotate")).toBe("rotate");
+    expect(gizmoMode("scale")).toBe("scale");
+  });
+});

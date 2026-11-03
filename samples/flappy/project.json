@@ -1,0 +1,23 @@
+{
+  "name": "flappy",
+  "display": {
+    "width": 720,
+    "height": 680,
+    "backgroundColor": "#1d1f24"
+  },
+  "time": {
+    "fixedDeltaTime": 0.016666666666666666
+  },
+  "physics": {
+    "gravity": [0, -32],
+    "layers": ["Default", "Player", "Obstacle", "Score", "Ground", "Bounds"],
+    "collisionMatrix": {
+      "Player": ["Obstacle", "Score", "Ground", "Bounds"]
+    }
+  },
+  "render": {
+    "sortingLayers": ["Background", "Pipes", "Default", "Foreground", "Player"],
+    "pixelsPerUnit": 100
+  },
+  "autoload": ["prefabs/music.prefab.json"]
+}

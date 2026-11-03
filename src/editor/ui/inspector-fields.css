@@ -1,0 +1,61 @@
+/* Inspector field editors added by ADR 0042: lists, dropdowns, node tags, the component menu (Worlds). */
+
+/* --- dropdowns --- */
+.fields select.choice-input { width: 100%; }
+
+/* --- lists --- */
+.fields .list-field { display: flex; flex-direction: column; gap: 3px; }
+.fields .list-head { display: flex; align-items: center; gap: 6px; }
+.fields .list-count { color: var(--muted); flex: 1; min-width: 0; }
+.fields .list-add { padding: 0 6px; font-size: 11px; line-height: 18px; }
+.fields .list-item { display: flex; align-items: flex-start; gap: 4px; padding: 2px 0 2px 4px; border-left: 1px solid var(--border); }
+.fields .list-index { color: var(--muted); min-width: 14px; line-height: 22px; font-variant-numeric: tabular-nums; }
+.fields .list-value { flex: 1; min-width: 0; }
+.fields .list-buttons { display: inline-flex; gap: 1px; }
+.fields .list-buttons button { padding: 0 4px; font-size: 11px; line-height: 18px; color: var(--muted); background: transparent; border-color: transparent; }
+.fields .list-buttons button:hover:not(:disabled) { color: var(--text); background: var(--button-hover); }
+.fields .list-buttons button:disabled { opacity: 0.3; }
+.fields .list-buttons .list-remove:hover:not(:disabled) { color: var(--danger-text); background: var(--danger-strong); }
+
+/* --- node tags --- */
+.node-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: -4px 0 10px; font-size: 12px; padding-left: 4px; border-left: 2px solid transparent; }
+.node-tags.overridden { border-left-color: var(--accent); }
+.node-tags-label { color: var(--muted); margin-right: 4px; }
+.tag-chip { display: inline-flex; align-items: center; gap: 2px; padding: 0 2px 0 6px; border-radius: 9px; background: var(--button); border: 1px solid var(--border); line-height: 18px; }
+.tag-chip.partial { opacity: 0.55; border-style: dashed; }
+.tag-chip button { padding: 0 3px; border: none; background: transparent; color: var(--muted); font-size: 10px; line-height: 16px; }
+.tag-chip button:hover { color: var(--text); }
+.inspector-body .node-tags input.tag-input { width: 80px; flex: 0 1 auto; padding: 1px 4px; }
+.node-tags .revert { padding: 0 4px; font-size: 11px; line-height: 16px; }
+
+/* --- component menu (Worlds) --- */
+.component h3 .component-menu-wrap { position: relative; margin-left: auto; display: inline-flex; }
+.component h3 .edit-collider ~ .component-menu-wrap { margin-left: 6px; }
+.component h3 .component-menu-wrap ~ .remove-component { margin-left: 2px; }
+.component h3 .component-menu-button { padding: 0 6px; font-size: 12px; line-height: 18px; color: var(--muted); background: transparent; border-color: transparent; }
+.component h3 .component-menu-button:hover, .component h3 .component-menu-button.active { color: var(--text); background: var(--button-hover); }
+.component-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 20;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px var(--shadow);
+  font-weight: 400;
+  font-size: 12px;
+}
+.component-menu .menu-heading { font-weight: 600; }
+.component-menu .menu-note { margin: 0 0 2px; color: var(--muted); font-size: 11px; }
+.component-menu .menu-check { display: flex; align-items: center; gap: 6px; }
+.component-menu .menu-check.tag { padding-left: 14px; }
+.component-menu .menu-reset { margin-top: 2px; font-size: 11px; }
+.component h3 .worlds-badge { background: transparent; border: 1px solid var(--accent); color: var(--text); }
+/* The glyph is drawn by CSS so it isn't part of the header's text (the title stays the component name). */
+.component h3 .component-menu-button::before { content: "\22EF"; }

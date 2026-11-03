@@ -1,0 +1,4 @@
+{
+  "name": "Arena",
+  "description": "A two-player top-down shooter over the engine's netcode: a menu World hosts a server World from a template, predicted players, server-spawned shots, replicated scores, and a dedicated server."
+}

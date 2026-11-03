@@ -1,0 +1,16 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "music",
+      "name": "Music",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.AudioSource",
+          "data": { "clip": "asset:music/town.mp3", "loop": true, "volume": 0.35, "playOnAwake": true }
+        }
+      ]
+    }
+  ]
+}
