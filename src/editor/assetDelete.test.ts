@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, getComponentClass } from "../engine";
 import { listComponents } from "../engine/editor";
-import { assetUsers, deleteAsset, whyNotDeletableAsset } from "./assetDelete";
+import { assetUsers, deleteAsset, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
 import { OrbitCamera } from "./OrbitCamera";
 import { askBeforeDeletingAssets } from "./preferences";
 import { openSceneFile } from "./project";
@@ -55,6 +55,9 @@ describe("deleting", () => {
   it("refuses project.json, the open scene and read-only projects", () => {
     expect(whyNotDeletableAsset(project, "project.json", null)).toMatch(/defines the project/);
     expect(whyNotDeletableAsset(project, "scenes/main.scene.json", "scenes/main.scene.json")).toMatch(/open now/);
+    // A scene open in a background tab is protected too.
+    expect(whyNotDeletableAsset(project, "scenes/main.scene.json", ["scenes/other.scene.json", "scenes/main.scene.json"])).toMatch(/another scene tab/);
+    expect(whyNotDeletableFolder(project, "scenes", ["prefabs/x.prefab.json", "scenes/main.scene.json"])).toMatch(/another tab/);
     expect(whyNotDeletableAsset({ ...project, canSave: false } as EditorProject, "images/background.png", null)).toMatch(/read-only/);
   });
 

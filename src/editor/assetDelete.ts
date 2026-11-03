@@ -14,7 +14,20 @@ import { writeSceneFile } from "./project";
 import { askBeforeDeletingAssets } from "./preferences";
 import { isWithin, type EditorProject } from "./projects";
 import { reloadScripts } from "./session";
-import { currentProject, docVersion, openScene, playState, scriptsVersion, status } from "./state";
+import { currentProject, docVersion, openScene, openScenes, playState, scriptsVersion, status } from "./state";
+
+/** The scenes open in tabs, the active one first: none of them may be deleted or moved out from under the editor. */
+export function openScenePaths(): string[] {
+  const active = openScene.peek()?.path ?? null;
+  const others = openScenes.peek().map((s) => s.path).filter((p) => p !== active);
+  return active ? [active, ...others] : others;
+}
+
+/** `openPath` as a list, the active scene first (a single path is the active scene; no active scene: an empty first entry). */
+function openPaths(openPath: string | readonly string[] | null): string[] {
+  if (openPath === null) return [];
+  return typeof openPath === "string" ? [openPath] : [...openPath];
+}
 import { confirmInEditor } from "./ui/ConfirmDialog";
 
 const isSceneFile = (json: Record<string, unknown>): json is SceneFile & Record<string, unknown> =>
@@ -60,10 +73,12 @@ export async function removeReferences(project: EditorProject, path: string): Pr
 }
 
 /** Why `path` can't be deleted from `project` right now, or null if it can. */
-export function whyNotDeletableAsset(project: EditorProject, path: string, openPath: string | null): string | null {
+export function whyNotDeletableAsset(project: EditorProject, path: string, openPath: string | readonly string[] | null): string | null {
   if (!project.canSave) return "this project is read-only";
   if (path === "project.json") return "project.json defines the project";
-  if (path === openPath) return "it's the scene open now; open another scene first";
+  const [active, ...others] = openPaths(openPath);
+  if (path === active) return "it's the scene open now; open another scene first";
+  if (others.includes(path)) return "it's open in another scene tab; close that tab first";
   if (playState.peek() !== "edit") return "stop playing first";
   if (!project.files.includes(path) && !project.scripts.has(path)) return "it's gone already";
   return null;
@@ -94,10 +109,13 @@ export function filesIn(project: EditorProject, folder: string): string[] {
 }
 
 /** Why the folder `path` can't be deleted (or moved) right now, or null if it can. */
-export function whyNotDeletableFolder(project: EditorProject, path: string, openPath: string | null): string | null {
+export function whyNotDeletableFolder(project: EditorProject, path: string, openPath: string | readonly string[] | null): string | null {
   if (!project.canSave) return "this project is read-only";
   if (path === "") return "it's the project folder";
-  if (openPath && isWithin(openPath, path)) return `it holds the scene open now (${openPath}); open another scene first`;
+  const [active, ...others] = openPaths(openPath);
+  if (active && isWithin(active, path)) return `it holds the scene open now (${active}); open another scene first`;
+  const tab = others.find((p) => isWithin(p, path));
+  if (tab) return `it holds a scene open in another tab (${tab}); close that tab first`;
   if (playState.peek() !== "edit") return "stop playing first";
   if (!project.folders.includes(path)) return "it's gone already";
   return null;
@@ -122,7 +140,7 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
   if (!project || entries.length === 0) return false;
   const scene = openScene.value;
   const why = (entry: string) =>
-    isFolderEntry(entry) ? whyNotDeletableFolder(project, entryPath(entry), scene?.path ?? null) : whyNotDeletableAsset(project, entry, scene?.path ?? null);
+    isFolderEntry(entry) ? whyNotDeletableFolder(project, entryPath(entry), openScenePaths()) : whyNotDeletableAsset(project, entry, openScenePaths());
   for (const entry of entries) {
     const reason = why(entry);
     if (reason) {

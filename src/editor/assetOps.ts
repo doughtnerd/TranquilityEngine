@@ -9,7 +9,7 @@ import { signal } from "@preact/signals";
 import { isSidecarPath, sidecarAsset } from "../engine/scene/importSettings";
 import { fileName, folderOf } from "./assetBrowser";
 import { withMovedAssets } from "./assetCleanup";
-import { assetUsers, entryPath, filesIn, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
+import { assetUsers, entryPath, filesIn, isFolderEntry, openScenePaths, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
 import { activeScript, dirtyScripts, openScripts } from "./code/codeState";
 import { ReplaceDocument, type SceneFile } from "./document";
 import { errorStatus } from "./messages";
@@ -59,7 +59,7 @@ export function freePath(project: EditorProject, folder: string, name: string, c
 
 /** Why `entry` can't be moved or renamed right now, or null if it can. */
 function whyNotMovable(project: EditorProject, entry: string): string | null {
-  const openPath = openScene.value?.path ?? null;
+  const openPath = openScenePaths();
   const path = entryPath(entry);
   const reason = isFolderEntry(entry) ? whyNotDeletableFolder(project, path, openPath) : whyNotDeletableAsset(project, path, openPath);
   if (reason) return reason.replace("open another scene first", "open another scene to move it");

@@ -1,6 +1,6 @@
 # 0038. The browser editor opens project folders through the File System Access API
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

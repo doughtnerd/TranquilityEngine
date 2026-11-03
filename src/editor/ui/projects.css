@@ -11,8 +11,8 @@
 .recent-path { color: var(--muted); font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .recent-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 11px; color: var(--muted); white-space: nowrap; }
 .recent-state { font-weight: 600; }
-.recent-state.missing { color: #f08a8a; }
-.recent-state.needs-access { color: #f0b46a; }
+.recent-state.missing { color: var(--danger); }
+.recent-state.needs-access { color: var(--warning); }
 .recent.missing .recent-name { text-decoration: line-through; color: var(--muted); }
 .recent-remove { flex: none; width: 24px; height: 24px; padding: 0; line-height: 1; }
 
@@ -27,10 +27,10 @@
 .new-project-location { display: flex; align-items: center; gap: 8px; }
 .new-project-path { flex: 1; min-width: 0; padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dialog p.new-project-preview { min-height: 1.4em; font-size: 12px; overflow-wrap: anywhere; }
-.dialog p.new-project-preview.problem { color: #f08a8a; }
+.dialog p.new-project-preview.problem { color: var(--danger); }
 
 .project-menu { position: relative; }
-.project-menu-list { position: absolute; left: 0; top: calc(100% + 4px); z-index: 25; min-width: 200px; max-width: 320px; padding: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.45); }
+.project-menu-list { position: absolute; left: 0; top: calc(100% + 4px); z-index: 25; min-width: 200px; max-width: 320px; padding: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px var(--shadow); }
 .project-menu-entry button { display: block; width: 100%; padding: 5px 10px; border: 0; background: transparent; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-menu-entry button:hover:not(:disabled) { background: var(--button-hover); }
 .project-menu-entry button:disabled { color: var(--muted); }

@@ -135,7 +135,8 @@ test("Play runs the scene in a game view, Stop returns to the unchanged editor",
   await page.getByText("Bird", { exact: true }).click();
   await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("1");
 
-  await page.getByRole("button", { name: /Play/ }).click();
+  // The exact name: the Inspector's tag chips (e.g. "Remove tag Player") would match /Play/ too.
+  await page.getByRole("button", { name: "▶ Play" }).click();
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
   const game = page.locator("#game-view canvas");
   await expect(game).toBeVisible();
@@ -146,7 +147,7 @@ test("Play runs the scene in a game view, Stop returns to the unchanged editor",
   await page.waitForTimeout(500);
 
   await page.keyboard.press("ControlOrMeta+p"); // stop
-  await expect(page.getByRole("button", { name: /Play/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
   await expect(game).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("1"); // the edited scene is untouched
   expect(errors).toEqual([]);

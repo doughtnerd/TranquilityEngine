@@ -61,8 +61,12 @@ const findScript = (page: Page, id: string, field: string) =>
     ([id, field]) => {
       const t = (globalThis as unknown as { __myco?: Engine }).__myco;
       const type = t?.getComponentClass(id);
-      const c = type ? t!.GameObject.findObjectOfType(type) : null;
-      return c ? (c[field] as unknown) : null;
+      try {
+        const c = type ? t!.GameObject.findObjectOfType(type) : null;
+        return c ? (c[field] as unknown) : null;
+      } catch {
+        return null; // the player's Engine isn't up yet: no active World
+      }
     },
     [id, field],
   );

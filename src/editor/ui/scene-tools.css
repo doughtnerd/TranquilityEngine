@@ -1,7 +1,7 @@
 /* Scene view tool settings (ADR 0022): toolbar toggles, snap and align popovers, camera preview. */
 .scene-toolbar button.active,
 .scene-toolbar button[aria-pressed="true"].snap-toggle,
-.scene-toolbar button[aria-pressed="true"].camera-preview-toggle { background: var(--accent); border-color: var(--accent); color: #fff; }
+.scene-toolbar button[aria-pressed="true"].camera-preview-toggle { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .scene-toolbar .snap-settings { padding: 2px 6px; }
 
 .scene-popover {
@@ -12,7 +12,7 @@
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 4px;
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+  box-shadow: 0 6px 18px var(--shadow);
   color: var(--text);
   font-size: 12px;
 }
@@ -34,7 +34,7 @@
   width: clamp(160px, 28%, 360px);
   border: 1px solid var(--accent);
   border-radius: 2px;
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
+  box-shadow: 0 0 0 1px var(--shadow);
   pointer-events: none; /* the scene view underneath keeps its clicks */
 }
 .camera-preview-label {

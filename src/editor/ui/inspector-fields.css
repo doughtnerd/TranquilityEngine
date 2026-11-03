@@ -15,7 +15,7 @@
 .fields .list-buttons button { padding: 0 4px; font-size: 11px; line-height: 18px; color: var(--muted); background: transparent; border-color: transparent; }
 .fields .list-buttons button:hover:not(:disabled) { color: var(--text); background: var(--button-hover); }
 .fields .list-buttons button:disabled { opacity: 0.3; }
-.fields .list-buttons .list-remove:hover:not(:disabled) { color: #fff; background: #8a3b3b; }
+.fields .list-buttons .list-remove:hover:not(:disabled) { color: var(--danger-text); background: var(--danger-strong); }
 
 /* --- node tags --- */
 .node-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: -4px 0 10px; font-size: 12px; padding-left: 4px; border-left: 2px solid transparent; }
@@ -47,7 +47,7 @@
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 4px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 14px var(--shadow);
   font-weight: 400;
   font-size: 12px;
 }
