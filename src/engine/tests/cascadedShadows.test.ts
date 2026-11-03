@@ -96,4 +96,25 @@ describe("cascaded shadows (ADR 0053)", () => {
     expect(Object.prototype.hasOwnProperty.call(plain, "customProgramCacheKey")).toBe(false);
     expect(lightsOf(scene).length).toBe(0);
   });
+
+  it("never shares a material between two live instances, so disposing one can't break the other", async () => {
+    // Two render backends (the editor's and Play mode's) once set up the same model material. Both
+    // CSM instances stored its compiled shader; disposing one deleted the CSM uniforms from it, and
+    // the other then threw "Cannot read properties of undefined (reading 'value')" on its next refit.
+    const a = await make();
+    const b = await make();
+    const shared = new MeshStandardMaterial();
+    a.csm.setupMaterial(shared);
+    b.csm.setupMaterial(shared); // refused: a owns it
+    const shader = compile(shared);
+    expect(shader.uniforms.CSM_cascades).toBeDefined();
+    a.csm.dispose(); // strips the CSM uniforms from the shaders a stored
+    expect(() => b.csm.update({ ...b.s, distance: 120 })).not.toThrow(); // refits: CSM refreshes its stored shaders
+    // Once a let it go, b can take the material.
+    b.csm.setupMaterial(shared);
+    expect(shared.defines?.USE_CSM).toBe(1);
+    expect(compile(shared).uniforms.CSM_cascades).toBeDefined();
+    expect(() => b.csm.update({ ...b.s, distance: 60 })).not.toThrow();
+    b.csm.dispose();
+  });
 });
