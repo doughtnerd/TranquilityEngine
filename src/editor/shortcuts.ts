@@ -1,6 +1,7 @@
 // Editor keyboard shortcuts. Text fields keep their own keys (and undo), so shortcuts skip them.
 import { deleteSelected } from "./deleteSelection";
 import { save, togglePlaying } from "./session";
+import { stepFrame, togglePause } from "./playDebug";
 import { openScene, pickTool, snapping, type Tool } from "./state";
 
 function isEditable(target: EventTarget | null): boolean {
@@ -11,7 +12,7 @@ function isEditable(target: EventTarget | null): boolean {
   return el instanceof HTMLInputElement && !["checkbox", "radio", "button", "color", "range"].includes(el.type);
 }
 
-export type Shortcut = "undo" | "redo" | "back" | "forward" | "save" | "play" | "delete" | `tool:${Tool}`;
+export type Shortcut = "undo" | "redo" | "back" | "forward" | "save" | "play" | "pause" | "step" | "delete" | `tool:${Tool}`;
 
 const TOOL_KEYS: Record<string, Tool> = { q: "select", w: "move", e: "rotate", r: "scale" };
 
@@ -21,6 +22,12 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
   // Ctrl/Cmd + Alt (+ Shift) + Z: step through history in creation order (Vim's g- / g+). Checked
   // before plain Ctrl + Z, and by key code too, since Alt changes `key` on some layouts.
   if ((e.ctrlKey || e.metaKey) && e.altKey && (key === "z" || e.code === "KeyZ")) return e.shiftKey ? "forward" : "back";
+  // Play mode debugging: Ctrl/Cmd + Shift + P pauses or resumes, F10 or Ctrl/Cmd + Alt + P steps one frame.
+  if (key === "f10" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) return "step";
+  if ((e.ctrlKey || e.metaKey) && (key === "p" || e.code === "KeyP")) {
+    if (e.altKey && !e.shiftKey) return "step";
+    if (e.shiftKey && !e.altKey) return "pause";
+  }
   if (e.ctrlKey || e.metaKey) {
     if (key === "z") return e.shiftKey ? "redo" : "undo";
     if (key === "y") return "redo";
@@ -34,7 +41,7 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
 }
 
 /**
- * Delete or Backspace deletes the selected node; Ctrl/Cmd + P plays or stops; Ctrl/Cmd + S saves; Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Ctrl/Cmd + Alt + Z / + Shift step back / forward through history in creation order; Q/W/E/R pick the select, move,
+ * Delete or Backspace deletes the selected node; Ctrl/Cmd + P plays or stops; Ctrl/Cmd + Shift + P pauses or resumes the game and F10 or Ctrl/Cmd + Alt + P steps it one frame; Ctrl/Cmd + S saves; Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Ctrl/Cmd + Alt + Z / + Shift step back / forward through history in creation order; Q/W/E/R pick the select, move,
  * rotate and scale tools; holding Ctrl/Cmd snaps gizmo drags. Returns a function that removes
  * the listeners.
  */
@@ -47,6 +54,12 @@ export function installShortcuts(target: Window = window): () => void {
     if (action === "play") {
       e.preventDefault(); // not the browser's print dialog
       togglePlaying();
+      return;
+    }
+    if (action === "pause" || action === "step") {
+      e.preventDefault(); // not the browser's print dialog or menu bar
+      if (action === "pause") togglePause();
+      else stepFrame();
       return;
     }
     if (action === "save") {

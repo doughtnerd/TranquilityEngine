@@ -6,6 +6,8 @@ import { nodeDrag, startNodeDrag } from "../nodeDrag";
 import { innerNodes, type InnerNode } from "../prefabs";
 import { combineSelection, rangeBetween } from "../selectionModel";
 import { docVersion, isSelected, openScene, select, selectedKeys } from "../state";
+import { liveInspecting } from "../runtimeInspect";
+import { RuntimeHierarchy, WorldPicker } from "./RuntimeHierarchy";
 
 /** Collapsed scene nodes, by path key. */
 const collapsed = signal<ReadonlySet<string>>(new Set());
@@ -44,10 +46,12 @@ function clickRow(e: MouseEvent, key: string): void {
  */
 export function Hierarchy() {
   docVersion.value; // re-render when the document changes
+  if (liveInspecting()) return <RuntimeHierarchy />; // a live World of the running game
   const scene = openScene.value;
   if (!scene) return <p class="empty">No scene open</p>;
   return (
     <div>
+      <WorldPicker />
       <div class={`scene-name${dropMode(null) === "root" ? " drop-into" : ""}`} title={scene.path}>
         {scene.path.split("/").pop()}
         {scene.stack.dirty && " •"}

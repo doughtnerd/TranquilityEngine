@@ -18,6 +18,8 @@ import {
 } from "../componentEdits";
 import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
+import { liveInspecting } from "../runtimeInspect";
+import { RuntimeInspector } from "./RuntimeInspector";
 import { openScript, scriptFor } from "../code/codeState";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
 import { currentProject, docVersion, editingCollider, openScene, scriptsVersion, selectedKeys, selection, status, type OpenScene } from "../state";
@@ -34,6 +36,7 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
  */
 export function Inspector() {
   docVersion.value; // re-render when the document changes
+  if (liveInspecting()) return <RuntimeInspector />; // a live World of the running game
   const scene = openScene.value;
   if (!scene) return <p class="empty">Nothing selected</p>;
   // Selected nodes that still exist (an undo may have removed some).

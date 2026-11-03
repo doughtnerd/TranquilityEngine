@@ -9,9 +9,13 @@
 // Multiplayer play (ADR 0033 §9, `netPlay.ts`): given `netPlay`, a project with a client/server
 // layout plays with N client Worlds plus T thin clients made from its client World instead, and
 // the network conditions given are simulated on its loopback links from the start.
+//
+// Debugging (ADR 0022): the whole session pauses (the Engine's loop stops, every World holds
+// still) and steps one frame at a time (`step`: one Engine frame of `STEP_SECONDS`, so a World's
+// fixed step runs when one is due); `stepWorld` steps a single World, paused or not.
 import { Assets, Engine, type AssetSource, type Bootstrap } from "../engine";
-import { engineWorld, engineWorldConfig, resumeEditorWorld } from "../engine/editor";
-import { createGameView, type GameView } from "./gameView";
+import { engineWorld, engineWorldConfig, redrawEngine, resumeEditorWorld, stepEngineWorld } from "../engine/editor";
+import { STEP_SECONDS, createGameView, type GameView } from "./gameView";
 import { applyNetConditions, conditionsOff, createThinInput, playBootstrap, withConditions, type NetConditionValues, type NetPlayBootstrap, type NetPlayOptions, type ThinInput, type ThinInputMode } from "./netPlay";
 import type { EditorProject } from "./projects";
 import { loadedScriptModule } from "./scriptLoader";
@@ -31,6 +35,16 @@ export interface PlaySession {
   setConditions(conditions: NetConditionValues): void;
   /** Write the thin clients' synthetic input once (done every frame with a game view; headless tests call it). */
   updateThinInput(): void;
+  /** True while the whole session is paused (see `setPaused`). */
+  readonly paused: boolean;
+  /** Pause or resume the whole session: the Engine's loop stops and every World holds still (input, network and all). */
+  setPaused(paused: boolean): void;
+  /** Advance every unpaused World one frame (`STEP_SECONDS`), running a fixed step where one is due; pauses the session first. */
+  step(): void;
+  /** Advance only the World named `name` one frame, paused or not (the game view's per-World Step). */
+  stepWorld(name: string): void;
+  /** Draw every World again without stepping (after an edit or a selection while paused). */
+  redraw(): void;
   /** Dispose the game's Engine and resume the Editor World. */
   stop(): void;
 }
@@ -115,10 +129,35 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
     throw err;
   }
   const engine = runtime;
+  let paused = false;
+  const setPaused = (value: boolean) => {
+    if (stopped || value === paused) return;
+    paused = value;
+    if (!container) return; // headless (tests): the caller steps the Engine
+    if (value) engine.stop();
+    else engine.start(); // the loop's clock restarts now, so the pause isn't one long frame
+  };
   return {
     engine,
     path: scene.path,
     netPlay,
+    get paused() {
+      return paused;
+    },
+    setPaused,
+    step() {
+      if (stopped) return;
+      setPaused(true);
+      thin?.update();
+      engine.step(STEP_SECONDS);
+    },
+    stepWorld(name) {
+      if (stopped) return;
+      stepEngineWorld(engine, name, STEP_SECONDS);
+    },
+    redraw() {
+      if (!stopped && container) redrawEngine(engine);
+    },
     setConditions(c) {
       if (stopped) return;
       applyNetConditions(engine, c);

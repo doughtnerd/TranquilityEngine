@@ -110,9 +110,18 @@ interface Stream {
   readonly redundancy: number;
   readonly clients: WeakMap<World, ClientState>;
   readonly servers: WeakMap<NetSession, Map<NetPeer, PeerState>>;
+  /** Editor (thin clients): set a client World's current input, as `write` would. */
+  readonly writeSynthetic: (world: World, values: Values) => void;
 }
 
 const streams = new Map<string, Stream>();
+
+/**
+ * Editor: client Worlds whose input on a stream comes from the editor (multiplayer play's thin
+ * clients), by World, as stream ids. The game's own writes there go nowhere, so a system that
+ * writes the keyboard every tick (zeros, in a World without input) doesn't undo the synthetic input.
+ */
+const synthetic = new WeakMap<World, Set<string>>();
 
 /** Client Worlds: the `serverTick` of their latest fixed step (-1 while not connected). */
 const fixedTicks = new WeakMap<World, number>();
@@ -195,6 +204,10 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
     redundancy,
     clients: streams.get(id)?.clients ?? new WeakMap(),
     servers: streams.get(id)?.servers ?? new WeakMap(),
+    writeSynthetic(world, values) {
+      const state = clientState(world, "write");
+      for (const f of fields) if (typeof values[f] === "number") state.current[f] = values[f];
+    },
   };
   streams.set(id, stream);
 
@@ -211,19 +224,24 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
     return state;
   };
 
+  /** Where the game's writes go: the current input, or a scratch copy while the editor drives it. */
+  const writable = (world: World): Values => {
+    const state = clientState(world, "write");
+    return synthetic.get(world)?.has(id) ? { ...state.current } : state.current;
+  };
   const def: InputDef<S> = {
     id,
     schema,
     get local() {
-      return clientState(World.require(), "write").current as DataView<S>;
+      return writable(World.require()) as DataView<S>;
     },
     write(values) {
-      const state = clientState(World.require(), "write");
+      const current = writable(World.require());
       for (const key of Object.keys(values)) {
         const v = (values as Record<string, unknown>)[key];
         if (!fields.includes(key)) throw new Error(`Input "${id}".write: there's no field "${key}" (fields: ${fields.join(", ")}).`);
         if (typeof v !== "number") throw new Error(`Input "${id}".write: field "${key}" must be a number (got ${typeof v}).`);
-        state.current[key] = v;
+        current[key] = v;
       }
     },
     of(node) {
@@ -266,6 +284,22 @@ const defs = new Map<string, InputDef<Schema>>();
 /** @internal Editor tools: every defined input stream. */
 export function definedInputs(): InputDef<Schema>[] {
   return [...defs.values()];
+}
+
+/**
+ * @internal Editor (multiplayer play's thin clients): drive a client World's input on stream `id`
+ * from now on. `values` become its current input, and the game's own writes to that stream in that
+ * World are ignored (so a system writing the keyboard every tick doesn't overwrite them). False if
+ * there's no such stream. Throws in a network server World.
+ */
+export function _writeSyntheticInput(world: World, id: string, values: Readonly<Record<string, number>>): boolean {
+  const stream = streams.get(id);
+  if (!stream) return false;
+  let ids = synthetic.get(world);
+  if (!ids) synthetic.set(world, (ids = new Set()));
+  ids.add(id);
+  stream.writeSynthetic(world, values as Values);
+  return true;
 }
 
 /** @internal Editor: forget a stream a project script defined (the script was deleted, or another project opened). */

@@ -22,6 +22,7 @@ import { World } from "../core/World";
 import { netSession } from "../net/session";
 import { configureReplication, serverReplication } from "../net/replication/server";
 import { clientReplication } from "../net/replication/client";
+import { netWorldInfo } from "../editor";
 
 // ADR 0033, T11: ghosts, snapshots, interpolation and per-World components, over the loopback
 // transport on a fake clock that advances with `engine.step`, so everything is deterministic.
@@ -601,5 +602,32 @@ describe("wave 3 review fixes", () => {
     expect(() => node.removeBehavior(mover)).not.toThrow();
     step(engine, 2);
     expect(node.getBehavior(Mover)).toBeNull();
+  });
+});
+
+describe("bandwidth per ghost type (editor tools)", () => {
+  it("attributes each ghost's spawn and state bits to its prefab, or its scene and node path", async () => {
+    const engine = await create(clientsAndServer(1, {}, ["scenes/arena.scene.json"]));
+    const server = world(engine, "Server");
+    step(engine, 10);
+    inWorld(server, () => [0, 1].map((i) => GameObject.instantiate("prefabs/tank.json", { position: [i * 2, 0, 0] })));
+    step(engine, 30);
+    const peer = netWorldInfo(engine).find((w) => w.world === "Server")!.peers[0];
+    const types = Object.fromEntries(peer.ghostTypes.map((t) => [t.type, t.bytes]));
+    expect(Object.keys(types).sort()).toEqual([
+      "prefabs/tank.json",
+      "prefabs/tank.json › turret",
+      "scenes/arena.scene.json#cratePlaced",
+      "scenes/arena.scene.json#door",
+      "scenes/arena.scene.json#group/lamp",
+    ]);
+    for (const bytes of Object.values(types)) expect(bytes).toBeGreaterThan(0);
+    // Two tanks cost more than the one door, and everything attributed fits in what was sent as snapshots.
+    expect(types["prefabs/tank.json"]).toBeGreaterThan(types["scenes/arena.scene.json#door"]);
+    const attributed = Object.values(types).reduce((n, b) => n + b, 0);
+    expect(attributed).toBeLessThanOrEqual(peer.sent.byKind["net.snapshot"].bytes);
+    expect(attributed).toBeGreaterThan(peer.sent.byKind["net.snapshot"].bytes * 0.3);
+    // A client has no breakdown.
+    expect(netWorldInfo(engine).find((w) => w.world === "P1")!.peers[0].ghostTypes).toEqual([]);
   });
 });

@@ -8,6 +8,7 @@ import { AssetDragGhost } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { StatusBar } from "./StatusBar";
 import { NetworkPanel } from "./NetworkPanel";
+import { PlayControls } from "./PlayControls";
 import { NewScriptDialog } from "./NewScriptDialog";
 import { HistoryPanel } from "./HistoryPanel";
 import { RefineList } from "./RefineList";
@@ -43,6 +44,7 @@ function Toolbar() {
       <span class="brand">Myco Engine Editor</span>
       <ProjectControls />
       <PlayButton />
+      <PlayControls />
       <UndoRedo />
       <button title="Put the panels back where they started" onClick={resetLayout}>
         Reset Layout

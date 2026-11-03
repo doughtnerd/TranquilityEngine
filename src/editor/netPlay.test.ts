@@ -1,10 +1,12 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Engine, GameObject, Input, defineInput, f32, i32, u8, type BootstrapConfig, type BootstrapSetting, type ProjectSettingsInput } from "../engine";
+import { Engine, GameObject, Input, defineInput, defineSystem, f32, i32, u8, type BootstrapConfig, type BootstrapSetting, type ProjectSettingsInput } from "../engine";
 import { World } from "../engine/core/World";
 import { engineWorld, netWorldInfo, worldViewStates } from "../engine/editor";
 import { netSession } from "../engine/net/session";
 import type { LoopbackTransport } from "../engine/net/transport/loopback";
-import { NetStatsSampler, byCategory, clampConditions, clientLayout, createThinInput, playBootstrap, trafficCategory, withConditions } from "./netPlay";
+import { NetStatsSampler, byCategory, clampConditions, clientLayout, createThinInput, ghostTypeLabel, hostLayout, playBootstrap, trafficCategory, withConditions } from "./netPlay";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay } from "./playMode";
 import { openSceneFile } from "./project";
@@ -102,6 +104,57 @@ describe("the play bootstrap", () => {
   });
 });
 
+describe("the play bootstrap for the Host pattern (a server template created at runtime)", () => {
+  /** samples/arena's bootstrap: one client World on a menu, a Server template and a second client template. */
+  const ARENA = (JSON.parse(readFileSync(fileURLToPath(new URL("../../samples/arena/project.json", import.meta.url)), "utf8")) as { bootstrap: BootstrapConfig }).bootstrap;
+
+  it("creates the server template as a World and links N clients and T thin clients to it, loading the server's scenes", () => {
+    const layout = hostLayout(ARENA)!;
+    expect(layout.client.name).toBe("Client");
+    expect(layout.server).toEqual({ name: "Server", tags: ["server"], renders: false, input: false, scenes: ["scenes/arena.scene.json"] });
+    const play = playBootstrap(ARENA, { clients: 2, thin: 1 })!;
+    expect(play.pattern).toBe("host");
+    expect(play.server).toBe("Server");
+    expect(play.template).toBe("Client");
+    expect(play.clients).toEqual(["Client 1", "Client 2"]);
+    expect(play.thin).toEqual(["Thin 1"]);
+    expect(play.bootstrap.worlds).toEqual([
+      { name: "Client 1", tags: ["client"], scenes: ["scenes/arena.scene.json"] },
+      { name: "Client 2", tags: ["client"], scenes: ["scenes/arena.scene.json"] },
+      { name: "Thin 1", tags: ["client"], scenes: ["scenes/arena.scene.json"], renders: false, input: false },
+      { name: "Server", tags: ["server"], renders: false, input: false, scenes: ["scenes/arena.scene.json"] },
+    ]);
+    expect(play.bootstrap.links).toEqual(["Client 1", "Client 2", "Thin 1"].map((from) => ({ from, to: "Server", transport: "loopback" })));
+    // The templates stay, so the game's own Engine.createWorld("Client 2") still works.
+    expect(play.bootstrap.templates).toEqual(ARENA.templates);
+  });
+
+  it("keeps the clients' own scenes (the menu) when asked, and other Worlds in place", () => {
+    const setting: BootstrapConfig = { ...ARENA, worlds: [{ name: "Tools", tags: ["local"] }, ...ARENA.worlds] };
+    const play = playBootstrap(setting, { clients: 1, thin: 0, clientScenes: "own" })!;
+    expect(play.bootstrap.worlds.map((w) => [w.name, w.scenes])).toEqual([
+      ["Tools", undefined],
+      ["Client 1", ["scenes/main.scene.json"]],
+      ["Server", ["scenes/arena.scene.json"]],
+    ]);
+  });
+
+  it("names the server World as its template does, and keeps names unique", () => {
+    const setting: BootstrapConfig = { worlds: [{ name: "Menu" }, { name: "Client 1", tags: ["local"] }], templates: { Host: { name: "Match", tags: ["server"] } } };
+    const play = playBootstrap(setting, { clients: 1, thin: 1 })!;
+    expect(play.server).toBe("Match");
+    expect(play.template).toBe("Menu"); // no client-tagged World: the first one
+    expect(play.bootstrap.worlds.map((w) => w.name)).toEqual(["Client 1 2", "Thin 1", "Client 1", "Match"]);
+  });
+
+  it("isn't used when the bootstrap has links, a server World, or no server template", () => {
+    expect(hostLayout({ worlds: [{ name: "A", tags: ["client"] }], templates: { B: { tags: ["client"] } } })).toBeNull();
+    expect(hostLayout({ worlds: [{ name: "A" }, { name: "S", tags: ["server"] }], templates: { T: { tags: ["server"] } } })).toBeNull();
+    expect(hostLayout({ worlds: [{ name: "A" }], links: [{ from: "A", to: "Gone", transport: "loopback" }], templates: { T: { tags: ["server"] } } })).toBeNull();
+    expect(playBootstrap({ worlds: [{ name: "A" }] }, { clients: 2, thin: 0 })).toBeNull();
+  });
+});
+
 describe("stats helpers", () => {
   it("group message kinds and turn counters into rates over about a second", () => {
     expect(["net.snapshot", "net.snapshotAck", "net.input:game.Move(x:f32)", "net.rpc", "net.ping", "net.pong", "net.hello", "net.custom"].map(trafficCategory)).toEqual([
@@ -126,7 +179,23 @@ describe("stats helpers", () => {
       ghosts: null,
       closed: [],
       prediction: null,
-      peers: [{ id: 1, state: "open" as const, remote: "r", rtt: 5, sent: traffic(bytes), received: traffic(bytes / 2), snapshotBytes: 20, ghosts: 1, inputs: [] }],
+      peers: [
+        {
+          id: 1,
+          state: "open" as const,
+          remote: "r",
+          rtt: 5,
+          sent: traffic(bytes),
+          received: traffic(bytes / 2),
+          snapshotBytes: 20,
+          ghosts: 1,
+          inputs: [],
+          ghostTypes: [
+            { type: "prefabs/player.prefab.json", bytes: bytes / 2 },
+            ...(bytes > 100 ? [{ type: "scenes/arena.scene.json#flag", bytes: 10 }] : []),
+          ],
+        },
+      ],
     });
     const sampler = new NetStatsSampler();
     expect(sampler.sample([world(100)], 0)[0].peers[0].out.bytesPerSecond).toBe(0);
@@ -134,6 +203,13 @@ describe("stats helpers", () => {
     expect(later.out.bytesPerSecond).toBe(1000);
     expect(later.in.bytesPerSecond).toBe(500);
     expect(later.out.byCategory.snapshots).toBe(1000);
+    // Bandwidth per ghost type: the player prefab went from 50 to 300 bytes in half a second; the flag appeared with 10.
+    expect(later.ghostTypeRates).toEqual([
+      { type: "prefabs/player.prefab.json", bytes: 300, bytesPerSecond: 500 },
+      { type: "scenes/arena.scene.json#flag", bytes: 10, bytesPerSecond: 20 },
+    ]);
+    expect(later.ghostTypeRates.map((t) => ghostTypeLabel(t.type))).toEqual(["player", "arena#flag"]);
+    expect(ghostTypeLabel("prefabs/units/tank.prefab.json › turret")).toBe("tank › turret");
   });
 
   it("puts conditions in loopback links' options, so links simulate them from the handshake", () => {
@@ -168,6 +244,16 @@ function withBootstrap(bootstrap: BootstrapSetting): EditorProject {
 }
 
 const Drive = defineInput("test.netplay.Drive", { x: f32, steps: i32, fire: u8 });
+
+/** A game system that writes the keyboard into `Drive` every tick, as samples/arena's `arena.ReadInput` does (zeros without input). */
+defineSystem({
+  name: "test.netplay.WriteKeyboard",
+  phase: "fixedUpdate",
+  worlds: ["keyboard-writer"],
+  run() {
+    Drive.write({ x: 0, steps: 0, fire: 0 });
+  },
+});
 
 describe("multiplayer play mode", () => {
   beforeEach(async () => {
@@ -219,6 +305,35 @@ describe("multiplayer play mode", () => {
       // Only the thin client wrote input; the server got it.
       const withInput = server.peers.filter((p) => p.inputs.some((i) => i.id === "test.netplay.Drive" && i.received > 0));
       expect(withInput).toHaveLength(1);
+    } finally {
+      play.stop();
+    }
+  });
+
+  it("plays the Host pattern: the server template becomes a World, clients join over loopback, thin clients' input beats the game's own writes", async () => {
+    // Like samples/arena: one client World, a server template the game would create at runtime,
+    // and a system that writes the keyboard into the input stream every tick (zeros without input).
+    const HOST: BootstrapConfig = {
+      worlds: [{ name: "Client", tags: ["client", "keyboard-writer"] }],
+      templates: { Server: { tags: ["server"], renders: false, input: false } },
+    };
+    const play = await startPlay({ editor, scene: openScene.value!, project: withBootstrap(HOST), netPlay: { clients: 1, thin: 1, thinInput: "random" } });
+    try {
+      expect(play.netPlay?.pattern).toBe("host");
+      expect(play.engine.worlds().map((w) => w.name)).toEqual(["Client 1", "Thin 1", "Server"]);
+      let r = 0.3;
+      const thin = createThinInput(play.engine, ["Thin 1"], "random", () => ((r = (r * 9301 + 0.49297) % 1), r));
+      for (let i = 0; i < 90; i++) {
+        thin.update();
+        play.engine.step(frame);
+        await new Promise((resolve) => setTimeout(resolve, 2));
+      }
+      const server = engineWorld(play.engine, "Server")!;
+      const session = netSession(server)!;
+      expect(session.allPeers().filter((p) => p.state === "open")).toHaveLength(2);
+      // The server reads the thin client's synthetic input, not the zeros the game wrote over it.
+      const seen = session.allPeers().map((p) => World._runIn(server, () => (p.node ? Drive.of(p.node) : null)));
+      expect(seen.some((v) => v !== null && v.x !== 0)).toBe(true);
     } finally {
       play.stop();
     }

@@ -1,10 +1,14 @@
 // The game view in play mode (ADR 0032, 0034): the Engine's main view, plus a tile for each other
 // World that wants to render, made and removed as Worlds come and go (game code can create them
 // at runtime). Clicking a tile gives its World local input. A strip lists every World, headless
-// ones (a server, multiplayer play's thin clients) included, with pause and resume. The elements are plain DOM rather than Preact:
+// ones (a server, multiplayer play's thin clients) included, with pause and resume, and Step to
+// advance just that World one frame (paused or not). The elements are plain DOM rather than Preact:
 // each tile's surface must stay the same element for as long as its World draws into it.
 import type { Engine } from "../engine";
-import { attachWorldView, focusWorldInput, worldViewStates, type WorldViewState } from "../engine/editor";
+import { attachWorldView, focusWorldInput, stepEngineWorld, worldViewStates, type WorldViewState } from "../engine/editor";
+
+/** One stepped frame, in seconds (play mode's Step): a 60 Hz frame. A World ticking slower runs its fixed step every few steps, when due. */
+export const STEP_SECONDS = 1 / 60;
 
 export interface GameView {
   /** The main view's element: the Engine's container. */
@@ -107,7 +111,21 @@ export function createGameView(container: HTMLElement): GameView {
           else handle.pause();
           update(engine);
         });
-        item.append(name, note, button);
+        const step = Object.assign(document.createElement("button"), {
+          textContent: "Step",
+          className: "world-step",
+          title: `Advance ${s.name} one frame (a fixed step when one is due), paused or not`,
+        });
+        step.setAttribute("aria-label", `Step ${s.name}`);
+        step.addEventListener("click", () => {
+          if (!engine.findWorld(s.name)) return;
+          try {
+            stepEngineWorld(engine, s.name, STEP_SECONDS);
+          } catch (err) {
+            console.error(`[myco] Couldn't step World "${s.name}":`, err);
+          }
+        });
+        item.append(name, note, button, step);
         return item;
       }),
     );

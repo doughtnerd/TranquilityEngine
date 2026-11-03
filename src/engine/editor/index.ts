@@ -17,9 +17,9 @@ import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
 import type { EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
 import { SpriteRenderer } from "../render/components";
 import type { GameObject } from "../scene/GameObject";
-import { SceneInstance, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
+import { SceneInstance, _instantiatedPrefabOf, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 import type { Schema } from "../core/data";
-import { _undefineInput, definedInputs } from "../net/input";
+import { _undefineInput, _writeSyntheticInput, definedInputs } from "../net/input";
 import { clientReplication } from "../net/replication/client";
 import { predictionStats, type PredictionStats } from "../net/prediction";
 import { serverReplication } from "../net/replication/server";
@@ -314,6 +314,26 @@ export function engineWorld(engine: Engine, name: string): World | null {
   return engine._world(name);
 }
 
+/** Advance only the World named `name` of `engine` one frame by `dt` seconds, paused or not (play mode's per-World Step). */
+export function stepEngineWorld(engine: Engine, name: string, dt: number): void {
+  engine._stepWorld(name, dt);
+}
+
+/** Draw every World of `engine` again without stepping it (after an edit while the game is paused). */
+export function redrawEngine(engine: Engine): void {
+  engine._redraw();
+}
+
+/** The prefab path `node` was instantiated from at runtime (`GameObject.instantiate`), if it's the root of such an instance. */
+export function instantiatedPrefabOf(node: GameObject): string | undefined {
+  return _instantiatedPrefabOf(node);
+}
+
+/** The file a scene node (a loaded scene, or a sub-scene instance) was made from, or undefined. */
+export function sceneSourceOf(node: GameObject): string | undefined {
+  return node.isSceneNode ? node.getBehavior(SceneInstance)?.source : undefined;
+}
+
 /** The world point on the plane z = 0 under a canvas point (CSS pixels), or null (headless, or the ray misses it). */
 export function pointOnSpritePlane(world: World, x: number, y: number, z = 0): [number, number, number] | null {
   return world.render?.pointOnPlaneZ(world, x, y, z) ?? null;
@@ -441,6 +461,12 @@ export interface NetPeerInfo {
   readonly ghosts: number | null;
   /** Server: this connection's counters per input stream (only streams it has sent input on). */
   readonly inputs: readonly { readonly id: string; readonly received: number; readonly repeated: number; readonly late: number }[];
+  /**
+   * Server: bytes sent on this connection per ghost type since it opened (each ghost's spawn and
+   * states in the snapshots sent; snapshot headers and despawns aren't counted). A type is a
+   * prefab path, or a scene ghost's `scene#node/path`. Empty on a client.
+   */
+  readonly ghostTypes: readonly { readonly type: string; readonly bytes: number }[];
 }
 
 /** A networked World of an Engine, as the Network panel shows it. */
@@ -486,6 +512,7 @@ export function netWorldInfo(engine: Engine): NetWorldInfo[] {
         received: copyTraffic(peer.received),
         snapshotBytes: session.isServer ? (ps?.lastBytes ?? 0) : null,
         ghosts: session.isServer ? (ps?.known.size ?? 0) : null,
+        ghostTypes: ps ? [...ps.typeBits].map(([type, bits]) => ({ type, bytes: bits / 8 })) : [],
         inputs: node?.isValid ? inputs.flatMap((def) => {
           const stats = World._runIn(world, () => def.stats(node));
           return stats ? [{ id: def.id, ...stats }] : [];
@@ -558,11 +585,14 @@ export function inputStreams(): InputStreamInfo[] {
   return definedInputs().map((def) => ({ id: def.id, fields: Object.entries(def.schema as Schema).map(([name, type]) => ({ name, kind: type.kind })) }));
 }
 
-/** Write input in a client World of `engine`, as its game code would (`Input.write`): thin clients' synthetic input. False if it can't (no such World or stream, or a server). */
+/**
+ * Write input in a client World of `engine` for it: thin clients' synthetic input. From then on the
+ * World's own writes to that stream are ignored (`Move.write` from a system reading the keyboard),
+ * so the synthetic input is what's sent and predicted. False if it can't (no such World or stream, or a server).
+ */
 export function writeWorldInput(engine: Engine, worldName: string, streamId: string, values: Readonly<Record<string, number>>): boolean {
   const world = engine._world(worldName);
   const def = definedInputs().find((d) => d.id === streamId);
   if (!world || !def || netSession(world)?.isServer) return false;
-  World._runIn(world, () => def.write(values as never));
-  return true;
+  return _writeSyntheticInput(world, streamId, values);
 }

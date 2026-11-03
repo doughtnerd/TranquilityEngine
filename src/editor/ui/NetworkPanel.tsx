@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { netWorldInfo } from "../../engine/editor";
-import { CONDITION_LIMITS, MAX_CLIENTS, MAX_THIN_CLIENTS, NO_CONDITIONS, NetStatsSampler, TRAFFIC_CATEGORIES, clampConditions, clientLayout, formatBytes, type NetConditionValues, type PeerStats, type WorldStats } from "../netPlay";
+import { CONDITION_LIMITS, MAX_CLIENTS, MAX_THIN_CLIENTS, NO_CONDITIONS, NetStatsSampler, TRAFFIC_CATEGORIES, clampConditions, clientLayout, formatBytes, ghostTypeLabel, hostLayout, type NetConditionValues, type PeerStats, type WorldStats } from "../netPlay";
 import { netConditionsSetting, netPlaySetup } from "../preferences";
 import { playing, togglePlaying } from "../session";
 import { currentProject, openScene, playState } from "../state";
@@ -29,6 +29,8 @@ function PlaySetup() {
   const project = currentProject.value;
   const state = playState.value;
   const layout = project ? clientLayout(project.settings.bootstrap) : null;
+  const host = project && !layout ? hostLayout(project.settings.bootstrap) : null;
+  const clientScenes = setup.clientScenes ?? "server";
   const set = (patch: Partial<typeof setup>) => (netPlaySetup.value = { ...setup, ...patch });
   const locked = state !== "edit";
   return (
@@ -69,12 +71,27 @@ function PlaySetup() {
             <option value="zeros">Zeros</option>
           </select>
         </label>
+        {host && (
+          <label title="The server World comes from a template the game creates at runtime (a Host button). The client copies can load its scenes and join straight away, or start on their own scenes (a menu).">
+            Clients load
+            <select aria-label="Clients load" value={clientScenes} disabled={locked || !setup.enabled} onChange={(e) => set({ clientScenes: e.currentTarget.value as "server" | "own" })}>
+              <option value="server">The server's scenes (join)</option>
+              <option value="own">Their own scenes</option>
+            </select>
+          </label>
+        )}
       </div>
       {setup.enabled && project && (
         <p class="network-note">
           {layout
             ? `Play copies the client World "${layout.template.name}" as ${names("Client", setup.clients)}${setup.thin ? ` and ${names("Thin", setup.thin)}` : ""}, with its links.`
-            : "This project has no client World linked to a server World (Worlds panel), so Play runs it as it is."}
+            : host
+              ? `Play creates the server World "${host.server.name}" from its template and copies the client World "${host.client.name}" as ${names("Client", setup.clients)}${setup.thin ? ` and ${names("Thin", setup.thin)}` : ""}, each connected to it over loopback. ${
+                  clientScenes === "server" && host.server.scenes
+                    ? `The clients load the server's scenes (${host.server.scenes.join(", ") || "none"}), so they join the game directly.`
+                    : `The clients load their own scenes${host.client.scenes ? ` (${host.client.scenes.join(", ")})` : ""}; they're connected already, so the game's own Host or Join may try to connect again.`
+                }`
+              : "This project has no client World linked to a server World, nor a server template (Worlds panel), so Play runs it as it is."}
           {locked && " Changes apply the next time you play."}
         </p>
       )}
@@ -216,6 +233,35 @@ function Stats() {
   );
 }
 
+/** A server connection's snapshot bandwidth per ghost type (prefab, or scene ghost), highest first. */
+function GhostTypes(props: { peer: PeerStats }) {
+  const rates = props.peer.ghostTypeRates;
+  if (rates.length === 0) return <p class="network-none">No ghosts sent on this connection yet.</p>;
+  const total = rates.reduce((n, t) => n + t.bytesPerSecond, 0);
+  return (
+    <table class="network-ghost-types" aria-label="Bandwidth per ghost type">
+      <thead>
+        <tr>
+          <th title="Prefab path, or a scene ghost's scene and node path">Ghost type</th>
+          <th title="Bytes per second of snapshots spent on ghosts of this type (spawns and states)">Out</th>
+          <th title="Share of the per-ghost snapshot bytes">Share</th>
+          <th title="Bytes since the connection opened">Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rates.map((t) => (
+          <tr key={t.type} data-ghost-type={t.type}>
+            <td title={t.type}>{ghostTypeLabel(t.type)}</td>
+            <td>{formatBytes(t.bytesPerSecond)}/s</td>
+            <td>{total > 0 ? `${Math.round((t.bytesPerSecond / total) * 100)}%` : "—"}</td>
+            <td>{formatBytes(t.bytes)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function PeerRows(props: { world: WorldStats; peer: PeerStats; expanded: boolean; onToggle: () => void }) {
   const { world: w, peer: p, expanded } = props;
   const name = w.role === "client" ? "Server" : `Connection ${p.id || "…"}`;
@@ -264,6 +310,7 @@ function PeerRows(props: { world: WorldStats; peer: PeerStats; expanded: boolean
                 </tr>
               </tbody>
             </table>
+            {w.role === "server" && <GhostTypes peer={p} />}
           </td>
         </tr>
       )}

@@ -329,7 +329,9 @@ The **Network** tab (beside Worlds) sets up how **Play** runs a client/server pr
 - Tick **Multiplayer play**, then pick **Clients** (1 to 4) and **Thin clients** (0 to 8). Play copies the project's client World (one linked to a server World) as `Client 1`…`Client N` and `Thin 1`…`Thin T`, each with that World's links. `project.json` isn't changed.
 - Thin clients don't render or take input. They send synthetic input on every input stream the game defines: **Random walk** or **Zeros**.
 - Rendering clients get a tile each in the game view. Click a tile to give that client the keyboard.
-- Without a client World linked to a server World, Play runs the project as it is.
+- **The Host pattern** (like `samples/arena`): a bootstrap with no links whose server is a `server`-tagged template the game creates at runtime (a Host button). Play creates that template as a World up front, under the name the game would give it (so the game's `Engine.findWorld` finds it), and copies the project's client World as `Client 1…N` and `Thin 1…T`, each connected to it over loopback. **Clients load** picks their scenes: **the server's scenes** (the default: they join the game straight away) or **their own** (a menu; they're connected already, so the game's own Host or Join may then try to connect again).
+- Thin client input wins over the game's own: a system that writes the keyboard into an input stream every tick (zeros in a World without input, as Arena's does) doesn't overwrite it.
+- Without a client World linked to a server World, or a server template, Play runs the project as it is.
 
 ### Network conditions
 
@@ -337,7 +339,7 @@ Sliders for **Latency** (0 to 500 ms), **Jitter** (0 to 100 ms) and **Loss** (0 
 
 ### Stats
 
-While playing, the Network tab shows each networked World with its role, tick, server tick and ghost count, and each connection with its state, RTT and bytes per second in and out. Server rows add the last snapshot's size, the ghosts that client knows about and its input counts (received, repeated, late). Expand a row for traffic per kind of message. Client Worlds that predict show mispredictions, rollbacks and re-simulated ticks.
+While playing, the Network tab shows each networked World with its role, tick, server tick and ghost count, and each connection with its state, RTT and bytes per second in and out. Server rows add the last snapshot's size, the ghosts that client knows about and its input counts (received, repeated, late). Expand a row for traffic per kind of message, and on a server connection, **bandwidth per ghost type**: bytes per second, share and total for each prefab (or scene ghost, as `scene#node/path`), from the bits each ghost's spawn and state took in the snapshots sent. Client Worlds that predict show mispredictions, rollbacks and re-simulated ticks.
 
 ## Limits and known gaps
 
@@ -350,5 +352,5 @@ From [implementation status](../architecture/implementation-status.md) and [open
 - **Prediction** covers data components, behavior fields and the transform moved by `predicted` systems. Behaviors aren't re-simulated, and physics isn't predicted.
 - WebSocket carries unreliable messages over TCP, so packet loss delays them instead of dropping them. WebRTC, which would fix that, needs a signalling server and is deferred.
 - Not built: lag compensation, relevancy and interest management, host migration, a single-World host, client-authoritative modes, matchmaking and lobbies (v2).
-- The Network panel shows bytes per message kind and snapshot size, not bandwidth per ghost type.
+- Bandwidth per ghost type counts each ghost's spawn and state bits; snapshot headers and despawns aren't attributed to any type.
 - A client World and a server World can't be the same World, and one World can't be both a client and a server (a relay).
