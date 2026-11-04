@@ -18,10 +18,26 @@ export function AssetInspector() {
   const path = inspectedAsset.value;
   const kind = path ? assetKind(path) : null;
   if (path && kind === "particles") return <ParticleEffectInspector path={path} />;
+  if (path && (kind === "environment" || kind === "prefab")) return <PreviewInspector path={path} kind={kind} />;
   return path && kind === "material" ? <MaterialInspector path={path} /> : path && (kind === "shadergraph" || kind === "shadersubgraph") ? <ShaderGraphInspector path={path} /> : <ImportInspector />;
 }
 
 const KIND_TITLES = { image: "Image", audio: "Audio", model: "Model" } as const;
+
+/** Environments and prefabs: no settings to edit here, just a look at them (ADR 0061). */
+function PreviewInspector(props: { path: string; kind: "environment" | "prefab" }) {
+  return (
+    <div class="asset-inspector">
+      <h3>{fileName(props.path)}</h3>
+      <p class="hint">
+        {props.kind === "environment"
+          ? "Environment map. An Environment component lights the scene with it and can show it as the sky."
+          : "Prefab. Drag it into the Hierarchy or the scene view to place a copy."}
+      </p>
+      <LargePreview path={props.path} />
+    </div>
+  );
+}
 
 /**
  * The selected image, audio file or model's import settings (ADR 0040, 0044), stored in its

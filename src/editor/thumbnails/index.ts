@@ -2,7 +2,7 @@
 // One service per project, kept in `.myco/thumbnails/` for a writable project folder and in memory
 // otherwise; the engine's thumbnail renderer is loaded the first time something needs drawing.
 import { effect } from "@preact/signals";
-import { createThumbnailRenderer, type ThumbnailKind, type ThumbnailRenderer } from "../../engine/editor";
+import { createThumbnailRenderer, type ThumbnailKind, type ThumbnailPreview, type ThumbnailRenderer } from "../../engine/editor";
 import type { EditorProject } from "../projects";
 import { currentProject } from "../state";
 import { type AudioSummary, decodeAudioSummary } from "./audio";
@@ -15,7 +15,33 @@ export type { Thumbnail } from "./service";
 export { previewKind, type PreviewKind } from "./keys";
 
 let renderer: Promise<ThumbnailRenderer> | null = null;
-const getRenderer = () => (renderer ??= createThumbnailRenderer());
+/** The shared renderer, made on first use and again after the browser takes its WebGL context away. */
+function getRenderer(): Promise<ThumbnailRenderer> {
+  if (renderer) return renderer;
+  const made = createThumbnailRenderer();
+  renderer = made;
+  made.then(
+    (r) =>
+      r.onContextLost(() => {
+        if (renderer === made) renderer = null;
+        r.dispose();
+      }),
+    () => {
+      if (renderer === made) renderer = null; // couldn't make one (no WebGL): try again next time
+    },
+  );
+  return made;
+}
+
+let warnedPreview = false;
+/** A preview that couldn't start (no WebGL, a bad asset): said once, and the still stays. */
+function previewFailed(err: unknown): false {
+  if (!warnedPreview) {
+    warnedPreview = true;
+    console.warn("[myco] live preview unavailable:", err);
+  }
+  return false;
+}
 
 let current: { project: EditorProject; service: ThumbnailService } | null = null;
 /** Thumbnails drawn this session (end-to-end tests check a reopened project reads its cache instead). */
@@ -106,6 +132,14 @@ export function audioSummaryFor(path: string): Promise<AudioSummary | null> {
   return service()?.audioSummaryFor(path) ?? Promise.resolve(null);
 }
 
+/**
+ * An asset's content key (its bytes and its dependencies'), or null if it can't be read. The same
+ * key means the same picture, so a live preview re-prepares only when it changes.
+ */
+export function contentKeyFor(path: string): Promise<string | null> {
+  return service()?.keyFor(path).catch(() => null) ?? Promise.resolve(null);
+}
+
 /** Whether an asset's tile animates on hover (particle effects, shader graphs that use Time). */
 export async function canAnimate(path: string): Promise<boolean> {
   const kind = previewKind(path);
@@ -118,17 +152,57 @@ export async function canAnimate(path: string): Promise<boolean> {
  * Animate an asset in `canvas` (its tile, on hover) until the returned function is called, another
  * animation starts, or the canvas leaves the page. One at a time.
  */
-export function animateThumbnail(path: string, canvas: HTMLCanvasElement): () => void {
+export function animateThumbnail(path: string, canvas: HTMLCanvasElement, onFrame?: () => void): () => void {
   const kind = previewKind(path);
   if (!kind || kind === "audio") return () => undefined;
   let stop: (() => void) | null = null;
   let cancelled = false;
   void getRenderer().then((r) => {
-    if (!cancelled) stop = r.animate(kind as ThumbnailKind, path, canvas);
+    if (!cancelled) stop = r.animate(kind as ThumbnailKind, path, canvas, () => !cancelled && onFrame?.());
   });
   return () => {
     cancelled = true;
     stop?.();
+  };
+}
+
+/** An orbitable preview's controls (drag to orbit, wheel to zoom, double-click to reset). */
+export interface AssetPreviewHandle {
+  /** True once drawn; false if this asset can't be previewed live (show the still instead). */
+  readonly ready: Promise<boolean>;
+  orbit(dyaw: number, dpitch: number): void;
+  zoom(factor: number): void;
+  reset(): void;
+  redraw(): void;
+  stop(): void;
+}
+
+/**
+ * A live, orbitable preview of an asset in `canvas` (the Inspector's), until `stop`. One at a time:
+ * while it's open, hovered tiles show their stills.
+ */
+export function previewAsset(path: string, canvas: HTMLCanvasElement): AssetPreviewHandle {
+  const kind = previewKind(path);
+  if (!kind || kind === "audio") return { ready: Promise.resolve(false), orbit() {}, zoom() {}, reset() {}, redraw() {}, stop() {} };
+  let live: ThumbnailPreview | null = null;
+  let stopped = false;
+  const ready = getRenderer()
+    .then((r) => {
+      if (stopped) return false;
+      live = r.preview(kind as ThumbnailKind, path, canvas);
+      return live.ready;
+    })
+    .catch(previewFailed);
+  return {
+    ready,
+    orbit: (dyaw, dpitch) => live?.orbit(dyaw, dpitch),
+    zoom: (f) => live?.zoom(f),
+    reset: () => live?.reset(),
+    redraw: () => live?.redraw(),
+    stop: () => {
+      stopped = true;
+      live?.stop();
+    },
   };
 }
 

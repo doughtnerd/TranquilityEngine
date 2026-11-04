@@ -799,3 +799,6 @@ export async function createThumbnailRenderer(size?: number): Promise<import("..
   const { ThumbnailRenderer } = await import("../render/ThumbnailRenderer");
   return new ThumbnailRenderer(size);
 }
+
+/** An orbitable asset preview in the Inspector (ADR 0061): `ThumbnailRenderer.preview`. */
+export type { ThumbnailPreview } from "../render/ThumbnailRenderer";

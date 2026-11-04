@@ -5,7 +5,7 @@ import { effect, signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AssetKind } from "../assetBrowser";
 import { autoPlayAudio } from "../preferences";
-import { animateThumbnail, audioSummaryFor, canAnimate, previewKind, thumbnailFor, type AudioSummary } from "../thumbnails";
+import { animateThumbnail, audioSummaryFor, canAnimate, contentKeyFor, previewAsset, previewKind, thumbnailFor, type AssetPreviewHandle, type AudioSummary } from "../thumbnails";
 import { currentProject, docVersion } from "../state";
 
 // --- tiles ----------------------------------------------------------------------------------------
@@ -67,8 +67,8 @@ function useHoverAnimation(path: string, host: { current: HTMLElement | null }, 
       over = true;
       void canAnimate(path).then((ok) => {
         if (!ok || !over || !canvas.current) return;
-        stop = animateThumbnail(path, canvas.current);
-        setAnimating(true);
+        // Shown once a frame is drawn: while the Inspector's live preview has the renderer, the still stays.
+        stop = animateThumbnail(path, canvas.current, () => over && setAnimating(true));
       });
     };
     const leave = () => {
@@ -351,21 +351,113 @@ export function AudioPreview(props: { path: string }) {
 
 // --- Inspector ------------------------------------------------------------------------------------
 
+/** Radians of turn per pixel dragged, and zoom per wheel notch. */
+const ORBIT_SPEED = 0.01;
+const ZOOM_STEP = 1.12;
+
 /**
- * A larger preview in the Inspector (models, materials, shader graphs, environments, particle
- * effects, prefabs): the rendered still, animating while the pointer is over it where the asset moves.
+ * A larger preview in the Inspector (models, materials, shader graphs, environments, prefabs): live
+ * and orbitable (drag to turn, wheel to zoom, double-click to reset), animating where the asset
+ * moves. The rendered still shows until it's drawn, and stays if it can't be.
  */
+/**
+ * The asset's content key in the open project, checked again when files change: a new key (the
+ * asset or something it uses was edited, or another project opened) means a new picture. Null
+ * until the first check resolves; "?" when the asset can't be read.
+ */
+function useContentKey(path: string, active: boolean): string | null {
+  const version = docVersion.value;
+  const project = currentProject.value;
+  const [key, setKey] = useState<{ path: string; project: unknown; key: string } | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    let gone = false;
+    void contentKeyFor(path).then((k) => {
+      if (gone) return;
+      const next = k ?? "?";
+      setKey((old) => (old && old.path === path && old.project === project && old.key === next ? old : { path, project, key: next }));
+    });
+    return () => {
+      gone = true;
+    };
+  }, [path, project, version, active]);
+  return key && key.path === path && key.project === project ? key.key : null;
+}
+
 export function LargePreview(props: { path: string }) {
   const { path } = props;
   const host = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const url = useThumbnail(path, true);
-  const animating = useHoverAnimation(path, host, canvas);
-  if (!previewKind(path) || previewKind(path) === "audio") return null;
+  const [live, setLive] = useState<{ path: string; handle: AssetPreviewHandle } | null>(null);
+  const kind = previewKind(path);
+  const supported = !!kind && kind !== "audio";
+  // The preview is prepared again when the asset's content (or the project) changes, and only then.
+  const content = useContentKey(path, supported);
+  useEffect(() => {
+    const el = canvas.current, box = host.current;
+    if (!supported || !el || !box || content === null) return;
+    // The canvas draws at its on-screen size in device pixels.
+    const fit = () => {
+      const r = box.getBoundingClientRect();
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr));
+      if (el.width !== w || el.height !== h) {
+        el.width = w;
+        el.height = h;
+        handle.redraw();
+      }
+    };
+    const handle = previewAsset(path, el);
+    fit();
+    let gone = false;
+    void handle.ready.then((ok) => !gone && ok && setLive({ path, handle }));
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    ro?.observe(box);
+    return () => {
+      gone = true;
+      ro?.disconnect();
+      handle.stop();
+      setLive(null);
+    };
+  }, [path, supported, content]);
+  if (!supported) return null;
+  const shown = live?.path === path ? live.handle : null;
+  const drag = (e: PointerEvent) => {
+    if (!shown || e.button !== 0) return;
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    let x = e.clientX, y = e.clientY;
+    const move = (m: PointerEvent) => {
+      shown.orbit(-(m.clientX - x) * ORBIT_SPEED, (m.clientY - y) * ORBIT_SPEED);
+      x = m.clientX;
+      y = m.clientY;
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  };
   return (
-    <div ref={host} class="asset-inspector-preview asset-large-preview" aria-label="Preview">
-      {url ? <img class="asset-rendered" src={url} alt="" draggable={false} /> : <span class="asset-inspector-size">Rendering a preview…</span>}
-      <canvas ref={canvas} class="asset-animation" width={256} height={256} hidden={!animating} aria-hidden="true" />
+    <div
+      ref={host}
+      class={`asset-inspector-preview asset-large-preview${shown ? " live" : ""}`}
+      aria-label="Preview"
+      title={shown ? "Drag to turn, scroll to zoom, double-click to reset" : undefined}
+      onPointerDown={drag}
+      onWheel={(e) => {
+        if (!shown) return;
+        e.preventDefault();
+        shown.zoom(e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
+      }}
+      onDblClick={() => shown?.reset()}
+    >
+      {!shown && (url ? <img class="asset-rendered" src={url} alt="" draggable={false} /> : <span class="asset-inspector-size">Rendering a preview…</span>)}
+      <canvas ref={canvas} class="asset-live-preview" hidden={!shown} aria-hidden="true" />
     </div>
   );
 }

@@ -223,6 +223,7 @@ export class ParticleEffectPreview {
     this.dot?.dispose();
     this.grid?.geometry.dispose();
     this.renderer.dispose();
+    this.renderer.forceContextLoss(); // free the context now, not at garbage collection (browsers cap live contexts)
     this.canvas.remove();
   }
 

@@ -47,7 +47,7 @@ import { parseShaderGraph, type GraphValue, type ShaderGraph } from "../scene/sh
 import { Graphics } from "./Graphics";
 import { compileShaderGraph } from "./shaderGraph/compile";
 import { createGraphMaterial, createSharedGraphUniforms, type GraphMaterial } from "./shaderGraph/threeMaterial";
-import { colorFromHex, frameView, seededRandom, type Bounds } from "./thumbnailMath";
+import { colorFromHex, frameView, moveOrbit, orbitOf, orbitPosition, previewPixels, seededRandom, type Bounds, type Orbit } from "./thumbnailMath";
 
 export { frameView, seededRandom } from "./thumbnailMath";
 
@@ -75,6 +75,27 @@ interface Prepared {
   dispose(): void;
 }
 
+/**
+ * A live, orbitable preview drawn into a canvas (the Inspector's): it redraws when the view changes,
+ * and continuously while the asset animates. One at a time; while one is open, tiles show stills.
+ */
+export interface ThumbnailPreview {
+  /** Resolves true once the asset is drawn, false if it can't be (or the preview stopped first). */
+  readonly ready: Promise<boolean>;
+  /** Turn the view around the asset by `dyaw` (about the vertical) and `dpitch` radians. */
+  orbit(dyaw: number, dpitch: number): void;
+  /** Move closer (below 1) or further away (above 1). */
+  zoom(factor: number): void;
+  /** Back to the starting view. */
+  reset(): void;
+  /** Redraw at the canvas's current size (after it was resized). */
+  redraw(): void;
+  stop(): void;
+}
+
+/** Previews draw at most this many pixels across, so a large Inspector doesn't cost a large buffer. */
+const MAX_PREVIEW_PIXELS = 768;
+
 const DIRECTION_3D = new Vector3(1, 0.75, 1.15).normalize();
 const DIRECTION_FRONT = new Vector3(0, 0, 1);
 
@@ -87,7 +108,19 @@ export class ThumbnailRenderer {
   private studio: Texture | null = null;
   private studioLoading: Promise<void> | null = null;
   private animation: { stop(): void } | null = null;
+  private live: { stop(): void } | null = null;
+  /**
+   * The drawing buffer's size. It only grows while a preview is open (thumbnails draw into its
+   * bottom-left corner with the viewport and scissor), so switching between a preview and
+   * thumbnails never reallocates it; it shrinks back to `size` when the preview closes.
+   */
+  private drawn: [number, number];
+  /** A `size` x `size` 2D canvas thumbnails are copied into for encoding. */
+  private readonly still: HTMLCanvasElement;
   private disposed = false;
+  private lostListeners: (() => void)[] = [];
+  /** True once the browser has taken the WebGL context away (too many contexts, a GPU reset). */
+  lost = false;
 
   constructor(readonly size = THUMBNAIL_SIZE) {
     this.canvas = document.createElement("canvas");
@@ -95,19 +128,67 @@ export class ThumbnailRenderer {
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(size, size, false);
     this.renderer.setClearColor(0x000000, 0);
+    this.renderer.setScissorTest(true);
+    this.drawn = [size, size];
+    this.still = document.createElement("canvas");
+    this.still.width = this.still.height = size;
+    // A lost context can't draw again; whoever owns this renderer makes a new one (`onContextLost`).
+    this.canvas.addEventListener("webglcontextlost", () => {
+      this.lost = true;
+      this.live?.stop();
+      this.animation?.stop();
+      for (const f of this.lostListeners.splice(0)) f();
+    });
+  }
+
+  /** Run `f` once if the WebGL context is lost (the renderer is then useless: make another). */
+  onContextLost(f: () => void): void {
+    if (this.lost) f();
+    else this.lostListeners.push(f);
+  }
+
+  /**
+   * Draw the scene into the buffer's bottom-left `w` x `h` corner, growing the buffer if it's too
+   * small. Returns where that corner is in the canvas image (its origin is top-left).
+   */
+  private draw(scene: Object3D, camera: PerspectiveCamera, w: number, h: number): { sx: number; sy: number; w: number; h: number } {
+    if (w > this.drawn[0] || h > this.drawn[1]) {
+      const nw = Math.max(w, this.drawn[0]), nh = Math.max(h, this.drawn[1]);
+      this.renderer.setSize(nw, nh, false);
+      this.drawn = [nw, nh];
+    }
+    this.renderer.setViewport(0, 0, w, h);
+    this.renderer.setScissor(0, 0, w, h);
+    this.renderer.render(scene, camera);
+    return { sx: 0, sy: this.drawn[1] - h, w, h };
+  }
+
+  /** Back to a `size` x `size` buffer (a preview closed). */
+  private shrink(): void {
+    if (this.drawn[0] === this.size && this.drawn[1] === this.size) return;
+    this.renderer.setSize(this.size, this.size, false);
+    this.drawn = [this.size, this.size];
+  }
+
+  /** Copy a drawn region into a 2D canvas, filling it. */
+  private copy(from: { sx: number; sy: number; w: number; h: number }, target: HTMLCanvasElement): void {
+    const ctx = target.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, target.width, target.height);
+    ctx.drawImage(this.canvas, from.sx, from.sy, from.w, from.h, 0, 0, target.width, target.height);
   }
 
   /** A still image of the asset (WebP where the browser encodes it, else PNG), or null if it can't be shown. */
   async render(kind: ThumbnailKind, path: string): Promise<Blob | null> {
     const prepared = await this.prepare(kind, path, false);
-    if (!prepared || this.disposed) {
+    if (!prepared || this.disposed || this.lost) {
       prepared?.dispose();
       return null;
     }
     try {
-      this.renderer.render(prepared.scene, prepared.camera);
+      this.copy(this.draw(prepared.scene, prepared.camera, this.size, this.size), this.still);
       // toBlob takes its snapshot now, before any other render can draw over the canvas.
-      return await new Promise<Blob | null>((resolve) => this.canvas.toBlob(resolve, "image/webp", 0.9));
+      return await new Promise<Blob | null>((resolve) => this.still.toBlob(resolve, "image/webp", 0.9));
     } finally {
       prepared.dispose();
     }
@@ -128,8 +209,10 @@ export class ThumbnailRenderer {
   /**
    * Draw the asset live into `target` (a 2D canvas) at about 30 fps, until the returned function
    * is called, another animation starts, or `target` leaves the document. One at a time.
+   * `onFrame` runs after the first frame is drawn (nothing is drawn while a preview is open).
    */
-  animate(kind: ThumbnailKind, path: string, target: HTMLCanvasElement): () => void {
+  animate(kind: ThumbnailKind, path: string, target: HTMLCanvasElement, onFrame?: () => void): () => void {
+    if (this.live || this.lost) return () => undefined; // the Inspector's preview has the renderer: tiles stay stills
     this.animation?.stop();
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -151,23 +234,108 @@ export class ThumbnailRenderer {
       }
       prepared = p;
       let last = performance.now();
+      let first = true;
       const frame = () => {
         if (stopped || !prepared) return;
         if (!target.isConnected) return stop();
         const now = performance.now();
         prepared.step?.(Math.min(MAX_STEP, (now - last) / 1000));
         last = now;
-        this.renderer.render(prepared.scene, prepared.camera);
-        const ctx = target.getContext("2d");
-        if (ctx) {
-          ctx.clearRect(0, 0, target.width, target.height);
-          ctx.drawImage(this.canvas, 0, 0, target.width, target.height);
+        this.copy(this.draw(prepared.scene, prepared.camera, this.size, this.size), target);
+        if (first) {
+          first = false;
+          onFrame?.();
         }
         timer = setTimeout(frame, 1000 / ANIMATION_FPS);
       };
       frame();
     });
     return stop;
+  }
+
+  /**
+   * An orbitable preview of the asset in `target` (a 2D canvas, sized by the caller to its pixels).
+   * It takes the renderer from any hover animation, and replaces another preview.
+   */
+  preview(kind: ThumbnailKind, path: string, target: HTMLCanvasElement): ThumbnailPreview {
+    this.live?.stop();
+    this.animation?.stop();
+    let stopped = false;
+    let prepared: Prepared | null = null;
+    let center: [number, number, number] = [0, 0, 0];
+    let start: Orbit = { yaw: 0, pitch: 0, distance: 1 };
+    let view: Orbit = start;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let queued = false;
+    let last = performance.now();
+    const animates = this.canAnimate(kind, path);
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      if (timer !== null) clearTimeout(timer);
+      prepared?.dispose();
+      prepared = null;
+      if (this.live === handle) {
+        this.live = null;
+        if (!this.lost) this.shrink();
+      }
+    };
+    const handle = { stop };
+    this.live = handle;
+    const draw = () => {
+      queued = false;
+      if (stopped || !prepared) return;
+      if (!target.isConnected) return stop();
+      const [w, h] = previewPixels(target.width, target.height, MAX_PREVIEW_PIXELS);
+      const camera = prepared.camera;
+      camera.position.set(...orbitPosition(center, view));
+      camera.lookAt(...center);
+      camera.aspect = w / h;
+      camera.near = Math.max(1e-3, view.distance / 100);
+      camera.far = view.distance * 100;
+      camera.updateProjectionMatrix();
+      const now = performance.now();
+      if (animates) prepared.step?.(Math.min(MAX_STEP, (now - last) / 1000));
+      last = now;
+      this.copy(this.draw(prepared.scene, camera, w, h), target);
+      // Animated assets keep drawing; others wait for the next change.
+      if (animates) timer = setTimeout(draw, 1000 / ANIMATION_FPS);
+    };
+    const request = () => {
+      if (queued || stopped || !prepared || animates) return; // animating: the next frame picks it up
+      queued = true;
+      (typeof requestAnimationFrame === "function" ? requestAnimationFrame : (f: () => void) => setTimeout(f, 16))(draw);
+    };
+    const ready = this.prepare(kind, path, true).then((p) => {
+      if (stopped || !p || this.lost) {
+        p?.dispose();
+        stop(); // nothing to show: hovered tiles may animate again
+        return false;
+      }
+      prepared = p;
+      center = (p.camera.userData.target as [number, number, number] | undefined) ?? [0, 0, 0];
+      start = view = orbitOf(p.camera.position.toArray(), center);
+      draw();
+      return true;
+    });
+    const near = () => start.distance * 0.25, far = () => start.distance * 4;
+    return {
+      ready,
+      orbit: (dyaw, dpitch) => {
+        view = moveOrbit(view, dyaw, dpitch, 1, near(), far());
+        request();
+      },
+      zoom: (factor) => {
+        view = moveOrbit(view, 0, 0, factor, near(), far());
+        request();
+      },
+      reset: () => {
+        view = start;
+        request();
+      },
+      redraw: request,
+      stop,
+    };
   }
 
   /**
@@ -181,10 +349,12 @@ export class ThumbnailRenderer {
 
   dispose(): void {
     this.disposed = true;
+    this.live?.stop();
     this.animation?.stop();
     this.clearCaches();
     this.studio?.dispose();
     this.renderer.dispose();
+    this.lostListeners = [];
   }
 
   // --- scenes ---------------------------------------------------------------------------------------
@@ -199,7 +369,7 @@ export class ThumbnailRenderer {
         case "shadergraph":
           return await this.prepareMaterial(kind, path);
         case "environment":
-          return await this.prepareEnvironment(path);
+          return await this.prepareEnvironment(path, live);
         case "particles":
           return await this.prepareParticles(path, live);
         case "prefab":
@@ -232,6 +402,7 @@ export class ThumbnailRenderer {
     camera.far = view.far;
     camera.lookAt(...view.target);
     camera.updateProjectionMatrix();
+    camera.userData.target = view.target; // what a preview orbits around
     return camera;
   }
 
@@ -263,13 +434,15 @@ export class ThumbnailRenderer {
     };
   }
 
-  private async prepareEnvironment(path: string): Promise<Prepared> {
+  /** A chrome sphere reflecting the map; a live preview also shows the map itself behind it. */
+  private async prepareEnvironment(path: string, live: boolean): Promise<Prepared> {
     const { loadEquirectangular, prefilter } = await import("./environmentMap");
     const source = await loadEquirectangular(Assets.url(path), path);
     const lighting = prefilter(this.renderer, source);
-    source.dispose();
     const scene = new Scene();
     scene.environment = lighting;
+    if (live) scene.background = source;
+    else source.dispose();
     const chrome = new MeshStandardMaterial({ color: 0xffffff, metalness: 1, roughness: 0.05 });
     scene.add(new Mesh(meshesIfLoaded("builtin:sphere")![0].geometry, chrome));
     return {
@@ -278,6 +451,7 @@ export class ThumbnailRenderer {
       dispose: () => {
         chrome.dispose();
         lighting.dispose();
+        if (live) source.dispose();
       },
     };
   }

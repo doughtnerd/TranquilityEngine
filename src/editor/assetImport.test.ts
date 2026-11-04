@@ -100,6 +100,8 @@ describe("the Assets panel's view of sidecars and slices", () => {
     selectedAssets.value = ["music/town.mp3"];
     expect(inspectedAsset.value).toBe("music/town.mp3");
     selectedAssets.value = ["prefabs/slice.prefab.json"];
+    expect(inspectedAsset.value).toBe("prefabs/slice.prefab.json"); // a preview (ADR 0061)
+    selectedAssets.value = ["scenes/main.scene.json"];
     expect(inspectedAsset.value).toBeNull();
     selectedAssets.value = ["images/PipeUp.png", "images/PipeDown.png"];
     expect(inspectedAsset.value).toBeNull();

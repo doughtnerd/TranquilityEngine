@@ -125,3 +125,26 @@ Review findings, all fixed:
   - a closed project's service wasn't disposed;
   - every audio tile re-rendered four times a second during playback, a rewritten clip played the old file, and playback outlived its asset;
   - the Inspector could show the previous asset's picture.
+
+## Wave 3 results (2026-11-04)
+
+Built:
+- **G, docs:** `docs/guide/editor.md` (the Projects window, menu bar, docks and tab overflow, asset previews, `.myco/`), the guide index, and status rows for 0061 and 0063.
+- **H, live previews:**
+  - live, orbitable Inspector previews (`ThumbnailRenderer.preview`: drag, wheel, double-click) for models, materials, shader graphs, environments, prefabs and particle effects, sharing the one WebGL context;
+  - Inspector pages for environments and prefabs.
+
+Verified: typecheck, 1156 unit tests, 357 e2e tests on Chromium and WebKit.
+
+Review findings, all fixed:
+- **Live previews:**
+  - the preview never updated after an edit, and kept the previous project's asset (it's now re-prepared when the asset's content key changes);
+  - the picture stretched above 768 px;
+  - a failed preview blocked hover animations;
+  - the particle Inspector made a WebGL context per selection, which could exhaust the browser's limit (it now uses the shared preview, the Particle Graph's preview frees its context, and the thumbnail renderer rebuilds after a lost context);
+  - the particle preview restarted on unrelated re-renders;
+  - the drawing buffer was reallocated on every switch between the preview and thumbnails;
+  - preview errors went unhandled.
+- **Docs** that contradicted the code.
+
+The plan is complete. Still open: camera-view scene thumbnails (ADR 0061), and checking the borderless Projects window by hand in Tauri.

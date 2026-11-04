@@ -14,6 +14,7 @@ import { CurveEditor } from "./particles/CurveEditor";
 import { GradientEditor } from "./particles/GradientEditor";
 import { NumField, ParticleColorInput, VecField } from "./particles/valueInputs";
 import "./assetInspector.css";
+import { LargePreview } from "./AssetPreview";
 
 /** Problems of a graph: its parse problems plus what compiling it reports. */
 function allProblems(graph: ParticleGraph, parse: { message: string }[]): string[] {
@@ -34,6 +35,11 @@ export function ParticleEffectInspector(props: { path: string }) {
       <h3>{fileName(props.path)}</h3>
       <p class="hint">Particle effect. ParticleSystem components play it; edit it in the Particle Graph.</p>
       <button onClick={() => openParticleGraphAsset(props.path)}>Open in Particle Graph</button>
+      {/* The shared thumbnail renderer's live preview (ADR 0061): no WebGL context of its own, and it
+          restarts only when the effect's file (or what it uses) changes. */}
+      <div class="particle-inspector-preview" aria-label="Particle effect preview">
+        <LargePreview path={props.path} />
+      </div>
       {migrated && <p class="hint">An older particle effect file. It's converted to a graph the first time it's edited.</p>}
       {!project.canSave && <p class="hint">Read-only: open a project folder (or copy the sample) to edit.</p>}
       <dl class="particle-summary">

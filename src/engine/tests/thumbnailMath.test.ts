@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { colorFromHex, frameView, seededRandom } from "../render/thumbnailMath";
+import { colorFromHex, frameView, MAX_PITCH, moveOrbit, orbitOf, orbitPosition, seededRandom, previewPixels } from "../render/thumbnailMath";
 
 describe("thumbnail framing (ADR 0061)", () => {
   it("looks at the bounds' centre from the given direction, far enough to fit them", () => {
@@ -41,5 +41,39 @@ describe("sprite colours", () => {
     expect(colorFromHex("#ff8000")).toBe(0xff8000);
     expect(colorFromHex("#ff800080")).toBe(0xff8000);
     expect(colorFromHex("nope")).toBe(0xffffff);
+  });
+});
+
+describe("preview orbit (ADR 0061)", () => {
+  it("round-trips a camera position through its orbit", () => {
+    const target = [1, 2, 3];
+    const o = orbitOf([4, 6, 7], target);
+    const p = orbitPosition(target, o);
+    expect(p[0]).toBeCloseTo(4);
+    expect(p[1]).toBeCloseTo(6);
+    expect(p[2]).toBeCloseTo(7);
+    expect(o.distance).toBeCloseTo(Math.hypot(3, 4, 4));
+  });
+
+  it("turns, keeps the pitch off the poles, and clamps the zoom", () => {
+    const o = { yaw: 0, pitch: 0, distance: 5 };
+    const turned = moveOrbit(o, 0.5, 10, 1, 1, 10);
+    expect(turned.yaw).toBeCloseTo(0.5);
+    expect(turned.pitch).toBeCloseTo(MAX_PITCH);
+    expect(moveOrbit(o, 0, -10, 1, 1, 10).pitch).toBeCloseTo(-MAX_PITCH);
+    expect(moveOrbit(o, 0, 0, 0.01, 1, 10).distance).toBe(1);
+    expect(moveOrbit(o, 0, 0, 100, 1, 10).distance).toBe(10);
+    expect(moveOrbit(o, 0, 0, 0, 1, 10).distance).toBe(5); // a zero zoom factor leaves it alone
+  });
+});
+
+describe("previewPixels", () => {
+  it("keeps the canvas's shape, scaling both sides by one factor under the cap", () => {
+    expect(previewPixels(1200, 560, 768)).toEqual([768, 358]);
+    expect(previewPixels(560, 1200, 768)).toEqual([358, 768]);
+  });
+  it("leaves canvases within the cap alone, and never goes below 1 x 1", () => {
+    expect(previewPixels(400, 300, 768)).toEqual([400, 300]);
+    expect(previewPixels(0, 0, 768)).toEqual([1, 1]);
   });
 });
