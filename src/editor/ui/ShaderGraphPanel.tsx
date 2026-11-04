@@ -394,7 +394,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (isFieldTarget(e.target)) return;
-    const key = e.key.toLowerCase();
+    const key = (e.key ?? "").toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
     let handled = true;
     if (mod && key === "z" && !e.altKey) e.shiftKey ? redo() : undo();

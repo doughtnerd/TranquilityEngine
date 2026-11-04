@@ -145,6 +145,10 @@ test("Play runs the scene in a game view, Stop returns to the unchanged editor",
   // Flap: the game's own scripts run in play mode, so the bird moves in the Runtime World.
   await game.click();
   await page.waitForTimeout(500);
+  // Chromium's autofill sends key events with no key; game input and editor shortcuts ignore them.
+  await page.evaluate(() => {
+    for (const type of ["keydown", "keyup"]) window.dispatchEvent(new Event(type));
+  });
 
   await page.keyboard.press("ControlOrMeta+p"); // stop
   await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();

@@ -132,7 +132,7 @@ function MonacoHost() {
         const e = editor;
         // Ctrl+S and Cmd+S both save, whatever platform Monaco thinks it's on.
         const onSaveKey = (k: KeyboardEvent) => {
-          if (!(k.ctrlKey || k.metaKey) || k.altKey || k.key.toLowerCase() !== "s") return;
+          if (!(k.ctrlKey || k.metaKey) || k.altKey || (k.key ?? "").toLowerCase() !== "s") return;
           k.preventDefault();
           k.stopPropagation();
           void saveActive(e);

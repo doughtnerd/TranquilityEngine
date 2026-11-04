@@ -116,14 +116,17 @@ export class Input {
   }
 
   private static listen(canvas: HTMLCanvasElement): void {
+    // Chromium's autofill sends keydown and keyup events with no key; they're not key presses.
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return;
+      if (e.repeat || typeof e.key !== "string") return;
       const key = normalizeKey(e.key);
       // Keep Space and the arrows from scrolling the page, but not from typing in a text field.
       if ((key === "space" || key.startsWith("arrow")) && !isTextEntry(e.target)) e.preventDefault();
       queue.push({ type: "down", key });
     };
-    const onKeyUp = (e: KeyboardEvent) => queue.push({ type: "up", key: normalizeKey(e.key) });
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (typeof e.key === "string") queue.push({ type: "up", key: normalizeKey(e.key) });
+    };
     const onPointerDown = (e: PointerEvent) => {
       canvas.focus();
       e.preventDefault();

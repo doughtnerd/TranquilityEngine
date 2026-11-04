@@ -395,7 +395,7 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
       list.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(next)}"]`)?.focus();
       return;
     }
-    const key = e.key.toLowerCase();
+    const key = (e.key ?? "").toLowerCase();
     if (toggleKey(e) && !e.altKey) {
       if (key === "a") return (handled(), select(entries, assetCursor.value));
       if (key === "c" && sel.length > 0) return (handled(), (assetClipboard.value = { entries: sel, cut: false }));

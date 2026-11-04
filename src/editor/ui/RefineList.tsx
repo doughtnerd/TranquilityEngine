@@ -66,7 +66,7 @@ function Popup(props: NonNullable<typeof refineList.value>) {
     else if (e.key === " ") {
       e.preventDefault();
       choose(focus, { ctrl: true, shift: false });
-    } else if (ctrl && e.key.toLowerCase() === "a") {
+    } else if (ctrl && (e.key ?? "").toLowerCase() === "a") {
       e.preventDefault();
       select(keys, keys[focus]);
     } else if (e.key === "Enter") {
