@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { showTab } from "./tabs";
 
 // Multiplayer play mode and the Network panel (ADR 0033 §9): a client/server project plays with
 // N clients plus thin clients chosen in the panel (project.json unchanged), the panel lists each
@@ -57,7 +58,7 @@ test("multiplayer play: 2 clients + 1 thin client, live stats, latency raises th
   await expect(page.locator(".tree .row .name", { hasText: /^Bird$/ })).toHaveCount(1);
 
   // The Network panel is a tab beside Worlds; not playing, it explains itself and offers the setup.
-  await page.getByRole("tab", { name: /^Network/ }).click();
+  await showTab(page, /^Network/);
   const panel = page.locator(".panel.network");
   await expect(panel.locator(".network-empty")).toContainText("Play to see");
   await panel.getByRole("checkbox", { name: "Multiplayer play" }).check();

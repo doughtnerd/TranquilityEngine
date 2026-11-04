@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { showTab } from "./tabs";
+import { menu } from "./menus";
 
 const EDITOR = process.env.EDITOR_URL ?? "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -20,8 +22,6 @@ async function setBirdY(page: Page, value: string): Promise<void> {
   await birdY(page).press("Enter");
   await expect(birdY(page)).toHaveValue(value);
 }
-
-const showTab = (page: Page, name: string) => page.getByRole("tab", { name: new RegExp(`^${name}`) }).click();
 
 test("the History panel draws branches, and clicking a state goes there", async ({ page }) => {
   await openEditor(page);
@@ -55,7 +55,7 @@ test("the History panel draws branches, and clicking a state goes there", async 
 
 test("Settings: history location is remembered, and the reference prompt checkbox follows the preference", async ({ page }) => {
   await openEditor(page);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await menu(page, "Edit", "Settings…");
   const dialog = page.getByRole("dialog", { name: "Settings" });
   await expect(dialog.getByLabel("Project folder (.myco/history)")).toBeChecked();
   await dialog.getByLabel("Per user (outside the project)").check();
@@ -66,7 +66,7 @@ test("Settings: history location is remembered, and the reference prompt checkbo
 
   await page.reload();
   await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await menu(page, "Edit", "Settings…");
   await expect(dialog.getByLabel("Per user (outside the project)")).toBeChecked();
   await expect(dialog.getByLabel("Ask before deleting a node other nodes reference")).not.toBeChecked();
   expect(await page.evaluate(() => localStorage.getItem("myco.editor.historyLocation"))).toBe('"user"');

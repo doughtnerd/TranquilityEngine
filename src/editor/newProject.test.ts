@@ -37,7 +37,8 @@ describe("new projects", () => {
     expect(fs.folders.has(joinPath(ROOT, "scripts"))).toBe(true);
     expect(fs.files.has(joinPath(ROOT, "tsconfig.json"))).toBe(true);
     expect(fs.files.get(joinPath(ROOT, `${TYPES_DIR}/index.d.ts`))).toBe("export {};");
-    expect(fs.files.get(joinPath(ROOT, ".gitignore"))).toContain(".myco/");
+    expect(fs.files.get(joinPath(ROOT, ".gitignore"))).toContain(".myco/*");
+    expect(fs.files.get(joinPath(ROOT, ".gitignore"))).toContain("!.myco/thumbnails/"); // thumbnails are shared (ADR 0061)
 
     const project = await openFolderProject(fs, ROOT);
     expect(project.name).toBe("My Game");

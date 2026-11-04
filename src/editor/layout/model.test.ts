@@ -4,13 +4,18 @@ import {
   HEADER_HEIGHT,
   MIN_FILL,
   MIN_FRACTION,
+  activatePanel,
+  canCollapse,
   computeGeometry,
+  fitTabs,
   defaultLayout,
   hitTest,
   movePanel,
   parseLayout,
   resizeDock,
   resizeSplit,
+  setDockCollapsed,
+  toggleDock,
   type Layout,
   type PanelId,
 } from "./model";
@@ -209,3 +214,118 @@ describe("layouts saved before a panel existed", () => {
     expect(where(l, "network").groups[0].active).toBe("worlds");
   });
 });
+
+describe("collapsing docks", () => {
+  it("collapses a dock to one header thick, keeping its size to come back to", () => {
+    const l = toggleDock(defaultLayout(), "bottom");
+    expect(l.docks[0].collapsed).toBe(true);
+    expect(l.docks[0].size).toBe(defaultLayout().docks[0].size);
+    const geo = computeGeometry(l, bounds);
+    const bottom = geo.docks[0];
+    expect(bottom.collapsed).toBe(true);
+    expect(bottom.rect.h).toBe(HEADER_HEIGHT);
+    expect(bottom.groups[0].header).toEqual(bottom.groups[0].rect); // the whole strip is header
+    expect(geo.fill.h).toBe(bounds.h - HEADER_HEIGHT); // the scene view takes the space
+    expect(toggleDock(l, "bottom").docks[0].collapsed).toBeUndefined();
+  });
+
+  it("collapses side docks to a strip as wide as a header", () => {
+    const geo = computeGeometry(setDockCollapsed(defaultLayout(), "left", true), bounds);
+    expect(geo.docks[1].rect.w).toBe(HEADER_HEIGHT);
+    expect(geo.docks[1].handle).not.toBeNull(); // still draggable, to expand
+    expect(geo.docks[1].splits).toEqual([]);
+  });
+
+  it("never collapses the filling dock", () => {
+    const l = defaultLayout();
+    expect(canCollapse(l, "main")).toBe(false);
+    expect(setDockCollapsed(l, "main", true)).toBe(l);
+    expect(canCollapse(l, "right")).toBe(true);
+  });
+
+  it("expands when a panel in it is shown, when it's resized, or when a panel is dropped on it", () => {
+    const collapsed = setDockCollapsed(defaultLayout(), "bottom", true);
+    expect(activatePanel(collapsed, "code").docks[0].collapsed).toBeUndefined();
+    expect(activatePanel(collapsed, "code").docks[0].groups[0].active).toBe("code");
+    expect(activatePanel(collapsed, "assets").docks[0].collapsed).toBeUndefined(); // already active: still expands
+    expect(resizeDock(collapsed, "bottom", 260).docks[0].size).toBe(260);
+    expect(resizeDock(collapsed, "bottom", 260).docks[0].collapsed).toBeUndefined();
+    const moved = movePanel(collapsed, "hierarchy", { kind: "tab", group: "assets" });
+    expect(where(moved, "hierarchy").collapsed).toBeUndefined();
+  });
+
+  it("is saved and read back, and old layouts without it still load", () => {
+    const l = setDockCollapsed(defaultLayout(), "right", true);
+    expect(parseLayout(JSON.parse(JSON.stringify(l)))!.docks[2].collapsed).toBe(true);
+    expect(parseLayout(JSON.parse(JSON.stringify(defaultLayout())))!.docks.every((d) => !d.collapsed)).toBe(true);
+    const bad = JSON.parse(JSON.stringify(l));
+    bad.docks[2].collapsed = "yes";
+    expect(parseLayout(bad)!.docks[2].collapsed).toBeUndefined();
+  });
+
+  it("drops the flag when a collapsed dock becomes the filling one", () => {
+    // Move the scene view out of the innermost dock: the right dock (collapsed) becomes last.
+    let l = setDockCollapsed(defaultLayout(), "right", true);
+    l = movePanel(l, "scene", { kind: "tab", group: "hierarchy" });
+    l = movePanel(l, "shadergraph", { kind: "tab", group: "hierarchy" });
+    l = movePanel(l, "particlegraph", { kind: "tab", group: "hierarchy" });
+    expect(l.docks.at(-1)!.id).toBe("right");
+    expect(l.docks.at(-1)!.collapsed).toBeUndefined();
+  });
+});
+
+describe("fitTabs", () => {
+  const widths = [90, 75, 70, 75, 75]; // 385
+
+  it("shows every tab at natural size when they fit", () => {
+    expect(fitTabs(widths, 400, 0)).toEqual({ visible: [0, 1, 2, 3, 4], hidden: [], scale: 1 });
+  });
+
+  it("shrinks very slightly before hiding any", () => {
+    const fit = fitTabs(widths, 350, 0);
+    expect(fit.hidden).toEqual([]);
+    expect(fit.scale).toBeCloseTo(350 / 385);
+    expect(fit.scale).toBeGreaterThanOrEqual(0.88);
+  });
+
+  it("puts what doesn't fit behind the overflow button, keeping order", () => {
+    const fit = fitTabs(widths, 260, 0, 0.88, 40);
+    expect(fit.visible).toEqual([0, 1, 2]);
+    expect(fit.hidden).toEqual([3, 4]);
+    expect(fit.scale).toBeLessThanOrEqual(1);
+    expect(widths.slice(0, 3).reduce((a, b) => a + b) * fit.scale).toBeLessThanOrEqual(220 + 1e-9);
+  });
+
+  it("always shows the active tab, swapping it in for the last one shown", () => {
+    const fit = fitTabs(widths, 260, 4, 0.88, 40);
+    expect(fit.visible).toContain(4);
+    expect(fit.visible).toEqual([0, 1, 4]);
+    expect(fit.hidden).toEqual([2, 3]);
+  });
+
+  it("keeps a lone active tab, shrunk only slightly (clipped past that), rather than hiding it", () => {
+    const fit = fitTabs(widths, 60, 2, 0.88, 40);
+    expect(fit.visible).toEqual([2]);
+    expect(fit.scale).toBe(0.88);
+    expect(fitTabs([100], 50, 0)).toEqual({ visible: [0], hidden: [], scale: 0.88 }); // clipped, not squashed
+  });
+});
+
+describe("tab fitting and header height edge cases", () => {
+  it("keeps the active tab at its slightly shrunk size when there's less room than the overflow button", () => {
+    const fit = fitTabs([80, 70, 60], 30, 1, 0.88, 40);
+    expect(fit.visible).toEqual([1]);
+    expect(fit.hidden).toEqual([0, 2]);
+    expect(fit.scale).toBe(0.88);
+  });
+  it("uses the overflow button's measured size", () => {
+    // A wide (scaled-up) button leaves room for fewer tabs.
+    expect(fitTabs([60, 60, 60, 60], 180, 0, 0.88, 40).visible).toEqual([0, 1]);
+    expect(fitTabs([60, 60, 60, 60], 180, 0, 0.88, 90).visible).toEqual([0]);
+  });
+  it("collapses docks to the header height it's given (the UI scale's)", () => {
+    const geo = computeGeometry(toggleDock(defaultLayout(), "bottom"), bounds, 42);
+    expect(geo.docks.find((d) => d.collapsed)!.rect.h).toBe(42);
+  });
+});
+

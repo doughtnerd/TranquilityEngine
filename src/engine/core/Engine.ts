@@ -6,7 +6,7 @@ import { TauriStorage } from "../platform/TauriStorage";
 import { RenderBackend } from "../render/RenderBackend";
 import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
-import { connectWorlds } from "../net/session";
+import { connectWorlds, netSession } from "../net/session";
 import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
 import { resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { parseGraphics } from "./graphics";
@@ -15,7 +15,7 @@ import { FrameMonitor } from "../render/qualityDetect";
 import { listSystemCatalog } from "./systems";
 import { World, type WorldKind } from "./World";
 import { WorldHandleImpl } from "./WorldHandle";
-import { DEFAULT_WORLD_TAGS, type Bootstrap, type BootstrapEngine, type BootstrapSetting, type WorldConfig, type WorldHandle } from "./worlds";
+import { DEFAULT_WORLD_TAGS, type Bootstrap, type BootstrapEngine, type BootstrapSetting, type LinkConfig, type WorldConfig, type WorldHandle } from "./worlds";
 
 export interface EngineOptions {
   /** Project settings (usually the game's `project.json`). */
@@ -106,6 +106,15 @@ export class Engine implements BootstrapEngine {
   private inputCanvas: HTMLCanvasElement | null = null;
   /** Scene loads of the start-up Worlds, which `Engine.create` waits for; null once it's done. */
   private starting: Promise<void>[] | null = [];
+  /** The declarative bootstrap's links (ADR 0033, 0062), set once the start-up Worlds exist. */
+  private links: readonly LinkConfig[] = [];
+  /**
+   * The connection a link made for each client World: its server, and the client's server peer
+   * once connected (`pending` while the server is still starting to listen).
+   */
+  private readonly linkedServers = new WeakMap<World, { server: World; peer: unknown; pending: boolean }>();
+  /** Links waiting for a client's old connection to close (its server was destroyed and created again in one frame). */
+  private deferredLinks: LinkConfig[] = [];
   private rafId = 0;
   /** Automatic quality (ADR 0055): watches the first seconds of play and steps the tier down if they're slow. */
   private qualityMonitor: FrameMonitor | null = null;
@@ -148,9 +157,19 @@ export class Engine implements BootstrapEngine {
       const starting = engine.starting!;
       engine.starting = null;
       if (!engine.defaultWorld) throw new Error("The bootstrap created no Worlds.");
-      // A declarative bootstrap's links (ADR 0033): each `from` World connects to its `to` World.
-      for (const link of ownWorld ? [] : bootstrapLinks(setting)) {
-        await connectWorlds(engine._world(link.from)!, engine._world(link.to)!, link.transport, link.options ?? {});
+      // A declarative bootstrap's links (ADR 0033, 0062): each `from` World connects to its `to`
+      // World once both exist. Links naming a Spawnable World (a template) apply when it's created.
+      engine.links = ownWorld ? [] : bootstrapLinks(setting);
+      for (const link of engine.links) {
+        const client = engine._world(link.from);
+        const server = engine._world(link.to);
+        // Skipped if a script created a Spawnable World while an earlier link waited, and that applied it.
+        if (!client || !server || engine.linkedServers.get(client)?.server === server) continue;
+        const record = { server, peer: null as unknown, pending: true };
+        engine.linkedServers.set(client, record);
+        await connectWorlds(client, server, link.transport, link.options ?? {});
+        record.peer = netSession(client)?.serverPeer ?? null;
+        record.pending = false;
       }
       await Promise.all(starting);
     } catch (err) {
@@ -228,7 +247,69 @@ export class Engine implements BootstrapEngine {
     });
     if (this.starting) this.starting.push(loading);
     else loading.catch((err) => console.error(`[myco] World "${c.name}" couldn't load its scenes:`, err));
+    this.applyLinks(world);
     return handle;
+  }
+
+  /**
+   * Links that `world` completes (ADR 0062): for each link naming it whose other World is alive,
+   * the client connects to the server, as if the script had called `connect` right after creating
+   * it. Start-up Worlds' links are applied by `Engine.create`, once they all exist.
+   */
+  private applyLinks(world: World): void {
+    if (this.starting) return;
+    for (const link of this.links) {
+      if ((link.from === world.name || link.to === world.name) && !this.applyLink(link)) this.deferredLinks.push(link);
+    }
+  }
+
+  /**
+   * Connect one link's client to its server if both are alive and it isn't already. False to try
+   * again next frame: the client still holds its connection to a server World that was destroyed
+   * (a match restarted with `destroy()` then `createWorld()` in one frame), which closes during
+   * its next step.
+   */
+  private applyLink(link: LinkConfig): boolean {
+    const client = this._world(link.from);
+    const server = this._world(link.to);
+    if (!client || !server) return true;
+    const existing = this.linkedServers.get(client);
+    if (existing?.server === server) return true;
+    if (netSession(client)?.serverPeer) {
+      if (existing && !this.handles.has(existing.server)) return false;
+      console.warn(`[myco] Link ${link.from} → ${link.to} not applied: World "${link.from}" is already connected to another server.`);
+      return true;
+    }
+    const record = { server, peer: null as unknown, pending: true };
+    try {
+      const connected = connectWorlds(client, server, link.transport, link.options ?? {});
+      this.linkedServers.set(client, record);
+      const settle = () => {
+        record.peer = netSession(client)?.serverPeer ?? null;
+        record.pending = false;
+      };
+      settle();
+      record.pending = record.peer === null; // still listening (WebSocket): the peer comes later
+      connected.then(settle, (err) => {
+        if (this.linkedServers.get(client) === record) this.linkedServers.delete(client);
+        console.error(`[myco] Link ${link.from} → ${link.to} over "${link.transport}" failed:`, err);
+      });
+    } catch (err) {
+      console.warn(`[myco] Link ${link.from} → ${link.to} not applied: ${(err as Error).message}`);
+    }
+    return true;
+  }
+
+  /**
+   * @internal The server World a link connected `client` to, while that connection lasts or is
+   * still being made (`WorldHandle.connect` skips connecting them again).
+   */
+  _linkedServer(client: World): World | null {
+    const record = this.linkedServers.get(client);
+    if (!record || !this.handles.has(record.server)) return null;
+    if (record.pending) return record.server;
+    const peer = netSession(client)?.serverPeer;
+    return peer && peer === record.peer ? record.server : null;
   }
 
   /** A handle on one of this Engine's Worlds, by name, or null. */
@@ -440,6 +521,7 @@ export class Engine implements BootstrapEngine {
    */
   step(dt: number): void {
     this.watchQuality(dt);
+    if (this.deferredLinks.length) this.deferredLinks = this.deferredLinks.filter((link) => !this.applyLink(link));
     // 2. Input snapshot: once per Engine frame, shared by the Worlds that take input
     Input.beginFrame();
     for (const world of [...this.list]) {

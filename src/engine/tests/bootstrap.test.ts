@@ -145,7 +145,7 @@ describe("bootstraps (T4)", () => {
       'bootstrap.worlds[2]: unknown key "tickrate" (expected name, tags, tickRate, timeScale, renders, input, scenes, systems).',
       'bootstrap.worlds[2]: name must be a non-empty string (got "").',
       "bootstrap.worlds[2]: tags must be a list of strings (got [1]).",
-      'bootstrap.links[0]: from names the World "Client", which bootstrap.worlds doesn\'t list.',
+      'bootstrap.links[0]: from names the World "Client", which neither bootstrap.worlds nor bootstrap.templates lists.',
       'bootstrap.links[1]: links the World "Server" to itself.',
       'bootstrap.links[1]: transport must be a transport name such as "loopback" (got "").',
     ]);
@@ -168,7 +168,7 @@ describe("bootstraps (T4)", () => {
       'bootstrap.worlds[0] ("A"): renders must be true or false (got "yes").',
       'bootstrap.worlds[0] ("A"): systems.include and systems.exclude both list "x".',
     ]);
-    expect(() => bootstrapLinks({ worlds: [{ name: "A" }], links: [{ from: "A", to: "B", transport: "loopback" }] })).toThrow(/"B", which bootstrap\.worlds doesn't list/);
+    expect(() => bootstrapLinks({ worlds: [{ name: "A" }], links: [{ from: "A", to: "B", transport: "loopback" }] })).toThrow(/"B", which neither bootstrap\.worlds nor bootstrap\.templates lists/);
     expect(() => assertValidBootstrap({ worlds: [{ name: "A", systems: { include: ["t4.Movement"] } }] })).not.toThrow();
   });
 

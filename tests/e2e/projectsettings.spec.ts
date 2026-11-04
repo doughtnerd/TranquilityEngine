@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { showTab } from "./tabs";
+import { menu } from "./menus";
 
 // The Project panel (ADR 0038) on a writable in-memory copy of the Flappy sample: edits save into
 // project.json beside the Worlds panel's bootstrap, problems keep the file at its last valid
@@ -23,7 +25,7 @@ async function waitForEditor(page: Page): Promise<void> {
 async function openProject(page: Page): Promise<void> {
   await waitForEditor(page);
   await page.evaluate(() => (window as unknown as Hooks).openTestProject({}));
-  await page.getByRole("tab", { name: /^Project/ }).click();
+  await showTab(page, /^Project/);
 }
 
 const panel = (page: Page) => page.locator(".panel.project");
@@ -121,23 +123,23 @@ test("the Project and Worlds panels both save into project.json without losing e
   await commit(page, "Pixels per unit", "64");
   await expect.poll(async () => (await projectJson(page)).render.pixelsPerUnit).toBe(64);
 
-  await page.getByRole("tab", { name: /^Worlds/ }).click();
+  await showTab(page, /^Worlds/);
   await page.locator(".panel.worlds").getByRole("button", { name: "+ World" }).click();
   await expect.poll(async () => (await projectJson(page)).bootstrap?.worlds?.length).toBe(2);
   expect((await projectJson(page)).render.pixelsPerUnit).toBe(64);
 
-  await page.getByRole("tab", { name: /^Project/ }).click();
+  await showTab(page, /^Project/);
   await expect(panel(page).getByRole("button", { name: "Undo" })).toBeEnabled(); // its history survived the Worlds save
   await commit(page, "Max frame time", "0.1");
   await expect.poll(async () => (await projectJson(page)).time.maxFrameTime).toBe(0.1);
   expect((await projectJson(page)).bootstrap.worlds).toHaveLength(2);
-  await page.getByRole("tab", { name: /^Worlds/ }).click();
+  await showTab(page, /^Worlds/);
   await expect(page.locator(".panel.worlds").getByRole("button", { name: "Undo" })).toBeEnabled(); // and the Worlds panel's survived this one
 });
 
 test("a sample is read-only in the Project panel", async ({ page }) => {
   await waitForEditor(page);
-  await page.getByRole("tab", { name: /^Project/ }).click();
+  await showTab(page, /^Project/);
   await expect(status(page)).toHaveText("Read-only");
   await expect(panel(page).getByRole("textbox", { name: "Display width" })).toBeDisabled();
   await expect(panel(page).locator(".collision-matrix input").first()).toBeDisabled();
@@ -145,9 +147,8 @@ test("a sample is read-only in the Project panel", async ({ page }) => {
 
 test("the Project menu's Project Settings shows the panel", async ({ page }) => {
   await openProject(page);
-  await page.getByRole("tab", { name: /^Inspector/ }).click();
+  await showTab(page, /^Inspector/);
   await expect(panel(page)).toHaveCount(0);
-  await page.getByRole("button", { name: "Project ▾" }).click();
-  await page.getByRole("menuitem", { name: "Project Settings" }).click();
+  await menu(page, "File", "Project Settings");
   await expect(panel(page)).toBeVisible();
 });

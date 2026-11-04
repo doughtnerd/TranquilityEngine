@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { expect, test, type Page } from "@playwright/test";
+import { showTab } from "./tabs";
 
 // The Arena sample (T16, ADR 0032/0033): listed on the start screen, played with Play. Its
-// bootstrap starts one client World on a menu; Host creates the Server World from a template and
-// connects over loopback, P adds a second client World (a second tile), players move with input
+// bootstrap starts one client World on a menu; Host creates the Server World (a Spawnable World),
+// which the bootstrap's link connects the client to over loopback (ADR 0062), P adds a second client World (a second tile), players move with input
 // (predicted on their owners), and a hit scores for the shooter on the server, shown on clients.
 const START = "/editor.html"; // relative to baseURL (E2E_PORT)
 
@@ -78,7 +79,7 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
   await expect.poll(() => worldNames(page)).toEqual(["Client"]);
 
-  // Host: the Server World is created from its template; this client connects and gets a player.
+  // Host: the Server World is created from its template; the bootstrap's link connects this client, which gets a player.
   await tile(page, "Client").click();
   await page.keyboard.press("h");
   await expect.poll(() => worldNames(page)).toEqual(["Client", "Server"]);
@@ -128,6 +129,12 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
   await expect.poll(() => scoreboard(page, "Client"), { timeout: 10_000 }).toMatch(/^▶ P1  [1-9]/);
   await page.keyboard.up("Space");
   await expect.poll(() => scoreboard(page, "Client 2")).toMatch(/^P1  [1-9]\d*\s+▶ P2  0$/);
+
+  // The Worlds panel draws the live connections the links made (ADR 0062).
+  await showTab(page, /^Worlds/);
+  const worldsPanel = page.locator(".panel.worlds");
+  await expect(worldsPanel.locator('[data-live-link="Client>Server"]')).toHaveCount(1);
+  await expect(worldsPanel.locator('[data-live-link="Client 2>Server"]')).toHaveCount(1);
 
   await page.getByRole("button", { name: /Stop/ }).click();
   await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();

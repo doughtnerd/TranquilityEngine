@@ -86,3 +86,15 @@ button.worlds-chip.add:hover { color: var(--text); border-color: var(--accent); 
 .worlds-links-list { padding: 8px 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .worlds-link-row { width: 100%; }
 .worlds-link-edit { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: calc(12px * var(--ui-scale)); color: var(--muted); }
+
+/* Spawnable Worlds and live connections (ADR 0062). */
+.worlds-link.spawnable path { stroke-dasharray: 5 4; }
+.worlds-link.live path { stroke: var(--accent); stroke-width: 2.25; }
+.worlds-link.live text { fill: var(--accent); }
+.worlds-link.live.handshake path { stroke-dasharray: 2 3; }
+.worlds-arrowhead.live { fill: var(--accent); }
+.worlds-row-hint { margin-left: 6px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.worlds-spawn { margin: 4px 0 8px; padding: 6px 8px; border: 1px dashed var(--border); border-radius: 3px; font-size: calc(12px * var(--ui-scale)); }
+.worlds-spawn-hint { margin: 2px 0; color: var(--muted); }
+.worlds-spawn-code { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.worlds-spawn-code code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 2px 6px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; color: var(--text); }

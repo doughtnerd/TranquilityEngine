@@ -3,9 +3,12 @@ import { useEffect, useState } from "preact/hooks";
 import type { LinkConfig, WorldTag } from "../../engine";
 import { listSystemCatalog, type SystemCatalogEntry } from "../../engine/core/systems";
 import { listTransports } from "../../engine/net/Transport";
+import { liveLinks, type LiveLink } from "../../engine/editor";
+import { playWorldSources } from "../netPlay";
+import { playing } from "../session";
 import { errorStatus } from "../messages";
 import type { EditorProject } from "../projects";
-import { currentProject, scriptsVersion, status } from "../state";
+import { currentProject, playState, scriptsVersion, status } from "../state";
 import {
   EditHistory,
   PRESET_TAGS,
@@ -14,7 +17,10 @@ import {
   addWorld,
   configOf,
   groupProblems,
+  isSpawnableName,
   layoutWorlds,
+  linkableNames,
+  mentions,
   modelProblems,
   modelToConfig,
   nameOf,
@@ -23,6 +29,7 @@ import {
   removeLink,
   rename,
   setSystem,
+  spawnableName,
   systemStatus,
   tagsOf,
   transportChoices,
@@ -32,6 +39,7 @@ import {
   type BootstrapView,
   type GroupedProblems,
   type TemplateConfig,
+  type TemplateEntry,
   type WorldRef,
   type WorldsModel,
 } from "../worldsConfig";
@@ -148,7 +156,8 @@ const isTextField = (el: EventTarget | null) =>
   el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && !["checkbox", "radio", "button"].includes(el.type));
 
 /**
- * The project's start-up Worlds, templates and links (ADR 0032) as a graph, with each one's
+ * The project's start-up Worlds, Spawnable Worlds (`templates` in project.json) and links (ADR 0032,
+ * 0062) as a graph, with the live connections drawn in during play, with each one's
  * settings and system checklist below it. Edits are saved to `project.json`'s `bootstrap`
  * section when they leave it valid; Ctrl/Cmd+Z undoes them while the panel has focus.
  */
@@ -203,10 +212,10 @@ export function WorldsPanel() {
         </button>
         <button
           disabled={!editable}
-          title="Add a template: a World config that game code creates later with Engine.createWorld"
-          onClick={() => edit(s, "Add template", addTemplate(model), { kind: "template", index: model.templates.length })}
+          title="Add a Spawnable World: one that game code creates when it's needed, with Engine.createWorld"
+          onClick={() => edit(s, "Add Spawnable World", addTemplate(model, "Spawnable"), { kind: "template", index: model.templates.length })}
         >
-          + Template
+          + Spawnable World
         </button>
         <button disabled={!editable || !history.undoLabel} title={history.undoLabel ? `Undo ${history.undoLabel} (Ctrl+Z)` : "Nothing to undo"} onClick={() => undo(s)}>
           Undo
@@ -280,18 +289,86 @@ const GAP_Y = 12;
 const PAD = 8;
 const LABEL_H = 20;
 
-/** Start-up Worlds as nodes, columns ordered client → server, with link arrows; templates in a row below, dashed. */
+/**
+ * The live connections between the play session's Worlds, refreshed a few times a second while
+ * playing; empty otherwise. Worlds multiplayer Play made (`Client 1…N`, `Thin 1…T`) are drawn as
+ * the project World they copy, so several connections can share one arrow (`count`).
+ */
+function useLiveLinks(): (LiveLink & { count: number })[] {
+  const session = playState.value === "playing" ? playing.value : null;
+  const [links, setLinks] = useState<(LiveLink & { count: number })[]>([]);
+  useEffect(() => {
+    if (!session) {
+      setLinks([]);
+      return;
+    }
+    const sources = session.netPlay ? playWorldSources(session.netPlay) : new Map<string, string>();
+    const read = () => setLinks((old) => {
+      const next = mergeLiveLinks(liveLinks(session.engine), sources);
+      return sameJson(old, next) ? old : next;
+    });
+    read();
+    const timer = setInterval(read, 250);
+    return () => clearInterval(timer);
+  }, [session]);
+  return links;
+}
+
+/** Live links with each end mapped to the project World it stands for, one per pair (open wins over connecting over closed). */
+function mergeLiveLinks(links: readonly LiveLink[], sources: ReadonlyMap<string, string>): (LiveLink & { count: number })[] {
+  const rank = { open: 2, handshake: 1, closed: 0 } as Record<string, number>;
+  const byPair = new Map<string, LiveLink & { count: number }>();
+  for (const l of links) {
+    const from = sources.get(l.from) ?? l.from, to = sources.get(l.to) ?? l.to;
+    const key = `${from}>${to}`;
+    const seen = byPair.get(key);
+    if (!seen) byPair.set(key, { ...l, from, to, count: 1 });
+    else byPair.set(key, { ...seen, state: (rank[l.state] ?? 0) > (rank[seen.state] ?? 0) ? l.state : seen.state, count: seen.count + 1 });
+  }
+  return [...byPair.values()];
+}
+
+interface Box {
+  x: number;
+  y: number;
+}
+
+/** An arrow from box `a` to box `b`: side to side within a row, top to bottom between rows. */
+function arrowPath(a: Box, b: Box): { d: string; mx: number; my: number } {
+  if (Math.abs(a.y - b.y) < 1) {
+    const forward = a.x <= b.x;
+    const x1 = forward ? a.x + NODE_W : a.x, x2 = forward ? b.x - 2 : b.x + NODE_W + 2;
+    const y = a.y + NODE_H / 2;
+    const bend = Math.max(40, Math.abs(x2 - x1) / 2) * (forward ? 1 : -1);
+    return { d: `M${x1},${y} C${x1 + bend},${y} ${x2 - bend},${y} ${x2},${y}`, mx: (x1 + x2) / 2, my: y - 5 };
+  }
+  const down = a.y < b.y;
+  const x1 = a.x + NODE_W / 2, x2 = b.x + NODE_W / 2;
+  const y1 = down ? a.y + NODE_H : a.y, y2 = down ? b.y - 2 : b.y + NODE_H + 2;
+  const bend = Math.max(16, Math.abs(y2 - y1) / 2) * (down ? 1 : -1);
+  return { d: `M${x1},${y1} C${x1},${y1 + bend} ${x2},${y2 - bend} ${x2},${y2}`, mx: (x1 + x2) / 2 + 4, my: (y1 + y2) / 2 };
+}
+
+/**
+ * Start-up Worlds as nodes, columns ordered client → server, with link arrows; Spawnable Worlds in
+ * a row below, dashed, as are links naming them (they apply when game code creates the World).
+ * While playing, the live connections between the session's Worlds are drawn over them.
+ */
 function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected: WorldRef | null; onSelect: (ref: WorldRef) => void; defaultRate: number }) {
   const { model, problems, selected, onSelect, defaultRate } = props;
+  const live = useLiveLinks();
   const places = layoutWorlds(model);
   const cols = Math.max(1, ...places.map((p) => p.col + 1));
   const rows = Math.max(1, ...places.map((p) => p.row + 1));
   const pos = places.map((p) => ({ x: PAD + p.col * (NODE_W + GAP_X), y: PAD + LABEL_H + p.row * (NODE_H + GAP_Y) }));
   const templatesY = PAD + LABEL_H + rows * (NODE_H + GAP_Y) + LABEL_H;
-  const width = PAD * 2 + Math.max(cols * (NODE_W + GAP_X) - GAP_X, model.templates.length * (NODE_W + GAP_Y) - GAP_Y);
+  const templatePos = model.templates.map((_, i) => ({ x: PAD + i * (NODE_W + GAP_X), y: templatesY }));
+  const width = PAD * 2 + Math.max(cols * (NODE_W + GAP_X) - GAP_X, model.templates.length * (NODE_W + GAP_X) - GAP_X);
   const height = model.templates.length ? templatesY + NODE_H + PAD : templatesY - LABEL_H + PAD;
-  const index = new Map<string, number>();
-  model.worlds.forEach((w, i) => index.has(w.name) || index.set(w.name, i));
+  // Where each World name is drawn: start-up Worlds first, then Spawnable Worlds by their World name.
+  const at = new Map<string, Box>();
+  model.worlds.forEach((w, i) => at.has(w.name) || at.set(w.name, pos[i]));
+  model.templates.forEach((t, i) => at.has(spawnableName(t)) || at.set(spawnableName(t), templatePos[i]));
   const isSelected = (ref: WorldRef) => selected?.kind === ref.kind && selected.index === ref.index;
 
   return (
@@ -304,19 +381,33 @@ function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected:
           <marker id="worlds-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" class="worlds-arrowhead" />
           </marker>
+          <marker id="worlds-arrow-live" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" class="worlds-arrowhead live" />
+          </marker>
         </defs>
         {model.links.map((l, i) => {
-          const a = index.get(l.from), b = index.get(l.to);
-          if (a === undefined || b === undefined || a === b) return null;
-          const x1 = pos[a].x + NODE_W, y1 = pos[a].y + NODE_H / 2;
-          const x2 = pos[b].x, y2 = pos[b].y + NODE_H / 2;
-          const bend = Math.max(40, Math.abs(x2 - x1) / 2);
-          const d = `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2 - 2},${y2}`;
+          const a = at.get(l.from), b = at.get(l.to);
+          if (!a || !b || a === b) return null;
+          const { d, mx, my } = arrowPath(a, b);
+          const spawnable = isSpawnableName(model, l.from) || isSpawnableName(model, l.to);
           return (
-            <g key={i} class={`worlds-link${problems.links.has(i) ? " invalid" : ""}`}>
+            <g key={i} class={`worlds-link${spawnable ? " spawnable" : ""}${problems.links.has(i) ? " invalid" : ""}`} data-link-arrow={`${l.from}>${l.to}`}>
               <path d={d} marker-end="url(#worlds-arrow)" />
-              <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 5} text-anchor="middle">
+              <text x={mx} y={my} text-anchor="middle">
                 {l.transport}
+              </text>
+            </g>
+          );
+        })}
+        {live.map((l) => {
+          const a = at.get(l.from), b = at.get(l.to);
+          if (!a || !b || a === b) return null;
+          const { d, mx, my } = arrowPath(a, b);
+          return (
+            <g key={`live:${l.from}>${l.to}`} class={`worlds-link live ${l.state}`} data-live-link={`${l.from}>${l.to}`}>
+              <path d={d} marker-end="url(#worlds-arrow-live)" />
+              <text x={mx} y={my + 12} text-anchor="middle">
+                {(l.state === "open" ? "connected" : l.state === "handshake" ? "connecting…" : "closed") + (l.count > 1 ? ` ×${l.count}` : "")}
               </text>
             </g>
           );
@@ -341,8 +432,8 @@ function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected:
         );
       })}
       {model.templates.length > 0 && (
-        <div class="worlds-row-label" style={{ top: `${templatesY - LABEL_H}px` }}>
-          Templates
+        <div class="worlds-row-label" style={{ top: `${templatesY - LABEL_H}px` }} title="Created by game code when needed, not at start-up">
+          Spawnable Worlds <span class="worlds-row-hint">created by game code when needed</span>
         </div>
       )}
       {model.templates.map((t, i) => {
@@ -351,8 +442,8 @@ function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected:
           <GraphNode
             key={`t${i}`}
             template
-            x={PAD + i * (NODE_W + GAP_Y)}
-            y={templatesY}
+            x={templatePos[i].x}
+            y={templatePos[i].y}
             name={t.key}
             tags={tagsOf(t.config)}
             rate={t.config.tickRate ?? defaultRate}
@@ -389,7 +480,7 @@ function GraphNode(props: {
       aria-pressed={selected}
       data-world={template ? undefined : name}
       data-template={template ? name : undefined}
-      title={`${template ? "Template" : "World"} ${name}: click to edit`}
+      title={`${template ? "Spawnable World" : "Start-up World"} ${name}: click to edit`}
       onClick={onSelect}
       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onSelect())}
     >
@@ -417,7 +508,7 @@ function Details(props: { s: PanelState; model: WorldsModel; target: WorldRef; p
   const { s, model, target, problems, catalog, project } = props;
   const config = configOf(model, target)!;
   const name = nameOf(model, target);
-  const kind = target.kind === "world" ? "World" : "template";
+  const kind = target.kind === "world" ? "World" : "Spawnable World";
   const own = target.kind === "world" ? problems.worlds.get(target.index) : problems.templates.get(name);
   const set = (label: string, patch: Partial<Omit<TemplateConfig, "name">>) => edit(s, `${label} (${name})`, updateConfig(model, target, patch));
   const tags = tagsOf(config);
@@ -429,7 +520,7 @@ function Details(props: { s: PanelState; model: WorldsModel; target: WorldRef; p
   return (
     <section class="worlds-details" aria-label={`${kind} ${name}`}>
       <div class="worlds-details-head">
-        <span class="worlds-kind">{target.kind === "world" ? "World" : "Template"}</span>
+        <span class="worlds-kind">{target.kind === "world" ? "World" : "Spawnable World"}</span>
         <TextField value={name} label={`${kind} name`} class="worlds-name" onCommit={(v) => edit(s, `Rename ${name} to ${v}`, rename(model, target, v))} />
         <button
           title={`Remove this ${kind}${target.kind === "world" ? " and its links" : ""}`}
@@ -440,6 +531,7 @@ function Details(props: { s: PanelState; model: WorldsModel; target: WorldRef; p
         </button>
       </div>
       {own && <Problems list={own} />}
+      {target.kind === "template" && <SpawnInfo template={model.templates[target.index]} project={project} />}
       <div class="worlds-form">
         <label>Tags</label>
         <div class="worlds-tags">
@@ -527,6 +619,52 @@ function Details(props: { s: PanelState; model: WorldsModel; target: WorldRef; p
   );
 }
 
+/**
+ * A Spawnable World's "how to use it": the line of code that creates it (with a copy button) and
+ * the project scripts that mention it by name.
+ */
+function SpawnInfo(props: { template: TemplateEntry; project: EditorProject }) {
+  const { template, project } = props;
+  // createWorld takes the template's key; scripts may use the key or the World name it gives.
+  const code = `Engine.createWorld(${JSON.stringify(template.key)})`;
+  const scripts = [...project.scripts].map(([path, text]) => ({ path, text }));
+  const found = mentions(scripts, [template.key, spawnableName(template)]);
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(code).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      },
+      () => {},
+    );
+  };
+  return (
+    <div class="worlds-spawn" aria-label="How to create it">
+      <p class="worlds-spawn-hint">Created by game code when it's needed, not at start-up:</p>
+      <div class="worlds-spawn-code">
+        <code>{code}</code>
+        <button title="Copy this line" aria-label="Copy the code" onClick={copy}>
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <p class="worlds-spawn-hint">
+        Mentioned in:{" "}
+        {found.length === 0 ? (
+          <span class="worlds-none">no project script yet</span>
+        ) : (
+          found.map((path, i) => (
+            <span key={path}>
+              {i > 0 && ", "}
+              <code>{path}</code>
+            </span>
+          ))
+        )}
+      </p>
+    </div>
+  );
+}
+
 /** Every catalog system, checked if the World runs it, with the reason. */
 function Systems(props: { s: PanelState; model: WorldsModel; target: WorldRef; catalog: readonly SystemCatalogEntry[]; name: string }) {
   const { s, model, target, catalog, name } = props;
@@ -568,7 +706,7 @@ function Systems(props: { s: PanelState; model: WorldsModel; target: WorldRef; c
 
 function Links(props: { s: PanelState; model: WorldsModel; problems: GroupedProblems }) {
   const { s, model, problems } = props;
-  const names = [...new Set(model.worlds.map((w) => w.name))];
+  const names = linkableNames(model);
   const transports = transportChoices(listTransports(), model.links.map((l) => l.transport));
   const describe = (l: LinkConfig) => `${l.from} → ${l.to}`;
   const add = () => {
@@ -581,7 +719,7 @@ function Links(props: { s: PanelState; model: WorldsModel; problems: GroupedProb
       <h4>
         Links <span class="worlds-hint">client → server</span>
       </h4>
-      {model.links.length === 0 && <p class="worlds-none">No links: the Worlds don't talk to each other.</p>}
+      {model.links.length === 0 && <p class="worlds-none">No links at start-up. Worlds can also connect while the game runs, from scripts (world.connect(…)).</p>}
       {model.links.map((l, i) => (
         <div key={i} class="worlds-link-row" data-link={i}>
           <div class="worlds-link-edit">
@@ -594,10 +732,13 @@ function Links(props: { s: PanelState; model: WorldsModel; problems: GroupedProb
               ×
             </button>
           </div>
+          {(isSpawnableName(model, l.from) || isSpawnableName(model, l.to)) && (
+            <p class="worlds-none">Applies when game code creates {[l.from, l.to].filter((n) => isSpawnableName(model, n)).join(" or ")}.</p>
+          )}
           {problems.links.has(i) && <Problems list={problems.links.get(i)!} />}
         </div>
       ))}
-      <button title="Link two Worlds: the first connects to the second as its server" onClick={add}>
+      <button title="Link two Worlds: the first connects to the second as its server, once both exist" onClick={add}>
         + Link
       </button>
     </section>

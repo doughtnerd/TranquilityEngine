@@ -154,7 +154,7 @@ export function recentProjects(): RecentProjects {
   return (shared ??= new RecentProjects(localListStore(), indexedDbHandleStore()));
 }
 
-/** Bumped when the list changes, so the start screen and the Project menu re-read it. */
+/** Bumped when the list changes, so the start screen and File > Open Recent re-read it. */
 export const recentVersion = signal(0);
 
 /** The list in localStorage. */

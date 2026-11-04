@@ -131,9 +131,14 @@ button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px
 .dock-group { position: absolute; display: flex; flex-direction: column; background: var(--panel); box-shadow: inset 0 0 0 1px var(--border); min-width: 0; min-height: 0; }
 .dock-group > .panel { flex: 1; min-height: 0; background: none; }
 .dock-header { display: flex; height: calc(28px * var(--ui-scale)); min-height: 24px; flex: none; border-bottom: 1px solid var(--border); overflow: hidden; }
-.dock-tab {
+/* A header's tabs: what fits shows (shrunk very slightly at most), the rest go behind "» N". */
+.dock-tabs { position: relative; display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.dock-tabs.vertical { flex-direction: column; }
+.dock-tab, .dock-tab-measure {
   display: flex;
   align-items: center;
+  flex: none;
+  box-sizing: border-box;
   padding: 0 10px;
   font-size: calc(11px * var(--ui-scale));
   font-weight: 600;
@@ -145,12 +150,62 @@ button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px
   white-space: nowrap;
   border-right: 1px solid var(--border);
 }
+.dock-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dock-tab.solo { border-right: none; flex: 1; }
 .dock-tab.active:not(.solo) { color: var(--text-strong); background: var(--active); box-shadow: inset 0 -2px 0 var(--accent); }
 .dock-tab:hover { color: var(--text); }
+/* Hidden copies the strip measures its tabs' natural sizes from. */
+.dock-tabs-measure { position: absolute; left: 0; top: 0; display: flex; visibility: hidden; pointer-events: none; }
+.dock-tabs-measure.vertical { flex-direction: column; }
+.dock-more {
+  flex: none;
+  align-self: stretch;
+  padding: 0 8px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font-size: calc(11px * var(--ui-scale));
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dock-more:hover, .dock-more[aria-expanded="true"] { color: var(--text-strong); background: var(--hover); }
+.dock-collapse {
+  flex: none;
+  align-self: stretch;
+  min-width: calc(24px * var(--ui-scale));
+  padding: 0 6px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font-size: calc(11px * var(--ui-scale));
+  cursor: pointer;
+}
+.dock-collapse:hover { color: var(--text-strong); background: var(--hover); }
+/* A collapsed dock: a strip one header thick at its edge, its tabs along it. */
+.dock-strip { position: absolute; display: flex; background: var(--panel); box-shadow: inset 0 0 0 1px var(--border); overflow: hidden; }
+.dock-strip.side-left, .dock-strip.side-right { flex-direction: column; }
+.dock-strip .dock-collapse { min-height: calc(24px * var(--ui-scale)); }
+.dock-strip.side-left .dock-collapse, .dock-strip.side-right .dock-collapse { align-self: stretch; border-bottom: 1px solid var(--border); }
+.dock-strip.side-bottom .dock-collapse { border-left: 1px solid var(--border); }
+.dock-tabs.vertical .dock-tab, .dock-tabs-measure.vertical .dock-tab-measure {
+  writing-mode: vertical-rl;
+  justify-content: center;
+  padding: 10px 0;
+  border-right: none;
+  border-bottom: 1px solid var(--border);
+}
+.dock-tabs.vertical .dock-tab.active { box-shadow: inset -2px 0 0 var(--accent); }
+.dock-tabs.vertical .dock-more, .dock-tabs-measure.vertical .dock-more { align-self: stretch; padding: 6px 0; writing-mode: vertical-rl; }
 .resize-handle { position: absolute; z-index: 3; }
 .resize-handle.axis-x { cursor: col-resize; }
 .resize-handle.axis-y { cursor: row-resize; }
+/* A dock's own border: a small grip mark in its middle (double-click collapses the dock). */
+.resize-grip { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border-radius: 1px; background: var(--border-strong); pointer-events: none; }
+.resize-handle.axis-x .resize-grip { width: 2px; height: 24px; }
+.resize-handle.axis-y .resize-grip { width: 24px; height: 2px; }
 .resize-handle:hover, .resize-handle:active { background: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: 0 0 8px var(--accent-soft); }
 .drop-preview { position: absolute; z-index: 5; pointer-events: none; background: var(--accent-soft); border: 2px solid var(--accent); border-radius: 3px; box-sizing: border-box; transition: left 80ms, top 80ms, width 80ms, height 80ms; }
 .drag-ghost { position: absolute; z-index: 6; pointer-events: none; padding: 3px 8px; border-radius: 3px; background: var(--accent); color: var(--accent-text); font-size: calc(11px * var(--ui-scale)); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }

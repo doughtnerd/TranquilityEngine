@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { closeMenus, undoItem } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -48,7 +49,8 @@ test("each open scene has a tab with its own unsaved edits and undo history", as
   await openPipePair(page);
   expect(await tabs(page)).toEqual(["main.scene.json •", "pipe-pair.prefab.json"]);
   await expect(tab(page, "pipe-pair")).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled(); // its own history
+  await expect(await undoItem(page)).toBeDisabled(); // its own history
+  await closeMenus(page);
   await expect(row(page, "bird")).toHaveCount(0);
 
   // Back to the scene: the edit and its undo are still there, and the selection too.

@@ -75,8 +75,12 @@ export interface LinkConfig {
 export interface BootstrapConfig {
   /** Worlds created at start, in order. The first is the Engine's default World (`engine.world`). */
   worlds: readonly WorldConfig[];
+  /**
+   * Client-to-server links. Each applies once both of its Worlds exist: at start-up, or when game
+   * code creates a Spawnable World it names (ADR 0062).
+   */
   links?: readonly LinkConfig[];
-  /** Named World configs to create later: `Engine.createWorld("Match")` or `createWorld({ ...templates.Match, name })`. */
+  /** Spawnable Worlds: named World configs to create later: `Engine.createWorld("Match")` or `createWorld({ ...templates.Match, name })`. */
   templates?: Readonly<Record<string, Omit<WorldConfig, "name"> & { name?: string }>>;
 }
 

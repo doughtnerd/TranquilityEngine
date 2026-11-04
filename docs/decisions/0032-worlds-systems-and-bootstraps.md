@@ -1,6 +1,6 @@
 # 0032. The Engine runs several isolated Worlds, each with its own systems and clock
 
-- **Status:** Accepted; partly superseded by [0034](0034-current-world-view-and-async.md) (the current World outside frames, rendering and input ownership)
+- **Status:** Accepted; partly superseded by [0034](0034-current-world-view-and-async.md) (the current World outside frames, rendering and input ownership); amended by [0062](0062-links-to-spawnable-worlds.md) (links apply whenever both Worlds exist)
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0011, 0016, 0017)

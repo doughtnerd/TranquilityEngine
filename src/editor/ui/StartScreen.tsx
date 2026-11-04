@@ -1,4 +1,5 @@
 import { signal } from "@preact/signals";
+import type { ComponentChildren } from "preact";
 import { useEffect } from "preact/hooks";
 import { canOpenFolders } from "../projectFs";
 import { listSamples, type SampleInfo } from "../samples";
@@ -29,8 +30,9 @@ async function run(id: string, action: () => Promise<void>): Promise<void> {
  * What the editor shows with no project open (ADR 0031, 0038): the projects section (New
  * Project…, Open Project…, recent projects; `StartProjects`) and the samples that ship beside the
  * editor, to open read-only or (where folders open) copy into a folder to edit.
+ * `chrome` is extra content laid over the card (the Projects window's own title controls).
  */
-export function StartScreen() {
+export function StartScreen({ chrome }: { chrome?: ComponentChildren } = {}) {
   useEffect(() => {
     if (samples.value === null) void listSamples().then((list) => (samples.value = list));
   }, []);
@@ -39,6 +41,7 @@ export function StartScreen() {
   return (
     <div class="start-screen" role="dialog" aria-label="Start">
       <div class="start-card">
+        {chrome}
         <StartHeader />
         <StartProjects />
         <section>

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
+import { menu } from "./menus";
 
 // Game builds (ADR 0041): `npm run export` turns a sample into a static web build, served here by
 // the build's own serve.mjs on a free port, and the game boots in the browser with no editor:
@@ -110,7 +111,7 @@ test("the editor's Export… dialog: the player ships beside the editor; a brows
   expect(player).toContain("player.html");
   expect(player).toContain("myco.js");
 
-  await page.getByRole("button", { name: "Export…" }).click();
+  await menu(page, "File", "Build and Export…");
   const dialog = page.getByRole("dialog", { name: "Build / Export" });
   await expect(dialog).toBeVisible();
   if (browserName === "chromium") {

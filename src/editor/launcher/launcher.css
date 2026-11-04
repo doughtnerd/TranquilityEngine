@@ -1,4 +1,18 @@
 /* The desktop editor's Projects window (ADR 0059): the start screen fills the window. */
 .projects-window .start-screen { background: var(--bg); }
-.projects-status { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; margin: 0; padding: 4px 12px; min-height: 1.5em; color: var(--muted); font-size: calc(12px * var(--ui-scale)); text-align: center; }
+/* Under the card, in the page's flow (the window grows to fit it), so it never covers the card's last row. */
+.projects-status { width: 610px; box-sizing: border-box; margin: 0; padding: 4px 12px; background: var(--panel); border-top: 1px solid var(--border); color: var(--muted); font-size: calc(12px * var(--ui-scale)); text-align: center; }
+.projects-status:empty { display: none; }
 .projects-status.error { color: var(--danger); }
+
+/* The borderless card: the window is exactly the start panel (sized by main.tsx), so the panel fills it with no margin. */
+.projects-window { margin: 0; overflow-x: hidden; overflow-y: auto; }
+.projects-window .start-screen { position: static; display: block; padding: 0; background: var(--panel); }
+.projects-window .start-card { width: 610px; max-height: none; overflow: visible; border: 0; border-radius: 0; box-shadow: none; position: relative; }
+.projects-window .start-brand { border-radius: 0; cursor: default; user-select: none; }
+.window-controls { position: absolute; top: 0; right: 0; z-index: 2; display: flex; }
+/* Over the banner, which is black in every theme (brand.css), so the icons use the tagline's fixed light colour rather than theme text tokens. */
+.window-controls button { display: flex; align-items: center; justify-content: center; width: 40px; height: 32px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--brand-text); }
+.window-controls button:hover { background: var(--brand-hover); color: var(--brand-text-strong); }
+.window-controls button.close:hover { background: var(--danger); color: var(--brand-text-strong); }
+.window-controls svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 1.2; fill: none; }

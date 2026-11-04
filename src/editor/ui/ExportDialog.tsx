@@ -3,14 +3,12 @@ import { useEffect, useState } from "preact/hooks";
 import { getFileSystem, type FileSystem } from "../../engine/platform/FileSystem";
 import { desktopExportCommand, exportProjectBuild } from "../exportBuild";
 import { projectFileSystem } from "../projectFs";
-import { addProjectMenuItem } from "./ProjectMenu";
 import { currentProject, openScene, status } from "../state";
 import "./export.css";
 
 /** The Build / Export dialog is open (ADR 0041). */
 export const exportOpen = signal(false);
 
-addProjectMenuItem({ id: "export", label: "Build / Export…", order: 400, enabled: () => !!currentProject.value, title: "Make a playable web build or desktop app of the project (ADR 0041)", run: () => (exportOpen.value = true) });
 
 type Target = "web" | "desktop";
 

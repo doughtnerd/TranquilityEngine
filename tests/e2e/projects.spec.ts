@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installFakeFolders, listFolder, nextFolder, readFile, removeFile, removeFolderPicker } from "./fakeFolders";
+import { closeMenus, menu, menuItemOf, openMenu } from "./menus";
 
 // Projects in the browser editor (ADR 0038): New Project, Open Project, recent projects and Make a
 // Copy write real folders through the File System Access API. Playwright can't drive the native
@@ -84,9 +85,9 @@ test("recent projects: reopen, missing folders, remove from the list", async ({ 
   await nextFolder(page, "Existing");
   await start(page).getByRole("button", { name: "Open Project…" }).click();
   await expect(page.locator(".project-name")).toHaveText("Existing");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await menu(page, "File", "Close Project");
   await createProject(page, "Second", "Games");
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await menu(page, "File", "Close Project");
 
   const recent = start(page).getByRole("list", { name: "Recent projects" });
   await expect(recent.locator(".recent-name")).toHaveText(["Second", "Existing"]);
@@ -94,11 +95,13 @@ test("recent projects: reopen, missing folders, remove from the list", async ({ 
   await recent.getByRole("button", { name: /^Existing/ }).click();
   await expect(page.locator(".project-name")).toHaveText("Existing");
   // The Project menu lists the other recent project.
-  await page.getByRole("button", { name: "Project ▾" }).click();
-  await expect(page.getByRole("menu", { name: "Project" }).getByRole("menuitem", { name: "Second" })).toBeVisible();
+  const file = await openMenu(page, "File");
+  await file.getByRole("menuitem", { name: "Open Recent", exact: true }).click();
+  await expect(file.getByRole("menu").getByRole("menuitem", { name: "Second" })).toBeVisible();
+  await closeMenus(page);
   // A folder that loses its project.json shows as missing.
   await removeFile(page, "Games/Second/project.json");
-  await page.getByRole("menu", { name: "Project" }).getByRole("menuitem", { name: "Close Project" }).click();
+  await menu(page, "File", "Close Project");
   await expect(recent.locator(".recent-name")).toHaveText(["Existing", "Second"]);
   await expect(recent.locator('.recent[data-state="missing"] .recent-name')).toHaveText(["Second"]);
   await expect(recent.locator(".recent.missing .recent-state")).toHaveText("Missing");
@@ -117,7 +120,8 @@ test("Make a Copy writes a sample into a folder and opens the copy for editing",
   await sample.getByRole("button", { name: "Make a Copy…" }).click();
   await expect(page.locator(".project-name")).toHaveText("flappy");
   await expect(treeRow(page, "Bird")).toHaveCount(1);
-  await expect(page.getByRole("button", { name: "Reload Scripts" })).toBeVisible(); // a folder project
+  await expect(await menuItemOf(page, "File", "Reload Scripts")).toBeVisible(); // a folder project
+  await closeMenus(page);
   const files = await listFolder(page, "MyFlappy");
   expect(files).toEqual(expect.arrayContaining(["project.json", "scenes/main.scene.json", "images/flappyBird.png"]));
   expect(files.some((f) => f.startsWith("scripts/"))).toBe(true);

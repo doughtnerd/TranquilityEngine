@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { closeMenus, undoItem } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -103,5 +104,6 @@ test("assets with no node type, and invalid spots, change nothing", async ({ pag
   await dragAsset(page, "flappyBird.png", inspector.x + inspector.width / 2, inspector.y + 100); // the inspector isn't a drop zone
 
   expect(await page.locator(".tree .row").count()).toBe(before);
-  await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
+  await expect(await undoItem(page)).toBeDisabled();
+  await closeMenus(page);
 });

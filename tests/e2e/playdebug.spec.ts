@@ -1,4 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
+import { showTab } from "./tabs";
+import { menu } from "./menus";
 
 // Play mode debugging (ADR 0022, 0032, 0033): the World picker shows a live World of the running
 // game in the Hierarchy and Inspector, live edits change only the game, "Keep values" writes them
@@ -110,7 +112,7 @@ test("the World picker shows the running game; live edits; Keep values writes th
   await expect(page.locator(".status-text")).toContainText("Kept play-mode changes: 1 field written");
   await selectSceneBird();
   await expect(sceneBirdX).toHaveValue("-3.5");
-  await page.getByRole("button", { name: "Undo", exact: true }).click();
+  await menu(page, "Edit", /^Undo/);
   await expect(sceneBirdX).toHaveValue(sceneX);
   expect(errors).toEqual([]);
 });
@@ -157,7 +159,7 @@ test("Host pattern: Arena plays with 2 clients and a thin client on a server mad
   test.setTimeout(60_000);
   const errors = trackErrors(page);
   await open(page, ARENA);
-  await page.getByRole("tab", { name: /^Network/ }).click();
+  await showTab(page, /^Network/);
   const panel = page.locator(".panel.network");
   await panel.getByRole("checkbox", { name: "Multiplayer play" }).check();
   await panel.getByRole("combobox", { name: "Clients", exact: true }).selectOption("2");

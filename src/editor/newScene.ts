@@ -24,7 +24,7 @@ export function newSceneFile(): SceneFile {
   };
 }
 
-/** Where the toolbar's New Scene goes: `scenes/` if the project has it, else the project root. */
+/** Where File > New Scene goes: `scenes/` if the project has it, else the project root. */
 export function defaultSceneFolder(): string {
   return currentProject.value?.folders.includes("scenes") ? "scenes" : "";
 }

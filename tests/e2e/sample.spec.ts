@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { menu } from "./menus";
 
 // The Flappy sample (ADR 0031): listed on the start screen, opened from the files served beside the
 // editor with its scripts loaded at runtime, and played through Play mode.
@@ -43,7 +44,7 @@ test("the start screen lists the sample; Open loads it read-only with its script
   await expect(page.locator(".inspector")).toContainText("Bird");
   await expect(page.locator(".inspector .component.missing")).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await menu(page, "File", "Close Project");
   await expect(start).toBeVisible();
   expect(errors).toEqual([]);
 });

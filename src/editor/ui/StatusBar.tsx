@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { clearLog, logOpen, logText, messageLog, unseenErrors, type LogEntry } from "../messages";
 import { scriptProblems, status } from "../state";
+import { menuOpen } from "./MenuBar";
 
 /**
  * The status bar: the latest message, any action it offers, and markers for problems. Clicking it
@@ -85,7 +86,7 @@ function MessageLog() {
   useEffect(() => {
     panel.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      if (e.key !== "Escape" || menuOpen.peek()) return; // an open menu closes first
       e.stopPropagation();
       logOpen.value = false;
     };

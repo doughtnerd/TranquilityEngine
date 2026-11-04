@@ -38,6 +38,9 @@ export const historyLocation = persisted<"project" | "user">("myco.editor.histor
 /** How the Assets panel lists files: tiles in a grid, or rows with kind and size. */
 export const assetView = persisted<"grid" | "list">("myco.editor.assetView", "grid");
 
+/** Play an audio clip as soon as it's selected in the Assets panel (ADR 0061). Off by default. */
+export const autoPlayAudio = persisted("myco.editor.autoPlayAudio", false);
+
 /** The Assets panel's tile size in the grid (CSS px of the thumbnail's width). */
 export const assetTileSize = persisted("myco.editor.assetTileSize", 56);
 

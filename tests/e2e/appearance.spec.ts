@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { menu } from "./menus";
 
 // Appearance settings (theme presets, colour overrides, fonts) and branding (src/editor/theme.ts,
 // ui/SettingsDialog.tsx, ui/StartBrand.tsx, ui/AboutDialog.tsx).
@@ -13,7 +14,7 @@ async function openEditor(page: Page): Promise<void> {
 }
 
 async function openAppearance(page: Page) {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await menu(page, "Edit", "Settings…");
   const dialog = page.getByRole("dialog", { name: "Settings" });
   await dialog.getByRole("tab", { name: "Appearance" }).click();
   return dialog;

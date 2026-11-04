@@ -8,6 +8,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 
 | Guide | What it covers |
 | --- | --- |
+| [Editor](guide/editor.md) | The Projects window, the menu bar, docks and panels, asset previews, the `.myco/` folder |
 | [Worlds](guide/worlds.md) | Several Worlds per Engine: tags, bootstraps, systems and time per World, creating Worlds at runtime, isolation, async code, the Worlds panel |
 | [Multiplayer](guide/multiplayer.md) | Client and server Worlds, links and transports, RPCs, replication, inputs, prediction, the dedicated server (`npm run server`), the Network panel, known gaps |
 
@@ -86,6 +87,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0058](decisions/0058-particle-graph-editor.md) | A particle graph editor: a node view of particle effect assets, on the shader graph's canvas | Superseded by 0060 |
 | [0059](decisions/0059-projects-window-and-faster-editor-start.md) | The desktop editor opens on a Projects window while the editor loads hidden; faster start-up | Proposed |
 | [0060](decisions/0060-vfx-graph-particle-authoring.md) | Particle effects are VFX-Graph-style graph assets, authored only in the Particle Graph | Accepted |
+| [0061](decisions/0061-asset-previews-and-the-thumbnail-cache.md) | Asset previews are rendered in the editor and cached by content in the project's `.myco/thumbnails/` | Accepted |
+| [0062](decisions/0062-links-to-spawnable-worlds.md) | Bootstrap links apply whenever both Worlds exist, so they can name Spawnable Worlds (templates) | Accepted |
+| [0063](decisions/0063-editor-menu-bar.md) | The editor's commands live in a menu bar below the system title bar | Accepted |
 
 ## Working with decisions
 

@@ -758,3 +758,47 @@ export function writeWorldInput(engine: Engine, worldName: string, streamId: str
   if (!world || !def || netSession(world)?.isServer) return false;
   return _writeSyntheticInput(world, streamId, values);
 }
+
+// --- Worlds panel: live connections (ADR 0062) -----------------------------------------------------
+
+/** A live client-to-server connection between two Worlds of one Engine, as the Worlds panel draws it in play. */
+export interface LiveLink {
+  readonly from: string;
+  readonly to: string;
+  readonly transport: string;
+  readonly state: "handshake" | "open" | "closed";
+}
+
+/**
+ * Every client World of `engine` connected (or connecting) to a server World of the same Engine,
+ * however the connection was made: a bootstrap link or a script's `connect`. Clients connected to
+ * a server outside the Engine (a dedicated server) aren't listed.
+ */
+export function liveLinks(engine: Engine): LiveLink[] {
+  const worlds = engine.worlds().flatMap((h) => engine._world(h.name) ?? []);
+  const servers = worlds.flatMap((w) => {
+    const session = netSession(w);
+    return session?.isServer ? session.listening().map((l) => ({ world: w.name, ...l })) : [];
+  });
+  const out: LiveLink[] = [];
+  for (const w of worlds) {
+    const peer = netSession(w)?.serverPeer;
+    if (!peer) continue;
+    const server = servers.find((s) => s.address === peer.link.remote);
+    if (server) out.push({ from: w.name, to: server.world, transport: server.transport, state: peer.state });
+  }
+  return out;
+}
+
+// --- Asset thumbnails (ADR 0061) -------------------------------------------------------------------
+
+export type { ThumbnailKind, ThumbnailRenderer } from "../render/ThumbnailRenderer";
+
+/** The editor's asset thumbnail renderer (one offscreen WebGL context), loaded the first time it's needed. */
+export async function createThumbnailRenderer(size?: number): Promise<import("../render/ThumbnailRenderer").ThumbnailRenderer> {
+  const { ThumbnailRenderer } = await import("../render/ThumbnailRenderer");
+  return new ThumbnailRenderer(size);
+}
+
+/** An orbitable asset preview in the Inspector (ADR 0061): `ThumbnailRenderer.preview`. */
+export type { ThumbnailPreview } from "../render/ThumbnailRenderer";

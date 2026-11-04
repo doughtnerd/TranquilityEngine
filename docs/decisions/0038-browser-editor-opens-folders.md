@@ -1,6 +1,6 @@
 # 0038. The browser editor opens project folders through the File System Access API
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [0063](0063-editor-menu-bar.md) (the toolbar Project menu and `addProjectMenuItem` replaced by the menu bar)
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

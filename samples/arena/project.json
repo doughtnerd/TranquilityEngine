@@ -16,6 +16,10 @@
     "worlds": [
       { "name": "Client", "tags": ["client"], "scenes": ["scenes/main.scene.json"] }
     ],
+    "links": [
+      { "from": "Client", "to": "Server", "transport": "loopback" },
+      { "from": "Client 2", "to": "Server", "transport": "loopback" }
+    ],
     "templates": {
       "Server": { "tags": ["server"], "renders": false, "input": false, "scenes": ["scenes/arena.scene.json"] },
       "Client 2": { "tags": ["client"], "renders": true, "scenes": ["scenes/arena.scene.json"] }

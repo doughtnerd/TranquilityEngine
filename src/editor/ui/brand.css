@@ -7,10 +7,12 @@
 .toolbar { background: var(--panel); box-shadow: 0 1px 0 var(--accent-faint); }
 
 /* Start screen header and footer. The logo art is on black, so it sits in a black banner in every theme. */
-.start-brand { display: flex; flex-direction: column; align-items: center; margin: -20px -24px 4px; padding: 14px 24px 10px; background: #000; border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; }
+/* The banner is the logo artwork on black, the same in every theme; these name its fixed colours. */
+:root { --brand-bg: #000; --brand-text: #b9c7c4; --brand-text-strong: #fff; --brand-hover: rgb(255 255 255 / 0.12); }
+.start-brand { display: flex; flex-direction: column; align-items: center; margin: -20px -24px 4px; padding: 14px 24px 10px; background: var(--brand-bg); border-bottom: 1px solid var(--border); border-radius: 8px 8px 0 0; }
 .start-card h1.start-title { margin: 0; line-height: 0; }
 .start-logo { width: min(240px, 60vw); height: auto; display: block; }
-.start-tagline { margin: 2px 0 0; color: #b9c7c4; font-size: calc(12px * var(--ui-scale)); letter-spacing: 0.08em; text-transform: uppercase; }
+.start-tagline { margin: 2px 0 0; color: var(--brand-text); font-size: calc(12px * var(--ui-scale)); letter-spacing: 0.08em; text-transform: uppercase; }
 .start-footer { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 18px -24px -20px; padding: 8px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
 .start-footer img { width: 20px; height: 20px; border-radius: 50%; }
 .start-footer-sep { color: var(--faint); }
@@ -21,7 +23,7 @@ button.link-button:hover { background: none; color: var(--accent-hover); }
 
 /* About */
 .about-dialog { width: min(440px, calc(100vw - 32px)); }
-.about-hero { margin: -16px -18px 12px; padding: 12px 0 6px; display: flex; justify-content: center; background: #000; border-radius: 6px 6px 0 0; border-bottom: 1px solid var(--border); }
+.about-hero { margin: -16px -18px 12px; padding: 12px 0 6px; display: flex; justify-content: center; background: var(--brand-bg); border-radius: 6px 6px 0 0; border-bottom: 1px solid var(--border); }
 .about-hero img { width: 240px; height: auto; }
 .about-dialog h2 { margin-bottom: 2px; }
 .dialog p.about-version { margin: 0 0 10px; color: var(--accent); font-variant-numeric: tabular-nums; }
