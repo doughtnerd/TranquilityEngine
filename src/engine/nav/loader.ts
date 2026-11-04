@@ -26,7 +26,7 @@ async function instantiate(): Promise<NavigationModule> {
   if (url.protocol === "file:") {
     // Node has no fetch for file URLs. A variable specifier keeps bundlers from pulling node:fs into web builds.
     const fsModule = "node:fs/promises";
-    const { readFile } = (await import(/* @vite-ignore */ fsModule)) as typeof import("node:fs/promises");
+    const { readFile } = (await import(/* @vite-ignore */ fsModule)) as { readFile(path: URL): Promise<Uint8Array> };
     source = await readFile(url);
   }
   await mod.default({ module_or_path: source });

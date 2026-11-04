@@ -14,6 +14,7 @@ import type { WorldConfig } from "../core/worlds";
 import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
+import type { NavigationRuntime } from "../nav/runtime";
 import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
 import { Camera, MeshRenderer, SpriteRenderer } from "../render/components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
@@ -517,9 +518,49 @@ export function localPositionFor(node: GameObject, point: readonly number[]): [n
 
 export type { EditorOverlay } from "../render/RenderBackend";
 
-/** Draw an overlay (lines and handles) supplied by `provider` every frame; null stops. No-op headless. */
+const overlayProviders = new WeakMap<World, Map<string, () => EditorOverlay>>();
+
+/** Several overlays in one: lines, segments and handles concatenated in order. */
+export function mergeOverlays(overlays: readonly EditorOverlay[]): EditorOverlay {
+  const merged: EditorOverlay = { lines: [], handles: [] };
+  for (const o of overlays) {
+    merged.lines.push(...o.lines);
+    merged.handles.push(...o.handles);
+    if (o.segments?.length) (merged.segments ??= []).push(...o.segments);
+  }
+  return merged;
+}
+
+/** Draw `provider`'s overlay every frame, with any others added under other ids (merged in the order added). Same id replaces. No-op headless. */
+export function addEditorOverlay(world: World, id: string, provider: () => EditorOverlay): void {
+  let map = overlayProviders.get(world);
+  if (!map) overlayProviders.set(world, (map = new Map()));
+  map.set(id, provider);
+  installOverlays(world, map);
+}
+
+/** Stop the overlay added under `id`. */
+export function removeEditorOverlay(world: World, id: string): void {
+  const map = overlayProviders.get(world);
+  if (!map?.delete(id)) return;
+  installOverlays(world, map);
+}
+
+function installOverlays(world: World, map: Map<string, () => EditorOverlay>): void {
+  if (map.size === 0) return world.render?.setOverlayProvider(null);
+  world.render?.setOverlayProvider(() => mergeOverlays([...map.values()].map((p) => p())));
+}
+
+/** Draw an overlay (lines and handles) supplied by `provider` every frame; null stops. Shares the World with `addEditorOverlay`'s overlays (under the id "default"). */
 export function setEditorOverlay(world: World, provider: (() => EditorOverlay) | null): void {
-  world.render?.setOverlayProvider(provider);
+  if (provider) addEditorOverlay(world, "default", provider);
+  else removeEditorOverlay(world, "default");
+}
+
+/** The World's navigation (ADR 0065), or null while it has none (or the engine has no navigation yet). */
+export function navigationOf(world: World): { runtime: NavigationRuntime; loadedChunks?(): unknown; debug?: unknown } | null {
+  const nav = (world as unknown as { navigation?: { runtime?: NavigationRuntime } | null }).navigation;
+  return nav?.runtime ? (nav as { runtime: NavigationRuntime }) : null;
 }
 
 /** The id of the overlay handle under a canvas point, or null. */

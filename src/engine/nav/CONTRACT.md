@@ -21,7 +21,7 @@ Component ids and fields (engine agent implements them in src/engine/nav/compone
 - `engine.NavFlowGoal` — on a target node: `moveThreshold: Number`.
 - `engine.NavAvoidanceObstacle` — `radius: Number`, `layers: Number`.
 
-World field: `world.navigation: NavigationWorld | null` (created lazily by `ensureNavigation(world)`); `NavigationWorld.runtime: NavigationRuntime` (src/engine/nav/runtime.ts) and `NavigationWorld.loadedChunks()`.
+World field: `world.navigation: NavigationWorld | null` (created lazily by `ensureNavigation(world)` in `navigationSystems.ts`; `Navigation.ts` is the public facade, and the two names can't differ only by case on Windows and macOS); `NavigationWorld.runtime: NavigationRuntime` (src/engine/nav/runtime.ts) and `NavigationWorld.loadedChunks()`.
 Project settings: `ProjectSettings.navigation` = `NavigationSettings` from src/engine/nav/settings.ts (parse with parseNavigationSettings).
 Baked asset path convention: `<scene path without .scene.json>.nav.bin` (e.g. `scenes/main.nav.bin`), referenced by the scene's NavChunk `bake` field as `asset:scenes/main.nav.bin`.
 Chunk id: `chunkId(scenePath, chunkNodeId)` from the wasm module (project-relative scene path with forward slashes; the NavChunk node's id).

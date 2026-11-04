@@ -39,6 +39,11 @@ export interface EditorProject {
   writeText(path: string, text: string): Promise<void>;
   /** Write a text asset (JSON, which must parse, or JavaScript) and update what the project serves for it. */
   writeFile(path: string, text: string): Promise<void>;
+  /**
+   * Write a binary asset (a baked navigation chunk, ADR 0065) and serve its new bytes: the project's
+   * URL for it changes, so loaders see the new file.
+   */
+  writeBinary(path: string, bytes: Uint8Array): Promise<void>;
   /** Delete a file (an asset or a script) from disk and from the project, with its import settings sidecar (ADR 0040). */
   deleteFile(path: string): Promise<void>;
   /** Every folder (project-relative, sorted), empty ones included. */
@@ -58,7 +63,7 @@ export interface EditorProject {
 /** True if `path` is `folder` or inside it. */
 export const isWithin = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
-const ASSET_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|mp3|ogg|wav|obj|mtl|fbx|hdr|exr|json|js)$/i;
+const ASSET_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|mp3|ogg|wav|obj|mtl|fbx|hdr|exr|bin|json|js)$/i;
 
 /** The project's JSON files with their text (scripts can import them, ADR 0030). */
 export function jsonFiles(project: EditorProject): Map<string, string> {
@@ -75,7 +80,7 @@ const MIME: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
   mp3: "audio/mpeg", ogg: "audio/ogg", wav: "audio/wav",
   obj: "model/obj", mtl: "model/mtl", fbx: "application/octet-stream",
-  hdr: "application/octet-stream", exr: "application/octet-stream",
+  hdr: "application/octet-stream", exr: "application/octet-stream", bin: "application/octet-stream",
 };
 
 export const isScenePath = (path: string) => /\.(scene|prefab)\.json$/.test(path);
@@ -176,6 +181,19 @@ class MapProject implements EditorProject {
     if (!this.values.has(path)) this.sortedFiles = null;
     this.texts.set(path, text);
     this.values.set(path, text);
+  }
+
+  async writeBinary(path: string, bytes: Uint8Array): Promise<void> {
+    const { fs, root } = this.disk();
+    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    if (folder && !(await fs.exists(joinPath(root, folder)))) await fs.mkdir(joinPath(root, folder));
+    await fs.writeBinary(joinPath(root, path), bytes);
+    const old = this.values.get(path);
+    if (typeof old === "string" && old.startsWith("blob:")) URL.revokeObjectURL(old);
+    if (!this.values.has(path)) this.sortedFiles = null;
+    this.texts.delete(path);
+    this.values.set(path, blobUrl(path, bytes));
+    this.sizes.set(path, bytes.length);
   }
 
   async deleteFile(path: string): Promise<void> {

@@ -188,6 +188,12 @@ export class NavRuntime {
 }
 
 /**
+ * Which navmesh and flight volume sections (`[walk group, fly group]`, -1 for none) a bake holds for an agent type
+ * (its id as in project settings): the groups the `debugBake*` functions take.
+ */
+export function bakeAgentGroups(bytes: Uint8Array | number[], agent_type: string): Int32Array;
+
+/**
  * A summary of a `myco.nav@1` bake file as JSON (for the editor's asset inspector and tests):
  * `{ "packageVersion", "signature", "sections": [{ "kind", "group", "group2", "length", "fingerprint" }] }`,
  * or `{ "error" }`. With `verify`, the whole file is parsed and every section's fingerprint checked.
@@ -241,6 +247,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_navbaker_free: (a: number, b: number) => void;
     readonly __wbg_navruntime_free: (a: number, b: number) => void;
+    readonly bakeAgentGroups: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly bakeInfo: (a: number, b: number, c: number) => [number, number];
     readonly bufferStrides: () => [number, number];
     readonly chunkId: (a: number, b: number, c: number, d: number) => [number, number];

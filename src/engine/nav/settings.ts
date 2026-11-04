@@ -258,7 +258,9 @@ export const DEFAULT_NAV_AGENT_TYPE_ID = "6e2a0f1c-5b7d-4c3e-9a10-4d2f8b6c1e01";
 export const defaultNavigationSettings = (): NavigationSettings => ({
   agentTypes: [defaultNavAgentType(DEFAULT_NAV_AGENT_TYPE_ID, "Humanoid")],
   areas: [],
-  orientation: { maxSurfaceDeg: 180, groundCaptureDeg: 45, ceilingCaptureDeg: 45, coverageDeg: 60, maxFoldDeg: 90 },
+  // Coverage 55 rather than Foxfire's 60: with the default agent (step 0.4 m, auto voxels 0.25 × 0.125 m) a voxel
+  // field holds slopes up to ~56°, so a bin taking surfaces 60° off would leave strips with gaps (the bake warns).
+  orientation: { maxSurfaceDeg: 180, groundCaptureDeg: 45, ceilingCaptureDeg: 45, coverageDeg: 55, maxFoldDeg: 90 },
   surfaceRings: [{ tiltDeg: 90, count: 4, azimuthOffsetDeg: 0 }],
   voxels: "auto",
   cellsPerRadius: 2,

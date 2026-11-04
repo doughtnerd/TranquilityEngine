@@ -95,6 +95,19 @@ pub fn chunk_parts(c: &LoadedChunk, agent_type: nav_math::Hash128) -> Parts<'_> 
     parts
 }
 
+/// A chunk's gate states for the type, from the crowd's last tick (empty before its first tick sees the chunk).
+fn gates_of<'a>(crowd: &'a Crowd, c: &LoadedChunk, ty: &AgentTypeSettings) -> &'a [bool] {
+    let snap = crowd.chunks().snapshot();
+    snap.find(c.id, ty.id, false).map(|e| snap.gates_of(e)).unwrap_or(&[])
+}
+
+fn with_gates<'a>(mut f: NavMeshQueryFilter<'a>, gates: &'a [bool]) -> NavMeshQueryFilter<'a> {
+    if !gates.is_empty() {
+        f.closed_gates = Some(gates);
+    }
+    f
+}
+
 fn append_waypoints(out: &mut PathOut, wps: &[NavMeshWaypoint]) {
     for w in wps {
         out.push(w.position, w.normal, w.flags.0);
@@ -113,17 +126,18 @@ fn locate_on_chunks<'a>(
     costs: &[NavMeshAgentAreaCost],
     pos: Float3,
     max_distance: f32,
-) -> Option<(&'a Arc<NavMeshData>, i32, Float3)> {
-    let mut best: Option<(&Arc<NavMeshData>, i32, Float3)> = None;
+) -> Option<(&'a Arc<NavMeshData>, i32, Float3, &'a [bool])> {
+    let mut best: Option<(&Arc<NavMeshData>, i32, Float3, &[bool])> = None;
     let mut best_d2 = f32::MAX;
     for c in crowd.chunks().loaded() {
         let Some(nav) = chunk_parts(c, ty.id).nav else { continue };
-        let filter = walk_filter(walk, nav, costs);
+        let gates = gates_of(crowd, c, ty);
+        let filter = with_gates(walk_filter(walk, nav, costs), gates);
         if let Some((poly, p)) = pathfinding::find_nearest_poly(nav, pos, max_distance, &filter) {
             let d2 = p.distance_sq(pos);
             if d2 < best_d2 {
                 best_d2 = d2;
-                best = Some((nav, poly, p));
+                best = Some((nav, poly, p, gates));
             }
         }
     }
@@ -168,8 +182,8 @@ pub fn walk_path(crowd: &Crowd, ty: &AgentTypeSettings, walk: &NavMeshAgent, cos
     }
 
     // No route graphs yet: one chunk's navmesh.
-    let Some((nav, sp, spos)) = locate_on_chunks(crowd, ty, walk, costs, from, snap) else { return PathOut::invalid() };
-    let filter = walk_filter(walk, nav, costs);
+    let Some((nav, sp, spos, gates)) = locate_on_chunks(crowd, ty, walk, costs, from, snap) else { return PathOut::invalid() };
+    let filter = with_gates(walk_filter(walk, nav, costs), gates);
     let Some((gp, gpos)) = pathfinding::find_nearest_poly(nav, to, snap, &filter) else { return PathOut::invalid() };
     let mut corridor = Vec::new();
     let status = pathfinding::find_path(nav, sp, spos, gp, gpos, &filter, &mut corridor);
@@ -228,7 +242,7 @@ pub fn hybrid_path(
     for c in crowd.chunks().loaded() {
         let parts = chunk_parts(c, ty.id);
         let (Some(nav), Some(vol), Some(links)) = (parts.nav, parts.volume, parts.links) else { continue };
-        let ground = walk_filter(walk, nav, costs);
+        let ground = with_gates(walk_filter(walk, nav, costs), gates_of(crowd, c, ty));
         let air = flight_filter(vol, costs);
         let end_at = |p: Float3| {
             let mut e = NavRouteEnd::NONE;
@@ -320,7 +334,7 @@ pub fn find_path(crowd: &Crowd, ty: &AgentTypeSettings, costs: &[NavMeshAgentAre
 /// (fly-only types) within `max_distance`, or empty.
 pub fn nearest_point(crowd: &Crowd, ty: &AgentTypeSettings, costs: &[NavMeshAgentAreaCost], pos: Float3, max_distance: f32) -> Vec<f32> {
     if let Some(walk) = ty.walk.as_deref() {
-        if let Some((nav, poly, p)) = locate_on_chunks(crowd, ty, walk, costs, pos, max_distance) {
+        if let Some((nav, poly, p, _)) = locate_on_chunks(crowd, ty, walk, costs, pos, max_distance) {
             let n = nav.polys[poly as usize].normal;
             let (sp, sn) = nav_query::surface::try_get_surface_point(nav, poly, p).unwrap_or((p, n));
             return vec![sp.x, sp.y, sp.z, sn.x, sn.y, sn.z];
@@ -345,9 +359,9 @@ pub fn nearest_point(crowd: &Crowd, ty: &AgentTypeSettings, costs: &[NavMeshAgen
 /// start isn't on navigation.
 pub fn raycast(crowd: &Crowd, ty: &AgentTypeSettings, costs: &[NavMeshAgentAreaCost], from: Float3, to: Float3) -> Vec<f32> {
     if let Some(walk) = ty.walk.as_deref() {
-        let Some((nav, poly, p)) = locate_on_chunks(crowd, ty, walk, costs, from, snap_of(walk)) else { return Vec::new() };
+        let Some((nav, poly, p, gates)) = locate_on_chunks(crowd, ty, walk, costs, from, snap_of(walk)) else { return Vec::new() };
         let f: NavMeshQueryFilter = walk_filter(walk, nav, costs);
-        let filter = RaycastFilter { allowed_bins: f.allowed_bins, max_fold_angle: f.max_fold_angle, excluded_areas: f.excluded_areas, closed_gates: &[] };
+        let filter = RaycastFilter { allowed_bins: f.allowed_bins, max_fold_angle: f.max_fold_angle, excluded_areas: f.excluded_areas, closed_gates: gates };
         let hit = surface_raycast(nav, &filter, poly, p, to);
         let (h, n) = (hit.hit_point, hit.hit_normal);
         return vec![hit.t, if hit.reached { 1.0 } else { 0.0 }, h.x, h.y, h.z, n.x, n.y, n.z];

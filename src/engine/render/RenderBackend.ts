@@ -117,6 +117,8 @@ export interface EditorOverlay {
   lines: { points: [number, number, number][]; closed: boolean; color: number }[];
   /** Handles drawn as fixed-size squares on top of everything; picked by `pickOverlayHandle`. */
   handles: { id: string; position: [number, number, number]; color: number }[];
+  /** Many loose segments in one colour (6 floats each: a xyz, b xyz), for big overlays like navmesh debug drawing. */
+  segments?: { positions: Float32Array; color: number }[];
 }
 
 /** @internal What the editor does with a gizmo drag: one start, many changes, one end. */
@@ -770,6 +772,8 @@ export class RenderBackend {
       this.syncLightGizmos(world);
       this.syncOverlay();
       this.syncGizmo(world);
+    } else if (this.overlayProvider || this.overlayLines?.visible) {
+      this.syncOverlay(); // a game with a debug overlay (navigation, ADR 0065); one more pass clears it when removed
     }
   }
 
@@ -2177,6 +2181,13 @@ export class RenderBackend {
         const a = p[i], q = p[(i + 1) % p.length];
         segs.push(...a, ...q);
         colors.push(r, g, b, r, g, b);
+      }
+    }
+    for (const group of overlay.segments ?? []) {
+      const [r, g, b] = rgb(group.color);
+      for (let i = 0; i + 2 < group.positions.length; i += 3) {
+        segs.push(group.positions[i], group.positions[i + 1], group.positions[i + 2]);
+        colors.push(r, g, b);
       }
     }
     // Both are transparent so they draw after the (transparent) sprites, in render order.

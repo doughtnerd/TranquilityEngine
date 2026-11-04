@@ -8,7 +8,7 @@
 // instances).
 import { effect } from "@preact/signals";
 import { BoxCollider, BoxCollider2D, CapsuleCollider, CircleCollider2D, Collider, Collider2D, EdgeCollider2D, GameObject, MeshCollider, PolygonCollider2D, SphereCollider, type Engine } from "../engine";
-import { meshTriangleData, overlayHandleAt, pointOnPlane, pointOnSpritePlane, rayAt, setEditorOverlay, viewportCanvas, type EditorOverlay } from "../engine/editor";
+import { meshTriangleData, overlayHandleAt, pointOnPlane, pointOnSpritePlane, rayAt, addEditorOverlay, removeEditorOverlay, viewportCanvas, type EditorOverlay } from "../engine/editor";
 import {
   boxHandles3D,
   boxWire,
@@ -191,7 +191,7 @@ export function colliderOverlay(engine: Engine): EditorOverlay {
 /** Draw collider gizmos and let their handles be dragged. Returns a function that removes them. */
 export function installColliderGizmo(engine: Engine): () => void {
   const world = engine.world;
-  setEditorOverlay(world, () => colliderOverlay(engine));
+  addEditorOverlay(world, "colliders", () => colliderOverlay(engine));
 
   // Edit mode ends when the selection moves elsewhere (picking a tool ends it too: `pickTool`).
   const stopWatch = effect(() => {
@@ -200,7 +200,7 @@ export function installColliderGizmo(engine: Engine): () => void {
   });
 
   const canvas = viewportCanvas(world);
-  if (!canvas) return () => (stopWatch(), setEditorOverlay(world, null));
+  if (!canvas) return () => (stopWatch(), removeEditorOverlay(world, "colliders"));
 
   const local = (e: PointerEvent) => {
     const r = canvas.getBoundingClientRect();
@@ -384,7 +384,7 @@ export function installColliderGizmo(engine: Engine): () => void {
   return () => {
     stopWatch();
     canvas.removeEventListener("pointerdown", onDown, { capture: true });
-    setEditorOverlay(world, null);
+    removeEditorOverlay(world, "colliders");
     editingCollider.value = null;
   };
 }

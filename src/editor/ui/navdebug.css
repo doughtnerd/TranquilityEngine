@@ -1,0 +1,13 @@
+/* Navigation debug: the play-mode counters and the scene view's overlay toggles (ADR 0065). */
+.nav-debug { padding: 6px 8px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text); }
+.nav-debug h4 { margin: 0 0 4px; font-size: 11px; font-weight: 600; color: var(--text-strong); display: flex; gap: 6px; align-items: center; }
+.nav-debug .nav-world { color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; padding: 0 4px; font-weight: normal; font-size: 10px; }
+.nav-counters { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.nav-counters td { padding: 1px 0; }
+.nav-counters td:last-child { text-align: right; color: var(--muted); }
+.nav-warnings { margin-top: 6px; color: var(--warning); }
+.nav-warnings ul { margin: 2px 0 0; padding-left: 16px; max-height: 120px; overflow: auto; }
+.nav-warnings .link-button { float: right; }
+.nav-overlay-form .nav-group { grid-template-columns: 1fr auto; }
+.nav-overlay-form .nav-group select { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; font: inherit; padding: 1px 4px; }
+.nav-overlay-form .nav-play-heading { margin-top: 4px; color: var(--muted); font-size: 11px; }

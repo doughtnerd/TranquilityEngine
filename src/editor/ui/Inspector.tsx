@@ -34,6 +34,7 @@ import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
 import { ParticleSystemEffect } from "./ParticleInspector";
+import { NavChunkBake } from "./NavChunkInspector";
 import { showsAssetInspector } from "../assetImport";
 import { assetKind, listedFiles } from "../assetBrowser";
 import { BUILTIN_MESHES } from "../../engine/scene/models";
@@ -478,6 +479,8 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
           overrides={info.fields.find((f) => f.name === "overrides")?.value}
         />
       )}
+      {/* A NavChunk bakes from here (ADR 0065). */}
+      {info.type === "engine.NavChunk" && paths.length === 1 && paths[0].length === 1 && <NavChunkBake scene={scene} nodeId={paths[0][0]} />}
     </section>
   );
 }

@@ -3,6 +3,7 @@
 export const memory: WebAssembly.Memory;
 export const __wbg_navbaker_free: (a: number, b: number) => void;
 export const __wbg_navruntime_free: (a: number, b: number) => void;
+export const bakeAgentGroups: (a: number, b: number, c: number, d: number) => [number, number, number, number];
 export const bakeInfo: (a: number, b: number, c: number) => [number, number];
 export const bufferStrides: () => [number, number];
 export const chunkId: (a: number, b: number, c: number, d: number) => [number, number];

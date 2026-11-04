@@ -125,3 +125,18 @@ export const Assets = {
     };
   },
 };
+
+/**
+ * @internal A binary asset's bytes from its URL (`Assets.url`): fetched in browsers (http, blob and data URLs),
+ * read from disk for the `file:` URLs the dedicated server (Node) gives project files.
+ */
+export async function fetchAssetBytes(url: string): Promise<Uint8Array> {
+  if (url.startsWith("file:") && typeof window === "undefined") {
+    // A variable specifier keeps bundlers from pulling node:fs into web builds.
+    const fs = (await import(/* @vite-ignore */ ["node", "fs/promises"].join(":"))) as { readFile(path: URL): Promise<Uint8Array> };
+    return new Uint8Array(await fs.readFile(new URL(url)));
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return new Uint8Array(await res.arrayBuffer());
+}

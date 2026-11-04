@@ -82,6 +82,16 @@ pub fn debug_bake_lines(bytes: &[u8], group: u32) -> Result<Vec<f32>, JsError> {
     Ok(debug::navmesh_lines(&bake_navmesh(bytes, group)?))
 }
 
+/// Which navmesh and flight volume sections (`[walk group, fly group]`, -1 for none) a bake holds for an agent type
+/// (its id as in project settings): the groups the `debugBake*` functions take.
+#[wasm_bindgen(js_name = bakeAgentGroups)]
+pub fn bake_agent_groups(bytes: &[u8], agent_type: &str) -> Result<Vec<i32>, JsError> {
+    let file = read(bytes).map_err(|e| JsError::new(&e.to_string()))?;
+    let id = dto::parse_id(agent_type);
+    let entry = file.agent_table.as_ref().and_then(|t| t.entries.iter().find(|e| e.id == id));
+    Ok(entry.map_or(vec![-1, -1], |e| vec![e.walk_group, e.fly_group]))
+}
+
 /// A bake's navmesh polygons as triangles: stride 11 (a, b, c, bin, area).
 #[wasm_bindgen(js_name = debugBakeTriangles)]
 pub fn debug_bake_triangles(bytes: &[u8], group: u32) -> Result<Vec<f32>, JsError> {

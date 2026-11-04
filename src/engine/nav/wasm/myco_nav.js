@@ -753,6 +753,34 @@ export class NavRuntime {
 if (Symbol.dispose) NavRuntime.prototype[Symbol.dispose] = NavRuntime.prototype.free;
 
 /**
+ * Which navmesh and flight volume sections (`[walk group, fly group]`, -1 for none) a bake holds for an agent type
+ * (its id as in project settings): the groups the `debugBake*` functions take.
+ * @param {Uint8Array | number[]} bytes
+ * @param {string} agent_type
+ * @returns {Int32Array}
+ */
+export function bakeAgentGroups(bytes, agent_type) {
+    let ptr0, len0, ptr1, len1;
+    try {
+        ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        len0 = WASM_VECTOR_LEN;
+        ptr1 = passStringToWasm0(agent_type, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        len1 = WASM_VECTOR_LEN;
+    } catch (e) {
+        if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+        if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+        throw e;
+    }
+    const ret = wasm.bakeAgentGroups(ptr0, len0, ptr1, len1);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v3 = getArrayI32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v3;
+}
+
+/**
  * A summary of a `myco.nav@1` bake file as JSON (for the editor's asset inspector and tests):
  * `{ "packageVersion", "signature", "sections": [{ "kind", "group", "group2", "length", "fingerprint" }] }`,
  * or `{ "error" }`. With `verify`, the whole file is parsed and every section's fingerprint checked.
@@ -961,6 +989,11 @@ function getArrayF32FromWasm0(ptr, len) {
     return getFloat32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
 }
 
+function getArrayI32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getInt32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
 function getArrayU32FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
@@ -985,6 +1018,14 @@ function getFloat32ArrayMemory0() {
         cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
     }
     return cachedFloat32ArrayMemory0;
+}
+
+let cachedInt32ArrayMemory0 = null;
+function getInt32ArrayMemory0() {
+    if (cachedInt32ArrayMemory0 === null || cachedInt32ArrayMemory0.byteLength === 0) {
+        cachedInt32ArrayMemory0 = new Int32Array(wasm.memory.buffer);
+    }
+    return cachedInt32ArrayMemory0;
 }
 
 function getStringFromWasm0(ptr, len) {
@@ -1115,6 +1156,7 @@ function __wbg_finalize_init(instance, module) {
     wasmModule = module;
     cachedBigUint64ArrayMemory0 = null;
     cachedFloat32ArrayMemory0 = null;
+    cachedInt32ArrayMemory0 = null;
     cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();

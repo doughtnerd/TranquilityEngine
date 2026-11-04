@@ -5,6 +5,7 @@ import { previewCamera, previewFrame, selectedCamera } from "../cameraPreview";
 import { cameraPreviewEnabled, cleanSnap, gizmoPivot, gizmoSpace, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, type SnapSettings } from "../sceneTools";
 import { docVersion, openScene, sceneCamera, selectedKeys, viewMode } from "../state";
 import { previewedQuality, previewQuality, qualityTiers } from "../graphicsPreview";
+import { NavOverlayForm } from "./NavDebugPanel";
 import "./scene-tools.css";
 
 /**
@@ -34,6 +35,9 @@ export function SceneToolButtons() {
         </Popover>
       </div>
       <AlignMenu />
+      <Popover label="Navigation overlay" buttonClass="nav-overlay" buttonText="Nav" title="Draw the baked navmesh, links and flight volume in the scene view">
+        <NavOverlayForm />
+      </Popover>
       <button
         class={`camera-preview-toggle${cameraPreviewEnabled.value ? " active" : ""}`}
         aria-pressed={cameraPreviewEnabled.value}

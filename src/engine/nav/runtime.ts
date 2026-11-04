@@ -533,6 +533,12 @@ export async function debugBakeLines(bytes: Uint8Array, group = 0): Promise<Floa
   return (await loadNavigation()).debugBakeLines(bytes, group);
 }
 
+/** The navmesh and flight volume sections a bake holds for an agent type (by id); -1 where it has none. */
+export async function bakeAgentGroups(bytes: Uint8Array, agentType: string): Promise<{ walk: number; fly: number }> {
+  const g = (await loadNavigation()).bakeAgentGroups(bytes, agentType);
+  return { walk: g[0] ?? -1, fly: g[1] ?? -1 };
+}
+
 /** A bake's navmesh triangles without a runtime; stride 11 as above. */
 export async function debugBakeTriangles(bytes: Uint8Array, group = 0): Promise<Float32Array> {
   return (await loadNavigation()).debugBakeTriangles(bytes, group);

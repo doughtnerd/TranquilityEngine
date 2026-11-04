@@ -1,0 +1,13 @@
+/* A NavChunk's bake, under its fields in the Inspector (ADR 0065). */
+.nav-chunk-bake { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 8px; border-top: 1px solid var(--border); }
+.nav-chunk-bake-row { display: flex; align-items: center; gap: 8px; }
+.nav-chunk-bake-status { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-chunk-stale { margin: 0; padding: 4px 6px; border: 1px solid var(--warning); border-radius: 4px; background: var(--warning-soft); color: var(--warning); font-size: 11px; }
+.nav-chunk-error { margin: 0; padding: 4px 6px; border: 1px solid var(--danger); border-radius: 4px; background: var(--danger-soft); color: var(--danger); font-size: 11px; }
+.nav-chunk-summary { font-size: 11px; color: var(--muted); }
+.nav-chunk-summary-line { margin: 0 0 4px; color: var(--text); overflow-wrap: anywhere; }
+.nav-chunk-summary dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 8px; margin: 0; }
+.nav-chunk-summary dt { color: var(--muted); }
+.nav-chunk-summary dd { margin: 0; color: var(--text); min-width: 0; }
+.nav-chunk-fingerprints { font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-chunk-warnings { margin: 4px 0 0; padding-left: 16px; color: var(--warning); }

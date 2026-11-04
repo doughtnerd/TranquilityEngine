@@ -16,6 +16,7 @@
     "preview": "vite preview --config vite.editor.config.ts",
     "server": "node src/server/cli.mjs",
     "export": "node src/export/cli.mjs",
+    "nav:bake": "node src/nav-cli/cli.mjs",
     "test": "vitest run",
     "bench": "vitest bench --run",
     "bench:memory": "node --expose-gc bench/memory.mjs",
