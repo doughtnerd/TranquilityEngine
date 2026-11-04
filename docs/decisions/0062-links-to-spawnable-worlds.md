@@ -1,6 +1,6 @@
 # 0062. Bootstrap links apply whenever both Worlds exist, so they can name Spawnable Worlds (templates)
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-04
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

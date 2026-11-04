@@ -1,6 +1,6 @@
 # 0061. Asset previews are rendered in the editor and cached by content in the project's `.myco/thumbnails/`
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-04
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

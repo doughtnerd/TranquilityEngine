@@ -1,6 +1,6 @@
 # 0033. Server-authoritative netcode between client and server Worlds
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [0062](0062-links-to-spawnable-worlds.md) (links apply whenever both Worlds exist)
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
