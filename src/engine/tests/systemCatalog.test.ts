@@ -3,7 +3,7 @@ import { Engine, GameBehavior, GameObject, defineSystem } from "../index";
 import { World } from "../core/World";
 import { _undefineSystem, listSystemCatalog } from "../core/systems";
 import { worldsMatch } from "../core/worlds";
-import "../physics/Physics2DWorld";
+import "../physics/physics2dSystems";
 
 // ADR 0032, T2 in docs/architecture/worlds-and-netcode-plan.md.
 

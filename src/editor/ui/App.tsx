@@ -1,3 +1,6 @@
+import { signal } from "@preact/signals";
+import type { ComponentChildren, FunctionComponent } from "preact";
+import { isTauri } from "../../engine/platform/FileSystem";
 import { DockLayout } from "../layout/DockLayout";
 import { resetLayout } from "../layout/store";
 import { closeProject, reloadScripts, save, togglePlaying } from "../session";
@@ -7,7 +10,6 @@ import { art, PRODUCT_NAME } from "../brand";
 import { AboutDialog, aboutOpen } from "./AboutDialog";
 import { AssetsPanel } from "./Assets";
 import { CodePanel } from "./CodePanel";
-import { ShaderGraphPanel } from "./ShaderGraphPanel";
 import { AssetDragGhost } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ExportDialog, exportOpen } from "./ExportDialog";
@@ -28,7 +30,28 @@ import { NewProjectDialog } from "./NewProjectDialog";
 import { ProjectMenu } from "./ProjectMenu";
 import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 
-const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => <WorldsPanel />, network: () => <NetworkPanel />, project: () => <ProjectSettingsPanel />, shadergraph: () => <ShaderGraphPanel /> };
+/** A panel whose code loads the first time it shows, so the editor starts without it (the Shader Graph editor and its graph library). */
+function lazyPanel(load: () => Promise<FunctionComponent>): () => ComponentChildren {
+  const loaded = signal<FunctionComponent | null>(null);
+  let loading = false;
+  return () => {
+    if (!loading) {
+      loading = true;
+      void load().then(
+        (panel) => (loaded.value = panel),
+        (err: unknown) => {
+          loading = false;
+          console.error(err);
+        },
+      );
+    }
+    const Panel = loaded.value;
+    return Panel ? <Panel /> : <p class="empty">Loading…</p>;
+  };
+}
+const ShaderGraphPanel = lazyPanel(() => import("./ShaderGraphPanel").then((m) => m.ShaderGraphPanel));
+
+const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => <WorldsPanel />, network: () => <NetworkPanel />, project: () => <ProjectSettingsPanel />, shadergraph: ShaderGraphPanel };
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {
@@ -36,7 +59,7 @@ export function App() {
     <div class={`editor${playState.value !== "edit" ? " playing" : ""}`}>
       <Toolbar />
       <DockLayout panels={PANELS} />
-      {!currentProject.value && <StartScreen />}
+      {!currentProject.value && !isTauri() && <StartScreen /> /* the desktop editor has a Projects window instead (ADR 0059) */}
       <StatusBar />
       <AssetDragGhost />
       <ConfirmDialog />

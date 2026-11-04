@@ -7,7 +7,7 @@ import { editMaterial, readMaterial } from "../materialAssets";
 import { errorStatus } from "../messages";
 import { createMaterialForGraph, openShaderGraphAsset, readShaderGraph } from "../shaderGraphAssets";
 import { currentProject, docVersion, status } from "../state";
-import { PropertyValue } from "./ShaderGraphPanel";
+import { PropertyValue } from "./ShaderPropertyValue";
 import "./assetInspector.css";
 
 const withAlpha = (c: Color, a: number) => new Color(c.r, c.g, c.b, a);

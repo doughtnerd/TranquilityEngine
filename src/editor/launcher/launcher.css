@@ -1,0 +1,4 @@
+/* The desktop editor's Projects window (ADR 0059): the start screen fills the window. */
+.projects-window .start-screen { background: var(--bg); }
+.projects-status { position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; margin: 0; padding: 4px 12px; min-height: 1.5em; color: var(--muted); font-size: calc(12px * var(--ui-scale)); text-align: center; }
+.projects-status.error { color: var(--danger); }

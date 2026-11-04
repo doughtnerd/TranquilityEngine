@@ -17,7 +17,8 @@ export default defineConfig({
     sourcemap: true,
     chunkSizeWarningLimit: 5 * 1024,
     rollupOptions: {
-      input: fileURLToPath(new URL("./editor.html", import.meta.url)),
+      // projects.html: the desktop editor's Projects window (ADR 0059).
+      input: [fileURLToPath(new URL("./editor.html", import.meta.url)), fileURLToPath(new URL("./projects.html", import.meta.url))],
     },
   },
 });

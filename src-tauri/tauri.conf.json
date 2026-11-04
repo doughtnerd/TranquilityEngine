@@ -12,12 +12,25 @@
   "app": {
     "windows": [
       {
+        "label": "projects",
+        "title": "Myco Engine",
+        "url": "projects.html",
+        "width": 720,
+        "height": 760,
+        "minWidth": 480,
+        "minHeight": 480,
+        "center": true,
+        "resizable": true
+      },
+      {
+        "label": "main",
         "title": "Myco Engine · Editor",
         "url": "editor.html",
         "width": 1280,
         "height": 800,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "visible": false
       }
     ],
     "security": {

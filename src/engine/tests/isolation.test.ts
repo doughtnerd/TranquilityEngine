@@ -15,7 +15,7 @@ import {
   field,
 } from "../index";
 import { World } from "../core/World";
-import { ensurePhysics2D } from "../physics/Physics2DWorld";
+import { ensurePhysics2D } from "../physics/physics2dSystems";
 import { instantiateFile, loadSceneFile } from "../scene/SceneLoader";
 
 // ADR 0032, T3: Worlds share no nodes, data, buffers or physics; references and reparenting never

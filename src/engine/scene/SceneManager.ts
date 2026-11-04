@@ -1,5 +1,5 @@
 import { World } from "../core/World";
-import { ensurePhysics2D } from "../physics/Physics2DWorld";
+import { ensurePhysics2D } from "../physics/physics2dSystems";
 import { ensurePhysics3D, usesPhysics3D } from "../physics/physics3d";
 import { Assets } from "./Assets";
 import { isMaterialPath } from "./material";

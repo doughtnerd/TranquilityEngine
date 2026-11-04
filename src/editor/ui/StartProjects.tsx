@@ -2,7 +2,7 @@ import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { NO_FOLDERS_NOTE, canOpenFolders, projectFileSystem } from "../projectFs";
 import { recentProjects, recentVersion, type RecentProject, type RecentState } from "../recentProjects";
-import { openProjectFolder, openRecentProject } from "../session";
+import { startActions } from "../startActions";
 import { openNewProjectDialog } from "./NewProjectDialog";
 import "./projects.css";
 
@@ -43,7 +43,7 @@ export function StartProjects() {
   const reopen = async (entry: RecentProject) => {
     busy.value = entry.id;
     try {
-      await openRecentProject(entry);
+      await startActions().openRecentProject(entry);
     } finally {
       busy.value = null;
     }
@@ -60,7 +60,7 @@ export function StartProjects() {
         <button class="primary" disabled={!can} onClick={openNewProjectDialog}>
           New Project…
         </button>
-        <button disabled={!can} onClick={() => void openProjectFolder()}>
+        <button disabled={!can} onClick={() => void startActions().openProjectFolder()}>
           Open Project…
         </button>
       </div>

@@ -1,0 +1,24 @@
+// The desktop editor window's side of the Projects window (ADR 0059): it starts hidden, opens the
+// project the Projects window hands it and shows itself, and when its project closes it hides and
+// shows the Projects window again.
+import { effect } from "@preact/signals";
+import { openPickedProject } from "../session";
+import { currentProject, status } from "../state";
+import { serveProjectsWindow, showProjectsWindow, tauriBus } from "./handoff";
+
+export async function serveDesktopProjectsWindow(): Promise<void> {
+  const [bus, { getCurrentWindow }] = await Promise.all([tauriBus(), import("@tauri-apps/api/window")]);
+  const window = getCurrentWindow();
+  serveProjectsWindow(bus, async (request) => {
+    await openPickedProject(request);
+    if (!currentProject.peek()) throw new Error(status.peek()?.text ?? "The project didn't open.");
+    await window.show();
+    await window.setFocus();
+  });
+  let open = currentProject.peek() !== null;
+  effect(() => {
+    const now = currentProject.value !== null;
+    if (open && !now) void window.hide().then(() => showProjectsWindow(bus));
+    open = now;
+  });
+}
