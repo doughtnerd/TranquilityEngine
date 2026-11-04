@@ -29,6 +29,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nav-recast"
+version = "0.1.0"
+dependencies = [
+ "nav-math",
+]
+
+[[package]]
 name = "nav-wasm"
 version = "0.1.0"
 dependencies = [
