@@ -409,6 +409,37 @@ export const Mat4 = {
     }
   },
 
+  /**
+   * out = a × b for affine matrices (bottom row 0, 0, 0, 1), like every world matrix built from
+   * position, rotation and scale: about half the work of `multiply`. `out` may be `a` or `b` at the same offset.
+   */
+  multiplyAffine(out: Float32Array, o: number, a: Float32Array, ao: number, b: Float32Array, bo: number): void {
+    const a00 = a[ao], a01 = a[ao + 1], a02 = a[ao + 2];
+    const a10 = a[ao + 4], a11 = a[ao + 5], a12 = a[ao + 6];
+    const a20 = a[ao + 8], a21 = a[ao + 9], a22 = a[ao + 10];
+    const a30 = a[ao + 12], a31 = a[ao + 13], a32 = a[ao + 14];
+    const b00 = b[bo], b01 = b[bo + 1], b02 = b[bo + 2];
+    const b10 = b[bo + 4], b11 = b[bo + 5], b12 = b[bo + 6];
+    const b20 = b[bo + 8], b21 = b[bo + 9], b22 = b[bo + 10];
+    const b30 = b[bo + 12], b31 = b[bo + 13], b32 = b[bo + 14];
+    out[o] = a00 * b00 + a10 * b01 + a20 * b02;
+    out[o + 1] = a01 * b00 + a11 * b01 + a21 * b02;
+    out[o + 2] = a02 * b00 + a12 * b01 + a22 * b02;
+    out[o + 3] = 0;
+    out[o + 4] = a00 * b10 + a10 * b11 + a20 * b12;
+    out[o + 5] = a01 * b10 + a11 * b11 + a21 * b12;
+    out[o + 6] = a02 * b10 + a12 * b11 + a22 * b12;
+    out[o + 7] = 0;
+    out[o + 8] = a00 * b20 + a10 * b21 + a20 * b22;
+    out[o + 9] = a01 * b20 + a11 * b21 + a21 * b22;
+    out[o + 10] = a02 * b20 + a12 * b21 + a22 * b22;
+    out[o + 11] = 0;
+    out[o + 12] = a00 * b30 + a10 * b31 + a20 * b32 + a30;
+    out[o + 13] = a01 * b30 + a11 * b31 + a21 * b32 + a31;
+    out[o + 14] = a02 * b30 + a12 * b31 + a22 * b32 + a32;
+    out[o + 15] = 1;
+  },
+
   /** out = inverse(a). Returns false if not invertible. */
   invert(out: Float32Array, o: number, a: Float32Array, ao: number): boolean {
     const a00 = a[ao], a01 = a[ao + 1], a02 = a[ao + 2], a03 = a[ao + 3];

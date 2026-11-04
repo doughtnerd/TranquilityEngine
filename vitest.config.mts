@@ -10,5 +10,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // `npm run bench` (vitest bench): ECS benchmarks, never part of `npm test`.
+    benchmark: { include: ["bench/**/*.bench.ts"] },
   },
 });
