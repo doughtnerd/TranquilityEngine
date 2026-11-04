@@ -38,6 +38,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nav-query"
+version = "0.1.0"
+dependencies = [
+ "nav-bake",
+ "nav-format",
+ "nav-math",
+]
+
+[[package]]
 name = "nav-recast"
 version = "0.1.0"
 dependencies = [

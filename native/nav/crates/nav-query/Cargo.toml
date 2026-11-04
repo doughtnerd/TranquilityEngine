@@ -1,0 +1,14 @@
+[package]
+name = "nav-query"
+description = "Navigation queries (ADR 0065): nearest polygon, surface queries, sliced A* with the straight-path funnel across folds, raycast, and flight-volume pathfinding."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nav-math.workspace = true
+nav-format.workspace = true
+
+[dev-dependencies]
+nav-bake.workspace = true
