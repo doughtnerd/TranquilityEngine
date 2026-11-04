@@ -345,7 +345,7 @@ While playing, the Network tab shows each networked World with its role, tick, s
 
 From [implementation status](../architecture/implementation-status.md) and [open questions](../architecture/open-questions.md):
 
-- **Bootstrap links to a server elsewhere.** A link names two Worlds of the project; a server in another process is joined at runtime with `connect(address, transport)`.
+- **Bootstrap links to a server elsewhere.** A link names two Worlds of the project (start-up or Spawnable, ADR 0062); a server in another process is joined at runtime with `connect(address, transport)`.
 - **Listening at runtime (O15).** A server World created at runtime can't start listening; `WorldHandle` has `connect` but no `listen`. The dedicated server serves only the Worlds it creates at start and logs the rest.
 - **WebSocket in the browser.** A link between two Worlds in a browser page must use `loopback`; a `websocket` link there fails to start, because browsers can't listen.
 - **Not replicated:** node active state, reparenting, and components added to a ghost after the server first saw it.

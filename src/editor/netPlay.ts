@@ -6,8 +6,10 @@
 //   to a server World over a link, preferably tagged `client`) is duplicated as `Client 1…N` and
 //   `Thin 1…T`, each with that World's links, in place of the project's client Worlds. Server
 //   Worlds, other Worlds and templates stay as they are.
-// - The Host pattern (Unity's frontend, like `samples/arena`): a bootstrap with no links whose
-//   server World is a `server`-tagged template the game creates at runtime (a Host button). Play
+// - The Host pattern (Unity's frontend, like `samples/arena`): a bootstrap with no links between
+//   start-up Worlds whose server World is a `server`-tagged template the game creates at runtime (a
+//   Host button). Links naming Spawnable Worlds (ADR 0062) don't count; Play keeps those that don't
+//   name the copied client World, so a game that creates a second client from a template still links it. Play
 //   creates that template as a World up front (named as the game would create it, so the game's
 //   `Engine.findWorld` finds it) and copies the project's client World (its first `client`-tagged
 //   World, else its first World) as `Client 1…N` and `Thin 1…T`, each linked to it over loopback.
@@ -117,14 +119,23 @@ export function playBootstrap(setting: BootstrapSetting | undefined, options: Ne
 }
 
 /**
+ * Which project World each World Play made stands for: its client copies (`Client 1…N`, `Thin
+ * 1…T`) map to the client World they copy, so the Worlds panel can draw their live connections.
+ */
+export function playWorldSources(play: Pick<NetPlayBootstrap, "clients" | "thin" | "template">): Map<string, string> {
+  return new Map([...play.clients, ...play.thin].map((n) => [n, play.template]));
+}
+
+/**
  * The Host pattern's layout (see the top of this file): the client World Play copies and the
- * server template it creates, or null when the bootstrap isn't laid out that way (it has links,
- * a server World of its own, or no `server`-tagged template).
+ * server template it creates, or null when the bootstrap isn't laid out that way (it has links
+ * between start-up Worlds, a server World of its own, or no `server`-tagged template).
  */
 export function hostLayout(setting: BootstrapSetting | undefined): { client: WorldConfig; server: WorldConfig; templateKey: string } | null {
   if (!isRecord(setting) || !Array.isArray(setting.worlds)) return null;
   const config = setting as BootstrapConfig;
-  if (Array.isArray(config.links) && config.links.length > 0) return null;
+  const startUp = new Set(config.worlds.map((w) => w.name));
+  if (Array.isArray(config.links) && config.links.some((l) => startUp.has(l.from) && startUp.has(l.to))) return null;
   const isServer = (w: { tags?: readonly string[] }) => (w.tags ?? []).includes("server");
   if (config.worlds.some(isServer)) return null;
   const entry = isRecord(config.templates) ? Object.entries(config.templates).find(([, t]) => isRecord(t) && isServer(t)) : undefined;
@@ -156,7 +167,12 @@ function hostBootstrap(setting: BootstrapSetting | undefined, options: NetPlayOp
     ...thin.map((n) => ({ ...client, ...scenes, name: n, renders: false, input: false })),
   ];
   const at = config.worlds.indexOf(client);
-  const links: LinkConfig[] = made.map((w) => ({ from: w.name, to: server.name, transport: "loopback" }));
+  const links: LinkConfig[] = [
+    ...made.map((w) => ({ from: w.name, to: server.name, transport: "loopback" })),
+    // The project's links to Spawnable Worlds (ADR 0062), but not the copied client's own (its copies
+    // have theirs) nor any naming a copy (a template's World name a copy took).
+    ...(config.links ?? []).filter((l) => ![l.from, l.to].some((n) => n === client.name || made.some((w) => w.name === n))),
+  ];
   return {
     // The server goes last, as when the game creates it after its client World.
     bootstrap: { ...config, worlds: [...kept.slice(0, at), ...made, ...kept.slice(at), server], links },

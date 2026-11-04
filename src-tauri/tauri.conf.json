@@ -15,12 +15,13 @@
         "label": "projects",
         "title": "Myco Engine",
         "url": "projects.html",
-        "width": 720,
-        "height": 760,
-        "minWidth": 480,
-        "minHeight": 480,
+        "width": 610,
+        "height": 700,
         "center": true,
-        "resizable": true
+        "resizable": false,
+        "decorations": false,
+        "shadow": true,
+        "transparent": false
       },
       {
         "label": "main",

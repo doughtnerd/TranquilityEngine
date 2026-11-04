@@ -4,7 +4,8 @@ import { SECOND_CLIENT_WORLD, SERVER_WORLD, connectionStates, players } from "..
 /**
  * The arena's heads-up display in client Worlds: the replicated scores (the server keeps them),
  * the controls, and, for a host, P to add a second local player: another client World, made from
- * the `Client 2` template and connected to the same server over loopback. The editor's game view
+ * the `Client 2` Spawnable World, which the bootstrap's link connects to the same server over
+ * loopback (ADR 0062). The editor's game view
  * tiles the two; clicking a tile gives that player the keyboard. If the connection is lost (or a
  * Join never reached a server), Escape goes back to the menu.
  */
@@ -36,11 +37,9 @@ export class Hud extends GameBehavior {
     this.setText(this.help, tips.join("   ·   "));
   }
 
-  /** A second client World in this page, playing against the same server. */
+  /** A second client World in this page, playing against the same server (the bootstrap's link connects it). */
   private addLocalPlayer(): void {
-    const server = Engine.findWorld(SERVER_WORLD)!;
-    const client = Engine.createWorld(SECOND_CLIENT_WORLD);
-    client.connect(server, "loopback");
+    Engine.createWorld(SECOND_CLIENT_WORLD);
   }
 
   /** Back to the menu (a second local player's World just goes). */

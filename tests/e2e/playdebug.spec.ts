@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { showTab } from "./tabs";
 
 // Play mode debugging (ADR 0022, 0032, 0033): the World picker shows a live World of the running
 // game in the Hierarchy and Inspector, live edits change only the game, "Keep values" writes them
@@ -157,7 +158,7 @@ test("Host pattern: Arena plays with 2 clients and a thin client on a server mad
   test.setTimeout(60_000);
   const errors = trackErrors(page);
   await open(page, ARENA);
-  await page.getByRole("tab", { name: /^Network/ }).click();
+  await showTab(page, /^Network/);
   const panel = page.locator(".panel.network");
   await panel.getByRole("checkbox", { name: "Multiplayer play" }).check();
   await panel.getByRole("combobox", { name: "Clients", exact: true }).selectOption("2");

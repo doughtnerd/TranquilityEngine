@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { showTab } from "./tabs";
 
 // The Worlds panel (ADR 0032) on a writable in-memory copy of the demo project: building a
 // client + server layout writes project.json's bootstrap section, and undo takes it back.
@@ -14,7 +15,7 @@ async function openProject(page: Page): Promise<void> {
   await page.goto(EDITOR);
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
   await page.evaluate(() => (window as unknown as Hooks).openTestProject({}));
-  await page.getByRole("tab", { name: /^Worlds/ }).click();
+  await showTab(page, /^Worlds/);
 }
 
 const panel = (page: Page) => page.locator(".panel.worlds");
@@ -91,10 +92,24 @@ test("an invalid edit stays unsaved, with its problem shown, until it's fixed", 
 test("the read-only sample shows its Worlds without editing", async ({ page }) => {
   await page.goto(EDITOR);
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.getByRole("tab", { name: /^Worlds/ }).click();
+  await showTab(page, /^Worlds/);
   const p = panel(page);
   await expect(p.locator('.worlds-node[data-world="Default"]')).toBeVisible();
   await expect(p.locator(".worlds-status")).toHaveText("Read-only");
   await expect(p.getByRole("button", { name: "+ World" })).toBeDisabled();
   await expect(p.getByRole("textbox", { name: "World name" })).toBeDisabled();
+});
+
+test("Arena's Spawnable Worlds show how they're created, and links to them draw dashed (ADR 0062)", async ({ page }) => {
+  await page.goto("/editor.html?sample=arena");
+  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await showTab(page, /^Worlds/);
+  const p = panel(page);
+  await expect(p.locator(".worlds-row-label", { hasText: "Spawnable Worlds" })).toBeVisible();
+  await expect(p.locator('.worlds-link.spawnable[data-link-arrow="Client>Server"]')).toHaveCount(1);
+  await expect(p.locator('.worlds-link.spawnable[data-link-arrow="Client 2>Server"]')).toHaveCount(1);
+  await p.locator('.worlds-node[data-template="Server"]').click();
+  await expect(p.locator(".worlds-spawn code").first()).toHaveText('Engine.createWorld("Server")');
+  await expect(p.locator(".worlds-spawn")).toContainText("scripts/data.ts");
+  await expect(p.getByRole("region", { name: "Links" })).toContainText("Applies when game code creates Server");
 });

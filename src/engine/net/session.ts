@@ -353,6 +353,11 @@ export class NetSession {
     return null;
   }
 
+  /** @internal Editor: where this server listens, per transport (the Worlds panel matches clients to it, ADR 0062). */
+  listening(): { transport: string; address: string }[] {
+    return [...this.listeners].flatMap(([key, l]) => (l.address === null ? [] : [{ transport: key.slice(0, key.indexOf("|")), address: l.address }]));
+  }
+
   /** The peer whose connection node is `node`, or null. */
   peerOf(node: GameObject): NetPeer | null {
     for (const p of this.peers.values()) if (p.node === node) return p;

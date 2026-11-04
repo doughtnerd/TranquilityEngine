@@ -48,8 +48,8 @@ To run more than one World, add a `bootstrap` section to `project.json`. The edi
   - `renders` and `input`: whether it wants the screen and local input. See [The view and input](#the-view-and-input).
   - `scenes`: scenes loaded at start. The first replaces, the rest load additively.
   - `systems`: `include` and `exclude` lists of system names, on top of what the tags select.
-- **`links`**: network links between start-up Worlds. `from` is the client, `to` the server. See [Multiplayer](multiplayer.md).
-- **`templates`**: named World configs to create later from code. Same keys as a World entry; `name` is optional and defaults to the template's key.
+- **`links`**: network links, `from` a client World `to` a server World. Each applies once both Worlds exist: at start for two start-up Worlds, or when game code creates a Spawnable World the link names (see [Links to Spawnable Worlds](#links-to-spawnable-worlds)). See [Multiplayer](multiplayer.md).
+- **`templates`**: **Spawnable Worlds**, named World configs that game code creates when it needs them. Same keys as a World entry; `name` is optional and defaults to the template's key. The editor calls them Spawnable Worlds; in `project.json` and the API they're `templates`.
 
 The bootstrap is checked when the Engine starts. Unknown keys, duplicate names, bad tick rates, unknown system names and links to missing Worlds are errors. You get one error that lists every problem, and no World is created.
 
@@ -149,9 +149,30 @@ export class MainMenu extends GameBehavior {
 ```
 
 - The new World's scenes load in the background, and it steps from the next frame.
-- A template creates a World named after the template, so it can exist once at a time. For several, pass configs with different names.
+- A template creates a World named after the template (or its `name`), so it can exist once at a time. For several, pass configs with different names.
 - A bad config throws an error listing every problem, and nothing changes.
 - `Engine.createWorld` and `Engine.findWorld` act on the Engine of the World that's running. In setup code that holds the Engine, `engine.createWorld` and `engine.findWorld` do the same.
+
+### Links to Spawnable Worlds
+
+A link can name a Spawnable World. It applies when game code creates that World, if the World at the other end is alive: the client connects to the server as if the script had called `connect` right after creating it. With this bootstrap, a menu's **Host** button only has to create the server:
+
+```json
+"bootstrap": {
+  "worlds": [{ "name": "Client", "tags": ["client"], "scenes": ["scenes/menu.scene.json"] }],
+  "links": [{ "from": "Client", "to": "Server", "transport": "loopback" }],
+  "templates": { "Server": { "tags": ["server"], "renders": false, "scenes": ["scenes/arena.scene.json"] } }
+}
+```
+
+```ts
+Engine.createWorld("Server"); // the link connects Client to it
+```
+
+- Links name Worlds, by name: `Engine.createWorld("Server")` completes links naming `Server`, but a copy made as `createWorld({ ...templates.Server, name: "Server 2" })` completes only links naming `Server 2`.
+- If the server World is destroyed and created again, its links apply again.
+- A script's `connect` for a pair a link already connected does nothing, with a warning.
+- The Arena sample works this way: Host creates `Server`, and P (a second local player) creates `Client 2`; both connect through links.
 
 A `WorldHandle` has:
 
@@ -213,10 +234,12 @@ Showing several Worlds at once is something only the editor's play mode does so 
 
 The editor's **Worlds** tab (beside History) edits `project.json`'s `bootstrap` as a graph:
 
-- Start-up Worlds and templates are nodes; links are edges. **+ World**, **+ Template** and **+ Link** create them, and each World and template can be renamed or removed.
+- Start-up Worlds and Spawnable Worlds are nodes; links are edges. **+ World**, **+ Spawnable World** and **+ Link** create them, and each can be renamed or removed (links follow). Spawnable Worlds sit in their own row, dashed, as do links naming them.
+- Selecting a Spawnable World shows the line of code that creates it, `Engine.createWorld("Name")`, with a copy button, and the project scripts that mention its name in quotes.
 - Selecting one shows its tags (preset chips plus your own), tick rate, time scale, **Renders**, **Input** and start-up scenes.
 - A checklist of every catalog system shows which ones the World runs and why: added by a tag, included or excluded by name. Ticking a box writes the smallest `include`/`exclude` that gets you there.
-- Links have a from, a to and a transport. Link `options` (ports, URLs, conditions) are edited in `project.json` (the Code panel); the panel keeps them.
+- Links have a from, a to and a transport; either end can be a start-up or a Spawnable World. Link `options` (ports, URLs, conditions) are edited in `project.json` (the Code panel); the panel keeps them. Worlds can also connect from scripts (`world.connect(…)`), which the panel can't see until you play.
+- While playing, the graph also draws the live connections between the session's Worlds, however they were made, with their state.
 - Valid edits save at once, keeping the rest of `project.json` and its formatting. Invalid ones stay unsaved, with the problems listed in the panel. The panel has its own undo and redo.
 - A project with a code bootstrap shows the script's path instead. Read-only projects (samples opened in a browser) show the panel disabled.
 

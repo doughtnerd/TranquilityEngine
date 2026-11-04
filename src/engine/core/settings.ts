@@ -114,9 +114,13 @@ export function validateBootstrap(setting: unknown, catalog?: readonly { readonl
     });
   }
 
+  // Links name start-up Worlds or Spawnable Worlds: a template's World name, its `name` or its key (ADR 0062).
+  const spawnable = isRecord(setting.templates)
+    ? Object.entries(setting.templates).map(([key, t]) => (isRecord(t) && typeof t.name === "string" && t.name.trim() !== "" ? t.name : key))
+    : [];
   if (setting.links !== undefined) {
     if (!Array.isArray(setting.links)) problems.push(`bootstrap.links must be a list of links (got ${describe(setting.links)}).`);
-    else setting.links.forEach((link: unknown, i) => linkProblems(link, `bootstrap.links[${i}]`, names, problems));
+    else setting.links.forEach((link: unknown, i) => linkProblems(link, `bootstrap.links[${i}]`, [...names, ...spawnable], problems));
   }
 
   if (setting.templates !== undefined) {
@@ -195,7 +199,7 @@ function linkProblems(link: unknown, where: string, worlds: readonly string[], p
   for (const end of ["from", "to"]) {
     const name = link[end];
     if (typeof name !== "string" || name === "") problems.push(`${where}: ${end} must name a World (got ${describe(name)}).`);
-    else if (!worlds.includes(name)) problems.push(`${where}: ${end} names the World "${name}", which bootstrap.worlds doesn't list.`);
+    else if (!worlds.includes(name)) problems.push(`${where}: ${end} names the World "${name}", which neither bootstrap.worlds nor bootstrap.templates lists.`);
   }
   if (typeof link.from === "string" && link.from !== "" && link.from === link.to) problems.push(`${where}: links the World "${link.from}" to itself.`);
   if (typeof link.transport !== "string" || link.transport.trim() === "") {

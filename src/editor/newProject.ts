@@ -64,7 +64,11 @@ export function newMainScene(template: ProjectTemplate): string {
   });
 }
 
-const GITIGNORE = "# Myco Engine: edit history and engine declarations, rewritten by the editor\n.myco/\n";
+/**
+ * Everything the editor keeps in `.myco/` stays local (edit history, engine declarations) except
+ * asset thumbnails, which are named by content and shared (ADR 0061).
+ */
+const GITIGNORE = "# Myco Engine: the editor's own files stay local; asset thumbnails are shared (ADR 0061)\n.myco/*\n!.myco/thumbnails/\n";
 
 /**
  * Create a project in the folder `root` (made if missing; it must not hold a project or other

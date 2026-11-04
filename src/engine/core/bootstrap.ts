@@ -72,8 +72,9 @@ export function assertValidBootstrap(setting: unknown, catalog: readonly SystemC
 }
 
 /**
- * The links between start-up Worlds that `setting` declares, after validating it (system names
- * aren't checked here). Empty for code bootstraps and the default one.
+ * The links that `setting` declares, after validating it (system names aren't checked here): between
+ * start-up Worlds, or naming a Spawnable World (a template), applied when it's created (ADR 0062).
+ * Empty for code bootstraps and the default one.
  */
 export function bootstrapLinks(setting: BootstrapSetting | Bootstrap | undefined): readonly LinkConfig[] {
   if (setting === undefined || typeof setting === "function" || typeof setting === "string") return [];

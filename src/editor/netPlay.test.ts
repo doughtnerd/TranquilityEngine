@@ -6,7 +6,7 @@ import { World } from "../engine/core/World";
 import { engineWorld, netWorldInfo, worldViewStates } from "../engine/editor";
 import { netSession } from "../engine/net/session";
 import type { LoopbackTransport } from "../engine/net/transport/loopback";
-import { NetStatsSampler, byCategory, clampConditions, clientLayout, createThinInput, ghostTypeLabel, hostLayout, playBootstrap, trafficCategory, withConditions } from "./netPlay";
+import { NetStatsSampler, byCategory, clampConditions, clientLayout, createThinInput, ghostTypeLabel, hostLayout, playBootstrap, trafficCategory, withConditions, playWorldSources } from "./netPlay";
 import { OrbitCamera } from "./OrbitCamera";
 import { startPlay } from "./playMode";
 import { openSceneFile } from "./project";
@@ -129,6 +129,14 @@ describe("the play bootstrap for the Host pattern (a server template created at 
     expect(play.bootstrap.templates).toEqual(ARENA.templates);
   });
 
+  it("keeps the project's links to Spawnable Worlds that no copy took the name of (ADR 0062)", () => {
+    const play = playBootstrap(ARENA, { clients: 1, thin: 0 })!;
+    expect(play.bootstrap.links).toEqual([
+      { from: "Client 1", to: "Server", transport: "loopback" },
+      { from: "Client 2", to: "Server", transport: "loopback" }, // the HUD's second local player
+    ]);
+  });
+
   it("keeps the clients' own scenes (the menu) when asked, and other Worlds in place", () => {
     const setting: BootstrapConfig = { ...ARENA, worlds: [{ name: "Tools", tags: ["local"] }, ...ARENA.worlds] };
     const play = playBootstrap(setting, { clients: 1, thin: 0, clientScenes: "own" })!;
@@ -150,7 +158,9 @@ describe("the play bootstrap for the Host pattern (a server template created at 
   it("isn't used when the bootstrap has links, a server World, or no server template", () => {
     expect(hostLayout({ worlds: [{ name: "A", tags: ["client"] }], templates: { B: { tags: ["client"] } } })).toBeNull();
     expect(hostLayout({ worlds: [{ name: "A" }, { name: "S", tags: ["server"] }], templates: { T: { tags: ["server"] } } })).toBeNull();
-    expect(hostLayout({ worlds: [{ name: "A" }], links: [{ from: "A", to: "Gone", transport: "loopback" }], templates: { T: { tags: ["server"] } } })).toBeNull();
+    expect(hostLayout({ worlds: [{ name: "A" }, { name: "B" }], links: [{ from: "A", to: "B", transport: "loopback" }], templates: { T: { tags: ["server"] } } })).toBeNull();
+    // Links naming Spawnable Worlds (ADR 0062) don't rule the pattern out.
+    expect(hostLayout({ worlds: [{ name: "A" }], links: [{ from: "A", to: "T", transport: "loopback" }], templates: { T: { tags: ["server"] } } })).not.toBeNull();
     expect(playBootstrap({ worlds: [{ name: "A" }] }, { clients: 2, thin: 0 })).toBeNull();
   });
 });
@@ -392,5 +402,16 @@ describe("multiplayer play mode", () => {
     } finally {
       play.stop();
     }
+  });
+});
+
+describe("playWorldSources", () => {
+  it("maps Play's client copies to the project World they copy, for the Worlds panel's live arrows", () => {
+    const sources = playWorldSources({ clients: ["Client 1", "Client 2"], thin: ["Thin 1"], template: "Client" });
+    expect([...sources]).toEqual([
+      ["Client 1", "Client"],
+      ["Client 2", "Client"],
+      ["Thin 1", "Client"],
+    ]);
   });
 });

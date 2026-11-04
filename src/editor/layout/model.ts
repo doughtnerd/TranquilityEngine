@@ -6,6 +6,10 @@
 // innermost dock fills whatever is left (its side only sets how it splits). A dock holds one or
 // more tab groups split evenly along it (stacked in side docks, side by side in bottom docks); a
 // group shows one panel at a time, with tabs when it has more than one.
+//
+// A dock other than the filling one can be collapsed to its edge: it keeps its size (to come back
+// to) but draws as a strip one header thick, its tabs along it. Tabs that don't fit a header go
+// behind an overflow button (`fitTabs`).
 
 export type PanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "shadergraph" | "particlegraph";
 export type Side = "left" | "right" | "bottom";
@@ -27,6 +31,8 @@ export interface Dock {
   groups: TabGroup[];
   /** Share of the dock's length for each group; sums to 1. */
   fractions: number[];
+  /** Collapsed to a strip at its edge (`size` is kept for when it expands). Never set on the filling dock. */
+  collapsed?: boolean;
 }
 
 export interface Layout {
@@ -88,7 +94,15 @@ function normalize(layout: Layout): Layout {
     const groups = kept.map(({ g }) => ({ ...g, active: g.panels.includes(g.active) ? g.active : g.panels[0] }));
     docks.push({ ...d, groups, fractions });
   }
+  // The filling dock (whichever is last now) has no edge to collapse to.
+  const last = docks.at(-1);
+  if (last?.collapsed) docks[docks.length - 1] = withoutCollapsed(last);
   return { version: 1, docks };
+}
+
+function withoutCollapsed(d: Dock): Dock {
+  const { collapsed: _collapsed, ...rest } = d;
+  return rest;
 }
 
 function locate(layout: Layout, panel: PanelId): { dock: Dock; group: TabGroup } | null {
@@ -119,9 +133,11 @@ export function movePanel(layout: Layout, panel: PanelId, target: DropTarget): L
     if (!group) return layout;
     group.panels.push(panel);
     group.active = panel;
+    delete dock!.collapsed; // dropped onto a collapsed dock: open it to show the panel
   } else if (target.kind === "split") {
     const dock = next.docks.find((d) => d.id === target.dock);
     if (!dock) return layout;
+    delete dock.collapsed;
     const index = Math.max(0, Math.min(target.index, dock.groups.length));
     dock.groups.splice(index, 0, { id: newId("g"), panels: [panel], active: panel });
     // Uniform with the other panels in the zone: every group that will remain gets an equal share.
@@ -137,18 +153,39 @@ export function movePanel(layout: Layout, panel: PanelId, target: DropTarget): L
   return shape(result) === shape(layout) ? layout : result;
 }
 
-/** Make `panel` the visible tab of its group. */
+/** Make `panel` the visible tab of its group, expanding its dock if it's collapsed. */
 export function activatePanel(layout: Layout, panel: PanelId): Layout {
   const from = locate(layout, panel);
-  if (!from || from.group.active === panel) return layout;
+  if (!from || (from.group.active === panel && !from.dock.collapsed)) return layout;
   const next = structuredClone(layout);
-  locate(next, panel)!.group.active = panel;
+  const to = locate(next, panel)!;
+  to.group.active = panel;
+  delete to.dock.collapsed;
   return next;
 }
 
-/** Set a dock's thickness (clamped later to fit, by `computeRects`). */
+/** Set a dock's thickness (clamped later to fit, by `computeRects`). Resizing a collapsed dock expands it. */
 export function resizeDock(layout: Layout, dockId: string, size: number): Layout {
-  return { ...layout, docks: layout.docks.map((d) => (d.id === dockId ? { ...d, size: Math.max(MIN_DOCK, Math.round(size)) } : d)) };
+  return { ...layout, docks: layout.docks.map((d) => (d.id === dockId ? { ...withoutCollapsed(d), size: Math.max(MIN_DOCK, Math.round(size)) } : d)) };
+}
+
+/** True if a dock can collapse: any but the filling (innermost) one. */
+export function canCollapse(layout: Layout, dockId: string): boolean {
+  const index = layout.docks.findIndex((d) => d.id === dockId);
+  return index >= 0 && index < layout.docks.length - 1;
+}
+
+/** Collapse or expand a dock (the filling dock never collapses). Returns `layout` itself when nothing changes. */
+export function setDockCollapsed(layout: Layout, dockId: string, collapsed: boolean): Layout {
+  const dock = layout.docks.find((d) => d.id === dockId);
+  if (!dock || !!dock.collapsed === collapsed || (collapsed && !canCollapse(layout, dockId))) return layout;
+  return { ...layout, docks: layout.docks.map((d) => (d.id === dockId ? (collapsed ? { ...d, collapsed: true } : withoutCollapsed(d)) : d)) };
+}
+
+/** Collapse an expanded dock, or expand a collapsed one. */
+export function toggleDock(layout: Layout, dockId: string): Layout {
+  const dock = layout.docks.find((d) => d.id === dockId);
+  return dock ? setDockCollapsed(layout, dockId, !dock.collapsed) : layout;
 }
 
 /**
@@ -188,6 +225,7 @@ export function parseLayout(value: unknown): Layout | null {
     for (const d of l.docks) {
       if (!["left", "right", "bottom"].includes(d.side) || typeof d.size !== "number" || !Array.isArray(d.groups) || !Array.isArray(d.fractions)) return null;
       if (d.groups.length !== d.fractions.length || d.groups.length === 0) return null;
+      if (d.collapsed !== undefined && typeof d.collapsed !== "boolean") delete (d as { collapsed?: unknown }).collapsed;
       for (const g of d.groups) {
         if (typeof g.id !== "string" || !Array.isArray(g.panels) || g.panels.length === 0) return null;
         for (const p of g.panels) if (!PANELS.includes(p) || seen.includes(p)) return null;
@@ -220,6 +258,8 @@ export interface GroupRect {
 export interface DockRect {
   dock: Dock;
   rect: Rect;
+  /** Drawn as a strip one header thick (its groups' rects are all header). */
+  collapsed: boolean;
   groups: GroupRect[];
   /** The dock's resize handle, on its inner edge; null for the filling dock, which has no size of its own. */
   handle: Rect | null;
@@ -241,14 +281,15 @@ const HANDLE = 6;
  * are clamped so it keeps at least `MIN_FILL` (the stored size is kept; only the drawn size
  * shrinks).
  */
-export function computeGeometry(layout: Layout, bounds: Rect): Geometry {
+export function computeGeometry(layout: Layout, bounds: Rect, headerHeight = HEADER_HEIGHT): Geometry {
   let free: Rect = { ...bounds };
   const docks: DockRect[] = [];
   layout.docks.forEach((dock, index) => {
     const horizontal = dock.side === "bottom";
     const filling = index === layout.docks.length - 1;
+    const collapsed = !filling && !!dock.collapsed;
     const room = horizontal ? free.h - MIN_FILL.h : free.w - MIN_FILL.w;
-    const size = Math.max(0, Math.min(dock.size, room));
+    const size = Math.max(0, Math.min(collapsed ? headerHeight : dock.size, room));
     let rect: Rect;
     let handle: Rect | null;
     if (filling) {
@@ -275,13 +316,13 @@ export function computeGeometry(layout: Layout, bounds: Rect): Geometry {
       const g: Rect = horizontal
         ? { x: rect.x + offset * rect.w, y: rect.y, w: share * rect.w, h: rect.h }
         : { x: rect.x, y: rect.y + offset * rect.h, w: rect.w, h: share * rect.h };
-      groups.push({ group, rect: g, header: { x: g.x, y: g.y, w: g.w, h: Math.min(HEADER_HEIGHT, g.h) } });
+      groups.push({ group, rect: g, header: collapsed ? { ...g } : { x: g.x, y: g.y, w: g.w, h: Math.min(headerHeight, g.h) } });
       offset += share;
       if (i < dock.groups.length - 1) {
         splits.push(horizontal ? { x: g.x + g.w - HANDLE / 2, y: g.y, w: HANDLE, h: g.h } : { x: g.x, y: g.y + g.h - HANDLE / 2, w: g.w, h: HANDLE });
       }
     });
-    docks.push({ dock, rect, groups, handle, splits });
+    docks.push({ dock, rect, collapsed, groups, handle, splits: collapsed ? [] : splits });
   });
   return { bounds, docks, fill: docks.at(-1)?.rect ?? free };
 }
@@ -359,4 +400,46 @@ export function hitTest(layout: Layout, geo: Geometry, panel: PanelId, x: number
     return { target, preview };
   }
   return null;
+}
+
+// --- tab overflow -------------------------------------------------------------------------------
+
+/** How far tabs may shrink (a share of their natural size) before some go behind the overflow button. */
+export const TAB_MIN_SHRINK = 0.88;
+/** Room the overflow button ("» N") takes at the end of a header. */
+export const OVERFLOW_BUTTON = 40;
+
+export interface TabFit {
+  /** Indices of the tabs shown, in their order. */
+  visible: number[];
+  /** Indices of the tabs behind the overflow button, in their order. */
+  hidden: number[];
+  /** How much the shown tabs are scaled to fit (1 = natural size, never above 1). */
+  scale: number;
+}
+
+/**
+ * Which tabs fit a header `available` long, given their natural lengths. They shrink at most to
+ * `minShrink` of their size; past that, tabs go behind an overflow button (`moreSize` long). The
+ * active tab always shows; the others fill the room left in order, so picking a hidden tab swaps it
+ * in for the last one shown.
+ */
+export function fitTabs(sizes: readonly number[], available: number, activeIndex: number, minShrink = TAB_MIN_SHRINK, moreSize = OVERFLOW_BUTTON): TabFit {
+  const all = sizes.map((_, i) => i);
+  const total = sizes.reduce((s, w) => s + w, 0);
+  if (total <= available) return { visible: all, hidden: [], scale: 1 };
+  // Never below `minShrink`: a tab with no room at all stays its (slightly shrunk) size and is clipped, rather than vanishing.
+  if (sizes.length <= 1 || total * minShrink <= available) return { visible: all, hidden: [], scale: total > 0 ? Math.max(minShrink, available / total) : 1 };
+  const room = Math.max(0, available - moreSize);
+  const active = activeIndex >= 0 && activeIndex < sizes.length ? activeIndex : 0;
+  const chosen = new Set([active]);
+  let used = sizes[active];
+  for (const i of all) {
+    if (i === active) continue;
+    if ((used + sizes[i]) * minShrink > room) break;
+    chosen.add(i);
+    used += sizes[i];
+  }
+  const visible = all.filter((i) => chosen.has(i));
+  return { visible, hidden: all.filter((i) => !chosen.has(i)), scale: used > 0 ? Math.max(minShrink, Math.min(1, room / used)) : 1 };
 }

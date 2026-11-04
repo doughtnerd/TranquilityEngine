@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
+import { showTab } from "./tabs";
 
 // Graphics quality tiers (ADR 0050): the Project panel edits project.json's tiers, the scene
 // view's Quality menu previews one, and the render backend applies it (pixel ratio, shadows,
@@ -67,7 +68,7 @@ test("the Project panel edits the tiers, saves them to project.json, and the edi
   await expect(page.locator(".project-name")).toHaveText("3D Playground");
   await waitForFrames(page);
 
-  await page.getByRole("tab", { name: /^Project/ }).click();
+  await showTab(page, /^Project/);
   const panel = page.locator(".panel.project");
   const tiers = panel.getByRole("group", { name: "Graphics tiers" });
   await expect(tiers).toBeVisible();
@@ -86,7 +87,7 @@ test("the Project panel edits the tiers, saves them to project.json, and the edi
   await expect.poll(async () => (await projectJson()).graphics.defaultTier).toBe("Medium");
 
   // The scene view's menu lists the new tier, and previewing Low turns shadows off.
-  await page.getByRole("tab", { name: /^Scene$/ }).click();
+  await showTab(page, /^Scene$/);
   const menu = page.getByRole("combobox", { name: "Quality" });
   await expect(menu.locator("option")).toHaveText(["Low", "Medium", "High", "Ultra", "Cinematic"]);
   await menu.selectOption("Low");

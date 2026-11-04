@@ -10,6 +10,8 @@ import type { WorldHandle, WorldTag } from "./worlds";
 /** @internal What a handle needs from the Engine that owns its World. */
 export interface WorldOwner {
   _destroyWorld(world: World): void;
+  /** The server World a bootstrap link connected `client` to, if any (ADR 0062). */
+  _linkedServer?(client: World): World | null;
 }
 
 /** @internal One per World, made by its Engine. */
@@ -81,6 +83,10 @@ export class WorldHandleImpl implements WorldHandle {
       return;
     }
     if (!(server instanceof WorldHandleImpl) || !server.alive) throw new Error(`Can't connect World "${this.name}" to "${server.name}": it isn't a live World.`);
+    if (this.#owner._linkedServer?.(world) === server.#world) {
+      console.warn(`[myco] World "${this.name}" is already connected to "${server.name}" by a link in the project's bootstrap; connect() did nothing.`);
+      return;
+    }
     connectWorlds(world, server.#world, transport, options).catch((err) =>
       console.error(`[myco] Connecting World "${this.name}" to "${server.name}" over "${transport}" failed:`, err),
     );

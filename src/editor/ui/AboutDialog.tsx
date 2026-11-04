@@ -1,5 +1,5 @@
 import { signal } from "@preact/signals";
-import { useEffect, useRef } from "preact/hooks";
+import { useLayoutEffect, useRef } from "preact/hooks";
 import { art, PRODUCT_NAME, STUDIO_NAME, VERSION } from "../brand";
 import "./brand.css";
 
@@ -10,7 +10,8 @@ export const aboutOpen = signal(false);
 export function AboutDialog() {
   const close = useRef<HTMLButtonElement>(null);
   const open = aboutOpen.value;
-  useEffect(() => {
+  // A layout effect, so Escape works from the first frame the dialog shows.
+  useLayoutEffect(() => {
     if (!open) return;
     close.current?.focus();
     const onKey = (e: KeyboardEvent) => {

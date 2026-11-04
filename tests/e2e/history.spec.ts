@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { showTab } from "./tabs";
 
 const EDITOR = process.env.EDITOR_URL ?? "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -20,8 +21,6 @@ async function setBirdY(page: Page, value: string): Promise<void> {
   await birdY(page).press("Enter");
   await expect(birdY(page)).toHaveValue(value);
 }
-
-const showTab = (page: Page, name: string) => page.getByRole("tab", { name: new RegExp(`^${name}`) }).click();
 
 test("the History panel draws branches, and clicking a state goes there", async ({ page }) => {
   await openEditor(page);

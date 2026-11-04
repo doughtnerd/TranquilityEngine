@@ -7,7 +7,10 @@ import {
   addWorld,
   defaultModel,
   groupProblems,
+  isSpawnableName,
   layoutWorlds,
+  linkableNames,
+  mentions,
   modelProblems,
   modelToConfig,
   readBootstrap,
@@ -148,7 +151,7 @@ describe("validation", () => {
       "tickRate must be a positive number (got -1).",
       'systems.include names an unknown system: "nope". Known systems: engine.UpdateScripts, game.Scroll, net.Replicate.',
     ]);
-    expect(g.links.get(1)).toEqual(['to names the World "Nowhere", which bootstrap.worlds doesn\'t list.']);
+    expect(g.links.get(1)).toEqual(['to names the World "Nowhere", which neither bootstrap.worlds nor bootstrap.templates lists.']);
     expect(g.templates.get("Match")).toEqual(["timeScale must be 0 (paused) or more (got -2)."]);
     expect(g.general).toEqual([]);
   });
@@ -229,5 +232,43 @@ describe("writing project.json", () => {
 
   it("writes into an empty object", () => {
     expect(JSON.parse(withBootstrap("{}\n", "scripts/B.ts"))).toEqual({ bootstrap: "scripts/B.ts" });
+  });
+});
+
+describe("Spawnable Worlds (ADR 0062)", () => {
+  /** Arena's shape: a start-up client linked to a Spawnable server. */
+  const arena = (): WorldsModel => ({
+    worlds: [{ name: "Client", tags: ["client"] }],
+    links: [{ from: "Client", to: "Server", transport: "loopback" }],
+    templates: [{ key: "Server", config: { tags: ["server"] } }, { key: "Bot", config: { name: "Robot", tags: ["client"] } }],
+  });
+
+  it("offers start-up and Spawnable World names to links, and validates links to them", () => {
+    expect(linkableNames(arena())).toEqual(["Client", "Server", "Robot"]);
+    expect(isSpawnableName(arena(), "Server")).toBe(true);
+    expect(isSpawnableName(arena(), "Client")).toBe(false);
+    expect(modelProblems(arena(), CATALOG)).toEqual([]);
+  });
+
+  it("renaming a Spawnable World moves its links; one with its own World name keeps them", () => {
+    const m = rename(arena(), { kind: "template", index: 0 }, "Host");
+    expect(m.links).toEqual([{ from: "Client", to: "Host", transport: "loopback" }]);
+    const withBotLink = addLink(arena(), { from: "Robot", to: "Server", transport: "loopback" });
+    expect(rename(withBotLink, { kind: "template", index: 1 }, "Droid").links).toEqual(withBotLink.links);
+  });
+
+  it("removing a Spawnable World removes its links", () => {
+    expect(remove(arena(), { kind: "template", index: 0 }).links).toEqual([]);
+  });
+
+  it("finds the scripts that mention a World in quotes", () => {
+    const scripts = [
+      { path: "scripts/data.ts", text: 'export const SERVER_WORLD = "Server";' },
+      { path: "scripts/menu.ts", text: "Engine.createWorld(SERVER_WORLD);" },
+      { path: "scripts/other.ts", text: "const servers = 'Servers';" },
+    ];
+    expect(mentions(scripts, "Server")).toEqual(["scripts/data.ts"]);
+    expect(mentions(scripts, "")).toEqual([]);
+    expect(mentions(scripts, ["Nope", "Server"])).toEqual(["scripts/data.ts"]); // a template's key or its World name
   });
 });

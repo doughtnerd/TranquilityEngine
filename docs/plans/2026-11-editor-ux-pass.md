@@ -71,3 +71,30 @@ E and F share no files. E's spec updates are mechanical (menu path or shortcut i
   - an audio tile plays;
   - Arena's Host connects through the declared link, and the Worlds panel draws the live connection.
 - **Desktop by hand** (Tauri, not covered by Playwright): the borderless Projects window drags, minimises and closes, and New Project fits.
+
+## Wave 1 results (2026-11-04)
+
+Built: A (borderless Projects window), B (collapsing docks, tab overflow), C (ADR 0062 links and the Worlds panel), D (ADR 0061 renderer and cache, not yet wired into tiles). Verified: typecheck, 1135 unit tests, 321 e2e tests on Chromium and WebKit. The borderless window is unverified in Tauri (check by hand: size, drag, minimise, close, New Project).
+
+Review findings, all fixed:
+
+- **Thumbnails:**
+  - stale textures could be baked into committed thumbnails (the texture cache is now keyed by URL and cleared per project, and a render whose files changed while queued isn't stored);
+  - particle batches leaked GPU buffers;
+  - one aborted caller cancelled a shared render;
+  - pruning could delete thumbnails after a failed read (it now skips the pass);
+  - object URLs leaked after a project switch.
+- **Links:**
+  - a server destroyed and re-created in one frame never re-linked (links are deferred until the old connection closes);
+  - the start-up loop could connect a pair twice;
+  - the code line used the World name instead of the template key;
+  - live arrows were missing for Play's renamed Host Worlds;
+  - `_linkedServer` gave wrong answers after reconnects and during an async listen.
+- **Window and docks:**
+  - the window controls were unreadable on the black banner (the banner's fixed colours are now named in `brand.css`);
+  - a scrollbar could cover the Close button on short screens, and the status line overlapped the card;
+  - the window wasn't re-centred after sizing;
+  - the overflow button and collapsed strips ignored the UI scale, and the active tab could render 0 px wide;
+  - two overflow menus could be open at once;
+  - collapsed strips marked only one group's active tab.
+- **Found in e2e:** the About dialog's Escape handler was registered after paint, so a keypress right after it opened was lost. It's now a layout effect.

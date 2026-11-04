@@ -1,5 +1,5 @@
-// The Worlds panel's model (ADR 0032): `project.json`'s `bootstrap` section as start-up Worlds,
-// templates and links, the edits the panel makes to them, why each catalog system is in or out
+// The Worlds panel's model (ADR 0032, 0062): `project.json`'s `bootstrap` section as start-up Worlds,
+// Spawnable Worlds (`templates`) and links, the edits the panel makes to them, why each catalog system is in or out
 // of a World, and writing the section back into the file. Pure, so it's unit-tested;
 // WorldsPanel.tsx draws it and saves the result.
 import type { BootstrapConfig, LinkConfig, SystemSelection, WorldConfig, WorldTag } from "../engine";
@@ -158,6 +158,28 @@ export function nameOf(model: WorldsModel, ref: WorldRef): string {
   return (ref.kind === "world" ? model.worlds[ref.index]?.name : model.templates[ref.index]?.key) ?? "";
 }
 
+/** The name of the World a Spawnable World (template) creates: its own `name`, else its key (ADR 0062). */
+export const spawnableName = (t: TemplateEntry): string => (t.config.name !== undefined && t.config.name.trim() !== "" ? t.config.name : t.key);
+
+/** The World names a link can name: start-up Worlds, then Spawnable Worlds, without repeats. */
+export function linkableNames(model: WorldsModel): string[] {
+  return [...new Set([...model.worlds.map((w) => w.name), ...model.templates.map(spawnableName)])];
+}
+
+/** True if `name` is a Spawnable World's (and not a start-up World's), so its links apply when game code creates it. */
+export const isSpawnableName = (model: WorldsModel, name: string): boolean => !model.worlds.some((w) => w.name === name) && model.templates.some((t) => spawnableName(t) === name);
+
+/**
+ * The scripts that mention a World by name in quotes (`"Server"`, `'Server'` or a template string),
+ * for the panel's "Mentioned in". A plain text search, so a name held in a constant is found where
+ * the constant is defined.
+ */
+export function mentions(scripts: readonly { path: string; text: string }[], names: string | readonly string[]): string[] {
+  const quoted = (typeof names === "string" ? [names] : names).filter(Boolean).flatMap((n) => [`"${n}"`, `'${n}'`, `\`${n}\``]);
+  if (!quoted.length) return [];
+  return scripts.filter((s) => quoted.some((q) => s.text.includes(q))).map((s) => s.path);
+}
+
 /** A World's tags, with the default filled in. */
 export const tagsOf = (config: { tags?: readonly WorldTag[] }): readonly WorldTag[] => config.tags ?? DEFAULT_WORLD_TAGS;
 
@@ -178,24 +200,45 @@ export function updateConfig(model: WorldsModel, ref: WorldRef, patch: Partial<O
   return { ...model, templates: model.templates.map((t, i) => (i === ref.index ? { ...t, config: patched(t.config, patch) } : t)) };
 }
 
-/** Rename a World (links to and from it follow) or a template. */
+/**
+ * Rename a World or a Spawnable World (template). Links to and from it follow, including a
+ * template's links when its World name is its key (ADR 0062).
+ */
 export function rename(model: WorldsModel, ref: WorldRef, name: string): WorldsModel {
-  if (ref.kind === "template") return { ...model, templates: model.templates.map((t, i) => (i === ref.index ? { ...t, key: name } : t)) };
+  if (ref.kind === "template") {
+    const entry = model.templates[ref.index];
+    if (!entry || entry.key === name) return model;
+    const renamed = { ...entry, key: name };
+    const templates = model.templates.map((t, i) => (i === ref.index ? renamed : t));
+    return { ...model, templates, links: followLinks(model, spawnableName(entry), spawnableName(renamed), (n) => model.worlds.some((w) => w.name === n) || model.templates.some((t, i) => i !== ref.index && spawnableName(t) === n)) };
+  }
   const old = model.worlds[ref.index]?.name;
   if (old === undefined || old === name) return model;
-  // Links name Worlds; with two Worlds of the old name (an invalid draft) they keep pointing at the other.
-  const shared = model.worlds.some((w, i) => i !== ref.index && w.name === old);
-  const follow = (n: string) => (n === old && !shared ? name : n);
   return {
     ...model,
     worlds: model.worlds.map((w, i) => (i === ref.index ? { ...w, name } : w)),
-    links: model.links.map((l) => (l.from === old || l.to === old ? { ...l, from: follow(l.from), to: follow(l.to) } : l)),
+    // With two Worlds of the old name (an invalid draft), links keep pointing at the other.
+    links: followLinks(model, old, name, (n) => model.worlds.some((w, i) => i !== ref.index && w.name === n)),
   };
 }
 
-/** Remove a World (and its links) or a template. */
+/** Links naming `old` renamed to `name`, unless another World still has the old name (`shared`). */
+function followLinks(model: WorldsModel, old: string, name: string, shared: (n: string) => boolean): LinkConfig[] {
+  if (old === name || shared(old)) return model.links;
+  const follow = (n: string) => (n === old ? name : n);
+  return model.links.map((l) => (l.from === old || l.to === old ? { ...l, from: follow(l.from), to: follow(l.to) } : l));
+}
+
+/** Remove a World or a Spawnable World (template), and the links naming it. */
 export function remove(model: WorldsModel, ref: WorldRef): WorldsModel {
-  if (ref.kind === "template") return { ...model, templates: model.templates.filter((_, i) => i !== ref.index) };
+  if (ref.kind === "template") {
+    const entry = model.templates[ref.index];
+    if (!entry) return model;
+    const name = spawnableName(entry);
+    const templates = model.templates.filter((_, i) => i !== ref.index);
+    const shared = model.worlds.some((w) => w.name === name) || templates.some((t) => spawnableName(t) === name);
+    return { ...model, templates, links: shared ? model.links : model.links.filter((l) => l.from !== name && l.to !== name) };
+  }
   const name = model.worlds[ref.index]?.name;
   const shared = model.worlds.some((w, i) => i !== ref.index && w.name === name);
   return {
