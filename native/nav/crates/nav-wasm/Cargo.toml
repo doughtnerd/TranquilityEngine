@@ -12,4 +12,9 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 nav-math.workspace = true
 nav-format.workspace = true
+nav-bake.workspace = true
+nav-query.workspace = true
+nav-crowd.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 wasm-bindgen.workspace = true

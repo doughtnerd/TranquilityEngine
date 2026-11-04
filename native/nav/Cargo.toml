@@ -19,6 +19,9 @@ nav-query = { path = "crates/nav-query" }
 nav-crowd = { path = "crates/nav-crowd" }
 wasm-bindgen = "=0.2.130"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+# nav-wasm only: the boundary parses JSON settings into its own DTOs.
+serde = { version = "1", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }
 
 [profile.release]
 opt-level = 3

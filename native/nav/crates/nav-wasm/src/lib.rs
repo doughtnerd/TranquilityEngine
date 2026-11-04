@@ -1,5 +1,17 @@
 //! The WebAssembly boundary of Myco's navigation (ADR 0065). The TypeScript side loads this module
 //! on demand (`src/engine/nav/`) and talks to it in bulk through typed-array views of its memory.
+//!
+//! * [`runtime::NavRuntime`]: a World's crowd (agents, chunks, commands, the tick, zero-copy buffers), queries and
+//!   debug geometry.
+//! * [`baker::NavBaker`]: a chunk's bake, incremental across calls.
+//! * Free functions: [`version`], [`bake_info`], [`nav_id`], [`chunk_id`], and debug geometry straight from bake bytes.
+//! * [`dto`]: the JSON shapes the TS side sends.
+pub mod baker;
+pub mod debug;
+pub mod dto;
+pub mod queries;
+pub mod runtime;
+
 use nav_format::file::{read, read_header, SectionKind};
 use nav_math::hash::fingerprint_hex;
 use wasm_bindgen::prelude::*;
@@ -44,6 +56,44 @@ pub fn bake_info(bytes: &[u8], verify: bool) -> String {
         header.signature.to_hex(),
         sections.join(",")
     )
+}
+
+/// A string id as the runtime and bakes see it (32 hex digits; see `dto::parse_id`).
+#[wasm_bindgen(js_name = navId)]
+pub fn nav_id(id: &str) -> String {
+    dto::parse_id(id).to_hex()
+}
+
+/// A chunk's id (hex) from its scene's project path (forward slashes) and the chunk node's id.
+#[wasm_bindgen(js_name = chunkId)]
+pub fn chunk_id(scene_path: &str, chunk_node_id: &str) -> String {
+    nav_bake::output::chunk_id(scene_path, chunk_node_id).to_hex()
+}
+
+fn bake_navmesh(bytes: &[u8], group: u32) -> Result<nav_format::NavMeshData, JsError> {
+    let file = read(bytes).map_err(|e| JsError::new(&e.to_string()))?;
+    file.navmeshes.into_iter().find(|n| n.group == group).map(|n| n.data).ok_or_else(|| JsError::new(&format!("no navmesh group {group}")))
+}
+
+/// A bake's navmesh (section `group`) as line segments, without a runtime (the editor's scene view): stride 7, see
+/// `debug::navmesh_lines`.
+#[wasm_bindgen(js_name = debugBakeLines)]
+pub fn debug_bake_lines(bytes: &[u8], group: u32) -> Result<Vec<f32>, JsError> {
+    Ok(debug::navmesh_lines(&bake_navmesh(bytes, group)?))
+}
+
+/// A bake's navmesh polygons as triangles: stride 11 (a, b, c, bin, area).
+#[wasm_bindgen(js_name = debugBakeTriangles)]
+pub fn debug_bake_triangles(bytes: &[u8], group: u32) -> Result<Vec<f32>, JsError> {
+    Ok(debug::navmesh_triangles(&bake_navmesh(bytes, group)?))
+}
+
+/// A bake's flight volume (section `group`) leaves: stride 5 (min xyz, size, area).
+#[wasm_bindgen(js_name = debugBakeLeaves)]
+pub fn debug_bake_leaves(bytes: &[u8], group: u32) -> Result<Vec<f32>, JsError> {
+    let file = read(bytes).map_err(|e| JsError::new(&e.to_string()))?;
+    let v = file.volumes.into_iter().find(|v| v.group == group).ok_or_else(|| JsError::new(&format!("no flight volume group {group}")))?;
+    Ok(debug::volume_leaves(&v.data))
 }
 
 fn kind_name(kind: SectionKind) -> &'static str {
