@@ -2,7 +2,6 @@
 // text, a 3D shape (with a matching collider, as in Unity) or a light (ADR 0043), at the top of
 // the scene, beside a node or under it. Each is one undo step.
 import { uniqueId } from "./assetBrowser";
-import { defaultParticleEffect, particleEffectJSON } from "../engine/scene/particles";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import type { OpenScene } from "./state";
 
@@ -55,7 +54,7 @@ export function uniqueName(doc: SceneDocument, parent: string | null, base: stri
 }
 
 /** The scene entry for a new node of `kind` under `parent`, at `position` in the parent's space. */
-export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: string | null, position: Vec3 = [0, 0, 0]): NodeEntry {
+export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: string | null, position: Vec3 = [0, 0, 0], effect = ""): NodeEntry {
   const info = NEW_NODE_KINDS.find((k) => k.kind === kind)!;
   const id = uniqueId(doc, info.name.toLowerCase().replace(/ /g, "-"));
   const name = uniqueName(doc, parent, info.name);
@@ -90,8 +89,8 @@ export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: stri
     case "reflection-probe":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ReflectionProbe", data: {} }] };
     case "particle-system":
-      // A new embedded effect (ADR 0057): the default fountain, ready to edit or save as an asset.
-      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ParticleSystem", data: { embeddedEffect: particleEffectJSON(defaultParticleEffect()) } }] };
+      // Effects are assets (ADR 0060): `effect` is a new one `createParticleSystemNode` made, or empty.
+      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ParticleSystem", data: effect ? { effect } : {} }] };
     default: {
       // A light: directional and spot lights point down and away, like a sun in the afternoon.
       const type = kind.replace(/-light$/, "");
@@ -116,6 +115,8 @@ export interface CreateOptions {
   index?: number;
   /** Where the node goes in its parent's space. */
   position?: Vec3;
+  /** Particle System: the effect asset it plays (`asset:<path>`). */
+  effect?: string;
 }
 
 /** Why a node can't be created under `parent`, or null if it can. */
@@ -131,7 +132,7 @@ export function createNode(scene: OpenScene, kind: NewNodeKind, options: CreateO
   const parent = options.parent ?? null;
   const reason = whyNotCreatable(scene.doc, parent);
   if (reason) throw new Error(reason);
-  const entry = newNodeEntry(scene.doc, kind, parent, options.position);
+  const entry = newNodeEntry(scene.doc, kind, parent, options.position, options.effect);
   scene.stack.beginGroup(`Create ${entry.name}`);
   try {
     scene.stack.execute(new AddNode(entry, { parent, index: options.index }));

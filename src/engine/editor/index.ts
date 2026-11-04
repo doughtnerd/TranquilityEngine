@@ -29,6 +29,9 @@ import type { LinkConditions } from "../net/Transport";
 
 export type { InstantiateHooks } from "../scene/SceneLoader";
 export { MaterialPreview, NodePreviewRenderer, type PreviewMesh } from "../render/MaterialPreview";
+export type { ParticleEffectPreview, PreviewBackground } from "../render/particles/EffectPreview";
+/** The Particle Graph's effect preview (ADR 0060), loaded on demand: it brings three.quarks, which the editor (and the dedicated server) shouldn't load at start-up. */
+export const loadParticleEffectPreview = () => import("../render/particles/EffectPreview");
 
 /** One node of a World, as listed by `listNodes`. */
 export interface NodeInfo {

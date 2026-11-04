@@ -1,0 +1,9 @@
+/* The particle graph's live preview (ADR 0060). Theme tokens only. */
+.pg-preview { position: relative; width: 100%; height: 100%; min-height: 120px; overflow: hidden; background: var(--bg); }
+.pg-preview-canvas { position: absolute; inset: 0; }
+.pg-preview-bar { position: absolute; top: 6px; left: 6px; right: 6px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; pointer-events: none; }
+.pg-preview-bar > * { pointer-events: auto; font: inherit; font-size: 11px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; cursor: pointer; opacity: 0.92; }
+.pg-preview-bar > button:hover, .pg-preview-bar > select:hover { border-color: var(--accent); opacity: 1; }
+.pg-preview-bar > button.on { border-color: var(--accent); color: var(--accent); }
+.pg-preview-stats { position: absolute; left: 6px; bottom: 6px; font-size: 11px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; opacity: 0.92; pointer-events: none; font-variant-numeric: tabular-nums; }
+.pg-preview-problems { color: var(--danger); }

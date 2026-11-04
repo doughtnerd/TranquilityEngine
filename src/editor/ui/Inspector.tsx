@@ -462,7 +462,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
       ) : (
         <div class="fields">
           {info.fields
-            .filter((f) => !(particles && f.name === "embeddedEffect"))
+            .filter((f) => !(particles && (f.name === "embeddedEffect" || f.name === "overrides")))
             .map((f) => (
               <FieldRow key={f.name} {...props} info={info} values={infos.map((i) => i.fields.find((o) => o.name === f.name)?.value)} field={f} />
             ))}
@@ -475,6 +475,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
           index={info.index}
           effectPath={String(info.fields.find((f) => f.name === "effect")?.value ?? "")}
           embedded={info.fields.find((f) => f.name === "embeddedEffect")?.value}
+          overrides={info.fields.find((f) => f.name === "overrides")?.value}
         />
       )}
     </section>

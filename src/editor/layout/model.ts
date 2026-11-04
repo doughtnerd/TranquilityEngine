@@ -7,11 +7,11 @@
 // more tab groups split evenly along it (stacked in side docks, side by side in bottom docks); a
 // group shows one panel at a time, with tabs when it has more than one.
 
-export type PanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "shadergraph";
+export type PanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "shadergraph" | "particlegraph";
 export type Side = "left" | "right" | "bottom";
 
-export const PANELS: readonly PanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "shadergraph"];
-export const PANEL_TITLES: Record<PanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", shadergraph: "Shader Graph" };
+export const PANELS: readonly PanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "shadergraph", "particlegraph"];
+export const PANEL_TITLES: Record<PanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", shadergraph: "Shader Graph", particlegraph: "Particle Graph" };
 
 export interface TabGroup {
   id: string;
@@ -70,7 +70,7 @@ export function defaultLayout(): Layout {
       { id: "left", side: "left", size: DEFAULT_SIZE.left, groups: [{ id: "hierarchy", panels: ["hierarchy"], active: "hierarchy" }], fractions: [1] },
       { id: "right", side: "right", size: DEFAULT_SIZE.right, groups: [{ id: "inspector", panels: ["inspector", "history", "worlds", "network", "project"], active: "inspector" }], fractions: [1] },
       // Innermost: fills the middle.
-      { id: "main", side: "left", size: 0, groups: [{ id: "scene", panels: ["scene", "shadergraph"], active: "scene" }], fractions: [1] },
+      { id: "main", side: "left", size: 0, groups: [{ id: "scene", panels: ["scene", "shadergraph", "particlegraph"], active: "scene" }], fractions: [1] },
     ],
   };
 }
@@ -200,7 +200,7 @@ export function parseLayout(value: unknown): Layout | null {
     if (missing.length) {
       const groups = result.docks.flatMap((d) => d.groups);
       const holding = (p: PanelId) => groups.find((g) => g.panels.includes(p));
-      const beside: Partial<Record<PanelId, PanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", shadergraph: "scene" };
+      const beside: Partial<Record<PanelId, PanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", shadergraph: "scene", particlegraph: "shadergraph" };
       for (const p of missing) (((beside[p] && holding(beside[p])) || holding("inspector")) ?? groups[0]).panels.push(p);
     }
     return result;

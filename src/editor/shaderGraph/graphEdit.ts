@@ -1,6 +1,7 @@
 // Shader graph edits (ADR 0046): pure functions from one graph to the next, so the panel's undo
 // history is a list of graphs and every rule here is unit-tested. None of them change their input.
 import { canConnectTypes, nodeDef, nodePorts, type ValueType } from "../../engine/render/shaderGraph/nodes";
+import { parseGraphClipboard } from "../graph/clipboard";
 import {
   OUTPUT_NODE_TYPE,
   defaultPropertyValue,
@@ -274,9 +275,11 @@ export function firstOutputFor(nodeType: string, type: ValueType | "dynamic", gr
 
 // --- copy and paste (ADR 0048) ----------------------------------------------------------------------
 
+const CLIPBOARD_FORMAT = "myco.shadergraph.clipboard@1";
+
 /** Nodes copied from a graph: the nodes, the connections between them, and the properties they read. */
 export interface GraphClipboard {
-  format: "myco.shadergraph.clipboard@1";
+  format: typeof CLIPBOARD_FORMAT;
   nodes: GraphNode[];
   edges: { from: string; to: string }[];
   properties: GraphProperty[];
@@ -289,7 +292,7 @@ export function copyNodes(graph: ShaderGraph, ids: Iterable<string>): GraphClipb
   const nodes = graph.nodes.filter((n) => picked.has(n.id)).map((n) => structuredClone(n));
   const used = new Set(nodes.filter((n) => n.type === "property").map((n) => n.settings?.property));
   return {
-    format: "myco.shadergraph.clipboard@1",
+    format: CLIPBOARD_FORMAT,
     nodes,
     edges: graph.edges.filter((e) => picked.has(splitPortRef(e.from).node) && picked.has(splitPortRef(e.to).node)).map((e) => ({ ...e })),
     properties: graph.properties.filter((p) => used.has(p.name)).map((p) => structuredClone(p)),
@@ -298,12 +301,7 @@ export function copyNodes(graph: ShaderGraph, ids: Iterable<string>): GraphClipb
 
 /** Read a clipboard from text (the system clipboard), or null if it isn't one. */
 export function parseClipboard(text: string): GraphClipboard | null {
-  try {
-    const v = JSON.parse(text) as GraphClipboard;
-    return v && v.format === "myco.shadergraph.clipboard@1" && Array.isArray(v.nodes) && Array.isArray(v.edges) ? v : null;
-  } catch {
-    return null;
-  }
+  return parseGraphClipboard<GraphClipboard>(text, CLIPBOARD_FORMAT, (v) => Array.isArray(v.nodes) && Array.isArray(v.edges));
 }
 
 /**

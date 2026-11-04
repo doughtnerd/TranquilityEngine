@@ -298,19 +298,27 @@ export class ReflectionProbe extends Component {
 }
 
 /** A ParticleSystem command, run by the render backend on its next frame. */
-export type ParticleCommand = { op: "play" | "pause" | "restart" | "clear" } | { op: "stop"; clear: boolean } | { op: "emit"; count: number };
+export type ParticleCommand = { op: "play" | "pause" | "restart" | "clear" } | { op: "stop"; clear: boolean } | { op: "emit"; count: number } | { op: "event"; name: string };
+
+/** A value for an effect's exposed property (ADR 0060): a number, a vector or colour as numbers, a `#rrggbb[aa]` colour, or a curve, gradient or texture value as in the effect file. */
+export type ParticlePropertyValue = number | readonly number[] | string | boolean | Record<string, unknown>;
 
 /**
- * Plays a particle effect at its node (ADR 0057): a `*.particles.json` asset, or an effect stored
- * in the component itself. Particles follow the World's time, so pausing time pauses them, and they
+ * Plays a particle effect asset at its node (ADR 0057, 0060): a `*.particles.json` graph authored
+ * in the Particle Graph. Particles follow the World's time, so pausing time pauses them, and they
  * are cosmetic: never replicated, simulated on each client.
  */
 @component("engine.ParticleSystem")
 export class ParticleSystem extends Component {
-  /** A particle effect asset (`asset:effects/sparks.particles.json`). Empty: `embeddedEffect`. */
+  /** The particle effect asset (`asset:effects/sparks.particles.json`). */
   @field(AssetRef) effect = "";
-  /** An effect stored in the component (the `myco.particles@1` format), used when `effect` is empty. */
+  /**
+   * @deprecated Effects are assets (ADR 0060); the editor moves embedded effects into asset files.
+   * Still played, when `effect` is empty, so scenes saved before then keep working.
+   */
   @field(PlainObject) embeddedEffect: Record<string, unknown> | null = null;
+  /** This instance's values for the effect's exposed properties, by name (set them with `setProperty`). */
+  @field(PlainObject) overrides: Record<string, ParticlePropertyValue> = {};
   /** Start playing when the node is created. Off: wait for `play()`. */
   @field(Boolean) playOnAwake = true;
   /** Simulation speed (1 = normal), on top of the World's time scale. */
@@ -355,6 +363,21 @@ export class ParticleSystem extends Component {
   /** Emit `count` particles at once from every emitter (sub-emitters aside). */
   emit(count: number): void {
     this._commands.push({ op: "emit", count: Math.max(0, Math.floor(count)) });
+  }
+
+  /** Set one of the effect's exposed properties for this instance; it applies on the next frame. */
+  setProperty(name: string, value: ParticlePropertyValue): void {
+    this.overrides = { ...this.overrides, [name]: value };
+  }
+
+  /** This instance's value of an exposed property, or undefined if it uses the effect's own value. */
+  getProperty(name: string): ParticlePropertyValue | undefined {
+    return this.overrides[name];
+  }
+
+  /** Send a custom event (an Event node named `name` in the graph), which starts or stops the systems it's wired to. */
+  sendEvent(name: string): void {
+    this._commands.push({ op: "event", name });
   }
 
   /** True while emitting (not paused or stopped). */

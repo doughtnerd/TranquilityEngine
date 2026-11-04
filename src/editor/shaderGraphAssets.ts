@@ -5,6 +5,7 @@ import { signal } from "@preact/signals";
 import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph, parseShaderGraph, type ShaderGraph } from "../engine/scene/shaderGraph";
 import { defaultMaterialSettings } from "../engine/scene/material";
 import { fileName } from "./assetBrowser";
+import { createGraphHistory, type GraphHistory as SharedGraphHistory } from "./graph/history";
 import { freePath } from "./assetOps";
 import { showPanel } from "./layout/store";
 import { writeMaterial } from "./materialAssets";
@@ -50,31 +51,24 @@ export function writeShaderGraph(project: EditorProject, path: string, graph: Sh
 }
 
 /** Undo and redo for one graph: the graphs before and after the current one. */
-export interface GraphHistory {
-  undo: ShaderGraph[];
-  redo: ShaderGraph[];
-}
+export type GraphHistory = SharedGraphHistory<ShaderGraph>;
 
-const HISTORY_LIMIT = 200;
-const histories = new Map<string, GraphHistory>();
+const histories = createGraphHistory<ShaderGraph>();
 
 /** A graph's history this session (kept while the panel shows another graph). */
-export function graphHistory(path: string): GraphHistory {
-  let h = histories.get(path);
-  if (!h) histories.set(path, (h = { undo: [], redo: [] }));
-  return h;
-}
+export const graphHistory = (path: string): GraphHistory => histories.get(path);
 
 /** Record that the graph was `before` until an edit. */
-export function recordEdit(path: string, before: ShaderGraph): void {
-  const h = graphHistory(path);
-  h.undo.push(before);
-  if (h.undo.length > HISTORY_LIMIT) h.undo.shift();
-  h.redo.length = 0;
-}
+export const recordEdit = (path: string, before: ShaderGraph): void => histories.record(path, before);
+
+/** Step a graph back from `current`: the graph to show, or undefined with nothing to undo. */
+export const undoEdit = (path: string, current: ShaderGraph): ShaderGraph | undefined => histories.undo(path, current);
+
+/** Step a graph forward from `current`: the graph to show, or undefined with nothing to redo. */
+export const redoEdit = (path: string, current: ShaderGraph): ShaderGraph | undefined => histories.redo(path, current);
 
 /** Forget a graph's history (its file was renamed or deleted). */
-export const forgetGraphHistory = (path: string) => histories.delete(path);
+export const forgetGraphHistory = (path: string) => histories.forget(path);
 
 /** Where New Shader Graph goes by default: `shaders/` if the project has it, else the folder given. */
 export function shaderGraphFolder(folder: string): string {

@@ -30,7 +30,7 @@ import { openScript } from "../code/codeState";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
 import { createMaterial } from "../materialAssets";
-import { createParticleEffect } from "../particleAssets";
+import { createParticleEffect, openParticleGraphAsset } from "../particleAssets";
 import { createShaderGraph, createShaderSubGraph, openShaderGraphAsset } from "../shaderGraphAssets";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
@@ -110,11 +110,12 @@ function openEntry(entry: string): void {
   const kind = assetKind(entry);
   if (kind === "image") return openSpriteEditor(entry);
   if (kind === "shadergraph" || kind === "shadersubgraph") return openShaderGraphAsset(entry);
+  if (kind === "particles") return openParticleGraphAsset(entry);
   if (kind === "script" || kind === "json" || kind === "javascript") openScript(entry);
   else if (kind === "scene" || kind === "prefab") void switchScene(entry);
 }
 
-const opens = (entry: string) => isFolderEntry(entry) || ["scene", "prefab", "script", "json", "javascript", "image", "sprite", "shadergraph", "shadersubgraph"].includes(assetKind(entry));
+const opens = (entry: string) => isFolderEntry(entry) || ["scene", "prefab", "script", "json", "javascript", "image", "sprite", "shadergraph", "shadersubgraph", "particles"].includes(assetKind(entry));
 
 /** Why `entries` can't be changed (renamed, moved, deleted), or null. */
 function whyNotEditable(project: EditorProject, entries: readonly string[]): string | null {

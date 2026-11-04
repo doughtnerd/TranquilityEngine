@@ -1,70 +1,484 @@
 {
-  "format": "myco.particles@1",
-  "emitters": [
+  "format": "myco.particles@2",
+  "properties": [],
+  "systems": [
     {
+      "id": "s1",
       "name": "Flames",
-      "duration": 2,
-      "looping": true,
-      "prewarm": true,
-      "startLife": { "random": [0.6, 1.1] },
-      "startSpeed": { "random": [0.6, 1.2] },
-      "startSize": { "random": [0.35, 0.6] },
-      "startRotation": { "random": [0, 360] },
-      "startColor": "#ffffffff",
-      "space": "world",
-      "maxParticles": 200,
-      "emission": { "rateOverTime": 60, "rateOverDistance": 0, "bursts": [] },
-      "shape": { "type": "cone", "radius": 0.25, "angle": 8, "thickness": 1 },
-      "behaviors": [
-        { "type": "colorOverLife", "color": { "gradient": { "colors": [[0, "#fff2b0"], [0.35, "#ff9a2e"], [1, "#c22a0a"]], "alphas": [[0, 0], [0.15, 1], [0.7, 0.6], [1, 0]] } } },
-        { "type": "sizeOverLife", "size": { "curve": [[0, 0.6], [0.3, 1], [1, 0.2]] } },
-        { "type": "rotationOverLife", "speed": { "random": [-60, 60] } },
-        { "type": "noise", "frequency": 1.5, "power": 0.4, "positionAmount": 0.3, "rotationAmount": 0 }
-      ],
-      "renderer": { "mode": "billboard", "blending": "additive" }
+      "position": [0, 0],
+      "settings": {
+        "space": "world",
+        "capacity": 200
+      },
+      "spawn": {
+        "settings": {
+          "duration": 2,
+          "looping": true,
+          "startDelay": 0,
+          "prewarm": true
+        },
+        "blocks": [
+          {
+            "id": "b1",
+            "type": "spawn.rate",
+            "inputs": {
+              "rate": 60
+            }
+          }
+        ]
+      },
+      "initialize": {
+        "blocks": [
+          {
+            "id": "b2",
+            "type": "init.lifetime",
+            "inputs": {
+              "lifetime": {
+                "random": [0.6, 1.1]
+              }
+            }
+          },
+          {
+            "id": "b3",
+            "type": "init.velocity",
+            "inputs": {
+              "speed": {
+                "random": [0.6, 1.2]
+              }
+            }
+          },
+          {
+            "id": "b4",
+            "type": "init.size",
+            "inputs": {
+              "size": {
+                "random": [0.35, 0.6]
+              }
+            }
+          },
+          {
+            "id": "b5",
+            "type": "init.rotation",
+            "inputs": {
+              "rotation": {
+                "random": [0, 360]
+              }
+            }
+          },
+          {
+            "id": "b6",
+            "type": "init.color",
+            "inputs": {
+              "color": "#ffffffff"
+            }
+          },
+          {
+            "id": "b7",
+            "type": "init.positionCone",
+            "inputs": {
+              "radius": 0.25,
+              "angle": 8,
+              "arc": 360,
+              "thickness": 1,
+              "mode": "random",
+              "spread": 0,
+              "offset": [0, 0, 0],
+              "rotation": [0, 0, 0]
+            }
+          }
+        ]
+      },
+      "update": {
+        "blocks": [
+          {
+            "id": "b8",
+            "type": "update.colorOverLife",
+            "inputs": {
+              "color": {
+                "gradient": {
+                  "colors": [
+                    [0, "#fff2b0"],
+                    [0.35, "#ff9a2e"],
+                    [1, "#c22a0a"]
+                  ],
+                  "alphas": [
+                    [0, 0],
+                    [0.15, 1],
+                    [0.7, 0.6],
+                    [1, 0]
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "b9",
+            "type": "update.sizeOverLife",
+            "inputs": {
+              "size": {
+                "curve": [
+                  [0, 0.6],
+                  [0.3, 1],
+                  [1, 0.2]
+                ]
+              }
+            }
+          },
+          {
+            "id": "b10",
+            "type": "update.rotationOverLife",
+            "inputs": {
+              "speed": {
+                "random": [-60, 60]
+              }
+            }
+          },
+          {
+            "id": "b11",
+            "type": "update.noise",
+            "inputs": {
+              "frequency": 1.5,
+              "power": 0.4,
+              "positionAmount": 0.3,
+              "rotationAmount": 0
+            }
+          }
+        ]
+      },
+      "output": {
+        "type": "quad",
+        "settings": {
+          "material": "",
+          "texture": "",
+          "blending": "additive",
+          "renderOrder": 0,
+          "mesh": "builtin:cube",
+          "speedScale": 0,
+          "lengthScale": 1,
+          "trailLength": 20
+        },
+        "blocks": []
+      }
     },
     {
+      "id": "s2",
       "name": "Smoke",
-      "duration": 3,
-      "looping": true,
-      "prewarm": true,
-      "startDelay": 0,
-      "startLife": { "random": [2, 3.5] },
-      "startSpeed": { "random": [0.5, 0.9] },
-      "startSize": { "random": [0.4, 0.7] },
-      "startRotation": { "random": [0, 360] },
-      "startColor": "#5a554fff",
-      "space": "world",
-      "maxParticles": 150,
-      "emission": { "rateOverTime": 10, "rateOverDistance": 0, "bursts": [] },
-      "shape": { "type": "cone", "radius": 0.2, "angle": 12, "thickness": 1, "position": [0, 0.8, 0] },
-      "behaviors": [
-        { "type": "colorOverLife", "color": { "gradient": { "colors": [[0, "#6b645c"], [1, "#9a958f"]], "alphas": [[0, 0], [0.2, 0.45], [1, 0]] } } },
-        { "type": "sizeOverLife", "size": { "curve": [[0, 0.8], [1, 3]] } },
-        { "type": "rotationOverLife", "speed": { "random": [-25, 25] } },
-        { "type": "forceOverLife", "x": 0.25, "y": 0, "z": 0 }
-      ],
-      "renderer": { "mode": "billboard", "blending": "alpha", "renderOrder": -1 }
+      "position": [420, 0],
+      "settings": {
+        "space": "world",
+        "capacity": 150
+      },
+      "spawn": {
+        "settings": {
+          "duration": 3,
+          "looping": true,
+          "startDelay": 0,
+          "prewarm": true
+        },
+        "blocks": [
+          {
+            "id": "b12",
+            "type": "spawn.rate",
+            "inputs": {
+              "rate": 10
+            }
+          }
+        ]
+      },
+      "initialize": {
+        "blocks": [
+          {
+            "id": "b13",
+            "type": "init.lifetime",
+            "inputs": {
+              "lifetime": {
+                "random": [2, 3.5]
+              }
+            }
+          },
+          {
+            "id": "b14",
+            "type": "init.velocity",
+            "inputs": {
+              "speed": {
+                "random": [0.5, 0.9]
+              }
+            }
+          },
+          {
+            "id": "b15",
+            "type": "init.size",
+            "inputs": {
+              "size": {
+                "random": [0.4, 0.7]
+              }
+            }
+          },
+          {
+            "id": "b16",
+            "type": "init.rotation",
+            "inputs": {
+              "rotation": {
+                "random": [0, 360]
+              }
+            }
+          },
+          {
+            "id": "b17",
+            "type": "init.color",
+            "inputs": {
+              "color": "#5a554fff"
+            }
+          },
+          {
+            "id": "b18",
+            "type": "init.positionCone",
+            "inputs": {
+              "radius": 0.2,
+              "angle": 12,
+              "arc": 360,
+              "thickness": 1,
+              "mode": "random",
+              "spread": 0,
+              "offset": [0, 0.8, 0],
+              "rotation": [0, 0, 0]
+            }
+          }
+        ]
+      },
+      "update": {
+        "blocks": [
+          {
+            "id": "b19",
+            "type": "update.colorOverLife",
+            "inputs": {
+              "color": {
+                "gradient": {
+                  "colors": [
+                    [0, "#6b645c"],
+                    [1, "#9a958f"]
+                  ],
+                  "alphas": [
+                    [0, 0],
+                    [0.2, 0.45],
+                    [1, 0]
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "b20",
+            "type": "update.sizeOverLife",
+            "inputs": {
+              "size": {
+                "curve": [
+                  [0, 0.8],
+                  [1, 3]
+                ]
+              }
+            }
+          },
+          {
+            "id": "b21",
+            "type": "update.rotationOverLife",
+            "inputs": {
+              "speed": {
+                "random": [-25, 25]
+              }
+            }
+          },
+          {
+            "id": "b22",
+            "type": "update.forceOverLife",
+            "inputs": {
+              "x": 0.25,
+              "y": 0,
+              "z": 0
+            }
+          }
+        ]
+      },
+      "output": {
+        "type": "quad",
+        "settings": {
+          "material": "",
+          "texture": "",
+          "blending": "alpha",
+          "renderOrder": -1,
+          "mesh": "builtin:cube",
+          "speedScale": 0,
+          "lengthScale": 1,
+          "trailLength": 20
+        },
+        "blocks": []
+      }
     },
     {
+      "id": "s3",
       "name": "Sparks",
-      "duration": 1.5,
-      "looping": true,
-      "startLife": { "random": [0.8, 1.6] },
-      "startSpeed": { "random": [2, 3.5] },
-      "startSize": { "random": [0.03, 0.06] },
-      "startColor": { "random": ["#ffd27aff", "#ff7a1cff"] },
-      "gravity": 0.6,
-      "space": "world",
-      "maxParticles": 120,
-      "emission": { "rateOverTime": 8, "rateOverDistance": 0, "bursts": [{ "time": 0.4, "count": { "random": [4, 9] }, "cycles": 1, "interval": 0.1, "probability": 0.7 }] },
-      "shape": { "type": "cone", "radius": 0.2, "angle": 25, "thickness": 1, "position": [0, 0.2, 0] },
-      "behaviors": [
-        { "type": "colorOverLife", "color": { "gradient": { "colors": [[0, "#ffffff"], [1, "#ffffff"]], "alphas": [[0, 1], [0.8, 1], [1, 0]] } } },
-        { "type": "noise", "frequency": 2, "power": 1.5, "positionAmount": 1, "rotationAmount": 0 },
-        { "type": "collision", "height": 0, "bounce": 0.3, "kill": false }
-      ],
-      "renderer": { "mode": "stretched", "blending": "additive", "speedScale": 0.05, "lengthScale": 1 }
+      "position": [840, 0],
+      "settings": {
+        "space": "world",
+        "capacity": 120
+      },
+      "spawn": {
+        "settings": {
+          "duration": 1.5,
+          "looping": true,
+          "startDelay": 0,
+          "prewarm": false
+        },
+        "blocks": [
+          {
+            "id": "b23",
+            "type": "spawn.rate",
+            "inputs": {
+              "rate": 8
+            }
+          },
+          {
+            "id": "b24",
+            "type": "spawn.burst",
+            "inputs": {
+              "time": 0.4,
+              "count": {
+                "random": [4, 9]
+              },
+              "probability": 0.7
+            }
+          }
+        ]
+      },
+      "initialize": {
+        "blocks": [
+          {
+            "id": "b25",
+            "type": "init.lifetime",
+            "inputs": {
+              "lifetime": {
+                "random": [0.8, 1.6]
+              }
+            }
+          },
+          {
+            "id": "b26",
+            "type": "init.velocity",
+            "inputs": {
+              "speed": {
+                "random": [2, 3.5]
+              }
+            }
+          },
+          {
+            "id": "b27",
+            "type": "init.size",
+            "inputs": {
+              "size": {
+                "random": [0.03, 0.06]
+              }
+            }
+          },
+          {
+            "id": "b28",
+            "type": "init.rotation",
+            "inputs": {
+              "rotation": 0
+            }
+          },
+          {
+            "id": "b29",
+            "type": "init.color",
+            "inputs": {
+              "color": {
+                "random": ["#ffd27aff", "#ff7a1cff"]
+              }
+            }
+          },
+          {
+            "id": "b30",
+            "type": "init.positionCone",
+            "inputs": {
+              "radius": 0.2,
+              "angle": 25,
+              "arc": 360,
+              "thickness": 1,
+              "mode": "random",
+              "spread": 0,
+              "offset": [0, 0.2, 0],
+              "rotation": [0, 0, 0]
+            }
+          }
+        ]
+      },
+      "update": {
+        "blocks": [
+          {
+            "id": "b31",
+            "type": "update.gravity",
+            "inputs": {
+              "strength": 0.6
+            }
+          },
+          {
+            "id": "b32",
+            "type": "update.colorOverLife",
+            "inputs": {
+              "color": {
+                "gradient": {
+                  "colors": [
+                    [0, "#ffffff"],
+                    [1, "#ffffff"]
+                  ],
+                  "alphas": [
+                    [0, 1],
+                    [0.8, 1],
+                    [1, 0]
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "b33",
+            "type": "update.noise",
+            "inputs": {
+              "frequency": 2,
+              "power": 1.5,
+              "positionAmount": 1,
+              "rotationAmount": 0
+            }
+          },
+          {
+            "id": "b34",
+            "type": "update.collision",
+            "inputs": {
+              "height": 0,
+              "bounce": 0.3,
+              "kill": false
+            }
+          }
+        ]
+      },
+      "output": {
+        "type": "stretched",
+        "settings": {
+          "material": "",
+          "texture": "",
+          "blending": "additive",
+          "renderOrder": 0,
+          "mesh": "builtin:cube",
+          "speedScale": 0.05,
+          "lengthScale": 1,
+          "trailLength": 20
+        },
+        "blocks": []
+      }
     }
-  ]
+  ],
+  "nodes": [],
+  "edges": [],
+  "events": [],
+  "notes": [],
+  "groups": []
 }

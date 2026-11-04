@@ -30,7 +30,7 @@ import { NewProjectDialog } from "./NewProjectDialog";
 import { ProjectMenu } from "./ProjectMenu";
 import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 
-/** A panel whose code loads the first time it shows, so the editor starts without it (the Shader Graph editor and its graph library). */
+/** A panel whose code loads the first time it shows, so the editor starts without it (the graph editors and their graph library). */
 function lazyPanel(load: () => Promise<FunctionComponent>): () => ComponentChildren {
   const loaded = signal<FunctionComponent | null>(null);
   let loading = false;
@@ -50,8 +50,9 @@ function lazyPanel(load: () => Promise<FunctionComponent>): () => ComponentChild
   };
 }
 const ShaderGraphPanel = lazyPanel(() => import("./ShaderGraphPanel").then((m) => m.ShaderGraphPanel));
+const ParticleGraphPanel = lazyPanel(() => import("./ParticleGraphPanel").then((m) => m.ParticleGraphPanel));
 
-const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => <WorldsPanel />, network: () => <NetworkPanel />, project: () => <ProjectSettingsPanel />, shadergraph: ShaderGraphPanel };
+const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => <WorldsPanel />, network: () => <NetworkPanel />, project: () => <ProjectSettingsPanel />, shadergraph: ShaderGraphPanel, particlegraph: ParticleGraphPanel };
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {

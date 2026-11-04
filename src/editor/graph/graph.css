@@ -1,0 +1,33 @@
+/* The graph editors' shared canvas (ADR 0060): pane, wires, selection box, node search, groups, notes and
+   the minimap. Theme tokens only (src/editor/theme.ts). The Shader Graph's wire and port colours stay in
+   src/editor/ui/shaderGraph.css. */
+.sg-pane { flex: 1; position: relative; overflow: hidden; background-color: var(--bg-sunken); background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 20px 20px; min-width: 0; }
+.sg-viewport { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.sg-wires { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
+.sg-wire .sg-wire-line { fill: none; stroke-width: 2.5; }
+.sg-wire .sg-wire-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: pointer; }
+.sg-wire.selected .sg-wire-line { stroke-width: 4; filter: drop-shadow(0 0 3px var(--accent)); }
+.sg-draft { fill: none; stroke: var(--muted); stroke-width: 2; stroke-dasharray: 6 4; }
+.sg-draft.valid { stroke: var(--accent); stroke-dasharray: none; }
+.sg-box { position: absolute; border: 1px solid var(--accent); background: var(--accent-faint); pointer-events: none; }
+.sg-search { position: absolute; z-index: 5; width: 240px; max-height: 320px; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow); }
+.sg-search input { margin: 6px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font: inherit; padding: 3px 6px; }
+.sg-search ul { list-style: none; margin: 0; padding: 0 0 6px; overflow: auto; }
+.sg-search li { padding: 3px 12px; cursor: pointer; }
+.sg-search li.active { background: var(--selection); color: var(--selection-text); }
+.sg-search .sg-search-cat { cursor: default; color: var(--faint); font-size: calc(11px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.04em; padding-top: 6px; }
+.sg-search .sg-search-none { color: var(--muted); cursor: default; }
+.sg-group { position: absolute; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--accent-faint); }
+.sg-group-head { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 6px; cursor: grab; }
+.sg-group-head input { flex: 1; min-width: 0; background: transparent; border: none; color: var(--text-strong); font: inherit; font-weight: 600; }
+.sg-group-head input:focus { background: var(--input-bg); outline: 1px solid var(--accent); }
+.sg-group-head button { padding: 0 6px; }
+.sg-note { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; background: var(--warning-soft); border: 1px solid var(--warning); border-radius: 4px; box-shadow: 0 2px 8px var(--shadow); }
+.sg-note-head { height: 16px; display: flex; justify-content: flex-end; cursor: grab; }
+.sg-note-head button { padding: 0 4px; line-height: 1; font-size: calc(10px * var(--ui-scale)); background: transparent; border: none; color: var(--muted); }
+.sg-note textarea { flex: 1; resize: none; background: transparent; border: none; color: var(--text); font: inherit; padding: 2px 6px 6px; outline: none; }
+.sg-note-resize { position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--warning) 50%); border-radius: 0 0 4px 0; }
+.sg-minimap { position: absolute; right: 8px; top: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; opacity: 0.92; cursor: grab; }
+.sg-minimap rect { fill: var(--border-strong); }
+.sg-minimap rect.selected { fill: var(--accent); }
+.sg-minimap .sg-minimap-view { fill: var(--accent-faint); stroke: var(--accent); stroke-width: 1; }
