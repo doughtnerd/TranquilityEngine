@@ -83,8 +83,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0055](decisions/0055-automatic-quality-detection.md) | Automatic graphics quality: a first guess from the GPU, then adjusting to the frame rate | Accepted |
 | [0056](decisions/0056-camera-viewports-and-per-camera-effects.md) | Camera viewports, and post-processing on every camera | Accepted |
 | [0057](decisions/0057-particle-effects-and-the-particlesystem-component.md) | Particle effects are assets in our own format, played by a ParticleSystem component on three.quarks | Accepted |
-| [0058](decisions/0058-particle-graph-editor.md) | A particle graph editor: a node view of particle effect assets, on the shader graph's canvas | Accepted |
+| [0058](decisions/0058-particle-graph-editor.md) | A particle graph editor: a node view of particle effect assets, on the shader graph's canvas | Superseded by 0060 |
 | [0059](decisions/0059-projects-window-and-faster-editor-start.md) | The desktop editor opens on a Projects window while the editor loads hidden; faster start-up | Proposed |
+| [0060](decisions/0060-vfx-graph-particle-authoring.md) | Particle effects are VFX-Graph-style graph assets, authored only in the Particle Graph | Accepted |
 
 ## Working with decisions
 

@@ -1,7 +1,7 @@
 // The one module that imports xyflow's framework-free core, `@xyflow/system` (ADR 0046): panning
 // and zooming the canvas, dragging nodes, drawing connections from ports, and wire curves. The
-// rest of the Shader Graph panel is Preact and never sees xyflow's types, so an upgrade of this
-// pinned, pre-1.0 package touches this file only.
+// rest of the graph editors (Shader Graph, Particle Graph) are Preact and never see xyflow's
+// types, so an upgrade of this pinned, pre-1.0 package touches this file only.
 //
 // xyflow's core finds ports through DOM conventions: elements with the classes
 // `myco-flow__handle`, `source` or `target`, `connectable` and `connectableend`, and the

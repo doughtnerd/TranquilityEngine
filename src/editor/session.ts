@@ -34,6 +34,7 @@ import { viewportElements } from "./ui/ScenePanel";
 import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
 import { installViewportSelection } from "./viewportSelection";
 import { reloadGraphics } from "./graphicsPreview";
+import { migrateEmbeddedEffects } from "./particleMigration";
 
 let session: { engine: Engine; dispose(): void } | null = null;
 let play: PlaySession | null = null;
@@ -154,7 +155,11 @@ function openScene_(path: string): void {
   }
   const scene = openScene.peek()!;
   openScenes.value = [...openScenes.peek().filter((s) => s !== scene), scene];
-  void attachToOpenScene(scene);
+  void attachToOpenScene(scene)
+    .then(() => (openScenes.peek().includes(scene) ? migrateEmbeddedEffects(scene) : 0))
+    .catch((err) => {
+      status.value = errorStatus(`Couldn't move the embedded particle effects out of ${path}`, err);
+    });
 }
 
 /** What a tab remembers while another is active: its selection and the scene view's camera. */

@@ -40,19 +40,11 @@
 .sg-preview-card { border-top: 1px solid var(--border); padding: 6px 8px; }
 .sg-preview { height: 190px; border-radius: 6px; background: var(--bg-sunken); overflow: hidden; cursor: grab; }
 
-.sg-pane { flex: 1; position: relative; overflow: hidden; background-color: var(--bg-sunken); background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 20px 20px; min-width: 0; }
-.sg-viewport { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
-.sg-wires { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
-.sg-wire .sg-wire-line { fill: none; stroke-width: 2.5; }
-.sg-wire .sg-wire-hit { fill: none; stroke: transparent; stroke-width: 12; pointer-events: stroke; cursor: pointer; }
-.sg-wire.selected .sg-wire-line { stroke-width: 4; filter: drop-shadow(0 0 3px var(--accent)); }
 .sg-wire.t-float .sg-wire-line { stroke: var(--sg-float); }
 .sg-wire.t-vec2 .sg-wire-line { stroke: var(--sg-vec2); }
 .sg-wire.t-vec3 .sg-wire-line { stroke: var(--sg-vec3); }
 .sg-wire.t-vec4 .sg-wire-line { stroke: var(--sg-vec4); }
 .sg-wire.t-texture .sg-wire-line { stroke: var(--sg-texture); }
-.sg-draft { fill: none; stroke: var(--muted); stroke-width: 2; stroke-dasharray: 6 4; }
-.sg-draft.valid { stroke: var(--accent); stroke-dasharray: none; }
 
 .sg-node { position: absolute; box-sizing: border-box; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 2px 8px var(--shadow); color: var(--text); user-select: none; }
 .sg-node.selected { border-color: var(--accent); box-shadow: var(--glow); }
@@ -89,15 +81,7 @@
 .sg-port.t-texture { border-color: var(--sg-texture); color: var(--sg-texture); border-radius: 2px; }
 .sg-port:hover { box-shadow: 0 0 0 3px var(--accent-soft); }
 
-.sg-box { position: absolute; border: 1px solid var(--accent); background: var(--accent-faint); pointer-events: none; }
 
-.sg-search { position: absolute; z-index: 5; width: 240px; max-height: 320px; display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow); }
-.sg-search input { margin: 6px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font: inherit; padding: 3px 6px; }
-.sg-search ul { list-style: none; margin: 0; padding: 0 0 6px; overflow: auto; }
-.sg-search li { padding: 3px 12px; cursor: pointer; }
-.sg-search li.active { background: var(--selection); color: var(--selection-text); }
-.sg-search .sg-search-cat { cursor: default; color: var(--faint); font-size: calc(11px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.04em; padding-top: 6px; }
-.sg-search .sg-search-none { color: var(--muted); cursor: default; }
 
 .sg-problems { position: absolute; left: 8px; right: 8px; bottom: 8px; margin: 0; padding: 6px 10px 6px 24px; max-height: 30%; overflow: auto; background: var(--warning-soft); color: var(--text); border: 1px solid var(--warning); border-radius: 6px; font-size: calc(12px * var(--ui-scale)); }
 .sg-problems li.error { color: var(--danger); }
@@ -121,19 +105,5 @@
 .sg-node-preview { position: absolute; border-radius: 4px; background-color: var(--bg-sunken); background-image: linear-gradient(45deg, var(--border) 25%, transparent 25%, transparent 75%, var(--border) 75%), linear-gradient(45deg, var(--border) 25%, transparent 25%, transparent 75%, var(--border) 75%); background-size: 12px 12px; background-position: 0 0, 6px 6px; }
 .sg-node-preview.failed { outline: 2px solid var(--danger); }
 
-.sg-group { position: absolute; box-sizing: border-box; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--accent-faint); }
-.sg-group-head { display: flex; align-items: center; gap: 4px; height: 28px; padding: 0 6px; cursor: grab; }
-.sg-group-head input { flex: 1; min-width: 0; background: transparent; border: none; color: var(--text-strong); font: inherit; font-weight: 600; }
-.sg-group-head input:focus { background: var(--input-bg); outline: 1px solid var(--accent); }
-.sg-group-head button { padding: 0 6px; }
 
-.sg-note { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; background: var(--warning-soft); border: 1px solid var(--warning); border-radius: 4px; box-shadow: 0 2px 8px var(--shadow); }
-.sg-note-head { height: 16px; display: flex; justify-content: flex-end; cursor: grab; }
-.sg-note-head button { padding: 0 4px; line-height: 1; font-size: calc(10px * var(--ui-scale)); background: transparent; border: none; color: var(--muted); }
-.sg-note textarea { flex: 1; resize: none; background: transparent; border: none; color: var(--text); font: inherit; padding: 2px 6px 6px; outline: none; }
-.sg-note-resize { position: absolute; right: 0; bottom: 0; width: 12px; height: 12px; cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, var(--warning) 50%); border-radius: 0 0 4px 0; }
 
-.sg-minimap { position: absolute; right: 8px; top: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; opacity: 0.92; cursor: grab; }
-.sg-minimap rect { fill: var(--border-strong); }
-.sg-minimap rect.selected { fill: var(--accent); }
-.sg-minimap .sg-minimap-view { fill: var(--accent-faint); stroke: var(--accent); stroke-width: 1; }

@@ -1,24 +1,41 @@
-// Particle effect assets in the editor (ADR 0057): creating `*.particles.json` files, and reading and
-// writing them for the Inspector's effect editor (an asset's, or a ParticleSystem's referenced one).
-import { defaultParticleEffect, formatParticleEffect, parseParticleEffect, type ParticleEffect } from "../engine/scene/particles";
+// Particle effect assets in the editor (ADR 0057, 0060): creating `*.particles.json` graphs, reading
+// and writing them, which one the Particle Graph panel has open, and each effect's undo history for
+// the session. Files in the old `myco.particles@1` format read as migrated graphs and are written
+// back as graphs on the first edit.
+import { signal } from "@preact/signals";
+import type { ParticleGraph, GraphProblem } from "../engine/scene/particleGraph";
+import { defaultParticleGraph, formatParticleGraph, parseParticleGraph } from "../engine/scene/particleGraphFormat";
 import { fileName } from "./assetBrowser";
 import { freePath } from "./assetOps";
+import { createGraphHistory, type GraphHistory } from "./graph/history";
+import { showPanel } from "./layout/store";
 import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";
 import { currentProject, docVersion, status } from "./state";
 
+/** The effect open in the Particle Graph panel, or null. */
+export const openParticleGraph = signal<string | null>(null);
+
+/** Open an effect in the Particle Graph panel and bring the panel forward. */
+export function openParticleGraphAsset(path: string): void {
+  openParticleGraph.value = path;
+  showPanel("particlegraph");
+}
+
 export interface ReadEffect {
-  effect: ParticleEffect;
+  graph: ParticleGraph;
   /** What's wrong with the file (bad values read as the defaults). */
-  problems: string[];
+  problems: GraphProblem[];
+  /** The file is in the old format (it's written as a graph on the next save). */
+  migrated: boolean;
 }
 
 /** A particle effect asset as the file holds it now. */
 export function readEffect(project: EditorProject, path: string): ReadEffect {
   try {
-    return parseParticleEffect(project.assets.get(path), path);
+    return parseParticleGraph(project.assets.get(path), path);
   } catch (err) {
-    return { effect: defaultParticleEffect(), problems: [(err as Error).message] };
+    return { graph: defaultParticleGraph(), problems: [{ severity: "error", message: (err as Error).message }], migrated: false };
   }
 }
 
@@ -26,8 +43,9 @@ export function readEffect(project: EditorProject, path: string): ReadEffect {
 const writing = new Map<string, Promise<unknown>>();
 
 /** Write a particle effect asset after the writes before it. Throws for a read-only project. */
-export function writeEffect(project: EditorProject, path: string, effect: ParticleEffect): Promise<void> {
-  const run = () => project.writeText(path, formatParticleEffect(effect));
+export function writeEffect(project: EditorProject, path: string, graph: ParticleGraph): Promise<void> {
+  const text = formatParticleGraph(graph);
+  const run = () => project.writeText(path, text);
   const result = (writing.get(path) ?? Promise.resolve()).then(run, run);
   const settled = result.catch(() => undefined);
   writing.set(path, settled);
@@ -35,16 +53,25 @@ export function writeEffect(project: EditorProject, path: string, effect: Partic
   return result;
 }
 
+const histories = createGraphHistory<ParticleGraph>();
+
+/** An effect's undo history this session (kept while the panel shows another effect). */
+export const effectHistory = (path: string): GraphHistory<ParticleGraph> => histories.get(path);
+/** Remember `before` as the state to undo to, after an edit to the effect at `path`. */
+export const recordEffectEdit = (path: string, before: ParticleGraph): void => histories.record(path, before);
+export const undoEffectEdit = (path: string, current: ParticleGraph): ParticleGraph | undefined => histories.undo(path, current);
+export const redoEffectEdit = (path: string, current: ParticleGraph): ParticleGraph | undefined => histories.redo(path, current);
+
 /** Where New Particle Effect goes by default: `effects/` if the project has it, else the folder given. */
 export function effectFolder(folder: string): string {
   return folder === "" && currentProject.value?.folders.includes("effects") ? "effects" : folder;
 }
 
 /**
- * Create `New Particle Effect.particles.json` (or `… 2`) in `folder`, holding `effect` (the default
- * fountain when omitted). Returns its path, or null if the project is read-only or writing failed.
+ * Create `New Particle Effect.particles.json` (or `… 2`) in `folder`, holding `graph` (the Simple
+ * Loop template when omitted). Returns its path, or null if the project is read-only or writing failed.
  */
-export async function createParticleEffect(folder: string, effect: ParticleEffect = defaultParticleEffect(), name = "New Particle Effect"): Promise<string | null> {
+export async function createParticleEffect(folder: string, graph: ParticleGraph = defaultParticleGraph(), name = "New Particle Effect"): Promise<string | null> {
   const project = currentProject.value;
   if (!project) return null;
   if (!project.canSave) {
@@ -53,7 +80,7 @@ export async function createParticleEffect(folder: string, effect: ParticleEffec
   }
   const path = freePath(project, effectFolder(folder), `${name}.particles.json`);
   try {
-    await writeEffect(project, path, effect);
+    await writeEffect(project, path, graph);
   } catch (err) {
     status.value = errorStatus(`Couldn't create ${path}`, err);
     return null;

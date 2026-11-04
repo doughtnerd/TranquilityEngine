@@ -62,9 +62,11 @@ test("dropping a panel where it already is changes nothing", async ({ page }) =>
 
 test("the scene view is a panel: it moves like the others and keeps its canvas", async ({ page }) => {
   await openEditor(page);
-  // The Shader Graph tab shares the scene's group by default; it goes first, so the scene's dock empties.
+  // The graph tabs share the scene's group by default; they go first, so the scene's dock empties.
   let assets = await box(tab(page, "Assets"));
   await dragTab(page, "Shader Graph", assets.x + assets.width / 2, assets.y + assets.height / 2);
+  assets = await box(tab(page, "Assets"));
+  await dragTab(page, "Particle Graph", assets.x + assets.width / 2, assets.y + assets.height / 2);
   assets = await box(tab(page, "Assets"));
   await dragTab(page, "Scene", assets.x + assets.width / 2, assets.y + assets.height / 2);
   await expect(tab(page, "Scene")).toHaveAttribute("aria-selected", "true");

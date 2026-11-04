@@ -1,4 +1,5 @@
-// Internal (ADR 0057): translates `myco.particles@1` effects into three.quarks particle systems.
+// Internal (ADR 0057, 0060): translates effect settings (compiled from particle graphs by
+// `compileParticleGraph`) into three.quarks particle systems.
 // three.js and quarks types are allowed here and never reach the public API (ADR 0010).
 import { Color, Euler, type BufferGeometry, type Material, Matrix4, SRGBColorSpace } from "three";
 import {
@@ -79,6 +80,17 @@ export interface EffectContext {
   readonly scale: { value: number };
   /** Multiplies start colours (linear RGB and alpha); read as each particle is born, so it can change live. */
   readonly tint: { value: [number, number, number, number] };
+  /**
+   * A live value for an emitter's settings field (`startSpeed`, `behaviors.2.size`…; ADR 0060's
+   * bindings), or undefined to build it from the settings. Numbers are read as is; colours as
+   * linear RGBA. The caller writes the box each frame.
+   */
+  live?(emitter: number, path: string): LiveBox | undefined;
+}
+
+/** A value the caller updates in place: a number, or linear RGBA for colours. */
+export interface LiveBox {
+  value: number | number[];
 }
 
 /** One emitter of a built effect. */
@@ -105,9 +117,9 @@ export function buildEffect(effect: ParticleEffect, ctx: EffectContext): BuiltEm
   const subs = subEmitterNames(effect);
   const built = new Map<string, BuiltEmitter>();
   const out: BuiltEmitter[] = [];
-  for (const e of effect.emitters) {
+  for (const [index, e] of effect.emitters.entries()) {
     if (!e.enabled || built.has(e.name)) continue;
-    const b = buildEmitter(e, ctx, subs.has(e.name));
+    const b = buildEmitter(e, index, ctx, subs.has(e.name));
     if (!b) {
       for (const x of out) x.system.dispose();
       return null;
@@ -129,7 +141,7 @@ export function buildEffect(effect: ParticleEffect, ctx: EffectContext): BuiltEm
   return out;
 }
 
-function buildEmitter(e: ParticleEmitterSettings, ctx: EffectContext, subEmitter: boolean): BuiltEmitter | null {
+function buildEmitter(e: ParticleEmitterSettings, index: number, ctx: EffectContext, subEmitter: boolean): BuiltEmitter | null {
   const r = e.renderer;
   const material = ctx.material(r);
   if (!material) return null;
@@ -142,6 +154,16 @@ function buildEmitter(e: ParticleEmitterSettings, ctx: EffectContext, subEmitter
   const room = () => Math.max(0, Math.floor(max.value * ctx.scale.value) - count());
   const capped = (g: NumberGen) => new Capped(g, ctx.scale, room, false);
   const cappedBurst = (g: NumberGen) => new Capped(g, ctx.scale, room, true);
+  const gens: Gens = {
+    num: (path, v, scale = 1) => {
+      const box = ctx.live?.(index, path);
+      return box ? new LiveValue(box, scale) : numberGen(v, scale);
+    },
+    color: (path, v, overLife) => {
+      const box = ctx.live?.(index, path);
+      return box ? new LiveColor(box) : overLife ? colorOverLifeGen(v) : colorGen(v);
+    },
+  };
 
   system = new ParticleSystem({
     duration: e.duration,
@@ -149,14 +171,14 @@ function buildEmitter(e: ParticleEmitterSettings, ctx: EffectContext, subEmitter
     prewarm: e.prewarm,
     autoDestroy: false,
     worldSpace: e.space === "world",
-    startLife: numberGen(e.startLife),
-    startSpeed: numberGen(e.startSpeed),
-    startSize: numberGen(e.startSize),
-    startRotation: numberGen(e.startRotation, DEG),
-    startColor: new Tinted(colorGen(e.startColor), ctx.tint),
-    emissionOverTime: capped(numberGen(e.emission.rateOverTime)),
-    emissionOverDistance: capped(numberGen(e.emission.rateOverDistance)),
-    emissionBursts: e.emission.bursts.map((b) => ({ time: b.time, count: cappedBurst(numberGen(b.count)), cycle: b.cycles, interval: b.interval, probability: b.probability })),
+    startLife: gens.num("startLife", e.startLife),
+    startSpeed: gens.num("startSpeed", e.startSpeed),
+    startSize: gens.num("startSize", e.startSize),
+    startRotation: gens.num("startRotation", e.startRotation, DEG),
+    startColor: new Tinted(gens.color("startColor", e.startColor, false), ctx.tint),
+    emissionOverTime: capped(gens.num("emission.rateOverTime", e.emission.rateOverTime)),
+    emissionOverDistance: capped(gens.num("emission.rateOverDistance", e.emission.rateOverDistance)),
+    emissionBursts: e.emission.bursts.map((b, i) => ({ time: b.time, count: cappedBurst(gens.num(`emission.bursts.${i}.count`, b.count)), cycle: b.cycles, interval: b.interval, probability: b.probability })),
     onlyUsedByOther: subEmitter,
     shape: shapeOf(e.shape),
     material,
@@ -179,10 +201,11 @@ function buildEmitter(e: ParticleEmitterSettings, ctx: EffectContext, subEmitter
   // First, so particles from bursts and sub-emitters beyond the limit go before anything else runs.
   const sys = system;
   sys.addBehavior(new CapParticles(sys, () => Math.max(1, Math.floor(max.value * ctx.scale.value))));
-  if (e.gravity !== 0) system.addBehavior(new ApplyForce(new QVector3(0, -1, 0), new ConstantValue(GRAVITY * e.gravity)));
-  for (const b of e.behaviors) {
+  const liveGravity = ctx.live?.(index, "gravity");
+  if (e.gravity !== 0 || liveGravity) system.addBehavior(new ApplyForce(new QVector3(0, -1, 0), liveGravity ? new LiveValue(liveGravity, GRAVITY) : new ConstantValue(GRAVITY * e.gravity)));
+  for (const [i, b] of e.behaviors.entries()) {
     if (b.enabled === false) continue;
-    const behavior = behaviorOf(b);
+    const behavior = behaviorOf(b, scoped(gens, `behaviors.${i}.`));
     if (behavior) system.addBehavior(behavior);
   }
   const s = e.shape;
@@ -356,6 +379,43 @@ class Capped implements ValueGenerator, FunctionValueGenerator {
   }
 }
 
+/** A number the caller updates every frame (a graph binding, ADR 0060), times `scale`. */
+class LiveValue implements ValueGenerator, FunctionValueGenerator {
+  readonly type = "value" as unknown as "function" & "value";
+  constructor(
+    private readonly box: LiveBox,
+    private readonly scale = 1,
+  ) {}
+  startGen(): void {}
+  genValue(): number {
+    const v = this.box.value;
+    return (typeof v === "number" ? v : (v[0] ?? 0)) * this.scale;
+  }
+  toJSON(): never {
+    throw new Error("LiveValue isn't serialized.");
+  }
+  clone(): LiveValue {
+    return new LiveValue(this.box, this.scale);
+  }
+}
+
+/** A colour (linear RGBA) the caller updates every frame, the same at every point of a particle's life. */
+class LiveColor implements ColorGenerator, FunctionColorGenerator {
+  readonly type = "value" as unknown as "function" & "value";
+  constructor(private readonly box: LiveBox) {}
+  startGen(): void {}
+  genColor(_memory: GeneratorMemory, color: QVector4): QVector4 {
+    const v = this.box.value;
+    return Array.isArray(v) ? color.set(v[0] ?? 1, v[1] ?? 1, v[2] ?? 1, v[3] ?? 1) : color.set(v, v, v, 1);
+  }
+  toJSON(): never {
+    throw new Error("LiveColor isn't serialized.");
+  }
+  clone(): LiveColor {
+    return new LiveColor(this.box);
+  }
+}
+
 /** Drops particles beyond the limit (sub-emitters spawn into a system without asking it). */
 class CapParticles implements Behavior {
   readonly type = "CapParticles";
@@ -406,36 +466,51 @@ function shapeOf(s: ParticleShape): EmitterShape {
 
 const v3 = (v: readonly number[]) => new QVector3(v[0], v[1], v[2]);
 
-function behaviorOf(b: ParticleBehavior): Behavior | null {
+/** Builds a settings field's generator: live when the caller binds it (ADR 0060), else from its value. */
+interface Gens {
+  num(path: string, v: ParticleNumber, scale?: number): NumberGen;
+  color(path: string, v: ParticleColor, overLife: boolean): ColorGenerator | FunctionColorGenerator;
+}
+
+/** `gens` with `prefix` before every path (a behaviour's fields). */
+const scoped = (gens: Gens, prefix: string): Gens => ({
+  num: (path, v, scale) => gens.num(prefix + path, v, scale),
+  color: (path, v, overLife) => gens.color(prefix + path, v, overLife),
+});
+
+function behaviorOf(b: ParticleBehavior, gens: Gens): Behavior | null {
+  const num = gens.num;
+  const fn = (path: string, v: ParticleNumber) => gens.num(path, v) as FunctionValueGenerator;
+  const overLife = (path: string, v: ParticleColor) => gens.color(path, v, true) as FunctionColorGenerator;
   switch (b.type) {
     case "colorOverLife":
-      return new ColorOverLife(colorOverLifeGen(b.color));
+      return new ColorOverLife(overLife("color", b.color));
     case "sizeOverLife":
-      return new SizeOverLife(numberGen(b.size) as FunctionValueGenerator);
+      return new SizeOverLife(fn("size", b.size));
     case "rotationOverLife":
-      return new RotationOverLife(numberGen(b.speed, DEG));
+      return new RotationOverLife(num("speed", b.speed, DEG));
     case "speedOverLife":
-      return new SpeedOverLife(numberGen(b.speed) as FunctionValueGenerator);
+      return new SpeedOverLife(fn("speed", b.speed));
     case "forceOverLife":
-      return new ForceOverLife(numberGen(b.x), numberGen(b.y), numberGen(b.z));
+      return new ForceOverLife(num("x", b.x), num("y", b.y), num("z", b.z));
     case "gravityPoint":
       return new GravityForce(v3(b.center), b.strength);
     case "noise":
-      return new Noise(numberGen(b.frequency), numberGen(b.power), numberGen(b.positionAmount), numberGen(b.rotationAmount));
+      return new Noise(num("frequency", b.frequency), num("power", b.power), num("positionAmount", b.positionAmount), num("rotationAmount", b.rotationAmount));
     case "turbulence":
       return new TurbulenceField(v3(b.scale), Math.max(1, Math.round(b.octaves)), v3(b.velocity), v3(b.timeScale));
     case "orbit":
-      return new OrbitOverLife(numberGen(b.speed, DEG), v3(b.axis));
+      return new OrbitOverLife(num("speed", b.speed, DEG), v3(b.axis));
     case "frameOverLife":
-      return new FrameOverLife(numberGen(b.frame) as FunctionValueGenerator);
+      return new FrameOverLife(fn("frame", b.frame));
     case "limitSpeed":
-      return new LimitSpeedOverLife(numberGen(b.speed) as FunctionValueGenerator, b.dampen);
+      return new LimitSpeedOverLife(fn("speed", b.speed), b.dampen);
     case "colorBySpeed":
-      return new ColorBySpeed(colorOverLifeGen(b.color), new IntervalValue(b.min, b.max));
+      return new ColorBySpeed(overLife("color", b.color), new IntervalValue(b.min, b.max));
     case "sizeBySpeed":
-      return new SizeBySpeed(numberGen(b.size) as FunctionValueGenerator, new IntervalValue(b.min, b.max));
+      return new SizeBySpeed(fn("size", b.size), new IntervalValue(b.min, b.max));
     case "widthOverLength":
-      return new WidthOverLength(numberGen(b.width) as FunctionValueGenerator);
+      return new WidthOverLength(fn("width", b.width));
     case "collision":
       return new PlaneCollision(b.height, b.bounce, b.kill);
   }

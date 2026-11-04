@@ -1,14 +1,17 @@
-// Internal (ADR 0057): plays a World's ParticleSystem components through one three.quarks
-// BatchedRenderer. Loaded on demand by the render backend, so games without particles never load
+// Internal (ADR 0057, 0060): plays a World's ParticleSystem components through one three.quarks
+// BatchedRenderer. Each effect graph is compiled once per change; its bindings run every frame. Loaded on demand by the render backend, so games without particles never load
 // quarks. three.js and quarks types stay inside src/engine/render (ADR 0010).
 import { type BufferGeometry, type Material, Matrix4, type Object3D, type Scene } from "three";
 import { BatchedRenderer, type ParticleSystem as QuarksSystem } from "three.quarks";
 import { PARTICLE_SCALE } from "../../core/graphics";
 import { Assets } from "../../scene/Assets";
 import { GameObject } from "../../scene/GameObject";
-import { parseParticleEffect, type ParticleEffect, type ParticleRenderer as RendererSettings } from "../../scene/particles";
+import { compileParticleGraph, type ParticleProgram } from "../../scene/particleCompile";
+import { parseParticleGraph } from "../../scene/particleGraphFormat";
+import type { ParticleRenderer as RendererSettings } from "../../scene/particles";
 import type { ParticleSystem } from "../components";
 import { Graphics } from "../Graphics";
+import { ProgramRunner } from "./programRunner";
 import { buildEffect, linearRGB, type BuiltEmitter } from "./quarksEffect";
 
 /** What the particle renderer needs from the render backend. */
@@ -36,7 +39,10 @@ interface Instance {
   raw: unknown;
   /** What the build depended on besides the effect: tint and materials. */
   key: string;
-  effect: ParticleEffect | null;
+  program: ParticleProgram | null;
+  runner: ProgramRunner | null;
+  /** The overrides object last given to the runner (`setProperty` replaces it). */
+  overrides: unknown;
   emitters: BuiltEmitter[] | null;
   scale: { value: number };
   /** The component's tint (linear), read by the start colours as particles are born. */
@@ -89,32 +95,59 @@ export class ParticleRenderer {
       // The effect changed (edited, or another asset): rebuild, keeping whether it plays.
       this.disposeEmitters(inst);
       inst.raw = raw;
-      inst.effect = this.parse(c, raw);
+      inst.program = this.parse(c, raw);
+      inst.runner = inst.program && new ProgramRunner(inst.program);
+      inst.overrides = undefined;
       inst.key = "";
     }
     if (!inst) {
-      inst = { raw, key: "", effect: this.parse(c, raw), emitters: null, scale: { value: 1 }, tint: { value: [1, 1, 1, 1] }, keyAge: 0, state: c.playOnAwake ? "playing" : "stopped", time: 0, shown: false, idle: 0, started: false };
+      const program = this.parse(c, raw);
+      inst = {
+        raw,
+        key: "",
+        program,
+        runner: program && new ProgramRunner(program),
+        overrides: undefined,
+        emitters: null,
+        scale: { value: 1 },
+        tint: { value: [1, 1, 1, 1] },
+        keyAge: 0,
+        state: c.playOnAwake ? "playing" : "stopped",
+        time: 0,
+        shown: false,
+        idle: 0,
+        started: false,
+      };
       this.instances.set(c, inst);
     }
     inst.scale.value = PARTICLE_SCALE[Graphics.tier.particles] * Math.max(0, c.emissionScale);
     const t = c.tint;
     inst.tint.value = [...linearRGB(t.r, t.g, t.b), t.a];
-    if (!inst.effect) return;
+    if (!inst.program || !inst.runner) return;
+    if (inst.overrides !== c.overrides) {
+      inst.overrides = c.overrides;
+      inst.runner.setOverrides(c.overrides ?? {});
+    }
 
     // Rebuild when a material changes (a texture finishing loading, a material asset edited), checked
     // at once while unbuilt and a few times a second after.
     inst.keyAge += unscaledDeltaTime;
-    const key = !inst.key || inst.keyAge >= KEY_CHECK_INTERVAL ? this.buildKey(inst.effect) : inst.key;
+    const checking = !inst.key || inst.keyAge >= KEY_CHECK_INTERVAL;
+    let key = checking ? this.buildKey(inst.program) : inst.key;
+    // Bindings that aren't live (a shape's radius from a property, say) rebuild when their value changes.
+    if (checking && inst.key && inst.runner.update(inst.time, 0, this.playTime(inst), true)) key = "";
     if (key === inst.key) inst.keyAge = inst.keyAge >= KEY_CHECK_INTERVAL ? 0 : inst.keyAge;
     if (key !== inst.key) {
       inst.keyAge = 0;
       this.disposeEmitters(inst);
       inst.key = key;
-      inst.emitters = buildEffect(inst.effect, {
+      if (!key) inst.key = key = this.buildKey(inst.program);
+      inst.emitters = buildEffect(inst.runner.effect(), {
         material: (r) => this.host.material(r),
         geometry: (m) => this.host.geometry(m),
         scale: inst.scale,
         tint: inst.tint,
+        live: inst.runner.live,
       });
       if (!inst.emitters) {
         inst.key = ""; // something is still loading: try again next frame
@@ -149,14 +182,18 @@ export class ParticleRenderer {
     } else {
       for (const cmd of c._commands.splice(0)) {
         if (cmd.op === "emit") this.emit(inst, cmd.count);
-        else if (cmd.op === "stop") this.applyState(inst, cmd.clear ? "stopClear" : "stopped");
-        else this.applyState(inst, cmd.op);
+        else if (cmd.op === "event") this.route(inst, inst.program.custom.get(cmd.name));
+        else if (cmd.op === "stop") {
+          this.applyState(inst, cmd.clear ? "stopClear" : "stopped");
+          this.route(inst, inst.program.onStop);
+        } else this.applyState(inst, cmd.op);
       }
       dt = deltaTime * Math.max(0, c.timeScale);
     }
 
     if (inst.state !== "paused" && dt > 0) {
       inst.time += dt;
+      inst.runner.update(inst.time, dt, this.playTime(inst));
       for (const e of inst.emitters) {
         if (inst.time < e.startDelay) continue;
         (e.system as unknown as { update(dt: number): void }).update(dt);
@@ -198,7 +235,13 @@ export class ParticleRenderer {
         for (const e of emitters) {
           e.system.looping = e.looping;
           e.system.restart();
+          // Systems started by events (not On Play) wait for them.
+          if (!this.autoStarts(inst, e)) {
+            e.system.looping = false;
+            e.system.endEmit();
+          }
         }
+        this.route(inst, inst.program ? { start: [], stop: inst.program.onPlay.stop } : undefined);
         inst.time = 0;
         inst.idle = 0;
         inst.state = "playing";
@@ -217,6 +260,33 @@ export class ParticleRenderer {
         inst.state = "stopped";
         return;
     }
+  }
+
+  private autoStarts(inst: Instance, e: BuiltEmitter): boolean {
+    const i = inst.program?.systems.indexOf(e.name) ?? -1;
+    return i < 0 || (inst.program?.autoStart[i] ?? true);
+  }
+
+  /** Start and stop the systems an event is wired to. */
+  private route(inst: Instance, route: { start: number[]; stop: number[] } | undefined): void {
+    if (!route || !inst.emitters || !inst.program) return;
+    for (const e of inst.emitters) {
+      const i = inst.program.systems.indexOf(e.name);
+      if (route.start.includes(i)) {
+        e.system.looping = e.looping;
+        e.system.restart();
+        if (inst.state !== "playing") inst.state = "playing";
+      } else if (route.stop.includes(i)) {
+        e.system.looping = false;
+        e.system.endEmit();
+      }
+    }
+  }
+
+  /** Seconds into the current cycle, for Play Time nodes (by the first system's duration). */
+  private playTime(inst: Instance): number {
+    const d = inst.program?.effect.emitters[0]?.duration ?? 0;
+    return d > 0 ? inst.time % d : inst.time;
   }
 
   private emit(inst: Instance, count: number): void {
@@ -240,25 +310,29 @@ export class ParticleRenderer {
     return c.embeddedEffect ?? undefined;
   }
 
-  private parse(c: ParticleSystem, raw: unknown): ParticleEffect | null {
+  private parse(c: ParticleSystem, raw: unknown): ParticleProgram | null {
     const where = c.effect ? c.effect.replace(/^asset:/, "") : `${c.node.name}'s particle effect`;
     if (raw === undefined) {
       if (c.effect) this.warnOnce(`missing|${c.effect}`, `particle effect "${where}" isn't in the project.`);
       return null;
     }
     try {
-      const { effect, problems } = parseParticleEffect(raw, where);
-      for (const p of problems) this.warnOnce(`${where}|${p}`, p);
-      return effect;
+      const { graph, problems } = parseParticleGraph(raw, where);
+      const program = compileParticleGraph(graph);
+      for (const p of [...problems, ...program.problems]) {
+        const text = `${where}: ${p.message}${p.at ? ` (${p.at})` : ""}`;
+        this.warnOnce(`${where}|${text}`, text);
+      }
+      return program;
     } catch (err) {
       this.warnOnce(`${where}|${(err as Error).message}`, (err as Error).message);
       return null;
     }
   }
 
-  private buildKey(effect: ParticleEffect): string {
+  private buildKey(program: ParticleProgram): string {
     const parts: string[] = [];
-    for (const e of effect.emitters) {
+    for (const e of program.effect.emitters) {
       if (!e.enabled) continue;
       const m = this.host.material(e.renderer);
       const map = (m as (Material & { map?: { uuid: string } | null }) | null)?.map;

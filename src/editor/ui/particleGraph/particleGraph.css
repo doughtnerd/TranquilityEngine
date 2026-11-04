@@ -1,0 +1,208 @@
+/* The Particle Graph panel (ADR 0060). Theme tokens only (src/editor/theme.ts). Context headers are
+   coloured by kind; ports and wires by value type; event wires are dotted and heavier; a wire that
+   needs the GPU backend is dashed amber. The canvas, search, groups, notes and minimap are in
+   src/editor/graph/graph.css; the preview's own styles in preview.css. */
+.particle-graph {
+  --pg-spawn: var(--accent2);
+  --pg-initialize: var(--accent);
+  --pg-update: var(--warning);
+  --pg-output: color-mix(in srgb, var(--danger) 60%, var(--warning));
+  --pg-number: var(--accent);
+  --pg-vector2: var(--accent2);
+  --pg-vector3: var(--warning);
+  --pg-color: color-mix(in srgb, var(--danger) 65%, var(--warning));
+  --pg-curve: var(--link);
+  --pg-gradient: color-mix(in srgb, var(--accent2) 50%, var(--danger));
+  --pg-bool: var(--muted);
+  --pg-event: var(--text-strong);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--panel);
+  outline: none;
+}
+.particle-graph.maximized { position: fixed; inset: 0; z-index: 40; box-shadow: 0 0 0 1px var(--border-strong); }
+.particle-graph-empty { padding: 16px; color: var(--muted); }
+.pg-body { flex: 1; display: flex; min-height: 0; position: relative; }
+.pg-spacer { flex: 1; }
+.pg-faint { color: var(--faint); }
+
+/* --- toolbar, notices, problems --- */
+.pg-problems-anchor { position: relative; }
+.pg-problem-count.warning { color: var(--warning); border-color: var(--warning); }
+.pg-problem-count.error { color: var(--danger); border-color: var(--danger); }
+.pg-problem-list { position: absolute; top: 100%; left: 0; z-index: 50; width: 380px; max-height: 320px; overflow: auto; list-style: none; margin: 4px 0 0; padding: 4px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow); }
+.pg-problem-list button { display: block; width: 100%; text-align: left; white-space: normal; background: transparent; border: none; border-radius: 3px; color: var(--text); padding: 3px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); cursor: pointer; }
+.pg-problem-list button:hover { background: var(--hover); }
+.pg-problem-list li.error button { color: var(--danger); }
+.pg-notice { margin: 0; padding: 3px 10px; background: var(--warning-soft); color: var(--text); border-bottom: 1px solid var(--warning); font-size: calc(12px * var(--ui-scale)); }
+.pg-canvas-empty { position: absolute; left: 0; right: 0; top: 45%; margin: 0; text-align: center; color: var(--faint); pointer-events: none; }
+.pg-refusal { position: absolute; z-index: 40; max-width: 260px; padding: 3px 6px; background: var(--surface); border: 1px solid var(--danger); border-radius: 4px; color: var(--text); font-size: 11px; pointer-events: none; }
+
+/* --- small buttons and fields --- */
+.particle-graph .pg-fold, .particle-graph .pg-x { padding: 0 4px; background: transparent; border: none; color: var(--muted); line-height: 1; cursor: pointer; font: inherit; }
+.particle-graph .pg-fold:hover { color: var(--text); background: transparent; }
+.particle-graph .pg-x:hover:not(:disabled) { color: var(--danger); background: transparent; }
+.particle-graph .pg-x:disabled { opacity: 0.4; cursor: default; }
+.particle-graph input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
+.pg-system input.num-input, .pg-node input.num-input, .pg-blackboard input.num-input, .pg-popover input.num-input,
+.pg-system select, .pg-node select, .pg-node input.pg-text, .pg-blackboard select, .pg-blackboard input[type="text"], .pg-system-rename {
+  min-width: 0;
+  box-sizing: border-box;
+  height: 18px;
+  padding: 0 3px;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: inherit;
+  font-size: 11px;
+}
+.particle-graph input:focus, .particle-graph select:focus { outline: none; border-color: var(--accent); }
+.particle-graph input:disabled, .particle-graph select:disabled { opacity: 0.7; }
+.pg-value { display: flex; align-items: center; gap: 3px; min-width: 0; flex: 1; }
+.pg-value input.num-input { flex: 1 1 36px; width: 36px; }
+.pg-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px; flex: 1; min-width: 0; }
+.pg-vector .pg-axis { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; }
+.pg-axis em { color: var(--muted); font-style: normal; font-size: 10px; }
+.pg-unit { color: var(--faint); font-size: 10px; flex: none; }
+.pg-swatch { display: flex; align-items: center; gap: 3px; min-width: 0; flex: 1; }
+.pg-swatch input[type="color"] { width: 26px; height: 18px; padding: 0; flex: none; border: 1px solid var(--border); border-radius: 3px; background: var(--input-bg); }
+.pg-swatch input.num-input { flex: 0 1 40px; width: 40px; }
+/* The value-mode menu (Constant / Random / Curve…): a compact ▾ button, its options listed when opened. */
+.particle-graph select.pg-mode { width: 18px; flex: none; padding: 0; color: transparent; appearance: none; cursor: pointer; }
+.particle-graph .pg-mode-wrap { position: relative; display: inline-flex; flex: none; }
+.particle-graph .pg-mode-wrap::after { content: "▾"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 10px; pointer-events: none; }
+.particle-graph select.pg-mode option { color: var(--text); }
+.pg-select { flex: 1; }
+
+/* curve and gradient previews open their editors in a popover */
+.pg-pop-anchor { position: relative; display: flex; flex: 1; min-width: 0; }
+.pg-pop-button { display: flex; align-items: center; gap: 3px; width: 100%; height: 18px; padding: 1px 3px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 3px; background: var(--input-bg); color: inherit; cursor: pointer; }
+.pg-pop-button:hover { border-color: var(--border-strong); }
+.pg-pop-button.open { border-color: var(--accent); }
+.pg-pop-button .curve-preview { height: 14px; }
+.pg-pop-button .gradient-preview { height: 12px; }
+.pg-popover { position: absolute; top: 100%; left: 0; z-index: 30; width: 250px; margin-top: 4px; padding: 6px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 6px 20px var(--shadow); cursor: default; font-size: 12px; }
+.pg-popover.wide { width: 290px; }
+.pg-popover input.num-input { width: 100%; }
+
+/* --- ports --- */
+.pt-number { --pt: var(--pg-number); }
+.pt-vector2 { --pt: var(--pg-vector2); }
+.pt-vector3 { --pt: var(--pg-vector3); }
+.pt-color { --pt: var(--pg-color); }
+.pt-curve { --pt: var(--pg-curve); }
+.pt-gradient { --pt: var(--pg-gradient); }
+.pt-bool { --pt: var(--pg-bool); }
+.pt-event { --pt: var(--pg-event); }
+.pg-port { position: absolute; top: 50%; z-index: 1; width: 10px; height: 10px; margin-top: -5px; box-sizing: border-box; border: 2px solid var(--pt, var(--accent)); border-radius: 50%; background: var(--surface); cursor: crosshair; }
+.pg-port.in { left: -6px; }
+.pg-port.out { right: -6px; }
+.pg-port.filled { background: var(--pt, var(--accent)); }
+.pg-port.pt-event { border-radius: 2px; transform: rotate(45deg); }
+.pg-port:hover { box-shadow: 0 0 0 3px var(--accent-soft); }
+
+/* --- wires --- */
+.pg-wires { z-index: 2; }
+.pg-wire .sg-wire-line { stroke: var(--pt, var(--accent)); }
+.pg-wire.gpu .sg-wire-line { stroke: var(--warning); stroke-dasharray: 7 5; }
+.pg-event-wire .sg-wire-line { stroke: var(--pg-event); stroke-width: 3.5; stroke-dasharray: 1 7; stroke-linecap: round; }
+
+/* --- systems and contexts --- */
+.pg-system { position: absolute; box-sizing: border-box; padding: 4px 10px 10px; border: 1px solid var(--border-strong); border-radius: 10px; background: color-mix(in srgb, var(--panel) 75%, transparent); color: var(--text); user-select: none; font-size: calc(12px * var(--ui-scale)); }
+.pg-system.selected { border-color: var(--accent); box-shadow: var(--glow); }
+.pg-system.off .pg-system-body { opacity: 0.5; }
+.pg-system-head { display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; font-weight: 700; color: var(--text-strong); cursor: grab; }
+.pg-system-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-system-rename { flex: 1; height: 20px; font-weight: 600; }
+.pg-system-body { display: flex; flex-direction: column; }
+.pg-flow { width: 10px; height: 14px; margin: 0 auto; background: var(--border-strong); }
+
+.pg-context { --ctx: var(--accent); position: relative; background: var(--surface); border: 1px solid var(--border-strong); border-top: 3px solid var(--ctx); border-radius: 6px; box-shadow: 0 2px 8px var(--shadow); }
+.pg-context.k-spawn { --ctx: var(--pg-spawn); }
+.pg-context.k-initialize { --ctx: var(--pg-initialize); }
+.pg-context.k-update { --ctx: var(--pg-update); }
+.pg-context.k-output { --ctx: var(--pg-output); }
+.pg-context-head { padding: 4px 8px 6px; background: color-mix(in srgb, var(--ctx) 14%, var(--surface)); border-bottom: 1px solid var(--border); cursor: grab; }
+.pg-context-title { font-weight: 700; color: var(--text-strong); }
+.pg-context-sub { color: var(--ctx); }
+.pg-settings { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px 10px; margin-top: 4px; }
+.k-output .pg-settings { grid-template-columns: minmax(0, 1fr); }
+.pg-setting { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--muted); font-size: 11px; }
+.pg-setting > span { flex: none; min-width: 58px; }
+.k-output .pg-setting > span { min-width: 84px; }
+.pg-setting > input.num-input, .pg-setting > select { flex: 1; width: 0; }
+/* Start and Stop, stacked on the context's left edge like VFX Graph's event inputs. */
+.pg-events { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.pg-event-in { position: relative; margin-left: -8px; padding-left: 12px; color: var(--muted); font-size: 11px; }
+
+/* --- blocks --- */
+.pg-blocks { padding: 4px; cursor: default; }
+.pg-blocks-empty { margin: 2px 4px 4px; color: var(--faint); font-size: 11px; }
+.pg-block { position: relative; margin-bottom: 3px; padding-bottom: 2px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; }
+.pg-block.selected { border-color: var(--accent); }
+.pg-block.dragging { opacity: 0.4; }
+.pg-block.off .pg-block-title, .pg-block.off .pg-input { opacity: 0.45; }
+.pg-block.unknown { border-color: var(--danger); background: var(--danger-soft); }
+.pg-block.unknown .pg-block-title { color: var(--danger); }
+.pg-block-head { position: relative; display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; }
+.pg-block-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pg-drag { padding: 0 2px; color: var(--faint); cursor: grab; touch-action: none; }
+.pg-drag:hover { color: var(--text); }
+.pg-drag.disabled { cursor: default; color: var(--border-strong); }
+.pg-input { position: relative; display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 6px; min-height: 20px; padding: 1px 6px 1px 10px; }
+.pg-input-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.pg-wired-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-style: italic; font-size: 11px; }
+.pg-wired-from.gpu { color: var(--warning); }
+.pg-drop-line { height: 3px; margin: 1px 0 3px; border-radius: 2px; background: var(--accent); }
+.pg-add-block { display: block; width: 100%; height: 20px; margin-top: 2px; padding: 0; background: transparent; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--muted); font: inherit; cursor: pointer; }
+.pg-add-block:hover:not(:disabled) { color: var(--text); border-color: var(--accent); background: var(--accent-faint); }
+.pg-add-block:disabled { opacity: 0.4; cursor: default; }
+
+.pg-badge { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 14px; height: 14px; border-radius: 50%; font-size: 9px; font-weight: 700; line-height: 1; cursor: help; }
+.pg-badge.error { background: var(--danger); color: var(--danger-text); }
+.pg-badge.warning { background: var(--warning); color: var(--bg); }
+
+/* --- nodes --- */
+.pg-node { --cat: var(--muted); position: absolute; box-sizing: border-box; padding-bottom: 3px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 2px 8px var(--shadow); color: var(--text); user-select: none; font-size: calc(12px * var(--ui-scale)); }
+.pg-node.selected { border-color: var(--accent); box-shadow: var(--glow); }
+.pg-node.has-problem, .pg-node.unknown { border-color: var(--danger); }
+.pg-node-head { display: flex; align-items: center; gap: 4px; padding: 3px 8px; margin-bottom: 2px; font-weight: 600; background: var(--active); border-bottom: 1px solid var(--border); border-radius: 6px 6px 0 0; box-shadow: inset 3px 0 0 var(--cat); cursor: grab; }
+.pg-node-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-node.unknown .pg-node-title { color: var(--danger); }
+.pg-node-head.cat-value { --cat: var(--accent2); }
+.pg-node-head.cat-time { --cat: var(--warning); }
+.pg-node-head.cat-math, .pg-node-head.cat-trigonometry { --cat: var(--accent); }
+.pg-node-head.cat-sampling { --cat: var(--link); }
+.pg-node-head.cat-vector { --cat: var(--accent2); }
+.pg-node-head.cat-colour { --cat: var(--pg-color); }
+.pg-node-head.cat-property { --cat: var(--muted); }
+.pg-node-head.cat-event { --cat: var(--pg-event); }
+.pg-row { position: relative; display: flex; align-items: center; gap: 6px; min-height: 20px; padding: 1px 10px; }
+.pg-row.out { justify-content: flex-end; }
+.pg-row-label { flex: none; min-width: 34px; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.pg-row.out .pg-row-label { min-width: 0; }
+.pg-rate { padding: 0 4px; border: 1px solid var(--accent2); border-radius: 8px; color: var(--accent2); font-size: 9px; white-space: nowrap; }
+
+/* --- blackboard --- */
+.pg-blackboard { width: 240px; flex: none; display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; overflow: auto; border-right: 1px solid var(--border); }
+.pg-blackboard.collapsed { width: 22px; padding: 4px 2px; align-items: center; }
+.pg-blackboard-head { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.pg-blackboard-head > span { flex: 1; }
+.pg-blackboard-head select { text-transform: none; letter-spacing: 0; }
+.pg-hint { margin: 2px 0; color: var(--faint); font-size: 12px; }
+.pg-property { display: flex; flex-direction: column; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+.pg-property-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.pg-property-row > input[type="text"] { flex: 1; }
+.pg-property-type { color: var(--faint); font-size: 10px; }
+.pg-grip { color: var(--faint); cursor: grab; }
+.pg-property-actions label { display: flex; align-items: center; gap: 3px; color: var(--muted); font-size: 11px; }
+.pg-property-actions button { padding: 0 6px; }
+
+/* --- preview card --- */
+.pg-previewcard { position: absolute; right: 8px; bottom: 8px; z-index: 4; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 4px 16px var(--shadow); overflow: hidden; }
+.pg-previewcard-head { display: flex; align-items: center; gap: 4px; padding: 2px 6px 2px 14px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.pg-previewcard-body { max-width: calc(100vw - 80px); max-height: calc(100vh - 160px); }
+.pg-previewcard-resize { position: absolute; left: 0; top: 0; z-index: 1; width: 12px; height: 12px; cursor: nwse-resize; background: linear-gradient(315deg, transparent 50%, var(--border-strong) 50%); }

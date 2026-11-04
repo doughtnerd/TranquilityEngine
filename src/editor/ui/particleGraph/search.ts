@@ -1,0 +1,53 @@
+// What the Particle Graph's search offers (ADR 0060), by where it opened: over a context, the
+// blocks that fit there; on the canvas, new systems from templates, value and operator nodes by
+// category, the Blackboard's properties and event nodes.
+import type { ContextKind, ParticleGraph } from "../../../engine/scene/particleGraph";
+import { blocksFor } from "../../../engine/scene/particleBlocks";
+import { NODES, type NodeCategory } from "../../../engine/scene/particleNodes";
+import type { SearchItem } from "../../graph";
+import type { TemplateKind } from "../../particleGraph/graphEdit";
+import { CONTEXT_TITLES } from "./layout";
+
+export type SearchPick = { kind: "block"; type: string } | { kind: "node"; type: string; settings?: Record<string, unknown> } | { kind: "system"; template: TemplateKind };
+
+export interface GraphSearchItem extends SearchItem {
+  pick: SearchPick;
+}
+
+/** Blocks for a context, grouped: positions apart in Initialize, events apart in Update. */
+export function blockItems(kind: ContextKind): GraphSearchItem[] {
+  const group = (label: string, type: string) => {
+    if (label.startsWith("Position:")) return "Position";
+    if (type === "update.triggerEvent") return "Events";
+    return CONTEXT_TITLES[kind];
+  };
+  const items = blocksFor(kind).map((d) => ({ key: d.type, label: d.label, category: group(d.label, d.type), keywords: `${d.label} ${d.description} ${d.type}`, pick: { kind: "block", type: d.type } as SearchPick }));
+  const order = [CONTEXT_TITLES[kind], "Position", "Events"];
+  return items.sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category));
+}
+
+const CATEGORY_ORDER: NodeCategory[] = ["Value", "Property", "Time", "Math", "Trigonometry", "Sampling", "Vector", "Colour", "Event"];
+const TEMPLATES: [TemplateKind, string, string][] = [
+  ["empty", "System: Empty", "empty blank new system"],
+  ["simpleLoop", "System: Simple Loop", "simple loop new system continuous"],
+  ["burst", "System: Burst", "burst explosion new system one shot"],
+  ["trail", "System: Trail", "trail ribbon new system"],
+];
+
+/** Systems, nodes, properties and events for the empty canvas. */
+export function canvasItems(graph: ParticleGraph): GraphSearchItem[] {
+  const items: GraphSearchItem[] = TEMPLATES.map(([template, label, kw]) => ({ key: `system:${template}`, label, category: "Systems", keywords: `${label} ${kw}`, pick: { kind: "system", template } }));
+  for (const category of CATEGORY_ORDER) {
+    if (category === "Property") {
+      for (const p of graph.properties) items.push({ key: `property:${p.name}`, label: p.name, category: "Properties", keywords: `${p.name} property blackboard ${p.type}`, pick: { kind: "node", type: "property", settings: { name: p.name } } });
+      if (graph.properties.length) continue;
+    }
+    for (const d of NODES.filter((n) => n.category === category)) {
+      items.push({ key: d.type, label: d.label, category: category === "Property" ? "Properties" : category, keywords: `${d.label} ${d.category} ${d.description} ${d.type}`, pick: { kind: "node", type: d.type } });
+    }
+  }
+  return items;
+}
+
+/** Nodes only (when a dropped wire asks for something to connect to). */
+export const nodeItems = (graph: ParticleGraph): GraphSearchItem[] => canvasItems(graph).filter((i) => i.pick.kind === "node");
