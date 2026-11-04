@@ -469,7 +469,7 @@ fn chunk_without_border_data_gets_no_overlay() {
     // A's file without its border, but still a bounded chunk.
     let mut file = a.out.file.clone();
     file.chunk_border = None;
-    let bare = LoadedChunk { id: id(1), file: Arc::new(file), bounds_min: OMIN_A, bounds_max: OMAX_A, bounded: true };
+    let bare = LoadedChunk::with_bounds(id(1), Arc::new(file), OMIN_A, OMAX_A, true);
     let chunks = gather(&[bare, loaded(id(2), &b)]);
     assert!(chunks.entries.iter().all(|e| e.chunk != id(1) || e.border.is_none()));
     assert!(plan_overlays(&chunks).is_empty(), "B's only neighbour has no border data; A has none of its own");

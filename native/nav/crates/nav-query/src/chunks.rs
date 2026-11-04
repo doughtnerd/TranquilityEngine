@@ -26,19 +26,49 @@ pub struct LoadedChunk {
     pub bounds_min: Float3,
     pub bounds_max: Float3,
     pub bounded: bool,
+    /// The file's sections, shared: each copied once when the chunk loads, so every gather (and every agent
+    /// type's entry) shares them instead of copying the navmeshes again.
+    pub sections: Arc<ChunkSections>,
+}
+
+/// A loaded chunk's sections behind `Arc`s, by group (see [`LoadedChunk::sections`]).
+#[derive(Clone, Debug, Default)]
+pub struct ChunkSections {
+    pub navmeshes: Vec<(u32, Arc<NavMeshData>)>,
+    pub volumes: Vec<(u32, Arc<NavVolumeData>)>,
+    /// (walking group, flying group, links).
+    pub landing_links: Vec<(u32, u32, Arc<NavLandingLinksData>)>,
+    pub border: Option<Arc<NavChunkBorderData>>,
+}
+
+impl ChunkSections {
+    pub fn of(file: &BakeFile) -> Self {
+        Self {
+            navmeshes: file.navmeshes.iter().map(|n| (n.group, Arc::new(n.data.clone()))).collect(),
+            volumes: file.volumes.iter().map(|v| (v.group, Arc::new(v.data.clone()))).collect(),
+            landing_links: file.landing_links.iter().map(|l| (l.ground_group, l.air_group, Arc::new(l.data.clone()))).collect(),
+            border: file.chunk_border.clone().map(Arc::new),
+        }
+    }
 }
 
 impl LoadedChunk {
+    /// A loaded chunk with bounds given by the caller (tests, or a host that knows them).
+    pub fn with_bounds(id: Hash128, file: Arc<BakeFile>, bounds_min: Float3, bounds_max: Float3, bounded: bool) -> Self {
+        let sections = Arc::new(ChunkSections::of(&file));
+        Self { id, file, bounds_min, bounds_max, bounded, sections }
+    }
+
     /// A loaded chunk with its bounds worked out from the file: the chunk info's flag and box when the file has
     /// one (every bake writes it, so a fly-only bounded chunk, which bakes no border, is still bounded). Without
     /// it (older files): the chunk border's box for a bounded chunk, else the union of its navmeshes' vertices
     /// and volumes' boxes.
     pub fn new(id: Hash128, file: Arc<BakeFile>) -> Self {
-        if let Some(info) = &file.chunk_info {
-            return Self { id, bounds_min: info.box_min, bounds_max: info.box_max, bounded: info.bounded != 0, file };
+        if let Some(info) = file.chunk_info {
+            return Self::with_bounds(id, file, info.box_min, info.box_max, info.bounded != 0);
         }
-        if let Some(border) = &file.chunk_border {
-            return Self { id, bounds_min: border.box_min, bounds_max: border.box_max, bounded: true, file };
+        if let Some((min, max)) = file.chunk_border.as_ref().map(|b| (b.box_min, b.box_max)) {
+            return Self::with_bounds(id, file, min, max, true);
         }
         let mut min = Float3::splat(f32::INFINITY);
         let mut max = Float3::splat(f32::NEG_INFINITY);
@@ -58,7 +88,7 @@ impl LoadedChunk {
             min = Float3::default();
             max = Float3::default();
         }
-        Self { id, bounds_min: min, bounds_max: max, bounded: false, file }
+        Self::with_bounds(id, file, min, max, false)
     }
 }
 
@@ -145,27 +175,28 @@ impl NavChunks {
             let gate_count = closed.len();
             out.closed_gates.extend(closed);
             let last_gate_change = state.map(|s| s.last_change).unwrap_or(0.0);
-            let border = file.chunk_border.clone().map(Arc::new);
+            let sections = &c.sections;
+            let border = sections.border.clone();
 
             let mut agents = table.entries.clone();
             agents.sort_by_key(|a| a.id);
             for a in agents {
-                let nav = (a.walk_group >= 0).then(|| file.navmeshes.iter().find(|n| n.group as i32 == a.walk_group)).flatten();
-                let volume = (a.fly_group >= 0).then(|| file.volumes.iter().find(|v| v.group as i32 == a.fly_group)).flatten();
+                let nav = (a.walk_group >= 0).then(|| sections.navmeshes.iter().find(|n| n.0 as i32 == a.walk_group).map(|n| &n.1)).flatten();
+                let volume = (a.fly_group >= 0).then(|| sections.volumes.iter().find(|v| v.0 as i32 == a.fly_group).map(|v| &v.1)).flatten();
                 if nav.is_none() && volume.is_none() {
                     continue;
                 }
                 let links = (a.walk_group >= 0 && a.fly_group >= 0)
-                    .then(|| file.landing_links.iter().find(|l| l.ground_group as i32 == a.walk_group && l.air_group as i32 == a.fly_group))
+                    .then(|| sections.landing_links.iter().find(|l| l.0 as i32 == a.walk_group && l.1 as i32 == a.fly_group).map(|l| &l.2))
                     .flatten();
                 let overlay = overlays.iter().find(|o| o.chunk == c.id && o.agent_type == a.id);
                 let mut entry = ChunkEntry {
                     chunk: c.id,
                     agent_type: a.id,
                     signature: file.signature,
-                    nav: nav.map(|n| Arc::new(n.data.clone())),
-                    volume: volume.map(|v| Arc::new(v.data.clone())),
-                    links: links.map(|l| Arc::new(l.data.clone())),
+                    nav: nav.cloned(),
+                    volume: volume.cloned(),
+                    links: links.cloned(),
                     border: border.clone(),
                     bounds_min: c.bounds_min,
                     bounds_max: c.bounds_max,

@@ -1,0 +1,13 @@
+[package]
+name = "nav-crowd"
+description = "Navigation runtime (ADR 0065): Foxfire's agents, chunk streaming, path requests and pools, following, steering, avoidance, groups, surround, gates and easing, ticked as one crowd."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nav-math.workspace = true
+nav-format.workspace = true
+nav-query.workspace = true
+nav-bake.workspace = true

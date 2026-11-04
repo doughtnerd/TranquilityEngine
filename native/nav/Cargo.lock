@@ -24,6 +24,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nav-crowd"
+version = "0.1.0"
+dependencies = [
+ "nav-bake",
+ "nav-format",
+ "nav-math",
+ "nav-query",
+]
+
+[[package]]
 name = "nav-format"
 version = "0.1.0"
 dependencies = [

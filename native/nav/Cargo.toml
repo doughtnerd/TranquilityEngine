@@ -16,6 +16,7 @@ nav-format = { path = "crates/nav-format" }
 nav-recast = { path = "crates/nav-recast" }
 nav-bake = { path = "crates/nav-bake" }
 nav-query = { path = "crates/nav-query" }
+nav-crowd = { path = "crates/nav-crowd" }
 wasm-bindgen = "=0.2.130"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
