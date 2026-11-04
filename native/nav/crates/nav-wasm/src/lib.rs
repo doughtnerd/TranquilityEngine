@@ -55,6 +55,7 @@ fn kind_name(kind: SectionKind) -> &'static str {
         SectionKind::ChunkBorder => "chunkBorder",
         SectionKind::Formation => "formation",
         SectionKind::AgentTable => "agentTable",
+        SectionKind::ChunkInfo => "chunkInfo",
     }
 }
 

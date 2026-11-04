@@ -38,6 +38,9 @@ fn the_whole_bake_round_trips_through_the_file() {
     assert_eq!(file.landing_links.len(), 1);
     assert_eq!(file.gate_table.as_ref().map(|g| g.ids.len()), Some(2));
     assert!(file.chunk_border.is_some());
+    let info = file.chunk_info.expect("chunk info is always written");
+    assert_eq!(info.bounded, 1);
+    assert_eq!(Some((info.box_min, info.box_max)), bake.out.chunk_bounds);
     // The gate flags and the agent table: the hybrid has both groups, the wall climber only a walk group.
     let gates = file.gate_table.as_ref().unwrap();
     assert_eq!(gates.closed.len(), gates.ids.len());
@@ -328,4 +331,29 @@ fn the_default_setup_is_usable() {
     bake.bake();
     assert_eq!(bake.out.profiles[0].cell_size, 0.25);
     assert!(!bake.nav().polys.is_empty());
+}
+
+#[test]
+fn a_fly_only_bounded_chunk_writes_bounded_chunk_info_without_a_border() {
+    let mut bake = TestBake::new(None);
+    bake.add_floor((-40.0, -16.0), (40.0, 16.0), 0.0, &[]);
+    bake.add_flyer(flyer_with(1.0, 0.5, 0.0));
+    bake.set_chunk_bounds(v3(-16.0, -1.0, -16.0), v3(16.0, 8.0, 16.0), 1, 2);
+    bake.bake();
+    let file = &bake.out.file;
+    assert!(file.chunk_border.is_none(), "no walking agents, no border");
+    let info = file.chunk_info.expect("chunk info");
+    assert_eq!(info.bounded, 1);
+    assert_eq!(Some((info.box_min, info.box_max)), bake.out.chunk_bounds);
+    assert_eq!(nav_format::read(&bake.bytes()).unwrap().chunk_info, file.chunk_info);
+}
+
+#[test]
+fn an_unbounded_chunk_writes_unbounded_chunk_info() {
+    let mut bake = TestBake::new(Some(flat_profile()));
+    bake.add_floor_simple(-10.0, 10.0);
+    bake.bake();
+    let info = bake.out.file.chunk_info.expect("chunk info");
+    assert_eq!(info.bounded, 0);
+    assert!(info.box_min.x <= -9.0 && info.box_max.x >= 9.0);
 }

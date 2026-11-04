@@ -13,7 +13,7 @@
 //! then only if Blocks is non-empty: `Value(int4(BaseScale, 0, 0, 0))`, arrays Blocks, BlockLeaf. Excluded:
 //! AgentRadius and BaseDims (BaseDims follows from Dims and BaseScale).
 //!
-//! Landing links, gate table, chunk border and formations have no Foxfire fingerprint; the ones here are Myco's
+//! Landing links, gate table, chunk border, chunk info and formations have no Foxfire fingerprint; the ones here are Myco's
 //! (same chaining, seed `0x5EED`) so every section of a `myco.nav@1` file can carry one.
 use crate::blob::*;
 use crate::pod::{bytes_of, bytes_of_one, Pod};
@@ -121,6 +121,11 @@ pub fn hash_chunk_border_with<H: ChainHash>(h: &H, b: &NavChunkBorderData) -> u6
     s = hash_array(h, &b.profiles, s);
     s = hash_array(h, &b.agents, s);
     hash_array(h, &b.areas, s)
+}
+
+/// Myco's chunk-info fingerprint: the whole 32-byte struct.
+pub fn hash_chunk_info_with<H: ChainHash>(h: &H, i: &NavChunkInfo) -> u64 {
+    hash_value(h, i, SEED)
 }
 
 /// Myco's formation fingerprint: Slots, then Width and Depth.

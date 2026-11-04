@@ -29,6 +29,7 @@ fn struct_sizes_match_csharp_layouts() {
     assert_eq!(size_of::<NavBorderProfile>(), 4 + 40 + 80);
     assert_eq!(size_of::<NavBorderAgent>(), 20);
     assert_eq!(size_of::<TriangleData>(), 48);
+    assert_eq!(size_of::<NavChunkInfo>(), 12 + 12 + 4 + 4);
     assert_eq!(size_of::<NavLinkKind>(), 1);
     assert_eq!(size_of::<NavChunkFace>(), 4);
     // Everything aligns to at most 4 (no hidden padding from a wider field).
@@ -238,6 +239,7 @@ fn sample_file() -> BakeFile {
             ],
         }),
         chunk_border: Some(sample_border()),
+        chunk_info: Some(NavChunkInfo { box_min: Float3::new(0.0, -5.0, 0.0), box_max: Float3::new(64.0, 20.0, 64.0), bounded: 1, pad: 0 }),
         formations: vec![FormationSection { id: 7, data: NavFormationData { slots: vec![Float2::new(0.0, 0.0), Float2::new(1.0, 0.0), Float2::new(-1.0, 0.0)], width: 3, depth: 1 } }],
     }
 }
@@ -284,7 +286,7 @@ fn layout_is_aligned_and_header_is_as_documented() {
     let h = read_header(&bytes).unwrap();
     assert_eq!(h.package_version, [1, 2, 3]);
     assert_eq!(h.file_len as usize, bytes.len());
-    assert_eq!(h.sections.len(), 8);
+    assert_eq!(h.sections.len(), 9);
     for s in &h.sections {
         assert_eq!(s.offset % 8, 0);
         assert_eq!(s.length % 8, 0);
@@ -412,6 +414,9 @@ fn rejects_invalid_enums() {
     let mut f = sample_file();
     f.navmeshes[0].data.open_edges[0].face = NavChunkFace(-1);
     assert!(matches!(read(&write(&f)), Err(FormatError::InvalidEnum { value: -1, .. })));
+    let mut f = sample_file();
+    f.chunk_info.as_mut().unwrap().bounded = 2;
+    assert!(matches!(read(&write(&f)), Err(FormatError::InvalidEnum { value: 2, .. })));
 }
 
 #[test]

@@ -29,7 +29,7 @@
 //! ([`crate::output::chunk_id`]; use forward slashes, project-relative).
 use nav_format::file::{LandingLinksSection, NavMeshSection, VolumeSection};
 use nav_format::fingerprint::describe_volume;
-use nav_format::{BakeFile, NavAgentEntry, NavAgentTableData, NavAreaInfo, NavGateTableData, NavMeshData, NavVolumeData};
+use nav_format::{BakeFile, NavAgentEntry, NavAgentTableData, NavAreaInfo, NavChunkInfo, NavGateTableData, NavMeshData, NavVolumeData};
 use nav_math::hash::{hash_bytes, hash_value};
 use nav_math::math::Float4x4;
 use nav_math::{Float3, Hash128};
@@ -428,6 +428,28 @@ fn geometry_bounds(meshes: &[BakeMesh]) -> (Float3, Float3) {
     (b.min, b.max)
 }
 
+/// The bounds of what an unbounded bake produced: its navmeshes' vertices and flight volumes' boxes (zero if empty).
+fn content_bounds(file: &BakeFile) -> (Float3, Float3) {
+    let mut min = Float3::splat(f32::INFINITY);
+    let mut max = Float3::splat(f32::NEG_INFINITY);
+    for n in &file.navmeshes {
+        for v in &n.data.verts {
+            min = min.min(*v);
+            max = max.max(*v);
+        }
+    }
+    for v in &file.volumes {
+        let d = &v.data;
+        let size = Float3::new(d.dims.x as f32, d.dims.y as f32, d.dims.z as f32) * d.cell_size;
+        min = min.min(d.origin);
+        max = max.max(d.origin + size);
+    }
+    if min.x > max.x {
+        return (Float3::default(), Float3::default());
+    }
+    (min, max)
+}
+
 /// A grid-wide heightfield view as the flight volume reads it (the `Heightfield*` of the ground grid): every column's
 /// solid spans, tile borders already dropped by `publish`.
 fn flatten(view: &GridHeightfield, cs: f32, ch: f32) -> SolidHeightfield {
@@ -447,7 +469,7 @@ fn flatten(view: &GridHeightfield, cs: f32, ch: f32) -> SolidHeightfield {
 fn nothing_baked(input: &BakeInput, sig: Hash128, mut warnings: Vec<String>, reason: &str) -> BakeOutput {
     warnings.push(reason.to_string());
     BakeOutput {
-        file: BakeFile { package_version: PACKAGE_VERSION, signature: sig, ..BakeFile::default() },
+        file: BakeFile { package_version: PACKAGE_VERSION, signature: sig, chunk_info: Some(NavChunkInfo::default()), ..BakeFile::default() },
         chunk_id: chunk_id(&input.scene_path, &input.chunk_node_id),
         warnings,
         ..BakeOutput::default()
@@ -773,6 +795,14 @@ pub fn bake_chunk(input: &BakeInput, caches: &mut BakeCaches) -> BakeOutput {
         file.agent_table = Some(NavAgentTableData { entries });
     }
     file.chunk_border = border;
+    // Chunk info is always written: a fly-only bounded chunk bakes no border, but still joins its neighbours.
+    file.chunk_info = Some(match &chunk {
+        Some(c) => NavChunkInfo { box_min: c.min, box_max: c.max, bounded: 1, pad: 0 },
+        None => {
+            let (box_min, box_max) = content_bounds(&file);
+            NavChunkInfo { box_min, box_max, bounded: 0, pad: 0 }
+        }
+    });
 
     let report = BakeReport {
         triangles: triangle_count,

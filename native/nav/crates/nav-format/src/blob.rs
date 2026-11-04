@@ -331,6 +331,26 @@ pub struct NavChunkBorderData {
 }
 
 // ---------------------------------------------------------------------------------------------------------
+// Chunk info (Myco only)
+// ---------------------------------------------------------------------------------------------------------
+
+/// What the bake knows about its chunk's box, 32 bytes, no padding: `bounded` (0/1) says whether the chunk has
+/// Chunk Bounds (it joins neighbours at shared faces), and the box is the snapped chunk box when bounded, else
+/// the bake's content bounds. Unlike the chunk border it is written for every bake, so a fly-only bounded chunk
+/// (which bakes no border) still knows it is bounded.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct NavChunkInfo {
+    pub box_min: Float3,
+    pub box_max: Float3,
+    /// 1 = the chunk has Chunk Bounds, 0 = it doesn't. Other values are invalid.
+    pub bounded: u32,
+    /// Explicit padding to 32 bytes, zero.
+    pub pad: u32,
+}
+pod_structs!(NavChunkInfo);
+
+// ---------------------------------------------------------------------------------------------------------
 // Gate table, formations
 // ---------------------------------------------------------------------------------------------------------
 

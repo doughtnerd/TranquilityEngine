@@ -20,6 +20,7 @@ pub mod classify;
 pub mod clearance;
 pub mod landing;
 pub mod output;
+pub mod overlay;
 pub mod settings;
 pub mod stitcher;
 pub mod tiles;

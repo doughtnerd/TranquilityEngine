@@ -30,9 +30,10 @@
 //! Scalars: navmesh {f32 index_cell_size, f32 seam_height_tolerance}; volume {origin f32x3, cell_size f32, dims
 //! i32x3, agent_radius f32, base_scale i32, base_dims i32x3}; chunk border {box_min f32x3, box_max f32x3,
 //! overhang f32x4, min_depth i32, max_depth i32}; formation {width i32, depth i32}; landing links, gate table (ids, then
-//! closed flags: one byte each, 0/1, as many as ids) and agent table (NavAgentEntry x n) have none.
+//! closed flags: one byte each, 0/1, as many as ids), agent table (NavAgentEntry x n) have none; chunk info is one
+//! `NavChunkInfo` (32 bytes: box_min f32x3, box_max f32x3, bounded u32 (0/1), pad u32 (0)) and no arrays.
 //!
-//! Section kinds are unique per (kind, group, group2); the gate table, agent table and chunk border appear at most once.
+//! Section kinds are unique per (kind, group, group2); the gate table, agent table, chunk border and chunk info appear at most once.
 use crate::blob::*;
 use crate::fingerprint::*;
 use crate::pod::{bytes_of, bytes_of_one, read_one, vec_from_bytes, Pod};
@@ -54,6 +55,7 @@ pub enum SectionKind {
     ChunkBorder = 5,
     Formation = 6,
     AgentTable = 7,
+    ChunkInfo = 8,
 }
 impl SectionKind {
     pub fn from_u32(v: u32) -> Option<Self> {
@@ -65,6 +67,7 @@ impl SectionKind {
             5 => Self::ChunkBorder,
             6 => Self::Formation,
             7 => Self::AgentTable,
+            8 => Self::ChunkInfo,
             _ => return None,
         })
     }
@@ -154,6 +157,8 @@ pub struct BakeFile {
     pub chunk_border: Option<NavChunkBorderData>,
     pub formations: Vec<FormationSection>,
     pub agent_table: Option<NavAgentTableData>,
+    /// The chunk's box and whether it is bounded (Myco only; every bake writes it).
+    pub chunk_info: Option<NavChunkInfo>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -331,6 +336,9 @@ pub fn write_with<H: ChainHash>(file: &BakeFile, h: &H) -> Vec<u8> {
     if let Some(a) = &file.agent_table {
         outs.push(Out { kind: SectionKind::AgentTable, group: 0, group2: 0, fingerprint: hash_agent_table_with(h, a), payload: agent_table_payload(a) });
     }
+    if let Some(i) = &file.chunk_info {
+        outs.push(Out { kind: SectionKind::ChunkInfo, group: 0, group2: 0, fingerprint: hash_chunk_info_with(h, i), payload: bytes_of_one(i).to_vec() });
+    }
     outs.sort_by_key(|o| (o.kind, o.group, o.group2));
 
     let table_end = HEADER_LEN + outs.len() * SECTION_ENTRY_LEN;
@@ -490,8 +498,8 @@ pub fn read_header(data: &[u8]) -> Result<FileHeader, FormatError> {
         if sections.iter().any(|s| s.kind == kind && s.group == group && s.group2 == group2) {
             return Err(FormatError::DuplicateSection { kind: kind_raw, group, group2 });
         }
-        if matches!(kind, SectionKind::GateTable | SectionKind::ChunkBorder | SectionKind::AgentTable) && (group != 0 || group2 != 0) {
-            return Err(FormatError::BadLayout("gate table, chunk border and agent table take no group"));
+        if matches!(kind, SectionKind::GateTable | SectionKind::ChunkBorder | SectionKind::AgentTable | SectionKind::ChunkInfo) && (group != 0 || group2 != 0) {
+            return Err(FormatError::BadLayout("gate table, chunk border, agent table and chunk info take no group"));
         }
         sections.push(SectionInfo { kind, group, group2, offset, length, fingerprint });
     }
@@ -609,6 +617,16 @@ fn parse_border(p: &[u8]) -> Result<NavChunkBorderData, FormatError> {
     Ok(b)
 }
 
+fn parse_chunk_info(p: &[u8]) -> Result<NavChunkInfo, FormatError> {
+    let mut r = R { data: p, pos: 0 };
+    let i: NavChunkInfo = r.pod()?;
+    r.finish(SectionKind::ChunkInfo)?;
+    if i.bounded > 1 {
+        return Err(FormatError::InvalidEnum { what: "chunk info bounded flag", value: i.bounded as i64 });
+    }
+    Ok(i)
+}
+
 fn parse_formation(p: &[u8]) -> Result<NavFormationData, FormatError> {
     let mut r = R { data: p, pos: 0 };
     let f = NavFormationData { width: r.i32()?, depth: r.i32()?, slots: r.array("slots")? };
@@ -676,6 +694,13 @@ pub fn read_with<H: ChainHash>(data: &[u8], verify: Option<&H>) -> Result<BakeFi
                     check(hash_agent_table_with(h, &d))?;
                 }
                 file.agent_table = Some(d);
+            }
+            SectionKind::ChunkInfo => {
+                let d = parse_chunk_info(payload)?;
+                if let Some(h) = verify {
+                    check(hash_chunk_info_with(h, &d))?;
+                }
+                file.chunk_info = Some(d);
             }
             SectionKind::Formation => {
                 let d = parse_formation(payload)?;
