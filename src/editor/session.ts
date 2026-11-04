@@ -8,6 +8,7 @@ import type { FileSystem } from "../engine/platform/FileSystem";
 import { effect, signal } from "@preact/signals";
 import { FsaFileSystem, ensureWritable } from "./fsaFileSystem";
 import { scaffoldProject, type ProjectTemplate } from "./newProject";
+import type { OpenRequest } from "./launcher/handoff";
 import { NO_FOLDERS_NOTE, projectFileSystem } from "./projectFs";
 import { recentProjects, recentVersion, type RecentProject } from "./recentProjects";
 import { confirmDiscard } from "./dialogs";
@@ -439,6 +440,22 @@ export async function copySampleToFolder(sample: SampleInfo): Promise<void> {
   } catch (err) {
     status.value = errorStatus(`Couldn't copy ${sample.name}`, err);
   }
+}
+
+/**
+ * Open the project the desktop editor's Projects window picked (ADR 0059). Throws if it didn't
+ * open, so the Projects window can say why.
+ */
+export async function openPickedProject(request: OpenRequest): Promise<void> {
+  if (request.kind === "sample") {
+    const sample = await findSample(request.id);
+    await loadProject(await openSampleProject(sample));
+    if (status.value?.kind !== "error") status.value = { kind: "info", text: `Opened the ${sample.name} sample (read-only). Make a copy to edit it.` };
+    return;
+  }
+  const fs = await projectFileSystem();
+  if (!fs) throw new Error(NO_FOLDERS_NOTE);
+  await openFolder(fs, request.root);
 }
 
 /** Close the project and go back to the start screen. */

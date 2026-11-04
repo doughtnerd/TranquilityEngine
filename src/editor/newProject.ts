@@ -1,7 +1,7 @@
 // New projects (ADR 0038): a folder with `project.json`, a main scene with a camera, `scripts/`
 // and the scripting files external code editors need (ADR 0030).
 import type { FileSystem } from "../engine/platform/FileSystem";
-import { joinPath } from "./projects";
+import { joinPath } from "./projectPaths";
 import { writeScriptingFiles } from "./scriptingSetup";
 
 export type ProjectTemplate = "2d" | "3d";

@@ -3,8 +3,8 @@
 // panel does; the desktop editor watches `scripts/` and reloads what changes, whatever wrote it;
 // and a script can be opened in the system's code editor.
 import type { FileSystem } from "../engine/platform/FileSystem";
-import { hashText } from "./document";
-import { joinPath } from "./projects";
+import { hashText } from "./document/patch";
+import { joinPath } from "./projectPaths";
 
 /** Where the engine's declarations go in a project, served to TypeScript as the `"myco"` package. */
 export const TYPES_DIR = ".myco/types/myco";

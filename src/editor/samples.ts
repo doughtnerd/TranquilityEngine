@@ -3,8 +3,8 @@
 // its files into a read-only project, whose scripts load like any project's (ADR 0030). The
 // desktop editor can also copy a sample into a folder to edit it.
 import type { FileSystem } from "../engine/platform/FileSystem";
-import { isTextAsset, joinPath, readOnlyProject, type EditorProject } from "./projects";
-import { isScriptPath } from "./scriptLoader";
+import { isScriptPath, isTextAsset, joinPath } from "./projectPaths";
+import type { EditorProject } from "./projects";
 
 /** A sample as `samples/index.json` lists it (see `sampleManifest` in vite.shared.ts). */
 export interface SampleInfo {
@@ -63,6 +63,7 @@ export async function openSampleProject(sample: SampleInfo): Promise<EditorProje
       values.set(path, path.endsWith(".json") ? JSON.parse(text) : text);
     }),
   );
+  const { readOnlyProject } = await import("./projects"); // the engine, which the Projects window (ADR 0059) doesn't load
   return readOnlyProject(`${sample.name} (sample, read-only)`, { values, texts, scripts, sizes });
 }
 

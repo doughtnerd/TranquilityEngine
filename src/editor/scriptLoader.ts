@@ -6,6 +6,7 @@
 // Scripts and the editor then share one registry and one World.
 import * as engine from "../engine";
 import { unregisterScripts, withScriptRegistrations, type ScriptRegistrations } from "../engine/editor";
+import { isScriptPath } from "./projectPaths";
 
 /** The bare specifier scripts import the engine by. */
 export const ENGINE_MODULE = "myco";
@@ -13,8 +14,7 @@ export const ENGINE_MODULE = "myco";
 export const LEGACY_ENGINE_MODULE = "tranquility";
 const isEngineModule = (specifier: string) => specifier === ENGINE_MODULE || specifier === LEGACY_ENGINE_MODULE;
 
-/** Where scripts live in a project, and which files count. */
-export const isScriptPath = (path: string) => path.startsWith("scripts/") && path.endsWith(".ts") && !path.endsWith(".d.ts");
+export { isScriptPath };
 
 export interface ScriptProblem {
   readonly path: string;

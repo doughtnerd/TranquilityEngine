@@ -7,7 +7,9 @@
 import { Assets, type AssetSource, type ProjectSettingsInput } from "../engine";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { isSidecarPath, sidecarPath } from "../engine/scene/importSettings";
-import { isScriptPath } from "./scriptLoader";
+import { isScriptPath, isTextAsset, joinPath } from "./projectPaths";
+
+export { isTextAsset, joinPath };
 
 export interface EditorProject {
   /** Shown in the toolbar. */
@@ -68,8 +70,6 @@ export function jsonFiles(project: EditorProject): Map<string, string> {
   return out;
 }
 
-/** Files the project keeps as text (and the Code panel can edit): JSON, and plain JavaScript (edit only). */
-export const isTextAsset = (path: string) => /\.(json|js)$/i.test(path);
 const SKIP_DIRS = new Set(["node_modules", "dist", "target", "test-results", "playwright-report"]);
 const MIME: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
@@ -312,12 +312,6 @@ export function readOnlyProject(
   files: { values: Map<string, unknown>; texts: Map<string, string>; scripts?: Map<string, string>; sizes?: Map<string, number> },
 ): EditorProject {
   return new MapProject(name, null, files.values, files.texts, null, null, null, files.scripts ?? new Map(), new Set(), files.sizes ?? new Map());
-}
-
-/** Join a project-relative path onto a folder path, using the folder's separator. */
-export function joinPath(root: string, path: string): string {
-  const sep = root.includes("\\") && !root.includes("/") ? "\\" : "/";
-  return root.replace(/[\\/]+$/, "") + sep + path.split("/").join(sep);
 }
 
 /** Every asset file under `root` (or the files `accept` takes), as project-relative paths. Skips hidden and build folders. */

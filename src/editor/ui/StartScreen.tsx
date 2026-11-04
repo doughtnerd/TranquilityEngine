@@ -2,7 +2,7 @@ import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { canOpenFolders } from "../projectFs";
 import { listSamples, type SampleInfo } from "../samples";
-import { copySampleToFolder, openSample } from "../session";
+import { startActions } from "../startActions";
 import { StartFooter, StartHeader } from "./StartBrand";
 import { StartProjects } from "./StartProjects";
 
@@ -59,11 +59,11 @@ export function StartScreen() {
                     </span>
                   </div>
                   <div class="sample-actions">
-                    <button disabled={busy.value !== null} title={`Open ${s.name} read-only`} onClick={() => void run(s.id, () => openSample(s))}>
+                    <button disabled={busy.value !== null} title={`Open ${s.name} read-only`} onClick={() => void run(s.id, () => startActions().openSample(s))}>
                       {busy.value === s.id ? "Opening…" : "Open"}
                     </button>
                     {desktop && (
-                      <button disabled={busy.value !== null} title={`Copy ${s.name} into a folder and open the copy to edit it`} onClick={() => void run(s.id, () => copySampleToFolder(s))}>
+                      <button disabled={busy.value !== null} title={`Copy ${s.name} into a folder and open the copy to edit it`} onClick={() => void run(s.id, () => startActions().copySampleToFolder(s))}>
                         Make a Copy…
                       </button>
                     )}

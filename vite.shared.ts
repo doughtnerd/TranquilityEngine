@@ -1,4 +1,5 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -11,6 +12,18 @@ import type { Plugin } from "vite";
  * and Vitest, so they emit the same code. Configs that use it must also set `oxc: false`.
  */
 export function typescriptTranspile(): Plugin {
+  const compilerOptions: ts.CompilerOptions = {
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
+    useDefineForClassFields: true,
+    jsx: ts.JsxEmit.ReactJSX,
+    jsxImportSource: "preact",
+    sourceMap: true,
+    inlineSources: true,
+  };
+  // tsc takes ~3 s for the editor's files, every time a dev server or test run starts, so its output
+  // is kept on disk: one entry per source file, reused while the file, tsc and these options match.
+  const version = `${ts.version}:${JSON.stringify(compilerOptions)}`;
   return {
     name: "myco:tsc-transpile",
     enforce: "pre",
@@ -18,22 +31,29 @@ export function typescriptTranspile(): Plugin {
       const file = id.split("?")[0];
       const isTs = file.endsWith(".ts") || file.endsWith(".tsx");
       if (!isTs || file.endsWith(".d.ts") || file.includes("node_modules")) return null;
-      const out = ts.transpileModule(code, {
-        fileName: file,
-        compilerOptions: {
-          target: ts.ScriptTarget.ES2022,
-          module: ts.ModuleKind.ESNext,
-          useDefineForClassFields: true,
-          jsx: ts.JsxEmit.ReactJSX,
-          jsxImportSource: "preact",
-          sourceMap: true,
-          inlineSources: true,
-        },
-      });
-      return { code: out.outputText, map: out.sourceMapText ? JSON.parse(out.sourceMapText) : null };
+      const entry = join(TRANSPILE_CACHE, `${hash(file)}.json`);
+      const source = hash(`${version}\n${code}`);
+      try {
+        const cached = JSON.parse(readFileSync(entry, "utf8")) as { source: string; code: string; map: unknown };
+        if (cached.source === source) return { code: cached.code, map: cached.map as never };
+      } catch {
+        // not cached yet, or unreadable: compile it
+      }
+      const out = ts.transpileModule(code, { fileName: file, compilerOptions });
+      const result = { code: out.outputText, map: out.sourceMapText ? JSON.parse(out.sourceMapText) : null };
+      try {
+        mkdirSync(TRANSPILE_CACHE, { recursive: true });
+        writeFileSync(entry, JSON.stringify({ source, ...result }));
+      } catch {
+        // a read-only checkout still compiles, only without the cache
+      }
+      return result;
     },
   };
 }
+
+const TRANSPILE_CACHE = fileURLToPath(new URL("./node_modules/.cache/myco-tsc/", import.meta.url));
+const hash = (text: string) => createHash("sha1").update(text).digest("hex");
 
 /** The module the editor imports the engine's declarations from (ADR 0030). */
 const ENGINE_TYPES = "virtual:myco-types";

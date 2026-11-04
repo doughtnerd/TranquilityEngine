@@ -10,23 +10,13 @@
  */
 import RAPIER from "@dimforge/rapier2d-compat";
 import { GameBehavior } from "../core/Component";
-import { defineBuffer } from "../core/data";
-import { defineBuiltinSystem } from "../core/systems";
 import { DEG2RAD, RAD2DEG } from "../core/math";
 import type { World } from "../core/World";
 import { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type Collision2D } from "./Collider2D";
 import { layerGroups } from "./layers";
 import { cleanPoints, convexParts } from "./polygon";
+import { CollisionEvents2D, TriggerEvents2D } from "./physics2dSystems";
 import { RigidBody2D } from "./RigidBody2D";
-
-/** Physics events for systems (ADR 0017). Filled during fixed steps, cleared at end of frame. */
-export interface PhysicsEvent2D {
-  readonly a: Collider2D;
-  readonly b: Collider2D;
-  readonly started: boolean;
-}
-export const TriggerEvents2D = defineBuffer<PhysicsEvent2D>("engine.TriggerEvents2D");
-export const CollisionEvents2D = defineBuffer<PhysicsEvent2D>("engine.CollisionEvents2D");
 
 /** @internal */
 export interface BodyHandleState {
@@ -47,11 +37,12 @@ export interface ColliderHandleState {
 
 let rapierReady: Promise<void> | null = null;
 
-/** @internal Create the world's 2D physics world (initializing Rapier's WASM once). */
-export async function ensurePhysics2D(world: World): Promise<Physics2DWorld> {
-  await (rapierReady ??= RAPIER.init());
-  if (!world.physics2D) world.physics2D = new Physics2DWorld(world);
-  return world.physics2D;
+/** @internal Initialize Rapier 2D's WASM once (`ensurePhysics2D` in physics2d.ts calls it). */
+export function initRapier2D(): Promise<void> {
+  return (rapierReady ??= RAPIER.init().catch((err: unknown) => {
+    rapierReady = null; // tried again next time
+    throw err;
+  }));
 }
 
 /** @internal */
@@ -393,10 +384,3 @@ export class Physics2DWorld {
     c._state = null;
   }
 }
-
-// The fixed-step physics systems, in the order of ADR 0011: catalog entries for every World, doing
-// nothing in a World without a 2D physics world (ADR 0032).
-defineBuiltinSystem({ name: "engine.PhysicsPush", phase: "fixedUpdate", after: ["engine.FixedUpdateScripts"], run: (w) => w.physics2D?.push() });
-defineBuiltinSystem({ name: "engine.PhysicsStep", phase: "fixedUpdate", after: ["engine.PhysicsPush"], run: (w, dt) => w.physics2D?.step(dt) });
-defineBuiltinSystem({ name: "engine.PhysicsWriteBack", phase: "fixedUpdate", after: ["engine.PhysicsStep"], run: (w) => w.physics2D?.writeBack() });
-defineBuiltinSystem({ name: "engine.PhysicsEvents", phase: "fixedUpdate", after: ["engine.PhysicsWriteBack"], run: (w) => w.physics2D?.dispatchEvents() });

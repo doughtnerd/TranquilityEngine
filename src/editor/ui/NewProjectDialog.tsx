@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { FileSystem } from "../../engine/platform/FileSystem";
 import { describeError } from "../messages";
 import { PROJECT_TEMPLATES, whyNotProjectName, type ProjectTemplate } from "../newProject";
-import { joinPath } from "../projects";
-import { createProject, pickProjectLocation } from "../session";
+import { joinPath } from "../projectPaths";
+import { startActions } from "../startActions";
 import "./projects.css";
 
 const open = signal(false);
@@ -41,7 +41,7 @@ export function NewProjectDialog() {
     if (!busy) open.value = false;
   };
   const choose = async () => {
-    const picked = await pickProjectLocation();
+    const picked = await startActions().pickProjectLocation();
     if (picked) {
       setLocation(picked);
       setError(null);
@@ -53,7 +53,7 @@ export function NewProjectDialog() {
     setBusy(true);
     setError(null);
     try {
-      await createProject(location.fs, location.path, name, template);
+      await startActions().createProject(location.fs, location.path, name, template);
       open.value = false;
     } catch (err) {
       setError(describeError(err).message);

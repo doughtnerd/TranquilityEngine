@@ -5,7 +5,7 @@
 import { signal } from "@preact/signals";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import type { FsaDirectoryHandle } from "./fsaFileSystem";
-import { joinPath } from "./projects";
+import { joinPath } from "./projectPaths";
 
 export interface RecentProject {
   id: string;
