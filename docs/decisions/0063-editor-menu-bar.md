@@ -1,6 +1,6 @@
 # 0063. The editor's commands live in a menu bar below the system title bar
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-04
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

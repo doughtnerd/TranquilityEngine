@@ -102,7 +102,7 @@ Review findings, all fixed:
 ## Wave 2 results (2026-11-04)
 
 Built:
-- **E, the menu bar** (ADR 0063, Proposed, amends 0038's Project menu): File, Edit, Create, Window and Help, with the play controls centred and the project status on the right. The Window items show panels (the editor can't close panels, so they don't toggle).
+- **E, the menu bar** (ADR 0063, Accepted, amends 0038's Project menu): File, Edit, Create, Window and Help, with the play controls centred and the project status on the right. The Window items show panels (the editor can't close panels, so they don't toggle).
 - **F, asset previews:**
   - thumbnails in Asset tiles, with hover animation and icons for other kinds;
   - audio waveforms with a ▶ button on tiles, an Inspector clip player and an auto-play preference;
