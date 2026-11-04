@@ -100,9 +100,15 @@ pub fn hash_landing_links_with<H: ChainHash>(h: &H, l: &NavLandingLinksData) -> 
     hash_array(h, &l.leaf_start, s)
 }
 
-/// Myco's gate-table fingerprint: the id array.
+/// Myco's gate-table fingerprint: the id array, then the starting closed flags.
 pub fn hash_gate_table_with<H: ChainHash>(h: &H, g: &NavGateTableData) -> u64 {
-    hash_array(h, &g.ids, SEED)
+    let s = hash_array(h, &g.ids, SEED);
+    hash_array(h, &g.closed, s)
+}
+
+/// Myco's agent-table fingerprint: the entry array.
+pub fn hash_agent_table_with<H: ChainHash>(h: &H, a: &NavAgentTableData) -> u64 {
+    hash_array(h, &a.entries, SEED)
 }
 
 /// Myco's chunk-border fingerprint: box, overhang, depths, then the four arrays.

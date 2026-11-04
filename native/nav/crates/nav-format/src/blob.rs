@@ -334,11 +334,33 @@ pub struct NavChunkBorderData {
 // Gate table, formations
 // ---------------------------------------------------------------------------------------------------------
 
-/// The baked part of a gate table (`NavGateTableEntry` buffer): `ids[i]` is the id of gate index i, entry 0
-/// unused. The closed flags (`NavGateClosed`) are runtime state and aren't baked.
+/// A gate table (`NavGateTableEntry` buffer): `ids[i]` is the id of gate index i, entry 0 unused. `closed[i]`
+/// (0 or 1, same length as `ids`) is gate i's starting state, the initial `NavGateClosed` flag.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NavGateTableData {
     pub ids: Vec<Hash128>,
+    pub closed: Vec<u8>,
+}
+
+/// One agent type's baked groups, 32 bytes. Names are editor-only and not baked.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NavAgentEntry {
+    pub id: Hash128,
+    /// The navmesh group (`NavMeshSection::group`) the agent walks on, -1 = can't walk.
+    pub walk_group: i32,
+    /// The flight volume group (`VolumeSection::group`) the agent flies in, -1 = can't fly. An agent with both
+    /// is a hybrid, linked through the landing links of its (walk, fly) pair.
+    pub fly_group: i32,
+    /// Explicit padding to 32 bytes, zero.
+    pub pad: [i32; 2],
+}
+pod_structs!(NavAgentEntry);
+
+/// The agent-type to group table: which baked navmesh / volume each agent type uses.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NavAgentTableData {
+    pub entries: Vec<NavAgentEntry>,
 }
 
 /// `NavFormationBlob`, owned: slot offsets in units of the group's spacing (x right, y forward), fill order.

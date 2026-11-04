@@ -29,10 +29,10 @@
 //!
 //! Scalars: navmesh {f32 index_cell_size, f32 seam_height_tolerance}; volume {origin f32x3, cell_size f32, dims
 //! i32x3, agent_radius f32, base_scale i32, base_dims i32x3}; chunk border {box_min f32x3, box_max f32x3,
-//! overhang f32x4, min_depth i32, max_depth i32}; formation {width i32, depth i32}; landing links and gate table
-//! have none.
+//! overhang f32x4, min_depth i32, max_depth i32}; formation {width i32, depth i32}; landing links, gate table (ids, then
+//! closed flags: one byte each, 0/1, as many as ids) and agent table (NavAgentEntry x n) have none.
 //!
-//! Section kinds are unique per (kind, group, group2); the gate table and chunk border appear at most once.
+//! Section kinds are unique per (kind, group, group2); the gate table, agent table and chunk border appear at most once.
 use crate::blob::*;
 use crate::fingerprint::*;
 use crate::pod::{bytes_of, bytes_of_one, read_one, vec_from_bytes, Pod};
@@ -53,6 +53,7 @@ pub enum SectionKind {
     GateTable = 4,
     ChunkBorder = 5,
     Formation = 6,
+    AgentTable = 7,
 }
 impl SectionKind {
     pub fn from_u32(v: u32) -> Option<Self> {
@@ -63,6 +64,7 @@ impl SectionKind {
             4 => Self::GateTable,
             5 => Self::ChunkBorder,
             6 => Self::Formation,
+            7 => Self::AgentTable,
             _ => return None,
         })
     }
@@ -151,6 +153,7 @@ pub struct BakeFile {
     pub gate_table: Option<NavGateTableData>,
     pub chunk_border: Option<NavChunkBorderData>,
     pub formations: Vec<FormationSection>,
+    pub agent_table: Option<NavAgentTableData>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -254,6 +257,13 @@ fn landing_payload(l: &NavLandingLinksData) -> Vec<u8> {
 fn gate_payload(g: &NavGateTableData) -> Vec<u8> {
     let mut w = W { buf: Vec::new() };
     w.array(&g.ids);
+    w.array(&g.closed);
+    w.buf
+}
+
+fn agent_table_payload(a: &NavAgentTableData) -> Vec<u8> {
+    let mut w = W { buf: Vec::new() };
+    w.array(&a.entries);
     w.buf
 }
 
@@ -317,6 +327,9 @@ pub fn write_with<H: ChainHash>(file: &BakeFile, h: &H) -> Vec<u8> {
     }
     for s in &file.formations {
         outs.push(Out { kind: SectionKind::Formation, group: s.id, group2: 0, fingerprint: hash_formation_with(h, &s.data), payload: formation_payload(&s.data) });
+    }
+    if let Some(a) = &file.agent_table {
+        outs.push(Out { kind: SectionKind::AgentTable, group: 0, group2: 0, fingerprint: hash_agent_table_with(h, a), payload: agent_table_payload(a) });
     }
     outs.sort_by_key(|o| (o.kind, o.group, o.group2));
 
@@ -477,8 +490,8 @@ pub fn read_header(data: &[u8]) -> Result<FileHeader, FormatError> {
         if sections.iter().any(|s| s.kind == kind && s.group == group && s.group2 == group2) {
             return Err(FormatError::DuplicateSection { kind: kind_raw, group, group2 });
         }
-        if matches!(kind, SectionKind::GateTable | SectionKind::ChunkBorder) && (group != 0 || group2 != 0) {
-            return Err(FormatError::BadLayout("gate table and chunk border take no group"));
+        if matches!(kind, SectionKind::GateTable | SectionKind::ChunkBorder | SectionKind::AgentTable) && (group != 0 || group2 != 0) {
+            return Err(FormatError::BadLayout("gate table, chunk border and agent table take no group"));
         }
         sections.push(SectionInfo { kind, group, group2, offset, length, fingerprint });
     }
@@ -560,9 +573,23 @@ fn parse_landing(p: &[u8]) -> Result<NavLandingLinksData, FormatError> {
 
 fn parse_gate(p: &[u8]) -> Result<NavGateTableData, FormatError> {
     let mut r = R { data: p, pos: 0 };
-    let g = NavGateTableData { ids: r.array("gate ids")? };
+    let ids: Vec<Hash128> = r.array("gate ids")?;
+    let closed: Vec<u8> = r.array("gate closed flags")?;
     r.finish(SectionKind::GateTable)?;
-    Ok(g)
+    if closed.len() != ids.len() {
+        return Err(FormatError::BadCount { what: "gate closed flags", count: closed.len() as u64 });
+    }
+    if let Some(&v) = closed.iter().find(|&&v| v > 1) {
+        return Err(FormatError::InvalidEnum { what: "gate closed flag", value: v as i64 });
+    }
+    Ok(NavGateTableData { ids, closed })
+}
+
+fn parse_agent_table(p: &[u8]) -> Result<NavAgentTableData, FormatError> {
+    let mut r = R { data: p, pos: 0 };
+    let a = NavAgentTableData { entries: r.array("agent entries")? };
+    r.finish(SectionKind::AgentTable)?;
+    Ok(a)
 }
 
 fn parse_border(p: &[u8]) -> Result<NavChunkBorderData, FormatError> {
@@ -642,6 +669,13 @@ pub fn read_with<H: ChainHash>(data: &[u8], verify: Option<&H>) -> Result<BakeFi
                     check(hash_chunk_border_with(h, &d))?;
                 }
                 file.chunk_border = Some(d);
+            }
+            SectionKind::AgentTable => {
+                let d = parse_agent_table(payload)?;
+                if let Some(h) = verify {
+                    check(hash_agent_table_with(h, &d))?;
+                }
+                file.agent_table = Some(d);
             }
             SectionKind::Formation => {
                 let d = parse_formation(payload)?;

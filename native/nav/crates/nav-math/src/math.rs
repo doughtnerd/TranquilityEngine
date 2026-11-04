@@ -21,8 +21,8 @@ pub const TODEGREES: f32 = 57.295779513;
 pub trait Scalar: Copy + PartialOrd {
     fn is_nan(self) -> bool;
 }
-impl Scalar for f32 { #[inline] fn is_nan(self) -> bool { self != self } }
-impl Scalar for f64 { #[inline] fn is_nan(self) -> bool { self != self } }
+impl Scalar for f32 { #[inline] fn is_nan(self) -> bool { f32::is_nan(self) } }
+impl Scalar for f64 { #[inline] fn is_nan(self) -> bool { f64::is_nan(self) } }
 impl Scalar for i32 { #[inline] fn is_nan(self) -> bool { false } }
 impl Scalar for u32 { #[inline] fn is_nan(self) -> bool { false } }
 
@@ -57,7 +57,7 @@ pub fn clamp<T: Scalar>(x: T, a: T, b: T) -> T { max(a, min(b, x)) }
 #[inline] pub fn degrees(x: f32) -> f32 { x * TODEGREES }
 /// `math.select(a, b, c)`: `c ? b : a` (note the argument order).
 #[inline] pub fn select<T>(a: T, b: T, c: bool) -> T { if c { b } else { a } }
-#[inline] pub fn isnan(x: f32) -> bool { x != x }
+#[inline] pub fn isnan(x: f32) -> bool { x.is_nan() }
 #[inline] pub fn isfinite(x: f32) -> bool { abs(x) < f32::INFINITY }
 
 /// `math.ceilpow2`: the next power of two at or above `i` (0 gives 0, as in Unity).

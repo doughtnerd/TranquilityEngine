@@ -230,7 +230,13 @@ fn sample_file() -> BakeFile {
         navmeshes: vec![NavMeshSection { group: 0, data: sample_navmesh(1) }, NavMeshSection { group: 3, data: sample_navmesh(2) }],
         volumes: vec![VolumeSection { group: 1, data: sample_volume(3) }],
         landing_links: vec![LandingLinksSection { ground_group: 0, air_group: 1, data: sample_landing() }],
-        gate_table: Some(NavGateTableData { ids: vec![Hash128::default(), Hash128::new(1, 1, 1, 1), Hash128::new(2, 2, 2, 2)] }),
+        gate_table: Some(NavGateTableData { ids: vec![Hash128::default(), Hash128::new(1, 1, 1, 1), Hash128::new(2, 2, 2, 2)], closed: vec![0, 1, 0] }),
+        agent_table: Some(NavAgentTableData {
+            entries: vec![
+                NavAgentEntry { id: Hash128::new(5, 0, 0, 0), walk_group: 0, fly_group: 1, pad: [0; 2] },
+                NavAgentEntry { id: Hash128::new(6, 0, 0, 0), walk_group: 3, fly_group: -1, pad: [0; 2] },
+            ],
+        }),
         chunk_border: Some(sample_border()),
         formations: vec![FormationSection { id: 7, data: NavFormationData { slots: vec![Float2::new(0.0, 0.0), Float2::new(1.0, 0.0), Float2::new(-1.0, 0.0)], width: 3, depth: 1 } }],
     }
@@ -278,7 +284,7 @@ fn layout_is_aligned_and_header_is_as_documented() {
     let h = read_header(&bytes).unwrap();
     assert_eq!(h.package_version, [1, 2, 3]);
     assert_eq!(h.file_len as usize, bytes.len());
-    assert_eq!(h.sections.len(), 7);
+    assert_eq!(h.sections.len(), 8);
     for s in &h.sections {
         assert_eq!(s.offset % 8, 0);
         assert_eq!(s.length % 8, 0);
@@ -563,4 +569,34 @@ fn int3_and_float3_have_no_padding() {
     assert_eq!(size_of::<Int3>(), 12);
     assert_eq!(size_of::<Float3>(), 12);
     assert_eq!(size_of::<Int4>(), 16);
+}
+
+#[test]
+fn agent_table_and_gate_flags_round_trip_and_are_checked() {
+    let f = sample_file();
+    let back = read(&write(&f)).unwrap();
+    assert_eq!(back.agent_table, f.agent_table);
+    assert_eq!(back.gate_table.as_ref().unwrap().closed, vec![0, 1, 0]);
+    assert_eq!(core::mem::size_of::<NavAgentEntry>(), 32);
+
+    // A closed-flag array shorter than the ids is a count error.
+    let mut bad = f.clone();
+    bad.gate_table.as_mut().unwrap().closed.pop();
+    assert!(matches!(read(&write(&bad)), Err(FormatError::BadCount { what: "gate closed flags", .. })));
+
+    // The new data is fingerprinted: changing it changes the section fingerprint.
+    let fp = |f: &BakeFile, k: SectionKind| read_header(&write(f)).unwrap().sections.iter().find(|s| s.kind == k).unwrap().fingerprint;
+    let mut g = f.clone();
+    g.gate_table.as_mut().unwrap().closed[0] = 1;
+    assert_ne!(fp(&f, SectionKind::GateTable), fp(&g, SectionKind::GateTable));
+    let mut a = f.clone();
+    a.agent_table.as_mut().unwrap().entries[1].fly_group = 0;
+    assert_ne!(fp(&f, SectionKind::AgentTable), fp(&a, SectionKind::AgentTable));
+
+    // A tampered payload byte fails verification.
+    let bytes = write(&f);
+    let s = *read_header(&bytes).unwrap().sections.iter().find(|s| s.kind == SectionKind::AgentTable).unwrap();
+    let mut b = bytes.clone();
+    b[s.offset as usize + 8 + 16] ^= 1; // first entry's walk group
+    assert!(matches!(read(&b), Err(FormatError::FingerprintMismatch { .. })));
 }
