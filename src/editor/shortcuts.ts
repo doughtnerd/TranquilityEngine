@@ -22,7 +22,7 @@ const TOOL_KEYS: Record<string, Tool> = { q: "select", w: "move", e: "rotate", r
 
 /** What a keydown means to the editor, if anything. Exported for tests. */
 export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey"> & { altKey?: boolean; code?: string }): Shortcut | null {
-  const key = e.key.toLowerCase();
+  const key = (e.key ?? "").toLowerCase(); // Chromium's autofill sends key events with no key
   // Ctrl/Cmd + Alt (+ Shift) + Z: step through history in creation order (Vim's g- / g+). Checked
   // before plain Ctrl + Z, and by key code too, since Alt changes `key` on some layouts.
   if ((e.ctrlKey || e.metaKey) && e.altKey && (key === "z" || e.code === "KeyZ")) return e.shiftKey ? "forward" : "back";

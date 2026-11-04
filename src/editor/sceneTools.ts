@@ -67,7 +67,7 @@ export const toggleGizmoPivot = () => (gizmoPivot.value = gizmoPivot.value === "
 /** Scene tool keys: X toggles local/world space, Z toggles pivot/centre (no modifiers; Ctrl+Z stays undo). */
 export function sceneToolShortcut(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">): "space" | "pivot" | null {
   if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return null;
-  const key = e.key.toLowerCase();
+  const key = (e.key ?? "").toLowerCase();
   return key === "x" ? "space" : key === "z" ? "pivot" : null;
 }
 

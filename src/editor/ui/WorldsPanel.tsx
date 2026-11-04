@@ -187,7 +187,7 @@ export function WorldsPanel() {
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (!(e.ctrlKey || e.metaKey) || e.altKey || isTextField(e.target)) return;
-    const key = e.key.toLowerCase();
+    const key = (e.key ?? "").toLowerCase();
     if (key !== "z" && key !== "y") return;
     e.preventDefault();
     e.stopPropagation(); // not the scene's undo
