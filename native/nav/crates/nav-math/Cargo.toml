@@ -1,0 +1,10 @@
+[package]
+name = "nav-math"
+description = "Exact maths, hashing and fingerprints for Myco's navigation (Foxfire's NavExactMath, NavHash, NavMeshFingerprint)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+xxhash-rust.workspace = true

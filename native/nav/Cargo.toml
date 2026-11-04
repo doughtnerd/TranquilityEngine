@@ -1,0 +1,27 @@
+# Myco's built-in navigation (ADR 0065): Foxfire.Navigation ported to Rust, compiled to WebAssembly.
+# Crates in dependency order: nav-math → nav-recast → nav-format → nav-bake → nav-query → nav-crowd → nav-wasm.
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Zlib"
+publish = false
+
+[workspace.dependencies]
+nav-math = { path = "crates/nav-math" }
+nav-format = { path = "crates/nav-format" }
+wasm-bindgen = "=0.2.130"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+
+[profile.dev]
+panic = "abort"
