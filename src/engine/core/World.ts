@@ -12,7 +12,8 @@ import { Transform } from "../scene/Transform";
 import { Component, GameBehavior, type FrameHook, type PendingWait } from "./Component";
 import { DataStore, type BufferDef, type DataComponentDef } from "./data";
 import { Mat4 } from "./math";
-import { Scheduler, defineBuiltinSystem, type QueryTerm, type Row } from "./systems";
+import { QueryRows, type Rows } from "./rows";
+import { Scheduler, defineBuiltinSystem, type QueryTerm } from "./systems";
 import { resolveSettings, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import type { Physics2DWorld } from "../physics/Physics2DWorld";
 import type { Physics3DWorld } from "../physics/Physics3DWorld";
@@ -184,6 +185,10 @@ export class World {
   // data components and buffers
   private dataStores = new Map<DataComponentDef, DataStore>();
   private buffers = new Map<BufferDef<unknown>, unknown[]>();
+  /** Each system query's row buffer, reused run to run (`_query`). */
+  private rowBuffers = new Map<readonly QueryTerm[], Int32Array>();
+  /** Nodes flagged as scenes, alive (so `activeScene` needn't look when there are none). */
+  private sceneNodeCount = 0;
 
   constructor(kind: WorldKind = "runtime", settings: ProjectSettingsInput | ProjectSettings = {}, identity: WorldIdentity = {}) {
     this.kind = kind;
@@ -250,7 +255,10 @@ export class World {
     this.flags[e] = value ? this.flags[e] | FLAG_COMPONENT_NODE : this.flags[e] & ~FLAG_COMPONENT_NODE;
   }
   /** @internal */ isSceneNode(e: number): boolean { return (this.flags[e] & FLAG_SCENE_NODE) !== 0; }
-  /** @internal */ setSceneNode(e: number): void { this.flags[e] |= FLAG_SCENE_NODE; }
+  /** @internal */ setSceneNode(e: number): void {
+    if (!this.isSceneNode(e)) this.sceneNodeCount++;
+    this.flags[e] |= FLAG_SCENE_NODE;
+  }
   /** @internal */ isPendingDestroy(e: number): boolean { return (this.flags[e] & FLAG_PENDING_DESTROY) !== 0; }
 
   /**
@@ -306,8 +314,10 @@ export class World {
 
   /** The most recently loaded scene node, or null. */
   get activeScene(): GameObject | null {
-    const scenes = this.sceneNodes;
-    return scenes.length ? scenes[scenes.length - 1] : null;
+    if (this.sceneNodeCount === 0) return null;
+    // From the last child back, without listing them: every GameObject.create without a parent asks.
+    for (let c = this.lastChild[0]; c !== NONE; c = this.prevSibling[c]) if (this.isSceneNode(c) && !this.isPendingDestroy(c)) return this.handle(c);
+    return null;
   }
 
   /** @internal Reparent; returns false if it would create a cycle. */
@@ -594,6 +604,12 @@ export class World {
 
   /** @internal Mark a node's transform (and its subtree's world transforms) as changed. */
   markTransformDirty(e: number): void {
+    if (this.firstChild[e] === NONE) {
+      // A leaf (most moving nodes): no subtree to walk, so no stack to allocate.
+      this.worldDirty[e] = 1;
+      this.tVersion[e]++;
+      return;
+    }
     const stack = [e];
     while (stack.length) {
       const n = stack.pop()!;
@@ -636,7 +652,7 @@ export class World {
         Mat4.compose(this.tWorld, o, this.tPos, e * 3, this.tRot, e * 4, this.tScl, e * 3);
       } else {
         Mat4.compose(this.scratch, 0, this.tPos, e * 3, this.tRot, e * 4, this.tScl, e * 3);
-        Mat4.multiply(this.tWorld, o, this.tWorld, p * 16, this.scratch, 0);
+        Mat4.multiplyAffine(this.tWorld, o, this.tWorld, p * 16, this.scratch, 0);
       }
     } else if (p === NONE) {
       Mat4.identity(this.tWorld, o);
@@ -670,29 +686,39 @@ export class World {
     return b as T[];
   }
 
-  /** @internal Iterate rows for a system query. The row object is reused between rows. */
-  *_query(terms: readonly QueryTerm[]): Generator<Row> {
+  /**
+   * @internal A system query's rows (ADR 0064): the nodes active in the hierarchy (outside edit mode)
+   * with every term, and accepted by `includes` (predicted systems), collected once into a buffer
+   * reused by the same query next run.
+   */
+  _query(terms: readonly QueryTerm[], includes?: (node: GameObject) => boolean): Rows {
     const dataTerms = terms.filter((t): t is DataComponentDef => t !== Transform);
     const needsTransform = terms.includes(Transform);
     const stores = dataTerms.map((d) => this._dataStore(d));
-    let source: number[];
-    if (stores.length) {
-      source = stores.reduce((a, b) => (b.dense.length < a.dense.length ? b : a)).dense.slice();
-    } else {
-      source = [];
-      for (let e = 1; e < this.highWater; e++) if (this.alive[e] && this.hasTransform[e]) source.push(e);
-    }
-    const row = {} as Row;
-    outer: for (const e of source) {
-      if (!this.alive[e] || !this.inWorld[e] || !this.activeInHierarchy[e]) continue;
-      if (this.inEditMode(e)) continue;
-      if (needsTransform && !this.hasTransform[e]) continue;
-      for (const s of stores) if (!s.present[e]) continue outer;
-      row.node = this.handle(e);
-      row.transform = this.transformOf(e)!;
-      for (let i = 0; i < stores.length; i++) row[dataTerms[i].key] = stores[i].view(e);
-      yield row;
-    }
+    return new QueryRows(this, dataTerms, stores, () => {
+      const smallest = stores.length ? stores.reduce((a, b) => (b.dense.length < a.dense.length ? b : a)) : null;
+      const bound = smallest ? smallest.dense.length : this.highWater;
+      let buffer = this.rowBuffers.get(terms);
+      if (!buffer || buffer.length < bound) this.rowBuffers.set(terms, (buffer = new Int32Array(Math.max(16, bound * 1.5) | 0)));
+      const out = buffer;
+      let count = 0;
+      const take = (e: number): void => {
+        if (!this.alive[e] || !this.inWorld[e] || !this.activeInHierarchy[e]) return;
+        if (needsTransform && !this.hasTransform[e]) return;
+        for (const s of stores) if (!s.present[e]) return;
+        if (this.inEditMode(e)) return;
+        if (includes && !includes(this.handle(e))) return;
+        out[count++] = e;
+      };
+      if (smallest) for (const e of smallest.dense) take(e);
+      else for (let e = 1; e < this.highWater; e++) if (this.hasTransform[e]) take(e);
+      return out.subarray(0, count);
+    });
+  }
+
+  /** @internal For `QueryRows`: whether a collected row's node still exists. */
+  isRowAlive(e: number): boolean {
+    return this.alive[e] === 1;
   }
 
   // --- internals ----------------------------------------------------------------------------
@@ -742,6 +768,7 @@ export class World {
 
   private reallyDestroyNode(e: number): void {
     for (const child of this.childEntities(e)) this.reallyDestroyNode(child);
+    if (this.isSceneNode(e)) this.sceneNodeCount--;
     const comps = this.componentsOf[e];
     for (let i = comps.length - 1; i >= 0; i--) this.reallyRemoveComponent(comps[i]);
     for (const store of this.dataStores.values()) store.remove(e);

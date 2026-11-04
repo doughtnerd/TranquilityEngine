@@ -90,6 +90,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0061](decisions/0061-asset-previews-and-the-thumbnail-cache.md) | Asset previews are rendered in the editor and cached by content in the project's `.myco/thumbnails/` | Accepted |
 | [0062](decisions/0062-links-to-spawnable-worlds.md) | Bootstrap links apply whenever both Worlds exist, so they can name Spawnable Worlds (templates) | Accepted |
 | [0063](decisions/0063-editor-menu-bar.md) | The editor's commands live in a menu bar below the system title bar | Accepted |
+| [0064](decisions/0064-system-rows-with-column-access.md) | System rows give typed-array columns as well as per-row views | Accepted |
 
 ## Working with decisions
 

@@ -17,6 +17,8 @@
     "server": "node src/server/cli.mjs",
     "export": "node src/export/cli.mjs",
     "test": "vitest run",
+    "bench": "vitest bench --run",
+    "bench:memory": "node --expose-gc bench/memory.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium webkit",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json",

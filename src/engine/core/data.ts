@@ -8,19 +8,25 @@
 import { _isReplacingRegistrations, _recordRegistration } from "./registry";
 import { World } from "./World";
 
-export interface ScalarType {
-  readonly kind: "f32" | "i32" | "u8";
+export interface ScalarType<K extends "f32" | "i32" | "u8" = "f32" | "i32" | "u8"> {
+  readonly kind: K;
   readonly array: Float32ArrayConstructor | Int32ArrayConstructor | Uint8ArrayConstructor;
 }
 
 /** 32-bit float field. */
-export const f32: ScalarType = { kind: "f32", array: Float32Array };
+export const f32: ScalarType<"f32"> = { kind: "f32", array: Float32Array };
 /** 32-bit signed integer field. */
-export const i32: ScalarType = { kind: "i32", array: Int32Array };
+export const i32: ScalarType<"i32"> = { kind: "i32", array: Int32Array };
 /** 8-bit unsigned field, also used for booleans (0/1). */
-export const u8: ScalarType = { kind: "u8", array: Uint8Array };
+export const u8: ScalarType<"u8"> = { kind: "u8", array: Uint8Array };
 
 export type Schema = Record<string, ScalarType>;
+
+/** The typed array a field is stored in. */
+export type ColumnArray<T extends ScalarType> = T["kind"] extends "f32" ? Float32Array : T["kind"] extends "i32" ? Int32Array : Uint8Array;
+
+/** A data component's fields as their typed arrays, indexed by node slot (`rows.column`, ADR 0064). */
+export type Columns<S extends Schema> = { readonly [K in keyof S]: ColumnArray<S[K]> };
 
 /** The object you get from `node.getData(Def)` or a system row: live accessors over storage. */
 export type DataView<S extends Schema> = { [K in keyof S]: number };

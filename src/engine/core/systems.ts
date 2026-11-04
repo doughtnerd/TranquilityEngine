@@ -4,6 +4,7 @@
 import type { GameObject } from "../scene/GameObject";
 import type { Transform } from "../scene/Transform";
 import type { DataComponentDef } from "./data";
+import { NO_ROWS, type Rows } from "./rows";
 import type { TimeState, World } from "./World";
 import { _isReplacingRegistrations, _recordRegistration } from "./registry";
 import { DEFAULT_SYSTEM_WORLDS, worldsMatch, type WorldTag } from "./worlds";
@@ -59,7 +60,8 @@ export interface SystemDef {
    * `{ predicted: true }`). On a client, predicted systems always run after `engine.PredictionTick`.
    */
   readonly predicted?: boolean;
-  run(rows: Iterable<Row>, ctx: SystemContext): void;
+  /** `rows` iterates row by row, and gives typed-array columns for hot loops (`rows.column`, ADR 0064). */
+  run(rows: Rows, ctx: SystemContext): void;
 }
 
 /** @internal Built-in system: a named function in a phase, run against the World passed in. */
@@ -261,17 +263,11 @@ export class Scheduler {
       single: <V>(d: DataComponentDef) => world._singleData(d) as V | null,
     };
     try {
-      const rows = def.query ? world._query(def.query) : [];
-      def.run(includes ? filterRows(rows, includes) : rows, ctx);
+      def.run(def.query ? world._query(def.query, includes) : NO_ROWS, ctx);
     } catch (err) {
       console.error(`[myco] System "${def.name}" threw:`, err);
     }
   }
-}
-
-/** The rows whose node `includes` accepts, passed through as they come (rows are reused). */
-function* filterRows(rows: Iterable<Row>, includes: (node: GameObject) => boolean): Generator<Row> {
-  for (const row of rows) if (includes(row.node)) yield row;
 }
 
 /** Stable topological sort honoring `after`/`before` constraints; unknown names are ignored. */
