@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { closeMenus, undoItem } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -38,7 +39,8 @@ test("searches across folders and adds a prefab to the scene as an undoable step
   await assets(page).getByRole("button", { name: "Add pipe-pair.prefab.json to the scene" }).click();
   await expect(page.locator(".tree .row.selected .name")).toHaveText("pipe-pair");
   await expect(page.locator(".inspector .node-name")).toHaveValue("pipe-pair");
-  await expect(page.getByRole("button", { name: "Undo" })).toHaveAttribute("title", /Add node/);
+  await expect(await undoItem(page)).toContainText(/Add node/);
+  await closeMenus(page);
 
   await page.keyboard.press("ControlOrMeta+z");
   await expect(page.locator(".tree .row .name").filter({ hasText: /^pipe-pair$/ })).toHaveCount(0);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { ImportSettings } from "../../engine/scene/importSettings";
 import { assetKind, fileName } from "../assetBrowser";
+import { AudioPreview, LargePreview } from "./AssetPreview";
 import { MaterialInspector, ShaderGraphInspector } from "./MaterialInspector";
 import { ParticleEffectInspector } from "./ParticleInspector";
 import { importKind, inspectedAsset, openSpriteEditor, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
@@ -60,6 +61,8 @@ function ImportInspector() {
         </span>
       </div>
       {kind === "image" && <ImagePreview url={project.assets.get(path)} />}
+      {kind === "model" && <LargePreview path={path} />}
+      {kind === "audio" && <AudioPreview path={path} />}
       {saved.problems.length > 0 && (
         <ul class="asset-inspector-problems">
           {saved.problems.map((p) => (

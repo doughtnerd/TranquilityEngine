@@ -98,3 +98,30 @@ Review findings, all fixed:
   - two overflow menus could be open at once;
   - collapsed strips marked only one group's active tab.
 - **Found in e2e:** the About dialog's Escape handler was registered after paint, so a keypress right after it opened was lost. It's now a layout effect.
+
+## Wave 2 results (2026-11-04)
+
+Built:
+- **E, the menu bar** (ADR 0063, Proposed, amends 0038's Project menu): File, Edit, Create, Window and Help, with the play controls centred and the project status on the right. The Window items show panels (the editor can't close panels, so they don't toggle).
+- **F, asset previews:**
+  - thumbnails in Asset tiles, with hover animation and icons for other kinds;
+  - audio waveforms with a ▶ button on tiles, an Inspector clip player and an auto-play preference;
+  - larger Inspector previews for models, materials and shader graphs.
+  - Not done: orbitable previews (they need new renderer API); Inspector previews for environments, prefabs and particle effects.
+
+Verified: typecheck, 1152 unit tests, 349 e2e tests on Chromium and WebKit.
+
+Review findings, all fixed:
+- **Menu bar:**
+  - Alt after an Alt+click or Alt+drag focused File (found in e2e: it broke the scene view's Alt+click list);
+  - the bar worked behind modal dialogs;
+  - the message log swallowed Escape before an open menu, and focus wasn't returned;
+  - Edit items were enabled with nothing selected and ignored the Assets panel's focus;
+  - the opener scope was all of GitHub;
+  - dead Project-menu CSS, stale comments and docs.
+- **Previews:**
+  - thumbnails re-requested and were aborted on every document change;
+  - old object URLs and images piled up as assets changed;
+  - a closed project's service wasn't disposed;
+  - every audio tile re-rendered four times a second during playback, a rewritten clip played the old file, and playback outlived its asset;
+  - the Inspector could show the previous asset's picture.

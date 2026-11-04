@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MemoryFileSystem } from "../memoryFs";
 import { computePeaks, decodeSummary, encodeSummary } from "./audio";
 import { contentKey, keyOfFile, previewDependencies, previewKind } from "./keys";
@@ -272,7 +272,7 @@ describe("thumbnail service", () => {
     const store = memoryStore();
     const key = (await new ThumbnailService(files, store, maker(), manualQueue().queue).keyFor("a.material.json"))!;
     await store.write(key, "webp", new Uint8Array([1]));
-    let release!: () => void;
+    let release: (() => void) | undefined;
     const slow = { ...store, read: async (k: string, ext: Parameters<typeof store.read>[1]) => (await new Promise<void>((r) => (release = r)), store.read(k, ext)) };
     const service = new ThumbnailService(files, slow, maker(), manualQueue().queue);
     const created: string[] = [];
@@ -280,13 +280,43 @@ describe("thumbnail service", () => {
     URL.createObjectURL = (b: Blob) => (created.push("url"), original(b));
     try {
       const pending = service.thumbnailFor("a.material.json");
-      await new Promise((r) => setTimeout(r, 0));
+      await vi.waitFor(() => expect(release).toBeDefined()); // the read has started (after hashing)
       service.dispose(); // the project closes while the read is in flight
-      release();
+      release!();
       expect(await pending).toBeNull();
       expect(created).toEqual([]);
     } finally {
       URL.createObjectURL = original;
+    }
+  });
+
+  it("lets an edited asset's old image go once its new one is ready, unless another asset still uses it", async () => {
+    const files = project({ "a.material.json": '{"color":"#ff0000"}', "b.material.json": '{"color":"#00ff00"}' });
+    const { queue, tick } = manualQueue();
+    const service = new ThumbnailService(files, memoryStore(), maker(), queue);
+    const revoked: string[] = [];
+    const original = URL.revokeObjectURL;
+    URL.revokeObjectURL = (u: string) => (revoked.push(u), original(u));
+    try {
+      const first = (await runAll(tick, service.thumbnailFor("a.material.json"))) as { url: string } | null;
+      // Ten edits in a row (a colour being dragged): each makes a new image, the previous one goes.
+      for (let i = 0; i < 10; i++) {
+        files.set("a.material.json", `{"color":"#0000${i}${i}"}`);
+        await runAll(tick, service.thumbnailFor("a.material.json"));
+      }
+      expect(service.imageCount).toBe(1);
+      expect(revoked).toContain(first!.url);
+      expect(revoked.length).toBe(10);
+
+      // b is edited to match a: the image they share stays while a still uses it.
+      files.set("b.material.json", files.text("a.material.json")!);
+      const shared = (await runAll(tick, service.thumbnailFor("b.material.json"))) as { url: string } | null;
+      files.set("b.material.json", '{"color":"#123456"}');
+      await runAll(tick, service.thumbnailFor("b.material.json"));
+      expect(revoked).not.toContain(shared!.url);
+      expect(service.imageCount).toBe(2);
+    } finally {
+      URL.revokeObjectURL = original;
     }
   });
 });

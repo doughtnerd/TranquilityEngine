@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { showTab } from "./tabs";
+import { menu } from "./menus";
 
 // The Project panel (ADR 0038) on a writable in-memory copy of the Flappy sample: edits save into
 // project.json beside the Worlds panel's bootstrap, problems keep the file at its last valid
@@ -148,7 +149,6 @@ test("the Project menu's Project Settings shows the panel", async ({ page }) => 
   await openProject(page);
   await showTab(page, /^Inspector/);
   await expect(panel(page)).toHaveCount(0);
-  await page.getByRole("button", { name: "Project ▾" }).click();
-  await page.getByRole("menuitem", { name: "Project Settings" }).click();
+  await menu(page, "File", "Project Settings");
   await expect(panel(page)).toBeVisible();
 });

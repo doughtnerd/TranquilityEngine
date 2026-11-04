@@ -1,4 +1,4 @@
-/* Projects (ADR 0038): the start screen's projects section, the New Project dialog, the toolbar's Project menu. */
+/* Projects (ADR 0038): the start screen's projects section and the New Project dialog. */
 
 .start-project-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
 .start-subhead { margin: 14px 0 6px; font-size: 11px; font-weight: 600; color: var(--muted); }
@@ -29,10 +29,3 @@
 .dialog p.new-project-preview { min-height: 1.4em; font-size: 12px; overflow-wrap: anywhere; }
 .dialog p.new-project-preview.problem { color: var(--danger); }
 
-.project-menu { position: relative; }
-.project-menu-list { position: absolute; left: 0; top: calc(100% + 4px); z-index: 25; min-width: 200px; max-width: 320px; padding: 4px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px var(--shadow); }
-.project-menu-entry button { display: block; width: 100%; padding: 5px 10px; border: 0; background: transparent; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.project-menu-entry button:hover:not(:disabled) { background: var(--button-hover); }
-.project-menu-entry button:disabled { color: var(--muted); }
-.project-menu-divider { height: 1px; margin: 4px 0; background: var(--border); }
-.project-menu-heading { padding: 2px 10px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }

@@ -130,3 +130,26 @@
 }
 .kind-model .asset-kind { color: var(--accent); }
 .kind-material .asset-kind { color: var(--success); }
+
+/* Previews (ADR 0061): rendered thumbnails, icons, hover animation, audio waveforms. */
+.asset-preview { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.asset-preview .asset-rendered { max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: auto; }
+.asset-preview .asset-animation { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.asset-preview .asset-animation[hidden] { display: none; }
+.asset-icon { width: 46%; height: 46%; max-width: 30px; max-height: 30px; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.kind-folder .asset-icon { stroke: var(--warning); }
+.kind-scene .asset-icon, .kind-material .asset-icon { stroke: var(--success); }
+.kind-prefab .asset-icon { stroke: var(--link); }
+.kind-model .asset-icon { stroke: var(--accent); }
+.kind-audio .asset-icon { stroke: var(--warning); }
+/* The kind stays on a tile as a small badge; with a picture behind it, in the corner. */
+.asset-preview .asset-kind { position: absolute; left: 2px; bottom: 1px; font-size: calc(8px * var(--ui-scale)); line-height: 1.2; padding: 0 2px; border-radius: 2px; }
+.asset-preview.has-preview .asset-kind { background: var(--bg-sunken); }
+.asset-list .asset-preview .asset-kind { display: none; }
+.asset-waveform { width: 90%; height: 70%; }
+.asset-waveform rect { fill: var(--muted); }
+.asset-waveform rect.played { fill: var(--accent); }
+.asset-play { position: absolute; right: 2px; top: 2px; width: 20px; height: 20px; padding: 0; border-radius: 50%; font-size: 10px; line-height: 18px; text-align: center; background: var(--panel); color: var(--text); border: 1px solid var(--border); opacity: 0; }
+.asset-item:hover .asset-play, .asset-play:focus-visible, .asset-play.playing { opacity: 1; }
+.asset-play:hover { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.asset-list .asset-play { width: 14px; height: 14px; line-height: 12px; font-size: 8px; right: 0; top: 0; }

@@ -17,6 +17,7 @@ import { attachHistory, defaultHistoryPlatform, slotsFor, type AttachedHistory }
 import { historyLocation, netConditionsSetting, netPlaySetup } from "./preferences";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { installSceneView } from "./cameraPreview";
+import { installThumbnails } from "./thumbnails";
 import { installColliderGizmo } from "./colliderGizmo";
 import { installGizmo } from "./gizmo";
 import { installViewportTheme } from "./viewportTheme";
@@ -80,7 +81,14 @@ function nodeRect(key: string): { left: number; top: number; right: number; bott
   };
 }
 
+/** Asset thumbnails follow the open project (ADR 0061); installed with the first one. */
+let thumbnailsInstalled = false;
+
 export async function loadProject(project: EditorProject): Promise<void> {
+  if (!thumbnailsInstalled) {
+    thumbnailsInstalled = true;
+    installThumbnails();
+  }
   stopPlaying();
   await closeAllScenes();
   session?.dispose();

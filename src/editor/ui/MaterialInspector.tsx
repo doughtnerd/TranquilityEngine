@@ -8,6 +8,7 @@ import { errorStatus } from "../messages";
 import { createMaterialForGraph, openShaderGraphAsset, readShaderGraph } from "../shaderGraphAssets";
 import { currentProject, docVersion, status } from "../state";
 import { PropertyValue } from "./ShaderPropertyValue";
+import { LargePreview } from "./AssetPreview";
 import "./assetInspector.css";
 
 const withAlpha = (c: Color, a: number) => new Color(c.r, c.g, c.b, a);
@@ -123,6 +124,7 @@ export function MaterialInspector(props: { path: string }) {
           {fileName(path)}
         </span>
       </div>
+      <LargePreview path={path} />
       {problems.length > 0 && (
         <ul class="asset-inspector-problems">
           {problems.map((p) => (
@@ -265,6 +267,7 @@ export function ShaderGraphInspector(props: { path: string }) {
           {fileName(props.path)}
         </span>
       </div>
+      {!sub && <LargePreview path={props.path} />}
       {all.length > 0 && (
         <ul class="asset-inspector-problems">
           {all.map((p) => (

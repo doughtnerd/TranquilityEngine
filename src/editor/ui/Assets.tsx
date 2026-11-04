@@ -36,6 +36,7 @@ import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { switchScene } from "../session";
 import { currentProject, docVersion, openScene, playState, sceneCamera, scriptsVersion, select as selectNodes, selection, status } from "../state";
+import { TileThumbnail } from "./AssetPreview";
 import "./assets.css";
 import "./assetSlices.css";
 
@@ -565,7 +566,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         ) : slice && sliceRect && typeof url === "string" ? (
           <SliceThumb url={url} rect={sliceRect} />
         ) : (
-          <span class="asset-kind">{KIND_LABELS[kind]}</span>
+          <TileThumbnail path={path} kind={kind} label={KIND_LABELS[kind]} name={nameOf(entry)} />
         )}
       </div>
       {sliceCount > 0 && (

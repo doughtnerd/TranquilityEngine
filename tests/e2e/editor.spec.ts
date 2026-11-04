@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { closeMenus, undoItem } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -94,7 +95,8 @@ test("editing a field in the inspector updates the scene, and Ctrl+Z undoes it",
   await y.fill("3.5");
   await y.press("Enter");
   await expect(page.locator(".scene-name")).toContainText("•"); // unsaved changes
-  await expect(page.getByRole("button", { name: "Undo" })).toHaveAttribute("title", /Set position/);
+  await expect(await undoItem(page)).toContainText(/Set position/);
+  await closeMenus(page);
 
   await page.keyboard.press("ControlOrMeta+z");
   await expect(y).toHaveValue("1");

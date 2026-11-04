@@ -18,9 +18,16 @@ let renderer: Promise<ThumbnailRenderer> | null = null;
 const getRenderer = () => (renderer ??= createThumbnailRenderer());
 
 let current: { project: EditorProject; service: ThumbnailService } | null = null;
+/** Thumbnails drawn this session (end-to-end tests check a reopened project reads its cache instead). */
+let renders = 0;
 
 /** The open project as the thumbnail service reads it. */
 function adapt(project: EditorProject): ThumbnailProject {
+  // JSON stamps: a number per file that changes when its text does. The text comparison is by
+  // identity in practice (the project keeps the same string until the file is rewritten), so a
+  // stamp costs a map lookup rather than joining whole files into the key's stamp string.
+  const versions = new Map<string, { text: string; n: number }>();
+  let counter = 0;
   let filesRef: readonly string[] | null = null;
   let fileSet = new Set<string>();
   const has = (p: string) => {
@@ -46,9 +53,13 @@ function adapt(project: EditorProject): ThumbnailProject {
     },
     stamp(p) {
       if (!has(p)) return undefined;
-      // JSON: its text (a new string when the file changes). Binaries: their URL (new when rewritten) and size.
+      // JSON: its text's version. Binaries: their URL (new when rewritten) and size.
       const text = p.endsWith(".json") ? project.textOf(p) : undefined;
-      if (text !== undefined) return text;
+      if (text !== undefined) {
+        let v = versions.get(p);
+        if (!v || v.text !== text) versions.set(p, (v = { text, n: ++counter }));
+        return `j${v.n}`;
+      }
       try {
         return `${String(project.assets.get(p))}|${project.sizeOf(p) ?? ""}`;
       } catch {
@@ -73,7 +84,10 @@ function service(): ThumbnailService | null {
       ? {
           project,
           service: new ThumbnailService(adapt(project), storeFor(project), {
-            render: async (kind, path) => (await getRenderer()).render(kind, path),
+            render: async (kind, path) => {
+              renders++;
+              return (await getRenderer()).render(kind, path);
+            },
             decodeAudio: decodeAudioSummary,
           }),
         }
@@ -126,10 +140,11 @@ export function animateThumbnail(path: string, canvas: HTMLCanvasElement): () =>
 export function installThumbnails(): () => void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   const stopEffect = effect(() => {
-    const project = currentProject.value;
+    currentProject.value; // follow the open project
     if (timer !== null) clearTimeout(timer);
     timer = null;
-    const s = project ? service() : null;
+    // service() also lets the last project's service go when none is open (its URLs and caches).
+    const s = service();
     if (s && s.store.where) {
       const idle = (cb: () => void) => ((globalThis as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ?? ((f: () => void) => setTimeout(f, 0)))(cb);
       timer = setTimeout(() => idle(() => void s.prune().catch(() => undefined)), 5000);
@@ -143,6 +158,12 @@ export function installThumbnails(): () => void {
         keyFor: (path: string) => service()?.keyFor(path) ?? Promise.resolve(null),
         prune: () => service()?.prune() ?? Promise.resolve(0),
         where: () => service()?.store.where ?? null,
+        renders: () => renders,
+        /** Drop the service, as reopening the project would: the next request reads the cache afresh. */
+        reset: () => {
+          current?.service.dispose();
+          current = null;
+        },
       },
     });
   }

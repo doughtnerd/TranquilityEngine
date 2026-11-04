@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { closeMenus, undoItem } from "./menus";
 
 // The Assets panel as a file browser, on a writable in-memory copy of the demo project.
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
@@ -200,5 +201,6 @@ test("several selected images drag into the hierarchy together, as one undo step
   const roots = page.locator(".tree > li > .row .name");
   await expect(roots.last()).toHaveText("PipeUp");
   await expect(roots.nth(-2)).toHaveText("PipeDown");
-  await expect(page.getByRole("button", { name: "Undo" })).toHaveAttribute("title", /Add 2 assets/);
+  await expect(await undoItem(page)).toContainText(/Add 2 assets/);
+  await closeMenus(page);
 });

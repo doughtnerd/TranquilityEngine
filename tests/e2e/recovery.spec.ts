@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { menu } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -42,7 +43,7 @@ test("unsaved changes survive the editor closing, and can be restored", async ({
   await page.locator('.tree .row[data-key="bird"]').click();
   await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("3");
   await expect(page.locator(".scene-name")).toContainText("•"); // still unsaved
-  await page.getByRole("button", { name: "Undo" }).click();
+  await menu(page, "Edit", /^Undo/);
   await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("2"); // the history came back too
 });
 

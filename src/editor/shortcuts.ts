@@ -5,7 +5,8 @@ import { save, togglePlaying } from "./session";
 import { stepFrame, togglePause } from "./playDebug";
 import { openScene, pickTool, snapping, type Tool } from "./state";
 
-function isEditable(target: EventTarget | null): boolean {
+/** A text field (or other control) that keeps its own keys. */
+export function isEditable(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   if (!el) return false;
   if (el.isContentEditable) return true;

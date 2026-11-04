@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { menu } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -146,6 +147,6 @@ test("resizing with a handle is remembered across reloads, and Reset Layout rest
   await page.waitForFunction(() => (window.engine?.world.time.frameCount ?? 0) > 10);
   expect((await box(group(page, "Hierarchy"))).width).toBeCloseTo(wider.width, 0);
 
-  await page.getByRole("button", { name: "Reset Layout" }).click();
+  await menu(page, "Window", "Reset Layout");
   expect((await box(group(page, "Hierarchy"))).width).toBeCloseTo(before.width, 0);
 });

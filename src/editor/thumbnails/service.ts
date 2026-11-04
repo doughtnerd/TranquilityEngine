@@ -38,6 +38,8 @@ interface ImageEntry {
   steady: number;
   waiting: number;
   settled: boolean;
+  /** The image's object URL once made, so it can be revoked when no asset uses the key any more. */
+  url?: string;
 }
 
 interface KeyEntry {
@@ -52,6 +54,8 @@ export class ThumbnailService {
   private readonly images = new Map<string, ImageEntry>();
   private readonly summaries = new Map<string, Promise<AudioSummary | null>>();
   private readonly urls = new Set<string>();
+  /** The key each asset's thumbnail was last asked for under, so an edited asset lets its old image go. */
+  private readonly pathKeys = new Map<string, string>();
   private disposed = false;
 
   constructor(
@@ -114,6 +118,8 @@ export class ThumbnailService {
     if (!kind || kind === "audio") return null;
     const key = await this.keyFor(path);
     if (!key || this.disposed || signal?.aborted) return null;
+    const previous = this.pathKeys.get(path);
+    this.pathKeys.set(path, key);
     let entry = this.images.get(key);
     if (!entry) {
       const controller = new AbortController();
@@ -122,13 +128,35 @@ export class ThumbnailService {
       this.images.set(key, made);
       const settle = (t: Thumbnail | null) => {
         made.settled = true;
+        made.url = t?.url;
         // A dropped or failed request isn't remembered, so the next one tries again.
         if (!t && this.images.get(key) === made) this.images.delete(key);
       };
       void made.image.then(settle, () => settle(null));
     }
     if (!entry.settled) this.join(entry, signal);
+    // The asset changed: once its new image is ready (so nothing shows a revoked picture meanwhile),
+    // let the old one go unless another asset still uses that key.
+    if (previous && previous !== key) void entry.image.finally(() => this.release(previous)).catch(() => undefined);
     return entry.image;
+  }
+
+  /** Revoke the image for `key` and forget it, unless an asset's thumbnail still uses that key. */
+  private release(key: string): void {
+    if (this.disposed) return;
+    for (const k of this.pathKeys.values()) if (k === key) return;
+    const entry = this.images.get(key);
+    if (!entry?.settled) return; // still being made for someone
+    this.images.delete(key);
+    if (entry.url) {
+      URL.revokeObjectURL(entry.url);
+      this.urls.delete(entry.url);
+    }
+  }
+
+  /** How many images the service holds (tests: edited assets don't pile up). */
+  get imageCount(): number {
+    return this.images.size;
   }
 
   /** Count a caller waiting for `entry`; when every one that can go away has, drop the render. */
@@ -234,5 +262,6 @@ export class ThumbnailService {
     this.images.clear();
     this.summaries.clear();
     this.keys.clear();
+    this.pathKeys.clear();
   }
 }

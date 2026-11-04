@@ -2,17 +2,15 @@ import { signal } from "@preact/signals";
 import type { ComponentChildren, FunctionComponent } from "preact";
 import { isTauri } from "../../engine/platform/FileSystem";
 import { DockLayout } from "../layout/DockLayout";
-import { resetLayout } from "../layout/store";
-import { closeProject, reloadScripts, save, togglePlaying } from "../session";
-import { createScene } from "../newScene";
-import { currentProject, docVersion, openScene, playState, scriptProblems, snapping, status } from "../state";
+import { togglePlaying } from "../session";
+import { currentProject, docVersion, openScene, playState } from "../state";
 import { art, PRODUCT_NAME } from "../brand";
 import { AboutDialog, aboutOpen } from "./AboutDialog";
 import { AssetsPanel } from "./Assets";
 import { CodePanel } from "./CodePanel";
 import { AssetDragGhost } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { ExportDialog, exportOpen } from "./ExportDialog";
+import { ExportDialog } from "./ExportDialog";
 import { StatusBar } from "./StatusBar";
 import { NetworkPanel } from "./NetworkPanel";
 import { PlayControls } from "./PlayControls";
@@ -20,14 +18,14 @@ import { NewScriptDialog } from "./NewScriptDialog";
 import { SpriteEditorDialog } from "./SpriteEditor";
 import { HistoryPanel } from "./HistoryPanel";
 import { RefineList } from "./RefineList";
-import { SettingsDialog, settingsOpen } from "./SettingsDialog";
+import { SettingsDialog } from "./SettingsDialog";
 import { Hierarchy } from "./Hierarchy";
 import { Inspector } from "./Inspector";
 import { ScenePanel } from "./ScenePanel";
 import { StartScreen } from "./StartScreen";
 import { WorldsPanel } from "./WorldsPanel";
 import { NewProjectDialog } from "./NewProjectDialog";
-import { ProjectMenu } from "./ProjectMenu";
+import { MenuBar } from "./MenuBar";
 import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 
 /** A panel whose code loads the first time it shows, so the editor starts without it (the graph editors and their graph library). */
@@ -75,63 +73,36 @@ export function App() {
   );
 }
 
+/** The menu bar row: logo (About) and menus, Play controls in the middle, the project on the right. */
 function Toolbar() {
-  return (
-    <header class="toolbar">
-      <button class="brand" title={`About ${PRODUCT_NAME}`} aria-label={`About ${PRODUCT_NAME}`} onClick={() => (aboutOpen.value = true)}>
-        <img src={art.mycoIcon} alt="" width={22} height={22} />
-        <span>{PRODUCT_NAME}</span>
-      </button>
-      <ProjectControls />
-      <PlayButton />
-      <PlayControls />
-      <UndoRedo />
-      <button title="Put the panels back where they started" onClick={resetLayout}>
-        Reset Layout
-      </button>
-      <button title="Editor settings" onClick={() => (settingsOpen.value = true)}>
-        Settings
-      </button>
-    </header>
-  );
-}
-
-function ProjectControls() {
-  docVersion.value; // the Save button follows unsaved changes
+  docVersion.value; // the unsaved dot follows the open scene's changes
   const project = currentProject.value;
-  const scene = openScene.value;
-  const canSave = !!project?.canSave && !!scene?.stack.dirty;
-  const saveTitle = !project?.canSave ? "This project is read-only. Open a project folder to save." : `Save ${scene?.path ?? ""} (Ctrl+S)`;
+  const dirty = !!openScene.value?.stack.dirty;
   return (
-    <div class="group" role="group" aria-label="Project">
-      <ProjectMenu />
-      <button disabled={!canSave} title={saveTitle} onClick={() => void save()}>
-        Save
-      </button>
-      {project && (
-        <button disabled={!project.canSave} title={project.canSave ? "Create a scene with a camera and open it" : "This project is read-only."} onClick={() => void createScene()}>
-          New Scene
+    <header class="toolbar menubar-row">
+      <div class="menubar-left">
+        <button class="brand" title={`About ${PRODUCT_NAME}`} aria-label={`About ${PRODUCT_NAME}`} onClick={() => (aboutOpen.value = true)}>
+          <img src={art.mycoIcon} alt="" width={22} height={22} />
+          <span>{PRODUCT_NAME}</span>
         </button>
-      )}
-      {project?.root != null && (
-        <button title="Read the scripts under scripts/ again and reload them (ADR 0030)" onClick={() => void reloadScripts()}>
-          Reload Scripts
-        </button>
-      )}
-      {project && (
-        <button title="Build / Export: make a playable web build or desktop app of the project (ADR 0041)" onClick={() => (exportOpen.value = true)}>
-          Export…
-        </button>
-      )}
-      {project && (
-        <button title="Close the project and go back to the start screen" onClick={() => void closeProject()}>
-          Close
-        </button>
-      )}
-      <span class="project-name" title={project?.root ?? "A sample served beside the editor"}>
-        {project?.name ?? "No project"}
-      </span>
-    </div>
+        <MenuBar />
+      </div>
+      <div class="menubar-centre">
+        <PlayButton />
+        <PlayControls />
+      </div>
+      <div class="menubar-right">
+        <span class="project-name" title={project?.root ?? "A sample served beside the editor"}>
+          {project?.name ?? "No project"}
+        </span>
+        {dirty && <span class="unsaved-dot" role="img" aria-label="Unsaved changes" title="Unsaved changes" />}
+        {project && !project.canSave && (
+          <span class="readonly-badge" title="This project is read-only. Open a project folder to save.">
+            Read-only
+          </span>
+        )}
+      </div>
+    </header>
   );
 }
 
@@ -150,22 +121,3 @@ function PlayButton() {
     </button>
   );
 }
-
-function UndoRedo() {
-  docVersion.value; // re-render when the undo stack changes
-  const stack = openScene.value?.stack;
-  const undo = stack?.undoLabel ?? null;
-  const redo = stack?.redoLabel ?? null;
-  return (
-    <div class="group" role="group" aria-label="History">
-      <button disabled={!stack?.canUndo} title={undo ? `Undo ${undo} (Ctrl+Z)` : "Nothing to undo"} onClick={() => stack?.undo()}>
-        Undo
-      </button>
-      <button disabled={!stack?.canRedo} title={redo ? `Redo ${redo} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => stack?.redo()}>
-        Redo
-      </button>
-    </div>
-  );
-}
-
-
