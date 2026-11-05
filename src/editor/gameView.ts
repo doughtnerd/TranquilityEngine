@@ -65,7 +65,9 @@ export function createGameView(container: HTMLElement): GameView {
   const update = (engine: Engine) => {
     const states = worldViewStates(engine);
     const main = states.find((s) => s.mainView) ?? null;
-    const others = states.filter((s) => s.renders && !s.mainView);
+    // A World that draws to a surface the game gave it (a lobby's match World, drawn over the paused
+    // menu, ADR 0068) isn't tiled: its surface is already on screen.
+    const others = states.filter((s) => s.renders && !s.mainView && (!s.extraView || tiles.has(s.name)));
 
     for (const [name, tile] of tiles) {
       if (others.some((s) => s.name === name)) continue;
@@ -76,7 +78,13 @@ export function createGameView(container: HTMLElement): GameView {
     for (const s of others) {
       if (tiles.has(s.name)) continue;
       const tile = makeTile();
-      const detach = attachWorldView(engine, s.name, tile.surface);
+      let detach: () => void;
+      try {
+        detach = attachWorldView(engine, s.name, tile.surface);
+      } catch (err) {
+        tile.element.remove(); // don't leave an empty tile behind each frame
+        throw err;
+      }
       tiles.set(s.name, { ...tile, detach });
       tile.element.addEventListener("pointerdown", () => engine.findWorld(s.name) && focusWorldInput(engine, s.name), { capture: true });
     }

@@ -102,6 +102,12 @@ describe("the play bootstrap", () => {
     expect(playBootstrap({ worlds: [{ name: "A" }, { name: "B", tags: ["server"] }] }, { clients: 2, thin: 1 })).toBeNull();
     expect(playBootstrap({ worlds: [{ name: "A" }], links: [{ from: "A", to: "Gone", transport: "loopback" }] }, { clients: 2, thin: 1 })).toBeNull();
   });
+
+  it("plays a lobby's layout (ADR 0068) as it is: the lobby makes the match Worlds, not Play", () => {
+    const pirates = (JSON.parse(readFileSync(fileURLToPath(new URL("../../samples/pirates/project.json", import.meta.url)), "utf8")) as { bootstrap: BootstrapConfig }).bootstrap;
+    expect(hostLayout(pirates)).toBeNull();
+    expect(playBootstrap(pirates, { clients: 2, thin: 1 })).toBeNull();
+  });
 });
 
 describe("the play bootstrap for the Host pattern (a server template created at runtime)", () => {
