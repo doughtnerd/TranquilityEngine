@@ -2,9 +2,9 @@
   "format": "myco.material@1",
   "shader": "unlit",
   "color": [
-    0.92,
-    0.95,
-    0.97,
-    0.28
+    1,
+    0.42,
+    0.18,
+    1
   ]
 }

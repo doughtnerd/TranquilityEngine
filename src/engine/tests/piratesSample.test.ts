@@ -1,11 +1,11 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, Lobby, Replicated, SceneInstance, UIButton, UIText } from "../index";
+import { Assets, Engine, GameObject, Lobby, Replicated, SceneInstance, UIButton, UIText } from "../index";
 import { World } from "../core/World";
 import { LobbyClient } from "../net/lobby/client";
 import { readProject } from "../../server/project";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
-import { FlagState, Game, Phase, Ship, type FlagView, type GameView, type ShipView } from "../../../samples/pirates/scripts/data";
+import { CLOUD_PREFAB, CLOUD_RADIUS, Cloud, inCloudAmong, FlagState, Game, Phase, Ship, type CloudView, type FlagView, type GameView, type ShipView } from "../../../samples/pirates/scripts/data";
 import "../../../samples/pirates/scripts/systems";
 import "../../../samples/pirates/scripts/client";
 import "../../../samples/pirates/scripts/bots";
@@ -152,6 +152,73 @@ describe("the King of Pirates sample", () => {
     const names = [...fleet.matchAll(/Calico Jack|Anne Bonny|Blackbeard|You/g)].map((m) => m[0]);
     expect(names).toContain("You");
     expect(names).toContain("Anne Bonny");
+
+    // The HUD's awareness. The minimap shows the ships afloat the player can see: their own, and any
+    // not inside another team's fog cloud (bots may have dropped some).
+    const hud = client._componentsOfType(Hud)[0].node;
+    const activeDots = (layer: string) => hud.find(`Overlay/Minimap/Chart/${layer}`)!.children.filter((n) => n.active).length;
+    const playerTeam = mine[0].data.team;
+    const cloudsIn = (world: World) =>
+      world._componentsOfType(Replicated).filter((r) => r.node.isValid && r.node.hasData(Cloud)).map((r) => ({ team: (r.node.getData(Cloud) as CloudView).team, x: r.node.transform!.position.x, z: r.node.transform!.position.z }));
+    const visible = () => {
+      const spots = cloudsIn(client);
+      return shipsIn(client).filter((s) => s.data.sunk <= 0 && (s.rep.isOwnedLocally || !inCloudAmong(spots, s.x, s.z, playerTeam))).length;
+    };
+    engine.step(STEP);
+    expect(activeDots("Ships")).toBe(visible());
+    expect(activeDots("Ships")).toBeGreaterThan(0);
+    expect(activeDots("Land")).toBeGreaterThan(3);
+    expect(activeDots("Clouds")).toBe(cloudsIn(client).length);
+
+    // A fog cloud dropped by another ship over a bot hides it from the player, on the minimap and on the water.
+    const bot = shipsIn(server).find((s) => s.data.bot && s.data.sunk <= 0)!;
+    const cloudTeam = shipsIn(server).find((s) => s.data.team !== playerTeam && s.data.team !== bot.data.team)!.data.team;
+    const dropCloud = (x: number, z: number, team: number) =>
+      World._runIn(server, () => {
+        const node = GameObject.instantiate(CLOUD_PREFAB, { position: [x, 0, z] });
+        Object.assign(node.getData(Cloud) as CloudView, { team, life: 100 });
+      });
+    const before = cloudsIn(client).length;
+    dropCloud(bot.x, bot.z, cloudTeam);
+    await stepUntil(engine, () => cloudsIn(client).length > before, "the cloud on the client");
+    engine.step(STEP);
+    const seenBot = shipsIn(client).find((s) => s.data.team === bot.data.team)!;
+    if (seenBot.data.sunk <= 0 && Math.hypot(seenBot.x - bot.x, seenBot.z - bot.z) < CLOUD_RADIUS - 2) {
+      expect(seenBot.rep.node.find("Visual")!.active).toBe(false);
+    }
+    expect(activeDots("Ships")).toBe(visible());
+    expect(activeDots("Clouds")).toBe(cloudsIn(client).length);
+
+    // The player's ship, afloat and in its own cloud, draws ghosted, with a note.
+    const serverMe = () => shipsIn(server).find((s) => s.rep.ownerId === player.rep.ownerId)!;
+    const place = (x: number, z: number, heading: number) =>
+      World._runIn(server, () => {
+        const s = serverMe();
+        s.rep.node.transform!.position.set(x, 0, z);
+        Object.assign(s.data, { heading, hp: 100, sunk: 0, invulnerable: 0 });
+      });
+    const me = () => shipsIn(client).find((s) => s.rep.isOwnedLocally)!;
+    place(serverMe().x, serverMe().z, serverMe().data.heading);
+    dropCloud(serverMe().x, serverMe().z, playerTeam);
+    await stepUntil(engine, () => hud.find("Overlay/Fog")!.active, "the fog note", 120);
+    expect(hud.find("Overlay/Fog/Box/Detail")!.getBehavior(UIText)!.text).toBe("Your enemies can't see you");
+    expect(me().rep.node.find("Visual/GhostHull")!.active).toBe(true);
+    expect(me().rep.node.find("Visual/Hull")!.active).toBe(false);
+
+    // Past the arena's edge the banner warns and the hull takes damage; near it, a milder warning.
+    const banner = () => hud.find("Overlay/Edge")!;
+    const title = () => hud.find("Overlay/Edge/Box/Title")!.getBehavior(UIText)!.text;
+    const radius = dataIn(server, null, (n) => n.getData(Game) as GameView | null)!.radius;
+    place(radius + 6, 0, 90); // sailing away from the middle, along +X
+    await stepUntil(engine, () => banner().active && title() === "Return to the battle!", "the out-of-arena banner", 120);
+    expect(hud.find("Overlay/Edge/Box/Detail")!.getBehavior(UIText)!.text).toMatch(/^You're taking damage - steer (east|north-east|south-east)$/);
+    for (let i = 0; i < 10; i++) engine.step(STEP);
+    expect(serverMe().data.hp).toBeLessThan(100);
+    expect(hud.find("Overlay/HomeMarker")!.active).toBe(true);
+    place(radius - 5, 0, 0);
+    await stepUntil(engine, () => title() === "The edge of the arena", "the near-edge warning", 120);
+    place(0.3 * radius, 0.3 * radius, 0);
+    await stepUntil(engine, () => !banner().active, "the warning gone", 120);
     expect(errors).toEqual([]);
   });
 
