@@ -8,6 +8,7 @@
 //! | [`landing_links`] | 6 | ground xyz, air xyz |
 //! | [`seams`] | 7 | a xyz, b xyz, kind (0 polygon link on A's side, 1 flight leaf link's rectangle diagonal) |
 //! | [`agent_paths`] | 7 | a xyz, b xyz, agent row |
+//! | [`poly_cost_lines`] | 7 | a xyz, b xyz, runtime cost multiplier (`Infinity` = excluded; ADR 0070) |
 use nav_format::{NavLandingLinksData, NavLinkKind, NavMeshData, NavVolumeData};
 use nav_math::Float3;
 
@@ -57,6 +58,24 @@ pub fn navmesh_lines(nav: &NavMeshData) -> Vec<f32> {
     }
     for e in &nav.seam_edges {
         seg(&mut out, e.a, e.b, LINE_SEAM_EDGE);
+    }
+    out
+}
+
+/// The outlines of the polygons whose runtime cost multiplier (`table`, by polygon) isn't 1, each edge tagged with it.
+pub fn poly_cost_lines(nav: &NavMeshData, table: &[f32]) -> Vec<f32> {
+    let mut out = Vec::new();
+    for (p, poly) in nav.polys.iter().enumerate() {
+        let Some(&cost) = table.get(p) else { break };
+        if cost == 1.0 {
+            continue;
+        }
+        let n = poly.vert_count.max(0) as usize;
+        for i in 0..n {
+            let a = nav.verts[nav.poly_verts[poly.vert_start as usize + i] as usize];
+            let b = nav.verts[nav.poly_verts[poly.vert_start as usize + (i + 1) % n] as usize];
+            seg(&mut out, a, b, cost);
+        }
     }
     out
 }

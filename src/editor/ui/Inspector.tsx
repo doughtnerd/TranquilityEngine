@@ -35,7 +35,7 @@ import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
 import { ParticleSystemEffect } from "./ParticleInspector";
 import { NavChunkBake } from "./NavChunkInspector";
-import { NavAgentBakeNote, NavAvoidanceNote, NavChunkPlanSummary, NavModifierPreviewNote, NavResolutionSummary } from "./NavComponentInspectors";
+import { NavAgentBakeNote, NavAvoidanceNote, NavChunkPlanSummary, NavCostVolumeNote, NavModifierPreviewNote, NavResolutionSummary } from "./NavComponentInspectors";
 import { NavGroupFormation } from "./NavFormationInspector";
 import { showsAssetInspector } from "../assetImport";
 import { assetKind, listedFiles } from "../assetBrowser";
@@ -512,6 +512,10 @@ function navNote(scene: OpenScene, path: NodePath, info: ComponentInfo) {
     }
     case "engine.NavModifierVolume":
       return <NavModifierPreviewNote nodeKey={key} appliesTo={String(value("appliesTo") ?? "both")} area={String(value("area") ?? "")} />;
+    case "engine.NavCostVolume": {
+      const agents = value("agents");
+      return <NavCostVolumeNote cost={Number(value("cost") ?? 4)} excluded={value("excluded") === true} agents={Array.isArray(agents) ? agents.map(String) : []} domain={String(value("domain") ?? "both")} />;
+    }
     default:
       return null;
   }

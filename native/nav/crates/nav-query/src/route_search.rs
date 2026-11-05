@@ -190,7 +190,7 @@ pub fn begin<S: SearchStore>(
     if air_filters.is_empty() {
         min_air = 1.0;
     }
-    let cheapest_air = settings.flight_cost_multiplier * min_air;
+    let cheapest_air = settings.flight_cost_multiplier * min_air * settings.leaf_cost_scale();
 
     s.settings = *settings;
     s.goal = *goal;
@@ -347,9 +347,11 @@ fn expand_ground<S: SearchStore>(
                 continue;
             }
             let area = volume.leaves[link.leaf as usize].area as i32;
-            if air_filter.excluded(area) {
+            let leaves = graphs.leaf_costs_for(v);
+            if air_filter.excluded(area) || crate::costs::excluded_at(leaves, link.leaf) {
                 continue;
             }
+            let area_cost = air_filter.cost(area) * crate::costs::cost_at(leaves, link.leaf);
 
             let walk = cur.pos.distance(link.ground);
             let rise = link.ground.distance(link.air) + lift(volume, link, settings.takeoff_height);
@@ -357,13 +359,13 @@ fn expand_ground<S: SearchStore>(
             if limited && air > settings.max_flight_distance {
                 continue;
             }
-            let mut cost = walk * travel_mul + settings.takeoff_cost + rise * air_filter.cost(area) * settings.flight_cost_multiplier;
+            let mut cost = walk * travel_mul + settings.takeoff_cost + rise * area_cost * settings.flight_cost_multiplier;
             if s.is_goal(false, v, link.leaf) {
                 let last = link.air.distance(s.goal.air_pos);
                 if limited && air + last > settings.max_flight_distance {
                     continue;
                 }
-                cost += last * air_filter.cost(area) * settings.flight_cost_multiplier;
+                cost += last * area_cost * settings.flight_cost_multiplier;
             }
 
             offer_air(s, store, v, link.leaf, node_index, NavRouteVia::Takeoff, i, cur.g + cost, cur.dist + walk + rise, air, link.air);
@@ -384,9 +386,11 @@ fn expand_ground<S: SearchStore>(
             }
             let air_filter = air_filters[ov as usize];
             let area = volume.leaves[link.leaf as usize].area as i32;
-            if air_filter.excluded(area) {
+            let leaves = graphs.leaf_costs_for(ov);
+            if air_filter.excluded(area) || crate::costs::excluded_at(leaves, link.leaf) {
                 continue;
             }
+            let area_cost = air_filter.cost(area) * crate::costs::cost_at(leaves, link.leaf);
 
             let walk = cur.pos.distance(landing.ground);
             let rise = landing.ground.distance(link.air) + lift(volume, link, settings.takeoff_height);
@@ -394,13 +398,13 @@ fn expand_ground<S: SearchStore>(
             if limited && air > settings.max_flight_distance {
                 continue;
             }
-            let mut cost = walk * travel_mul + settings.takeoff_cost + rise * air_filter.cost(area) * settings.flight_cost_multiplier;
+            let mut cost = walk * travel_mul + settings.takeoff_cost + rise * area_cost * settings.flight_cost_multiplier;
             if s.is_goal(false, ov, link.leaf) {
                 let last = link.air.distance(s.goal.air_pos);
                 if limited && air + last > settings.max_flight_distance {
                     continue;
                 }
-                cost += last * air_filter.cost(area) * settings.flight_cost_multiplier;
+                cost += last * area_cost * settings.flight_cost_multiplier;
             }
 
             offer_air(s, store, ov, link.leaf, node_index, NavRouteVia::OverlayTakeoff, o, cur.g + cost, cur.dist + walk + rise, air, link.air);
@@ -437,13 +441,14 @@ fn expand_air<S: SearchStore>(
     let limited = settings.max_flight_distance > 0.0;
     let budget = settings.max_flight_distance;
     let leaf_data = volume.leaves[leaf as usize];
-    let leaf_cost = air_filter.cost(leaf_data.area as i32) * settings.flight_cost_multiplier;
+    let leaves = graphs.leaf_costs_for(v);
+    let leaf_cost = air_filter.cost(leaf_data.area as i32) * crate::costs::cost_at(leaves, leaf) * settings.flight_cost_multiplier;
 
     // Neighbouring leaves, entered at their point nearest the current position.
     for k in 0..leaf_data.neighbor_count {
         let nl = volume.neighbors[(leaf_data.neighbor_start + k) as usize];
         let next = volume.leaves[nl as usize];
-        if air_filter.excluded(next.area as i32) {
+        if air_filter.excluded(next.area as i32) || crate::costs::excluded_at(leaves, nl) {
             continue;
         }
 
@@ -457,7 +462,7 @@ fn expand_air<S: SearchStore>(
         if s.is_goal(false, v, nl) {
             let last = pos.distance(s.goal.air_pos);
             air += if limited { last } else { 0.0 };
-            cost += last * air_filter.cost(next.area as i32) * settings.flight_cost_multiplier;
+            cost += last * air_filter.cost(next.area as i32) * crate::costs::cost_at(leaves, nl) * settings.flight_cost_multiplier;
         }
 
         if limited && air > budget {
@@ -472,7 +477,8 @@ fn expand_air<S: SearchStore>(
         let to_volume = &*graphs.volumes[link.to_volume as usize].volume;
         let to_filter = air_filters[link.to_volume as usize];
         let to_area = to_volume.leaves[link.to_leaf as usize].area as i32;
-        if to_filter.excluded(to_area) {
+        let to_leaves = graphs.leaf_costs_for(link.to_volume);
+        if to_filter.excluded(to_area) || crate::costs::excluded_at(to_leaves, link.to_leaf) {
             continue;
         }
 
@@ -483,7 +489,7 @@ fn expand_air<S: SearchStore>(
         if s.is_goal(false, link.to_volume, link.to_leaf) {
             let last = pos.distance(s.goal.air_pos);
             air += if limited { last } else { 0.0 };
-            cost += last * to_filter.cost(to_area) * settings.flight_cost_multiplier;
+            cost += last * to_filter.cost(to_area) * crate::costs::cost_at(to_leaves, link.to_leaf) * settings.flight_cost_multiplier;
         }
 
         if limited && air > budget {

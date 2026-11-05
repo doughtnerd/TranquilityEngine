@@ -140,6 +140,10 @@ pub fn repath(_sys: &mut FlyerSystems, agents: &mut AgentStore, targets: &Target
         }
         let position = agents.position[r];
         let moving = path.state == NavPathState::Following || path.state == NavPathState::Partial;
+        // A runtime cost volume changed a leaf's cost in its volume this tick (ADR 0070).
+        if moving && frame.update.costs_changed && e.leaf_costs_changed && path.computed_time < e.last_cost_change {
+            repath = true;
+        }
         if moving && flyer.off_path_distance > 0.0 && path.next_index > 0 && (path.next_index as usize) < f.points.len() {
             let (a, b) = (path.prev, path.next);
             let ab = b - a;
@@ -214,6 +218,13 @@ pub fn path_requests(sys: &mut FlyerSystems, agents: &mut AgentStore, frame: &Fr
     }
 }
 
+/// The runtime cost volumes' leaf multipliers of an entry's flight volume (ADR 0070).
+fn leaf_costs<'a>(frame: &'a Frame, entry: i32) -> volume::LeafCosts<'a> {
+    let chunks = frame.world.snapshot();
+    let table = usize::try_from(entry).ok().filter(|&e| e < chunks.entries.len()).and_then(|e| chunks.leaf_costs_for(e));
+    volume::LeafCosts::new(table, chunks.min_leaf_cost)
+}
+
 fn same_request(search: &NavFlightSearch, request: &PathRequest) -> bool {
     search.request_goal == request.goal
         && search.from_current == request.start_from_current_position
@@ -272,14 +283,14 @@ fn step_search(entry: &mut PooledSearch<NavFlightSearch>, scratch: &mut Vec<Floa
                 goal = above;
             }
         }
-        valid = volume::begin(&volume, &search.filter, start_now, goal, flyer.max_snap_distance, flyer.max_search_nodes, &mut search.state, store);
+        valid = volume::begin_with(&volume, &search.filter, leaf_costs(frame, chunk_entry), start_now, goal, flyer.max_snap_distance, flyer.max_search_nodes, &mut search.state, store);
     }
     search.frames += 1;
-    if valid && !volume::step(&volume, &search.filter, &mut search.state, store, SEARCH_SLICE) {
+    if valid && !volume::step_with(&volume, &search.filter, leaf_costs(frame, chunk_entry), &mut search.state, store, SEARCH_SLICE) {
         return; // more next tick
     }
     scratch.clear();
-    let status = if valid { volume::finish(&volume, &search.filter, &search.state, store, scratch) } else { NavPathStatus::InvalidInput };
+    let status = if valid { volume::finish_with(&volume, &search.filter, leaf_costs(frame, chunk_entry), &search.state, store, scratch) } else { NavPathStatus::InvalidInput };
 
     // Apply: the flyer's new path (or Failed); its request is met.
     let d = &mut agents.data[r];

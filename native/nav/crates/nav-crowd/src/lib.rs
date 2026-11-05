@@ -261,6 +261,13 @@ impl Crowd {
             .or_else(|| self.chunks.gates.gate(id))
     }
 
+    /// Replaces the runtime cost volumes (ADR 0070): oriented boxes that multiply path costs (or exclude) inside them.
+    /// Applied at once for one-shot queries; the tick's snapshot, agents' re-plans and route graphs follow on the
+    /// next tick.
+    pub fn set_cost_volumes(&mut self, volumes: Vec<nav_query::costs::CostVolume>) {
+        self.chunks.set_cost_volumes(volumes);
+    }
+
     pub fn set_area_cost(&mut self, agent: AgentId, area: Hash128, cost: f32, excluded: bool) {
         self.push(Command::SetAreaCost { agent, area, cost, excluded });
     }

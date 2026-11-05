@@ -29,6 +29,7 @@ export const navruntime_chaseAgent: (a: number, b: number, c: number, d: number)
 export const navruntime_chaseTarget: (a: number, b: number, c: number, d: number) => void;
 export const navruntime_clearAreaCosts: (a: number, b: number) => void;
 export const navruntime_debugAgentPaths: (a: number) => [number, number];
+export const navruntime_debugCosts: (a: number, b: number, c: number, d: number, e: number) => [number, number];
 export const navruntime_debugLandingLinks: (a: number, b: number, c: number, d: number, e: number) => [number, number];
 export const navruntime_debugNavmeshLines: (a: number, b: number, c: number, d: number, e: number) => [number, number];
 export const navruntime_debugNavmeshTriangles: (a: number, b: number, c: number, d: number, e: number) => [number, number];
@@ -54,6 +55,7 @@ export const navruntime_removeAgent: (a: number, b: number) => void;
 export const navruntime_removeObstacle: (a: number, b: number) => void;
 export const navruntime_removeTarget: (a: number, b: number) => void;
 export const navruntime_setAreaCost: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+export const navruntime_setCostVolumes: (a: number, b: number, c: number) => [number, number];
 export const navruntime_setDestination: (a: number, b: number, c: number, d: number, e: number) => void;
 export const navruntime_setFlowGoal: (a: number, b: number, c: number, d: number) => void;
 export const navruntime_setGate: (a: number, b: number, c: number, d: number) => void;

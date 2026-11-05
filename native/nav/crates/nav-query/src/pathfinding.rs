@@ -280,7 +280,8 @@ pub fn begin<S: SearchStore>(
     // spelled out to keep the float operations in this order).
     s.h_scale = HEURISTIC_SCALE
         * min(1.0, min(filter.wall_cost_multiplier, filter.ceiling_cost_multiplier))
-        * (if filter.area_costs.is_empty() { 1.0 } else { min(1.0, filter.min_area_cost) });
+        * (if filter.area_costs.is_empty() { 1.0 } else { min(1.0, filter.min_area_cost) })
+        * filter.poly_cost_scale();
     s.goal_poly = goal_poly;
     s.goal = goal_pos;
     s.max_nodes = filter.max_nodes;
@@ -354,12 +355,11 @@ pub fn step<S: SearchStore>(
                 continue;
             };
             let link = &nav.links[link_index as usize];
-            let q = &nav.polys[link.to_poly as usize];
 
             let h;
             if link.to_poly == goal_poly {
                 // Like Detour: the goal node's cost includes the final leg to the goal position.
-                cost += land.distance(goal_pos) * surface_multiplier(nav, q.bin, filter) * filter.area_costs.cost(q.area);
+                cost += land.distance(goal_pos) * travel_multiplier(nav, link.to_poly, filter);
                 h = 0.0;
             } else {
                 h = land.distance(goal_pos) * s.h_scale;
@@ -428,11 +428,16 @@ pub fn finish<S: SearchStore>(s: &NavMeshAStar, store: &S, corridor: &mut Vec<Na
 
 // ---------------------------------------------------------------- helpers
 
-/// Cost per unit of distance across a polygon: its surface (floor, wall, ceiling) times its area.
+/// Cost per unit of distance across a polygon: its surface (floor, wall, ceiling) times its area, times the runtime
+/// cost volumes over it (ADR 0070).
 #[inline]
 pub fn travel_multiplier(nav: &NavMeshData, poly: i32, filter: &NavMeshQueryFilter) -> f32 {
     let p = &nav.polys[poly as usize];
-    surface_multiplier(nav, p.bin, filter) * filter.area_costs.cost(p.area)
+    let m = surface_multiplier(nav, p.bin, filter) * filter.area_costs.cost(p.area);
+    match filter.poly_costs {
+        Some(_) => m * filter.poly_cost(poly),
+        None => m,
+    }
 }
 
 /// Taking link `link_index` from `from` (where the path entered the link's source polygon, `from_dist` along it):
@@ -538,10 +543,11 @@ fn jump_allowed(link: &NavLink, filter: &NavMeshQueryFilter) -> bool {
     }
 }
 
-/// `PolyAllowed`, and not switched off (an overlay replaced it) (`PolyUsable`).
+/// `PolyAllowed`, not switched off (an overlay replaced it) and not excluded by a runtime cost volume (ADR 0070)
+/// (`PolyUsable`).
 #[inline]
 pub fn poly_usable(nav: &NavMeshData, poly: i32, filter: &NavMeshQueryFilter) -> bool {
-    filter.poly_allowed(&nav.polys[poly as usize]) && !filter.is_switched_off(poly)
+    filter.poly_allowed(&nav.polys[poly as usize]) && !filter.is_switched_off(poly) && !filter.is_poly_excluded(poly)
 }
 
 /// Floor (tilt < 45 degrees) = 1, ceiling (tilt > 135) and walls use the filter's multipliers.

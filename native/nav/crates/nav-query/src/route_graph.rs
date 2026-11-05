@@ -219,6 +219,12 @@ pub struct RouteGraphs {
     pub links_from: MultiIndex,
     pub switched_off: Vec<bool>,
     pub closed_gates: Vec<bool>,
+    /// Runtime cost volumes' tables (ADR 0070): by graph (by polygon) and by volume (by leaf); empty = every polygon
+    /// or leaf costs 1. Copied from the snapshot by [`RouteGraphs::refresh_costs`].
+    pub poly_costs: Vec<Vec<f32>>,
+    pub leaf_costs: Vec<Vec<f32>>,
+    pub min_poly_cost: f32,
+    pub min_leaf_cost: f32,
     /// Edges facing unloaded space, by `key(graph, poly)` in `frontier_from`.
     pub frontier: Vec<NavFrontierEdge>,
     pub frontier_from: MultiIndex,
@@ -271,6 +277,8 @@ impl RouteGraphs {
             closed_gates: (g.gate_count > 0).then(|| &self.closed_gates[g.gate_start..g.gate_start + g.gate_count]),
             switched_off: (g.switched_off_count > 0)
                 .then(|| &self.switched_off[g.switched_off_start..g.switched_off_start + g.switched_off_count]),
+            poly_costs: self.poly_costs.get(graph as usize).filter(|t| !t.is_empty()).map(|t| t.as_slice()),
+            min_poly_cost: self.min_poly_cost,
             congestion: None,
             congestion_cost: f.congestion_cost,
             agent_speed: f.agent_speed,
@@ -314,6 +322,34 @@ impl RouteGraphs {
             let start = graph.gate_start;
             self.closed_gates[start..start + n].copy_from_slice(&gates[..n]);
         }
+    }
+
+    /// A volume's runtime cost table by leaf for flight searches (None: every leaf costs 1).
+    pub fn leaf_costs_for(&self, volume: i32) -> Option<&[f32]> {
+        usize::try_from(volume).ok().and_then(|v| self.leaf_costs.get(v)).filter(|t| !t.is_empty()).map(|t| t.as_slice())
+    }
+
+    /// The cheapest leaf multiplier of the runtime cost volumes, when any volume has a table (for
+    /// `NavHybridParams::min_leaf_cost`).
+    pub fn leaf_cost_min(&self) -> Option<f32> {
+        self.leaf_costs.iter().any(|t| !t.is_empty()).then_some(self.min_leaf_cost)
+    }
+
+    /// Copies the snapshot's runtime cost tables (ADR 0070) into the graphs (same chunks as the build).
+    pub fn refresh_costs(&mut self, chunks: &NavChunks) {
+        let agent_type = self.agent_type;
+        self.poly_costs = self
+            .graphs
+            .iter()
+            .map(|g| chunks.find(g.chunk, agent_type, g.overlay).map(|e| chunks.poly_costs_of(e).to_vec()).unwrap_or_default())
+            .collect();
+        self.leaf_costs = self
+            .volumes
+            .iter()
+            .map(|v| chunks.find(v.chunk, agent_type, false).map(|e| chunks.leaf_costs_of(e).to_vec()).unwrap_or_default())
+            .collect();
+        self.min_poly_cost = chunks.min_poly_cost.min(1.0);
+        self.min_leaf_cost = chunks.min_leaf_cost.min(1.0);
     }
 
     /// A line for logs: what routes can use (`NavRouteGraphCache.Describe`'s per-type line).
@@ -478,6 +514,7 @@ pub fn build_route_graphs(chunks: &NavChunks, agent_type: Hash128, seams: &[Seam
         ..RouteGraphs::default()
     };
     fill_maps(&mut result);
+    result.refresh_costs(chunks);
     result
 }
 

@@ -104,6 +104,45 @@ pub struct NavFlightAStar {
 // Cells and leaves
 // ---------------------------------------------------------------------------------------------------------
 
+/// Runtime cost volumes' multipliers by leaf for one flight volume (ADR 0070): `table` None = every leaf costs 1;
+/// [`crate::costs::EXCLUDED`] entries are never entered. `min` is the cheapest entry (at most 1), for the heuristic.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LeafCosts<'a> {
+    pub table: Option<&'a [f32]>,
+    pub min: f32,
+}
+
+impl Default for LeafCosts<'_> {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+impl<'a> LeafCosts<'a> {
+    pub const NONE: LeafCosts<'static> = LeafCosts { table: None, min: 1.0 };
+
+    pub fn new(table: Option<&'a [f32]>, min: f32) -> Self {
+        Self { table, min }
+    }
+    #[inline]
+    pub fn cost(&self, leaf: i32) -> f32 {
+        crate::costs::cost_at(self.table, leaf)
+    }
+    #[inline]
+    pub fn excluded(&self, leaf: i32) -> bool {
+        crate::costs::excluded_at(self.table, leaf)
+    }
+    /// What the heuristic is scaled by: 1, or the cheapest multiplier when it's below 1.
+    #[inline]
+    pub fn scale(&self) -> f32 {
+        if self.table.is_none() {
+            1.0
+        } else {
+            min(1.0, self.min)
+        }
+    }
+}
+
 #[inline]
 fn to_int3(v: Float3) -> Int3 {
     Int3::new(v.x as i32, v.y as i32, v.z as i32)
@@ -276,7 +315,13 @@ pub fn segment_clear(v: &NavVolumeData, a: Float3, b: Float3) -> bool {
 /// True if a-b stays in free space the filter allows, in areas costing at most `max_cost`: smoothing may only
 /// shortcut through areas no costlier than the path it replaces (`SegmentClear` with a filter).
 pub fn segment_clear_filtered(v: &NavVolumeData, filter: &NavVolumeQueryFilter, a: Float3, b: Float3, max_cost: f32) -> bool {
-    all_along(v, a, b, &AreaCheck { filter, max_cost })
+    all_along(v, a, b, &AreaCheck { filter, leaves: LeafCosts::NONE, max_cost })
+}
+
+/// [`segment_clear_filtered`] with runtime cost volumes (ADR 0070): a leaf's cost is its area's times its multiplier,
+/// and excluded leaves block.
+pub fn segment_clear_costed(v: &NavVolumeData, filter: &NavVolumeQueryFilter, leaves: LeafCosts, a: Float3, b: Float3, max_cost: f32) -> bool {
+    all_along(v, a, b, &AreaCheck { filter, leaves, max_cost })
 }
 
 trait LeafCheck {
@@ -292,6 +337,7 @@ impl LeafCheck for FreeCheck {
 
 struct AreaCheck<'a> {
     filter: &'a NavVolumeQueryFilter,
+    leaves: LeafCosts<'a>,
     max_cost: f32,
 }
 impl LeafCheck for AreaCheck<'_> {
@@ -300,6 +346,9 @@ impl LeafCheck for AreaCheck<'_> {
             return false;
         }
         let area = v.leaves[leaf as usize].area as i32;
+        if self.leaves.table.is_some() {
+            return !self.filter.excluded(area) && !self.leaves.excluded(leaf) && self.filter.cost(area) * self.leaves.cost(leaf) <= self.max_cost;
+        }
         !self.filter.excluded(area) && self.filter.cost(area) <= self.max_cost
     }
 }
@@ -456,10 +505,40 @@ pub fn find_path(
     find_path_counted(v, filter, start, goal, max_snap_distance, max_nodes, points).0
 }
 
+/// [`find_path`] with runtime cost volumes' leaf multipliers (ADR 0070).
+#[allow(clippy::too_many_arguments)]
+pub fn find_path_with(
+    v: &NavVolumeData,
+    filter: &NavVolumeQueryFilter,
+    leaves: LeafCosts,
+    start: Float3,
+    goal: Float3,
+    max_snap_distance: f32,
+    max_nodes: i32,
+    points: &mut Vec<Float3>,
+) -> FlightPathStatus {
+    find_path_counted_with(v, filter, leaves, start, goal, max_snap_distance, max_nodes, points).0
+}
+
 /// `find_path`, also giving the number of nodes the search created.
 pub fn find_path_counted(
     v: &NavVolumeData,
     filter: &NavVolumeQueryFilter,
+    start: Float3,
+    goal: Float3,
+    max_snap_distance: f32,
+    max_nodes: i32,
+    points: &mut Vec<Float3>,
+) -> (FlightPathStatus, usize) {
+    find_path_counted_with(v, filter, LeafCosts::NONE, start, goal, max_snap_distance, max_nodes, points)
+}
+
+/// [`find_path_counted`] with runtime cost volumes' leaf multipliers (ADR 0070).
+#[allow(clippy::too_many_arguments)]
+pub fn find_path_counted_with(
+    v: &NavVolumeData,
+    filter: &NavVolumeQueryFilter,
+    leaves: LeafCosts,
     start: Float3,
     goal: Float3,
     max_snap_distance: f32,
@@ -471,9 +550,9 @@ pub fn find_path_counted(
     let mut search = NavFlightAStar::default();
     let mut status = FlightPathStatus::InvalidInput;
     let mut expanded = 0;
-    if begin(v, filter, start, goal, max_snap_distance, max_nodes, &mut search, &mut store) {
-        while !step(v, filter, &mut search, &mut store, i32::MAX) {}
-        status = finish(v, filter, &search, &store, points);
+    if begin_with(v, filter, leaves, start, goal, max_snap_distance, max_nodes, &mut search, &mut store) {
+        while !step_with(v, filter, leaves, &mut search, &mut store, i32::MAX) {}
+        status = finish_with(v, filter, leaves, &search, &store, points);
         expanded = store.node_count();
     }
     (status, expanded)
@@ -486,6 +565,22 @@ pub fn find_path_counted(
 pub fn begin<S: SearchStore>(
     v: &NavVolumeData,
     filter: &NavVolumeQueryFilter,
+    start: Float3,
+    goal: Float3,
+    max_snap_distance: f32,
+    max_nodes: i32,
+    s: &mut NavFlightAStar,
+    store: &mut S,
+) -> bool {
+    begin_with(v, filter, LeafCosts::NONE, start, goal, max_snap_distance, max_nodes, s, store)
+}
+
+/// [`begin`] with runtime cost volumes' leaf multipliers (ADR 0070): they lower the heuristic when below 1.
+#[allow(clippy::too_many_arguments)]
+pub fn begin_with<S: SearchStore>(
+    v: &NavVolumeData,
+    filter: &NavVolumeQueryFilter,
+    leaves: LeafCosts,
     start: Float3,
     goal: Float3,
     max_snap_distance: f32,
@@ -506,6 +601,9 @@ pub fn begin<S: SearchStore>(
     }
 
     s.h_scale = HEURISTIC_SCALE * if filter.area_cost_count == 0 { 1.0 } else { filter.min_area_cost };
+    if leaves.table.is_some() {
+        s.h_scale *= leaves.scale();
+    }
     s.max_nodes = max(max_nodes, 1);
     let h0 = s.start.distance(s.goal) * s.h_scale;
     s.best_h = h0;
@@ -528,6 +626,19 @@ pub fn begin<S: SearchStore>(
 pub fn step<S: SearchStore>(
     v: &NavVolumeData,
     filter: &NavVolumeQueryFilter,
+    s: &mut NavFlightAStar,
+    store: &mut S,
+    max_nodes: i32,
+) -> bool {
+    step_with(v, filter, LeafCosts::NONE, s, store, max_nodes)
+}
+
+/// [`step`] with runtime cost volumes' leaf multipliers (ADR 0070): travel through a leaf costs its multiplier more,
+/// and excluded leaves are never entered.
+pub fn step_with<S: SearchStore>(
+    v: &NavVolumeData,
+    filter: &NavVolumeQueryFilter,
+    leaves: LeafCosts,
     s: &mut NavFlightAStar,
     store: &mut S,
     max_nodes: i32,
@@ -561,11 +672,14 @@ pub fn step<S: SearchStore>(
         }
 
         let leaf = v.leaves[cur.item as usize];
-        let leaf_cost = filter.cost(leaf.area as i32);
+        let mut leaf_cost = filter.cost(leaf.area as i32);
+        if leaves.table.is_some() {
+            leaf_cost *= leaves.cost(cur.item);
+        }
         for k in 0..leaf.neighbor_count {
             let nl = v.neighbors[(leaf.neighbor_start + k) as usize];
             let next = v.leaves[nl as usize];
-            if filter.excluded(next.area as i32) {
+            if filter.excluded(next.area as i32) || leaves.excluded(nl) {
                 continue;
             }
 
@@ -580,7 +694,11 @@ pub fn step<S: SearchStore>(
             let mut g_cost = cur.g + cur.pos.distance(pos) * leaf_cost;
             let h = if nl == s.goal_leaf { 0.0 } else { pos.distance(s.goal) * s.h_scale };
             if nl == s.goal_leaf {
-                g_cost += pos.distance(s.goal) * filter.cost(next.area as i32);
+                let mut goal_cost = filter.cost(next.area as i32);
+                if leaves.table.is_some() {
+                    goal_cost *= leaves.cost(nl);
+                }
+                g_cost += pos.distance(s.goal) * goal_cost;
             }
 
             if let Some(ni) = store.try_get_node(nl as i64) {
@@ -621,6 +739,19 @@ pub fn finish<S: SearchStore>(
     store: &S,
     points: &mut Vec<Float3>,
 ) -> FlightPathStatus {
+    finish_with(v, filter, LeafCosts::NONE, s, store, points)
+}
+
+/// [`finish`] with runtime cost volumes' leaf multipliers (ADR 0070): smoothing never cuts through a leaf costlier
+/// (area times multiplier) than the path it shortens, nor an excluded one.
+pub fn finish_with<S: SearchStore>(
+    v: &NavVolumeData,
+    filter: &NavVolumeQueryFilter,
+    leaves: LeafCosts,
+    s: &NavFlightAStar,
+    store: &S,
+    points: &mut Vec<Float3>,
+) -> FlightPathStatus {
     points.clear();
     let mut raw: Vec<Float3> = Vec::with_capacity(64);
     let mut raw_leaves: Vec<i32> = Vec::with_capacity(64); // the leaf each raw point is in
@@ -651,9 +782,13 @@ pub fn finish<S: SearchStore>(
         while j > anchor + 1 {
             let mut max_cost = 0.0f32;
             for &leaf in &raw_leaves[anchor..=j] {
-                max_cost = max(max_cost, filter.cost(v.leaves[leaf as usize].area as i32));
+                let mut c = filter.cost(v.leaves[leaf as usize].area as i32);
+                if leaves.table.is_some() {
+                    c *= leaves.cost(leaf);
+                }
+                max_cost = max(max_cost, c);
             }
-            if segment_clear_filtered(v, filter, raw[anchor], raw[j], max_cost) {
+            if segment_clear_costed(v, filter, leaves, raw[anchor], raw[j], max_cost) {
                 next = j;
                 break;
             }

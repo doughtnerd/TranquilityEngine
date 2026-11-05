@@ -129,6 +129,9 @@ pub struct FlowGraph {
     pub mask_start: usize,
     /// 0: none switched off.
     pub mask_count: usize,
+    /// Runtime cost volumes' table (ADR 0070): a range of [`FlowSnapshot::costs`]; count 0 = every polygon costs 1.
+    pub cost_start: usize,
+    pub cost_count: usize,
     pub gate_start: usize,
     /// 0: no gates.
     pub gate_count: usize,
@@ -139,7 +142,7 @@ impl FlowGraph {
     /// A graph over one navmesh with no gates or masks (tests, tools).
     pub fn new(nav: Arc<NavMeshData>, chunk: Hash128, overlay: bool) -> Self {
         let count = nav.polys.len();
-        Self { nav, chunk, start: 0, count, mask_start: 0, mask_count: 0, gate_start: 0, gate_count: 0, overlay }
+        Self { nav, chunk, start: 0, count, mask_start: 0, mask_count: 0, cost_start: 0, cost_count: 0, gate_start: 0, gate_count: 0, overlay }
     }
 }
 
@@ -191,7 +194,8 @@ impl FlowAgent {
 
     /// The agent's query filter on graph `g` (`NavFlowFields.Filter`): its abilities and area costs, the graph's
     /// gates and switched-off polygons.
-    pub fn graph_filter<'a>(&'a self, g: &FlowGraph, masks: &'a [bool], gates: &'a [bool]) -> NavMeshQueryFilter<'a> {
+    pub fn graph_filter<'a>(&'a self, g: &FlowGraph, snap: &'a FlowSnapshot) -> NavMeshQueryFilter<'a> {
+        let (masks, gates) = (&snap.masks, &snap.gates);
         let mut f: NavMeshQueryFilter<'a> = self.filter;
         if !g.nav.areas.is_empty() {
             f.area_costs.clear();
@@ -202,6 +206,8 @@ impl FlowAgent {
         }
         f.closed_gates = if g.gate_count > 0 { Some(&gates[g.gate_start..g.gate_start + g.gate_count]) } else { None };
         f.switched_off = if g.mask_count > 0 { Some(&masks[g.mask_start..g.mask_start + g.mask_count]) } else { None };
+        f.poly_costs = if g.cost_count > 0 { Some(&snap.costs[g.cost_start..g.cost_start + g.cost_count]) } else { None };
+        f.min_poly_cost = snap.min_cost;
         f
     }
 }
@@ -213,6 +219,9 @@ pub struct FlowSnapshot {
     pub graphs: Vec<FlowGraph>,
     pub masks: Vec<bool>,
     pub gates: Vec<bool>,
+    /// Runtime cost volumes' tables, back to back (ADR 0070), and their cheapest entry (at most 1).
+    pub costs: Vec<f32>,
+    pub min_cost: f32,
     pub exits: Vec<FlowExit>,
 }
 
@@ -220,7 +229,7 @@ impl FlowSnapshot {
     /// The agent type's navmeshes back to back with their masks and gates, and the seams between them
     /// (`NavFlowPlanJob.Snapshot`). Seams naming a navmesh that isn't loaded are dropped.
     pub fn from_chunks(chunks: &NavChunks, agent_type: Hash128, seams: &[FlowSeam]) -> Self {
-        let mut s = FlowSnapshot::default();
+        let mut s = FlowSnapshot { min_cost: chunks.min_poly_cost.min(1.0), ..FlowSnapshot::default() };
         let mut start = 0;
         for (i, e) in chunks.entries.iter().enumerate() {
             let Some(nav) = &e.nav else { continue };
@@ -238,6 +247,11 @@ impl FlowSnapshot {
                 g.gate_start = s.gates.len();
                 g.gate_count = e.gate_count;
                 s.gates.extend_from_slice(chunks.gates_of(i));
+            }
+            if e.poly_cost_count > 0 {
+                g.cost_start = s.costs.len();
+                g.cost_count = e.poly_cost_count;
+                s.costs.extend_from_slice(chunks.poly_costs_of(i));
             }
             start += g.count;
             s.graphs.push(g);
@@ -437,7 +451,7 @@ pub fn seed(
     let mut best_d2 = f32::MAX;
     let mut at = goal;
     for (g, graph) in snap.graphs.iter().enumerate() {
-        let filter = agent.graph_filter(graph, &snap.masks, &snap.gates);
+        let filter = agent.graph_filter(graph, snap);
         let Some((p, point)) = find_nearest_poly(&graph.nav, goal, snap_distance, &filter) else { continue };
         let d2 = goal.distance_sq(point);
         if d2 >= best_d2 {
@@ -455,7 +469,7 @@ pub fn seed(
 
     // Stopping short: a real way is always cheaper, so these only stand where the goal can't be reached.
     for graph in &snap.graphs {
-        let filter = agent.graph_filter(graph, &snap.masks, &snap.gates);
+        let filter = agent.graph_filter(graph, snap);
         for p in 0..graph.count {
             let node = (graph.start + p) as i32;
             if node == s.goal_node || !poly_usable(&graph.nav, p as i32, &filter) {
@@ -496,7 +510,7 @@ pub fn step(
     }
     let graphs = &snap.graphs;
     let exits = &snap.exits;
-    let filters: Vec<NavMeshQueryFilter> = graphs.iter().map(|g| agent.graph_filter(g, &snap.masks, &snap.gates)).collect();
+    let filters: Vec<NavMeshQueryFilter> = graphs.iter().map(|g| agent.graph_filter(g, snap)).collect();
 
     let mut settled = 0;
     while settled < slice {
@@ -1435,6 +1449,7 @@ fn signature(chunks: &NavChunks, agent_type: Hash128, route_version: i32) -> u64
         h = mix(h, Arc::as_ptr(nav) as usize as u64);
         h = mix(h, e.last_gate_change.to_bits());
         h = mix(h, e.switched_off_count as u64);
+        h = mix(h, e.last_cost_change.to_bits());
     }
     h
 }

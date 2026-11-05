@@ -18,7 +18,7 @@ use crate::pathfinding::{find_nearest_poly, find_path, link_travel, poly_usable,
 use crate::route_graph::RouteGraphs;
 use crate::route_search::{self, NavChunkRouteEnd, NavRouteAStar, NavRouteLeg, NavRouteLegKind};
 use crate::search::{NavRouteVia, SearchListStore, SearchNode, SearchOpen, SearchStore};
-use crate::volume::{cell_size_at, leaf_at, NavVolumeQueryFilter};
+use crate::volume::{cell_size_at, leaf_at, LeafCosts, NavVolumeQueryFilter};
 use nav_format::{NavLandingLink, NavLandingLinksData, NavMeshData, NavVolumeData};
 use nav_math::math::min;
 use nav_math::Float3;
@@ -48,6 +48,17 @@ pub struct NavHybridParams {
     pub land_when_short: bool,
     /// Set by the nearest-landing searches: the route ends at the first ground reached, whatever the goal.
     pub nearest_landing: bool,
+    /// Runtime cost volumes (ADR 0070): the cheapest leaf multiplier when below 1 (it lowers the air heuristic); None
+    /// = 1.
+    pub min_leaf_cost: Option<f32>,
+}
+
+impl NavHybridParams {
+    /// What runtime cost volumes scale the air heuristic by.
+    #[inline]
+    pub fn leaf_cost_scale(&self) -> f32 {
+        self.min_leaf_cost.map_or(1.0, |m| min(1.0, m))
+    }
 }
 
 /// One end of a route within one chunk, on the navmesh, in the flight volume, or both: `poly` / `leaf` are -1 where
@@ -212,6 +223,23 @@ pub fn find_route(
     goal: &NavRouteEnd,
     legs: &mut Vec<NavRouteLeg>,
 ) -> (NavPathStatus, usize) {
+    find_route_with(nav, ground_filter, volume, air_filter, LeafCosts::NONE, links, settings, start, goal, legs)
+}
+
+/// [`find_route`] with runtime cost volumes' leaf multipliers (ADR 0070); the polygons' come in `ground_filter`.
+#[allow(clippy::too_many_arguments)]
+pub fn find_route_with(
+    nav: &NavMeshData,
+    ground_filter: &NavMeshQueryFilter,
+    volume: &NavVolumeData,
+    air_filter: &NavVolumeQueryFilter,
+    leaves: LeafCosts,
+    links: &NavLandingLinksData,
+    settings: &NavHybridParams,
+    start: &NavRouteEnd,
+    goal: &NavRouteEnd,
+    legs: &mut Vec<NavRouteLeg>,
+) -> (NavPathStatus, usize) {
     legs.clear();
     if !start.on_ground() && !start.in_air() {
         return (NavPathStatus::InvalidInput, 0);
@@ -229,7 +257,7 @@ pub fn find_route(
         HEURISTIC_SCALE
             * min(
                 ground_filter.cheapest_travel(),
-                settings.flight_cost_multiplier * (if air_filter.area_cost_count == 0 { 1.0 } else { air_filter.min_area_cost }),
+                settings.flight_cost_multiplier * (if air_filter.area_cost_count == 0 { 1.0 } else { air_filter.min_area_cost }) * leaves.scale(),
             )
     };
 
@@ -279,9 +307,9 @@ pub fn find_route(
         }
 
         if ground {
-            expand_ground(nav, ground_filter, volume, air_filter, links, settings, &mut search, item.node, poly);
+            expand_ground(nav, ground_filter, volume, air_filter, leaves, links, settings, &mut search, item.node, poly);
         } else {
-            expand_air(nav, ground_filter, volume, air_filter, links, settings, &mut search, item.node, leaf);
+            expand_air(nav, ground_filter, volume, air_filter, leaves, links, settings, &mut search, item.node, leaf);
         }
     }
 
@@ -316,6 +344,7 @@ fn expand_ground(
     ground_filter: &NavMeshQueryFilter,
     volume: &NavVolumeData,
     air_filter: &NavVolumeQueryFilter,
+    leaves: LeafCosts,
     links: &NavLandingLinksData,
     settings: &NavHybridParams,
     search: &mut Search,
@@ -345,9 +374,10 @@ fn expand_ground(
             continue;
         }
         let area = volume.leaves[link.leaf as usize].area as i32;
-        if air_filter.excluded(area) {
+        if air_filter.excluded(area) || leaves.excluded(link.leaf) {
             continue;
         }
+        let area_cost = air_filter.cost(area) * leaves.cost(link.leaf);
 
         let walk = cur.pos.distance(link.ground);
         let rise = link.ground.distance(link.air) + lift(volume, link, settings.takeoff_height);
@@ -355,13 +385,13 @@ fn expand_ground(
         if limited && air > settings.max_flight_distance {
             continue;
         }
-        let mut cost = walk * travel_mul + settings.takeoff_cost + rise * air_filter.cost(area) * settings.flight_cost_multiplier;
+        let mut cost = walk * travel_mul + settings.takeoff_cost + rise * area_cost * settings.flight_cost_multiplier;
         if link.leaf == search.goal.leaf {
             let last = link.air.distance(search.goal.air_pos);
             if limited && air + last > settings.max_flight_distance {
                 continue;
             }
-            cost += last * air_filter.cost(area) * settings.flight_cost_multiplier;
+            cost += last * area_cost * settings.flight_cost_multiplier;
         }
 
         search.offer_air(link.leaf, node_index, NavRouteVia::Takeoff, i, cur.g + cost, cur.dist + walk + rise, air, link.air);
@@ -374,6 +404,7 @@ fn expand_air(
     ground_filter: &NavMeshQueryFilter,
     volume: &NavVolumeData,
     air_filter: &NavVolumeQueryFilter,
+    leaves: LeafCosts,
     links: &NavLandingLinksData,
     settings: &NavHybridParams,
     search: &mut Search,
@@ -384,13 +415,13 @@ fn expand_air(
     let limited = settings.max_flight_distance > 0.0;
     let budget = settings.max_flight_distance;
     let leaf_data = volume.leaves[leaf as usize];
-    let leaf_cost = air_filter.cost(leaf_data.area as i32) * settings.flight_cost_multiplier;
+    let leaf_cost = air_filter.cost(leaf_data.area as i32) * leaves.cost(leaf) * settings.flight_cost_multiplier;
 
     // Neighbouring leaves, entered at their point nearest the current position (as flight pathfinding does).
     for k in 0..leaf_data.neighbor_count {
         let nl = volume.neighbors[(leaf_data.neighbor_start + k) as usize];
         let next = volume.leaves[nl as usize];
-        if air_filter.excluded(next.area as i32) {
+        if air_filter.excluded(next.area as i32) || leaves.excluded(nl) {
             continue;
         }
 
@@ -404,7 +435,7 @@ fn expand_air(
         if nl == search.goal.leaf {
             let last = pos.distance(search.goal.air_pos);
             air += if limited { last } else { 0.0 };
-            cost += last * air_filter.cost(next.area as i32) * settings.flight_cost_multiplier;
+            cost += last * air_filter.cost(next.area as i32) * leaves.cost(nl) * settings.flight_cost_multiplier;
         }
 
         if limited && air > budget {

@@ -11,6 +11,7 @@
 //! In Myco a chunk is a scene's bake (`myco.nav@1`, ADR 0065). Foxfire takes entries in ECS query order;
 //! here [`NavChunks::gather`] sorts them by (chunk id, agent type, overlay), so the snapshot, and every
 //! seam, route graph and route built from it, doesn't depend on the order scenes were loaded.
+use crate::costs::{leaf_cost_table, min_cost, poly_cost_table, CostVolume};
 use nav_format::blob::{NavChunkBorderData, NavLandingLinksData, NavMeshData, NavVolumeData};
 use nav_format::file::BakeFile;
 use nav_math::{Float3, Hash128};
@@ -115,6 +116,19 @@ pub struct ChunkEntry {
     pub overlay: bool,
     pub switched_off_start: usize,
     pub switched_off_count: usize,
+    /// Runtime cost volumes (ADR 0070): ranges of [`NavChunks::poly_costs`] (by polygon of `nav`) and
+    /// [`NavChunks::leaf_costs`] (by leaf of `volume`); count 0 = every polygon / leaf costs 1.
+    pub poly_cost_start: usize,
+    pub poly_cost_count: usize,
+    pub leaf_cost_start: usize,
+    pub leaf_cost_count: usize,
+    /// The polygons whose cost the latest [`NavChunks::apply_cost_volumes`] changed (a range of
+    /// [`NavChunks::cost_changed`]; count 0 = none), and whether it changed any leaf's.
+    pub cost_changed_start: usize,
+    pub cost_changed_count: usize,
+    pub leaf_costs_changed: bool,
+    /// When a cost volume last changed a cost of this entry.
+    pub last_cost_change: f64,
 }
 
 impl ChunkEntry {
@@ -155,6 +169,29 @@ pub struct NavChunks {
     pub closed_gates: Vec<bool>,
     /// By polygon, back to back: chunks' polygons their overlays replace.
     pub switched_off: Vec<bool>,
+    /// Runtime cost volumes' tables (ADR 0070), back to back: by polygon, by leaf, and the polygons the latest
+    /// change touched. Filled by [`NavChunks::apply_cost_volumes`]; [`NavChunks::gather`] leaves them empty.
+    pub poly_costs: Vec<f32>,
+    pub leaf_costs: Vec<f32>,
+    pub cost_changed: Vec<bool>,
+    /// The cheapest entry of each table set (at most 1), for A* heuristics.
+    pub min_poly_cost: f32,
+    pub min_leaf_cost: f32,
+}
+
+/// What [`NavChunks::apply_cost_volumes`] changed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CostChange {
+    /// Entries with a polygon or leaf whose cost changed.
+    pub entries: usize,
+    pub polys: usize,
+    pub leaves: usize,
+}
+
+impl CostChange {
+    pub fn any(&self) -> bool {
+        self.entries > 0
+    }
 }
 
 impl NavChunks {
@@ -233,7 +270,99 @@ impl NavChunks {
             }
         }
         out.agent_types.sort();
+        out.min_poly_cost = 1.0;
+        out.min_leaf_cost = 1.0;
         out
+    }
+
+    /// Works out every entry's cost tables from the runtime cost volumes (ADR 0070), comparing with the tables
+    /// `previous` had for the same (chunk, agent type, overlay), or this snapshot's own when None. Entries whose costs
+    /// changed get `last_cost_change = time` and the changed polygons in [`NavChunks::cost_changed`]; the others keep
+    /// their `last_cost_change` (from `previous` too).
+    pub fn apply_cost_volumes(&mut self, volumes: &[CostVolume], previous: Option<&NavChunks>, time: f64) -> CostChange {
+        let old: Vec<(Vec<f32>, Vec<f32>, f64)> = (0..self.entries.len())
+            .map(|i| {
+                let e = &self.entries[i];
+                let (src, j) = match previous {
+                    Some(p) => match p.find(e.chunk, e.agent_type, e.overlay) {
+                        Some(j) => (p, j),
+                        None => return (Vec::new(), Vec::new(), 0.0),
+                    },
+                    None => (&*self, i),
+                };
+                (src.poly_costs_of(j).to_vec(), src.leaf_costs_of(j).to_vec(), src.entries[j].last_cost_change)
+            })
+            .collect();
+        let mut change = CostChange::default();
+        self.poly_costs.clear();
+        self.leaf_costs.clear();
+        self.cost_changed.clear();
+        self.min_poly_cost = 1.0;
+        self.min_leaf_cost = 1.0;
+        let at = |t: &[f32], i: usize| t.get(i).copied().unwrap_or(1.0);
+        for (i, (old_polys, old_leaves, old_change)) in old.into_iter().enumerate() {
+            let e = &self.entries[i];
+            let polys = e.nav.as_deref().and_then(|n| poly_cost_table(n, volumes, e.agent_type)).unwrap_or_default();
+            let leaves = e.volume.as_deref().and_then(|v| leaf_cost_table(v, volumes, e.agent_type)).unwrap_or_default();
+            let poly_count = e.nav.as_deref().map_or(0, |n| n.polys.len());
+            let leaf_count = e.volume.as_deref().map_or(0, |v| v.leaves.len());
+            let changed: Vec<bool> = (0..poly_count).map(|p| at(&polys, p) != at(&old_polys, p)).collect();
+            let changed_polys = changed.iter().filter(|&&c| c).count();
+            let changed_leaves = (0..leaf_count).filter(|&l| at(&leaves, l) != at(&old_leaves, l)).count();
+            self.min_poly_cost = self.min_poly_cost.min(min_cost(&polys));
+            self.min_leaf_cost = self.min_leaf_cost.min(min_cost(&leaves));
+
+            let e = &mut self.entries[i];
+            e.poly_cost_start = self.poly_costs.len();
+            e.poly_cost_count = polys.len();
+            self.poly_costs.extend_from_slice(&polys);
+            e.leaf_cost_start = self.leaf_costs.len();
+            e.leaf_cost_count = leaves.len();
+            self.leaf_costs.extend_from_slice(&leaves);
+            e.last_cost_change = old_change;
+            e.cost_changed_start = self.cost_changed.len();
+            e.cost_changed_count = 0;
+            e.leaf_costs_changed = changed_leaves > 0;
+            if changed_polys > 0 {
+                e.cost_changed_count = changed.len();
+                self.cost_changed.extend_from_slice(&changed);
+            }
+            if changed_polys > 0 || changed_leaves > 0 {
+                e.last_cost_change = time;
+                change.entries += 1;
+                change.polys += changed_polys;
+                change.leaves += changed_leaves;
+            }
+        }
+        change
+    }
+
+    /// An entry's runtime cost table by polygon (empty: every polygon costs 1).
+    pub fn poly_costs_of(&self, entry: usize) -> &[f32] {
+        let e = &self.entries[entry];
+        &self.poly_costs[e.poly_cost_start..e.poly_cost_start + e.poly_cost_count]
+    }
+
+    /// An entry's runtime cost table by polygon for a filter: None when every polygon costs 1.
+    pub fn poly_costs_for(&self, entry: usize) -> Option<&[f32]> {
+        Some(self.poly_costs_of(entry)).filter(|t| !t.is_empty())
+    }
+
+    /// An entry's runtime cost table by flight leaf (empty: every leaf costs 1).
+    pub fn leaf_costs_of(&self, entry: usize) -> &[f32] {
+        let e = &self.entries[entry];
+        &self.leaf_costs[e.leaf_cost_start..e.leaf_cost_start + e.leaf_cost_count]
+    }
+
+    /// An entry's runtime cost table by flight leaf for a search: None when every leaf costs 1.
+    pub fn leaf_costs_for(&self, entry: usize) -> Option<&[f32]> {
+        Some(self.leaf_costs_of(entry)).filter(|t| !t.is_empty())
+    }
+
+    /// True if the latest cost change touched polygon `poly` of the entry.
+    pub fn poly_cost_changed(&self, entry: usize, poly: i32) -> bool {
+        let e = &self.entries[entry];
+        poly >= 0 && (poly as usize) < e.cost_changed_count && self.cost_changed[e.cost_changed_start + poly as usize]
     }
 
     pub fn len(&self) -> usize {

@@ -6,10 +6,11 @@
 // - NavResolutionVolume (NavResolutionVolumeEditor): the cell size the region gets in each flying agent type's
 //   flight volume, and a warning where it does nothing.
 // - NavModifierVolume: what its flight preview found (ModifierVolumeFlightPreview).
+// - NavCostVolume (ADR 0070, new in Myco): what it does at runtime, and agent types it can't affect.
 import { useEffect, useState } from "preact/hooks";
 import { NavChunk } from "../../engine/nav/components";
 import { collectNavGeometry, loadNavGeometryMeshes } from "../../engine/nav/geometry";
-import { chunkBakesAgentType, describeNavBakePlan, describeSurfaceBins, navBakePlan, resolutionRegionEffects, resolveAgentType, surfaceBinLayout, type NavBakePlan } from "../../engine/nav/plan";
+import { chunkBakesAgentType, describeNavBakePlan, describeNavCostVolume, describeSurfaceBins, navBakePlan, resolutionRegionEffects, resolveAgentType, surfaceBinLayout, type NavBakePlan } from "../../engine/nav/plan";
 import type { NavigationSettings } from "../../engine/nav/settings";
 import { projectNavigation } from "../navBake";
 import { navAvoidanceSummary, navObstacleSummary } from "../navSettingsModel";
@@ -244,4 +245,20 @@ export function NavModifierPreviewNote(props: { nodeKey: string; appliesTo: stri
   if (props.appliesTo === "ground") return null;
   if (!props.area) return <p class="nav-note">Set an area to see the flight cells it marks.</p>;
   return status?.kind === "modifier" && status.node === props.nodeKey ? <p class="nav-note">{status.text}</p> : null;
+}
+
+/** NavCostVolume (ADR 0070): what it does at runtime, and agent types it can't affect. */
+export function NavCostVolumeNote(props: { cost: number; excluded: boolean; agents: string[]; domain: string }) {
+  const settings = projectNavigation(currentProject.value);
+  const { summary, warnings } = describeNavCostVolume(settings, props);
+  return (
+    <div class="nav-cost-volume" aria-label="Cost volume">
+      {warnings.map((w) => (
+        <p key={w} class="nav-note nav-note-warning" role="status">
+          {w}
+        </p>
+      ))}
+      <p class="nav-note">{summary}</p>
+    </div>
+  );
 }

@@ -76,6 +76,20 @@ export interface NavAreaCostOverride {
   excluded?: boolean;
 }
 
+/** A runtime cost volume (ADR 0070, `NavCostVolume`): the box `center` ± `halfSize` in the space `worldToLocal` maps into. */
+export interface NavCostVolumeDesc {
+  /** The node's inverse world matrix, column-major (16 numbers). */
+  worldToLocal: readonly number[];
+  center: Vec3;
+  halfSize: Vec3;
+  /** Multiplier ≥ 0. */
+  cost: number;
+  excluded: boolean;
+  /** Agent type ids; empty = every type. */
+  agents: readonly string[];
+  domain: "ground" | "air" | "both";
+}
+
 /** A group body's settings (`NavGroup`); every field optional. */
 export interface NavGroupDesc {
   mode?: "formation" | "flock";
@@ -403,6 +417,11 @@ export class NavigationRuntime {
     this.rt.setWorldAreaCost(area, cost, excluded);
   }
 
+  /** Replaces the runtime cost volumes (ADR 0070). Queries see them at once; agents and routes from the next tick. */
+  setCostVolumes(volumes: readonly NavCostVolumeDesc[]): void {
+    this.rt.setCostVolumes(JSON.stringify(volumes));
+  }
+
   setTargetSurround(targetId: number, surround: NavSurroundDesc | null): void {
     this.rt.setTargetSurround(targetId, surround ? JSON.stringify(surround) : "");
   }
@@ -510,6 +529,11 @@ export class NavigationRuntime {
   /** Landing links, stride 6: ground xyz, air xyz. */
   debugLandingLinks(chunkId: string, agentType: string): Float32Array {
     return this.rt.debugLandingLinks(chunkId, agentType);
+  }
+
+  /** A chunk's polygons whose runtime cost multiplier isn't 1, as outlines: stride 7 (a xyz, b xyz, multiplier; Infinity = excluded). */
+  debugCosts(chunkId: string, agentType: string): Float32Array {
+    return this.rt.debugCosts(chunkId, agentType);
   }
 
   /** Seam links between loaded chunks, stride 7: a xyz, b xyz, kind (0 ground, 1 air rectangle diagonal). */

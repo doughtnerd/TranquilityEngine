@@ -65,6 +65,10 @@ export class NavRuntime {
      */
     debugAgentPaths(): Float32Array;
     /**
+     * A loaded chunk's polygons with a runtime cost multiplier other than 1: stride 7 (a xyz, b xyz, multiplier).
+     */
+    debugCosts(chunk_id: string, agent_type: string): Float32Array;
+    /**
      * A loaded chunk's landing links for an agent type: stride 6 (ground xyz, air xyz).
      */
     debugLandingLinks(chunk_id: string, agent_type: string): Float32Array;
@@ -144,6 +148,10 @@ export class NavRuntime {
      * An agent's own area cost (`cost` < 0: the area's default).
      */
     setAreaCost(agent_handle: number, area: string, cost: number, excluded: boolean): void;
+    /**
+     * The runtime cost volumes (ADR 0070, `NavCostVolume`s): a JSON array replacing the previous set.
+     */
+    setCostVolumes(json: string): void;
     setDestination(agent_handle: number, x: number, y: number, z: number): void;
     /**
      * A flow goal on a host target (`move_threshold` 0 = the default), or none with `enabled` false.
@@ -296,6 +304,7 @@ export interface InitOutput {
     readonly navruntime_chaseTarget: (a: number, b: number, c: number, d: number) => void;
     readonly navruntime_clearAreaCosts: (a: number, b: number) => void;
     readonly navruntime_debugAgentPaths: (a: number) => [number, number];
+    readonly navruntime_debugCosts: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly navruntime_debugLandingLinks: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly navruntime_debugNavmeshLines: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly navruntime_debugNavmeshTriangles: (a: number, b: number, c: number, d: number, e: number) => [number, number];
@@ -321,6 +330,7 @@ export interface InitOutput {
     readonly navruntime_removeObstacle: (a: number, b: number) => void;
     readonly navruntime_removeTarget: (a: number, b: number) => void;
     readonly navruntime_setAreaCost: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly navruntime_setCostVolumes: (a: number, b: number, c: number) => [number, number];
     readonly navruntime_setDestination: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly navruntime_setFlowGoal: (a: number, b: number, c: number, d: number) => void;
     readonly navruntime_setGate: (a: number, b: number, c: number, d: number) => void;

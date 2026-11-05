@@ -23,9 +23,11 @@ export interface NavDebugFlags {
   seams: boolean;
   /** Agents' current paths (runtime only). */
   paths: boolean;
+  /** Polygons tinted by their runtime cost multiplier from NavCostVolumes (runtime only; ADR 0070). */
+  costs: boolean;
 }
 
-export const NO_NAV_DEBUG: NavDebugFlags = { navmesh: false, links: false, volume: false, landing: false, seams: false, paths: false };
+export const NO_NAV_DEBUG: NavDebugFlags = { navmesh: false, links: false, volume: false, landing: false, seams: false, paths: false, costs: false };
 
 /** 0xRRGGBB per drawn kind. */
 export interface NavDebugColors {
@@ -38,6 +40,10 @@ export interface NavDebugColors {
   landing: number;
   seam: number;
   path: number;
+  /** Runtime cost volumes (ADR 0070): polygons costing more, less, or excluded. */
+  costly: number;
+  cheap: number;
+  excluded: number;
 }
 
 /** A run of line segments in one colour: 6 floats per segment (a xyz, b xyz). Same shape as `EditorOverlay.segments`. */
@@ -51,7 +57,7 @@ export const NAV_DEBUG_CAPS = { segments: 60_000, leaves: 4_000, arcSteps: 8 } a
 
 /** Reads a flags object tolerantly: `true` turns everything but the volume on, objects set the keys they name. */
 export function readNavDebugFlags(input: unknown, base: NavDebugFlags = NO_NAV_DEBUG): NavDebugFlags {
-  if (input === true) return { navmesh: true, links: true, volume: false, landing: true, seams: true, paths: true };
+  if (input === true) return { navmesh: true, links: true, volume: false, landing: true, seams: true, paths: true, costs: true };
   if (!input || typeof input !== "object") return { ...base };
   const o = input as Record<string, unknown>;
   const out = { ...base };
@@ -143,6 +149,22 @@ export function leafSegments(leaves: Float32Array, color: number, maxLeaves: num
   return [b.done()];
 }
 
+/**
+ * Runtime cost outlines (stride 7: a xyz, b xyz, multiplier; ADR 0070) as segments tinted by multiplier: one colour
+ * for excluded polygons, one for costlier (> 1) and one for cheaper (< 1).
+ */
+export function costSegments(buf: Float32Array, colors: Pick<NavDebugColors, "costly" | "cheap" | "excluded">, cap: number = NAV_DEBUG_CAPS.segments): DebugSegments[] {
+  const costly = new SegmentBuilder(colors.costly, cap);
+  const cheap = new SegmentBuilder(colors.cheap, cap);
+  const excluded = new SegmentBuilder(colors.excluded, cap);
+  for (let i = 0; i + 7 <= buf.length; i += 7) {
+    const m = buf[i + 6];
+    const b = m === Infinity ? excluded : m > 1 ? costly : m < 1 ? cheap : null;
+    b?.add(buf[i], buf[i + 1], buf[i + 2], buf[i + 3], buf[i + 4], buf[i + 5]);
+  }
+  return [excluded, costly, cheap].filter((b) => b.count > 0).map((b) => b.done());
+}
+
 /** Segments from a flat buffer of `stride` floats per row whose first six are a xyz, b xyz (landing links, seams, agent paths). */
 export function rowSegments(buf: Float32Array, stride: number, color: number, cap: number = NAV_DEBUG_CAPS.segments): DebugSegments[] {
   const b = new SegmentBuilder(color, cap);
@@ -159,6 +181,8 @@ export interface NavDebugSource {
   debugLandingLinks(chunkId: string, agentType: string): Float32Array;
   debugSeams(): Float32Array;
   debugAgentPaths(): Float32Array;
+  /** Optional: runtimes without cost volumes draw none. */
+  debugCosts?(chunkId: string, agentType: string): Float32Array;
 }
 
 /** Chunk ids out of whatever `NavigationWorld.loadedChunks()` returns (strings, or objects with an `id`/`chunkId`). */
@@ -179,8 +203,8 @@ export function chunkIdsOf(loaded: unknown): string[] {
 
 /**
  * The live runtime's debug drawing. The navmesh, links, volume and landing geometry (which only
- * changes when chunks load or overlays rebuild) is refreshed every `slowMs`; paths and seams every
- * `fastMs`, so a frame mostly reuses the arrays.
+ * changes when chunks load or overlays rebuild) is refreshed every `slowMs`; paths, seams and runtime costs
+ * every `fastMs`, so a frame mostly reuses the arrays.
  */
 export class RuntimeNavOverlay {
   private slow: DebugSegments[] = [];
@@ -225,6 +249,9 @@ export class RuntimeNavOverlay {
       try {
         if (f.seams) this.fast.push(...rowSegments(this.source.debugSeams(), 7, colors.seam));
         if (f.paths) this.fast.push(...rowSegments(this.source.debugAgentPaths(), 7, colors.path));
+        if (f.costs && this.source.debugCosts) {
+          for (const chunk of this.chunks()) for (const type of this.agentTypes()) this.fast.push(...costSegments(this.source.debugCosts(chunk, type), colors));
+        }
       } catch {
         // The runtime was disposed.
       }

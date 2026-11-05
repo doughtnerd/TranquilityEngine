@@ -7,7 +7,7 @@
 // changes or the scene's document does. Landing links, seams and paths exist only at runtime.
 //
 // Play mode: every World of the play session gets a provider that draws its live navigation
-// runtime (the navmesh with overlays, links, landing links, seams, agents' paths), switched by the
+// runtime (the navmesh with overlays, links, landing links, seams, agents' paths, NavCostVolume costs), switched by the
 // same toggles and by `Navigation.debug` flags on the facade. The game view's render backend draws
 // overlays too (RenderBackend.syncOverlay), so a game can draw them without the editor by adding
 // `RuntimeNavOverlay` through `addEditorOverlay`.
@@ -78,6 +78,9 @@ export function navDebugColors(t: ThemeTokens): NavDebugColors {
     landing: hexOf(t.danger),
     seam: hexOf(t.accentHover),
     path: hexOf(t.link),
+    costly: hexOf(t.warning),
+    cheap: hexOf(t.success),
+    excluded: hexOf(t.danger),
   };
 }
 
@@ -299,6 +302,7 @@ const orFlags = (a: NavDebugFlags, b: NavDebugFlags): NavDebugFlags => ({
   landing: a.landing || b.landing,
   seams: a.seams || b.seams,
   paths: a.paths || b.paths,
+  costs: a.costs || b.costs,
 });
 
 /** A provider drawing `world`'s live navigation runtime; empty while the World has none. */

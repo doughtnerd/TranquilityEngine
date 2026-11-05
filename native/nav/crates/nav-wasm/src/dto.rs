@@ -155,6 +155,59 @@ mirror!(SurroundDto => NavSurround { radius: f32, spacing: f32, air_spacing: f32
 // The navigation section of project settings
 // ---------------------------------------------------------------------------------------------------------
 
+/// A runtime cost volume (ADR 0070, `NavCostVolume`): the box `center` ± `halfSize` in the space `worldToLocal` (the
+/// node's inverse world matrix, column-major like three.js) maps world points into.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CostVolumeDto {
+    pub world_to_local: [f32; 16],
+    pub center: [f32; 3],
+    pub half_size: [f32; 3],
+    pub cost: f32,
+    pub excluded: bool,
+    pub agents: Vec<String>,
+    /// "ground", "air" or "both".
+    pub domain: String,
+}
+
+impl Default for CostVolumeDto {
+    fn default() -> Self {
+        let mut m = [0.0; 16];
+        m[0] = 1.0;
+        m[5] = 1.0;
+        m[10] = 1.0;
+        m[15] = 1.0;
+        Self { world_to_local: m, center: [0.0; 3], half_size: [0.5; 3], cost: 4.0, excluded: false, agents: Vec::new(), domain: "both".into() }
+    }
+}
+
+impl CostVolumeDto {
+    /// A JSON array of volumes.
+    pub fn parse_list(json: &str) -> Result<Vec<Self>, String> {
+        serde_json::from_str(json).map_err(|e| format!("cost volumes: {e}"))
+    }
+
+    pub fn to_volume(&self) -> nav_query::costs::CostVolume {
+        let e = &self.world_to_local;
+        let mut m = [0.0f32; 12];
+        for row in 0..3 {
+            for col in 0..4 {
+                m[row * 4 + col] = e[col * 4 + row];
+            }
+        }
+        nav_query::costs::CostVolume {
+            world_to_local: m,
+            center: v3(self.center),
+            half_size: v3(self.half_size),
+            cost: self.cost,
+            excluded: self.excluded,
+            agents: ids(&self.agents),
+            ground: self.domain != "air",
+            air: self.domain != "ground",
+        }
+    }
+}
+
 /// An area cost override (`NavMeshAgentAreaCost`): `cost` < 0 keeps the area's default cost.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -870,5 +923,21 @@ mod tests {
         assert_eq!(g.formation, NavFormationPreset::Wedge);
         assert_eq!(g.spacing, 2.0);
         assert_eq!(g.slack, NavGroup::default().slack);
+    }
+
+    #[test]
+    fn cost_volumes_read_their_inverse_matrix_column_major() {
+        // A node at x = 10 (world-to-local translates by -10), domain air, one agent type.
+        let json = r#"[{"worldToLocal":[1,0,0,0, 0,1,0,0, 0,0,1,0, -10,0,0,1],"center":[0,0,0],"halfSize":[1,1,1],"cost":3,"agents":["w"],"domain":"air"},
+                       {"excluded":true,"domain":"ground"}]"#;
+        let list = CostVolumeDto::parse_list(json).unwrap();
+        let v = list[0].to_volume();
+        assert!(v.contains(Float3::new(10.5, 0.0, 0.0)) && !v.contains(Float3::new(0.0, 0.0, 0.0)));
+        assert_eq!(v.cost, 3.0);
+        assert!(v.air && !v.ground && v.agents == vec![parse_id("w")]);
+        let d = list[1].to_volume();
+        assert!(d.excluded && d.ground && !d.air && d.agents.is_empty() && d.cost == 4.0, "defaults: cost 4, half size 0.5");
+        assert!(d.contains(Float3::new(0.4, -0.4, 0.4)) && !d.contains(Float3::new(0.6, 0.0, 0.0)));
+        assert!(CostVolumeDto::parse_list("{").is_err());
     }
 }

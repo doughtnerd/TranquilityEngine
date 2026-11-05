@@ -432,7 +432,13 @@ pub fn locate_flight_route(
 
 /// The settings of a fly-only route search (`Locate`): unit flight cost, the agent's node budget once per chunk.
 pub fn flight_route_params(max_search_nodes: i32, graphs: &RouteGraphs) -> NavHybridParams {
-    NavHybridParams { flight_cost_multiplier: 1.0, max_nodes: max_search_nodes * graphs.budget_scale(), air_only: true, ..NavHybridParams::default() }
+    NavHybridParams {
+        flight_cost_multiplier: 1.0,
+        max_nodes: max_search_nodes * graphs.budget_scale(),
+        air_only: true,
+        min_leaf_cost: graphs.leaf_cost_min(),
+        ..NavHybridParams::default()
+    }
 }
 
 /// A fly-only agent's route across volumes, searched whole.

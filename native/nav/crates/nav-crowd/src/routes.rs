@@ -115,7 +115,28 @@ struct FlightShare {
 struct Within {
     graphs: RouteGraphs,
     snapshot_version: u32,
+    /// The chunk world's `cost_version` the graphs' cost tables are from.
+    cost_version: u32,
     built: bool,
+}
+
+/// Copies every snapshot entry's runtime cost tables into the within-one-chunk graphs (graph = volume = entry).
+fn within_costs(g: &mut RouteGraphs, frame: &Frame) {
+    let snap = frame.world.snapshot();
+    g.poly_costs = (0..snap.entries.len()).map(|e| snap.poly_costs_of(e).to_vec()).collect();
+    g.leaf_costs = (0..snap.entries.len()).map(|e| snap.leaf_costs_of(e).to_vec()).collect();
+    g.min_poly_cost = snap.min_poly_cost.min(1.0);
+    g.min_leaf_cost = snap.min_leaf_cost.min(1.0);
+}
+
+/// ADR 0070: this tick's cost volume change touched one of these chunks' entries for the agent type.
+fn costs_changed_on(frame: &Frame, ty: Hash128, mut chunks: impl Iterator<Item = Hash128>) -> bool {
+    if !frame.update.costs_changed {
+        return false;
+    }
+    let snap = frame.world.snapshot();
+    let changed: Vec<Hash128> = snap.entries.iter().filter(|e| e.agent_type == ty && e.last_cost_change == frame.time).map(|e| e.chunk).collect();
+    !changed.is_empty() && chunks.any(|c| changed.contains(&c))
 }
 
 /// The route steps' state between ticks.
@@ -209,6 +230,10 @@ fn ensure_within(within: &mut Within, frame: &Frame) {
         if within.graphs.closed_gates != snap.closed_gates {
             within.graphs.closed_gates = snap.closed_gates.clone();
         }
+        if within.cost_version != frame.world.cost_version {
+            within_costs(&mut within.graphs, frame);
+            within.cost_version = frame.world.cost_version;
+        }
         return;
     }
     let mut g = RouteGraphs { switched_off: snap.switched_off.clone(), closed_gates: snap.closed_gates.clone(), ..RouteGraphs::default() };
@@ -233,8 +258,10 @@ fn ensure_within(within: &mut Within, frame: &Frame) {
             graph: linked,
         });
     }
+    within_costs(&mut g, frame);
     within.graphs = g;
     within.snapshot_version = frame.world.snapshot_version;
+    within.cost_version = frame.world.cost_version;
     within.built = true;
 }
 
@@ -516,6 +543,11 @@ fn route_job(
             a.route.nav != frame.world.nav_key(a.chunk.entry) || a.route.volume != frame.world.volume_key(a.chunk.entry)
         };
         if stale {
+            replan = true;
+        }
+        // A runtime cost volume changed costs on a chunk the route still crosses (ADR 0070).
+        let from = (a.route.leg.max(0) as usize).min(a.legs.len());
+        if costs_changed_on(frame, chunk.agent_type, a.legs[from..].iter().map(|l| l.chunk).chain(std::iter::once(a.chunk.chunk))) {
             replan = true;
         }
         let interval = if a.route.mode == NavMotionMode::Flying { flyer.repath_interval } else { mesh.repath_interval };
@@ -1169,6 +1201,7 @@ fn locate_route(
         min_landing_slope_cos: nav_math::math::radians(flyer.max_landing_slope_deg).cos(),
         takeoff_height: flyer.takeoff_height,
         max_nodes: (mesh.max_search_nodes + flyer.max_search_nodes) * if cx.across { graphs.budget_scale() } else { 1 },
+        min_leaf_cost: graphs.leaf_cost_min(),
         ..NavHybridParams::default()
     };
 
@@ -1357,6 +1390,9 @@ fn chunk_route_job_inner(frame: &Frame, graphs: &RouteGraphs, ty: Hash128, agent
         agents.chunk[r] = ac;
     };
 
+    // A runtime cost volume changed costs on a chunk the route still crosses (ADR 0070): plan again.
+    let from = (route.leg.max(0) as usize).min(legs.len());
+    let cost_stale = route.active && costs_changed_on(frame, ty, legs[from..].iter().map(|l| l.chunk));
     // Planned on graphs that have since changed: plan again if it changed on its way, else keep it.
     if route.active && route.version != version {
         let chunks: Vec<Hash128> = legs.iter().map(|l| l.chunk).collect();
@@ -1364,7 +1400,7 @@ fn chunk_route_job_inner(frame: &Frame, graphs: &RouteGraphs, ty: Hash128, agent
             route.version = version;
         }
     }
-    if route.active && route.version != version {
+    if route.active && (route.version != version || cost_stale) {
         let reach = agent.arrival_distance.max(2.0 * agent.radius);
         let old_edge = legs.last().map_or(Float3::default(), |l| l.end);
         let waited = route.to_edge && RouteStats::waiting_at(surface.surface_position, old_edge, reach);
@@ -1957,6 +1993,9 @@ fn flight_route_job(frame: &Frame, graphs: &RouteGraphs, ty: Hash128, agents: &m
         };
     }
 
+    // A runtime cost volume changed costs on a chunk the route still crosses (ADR 0070): plan again.
+    let from = (cd.route.leg.max(0) as usize).min(cd.legs.len());
+    let cost_stale = cd.route.active && costs_changed_on(frame, ty, cd.legs[from..].iter().map(|l| l.chunk));
     // Planned on graphs that have since changed: plan again if it changed on its way, else keep it.
     if cd.route.active && cd.route.version != version {
         let chunks: Vec<Hash128> = cd.legs.iter().map(|l| l.chunk).collect();
@@ -1964,7 +2003,7 @@ fn flight_route_job(frame: &Frame, graphs: &RouteGraphs, ty: Hash128, agents: &m
             cd.route.version = version;
         }
     }
-    if cd.route.active && cd.route.version != version {
+    if cd.route.active && (cd.route.version != version || cost_stale) {
         let reach = flyer.crossing_reach().max(flyer.arrival_distance);
         let old_edge = cd.legs.last().map_or(Float3::default(), |l| l.end);
         let waited = cd.route.to_edge && RouteStats::waiting_at(position, old_edge, reach);
