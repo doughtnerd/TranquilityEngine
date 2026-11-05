@@ -175,6 +175,28 @@ describe("myco-server (T14)", () => {
     expect(server.listeners.map((l) => l.world)).toEqual(["Server"]);
   });
 
+  it("runs only the lobby template when the templates include one: its match templates are the lobby's to create (ADR 0068)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
+    temps.push(dir);
+    writeFileSync(
+      join(dir, "project.json"),
+      JSON.stringify({
+        bootstrap: {
+          worlds: [{ name: "Menu" }],
+          templates: {
+            Match: { tags: ["server", "match"], renders: false },
+            Lobby: { tags: ["server", "lobby"], renders: false, lobby: { matchTemplate: "Match", clientTemplate: "MatchClient" } },
+            MatchClient: { tags: ["client", "match-client"] },
+          },
+        },
+      }),
+    );
+    const server = await startServer({ projectDir: dir, statsIntervalMs: 0, log: () => {}, port: 0, host: "127.0.0.1" });
+    servers.push(server);
+    expect(server.engine.worlds().map((w) => w.name)).toEqual(["Lobby"]);
+    expect(server.listeners.map((l) => l.world)).toEqual(["Lobby"]);
+  });
+
   it("ignores a loopback link's address (a name for editor play) and listens on the server's own port", async () => {
     const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
     temps.push(dir);

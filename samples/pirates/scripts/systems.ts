@@ -185,10 +185,17 @@ defineSystem({
     let all = ships();
     for (const s of all) if (!s.data.bot && !open.has(s.rep.ownerId)) GameObject.destroy(s.node);
     all = all.filter((s) => s.node.isValid && (s.data.bot || open.has(s.rep.ownerId)));
+    let players = 0;
     for (const id of open) {
+      const wanted = playerTeamOf?.(id);
+      if (wanted === "wait") continue; // the lobby hasn't matched this connection to a player yet
+      players++;
       if (all.some((s) => !s.data.bot && s.rep.ownerId === id)) continue;
-      const bot = all.find((s) => s.data.bot);
-      const team = bot ? bot.data.team : freeTeam(all);
+      // The player's own team (its lobby slot), taken from a bot if one sails it; else a bot's place.
+      const taken = wanted !== null && wanted !== undefined ? all.find((s) => s.data.team === wanted) : undefined;
+      if (taken && !taken.data.bot) continue; // another player has it: wait for their ship to go
+      const bot = taken ?? (wanted === null || wanted === undefined ? all.find((s) => s.data.bot) : undefined);
+      const team = wanted ?? (bot ? bot.data.team : freeTeam(all));
       if (bot) {
         GameObject.destroy(bot.node);
         all = all.filter((s) => s !== bot);
@@ -197,13 +204,29 @@ defineSystem({
       all = ships().filter((s) => s.node.isValid);
     }
     // Bots only once someone is playing, so an empty server stays idle.
-    if (open.size === 0) return;
+    if (players === 0) return;
     for (let n = all.length; n < shipCount(); n++) {
       spawnShip(ctx.world, actors, 0, true, freeTeam(all));
       all = ships().filter((s) => s.node.isValid);
     }
+    // A player who took a free team can leave one bot too many.
+    for (let n = all.length; n > shipCount(); n--) {
+      const bot = [...all].reverse().find((s) => s.data.bot);
+      if (!bot) break;
+      GameObject.destroy(bot.node);
+      all = all.filter((s) => s !== bot);
+    }
   },
 });
+
+/**
+ * The team (sail colour and spawn point) for a connection's ship: a lobby's match gives each
+ * player their room slot. `null` or `undefined`: any free team; `"wait"`: don't spawn it yet.
+ */
+let playerTeamOf: ((connectionId: number) => number | null | undefined | "wait") | null = null;
+export function setPlayerTeam(team: ((connectionId: number) => number | null | undefined | "wait") | null): void {
+  playerTeamOf = team;
+}
 
 /** How many ships a match has, players and bots together. */
 let shipCountOverride: (() => number) | null = null;

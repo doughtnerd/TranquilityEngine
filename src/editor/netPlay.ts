@@ -138,6 +138,8 @@ export function hostLayout(setting: BootstrapSetting | undefined): { client: Wor
   if (Array.isArray(config.links) && config.links.some((l) => startUp.has(l.from) && startUp.has(l.to))) return null;
   const isServer = (w: { tags?: readonly string[] }) => (w.tags ?? []).includes("server");
   if (config.worlds.some(isServer)) return null;
+  // A lobby (ADR 0068) makes its own match Worlds and the players' client Worlds: not this layout.
+  if (isRecord(config.templates) && Object.values(config.templates).some((t) => isRecord(t) && t.lobby)) return null;
   const entry = isRecord(config.templates) ? Object.entries(config.templates).find(([, t]) => isRecord(t) && isServer(t)) : undefined;
   const client = config.worlds.find((w) => (w.tags ?? []).includes("client")) ?? config.worlds[0];
   if (!entry || !client) return null;

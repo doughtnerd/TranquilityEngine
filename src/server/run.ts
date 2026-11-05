@@ -178,9 +178,10 @@ async function serverBootstrap(project: ServerProject): Promise<ServerPlan> {
   let worlds = setting.worlds.filter(isServer);
   const skipped = setting.worlds.filter((w) => !isServer(w)).map((w) => w.name);
   if (worlds.length === 0) {
-    worlds = Object.entries(setting.templates ?? {})
-      .filter(([, t]) => isServer(t))
-      .map(([key, t]) => ({ ...t, name: key }));
+    const templates = Object.entries(setting.templates ?? {}).filter(([, t]) => isServer(t));
+    // A lobby (ADR 0068) creates its match Worlds from their templates when rooms start: run only the lobby.
+    const lobbies = templates.filter(([, t]) => t.lobby);
+    worlds = (lobbies.length > 0 ? lobbies : templates).map(([key, t]) => ({ ...t, name: key }));
   }
   if (worlds.length === 0) {
     throw new ServerError(`The project's bootstrap has no Worlds or templates tagged "server" (it has ${skipped.map((n) => `"${n}"`).join(", ")}); there's nothing for a dedicated server to run.`);

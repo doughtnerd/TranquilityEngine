@@ -132,10 +132,11 @@ export type BallView = DataView<typeof Ball.schema>;
 /**
  * The match, on the scene's replicated `Match` node: the time left, the phase (waiting for
  * players, playing, over), the storm's time left and who called it, and the winner's team (-1:
- * none yet). `radius` is the arena's, set in the scene.
+ * none yet). `radius` is the arena's, set in the scene. `results` counts the seconds the results
+ * have shown.
  */
 export const Game = defineComponent("pirates.Game", { phase: u8, timeLeft: f32, storm: f32, stormTeam: i32, winner: i32, radius: f32, results: f32 });
-replicate(Game, { fields: ["phase", "timeLeft", "storm", "stormTeam", "winner", "radius"], encoding: { timeLeft: { quantize: 0.1 }, storm: { quantize: 0.1 } } });
+replicate(Game, { fields: ["phase", "timeLeft", "storm", "stormTeam", "winner", "radius", "results"], encoding: { timeLeft: { quantize: 0.1 }, storm: { quantize: 0.1 }, results: { quantize: 0.1 } } });
 export type GameView = DataView<typeof Game.schema>;
 export const Phase = { waiting: 0, playing: 1, over: 2 } as const;
 

@@ -17,33 +17,73 @@
   "bootstrap": {
     "worlds": [
       {
-        "name": "Server",
-        "tags": [
-          "server"
-        ],
-        "renders": false,
-        "input": false,
+        "name": "Menu",
         "scenes": [
-          "scenes/island-bay.scene.json"
-        ]
-      },
-      {
-        "name": "Client",
-        "tags": [
-          "client"
-        ],
-        "scenes": [
-          "scenes/island-bay.scene.json"
+          "scenes/menu.scene.json"
         ]
       }
     ],
-    "links": [
-      {
-        "from": "Client",
-        "to": "Server",
-        "transport": "loopback"
+    "templates": {
+      "Lobby": {
+        "tags": [
+          "server",
+          "lobby"
+        ],
+        "renders": false,
+        "input": false,
+        "lobby": {
+          "matchTemplate": "Match",
+          "clientTemplate": "MatchClient",
+          "maxPlayers": 8,
+          "minPlayers": 1,
+          "fillWithBots": true,
+          "startCountdown": 3,
+          "quickMatchWait": 10,
+          "settings": {
+            "arena": [
+              "bay",
+              "open",
+              "maze"
+            ],
+            "length": {
+              "choices": [
+                "120",
+                "180",
+                "300",
+                "480"
+              ],
+              "default": "300"
+            },
+            "ships": {
+              "choices": [
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "default": "6"
+            }
+          }
+        }
+      },
+      "Match": {
+        "tags": [
+          "server",
+          "match"
+        ],
+        "renders": false,
+        "input": false
+      },
+      "MatchClient": {
+        "tags": [
+          "client",
+          "match-client"
+        ]
       }
-    ]
+    }
   },
   "navigation": {
     "agentTypes": [
