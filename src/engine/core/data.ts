@@ -58,6 +58,10 @@ export function defineComponent<S extends Schema>(id: string, schema: S, options
     scriptData.add(id);
   }
   const fields = Object.keys(schema) as (keyof S & string)[];
+  for (const f of fields) {
+    // `str` (ADR 0068) is for RPCs: data components are stored in typed arrays, numbers only.
+    if ((schema[f] as { kind: string }).kind === "str") throw new Error(`defineComponent("${id}"): field "${f}" is str; strings are for RPCs only, data components hold numbers (f32, i32, u8).`);
+  }
   const viewProto: Record<string, unknown> = {};
   for (const f of fields) {
     Object.defineProperty(viewProto, f, {

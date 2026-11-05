@@ -183,6 +183,9 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
   if (!(Number.isInteger(redundancy) && redundancy >= 0 && redundancy < MAX_PER_PACKET)) {
     throw new Error(`defineInput("${id}"): redundancy must be an integer from 0 to ${MAX_PER_PACKET - 1} (got ${redundancy}).`);
   }
+  for (const f of Object.keys(schema)) {
+    if ((schema[f] as { kind: string }).kind === "str") throw new Error(`defineInput("${id}"): field "${f}" is str; inputs hold numbers (send strings with an RPC).`);
+  }
   const codec = recordCodec(schema) as RecordCodec;
   const fields = codec.fields;
   const kinds = fields.map((f) => schema[f].kind);
