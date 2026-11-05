@@ -13,7 +13,7 @@ export type { FieldEncoding } from "./net/codec";
 export { isResimulating, predictedTick } from "./net/prediction";
 export { Component, GameBehavior, Waits, type LifecycleHooks } from "./core/Component";
 export { Time } from "./core/Time";
-export { Color, Mathf, Quaternion, Vector2, Vector3, DEG2RAD, RAD2DEG, type Vec2Like, type Vec3Like, type Vec2Input, type Vec3Input } from "./core/math";
+export { Color, Mathf, Plane, Quaternion, Ray, Vector2, Vector3, DEG2RAD, RAD2DEG, type Vec2Like, type Vec3Like, type Vec2Input, type Vec3Input } from "./core/math";
 export { AssetRef, PlainObject, behavior, component, field, getComponentClass, getComponentId, getComponentOptions, getFields, registerComponent, type ComponentOptions, type FieldChoice, type FieldChoices, type FieldOptions, type FieldType, type ListFieldType } from "./core/registry";
 export { defineBuffer, defineComponent, f32, i32, u8, type BufferDef, type ColumnArray, type Columns, type DataComponentDef, type DataView, type ScalarType, type Schema } from "./core/data";
 export { defineSystem, type Phase, type Row, type SystemContext, type SystemDef } from "./core/systems";
@@ -30,7 +30,7 @@ export { Assets, type AssetSource } from "./scene/Assets";
 export type { ImportSettings, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
-export { Camera, Environment, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type LightType, type MaterialPropertyValue, type ParticlePropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";
+export { Camera, Environment, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type FogMode, type LightType, type MaterialPropertyValue, type ParticlePropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";
 
 export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
 export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D, type PhysicsMaterial, type PhysicsMaterial2D } from "./physics/Collider2D";
@@ -47,6 +47,7 @@ export { Navigation, type NavNearestPoint, type NavPathResult, type NavPathStatu
 export type { NavDebugSettings } from "./nav/navigationSystems";
 export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 
-export { Audio, AudioSource } from "./audio/AudioSource";
+export { Audio, AudioSource, type OneShotOptions, type Rolloff } from "./audio/AudioSource";
+export { AudioListener } from "./audio/AudioListener";
 export { Input } from "./input/Input";
 export { Storage, MemoryStorage, type StorageBackend } from "./platform/Storage";

@@ -5,7 +5,7 @@ import { uniqueId } from "./assetBrowser";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import type { OpenScene } from "./state";
 
-export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "reflection-probe" | "particle-system";
+export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "particle-system";
 type Shape3D = "cube" | "sphere" | "capsule" | "cylinder" | "plane";
 type LightKind = "directional" | "point" | "spot" | "ambient";
 
@@ -26,6 +26,7 @@ export const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: 
   { kind: "point-light", label: "Point Light", name: "Point Light" },
   { kind: "spot-light", label: "Spot Light", name: "Spot Light" },
   { kind: "ambient-light", label: "Ambient Light", name: "Ambient Light" },
+  { kind: "fog", label: "Fog", name: "Fog" },
   { kind: "reflection-probe", label: "Reflection Probe", name: "Reflection Probe" },
   { kind: "particle-system", label: "Particle System", name: "Particle System" },
 ];
@@ -86,6 +87,8 @@ export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: stri
         name,
         components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.MeshRenderer", data: { mesh: `builtin:${kind}` } }, structuredClone(SHAPE_COLLIDERS[kind])],
       };
+    case "fog":
+      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.Fog", data: {} }] };
     case "reflection-probe":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ReflectionProbe", data: {} }] };
     case "particle-system":

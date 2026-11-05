@@ -3,7 +3,7 @@
  * The render backend mirrors them into three.js objects each frame.
  */
 import { Component } from "../core/Component";
-import { Color, Vector2, Vector3 } from "../core/math";
+import { Color, Quaternion, Ray, Vector2, Vector3 } from "../core/math";
 import { AssetRef, PlainObject, component, field } from "../core/registry";
 import { World } from "../core/World";
 
@@ -58,9 +58,101 @@ export class Camera extends Component {
     return cams.sort((a, b) => a.depth - b.depth)[0] ?? null;
   }
 
+  /**
+   * The canvas size the camera's maths uses: the render backend's canvas (CSS pixels, like
+   * `Input.mousePosition`), or without one (headless) the project's reference resolution (ADR 0073).
+   */
+  private canvasSize(): { width: number; height: number } {
+    const canvas = this.world.render?.canvas;
+    if (canvas && canvas.clientWidth > 0 && canvas.clientHeight > 0) return { width: canvas.clientWidth, height: canvas.clientHeight };
+    const { width, height } = this.world.settings.display;
+    return { width, height };
+  }
+
+  /** The camera's rectangle in canvas pixels, origin top-left (ADR 0056). */
+  private pixelRect(): { x: number; y: number; width: number; height: number } {
+    const { width: cw, height: ch } = this.canvasSize();
+    const clamp = (n: number) => Math.min(1, Math.max(0, n));
+    const x = clamp(this.viewportPosition.x), y = clamp(this.viewportPosition.y);
+    const w = Math.max(0.001, Math.min(clamp(this.viewportSize.x), 1 - x)), h = Math.max(0.001, Math.min(clamp(this.viewportSize.y), 1 - y));
+    return { x: x * cw, y: (1 - y - h) * ch, width: w * cw, height: h * ch };
+  }
+
+  /** Width / height of the camera's viewport rectangle on the canvas (ADR 0073). */
+  get aspect(): number {
+    const r = this.pixelRect();
+    return r.width / r.height;
+  }
+
+  /** The camera's world position and axes (right, up, forward = the node's -Z), ignoring scale. */
+  private frame(): { position: Vector3; right: Vector3; up: Vector3; forward: Vector3 } {
+    const t = this.node.transform!;
+    const q = t.worldRotation;
+    return { position: t.worldPosition, right: rotate(q, 1, 0, 0), up: rotate(q, 0, 1, 0), forward: rotate(q, 0, 0, -1) };
+  }
+
+  /** The ray through normalized device coordinates (-1..1, +y up) of this camera's viewport. */
+  private ndcRay(nx: number, ny: number): Ray {
+    const { position, right, up, forward } = this.frame();
+    const aspect = this.aspect;
+    if (this.projection === "orthographic") {
+      const s = this.orthographicSize;
+      const origin = position.clone().addScaled(right, nx * s * aspect).addScaled(up, ny * s);
+      return new Ray(origin, forward);
+    }
+    const tan = Math.tan((this.fieldOfView * Math.PI) / 360);
+    const dir = forward.clone().addScaled(right, nx * tan * aspect).addScaled(up, ny * tan);
+    return new Ray(position, dir);
+  }
+
+  /**
+   * The world ray through a canvas point in pixels, origin top-left, as `Input.mousePosition`
+   * (ADR 0073). Perspective rays start at the camera; orthographic rays are parallel to its view
+   * direction and start on the camera's plane.
+   */
+  screenPointToRay(point: Vector2): Ray {
+    const r = this.pixelRect();
+    return this.ndcRay(((point.x - r.x) / r.width) * 2 - 1, 1 - ((point.y - r.y) / r.height) * 2);
+  }
+
+  /** Like `screenPointToRay`, from viewport coordinates 0 to 1 with the origin bottom-left, as in Unity. */
+  viewportPointToRay(point: Vector2): Ray {
+    return this.ndcRay(point.x * 2 - 1, point.y * 2 - 1);
+  }
+
+  /**
+   * A world point's place on the canvas: x and y in pixels (origin top-left, like
+   * `Input.mousePosition`), z the distance in front of the camera along its view direction (negative
+   * means behind it, where x and y are mirrored and not meaningful) (ADR 0073).
+   */
+  worldToScreenPoint(p: Vector3): Vector3 {
+    const { position, right, up, forward } = this.frame();
+    const d = Vector3.sub(p, position);
+    const x = Vector3.dot(d, right), y = Vector3.dot(d, up), depth = Vector3.dot(d, forward);
+    const aspect = this.aspect;
+    let nx: number, ny: number;
+    if (this.projection === "orthographic") {
+      nx = x / (this.orthographicSize * aspect);
+      ny = y / this.orthographicSize;
+    } else {
+      const tan = Math.tan((this.fieldOfView * Math.PI) / 360);
+      const w = Math.abs(depth) < 1e-9 ? 1e-9 : depth;
+      nx = x / (w * tan * aspect);
+      ny = y / (w * tan);
+    }
+    const r = this.pixelRect();
+    return new Vector3(r.x + (nx * 0.5 + 0.5) * r.width, r.y + (0.5 - ny * 0.5) * r.height, depth);
+  }
+
   override _onDetach(): void {
     this.world.render?.release(this);
   }
+}
+
+/** Rotate the vector (x, y, z) by `q`. */
+function rotate(q: Quaternion, x: number, y: number, z: number): Vector3 {
+  const tx = 2 * (q.y * z - q.z * y), ty = 2 * (q.z * x - q.x * z), tz = 2 * (q.x * y - q.y * x);
+  return new Vector3(x + q.w * tx + (q.y * tz - q.z * ty), y + q.w * ty + (q.z * tx - q.x * tz), z + q.w * tz + (q.x * ty - q.y * tx));
 }
 
 export type Anchor = "top-left" | "top" | "top-right" | "left" | "center" | "right" | "bottom-left" | "bottom" | "bottom-right";
@@ -267,6 +359,28 @@ export class Environment extends Component {
   /** Rotation of the environment around the Y axis, in degrees. */
   @field(Number) rotation = 0;
 }
+
+/**
+ * Distance fog for the World (ADR 0071): the first enabled one applies to every material that
+ * takes fog. Every field can change each frame (a storm fading in) without recompiling materials.
+ */
+@component("engine.Fog")
+export class Fog extends Component {
+  @field(String, { choices: ["linear", "exponential"] }) mode: FogMode = "linear";
+  @field(Color) color = new Color(0.7, 0.75, 0.8, 1);
+  /** Distance where linear fog starts, in metres. */
+  @field(Number) near = 10;
+  /** Distance where linear fog is total, in metres. */
+  @field(Number) far = 100;
+  /** Thickness of exponential fog (about 1 / the distance it fades out over). */
+  @field(Number) density = 0.02;
+  /** Fade the sky to the fog colour too, by `skyboxFog`. */
+  @field(Boolean) affectsSkybox = false;
+  /** How far the sky fades to the fog colour when `affectsSkybox` is on, 0 to 1. */
+  @field(Number) skyboxFog = 1;
+}
+
+export type FogMode = "linear" | "exponential";
 
 export type ProbeRefresh = "onLoad" | "everyFrame";
 
