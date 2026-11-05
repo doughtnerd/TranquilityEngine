@@ -1583,14 +1583,26 @@ export class RenderBackend {
     for (const o of helpers) o.visible = false;
     if (particles) particles.visible = false;
     this.scene.overrideMaterial = this.depthOnly;
-    r.render(this.scene, camera); // depth only, so meshes hide the grid
+    this.renderOverComposed(camera); // depth only, so meshes hide the grid
     this.scene.overrideMaterial = null;
     for (const o of helpers) o.visible = true;
     if (particles) particles.visible = true;
-    const others = this.scene.children.filter((o) => o.visible && !helpers.includes(o));
-    for (const o of others) o.visible = false;
-    r.render(this.scene, camera);
-    for (const o of others) o.visible = true;
+    this.renderOnly(helpers, camera);
+  }
+
+  /**
+   * Render the scene over the composer's image without its background. three clears the canvas
+   * whenever `scene.background` is a colour (autoClear or not), which a Fog with `affectsSkybox` sets
+   * (ADR 0071), and draws a skybox texture as a fullscreen box: either would wipe the composed frame.
+   */
+  private renderOverComposed(camera: ThreeCamera): void {
+    const background = this.scene.background;
+    this.scene.background = null;
+    try {
+      this.renderer.render(this.scene, camera);
+    } finally {
+      this.scene.background = background;
+    }
   }
 
   /** The editor's helpers in the scene that are showing: grid, axes, gizmos, outlines, overlays. */
@@ -1603,7 +1615,7 @@ export class RenderBackend {
   private renderOnly(objects: readonly Object3D[], camera: ThreeCamera): void {
     const others = this.scene.children.filter((o) => o.visible && !objects.includes(o));
     for (const o of others) o.visible = false;
-    this.renderer.render(this.scene, camera);
+    this.renderOverComposed(camera);
     for (const o of others) o.visible = true;
   }
 
