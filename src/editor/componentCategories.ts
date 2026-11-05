@@ -34,6 +34,12 @@ const BY_NAME: Readonly<Record<string, string>> = {
   Buoyancy: "Physics 3D",
   AudioSource: "Audio",
   AudioListener: "Audio",
+  UICanvas: "UI",
+  UIPanel: "UI",
+  UIText: "UI",
+  UIImage: "UI",
+  UIButton: "UI",
+  UIInputField: "UI",
 };
 
 /** The category of an engine component id, or null when the table doesn't know it (it lands in Other). */

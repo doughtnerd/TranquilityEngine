@@ -96,6 +96,8 @@ import { rayQuadDistance } from "./picking";
 import { spriteFrame } from "./spriteFrame";
 import { WaterRenderer } from "./water/WaterRenderer";
 import { WaterSurface } from "./water/WaterSurface";
+import { UICanvas, isUIComponent } from "../ui/components";
+import type { UIRuntime } from "../ui/UIRuntime";
 
 /** @internal Editor gizmo settings (ADR 0022). */
 export interface GizmoOptions {
@@ -569,6 +571,10 @@ export class RenderBackend {
 
   /** @internal Release three.js objects for a removed component. */
   release(c: Component): void {
+    if (isUIComponent(c)) {
+      this.ui?.release(c);
+      return;
+    }
     if (c instanceof SpriteRenderer) {
       const e = this.sprites.get(c);
       if (e) {
@@ -789,6 +795,7 @@ export class RenderBackend {
     for (const t of world._componentsOfType(Text)) this.syncText(t);
     this.syncParticles(world);
     this.syncWater(world);
+    this.syncUI(world);
     if (this.fill) {
       this.syncOutlines();
       this.syncCameraGizmos(world);
@@ -1445,6 +1452,7 @@ export class RenderBackend {
     r.clearDepth();
     r.toneMapping = NoToneMapping; // the UI is never tone mapped
     r.render(this.uiScene, this.uiCamera);
+    this.ui?.render(r); // UI canvases (ADR 0069), over the interim Text
     if (this.fill) this.renderCameraPreview(world.time.deltaTime);
   }
 
@@ -1605,6 +1613,47 @@ export class RenderBackend {
     for (const icon of this.lightGizmos.values()) helpers.push(icon);
     for (const p of this.probes.values()) helpers.push(p.gizmo);
     return helpers.filter((o): o is Object3D => !!o && o.visible);
+  }
+
+  // --- UI (ADR 0069) ---------------------------------------------------------------------------------
+
+  private ui: UIRuntime | null = null;
+  private uiLoading = false;
+
+  /**
+   * Lays out and mirrors the World's UI components through pmndrs uikit, imported the first time the
+   * World has a UICanvas (so games without UI never load it or Yoga). Screen canvases draw in the UI
+   * pass after the cameras; world canvases join the scene. Pointer routing runs in `Input.beginFrame`.
+   */
+  private syncUI(world: World): void {
+    if (!this.ui) {
+      if (this.uiLoading || !world._componentsOfType(UICanvas).length) return;
+      this.uiLoading = true;
+      import("../ui/UIRuntime")
+        .then((m) => {
+          m.UIRuntime.prepare(this.renderer);
+          this.ui = new m.UIRuntime({
+            interactive: !this.fill, // the editor's own World: clicks select, they don't press buttons
+            host: {
+              scene: this.scene,
+              camera: () => {
+                const c = this.viewCameras(world)[0];
+                return c ? (this.cameras.get(c)!.camera as ThreeCamera) : null;
+              },
+              texture: (ref) => this.texture(splitSpriteRef(ref).path),
+            },
+          });
+        })
+        .catch((err) => console.error("[myco] UI couldn't start:", err))
+        .finally(() => (this.uiLoading = false));
+      return;
+    }
+    this.ui.sync(world, this.canvas.clientWidth, this.canvas.clientHeight, world.time.unscaledDeltaTime);
+  }
+
+  /** @internal Tests and the editor: the UI runtime, once loaded. */
+  uiRuntime(): UIRuntime | null {
+    return this.ui;
   }
 
   // --- Particles (ADR 0057) -------------------------------------------------------------------------
@@ -2674,6 +2723,8 @@ export class RenderBackend {
 
   dispose(): void {
     this.dropCascades();
+    this.ui?.dispose();
+    this.ui = null;
     this.particles?.dispose();
     this.water?.dispose();
     for (const m of this.particleMaterials.values()) m.dispose();
