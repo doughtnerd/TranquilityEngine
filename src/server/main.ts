@@ -13,7 +13,9 @@
  *   loader, ADR 0030). Images and audio aren't loaded; their paths resolve, to `file:` URLs.
  * - Runs only the bootstrap's Worlds tagged "server" (ADR 0032), or, if it has none, its
  *   server-tagged templates. Other Worlds (clients, local play) are skipped, and so are links
- *   between them. Server Worlds game code creates later run but don't listen (open question O15).
+ *   between them. Server Worlds game code creates later run, and listen when code calls
+ *   `WorldHandle.listen` (ADR 0067; a lobby's matches): without a port, on the first server
+ *   World's port, by path.
  * - Has each server World listen over WebSocket: on the port (or `address`) of the bootstrap
  *   link that connects to it, else, for the first server World, on `--port` or 7777. `--port`
  *   overrides the first server World's port, `--host` the interface every World binds (default

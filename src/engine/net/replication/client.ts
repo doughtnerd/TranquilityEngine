@@ -28,6 +28,7 @@ import type { BitReader } from "../codec";
 import { Replicated } from "../Replicated";
 import { netSession, type NetPeer, type NetSession } from "../session";
 import { applyState, bind, interpolate, layoutOf, type Binding, type GhostState, type Layout } from "./layout";
+import { ClientStrings, GHOST_STRINGS } from "./strings";
 import { ACK, BASELINE_WINDOW, SNAPSHOT, SPAWN_NESTED, SPAWN_PREFAB, SPAWN_SCENE, readSpawn, type SpawnInfo } from "./wire";
 
 /** How far past the newest state a late ghost is extrapolated before it holds. */
@@ -68,6 +69,8 @@ export class ClientReplication {
   private readonly despawned = new Set<number>();
   private readonly scratch: number[] = [];
   private errorLogged = false;
+  /** String behavior fields (ADR 0068). */
+  private readonly strings = new ClientStrings();
 
   constructor(
     readonly world: World,
@@ -96,7 +99,16 @@ export class ClientReplication {
         }
       }
     }
+    for (const m of session.drain(GHOST_STRINGS)) {
+      if (m.peer !== peer) continue;
+      try {
+        this.strings.read(m.reader(), this.despawned);
+      } catch (err) {
+        console.error(`[myco] World "${this.world.name}" can't read replicated strings from its server: ${(err as Error).message}`);
+      }
+    }
     this.resolve();
+    this.strings.apply(this.world, (id) => this.ghosts.get(id)?.node ?? null);
     if (received && peer?.state === "open") {
       const tick = this.newestTick;
       session.send(ACK, "server", "unreliable", (w) => w.writeVarUint(tick));
@@ -203,6 +215,7 @@ export class ClientReplication {
       if (g.node?.isValid) this.world._destroyNode(g.node.entity);
       this.ghosts.delete(id);
     }
+    this.strings.forget(id);
     this.despawned.add(id);
     if (this.despawned.size > MAX_REMEMBERED_DESPAWNS) this.despawned.delete(this.despawned.values().next().value!);
   }
@@ -268,6 +281,7 @@ export class ClientReplication {
     g.binding = bind(g.layout, node, rep);
     const newest = g.states[g.states.length - 1];
     if (newest) applyState(g.layout, g.binding, newest.values);
+    this.strings.placed(g.id);
     return true;
   }
 
@@ -283,6 +297,7 @@ export class ClientReplication {
     }
     this.ghosts.clear();
     this.despawned.clear();
+    this.strings.clear();
     this.newestTick = -1;
     this.errorLogged = false;
   }

@@ -4,7 +4,7 @@
  * inputs are per-tick data read per connection. Connections and RPCs are T10's (`connection.ts`,
  * `rpc.ts`, `session.ts`); inputs are T12's (`input.ts`).
  */
-import type { DataView, Schema } from "../core/data";
+import type { DataView, ScalarType, Schema } from "../core/data";
 import type { GameObject } from "../scene/GameObject";
 
 /** The connection node a message came from or goes to. On a client, its one connection to the server. */
@@ -16,15 +16,39 @@ export { Connection, ConnectionState, type ConnectionStateValue } from "./connec
 /** Who an RPC goes to: every connection (server), one or several connection nodes, or the server (client). */
 export type RpcTarget = "all" | "server" | ConnectionNode | readonly ConnectionNode[];
 
+/** A string field type (ADR 0068): UTF-8, at most `MAX_STR_BYTES` bytes. For RPC schemas only. */
+export interface StringType {
+  readonly kind: "str";
+}
+
+/** The longest `str` value, in UTF-8 bytes. */
+export const MAX_STR_BYTES = 255;
+
+/**
+ * A string field, for RPCs (ADR 0068): sent as UTF-8 with a length prefix, at most 255 bytes.
+ * Not allowed in data components (`defineComponent` throws) or inputs.
+ *
+ * ```ts
+ * export const Chat = defineRpc("game.Chat", { team: u8, text: str });
+ * ```
+ */
+export const str: StringType = { kind: "str" };
+
+/** An RPC's fields: numbers (`f32`, `i32`, `u8`) and strings (`str`). */
+export type RpcSchema = Record<string, ScalarType | StringType>;
+
+/** An RPC's values: a number per numeric field, a string per `str` field. */
+export type RpcValues<S extends RpcSchema> = { [K in keyof S]: S[K] extends StringType ? string : number };
+
 /** A received RPC: its values, plus the connection node it came from. */
-export type RpcRow<S extends Schema> = DataView<S> & { readonly connection: ConnectionNode };
+export type RpcRow<S extends RpcSchema> = Readonly<RpcValues<S>> & { readonly connection: ConnectionNode };
 
 /** A reliable message type (Unity's `IRpcCommand`). */
-export interface RpcDef<S extends Schema = Schema> {
+export interface RpcDef<S extends RpcSchema = RpcSchema> {
   readonly id: string;
   readonly schema: S;
   /** Queue a message from the current World. Sent at the end of its frame. */
-  send(values: Readonly<Record<keyof S, number>>, to?: RpcTarget): void;
+  send(values: Readonly<RpcValues<S>>, to?: RpcTarget): void;
   /**
    * Messages the current World received, in arrival order: in fixedUpdate, those that arrived for
    * this fixed step; in update and lateUpdate, those that arrived this frame. Each is seen once by

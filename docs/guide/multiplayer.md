@@ -71,6 +71,22 @@ To join a server in another process, such as a [dedicated server](#the-dedicated
 Engine.findWorld("Client")!.connect("ws://localhost:7777", "websocket");
 ```
 
+### Listening at runtime
+
+A server World created at runtime starts listening with `listen` (ADR 0067), as a link's server does:
+
+```ts
+const match = Engine.createWorld({ ...matchConfig, name: "Match 3" });
+const address = await match.listen("websocket", { path: "/match/3" }); // "ws://localhost:7777/match/3"
+match.addresses(); // where it listens
+```
+
+- Options are a link's listen options: `port`, `host`, `path`, `address`, `maxConnections` and the timeouts. `listen` resolves with the address clients connect to and rejects with a reason. It throws if the World is a client, or already listens there.
+- **One port, many paths.** In Node, Worlds that listen over WebSocket on the same port share it, each at its own `path`; connections are routed by the URL's path and an unknown path gets HTTP 404. A World alone at `/` on its port still takes every path. The port closes when its last World is destroyed.
+- On the [dedicated server](#the-dedicated-server), a `listen` without a port uses the server's port, so every match shares the lobby's port and a reverse proxy needs one rule.
+- Over loopback, a `path` just makes the address unique.
+- Browsers can't listen over WebSocket; `listen("websocket")` there rejects, saying so.
+
 ### Connection nodes
 
 Connections aren't events. Each one is a node with a `net.Connection` data component (`Connection` in code), which the engine creates and destroys:
@@ -154,7 +170,13 @@ defineSystem({
 });
 ```
 
-- `send(values, to)`: `to` is `"server"` (a client's default), `"all"` (a server's default), a connection node, or a list of them. Fields are numbers (`f32`, `i32`, `u8`), as in data components.
+- `send(values, to)`: `to` is `"server"` (a client's default), `"all"` (a server's default), a connection node, or a list of them. Fields are numbers (`f32`, `i32`, `u8`), as in data components, or strings (`str`): UTF-8, at most 255 bytes (`send` throws for a longer one). `str` is for RPCs only; `defineComponent` and `defineInput` refuse it.
+
+  ```ts
+  import { defineRpc, str, u8 } from "myco";
+  export const Chat = defineRpc("game.Chat", { team: u8, text: str });
+  Chat.send({ team: 1, text: "Ahoy!" });
+  ```
 - `read()` returns what arrived for the phase it's called in: in `fixedUpdate`, what arrived for that fixed step; in `update` and `lateUpdate`, what arrived this frame. Each phase sees each message once.
 - `send` throws in a World that isn't networked.
 - Both ends must define the same RPCs with the same fields.
@@ -203,7 +225,7 @@ On the server, game code sets `ownerId` and `mode`. On clients, read them. `Repl
   }
   ```
 
-  Numbers and booleans replicate. `quantize` rounds a number to a step before sending, to save bandwidth.
+  Numbers, booleans and strings replicate. `quantize` rounds a number to a step before sending, to save bandwidth. A `String` field (`@field(String, { replicate: true }) captain = ""`) is sent whole, reliably, when it changes (capped at 255 bytes), not in every snapshot, so it suits names and labels rather than values that change every tick.
 
 What a ghost sends is fixed when the server first sees it. Components added later aren't sent.
 
@@ -316,9 +338,105 @@ What it runs:
 - If the bootstrap has no server Worlds but has server-tagged templates (a game whose **Host** button creates the server World at runtime), it creates those templates at start instead, each named after its key.
 - A code bootstrap runs with Worlds not tagged `server` skipped; `connect` calls from skipped Worlds tell the server where to listen.
 - Each server World listens on the port of a `websocket` link that connects to it (its `port`, `address` or `url`). The first server World falls back to `--port` or 7777. Others with no such link don't listen, and the server logs that.
+- Server Worlds created at runtime (a lobby's matches) run too. One listens when code calls `listen`; without a port it shares the first server World's port, by path. The server logs when such a World starts listening and when it's destroyed.
 - It logs each connection opened and closed, and stats every minute. Ctrl+C closes every connection and exits.
 
 Server Worlds must run headless: no code in them that needs a canvas, the DOM or Web Audio. TLS (`wss://`) needs a reverse proxy in front.
+
+## Lobbies and matchmaking
+
+A **lobby** (ADR 0068) is a server World with the lobby service on. Players join it, wait in rooms, ready up and pick settings; when a room starts, the lobby creates a **match World** for it from a template and the players' pages join that. When the match ends, the players are back in their room.
+
+### The lobby World
+
+Turn the service on with `"lobby"` on a server World or template:
+
+```json
+"bootstrap": {
+  "worlds": [{ "name": "Menu", "scenes": ["scenes/menu.scene.json"] }],
+  "templates": {
+    "Lobby": {
+      "tags": ["server", "lobby"],
+      "lobby": {
+        "matchTemplate": "Match",
+        "clientTemplate": "MatchClient",
+        "maxPlayers": 8,
+        "fillWithBots": true,
+        "settings": { "arena": ["bay", "open", "maze"] }
+      }
+    },
+    "Match": { "tags": ["server", "match"], "scenes": ["scenes/arena.scene.json"] },
+    "MatchClient": { "tags": ["client", "match"], "scenes": ["scenes/arena.scene.json"] }
+  }
+}
+```
+
+Or in code: `Lobby.host(worldHandle, options)`.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `matchTemplate` | (required) | The server template each match World is made from. |
+| `clientTemplate` | none | The client template players' pages make their match client World from. |
+| `maxPlayers` | 8 | Room size. |
+| `minPlayers` | 1 | Members needed to start. |
+| `fillWithBots` | false | Empty slots up to `maxPlayers` are bots in the match. |
+| `startCountdown` | 3 | Seconds between everyone being ready and the start. |
+| `settings` | none | Room settings and their allowed values; the first is the default (or `{ "choices": [...], "default": "open" }`). |
+| `quickMatchWait` | 10 | Seconds a quick-match room waits for more players before it starts on its own. |
+| `joinTimeout` | 30 | Seconds a match waits for its first player before it ends. |
+
+Give game systems a tag of the match Worlds (`["match"]` above) rather than `["server"]` or `["client"]`, so they don't run in the lobby World. The hidden lobby client World is tagged `lobby-client` only, so no game system runs in it.
+
+### Rooms
+
+A room has an id, a 5-letter join code, a name, `public`, a host (the first member; passed on when the host leaves) and up to `maxPlayers` members, each with a slot, a name and a ready flag. When every member is ready (and there are at least `minPlayers`), the room counts down and starts; someone unreadying, leaving or joining stops the countdown. The host can change settings, kick members and start at once once `minPlayers` is met. **Quick match** joins the fullest public room that's waiting with the settings asked for, or makes one, which starts on its own after `quickMatchWait`.
+
+### The client side
+
+`Lobby` is static and page-wide, usable from any World's code. Menus poll it (there are no events):
+
+```ts
+import { Lobby } from "myco";
+
+Lobby.connect("ws://play.example.com:7777", { name: "Anne" }); // or "local"
+// later, in a menu's update:
+if (Lobby.state === "lobby") showRooms(Lobby.rooms);
+if (Lobby.state === "room") showRoom(Lobby.room!, Lobby.me!);
+if (Lobby.error) showError(Lobby.error);
+```
+
+- `Lobby.connect(address, { name })` returns at once. `"local"` runs the project's lobby World (the template or World with `"lobby"`) in this page over loopback, for single-player and hot-seat play.
+- `Lobby.state`: `"offline"`, `"connecting"`, `"lobby"`, `"room"`, `"starting"` (counting down) or `"match"`. `Lobby.error` is the last refusal or disconnect reason.
+- `Lobby.rooms` (public rooms: code, name, member count, state, settings), `Lobby.room` (members, ready flags, `hostSlot`, settings, `countdown` in whole seconds, the last match's `results`), `Lobby.me` (slot, host, name).
+- Actions: `quickMatch(settings?)`, `createRoom({ name, public, settings })`, `joinRoom(code)`, `leaveRoom()`, `setReady(ready)`, `setSetting(key, value)`, `kick(slot)` and `start()` (the last three host only). A refused action sets `Lobby.error`.
+- In a match, `Lobby.matchWorld` is the match client World (named `Match <id> Client`) and `Lobby.leaveMatch()` leaves it. While it plays, the page's other Worlds that render are paused, not destroyed, and resume when it ends.
+- `Lobby.disconnect()`.
+
+### The match World
+
+The lobby names each match World `Match <id>` and has it listen over the lobby's own transport at `/match/<id>` (on the lobby's port, see [Listening at runtime](#listening-at-runtime)). Each member gets a one-time ticket; a connection without a valid ticket for that match is refused. In the match World, `Match.current` says what to play:
+
+```ts
+import { Match, defineSystem } from "myco";
+
+defineSystem({
+  name: "game.Setup",
+  phase: "update",
+  worlds: ["match"],
+  run() {
+    const match = Match.current;
+    if (!match) return;
+    for (const p of match.players) if (p.bot && !p.name) p.name = `Captain ${p.slot + 1}`;
+    // ... when someone wins:
+    // match.end({ winner: "Anne" });
+  },
+});
+```
+
+- `id`, `roomId`, `settings`.
+- `players`: one per slot, each with `slot`, `name`, `bot` and `connectionId` (the player's `Connection.id` once connected; 0 before, after they leave, and for bots).
+- `end(results?)`: closes the match; `results` is a string map the room shows (`Lobby.room.results`).
+- A match ends on its own if nobody connects within `joinTimeout`, or once every player who joined has left (`results` is then `{ reason }`).
 
 ## The editor
 
@@ -346,11 +464,11 @@ While playing, the Network tab shows each networked World with its role, tick, s
 From [implementation status](../architecture/implementation-status.md) and [open questions](../architecture/open-questions.md):
 
 - **Bootstrap links to a server elsewhere.** A link names two Worlds of the project (start-up or Spawnable, ADR 0062); a server in another process is joined at runtime with `connect(address, transport)`.
-- **Listening at runtime (O15).** A server World created at runtime can't start listening; `WorldHandle` has `connect` but no `listen`. The dedicated server serves only the Worlds it creates at start and logs the rest.
+- **Lobbies:** one lobby process; no skill rating, regions, parties, spectators, joining a match in progress, or reconnecting to a match after a disconnect (the player goes back to the room). Tickets stop casual joins; they aren't authentication. In a page with a canvas the match World is drawn over the paused menu on a surface of its own; that hand-over isn't covered by headless tests.
 - **WebSocket in the browser.** A link between two Worlds in a browser page must use `loopback`; a `websocket` link there fails to start, because browsers can't listen.
 - **Not replicated:** node active state, reparenting, and components added to a ghost after the server first saw it.
 - **Prediction** covers data components, behavior fields and the transform moved by `predicted` systems. Behaviors aren't re-simulated, and physics isn't predicted.
 - WebSocket carries unreliable messages over TCP, so packet loss delays them instead of dropping them. WebRTC, which would fix that, needs a signalling server and is deferred.
-- Not built: lag compensation, relevancy and interest management, host migration, a single-World host, client-authoritative modes, matchmaking and lobbies (v2).
+- Not built: lag compensation, relevancy and interest management, host migration, a single-World host, client-authoritative modes.
 - Bandwidth per ghost type counts each ghost's spawn and state bits; snapshot headers and despawns aren't attributed to any type.
 - A client World and a server World can't be the same World, and one World can't be both a client and a server (a relay).

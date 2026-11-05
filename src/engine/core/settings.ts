@@ -1,6 +1,7 @@
 import { parseGraphics, type GraphicsSettings } from "./graphics";
 import { parseNavigationSettings, type NavigationSettings } from "../nav/settings";
 import type { BootstrapSetting } from "./worlds";
+import { lobbyOptionProblems } from "../net/lobby/protocol";
 
 /** Project settings, normally loaded from the game's `project.json`. */
 export interface ProjectSettings {
@@ -82,7 +83,7 @@ export function navigationSettingsProblems(input: unknown): string[] {
 }
 
 const BOOTSTRAP_KEYS = ["worlds", "links", "templates"];
-const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems"];
+const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems", "lobby"];
 const LINK_KEYS = ["from", "to", "transport", "options"];
 
 /**
@@ -175,6 +176,7 @@ function worldProblems(world: unknown, where: string, nameRequired: boolean, kno
     if (world[key] !== undefined && typeof world[key] !== "boolean") problems.push(`${where}: ${key} must be true or false (got ${describe(world[key])}).`);
   }
   if (world.scenes !== undefined && !isStringList(world.scenes)) problems.push(`${where}: scenes must be a list of scene paths (got ${describe(world.scenes)}).`);
+  if (world.lobby !== undefined) problems.push(...lobbyOptionProblems(world.lobby, `${where}: lobby`)); // ADR 0068
 
   const systems = world.systems;
   if (systems === undefined) return;

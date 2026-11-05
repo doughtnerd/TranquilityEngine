@@ -59,6 +59,7 @@ import { BitWriterImpl } from "../bits";
 import { Replicated } from "../Replicated";
 import { netSession, type NetPeer, type NetSession } from "../session";
 import { layoutOf, readState, sameState, specOf, type GhostState, type Layout } from "./layout";
+import { ServerStrings } from "./strings";
 import { ACK, BASELINE_WINDOW, DEFAULT_MAX_SNAPSHOT_BYTES, SNAPSHOT, SPAWN_NESTED, SPAWN_PREFAB, SPAWN_SCENE, writeSpawn, type SpawnInfo } from "./wire";
 
 interface ServerGhost {
@@ -128,6 +129,8 @@ export class ServerReplication {
   private readonly peers = new WeakMap<NetPeer, PeerState>();
   /** Replicated components that can't be spawned on clients (warned once). */
   private readonly unspawnable = new WeakSet<Replicated>();
+  /** String behavior fields (ADR 0068), sent whole when they change. */
+  private readonly strings = new ServerStrings();
 
   constructor(
     readonly world: World,
@@ -172,6 +175,7 @@ export class ServerReplication {
       ps.lastBytes = bytes.byteLength;
       session.send(SNAPSHOT, peer, "unreliable", bytes, tick);
     }
+    this.strings.send(session, this.ghosts.values(), despawned);
   }
 
   /** Find new ghosts and gone ones. Returns the ids that despawned. */

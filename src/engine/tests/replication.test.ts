@@ -329,7 +329,7 @@ describe("replication (T11)", () => {
     expect([a.aim.x, a.aim.y, a.aim.z]).toEqual([0, 0, 0]);
     expect(ghost.getData(Health)).toMatchObject({ current: 7, max: 10, team: -3 });
     expect(ghost.hasData(Secret)).toBe(false);
-    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/test\.repl\.Aimer\.aim is declared with replicate, but only Number and Boolean fields replicate/));
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/test\.repl\.Aimer\.aim is declared with replicate, but only Number, Boolean and String fields replicate/));
 
     // Later changes keep arriving.
     inWorld(server, () => (tank.getBehavior(Stats)!.score = 43));
