@@ -1,15 +1,17 @@
 // Bots (server only): each fills a ship's helm fields before the ships sail. A bot goes for the
 // flag when it's free, hunts whoever holds it, and runs while it holds it itself. It turns to
 // bring a target abeam, picks the battery on that side and fires when the target is lined up and
-// in range. It grabs power-ups it passes near, can't see ships inside others' fog clouds, steers
-// clear of obstacles and the arena edge, and wanders when there's nothing to do. Route-finding
-// around obstacles is `steer` (navigation.ts swaps in navmesh paths when the arena has one).
+// in range. It grabs power-ups it passes near, steers clear of obstacles and the arena edge, and
+// wanders when there's nothing to do. What it can tell follows awareness.ts: it can't see ships
+// inside others' fog clouds, spots a ghost ship only close by, and knows where the flag's holder is
+// only when a captain's minimap would show it or it spots the holder itself. Route-finding around
+// obstacles is `steer` (navigation.ts swaps in navmesh paths when the arena has one).
 import { GameObject, Replicated, Transform, defineSystem } from "myco";
-import { BALL_GRAVITY, BALL_LIFT, BALL_SPEED, Battery, Pickup, Ship, angleDelta, bearing, flag, forward, inCloud, ships, starboard, type ShipView } from "./data";
+import { botSpots, flagChartedBy, type SeaShip } from "./awareness";
+import { BALL_GRAVITY, BALL_LIFT, BALL_SPEED, Battery, Pickup, Ship, angleDelta, bearing, cloudSpots, flag, forward, ships, starboard, type ShipView } from "./data";
 import { arenaRadius, obstacleList } from "./systems";
 
-/** How far a bot sees, and the range it fires from: about where a ball comes down. */
-const SIGHT = 50;
+/** The range a bot fires from: about where a ball comes down. */
 const RANGE = BALL_SPEED * ((2 * BALL_LIFT) / BALL_GRAVITY) * 1.15;
 /** Degrees off the beam a bot still fires at. */
 const AIM_TOLERANCE = 12;
@@ -84,32 +86,38 @@ defineSystem({
     const holder = theFlag ? theFlag.data.carrier : -1;
     const pickups: { x: number; z: number }[] = [];
     for (const rep of GameObject.findObjectsOfType(Replicated)) if (rep.node.isValid && rep.node.hasData(Pickup)) pickups.push(rep.node.transform!.position);
+    const clouds = cloudSpots();
+    const sea: SeaShip[] = all.map((o) => {
+      const q = o.node.transform!.position;
+      return { team: o.data.team, x: q.x, z: q.z, sunk: o.data.sunk > 0, mine: false, ghost: o.data.ghost > 0 };
+    });
     for (const row of rows) {
       const ship = row.ship as ShipView;
       if (!ship.bot || ship.sunk > 0) continue;
       const p = row.transform.position;
       const s = starboard(ship.heading);
 
-      // Who to shoot: the flag's holder if it's in sight, else the nearest ship it can see.
+      // Who to shoot: the flag's holder if it spots it, else the nearest ship it spots.
       let target: { x: number; z: number; d: number; holder: boolean } | null = null;
-      for (const other of all) {
+      for (let i = 0; i < all.length; i++) {
+        const other = all[i], o = sea[i];
         if (other.data.team === ship.team || other.data.sunk > 0 || other.data.invulnerable > 0) continue;
-        const o = other.node.transform!.position;
-        if (inCloud(o.x, o.z, ship.team)) continue;
         const d = Math.hypot(o.x - p.x, o.z - p.z);
-        if (d > SIGHT) continue;
+        if (!botSpots(ship.team, o, clouds, d)) continue;
         const isHolder = other.data.team === holder;
         if (!target || (isHolder && !target.holder) || (d < target.d && target.holder === isHolder)) target = { x: o.x, z: o.z, d, holder: isHolder };
       }
 
-      // Where to go: the free flag, away while holding it, a nearby power-up, the target, or anywhere.
+      // Where to go: the free flag, away while holding it, a nearby power-up, the target, the flag's
+      // holder if it knows where that is, or anywhere.
       const f = theFlag?.node.transform!.position;
+      const knowsFlag = !!f && (holder < 0 || !!flagChartedBy(ship.team, { x: f.x, z: f.z, carrier: holder }, sea, clouds));
       let goal: { x: number; z: number };
       if (f && holder < 0) goal = { x: f.x, z: f.z };
       else if (holder === ship.team) goal = wanderPoint(ship.team, p.x, p.z);
       else {
         const near = pickups.find((q) => Math.hypot(q.x - p.x, q.z - p.z) < PICKUP_SIGHT);
-        goal = near ? { x: near.x, z: near.z } : target ? { x: target.x, z: target.z } : f ? { x: f.x, z: f.z } : wanderPoint(ship.team, p.x, p.z);
+        goal = near ? { x: near.x, z: near.z } : target ? { x: target.x, z: target.z } : f && knowsFlag ? { x: f.x, z: f.z } : wanderPoint(ship.team, p.x, p.z);
       }
 
       ship.fire = 0;

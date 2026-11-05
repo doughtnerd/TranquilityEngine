@@ -38,8 +38,11 @@ export const BALL_GRAVITY = 9.81;
 export const BALL_DAMAGE = 9;
 export const BALL_RADIUS = 0.15;
 
-/** Ramming an obstacle head-on: damage per metre a second of speed. */
-export const RAM_DAMAGE = 3;
+/**
+ * Ramming an obstacle head-on: damage per metre a second of speed (times how squarely the bow
+ * hits). Full sail into a rock (9 m/s) costs 9 of the hull's 100 (it was 27 at 3 per m/s).
+ */
+export const RAM_DAMAGE = 1;
 /** Seconds a sunk ship waits, and then how long it can't be hurt. */
 export const RESPAWN_DELAY = 5;
 export const SPAWN_INVULNERABLE = 3;
@@ -74,10 +77,15 @@ export const CLOUD_RADIUS = 18;
 /** Bots' path cost through a fog cloud (the cloud's NavCostVolume). */
 export const CLOUD_COST = 8;
 /** Stormy seas: seconds; the waves grow this much; lightning strikes another ship every so often. */
-export const STORM_SECONDS = 30;
+export const STORM_SECONDS = 10;
 export const STORM_WAVES = 2.2;
 export const LIGHTNING_EVERY: readonly [number, number] = [2, 4];
 export const LIGHTNING_DAMAGE = 18;
+/**
+ * Lightning favours the leaders: each strike picks a ship with weight `1 + score / LIGHTNING_SCORE_SCALE`
+ * (`lightningWeight`), so a captain on 30 points is four times as likely to be struck as one on none.
+ */
+export const LIGHTNING_SCORE_SCALE = 10;
 
 /** Batteries: none chosen yet, the port (left) side, the starboard (right) side. */
 export const Battery = { none: 0, port: 1, starboard: 2 } as const;
@@ -285,6 +293,28 @@ export function inCloudAmong(spots: readonly CloudSpot[], x: number, z: number, 
  */
 export function inCloud(x: number, z: number, except = -1): boolean {
   return inCloudAmong(cloudSpots(), x, z, except);
+}
+
+/** How likely lightning is to strike a ship with this score, relative to the others (see `LIGHTNING_SCORE_SCALE`). */
+export function lightningWeight(score: number): number {
+  return 1 + Math.max(0, score) / LIGHTNING_SCORE_SCALE;
+}
+
+/**
+ * The ship a lightning strike hits: one afloat and not invulnerable, other than the storm's caller
+ * (`stormTeam`), chosen with probability proportional to `lightningWeight(score)`. `random` is a
+ * number in [0, 1). Null when no ship is eligible.
+ */
+export function pickLightningTarget<T extends { data: Pick<ShipView, "team" | "sunk" | "invulnerable" | "score"> }>(all: readonly T[], stormTeam: number, random: number): T | null {
+  const eligible = all.filter((s) => s.data.team !== stormTeam && s.data.sunk <= 0 && s.data.invulnerable <= 0);
+  let total = 0;
+  for (const s of eligible) total += lightningWeight(s.data.score);
+  let at = random * total;
+  for (const s of eligible) {
+    at -= lightningWeight(s.data.score);
+    if (at < 0) return s;
+  }
+  return eligible.at(-1) ?? null;
 }
 
 /** Ships ranked: score, then enemy ships sunk (the tiebreaker), then fewest times sunk. */

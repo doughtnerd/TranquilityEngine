@@ -382,10 +382,15 @@ export function obstacleList(world: object): readonly { x: number; z: number; r:
   return obstacleCache.get(world) ?? [];
 }
 
+/** What ramming an obstacle costs at `speed` m/s, `into` = how squarely the bow hits (1: head-on). */
+export function ramDamage(speed: number, into: number): number {
+  return speed * RAM_DAMAGE * into;
+}
+
 /**
  * Keeps ships out of obstacles and each other, and hurts them for it: ramming an obstacle bow-on
- * costs `RAM_DAMAGE` per metre a second and stops the ship; brushing it costs little. Outside the
- * arena a ship takes `OUTSIDE_DAMAGE` a second.
+ * costs `RAM_DAMAGE` per metre a second (`ramDamage`) and stops the ship; brushing it costs little.
+ * Outside the arena a ship takes `OUTSIDE_DAMAGE` a second.
  */
 defineSystem({
   name: "pirates.Collide",
@@ -410,7 +415,7 @@ defineSystem({
         p.z = o.z + nz * min;
         const into = -(f.x * nx + f.z * nz); // 1 = bow straight at it
         if (into > 0.6 && s.data.speed > 2) {
-          damage(s, s.data.speed * RAM_DAMAGE * into);
+          damage(s, ramDamage(s.data.speed, into));
           Fx.send({ kind: FxKind.crunch, x: p.x - nx * SHIP_RADIUS, y: 0.5, z: p.z - nz * SHIP_RADIUS });
           s.data.speed = 0;
         } else if (into > 0) {

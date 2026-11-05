@@ -34,7 +34,7 @@
             "height": "100%",
             "flexDirection": "column",
             "justifyContent": "space-between",
-            "padding": 16
+            "padding": 12
           }
         }
       ],
@@ -52,21 +52,38 @@
           "type": "engine.UIPanel",
           "data": {
             "flexDirection": "row",
-            "justifyContent": "center",
-            "alignItems": "center",
-            "gap": 24,
-            "backgroundColor": [
-              0.05,
-              0.07,
-              0.1,
-              0.55
-            ],
-            "borderRadius": 8,
-            "padding": 8
+            "justifyContent": "center"
           }
         }
       ],
       "parent": "screen"
+    },
+    {
+      "id": "clock-box",
+      "name": "ClockBox",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "104",
+            "height": "40",
+            "justifyContent": "center",
+            "alignItems": "center",
+            "backgroundColor": [
+              0.05,
+              0.07,
+              0.1,
+              0.6
+            ],
+            "borderRadius": 8
+          }
+        }
+      ],
+      "parent": "top"
     },
     {
       "id": "clock",
@@ -80,42 +97,19 @@
           "type": "engine.UIText",
           "data": {
             "text": "",
-            "fontSize": 22,
+            "fontSize": 26,
             "color": [
               1,
               0.9,
               0.6,
               1
             ],
-            "fontWeight": "bold"
+            "fontWeight": "bold",
+            "textAlign": "center"
           }
         }
       ],
-      "parent": "top"
-    },
-    {
-      "id": "fleet",
-      "name": "Fleet",
-      "components": [
-        {
-          "type": "engine.Transform",
-          "data": {}
-        },
-        {
-          "type": "engine.UIText",
-          "data": {
-            "text": "",
-            "fontSize": 18,
-            "color": [
-              0.95,
-              0.93,
-              0.85,
-              1
-            ]
-          }
-        }
-      ],
-      "parent": "top"
+      "parent": "clock-box"
     },
     {
       "id": "middlerow",
@@ -417,17 +411,17 @@
         {
           "type": "engine.UIPanel",
           "data": {
-            "flexDirection": "row",
-            "alignItems": "flex-end",
-            "gap": 12
+            "flexDirection": "column",
+            "alignItems": "center",
+            "gap": 6
           }
         }
       ],
       "parent": "screen"
     },
     {
-      "id": "hullbox",
-      "name": "Hull",
+      "id": "powers",
+      "name": "Powers",
       "components": [
         {
           "type": "engine.Transform",
@@ -436,49 +430,23 @@
         {
           "type": "engine.UIPanel",
           "data": {
-            "flexDirection": "column",
-            "gap": 6,
-            "width": "280",
-            "padding": 10,
+            "flexDirection": "row",
+            "justifyContent": "center",
+            "padding": 6,
+            "borderRadius": 8,
             "backgroundColor": [
               0.05,
               0.07,
               0.1,
-              0.7
-            ],
-            "borderRadius": 8
+              0.55
+            ]
           }
         }
       ],
       "parent": "bottom"
     },
     {
-      "id": "swatch",
-      "name": "Swatch",
-      "components": [
-        {
-          "type": "engine.Transform",
-          "data": {}
-        },
-        {
-          "type": "engine.UIPanel",
-          "data": {
-            "width": "100%",
-            "height": "4",
-            "backgroundColor": [
-              1,
-              1,
-              1,
-              1
-            ],
-            "borderRadius": 2
-          }
-        }
-      ],
-      "parent": "hullbox"
-    },
-    {
-      "id": "hulllabel",
+      "id": "powers-label",
       "name": "Label",
       "components": [
         {
@@ -488,22 +456,23 @@
         {
           "type": "engine.UIText",
           "data": {
-            "text": "Hull 100",
-            "fontSize": 18,
+            "text": "",
+            "fontSize": 17,
             "color": [
-              0.95,
-              0.93,
+              0.7,
+              1,
               0.85,
               1
-            ]
+            ],
+            "textAlign": "center"
           }
         }
       ],
-      "parent": "hullbox"
+      "parent": "powers"
     },
     {
-      "id": "bar",
-      "name": "Bar",
+      "id": "bars",
+      "name": "Bars",
       "components": [
         {
           "type": "engine.Transform",
@@ -512,44 +481,13 @@
         {
           "type": "engine.UIPanel",
           "data": {
-            "width": "100%",
-            "height": "14",
-            "backgroundColor": [
-              0.15,
-              0.15,
-              0.18,
-              1
-            ],
-            "borderRadius": 4
+            "flexDirection": "row",
+            "alignItems": "flex-end",
+            "gap": 12
           }
         }
       ],
-      "parent": "hullbox"
-    },
-    {
-      "id": "fill",
-      "name": "Fill",
-      "components": [
-        {
-          "type": "engine.Transform",
-          "data": {}
-        },
-        {
-          "type": "engine.UIPanel",
-          "data": {
-            "width": "100%",
-            "height": "100%",
-            "backgroundColor": [
-              0.35,
-              0.8,
-              0.3,
-              1
-            ],
-            "borderRadius": 4
-          }
-        }
-      ],
-      "parent": "bar"
+      "parent": "bottom"
     },
     {
       "id": "port",
@@ -564,7 +502,7 @@
           "data": {
             "flexDirection": "column",
             "gap": 6,
-            "width": "200",
+            "width": "190",
             "padding": 10,
             "backgroundColor": [
               0.05,
@@ -583,7 +521,7 @@
           }
         }
       ],
-      "parent": "bottom"
+      "parent": "bars"
     },
     {
       "id": "port-label",
@@ -597,13 +535,14 @@
           "type": "engine.UIText",
           "data": {
             "text": "[A] Port",
-            "fontSize": 18,
+            "fontSize": 17,
             "color": [
               0.95,
               0.93,
               0.85,
               1
-            ]
+            ],
+            "textAlign": "center"
           }
         }
       ],
@@ -635,6 +574,134 @@
       "parent": "port"
     },
     {
+      "id": "hull",
+      "name": "Hull",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "column",
+            "gap": 6,
+            "width": "260",
+            "padding": 10,
+            "backgroundColor": [
+              0.05,
+              0.07,
+              0.1,
+              0.7
+            ],
+            "borderRadius": 8
+          }
+        }
+      ],
+      "parent": "bars"
+    },
+    {
+      "id": "hull-swatch",
+      "name": "Swatch",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "100%",
+            "height": "4",
+            "backgroundColor": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "borderRadius": 2
+          }
+        }
+      ],
+      "parent": "hull"
+    },
+    {
+      "id": "hull-label",
+      "name": "Label",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Hull 100",
+            "fontSize": 18,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "textAlign": "center",
+            "fontWeight": "bold"
+          }
+        }
+      ],
+      "parent": "hull"
+    },
+    {
+      "id": "hull-bar",
+      "name": "Bar",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "100%",
+            "height": "14",
+            "backgroundColor": [
+              0.15,
+              0.15,
+              0.18,
+              1
+            ],
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "hull"
+    },
+    {
+      "id": "hull-fill",
+      "name": "Fill",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "100%",
+            "height": "100%",
+            "backgroundColor": [
+              0.35,
+              0.8,
+              0.3,
+              1
+            ],
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "hull-bar"
+    },
+    {
       "id": "starboard",
       "name": "Starboard",
       "components": [
@@ -647,7 +714,7 @@
           "data": {
             "flexDirection": "column",
             "gap": 6,
-            "width": "200",
+            "width": "190",
             "padding": 10,
             "backgroundColor": [
               0.05,
@@ -666,7 +733,7 @@
           }
         }
       ],
-      "parent": "bottom"
+      "parent": "bars"
     },
     {
       "id": "starboard-label",
@@ -680,13 +747,14 @@
           "type": "engine.UIText",
           "data": {
             "text": "Starboard [D]",
-            "fontSize": 18,
+            "fontSize": 17,
             "color": [
               0.95,
               0.93,
               0.85,
               1
-            ]
+            ],
+            "textAlign": "center"
           }
         }
       ],
@@ -726,65 +794,21 @@
           "data": {}
         },
         {
-          "type": "engine.UIPanel",
-          "data": {
-            "flexGrow": 1,
-            "flexDirection": "column",
-            "alignItems": "flex-end",
-            "gap": 6
-          }
-        }
-      ],
-      "parent": "bottom"
-    },
-    {
-      "id": "powers",
-      "name": "Powers",
-      "components": [
-        {
-          "type": "engine.Transform",
-          "data": {}
-        },
-        {
           "type": "engine.UIText",
           "data": {
-            "text": "",
-            "fontSize": 18,
-            "color": [
-              0.7,
-              1,
-              0.85,
-              1
-            ],
-            "textAlign": "right"
-          }
-        }
-      ],
-      "parent": "help"
-    },
-    {
-      "id": "helptext",
-      "name": "Text",
-      "components": [
-        {
-          "type": "engine.Transform",
-          "data": {}
-        },
-        {
-          "type": "engine.UIText",
-          "data": {
-            "text": "Mouse: steer   |   A / D: battery   |   Space: fire   |   F: fog cloud (ghost ship)",
-            "fontSize": 16,
+            "text": "Mouse: steer   |   A / D: battery   |   Space: fire   |   F: fog cloud (ghost ship)   |   Esc: leave the match",
+            "fontSize": 14,
             "color": [
               0.95,
               0.95,
               0.95,
               0.85
-            ]
+            ],
+            "textAlign": "center"
           }
         }
       ],
-      "parent": "help"
+      "parent": "bottom"
     },
     {
       "id": "overlay",
@@ -808,6 +832,1237 @@
       "parent": "hud"
     },
     {
+      "id": "board",
+      "name": "Leaderboard",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "positionType": "absolute",
+            "top": "12",
+            "left": "12",
+            "width": "240",
+            "flexDirection": "column",
+            "gap": 2,
+            "padding": 8,
+            "backgroundColor": [
+              0.05,
+              0.07,
+              0.1,
+              0.6
+            ],
+            "borderRadius": 8
+          }
+        }
+      ],
+      "parent": "overlay"
+    },
+    {
+      "id": "board-title",
+      "name": "Title",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Captains",
+            "fontSize": 12,
+            "color": [
+              0.8,
+              0.85,
+              0.9,
+              0.85
+            ],
+            "fontWeight": "bold"
+          }
+        }
+      ],
+      "parent": "board"
+    },
+    {
+      "id": "board-row0",
+      "name": "Row0",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "alignItems": "center",
+            "gap": 6,
+            "height": "24",
+            "padding": 3,
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "board"
+    },
+    {
+      "id": "board-row0-rank",
+      "name": "Rank",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "1.",
+            "fontSize": 15,
+            "color": [
+              0.8,
+              0.85,
+              0.9,
+              1
+            ],
+            "width": "20",
+            "textAlign": "left"
+          }
+        }
+      ],
+      "parent": "board-row0"
+    },
+    {
+      "id": "board-row0-swatch",
+      "name": "Swatch",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "10",
+            "height": "10",
+            "borderRadius": 5,
+            "backgroundColor": [
+              1,
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "board-row0"
+    },
+    {
+      "id": "board-row0-name",
+      "name": "Name",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 15,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "flexGrow": 1,
+            "textAlign": "left",
+            "wordBreak": "keep-all"
+          }
+        }
+      ],
+      "parent": "board-row0"
+    },
+    {
+      "id": "board-row0-flag",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIImage",
+          "data": {
+            "image": "asset:textures/icon_flag.png",
+            "width": "16",
+            "height": "16"
+          }
+        }
+      ],
+      "parent": "board-row0",
+      "active": false
+    },
+    {
+      "id": "board-row0-score",
+      "name": "Score",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "0",
+            "fontSize": 15,
+            "color": [
+              1,
+              0.9,
+              0.6,
+              1
+            ],
+            "fontWeight": "bold",
+            "width": "36",
+            "textAlign": "right"
+          }
+        }
+      ],
+      "parent": "board-row0"
+    },
+    {
+      "id": "board-row1",
+      "name": "Row1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "alignItems": "center",
+            "gap": 6,
+            "height": "24",
+            "padding": 3,
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "board"
+    },
+    {
+      "id": "board-row1-rank",
+      "name": "Rank",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "2.",
+            "fontSize": 15,
+            "color": [
+              0.8,
+              0.85,
+              0.9,
+              1
+            ],
+            "width": "20",
+            "textAlign": "left"
+          }
+        }
+      ],
+      "parent": "board-row1"
+    },
+    {
+      "id": "board-row1-swatch",
+      "name": "Swatch",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "10",
+            "height": "10",
+            "borderRadius": 5,
+            "backgroundColor": [
+              1,
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "board-row1"
+    },
+    {
+      "id": "board-row1-name",
+      "name": "Name",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 15,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "flexGrow": 1,
+            "textAlign": "left",
+            "wordBreak": "keep-all"
+          }
+        }
+      ],
+      "parent": "board-row1"
+    },
+    {
+      "id": "board-row1-flag",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIImage",
+          "data": {
+            "image": "asset:textures/icon_flag.png",
+            "width": "16",
+            "height": "16"
+          }
+        }
+      ],
+      "parent": "board-row1",
+      "active": false
+    },
+    {
+      "id": "board-row1-score",
+      "name": "Score",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "0",
+            "fontSize": 15,
+            "color": [
+              1,
+              0.9,
+              0.6,
+              1
+            ],
+            "fontWeight": "bold",
+            "width": "36",
+            "textAlign": "right"
+          }
+        }
+      ],
+      "parent": "board-row1"
+    },
+    {
+      "id": "board-row2",
+      "name": "Row2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "alignItems": "center",
+            "gap": 6,
+            "height": "24",
+            "padding": 3,
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "board"
+    },
+    {
+      "id": "board-row2-rank",
+      "name": "Rank",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "3.",
+            "fontSize": 15,
+            "color": [
+              0.8,
+              0.85,
+              0.9,
+              1
+            ],
+            "width": "20",
+            "textAlign": "left"
+          }
+        }
+      ],
+      "parent": "board-row2"
+    },
+    {
+      "id": "board-row2-swatch",
+      "name": "Swatch",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "10",
+            "height": "10",
+            "borderRadius": 5,
+            "backgroundColor": [
+              1,
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "board-row2"
+    },
+    {
+      "id": "board-row2-name",
+      "name": "Name",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 15,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "flexGrow": 1,
+            "textAlign": "left",
+            "wordBreak": "keep-all"
+          }
+        }
+      ],
+      "parent": "board-row2"
+    },
+    {
+      "id": "board-row2-flag",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIImage",
+          "data": {
+            "image": "asset:textures/icon_flag.png",
+            "width": "16",
+            "height": "16"
+          }
+        }
+      ],
+      "parent": "board-row2",
+      "active": false
+    },
+    {
+      "id": "board-row2-score",
+      "name": "Score",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "0",
+            "fontSize": 15,
+            "color": [
+              1,
+              0.9,
+              0.6,
+              1
+            ],
+            "fontWeight": "bold",
+            "width": "36",
+            "textAlign": "right"
+          }
+        }
+      ],
+      "parent": "board-row2"
+    },
+    {
+      "id": "board-row3",
+      "name": "Row3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "alignItems": "center",
+            "gap": 6,
+            "height": "24",
+            "padding": 3,
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "board"
+    },
+    {
+      "id": "board-row3-rank",
+      "name": "Rank",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "4.",
+            "fontSize": 15,
+            "color": [
+              0.8,
+              0.85,
+              0.9,
+              1
+            ],
+            "width": "20",
+            "textAlign": "left"
+          }
+        }
+      ],
+      "parent": "board-row3"
+    },
+    {
+      "id": "board-row3-swatch",
+      "name": "Swatch",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "10",
+            "height": "10",
+            "borderRadius": 5,
+            "backgroundColor": [
+              1,
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "board-row3"
+    },
+    {
+      "id": "board-row3-name",
+      "name": "Name",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 15,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "flexGrow": 1,
+            "textAlign": "left",
+            "wordBreak": "keep-all"
+          }
+        }
+      ],
+      "parent": "board-row3"
+    },
+    {
+      "id": "board-row3-flag",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIImage",
+          "data": {
+            "image": "asset:textures/icon_flag.png",
+            "width": "16",
+            "height": "16"
+          }
+        }
+      ],
+      "parent": "board-row3",
+      "active": false
+    },
+    {
+      "id": "board-row3-score",
+      "name": "Score",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "0",
+            "fontSize": 15,
+            "color": [
+              1,
+              0.9,
+              0.6,
+              1
+            ],
+            "fontWeight": "bold",
+            "width": "36",
+            "textAlign": "right"
+          }
+        }
+      ],
+      "parent": "board-row3"
+    },
+    {
+      "id": "board-row4",
+      "name": "Row4",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "alignItems": "center",
+            "gap": 6,
+            "height": "24",
+            "padding": 3,
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "board"
+    },
+    {
+      "id": "board-row4-rank",
+      "name": "Rank",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "5.",
+            "fontSize": 15,
+            "color": [
+              0.8,
+              0.85,
+              0.9,
+              1
+            ],
+            "width": "20",
+            "textAlign": "left"
+          }
+        }
+      ],
+      "parent": "board-row4"
+    },
+    {
+      "id": "board-row4-swatch",
+      "name": "Swatch",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "10",
+            "height": "10",
+            "borderRadius": 5,
+            "backgroundColor": [
+              1,
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "board-row4"
+    },
+    {
+      "id": "board-row4-name",
+      "name": "Name",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 15,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "flexGrow": 1,
+            "textAlign": "left",
+            "wordBreak": "keep-all"
+          }
+        }
+      ],
+      "parent": "board-row4"
+    },
+    {
+      "id": "board-row4-flag",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIImage",
+          "data": {
+            "image": "asset:textures/icon_flag.png",
+            "width": "16",
+            "height": "16"
+          }
+        }
+      ],
+      "parent": "board-row4",
+      "active": false
+    },
+    {
+      "id": "board-row4-score",
+      "name": "Score",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "0",
+            "fontSize": 15,
+            "color": [
+              1,
+              0.9,
+              0.6,
+              1
+            ],
+            "fontWeight": "bold",
+            "width": "36",
+            "textAlign": "right"
+          }
+        }
+      ],
+      "parent": "board-row4"
+    },
+    {
+      "id": "board-row5",
+      "name": "Row5",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "alignItems": "center",
+            "gap": 6,
+            "height": "24",
+            "padding": 3,
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "board"
+    },
+    {
+      "id": "board-row5-rank",
+      "name": "Rank",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "6.",
+            "fontSize": 15,
+            "color": [
+              0.8,
+              0.85,
+              0.9,
+              1
+            ],
+            "width": "20",
+            "textAlign": "left"
+          }
+        }
+      ],
+      "parent": "board-row5"
+    },
+    {
+      "id": "board-row5-swatch",
+      "name": "Swatch",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "10",
+            "height": "10",
+            "borderRadius": 5,
+            "backgroundColor": [
+              1,
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "board-row5"
+    },
+    {
+      "id": "board-row5-name",
+      "name": "Name",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 15,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "flexGrow": 1,
+            "textAlign": "left",
+            "wordBreak": "keep-all"
+          }
+        }
+      ],
+      "parent": "board-row5"
+    },
+    {
+      "id": "board-row5-flag",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIImage",
+          "data": {
+            "image": "asset:textures/icon_flag.png",
+            "width": "16",
+            "height": "16"
+          }
+        }
+      ],
+      "parent": "board-row5",
+      "active": false
+    },
+    {
+      "id": "board-row5-score",
+      "name": "Score",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "0",
+            "fontSize": 15,
+            "color": [
+              1,
+              0.9,
+              0.6,
+              1
+            ],
+            "fontWeight": "bold",
+            "width": "36",
+            "textAlign": "right"
+          }
+        }
+      ],
+      "parent": "board-row5"
+    },
+    {
+      "id": "board-row6",
+      "name": "Row6",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "alignItems": "center",
+            "gap": 6,
+            "height": "24",
+            "padding": 3,
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "board"
+    },
+    {
+      "id": "board-row6-rank",
+      "name": "Rank",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "7.",
+            "fontSize": 15,
+            "color": [
+              0.8,
+              0.85,
+              0.9,
+              1
+            ],
+            "width": "20",
+            "textAlign": "left"
+          }
+        }
+      ],
+      "parent": "board-row6"
+    },
+    {
+      "id": "board-row6-swatch",
+      "name": "Swatch",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "10",
+            "height": "10",
+            "borderRadius": 5,
+            "backgroundColor": [
+              1,
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "board-row6"
+    },
+    {
+      "id": "board-row6-name",
+      "name": "Name",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 15,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "flexGrow": 1,
+            "textAlign": "left",
+            "wordBreak": "keep-all"
+          }
+        }
+      ],
+      "parent": "board-row6"
+    },
+    {
+      "id": "board-row6-flag",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIImage",
+          "data": {
+            "image": "asset:textures/icon_flag.png",
+            "width": "16",
+            "height": "16"
+          }
+        }
+      ],
+      "parent": "board-row6",
+      "active": false
+    },
+    {
+      "id": "board-row6-score",
+      "name": "Score",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "0",
+            "fontSize": 15,
+            "color": [
+              1,
+              0.9,
+              0.6,
+              1
+            ],
+            "fontWeight": "bold",
+            "width": "36",
+            "textAlign": "right"
+          }
+        }
+      ],
+      "parent": "board-row6"
+    },
+    {
+      "id": "board-row7",
+      "name": "Row7",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "alignItems": "center",
+            "gap": 6,
+            "height": "24",
+            "padding": 3,
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "board"
+    },
+    {
+      "id": "board-row7-rank",
+      "name": "Rank",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "8.",
+            "fontSize": 15,
+            "color": [
+              0.8,
+              0.85,
+              0.9,
+              1
+            ],
+            "width": "20",
+            "textAlign": "left"
+          }
+        }
+      ],
+      "parent": "board-row7"
+    },
+    {
+      "id": "board-row7-swatch",
+      "name": "Swatch",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "10",
+            "height": "10",
+            "borderRadius": 5,
+            "backgroundColor": [
+              1,
+              1,
+              1,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "board-row7"
+    },
+    {
+      "id": "board-row7-name",
+      "name": "Name",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 15,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "flexGrow": 1,
+            "textAlign": "left",
+            "wordBreak": "keep-all"
+          }
+        }
+      ],
+      "parent": "board-row7"
+    },
+    {
+      "id": "board-row7-flag",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIImage",
+          "data": {
+            "image": "asset:textures/icon_flag.png",
+            "width": "16",
+            "height": "16"
+          }
+        }
+      ],
+      "parent": "board-row7",
+      "active": false
+    },
+    {
+      "id": "board-row7-score",
+      "name": "Score",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "0",
+            "fontSize": 15,
+            "color": [
+              1,
+              0.9,
+              0.6,
+              1
+            ],
+            "fontWeight": "bold",
+            "width": "36",
+            "textAlign": "right"
+          }
+        }
+      ],
+      "parent": "board-row7"
+    },
+    {
       "id": "minimap",
       "name": "Minimap",
       "components": [
@@ -819,8 +2074,8 @@
           "type": "engine.UIPanel",
           "data": {
             "positionType": "absolute",
-            "top": "64",
-            "right": "16",
+            "top": "12",
+            "right": "12",
             "width": "176",
             "height": "196",
             "flexDirection": "column",
@@ -1221,7 +2476,7 @@
           "type": "engine.UIPanel",
           "data": {
             "positionType": "absolute",
-            "top": "70",
+            "top": "64",
             "left": "0",
             "width": "100%",
             "flexDirection": "column",
@@ -1328,11 +2583,11 @@
           "type": "engine.UIPanel",
           "data": {
             "positionType": "absolute",
-            "bottom": "96",
             "left": "0",
             "width": "100%",
             "flexDirection": "column",
-            "alignItems": "center"
+            "alignItems": "center",
+            "top": "156"
           }
         }
       ],
@@ -1422,6 +2677,289 @@
         }
       ],
       "parent": "fog-box"
+    },
+    {
+      "id": "leave",
+      "name": "Leave",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "positionType": "absolute",
+            "top": "0",
+            "left": "0",
+            "width": "100%",
+            "height": "100%",
+            "flexDirection": "column",
+            "justifyContent": "center",
+            "alignItems": "center",
+            "backgroundColor": [
+              0,
+              0,
+              0,
+              0.45
+            ]
+          }
+        }
+      ],
+      "parent": "hud",
+      "active": false
+    },
+    {
+      "id": "leave-box",
+      "name": "Box",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "column",
+            "alignItems": "center",
+            "gap": 14,
+            "padding": 24,
+            "borderRadius": 12,
+            "backgroundColor": [
+              0.07,
+              0.1,
+              0.14,
+              0.95
+            ],
+            "borderWidth": 2,
+            "borderColor": [
+              1,
+              0.85,
+              0.4,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "leave"
+    },
+    {
+      "id": "leave-title",
+      "name": "Title",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Leave the match?",
+            "fontSize": 30,
+            "color": [
+              1,
+              0.9,
+              0.6,
+              1
+            ],
+            "fontWeight": "bold",
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "leave-box"
+    },
+    {
+      "id": "leave-detail",
+      "name": "Detail",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "A bot takes your ship's place.",
+            "fontSize": 17,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "leave-box"
+    },
+    {
+      "id": "leave-buttons",
+      "name": "Buttons",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "gap": 14
+          }
+        }
+      ],
+      "parent": "leave-box"
+    },
+    {
+      "id": "leave-go",
+      "name": "Leave",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIButton",
+          "data": {
+            "width": "170",
+            "height": "48",
+            "backgroundColor": [
+              0.7,
+              0.2,
+              0.15,
+              1
+            ],
+            "hoverColor": [
+              0.82,
+              0.28,
+              0.2,
+              1
+            ],
+            "pressedColor": [
+              0.55,
+              0.14,
+              0.1,
+              1
+            ],
+            "borderRadius": 8
+          }
+        }
+      ],
+      "parent": "leave-buttons"
+    },
+    {
+      "id": "leave-go-label",
+      "name": "Label",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Leave",
+            "fontSize": 20,
+            "color": [
+              1,
+              0.97,
+              0.92,
+              1
+            ],
+            "fontWeight": "bold"
+          }
+        }
+      ],
+      "parent": "leave-go"
+    },
+    {
+      "id": "leave-stay",
+      "name": "Stay",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIButton",
+          "data": {
+            "width": "170",
+            "height": "48",
+            "backgroundColor": [
+              0.85,
+              0.6,
+              0.18,
+              1
+            ],
+            "hoverColor": [
+              0.95,
+              0.7,
+              0.26,
+              1
+            ],
+            "pressedColor": [
+              0.65,
+              0.45,
+              0.12,
+              1
+            ],
+            "borderRadius": 8
+          }
+        }
+      ],
+      "parent": "leave-buttons"
+    },
+    {
+      "id": "leave-stay-label",
+      "name": "Label",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Keep sailing",
+            "fontSize": 20,
+            "color": [
+              0.1,
+              0.07,
+              0.03,
+              1
+            ],
+            "fontWeight": "bold"
+          }
+        }
+      ],
+      "parent": "leave-stay"
+    },
+    {
+      "id": "leave-hint",
+      "name": "Hint",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Esc: keep sailing",
+            "fontSize": 13,
+            "color": [
+              0.8,
+              0.85,
+              0.9,
+              0.8
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "leave-box"
     }
   ]
 }
