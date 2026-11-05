@@ -15,7 +15,8 @@ import type { World } from "../engine/core/World";
 import { addEditorOverlay, removeEditorOverlay } from "../engine/editor";
 import { NavChunk, NavModifierVolume, NavResolutionVolume } from "../engine/nav/components";
 import { leafSegments, type DebugSegments } from "../engine/nav/debugGeometry";
-import { collectNavGeometry } from "../engine/nav/geometry";
+import { collectNavGeometry, loadNavGeometryMeshes } from "../engine/nav/geometry";
+import { bakeAgentGroups } from "../engine/nav/runtime";
 import { binColor, bakeVolumeGroups, classifySurfaceBins, debugBakeFlightLeaves, leavesInBox, surfaceBinLayout, type SurfaceBinLayout } from "../engine/nav/plan";
 import type { NavigationSettings } from "../engine/nav/settings";
 import type { GameObject } from "../engine/scene/GameObject";
@@ -63,17 +64,31 @@ export function boxToWorldOf(node: GameObject, center: { x: number; y: number; z
   return out;
 }
 
-/** Flight leaves in `box` from every flight volume of `bakes`: `area` "" = any area; `refinedOnly` = only resolution region leaves. */
-export async function flightLeavesInBox(bakes: readonly Uint8Array[], box: readonly number[], area: string, refinedOnly: boolean, max = MAX_PREVIEW_CELLS): Promise<Float32Array> {
+/**
+ * Flight leaves in `box` from the flight volumes of `bakes`: `area` "" = any area; `refinedOnly` = only resolution
+ * region leaves; `agentTypes` (ids) limits it to those types' volumes (empty = every volume).
+ */
+export async function flightLeavesInBox(bakes: readonly Uint8Array[], box: readonly number[], area: string, refinedOnly: boolean, max = MAX_PREVIEW_CELLS, agentTypes: readonly string[] = []): Promise<Float32Array> {
   const parts: number[] = [];
   for (const bytes of bakes) {
-    for (const group of await bakeVolumeGroups(bytes)) {
+    for (const group of await volumeGroupsFor(bytes, agentTypes)) {
       if (parts.length / 5 >= max) break;
       const inside = leavesInBox(await debugBakeFlightLeaves(bytes, group, area, refinedOnly), box, max - parts.length / 5);
       for (let i = 0; i < inside.length; i++) parts.push(inside[i]);
     }
   }
   return Float32Array.from(parts);
+}
+
+/** A bake's flight volume groups: all of them, or only the listed agent types' (through the bake's agent table). */
+async function volumeGroupsFor(bytes: Uint8Array, agentTypes: readonly string[]): Promise<number[]> {
+  if (agentTypes.length === 0) return bakeVolumeGroups(bytes);
+  const groups = new Set<number>();
+  for (const id of agentTypes) {
+    const { fly } = await bakeAgentGroups(bytes, id);
+    if (fly >= 0) groups.add(fly);
+  }
+  return [...groups].sort((a, b) => a - b);
 }
 
 /** The walkable triangles (9 floats each) a chunk collects, outlined by bin; with the bin glyph at `origin`. */
@@ -184,11 +199,12 @@ export class NavSelectionPreview {
     let run: (() => Promise<{ segments: DebugSegments[]; status: { kind: "resolution" | "modifier" | "bins"; text: string } | null }>) | null = null;
     if (res && res.enabled) {
       const box = boxToWorldOf(node, res.center, res.size);
-      key += `|res|${box.map((x) => x.toFixed(4)).join(",")}|${t.accent2}`;
+      const agents = [...res.agents];
+      key += `|res|${box.map((x) => x.toFixed(4)).join(",")}|${agents.join(",")}|${t.accent2}`;
       run = async () => {
         const { bakes } = await openSceneBakeBytes();
         if (!bakes.length) return { segments: [], status: { kind: "resolution", text: "Rebake to see flight cells." } };
-        const leaves = await flightLeavesInBox(bakes, box, "", true);
+        const leaves = await flightLeavesInBox(bakes, box, "", true, MAX_PREVIEW_CELLS, agents);
         return {
           segments: leafSegments(leaves, hexOf(t.accent2), MAX_PREVIEW_CELLS),
           status: { kind: "resolution", text: leaves.length ? `${leaves.length / 5} refined flight cells here in the last bake.` : "No refined flight cells here (rebake? Cell Size fine enough?)" },
@@ -241,6 +257,9 @@ export class NavSelectionPreview {
 async function surfaceBinsPreview(node: GameObject, settings: NavigationSettings, t: ReturnType<typeof theme.peek>) {
   const layout = await surfaceBinLayout(settings);
   if ("error" in layout) return { segments: [], status: { kind: "bins" as const, text: layout.error } };
+  // Models load asynchronously in Myco (Unity's meshes are always there): wait for them, as the bake does.
+  await loadNavGeometryMeshes(node.world, node, settings);
+  if (!node.isValid) return { segments: [], status: null };
   const geometry = collectNavGeometry(node.world, node, settings);
   const triangles = walkableTriangles(geometry.meshes);
   const bins = await classifySurfaceBins(settings, triangles);
@@ -249,7 +268,7 @@ async function surfaceBinsPreview(node: GameObject, settings: NavigationSettings
   const origin = node.transform ? [m[e + 12], m[e + 13], m[e + 14]] : [0, 0, 0];
   const segments = binSegments(triangles, bins, layout, { floor: hexOf(t.success), ceiling: hexOf(t.accent2), unwalkable: hexOf(t.muted), capture: hexOf(t.text) }, origin, 2);
   const shown = Math.min(bins.length, Math.floor(MAX_BIN_SEGMENTS / 3));
-  return { segments, status: { kind: "bins" as const, text: `${bins.length.toLocaleString("en")} walkable-source triangles${shown < bins.length ? ` (${shown.toLocaleString("en")} drawn)` : ""}${geometry.pending.length ? `; ${geometry.pending.length} models still loading` : ""}.` } };
+  return { segments, status: { kind: "bins" as const, text: `${bins.length.toLocaleString("en")} walkable-source triangles${shown < bins.length ? ` (${shown.toLocaleString("en")} drawn)` : ""}${geometry.pending.length ? `; ${geometry.pending.length} models couldn't be loaded` : ""}.` } };
 }
 
 const PREVIEW_ID = "navigation-selection";

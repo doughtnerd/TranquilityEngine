@@ -127,6 +127,7 @@ describe("collectNavGeometry", () => {
       node("nav", [t([0, 0, 0]), CHUNK({ useChunkBounds: true, center: [1, 2, 3], size: [10, 20, 30], skipAgents: ["x"], minOverlayDepth: 2, maxOverlayDepth: 3 })]),
       node("mod", [t([5, 0, 0], { scale: [2, 2, 2] }), { type: "engine.NavModifierVolume", data: { center: [1, 0, 0], size: [2, 3, 4], area: "water", appliesTo: "ground", agents: ["a"] } }]),
       node("res", [t([0, 10, 0]), { type: "engine.NavResolutionVolume", data: { size: [4, 4, 4], cellSize: 0.25 } }]),
+      node("res2", [t([0, 20, 0]), { type: "engine.NavResolutionVolume", data: { size: [2, 2, 2], cellSize: 0.5, agents: ["bat"] } }]),
       node("gate", [t([0, 0, 7]), { type: "engine.NavGate", data: { gateId: "door", open: false } }]),
     ]);
     const g = collectNavGeometry(world, byId("nav"));
@@ -139,7 +140,11 @@ describe("collectNavGeometry", () => {
     expect(m.boxToWorld[5]).toBeCloseTo(6);
     expect(m.boxToWorld[10]).toBeCloseTo(8);
     expect([m.boxToWorld[12], m.boxToWorld[13], m.boxToWorld[14]].map((v) => +v.toFixed(4))).toEqual([7, 0, 0]);
-    expect(g.resolutionVolumes).toEqual([{ boxToWorld: expect.any(Array), cellSize: 0.25 }]);
+    // Foxfire's Affected Agents: empty = every type; listed types reach the bake as affectedAgents.
+    expect(g.resolutionVolumes).toEqual([
+      { boxToWorld: expect.any(Array), cellSize: 0.25 },
+      { boxToWorld: expect.any(Array), cellSize: 0.5, affectedAgents: ["bat"] },
+    ]);
     expect(g.resolutionVolumes[0].boxToWorld[13]).toBeCloseTo(10);
     expect(g.gates).toEqual([{ boxToWorld: expect.any(Array), id: "door", startOpen: false }]);
     expect(navBakeChunk(g).gates).toBe(g.gates);
