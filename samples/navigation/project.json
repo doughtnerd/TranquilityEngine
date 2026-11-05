@@ -1,0 +1,237 @@
+{
+  "name": "Navigation",
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "backgroundColor": "#9ec5e8"
+  },
+  "time": {
+    "fixedDeltaTime": 0.016666666666666666
+  },
+  "physics": {
+    "gravity": [
+      0,
+      -9.81
+    ],
+    "layers": [
+      "Default"
+    ]
+  },
+  "render": {
+    "sortingLayers": [
+      "Default"
+    ],
+    "pixelsPerUnit": 100
+  },
+  "autoload": [],
+  "navigation": {
+    "agentTypes": [
+      {
+        "id": "3f6c2a1e-8b4d-4c7a-9e21-5d0b7a4c1e01",
+        "name": "Walker",
+        "canWalk": true,
+        "walk": {
+          "radius": 1,
+          "height": 3,
+          "pivotOffset": 1.5,
+          "stepHeight": 0.5,
+          "speed": 6,
+          "canJump": false,
+          "maxFallDistance": 2,
+          "waypointReachedDistance": 1,
+          "arrivalDistance": 2,
+          "maxSnapDistance": 4,
+          "offPathDistance": 8,
+          "motion": {
+            "ease": "inOutQuad",
+            "easeInTime": 0.75,
+            "easeOutTime": 1
+          }
+        },
+        "canFly": false,
+        "avoidance": {
+          "neighborDistance": 8
+        }
+      },
+      {
+        "id": "7a1d9e52-4c3b-4f8e-b210-9c6e3d5a2f02",
+        "name": "Flyer",
+        "canWalk": false,
+        "canFly": true,
+        "flight": {
+          "radius": 1.5,
+          "speed": 15,
+          "arrivalDistance": 4,
+          "waypointReachedDistance": 3,
+          "maxSnapDistance": 4,
+          "offPathDistance": 15,
+          "takeoffHeight": 6,
+          "takeoffSpeed": 6,
+          "separationStrength": 1,
+          "separationRadiusScale": 1.5,
+          "motion": {
+            "ease": "inOutSine",
+            "easeInTime": 1.5,
+            "easeOutTime": 1.5
+          }
+        },
+        "avoidance": null
+      },
+      {
+        "id": "b84e1c37-2d5a-4e9b-8c43-1f7a6e9d3b03",
+        "name": "Walk and fly",
+        "canWalk": true,
+        "walk": {
+          "radius": 1,
+          "height": 3,
+          "pivotOffset": 1.5,
+          "stepHeight": 0.5,
+          "speed": 6,
+          "canJump": false,
+          "maxFallDistance": 2,
+          "waypointReachedDistance": 1,
+          "arrivalDistance": 2,
+          "maxSnapDistance": 4,
+          "offPathDistance": 8,
+          "motion": {
+            "ease": "inOutQuad",
+            "easeInTime": 0.75,
+            "easeOutTime": 1
+          }
+        },
+        "canFly": true,
+        "flight": {
+          "radius": 1.5,
+          "speed": 12,
+          "arrivalDistance": 4,
+          "waypointReachedDistance": 3,
+          "maxSnapDistance": 4,
+          "offPathDistance": 15,
+          "takeoffHeight": 6,
+          "takeoffSpeed": 6,
+          "separationStrength": 1,
+          "separationRadiusScale": 1.5,
+          "motion": {
+            "ease": "inOutCubic",
+            "easeInTime": 1,
+            "easeOutTime": 1
+          },
+          "maxFlightDistance": 40,
+          "landWhenOutOfReach": true
+        },
+        "avoidance": {
+          "neighborDistance": 8
+        }
+      },
+      {
+        "id": "d29f7b64-6e1c-4a3d-9f58-2b8c4d7e1a04",
+        "name": "Jumper",
+        "canWalk": true,
+        "walk": {
+          "radius": 0.75,
+          "height": 2,
+          "pivotOffset": 1,
+          "stepHeight": 0.5,
+          "speed": 6,
+          "canJump": true,
+          "maxFallDistance": 5,
+          "waypointReachedDistance": 1,
+          "arrivalDistance": 2,
+          "maxSnapDistance": 4,
+          "offPathDistance": 8,
+          "motion": {
+            "ease": "constant",
+            "easeInTime": 1,
+            "easeOutTime": 1
+          },
+          "maxJumpUpHeight": 2.5,
+          "maxJumpDistance": 5,
+          "jumpArcHeight": 1.5,
+          "jumpCost": 2,
+          "jumpApexSpeed": 3,
+          "jumpRiseGravity": 10,
+          "jumpFallGravity": 15
+        },
+        "canFly": false,
+        "avoidance": {
+          "neighborDistance": 8
+        }
+      },
+      {
+        "id": "e5c3a816-9f2b-4d7e-a165-3c9d5b2f8e05",
+        "name": "Climber",
+        "canWalk": true,
+        "walk": {
+          "radius": 0.75,
+          "height": 1.5,
+          "pivotOffset": 0.75,
+          "stepHeight": 0.5,
+          "speed": 6,
+          "canJump": false,
+          "maxFallDistance": 2,
+          "waypointReachedDistance": 1,
+          "arrivalDistance": 2,
+          "maxSnapDistance": 4,
+          "offPathDistance": 8,
+          "motion": {
+            "ease": "outQuart",
+            "easeInTime": 1,
+            "easeOutTime": 1.5
+          },
+          "canClimbWalls": true,
+          "canWalkCeilings": true,
+          "maxFoldAngleDeg": 90,
+          "wallCostMultiplier": 1,
+          "ceilingCostMultiplier": 1
+        },
+        "canFly": false,
+        "avoidance": {
+          "neighborDistance": 8
+        }
+      }
+    ],
+    "areas": [
+      {
+        "id": "area-mud",
+        "name": "Mud",
+        "cost": 3,
+        "color": [
+          0.45,
+          0.3,
+          0.15,
+          1
+        ]
+      },
+      {
+        "id": "area-lava",
+        "name": "Lava",
+        "cost": 100,
+        "color": [
+          1,
+          0.3,
+          0.05,
+          1
+        ]
+      },
+      {
+        "id": "area-storm",
+        "name": "Storm",
+        "cost": 20,
+        "color": [
+          0.4,
+          0.4,
+          0.5,
+          1
+        ]
+      }
+    ],
+    "orientation": {
+      "maxSurfaceDeg": 180,
+      "groundCaptureDeg": 45,
+      "ceilingCaptureDeg": 45,
+      "coverageDeg": 45,
+      "maxFoldDeg": 90
+    },
+    "chunkGrid": 4
+  }
+}

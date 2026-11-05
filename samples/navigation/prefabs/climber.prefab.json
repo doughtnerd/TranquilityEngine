@@ -1,0 +1,39 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "climber",
+      "name": "Climber",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.5,
+              0.75,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:capsule",
+            "material": "asset:materials/climber.material.json"
+          }
+        },
+        {
+          "type": "engine.NavAgent",
+          "data": {
+            "agentType": "e5c3a816-9f2b-4d7e-a165-3c9d5b2f8e05"
+          }
+        }
+      ]
+    }
+  ]
+}

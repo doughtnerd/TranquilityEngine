@@ -47,6 +47,7 @@ import {
 import type { EditorProject } from "../projects";
 import { currentProject, docVersion, status } from "../state";
 import { EditHistory } from "../worldsConfig";
+import { NavSettingsSection } from "./NavSettingsSection";
 import { NumberField, TextField } from "./WorldsPanel";
 import "./projectSettings.css";
 
@@ -239,6 +240,10 @@ export function ProjectSettingsPanel() {
 
           <Section title="Graphics">
             <Tiers draft={draft} problems={problemsAt("graphics")} set={set} />
+          </Section>
+
+          <Section title="Navigation">
+            <NavSettingsSection draft={draft} problems={problemsAt("navigation").map((p) => p.message)} set={set} project={project} />
           </Section>
 
           <Section title="Autoloads">

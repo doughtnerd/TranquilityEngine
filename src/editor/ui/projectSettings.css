@@ -56,3 +56,20 @@
 .tier-fields input[type="checkbox"] { align-self: flex-start; margin: 2px 0; }
 .tier-buttons { display: flex; gap: 2px; }
 .tier-buttons button.icon { flex: none; width: 22px; height: 22px; padding: 0; line-height: 1; }
+
+/* Navigation (ADR 0065): agent type cards reuse the tier cards. */
+.nav-settings .nav-id { margin: 0; font-family: monospace; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-card-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.nav-card-toggle input { margin: 0; }
+.nav-voxel-preview { margin: 0; font-size: 11px; color: var(--muted); }
+.nav-area-costs { display: flex; flex-direction: column; gap: 3px; }
+.nav-area-costs input[type="number"] { width: 70px; flex: none; background: var(--input-bg); color: var(--text); }
+.nav-inline { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.nav-area input[type="color"] { flex: none; width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); background: transparent; }
+.nav-area input[type="number"] { width: 64px; flex: none; background: var(--input-bg); color: var(--text); }
+.nav-advanced { width: 100%; margin-top: 6px; }
+.nav-advanced summary { cursor: pointer; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.nav-advanced[open] summary { color: var(--text); }
+.nav-advanced > button { margin-top: 6px; }
+.nav-bake-all { display: flex; align-items: center; gap: 8px; margin-top: 8px; width: 100%; }
+.nav-bake-all .project-settings-hint { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -8,7 +8,7 @@ import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
 import { connectWorlds, netSession } from "../net/session";
 import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
-import { resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
+import { navigationSettingsProblems, resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { parseGraphics } from "./graphics";
 import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
 import { FrameMonitor } from "../render/qualityDetect";
@@ -134,6 +134,8 @@ export class Engine implements BootstrapEngine {
     // Graphics quality (ADR 0050): the project's tiers, and the player's saved choice; with
     // `autoDetect`, a detected tier until the player picks one (ADR 0055).
     for (const p of parseGraphics(options.project?.graphics).problems) console.warn(`[myco] project.json ${p}`);
+    // Navigation (ADR 0065): a bad section falls back to defaults, so say what was replaced.
+    if (options.project?.navigation !== undefined) for (const p of navigationSettingsProblems(options.project.navigation)) console.warn(`[myco] project.json ${p}`);
     if ((options.quality ?? "player") === "player") {
       const graphics = engine.settings.graphics;
       const saved = await Storage.load(QUALITY_KEY, "settings").catch(() => undefined);

@@ -117,6 +117,8 @@ export interface EditorOverlay {
   lines: { points: [number, number, number][]; closed: boolean; color: number }[];
   /** Handles drawn as fixed-size squares on top of everything; picked by `pickOverlayHandle`. */
   handles: { id: string; position: [number, number, number]; color: number }[];
+  /** Many loose segments in one colour (6 floats each: a xyz, b xyz), for big overlays like navmesh debug drawing. */
+  segments?: { positions: Float32Array; color: number }[];
 }
 
 /** @internal What the editor does with a gizmo drag: one start, many changes, one end. */
@@ -770,6 +772,8 @@ export class RenderBackend {
       this.syncLightGizmos(world);
       this.syncOverlay();
       this.syncGizmo(world);
+    } else if (this.overlayProvider || this.overlayLines?.visible || this.overlaySegments.length > 0) {
+      this.syncOverlay(); // a game with a debug overlay (navigation, ADR 0065); one more pass clears it when removed
     }
   }
 
@@ -1538,7 +1542,7 @@ export class RenderBackend {
 
   /** The editor's helpers in the scene that are showing: grid, axes, gizmos, outlines, overlays. */
   private editorHelpers(): Object3D[] {
-    const helpers: (Object3D | null)[] = [this.grid, this.axes, this.overlayLines, this.overlayHandles, this.gizmo?.getHelper() ?? null, this.lightWires, ...this.outlines, ...this.boxOutlines];
+    const helpers: (Object3D | null)[] = [this.grid, this.axes, this.overlayLines, this.overlayHandles, ...this.overlaySegments.map((s) => s.object), this.gizmo?.getHelper() ?? null, this.lightWires, ...this.outlines, ...this.boxOutlines];
     for (const g of this.cameraGizmos.values()) helpers.push(g.icon, g.frustum);
     for (const icon of this.lightGizmos.values()) helpers.push(icon);
     for (const p of this.probes.values()) helpers.push(p.gizmo);
@@ -2126,6 +2130,7 @@ export class RenderBackend {
   private overlayProvider: (() => EditorOverlay) | null = null;
   private overlayLines: LineSegments<BufferGeometry, LineBasicMaterial> | null = null;
   private overlayHandles: Points<BufferGeometry, PointsMaterial> | null = null;
+  private overlaySegments: { positions: Float32Array; color: number; object: LineSegments<BufferGeometry, LineBasicMaterial> }[] = [];
   private overlayHandleIds: string[] = [];
 
   /** @internal Editor: draw what `provider` returns every frame (null stops). */
@@ -2179,6 +2184,7 @@ export class RenderBackend {
         colors.push(r, g, b, r, g, b);
       }
     }
+    this.syncOverlaySegments(overlay.segments ?? []);
     // Both are transparent so they draw after the (transparent) sprites, in render order.
     this.overlayLines ??= this.addOverlayObject(
       new LineSegments(new BufferGeometry(), new LineBasicMaterial({ vertexColors: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 })),
@@ -2197,6 +2203,42 @@ export class RenderBackend {
     );
     fillOverlayGeometry(this.overlayHandles, hp, hc);
     this.overlayHandleIds = overlay.handles.map((h) => h.id);
+  }
+
+  /**
+   * Bulk segment groups (navigation debug drawing, ADR 0065): one LineSegments per group, drawn straight from the
+   * group's Float32Array. Providers hand back the same array while nothing changed (they memoise), so a group is
+   * uploaded to the GPU only when its array or colour changes, not every frame.
+   */
+  private syncOverlaySegments(groups: readonly { positions: Float32Array; color: number }[]): void {
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i];
+      let slot = this.overlaySegments[i];
+      if (slot && slot.positions === group.positions && slot.color === group.color) continue;
+      if (!slot) {
+        const object = this.addOverlayObject(
+          new LineSegments(new BufferGeometry(), new LineBasicMaterial({ depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 })),
+          OUTLINE_ORDER - 2,
+        );
+        slot = { positions: group.positions, color: group.color, object };
+        this.overlaySegments.push(slot);
+      }
+      const usable = group.positions.length - (group.positions.length % 3);
+      slot.object.geometry.dispose(); // frees the old GPU buffer
+      slot.object.geometry = new BufferGeometry();
+      slot.object.geometry.setAttribute("position", new Float32BufferAttribute(group.positions.subarray(0, usable), 3));
+      const c = group.color;
+      // Raw 0–1 channels like the vertex-coloured overlay lines (no sRGB conversion), so colours match.
+      slot.object.material.color.setRGB(((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, NoColorSpace);
+      slot.object.visible = usable > 0;
+      slot.positions = group.positions;
+      slot.color = c;
+    }
+    for (const slot of this.overlaySegments.splice(groups.length)) {
+      this.scene.remove(slot.object);
+      slot.object.geometry.dispose();
+      slot.object.material.dispose();
+    }
   }
 
   private addOverlayObject<T extends LineSegments<BufferGeometry, LineBasicMaterial> | Points<BufferGeometry, PointsMaterial>>(object: T, renderOrder: number): T {
@@ -2550,6 +2592,11 @@ export class RenderBackend {
     this.overlayLines?.material.dispose();
     this.overlayHandles?.geometry.dispose();
     this.overlayHandles?.material.dispose();
+    for (const slot of this.overlaySegments) {
+      slot.object.geometry.dispose();
+      slot.object.material.dispose();
+    }
+    this.overlaySegments = [];
     this.cameraIconMaterial?.map?.dispose();
     this.cameraIconMaterial?.dispose();
     this.resizeObserver.disconnect();

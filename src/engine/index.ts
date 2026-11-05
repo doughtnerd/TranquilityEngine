@@ -42,6 +42,11 @@ export { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, t
 export { Physics, type RaycastHit } from "./physics/Physics";
 export { CollisionEvents, TriggerEvents, type PhysicsEvent } from "./physics/physics3d";
 
+export { NavAgent, NavAvoidanceObstacle, NavChunk, NavFlowGoal, NavGate, NavGroup, NavModifierVolume, NavObstacle, NavResolutionVolume, NavSurface, NavSurround, type NavMode, type NavPathState, type NavWaypoint } from "./nav/components";
+export { Navigation, type NavNearestPoint, type NavPathResult, type NavPathStatus, type NavRaycastHit } from "./nav/Navigation";
+export type { NavDebugSettings } from "./nav/navigationSystems";
+export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
+
 export { Audio, AudioSource } from "./audio/AudioSource";
 export { Input } from "./input/Input";
 export { Storage, MemoryStorage, type StorageBackend } from "./platform/Storage";

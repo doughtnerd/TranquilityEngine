@@ -1,0 +1,39 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "flyer",
+      "name": "Flyer",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              3,
+              3,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere",
+            "material": "asset:materials/flyer.material.json"
+          }
+        },
+        {
+          "type": "engine.NavAgent",
+          "data": {
+            "agentType": "7a1d9e52-4c3b-4f8e-b210-9c6e3d5a2f02"
+          }
+        }
+      ]
+    }
+  ]
+}

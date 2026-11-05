@@ -11,6 +11,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Editor](guide/editor.md) | The Projects window, the menu bar, docks and panels, asset previews, the `.myco/` folder |
 | [Worlds](guide/worlds.md) | Several Worlds per Engine: tags, bootstraps, systems and time per World, creating Worlds at runtime, isolation, async code, the Worlds panel |
 | [Multiplayer](guide/multiplayer.md) | Client and server Worlds, links and transports, RPCs, replication, inputs, prediction, the dedicated server (`npm run server`), the Network panel, known gaps |
+| [Navigation](guide/navigation.md) | Built-in navigation: agent types and areas, marking geometry, baking (editor and `npm run nav:bake`), streaming chunks, scripting `NavAgent`, groups, surround and flow fields, the `Navigation` queries, multiplayer, debug drawing, performance, known issues |
 
 ## Architecture
 
@@ -91,6 +92,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0062](decisions/0062-links-to-spawnable-worlds.md) | Bootstrap links apply whenever both Worlds exist, so they can name Spawnable Worlds (templates) | Accepted |
 | [0063](decisions/0063-editor-menu-bar.md) | The editor's commands live in a menu bar below the system title bar | Accepted |
 | [0064](decisions/0064-system-rows-with-column-access.md) | System rows give typed-array columns as well as per-row views | Accepted |
+| [0065](decisions/0065-built-in-navigation-foxfire-port.md) | Built-in navigation: Foxfire.Navigation ported to Rust, run as WebAssembly | Accepted |
 
 ## Working with decisions
 

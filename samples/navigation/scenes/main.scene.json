@@ -1,0 +1,620 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              40,
+              50
+            ],
+            "rotation": [
+              -35,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Camera",
+          "data": {
+            "projection": "perspective",
+            "fieldOfView": 55,
+            "near": 0.5,
+            "far": 2000
+          }
+        },
+        {
+          "type": "navdemo.CameraRig",
+          "data": {
+            "focus": [
+              0,
+              0,
+              10
+            ],
+            "distance": 70,
+            "yaw": 0,
+            "pitch": -40
+          }
+        }
+      ]
+    },
+    {
+      "id": "sun",
+      "name": "Sun",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              50,
+              0
+            ],
+            "rotation": [
+              -50,
+              -30,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "directional",
+            "intensity": 1.5,
+            "castShadows": true,
+            "shadowArea": 120
+          }
+        }
+      ]
+    },
+    {
+      "id": "ambient-light",
+      "name": "Ambient Light",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "ambient",
+            "intensity": 0.5
+          }
+        }
+      ]
+    },
+    {
+      "id": "streamer",
+      "name": "Streamer",
+      "transform": false,
+      "components": [
+        {
+          "type": "navdemo.Streamer",
+          "data": {
+            "chunks": [
+              "scenes/chunk-1-south-west.scene.json",
+              "scenes/chunk-2-south.scene.json",
+              "scenes/chunk-3-south-east.scene.json",
+              "scenes/chunk-4-west.scene.json",
+              "scenes/chunk-5-centre.scene.json",
+              "scenes/chunk-6-east.scene.json",
+              "scenes/chunk-7-north-west.scene.json",
+              "scenes/chunk-8-north.scene.json",
+              "scenes/chunk-9-north-east.scene.json"
+            ],
+            "names": [
+              "South-west",
+              "South",
+              "South-east",
+              "West",
+              "Centre",
+              "East",
+              "North-west",
+              "North",
+              "North-east"
+            ],
+            "chunkSize": 128,
+            "chunkHeight": 48,
+            "loadDistance": 24,
+            "unloadDistance": 40
+          }
+        }
+      ]
+    },
+    {
+      "id": "gate-timer",
+      "name": "Gate Timer",
+      "transform": false,
+      "components": [
+        {
+          "type": "navdemo.GateTimer",
+          "data": {
+            "interval": 20,
+            "lift": 4
+          }
+        }
+      ]
+    },
+    {
+      "id": "goal",
+      "name": "Goal",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              128,
+              0,
+              128
+            ],
+            "scale": [
+              2,
+              2,
+              2
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere",
+            "material": "asset:materials/goal.material.json",
+            "castShadows": false
+          }
+        },
+        {
+          "type": "navdemo.Tour",
+          "data": {
+            "waypoints": [
+              [
+                128,
+                0,
+                128
+              ],
+              [
+                64,
+                2,
+                0
+              ],
+              [
+                -128,
+                0,
+                -168
+              ],
+              [
+                -128,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                -40
+              ]
+            ],
+            "names": [
+              "South-east, through the door",
+              "On the platform",
+              "North-west, over the chasm",
+              "West",
+              "Centre"
+            ],
+            "interval": 60
+          }
+        }
+      ]
+    },
+    {
+      "id": "walkers",
+      "name": "Walkers",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "navdemo.Crowd",
+          "data": {
+            "kind": "walker",
+            "prefab": "prefabs/walker.prefab.json",
+            "count": 30,
+            "center": [
+              -11.5,
+              1.5,
+              24
+            ],
+            "spacing": 2.5,
+            "spread": 18,
+            "height": 0,
+            "seed": 11
+          }
+        }
+      ]
+    },
+    {
+      "id": "walk-and-fly-agents",
+      "name": "Walk-and-fly agents",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "navdemo.Crowd",
+          "data": {
+            "kind": "walkFly",
+            "prefab": "prefabs/walk-and-fly.prefab.json",
+            "count": 16,
+            "center": [
+              9,
+              1.5,
+              24
+            ],
+            "spacing": 2.5,
+            "spread": 18,
+            "height": 0,
+            "seed": 22
+          }
+        }
+      ]
+    },
+    {
+      "id": "flyers",
+      "name": "Flyers",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "navdemo.Crowd",
+          "data": {
+            "kind": "flyer",
+            "prefab": "prefabs/flyer.prefab.json",
+            "count": 16,
+            "center": [
+              0,
+              12,
+              24
+            ],
+            "spacing": 4,
+            "spread": 18,
+            "height": 10,
+            "seed": 33
+          }
+        }
+      ]
+    },
+    {
+      "id": "box-group-1",
+      "name": "Box group 1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -9,
+              1.5,
+              50
+            ]
+          }
+        },
+        {
+          "type": "engine.NavGroup",
+          "data": {
+            "agentType": "3f6c2a1e-8b4d-4c7a-9e21-5d0b7a4c1e01",
+            "merge": false,
+            "formation": "box"
+          }
+        },
+        {
+          "type": "navdemo.GroupLeader",
+          "data": {
+            "kind": "walkerGroup",
+            "prefab": "prefabs/walker.prefab.json",
+            "count": 16,
+            "spacing": 2.5,
+            "material": "asset:materials/group-1.material.json",
+            "height": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "arrow-group-2",
+      "name": "Arrow group 2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              9,
+              1.5,
+              50
+            ]
+          }
+        },
+        {
+          "type": "engine.NavGroup",
+          "data": {
+            "agentType": "3f6c2a1e-8b4d-4c7a-9e21-5d0b7a4c1e01",
+            "merge": false,
+            "formation": "mask"
+          }
+        },
+        {
+          "type": "navdemo.GroupLeader",
+          "data": {
+            "kind": "walkerGroup",
+            "prefab": "prefabs/walker.prefab.json",
+            "count": 16,
+            "spacing": 2.5,
+            "material": "asset:materials/group-2.material.json",
+            "mask": [
+              "...#...",
+              "..###..",
+              ".#####.",
+              "..###..",
+              "..###..",
+              "...#..."
+            ],
+            "height": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "flyer-box-group-1",
+      "name": "Flyer box group 1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              12,
+              50
+            ]
+          }
+        },
+        {
+          "type": "engine.NavGroup",
+          "data": {
+            "agentType": "7a1d9e52-4c3b-4f8e-b210-9c6e3d5a2f02",
+            "merge": false,
+            "formation": "box",
+            "spacing": 5
+          }
+        },
+        {
+          "type": "navdemo.GroupLeader",
+          "data": {
+            "kind": "flyerGroup",
+            "prefab": "prefabs/flyer.prefab.json",
+            "count": 9,
+            "spacing": 5,
+            "material": "asset:materials/group-3.material.json",
+            "height": 12
+          }
+        }
+      ]
+    },
+    {
+      "id": "walk-and-fly-box-group-1",
+      "name": "Walk-and-fly box group 1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              54,
+              1.5,
+              50
+            ]
+          }
+        },
+        {
+          "type": "engine.NavGroup",
+          "data": {
+            "agentType": "b84e1c37-2d5a-4e9b-8c43-1f7a6e9d3b03",
+            "merge": false,
+            "formation": "box",
+            "spacing": 5
+          }
+        },
+        {
+          "type": "navdemo.GroupLeader",
+          "data": {
+            "kind": "walkFlyGroup",
+            "prefab": "prefabs/walk-and-fly.prefab.json",
+            "count": 8,
+            "spacing": 5,
+            "material": "asset:materials/group-4.material.json",
+            "height": 0
+          }
+        }
+      ]
+    },
+    {
+      "id": "jump-course-goal",
+      "name": "Jump course goal",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              0.5,
+              -48
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere",
+            "material": "asset:materials/goal.material.json",
+            "castShadows": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "jump-course",
+      "name": "Jump course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "navdemo.Course",
+          "data": {
+            "kind": "jumper",
+            "prefab": "prefabs/jumper.prefab.json",
+            "count": 6,
+            "from": [
+              -180,
+              1,
+              -12
+            ],
+            "to": [
+              -180,
+              1,
+              -48
+            ],
+            "interval": 15,
+            "goal": {
+              "$node": "jump-course-goal"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "climb-course-goal",
+      "name": "Climb course goal",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              0.5,
+              48
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere",
+            "material": "asset:materials/goal.material.json",
+            "castShadows": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "climb-course",
+      "name": "Climb course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "navdemo.Course",
+          "data": {
+            "kind": "climber",
+            "prefab": "prefabs/climber.prefab.json",
+            "count": 6,
+            "from": [
+              -180,
+              0.75,
+              12
+            ],
+            "to": [
+              -180,
+              0.75,
+              48
+            ],
+            "interval": 15,
+            "goal": {
+              "$node": "climb-course-goal"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "hud",
+      "name": "HUD",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.Text",
+          "data": {
+            "text": "",
+            "fontSize": 18,
+            "anchor": "top-left",
+            "align": "left",
+            "offset": [
+              16,
+              16
+            ],
+            "outlineColor": "#000000",
+            "outlineWidth": 3
+          }
+        },
+        {
+          "type": "navdemo.Hud"
+        }
+      ]
+    }
+  ]
+}
