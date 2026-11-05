@@ -218,6 +218,61 @@ export class Vector3 implements Vec3Like {
   }
 }
 
+/** A half-line: `origin` plus `direction` (always normalized) times a distance (ADR 0073). */
+export class Ray {
+  readonly origin: Vector3;
+  readonly direction: Vector3;
+
+  constructor(origin: Vec3Input = [0, 0, 0], direction: Vec3Input = [0, 0, -1]) {
+    this.origin = Vector3.from(origin);
+    this.direction = Vector3.from(direction).normalize();
+  }
+
+  /** The point `t` units along the ray. */
+  at(t: number): Vector3 {
+    return new Vector3(
+      this.origin.x + this.direction.x * t,
+      this.origin.y + this.direction.y * t,
+      this.origin.z + this.direction.z * t,
+    );
+  }
+
+  toString(): string { return `Ray(${this.origin}, ${this.direction})`; }
+}
+
+/**
+ * An infinite plane (ADR 0073): the points `p` where `normal . p + distance = 0`, like Unity's
+ * `Plane`. `normal` is kept normalized; `distance` is the signed distance from the origin to the
+ * plane, measured against the normal (`Plane.fromNormalAndPoint(up, [0, 2, 0])` has distance -2).
+ */
+export class Plane {
+  readonly normal: Vector3;
+  distance: number;
+
+  constructor(normal: Vec3Input = [0, 1, 0], distance = 0) {
+    this.normal = Vector3.from(normal).normalize();
+    this.distance = distance;
+  }
+
+  static fromNormalAndPoint(normal: Vec3Input, point: Vec3Input): Plane {
+    const n = Vector3.from(normal).normalize();
+    return new Plane(n, -Vector3.dot(n, Vector3.from(point)));
+  }
+
+  /** Signed distance from the plane to `point`: positive on the side the normal faces. */
+  distanceToPoint(point: Vec3Like): number {
+    return Vector3.dot(this.normal, point) + this.distance;
+  }
+
+  /** The distance along `ray` to the plane, or null if the ray is parallel to it or points away. */
+  raycast(ray: Ray): number | null {
+    const denom = Vector3.dot(this.normal, ray.direction);
+    if (Math.abs(denom) < 1e-12) return null;
+    const t = -this.distanceToPoint(ray.origin) / denom;
+    return t >= 0 ? t : null;
+  }
+}
+
 /** Rotation quaternion. Euler angles in the public API are degrees, XYZ order (ADR 0019). */
 export class Quaternion {
   /** @internal */ _a!: Storage;

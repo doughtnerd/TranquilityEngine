@@ -8,7 +8,7 @@ import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
 import { connectWorlds, netSession } from "../net/session";
 import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
-import { resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
+import { navigationSettingsProblems, resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { parseGraphics } from "./graphics";
 import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
 import { FrameMonitor } from "../render/qualityDetect";
@@ -67,6 +67,16 @@ export interface WorldViewState {
 }
 
 /**
+ * @internal Editor: the Engine's timings while play mode's Stats show (`_setTiming`), in milliseconds.
+ * `frame`: the frame's real delta time and how long the whole step took; `world`: one World's
+ * fixed steps (with start()), update and lateUpdate (with transform propagation), and render sync and render.
+ */
+export interface EngineTiming {
+  frame(dtMs: number, stepMs: number): void;
+  world(name: string, fixedMs: number, updateMs: number, renderMs: number): void;
+}
+
+/**
  * Owns the Worlds and drives them frame by frame (ADR 0011, 0032). A bootstrap creates the
  * start-up Worlds; game code creates more at runtime through handles. `engine.world` is the
  * default World: the first one the bootstrap made.
@@ -121,6 +131,8 @@ export class Engine implements BootstrapEngine {
   private monitorFrames = 0;
   private lastTime = 0;
   private running = false;
+  /** @internal Editor: gets timings while set (play mode's Stats); null costs one check per phase. */
+  private timing: EngineTiming | null = null;
 
   private constructor(private readonly options: EngineOptions) {
     this.settings = resolveSettings(options.project ?? {});
@@ -134,6 +146,8 @@ export class Engine implements BootstrapEngine {
     // Graphics quality (ADR 0050): the project's tiers, and the player's saved choice; with
     // `autoDetect`, a detected tier until the player picks one (ADR 0055).
     for (const p of parseGraphics(options.project?.graphics).problems) console.warn(`[myco] project.json ${p}`);
+    // Navigation (ADR 0065): a bad section falls back to defaults, so say what was replaced.
+    if (options.project?.navigation !== undefined) for (const p of navigationSettingsProblems(options.project.navigation)) console.warn(`[myco] project.json ${p}`);
     if ((options.quality ?? "player") === "player") {
       const graphics = engine.settings.graphics;
       const saved = await Storage.load(QUALITY_KEY, "settings").catch(() => undefined);
@@ -520,6 +534,8 @@ export class Engine implements BootstrapEngine {
    * own clock (ADR 0032). Afterwards the default World is current again.
    */
   step(dt: number): void {
+    const timing = this.timing;
+    const begun = timing ? performance.now() : 0;
     this.watchQuality(dt);
     if (this.deferredLinks.length) this.deferredLinks = this.deferredLinks.filter((link) => !this.applyLink(link));
     // 2. Input snapshot: once per Engine frame, shared by the Worlds that take input
@@ -529,6 +545,12 @@ export class Engine implements BootstrapEngine {
       this.stepWorld(world, dt);
     }
     if (this.defaultWorld) World.active = this.defaultWorld;
+    timing?.frame(dt * 1000, performance.now() - begun);
+  }
+
+  /** @internal Editor: report frame and per-World phase timings to `timing` from now on (null stops). */
+  _setTiming(timing: EngineTiming | null): void {
+    this.timing = timing;
   }
 
   /**
@@ -565,6 +587,8 @@ export class Engine implements BootstrapEngine {
     const settings = world.settings.time;
     World.active = world;
     world._inFrame = true;
+    const timing = this.timing;
+    let mark = timing ? performance.now() : 0, fixedMs = 0, updateMs = 0, renderMs = 0;
     try {
       // 1. Begin frame
       time.realtimeSinceStartup += dt;
@@ -592,6 +616,7 @@ export class Engine implements BootstrapEngine {
         if (steps === settings.maxSubSteps) world._accumulator = Math.min(world._accumulator, fdt);
       }
       time.fixedAlpha = fdt > 0 ? world._accumulator / fdt : 0;
+      if (timing) [fixedMs, mark] = [performance.now() - mark, performance.now()];
 
       // 5–6. update and lateUpdate
       world._resolveWaits("update");
@@ -600,12 +625,17 @@ export class Engine implements BootstrapEngine {
 
       // 7. Transform propagation
       world._propagateTransforms();
+      if (timing) [updateMs, mark] = [performance.now() - mark, performance.now()];
 
       // 8–9. Render sync and render: to the main view, or to the World's own surface (editor tiles)
       const surface = world === this.viewWorld ? this.render : this.extraViews.get(world);
       if (surface) {
         surface.sync(world);
         surface.render(world);
+      }
+      if (timing) {
+        renderMs = performance.now() - mark;
+        timing.world(world.name, fixedMs, updateMs, renderMs);
       }
     } finally {
       // 10. End of frame: deferred destroys, buffers, then scene loads

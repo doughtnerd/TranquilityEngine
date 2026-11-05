@@ -8,8 +8,9 @@ import { engineTypes, playerFiles, samples, typescriptTranspile } from "./vite.s
 
 export default defineConfig({
   plugins: [typescriptTranspile(), engineTypes(), samples(), playerFiles()],
-  // Monaco's language workers (the editor's Code panel, ADR 0030) are ES modules.
-  worker: { format: "es" },
+  // Monaco's language workers (the editor's Code panel, ADR 0030) and the navigation bake worker (ADR 0065)
+  // are ES modules; worker bundles get their own plugins, so TypeScript is transpiled there too.
+  worker: { format: "es", plugins: () => [typescriptTranspile()] },
   oxc: false,
   build: {
     outDir: "dist/editor",

@@ -1,13 +1,25 @@
 // Creating new nodes from the hierarchy (ADR 0022, 0026): an empty node, a sprite, a camera, a
-// text, a 3D shape (with a matching collider, as in Unity) or a light (ADR 0043), at the top of
+// text, a 3D shape (with a matching collider, as in Unity), a light (ADR 0043) or a UI element (ADR 0069), at the top of
 // the scene, beside a node or under it. Each is one undo step.
 import { uniqueId } from "./assetBrowser";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import type { OpenScene } from "./state";
+import { WATER_PRESET } from "../engine/render/water/gerstner";
 
-export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "reflection-probe" | "particle-system";
+export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "particle-system" | "water" | `ui-${UIKind}`;
 type Shape3D = "cube" | "sphere" | "capsule" | "cylinder" | "plane";
 type LightKind = "directional" | "point" | "spot" | "ambient";
+type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input-field";
+
+/** Game UI elements (ADR 0069): the component each kind adds, with a starting size and look. */
+const UI_ELEMENTS: Record<UIKind, { type: string; data: Record<string, unknown> }> = {
+  canvas: { type: "engine.UICanvas", data: {} },
+  panel: { type: "engine.UIPanel", data: { width: "200", height: "100", backgroundColor: "#2a2f3a" } },
+  text: { type: "engine.UIText", data: { text: "New Text" } },
+  image: { type: "engine.UIImage", data: { width: "100", height: "100" } },
+  button: { type: "engine.UIButton", data: { width: "160", height: "40" } },
+  "input-field": { type: "engine.UIInputField", data: { placeholder: "Enter text…" } },
+};
 
 type Vec3 = readonly [number, number, number];
 
@@ -26,8 +38,16 @@ export const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: 
   { kind: "point-light", label: "Point Light", name: "Point Light" },
   { kind: "spot-light", label: "Spot Light", name: "Spot Light" },
   { kind: "ambient-light", label: "Ambient Light", name: "Ambient Light" },
+  { kind: "fog", label: "Fog", name: "Fog" },
   { kind: "reflection-probe", label: "Reflection Probe", name: "Reflection Probe" },
   { kind: "particle-system", label: "Particle System", name: "Particle System" },
+  { kind: "water", label: "Water", name: "Water" },
+  { kind: "ui-canvas", label: "UI Canvas", name: "Canvas" },
+  { kind: "ui-panel", label: "UI Panel", name: "Panel" },
+  { kind: "ui-text", label: "UI Text", name: "Text" },
+  { kind: "ui-image", label: "UI Image", name: "Image" },
+  { kind: "ui-button", label: "UI Button", name: "Button" },
+  { kind: "ui-input-field", label: "UI Input Field", name: "Input Field" },
 ];
 
 /** The collider each 3D shape comes with. */
@@ -86,11 +106,23 @@ export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: stri
         name,
         components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.MeshRenderer", data: { mesh: `builtin:${kind}` } }, structuredClone(SHAPE_COLLIDERS[kind])],
       };
+    case "fog":
+      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.Fog", data: {} }] };
     case "reflection-probe":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ReflectionProbe", data: {} }] };
+    case "water":
+      // A WaterSurface with the four-wave preset written out, so the inspector's wave list shows it (ADR 0072).
+      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.WaterSurface", data: { waves: WATER_PRESET.map((w) => ({ ...w })) } }] };
     case "particle-system":
       // Effects are assets (ADR 0060): `effect` is a new one `createParticleSystemNode` made, or empty.
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ParticleSystem", data: effect ? { effect } : {} }] };
+    case "ui-canvas":
+    case "ui-panel":
+    case "ui-text":
+    case "ui-image":
+    case "ui-button":
+    case "ui-input-field":
+      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, structuredClone(UI_ELEMENTS[kind.slice(3) as UIKind])] };
     default: {
       // A light: directional and spot lights point down and away, like a sun in the afternoon.
       const type = kind.replace(/-light$/, "");

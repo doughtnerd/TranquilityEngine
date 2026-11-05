@@ -11,6 +11,10 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Editor](guide/editor.md) | The Projects window, the menu bar, docks and panels, asset previews, the `.myco/` folder |
 | [Worlds](guide/worlds.md) | Several Worlds per Engine: tags, bootstraps, systems and time per World, creating Worlds at runtime, isolation, async code, the Worlds panel |
 | [Multiplayer](guide/multiplayer.md) | Client and server Worlds, links and transports, RPCs, replication, inputs, prediction, the dedicated server (`npm run server`), the Network panel, known gaps |
+| [Water](guide/water.md) | Water surfaces: waves, colours and foam, sampling the surface from scripts, buoyancy (physics and kinematic), storms, multiplayer, known limits |
+| [Game UI](guide/ui.md) | Canvases (screen and world), the UI tree, flexbox layout, panels, text, images, buttons and input fields, scripting them, how the pointer and keyboard go to UI first, headless Worlds and tests |
+| [Navigation](guide/navigation.md) | Built-in navigation: agent types and areas, marking geometry, baking (editor and `npm run nav:bake`), streaming chunks, scripting `NavAgent`, groups, surround and flow fields, the `Navigation` queries, multiplayer, debug drawing, performance, known issues |
+| [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
 
 ## Architecture
 
@@ -32,7 +36,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0003](decisions/0003-tauri-platform-browser-runtime.md) | Tauri platform, browser runtime | Accepted |
 | [0004](decisions/0004-threejs-render-pipeline.md) | three.js owns the render pipeline | Accepted, amended by 0010 |
 | [0005](decisions/0005-physics-backend.md) | Physics: Rapier now, PhysX for 3D later, behind an engine interface | Accepted |
-| [0006](decisions/0006-audio-howler-and-three.md) | Audio: Howler + three.js positional audio | Accepted |
+| [0006](decisions/0006-audio-howler-and-three.md) | Audio: Howler + three.js positional audio | Accepted, amended by 0074 (spatial audio through Howler) |
 | [0007](decisions/0007-hidden-ecs-with-lifecycle-scripting.md) | Hidden ECS core, lifecycle-method scripting | Accepted, amended by 0017 |
 | [0008](decisions/0008-gameobjects-as-node-graph.md) | GameObjects are entities arranged as a node graph | Accepted |
 | [0009](decisions/0009-components-attached-or-as-child-nodes.md) | Components attach to a node or live as child nodes | Accepted |
@@ -91,6 +95,16 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0062](decisions/0062-links-to-spawnable-worlds.md) | Bootstrap links apply whenever both Worlds exist, so they can name Spawnable Worlds (templates) | Accepted |
 | [0063](decisions/0063-editor-menu-bar.md) | The editor's commands live in a menu bar below the system title bar | Accepted |
 | [0064](decisions/0064-system-rows-with-column-access.md) | System rows give typed-array columns as well as per-row views | Accepted |
+| [0065](decisions/0065-built-in-navigation-foxfire-port.md) | Built-in navigation: Foxfire.Navigation ported to Rust, run as WebAssembly | Accepted |
+| [0066](decisions/0066-navigation-authoring-parity-with-foxfire.md) | Navigation authoring matches Foxfire: named avoidance layers, formation assets, agent goals | Accepted |
+| [0067](decisions/0067-runtime-listen-and-path-routing.md) | Server Worlds can listen at runtime, and several share one WebSocket port by path | Accepted |
+| [0068](decisions/0068-lobbies-and-matchmaking.md) | Lobbies and matchmaking: a lobby server World hands players to match Worlds it creates | Accepted |
+| [0069](decisions/0069-ui-components-on-uikit.md) | Game UI components on pmndrs uikit: canvases, panels, text, images, buttons, inputs, UI-first pointer routing | Accepted |
+| [0070](decisions/0070-runtime-navigation-cost-volumes.md) | Runtime navigation cost volumes change path costs inside a box without rebaking | Accepted |
+| [0071](decisions/0071-fog.md) | A Fog component sets a World's distance fog, honoured by every engine material | Accepted |
+| [0072](decisions/0072-water-surfaces-and-buoyancy.md) | Water surfaces with Gerstner waves, sampled the same on the CPU for buoyancy | Accepted |
+| [0073](decisions/0073-camera-rays-and-screen-points.md) | Cameras convert between screen points and world rays; `Ray` and `Plane` are public maths types | Accepted |
+| [0074](decisions/0074-spatial-audio-with-howler.md) | Spatial audio through Howler's spatial API, with an AudioListener component | Accepted |
 
 ## Working with decisions
 

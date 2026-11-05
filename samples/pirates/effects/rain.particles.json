@@ -1,0 +1,120 @@
+{
+  "format": "myco.particles@2",
+  "properties": [],
+  "systems": [
+    {
+      "id": "s1",
+      "name": "Rain",
+      "position": [
+        0,
+        0
+      ],
+      "settings": {
+        "space": "world",
+        "capacity": 3000
+      },
+      "spawn": {
+        "settings": {
+          "duration": 1,
+          "looping": true,
+          "startDelay": 0,
+          "prewarm": true
+        },
+        "blocks": [
+          {
+            "id": "b1",
+            "type": "spawn.rate",
+            "inputs": {
+              "rate": 1400
+            }
+          }
+        ]
+      },
+      "initialize": {
+        "blocks": [
+          {
+            "id": "b2",
+            "type": "init.lifetime",
+            "inputs": {
+              "lifetime": {
+                "random": [
+                  0.9,
+                  1.2
+                ]
+              }
+            }
+          },
+          {
+            "id": "b3",
+            "type": "init.velocity",
+            "inputs": {
+              "speed": {
+                "random": [
+                  24,
+                  30
+                ]
+              }
+            }
+          },
+          {
+            "id": "b4",
+            "type": "init.size",
+            "inputs": {
+              "size": {
+                "random": [
+                  0.05,
+                  0.09
+                ]
+              }
+            }
+          },
+          {
+            "id": "b5",
+            "type": "init.color",
+            "inputs": {
+              "color": "#c9d6e6b0"
+            }
+          },
+          {
+            "id": "b6",
+            "type": "init.positionRectangle",
+            "inputs": {
+              "width": 70,
+              "height": 70,
+              "thickness": 1,
+              "mode": "random",
+              "spread": 0,
+              "offset": [
+                0,
+                0,
+                0
+              ],
+              "rotation": [
+                90,
+                0,
+                0
+              ]
+            }
+          }
+        ]
+      },
+      "update": {
+        "blocks": []
+      },
+      "output": {
+        "type": "stretched",
+        "settings": {
+          "material": "",
+          "texture": "",
+          "blending": "alpha",
+          "renderOrder": 0,
+          "mesh": "builtin:cube",
+          "speedScale": 0.05,
+          "lengthScale": 1,
+          "trailLength": 20
+        },
+        "blocks": []
+      }
+    }
+  ]
+}

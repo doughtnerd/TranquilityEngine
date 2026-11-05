@@ -1,0 +1,793 @@
+{
+  "format": "myco.scene@1",
+  "settings": {
+    "physics": "3d"
+  },
+  "nodes": [
+    {
+      "id": "camera-rig",
+      "prefab": "prefabs/camera.prefab.json"
+    },
+    {
+      "id": "sun",
+      "name": "Sun",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              40,
+              0
+            ],
+            "rotation": [
+              -50,
+              30,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "directional",
+            "intensity": 2.0,
+            "castShadows": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "ambient",
+      "name": "Ambient Light",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "ambient",
+            "intensity": 0.6,
+            "color": [
+              0.75,
+              0.85,
+              1,
+              1
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "fog",
+      "name": "Fog",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.Fog",
+          "data": {
+            "mode": "linear",
+            "color": [
+              0.62,
+              0.74,
+              0.84,
+              1
+            ],
+            "near": 70,
+            "far": 240,
+            "affectsSkybox": true,
+            "skyboxFog": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "sea",
+      "name": "Sea",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.WaterSurface",
+          "data": {
+            "size": 360.0,
+            "resolution": 200,
+            "waveScale": 1.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "match",
+      "name": "Match",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "net.Replicated",
+          "data": {
+            "replicateTransform": false
+          }
+        },
+        {
+          "type": "pirates.Game",
+          "data": {
+            "radius": 80,
+            "winner": -1,
+            "stormTeam": -1
+          }
+        }
+      ]
+    },
+    {
+      "id": "navigation",
+      "name": "Navigation",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.NavChunk",
+          "data": {
+            "collect": "none",
+            "scope": "scene",
+            "bake": "asset:scenes/island-bay.nav.bin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "nav-water",
+      "name": "Sailable Water",
+      "parent": "navigation",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              -0.05,
+              0
+            ],
+            "scale": [
+              144.0,
+              0.05,
+              144.0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshCollider",
+          "data": {
+            "mesh": "builtin:cylinder"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {
+            "source": "collider"
+          }
+        }
+      ]
+    },
+    {
+      "id": "flag",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              10,
+              0,
+              -6
+            ]
+          }
+        },
+        {
+          "type": "net.Replicated",
+          "data": {}
+        },
+        {
+          "type": "pirates.Flag",
+          "data": {
+            "carrier": -1
+          }
+        }
+      ]
+    },
+    {
+      "id": "flagvisual",
+      "name": "Visual",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "scale": [
+              1.3,
+              1.3,
+              1.3
+            ]
+          }
+        }
+      ],
+      "parent": "flag"
+    },
+    {
+      "id": "flagbuoy",
+      "name": "Buoy",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/flag.obj#Buoy"
+          }
+        }
+      ],
+      "parent": "flagvisual"
+    },
+    {
+      "id": "flagcloth",
+      "name": "Cloth",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/flag.obj#Cloth"
+          }
+        }
+      ],
+      "parent": "flagvisual"
+    },
+    {
+      "id": "flaglight",
+      "name": "Beacon",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              3,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "point",
+            "color": [
+              1,
+              0.85,
+              0.4,
+              1
+            ],
+            "intensity": 5,
+            "range": 10
+          }
+        }
+      ],
+      "parent": "flagvisual"
+    },
+    {
+      "id": "rain",
+      "name": "Rain",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              24,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.ParticleSystem",
+          "data": {
+            "effect": "asset:effects/rain.particles.json",
+            "emissionScale": 0
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/rain_loop.wav",
+            "loop": true,
+            "volume": 0,
+            "playOnAwake": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "actors",
+      "name": "Actors",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "pirates.Actors",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "hud-rig",
+      "prefab": "prefabs/hud.prefab.json"
+    },
+    {
+      "id": "spot-0",
+      "name": "Power-up Spot 1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              30,
+              0,
+              26
+            ]
+          }
+        },
+        {
+          "type": "pirates.PickupSpot",
+          "data": {
+            "timer": 3
+          }
+        }
+      ]
+    },
+    {
+      "id": "spot-1",
+      "name": "Power-up Spot 2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -34,
+              0,
+              -12
+            ]
+          }
+        },
+        {
+          "type": "pirates.PickupSpot",
+          "data": {
+            "timer": 5
+          }
+        }
+      ]
+    },
+    {
+      "id": "spot-2",
+      "name": "Power-up Spot 3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              6,
+              0,
+              -34
+            ]
+          }
+        },
+        {
+          "type": "pirates.PickupSpot",
+          "data": {
+            "timer": 7
+          }
+        }
+      ]
+    },
+    {
+      "id": "spot-3",
+      "name": "Power-up Spot 4",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -22,
+              0,
+              40
+            ]
+          }
+        },
+        {
+          "type": "pirates.PickupSpot",
+          "data": {
+            "timer": 9
+          }
+        }
+      ]
+    },
+    {
+      "id": "prop-0",
+      "prefab": "prefabs/island2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -16,
+            0,
+            12
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            20,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            2.2,
+            2.2,
+            2.2
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-1",
+      "prefab": "prefabs/island1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -30,
+            0,
+            -26
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            80,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.6,
+            1.6,
+            1.6
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-2",
+      "prefab": "prefabs/island1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            32,
+            0,
+            -18
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            200,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.4,
+            1.4,
+            1.4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-3",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            16,
+            0,
+            30
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.5,
+            1.5,
+            1.5
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-4",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -40,
+            0,
+            -4
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            40,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.6,
+            1.6,
+            1.6
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-5",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            38,
+            0,
+            18
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            120,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.4,
+            1.4,
+            1.4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-6",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -6,
+            0,
+            -40
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            200,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-7",
+      "prefab": "prefabs/wreck.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            24,
+            0,
+            -40
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            30,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.5,
+            1.5,
+            1.5
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-8",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -46,
+            0,
+            36
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            10,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.2,
+            1.2,
+            1.2
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-9",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            54,
+            0,
+            -2
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            90,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-10",
+      "prefab": "prefabs/island1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            8,
+            0,
+            46
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            140,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,315 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "navigation",
+      "name": "Navigation",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.NavChunk",
+          "data": {
+            "useChunkBounds": true,
+            "center": [
+              0,
+              20,
+              128
+            ],
+            "size": [
+              128,
+              48,
+              128
+            ],
+            "collect": "none",
+            "scope": "scene",
+            "skipAgents": [
+              "d29f7b64-6e1c-4a3d-9f58-2b8c4d7e1a04",
+              "e5c3a816-9f2b-4d7e-a165-3c9d5b2f8e05"
+            ],
+            "bake": "asset:scenes/chunk-2-south.nav.bin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "geometry",
+      "name": "Geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "ground",
+      "name": "Ground",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              -0.5,
+              128
+            ],
+            "scale": [
+              128,
+              1,
+              128
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/ground.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "wall-west-of-the-door",
+      "name": "Wall west of the door",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -34,
+              3,
+              64
+            ],
+            "scale": [
+              60,
+              6,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "wall-east-of-the-door",
+      "name": "Wall east of the door",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              34,
+              3,
+              64
+            ],
+            "scale": [
+              60,
+              6,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-1",
+      "name": "Pillar 1",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -31.577,
+              3,
+              148.468
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-2",
+      "name": "Pillar 2",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -34.224,
+              3,
+              142.705
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-3",
+      "name": "Pillar 3",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              8.658,
+              3,
+              96.935
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-4",
+      "name": "Pillar 4",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              15.602,
+              3,
+              141.197
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-5",
+      "name": "Pillar 5",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -30.286,
+              3,
+              163.621
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    }
+  ]
+}

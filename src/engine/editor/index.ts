@@ -9,11 +9,13 @@ import { _undefineSystem } from "../core/systems";
 import { Vector3 } from "../core/math";
 import { _setReplacingRegistrations, _takeRecordedRegistrations, _unregisterComponent, getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldOptions, type FieldType, type ScriptRegistrations } from "../core/registry";
 import { World } from "../core/World";
-import type { Engine, WorldViewState } from "../core/Engine";
+import type { Engine, EngineTiming, WorldViewState } from "../core/Engine";
 import type { WorldConfig } from "../core/worlds";
 import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
+import type { NavigationWorld } from "../nav/NavigationWorld";
+import { NavAgent } from "../nav/components";
 import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
 import { Camera, MeshRenderer, SpriteRenderer } from "../render/components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
@@ -517,9 +519,134 @@ export function localPositionFor(node: GameObject, point: readonly number[]): [n
 
 export type { EditorOverlay } from "../render/RenderBackend";
 
-/** Draw an overlay (lines and handles) supplied by `provider` every frame; null stops. No-op headless. */
+/**
+ * What an overlay draws, so the editor can show or hide each kind (play mode's Gizmos menu):
+ * "navigation", "colliders", or "other" (the default: anything else, a game's own debug drawing).
+ */
+export type EditorOverlayKind = "navigation" | "colliders" | "other";
+
+interface OverlayEntry {
+  readonly provider: () => EditorOverlay;
+  readonly kind: EditorOverlayKind;
+}
+
+const overlayProviders = new WeakMap<World, Map<string, OverlayEntry>>();
+const overlayFilters = new WeakMap<World, (kind: EditorOverlayKind) => boolean>();
+
+/** Several overlays in one: lines, segments and handles concatenated in order. */
+export function mergeOverlays(overlays: readonly EditorOverlay[]): EditorOverlay {
+  const merged: EditorOverlay = { lines: [], handles: [] };
+  for (const o of overlays) {
+    merged.lines.push(...o.lines);
+    merged.handles.push(...o.handles);
+    if (o.segments?.length) (merged.segments ??= []).push(...o.segments);
+  }
+  return merged;
+}
+
+/**
+ * Draw `provider`'s overlay every frame, with any others added under other ids (merged in the order
+ * added). Same id replaces. `kind` says what it draws (see `setEditorOverlayFilter`). No-op headless.
+ */
+export function addEditorOverlay(world: World, id: string, provider: () => EditorOverlay, kind: EditorOverlayKind = "other"): void {
+  let map = overlayProviders.get(world);
+  if (!map) overlayProviders.set(world, (map = new Map()));
+  map.set(id, { provider, kind });
+  installOverlays(world, map);
+}
+
+/** Stop the overlay added under `id`. */
+export function removeEditorOverlay(world: World, id: string): void {
+  const map = overlayProviders.get(world);
+  if (!map?.delete(id)) return;
+  installOverlays(world, map);
+}
+
+/**
+ * Draw only the overlays whose kind `filter` accepts on `world` (null: all of them, the default),
+ * now and as overlays are added later. Play mode's Gizmos toggle sets it on the game's Worlds.
+ */
+export function setEditorOverlayFilter(world: World, filter: ((kind: EditorOverlayKind) => boolean) | null): void {
+  if (filter) overlayFilters.set(world, filter);
+  else overlayFilters.delete(world);
+  const map = overlayProviders.get(world);
+  if (map) installOverlays(world, map);
+}
+
+/** The ids of `world`'s overlays that are drawn under its filter, in order (tests and tools). */
+export function shownEditorOverlays(world: World): string[] {
+  const filter = overlayFilters.get(world);
+  return [...(overlayProviders.get(world) ?? [])].filter(([, e]) => !filter || filter(e.kind)).map(([id]) => id);
+}
+
+function installOverlays(world: World, map: Map<string, OverlayEntry>): void {
+  const filter = overlayFilters.get(world);
+  const shown = [...map.values()].filter((e) => !filter || filter(e.kind)).map((e) => e.provider);
+  // None shown: no provider, so the backend clears what it drew and stops asking.
+  if (shown.length === 0) return world.render?.setOverlayProvider(null);
+  world.render?.setOverlayProvider(() => mergeOverlays(shown.map((p) => p())));
+}
+
+/** Draw an overlay (lines and handles) supplied by `provider` every frame; null stops. Shares the World with `addEditorOverlay`'s overlays (under the id "default"). */
 export function setEditorOverlay(world: World, provider: (() => EditorOverlay) | null): void {
-  world.render?.setOverlayProvider(provider);
+  if (provider) addEditorOverlay(world, "default", provider);
+  else removeEditorOverlay(world, "default");
+}
+
+/** Show or hide `world`'s selection outline, keeping what's outlined (play mode's Gizmos menu). No-op headless. */
+export function setSelectionOutlineShown(world: World, shown: boolean): void {
+  world.render?.setSelectionOutlineShown(shown);
+}
+
+/** How much editor drawing `world`'s view shows now: overlay line segments, handles and selection outlines. Null headless. */
+export function editorDrawingShown(world: World): { segments: number; handles: number; outlines: number; drawnObjects: number } | null {
+  return world.render?.editorDrawingShown() ?? null;
+}
+
+// --- Play mode's Stats -------------------------------------------------------------------------
+
+export type { EngineTiming } from "../core/Engine";
+
+/** What `world`'s view drew last frame (every camera and the UI) and the GPU resources it holds. */
+export interface RenderStats {
+  readonly drawCalls: number;
+  readonly triangles: number;
+  readonly lines: number;
+  readonly points: number;
+  readonly geometries: number;
+  readonly textures: number;
+  readonly programs: number;
+}
+
+/** `world`'s render counters (see `RenderStats`), or null when it doesn't render (headless, or no view). */
+export function renderStats(world: World): RenderStats | null {
+  return world.render?.renderStats() ?? null;
+}
+
+/** Report `engine`'s frame and per-World phase timings to `timing` from now on (null stops; then there's no cost). */
+export function setEngineTiming(engine: Engine, timing: EngineTiming | null): void {
+  engine._setTiming(timing);
+}
+
+/** How many nodes `world` has (the World root not counted). */
+export function nodeCount(world: World): number {
+  let n = 0;
+  const stack = [...world.root.children];
+  for (let node = stack.pop(); node; node = stack.pop()) {
+    n++;
+    stack.push(...node.children);
+  }
+  return n;
+}
+
+/** How many navigation agents `world` has, or null while it has no navigation (ADR 0065). */
+export function navAgentCount(world: World): number | null {
+  return world.navigation ? world._componentsOfType(NavAgent).length : null;
+}
+
+/** The World's navigation (ADR 0065), or null while it has none. */
+export function navigationOf(world: World): NavigationWorld | null {
+  return world.navigation ?? null;
 }
 
 /** The id of the overlay handle under a canvas point, or null. */

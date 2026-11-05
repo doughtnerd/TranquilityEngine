@@ -109,16 +109,17 @@ describe("the system catalog (T2)", () => {
   it("orders each World's members with after/before, built-ins first by default", () => {
     defineSystem({ name: "test.cat.Before", phase: "update", worlds: ["ordered"], before: ["engine.UpdateScripts"], run() {} });
     defineSystem({ name: "test.cat.After", phase: "update", worlds: ["ordered"], after: ["test.cat.Missing"], run() {} });
-    expect(world("O", ["ordered"]).scheduler.order("update")).toEqual(["engine.NetReceive", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "test.cat.Before", "engine.UpdateScripts", "test.cat.After"]);
+    expect(world("O", ["ordered"]).scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "test.cat.Before", "engine.UpdateScripts", "test.cat.After"]);
   });
 
   it("the default World keeps today's system order", async () => {
     const engine = await Engine.create({ headless: true });
     // The network systems (ADR 0033) are in every World but do nothing in one that isn't networked.
+    // Buoyancy (ADR 0072) runs before the 3D push and does nothing without Buoyancy components.
     // The 3D physics systems (ADR 0045) do nothing in a World without 3D physics.
-    expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.NetReceiveTick", "engine.NetInputTick", "engine.PredictionTick", "engine.FixedUpdateScripts", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents", "engine.Physics3DPush", "engine.Physics3DStep", "engine.Physics3DWriteBack", "engine.Physics3DEvents"]);
-    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UpdateScripts", "test.cat.Default"]);
-    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend"]);
+    expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.NetReceiveTick", "engine.NetInputTick", "engine.PredictionTick", "engine.FixedUpdateScripts", "engine.NavSync", "engine.NavStep", "engine.NavWriteBack", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents", "engine.Buoyancy", "engine.Physics3DPush", "engine.Physics3DStep", "engine.Physics3DWriteBack", "engine.Physics3DEvents"]);
+    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UpdateScripts", "test.cat.Default"]);
+    expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.Audio"]);
     engine.dispose();
   });
 });

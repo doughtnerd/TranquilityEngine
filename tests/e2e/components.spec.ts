@@ -50,6 +50,7 @@ test("types a node can't take are greyed out with the reason; Escape closes the 
   await openEditor(page);
   await row(page, "bird-sprite").click();
   await page.getByRole("button", { name: "Add Component" }).click();
+  await page.getByRole("searchbox", { name: "Search components" }).fill("SpriteRenderer");
   const sprite = menuOptions(page).filter({ hasText: "SpriteRenderer" });
   await expect(sprite).toHaveAttribute("aria-disabled", "true");
   await expect(sprite).toHaveAttribute("title", /already has a SpriteRenderer/);
@@ -65,6 +66,7 @@ test("with several nodes selected, Add Component adds to each in one undo step",
   await row(page, "ceiling").click();
   await row(page, "ground-collider").click({ modifiers: ["ControlOrMeta"] });
   await page.getByRole("button", { name: "Add Component" }).click();
+  await page.getByRole("searchbox", { name: "Search components" }).fill("CircleCollider2D");
   await menuOptions(page).filter({ hasText: "CircleCollider2D" }).click();
   await expect(card(page, "CircleCollider2D")).toBeVisible(); // shared by both, so shown
   await expect(page.locator(".status-text")).toContainText("Added CircleCollider2D to 2 of 2 nodes");
@@ -127,6 +129,7 @@ test("components reorder by dragging the grip, or with Alt+arrow keys", async ({
   await row(page, "bg-a").click();
   await expect(page.getByRole("button", { name: /^Reorder / })).toHaveCount(0); // only one movable component
   await page.getByRole("button", { name: "Add Component" }).click();
+  await page.getByRole("searchbox", { name: "Search components" }).fill("BoxCollider2D");
   await menuOptions(page).filter({ hasText: "BoxCollider2D" }).click();
   expect(await titles()).toEqual(["Transform", "SpriteRenderer", "BoxCollider2D", "Scroller"]);
   await page.getByRole("button", { name: "Reorder BoxCollider2D" }).focus();
@@ -140,6 +143,7 @@ test("on a plain node, data components reorder among the rest", async ({ page })
   await row(page, "ceiling").click();
   for (const name of ["Scroller", "Bird"]) {
     await page.getByRole("button", { name: "Add Component" }).click();
+    await page.getByRole("searchbox", { name: "Search components" }).fill(name);
     await menuOptions(page).filter({ hasText: new RegExp(`^${name}$`) }).click();
   }
   const titles = async () => (await cards(page).allTextContents()).map((t) => t.replace(/[⠿✕]|\{ \}|Edit Collider|data/g, "").trim());

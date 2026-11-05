@@ -1,0 +1,30 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "ball",
+      "name": "Cannonball",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "net.Replicated",
+          "data": {}
+        },
+        {
+          "type": "pirates.Ball",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/cannonball.obj#Cannonball",
+            "castShadows": false
+          }
+        }
+      ]
+    }
+  ]
+}

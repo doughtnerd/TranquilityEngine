@@ -24,10 +24,10 @@ function source(extra: Partial<BuildSource> & { scriptFiles?: Record<string, str
 
 describe("file selection", () => {
   it("exports assets, data and sidecars, and leaves out sources, editor files, hidden and build folders", () => {
-    for (const path of ["project.json", "scenes/main.scene.json", "images/bird.png", "images/bird.png.meta.json", "music/a.mp3", "data/levels.json", "lib/plain.js", "scripts/notes.json"]) {
+    for (const path of ["project.json", "scenes/main.scene.json", "images/bird.png", "images/bird.png.meta.json", "music/a.mp3", "data/levels.json", "lib/plain.js", "scripts/notes.json", "scenes/main.nav.bin"]) {
       expect(isExportedFile(path), path).toBe(true);
     }
-    for (const path of ["scripts/Bird.ts", "scripts/types.d.ts", "tsconfig.json", "sample.json", ".myco/history.json", ".myco/thumbnails/0123456789abcdef0123.webp", "images/.DS_Store", "node_modules/x/index.js", "dist/web/index.html", "src-tauri/target/a"]) {
+    for (const path of ["scripts/Bird.ts", "scripts/types.d.ts", "tsconfig.json", "sample.json", ".myco/history.json", ".myco/thumbnails/0123456789abcdef0123.webp", ".myco/nav/scenes/main.nav.bin.json", "images/.DS_Store", "node_modules/x/index.js", "dist/web/index.html", "src-tauri/target/a"]) {
       expect(isExportedFile(path), path).toBe(false);
     }
     expect(isExportedFile("levels/sample.json")).toBe(true); // only the root sample.json is the editor's

@@ -8,7 +8,7 @@ import { Assets, Engine, type Bootstrap, type BootstrapConfig, type BootstrapEng
 import { BootstrapError, assertValidBootstrap } from "../engine/core/bootstrap";
 import { DEFAULT_WORLD_TAGS } from "../engine/core/worlds";
 import type { World } from "../engine/core/World";
-import { listenWorld, netSession, type NetPeer } from "../engine/net/session";
+import { listenWorld, netSession, setDefaultListenOptions, type NetPeer } from "../engine/net/session";
 import { loadProjectScripts, readProject, scriptExports, ServerError, type ServerProject } from "./project";
 import { parseListenAddress } from "./websocketServer";
 
@@ -97,7 +97,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       }
       if (link && link.transport !== "websocket") log(`[server] World "${handle.name}": its link uses "${link.transport}"; a dedicated server listens over "websocket".`);
       const url = await listenWorld(engine._world(handle.name)!, "websocket", listen.options).catch((err: Error) => {
-        if (/EADDRINUSE/.test(err.message)) throw new ServerError(`Port ${listen.port} is already in use, so World "${handle.name}" can't listen there. Stop whatever is using it, or pick another port with --port.`);
+        if (/EADDRINUSE|is already listened on/.test(err.message)) throw new ServerError(`Port ${listen.port} is already in use, so World "${handle.name}" can't listen there. Stop whatever is using it, or pick another port with --port.`);
         if (/EACCES/.test(err.message)) throw new ServerError(`World "${handle.name}" isn't allowed to listen on port ${listen.port} (ports below 1024 usually need privileges). Pick another with --port.`);
         throw new ServerError(err.message);
       });
@@ -109,6 +109,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     shutDown();
     throw err;
   }
+  // ADR 0067: Worlds created at runtime (a lobby's matches) that listen without a port share the
+  // first server World's port (`--port`, its real one if that was 0), by path.
+  if (listeners.length > 0) setDefaultListenOptions("websocket", { port: listeners[0].port, ...(options.host ? { host: options.host } : {}) });
 
   const rates = engine.worlds().map((w) => 1 / engine._world(w.name)!.time.fixedDeltaTime);
   const tickRate = options.tickRate ?? Math.max(...rates);
@@ -128,6 +131,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     close() {
       return (closing ??= (async () => {
         loop.stop();
+        setDefaultListenOptions("websocket", null);
         shutDown();
         log("[server] Stopped.");
       })());
@@ -174,9 +178,10 @@ async function serverBootstrap(project: ServerProject): Promise<ServerPlan> {
   let worlds = setting.worlds.filter(isServer);
   const skipped = setting.worlds.filter((w) => !isServer(w)).map((w) => w.name);
   if (worlds.length === 0) {
-    worlds = Object.entries(setting.templates ?? {})
-      .filter(([, t]) => isServer(t))
-      .map(([key, t]) => ({ ...t, name: key }));
+    const templates = Object.entries(setting.templates ?? {}).filter(([, t]) => isServer(t));
+    // A lobby (ADR 0068) creates its match Worlds from their templates when rooms start: run only the lobby.
+    const lobbies = templates.filter(([, t]) => t.lobby);
+    worlds = (lobbies.length > 0 ? lobbies : templates).map(([key, t]) => ({ ...t, name: key }));
   }
   if (worlds.length === 0) {
     throw new ServerError(`The project's bootstrap has no Worlds or templates tagged "server" (it has ${skipped.map((n) => `"${n}"`).join(", ")}); there's nothing for a dedicated server to run.`);
@@ -236,6 +241,8 @@ function skippedWorld(config: WorldConfig, links: LinkConfig[]): WorldHandle {
       if (typeof server === "string") return; // a client of some other server: nothing to listen for here
       links.push({ from: config.name, to: server.name, transport, ...(options ? { options } : {}) });
     },
+    listen: () => Promise.reject(new Error(`World "${config.name}" isn't run by the dedicated server (it isn't tagged "server").`)),
+    addresses: () => [],
     pause() {},
     resume() {},
     destroy() {},
@@ -357,18 +364,27 @@ function ticksByWorld(engine: Engine): Map<string, number> {
 
 /**
  * A function to call each frame that logs connections that opened or closed since the last call,
- * and server Worlds created at runtime (from a template), which the server doesn't listen for:
- * there's no API to listen at runtime yet (open question O15).
+ * and Worlds created at runtime (from a template) once they listen (ADR 0067: `WorldHandle.listen`,
+ * e.g. a lobby's match Worlds), and when they go.
  */
 function connectionWatcher(engine: Engine, log: (line: string) => void, started: ReadonlySet<string>): () => void {
   const known = new Map<World, Map<NetPeer, number>>();
-  const noted = new WeakSet<World>();
+  const noted = new Map<World, string>();
   return () => {
+    for (const [world, name] of noted) {
+      if (engine._world(name) === world) continue;
+      noted.delete(world);
+      known.delete(world);
+      log(`[server] World "${name}" (created at runtime) was destroyed.`);
+    }
     for (const handle of engine.worlds()) {
       const world = engine._world(handle.name)!;
-      if (!started.has(handle.name) && handle.hasTag("server") && !noted.has(world)) {
-        noted.add(world);
-        if (!netSession(world)?.isServer) log(`[server] World "${handle.name}" was created at runtime; the dedicated server only listens for the bootstrap's server Worlds, so clients can't connect to it.`);
+      if (!started.has(handle.name) && !noted.has(world)) {
+        const addresses = handle.addresses();
+        if (addresses.length > 0) {
+          noted.set(world, handle.name);
+          log(`[server] World "${handle.name}" was created at runtime and is listening on ${addresses.join(", ")}.`);
+        }
       }
       const session = netSession(world);
       if (!session?.isServer) continue;

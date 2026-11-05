@@ -1,0 +1,4084 @@
+{
+ "format": "myco.scene@1",
+ "nodes": [
+  {
+   "id": "sun",
+   "name": "Sun",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {
+      "position": [
+       0,
+       40,
+       0
+      ],
+      "rotation": [
+       -35,
+       210,
+       0
+      ]
+     }
+    },
+    {
+     "type": "engine.Light",
+     "data": {
+      "type": "directional",
+      "intensity": 2.2,
+      "castShadows": false
+     }
+    }
+   ]
+  },
+  {
+   "id": "ambient",
+   "name": "Ambient Light",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.Light",
+     "data": {
+      "type": "ambient",
+      "intensity": 0.65,
+      "color": [
+       0.75,
+       0.85,
+       1,
+       1
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "fog",
+   "name": "Fog",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.Fog",
+     "data": {
+      "mode": "linear",
+      "color": [
+       0.62,
+       0.74,
+       0.84,
+       1
+      ],
+      "near": 60,
+      "far": 220,
+      "affectsSkybox": true,
+      "skyboxFog": 1
+     }
+    }
+   ]
+  },
+  {
+   "id": "sea",
+   "name": "Sea",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.WaterSurface",
+     "data": {
+      "size": 360.0,
+      "resolution": 160,
+      "waveScale": 1.0
+     }
+    }
+   ]
+  },
+  {
+   "id": "backdrop",
+   "name": "Backdrop",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "pirates.MenuBackdrop",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "camera",
+   "name": "Camera",
+   "parent": "backdrop",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {
+      "position": [
+       0,
+       13,
+       44
+      ],
+      "rotation": [
+       12,
+       0,
+       0
+      ]
+     }
+    },
+    {
+     "type": "engine.Camera",
+     "data": {
+      "projection": "perspective",
+      "fieldOfView": 50,
+      "far": 600
+     }
+    },
+    {
+     "type": "engine.AudioListener",
+     "data": {}
+    },
+    {
+     "type": "engine.PostProcessing",
+     "data": {
+      "bloom": true,
+      "vignette": true
+     }
+    }
+   ]
+  },
+  {
+   "id": "ocean",
+   "name": "Ocean Sound",
+   "parent": "camera",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.AudioSource",
+     "data": {
+      "clip": "asset:audio/ocean_loop.wav",
+      "loop": true,
+      "volume": 0.3,
+      "playOnAwake": true
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship0",
+   "name": "Ship1",
+   "parent": "backdrop",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship0-visual",
+   "name": "Visual",
+   "parent": "ship0",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship0-hull",
+   "name": "Hull",
+   "parent": "ship0-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Hull"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship0-sails",
+   "name": "Sails",
+   "parent": "ship0-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Sails",
+      "material": "asset:materials/sail.material.json"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship1",
+   "name": "Ship2",
+   "parent": "backdrop",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship1-visual",
+   "name": "Visual",
+   "parent": "ship1",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship1-hull",
+   "name": "Hull",
+   "parent": "ship1-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Hull"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship1-sails",
+   "name": "Sails",
+   "parent": "ship1-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Sails",
+      "material": "asset:materials/sail.material.json"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship2",
+   "name": "Ship3",
+   "parent": "backdrop",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship2-visual",
+   "name": "Visual",
+   "parent": "ship2",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship2-hull",
+   "name": "Hull",
+   "parent": "ship2-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Hull"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship2-sails",
+   "name": "Sails",
+   "parent": "ship2-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Sails",
+      "material": "asset:materials/sail.material.json"
+     }
+    }
+   ]
+  },
+  {
+   "id": "prop0",
+   "prefab": "prefabs/island2.prefab.json",
+   "overrides": [
+    {
+     "component": "engine.Transform",
+     "field": "position",
+     "value": [
+      -6,
+      0,
+      2
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "rotation",
+     "value": [
+      0,
+      30,
+      0
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "scale",
+     "value": [
+      1.4,
+      1.4,
+      1.4
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prop1",
+   "prefab": "prefabs/island1.prefab.json",
+   "overrides": [
+    {
+     "component": "engine.Transform",
+     "field": "position",
+     "value": [
+      26,
+      0,
+      -22
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "rotation",
+     "value": [
+      0,
+      120,
+      0
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "scale",
+     "value": [
+      1.2,
+      1.2,
+      1.2
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prop2",
+   "prefab": "prefabs/rock1.prefab.json",
+   "overrides": [
+    {
+     "component": "engine.Transform",
+     "field": "position",
+     "value": [
+      -30,
+      0,
+      -16
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "rotation",
+     "value": [
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "scale",
+     "value": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prop3",
+   "prefab": "prefabs/rock3.prefab.json",
+   "overrides": [
+    {
+     "component": "engine.Transform",
+     "field": "position",
+     "value": [
+      18,
+      0,
+      30
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "rotation",
+     "value": [
+      0,
+      70,
+      0
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "scale",
+     "value": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prop4",
+   "prefab": "prefabs/island1.prefab.json",
+   "overrides": [
+    {
+     "component": "engine.Transform",
+     "field": "position",
+     "value": [
+      -34,
+      0,
+      30
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "rotation",
+     "value": [
+      0,
+      200,
+      0
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "scale",
+     "value": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "id": "menu",
+   "name": "Menu",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UICanvas",
+     "data": {}
+    },
+    {
+     "type": "pirates.Menu",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "screen",
+   "name": "Screen",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "width": "100%",
+      "height": "100%",
+      "flexDirection": "column",
+      "padding": 28,
+      "gap": 16
+     }
+    }
+   ],
+   "parent": "menu"
+  },
+  {
+   "id": "header",
+   "name": "Header",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "justifyContent": "space-between",
+      "alignItems": "flex-end"
+     }
+    }
+   ],
+   "parent": "screen"
+  },
+  {
+   "id": "titles",
+   "name": "Titles",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "column",
+      "gap": 2
+     }
+    }
+   ],
+   "parent": "header"
+  },
+  {
+   "id": "title",
+   "name": "Title",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "King of Pirates",
+      "fontSize": 60,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "titles"
+  },
+  {
+   "id": "subtitle",
+   "name": "Subtitle",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Hold the flag. Sink the rest. Rule the waves.",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "titles"
+  },
+  {
+   "id": "conn",
+   "name": "Connection",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "column",
+      "alignItems": "flex-end",
+      "gap": 4,
+      "backgroundColor": [
+       0.05,
+       0.07,
+       0.1,
+       0.74
+      ],
+      "borderRadius": 10,
+      "padding": 12
+     }
+    }
+   ],
+   "parent": "header"
+  },
+  {
+   "id": "where",
+   "name": "Where",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Harbour: this computer",
+      "fontSize": 16,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "conn"
+  },
+  {
+   "id": "status",
+   "name": "Status",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Connecting...",
+      "fontSize": 14,
+      "color": [
+       0.75,
+       0.8,
+       0.86,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "conn"
+  },
+  {
+   "id": "home",
+   "name": "Home",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "gap": 20,
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "screen"
+  },
+  {
+   "id": "left",
+   "name": "Left",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "column",
+      "backgroundColor": [
+       0.05,
+       0.07,
+       0.1,
+       0.74
+      ],
+      "borderRadius": 14,
+      "padding": 22,
+      "gap": 12,
+      "width": 430
+     }
+    }
+   ],
+   "parent": "home"
+  },
+  {
+   "id": "namelabel",
+   "name": "NameLabel",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Your name, captain",
+      "fontSize": 16,
+      "color": [
+       0.75,
+       0.8,
+       0.86,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "left"
+  },
+  {
+   "id": "name",
+   "name": "Name",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIInputField",
+     "data": {
+      "placeholder": "Your name",
+      "fontSize": 18,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.08
+      ],
+      "borderRadius": 6,
+      "borderWidth": 1,
+      "borderColor": [
+       1,
+       1,
+       1,
+       0.25
+      ],
+      "padding": 10,
+      "height": 42
+     }
+    }
+   ],
+   "parent": "left"
+  },
+  {
+   "id": "quick",
+   "name": "QuickMatch",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.85,
+       0.6,
+       0.18,
+       1
+      ],
+      "hoverColor": [
+       0.95,
+       0.7,
+       0.26,
+       1
+      ],
+      "pressedColor": [
+       0.65,
+       0.45,
+       0.12,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 10,
+      "height": 60
+     }
+    }
+   ],
+   "parent": "left"
+  },
+  {
+   "id": "quick-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Quick Match",
+      "fontSize": 24,
+      "color": [
+       0.1,
+       0.07,
+       0.03,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "quick"
+  },
+  {
+   "id": "practice",
+   "name": "Practice",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 10,
+      "height": 50
+     }
+    }
+   ],
+   "parent": "left"
+  },
+  {
+   "id": "practice-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Practice against bots",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "practice"
+  },
+  {
+   "id": "create",
+   "name": "CreateRoom",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 10,
+      "height": 50
+     }
+    }
+   ],
+   "parent": "left"
+  },
+  {
+   "id": "create-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Create a room",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "create"
+  },
+  {
+   "id": "joinlabel",
+   "name": "JoinLabel",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Join a room by its code",
+      "fontSize": 16,
+      "color": [
+       0.75,
+       0.8,
+       0.86,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "left"
+  },
+  {
+   "id": "joinrow",
+   "name": "JoinRow",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "gap": 10
+     }
+    }
+   ],
+   "parent": "left"
+  },
+  {
+   "id": "code",
+   "name": "Code",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIInputField",
+     "data": {
+      "placeholder": "ABCDE",
+      "fontSize": 18,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.08
+      ],
+      "borderRadius": 6,
+      "borderWidth": 1,
+      "borderColor": [
+       1,
+       1,
+       1,
+       0.25
+      ],
+      "padding": 10,
+      "height": 42,
+      "flexGrow": 1,
+      "maxLength": 5
+     }
+    }
+   ],
+   "parent": "joinrow"
+  },
+  {
+   "id": "join",
+   "name": "Join",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 6,
+      "width": 110,
+      "height": 42
+     }
+    }
+   ],
+   "parent": "joinrow"
+  },
+  {
+   "id": "join-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Join",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "join"
+  },
+  {
+   "id": "right",
+   "name": "Right",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "column",
+      "backgroundColor": [
+       0.05,
+       0.07,
+       0.1,
+       0.74
+      ],
+      "borderRadius": 14,
+      "padding": 22,
+      "gap": 12,
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "home"
+  },
+  {
+   "id": "roomslabel",
+   "name": "RoomsLabel",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Open rooms",
+      "fontSize": 22,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "right"
+  },
+  {
+   "id": "room0",
+   "name": "Room0",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.05
+      ],
+      "borderRadius": 8,
+      "padding": 8
+     }
+    }
+   ],
+   "parent": "right",
+   "active": false
+  },
+  {
+   "id": "room0-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 18,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "room0"
+  },
+  {
+   "id": "room0-join",
+   "name": "Join",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 4,
+      "width": 90,
+      "height": 36
+     }
+    }
+   ],
+   "parent": "room0"
+  },
+  {
+   "id": "room0-join-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Join",
+      "fontSize": 16,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "room0-join"
+  },
+  {
+   "id": "room1",
+   "name": "Room1",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.05
+      ],
+      "borderRadius": 8,
+      "padding": 8
+     }
+    }
+   ],
+   "parent": "right",
+   "active": false
+  },
+  {
+   "id": "room1-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 18,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "room1"
+  },
+  {
+   "id": "room1-join",
+   "name": "Join",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 4,
+      "width": 90,
+      "height": 36
+     }
+    }
+   ],
+   "parent": "room1"
+  },
+  {
+   "id": "room1-join-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Join",
+      "fontSize": 16,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "room1-join"
+  },
+  {
+   "id": "room2",
+   "name": "Room2",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.05
+      ],
+      "borderRadius": 8,
+      "padding": 8
+     }
+    }
+   ],
+   "parent": "right",
+   "active": false
+  },
+  {
+   "id": "room2-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 18,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "room2"
+  },
+  {
+   "id": "room2-join",
+   "name": "Join",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 4,
+      "width": 90,
+      "height": 36
+     }
+    }
+   ],
+   "parent": "room2"
+  },
+  {
+   "id": "room2-join-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Join",
+      "fontSize": 16,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "room2-join"
+  },
+  {
+   "id": "room3",
+   "name": "Room3",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.05
+      ],
+      "borderRadius": 8,
+      "padding": 8
+     }
+    }
+   ],
+   "parent": "right",
+   "active": false
+  },
+  {
+   "id": "room3-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 18,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "room3"
+  },
+  {
+   "id": "room3-join",
+   "name": "Join",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 4,
+      "width": 90,
+      "height": 36
+     }
+    }
+   ],
+   "parent": "room3"
+  },
+  {
+   "id": "room3-join-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Join",
+      "fontSize": 16,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "room3-join"
+  },
+  {
+   "id": "norooms",
+   "name": "NoRooms",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "No open rooms yet. Make one, or try a quick match!",
+      "fontSize": 17,
+      "color": [
+       0.75,
+       0.8,
+       0.86,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "right"
+  },
+  {
+   "id": "spacer",
+   "name": "Spacer",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "right"
+  },
+  {
+   "id": "serverlabel",
+   "name": "ServerLabel",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Play on a server",
+      "fontSize": 22,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "right"
+  },
+  {
+   "id": "serverrow",
+   "name": "ServerRow",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "gap": 10
+     }
+    }
+   ],
+   "parent": "right"
+  },
+  {
+   "id": "url",
+   "name": "Url",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIInputField",
+     "data": {
+      "placeholder": "ws://localhost:7777",
+      "fontSize": 18,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.08
+      ],
+      "borderRadius": 6,
+      "borderWidth": 1,
+      "borderColor": [
+       1,
+       1,
+       1,
+       0.25
+      ],
+      "padding": 10,
+      "height": 42,
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "serverrow"
+  },
+  {
+   "id": "connect",
+   "name": "Connect",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 6,
+      "width": 150,
+      "height": 42
+     }
+    }
+   ],
+   "parent": "serverrow"
+  },
+  {
+   "id": "connect-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Join Server",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "connect"
+  },
+  {
+   "id": "local",
+   "name": "Local",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 6,
+      "width": 90,
+      "height": 42
+     }
+    }
+   ],
+   "parent": "serverrow",
+   "active": false
+  },
+  {
+   "id": "local-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Local",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "local"
+  },
+  {
+   "id": "serverhint",
+   "name": "ServerHint",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Start one with: npm run server -- samples/pirates",
+      "fontSize": 15,
+      "color": [
+       0.75,
+       0.8,
+       0.86,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "right"
+  },
+  {
+   "id": "roomview",
+   "name": "Room",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "gap": 20,
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "screen",
+   "active": false
+  },
+  {
+   "id": "crew",
+   "name": "Crew",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "column",
+      "backgroundColor": [
+       0.05,
+       0.07,
+       0.1,
+       0.74
+      ],
+      "borderRadius": 14,
+      "padding": 22,
+      "gap": 8,
+      "width": 470
+     }
+    }
+   ],
+   "parent": "roomview"
+  },
+  {
+   "id": "roomtitle",
+   "name": "RoomTitle",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Room",
+      "fontSize": 28,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "crew"
+  },
+  {
+   "id": "roomcode",
+   "name": "RoomCode",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 17,
+      "color": [
+       0.75,
+       0.8,
+       0.86,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "crew"
+  },
+  {
+   "id": "slot0",
+   "name": "Slot0",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 12,
+      "height": 38,
+      "borderRadius": 8,
+      "padding": 8,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.04
+      ]
+     }
+    }
+   ],
+   "parent": "crew",
+   "active": false
+  },
+  {
+   "id": "slot0-swatch",
+   "name": "Swatch",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "width": 20,
+      "height": 20,
+      "borderRadius": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       1
+      ]
+     }
+    }
+   ],
+   "parent": "slot0"
+  },
+  {
+   "id": "slot0-name",
+   "name": "Name",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 19,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "slot0"
+  },
+  {
+   "id": "slot0-tag",
+   "name": "Tag",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 15,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "slot0"
+  },
+  {
+   "id": "slot1",
+   "name": "Slot1",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 12,
+      "height": 38,
+      "borderRadius": 8,
+      "padding": 8,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.04
+      ]
+     }
+    }
+   ],
+   "parent": "crew",
+   "active": false
+  },
+  {
+   "id": "slot1-swatch",
+   "name": "Swatch",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "width": 20,
+      "height": 20,
+      "borderRadius": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       1
+      ]
+     }
+    }
+   ],
+   "parent": "slot1"
+  },
+  {
+   "id": "slot1-name",
+   "name": "Name",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 19,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "slot1"
+  },
+  {
+   "id": "slot1-tag",
+   "name": "Tag",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 15,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "slot1"
+  },
+  {
+   "id": "slot2",
+   "name": "Slot2",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 12,
+      "height": 38,
+      "borderRadius": 8,
+      "padding": 8,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.04
+      ]
+     }
+    }
+   ],
+   "parent": "crew",
+   "active": false
+  },
+  {
+   "id": "slot2-swatch",
+   "name": "Swatch",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "width": 20,
+      "height": 20,
+      "borderRadius": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       1
+      ]
+     }
+    }
+   ],
+   "parent": "slot2"
+  },
+  {
+   "id": "slot2-name",
+   "name": "Name",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 19,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "slot2"
+  },
+  {
+   "id": "slot2-tag",
+   "name": "Tag",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 15,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "slot2"
+  },
+  {
+   "id": "slot3",
+   "name": "Slot3",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 12,
+      "height": 38,
+      "borderRadius": 8,
+      "padding": 8,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.04
+      ]
+     }
+    }
+   ],
+   "parent": "crew",
+   "active": false
+  },
+  {
+   "id": "slot3-swatch",
+   "name": "Swatch",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "width": 20,
+      "height": 20,
+      "borderRadius": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       1
+      ]
+     }
+    }
+   ],
+   "parent": "slot3"
+  },
+  {
+   "id": "slot3-name",
+   "name": "Name",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 19,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "slot3"
+  },
+  {
+   "id": "slot3-tag",
+   "name": "Tag",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 15,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "slot3"
+  },
+  {
+   "id": "slot4",
+   "name": "Slot4",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 12,
+      "height": 38,
+      "borderRadius": 8,
+      "padding": 8,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.04
+      ]
+     }
+    }
+   ],
+   "parent": "crew",
+   "active": false
+  },
+  {
+   "id": "slot4-swatch",
+   "name": "Swatch",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "width": 20,
+      "height": 20,
+      "borderRadius": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       1
+      ]
+     }
+    }
+   ],
+   "parent": "slot4"
+  },
+  {
+   "id": "slot4-name",
+   "name": "Name",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 19,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "slot4"
+  },
+  {
+   "id": "slot4-tag",
+   "name": "Tag",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 15,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "slot4"
+  },
+  {
+   "id": "slot5",
+   "name": "Slot5",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 12,
+      "height": 38,
+      "borderRadius": 8,
+      "padding": 8,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.04
+      ]
+     }
+    }
+   ],
+   "parent": "crew",
+   "active": false
+  },
+  {
+   "id": "slot5-swatch",
+   "name": "Swatch",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "width": 20,
+      "height": 20,
+      "borderRadius": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       1
+      ]
+     }
+    }
+   ],
+   "parent": "slot5"
+  },
+  {
+   "id": "slot5-name",
+   "name": "Name",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 19,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "slot5"
+  },
+  {
+   "id": "slot5-tag",
+   "name": "Tag",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 15,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "slot5"
+  },
+  {
+   "id": "slot6",
+   "name": "Slot6",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 12,
+      "height": 38,
+      "borderRadius": 8,
+      "padding": 8,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.04
+      ]
+     }
+    }
+   ],
+   "parent": "crew",
+   "active": false
+  },
+  {
+   "id": "slot6-swatch",
+   "name": "Swatch",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "width": 20,
+      "height": 20,
+      "borderRadius": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       1
+      ]
+     }
+    }
+   ],
+   "parent": "slot6"
+  },
+  {
+   "id": "slot6-name",
+   "name": "Name",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 19,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "slot6"
+  },
+  {
+   "id": "slot6-tag",
+   "name": "Tag",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 15,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "slot6"
+  },
+  {
+   "id": "slot7",
+   "name": "Slot7",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 12,
+      "height": 38,
+      "borderRadius": 8,
+      "padding": 8,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       0.04
+      ]
+     }
+    }
+   ],
+   "parent": "crew",
+   "active": false
+  },
+  {
+   "id": "slot7-swatch",
+   "name": "Swatch",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "width": 20,
+      "height": 20,
+      "borderRadius": 10,
+      "backgroundColor": [
+       1,
+       1,
+       1,
+       1
+      ]
+     }
+    }
+   ],
+   "parent": "slot7"
+  },
+  {
+   "id": "slot7-name",
+   "name": "Name",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 19,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal",
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "slot7"
+  },
+  {
+   "id": "slot7-tag",
+   "name": "Tag",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 15,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "slot7"
+  },
+  {
+   "id": "side",
+   "name": "Side",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "column",
+      "gap": 16,
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "roomview"
+  },
+  {
+   "id": "settings",
+   "name": "Settings",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "column",
+      "backgroundColor": [
+       0.05,
+       0.07,
+       0.1,
+       0.74
+      ],
+      "borderRadius": 14,
+      "padding": 22,
+      "gap": 10
+     }
+    }
+   ],
+   "parent": "side"
+  },
+  {
+   "id": "settingslabel",
+   "name": "SettingsLabel",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Settings",
+      "fontSize": 22,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "settings"
+  },
+  {
+   "id": "arena",
+   "name": "Arena",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 10
+     }
+    }
+   ],
+   "parent": "settings"
+  },
+  {
+   "id": "arena-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Arena",
+      "fontSize": 18,
+      "color": [
+       0.75,
+       0.8,
+       0.86,
+       1
+      ],
+      "fontWeight": "normal",
+      "width": 150
+     }
+    }
+   ],
+   "parent": "arena"
+  },
+  {
+   "id": "arena-prev",
+   "name": "Prev",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 4,
+      "width": 44,
+      "height": 38
+     }
+    }
+   ],
+   "parent": "arena"
+  },
+  {
+   "id": "arena-prev-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "<",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "arena-prev"
+  },
+  {
+   "id": "arena-value",
+   "name": "Value",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium",
+      "width": 170,
+      "textAlign": "center"
+     }
+    }
+   ],
+   "parent": "arena"
+  },
+  {
+   "id": "arena-next",
+   "name": "Next",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 4,
+      "width": 44,
+      "height": 38
+     }
+    }
+   ],
+   "parent": "arena"
+  },
+  {
+   "id": "arena-next-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": ">",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "arena-next"
+  },
+  {
+   "id": "length",
+   "name": "Length",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 10
+     }
+    }
+   ],
+   "parent": "settings"
+  },
+  {
+   "id": "length-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Match length",
+      "fontSize": 18,
+      "color": [
+       0.75,
+       0.8,
+       0.86,
+       1
+      ],
+      "fontWeight": "normal",
+      "width": 150
+     }
+    }
+   ],
+   "parent": "length"
+  },
+  {
+   "id": "length-prev",
+   "name": "Prev",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 4,
+      "width": 44,
+      "height": 38
+     }
+    }
+   ],
+   "parent": "length"
+  },
+  {
+   "id": "length-prev-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "<",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "length-prev"
+  },
+  {
+   "id": "length-value",
+   "name": "Value",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium",
+      "width": 170,
+      "textAlign": "center"
+     }
+    }
+   ],
+   "parent": "length"
+  },
+  {
+   "id": "length-next",
+   "name": "Next",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 4,
+      "width": 44,
+      "height": 38
+     }
+    }
+   ],
+   "parent": "length"
+  },
+  {
+   "id": "length-next-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": ">",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "length-next"
+  },
+  {
+   "id": "ships",
+   "name": "Ships",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "alignItems": "center",
+      "gap": 10
+     }
+    }
+   ],
+   "parent": "settings"
+  },
+  {
+   "id": "ships-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Ships",
+      "fontSize": 18,
+      "color": [
+       0.75,
+       0.8,
+       0.86,
+       1
+      ],
+      "fontWeight": "normal",
+      "width": 150
+     }
+    }
+   ],
+   "parent": "ships"
+  },
+  {
+   "id": "ships-prev",
+   "name": "Prev",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 4,
+      "width": 44,
+      "height": 38
+     }
+    }
+   ],
+   "parent": "ships"
+  },
+  {
+   "id": "ships-prev-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "<",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "ships-prev"
+  },
+  {
+   "id": "ships-value",
+   "name": "Value",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium",
+      "width": 170,
+      "textAlign": "center"
+     }
+    }
+   ],
+   "parent": "ships"
+  },
+  {
+   "id": "ships-next",
+   "name": "Next",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 4,
+      "width": 44,
+      "height": 38
+     }
+    }
+   ],
+   "parent": "ships"
+  },
+  {
+   "id": "ships-next-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": ">",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "ships-next"
+  },
+  {
+   "id": "results",
+   "name": "Results",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "column",
+      "backgroundColor": [
+       0.05,
+       0.07,
+       0.1,
+       0.74
+      ],
+      "borderRadius": 14,
+      "padding": 22,
+      "gap": 6
+     }
+    }
+   ],
+   "parent": "side",
+   "active": false
+  },
+  {
+   "id": "resultstitle",
+   "name": "ResultsTitle",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 22,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "results"
+  },
+  {
+   "id": "result0",
+   "name": "Result0",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 17,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "results"
+  },
+  {
+   "id": "result1",
+   "name": "Result1",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 17,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "results"
+  },
+  {
+   "id": "result2",
+   "name": "Result2",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 17,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "results"
+  },
+  {
+   "id": "result3",
+   "name": "Result3",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 17,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "results"
+  },
+  {
+   "id": "sidespacer",
+   "name": "Spacer",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexGrow": 1
+     }
+    }
+   ],
+   "parent": "side"
+  },
+  {
+   "id": "roomstatus",
+   "name": "RoomStatus",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 18,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "side"
+  },
+  {
+   "id": "buttons",
+   "name": "Buttons",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "gap": 12
+     }
+    }
+   ],
+   "parent": "side"
+  },
+  {
+   "id": "ready",
+   "name": "Ready",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 10,
+      "height": 54,
+      "width": 150
+     }
+    }
+   ],
+   "parent": "buttons"
+  },
+  {
+   "id": "ready-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Ready?",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "ready"
+  },
+  {
+   "id": "start",
+   "name": "Start",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.85,
+       0.6,
+       0.18,
+       1
+      ],
+      "hoverColor": [
+       0.95,
+       0.7,
+       0.26,
+       1
+      ],
+      "pressedColor": [
+       0.65,
+       0.45,
+       0.12,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 10,
+      "height": 54,
+      "width": 170
+     }
+    }
+   ],
+   "parent": "buttons"
+  },
+  {
+   "id": "start-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Start now",
+      "fontSize": 22,
+      "color": [
+       0.1,
+       0.07,
+       0.03,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "start"
+  },
+  {
+   "id": "leave",
+   "name": "Leave",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIButton",
+     "data": {
+      "backgroundColor": [
+       0.137,
+       0.188,
+       0.247,
+       1
+      ],
+      "hoverColor": [
+       0.2,
+       0.27,
+       0.35,
+       1
+      ],
+      "pressedColor": [
+       0.1,
+       0.13,
+       0.17,
+       1
+      ],
+      "borderRadius": 8,
+      "padding": 10,
+      "height": 54,
+      "width": 120
+     }
+    }
+   ],
+   "parent": "buttons"
+  },
+  {
+   "id": "leave-label",
+   "name": "Label",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Leave",
+      "fontSize": 20,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "leave"
+  },
+  {
+   "id": "sailing",
+   "name": "Sailing",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "positionType": "absolute",
+      "top": 0,
+      "left": 0,
+      "width": "100%",
+      "height": "100%",
+      "justifyContent": "center",
+      "alignItems": "center",
+      "backgroundColor": [
+       0.05,
+       0.07,
+       0.1,
+       0.55
+      ]
+     }
+    }
+   ],
+   "parent": "screen",
+   "active": false
+  },
+  {
+   "id": "sailingtext",
+   "name": "Text",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Raising the sails...",
+      "fontSize": 40,
+      "color": [
+       1,
+       0.85,
+       0.45,
+       1
+      ],
+      "fontWeight": "bold"
+     }
+    }
+   ],
+   "parent": "sailing"
+  },
+  {
+   "id": "footer",
+   "name": "Footer",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIPanel",
+     "data": {
+      "flexDirection": "row",
+      "justifyContent": "space-between",
+      "alignItems": "center"
+     }
+    }
+   ],
+   "parent": "screen"
+  },
+  {
+   "id": "help",
+   "name": "Help",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "Steer with the mouse.  A / D pick a battery.  Space fires.  F drops a ghost ship's fog.",
+      "fontSize": 15,
+      "color": [
+       0.95,
+       0.93,
+       0.85,
+       1
+      ],
+      "fontWeight": "normal"
+     }
+    }
+   ],
+   "parent": "footer"
+  },
+  {
+   "id": "error",
+   "name": "Error",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIText",
+     "data": {
+      "text": "",
+      "fontSize": 16,
+      "color": [
+       1,
+       0.55,
+       0.45,
+       1
+      ],
+      "fontWeight": "medium"
+     }
+    }
+   ],
+   "parent": "footer"
+  }
+ ]
+}

@@ -6,7 +6,7 @@ import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "shadergraph" | "shadersubgraph" | "particles" | "environment" | "json" | "script" | "javascript" | "other";
+export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "shadergraph" | "shadersubgraph" | "particles" | "formation" | "environment" | "json" | "script" | "javascript" | "other";
 
 /** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
 export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
@@ -34,6 +34,7 @@ export function assetKind(path: string): AssetKind {
   if (p.endsWith(".shadergraph.json")) return "shadergraph";
   if (p.endsWith(".shadersubgraph.json")) return "shadersubgraph";
   if (p.endsWith(".particles.json")) return "particles";
+  if (p.endsWith(".formation.json")) return "formation";
   if (p.endsWith(".json")) return "json";
   if (p.endsWith(".ts") && !p.endsWith(".d.ts")) return "script";
   if (p.endsWith(".js")) return "javascript";

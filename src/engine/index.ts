@@ -6,14 +6,17 @@ export { Engine, type EngineOptions } from "./core/Engine";
 export type { WorldKind, TimeState } from "./core/World";
 export type { Bootstrap, BootstrapConfig, BootstrapEngine, BootstrapSetting, LinkConfig, SystemSelection, WorldConfig, WorldHandle, WorldTag } from "./core/worlds";
 export type { NetworkTime } from "./net/time";
-export { Connection, ConnectionState, defineInput, defineRpc, type ConnectionNode, type ConnectionStateValue, type InputDef, type InputOptions, type InputStats, type RpcDef, type RpcRow, type RpcTarget } from "./net/messages";
+export { Connection, ConnectionState, defineInput, defineRpc, str, MAX_STR_BYTES, type ConnectionNode, type ConnectionStateValue, type InputDef, type InputOptions, type InputStats, type RpcDef, type RpcRow, type RpcSchema, type RpcTarget, type RpcValues, type StringType } from "./net/messages";
+export { Lobby, type LobbyConnectOptions, type LobbyProfile } from "./net/lobby/client";
+export { Match, type MatchInfo, type MatchPlayer } from "./net/lobby/match";
+export type { LobbyMe, LobbyMember, LobbyOptions, LobbyRoom, LobbyRoomInfo, LobbyRoomState, LobbyState } from "./net/lobby/protocol";
 export { Replicated } from "./net/Replicated";
 export { replicate, type DataReplication, type ReplicatedSettings, type ReplicationMode } from "./net/replication";
 export type { FieldEncoding } from "./net/codec";
 export { isResimulating, predictedTick } from "./net/prediction";
 export { Component, GameBehavior, Waits, type LifecycleHooks } from "./core/Component";
 export { Time } from "./core/Time";
-export { Color, Mathf, Quaternion, Vector2, Vector3, DEG2RAD, RAD2DEG, type Vec2Like, type Vec3Like, type Vec2Input, type Vec3Input } from "./core/math";
+export { Color, Mathf, Plane, Quaternion, Ray, Vector2, Vector3, DEG2RAD, RAD2DEG, type Vec2Like, type Vec3Like, type Vec2Input, type Vec3Input } from "./core/math";
 export { AssetRef, PlainObject, behavior, component, field, getComponentClass, getComponentId, getComponentOptions, getFields, registerComponent, type ComponentOptions, type FieldChoice, type FieldChoices, type FieldOptions, type FieldType, type ListFieldType } from "./core/registry";
 export { defineBuffer, defineComponent, f32, i32, u8, type BufferDef, type ColumnArray, type Columns, type DataComponentDef, type DataView, type ScalarType, type Schema } from "./core/data";
 export { defineSystem, type Phase, type Row, type SystemContext, type SystemDef } from "./core/systems";
@@ -30,7 +33,9 @@ export { Assets, type AssetSource } from "./scene/Assets";
 export type { ImportSettings, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
-export { Camera, Environment, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type LightType, type MaterialPropertyValue, type ParticlePropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";
+export { Camera, Environment, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type FogMode, type LightType, type MaterialPropertyValue, type ParticlePropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";
+export { Water, WaterSurface, type WaterSample } from "./render/water/WaterSurface";
+export type { WaterWave } from "./render/water/gerstner";
 
 export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
 export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D, type PhysicsMaterial, type PhysicsMaterial2D } from "./physics/Collider2D";
@@ -41,7 +46,16 @@ export { RigidBody, type RigidBodyConstraints } from "./physics/RigidBody";
 export { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type CapsuleDirection, type Collision } from "./physics/Collider";
 export { Physics, type RaycastHit } from "./physics/Physics";
 export { CollisionEvents, TriggerEvents, type PhysicsEvent } from "./physics/physics3d";
+export { Buoyancy, type BuoyancyMode } from "./physics/Buoyancy";
 
-export { Audio, AudioSource } from "./audio/AudioSource";
+export { NavAgent, NavAvoidanceObstacle, NavChunk, NavCostVolume, NavFlowGoal, NavGate, NavGroup, NavModifierVolume, NavObstacle, NavResolutionVolume, NavSurface, NavSurround, type NavMode, type NavPathState, type NavWaypoint } from "./nav/components";
+export { Navigation, type NavNearestPoint, type NavPathResult, type NavPathStatus, type NavRaycastHit } from "./nav/Navigation";
+export type { NavDebugSettings } from "./nav/navigationSystems";
+export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
+
+export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlign, type UICanvasMode, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UIPositionType, type UITextAlign, type UIWordBreak } from "./ui/components";
+
+export { Audio, AudioSource, type OneShotOptions, type Rolloff } from "./audio/AudioSource";
+export { AudioListener } from "./audio/AudioListener";
 export { Input } from "./input/Input";
 export { Storage, MemoryStorage, type StorageBackend } from "./platform/Storage";

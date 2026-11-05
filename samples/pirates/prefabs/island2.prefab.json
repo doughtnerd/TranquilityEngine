@@ -1,0 +1,101 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "island2",
+      "name": "Island2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "pirates.Obstacle",
+          "data": {
+            "radius": 3.6
+          }
+        }
+      ]
+    },
+    {
+      "id": "island2-land",
+      "name": "Land",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/island2.obj#Land"
+          }
+        }
+      ],
+      "parent": "island2"
+    },
+    {
+      "id": "island2-palms",
+      "name": "Palms",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/island2.obj#Palms"
+          }
+        }
+      ],
+      "parent": "island2"
+    },
+    {
+      "id": "island2-stones",
+      "name": "Stones",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/island2.obj#Stones"
+          }
+        }
+      ],
+      "parent": "island2"
+    },
+    {
+      "id": "island2-nav",
+      "name": "Nav Footprint",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "scale": [
+              7.2,
+              0.75,
+              7.2
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshCollider",
+          "data": {
+            "mesh": "builtin:cylinder"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {
+            "source": "collider"
+          }
+        }
+      ],
+      "parent": "island2"
+    }
+  ]
+}

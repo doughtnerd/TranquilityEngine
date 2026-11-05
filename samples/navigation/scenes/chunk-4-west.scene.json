@@ -1,0 +1,1073 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "navigation",
+      "name": "Navigation",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.NavChunk",
+          "data": {
+            "useChunkBounds": true,
+            "center": [
+              -128,
+              20,
+              0
+            ],
+            "size": [
+              128,
+              48,
+              128
+            ],
+            "collect": "none",
+            "scope": "scene",
+            "skipAgents": [],
+            "bake": "asset:scenes/chunk-4-west.nav.bin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "geometry",
+      "name": "Geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "ground",
+      "name": "Ground",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -128,
+              -0.5,
+              0
+            ],
+            "scale": [
+              128,
+              1,
+              128
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/ground.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "jump-course",
+      "name": "Jump course",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "side-wall-west",
+      "name": "Side wall west",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -184.5,
+              2.5,
+              -30
+            ],
+            "scale": [
+              1,
+              5,
+              46
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "side-wall-west-cap-obstacle",
+      "name": "Side wall west cap (obstacle)",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -184.5,
+              5.5,
+              -30
+            ],
+            "scale": [
+              1,
+              1,
+              46
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "side-wall-east",
+      "name": "Side wall east",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -175.5,
+              2.5,
+              -30
+            ],
+            "scale": [
+              1,
+              5,
+              46
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "side-wall-east-cap-obstacle",
+      "name": "Side wall east cap (obstacle)",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -175.5,
+              5.5,
+              -30
+            ],
+            "scale": [
+              1,
+              1,
+              46
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "end-wall",
+      "name": "End wall",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              2.5,
+              -7.5
+            ],
+            "scale": [
+              8,
+              5,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "end-wall-cap-obstacle",
+      "name": "End wall cap (obstacle)",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              5.5,
+              -7.5
+            ],
+            "scale": [
+              8,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "end-wall-2",
+      "name": "End wall",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              2.5,
+              -52.5
+            ],
+            "scale": [
+              8,
+              5,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "end-wall-cap-obstacle-2",
+      "name": "End wall cap (obstacle)",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              5.5,
+              -52.5
+            ],
+            "scale": [
+              8,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "block-1-jump-up-2-m",
+      "name": "Block 1 (jump up 2 m)",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              1,
+              -21
+            ],
+            "scale": [
+              8,
+              2,
+              6
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "block-2-across-the-pit",
+      "name": "Block 2 (across the pit)",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              1,
+              -30.5
+            ],
+            "scale": [
+              8,
+              2,
+              5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "block-3-jump-up-again-drop-4-m-after",
+      "name": "Block 3 (jump up again, drop 4 m after)",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              2,
+              -37.5
+            ],
+            "scale": [
+              8,
+              4,
+              5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "step-the-way-back-up",
+      "name": "Step (the way back up)",
+      "parent": "jump-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -178,
+              1,
+              -44
+            ],
+            "scale": [
+              4,
+              2,
+              4
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "climb-course",
+      "name": "Climb course",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "side-wall-west-2",
+      "name": "Side wall west",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -184.5,
+              3.5,
+              30
+            ],
+            "scale": [
+              1,
+              7,
+              46
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "side-wall-west-cap-obstacle-2",
+      "name": "Side wall west cap (obstacle)",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -184.5,
+              7.5,
+              30
+            ],
+            "scale": [
+              1,
+              1,
+              46
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "side-wall-east-2",
+      "name": "Side wall east",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -175.5,
+              3.5,
+              30
+            ],
+            "scale": [
+              1,
+              7,
+              46
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "side-wall-east-cap-obstacle-2",
+      "name": "Side wall east cap (obstacle)",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -175.5,
+              7.5,
+              30
+            ],
+            "scale": [
+              1,
+              1,
+              46
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "end-wall-3",
+      "name": "End wall",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              3.5,
+              52.5
+            ],
+            "scale": [
+              8,
+              7,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "end-wall-cap-obstacle-3",
+      "name": "End wall cap (obstacle)",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              7.5,
+              52.5
+            ],
+            "scale": [
+              8,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "end-wall-4",
+      "name": "End wall",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              3.5,
+              7.5
+            ],
+            "scale": [
+              8,
+              7,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "end-wall-cap-obstacle-4",
+      "name": "End wall cap (obstacle)",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              7.5,
+              7.5
+            ],
+            "scale": [
+              8,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "wall-to-climb-5-m",
+      "name": "Wall to climb (5 m)",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              2.5,
+              36.5
+            ],
+            "scale": [
+              8,
+              5,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "roof-walk-under-it",
+      "name": "Roof (walk under it)",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              6,
+              24
+            ],
+            "scale": [
+              8,
+              4,
+              8
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "lava-ground-modifier-volume-lava",
+      "name": "Lava (ground modifier volume, Lava)",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              1.5,
+              24
+            ]
+          }
+        },
+        {
+          "type": "engine.NavModifierVolume",
+          "data": {
+            "center": [
+              0,
+              -0.75,
+              0
+            ],
+            "size": [
+              9,
+              1.5,
+              8
+            ],
+            "area": "area-lava",
+            "appliesTo": "ground",
+            "agents": [
+              "e5c3a816-9f2b-4d7e-a165-3c9d5b2f8e05"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "lava-glow",
+      "name": "Lava glow",
+      "parent": "climb-course",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -180,
+              0.02,
+              24
+            ],
+            "scale": [
+              8,
+              0.04,
+              8
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/lava.material.json",
+            "castShadows": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "pillar-1",
+      "name": "Pillar 1",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -142.615,
+              3,
+              24.236
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-2",
+      "name": "Pillar 2",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -91.14,
+              3,
+              -39.043
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-3",
+      "name": "Pillar 3",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -124.44,
+              3,
+              -32.235
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-4",
+      "name": "Pillar 4",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -134.608,
+              3,
+              -42.809
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-5",
+      "name": "Pillar 5",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -85.433,
+              3,
+              32.196
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    }
+  ]
+}

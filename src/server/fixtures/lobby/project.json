@@ -1,0 +1,21 @@
+{
+  "name": "lobby-fixture",
+  "time": {
+    "fixedDeltaTime": 0.03333333333333333
+  },
+  "bootstrap": {
+    "worlds": [
+      { "name": "Menu", "scenes": [] },
+      {
+        "name": "Lobby",
+        "tags": ["server", "lobby"],
+        "scenes": [],
+        "lobby": { "matchTemplate": "Match", "clientTemplate": "MatchClient", "maxPlayers": 2, "startCountdown": 0, "settings": { "arena": ["bay", "open"] } }
+      }
+    ],
+    "templates": {
+      "Match": { "tags": ["server", "match"], "scenes": [] },
+      "MatchClient": { "tags": ["client", "match"], "scenes": [] }
+    }
+  }
+}

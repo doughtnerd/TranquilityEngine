@@ -1,0 +1,67 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "rock3",
+      "name": "Rock3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "pirates.Obstacle",
+          "data": {
+            "radius": 2.4
+          }
+        }
+      ]
+    },
+    {
+      "id": "rock3-rock3",
+      "name": "Rock3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/rock3.obj#Rock3"
+          }
+        }
+      ],
+      "parent": "rock3"
+    },
+    {
+      "id": "rock3-nav",
+      "name": "Nav Footprint",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "scale": [
+              4.8,
+              0.75,
+              4.8
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshCollider",
+          "data": {
+            "mesh": "builtin:cylinder"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {
+            "source": "collider"
+          }
+        }
+      ],
+      "parent": "rock3"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+[package]
+name = "nav-bake"
+description = "Foxfire's bake pipeline in Rust (ADR 0065): orientation bins, triangle classification and bucketing, tiles, the stitcher (folds, jumps, seams), chunk borders, the flight volume and landing links."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nav-math.workspace = true
+nav-recast.workspace = true
+nav-format.workspace = true

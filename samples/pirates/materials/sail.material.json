@@ -1,0 +1,7 @@
+{
+  "format": "myco.material@1",
+  "color": "#ffffff",
+  "texture": "asset:textures/sail.png",
+  "roughness": 0.95,
+  "doubleSided": true
+}

@@ -97,8 +97,12 @@ import type { NetworkTime } from "./time";
 import "./transport/loopback";
 import "./transport/websocket";
 
-/** Bumped whenever the wire format or handshake changes; both ends must match. (2: field shapes in replication spawns.) */
-export const NET_PROTOCOL_VERSION = 2;
+/**
+ * Bumped whenever the wire format or handshake changes; both ends must match. (2: field shapes in
+ * replication spawns. 3: a join ticket at the end of `hello`, `str` RPC fields and replicated
+ * string behavior fields, ADR 0067/0068.)
+ */
+export const NET_PROTOCOL_VERSION = 3;
 
 /** How often a client pings its server, for RTT and the server-tick estimate. */
 export const PING_INTERVAL_MS = 100;
@@ -144,8 +148,8 @@ export interface RpcEntry {
   readonly id: string;
   /** Its id and schema, compared in the handshake: `game.Ready(team:u8)`. */
   readonly descriptor: string;
-  /** Decode a received body to values. */
-  decode(data: Uint8Array): Record<string, number>;
+  /** Decode a received body to values (numbers, and strings for `str` fields). */
+  decode(data: Uint8Array): Record<string, number | string>;
 }
 
 const rpcs = new Map<string, RpcEntry>();
@@ -220,6 +224,11 @@ export class NetPeer {
   openedAt = 0;
   /** When anything last arrived on it, for the idle timeout. */
   heardAt = 0;
+  /**
+   * The join ticket the client's `hello` carried ("" for none; ADR 0068: a match World admits
+   * only connections with a ticket it issued). On a client, the ticket it sends.
+   */
+  ticket = "";
   private ackedTick = 0;
   /** RPC wire numbers by id, and RPCs by wire number. Filled when the handshake completes. */
   rpcOut = new Map<string, number>();
@@ -267,6 +276,10 @@ type MutableNetworkTime = { -readonly [K in keyof NetworkTime]: NetworkTime[K] }
 /** A listening transport of a server session. */
 interface Listener {
   readonly transport: Transport;
+  /** The transport's registered name. */
+  readonly transportName: string;
+  /** The address it was asked to listen at (before the transport resolved it, e.g. "7777" or "engine-1/Server"). */
+  readonly listenedAt: string;
   /** Resolves with the address clients in this process connect to. */
   ready: Promise<string>;
   /** Set once listening (synchronously, for transports that can). */
@@ -302,6 +315,11 @@ export class NetSession {
   idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS;
   /** Server: connections accepted at once. */
   maxConnections = DEFAULT_MAX_CONNECTIONS;
+  /**
+   * @internal Server (ADR 0068): checks a client's join ticket during the handshake; returns a
+   * refusal reason, or null to accept. Null (the default): every ticket, or none, is accepted.
+   */
+  admit: ((ticket: string, peer: NetPeer) => string | null) | null = null;
 
   private role: "server" | "client" | null = null;
   private readonly transports: Transport[] = [];
@@ -354,8 +372,13 @@ export class NetSession {
   }
 
   /** @internal Editor: where this server listens, per transport (the Worlds panel matches clients to it, ADR 0062). */
-  listening(): { transport: string; address: string }[] {
-    return [...this.listeners].flatMap(([key, l]) => (l.address === null ? [] : [{ transport: key.slice(0, key.indexOf("|")), address: l.address }]));
+  listening(): { transport: string; address: string; listenedAt: string }[] {
+    return [...this.listeners.values()].flatMap((l) => (l.address === null ? [] : [{ transport: l.transportName, address: l.address, listenedAt: l.listenedAt }]));
+  }
+
+  /** @internal Whether this session already listens (or is starting to) over `transportName` at the address `options` give. */
+  listensAt(transportName: string, options: Record<string, unknown>): boolean {
+    return this.listeners.has(`${transportName}|${listenAddress(this.world, transportName, options)}`);
   }
 
   /** The peer whose connection node is `node`, or null. */
@@ -393,7 +416,7 @@ export class NetSession {
     this.applyOptions(options);
     if (typeof options.maxConnections === "number" && options.maxConnections >= 1) this.maxConnections = Math.floor(options.maxConnections);
     this.transports.push(transport);
-    const listener: Listener = { transport, ready: Promise.resolve(address), address: null };
+    const listener: Listener = { transport, transportName, listenedAt: address, ready: Promise.resolve(address), address: null };
     this.listeners.set(key, listener);
     listener.ready = (async () => {
       try {
@@ -427,6 +450,7 @@ export class NetSession {
     this.transports.push(transport);
     const link = transport.connect(address);
     const peer = new NetPeer(link, transport);
+    if (typeof options.ticket === "string") peer.ticket = options.ticket; // ADR 0068: sent in hello
     peer.openedAt = peer.heardAt = this.nowMs();
     peer.node = this.createNode("Connection (server)", 0, ConnectionState.connecting);
     this.peers.set(link, peer);
@@ -683,6 +707,7 @@ export class NetSession {
     const kinds = [...messageKinds].sort();
     w.writeVarUint(kinds.length);
     for (const k of kinds) w.writeString(k);
+    w.writeString(peer.ticket); // ADR 0068: a match World's join ticket ("" for none)
     this.helloSentAt = this.nowMs();
     this.transmit(peer, "reliable", MSG_HELLO, 0, w.finish());
   }
@@ -694,6 +719,8 @@ export class NetSession {
     const client = r.readString();
     const theirRpcs = readStrings(r);
     const theirKinds = readStrings(r);
+    // The ticket is optional on the wire: a hello written without one ends here.
+    peer.ticket = r.remaining >= 8 ? r.readString() : "";
     const who = `World "${client}"`;
     let reason = "";
     if (version !== NET_PROTOCOL_VERSION) {
@@ -709,6 +736,13 @@ export class NetSession {
         setMismatch("RPC", theirRpcs, [...rpcs.values()].map((e) => e.descriptor)) ||
         setMismatch("input", theirKinds.filter(isInput).map(input), messageKinds.filter(isInput).map(input)) ||
         setMismatch("message kind", theirKinds.filter((k) => !isInput(k)), messageKinds.filter((k) => !isInput(k)), " (the client and server run different engine versions)");
+    }
+    if (!reason && this.admit) {
+      try {
+        reason = this.admit(peer.ticket, peer) ?? "";
+      } catch (err) {
+        reason = `The server World "${this.world.name}" couldn't check the join ticket: ${(err as Error).message}`;
+      }
     }
     if (reason) {
       peer.link.close(reason);
@@ -962,16 +996,45 @@ function isDestroyed(world: World): boolean {
 const engineNumbers = new WeakMap<object, number>();
 let nextEngineNumber = 1;
 
+/**
+ * Defaults for listens that give no address or port, per transport name (ADR 0067): the dedicated
+ * server sets the WebSocket one to its first server World's port (and `--host`), so every World
+ * created at runtime that listens without a port shares that port, by path.
+ */
+const listenDefaults = new Map<string, { port?: number; host?: string }>();
+
+/** @internal Set (or with null, clear) the default port and host for `transportName` listens that don't give one. */
+export function setDefaultListenOptions(transportName: string, defaults: { port?: number; host?: string } | null): void {
+  if (defaults) listenDefaults.set(transportName, { ...defaults });
+  else listenDefaults.delete(transportName);
+}
+
+/** A listen `path` option, normalized to start with "/"; undefined if none. */
+function pathOption(options: Record<string, unknown>): string | undefined {
+  const path = options.path;
+  if (typeof path !== "string" || path === "" || path === "/") return undefined;
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
 function listenAddress(world: World, transportName: string, options: Record<string, unknown>): string {
   if (typeof options.address === "string" && options.address !== "") return options.address;
-  if (typeof options.port === "number" || typeof options.port === "string") return String(options.port);
+  const path = pathOption(options);
   if (transportName === "loopback") {
+    if (typeof options.port === "number" || typeof options.port === "string") return `${options.port}${path ?? ""}`;
     const owner = (world._engine as object | null) ?? world;
     let n = engineNumbers.get(owner);
     if (n === undefined) engineNumbers.set(owner, (n = nextEngineNumber++));
-    return `engine-${n}/${world.name}`;
+    // A path just makes the address unique (ADR 0067): "engine-1/match/3".
+    return path ? `engine-${n}${path}` : `engine-${n}/${world.name}`;
   }
-  throw new Error(`World "${world.name}" can't listen over "${transportName}" without an address: give the link options.port or options.address.`);
+  const defaults = listenDefaults.get(transportName);
+  const port = typeof options.port === "number" || typeof options.port === "string" ? options.port : defaults?.port;
+  if (port === undefined) {
+    throw new Error(`World "${world.name}" can't listen over "${transportName}" without an address: give the link options.port or options.address.`);
+  }
+  const host = typeof options.host === "string" && options.host !== "" ? options.host : defaults?.host;
+  if (host) return `ws://${host.includes(":") ? `[${host}]` : host}:${port}${path ?? ""}`;
+  return `${port}${path ?? ""}`;
 }
 
 // --- encoding helpers ---------------------------------------------------------------------------

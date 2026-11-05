@@ -1,0 +1,10 @@
+[package]
+name = "nav-recast"
+description = "Navmesh generation: Foxfire's function-by-function port of DotRecast (itself a port of Recast), ported to Rust (ADR 0065)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nav-math.workspace = true

@@ -1,5 +1,7 @@
 import { parseGraphics, type GraphicsSettings } from "./graphics";
+import { parseNavigationSettings, type NavigationSettings } from "../nav/settings";
 import type { BootstrapSetting } from "./worlds";
+import { lobbyOptionProblems } from "../net/lobby/protocol";
 
 /** Project settings, normally loaded from the game's `project.json`. */
 export interface ProjectSettings {
@@ -34,6 +36,8 @@ export interface ProjectSettings {
   };
   /** Graphics quality tiers (ADR 0050). Omitted: Low, Medium, High and Ultra, defaulting to High. */
   graphics: GraphicsSettings;
+  /** Built-in navigation (ADR 0065): agent types, areas, voxel sizes, runtime budgets. Omitted: one person-sized walker. */
+  navigation: NavigationSettings;
   /** Scene/prefab files instanced under the World root at startup; they persist across scene loads (ADR 0016). */
   autoload: string[];
   /** Which Worlds the Engine creates at start (ADR 0032). Omitted: the default bootstrap, one World. */
@@ -55,6 +59,7 @@ export const defaultSettings: ProjectSettings = {
   physics: { gravity: [0, -9.81], layers: ["Default"] },
   render: { sortingLayers: ["Default"], pixelsPerUnit: 100 },
   graphics: parseGraphics(undefined).graphics,
+  navigation: parseNavigationSettings(undefined).settings,
   autoload: [],
 };
 
@@ -66,13 +71,19 @@ export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettin
     physics: { ...defaultSettings.physics, ...input.physics },
     render: { ...defaultSettings.render, ...input.render },
     graphics: parseGraphics(input.graphics).graphics, // problems are reported by the Engine and the Project panel
+    navigation: parseNavigationSettings(input.navigation).settings, // problems are reported by the Engine (`navigationSettingsProblems`) and the Project panel
     autoload: input.autoload ?? [],
     ...(input.bootstrap !== undefined ? { bootstrap: input.bootstrap } : {}), // checked by validateBootstrap when the bootstrap runs
   };
 }
 
+/** Everything wrong with a `navigation` section (ADR 0065), as readable sentences, like `parseGraphics(...).problems`. */
+export function navigationSettingsProblems(input: unknown): string[] {
+  return parseNavigationSettings(input).problems;
+}
+
 const BOOTSTRAP_KEYS = ["worlds", "links", "templates"];
-const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems"];
+const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems", "lobby"];
 const LINK_KEYS = ["from", "to", "transport", "options"];
 
 /**
@@ -165,6 +176,7 @@ function worldProblems(world: unknown, where: string, nameRequired: boolean, kno
     if (world[key] !== undefined && typeof world[key] !== "boolean") problems.push(`${where}: ${key} must be true or false (got ${describe(world[key])}).`);
   }
   if (world.scenes !== undefined && !isStringList(world.scenes)) problems.push(`${where}: scenes must be a list of scene paths (got ${describe(world.scenes)}).`);
+  if (world.lobby !== undefined) problems.push(...lobbyOptionProblems(world.lobby, `${where}: lobby`)); // ADR 0068
 
   const systems = world.systems;
   if (systems === undefined) return;

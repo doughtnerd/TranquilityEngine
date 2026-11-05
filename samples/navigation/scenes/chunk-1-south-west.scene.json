@@ -1,0 +1,662 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "navigation",
+      "name": "Navigation",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.NavChunk",
+          "data": {
+            "useChunkBounds": true,
+            "center": [
+              -128,
+              20,
+              128
+            ],
+            "size": [
+              128,
+              48,
+              128
+            ],
+            "collect": "none",
+            "scope": "scene",
+            "skipAgents": [
+              "d29f7b64-6e1c-4a3d-9f58-2b8c4d7e1a04",
+              "e5c3a816-9f2b-4d7e-a165-3c9d5b2f8e05"
+            ],
+            "bake": "asset:scenes/chunk-1-south-west.nav.bin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "geometry",
+      "name": "Geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "terrain",
+      "name": "Terrain",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -192,
+              0,
+              192
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "grass",
+      "name": "Grass",
+      "parent": "terrain",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/terrain.obj#Grass",
+            "material": "asset:materials/grass.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "mud-mud-area",
+      "name": "Mud (Mud area)",
+      "parent": "terrain",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/terrain.obj#Mud",
+            "material": "asset:materials/mud.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {
+            "area": "area-mud"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pond",
+      "name": "Pond",
+      "parent": "terrain",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              88,
+              0.324,
+              -40
+            ],
+            "scale": [
+              12,
+              0.2,
+              12
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/swamp.material.json",
+            "castShadows": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "trees",
+      "name": "Trees",
+      "parent": "terrain",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "tree-1",
+      "name": "Tree 1",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              56.762,
+              3.037,
+              -18.602
+            ],
+            "rotation": [
+              0,
+              250.562,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "tree-2",
+      "name": "Tree 2",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              62.628,
+              2.789,
+              -24.251
+            ],
+            "rotation": [
+              0,
+              297.399,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "tree-3",
+      "name": "Tree 3",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              101.273,
+              5.021,
+              -75.571
+            ],
+            "rotation": [
+              0,
+              20.148,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "tree-4",
+      "name": "Tree 4",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              72.164,
+              2.784,
+              -53.446
+            ],
+            "rotation": [
+              0,
+              248.172,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "tree-5",
+      "name": "Tree 5",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              56.423,
+              3.05,
+              -19.483
+            ],
+            "rotation": [
+              0,
+              46.906,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "tree-6",
+      "name": "Tree 6",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              22.64,
+              4.157,
+              -47.354
+            ],
+            "rotation": [
+              0,
+              182.371,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "tree-7",
+      "name": "Tree 7",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              110.359,
+              4.026,
+              -19.778
+            ],
+            "rotation": [
+              0,
+              103.769,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "tree-8",
+      "name": "Tree 8",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              39.629,
+              3.782,
+              -25.813
+            ],
+            "rotation": [
+              0,
+              74.822,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "tree-9",
+      "name": "Tree 9",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              36.568,
+              3.661,
+              -15.994
+            ],
+            "rotation": [
+              0,
+              293.625,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "tree-10",
+      "name": "Tree 10",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              66.05,
+              2.689,
+              -51.92
+            ],
+            "rotation": [
+              0,
+              218.178,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "tree-11",
+      "name": "Tree 11",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              44.912,
+              3.305,
+              -35.256
+            ],
+            "rotation": [
+              0,
+              215.275,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "tree-12",
+      "name": "Tree 12",
+      "parent": "trees",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              58.517,
+              3.244,
+              -63.375
+            ],
+            "rotation": [
+              0,
+              211.855,
+              0
+            ],
+            "scale": [
+              1.5,
+              3,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "wall",
+      "name": "Wall",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -128,
+              3,
+              64
+            ],
+            "scale": [
+              128,
+              6,
+              1
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    }
+  ]
+}

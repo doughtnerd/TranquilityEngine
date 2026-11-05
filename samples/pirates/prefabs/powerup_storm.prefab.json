@@ -1,0 +1,112 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "pickup",
+      "name": "PowerUp Storm",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "net.Replicated",
+          "data": {}
+        },
+        {
+          "type": "pirates.Pickup",
+          "data": {
+            "kind": 3
+          }
+        }
+      ]
+    },
+    {
+      "id": "visual",
+      "name": "Visual",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0.5,
+              0
+            ],
+            "scale": [
+              1.4,
+              1.4,
+              1.4
+            ]
+          }
+        }
+      ],
+      "parent": "pickup"
+    },
+    {
+      "id": "crate",
+      "name": "Crate",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/powerup_storm.obj#Crate"
+          }
+        }
+      ],
+      "parent": "visual"
+    },
+    {
+      "id": "icon",
+      "name": "Icon",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/powerup_storm.obj#Icon"
+          }
+        }
+      ],
+      "parent": "visual"
+    },
+    {
+      "id": "glow",
+      "name": "Glow",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              1.5,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "point",
+            "color": [
+              0.8,
+              0.8,
+              1,
+              1
+            ],
+            "intensity": 4,
+            "range": 7
+          }
+        }
+      ],
+      "parent": "visual"
+    }
+  ]
+}

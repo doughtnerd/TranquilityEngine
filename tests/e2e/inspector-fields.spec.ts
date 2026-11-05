@@ -38,6 +38,7 @@ const card = (page: Page, name: string) => page.locator(".inspector-body .compon
 
 async function addRoute(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Add Component" }).click();
+  await page.getByRole("searchbox", { name: "Search components" }).fill("Route");
   await page.getByRole("dialog", { name: "Add component" }).getByRole("option", { name: "Route" }).click();
   await expect(card(page, "Route")).toBeVisible();
 }

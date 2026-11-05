@@ -1,0 +1,84 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "island1",
+      "name": "Island1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "pirates.Obstacle",
+          "data": {
+            "radius": 3.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "island1-land",
+      "name": "Land",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/island1.obj#Land"
+          }
+        }
+      ],
+      "parent": "island1"
+    },
+    {
+      "id": "island1-palms",
+      "name": "Palms",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/island1.obj#Palms"
+          }
+        }
+      ],
+      "parent": "island1"
+    },
+    {
+      "id": "island1-nav",
+      "name": "Nav Footprint",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "scale": [
+              6.0,
+              0.75,
+              6.0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshCollider",
+          "data": {
+            "mesh": "builtin:cylinder"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {
+            "source": "collider"
+          }
+        }
+      ],
+      "parent": "island1"
+    }
+  ]
+}

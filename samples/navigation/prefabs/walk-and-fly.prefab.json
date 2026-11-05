@@ -1,0 +1,39 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "walk-and-fly",
+      "name": "Walk and fly",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              2,
+              1.5,
+              2
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:capsule",
+            "material": "asset:materials/walkFly.material.json"
+          }
+        },
+        {
+          "type": "engine.NavAgent",
+          "data": {
+            "agentType": "b84e1c37-2d5a-4e9b-8c43-1f7a6e9d3b03"
+          }
+        }
+      ]
+    }
+  ]
+}

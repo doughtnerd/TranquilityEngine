@@ -50,6 +50,8 @@ export interface WorldConfig {
   /** Scenes loaded when the World starts, in order (the first replaces, the rest are additive). */
   scenes?: readonly string[];
   systems?: SystemSelection;
+  /** Turn on the lobby service in this server World (ADR 0068): see `LobbyOptions` and the multiplayer guide. */
+  lobby?: import("../net/lobby/protocol").LobbyOptions;
 }
 
 /** A transport link between two Worlds (ADR 0033). */
@@ -126,6 +128,14 @@ export interface WorldHandle {
    * or the address of a server elsewhere, such as a dedicated server's `"ws://host:7777"` (ADR 0036).
    */
   connect(server: WorldHandle | string, transport: string, options?: Record<string, unknown>): void;
+  /**
+   * Make this World a server and listen over a transport (ADR 0067). Resolves with the address
+   * clients connect to; rejects with a reason. Options: `port`, `host`, `path`, `address`,
+   * `maxConnections` and timeouts. Throws if the World is a client.
+   */
+  listen(transport: string, options?: Record<string, unknown>): Promise<string>;
+  /** Where this World listens (ADR 0067). Empty if it doesn't. */
+  addresses(): readonly string[];
   pause(): void;
   resume(): void;
   /** Destroy the World and everything in it. */

@@ -5,7 +5,19 @@
 .project-settings-status { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
 .project-settings-status.saved { color: var(--success); }
 .project-settings-status.unsaved { color: var(--warning); }
-.project-settings-body { flex: 1; overflow: auto; min-height: 0; padding: 4px 8px 12px; }
+.project-settings-main { flex: 1; display: flex; min-height: 0; min-width: 0; }
+.project-settings-main.narrow { flex-direction: column; }
+.project-settings-categories { flex: none; width: 92px; display: flex; flex-direction: column; padding: 4px 0; overflow-y: auto; border-right: 1px solid var(--border); }
+.project-settings-category { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; box-sizing: border-box; padding: 5px 10px; border: 0; border-left: 2px solid transparent; border-radius: 0; background: transparent; color: var(--text); font-size: 12px; text-align: left; cursor: pointer; }
+.project-settings-category:hover { background: var(--hover); }
+.project-settings-category.selected { background: var(--active); border-left-color: var(--accent); font-weight: 600; }
+.project-settings-badge { flex: none; min-width: 14px; padding: 0 4px; border-radius: 8px; background: var(--danger-strong); color: var(--danger-text); font-size: 10px; line-height: 15px; text-align: center; }
+.project-settings-category-select { flex: none; margin: 6px 8px 0; }
+.project-settings-body { flex: 1; overflow: auto; min-height: 0; min-width: 0; padding: 4px 8px 12px; container-type: inline-size; }
+/* A narrow settings column (the default side dock): labels above their values, so neither is squeezed. */
+@container (max-width: 260px) {
+  .project-settings-row { grid-template-columns: 1fr; gap: 2px; margin-bottom: 6px; }
+}
 .project-settings-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
 .project-settings-section { padding: 6px 0 8px; border-bottom: 1px solid var(--border); }
 .project-settings-section:last-child { border-bottom: 0; }
@@ -56,3 +68,20 @@
 .tier-fields input[type="checkbox"] { align-self: flex-start; margin: 2px 0; }
 .tier-buttons { display: flex; gap: 2px; }
 .tier-buttons button.icon { flex: none; width: 22px; height: 22px; padding: 0; line-height: 1; }
+
+/* Navigation (ADR 0065): agent type cards reuse the tier cards. */
+.nav-settings .nav-id { margin: 0; font-family: monospace; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-card-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.nav-card-toggle input { margin: 0; }
+.nav-voxel-preview { margin: 0; font-size: 11px; color: var(--muted); }
+.nav-area-costs { display: flex; flex-direction: column; gap: 3px; }
+.nav-area-costs input[type="number"] { width: 70px; flex: none; background: var(--input-bg); color: var(--text); }
+.nav-inline { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.nav-area input[type="color"] { flex: none; width: 28px; height: 22px; padding: 0; border: 1px solid var(--border); background: transparent; }
+.nav-area input[type="number"] { width: 64px; flex: none; background: var(--input-bg); color: var(--text); }
+.nav-advanced { width: 100%; margin-top: 6px; }
+.nav-advanced summary { cursor: pointer; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.nav-advanced[open] summary { color: var(--text); }
+.nav-advanced > button { margin-top: 6px; }
+.nav-bake-all { display: flex; align-items: center; gap: 8px; margin-top: 8px; width: 100%; }
+.nav-bake-all .project-settings-hint { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -13,6 +13,10 @@ export const STEP_SECONDS = 1 / 60;
 export interface GameView {
   /** The main view's element: the Engine's container. */
   readonly main: HTMLElement;
+  /** The play bar's own tools (Gizmos, Stats), after the World strip. */
+  readonly tools: HTMLElement;
+  /** A layer over the whole game view for overlays such as Stats (it takes no clicks itself). */
+  readonly hud: HTMLElement;
   /**
    * Start following `engine`'s Worlds: tiles, input focus and the strip, updated every frame.
    * `thin`: multiplayer play's thin clients (ADR 0033 §9), noted as such in the strip.
@@ -37,7 +41,11 @@ export function createGameView(container: HTMLElement): GameView {
   const strip = div("world-strip");
   strip.setAttribute("role", "toolbar");
   strip.setAttribute("aria-label", "Worlds");
-  container.replaceChildren(tilesEl, strip);
+  const tools = div("play-tools");
+  const bar = div("play-bar");
+  bar.append(strip, tools);
+  const hud = div("play-hud");
+  container.replaceChildren(tilesEl, bar, hud);
 
   const makeTile = (): Omit<Tile, "detach"> & { surface: HTMLDivElement } => {
     const element = div("game-tile");
@@ -57,7 +65,9 @@ export function createGameView(container: HTMLElement): GameView {
   const update = (engine: Engine) => {
     const states = worldViewStates(engine);
     const main = states.find((s) => s.mainView) ?? null;
-    const others = states.filter((s) => s.renders && !s.mainView);
+    // A World that draws to a surface the game gave it (a lobby's match World, drawn over the paused
+    // menu, ADR 0068) isn't tiled: its surface is already on screen.
+    const others = states.filter((s) => s.renders && !s.mainView && (!s.extraView || tiles.has(s.name)));
 
     for (const [name, tile] of tiles) {
       if (others.some((s) => s.name === name)) continue;
@@ -68,7 +78,13 @@ export function createGameView(container: HTMLElement): GameView {
     for (const s of others) {
       if (tiles.has(s.name)) continue;
       const tile = makeTile();
-      const detach = attachWorldView(engine, s.name, tile.surface);
+      let detach: () => void;
+      try {
+        detach = attachWorldView(engine, s.name, tile.surface);
+      } catch (err) {
+        tile.element.remove(); // don't leave an empty tile behind each frame
+        throw err;
+      }
       tiles.set(s.name, { ...tile, detach });
       tile.element.addEventListener("pointerdown", () => engine.findWorld(s.name) && focusWorldInput(engine, s.name), { capture: true });
     }
@@ -133,6 +149,8 @@ export function createGameView(container: HTMLElement): GameView {
 
   return {
     main: mainTile.surface,
+    tools,
+    hud,
     attach(engine, options) {
       thin = new Set(options?.thin ?? []);
       mainTile.element.addEventListener("pointerdown", () => focusWorldInput(engine, null), { capture: true });

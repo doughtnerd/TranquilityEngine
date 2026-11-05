@@ -63,3 +63,9 @@ export const netConditionsSetting = persisted<{ latencyMs: number; jitterMs: num
   jitterMs: 0,
   lossPercent: 0,
 });
+
+/** The component types last added from the Add Component menu, newest first (at most 5). */
+export const recentComponents = persisted<string[]>("myco.editor.recentComponents", []);
+
+/** The Project panel's selected settings category (its title), remembered per user. */
+export const projectSettingsCategory = persisted("myco.editor.projectSettingsCategory", "Project");

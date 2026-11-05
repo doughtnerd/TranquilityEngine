@@ -1,0 +1,28 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "splash",
+      "name": "Splash",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere",
+            "material": "asset:materials/splash.material.json",
+            "castShadows": false,
+            "receiveShadows": false
+          }
+        },
+        {
+          "type": "pirates.Splash",
+          "data": {}
+        }
+      ]
+    }
+  ]
+}

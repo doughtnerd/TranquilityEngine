@@ -1,6 +1,6 @@
 # 0006. Audio: Howler + three.js positional audio
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0074 (spatial audio through Howler, not three.js PositionalAudio)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -1,0 +1,166 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "bolt",
+      "name": "Lightning",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "pirates.Bolt",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "bvisual",
+      "name": "Visual",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        }
+      ],
+      "parent": "bolt"
+    },
+    {
+      "id": "b1",
+      "name": "Segment 1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0.4,
+              30,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              4
+            ],
+            "scale": [
+              0.25,
+              20,
+              0.25
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/bolt.material.json",
+            "castShadows": false
+          }
+        }
+      ],
+      "parent": "bvisual"
+    },
+    {
+      "id": "b2",
+      "name": "Segment 2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -0.6,
+              12,
+              0.3
+            ],
+            "rotation": [
+              3,
+              0,
+              -6
+            ],
+            "scale": [
+              0.3,
+              14,
+              0.3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/bolt.material.json",
+            "castShadows": false
+          }
+        }
+      ],
+      "parent": "bvisual"
+    },
+    {
+      "id": "b3",
+      "name": "Segment 3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0.1,
+              3,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              3
+            ],
+            "scale": [
+              0.35,
+              6,
+              0.35
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cylinder",
+            "material": "asset:materials/bolt.material.json",
+            "castShadows": false
+          }
+        }
+      ],
+      "parent": "bvisual"
+    },
+    {
+      "id": "blight",
+      "name": "Flash",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              6,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "point",
+            "color": [
+              0.8,
+              0.9,
+              1,
+              1
+            ],
+            "intensity": 40,
+            "range": 40
+          }
+        }
+      ],
+      "parent": "bvisual"
+    }
+  ]
+}

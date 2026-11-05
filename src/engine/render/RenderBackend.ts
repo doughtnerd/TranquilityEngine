@@ -73,11 +73,12 @@ import { resolvePostEffects, type PostSettings, type ResolvedPost } from "./post
 import type { PostEffects, PostProcessStack, PostViewport, ToneMappingName } from "./PostProcessStack";
 import type { CascadedShadows, CascadeSettings } from "./cascadedShadows";
 import { loadEquirectangular, prefilter } from "./environmentMap";
+import { applyFog } from "./fog";
 import type { World, WorldKind } from "../core/World";
 import { Assets, sidecarValue } from "../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import type { GameObject } from "../scene/GameObject";
-import { Camera, Environment, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor } from "./components";
+import { Camera, Environment, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor } from "./components";
 import type { ParticlePreview, ParticleRenderer } from "./particles/ParticleRenderer";
 import type { ParticleRenderer as ParticleRendererSettings } from "../scene/particles";
 import { PROBE_RESOLUTION, ProbeCapture, pickProbe, type ProbeBox } from "./reflectionProbes";
@@ -93,6 +94,10 @@ import { frustumSegments } from "./cameraGizmo";
 import { localPoseFromWorld, type LocalPose } from "./gizmoMath";
 import { rayQuadDistance } from "./picking";
 import { spriteFrame } from "./spriteFrame";
+import { WaterRenderer } from "./water/WaterRenderer";
+import { WaterSurface } from "./water/WaterSurface";
+import { UICanvas, isUIComponent } from "../ui/components";
+import type { UIRuntime } from "../ui/UIRuntime";
 
 /** @internal Editor gizmo settings (ADR 0022). */
 export interface GizmoOptions {
@@ -117,6 +122,8 @@ export interface EditorOverlay {
   lines: { points: [number, number, number][]; closed: boolean; color: number }[];
   /** Handles drawn as fixed-size squares on top of everything; picked by `pickOverlayHandle`. */
   handles: { id: string; position: [number, number, number]; color: number }[];
+  /** Many loose segments in one colour (6 floats each: a xyz, b xyz), for big overlays like navmesh debug drawing. */
+  segments?: { positions: Float32Array; color: number }[];
 }
 
 /** @internal What the editor does with a gizmo drag: one start, many changes, one end. */
@@ -259,6 +266,9 @@ const tmpCorner = new ThreeVector3();
 /** The renderer's tone mapping for each PostProcessing `toneMapping` (ADR 0051). */
 const TONE_MAPPING: Record<ToneMappingName, ThreeToneMapping> = { none: NoToneMapping, aces: ACESFilmicToneMapping, agx: AgXToneMapping, neutral: NeutralToneMapping };
 
+/** Which editor helpers a composed (post-processed) camera draws after its effects; see `renderComposed`. */
+type ComposedHelpers = "editor" | "overlays" | "none";
+
 export class RenderBackend {
   readonly canvas: HTMLCanvasElement;
   private readonly renderer: WebGLRenderer;
@@ -337,6 +347,7 @@ export class RenderBackend {
     this.msaa = Graphics.tier.antialias === "msaa";
     this.renderer = new WebGLRenderer({ canvas: this.canvas, antialias: this.msaa });
     this.renderer.autoClear = false;
+    this.renderer.info.autoReset = false; // counted over a whole frame (every camera and the UI), reset in `render`
     // Shadows are on unless the tier says "off" (applyQuality): then materials are compiled with
     // shadows and a light that starts casting them later shows them at once.
     this.renderer.shadowMap.type = PCFShadowMap;
@@ -560,6 +571,10 @@ export class RenderBackend {
 
   /** @internal Release three.js objects for a removed component. */
   release(c: Component): void {
+    if (isUIComponent(c)) {
+      this.ui?.release(c);
+      return;
+    }
     if (c instanceof SpriteRenderer) {
       const e = this.sprites.get(c);
       if (e) {
@@ -594,6 +609,8 @@ export class RenderBackend {
       this.stacks.delete(c);
     } else if (c instanceof ParticleSystem) {
       this.particles?.release(c);
+    } else if (c instanceof WaterSurface) {
+      this.water?.release(c);
     } else if (c instanceof ReflectionProbe) {
       const p = this.probes.get(c);
       p?.capture?.dispose();
@@ -644,6 +661,18 @@ export class RenderBackend {
     const turn = env ? (env.rotation * Math.PI) / 180 : 0;
     s.environmentRotation.set(0, turn, 0);
     s.backgroundRotation.set(0, turn, 0);
+  }
+
+  /** The World's first enabled Fog sets the scene's distance fog, after the environment has set the sky (ADR 0071). */
+  private syncFog(world: World): void {
+    let fog: Fog | null = null;
+    for (const f of world._componentsOfType(Fog)) {
+      if (f.isActiveAndEnabled) {
+        fog = f;
+        break;
+      }
+    }
+    applyFog(this.scene, fog, this.clearColor);
   }
 
   private loadEnvironmentMap(path: string): void {
@@ -761,15 +790,24 @@ export class RenderBackend {
     for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
     this.syncLights(world);
     this.syncEnvironment(world);
+    this.syncFog(world);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     for (const t of world._componentsOfType(Text)) this.syncText(t);
     this.syncParticles(world);
+    this.syncWater(world);
+    this.syncUI(world);
     if (this.fill) {
       this.syncOutlines();
       this.syncCameraGizmos(world);
       this.syncLightGizmos(world);
       this.syncOverlay();
       this.syncGizmo(world);
+    } else {
+      if (this.overlayProvider || this.overlayLines?.visible || this.overlaySegments.length > 0) {
+        this.syncOverlay(); // a game with a debug overlay (navigation, ADR 0065); one more pass clears it when removed
+      }
+      // Play mode's live Inspector selection (the editor outlines it); one more pass hides the outlines when cleared.
+      if (this.outlined.size > 0 || this.outlines.some((o) => o.visible) || this.boxOutlines.some((o) => o.visible)) this.syncOutlines();
     }
   }
 
@@ -1052,6 +1090,13 @@ export class RenderBackend {
         material = m;
       } catch (err) {
         this.warnMaterial(path, `${(err as Error).message} Using the default material.`);
+      }
+    }
+    if (material && raw !== undefined) {
+      try {
+        (material as Material & { fog: boolean }).fog = parseMaterial(raw).settings.fog; // a material can opt out of the World's Fog (ADR 0071)
+      } catch {
+        /* already warned above */
       }
     }
     const deps = graph?.compiled.dependencies.map((p): [string, unknown] => [p, read(p)]);
@@ -1365,6 +1410,9 @@ export class RenderBackend {
     this.claim(world);
     if (Graphics._version !== this.appliedQuality) this.applyQuality();
     const r = this.renderer;
+    r.info.reset();
+    this.overlayDraws.last = this.overlayDraws.count;
+    this.overlayDraws.count = 0;
     this.graphUniforms.time.value = world.time.time;
     r.getDrawingBufferSize(this.graphUniforms.resolution.value);
     const cams = this.viewCameras(world);
@@ -1389,7 +1437,7 @@ export class RenderBackend {
       r.toneMappingExposure = resolved.exposure;
       r.setClearColor(c.backgroundColor ? new ThreeColor(c.backgroundColor.toHex()) : this.clearColor, 1);
       const stack = resolved.composer ? this.stackFor(c) : null; // null while the libraries load
-      if (stack && this.composeSafely(stack, resolved.composer!, camera, world.time.deltaTime, { overlay: i > 0 && !c.backgroundColor, viewport: full ? undefined : vp, helpers: i === 0 && this.fill })) {
+      if (stack && this.composeSafely(stack, resolved.composer!, camera, world.time.deltaTime, { overlay: i > 0 && !c.backgroundColor, viewport: full ? undefined : vp, helpers: i !== 0 ? "none" : this.fill ? "editor" : "overlays" })) {
         frame.composed = true;
         return;
       }
@@ -1404,6 +1452,7 @@ export class RenderBackend {
     r.clearDepth();
     r.toneMapping = NoToneMapping; // the UI is never tone mapped
     r.render(this.uiScene, this.uiCamera);
+    this.ui?.render(r); // UI canvases (ADR 0069), over the interim Text
     if (this.fill) this.renderCameraPreview(world.time.deltaTime);
   }
 
@@ -1421,7 +1470,7 @@ export class RenderBackend {
   }
 
   /** Render through a composer; a failure turns post-processing off (with an error) instead of losing the frame. False if it didn't draw. */
-  private composeSafely(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number, opts: { overlay: boolean; viewport?: PostViewport; helpers: boolean }): boolean {
+  private composeSafely(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number, opts: { overlay: boolean; viewport?: PostViewport; helpers: ComposedHelpers }): boolean {
     try {
       this.renderComposed(stack, effects, camera, dt, opts);
       return true;
@@ -1495,14 +1544,18 @@ export class RenderBackend {
   }
 
   /**
-   * The main camera through the composer. In the editor, the grid, gizmos and outlines stay out
-   * of the effects: they draw afterwards, over a depth-only pass so meshes still hide the grid.
+   * The main camera through the composer. Editor helpers never go through the effects; they draw afterwards:
+   * - `"editor"` (the editor's own World): grid, gizmos, outlines and overlays, over a depth-only pass so meshes
+   *   still hide the grid;
+   * - `"overlays"` (a game or play World's first camera): its overlays and selection outlines, the debug drawing
+   *   (navigation, ADR 0065) a game or play mode adds. They don't depth-test, so no depth pass is needed;
+   * - `"none"` (other cameras, the camera preview): nothing.
    */
-  private renderComposed(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number, opts: { overlay: boolean; viewport?: PostViewport; helpers: boolean }): void {
+  private renderComposed(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number, opts: { overlay: boolean; viewport?: PostViewport; helpers: ComposedHelpers }): void {
     const r = this.renderer;
     r.toneMapping = NoToneMapping; // the composer tone-maps at its end
-    const helpers = opts.helpers ? this.editorHelpers() : [];
-    const hidden = opts.helpers ? helpers : this.editorHelpers(); // helpers never go through effects
+    const hidden = this.editorHelpers(); // helpers never go through effects
+    const helpers = opts.helpers === "editor" ? hidden : opts.helpers === "overlays" ? hidden.filter((o) => this.isGameOverlay(o)) : [];
     for (const o of hidden) o.visible = false;
     const w = opts.viewport?.width ?? this.canvas.clientWidth, h = opts.viewport?.height ?? this.canvas.clientHeight;
     const size = `${w}x${h}@${r.getPixelRatio()}`;
@@ -1518,6 +1571,10 @@ export class RenderBackend {
     }
     if (!helpers.length) return;
     r.toneMapping = NoToneMapping;
+    if (opts.helpers === "overlays") {
+      this.renderOnly(helpers, camera);
+      return;
+    }
     r.clearDepth();
     this.depthOnly ??= new MeshBasicMaterial({ colorWrite: false });
     // Particles too: their batches draw instanced quads that only their own shader places, so under
@@ -1537,12 +1594,66 @@ export class RenderBackend {
   }
 
   /** The editor's helpers in the scene that are showing: grid, axes, gizmos, outlines, overlays. */
+  /** Overlays and selection outlines: what a game or play World can draw of the editor helpers. */
+  private isGameOverlay(o: Object3D): boolean {
+    return o === this.overlayLines || o === this.overlayHandles || this.overlaySegments.some((s) => s.object === o) || (this.outlines as Object3D[]).includes(o) || (this.boxOutlines as Object3D[]).includes(o);
+  }
+
+  /** Draws just `objects` (scene children) with `camera`, over what's already there. */
+  private renderOnly(objects: readonly Object3D[], camera: ThreeCamera): void {
+    const others = this.scene.children.filter((o) => o.visible && !objects.includes(o));
+    for (const o of others) o.visible = false;
+    this.renderer.render(this.scene, camera);
+    for (const o of others) o.visible = true;
+  }
+
   private editorHelpers(): Object3D[] {
-    const helpers: (Object3D | null)[] = [this.grid, this.axes, this.overlayLines, this.overlayHandles, this.gizmo?.getHelper() ?? null, this.lightWires, ...this.outlines, ...this.boxOutlines];
+    const helpers: (Object3D | null)[] = [this.grid, this.axes, this.overlayLines, this.overlayHandles, ...this.overlaySegments.map((s) => s.object), this.gizmo?.getHelper() ?? null, this.lightWires, ...this.outlines, ...this.boxOutlines];
     for (const g of this.cameraGizmos.values()) helpers.push(g.icon, g.frustum);
     for (const icon of this.lightGizmos.values()) helpers.push(icon);
     for (const p of this.probes.values()) helpers.push(p.gizmo);
     return helpers.filter((o): o is Object3D => !!o && o.visible);
+  }
+
+  // --- UI (ADR 0069) ---------------------------------------------------------------------------------
+
+  private ui: UIRuntime | null = null;
+  private uiLoading = false;
+
+  /**
+   * Lays out and mirrors the World's UI components through pmndrs uikit, imported the first time the
+   * World has a UICanvas (so games without UI never load it or Yoga). Screen canvases draw in the UI
+   * pass after the cameras; world canvases join the scene. Pointer routing runs in `Input.beginFrame`.
+   */
+  private syncUI(world: World): void {
+    if (!this.ui) {
+      if (this.uiLoading || !world._componentsOfType(UICanvas).length) return;
+      this.uiLoading = true;
+      import("../ui/UIRuntime")
+        .then((m) => {
+          m.UIRuntime.prepare(this.renderer);
+          this.ui = new m.UIRuntime({
+            interactive: !this.fill, // the editor's own World: clicks select, they don't press buttons
+            host: {
+              scene: this.scene,
+              camera: () => {
+                const c = this.viewCameras(world)[0];
+                return c ? (this.cameras.get(c)!.camera as ThreeCamera) : null;
+              },
+              texture: (ref) => this.texture(splitSpriteRef(ref).path),
+            },
+          });
+        })
+        .catch((err) => console.error("[myco] UI couldn't start:", err))
+        .finally(() => (this.uiLoading = false));
+      return;
+    }
+    this.ui.sync(world, this.canvas.clientWidth, this.canvas.clientHeight, world.time.unscaledDeltaTime);
+  }
+
+  /** @internal Tests and the editor: the UI runtime, once loaded. */
+  uiRuntime(): UIRuntime | null {
+    return this.ui;
   }
 
   // --- Particles (ADR 0057) -------------------------------------------------------------------------
@@ -1552,6 +1663,27 @@ export class RenderBackend {
   /** Unlit particle materials for emitters without a material asset, by texture and blending. */
   private readonly particleMaterials = new Map<string, MeshBasicMaterial>();
   private particleDot: Texture | null = null;
+
+  // --- Water (ADR 0072) ----------------------------------------------------------------------------
+
+  /** Draws the World's WaterSurfaces; made the first time the World has one. */
+  private water: WaterRenderer | null = null;
+
+  private syncWater(world: World): void {
+    const surfaces = world._componentsOfType(WaterSurface);
+    if (!surfaces.length && !this.water) return;
+    this.water ??= new WaterRenderer(this.scene, (x, y, z) => {
+      const box = pickProbe({ x, y, z }, this.probeBoxes.map((p) => p.box));
+      const hit = box && this.probeBoxes.find((p) => p.box === box);
+      return hit ? { texture: hit.texture, intensity: hit.intensity } : null;
+    });
+    this.water.sync(world, surfaces);
+  }
+
+  /** @internal Tests: the water meshes drawn. */
+  waterState(): { surfaces: number } {
+    return { surfaces: this.water?.meshes().length ?? 0 };
+  }
 
   /**
    * Plays the World's ParticleSystems through three.quarks, imported the first time the World has
@@ -1701,7 +1833,7 @@ export class RenderBackend {
       const box = new BufferGeometry();
       const v = [-1, -1, -1, 1, -1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, -1, 1, -1, -1, 1, -1, -1, -1, -1, -1, -1, 1, 1, -1, 1, 1, -1, 1, 1, 1, 1, 1, 1, 1, -1, 1, 1, -1, 1, 1, -1, -1, 1, -1, -1, -1, -1, -1, 1, 1, -1, -1, 1, -1, 1, 1, 1, -1, 1, 1, 1, -1, 1, -1, -1, 1, 1].map((n) => n / 2);
       box.setAttribute("position", new Float32BufferAttribute(v, 3));
-      entry.gizmo = new LineSegments(box, new LineBasicMaterial({ color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+      entry.gizmo = new LineSegments(box, new LineBasicMaterial({ fog: false, color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
       entry.gizmo.matrixAutoUpdate = false;
       entry.gizmo.renderOrder = OUTLINE_ORDER;
       this.scene.add(entry.gizmo);
@@ -1778,7 +1910,7 @@ export class RenderBackend {
     const resolved = resolvePostEffects(this.postSettings(p.camera), Graphics.tier);
     r.toneMappingExposure = resolved.exposure;
     const stack = resolved.composer ? this.stackFor(p.camera) : null;
-    const composed = !!stack && this.composeSafely(stack, resolved.composer!, camera, dt, { overlay: false, viewport: vp, helpers: false });
+    const composed = !!stack && this.composeSafely(stack, resolved.composer!, camera, dt, { overlay: false, viewport: vp, helpers: "none" });
     this.setViewportRect(vp);
     if (!composed) {
       r.toneMapping = TONE_MAPPING[resolved.toneMapping];
@@ -2046,10 +2178,46 @@ export class RenderBackend {
     for (const n of nodes) this.outlined.add(n);
   }
 
+  private outlineShown = true;
+
+  /** @internal Editor: show or hide the selection outline without forgetting what's selected (play mode's Gizmos menu). */
+  setSelectionOutlineShown(shown: boolean): void {
+    this.outlineShown = shown;
+  }
+
+  /**
+   * @internal Editor: what the last frame drew for the whole view (every camera and the UI), from
+   * the renderer's counters: draw calls, primitives, and the GPU resources alive now.
+   */
+  renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number } {
+    const { render, memory, programs } = this.renderer.info;
+    return { drawCalls: render.calls, triangles: render.triangles, lines: render.lines, points: render.points, geometries: memory.geometries, textures: memory.textures, programs: programs?.length ?? 0 };
+  }
+
+  /** Overlay objects drawn: this frame so far, and in the whole last frame. */
+  private readonly overlayDraws = { count: 0, last: 0 };
+
+  /**
+   * @internal Editor and tests: how much editor drawing is showing now: overlay line segments (lines and bulk groups),
+   * handles, outlines, and how many overlay objects the last frame really drew (0 when something hid them, e.g. a
+   * post-processing pass that didn't draw them back).
+   */
+  editorDrawingShown(): { segments: number; handles: number; outlines: number; drawnObjects: number } {
+    const count = (o: { visible: boolean; geometry: BufferGeometry } | null): number => {
+      if (!o?.visible) return 0;
+      const n = o.geometry.drawRange.count; // Infinity: the whole buffer
+      return Number.isFinite(n) ? n : (o.geometry.getAttribute("position")?.count ?? 0);
+    };
+    let segments = Math.floor(count(this.overlayLines) / 2);
+    for (const s of this.overlaySegments) segments += Math.floor(count(s.object) / 2);
+    const outlines = this.outlines.filter((o) => o.visible).length + this.boxOutlines.filter((o) => o.visible).length;
+    return { segments, handles: count(this.overlayHandles), outlines, drawnObjects: this.overlayDraws.last };
+  }
+
   /** Position one outline per selected sprite, and a box around each selected mesh (called from `sync`, after renderers). */
   private syncOutlines(): void {
     let used = 0, boxes = 0;
-    if (this.outlined.size > 0) {
+    if (this.outlined.size > 0 && this.outlineShown) {
       for (const [s, entry] of this.sprites) {
         if (!entry.mesh.visible || !this.isOutlined(s.node)) continue;
         const line = this.outlines[used] ?? this.createOutline();
@@ -2088,7 +2256,7 @@ export class RenderBackend {
       const edges = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
       this.boxOutlineGeometry = new BufferGeometry().setAttribute("position", new Float32BufferAttribute(edges.flatMap(([a, b]) => [...c(a), ...c(b)]), 3));
     }
-    this.outlineMaterial ??= new LineBasicMaterial({ color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true });
+    this.outlineMaterial ??= new LineBasicMaterial({ fog: false, color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true });
     const box = new LineSegments(this.boxOutlineGeometry, this.outlineMaterial);
     box.matrixAutoUpdate = false;
     box.frustumCulled = false;
@@ -2111,7 +2279,7 @@ export class RenderBackend {
       "position",
       new Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3),
     );
-    this.outlineMaterial ??= new LineBasicMaterial({ color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true });
+    this.outlineMaterial ??= new LineBasicMaterial({ fog: false, color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true });
     const line = new LineLoop(this.outlineGeometry, this.outlineMaterial);
     line.matrixAutoUpdate = false;
     line.frustumCulled = false;
@@ -2126,6 +2294,7 @@ export class RenderBackend {
   private overlayProvider: (() => EditorOverlay) | null = null;
   private overlayLines: LineSegments<BufferGeometry, LineBasicMaterial> | null = null;
   private overlayHandles: Points<BufferGeometry, PointsMaterial> | null = null;
+  private overlaySegments: { positions: Float32Array; color: number; object: LineSegments<BufferGeometry, LineBasicMaterial> }[] = [];
   private overlayHandleIds: string[] = [];
 
   /** @internal Editor: draw what `provider` returns every frame (null stops). */
@@ -2179,9 +2348,10 @@ export class RenderBackend {
         colors.push(r, g, b, r, g, b);
       }
     }
+    this.syncOverlaySegments(overlay.segments ?? []);
     // Both are transparent so they draw after the (transparent) sprites, in render order.
     this.overlayLines ??= this.addOverlayObject(
-      new LineSegments(new BufferGeometry(), new LineBasicMaterial({ vertexColors: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 })),
+      new LineSegments(new BufferGeometry(), new LineBasicMaterial({ fog: false, vertexColors: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 })),
       OUTLINE_ORDER - 2,
     );
     fillOverlayGeometry(this.overlayLines, segs, colors);
@@ -2192,16 +2362,53 @@ export class RenderBackend {
       hc.push(...rgb(h.color));
     }
     this.overlayHandles ??= this.addOverlayObject(
-      new Points(new BufferGeometry(), new PointsMaterial({ size: 9, sizeAttenuation: false, vertexColors: true, depthTest: false, depthWrite: false, transparent: true })),
+      new Points(new BufferGeometry(), new PointsMaterial({ fog: false, size: 9, sizeAttenuation: false, vertexColors: true, depthTest: false, depthWrite: false, transparent: true })),
       OUTLINE_ORDER + 2,
     );
     fillOverlayGeometry(this.overlayHandles, hp, hc);
     this.overlayHandleIds = overlay.handles.map((h) => h.id);
   }
 
+  /**
+   * Bulk segment groups (navigation debug drawing, ADR 0065): one LineSegments per group, drawn straight from the
+   * group's Float32Array. Providers hand back the same array while nothing changed (they memoise), so a group is
+   * uploaded to the GPU only when its array or colour changes, not every frame.
+   */
+  private syncOverlaySegments(groups: readonly { positions: Float32Array; color: number }[]): void {
+    for (let i = 0; i < groups.length; i++) {
+      const group = groups[i];
+      let slot = this.overlaySegments[i];
+      if (slot && slot.positions === group.positions && slot.color === group.color) continue;
+      if (!slot) {
+        const object = this.addOverlayObject(
+          new LineSegments(new BufferGeometry(), new LineBasicMaterial({ fog: false, depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 })),
+          OUTLINE_ORDER - 2,
+        );
+        slot = { positions: group.positions, color: group.color, object };
+        this.overlaySegments.push(slot);
+      }
+      const usable = group.positions.length - (group.positions.length % 3);
+      slot.object.geometry.dispose(); // frees the old GPU buffer
+      slot.object.geometry = new BufferGeometry();
+      slot.object.geometry.setAttribute("position", new Float32BufferAttribute(group.positions.subarray(0, usable), 3));
+      const c = group.color;
+      // Raw 0–1 channels like the vertex-coloured overlay lines (no sRGB conversion), so colours match.
+      slot.object.material.color.setRGB(((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, NoColorSpace);
+      slot.object.visible = usable > 0;
+      slot.positions = group.positions;
+      slot.color = c;
+    }
+    for (const slot of this.overlaySegments.splice(groups.length)) {
+      this.scene.remove(slot.object);
+      slot.object.geometry.dispose();
+      slot.object.material.dispose();
+    }
+  }
+
   private addOverlayObject<T extends LineSegments<BufferGeometry, LineBasicMaterial> | Points<BufferGeometry, PointsMaterial>>(object: T, renderOrder: number): T {
     object.frustumCulled = false;
     object.renderOrder = renderOrder;
+    object.onAfterRender = () => void this.overlayDraws.count++; // what actually reached the screen (editorDrawingShown)
     this.scene.add(object);
     return object;
   }
@@ -2255,6 +2462,7 @@ export class RenderBackend {
 
   private createCameraGizmo(c: Camera): { icon: ThreeSprite; frustum: LineSegments<BufferGeometry, LineBasicMaterial> } {
     this.cameraIconMaterial ??= new SpriteMaterial({
+      fog: false,
       map: cameraIconTexture(),
       sizeAttenuation: false,
       depthTest: false,
@@ -2265,7 +2473,7 @@ export class RenderBackend {
     icon.scale.set(CAMERA_ICON_SIZE, CAMERA_ICON_SIZE, 1);
     icon.renderOrder = OUTLINE_ORDER;
     const geometry = new BufferGeometry().setAttribute("position", new Float32BufferAttribute(new Float32Array(24 * 3), 3));
-    const frustum = new LineSegments(geometry, new LineBasicMaterial({ color: this.editorColors.cameraGizmo, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+    const frustum = new LineSegments(geometry, new LineBasicMaterial({ fog: false, color: this.editorColors.cameraGizmo, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
     frustum.matrixAutoUpdate = false;
     frustum.frustumCulled = false;
     frustum.renderOrder = OUTLINE_ORDER - 1;
@@ -2324,7 +2532,7 @@ export class RenderBackend {
       this.lightGizmos.delete(l);
     }
     this.lightWires ??= this.addOverlayObject(
-      new LineSegments(new BufferGeometry(), new LineBasicMaterial({ vertexColors: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 })),
+      new LineSegments(new BufferGeometry(), new LineBasicMaterial({ fog: false, vertexColors: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 })),
       OUTLINE_ORDER - 1,
     );
     fillOverlayGeometry(this.lightWires, segs, colors);
@@ -2333,7 +2541,7 @@ export class RenderBackend {
   private lightIconMaterial(type: string): SpriteMaterial {
     let m = this.lightIconMaterials.get(type);
     if (!m) {
-      m = new SpriteMaterial({ map: lightIconTexture(type), sizeAttenuation: false, depthTest: false, depthWrite: false, transparent: true });
+      m = new SpriteMaterial({ fog: false, map: lightIconTexture(type), sizeAttenuation: false, depthTest: false, depthWrite: false, transparent: true });
       this.lightIconMaterials.set(type, m);
     }
     return m;
@@ -2515,7 +2723,10 @@ export class RenderBackend {
 
   dispose(): void {
     this.dropCascades();
+    this.ui?.dispose();
+    this.ui = null;
     this.particles?.dispose();
+    this.water?.dispose();
     for (const m of this.particleMaterials.values()) m.dispose();
     this.particleDot?.dispose();
     for (const m of this.localMaterials.values()) m.dispose();
@@ -2550,6 +2761,11 @@ export class RenderBackend {
     this.overlayLines?.material.dispose();
     this.overlayHandles?.geometry.dispose();
     this.overlayHandles?.material.dispose();
+    for (const slot of this.overlaySegments) {
+      slot.object.geometry.dispose();
+      slot.object.material.dispose();
+    }
+    this.overlaySegments = [];
     this.cameraIconMaterial?.map?.dispose();
     this.cameraIconMaterial?.dispose();
     this.resizeObserver.disconnect();
@@ -2572,7 +2788,9 @@ function gridDivisions(cell: number): number {
 /** The editor grid: `cell` metres between lines. */
 function makeGrid(cell: number, colors: EditorColors): GridHelper {
   const n = gridDivisions(cell);
-  return new GridHelper(n * cell, n, colors.gridCenter, colors.grid);
+  const grid = new GridHelper(n * cell, n, colors.gridCenter, colors.grid);
+  (grid.material as LineBasicMaterial).fog = false; // editor chrome never takes fog (ADR 0071)
+  return grid;
 }
 
 /** A small camera glyph for editor camera icons: a body and lens, light with a dark outline. */

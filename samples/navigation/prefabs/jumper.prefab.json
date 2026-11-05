@@ -1,0 +1,39 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "jumper",
+      "name": "Jumper",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ],
+            "scale": [
+              1.5,
+              1,
+              1.5
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:capsule",
+            "material": "asset:materials/jumper.material.json"
+          }
+        },
+        {
+          "type": "engine.NavAgent",
+          "data": {
+            "agentType": "d29f7b64-6e1c-4a3d-9f58-2b8c4d7e1a04"
+          }
+        }
+      ]
+    }
+  ]
+}

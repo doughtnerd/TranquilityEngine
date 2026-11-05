@@ -20,6 +20,7 @@
  *   "anisotropy": 0, "anisotropyRotation": 0,       // physical only: 0 … 1, degrees
  *   "specularIntensity": 1, "specularColor": "#ffffff", // physical only: 0 … 1
  *   "doubleSided": false,               // draw back faces too (default false)
+ *   "fog": true,                        // take the World's Fog (default true; false for glows, ADR 0071)
  *   "properties": { "Tint": "#ff0000" } // shader graph materials: values for the graph's properties
  * }
  * ```
@@ -78,6 +79,8 @@ export interface MaterialSettings {
   specularIntensity: number;
   specularColor: Color;
   doubleSided: boolean;
+  /** Take the World's Fog (ADR 0071). */
+  fog: boolean;
   /** Shader graph materials: values for the graph's properties, by name (the rest use the graph's defaults). */
   properties: Record<string, GraphValue>;
 }
@@ -106,6 +109,7 @@ export const defaultMaterialSettings = (): MaterialSettings => ({
   specularIntensity: 1,
   specularColor: Color.white,
   doubleSided: false,
+  fog: true,
   properties: {},
 });
 
@@ -187,6 +191,10 @@ export function parseMaterial(raw: unknown, where = "material"): { settings: Mat
     if (Array.isArray(t) && t.length === 2 && t.every((n) => typeof n === "number" && Number.isFinite(n) && n !== 0)) settings.tiling = [t[0], t[1]];
     else bad("tiling", "[x, y], two non-zero numbers");
   }
+  if (raw.fog !== undefined) {
+    if (typeof raw.fog === "boolean") settings.fog = raw.fog;
+    else bad("fog", "true or false");
+  }
   if (raw.doubleSided !== undefined) {
     if (typeof raw.doubleSided === "boolean") settings.doubleSided = raw.doubleSided;
     else bad("doubleSided", "true or false");
@@ -216,6 +224,7 @@ export function materialJSON(settings: MaterialSettings): Record<string, unknown
   if (colorHex(settings.sheenColor) !== colorHex(d.sheenColor)) out.sheenColor = colorHex(settings.sheenColor);
   if (colorHex(settings.specularColor) !== colorHex(d.specularColor)) out.specularColor = colorHex(settings.specularColor);
   if (settings.doubleSided) out.doubleSided = true;
+  if (!settings.fog) out.fog = false;
   if (Object.keys(settings.properties).length) out.properties = Object.fromEntries(Object.entries(settings.properties).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v]));
   return out;
 }

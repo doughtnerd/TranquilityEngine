@@ -11,7 +11,8 @@
  *    with their `encoding`.
  * 4. Each of the node's own behaviors with fields declared `@field(Number | Boolean,
  *    { replicate: true })` (or `predicted`), in component order: numbers as f32 (with their
- *    `quantize`), booleans as u8. Fields of other types aren't replicated (warned once).
+ *    `quantize`), booleans as u8. String fields replicate outside the layout, whole when they
+ *    change (`strings.ts`, ADR 0068); fields of other types aren't replicated (warned once).
  *
  * A layout's predicted values (T13, `predictedPlan` at the bottom) are the transform, the data
  * fields listed in `replicate(def, { predicted })` and the behavior fields declared `predicted`;
@@ -110,8 +111,9 @@ export function behaviorFields(type: ComponentClass): readonly BehaviorField[] {
   const list: BehaviorField[] = [];
   for (const f of getFields(type)) {
     if (!f.options?.replicate && !f.options?.predicted) continue;
+    if (f.type === String) continue; // sent whole when it changes, outside the layout (ADR 0068, `strings.ts`)
     if (f.type !== Number && f.type !== Boolean) {
-      warnOnce(`${type.name}.${f.name}`, `${getComponentId(type) ?? type.name}.${f.name} is declared with replicate, but only Number and Boolean fields replicate; it isn't sent.`);
+      warnOnce(`${type.name}.${f.name}`, `${getComponentId(type) ?? type.name}.${f.name} is declared with replicate, but only Number, Boolean and String fields replicate; it isn't sent.`);
       continue;
     }
     list.push({ name: f.name, boolean: f.type === Boolean, quantize: f.type === Number ? f.options.quantize : undefined, predicted: !!f.options.predicted });

@@ -1,0 +1,11 @@
+[package]
+name = "nav-format"
+description = "Baked navigation data layouts (Foxfire's blobs) and the myco.nav@1 file format."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+nav-math.workspace = true
+# Default chained hasher (xxHash3-64 with seed, as Foxfire's NavHash). TODO: drop when nav_math::NavHash is the one source.

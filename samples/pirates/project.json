@@ -1,0 +1,117 @@
+{
+  "name": "King of Pirates",
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "backgroundColor": "#8fb3cf"
+  },
+  "time": {
+    "fixedDeltaTime": 0.016666666666666666
+  },
+  "render": {
+    "sortingLayers": [
+      "Default"
+    ],
+    "pixelsPerUnit": 100
+  },
+  "bootstrap": {
+    "worlds": [
+      {
+        "name": "Menu",
+        "scenes": [
+          "scenes/menu.scene.json"
+        ]
+      }
+    ],
+    "templates": {
+      "Lobby": {
+        "tags": [
+          "server",
+          "lobby"
+        ],
+        "renders": false,
+        "input": false,
+        "lobby": {
+          "matchTemplate": "Match",
+          "clientTemplate": "MatchClient",
+          "maxPlayers": 8,
+          "minPlayers": 1,
+          "fillWithBots": true,
+          "startCountdown": 3,
+          "quickMatchWait": 10,
+          "settings": {
+            "arena": [
+              "bay",
+              "open",
+              "maze"
+            ],
+            "length": {
+              "choices": [
+                "120",
+                "180",
+                "300",
+                "480"
+              ],
+              "default": "300"
+            },
+            "ships": {
+              "choices": [
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "default": "6"
+            }
+          }
+        }
+      },
+      "Match": {
+        "tags": [
+          "server",
+          "match"
+        ],
+        "renders": false,
+        "input": false
+      },
+      "MatchClient": {
+        "tags": [
+          "client",
+          "match-client"
+        ]
+      }
+    }
+  },
+  "navigation": {
+    "agentTypes": [
+      {
+        "id": "c4a7e2d1-5b3f-4e8a-9d61-2f0b8e7c3a10",
+        "name": "Ship",
+        "canWalk": true,
+        "walk": {
+          "radius": 2,
+          "height": 3,
+          "pivotOffset": 0,
+          "stepHeight": 0.6,
+          "speed": 9,
+          "canJump": false,
+          "maxFallDistance": 0.5,
+          "waypointReachedDistance": 3,
+          "arrivalDistance": 3,
+          "maxSnapDistance": 4
+        },
+        "canFly": false,
+        "avoidance": null
+      }
+    ],
+    "cellsPerRadius": 8,
+    "tileSize": 16,
+    "build": {
+      "maxSimplificationError": 1,
+      "maxEdgeLength": 8
+    }
+  }
+}
