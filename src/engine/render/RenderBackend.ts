@@ -94,6 +94,8 @@ import { frustumSegments } from "./cameraGizmo";
 import { localPoseFromWorld, type LocalPose } from "./gizmoMath";
 import { rayQuadDistance } from "./picking";
 import { spriteFrame } from "./spriteFrame";
+import { WaterRenderer } from "./water/WaterRenderer";
+import { WaterSurface } from "./water/WaterSurface";
 
 /** @internal Editor gizmo settings (ADR 0022). */
 export interface GizmoOptions {
@@ -601,6 +603,8 @@ export class RenderBackend {
       this.stacks.delete(c);
     } else if (c instanceof ParticleSystem) {
       this.particles?.release(c);
+    } else if (c instanceof WaterSurface) {
+      this.water?.release(c);
     } else if (c instanceof ReflectionProbe) {
       const p = this.probes.get(c);
       p?.capture?.dispose();
@@ -784,6 +788,7 @@ export class RenderBackend {
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     for (const t of world._componentsOfType(Text)) this.syncText(t);
     this.syncParticles(world);
+    this.syncWater(world);
     if (this.fill) {
       this.syncOutlines();
       this.syncCameraGizmos(world);
@@ -1609,6 +1614,27 @@ export class RenderBackend {
   /** Unlit particle materials for emitters without a material asset, by texture and blending. */
   private readonly particleMaterials = new Map<string, MeshBasicMaterial>();
   private particleDot: Texture | null = null;
+
+  // --- Water (ADR 0072) ----------------------------------------------------------------------------
+
+  /** Draws the World's WaterSurfaces; made the first time the World has one. */
+  private water: WaterRenderer | null = null;
+
+  private syncWater(world: World): void {
+    const surfaces = world._componentsOfType(WaterSurface);
+    if (!surfaces.length && !this.water) return;
+    this.water ??= new WaterRenderer(this.scene, (x, y, z) => {
+      const box = pickProbe({ x, y, z }, this.probeBoxes.map((p) => p.box));
+      const hit = box && this.probeBoxes.find((p) => p.box === box);
+      return hit ? { texture: hit.texture, intensity: hit.intensity } : null;
+    });
+    this.water.sync(world, surfaces);
+  }
+
+  /** @internal Tests: the water meshes drawn. */
+  waterState(): { surfaces: number } {
+    return { surfaces: this.water?.meshes().length ?? 0 };
+  }
 
   /**
    * Plays the World's ParticleSystems through three.quarks, imported the first time the World has
@@ -2649,6 +2675,7 @@ export class RenderBackend {
   dispose(): void {
     this.dropCascades();
     this.particles?.dispose();
+    this.water?.dispose();
     for (const m of this.particleMaterials.values()) m.dispose();
     this.particleDot?.dispose();
     for (const m of this.localMaterials.values()) m.dispose();

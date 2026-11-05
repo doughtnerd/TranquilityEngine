@@ -4,8 +4,9 @@
 import { uniqueId } from "./assetBrowser";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import type { OpenScene } from "./state";
+import { WATER_PRESET } from "../engine/render/water/gerstner";
 
-export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "particle-system";
+export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "particle-system" | "water";
 type Shape3D = "cube" | "sphere" | "capsule" | "cylinder" | "plane";
 type LightKind = "directional" | "point" | "spot" | "ambient";
 
@@ -29,6 +30,7 @@ export const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: 
   { kind: "fog", label: "Fog", name: "Fog" },
   { kind: "reflection-probe", label: "Reflection Probe", name: "Reflection Probe" },
   { kind: "particle-system", label: "Particle System", name: "Particle System" },
+  { kind: "water", label: "Water", name: "Water" },
 ];
 
 /** The collider each 3D shape comes with. */
@@ -91,6 +93,9 @@ export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: stri
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.Fog", data: {} }] };
     case "reflection-probe":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ReflectionProbe", data: {} }] };
+    case "water":
+      // A WaterSurface with the four-wave preset written out, so the inspector's wave list shows it (ADR 0072).
+      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.WaterSurface", data: { waves: WATER_PRESET.map((w) => ({ ...w })) } }] };
     case "particle-system":
       // Effects are assets (ADR 0060): `effect` is a new one `createParticleSystemNode` made, or empty.
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ParticleSystem", data: effect ? { effect } : {} }] };

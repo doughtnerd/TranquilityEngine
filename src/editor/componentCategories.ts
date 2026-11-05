@@ -20,6 +20,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   ReflectionProbe: "Rendering",
   ParticleSystem: "Rendering",
   Text: "Rendering",
+  WaterSurface: "Rendering",
   BoxCollider2D: "Physics 2D",
   CircleCollider2D: "Physics 2D",
   EdgeCollider2D: "Physics 2D",
@@ -30,6 +31,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   MeshCollider: "Physics 3D",
   SphereCollider: "Physics 3D",
   RigidBody: "Physics 3D",
+  Buoyancy: "Physics 3D",
   AudioSource: "Audio",
   AudioListener: "Audio",
 };

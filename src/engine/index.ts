@@ -31,6 +31,8 @@ export type { ImportSettings, ModelNormals, ModelUpAxis, SpriteSlice, TextureFil
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
 export { Camera, Environment, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type FogMode, type LightType, type MaterialPropertyValue, type ParticlePropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";
+export { Water, WaterSurface, type WaterSample } from "./render/water/WaterSurface";
+export type { WaterWave } from "./render/water/gerstner";
 
 export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
 export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D, type PhysicsMaterial, type PhysicsMaterial2D } from "./physics/Collider2D";
@@ -41,6 +43,7 @@ export { RigidBody, type RigidBodyConstraints } from "./physics/RigidBody";
 export { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type CapsuleDirection, type Collision } from "./physics/Collider";
 export { Physics, type RaycastHit } from "./physics/Physics";
 export { CollisionEvents, TriggerEvents, type PhysicsEvent } from "./physics/physics3d";
+export { Buoyancy, type BuoyancyMode } from "./physics/Buoyancy";
 
 export { NavAgent, NavAvoidanceObstacle, NavChunk, NavFlowGoal, NavGate, NavGroup, NavModifierVolume, NavObstacle, NavResolutionVolume, NavSurface, NavSurround, type NavMode, type NavPathState, type NavWaypoint } from "./nav/components";
 export { Navigation, type NavNearestPoint, type NavPathResult, type NavPathStatus, type NavRaycastHit } from "./nav/Navigation";
