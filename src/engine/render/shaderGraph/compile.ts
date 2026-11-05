@@ -1,7 +1,9 @@
 /**
  * The shader graph compiler (ADR 0047): a graph becomes GLSL ES 3.0 chunks that the render
- * backend splices into three.js's built-in lit or unlit material (`threeMaterial.ts`). Pure
- * TypeScript with no three.js, so it runs in tests and in the editor without WebGL.
+ * backend splices into three.js's built-in lit or unlit material (`threeMaterial.ts`), or, with
+ * `language: "wgsl"`, WGSL chunks for Babylon.js's PBR material (ADR 0075; the conventions are in
+ * `wgsl.ts`). Both come from the one node library. Pure TypeScript with no three.js or Babylon.js,
+ * so it runs in tests and in the editor without a GPU.
  *
  * Each node that the output reaches becomes local variables (one per output port), emitted in
  * dependency order, so a value used twice is computed once. Problems never stop a compile: an
@@ -11,7 +13,10 @@ import type { ShaderLevel } from "../../core/graphics";
 import { Color } from "../../core/math";
 import { normalizeAssetPath } from "../../scene/Assets";
 import { OUTPUT_NODE_TYPE, portRef, splitPortRef, type GraphNode, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../scene/shaderGraph";
-import { HELPER_DEPS, HELPERS, OUTPUT_INPUTS, PORT_SIZE, canConnectTypes, nodeDef, nodePorts, resolveSubGraph, type Builtin, type EmitContext, type HelperName, type PortDef, type ShaderStage, type ValueType } from "./nodes";
+import { HELPER_DEPS, HELPERS, HELPERS_WGSL, OUTPUT_INPUTS, PORT_SIZE, canConnectTypes, nodeDef, nodePorts, resolveSubGraph, type Builtin, type EmitContext, type HelperName, type PortDef, type ShaderStage, type ValueType } from "./nodes";
+import { BUILTINS_WGSL, FACE_NORMAL_WGSL, SHARED_UNIFORM_EXPR, sampleWgsl, textureDeclarationsWgsl, usedVaryings, varyingDeclarationsWgsl, varyingsWgsl, wgslType, type ShaderLanguage } from "./wgsl";
+
+export type { ShaderLanguage } from "./wgsl";
 
 /** Uniforms every compiled graph may read; the backend owns their values. */
 export const SHARED_UNIFORMS = { time: "uMycoTime", resolution: "uMycoResolution" } as const;
@@ -29,6 +34,8 @@ export interface CompiledUniform {
 }
 
 export interface CompiledShaderGraph {
+  /** The language every code string below is written in. */
+  language: ShaderLanguage;
   target: ShaderGraph["target"];
   surface: ShaderGraph["surface"];
   doubleSided: boolean;
@@ -124,6 +131,7 @@ export function glslFloat(n: number): string {
   return /[.e]/i.test(s) ? s : `${s}.0`;
 }
 
+const GLSL_TYPE = (t: ValueType) => (t === "texture" ? "sampler2D" : t);
 const SIZE_TYPE = ["float", "float", "vec2", "vec3", "vec4"] as const;
 const sizeOf = (t: ValueType) => (t === "texture" ? 1 : PORT_SIZE[t]);
 
@@ -136,28 +144,32 @@ export function linearColor(hex: string): [number, number, number, number] {
   return [srgbToLinear(c.r), srgbToLinear(c.g), srgbToLinear(c.b), c.a];
 }
 
+const typeName = (t: ValueType, language: ShaderLanguage): string => (language === "wgsl" ? wgslType(t) : GLSL_TYPE(t));
+
 /** Convert an expression between value types: floats fill every component, wider vectors are truncated, narrower ones padded (alpha with 1). */
-export function convert(expr: string, from: ValueType, to: ValueType): string {
+export function convert(expr: string, from: ValueType, to: ValueType, language: ShaderLanguage = "glsl"): string {
   if (from === to || from === "texture" || to === "texture") return expr;
-  if (from === "float") return `${to}(${expr})`;
+  const T = typeName(to, language);
+  if (from === "float") return `${T}(${expr})`;
   const n = PORT_SIZE[from], m = PORT_SIZE[to];
   if (m === 1) return `${expr}.x`;
   if (m < n) return `${expr}.${"xyzw".slice(0, m)}`;
   const pad = m === 4 ? (n === 2 ? ", 0.0, 1.0" : ", 1.0") : ", 0.0";
-  return `${to}(${expr}${pad})`;
+  return `${T}(${expr}${pad})`;
 }
 
 /** An inline value as a literal of `type`; colours are sRGB and become linear. */
-function literal(value: InputValue, type: ValueType, color: boolean): string {
+function literal(value: InputValue, type: ValueType, color: boolean, language: ShaderLanguage = "glsl"): string {
   const lin = (v: number, i: number) => (color && i < 3 ? srgbToLinear(v) : v);
   if (type === "texture") return "0.0";
   const size = PORT_SIZE[type];
+  const T = typeName(type, language);
   if (typeof value === "number") {
     const v = glslFloat(lin(value, 0));
-    return size === 1 ? v : `${type}(${color ? [0, 1, 2].slice(0, size).map((i) => glslFloat(lin(value, i))).concat(size === 4 ? ["1.0"] : []).join(", ") : v})`;
+    return size === 1 ? v : `${T}(${color ? [0, 1, 2].slice(0, size).map((i) => glslFloat(lin(value, i))).concat(size === 4 ? ["1.0"] : []).join(", ") : v})`;
   }
   const parts = Array.from({ length: size }, (_, i) => glslFloat(lin(value[i] ?? (i === 3 ? 1 : 0), i)));
-  return size === 1 ? parts[0] : `${type}(${parts.join(", ")})`;
+  return size === 1 ? parts[0] : `${T}(${parts.join(", ")})`;
 }
 
 const inlineType = (v: InputValue | undefined): ValueType => (Array.isArray(v) ? SIZE_TYPE[Math.min(4, Math.max(2, v.length))] : "float");
@@ -264,11 +276,15 @@ function nodeTypes(scope: Scope, id: string): NodeTypes {
   return result;
 }
 
-const GLSL_TYPE = (t: ValueType) => (t === "texture" ? "sampler2D" : t);
-
 /** Compile a graph (or a sub-graph, drawn as its first output). Never throws for a bad graph; see `problems`. */
-export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: ShaderLevel } = {}): CompiledShaderGraph {
+export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: ShaderLevel; language?: ShaderLanguage } = {}): CompiledShaderGraph {
   const shaderLevel = options.shaderLevel ?? "high";
+  const language = options.language ?? "glsl";
+  const wgsl = language === "wgsl";
+  const literalOf = (value: InputValue, type: ValueType, color: boolean) => literal(value, type, color, language);
+  const convertTo = (expr: string, from: ValueType, to: ValueType) => convert(expr, from, to, language);
+  /** A local's declaration. */
+  const declare = (type: ValueType, name: string, expr: string) => (wgsl ? `var ${name}: ${wgslType(type)} = ${expr};` : `${type} ${name} = ${expr};`);
   let usesShaderLevel = false;
   const problems: string[] = [];
   const nodeProblems: Record<string, string[]> = {};
@@ -294,7 +310,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
     const p = graph.properties[i];
     const uname = `uP${i}_${ident(p.name)}`;
     if (!uniforms.some((u) => u.name === uname)) uniforms.push({ name: uname, type: PROPERTY_GLSL[p.type], property: p.name, propertyType: p.type, value: p.value });
-    return { expr: uname, type: valueTypeOf(PROPERTY_GLSL[p.type]) };
+    return { expr: wgsl && p.type !== "texture" ? `uniforms.${uname}` : uname, type: valueTypeOf(PROPERTY_GLSL[p.type]) };
   };
   const textureUniform = (path: string, linear = false): string => {
     const existing = uniforms.find((u) => u.type === "sampler2D" && u.property === undefined && u.value === path && !!u.linear === linear);
@@ -324,12 +340,20 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
     readonly functions = new Map<string, string>();
     readonly values = new Map<string, Record<string, Value> | null>();
     readonly visiting = new Set<string>();
+    /** Texture uniforms this stage samples (WGSL declares them per stage). */
+    readonly textures = new Set<string>();
     constructor(readonly stage: ShaderStage) {}
 
     builtin(b: Builtin | "time" | "resolution"): string {
-      if (b === "time") return SHARED_UNIFORMS.time;
-      if (b === "resolution") return SHARED_UNIFORMS.resolution;
-      return BUILTINS[this.stage][b];
+      if (b === "time") return wgsl ? SHARED_UNIFORM_EXPR.time : SHARED_UNIFORMS.time;
+      if (b === "resolution") return wgsl ? SHARED_UNIFORM_EXPR.resolution : SHARED_UNIFORMS.resolution;
+      return (wgsl ? BUILTINS_WGSL : BUILTINS)[this.stage][b];
+    }
+
+    /** A texture sample in this stage's language. */
+    sample(texture: string, uv: string): string {
+      this.textures.add(texture);
+      return wgsl ? sampleWgsl(texture, uv, this.stage) : `texture(${texture}, ${uv})`;
     }
 
     helper(name: HelperName): void {
@@ -342,11 +366,11 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
       const src = scope.incoming.get(portRef(node.id, port.id));
       if (src) {
         const v = this.node(scope, src.node)?.[src.port];
-        if (v) return convert(v.expr, v.type, want);
+        if (v) return convertTo(v.expr, v.type, want);
       }
       if (want === "texture") return textureUniform(node.settings?.[port.id] ?? port.texture ?? "", node.type === "sampleTexture" && node.settings?.type === "normal");
-      if (port.bind) return convert(this.builtin(port.bind), BUILTIN_TYPES[port.bind], want);
-      return literal(node.inputs?.[port.id] ?? port.default ?? 0, want, !!port.color);
+      if (port.bind) return convertTo(this.builtin(port.bind), BUILTIN_TYPES[port.bind], want);
+      return literalOf(node.inputs?.[port.id] ?? port.default ?? 0, want, !!port.color);
     }
 
     local(scope: Scope, id: string, port: string): string {
@@ -387,7 +411,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
       const ins: Record<string, string> = {};
       if (def.branch) usesShaderLevel = true;
       // A branch node evaluates only the input for the shader level; the others are never reached.
-      for (const p of ports.inputs) ins[p.id] = def.branch && p.id !== shaderLevel ? literal(0, dynamic, false) : this.input(scope, node, p, dynamic);
+      for (const p of ports.inputs) ins[p.id] = def.branch && p.id !== shaderLevel ? literalOf(0, dynamic, false) : this.input(scope, node, p, dynamic);
       const settings: Record<string, string> = {};
       for (const s of def.settings ?? []) settings[s.id] = node.settings?.[s.id] ?? s.default;
       const problem = (m: string) => scope.problem(id, m);
@@ -396,6 +420,9 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
         type: dynamic,
         settings,
         stage: this.stage,
+        language,
+        typeName: (t) => typeName(t, language),
+        sample: (texture, uv) => this.sample(texture, uv),
         shaderLevel,
         builtin: (b) => this.builtin(b),
         helper: (h) => this.helper(h),
@@ -404,7 +431,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
           const v = scope.bindings ? (scope.bindings.get(name) ?? null) : propertyUniform(name);
           return v && { uniform: v.expr, type: v.type };
         },
-        color: (hex) => literal(linearColor(hex), "vec4", false),
+        color: (hex) => literalOf(linearColor(hex), "vec4", false),
         sampleMode: (u, linear) => sampleMode(u, linear, problem),
         problem,
       };
@@ -418,7 +445,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
           continue;
         }
         const name = this.local(scope, id, o.id);
-        this.lines.push(`${type} ${name} = ${expr ?? literal(0, type, false)};`);
+        this.lines.push(declare(type, name, expr ?? literalOf(0, type, false)));
         result[o.id] = { expr: name, type };
       }
       return result;
@@ -462,13 +489,13 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
           continue;
         }
         const local = this.local(scope, node.id, o.id);
-        this.lines.push(`${type} ${local} = ${expr};`);
+        this.lines.push(declare(type, local, expr));
         result[o.id] = { expr: local, type };
       }
       return result;
     }
 
-    /** A Custom Function node: its GLSL as a function, called with the node's inputs. */
+    /** A Custom Function node: its code as a function, called with the node's inputs (the body is written in the compiled language: `body` for GLSL, `wgsl` for WGSL). */
     customFunction(scope: Scope, node: GraphNode): Record<string, Value> | null {
       const f = node.function;
       if (!f) {
@@ -476,6 +503,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
         return null;
       }
       const fn = `${ident(f.name)}_${scope.prefix}${scope.index.get(node.id)}`;
+      if (wgsl) return this.customFunctionWgsl(scope, node, f, fn);
       const params = [...f.inputs.map((p) => `${GLSL_TYPE(p.type)} ${p.name}`), ...f.outputs.map((p) => `out ${GLSL_TYPE(p.type)} ${p.name}`)];
       this.functions.set(fn, `void ${fn}(${params.join(", ")}) {\n${f.body}\n}`);
       const ports = nodePorts(node, scope.graph);
@@ -485,11 +513,68 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
       for (const o of ports.outputs) {
         const type = o.type as ValueType;
         const local = this.local(scope, node.id, o.id);
-        this.lines.push(`${type} ${local} = ${literal(0, type, false)};`);
+        this.lines.push(declare(type, local, literalOf(0, type, false)));
         outs.push(local);
         result[o.id] = { expr: local, type };
       }
       this.lines.push(`${fn}(${[...args, ...outs].join(", ")});`);
+      return result;
+    }
+
+    /**
+     * WGSL has no `out` parameters: the function takes the inputs (a texture as a texture and its
+     * sampler), starts a `var` per output, runs the body, and returns them in a struct.
+     */
+    customFunctionWgsl(scope: Scope, node: GraphNode, f: NonNullable<GraphNode["function"]>, fn: string): Record<string, Value> {
+      if (!f.wgsl) {
+        // The GLSL body can't be used: report it and let every output read its default.
+        scope.problem(node.id, "this Custom Function has no WGSL code, which the Babylon backend needs; its outputs read their defaults");
+        const missing: Record<string, Value> = {};
+        for (const o of nodePorts(node, scope.graph).outputs) {
+          const type = o.type as ValueType;
+          if (type === "texture") {
+            missing[o.id] = { expr: textureUniform(""), type };
+            continue;
+          }
+          const local = this.local(scope, node.id, o.id);
+          this.lines.push(declare(type, local, literalOf(0, type, false)));
+          missing[o.id] = { expr: local, type };
+        }
+        return missing;
+      }
+      const params = f.inputs.map((p) => (p.type === "texture" ? `${p.name}: texture_2d<f32>, ${p.name}Sampler: sampler` : `${p.name}: ${wgslType(p.type)}`));
+      const outs = f.outputs.filter((p) => p.type !== "texture");
+      const decls = outs.map((p) => `  var ${p.name}: ${wgslType(p.type)} = ${literalOf(0, p.type, false)};`);
+      const text = [
+        ...(outs.length ? [`struct ${fn}_Out { ${outs.map((p) => `${p.name}: ${wgslType(p.type)}`).join(", ")} }`] : []),
+        `fn ${fn}(${params.join(", ")})${outs.length ? ` -> ${fn}_Out` : ""} {`,
+        ...decls,
+        f.wgsl,
+        ...(outs.length ? [`  return ${fn}_Out(${outs.map((p) => p.name).join(", ")});`] : []),
+        "}",
+      ].join("\n");
+      this.functions.set(fn, text);
+      const ports = nodePorts(node, scope.graph);
+      const args = ports.inputs.flatMap((p) => {
+        const a = this.input(scope, node, p, p.type as ValueType);
+        if (p.type !== "texture") return [a];
+        this.textures.add(a);
+        return [a, `${a}Sampler`];
+      });
+      const result: Record<string, Value> = {};
+      const ret = this.local(scope, node.id, "ret");
+      this.lines.push(outs.length ? `var ${ret}: ${fn}_Out = ${fn}(${args.join(", ")});` : `${fn}(${args.join(", ")});`);
+      for (const o of ports.outputs) {
+        const type = o.type as ValueType;
+        if (type === "texture") {
+          scope.problem(node.id, `can't output a texture in WGSL; ${o.id} reads white`);
+          result[o.id] = { expr: textureUniform(""), type };
+          continue;
+        }
+        const local = this.local(scope, node.id, o.id);
+        this.lines.push(declare(type, local, `${ret}.${o.id}`));
+        result[o.id] = { expr: local, type };
+      }
       return result;
     }
 
@@ -498,7 +583,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
       const want = port.type as ValueType;
       const expr = this.input(root, output, port, want);
       const name = `mOut_${ident(port.id)}`;
-      this.lines.push(`${want} ${name} = ${expr};`);
+      this.lines.push(declare(want, name, expr));
       return name;
     }
   }
@@ -522,12 +607,12 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
       // A texture output previews as the texture across the mesh's UVs.
       const uniform = fragment.input(root, output, { id: first.name, label: first.name, type: "texture" }, "texture");
       baseColor = `mOut_base`;
-      fragment.lines.push(`vec3 mOut_base = texture(${uniform}, vMycoUv).rgb;`);
+      fragment.lines.push(declare("vec3", "mOut_base", `${fragment.sample(uniform, fragment.builtin("uv"))}.rgb`));
     } else if (first) {
       const value = fragment.surface(output, { id: first.name, label: first.name, type: first.type, default: 0 });
       baseColor = `mOut_base`;
-      fragment.lines.push(`vec3 mOut_base = ${convert(value, first.type, "vec3")};`);
-    } else baseColor = "vec3(1.0)";
+      fragment.lines.push(declare("vec3", "mOut_base", convertTo(value, first.type, "vec3")));
+    } else baseColor = `${typeName("vec3", language)}(1.0)`;
     alpha = "1.0";
   } else {
     offset = connected("vertexOffset") ? vertex.surface(output, port("vertexOffset")) : null;
@@ -574,32 +659,52 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
     for (const [p, type] of Object.entries(t.outputs)) portTypes[portRef(n.id, p)] = type;
   }
 
-  const uniformLines = [`uniform float ${SHARED_UNIFORMS.time};`, `uniform vec2 ${SHARED_UNIFORMS.resolution};`, ...uniforms.map((u) => `uniform ${u.type} ${u.name};`)];
-  const helperText = (s: Stage) => [...(Object.keys(HELPERS) as HelperName[]).filter((h) => s.helpers.has(h)).map((h) => HELPERS[h]), ...s.functions.values()];
-  const vertexDeclarations = ["// Myco shader graph", ...uniformLines, ...VARYINGS.map((v) => `varying ${v};`), ...helperText(vertex)].join("\n");
-  const fragmentDeclarations = [
-    "// Myco shader graph",
-    ...(lit ? ["#define MYCO_LIT"] : []),
-    ...uniformLines,
-    ...VARYINGS.map((v) => `varying ${v};`),
-    "vec3 mycoFaceNormal(vec3 n) { return normalize(gl_FrontFacing ? n : -n); }",
-    ...helperText(fragment),
-  ].join("\n");
-  const varyings = [
-    "vMycoUv = uv;",
-    "vMycoObjPos = transformed;",
-    "vMycoWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;",
-    "vMycoObjNormal = normal;",
-    "vMycoWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);",
-  ].join("\n");
+  const helperTable = wgsl ? HELPERS_WGSL : HELPERS;
+  const helperText = (s: Stage) => [...(Object.keys(HELPERS) as HelperName[]).filter((h) => s.helpers.has(h)).map((h) => helperTable[h]), ...s.functions.values()];
+  let vertexDeclarations: string, fragmentDeclarations: string, varyings: string;
+  if (wgsl) {
+    // Uniforms are the plugin's (read as `uniforms.<name>`); textures are declared here: all in the fragment stage, and those a vertex node samples in the vertex stage too.
+    const usedV = usedVaryings([...fragment.lines, ...fragment.functions.values()].join("\n"), normal !== null);
+    const textureLines = (names: string[]) => names.flatMap(textureDeclarationsWgsl);
+    vertexDeclarations = ["// Myco shader graph", ...textureLines(uniforms.filter((u) => u.type === "sampler2D" && vertex.textures.has(u.name)).map((u) => u.name)), ...varyingDeclarationsWgsl(usedV), ...helperText(vertex)].join("\n");
+    fragmentDeclarations = [
+      "// Myco shader graph",
+      ...textureLines(uniforms.filter((u) => u.type === "sampler2D").map((u) => u.name)),
+      ...varyingDeclarationsWgsl(usedV),
+      FACE_NORMAL_WGSL,
+      ...helperText(fragment),
+    ].join("\n");
+    varyings = varyingsWgsl(offset, usedV);
+  } else {
+    const uniformLines = [`uniform float ${SHARED_UNIFORMS.time};`, `uniform vec2 ${SHARED_UNIFORMS.resolution};`, ...uniforms.map((u) => `uniform ${u.type} ${u.name};`)];
+    vertexDeclarations = ["// Myco shader graph", ...uniformLines, ...VARYINGS.map((v) => `varying ${v};`), ...helperText(vertex)].join("\n");
+    fragmentDeclarations = [
+      "// Myco shader graph",
+      ...(lit ? ["#define MYCO_LIT"] : []),
+      ...uniformLines,
+      ...VARYINGS.map((v) => `varying ${v};`),
+      "vec3 mycoFaceNormal(vec3 n) { return normalize(gl_FrontFacing ? n : -n); }",
+      ...helperText(fragment),
+    ].join("\n");
+    varyings = [
+      "vMycoUv = uv;",
+      "vMycoObjPos = transformed;",
+      "vMycoWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+      "vMycoObjNormal = normal;",
+      "vMycoWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);",
+    ].join("\n");
+  }
   const vertexBody = vertex.lines.join("\n");
   const fragmentBody = fragment.lines.join("\n");
   const target = sub ? "unlit" : graph.target;
   const surface = sub ? "opaque" : graph.surface;
   const linearKey = uniforms.filter((u) => u.linear).map((u) => u.name).join(",");
-  const key = hash([target, surface, graph.doubleSided, vertexDeclarations, vertexBody, offset, fragmentDeclarations, fragmentBody, normal, alphaClip, linearKey, JSON.stringify(physical), usesShaderLevel ? shaderLevel : ""].join("\u0000"));
+  const keyParts = [target, surface, graph.doubleSided, vertexDeclarations, vertexBody, offset, fragmentDeclarations, fragmentBody, normal, alphaClip, linearKey, JSON.stringify(physical), usesShaderLevel ? shaderLevel : ""];
+  if (wgsl) keyParts.push(language); // GLSL keys stay as they were
+  const key = hash(keyParts.join("\u0000"));
 
   return {
+    language,
     target,
     surface,
     doubleSided: !sub && graph.doubleSided,

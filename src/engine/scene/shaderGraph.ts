@@ -59,6 +59,8 @@ export interface CustomFunction {
   inputs: FunctionPort[];
   outputs: FunctionPort[];
   body: string;
+  /** The same function in WGSL (ADR 0075): the statements of `fn name(inputs) -> outputs`, where each output is a `var` already declared. Without it the Babylon backend can't use the node. */
+  wgsl?: string;
 }
 
 /** A titled box around nodes on the canvas. */
@@ -271,6 +273,7 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
             inputs: parsePorts(f.inputs, `${where}: node "${n.id}" inputs`, problems, true),
             outputs: parsePorts(f.outputs, `${where}: node "${n.id}" outputs`, problems, false),
             body: typeof f.body === "string" ? f.body : "",
+            ...(typeof f.wgsl === "string" && f.wgsl ? { wgsl: f.wgsl } : {}),
           };
         } else problems.push(`${where}: node "${n.id}" has a function without a GLSL name.`);
       }
@@ -344,7 +347,7 @@ export function shaderGraphJSON(graph: ShaderGraph): Record<string, unknown> {
     const node: Record<string, unknown> = { id: n.id, type: n.type, position: [Math.round(n.position[0]), Math.round(n.position[1])] };
     if (n.inputs && Object.keys(n.inputs).length) node.inputs = { ...n.inputs };
     if (n.settings && Object.keys(n.settings).length) node.settings = { ...n.settings };
-    if (n.function) node.function = { name: n.function.name, inputs: n.function.inputs.map((p) => ({ ...p })), outputs: n.function.outputs.map((p) => ({ ...p })), body: n.function.body };
+    if (n.function) node.function = { name: n.function.name, inputs: n.function.inputs.map((p) => ({ ...p })), outputs: n.function.outputs.map((p) => ({ ...p })), body: n.function.body, ...(n.function.wgsl ? { wgsl: n.function.wgsl } : {}) };
     if (n.preview === false) node.preview = false;
     return node;
   });

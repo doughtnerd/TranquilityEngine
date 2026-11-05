@@ -1,0 +1,293 @@
+/**
+ * Shader graph materials on the Babylon backend (ADR 0047, 0049, 0075 stage 4). A graph compiled to
+ * WGSL (`compileShaderGraph(graph, { language: "wgsl" })`) is spliced into Babylon's PBR material
+ * by a material plugin, so graphs keep Babylon's lights, shadows, environment and the frame graph's
+ * effects. Lit and physical graphs set the surface (base colour, alpha, metalness, roughness,
+ * emission, normal); unlit graphs draw their colour directly.
+ *
+ * Where the code goes in Babylon's PBR WGSL shaders:
+ * - vertex: the graph's declarations at CUSTOM_VERTEX_DEFINITIONS; its inputs (`mycoVPos`,
+ *   `mycoVNormal`, `mycoVUv`), body, offset and varyings just before `worldPos` is computed;
+ * - fragment: declarations at CUSTOM_FRAGMENT_DEFINITIONS, the body at the start of `main`, base
+ *   colour and alpha (and the alpha clip) at CUSTOM_FRAGMENT_UPDATE_ALPHA, metalness and roughness
+ *   into `reflectivityBlock`'s first argument, the normal after `pbrBlockNormalFinal`, emission
+ *   before the final colour is composed.
+ *
+ * WebGPU only: on the WebGL2 fallback the plugin turns itself off and the material draws as plain PBR.
+ */
+import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
+import { Constants } from "@babylonjs/core/Engines/constants.js";
+import { Material } from "@babylonjs/core/Materials/material.js";
+import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
+import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
+import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
+import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
+import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
+import type { Scene } from "@babylonjs/core/scene.js";
+import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
+import { checkPropertyValue, type GraphValue } from "../../scene/shaderGraph";
+import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, type CompiledUniform } from "../shaderGraph/compile";
+
+/** Values every graph material reads, owned by the renderer and updated each frame. */
+export interface GraphShared {
+  time: number;
+  resolution: [number, number];
+}
+
+/** Load a texture asset; `linear` asks for data (normal maps) rather than sRGB colour. */
+export type LoadGraphTexture = (path: string, linear: boolean) => Promise<BaseTexture>;
+
+/** A graph material and how to change its property values without recompiling (ADR 0049). */
+export interface BabylonGraphMaterial {
+  material: PBRMaterial;
+  compiled: CompiledShaderGraph;
+  /** Its uniform values and textures (what the plugin binds). */
+  state: GraphState;
+  /** The property values it was made with (a material's, over the graph's defaults). */
+  properties: Record<string, GraphValue>;
+  setProperties(values: Record<string, GraphValue>): void;
+  dispose(): void;
+}
+
+const UBO_SIZE = { float: 1, vec2: 2, vec3: 3, vec4: 4 } as const;
+
+/** A world-space tangent frame from screen derivatives, for tangent-space graph normals. */
+const TANGENT_FRAME = /* wgsl */ `
+fn mycoBabylonTangentFrame(n: vec3f, p: vec3f, uv: vec2f) -> mat3x3f {
+  let dp1 = dpdx(p);
+  let dp2 = dpdy(p);
+  let duv1 = dpdx(uv);
+  let duv2 = dpdy(uv);
+  let dp2perp = cross(dp2, n);
+  let dp1perp = cross(n, dp1);
+  let t = dp2perp * duv1.x + dp1perp * duv2.x;
+  let b = dp2perp * duv1.y + dp1perp * duv2.y;
+  let invmax = inverseSqrt(max(max(dot(t, t), dot(b, b)), 1e-12));
+  return mat3x3f(t * invmax, b * invmax, n);
+}
+`;
+
+/** A property's value for a uniform, as numbers (linear for colours): the material's override if it suits the type, else the graph's default. */
+function uniformNumbers(u: CompiledUniform, overrides: Record<string, GraphValue>): number[] {
+  let v: GraphValue = u.value;
+  const own = u.property ? overrides[u.property] : undefined;
+  if (u.propertyType === "color" && Array.isArray(own) && own.length >= 3) return [srgbToLinear(own[0]), srgbToLinear(own[1]), srgbToLinear(own[2]), own[3] ?? 1];
+  if (u.property && u.propertyType && own !== undefined) v = checkPropertyValue(u.propertyType, own) ?? u.value;
+  if (u.propertyType === "color") return linearColor(String(v));
+  if (u.type === "float") return [typeof v === "number" ? v : 0];
+  const a = Array.isArray(v) ? v : [];
+  const n = UBO_SIZE[u.type as keyof typeof UBO_SIZE] ?? 4;
+  return Array.from({ length: n }, (_, i) => a[i] ?? 0);
+}
+
+/** The texture path a texture uniform reads ("" for white). */
+function texturePath(u: CompiledUniform, overrides: Record<string, GraphValue>): string {
+  const own = u.property ? overrides[u.property] : undefined;
+  const v = typeof own === "string" ? own : u.value;
+  return typeof v === "string" ? v.replace(/^asset:/, "") : "";
+}
+
+/**
+ * @internal Where a compiled graph's WGSL goes in Babylon's PBR shaders, by injection point (keys starting
+ * with "!" are regular expressions Babylon replaces; see the file's header).
+ */
+export function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: string]: string } {
+  if (shaderType === "vertex") {
+    const v = c.vertex;
+    return {
+      CUSTOM_VERTEX_DEFINITIONS: v.declarations,
+      // Replaces the world position's computation, so the offset moves the vertex before it.
+      "!var\\s+worldPos\\s*:\\s*vec4f\\s*=\\s*finalWorld\\s*\\*\\s*vec4f\\(\\s*positionUpdated\\s*,\\s*1\\.0\\s*\\)\\s*;": [
+        // The position before the offset: the compiler's varyings add the offset themselves.
+        "let mycoVPos: vec3f = positionUpdated;",
+        "#ifdef NORMAL",
+        "let mycoVNormal: vec3f = normalUpdated;",
+        "#else",
+        "let mycoVNormal: vec3f = vec3f(0.0, 1.0, 0.0);",
+        "#endif",
+        "#ifdef UV1",
+        "let mycoVUv: vec2f = uvUpdated;",
+        "#else",
+        "let mycoVUv: vec2f = vec2f(0.0);",
+        "#endif",
+        v.body,
+        v.offset ? `positionUpdated = positionUpdated + (${v.offset});` : "",
+        "var worldPos: vec4f = finalWorld * vec4f(positionUpdated, 1.0);",
+        v.varyings,
+      ].join("\n"),
+    };
+  }
+  const f = c.fragment;
+  const code: { [point: string]: string } = {
+    CUSTOM_FRAGMENT_DEFINITIONS: `${f.declarations}\n${f.normal ? TANGENT_FRAME : ""}`,
+    CUSTOM_FRAGMENT_MAIN_BEGIN: f.body,
+    CUSTOM_FRAGMENT_UPDATE_ALPHA: [`surfaceAlbedo = ${f.baseColor};`, `alpha = ${f.alpha};`, f.alphaClip ? `if (alpha < ${f.alphaClip}) { discard; }` : ""].join("\n"),
+  };
+  if (c.target !== "unlit") {
+    if (f.metalness || f.roughness) {
+      // vReflectivityColor holds metallic, roughness, IOR and F0 in the metallic workflow.
+      code["!reflectivityBlock\\(\\s*uniforms\\.vReflectivityColor"] = `reflectivityBlock(vec4f(${f.metalness ?? "uniforms.vReflectivityColor.x"}, ${f.roughness ?? "uniforms.vReflectivityColor.y"}, uniforms.vReflectivityColor.zw)`;
+    }
+    if (f.emission) code.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION = `finalEmissive = ${f.emission};`;
+    if (f.normal) code["!#include<pbrBlockNormalFinal>"] = `#include<pbrBlockNormalFinal>\nnormalW = normalize(mycoBabylonTangentFrame(normalW, fragmentInputs.vPositionW, fragmentInputs.vMycoUv) * (${f.normal}));`;
+  }
+  return code;
+}
+
+/** A graph material's values: each uniform's numbers and each texture slot's texture, refreshed by `setProperties`. */
+export interface GraphState {
+  numbers: Map<string, number[]>;
+  textures: Map<string, BaseTexture>;
+}
+
+/** @internal The plugin's uniform buffer entries: the shared time and resolution, then the graph's non-texture uniforms. */
+export function graphUniformBuffer(c: CompiledShaderGraph): { name: string; size: number; type: string }[] {
+  const ubo: { name: string; size: number; type: string }[] = [
+    { name: SHARED_UNIFORMS.time, size: 1, type: "float" },
+    { name: SHARED_UNIFORMS.resolution, size: 2, type: "vec2" },
+  ];
+  for (const u of c.uniforms) if (u.type !== "sampler2D") ubo.push({ name: u.name, size: UBO_SIZE[u.type], type: u.type });
+  return ubo;
+}
+
+/** The material plugin carrying one compiled graph (WGSL materials only). */
+class MycoGraphPlugin extends MaterialPluginBase {
+  constructor(
+    material: PBRMaterial,
+    private readonly compiled: CompiledShaderGraph,
+    private readonly shared: GraphShared,
+    private readonly state: GraphState,
+  ) {
+    // A define per graph, so materials with different graphs never share a compiled program.
+    // Registered after the fields are set: registering reads the plugin's code, which needs `compiled`.
+    super(material, "MycoGraph", 200, { [`MYCO_GRAPH_${compiled.key.replace(/[^A-Za-z0-9_]/g, "_")}`]: true }, false);
+    (this._pluginManager as unknown as { _addPlugin(p: MaterialPluginBase): boolean })._addPlugin(this);
+    this._enable(true);
+  }
+
+  override getClassName(): string {
+    return "MycoGraphPlugin";
+  }
+
+  override isCompatible(shaderLanguage: ShaderLanguage): boolean {
+    return shaderLanguage === ShaderLanguage.WGSL;
+  }
+
+  override getUniforms(): { ubo: { name: string; size: number; type: string }[] } {
+    return { ubo: graphUniformBuffer(this.compiled) };
+  }
+
+  override getSamplers(samplers: string[]): void {
+    for (const u of this.compiled.uniforms) if (u.type === "sampler2D") samplers.push(u.name);
+  }
+
+  override bindForSubMesh(ubo: UniformBuffer, _scene: Scene, _engine: AbstractEngine, _subMesh: SubMesh): void {
+    ubo.updateFloat(SHARED_UNIFORMS.time, this.shared.time);
+    ubo.updateFloat2(SHARED_UNIFORMS.resolution, this.shared.resolution[0], this.shared.resolution[1]);
+    for (const u of this.compiled.uniforms) {
+      if (u.type === "sampler2D") {
+        const t = this.state.textures.get(u.name);
+        if (t) ubo.setTexture(u.name, t);
+        continue;
+      }
+      const n = this.state.numbers.get(u.name) ?? [0, 0, 0, 0];
+      if (u.type === "float") ubo.updateFloat(u.name, n[0] ?? 0);
+      else if (u.type === "vec2") ubo.updateFloat2(u.name, n[0] ?? 0, n[1] ?? 0);
+      else if (u.type === "vec3") ubo.updateFloat3(u.name, n[0] ?? 0, n[1] ?? 0, n[2] ?? 0);
+      else ubo.updateFloat4(u.name, n[0] ?? 0, n[1] ?? 0, n[2] ?? 0, n[3] ?? 0);
+    }
+  }
+
+  override getActiveTextures(active: BaseTexture[]): void {
+    active.push(...this.state.textures.values());
+  }
+
+  override hasTexture(texture: BaseTexture): boolean {
+    return [...this.state.textures.values()].includes(texture);
+  }
+
+  override getCustomCode(shaderType: string, shaderLanguage?: ShaderLanguage): { [point: string]: string } | null {
+    return shaderLanguage === ShaderLanguage.WGSL ? graphCustomCode(this.compiled, shaderType) : null;
+  }
+}
+
+let whiteCache = new WeakMap<Scene, RawTexture>();
+
+/** A 1×1 white texture: what an empty texture slot reads. */
+function white(scene: Scene): RawTexture {
+  let t = whiteCache.get(scene);
+  if (!t || t.getScene() !== scene) {
+    t = RawTexture.CreateRGBATexture(new Uint8Array([255, 255, 255, 255]), 1, 1, scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE);
+    whiteCache.set(scene, t);
+  }
+  return t;
+}
+
+/** @internal Forget cached textures (tests). */
+export function _resetGraphTextures(): void {
+  whiteCache = new WeakMap();
+}
+
+/**
+ * A Babylon material for a graph compiled to WGSL. `overrides` are a material's property values;
+ * `loadTexture` fetches texture assets (slots read white until they load).
+ */
+export function createGraphMaterial(scene: Scene, name: string, c: CompiledShaderGraph, overrides: Record<string, GraphValue>, shared: GraphShared, loadTexture: LoadGraphTexture): BabylonGraphMaterial {
+  if (c.language !== "wgsl") throw new Error(`shader graph: the Babylon backend needs a graph compiled to WGSL, not ${c.language}`);
+  const material = new PBRMaterial(name, scene);
+  material.sideOrientation = Material.CounterClockWiseSideOrientation;
+  material.maxSimultaneousLights = 8;
+  material.albedoColor.set(1, 1, 1);
+  material.metallic = 0;
+  material.roughness = 1;
+  material.unlit = c.target === "unlit";
+  material.backFaceCulling = !c.doubleSided;
+  material.twoSidedLighting = c.doubleSided;
+  if (c.surface === "transparent") material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+  if (c.target === "physical") {
+    // The plugin sets the base surface; physical layers keep their PBR defaults until the graph drives them.
+    material.clearCoat.isEnabled = !!c.fragment.physical?.clearcoat;
+    material.sheen.isEnabled = !!c.fragment.physical?.sheenColor;
+  }
+  const state: GraphState = { numbers: new Map(), textures: new Map() };
+  // Babylon refuses a WGSL-only plugin on a GLSL material: the WebGL2 fallback draws plain PBR.
+  if (material.shaderLanguage === ShaderLanguage.WGSL) new MycoGraphPlugin(material, c, shared, state);
+  let disposed = false;
+  const slotPaths = new Map<string, string>();
+  const apply = (values: Record<string, GraphValue>) => {
+    for (const u of c.uniforms) {
+      if (u.type !== "sampler2D") {
+        state.numbers.set(u.name, uniformNumbers(u, values));
+        continue;
+      }
+      const path = texturePath(u, values);
+      if (slotPaths.get(u.name) === path && state.textures.has(u.name)) continue;
+      slotPaths.set(u.name, path);
+      state.textures.set(u.name, white(scene));
+      if (!path) continue;
+      loadTexture(path, !!u.linear)
+        .then((t) => {
+          if (disposed || slotPaths.get(u.name) !== path) return;
+          state.textures.set(u.name, t);
+        })
+        .catch((err) => console.error(`[myco] shader graph texture "${path}" failed to load:`, err));
+    }
+  };
+  apply(overrides);
+  const result: BabylonGraphMaterial = {
+    material,
+    state,
+    compiled: c,
+    properties: { ...overrides },
+    setProperties(values) {
+      result.properties = { ...values };
+      apply(values);
+    },
+    dispose() {
+      disposed = true;
+      material.dispose();
+    },
+  };
+  return result;
+}

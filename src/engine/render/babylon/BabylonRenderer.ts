@@ -10,7 +10,10 @@
  * Lights, shadows and the environment (stage 2) are in `lighting.ts`; the frame graph that draws each
  * frame, with post-processing (stage 3), is in `frameGraph.ts`.
  *
- * Not yet here (later stages): fog, shader graph materials, material property overrides,
+ * Shader graph materials and per-renderer material properties (stage 4) are in `graphMaterial.ts`
+ * and `rendererMaterial` below.
+ *
+ * Not yet here (later stages): fog,
  * particles, water, reflection probes, Text and UI, and every editor helper.
  */
 import "./register";
@@ -37,7 +40,12 @@ import { Assets, sidecarValue } from "../../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
 import { parseMaterial, materialGraph, type MaterialSettings } from "../../scene/material";
 import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
-import { isShaderGraphPath } from "../../scene/shaderGraph";
+import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../../scene/shaderGraph";
+import { colorHex } from "../../scene/material";
+import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector3 } from "../../core/math";
+import type { MaterialPropertyValue } from "../components";
+import { compileShaderGraph } from "../shaderGraph/compile";
+import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "./graphMaterial";
 import { Camera, Light, MeshRenderer, PostProcessing, SpriteRenderer } from "../components";
 import { Graphics } from "../Graphics";
 import { resolvePostEffects, type PostSettings } from "../postEffects";
@@ -71,8 +79,38 @@ interface CameraEntry {
 
 interface MaterialEntry {
   raw: unknown;
+  /** A shader graph material's graph JSON (ADR 0047), so editing the graph rebuilds it. */
+  graphRaw?: unknown;
   material: BabylonMaterial | null;
   textures: Texture[];
+  graph?: BabylonGraphMaterial;
+  /** Sub-graph files the graph uses, with the JSON they had (ADR 0048): a change rebuilds it. */
+  deps?: [string, unknown][];
+  /** The shader level a graph with Quality Branch nodes was compiled for (ADR 0050). */
+  level?: string;
+}
+
+/** A renderer's own material holding its property overrides (ADR 0049). */
+interface RendererMaterial {
+  base: BabylonMaterial;
+  material: BabylonMaterial;
+  graph?: BabylonGraphMaterial;
+  version: number;
+}
+
+/** The built-in materials' property names a renderer may override (ADR 0049). */
+const BUILTIN_PROPERTIES = new Set([
+  "color", "emission", "metalness", "roughness", "texture",
+  "clearcoat", "clearcoatRoughness", "sheen", "sheenColor", "sheenRoughness", "transmission", "thickness", "ior",
+  "iridescence", "iridescenceIOR", "anisotropy", "anisotropyRotation", "specularIntensity", "specularColor",
+]);
+
+/** A script's property value as material-file data: colours as `#rrggbbaa`, vectors as number lists. */
+function toGraphValue(v: MaterialPropertyValue): GraphValue {
+  if (v instanceof EngineColor) return colorHex(v);
+  if (v instanceof EngineVector2) return [v.x, v.y];
+  if (v instanceof EngineVector3) return [v.x, v.y, v.z];
+  return Array.isArray(v) ? [...v] : (v as number | string);
 }
 
 /** The parts of a three.js BufferGeometry the converter reads, without importing three.js. */
@@ -135,6 +173,14 @@ export class BabylonRenderer {
   /** The sidecar each texture's sampling came from (ADR 0040), so a changed sidecar is applied again. */
   private readonly textureMeta = new Map<string, object | undefined>();
   private readonly materialAssets = new Map<string, MaterialEntry>();
+  /** Graph materials by their Babylon material, for per-renderer copies. */
+  private readonly graphs = new WeakMap<BabylonMaterial, BabylonGraphMaterial>();
+  /** Renderers with property overrides, and their own materials (ADR 0049). */
+  private readonly rendererMaterials = new Map<MeshRenderer, RendererMaterial>();
+  /** Time and drawing-buffer size, read by every graph material. */
+  private readonly graphShared: GraphShared = { time: 0, resolution: [1, 1] };
+  /** Graph textures, sampled raw by graph code: colour ones through sRGB buffers, data ones linear. */
+  private readonly graphTextures = new Map<string, Promise<Texture>>();
   /** Vertex data made from each model geometry, shared by every renderer drawing it. */
   private readonly vertexData = new WeakMap<object, VertexData>();
   /** Babylon materials made from models' own materials. */
@@ -281,6 +327,8 @@ export class BabylonRenderer {
 
   render(world: World): void {
     this.claim(world);
+    this.graphShared.time = world.time.time;
+    this.graphShared.resolution = [this.engine.getRenderWidth(), this.engine.getRenderHeight()];
     const cams = this.viewCameras(world);
     const engine = this.engine;
     engine.beginFrame();
@@ -330,6 +378,7 @@ export class BabylonRenderer {
         for (const m of e.meshes) m.dispose();
         this.meshRenderers.delete(c);
       }
+      this.releaseRendererMaterial(c);
     } else if (c instanceof Light) {
       this.lighting.release(c);
     } else if (c instanceof Camera) {
@@ -514,7 +563,7 @@ export class BabylonRenderer {
       this.meshRenderers.set(r, entry);
     }
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
-    const material = this.materialAsset(r.material);
+    const material = this.rendererMaterial(r, this.materialAsset(r.material));
     const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
     if (!same || entry.material !== material) {
       for (const m of entry.meshes) m.dispose();
@@ -587,38 +636,220 @@ export class BabylonRenderer {
    */
   private materialAsset(path: string): BabylonMaterial | null {
     if (!path) return null;
-    let raw: unknown;
-    try {
-      raw = Assets.has(path) ? Assets.json(path) : undefined;
-    } catch {
-      raw = undefined;
+    const read = (p: string): unknown => {
+      try {
+        return Assets.has(p) ? Assets.json(p) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const raw = read(path);
+    // A material naming a shader graph, or a renderer naming the graph itself, depends on the graph's JSON too.
+    let graphPath: string | null = isShaderGraphPath(path) ? path : null;
+    if (!graphPath && raw !== undefined) {
+      try {
+        graphPath = materialGraph(parseMaterial(raw).settings);
+      } catch {
+        graphPath = null;
+      }
     }
+    const graphRaw = graphPath ? read(graphPath) : undefined;
     const cached = this.materialAssets.get(path);
-    if (cached && cached.raw === raw) return cached.material;
-    cached?.material?.dispose();
+    const levelOk = !cached?.level || cached.level === Graphics.tier.shaderLevel; // Quality Branch nodes (ADR 0050)
+    if (cached && levelOk && cached.raw === raw && cached.graphRaw === graphRaw && (cached.deps ?? []).every(([p, v]) => read(p) === v)) return cached.material;
+    if (cached?.graph) cached.graph.dispose();
+    else cached?.material?.dispose();
     for (const t of cached?.textures ?? []) t.dispose();
     let material: BabylonMaterial | null = null;
+    let graph: BabylonGraphMaterial | undefined;
     const owned: Texture[] = [];
     const where = path.replace(/^asset:/, "");
     if (raw === undefined) {
       this.warnOnce(`missing|${path}`, `material "${where}" isn't in the project; using the default material.`);
-    } else if (isShaderGraphPath(path)) {
-      this.warnOnce(`graph|${path}`, `${where}: shader graph materials aren't on the Babylon backend yet (ADR 0075 stage 4); using the default material.`);
+    } else if (graphPath) {
+      try {
+        const properties: Record<string, GraphValue> = graphPath === path ? {} : parseMaterial(raw, where).settings.properties;
+        if (graphRaw === undefined) throw new Error(`shader graph "${graphPath.replace(/^asset:/, "")}" isn't in the project.`);
+        graph = this.graphMaterial(graphRaw, graphPath.replace(/^asset:/, ""), properties);
+        material = graph.material;
+      } catch (err) {
+        const message = `${where}: ${(err as Error).message} Using the default material.`;
+        this.warnOnce(message, message);
+      }
     } else {
       try {
         const { settings, problems } = parseMaterial(raw, where);
         for (const p of problems) this.warnOnce(`${path}|${p}`, p);
-        if (materialGraph(settings)) {
-          this.warnOnce(`graph|${path}`, `${where}: shader graph materials aren't on the Babylon backend yet (ADR 0075 stage 4); using the default material.`);
-        } else {
-          material = this.builtinMaterial(path, settings, owned);
-        }
+        material = this.builtinMaterial(path, settings, owned);
       } catch (err) {
         this.warnOnce(`bad|${path}`, `${(err as Error).message} Using the default material.`);
       }
     }
-    this.materialAssets.set(path, { raw, material, textures: owned });
+    const deps = graph?.compiled.dependencies.map((p): [string, unknown] => [p, read(p)]);
+    const level = graph?.compiled.usesShaderLevel ? Graphics.tier.shaderLevel : undefined;
+    this.materialAssets.set(path, { raw, graphRaw, material, textures: owned, graph, deps, level });
     return material;
+  }
+
+  /** A graph compiled to WGSL as a Babylon material (ADR 0047, `graphMaterial.ts`). */
+  private graphMaterial(graphRaw: unknown, where: string, properties: Record<string, GraphValue>): BabylonGraphMaterial {
+    const { graph, problems } = parseShaderGraph(graphRaw, where);
+    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel, language: "wgsl" });
+    for (const p of [...problems, ...compiled.problems.map((q) => `${where}: ${q}`)]) this.warnOnce(p, p);
+    if (!this.engine.isWebGPU) this.warnOnce("graph|webgl", "shader graph materials need WebGPU on the Babylon backend; on the WebGL2 fallback they draw as plain PBR.");
+    const made = createGraphMaterial(this.scene, `graph:${where}`, compiled, properties, this.graphShared, (p, linear) => this.graphTexture(p, linear));
+    this.graphs.set(made.material, made);
+    return made;
+  }
+
+  /** A texture for graph code: colour textures decode sRGB in hardware (graph code samples them raw), data textures stay linear. */
+  private graphTexture(path: string, linear: boolean): Promise<Texture> {
+    const key = `${linear ? "linear" : "srgb"}|${path}`;
+    let p = this.graphTextures.get(key);
+    if (!p) {
+      p = new Promise<Texture>((resolve, reject) => {
+        const settings: ImportSettings = Assets.importSettings(path);
+        let url: string;
+        try {
+          url = Assets.url(path);
+        } catch (err) {
+          reject(err);
+          return;
+        }
+        const tex: Texture = new Texture(url, this.scene, {
+          noMipmap: !settings.mipmaps,
+          invertY: true,
+          samplingMode: this.samplingMode(settings),
+          useSRGBBuffer: !linear,
+          gammaSpace: false,
+          onLoad: () => {
+            const wrap = settings.wrap === "repeat" ? Texture.WRAP_ADDRESSMODE : settings.wrap === "mirror" ? Texture.MIRROR_ADDRESSMODE : Texture.CLAMP_ADDRESSMODE;
+            tex.wrapU = tex.wrapV = wrap;
+            resolve(tex);
+          },
+          onError: (message) => reject(new Error(message ?? `couldn't load ${path}`)),
+        });
+      });
+      this.graphTextures.set(key, p);
+    }
+    return p;
+  }
+
+  /**
+   * The material a renderer draws with: its material asset's, or (with property overrides, ADR 0049)
+   * its own copy with the overrides applied. A graph material's copy shares the compiled program.
+   */
+  private rendererMaterial(r: MeshRenderer, base: BabylonMaterial | null): BabylonMaterial | null {
+    const overrides = r._materialProperties;
+    let entry = this.rendererMaterials.get(r);
+    if (!base || overrides.size === 0) {
+      if (entry) this.releaseRendererMaterial(r);
+      return base;
+    }
+    if (entry && entry.base !== base) {
+      this.releaseRendererMaterial(r);
+      entry = undefined;
+    }
+    const values: Record<string, GraphValue> = {};
+    for (const [k, v] of overrides) values[k] = toGraphValue(v);
+    const baseGraph = this.graphs.get(base);
+    if (!entry) {
+      if (baseGraph) {
+        const g = createGraphMaterial(this.scene, `${base.name}:${r.node.name}`, baseGraph.compiled, { ...baseGraph.properties, ...values }, this.graphShared, (p, linear) => this.graphTexture(p, linear));
+        entry = { base, material: g.material, graph: g, version: r._materialPropertiesVersion };
+      } else {
+        entry = { base, material: base, version: -1 };
+      }
+      this.rendererMaterials.set(r, entry);
+      const known = baseGraph ? new Set(baseGraph.compiled.uniforms.flatMap((u) => (u.property ? [u.property] : []))) : BUILTIN_PROPERTIES;
+      for (const k of overrides.keys()) if (!known.has(k)) this.warnOnce(`${r.material}|prop|${k}`, `${r.node.name}: its material has no property "${k}"; setMaterialProperty ignores it.`);
+    }
+    if (entry.version !== r._materialPropertiesVersion) {
+      entry.version = r._materialPropertiesVersion;
+      if (entry.graph && baseGraph) entry.graph.setProperties({ ...baseGraph.properties, ...values });
+      else if (base instanceof PBRMaterial) {
+        // A fresh copy of the base each time, so cleared overrides go back to the material's values.
+        if (entry.material !== base) entry.material.dispose();
+        entry.material = this.builtinOverrides(base, `${base.name}:${r.node.name}`, values);
+      }
+    }
+    return entry.material;
+  }
+
+  /** A copy of a built-in material with a renderer's overrides (ADR 0049). */
+  private builtinOverrides(base: PBRMaterial, name: string, values: Record<string, GraphValue>): PBRMaterial {
+    const m = base.clone(name);
+    const color = (v: GraphValue): EngineColor | null => (typeof v === "string" || Array.isArray(v) ? EngineColor.from(v as string) : null);
+    const lin = (c: EngineColor) => new Color3(c.r, c.g, c.b).toLinearSpace();
+    if (values.color !== undefined) {
+      const c = color(values.color);
+      if (c) {
+        m.albedoColor = lin(c);
+        m.alpha = c.a;
+        m.transparencyMode = c.a < 1 ? PBRMaterial.PBRMATERIAL_ALPHABLEND : base.transparencyMode;
+      }
+    }
+    if (values.emission !== undefined) {
+      const c = color(values.emission);
+      if (c) m.emissiveColor = lin(c);
+    }
+    const num = (k: string) => (typeof values[k] === "number" ? (values[k] as number) : undefined);
+    if (num("metalness") !== undefined) m.metallic = num("metalness")!;
+    if (num("roughness") !== undefined) m.roughness = num("roughness")!;
+    if (num("clearcoat") !== undefined) {
+      m.clearCoat.isEnabled = num("clearcoat")! > 0;
+      m.clearCoat.intensity = num("clearcoat")!;
+    }
+    if (num("clearcoatRoughness") !== undefined) m.clearCoat.roughness = num("clearcoatRoughness")!;
+    if (num("sheen") !== undefined) {
+      m.sheen.isEnabled = num("sheen")! > 0;
+      m.sheen.intensity = num("sheen")!;
+    }
+    if (num("sheenRoughness") !== undefined) m.sheen.roughness = num("sheenRoughness")!;
+    if (values.sheenColor !== undefined) {
+      const c = color(values.sheenColor);
+      if (c) m.sheen.color = lin(c);
+    }
+    if (num("transmission") !== undefined) {
+      m.subSurface.isRefractionEnabled = num("transmission")! > 0;
+      m.subSurface.refractionIntensity = num("transmission")!;
+    }
+    if (num("thickness") !== undefined) m.subSurface.maximumThickness = Math.max(num("thickness")!, 0.001);
+    if (num("ior") !== undefined) m.indexOfRefraction = num("ior")!;
+    if (num("iridescence") !== undefined) {
+      m.iridescence.isEnabled = num("iridescence")! > 0;
+      m.iridescence.intensity = num("iridescence")!;
+    }
+    if (num("iridescenceIOR") !== undefined) m.iridescence.indexOfRefraction = num("iridescenceIOR")!;
+    if (num("anisotropy") !== undefined) {
+      m.anisotropy.isEnabled = num("anisotropy")! > 0;
+      m.anisotropy.intensity = num("anisotropy")!;
+    }
+    if (num("anisotropyRotation") !== undefined) m.anisotropy.angle = (num("anisotropyRotation")! * Math.PI) / 180;
+    if (num("specularIntensity") !== undefined) m.metallicF0Factor = num("specularIntensity")!;
+    if (values.specularColor !== undefined) {
+      const c = color(values.specularColor);
+      if (c) m.metallicReflectanceColor = lin(c);
+    }
+    if (typeof values.texture === "string") {
+      const image = values.texture.replace(/^asset:/, "");
+      if (!image) m.albedoTexture = null;
+      else
+        this.texture(image)
+          .then((tex) => {
+            if ([...this.rendererMaterials.values()].some((e) => e.material === m)) m.albedoTexture = tex;
+          })
+          .catch((err) => console.error(`[myco] failed to load texture "${image}":`, err));
+    }
+    return m;
+  }
+
+  private releaseRendererMaterial(r: MeshRenderer): void {
+    const e = this.rendererMaterials.get(r);
+    if (!e) return;
+    if (e.graph) e.graph.dispose();
+    else if (e.material !== e.base) e.material.dispose();
+    this.rendererMaterials.delete(r);
   }
 
   /** A lit, unlit or physical material asset (ADR 0043, 0052) as a Babylon PBR material. */
