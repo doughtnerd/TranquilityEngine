@@ -384,7 +384,7 @@ Or in code: `Lobby.host(worldHandle, options)`.
 | `fillWithBots` | false | Empty slots up to `maxPlayers` are bots in the match. |
 | `startCountdown` | 3 | Seconds between everyone being ready and the start. |
 | `settings` | none | Room settings and their allowed values; the first is the default (or `{ "choices": [...], "default": "open" }`). |
-| `quickMatchWait` | 10 | Seconds a quick-match room waits for more players before it starts on its own. |
+| `quickMatchWait` | 10 | Seconds a quick-match room waits for more players before it starts its first match on its own. After that match the room starts like any other (ready-up or the host), so players coming back to it stay in the room. |
 | `joinTimeout` | 30 | Seconds a match waits for its first player before it ends. |
 
 Give game systems a tag of the match Worlds (`["match"]` above) rather than `["server"]` or `["client"]`, so they don't run in the lobby World. The hidden lobby client World is tagged `lobby-client` only, so no game system runs in it.

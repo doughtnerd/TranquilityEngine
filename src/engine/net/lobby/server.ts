@@ -9,8 +9,9 @@
  *
  * Rooms: members ready up; when every member is ready (and there are at least `minPlayers`), the
  * room counts down `startCountdown` seconds and starts, unless someone unreadies, leaves or joins
- * meanwhile. The host can start at once once `minPlayers` is met. Quick-match rooms also start on
- * their own `quickMatchWait` seconds after they were made.
+ * meanwhile. The host can start at once once `minPlayers` is met. Quick-match rooms also start their
+ * first match on their own `quickMatchWait` seconds after they were made; once it ends they're
+ * ordinary rooms, so players coming back from a match stay in the room until they start again.
  *
  * Starting: a World from `matchTemplate`, named `Match <id>`, made a match World (`match.ts`) and
  * told to listen over the lobby's own transport at `/match/<id>` (on the lobby's port, ADR 0067);
@@ -57,7 +58,8 @@ interface Room {
   readonly code: string;
   name: string;
   readonly public: boolean;
-  readonly quick: boolean;
+  /** Starts on its own after `quickMatchWait`; cleared when its first match ends. */
+  quick: boolean;
   readonly createdAt: number;
   settings: Record<string, string>;
   /** Members by slot; null for an empty slot. */
@@ -430,6 +432,9 @@ export class LobbyServer {
   private endMatch(room: Room, match: RunningMatch): void {
     room.match = null;
     room.state = "waiting";
+    // Players come back to the room after a match (ADR 0068): a quick room's own timer would start
+    // another at once, so from here on it starts like any room (ready-up, or the host).
+    room.quick = false;
     room.results = { ...match.state.results };
     if (match.state.endReason && Object.keys(room.results).length === 0) room.results = { reason: match.state.endReason };
     if (match.handle.alive) match.handle.destroy();
