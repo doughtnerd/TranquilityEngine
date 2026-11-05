@@ -335,7 +335,7 @@ What it runs:
 
 - It reads `project.json`, the JSON assets (scenes, prefabs) and every script under `scripts/`, so your components, systems, RPCs and inputs are registered. Images and audio aren't loaded.
 - From a declarative bootstrap it creates only the Worlds tagged `server`, and the links between them. Other Worlds are skipped and logged. Templates stay available to `Engine.createWorld`.
-- If the bootstrap has no server Worlds but has server-tagged templates (a game whose **Host** button creates the server World at runtime), it creates those templates at start instead, each named after its key.
+- If the bootstrap has no server Worlds but has server-tagged templates (a game whose **Host** button creates the server World at runtime), it creates those templates at start instead, each named after its key. When one of them has `"lobby"`, it creates only that one: the lobby makes its match Worlds from their templates.
 - A code bootstrap runs with Worlds not tagged `server` skipped; `connect` calls from skipped Worlds tell the server where to listen.
 - Each server World listens on the port of a `websocket` link that connects to it (its `port`, `address` or `url`). The first server World falls back to `--port` or 7777. Others with no such link don't listen, and the server logs that.
 - Server Worlds created at runtime (a lobby's matches) run too. One listens when code calls `listen`; without a port it shares the first server World's port, by path. The server logs when such a World starts listening and when it's destroyed.
@@ -346,6 +346,8 @@ Server Worlds must run headless: no code in them that needs a canvas, the DOM or
 ## Lobbies and matchmaking
 
 A **lobby** (ADR 0068) is a server World with the lobby service on. Players join it, wait in rooms, ready up and pick settings; when a room starts, the lobby creates a **match World** for it from a template and the players' pages join that. When the match ends, the players are back in their room.
+
+> **Sample.** `samples/pirates/` (King of Pirates) uses a lobby for everything: its menu (`scripts/behaviors/Menu.ts`) runs a lobby in the page for Practice, Quick Match and rooms, or joins `npm run server -- samples/pirates`; `scripts/lobby.ts` loads the room's arena in the match Worlds and hands the results back.
 
 ### The lobby World
 
@@ -464,7 +466,7 @@ While playing, the Network tab shows each networked World with its role, tick, s
 From [implementation status](../architecture/implementation-status.md) and [open questions](../architecture/open-questions.md):
 
 - **Bootstrap links to a server elsewhere.** A link names two Worlds of the project (start-up or Spawnable, ADR 0062); a server in another process is joined at runtime with `connect(address, transport)`.
-- **Lobbies:** one lobby process; no skill rating, regions, parties, spectators, joining a match in progress, or reconnecting to a match after a disconnect (the player goes back to the room). Tickets stop casual joins; they aren't authentication. In a page with a canvas the match World is drawn over the paused menu on a surface of its own; that hand-over isn't covered by headless tests.
+- **Lobbies:** one lobby process; no skill rating, regions, parties, spectators, joining a match in progress, or reconnecting to a match after a disconnect (the player goes back to the room). Tickets stop casual joins; they aren't authentication. In a page with a canvas the match World is drawn over the paused menu on a surface of its own; that hand-over is checked by hand in a browser, not by headless or end-to-end tests.
 - **WebSocket in the browser.** A link between two Worlds in a browser page must use `loopback`; a `websocket` link there fails to start, because browsers can't listen.
 - **Not replicated:** node active state, reparenting, and components added to a ghost after the server first saw it.
 - **Prediction** covers data components, behavior fields and the transform moved by `predicted` systems. Behaviors aren't re-simulated, and physics isn't predicted.
