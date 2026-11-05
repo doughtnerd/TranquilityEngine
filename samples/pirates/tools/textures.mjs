@@ -200,7 +200,7 @@ function iconFlag() {
   return cv.png();
 }
 
-export function makeTextures(teamColors) {
+export function makeTextures() {
   const out = {
     "wood.png": wood(),
     "sail.png": sail(),
@@ -216,6 +216,5 @@ export function makeTextures(teamColors) {
     "icon_cannon.png": iconCannon(),
     "icon_flag.png": iconFlag(),
   };
-  teamColors.forEach((c, i) => (out[`sail_team${i}.png`] = sail(c)));
   return out;
 }

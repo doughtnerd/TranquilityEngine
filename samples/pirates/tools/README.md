@@ -15,7 +15,7 @@ Files: `lib.mjs` (RNG, PNG and WAV encoders, OBJ mesh builder), `models.mjs`, `t
 - Y up, ships point along +Z, the water line is y = 0, 1 unit is about 1 m (a ship is about 4.2 long, 1.4 wide).
 - Every OBJ uses `pirates.mtl` (shared; textures referenced as `../textures/x.png`), has UVs and flat normals, and splits into named objects (engine meshes) where parts need different handling.
 - Budgets: ships under 3k triangles, props under 1k.
-- Team colours: the ship's `Sails` object is its own mesh using the near-white `sail.png`, so tint its material, or swap in `sail_team0..7.png` (red, blue, green, yellow, purple, orange, teal, pink).
+- Team colours: the ship's `Sails` object is its own mesh using the near-white `sail.png`; the game tints it per ship (`MeshRenderer.setMaterialProperty("color", …)` on `materials/sail.material.json`).
 - Pickups lie flat (icon faces up) so they read from a top-down camera.
 
 ## Models (triangles)
@@ -36,7 +36,7 @@ Files: `lib.mjs` (RNG, PNG and WAV encoders, OBJ mesh builder), `models.mjs`, `t
 
 ## Textures (PNG, 128x128 RGBA)
 
-`wood`, `sail`, `sail_team0..7`, `rock`, `sand`, `palm`, `flag`, `foam` (tileable, alpha, for scrolling over water), `smoke` (a soft billowing puff with alpha, the fog cloud's particle texture), UI icons `icon_wind`, `icon_ghost`, `icon_storm`, `icon_cannon`, `icon_flag`. Wood, sail, rock, sand, palm and foam tile.
+`wood`, `sail`, `rock`, `sand`, `palm`, `flag`, `foam` (tileable, alpha, for scrolling over water), `smoke` (a soft billowing puff with alpha, the fog cloud's particle texture), UI icons `icon_wind`, `icon_ghost`, `icon_storm`, `icon_cannon`, `icon_flag`. Wood, sail, rock, sand, palm and foam tile.
 
 ## Audio (WAV, mono 16-bit 22.05 kHz)
 
