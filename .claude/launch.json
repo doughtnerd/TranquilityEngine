@@ -8,6 +8,12 @@
       "port": 3000
     },
     {
+      "name": "babylon-spike",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "3011", "--strictPort"],
+      "port": 3011
+    },
+    {
       "name": "editor-build-preview",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["vite", "preview", "--config", "vite.editor.config.ts", "--port", "4192", "--strictPort"],

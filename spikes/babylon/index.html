@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Babylon.js renderer spike</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; color: #ddd; font: 13px system-ui, sans-serif; overflow: hidden; }
+      canvas { width: 100%; height: 100%; display: block; outline: none; }
+      #hud { position: fixed; top: 8px; left: 8px; background: rgba(0,0,0,0.6); padding: 8px 10px; border-radius: 6px; line-height: 1.6; }
+      #hud label { display: block; cursor: pointer; }
+      #hud .k { color: #9cf; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud">
+      <div>Backend: <span class="k" id="backend">…</span></div>
+      <div>Frame: <span class="k" id="fps">…</span></div>
+      <label><input type="checkbox" id="vol" checked /> Volumetric light</label>
+      <label><input type="checkbox" id="bloom" checked /> Bloom</label>
+      <label><input type="checkbox" id="grade" checked /> WGSL grade (ACES, vignette, grain)</label>
+      <label><input type="checkbox" id="spin" checked /> Rotate sun</label>
+      <div id="err" style="color:#f88"></div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

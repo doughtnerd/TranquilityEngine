@@ -1,6 +1,6 @@
 # 0004. three.js owns the render pipeline
 
-- **Status:** Accepted, amended by [0010](0010-engine-graph-authoritative-over-threejs.md) (three.js is never exposed: no `Object3D` escape hatch, engine-owned math types, custom shaders as engine `Shader` assets)
+- **Status:** Superseded by [0075](0075-babylonjs-render-backend.md); was accepted, amended by [0010](0010-engine-graph-authoritative-over-threejs.md) (three.js is never exposed: no `Object3D` escape hatch, engine-owned math types, custom shaders as engine `Shader` assets)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -34,7 +34,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0001](decisions/0001-record-architecture-decisions.md) | Record architecture decisions | Accepted |
 | [0002](decisions/0002-typescript-first-esm.md) | TypeScript-first, ES modules | Accepted |
 | [0003](decisions/0003-tauri-platform-browser-runtime.md) | Tauri platform, browser runtime | Accepted |
-| [0004](decisions/0004-threejs-render-pipeline.md) | three.js owns the render pipeline | Accepted, amended by 0010 |
+| [0004](decisions/0004-threejs-render-pipeline.md) | three.js owns the render pipeline | Superseded by 0075 |
 | [0005](decisions/0005-physics-backend.md) | Physics: Rapier now, PhysX for 3D later, behind an engine interface | Accepted |
 | [0006](decisions/0006-audio-howler-and-three.md) | Audio: Howler + three.js positional audio | Accepted, amended by 0074 (spatial audio through Howler) |
 | [0007](decisions/0007-hidden-ecs-with-lifecycle-scripting.md) | Hidden ECS core, lifecycle-method scripting | Accepted, amended by 0017 |
@@ -105,6 +105,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0072](decisions/0072-water-surfaces-and-buoyancy.md) | Water surfaces with Gerstner waves, sampled the same on the CPU for buoyancy | Accepted |
 | [0073](decisions/0073-camera-rays-and-screen-points.md) | Cameras convert between screen points and world rays; `Ray` and `Plane` are public maths types | Accepted |
 | [0074](decisions/0074-spatial-audio-with-howler.md) | Spatial audio through Howler's spatial API, with an AudioListener component | Accepted |
+| [0075](decisions/0075-babylonjs-render-backend.md) | Babylon.js replaces three.js as the render backend (WebGPU, plain WGSL, frame graph), from upstream with module-by-module imports and copied subsystems instead of a fork | Accepted |
 
 ## Working with decisions
 
