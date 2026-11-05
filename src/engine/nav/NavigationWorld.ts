@@ -333,6 +333,13 @@ export class NavigationWorld {
   }
 
   private loadChunkBytes(c: NavChunk, backend: NavChunkBackend, bytes: Uint8Array): void {
+    const users = this.chunkUsers.get(backend.chunkId) ?? 0;
+    if (users > 0) {
+      // Already loaded by another instance of the scene: share it.
+      backend.loaded = true;
+      this.chunkUsers.set(backend.chunkId, users + 1);
+      return;
+    }
     try {
       this.runtime.loadChunk(backend.chunkId, bytes);
     } catch (err) {

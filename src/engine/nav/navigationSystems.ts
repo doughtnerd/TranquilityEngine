@@ -9,7 +9,7 @@
 import { Vector3, type Vec3Input } from "../core/math";
 import { defineBuiltinSystem } from "../core/systems";
 import type { World } from "../core/World";
-import { Assets, fetchAssetBytes } from "../scene/Assets";
+import { Assets, fetchAssetBytes, normalizeAssetPath } from "../scene/Assets";
 import { loadSceneFile, type ComponentEntry } from "../scene/SceneLoader";
 import type { NavigationWorld } from "./NavigationWorld";
 
@@ -59,8 +59,11 @@ export function navBakeRefs(path: string): string[] {
 
 // ------------------------------------------------------------------------------------------- baked chunk bytes
 
-/** Bake bytes by asset URL (a rewritten asset gets a new URL, so a rebake isn't served stale). */
-const bakeBytes = new Map<string, Uint8Array>();
+/**
+ * Bake bytes by asset reference, with the URL they came from: a rewritten asset gets a new URL (the editor's rebakes),
+ * so a rebake isn't served stale and only the latest bytes of each asset are kept.
+ */
+const bakeBytes = new Map<string, { url: string; bytes: Uint8Array }>();
 const bakeLoads = new Map<string, Promise<Uint8Array | null>>();
 
 function bakeUrl(ref: string): string | null {
@@ -75,20 +78,22 @@ function bakeUrl(ref: string): string | null {
 export function navBakeBytesIfLoaded(ref: string): Uint8Array | null | undefined {
   const url = bakeUrl(ref);
   if (url === null) return undefined;
-  return bakeBytes.get(url) ?? null;
+  const cached = bakeBytes.get(normalizeAssetPath(ref));
+  return cached?.url === url ? cached.bytes : null;
 }
 
 /** @internal Loads a bake's bytes (once per URL); null if the asset is missing or can't be read (reported). */
 export function loadNavBake(ref: string): Promise<Uint8Array | null> {
   const url = bakeUrl(ref);
   if (url === null) return Promise.resolve(null);
-  const cached = bakeBytes.get(url);
-  if (cached) return Promise.resolve(cached);
+  const key = normalizeAssetPath(ref);
+  const cached = bakeBytes.get(key);
+  if (cached?.url === url) return Promise.resolve(cached.bytes);
   let loading = bakeLoads.get(url);
   if (!loading) {
     loading = fetchAssetBytes(url)
       .then((bytes) => {
-        bakeBytes.set(url, bytes);
+        if (bakeUrl(ref) === url) bakeBytes.set(key, { url, bytes });
         return bytes;
       })
       .catch((err: unknown) => {

@@ -230,7 +230,8 @@ fn chunks_without_bounds_or_apart_or_of_other_agent_types_get_no_seams() {
         b.bake();
         b
     };
-    let c = chunk(MIN_B + Float3::new(20.0, 0.0, 0.0), MAX_B + Float3::new(20.0, 0.0, 0.0), 0.0);
+    // Myco reports only near misses (within seams::NEAR_MISS): 0.5 m apart is one, far chunks aren't.
+    let c = chunk(MIN_B + Float3::new(0.5, 0.0, 0.0), MAX_B + Float3::new(0.5, 0.0, 0.0), 0.0);
     let chunks = gather(&[loaded(id(1), &a), loaded(id(2), &unbounded), loaded(id(3), &c)]);
     assert!(!chunks.entries.iter().find(|e| e.chunk == id(2)).unwrap().bounded);
     let (seams, report) = build_seams_reported(&chunks);

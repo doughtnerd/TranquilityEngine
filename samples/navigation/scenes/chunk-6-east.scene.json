@@ -1,0 +1,287 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "navigation",
+      "name": "Navigation",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.NavChunk",
+          "data": {
+            "useChunkBounds": true,
+            "center": [
+              128,
+              20,
+              0
+            ],
+            "size": [
+              128,
+              48,
+              128
+            ],
+            "collect": "colliders",
+            "scope": "scene",
+            "skipAgents": [
+              "d29f7b64-6e1c-4a3d-9f58-2b8c4d7e1a04",
+              "e5c3a816-9f2b-4d7e-a165-3c9d5b2f8e05"
+            ],
+            "bake": "asset:scenes/chunk-6-east.nav.bin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "geometry",
+      "name": "Geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "ground",
+      "name": "Ground",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              128,
+              -0.5,
+              0
+            ],
+            "scale": [
+              128,
+              1,
+              128
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/ground.material.json"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "ramp-east-collider",
+      "name": "Ramp east (collider)",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              82,
+              0.75,
+              0
+            ],
+            "rotation": [
+              0,
+              0,
+              -9.462
+            ],
+            "scale": [
+              12.3,
+              0.5,
+              12
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-1-collider",
+      "name": "Pillar 1 (collider)",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              120.819,
+              3,
+              -16.918
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-2-collider",
+      "name": "Pillar 2 (collider)",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              132.12,
+              3,
+              -5.892
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-3-collider",
+      "name": "Pillar 3 (collider)",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              145.093,
+              3,
+              14.8
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-4-collider",
+      "name": "Pillar 4 (collider)",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              105.882,
+              3,
+              33.635
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "pillar-5-collider",
+      "name": "Pillar 5 (collider)",
+      "parent": "geometry",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              163.863,
+              3,
+              20.946
+            ],
+            "scale": [
+              3,
+              6,
+              3
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:cube",
+            "material": "asset:materials/walls.material.json"
+          }
+        },
+        {
+          "type": "engine.BoxCollider",
+          "data": {}
+        }
+      ]
+    }
+  ]
+}

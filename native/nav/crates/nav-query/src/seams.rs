@@ -424,8 +424,11 @@ pub fn build_seams_reported(chunks: &NavChunks) -> (Vec<Seam>, Vec<String>) {
     (seams, report)
 }
 
+/// How far apart (or overlapping) two chunk boxes can be and still be reported as meant to meet.
+pub const NEAR_MISS: f32 = 1.0;
+
 fn name(id: Hash128) -> String {
-    format!("chunk {}", &id.to_hex()[..8])
+    format!("chunk {}", id.to_hex())
 }
 
 /// Entry order for pairing: by (chunk, agent type, overlay), as `NavChunks::gather` makes it, however the
@@ -452,6 +455,20 @@ fn stitch_pairs(chunks: &NavChunks, keep: &[Seam]) -> (Vec<Seam>, Vec<String>, u
     let mut seams = Vec::new();
     let mut report = Vec::new();
     let mut kept = 0usize;
+    // Myco: the report names only likely mistakes. Neighbours always pair entry by entry, so entries of other agent
+    // types meeting is normal; it's reported once per chunk pair, and only for neighbours with no type in common.
+    // Boxes are reported only when they nearly meet (within NEAR_MISS), not for every pair that doesn't touch.
+    let pair_key = |x: Hash128, y: Hash128| if x < y { (x, y) } else { (y, x) };
+    let mut common = std::collections::BTreeSet::new();
+    for (n, &i) in order.iter().enumerate() {
+        for &j in &order[n + 1..] {
+            let (a, b) = (&chunks.entries[i], &chunks.entries[j]);
+            if a.chunk != b.chunk && a.agent_type == b.agent_type {
+                common.insert(pair_key(a.chunk, b.chunk));
+            }
+        }
+    }
+    let mut reported = std::collections::BTreeSet::new();
     for (n, &i) in order.iter().enumerate() {
         for &j in &order[n + 1..] {
             let (mut ia, mut ib) = (i, j);
@@ -460,6 +477,10 @@ fn stitch_pairs(chunks: &NavChunks, keep: &[Seam]) -> (Vec<Seam>, Vec<String>, u
                 continue;
             }
             if a.agent_type != b.agent_type {
+                let key = pair_key(a.chunk, b.chunk);
+                if common.contains(&key) || shared_face(a.bounds_min, a.bounds_max, b.bounds_min, b.bounds_max).is_none() || !reported.insert(key) {
+                    continue;
+                }
                 report.push(format!(
                     "{} and {}: different agent types ({}, {}); seams join one agent type.",
                     name(a.chunk),
@@ -476,7 +497,7 @@ fn stitch_pairs(chunks: &NavChunks, keep: &[Seam]) -> (Vec<Seam>, Vec<String>, u
             let (nav_a, overlay_a) = seam_nav_entry(chunks, ia);
             let (nav_b, overlay_b) = seam_nav_entry(chunks, ib);
             let Some((face, min, max)) = shared_face(a.bounds_min, a.bounds_max, b.bounds_min, b.bounds_max) else {
-                match near_miss(a.bounds_min, a.bounds_max, b.bounds_min, b.bounds_max, f32::MAX) {
+                match near_miss(a.bounds_min, a.bounds_max, b.bounds_min, b.bounds_max, NEAR_MISS) {
                     Some((gap, ax)) => report.push(format!(
                         "{} and {}: boxes {} {:.3} m {}along {}; faces must coincide (within 1 mm) to join.",
                         name(a.chunk),
@@ -486,7 +507,7 @@ fn stitch_pairs(chunks: &NavChunks, keep: &[Seam]) -> (Vec<Seam>, Vec<String>, u
                         if gap > 0.0 { "apart " } else { "" },
                         if ax == 0 { "x" } else { "z" }
                     )),
-                    None => report.push(format!("{} and {}: boxes don't line up on any side face (no shared height and width).", name(a.chunk), name(b.chunk))),
+                    None => {}
                 }
                 continue;
             };
