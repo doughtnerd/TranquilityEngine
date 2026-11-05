@@ -127,6 +127,8 @@ const ICONS: Partial<Record<AssetKind | "folder", string>> & { other: string } =
   prefab: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
   script: "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12",
   javascript: "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12",
+  typescript: "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12",
+  text: "M7 3h7l5 5v13H7zM14 3v5h5M10 12h6M10 15h6M10 18h4",
   json: "M9 4H8a2 2 0 0 0-2 2v3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3a2 2 0 0 1-2 2h-1",
   audio: "M9 17V6l10-2v11M9 17a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM19 15a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z",
   model: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
