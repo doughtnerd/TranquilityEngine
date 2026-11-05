@@ -10,7 +10,7 @@
 import { signal } from "@preact/signals";
 import { World } from "../engine/core/World";
 import { instantiateDocument, destroyNow } from "../engine/editor";
-import { bakeChunk, type NavBakeChunk, type NavBakeMesh, type NavBakeResult } from "../engine/nav/bake";
+import { bakeChunk, releaseBakeCaches, type NavBakeChunk, type NavBakeMesh, type NavBakeResult } from "../engine/nav/bake";
 import {
   collectNavGeometry,
   findNavChunks,
@@ -94,6 +94,7 @@ function forProject(project: EditorProject): void {
   if (stateProject !== null) {
     states.clear();
     recordCache.clear();
+    releaseBakers(); // another project's caches could match this one's scene paths and node ids
   }
   stateProject = project;
 }
@@ -116,7 +117,7 @@ export const inThreadRunner: NavBakeRunner = async (r, onStage) => {
 let worker: Worker | null = null;
 let workerFailed = false;
 let nextId = 1;
-const pending = new Map<number, { resolve: (r: NavBakeResult) => void; reject: (e: Error) => void; onStage: (s: NavBakeStage) => void }>();
+const pending = new Map<number, { request: NavBakeRequest; resolve: (r: NavBakeResult) => void; reject: (e: Error) => void; onStage: (s: NavBakeStage) => void }>();
 
 function bakeWorker(): Worker | null {
   if (worker || workerFailed || typeof Worker === "undefined") return worker;
@@ -133,13 +134,16 @@ function bakeWorker(): Worker | null {
       }
     };
     worker.onerror = (e) => {
-      // A worker that can't start (or crashed): fail what's running, and bake on this thread from now on.
+      // A worker that can't start (or crashed): bake what was sent to it on this thread instead, and every bake
+      // from now on (workerRunner posts copies of the meshes, so the requests here still have them).
       e.preventDefault?.();
       workerFailed = true;
       worker?.terminate();
       worker = null;
-      for (const job of pending.values()) job.reject(new Error(`The bake worker stopped: ${e.message || "it couldn't load"}.`));
+      console.warn(`[editor] the navigation bake worker stopped (${e.message || "it couldn't load"}); baking on the main thread.`);
+      const jobs = [...pending.values()];
       pending.clear();
+      for (const job of jobs) inThreadRunner(job.request, job.onStage).then(job.resolve, job.reject);
     };
   } catch {
     workerFailed = true;
@@ -154,13 +158,19 @@ export const workerRunner: NavBakeRunner = (request, onStage) => {
   if (!w) return inThreadRunner(request, onStage);
   return new Promise((resolve, reject) => {
     const id = nextId++;
-    pending.set(id, { resolve, reject, onStage });
-    const transfer = request.meshes.flatMap((m) => [m.positions.buffer as ArrayBuffer, m.indices.buffer as ArrayBuffer]);
-    w.postMessage({ id, type: "bake", request }, [...new Set(transfer)]);
+    // Copied rather than transferred, so the request can still be baked on this thread if the worker fails.
+    pending.set(id, { request, resolve, reject, onStage });
+    w.postMessage({ id, type: "bake", request });
   });
 };
 
 let runner: NavBakeRunner = workerRunner;
+
+/** Frees every chunk's incremental bake caches, in the worker and on this thread. */
+function releaseBakers(): void {
+  worker?.postMessage({ id: nextId++, type: "release" });
+  releaseBakeCaches();
+}
 
 /** Use another runner (tests bake in-thread); returns the previous one. */
 export function setNavBakeRunner(next: NavBakeRunner): NavBakeRunner {
@@ -206,9 +216,9 @@ async function writeRecord(project: EditorProject, record: NavBakeRecord): Promi
 
 // --- helpers ----------------------------------------------------------------------------------------
 
-/** The project's navigation settings (the defaults without a section). */
-export function projectNavigation(project: EditorProject): NavigationSettings {
-  return parseNavigationSettings((project.settings as { navigation?: unknown }).navigation).settings;
+/** The project's navigation settings (the defaults without a section, or without a project). */
+export function projectNavigation(project: EditorProject | null | undefined): NavigationSettings {
+  return parseNavigationSettings((project?.settings as { navigation?: unknown } | undefined)?.navigation).settings;
 }
 
 /** Look up a chunk's last bake record (once), for the Inspector. */

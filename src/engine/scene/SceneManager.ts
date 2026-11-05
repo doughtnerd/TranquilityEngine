@@ -1,7 +1,7 @@
 import { World } from "../core/World";
 import { ensurePhysics2D } from "../physics/physics2dSystems";
 import { ensurePhysics3D, usesPhysics3D } from "../physics/physics3d";
-import { ensureNavigation, preloadNavBakes, usesNavigation } from "../nav/navigationSystems";
+import { ensureNavigation, preloadNavBakes, simulatesNavigation, usesNavigation } from "../nav/navigationSystems";
 import { Assets } from "./Assets";
 import { isMaterialPath } from "./material";
 import { isModelPath, loadModel } from "./models";
@@ -49,8 +49,9 @@ export class SceneManager {
     if (file.settings?.physics === "2d") await ensurePhysics2D(world);
     // 3D physics when the scene says so, or (saying nothing) when it has 3D bodies or colliders (ADR 0045).
     if (file.settings?.physics === "3d" || (file.settings?.physics === undefined && usesPhysics3D(path))) await ensurePhysics3D(world);
-    // Navigation (ADR 0065): the module, and the scene's baked chunks, so its NavChunks load as it's instantiated.
-    if (usesNavigation(path)) await Promise.all([ensureNavigation(world), preloadNavBakes(path)]);
+    // Navigation (ADR 0065): the module, and the scene's baked chunks, so its NavChunks load as it's instantiated;
+    // only in Worlds that run it (not clients, which get agents by replication).
+    if (usesNavigation(path) && simulatesNavigation(world)) await Promise.all([ensureNavigation(world), preloadNavBakes(path)]);
 
     // A slice reference (`images/sheet.png#walk_0`, ADR 0040) preloads its image; a mesh
     // reference (`models/a.fbx#Body`, ADR 0044) its model; a material (ADR 0043) its textures.

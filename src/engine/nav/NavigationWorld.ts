@@ -56,6 +56,8 @@ export interface NavAgentBackend {
   costs: string;
   /** The node's `tVersion` when its transform was last written into or from the runtime. */
   syncedVersion: number;
+  /** Position and rotation last written to a parented node (the slow path), so unchanged poses aren't rewritten. */
+  written?: Float32Array;
 }
 
 /** @internal */
@@ -724,17 +726,32 @@ export class NavigationWorld {
       }
       if (changed) w.markTransformDirty(e);
     } else {
+      // Under a moved parent: written through the world-space setters, and only when the runtime's pose changed since
+      // the last write (or the node was moved by something else since then), so idle agents don't look moved.
       const t = node.transform!;
-      const m = w.worldMatrix(e), mo = e * 16;
-      if (updatePosition && (m[mo + 12] !== out[o] || m[mo + 13] !== out[o + 1] || m[mo + 14] !== out[o + 2])) t.worldPosition = [out[o], out[o + 1], out[o + 2]];
-      if (updateRotation) t.worldRotation = new Quaternion(out[o + 3], out[o + 4], out[o + 5], out[o + 6]);
+      const last = (b.written ??= new Float32Array(7).fill(Number.NaN));
+      const movedElsewhere = w.tVersion[e] !== b.syncedVersion;
+      if (updatePosition && (movedElsewhere || last[0] !== out[o] || last[1] !== out[o + 1] || last[2] !== out[o + 2])) {
+        t.worldPosition = [out[o], out[o + 1], out[o + 2]];
+        last.set(out.subarray(o, o + 3), 0);
+      }
+      if (updateRotation && (movedElsewhere || last[3] !== out[o + 3] || last[4] !== out[o + 4] || last[5] !== out[o + 5] || last[6] !== out[o + 6])) {
+        t.worldRotation = new Quaternion(out[o + 3], out[o + 4], out[o + 5], out[o + 6]);
+        last.set(out.subarray(o + 3, o + 7), 3);
+      }
     }
     b.syncedVersion = w.tVersion[e];
   }
 
   // ------------------------------------------------------------------------------------------- queries (the facade)
 
+  /** Gates changed since the last step reach the runtime before a query, so it sees a gate closed this frame. */
+  private syncGatesForQuery(): void {
+    for (const g of this.world._componentsOfType(NavGate)) this.syncGate(g);
+  }
+
   findPath(from: Vec3, to: Vec3, agentType: string) {
+    this.syncGatesForQuery();
     const type = this.resolveAgentType(agentType, "Navigation.findPath");
     if (type === null) return null;
     const r = this.runtime.findPath(type, from, to);
@@ -742,17 +759,20 @@ export class NavigationWorld {
   }
 
   nearestPoint(p: Vec3, agentType: string, maxDistance: number) {
+    this.syncGatesForQuery();
     const type = this.resolveAgentType(agentType, "Navigation.nearestPoint");
     if (type === null) return null;
     return this.runtime.nearestPoint(type, p, maxDistance);
   }
 
   isReachable(from: Vec3, to: Vec3, agentType: string): boolean {
+    this.syncGatesForQuery();
     const type = this.resolveAgentType(agentType, "Navigation.isReachable");
     return type !== null && this.runtime.isReachable(type, from, to);
   }
 
   raycast(from: Vec3, to: Vec3, agentType: string) {
+    this.syncGatesForQuery();
     const type = this.resolveAgentType(agentType, "Navigation.raycast");
     if (type === null) return null;
     return this.runtime.raycast(type, from, to);

@@ -134,11 +134,20 @@ export async function ensureNavigation(world: World): Promise<NavigationWorld | 
 }
 
 /**
+ * @internal True if the World runs the navigation systems: not an editor World (play mode runs its own Engine), and
+ * `engine.NavStep` is among its systems (authoritative Worlds; a client gets agents by replication). Other Worlds
+ * never load the runtime or any bake.
+ */
+export function simulatesNavigation(world: World): boolean {
+  return world.kind !== "editor" && world.scheduler.names().includes("engine.NavStep");
+}
+
+/**
  * @internal A navigation component attached in a World without navigation: start it (asynchronously; the
- * component begins working at the first fixed step after the module loads). Editor Worlds don't simulate.
+ * component begins working at the first fixed step after the module loads), if the World simulates navigation.
  */
 export function ensureNavigationFor(world: World): void {
-  if (world.navigation || world.kind === "editor" || world._navigationDisposed) return;
+  if (world.navigation || world._navigationDisposed || !simulatesNavigation(world)) return;
   ensureNavigation(world).catch((err: unknown) => console.error("[myco] nav: couldn't load the navigation module:", err));
 }
 

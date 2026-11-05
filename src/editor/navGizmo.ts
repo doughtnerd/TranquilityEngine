@@ -29,7 +29,7 @@ import {
   type NavDebugSource,
 } from "../engine/nav/debugGeometry";
 import { bakeAgentGroups, debugBakeLines } from "../engine/nav/runtime";
-import { defaultNavigationSettings, parseNavigationSettings, type NavigationSettings } from "../engine/nav/settings";
+import { projectNavigation } from "./navBake";
 import { persisted } from "./preferences";
 import type { PlaySession } from "./playMode";
 import { currentProject, docVersion, openScene, playState } from "./state";
@@ -249,7 +249,8 @@ function openSceneBakes(): { paths: string[]; urlOf: (path: string) => string | 
  * without a project (or with an unreadable table) the index itself is used.
  */
 async function agentGroupsOf(bytes: Uint8Array, typeIndex: number): Promise<{ walk: number; fly: number }> {
-  const id = currentProject.peek() ? projectNavigation().agentTypes[typeIndex]?.id : undefined;
+  const project = currentProject.peek();
+  const id = project ? projectNavigation(project).agentTypes[typeIndex]?.id : undefined;
   if (id) {
     try {
       return await bakeAgentGroups(bytes, id);
@@ -258,11 +259,6 @@ async function agentGroupsOf(bytes: Uint8Array, typeIndex: number): Promise<{ wa
     }
   }
   return { walk: typeIndex, fly: typeIndex };
-}
-
-export function projectNavigation(): NavigationSettings {
-  const raw = (currentProject.peek()?.settings as { navigation?: unknown } | undefined)?.navigation;
-  return raw === undefined ? defaultNavigationSettings() : parseNavigationSettings(raw).settings;
 }
 
 const orFlags = (a: NavDebugFlags, b: NavDebugFlags): NavDebugFlags => ({
@@ -286,7 +282,7 @@ export function runtimeNavProvider(world: World, settings: () => NavDebugFlags =
       overlay = new RuntimeNavOverlay(
         nav.runtime as unknown as NavDebugSource,
         () => chunkIdsOf(nav.loadedChunks?.()),
-        () => projectNavigation().agentTypes.map((t) => t.id),
+        () => projectNavigation(currentProject.peek()).agentTypes.map((t) => t.id),
         () => orFlags(settings(), readNavDebugFlags(nav.debug)),
         () => navDebugColors(theme.peek()),
       );

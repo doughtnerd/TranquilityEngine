@@ -88,7 +88,13 @@ export interface NavBakeResult {
   ms: number;
 }
 
+/**
+ * One incremental baker per chunk, most recently used last. Each holds its tile and task caches in WASM memory
+ * (which never shrinks), so only the last few chunks baked keep theirs: rebaking the chunk being worked on stays
+ * incremental, and Bake All over a big project doesn't keep every chunk's caches.
+ */
 const bakers = new Map<string, NavBaker>();
+export const MAX_CACHED_BAKERS = 8;
 
 /** Packs meshes into the flat arrays and table `NavBaker.bakeChunk` reads. */
 export function packMeshes(meshes: readonly NavBakeMesh[]): { positions: Float32Array; indices: Uint32Array; table: object[] } {
@@ -136,9 +142,13 @@ export async function bakeChunk(
   const mod = await loadNavigation();
   const key = `${scenePath}\n${chunkNodeId}`;
   let baker = bakers.get(key);
-  if (!baker) {
-    baker = new mod.NavBaker();
-    bakers.set(key, baker);
+  if (baker) bakers.delete(key); // re-added below as the most recent
+  else baker = new mod.NavBaker();
+  bakers.set(key, baker);
+  for (const [oldKey, old] of bakers) {
+    if (bakers.size <= MAX_CACHED_BAKERS) break;
+    old.free();
+    bakers.delete(oldKey);
   }
   const { positions, indices, table } = packMeshes(meshes);
   const { modifierVolumes = [], gates = [], resolutionVolumes = [], ...chunkSettings } = chunk;

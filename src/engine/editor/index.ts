@@ -14,7 +14,7 @@ import type { WorldConfig } from "../core/worlds";
 import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
 import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
-import type { NavigationRuntime } from "../nav/runtime";
+import type { NavigationWorld } from "../nav/NavigationWorld";
 import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
 import { Camera, MeshRenderer, SpriteRenderer } from "../render/components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
@@ -557,10 +557,9 @@ export function setEditorOverlay(world: World, provider: (() => EditorOverlay) |
   else removeEditorOverlay(world, "default");
 }
 
-/** The World's navigation (ADR 0065), or null while it has none (or the engine has no navigation yet). */
-export function navigationOf(world: World): { runtime: NavigationRuntime; loadedChunks?(): unknown; debug?: unknown } | null {
-  const nav = (world as unknown as { navigation?: { runtime?: NavigationRuntime } | null }).navigation;
-  return nav?.runtime ? (nav as { runtime: NavigationRuntime }) : null;
+/** The World's navigation (ADR 0065), or null while it has none. */
+export function navigationOf(world: World): NavigationWorld | null {
+  return world.navigation ?? null;
 }
 
 /** The id of the overlay handle under a canvas point, or null. */

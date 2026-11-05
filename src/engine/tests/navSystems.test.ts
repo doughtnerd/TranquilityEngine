@@ -208,7 +208,11 @@ describe("navigation in the engine (ADR 0065)", () => {
   it("closes and opens a gate", async () => {
     const { engine } = await setup({ agents: [{ id: "a", position: [-6, 0, 0] }] });
     const gate = find("Gate")!.getBehavior(NavGate)!;
+    steps(engine, 2);
+    expect(Navigation.findPath([-6, 0, 0], [6, 0, 0]).status).toBe("success");
     gate.open = false;
+    // Queries see the change at once, before a step has synced it (or a tick applied it).
+    expect(Navigation.findPath([-6, 0, 0], [6, 0, 0]).status).not.toBe("success");
     steps(engine, 2);
     const a = agentOf("a");
     a.setDestination([6, 0, 0]);

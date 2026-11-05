@@ -70,7 +70,7 @@ export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettin
     physics: { ...defaultSettings.physics, ...input.physics },
     render: { ...defaultSettings.render, ...input.render },
     graphics: parseGraphics(input.graphics).graphics, // problems are reported by the Engine and the Project panel
-    navigation: parseNavigationSettings(input.navigation).settings, // problems: `navigationSettingsProblems`, reported when navigation starts
+    navigation: parseNavigationSettings(input.navigation).settings, // problems are reported by the Engine (`navigationSettingsProblems`) and the Project panel
     autoload: input.autoload ?? [],
     ...(input.bootstrap !== undefined ? { bootstrap: input.bootstrap } : {}), // checked by validateBootstrap when the bootstrap runs
   };

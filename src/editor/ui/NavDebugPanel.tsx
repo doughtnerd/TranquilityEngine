@@ -2,7 +2,9 @@ import { signal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
 import { navigationOf } from "../../engine/editor";
 import type { NavTickStats } from "../../engine/nav/runtime";
-import { cleanNavOverlay, navOverlaySettings, projectNavigation, updateNavOverlay } from "../navGizmo";
+import { cleanNavOverlay, navOverlaySettings, updateNavOverlay } from "../navGizmo";
+import { projectNavigation } from "../navBake";
+import { currentProject } from "../state";
 import { playing } from "../session";
 import { playState } from "../state";
 import "./navdebug.css";
@@ -98,7 +100,7 @@ export function NavDebugPanel() {
 /** The scene view popover's toggles: Navmesh, Links, Flight volume, the agent group, and the play-mode extras. */
 export function NavOverlayForm() {
   const s = cleanNavOverlay(navOverlaySettings.value);
-  const types = projectNavigation().agentTypes;
+  const types = projectNavigation(currentProject.value).agentTypes;
   const check = (key: "navmesh" | "links" | "volume" | "landing" | "seams" | "paths", label: string, title?: string) => (
     <label class="snap-row check" title={title}>
       <input type="checkbox" checked={s[key]} aria-label={label} onChange={(e) => updateNavOverlay({ [key]: (e.currentTarget as HTMLInputElement).checked })} />

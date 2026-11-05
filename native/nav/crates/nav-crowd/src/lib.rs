@@ -248,6 +248,19 @@ impl Crowd {
         self.push(Command::SetGate { id, open });
     }
 
+    /// Myco: the host's latest state of a gate, counting `SetGate` commands not yet applied, so one-shot queries made
+    /// between ticks see a gate the host just opened or closed. None if the host never set it.
+    pub fn gate_state(&self, id: Hash128) -> Option<bool> {
+        self.commands
+            .iter()
+            .rev()
+            .find_map(|c| match c {
+                Command::SetGate { id: g, open } if *g == id => Some(*open),
+                _ => None,
+            })
+            .or_else(|| self.chunks.gates.gate(id))
+    }
+
     pub fn set_area_cost(&mut self, agent: AgentId, area: Hash128, cost: f32, excluded: bool) {
         self.push(Command::SetAreaCost { agent, area, cost, excluded });
     }
