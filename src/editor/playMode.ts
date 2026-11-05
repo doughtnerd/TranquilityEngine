@@ -26,6 +26,8 @@ export interface PlaySession {
   readonly engine: Engine;
   /** The scene path being played. */
   readonly path: string;
+  /** The game view (its play bar and overlay layer); null headless. */
+  readonly view: GameView | null;
   /** The multiplayer play bootstrap the Engine was built from; null when it plays the project's own. */
   readonly netPlay: NetPlayBootstrap | null;
   /**
@@ -129,6 +131,7 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
     throw err;
   }
   const engine = runtime;
+  const gameView = view;
   let paused = false;
   const setPaused = (value: boolean) => {
     if (stopped || value === paused) return;
@@ -140,6 +143,7 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
   return {
     engine,
     path: scene.path,
+    view: gameView,
     netPlay,
     get paused() {
       return paused;

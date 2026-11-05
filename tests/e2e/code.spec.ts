@@ -97,6 +97,7 @@ test("a script component's card opens its script", async ({ page }) => {
   await page.locator('.tree .row[data-key="ceiling"]').click();
   await page.locator(".dock-tab", { hasText: "Inspector" }).click();
   await page.getByRole("button", { name: "Add Component" }).click();
+  await page.getByRole("searchbox", { name: "Search components" }).fill("Wheel");
   await page.getByRole("dialog", { name: "Add component" }).getByRole("option", { name: "Wheel" }).click();
   await page.getByRole("button", { name: "Open Wheel script" }).click();
   await expect(tab(page, "Wheel.ts")).toHaveClass(/active/);

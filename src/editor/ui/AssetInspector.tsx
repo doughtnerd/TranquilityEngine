@@ -4,6 +4,7 @@ import { assetKind, fileName } from "../assetBrowser";
 import { AudioPreview, LargePreview } from "./AssetPreview";
 import { MaterialInspector, ShaderGraphInspector } from "./MaterialInspector";
 import { ParticleEffectInspector } from "./ParticleInspector";
+import { NavFormationInspector } from "./NavFormationInspector";
 import { importKind, inspectedAsset, openSpriteEditor, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
 import { errorStatus } from "../messages";
 import { PIVOT_PRESETS, pivotLabel } from "../spriteSlicing";
@@ -18,6 +19,7 @@ export function AssetInspector() {
   const path = inspectedAsset.value;
   const kind = path ? assetKind(path) : null;
   if (path && kind === "particles") return <ParticleEffectInspector path={path} />;
+  if (path && kind === "formation") return <NavFormationInspector path={path} />;
   if (path && (kind === "environment" || kind === "prefab")) return <PreviewInspector path={path} kind={kind} />;
   return path && kind === "material" ? <MaterialInspector path={path} /> : path && (kind === "shadergraph" || kind === "shadersubgraph") ? <ShaderGraphInspector path={path} /> : <ImportInspector />;
 }

@@ -35,6 +35,8 @@ import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
 import { ParticleSystemEffect } from "./ParticleInspector";
 import { NavChunkBake } from "./NavChunkInspector";
+import { NavAgentBakeNote, NavAvoidanceNote, NavChunkPlanSummary, NavModifierPreviewNote, NavResolutionSummary } from "./NavComponentInspectors";
+import { NavGroupFormation } from "./NavFormationInspector";
 import { showsAssetInspector } from "../assetImport";
 import { assetKind, listedFiles } from "../assetBrowser";
 import { BUILTIN_MESHES } from "../../engine/scene/models";
@@ -480,9 +482,39 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
         />
       )}
       {/* A NavChunk bakes from here (ADR 0065). */}
+      {info.type === "engine.NavChunk" && paths.length === 1 && paths[0].length === 1 && <NavChunkPlanSummary scene={scene} nodeId={paths[0][0]} />}
       {info.type === "engine.NavChunk" && paths.length === 1 && paths[0].length === 1 && <NavChunkBake scene={scene} nodeId={paths[0][0]} />}
+      {/* Ports of Foxfire's navigation editors (ADR 0065): notes, the formation preview, the volumes' summaries. */}
+      {paths.length === 1 && navNote(scene, paths[0], info)}
     </section>
   );
+}
+
+/** The navigation notes and previews under a component's fields (one node selected). */
+function navNote(scene: OpenScene, path: NodePath, info: ComponentInfo) {
+  const value = (name: string) => info.fields.find((f) => f.name === name)?.value;
+  const key = pathKey(path);
+  switch (info.type) {
+    case "engine.NavAgent":
+      return (
+        <>
+          <NavAgentBakeNote scene={scene} agentType={String(value("agentType") ?? "")} />
+          <NavAvoidanceNote agentType={String(value("agentType") ?? "")} />
+        </>
+      );
+    case "engine.NavAvoidanceObstacle":
+      return <NavAvoidanceNote obstacleLayers={Number(value("layers") ?? 1)} />;
+    case "engine.NavGroup":
+      return path.length === 1 ? <NavGroupFormation scene={scene} nodeId={path[0]} index={info.index} formation={String(value("formation") ?? "")} formationAsset={String(value("formationAsset") ?? "")} /> : null;
+    case "engine.NavResolutionVolume": {
+      const agents = value("agents");
+      return <NavResolutionSummary scene={scene} nodeKey={key} cellSize={Number(value("cellSize") ?? 0)} agents={Array.isArray(agents) ? agents.map(String) : []} />;
+    }
+    case "engine.NavModifierVolume":
+      return <NavModifierPreviewNote nodeKey={key} appliesTo={String(value("appliesTo") ?? "both")} area={String(value("area") ?? "")} />;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -661,6 +693,7 @@ function assetListFor(type: string, field: string): string {
   if (field === "mesh" && (type === "engine.MeshRenderer" || type === "engine.MeshCollider")) return "asset-list-mesh";
   if (field === "material" && type === "engine.MeshRenderer") return "asset-list-material";
   if (field === "effect" && type === "engine.ParticleSystem") return "asset-list-particles";
+  if (field === "formationAsset" && type === "engine.NavGroup") return "asset-list-formation";
   return "asset-list-all";
 }
 
@@ -680,6 +713,7 @@ function AssetLists() {
         </datalist>
         <datalist id="asset-list-material">{options(files.filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph"))}</datalist>
         <datalist id="asset-list-particles">{options(files.filter((f) => assetKind(f) === "particles"))}</datalist>
+        <datalist id="asset-list-formation">{options(files.filter((f) => assetKind(f) === "formation"))}</datalist>
         <datalist id="asset-list-all">{options(files)}</datalist>
       </>
     );

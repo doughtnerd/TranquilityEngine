@@ -13,6 +13,10 @@ export const STEP_SECONDS = 1 / 60;
 export interface GameView {
   /** The main view's element: the Engine's container. */
   readonly main: HTMLElement;
+  /** The play bar's own tools (Gizmos, Stats), after the World strip. */
+  readonly tools: HTMLElement;
+  /** A layer over the whole game view for overlays such as Stats (it takes no clicks itself). */
+  readonly hud: HTMLElement;
   /**
    * Start following `engine`'s Worlds: tiles, input focus and the strip, updated every frame.
    * `thin`: multiplayer play's thin clients (ADR 0033 §9), noted as such in the strip.
@@ -37,7 +41,11 @@ export function createGameView(container: HTMLElement): GameView {
   const strip = div("world-strip");
   strip.setAttribute("role", "toolbar");
   strip.setAttribute("aria-label", "Worlds");
-  container.replaceChildren(tilesEl, strip);
+  const tools = div("play-tools");
+  const bar = div("play-bar");
+  bar.append(strip, tools);
+  const hud = div("play-hud");
+  container.replaceChildren(tilesEl, bar, hud);
 
   const makeTile = (): Omit<Tile, "detach"> & { surface: HTMLDivElement } => {
     const element = div("game-tile");
@@ -133,6 +141,8 @@ export function createGameView(container: HTMLElement): GameView {
 
   return {
     main: mainTile.surface,
+    tools,
+    hud,
     attach(engine, options) {
       thin = new Set(options?.thin ?? []);
       mainTile.element.addEventListener("pointerdown", () => focusWorldInput(engine, null), { capture: true });

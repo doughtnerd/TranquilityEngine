@@ -21,17 +21,19 @@ The design is in [ADR 0065](../decisions/0065-built-in-navigation-foxfire-port.m
 
 ## Setting up agent types and areas
 
-Open the **Project** panel (File > Project Settings) and find the **Navigation** section. The settings are saved in `project.json` under `navigation`.
+Open the **Project** panel (File > Project Settings) and pick the **Navigation** category. The settings are saved in `project.json` under `navigation`.
 
 **Agent types.** Each card is one kind of agent: a person, a spider, a bat. A project has at least one, and up to 32 can walk. Every type has:
 
 - **Walking** (tick *walks*): radius, height, step height, speed, turn speed, arrival distance, repath interval. Tick *Climbs walls*, *Walks ceilings* and *Jumps* for those abilities (jumps add height, distance and fall limits). A voxel preview shows the cell size the bake will use.
 - **Flying** (tick *flies*): radius, speed, take-off height and speed, landing slope and costs. A type with both ticked walks and flies.
-- **Avoidance** (tick *avoids others*): neighbour distance, time horizon, priority (0 goes first) and layer bits.
+- **Avoidance** (tick *avoids others*): neighbour distance, time horizon, priority (0 goes first) and the layer the type is *on*. A summary under it says what the type avoids and who avoids it.
 - **Joins groups:** lone agents of the type may join groups heading to the same place.
 - **Area costs:** a cost per area, or *never walks*.
 
 Each type has a stable **id** (a UUID) that scenes and bakes refer to. Scripts can name a type by id or by its name. An empty name means the first type.
+
+**Avoidance layers** decide who steers around whom (ADR 0066, as in Foxfire). Name up to 32 layers under **Avoidance layers**; names are optional and only label the dropdowns and the matrix. Each agent type is on one layer, and each `NavAvoidanceObstacle` too. The **matrix** sets who avoids whom: a row is a layer agent types are on (those types in brackets), a column a layer they can avoid. A ticked cell means every type on the row's layer avoids the column's layer; a mixed cell means only some do (hover to see which). It isn't symmetric: enemies can avoid the player while the player ignores them. New types start on *Default* and avoid *Everything*, which also covers layers named later.
 
 **Areas** are surface kinds with a cost, like mud or road. Add them under **Areas** (up to 62). A cost of 2 makes the area twice as expensive to cross. Areas show in the debug drawing in their colour.
 
@@ -136,7 +138,9 @@ Fields (set them in the Inspector or in code):
 | `agentType` | `""` | The agent type's id or name. Empty is the first type. |
 | `speed`, `turnSpeed` | 0 | 0 uses the type's. |
 | `updatePosition`, `updateRotation` | true | Turn them off to move the node yourself. |
-| `avoidanceLayers`, `avoidLayers`, `priority` | −1 | −1 uses the type's. Layers are bit masks. |
+| `priority` | −1 | Avoidance priority; −1 uses the type's. An agent's avoidance layers are always its type's. |
+| `initialGoal` | none | A node to head for when the agent starts. |
+| `chaseGoal`, `chaseRepathDistance` | false, 1 | Chase `initialGoal` instead, repathing when it has moved that far. |
 | `areaCosts` | `{}` | Per-agent area costs over the type's: `{ [areaId]: cost \| "excluded" }`. |
 
 Methods:
@@ -243,7 +247,7 @@ function hunt(player: GameObject, monsters: NavAgent[], crowd: boolean): void {
 ### Other components
 
 - `NavGate.open`: set it at runtime to close or open a door. Queries and agents respect it from the next step.
-- `NavAvoidanceObstacle` (`radius`, `layers`): a moving or still obstacle agents steer around, not baked into the navmesh.
+- `NavAvoidanceObstacle` (`radius`, `layers`): a moving or still obstacle agents steer around, not baked into the navmesh. `layers` is the one avoidance layer it's on (a dropdown of the named layers).
 
 ## Queries: the Navigation facade
 

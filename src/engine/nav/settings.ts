@@ -105,9 +105,9 @@ export interface NavAvoidanceSettings {
   obstacleTimeHorizon: number;
   /** 0-99, lower is more important. */
   priority: number;
-  /** The avoidance layers the agent is on (bits). */
+  /** The avoidance layer the agent is on: one bit (0 = none; named in `NavigationSettings.avoidanceLayers`). */
   layers: number;
-  /** Layers it steers around (bits). */
+  /** Layers it steers around (bits; 0xffffffff = Everything, which also covers layers named later). */
   avoidLayers: number;
 }
 
@@ -212,9 +212,17 @@ export interface NavigationSettings {
   /** Chunk bounds snap to this world grid (x and z); 0 = none. */
   chunkGrid: number;
   runtime: NavRuntimeSettings;
+  /**
+   * Names of the avoidance layers (Foxfire's `NavAvoidanceLayerNames`): index = bit, up to 32; "" = unnamed (it
+   * still works, shown as "Layer n"). Editor labels only: agent types and obstacles store bits.
+   */
+  avoidanceLayers: string[];
 }
 
 export const MAX_NAV_AGENT_TYPES = 32;
+export const MAX_NAV_AVOIDANCE_LAYERS = 32;
+/** An avoidance mask with every bit set: avoids Everything, including layers named later. */
+export const NAV_AVOID_EVERYTHING = 0xffffffff;
 export const MAX_NAV_AREAS = 62;
 
 export const defaultNavMotion = (): NavMotionSettings => ({ ease: "constant", easeInTime: 1, easeOutTime: 1 });
@@ -277,7 +285,45 @@ export const defaultNavigationSettings = (): NavigationSettings => ({
   flightAutoRefineMaxCells: 20000,
   chunkGrid: 4,
   runtime: { maxPathsPerFrame: 32, congestionWindow: 4, congestionSlot: 0.5, congestionRepathInterval: 1.5, idleAgentsHoldGround: false, flowFieldMemoryMb: 64, avoidanceNeighborRefresh: 0 },
+  avoidanceLayers: ["Default"],
 });
+
+// ---------------------------------------------------------------------------------------------------------
+// Avoidance layer names (Foxfire's NavAvoidanceLayerNames)
+// ---------------------------------------------------------------------------------------------------------
+
+/** The bit of avoidance layer `layer` (0-31), as an unsigned number. */
+export const navLayerBit = (layer: number): number => 2 ** layer;
+
+/** True if `mask` has layer `layer`. */
+export const navMaskHas = (mask: number, layer: number): boolean => ((mask >>> 0) & (1 << layer)) !== 0;
+
+/** True if the layer has a name. */
+export const isNavAvoidanceLayerNamed = (nav: Pick<NavigationSettings, "avoidanceLayers">, layer: number): boolean => (nav.avoidanceLayers[layer] ?? "").trim() !== "";
+
+/** The layer's name, or "Layer n" if it has none. */
+export const navAvoidanceLayerName = (nav: Pick<NavigationSettings, "avoidanceLayers">, layer: number): string =>
+  isNavAvoidanceLayerNamed(nav, layer) ? nav.avoidanceLayers[layer].trim() : `Layer ${layer}`;
+
+/** The layers worth listing: layer 0, the named ones, and any set in `alsoShow` (so a mask using an unnamed layer still shows it). */
+export function navShownLayers(nav: Pick<NavigationSettings, "avoidanceLayers">, alsoShow = 0): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < MAX_NAV_AVOIDANCE_LAYERS; i++) if (i === 0 || isNavAvoidanceLayerNamed(nav, i) || navMaskHas(alsoShow, i)) out.push(i);
+  return out;
+}
+
+/** "Everything", "Nothing", or the layers' names joined by ", ". */
+export function describeNavAvoidanceMask(nav: Pick<NavigationSettings, "avoidanceLayers">, mask: number): string {
+  const m = mask >>> 0;
+  if (m === 0) return "Nothing";
+  if (m === NAV_AVOID_EVERYTHING) return "Everything";
+  const names: string[] = [];
+  for (let i = 0; i < MAX_NAV_AVOIDANCE_LAYERS; i++) if (navMaskHas(m, i)) names.push(navAvoidanceLayerName(nav, i));
+  return names.join(", ");
+}
+
+/** The lowest set bit of a mask (0 for none). */
+export const lowestNavLayerBit = (mask: number): number => ((mask >>> 0) & -(mask >>> 0)) >>> 0;
 
 // ---------------------------------------------------------------------------------------------------------
 // Lenient parsing
@@ -390,7 +436,14 @@ function agentType(raw: unknown, i: number, problems: string[]): NavAgentType | 
   t.walk = merge(t.walk, raw.walk, `${at}.walk`, problems, WALK_RULES, { motion: MOTION_RULES });
   t.flight = merge(t.flight, raw.flight, `${at}.flight`, problems, FLIGHT_RULES, { motion: MOTION_RULES });
   if (raw.avoidance === null) t.avoidance = null;
-  else t.avoidance = merge(defaultNavAvoidance(), raw.avoidance, `${at}.avoidance`, problems, AVOIDANCE_RULES);
+  else {
+    t.avoidance = merge(defaultNavAvoidance(), raw.avoidance, `${at}.avoidance`, problems, AVOIDANCE_RULES);
+    const lowest = lowestNavLayerBit(t.avoidance.layers);
+    if (lowest !== t.avoidance.layers) {
+      problems.push(`${at}.avoidance.layers should be one layer (a single bit); using the lowest, ${lowest}.`);
+      t.avoidance.layers = lowest;
+    }
+  }
   t.areaCosts = areaCosts(raw.areaCosts, `${at}.areaCosts`, problems);
   if (!t.canWalk && !t.canFly) problems.push(`${at}: neither walks nor flies, so nothing is baked for it.`);
   return t;
@@ -430,7 +483,7 @@ export function parseNavigationSettings(input: unknown): { settings: NavigationS
 
   const settings = merge(
     defaults,
-    Object.fromEntries(Object.entries(input).filter(([k]) => !["agentTypes", "areas", "surfaceRings"].includes(k) && SECTION_KEYS.includes(k))),
+    Object.fromEntries(Object.entries(input).filter(([k]) => !["agentTypes", "areas", "surfaceRings", "avoidanceLayers"].includes(k) && SECTION_KEYS.includes(k))),
     "navigation",
     problems,
     {
@@ -478,5 +531,22 @@ export function parseNavigationSettings(input: unknown): { settings: NavigationS
       settings.surfaceRings = input.surfaceRings.map((r: unknown, i) => merge(defaults.surfaceRings[0], r, `navigation.surfaceRings[${i}]`, problems, ringRules));
     }
   }
+  if (input.avoidanceLayers !== undefined) settings.avoidanceLayers = avoidanceLayerNames(input.avoidanceLayers, problems);
   return { settings, problems };
+}
+
+/** The layer names: strings (others become unnamed), at most 32, trailing unnamed slots dropped. */
+function avoidanceLayerNames(raw: unknown, problems: string[]): string[] {
+  if (!Array.isArray(raw)) {
+    problems.push(`navigation.avoidanceLayers must be a list of names; using ["Default"].`);
+    return ["Default"];
+  }
+  if (raw.length > MAX_NAV_AVOIDANCE_LAYERS) problems.push(`navigation.avoidanceLayers: more than ${MAX_NAV_AVOIDANCE_LAYERS} layers; the rest are dropped.`);
+  const names = raw.slice(0, MAX_NAV_AVOIDANCE_LAYERS).map((n: unknown, i) => {
+    if (typeof n === "string") return n;
+    if (n !== null) problems.push(`navigation.avoidanceLayers[${i}] should be a name (a string); left unnamed.`);
+    return "";
+  });
+  while (names.length > 0 && names[names.length - 1].trim() === "") names.pop();
+  return names;
 }

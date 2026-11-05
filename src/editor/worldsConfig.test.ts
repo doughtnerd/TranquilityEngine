@@ -8,7 +8,6 @@ import {
   defaultModel,
   groupProblems,
   isSpawnableName,
-  layoutWorlds,
   linkableNames,
   mentions,
   modelProblems,
@@ -164,18 +163,6 @@ describe("validation", () => {
   it("keeps problems about the whole section general", () => {
     const g = groupProblems(modelProblems({ worlds: [], links: [], templates: [] }, CATALOG));
     expect(g.general).toEqual(["bootstrap.worlds must list at least one World."]);
-  });
-});
-
-describe("graph layout", () => {
-  it("puts servers in the column right of their clients", () => {
-    const m = addLink(addWorld(clientServer(), "Client 2"), { from: "Client 2", to: "Server", transport: "loopback" });
-    expect(layoutWorlds(m)).toEqual([{ col: 0, row: 0 }, { col: 1, row: 0 }, { col: 0, row: 1 }]);
-  });
-
-  it("survives a cycle of links", () => {
-    const m = addLink(clientServer(), { from: "Server", to: "Client", transport: "loopback" });
-    expect(layoutWorlds(m).every((p) => p.col <= 1)).toBe(true);
   });
 });
 

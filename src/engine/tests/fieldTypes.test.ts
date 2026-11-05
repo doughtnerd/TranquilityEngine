@@ -128,6 +128,15 @@ describe("field choices", () => {
     expect(resolveChoices(undefined)).toBeNull();
   });
 
+  it("resolve a labelled record returned by a settings function (label = key), keeping every entry", () => {
+    const settings = resolveSettings({ render: { sortingLayers: ["Back", "Front"] } });
+    expect(resolveChoices(() => ({ Default: 1, Enemy: 2 }), settings)).toEqual([{ label: "Default", value: 1 }, { label: "Enemy", value: 2 }]);
+    expect(resolveChoices((s) => Object.fromEntries(s.render.sortingLayers.map((l, i) => [l, i])), settings)).toEqual([{ label: "Back", value: 0 }, { label: "Front", value: 1 }]);
+    // Names that look like numbers aren't taken for enum reverse entries.
+    expect(resolveChoices(() => ({ "5": "id-5", Grass: "id-g" }), settings)!.map((c) => c.label).sort()).toEqual(["5", "Grass"]);
+    expect(resolveChoices(() => ({ Default: 1 }))).toEqual([]); // no settings: empty, as for lists
+  });
+
   it("are recorded on the field", () => {
     expect(getFields(Lists).find((f) => f.name === "letters")!.options!.choices).toEqual(["a", "b"]);
   });

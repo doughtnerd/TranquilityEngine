@@ -1,10 +1,11 @@
 import { signal } from "@preact/signals";
 import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { ANTIALIAS_MODES, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
 import { reloadGraphics } from "../graphicsPreview";
 import { errorStatus } from "../messages";
+import { projectSettingsCategory } from "../preferences";
 import { PROJECT_FILE, queueProjectFileWrite } from "../projectFile";
 import {
   addAutoload,
@@ -174,7 +175,7 @@ export function ProjectSettingsPanel() {
         </button>
         <SaveMarker editable={editable} saving={s.saving} error={s.error} problems={problems.length} unsaved={unsaved} />
       </div>
-      <div class="project-settings-body">
+      <CategoryLayout counts={categoryProblems(problems)}>
         {problems.length > 0 && <ProblemList list={problems.map((p) => p.message)} label="Problems" />}
         {warnings.length > 0 && <ProblemList list={warnings} label="Warnings" warning />}
         <fieldset class="project-settings-fields" disabled={!editable}>
@@ -274,7 +275,7 @@ export function ProjectSettingsPanel() {
             </Row>
           </Section>
         </fieldset>
-      </div>
+      </CategoryLayout>
     </div>
   );
 }
@@ -302,7 +303,111 @@ function ProblemList(props: { list: readonly string[]; label: string; warning?: 
   );
 }
 
+/** The settings categories, in order (Unity-style list). A category's title is its id. */
+const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Autoloads", "Build"] as const;
+const NARROW_WIDTH = 250;
+
+/** The category a problem's field belongs to (`"render.pixelsPerUnit"` is Rendering's). */
+function categoryOf(field: string): string {
+  const head = field.split(".")[0];
+  switch (head) {
+    case "name":
+      return "Project";
+    case "render":
+      return "Rendering";
+    case "autoload":
+      return "Autoloads";
+    default:
+      return head[0].toUpperCase() + head.slice(1);
+  }
+}
+
+function categoryProblems(problems: SettingsProblem[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const p of problems) counts[categoryOf(p.field)] = (counts[categoryOf(p.field)] ?? 0) + 1;
+  return counts;
+}
+
+const selectedCategory = (): string => {
+  const v = projectSettingsCategory.value;
+  return (CATEGORIES as readonly string[]).includes(v) ? v : CATEGORIES[0];
+};
+const tabId = (c: string) => `ps-tab-${c}`;
+const plural = (n: number) => `${n} problem${n === 1 ? "" : "s"}`;
+
+/**
+ * The category list on the left and the selected category's settings on the right; under
+ * ~250 px wide the list is a dropdown above the settings. Arrow keys move through the list.
+ */
+function CategoryLayout(props: { counts: Record<string, number>; children: ComponentChildren }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setNarrow(el.clientWidth < NARROW_WIDTH);
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => setNarrow(entries[0].contentRect.width < NARROW_WIDTH));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const selected = selectedCategory();
+  const select = (c: string, focus = false) => {
+    projectSettingsCategory.value = c;
+    if (focus) ref.current?.querySelector<HTMLElement>(`[id="${tabId(c)}"]`)?.focus();
+  };
+  const onListKey = (e: KeyboardEvent) => {
+    const i = CATEGORIES.indexOf(selected as (typeof CATEGORIES)[number]);
+    const next = e.key === "ArrowDown" ? i + 1 : e.key === "ArrowUp" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? CATEGORIES.length - 1 : null;
+    if (next === null) return;
+    e.preventDefault();
+    select(CATEGORIES[Math.max(0, Math.min(CATEGORIES.length - 1, next))], true);
+  };
+  return (
+    <div ref={ref} class={`project-settings-main${narrow ? " narrow" : ""}`}>
+      {narrow ? (
+        <select class="project-settings-category-select" id="ps-category-select" aria-label="Settings category" value={selected} onChange={(e) => select((e.currentTarget as HTMLSelectElement).value)}>
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {props.counts[c] ? `${c} (${props.counts[c]})` : c}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <div class="project-settings-categories" role="tablist" aria-orientation="vertical" aria-label="Settings categories" onKeyDown={onListKey}>
+          {CATEGORIES.map((c) => (
+            <button
+              key={c}
+              id={tabId(c)}
+              role="tab"
+              type="button"
+              class={`project-settings-category${c === selected ? " selected" : ""}`}
+              aria-selected={c === selected}
+              aria-controls="ps-category-panel"
+              aria-label={props.counts[c] ? `${c}, ${plural(props.counts[c])}` : c}
+              tabIndex={c === selected ? 0 : -1}
+              onClick={() => select(c)}
+            >
+              <span>{c}</span>
+              {props.counts[c] > 0 && (
+                <span class="project-settings-badge" aria-hidden="true" title={plural(props.counts[c])}>
+                  {props.counts[c]}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      <div class="project-settings-body" id="ps-category-panel" role="tabpanel" aria-labelledby={narrow ? "ps-category-select" : tabId(selected)}>
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
+/** A category's settings: only the selected category's section is shown. */
 function Section(props: { title: string; children: ComponentChildren }) {
+  if (props.title !== selectedCategory()) return null;
   return (
     <section class="project-settings-section" aria-label={props.title}>
       <h4>{props.title}</h4>

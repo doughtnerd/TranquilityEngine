@@ -105,9 +105,19 @@ test("Arena's Spawnable Worlds show how they're created, and links to them draw 
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
   await showTab(page, /^Worlds/);
   const p = panel(page);
-  await expect(p.locator(".worlds-row-label", { hasText: "Spawnable Worlds" })).toBeVisible();
+  // One graph: Spawnable Worlds are dashed nodes with a "spawnable" tag, explained by the legend.
+  await expect(p.locator('.worlds-node.template[data-template="Server"] .worlds-node-tag')).toHaveText("spawnable");
+  await expect(p.locator('.worlds-node[data-world="Client"] .worlds-node-tag')).toHaveCount(0);
+  await expect(p.locator(".worlds-legend")).toContainText("spawnable");
   await expect(p.locator('.worlds-link.spawnable[data-link-arrow="Client>Server"]')).toHaveCount(1);
   await expect(p.locator('.worlds-link.spawnable[data-link-arrow="Client 2>Server"]')).toHaveCount(1);
+  // Each link's label pill is clear of every node, so it stays readable.
+  const nodes = await p.locator(".worlds-node").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect));
+  for (const pair of ["Client>Server", "Client 2>Server"]) {
+    const pill = await p.locator(`[data-label-for="${pair}"] rect`).evaluate((e) => e.getBoundingClientRect().toJSON() as DOMRect);
+    await expect(p.locator(`[data-label-for="${pair}"] text`)).toHaveText("loopback");
+    for (const n of nodes) expect(pill.right <= n.left || n.right <= pill.left || pill.bottom <= n.top || n.bottom <= pill.top, `${pair}'s label overlaps a node`).toBe(true);
+  }
   await p.locator('.worlds-node[data-template="Server"]').click();
   await expect(p.locator(".worlds-spawn code").first()).toHaveText('Engine.createWorld("Server")');
   await expect(p.locator(".worlds-spawn")).toContainText("scripts/data.ts");

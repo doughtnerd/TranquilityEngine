@@ -93,6 +93,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0063](decisions/0063-editor-menu-bar.md) | The editor's commands live in a menu bar below the system title bar | Accepted |
 | [0064](decisions/0064-system-rows-with-column-access.md) | System rows give typed-array columns as well as per-row views | Accepted |
 | [0065](decisions/0065-built-in-navigation-foxfire-port.md) | Built-in navigation: Foxfire.Navigation ported to Rust, run as WebAssembly | Accepted |
+| [0066](decisions/0066-navigation-authoring-parity-with-foxfire.md) | Navigation authoring matches Foxfire: named avoidance layers, formation assets, agent goals | Accepted |
 
 ## Working with decisions
 

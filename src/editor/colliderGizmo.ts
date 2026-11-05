@@ -191,7 +191,7 @@ export function colliderOverlay(engine: Engine): EditorOverlay {
 /** Draw collider gizmos and let their handles be dragged. Returns a function that removes them. */
 export function installColliderGizmo(engine: Engine): () => void {
   const world = engine.world;
-  addEditorOverlay(world, "colliders", () => colliderOverlay(engine));
+  addEditorOverlay(world, "colliders", () => colliderOverlay(engine), "colliders");
 
   // Edit mode ends when the selection moves elsewhere (picking a tool ends it too: `pickTool`).
   const stopWatch = effect(() => {

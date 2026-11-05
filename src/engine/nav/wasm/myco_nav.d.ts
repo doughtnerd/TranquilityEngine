@@ -201,6 +201,11 @@ export function bakeAgentGroups(bytes: Uint8Array | number[], agent_type: string
 export function bakeInfo(bytes: Uint8Array | number[], verify: boolean): string;
 
 /**
+ * What a chunk bakes for each agent type (`plan::bake_plan`), as JSON.
+ */
+export function bakePlan(input_json: string, walkable_for_json: string): string;
+
+/**
  * Strides of the boundary buffers: `[agentsIn, agentsOut, agentState, obstaclesIn, waypoint]`.
  */
 export function bufferStrides(): Uint32Array;
@@ -209,6 +214,19 @@ export function bufferStrides(): Uint32Array;
  * A chunk's id (hex) from its scene's project path (forward slashes) and the chunk node's id.
  */
 export function chunkId(scene_path: string, chunk_node_id: string): string;
+
+/**
+ * The bin each triangle (9 floats each) bakes into, -1 where it isn't walkable (`plan::classify_surface_bins`).
+ */
+export function classifySurfaceBins(settings_json: string, positions: Float32Array | number[]): Int32Array;
+
+/**
+ * A bake's flight volume (section `group`) leaves, filtered: stride 5 as [`debug_bake_leaves`]. With `area` (an area
+ * id as in project settings) only leaves in that area (none if the volume doesn't know it); with `refined_only` only
+ * leaves inside a resolution region (their cell is smaller than the volume's base cell). The editor's previews of the
+ * selected modifier and resolution volumes.
+ */
+export function debugBakeFlightLeaves(bytes: Uint8Array | number[], group: number, area: string, refined_only: boolean): Float32Array;
 
 /**
  * A bake's flight volume (section `group`) leaves: stride 5 (min xyz, size, area).
@@ -232,6 +250,11 @@ export function debugBakeTriangles(bytes: Uint8Array | number[], group: number):
 export function navId(id: string): string;
 
 /**
+ * The orientation bins the navigation settings make (`plan::surface_bin_layout`), as JSON.
+ */
+export function surfaceBinLayout(settings_json: string): string;
+
+/**
  * The crate's version, for the loader to check against the TypeScript side.
  */
 export function version(): string;
@@ -249,8 +272,11 @@ export interface InitOutput {
     readonly __wbg_navruntime_free: (a: number, b: number) => void;
     readonly bakeAgentGroups: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly bakeInfo: (a: number, b: number, c: number) => [number, number];
+    readonly bakePlan: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly bufferStrides: () => [number, number];
     readonly chunkId: (a: number, b: number, c: number, d: number) => [number, number];
+    readonly classifySurfaceBins: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly debugBakeFlightLeaves: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly debugBakeLeaves: (a: number, b: number, c: number) => [number, number, number, number];
     readonly debugBakeLines: (a: number, b: number, c: number) => [number, number, number, number];
     readonly debugBakeTriangles: (a: number, b: number, c: number) => [number, number, number, number];
@@ -311,6 +337,7 @@ export interface InitOutput {
     readonly navruntime_tickStats: (a: number) => [number, number];
     readonly navruntime_unloadChunk: (a: number, b: number, c: number) => number;
     readonly navruntime_warp: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly surfaceBinLayout: (a: number, b: number) => [number, number];
     readonly version: () => [number, number];
     readonly wasmMemory: () => any;
     readonly __wbindgen_externrefs: WebAssembly.Table;

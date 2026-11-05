@@ -240,6 +240,37 @@ function openSceneBakes(): { paths: string[]; urlOf: (path: string) => string | 
   };
 }
 
+/** Bake bytes by URL (a rebake writes a new URL), for the selection previews (navPreviews.ts). */
+const sceneBakeBytes = new Map<string, Promise<Uint8Array | null>>();
+
+/**
+ * The open scene's baked chunks' bytes (each once per URL; unreadable ones left out) with a key that changes when
+ * any is rebaked: what the edit-mode previews of the selected volume read (Foxfire's BakedFlightBlobs).
+ */
+export async function openSceneBakeBytes(): Promise<{ key: string; bakes: Uint8Array[] }> {
+  const scene = openSceneBakes();
+  if (!scene) return { key: "", bakes: [] };
+  const urls = scene.paths.map((p) => scene.urlOf(p)).filter((u): u is string => u !== null);
+  const bakes: Uint8Array[] = [];
+  for (const url of urls) {
+    let loading = sceneBakeBytes.get(url);
+    if (!loading) {
+      loading = fetchBytes(url).catch(() => null);
+      sceneBakeBytes.set(url, loading);
+      if (sceneBakeBytes.size > 16) sceneBakeBytes.delete(sceneBakeBytes.keys().next().value!);
+    }
+    const bytes = await loading;
+    if (bytes) bakes.push(bytes);
+  }
+  return { key: urls.join("\n"), bakes };
+}
+
+/** The open scene's bake URLs, joined: changes when a chunk is rebaked (cheap; no reads). */
+export function openSceneBakeKey(): string {
+  const scene = openSceneBakes();
+  return scene ? scene.paths.map((p) => scene.urlOf(p) ?? "").join("\n") : "";
+}
+
 // ------------------------------------------------------------------------------------------- play mode
 
 /** The navigation settings the project declares (the defaults without any). */
@@ -300,14 +331,14 @@ export function installNavGizmo(engine: Engine, playing: ReadonlySignal<PlaySess
     () => cleanNavOverlay(navOverlaySettings.peek()),
     () => navDebugColors(theme.peek()),
   );
-  addEditorOverlay(world, PLAY_ID, () => (playState.peek() === "edit" ? { lines: [], handles: [], segments: bake.segments() } : { lines: [], handles: [] }));
+  addEditorOverlay(world, PLAY_ID, () => (playState.peek() === "edit" ? { lines: [], handles: [], segments: bake.segments() } : { lines: [], handles: [] }), "navigation");
 
   let playWorlds: World[] = [];
   const stopPlay = effect(() => {
     for (const w of playWorlds) removeEditorOverlay(w, PLAY_ID);
     const session = playing.value;
     playWorlds = session ? session.engine.worlds().flatMap((h) => session.engine._world(h.name) ?? []) : [];
-    for (const w of playWorlds) addEditorOverlay(w, PLAY_ID, runtimeNavProvider(w));
+    for (const w of playWorlds) addEditorOverlay(w, PLAY_ID, runtimeNavProvider(w), "navigation");
   });
 
   // End-to-end test hook: what the scene view and the play Worlds draw.

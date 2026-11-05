@@ -18,7 +18,6 @@ import {
   configOf,
   groupProblems,
   isSpawnableName,
-  layoutWorlds,
   linkableNames,
   mentions,
   modelProblems,
@@ -44,6 +43,7 @@ import {
   type WorldsModel,
 } from "../worldsConfig";
 import { PROJECT_FILE, queueProjectFileWrite } from "../projectFile";
+import { DEFAULT_LAYOUT, layoutGraph, type LayoutLinkIn, type LayoutNodeIn } from "../worldsLayout";
 import "./worlds.css";
 
 /** An undoable panel state: the model, and whether it's written out (false: the project has no bootstrap and runs the default one). */
@@ -281,13 +281,8 @@ function Problems(props: { list: readonly string[] }) {
 
 // --- graph --------------------------------------------------------------------------------------
 
-// Two columns (a client and its server) fit the default panel width.
-const NODE_W = 118;
-const NODE_H = 62;
-const GAP_X = 44;
-const GAP_Y = 12;
-const PAD = 8;
-const LABEL_H = 20;
+const { nodeW: NODE_W, nodeH: NODE_H } = DEFAULT_LAYOUT;
+const SPAWNABLE_HINT = "Created by game code when needed, not at start-up";
 
 /**
  * The live connections between the play session's Worlds, refreshed a few times a second while
@@ -328,133 +323,120 @@ function mergeLiveLinks(links: readonly LiveLink[], sources: ReadonlyMap<string,
   return [...byPair.values()];
 }
 
-interface Box {
-  x: number;
-  y: number;
-}
-
-/** An arrow from box `a` to box `b`: side to side within a row, top to bottom between rows. */
-function arrowPath(a: Box, b: Box): { d: string; mx: number; my: number } {
-  if (Math.abs(a.y - b.y) < 1) {
-    const forward = a.x <= b.x;
-    const x1 = forward ? a.x + NODE_W : a.x, x2 = forward ? b.x - 2 : b.x + NODE_W + 2;
-    const y = a.y + NODE_H / 2;
-    const bend = Math.max(40, Math.abs(x2 - x1) / 2) * (forward ? 1 : -1);
-    return { d: `M${x1},${y} C${x1 + bend},${y} ${x2 - bend},${y} ${x2},${y}`, mx: (x1 + x2) / 2, my: y - 5 };
-  }
-  const down = a.y < b.y;
-  const x1 = a.x + NODE_W / 2, x2 = b.x + NODE_W / 2;
-  const y1 = down ? a.y + NODE_H : a.y, y2 = down ? b.y - 2 : b.y + NODE_H + 2;
-  const bend = Math.max(16, Math.abs(y2 - y1) / 2) * (down ? 1 : -1);
-  return { d: `M${x1},${y1} C${x1},${y1 + bend} ${x2},${y2 - bend} ${x2},${y2}`, mx: (x1 + x2) / 2 + 4, my: (y1 + y2) / 2 };
-}
-
 /**
- * Start-up Worlds as nodes, columns ordered client → server, with link arrows; Spawnable Worlds in
- * a row below, dashed, as are links naming them (they apply when game code creates the World).
- * While playing, the live connections between the session's Worlds are drawn over them.
+ * Start-up and Spawnable Worlds as one graph (worldsLayout.ts): columns by link depth, clients left
+ * of their servers, arrows routed between the nodes with a label pill each. Spawnable Worlds are
+ * dashed and tagged, as are links naming them (they apply when game code creates the World).
+ * While playing, the live connections between the session's Worlds are drawn too.
  */
 function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected: WorldRef | null; onSelect: (ref: WorldRef) => void; defaultRate: number }) {
   const { model, problems, selected, onSelect, defaultRate } = props;
   const live = useLiveLinks();
-  const places = layoutWorlds(model);
-  const cols = Math.max(1, ...places.map((p) => p.col + 1));
-  const rows = Math.max(1, ...places.map((p) => p.row + 1));
-  const pos = places.map((p) => ({ x: PAD + p.col * (NODE_W + GAP_X), y: PAD + LABEL_H + p.row * (NODE_H + GAP_Y) }));
-  const templatesY = PAD + LABEL_H + rows * (NODE_H + GAP_Y) + LABEL_H;
-  const templatePos = model.templates.map((_, i) => ({ x: PAD + i * (NODE_W + GAP_X), y: templatesY }));
-  const width = PAD * 2 + Math.max(cols * (NODE_W + GAP_X) - GAP_X, model.templates.length * (NODE_W + GAP_X) - GAP_X);
-  const height = model.templates.length ? templatesY + NODE_H + PAD : templatesY - LABEL_H + PAD;
-  // Where each World name is drawn: start-up Worlds first, then Spawnable Worlds by their World name.
-  const at = new Map<string, Box>();
-  model.worlds.forEach((w, i) => at.has(w.name) || at.set(w.name, pos[i]));
-  model.templates.forEach((t, i) => at.has(spawnableName(t)) || at.set(spawnableName(t), templatePos[i]));
+  const nodes: LayoutNodeIn[] = [
+    ...model.worlds.map((w, i) => ({ key: `w${i}`, name: w.name, spawnable: false })),
+    ...model.templates.map((t, i) => ({ key: `t${i}`, name: spawnableName(t), spawnable: true })),
+  ];
+  const liveLabel = (l: LiveLink & { count: number }) =>
+    (l.state === "open" ? "connected" : l.state === "handshake" ? "connecting…" : "closed") + (l.count > 1 ? ` ×${l.count}` : "");
+  const links: LayoutLinkIn[] = [
+    ...model.links.map((l) => ({ from: l.from, to: l.to, label: l.transport })),
+    ...live.map((l) => ({ from: l.from, to: l.to, label: liveLabel(l) })),
+  ];
+  const layout = layoutGraph(nodes, links);
+  const routes = layout.links.map((route, i) => {
+    if (!route) return null;
+    if (i < model.links.length) {
+      const l = model.links[i];
+      const spawnable = isSpawnableName(model, l.from) || isSpawnableName(model, l.to);
+      return { route, label: l.transport, key: `l${i}`, cls: `worlds-link${spawnable ? " spawnable" : ""}${problems.links.has(i) ? " invalid" : ""}`, data: { "data-link-arrow": `${l.from}>${l.to}` }, marker: "worlds-arrow" };
+    }
+    const l = live[i - model.links.length];
+    return { route, label: links[i].label, key: `live:${l.from}>${l.to}`, cls: `worlds-link live ${l.state}`, data: { "data-live-link": `${l.from}>${l.to}` }, marker: "worlds-arrow-live" };
+  });
   const isSelected = (ref: WorldRef) => selected?.kind === ref.kind && selected.index === ref.index;
+  const node = (key: string) => layout.nodes.find((p) => p.key === key)!;
 
   return (
-    <div class="worlds-graph" style={{ height: `${height}px` }}>
-      <div class="worlds-row-label" style={{ top: `${PAD}px` }}>
-        Start-up Worlds
-      </div>
-      <svg class="worlds-links" width={width} height={height} aria-hidden="true">
-        <defs>
-          <marker id="worlds-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" class="worlds-arrowhead" />
-          </marker>
-          <marker id="worlds-arrow-live" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path d="M0,0 L10,5 L0,10 z" class="worlds-arrowhead live" />
-          </marker>
-        </defs>
-        {model.links.map((l, i) => {
-          const a = at.get(l.from), b = at.get(l.to);
-          if (!a || !b || a === b) return null;
-          const { d, mx, my } = arrowPath(a, b);
-          const spawnable = isSpawnableName(model, l.from) || isSpawnableName(model, l.to);
-          return (
-            <g key={i} class={`worlds-link${spawnable ? " spawnable" : ""}${problems.links.has(i) ? " invalid" : ""}`} data-link-arrow={`${l.from}>${l.to}`}>
-              <path d={d} marker-end="url(#worlds-arrow)" />
-              <text x={mx} y={my} text-anchor="middle">
-                {l.transport}
-              </text>
-            </g>
-          );
-        })}
-        {live.map((l) => {
-          const a = at.get(l.from), b = at.get(l.to);
-          if (!a || !b || a === b) return null;
-          const { d, mx, my } = arrowPath(a, b);
-          return (
-            <g key={`live:${l.from}>${l.to}`} class={`worlds-link live ${l.state}`} data-live-link={`${l.from}>${l.to}`}>
-              <path d={d} marker-end="url(#worlds-arrow-live)" />
-              <text x={mx} y={my + 12} text-anchor="middle">
-                {(l.state === "open" ? "connected" : l.state === "handshake" ? "connecting…" : "closed") + (l.count > 1 ? ` ×${l.count}` : "")}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      {model.worlds.map((w, i) => {
-        const ref: WorldRef = { kind: "world", index: i };
-        const renders = w.renders ?? i === 0;
-        return (
-          <GraphNode
-            key={`w${i}`}
-            x={pos[i].x}
-            y={pos[i].y}
-            name={w.name}
-            tags={tagsOf(w)}
-            rate={w.tickRate ?? defaultRate}
-            badges={[renders ? "renders" : null, w.input ?? renders ? "input" : null]}
-            selected={isSelected(ref)}
-            invalid={problems.worlds.has(i)}
-            onSelect={() => onSelect(ref)}
-          />
-        );
-      })}
-      {model.templates.length > 0 && (
-        <div class="worlds-row-label" style={{ top: `${templatesY - LABEL_H}px` }} title="Created by game code when needed, not at start-up">
-          Spawnable Worlds <span class="worlds-row-hint">created by game code when needed</span>
+    <>
+      <div class="worlds-graph">
+        <div class="worlds-canvas" style={{ width: `${layout.width}px`, height: `${layout.height}px` }}>
+          <svg class="worlds-links" width={layout.width} height={layout.height} aria-hidden="true">
+            <defs>
+              <marker id="worlds-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" class="worlds-arrowhead" />
+              </marker>
+              <marker id="worlds-arrow-live" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" class="worlds-arrowhead live" />
+              </marker>
+            </defs>
+            {/* Arrows first, then every label, so a pill never hides under another link's arrow. */}
+            {routes.map((r) => r && (
+              <g key={r.key} class={r.cls} {...r.data}>
+                <path d={r.route.d} marker-end={`url(#${r.marker})`} />
+              </g>
+            ))}
+            {routes.map((r) => {
+              if (!r) return null;
+              const { x, y, w, h } = r.route.label;
+              return (
+                <g key={`${r.key}:label`} class={`${r.cls} worlds-link-label`} data-label-for={Object.values(r.data)[0]}>
+                  <rect x={x} y={y} width={w} height={h} rx={h / 2} />
+                  <text x={x + w / 2} y={y + h / 2} text-anchor="middle" dominant-baseline="central">
+                    {r.label}
+                  </text>
+                </g>
+              );
+            })}
+          </svg>
+          {model.worlds.map((w, i) => {
+            const ref: WorldRef = { kind: "world", index: i };
+            const renders = w.renders ?? i === 0;
+            const at = node(`w${i}`);
+            return (
+              <GraphNode
+                key={`w${i}`}
+                x={at.x}
+                y={at.y}
+                name={w.name}
+                tags={tagsOf(w)}
+                rate={w.tickRate ?? defaultRate}
+                badges={[renders ? "renders" : null, w.input ?? renders ? "input" : null]}
+                selected={isSelected(ref)}
+                invalid={problems.worlds.has(i)}
+                onSelect={() => onSelect(ref)}
+              />
+            );
+          })}
+          {model.templates.map((t, i) => {
+            const ref: WorldRef = { kind: "template", index: i };
+            const at = node(`t${i}`);
+            return (
+              <GraphNode
+                key={`t${i}`}
+                template
+                x={at.x}
+                y={at.y}
+                name={t.key}
+                tags={tagsOf(t.config)}
+                rate={t.config.tickRate ?? defaultRate}
+                badges={[t.config.renders ? "renders" : null, t.config.input ?? t.config.renders ? "input" : null]}
+                selected={isSelected(ref)}
+                invalid={problems.templates.has(t.key)}
+                onSelect={() => onSelect(ref)}
+              />
+            );
+          })}
         </div>
-      )}
-      {model.templates.map((t, i) => {
-        const ref: WorldRef = { kind: "template", index: i };
-        return (
-          <GraphNode
-            key={`t${i}`}
-            template
-            x={templatePos[i].x}
-            y={templatePos[i].y}
-            name={t.key}
-            tags={tagsOf(t.config)}
-            rate={t.config.tickRate ?? defaultRate}
-            badges={[t.config.renders ? "renders" : null, t.config.input ?? t.config.renders ? "input" : null]}
-            selected={isSelected(ref)}
-            invalid={problems.templates.has(t.key)}
-            onSelect={() => onSelect(ref)}
-          />
-        );
-      })}
-    </div>
+      </div>
+      <div class="worlds-legend">
+        <span class="worlds-legend-item">
+          <span class="worlds-legend-swatch" aria-hidden="true" /> start-up
+        </span>
+        <span class="worlds-legend-item" title={SPAWNABLE_HINT}>
+          <span class="worlds-legend-swatch spawnable" aria-hidden="true" /> spawnable <span class="worlds-hint">created by game code when needed</span>
+        </span>
+      </div>
+    </>
   );
 }
 
@@ -496,7 +478,14 @@ function GraphNode(props: {
           </span>
         ))}
       </div>
-      <div class="worlds-badges">{badges.filter(Boolean).join(" · ")}</div>
+      <div class="worlds-badges">
+        {template && (
+          <span class="worlds-node-tag" title={SPAWNABLE_HINT}>
+            spawnable
+          </span>
+        )}
+        <span>{badges.filter(Boolean).join(" · ")}</span>
+      </div>
     </div>
   );
 }

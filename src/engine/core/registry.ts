@@ -58,14 +58,15 @@ export interface FieldChoice {
  * - a list of values: `["dynamic", "kinematic", "static"]` or `[1, 2, 4]`;
  * - an object of labels to values, such as a TypeScript enum: `{ Idle: 0, Run: 1 }` (a numeric
  *   enum's reverse entries are skipped);
- * - a function of the project settings, for lists that live there: `(s) => s.render.sortingLayers`.
+ * - a function of the project settings, for lists that live there: `(s) => s.render.sortingLayers`, or
+ *   labelled, `(s) => ({ Default: 1, Enemy: 2 })` (label = key; every entry is kept).
  *
  * Choices only guide the editor; scene files and scripts may still hold other values.
  */
 export type FieldChoices =
   | readonly (string | number)[]
   | Readonly<Record<string, string | number>>
-  | ((settings: import("./settings").ProjectSettings) => readonly (string | number)[]);
+  | ((settings: import("./settings").ProjectSettings) => readonly (string | number)[] | Readonly<Record<string, string | number>>);
 
 /** Options on a declared field (ADR 0033, 0038). */
 export interface FieldOptions {
@@ -86,10 +87,13 @@ export interface FieldOptions {
 export function resolveChoices(choices: FieldChoices | undefined, settings?: import("./settings").ProjectSettings): FieldChoice[] | null {
   if (choices === undefined) return null;
   const label = (v: string | number) => String(v);
-  if (typeof choices === "function") return settings ? choices(settings).map((value) => ({ label: label(value), value })) : [];
-  if (Array.isArray(choices)) return (choices as readonly (string | number)[]).map((value) => ({ label: label(value), value }));
-  return Object.entries(choices as Record<string, string | number>)
-    .filter(([key, value]) => !(typeof value === "string" && /^-?\d+(\.\d+)?$/.test(key))) // a numeric enum's reverse entries (`0: "Idle"`)
+  const fromFunction = typeof choices === "function";
+  if (fromFunction && !settings) return [];
+  const resolved = typeof choices === "function" ? choices(settings!) : choices;
+  if (Array.isArray(resolved)) return (resolved as readonly (string | number)[]).map((value) => ({ label: label(value), value }));
+  return Object.entries(resolved as Record<string, string | number>)
+    // A numeric enum's reverse entries (`0: "Idle"`); a settings function's record is labels the project chose, kept whole.
+    .filter(([key, value]) => fromFunction || !(typeof value === "string" && /^-?\d+(\.\d+)?$/.test(key)))
     .map(([key, value]) => ({ label: key, value }));
 }
 

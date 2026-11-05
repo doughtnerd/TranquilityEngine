@@ -3,11 +3,22 @@
 // settings in a collapsible block, and Bake All. Edits go through the panel's undo history and save like
 // its other sections; values the parser rejects are listed as problems and keep the file unchanged.
 import type { ComponentChildren } from "preact";
-import { MAX_NAV_AGENT_TYPES, MAX_NAV_AREAS, NAV_EASES, type NavAgentType, type NavigationSettings } from "../../engine/nav/settings";
+import { MAX_NAV_AGENT_TYPES, MAX_NAV_AREAS, NAV_EASES, isNavAvoidanceLayerNamed, navAvoidanceLayerName, navShownLayers, type NavAgentType, type NavigationSettings } from "../../engine/nav/settings";
 import { bakeAllFromPanel, navBakeAllProgress } from "../navBake";
 import {
   addNavAgentType,
   addNavArea,
+  addNavAvoidanceLayer,
+  navAgentLayer,
+  navAgentTypeWarnings,
+  navAvoidanceLayerUsers,
+  navAvoidanceMatrix,
+  navAvoidanceSummary,
+  navListedLayers,
+  nextFreeNavAvoidanceLayer,
+  renameNavAvoidanceLayer,
+  setNavAgentLayer,
+  setNavAvoidanceCell,
   navAreaCostOf,
   navColorHex,
   navHexColor,
@@ -26,6 +37,7 @@ import {
 import type { SettingsDraft } from "../projectSettingsModel";
 import type { EditorProject } from "../projects";
 import { TextField } from "./WorldsPanel";
+import "./navSettings.css";
 
 type Set = (label: string, next: SettingsDraft) => void;
 
@@ -116,9 +128,32 @@ const AVOIDANCE_NUMBERS: [string, string, number][] = [
   ["timeHorizon", "Time horizon (s)", 0.1],
   ["obstacleTimeHorizon", "Obstacle horizon (s)", 0.1],
   ["priority", "Priority (0 first)", 1],
-  ["layers", "Layers (bits)", 1],
-  ["avoidLayers", "Avoids layers (bits)", 1],
 ];
+
+/** Foxfire's NavAvoidanceLayerDrawer: "Nothing" and the named layers, plus the one in use. */
+function LayerChoice(props: { nav: NavigationSettings; t: NavAgentType; i: number; draft: SettingsDraft; set: Set }) {
+  const { nav, t, i, draft, set } = props;
+  const on = navAgentLayer(t);
+  const shown = navShownLayers(nav, t.avoidance?.layers ?? 0);
+  return (
+    <select
+      aria-label={`${t.name} avoidance layer`}
+      value={on === null ? "" : String(on)}
+      onChange={(e) => {
+        const v = (e.currentTarget as HTMLSelectElement).value;
+        const layer = v === "" ? null : Number(v);
+        set(`Put ${t.name} on ${layer === null ? "no avoidance layer" : navAvoidanceLayerName(nav, layer)}`, setNavAgentLayer(draft, i, layer));
+      }}
+    >
+      <option value="">Nothing</option>
+      {shown.map((l) => (
+        <option key={l} value={String(l)}>
+          {navAvoidanceLayerName(nav, l)}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 function AgentCard(props: { nav: NavigationSettings; t: NavAgentType; i: number; draft: SettingsDraft; set: Set; count: number }) {
   const { nav, t, i, draft, set } = props;
@@ -126,6 +161,8 @@ function AgentCard(props: { nav: NavigationSettings; t: NavAgentType; i: number;
   const walk = t.walk as unknown as Record<string, number | boolean>;
   const flight = t.flight as unknown as Record<string, number | boolean>;
   const voxels = navVoxelSize(nav, t);
+  const warnings = navAgentTypeWarnings(nav, t);
+  const summary = navAvoidanceSummary(nav, t);
   return (
     <div class="tier-card nav-agent-card" data-agent={t.id} role="group" aria-label={`Agent type ${t.name}`}>
       <div class="tier-card-head">
@@ -139,6 +176,13 @@ function AgentCard(props: { nav: NavigationSettings; t: NavAgentType; i: number;
       <p class="project-settings-hint nav-id" title="Agents and bakes refer to the type by this id">
         id {t.id}
       </p>
+      {warnings.length > 0 && (
+        <ul class="nav-warnings" role="alert" aria-label={`${t.name} warnings`}>
+          {warnings.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      )}
 
       <div class="nav-card-toggle">
         <Check label={`${t.name} walks`} checked={t.canWalk} onChange={(on) => value("canWalk", "walking")(on)} />
@@ -201,12 +245,20 @@ function AgentCard(props: { nav: NavigationSettings; t: NavAgentType; i: number;
       </div>
       {t.avoidance && (
         <div class="tier-fields">
+          <Cell label="On layer">
+            <LayerChoice nav={nav} t={t} i={i} draft={draft} set={set} />
+          </Cell>
           {AVOIDANCE_NUMBERS.map(([key, label, step]) => (
             <Cell key={key} label={label}>
               <Num label={`${t.name} avoidance ${label.toLowerCase()}`} value={(t.avoidance as unknown as Record<string, number>)[key]} step={step} onCommit={value(`avoidance.${key}`, `avoidance ${label.toLowerCase()}`)} />
             </Cell>
           ))}
         </div>
+      )}
+      {summary.length > 0 && (
+        <p class="nav-avoidance-summary" aria-label={`${t.name} avoidance summary`}>
+          {summary.join("\n")}
+        </p>
       )}
       <div class="nav-card-toggle">
         <Check label={`${t.name} joins groups`} checked={t.joinGroups} onChange={value("joinGroups", "group joining")} />
@@ -244,6 +296,101 @@ function AgentCard(props: { nav: NavigationSettings; t: NavAgentType; i: number;
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Foxfire's Avoidance Layers page: the layer names (named ones, layer 0 and any in use; "+ Avoidance layer" names the
+ * next free slot) and the who-avoids-whom matrix.
+ */
+function AvoidanceLayers(props: { nav: NavigationSettings; draft: SettingsDraft; set: Set }) {
+  const { nav, draft, set } = props;
+  const listed = navListedLayers(nav);
+  const matrix = navAvoidanceMatrix(nav);
+  const free = nextFreeNavAvoidanceLayer(nav);
+  return (
+    <>
+      <div class="project-settings-list-head">
+        <span>Avoidance layers</span>
+        <span class="project-settings-hint">agent types and avoidance obstacles are on one layer; names are optional (up to 32)</span>
+      </div>
+      <div class="nav-layer-list" role="group" aria-label="Avoidance layer names">
+        {listed.map((l) => {
+          const named = isNavAvoidanceLayerNamed(nav, l);
+          const users = named ? [] : navAvoidanceLayerUsers(nav, l);
+          return (
+            <div key={l} class="nav-layer" data-layer={l}>
+              <span class="nav-layer-index">Layer {l}</span>
+              <TextField value={nav.avoidanceLayers[l] ?? ""} placeholder="(unnamed)" label={`Avoidance layer ${l} name`} onCommit={(v) => set(v.trim() ? `Rename avoidance layer ${l} to ${v.trim()}` : `Clear avoidance layer ${l} name`, renameNavAvoidanceLayer(draft, l, v.trim()))} />
+              {users.length > 0 && (
+                <span class="nav-layer-warning" title="Unnamed layers still work; they show as Layer n">
+                  unnamed, used by {users.join(", ")}
+                </span>
+              )}
+              <button class="icon" aria-label={`Clear avoidance layer ${l} name`} title="Leave this layer unnamed (it still works)" disabled={!named} onClick={() => set(`Clear avoidance layer ${l} name`, renameNavAvoidanceLayer(draft, l, ""))}>
+                ×
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <button disabled={free < 0} onClick={() => set("Add avoidance layer", addNavAvoidanceLayer(draft))}>
+        + Avoidance layer
+      </button>
+
+      <div class="project-settings-list-head">
+        <span>Who avoids whom</span>
+        <span class="project-settings-hint">rows: agent types on that layer; ticked: they all steer around the column's layer (agents and obstacles)</span>
+      </div>
+      {matrix.rows.length === 0 ? (
+        <p class="project-settings-none">No agent types take part in avoidance (they need Walks and Avoids others on).</p>
+      ) : (
+        <div class="nav-avoidance-matrix-wrap">
+          <table class="collision-matrix nav-avoidance-matrix" aria-label="Who avoids whom">
+            <thead>
+              <tr>
+                <th />
+                {matrix.columns.map((c) => (
+                  <th key={c} scope="col" class="collision-col">
+                    <span>{navAvoidanceLayerName(nav, c)}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {matrix.rows.map((row) => (
+                <tr key={row.layer}>
+                  <th scope="row" title={row.types.join(", ")}>
+                    {row.label}
+                  </th>
+                  {row.cells.map((cell) => {
+                    const rowName = navAvoidanceLayerName(nav, row.layer);
+                    const colName = navAvoidanceLayerName(nav, cell.layer);
+                    return (
+                      <td key={cell.layer}>
+                        <input
+                          type="checkbox"
+                          aria-label={`${rowName} avoids ${colName}`}
+                          title={cell.tip}
+                          checked={cell.state === "on"}
+                          indeterminate={cell.state === "mixed"}
+                          aria-checked={cell.state === "mixed" ? "mixed" : cell.state === "on"}
+                          onChange={(e) => {
+                            const avoid = (e.currentTarget as HTMLInputElement).checked;
+                            set(`${avoid ? "Avoid" : "Don't avoid"} ${colName} for ${rowName}`, setNavAvoidanceCell(draft, row.layer, cell.layer, avoid));
+                          }}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p class="project-settings-hint">Layers no agent type is on (obstacles only) have no row: obstacles don't avoid anything.</p>
+    </>
   );
 }
 
@@ -351,6 +498,8 @@ export function NavSettingsSection(props: { draft: SettingsDraft; problems: read
       <button disabled={nav.agentTypes.length >= MAX_NAV_AGENT_TYPES} onClick={() => set("Add agent type", addNavAgentType(draft))}>
         + Agent type
       </button>
+
+      <AvoidanceLayers nav={nav} draft={draft} set={set} />
 
       <div class="project-settings-list-head">
         <span>Areas</span>

@@ -488,6 +488,19 @@ button.primary:hover:not(:disabled) { background: var(--accent-hover); border-co
 .dialog p.new-script-preview { min-height: 1.4em; font-size: calc(12px * var(--ui-scale)); font-family: var(--font-code); }
 .dialog p.new-script-preview.problem { color: var(--danger); font-family: inherit; }
 button:disabled.primary { opacity: 0.5; }
+.add-component-menu li.category { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.add-component-menu li.category.open { background: var(--button-hover); }
+.add-component-menu li.separator { height: 1px; margin: 3px 0; padding: 0; background: var(--border); }
+.add-component-menu li[data-path]::after { content: attr(data-path); margin-left: 8px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.add-component-menu li[data-path].active::after { color: inherit; opacity: 0.75; }
+.add-component-menu .caret, .add-component-flyout .caret { color: var(--muted); }
+.add-component-menu li.active .caret, .add-component-flyout li.active .caret { color: var(--selection-text); }
+.add-component-flyout { position: fixed; z-index: 32; list-style: none; margin: 0; padding: 4px 0; min-width: 140px; overflow-y: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 6px 20px var(--shadow); }
+.add-component-flyout li { padding: 3px 12px; cursor: default; user-select: none; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.add-component-flyout li:hover:not(.disabled) { background: var(--button-hover); }
+.add-component-flyout li.open { background: var(--button-hover); }
+.add-component-flyout li.active { background: var(--selection); color: var(--selection-text); }
+.add-component-flyout li.disabled { color: var(--muted); opacity: 0.6; }
 .add-component-menu .new-script-item { margin: 0; border: none; border-top: 1px solid var(--border); border-radius: 0 0 4px 4px; background: transparent; text-align: left; padding: 6px 12px; color: var(--accent); }
 .add-component-menu .new-script-item:hover:not(:disabled) { background: var(--button-hover); }
 .code-external { align-self: center; margin: 0 6px 0 auto; padding: 1px 8px; font-size: calc(11px * var(--ui-scale)); }
