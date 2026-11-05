@@ -94,6 +94,8 @@ button.worlds-chip.add:hover { color: var(--text); border-color: var(--accent); 
 
 /* Spawnable Worlds and live connections (ADR 0062). */
 .worlds-link.spawnable path { stroke-dasharray: 5 4; }
+.worlds-link.implied path { stroke-dasharray: 2 3; opacity: 0.8; }
+.worlds-legend-line { display: inline-block; width: 18px; height: 0; border-top: 1.5px dotted var(--link); vertical-align: middle; }
 .worlds-link.live path { stroke: var(--accent); stroke-width: 2.25; }
 .worlds-link.live text { fill: var(--accent); }
 .worlds-link.live.handshake path { stroke-dasharray: 2 3; }

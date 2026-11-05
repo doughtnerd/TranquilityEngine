@@ -19,6 +19,7 @@ import {
   groupProblems,
   isSpawnableName,
   linkableNames,
+  lobbyLinks,
   mentions,
   modelProblems,
   modelToConfig,
@@ -338,8 +339,10 @@ function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected:
   ];
   const liveLabel = (l: LiveLink & { count: number }) =>
     (l.state === "open" ? "connected" : l.state === "handshake" ? "connecting…" : "closed") + (l.count > 1 ? ` ×${l.count}` : "");
+  const implied = lobbyLinks(model);
   const links: LayoutLinkIn[] = [
     ...model.links.map((l) => ({ from: l.from, to: l.to, label: l.transport })),
+    ...implied.map((l) => ({ from: l.from, to: l.to, label: l.label })),
     ...live.map((l) => ({ from: l.from, to: l.to, label: liveLabel(l) })),
   ];
   const layout = layoutGraph(nodes, links);
@@ -350,7 +353,11 @@ function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected:
       const spawnable = isSpawnableName(model, l.from) || isSpawnableName(model, l.to);
       return { route, label: l.transport, key: `l${i}`, cls: `worlds-link${spawnable ? " spawnable" : ""}${problems.links.has(i) ? " invalid" : ""}`, data: { "data-link-arrow": `${l.from}>${l.to}` }, marker: "worlds-arrow" };
     }
-    const l = live[i - model.links.length];
+    if (i < model.links.length + implied.length) {
+      const l = implied[i - model.links.length];
+      return { route, label: l.label, key: `lobby:${l.from}>${l.to}`, cls: "worlds-link spawnable implied", data: { "data-lobby-link": `${l.from}>${l.to}` }, marker: "worlds-arrow" };
+    }
+    const l = live[i - model.links.length - implied.length];
     return { route, label: links[i].label, key: `live:${l.from}>${l.to}`, cls: `worlds-link live ${l.state}`, data: { "data-live-link": `${l.from}>${l.to}` }, marker: "worlds-arrow-live" };
   });
   const isSelected = (ref: WorldRef) => selected?.kind === ref.kind && selected.index === ref.index;
@@ -435,6 +442,11 @@ function Graph(props: { model: WorldsModel; problems: GroupedProblems; selected:
         <span class="worlds-legend-item" title={SPAWNABLE_HINT}>
           <span class="worlds-legend-swatch spawnable" aria-hidden="true" /> spawnable <span class="worlds-hint">created by game code when needed</span>
         </span>
+        {implied.length > 0 && (
+          <span class="worlds-legend-item" title="Connections the lobby makes while the game runs (ADR 0068), from its matchTemplate and clientTemplate; they aren't links in project.json.">
+            <span class="worlds-legend-line implied" aria-hidden="true" /> lobby <span class="worlds-hint">connected by the lobby at runtime</span>
+          </span>
+        )}
       </div>
     </>
   );

@@ -166,6 +166,45 @@ export function linkableNames(model: WorldsModel): string[] {
   return [...new Set([...model.worlds.map((w) => w.name), ...model.templates.map(spawnableName)])];
 }
 
+/** A connection the graph shows because a lobby makes it at runtime (ADR 0068), not a declared link. */
+export interface ImpliedLink {
+  from: string;
+  to: string;
+  label: string;
+}
+
+/**
+ * The connections a World with `"lobby"` makes while the game runs, for the Worlds graph: every
+ * start-up World that renders (where the menu runs) joins the lobby; the lobby creates match Worlds
+ * from its `matchTemplate`; players' `clientTemplate` Worlds join them. Pairs a declared link already
+ * covers, and templates that don't exist, are left out.
+ */
+export function lobbyLinks(model: WorldsModel): ImpliedLink[] {
+  const out: ImpliedLink[] = [];
+  const declared = new Set(model.links.map((l) => `${l.from}>${l.to}`));
+  const push = (from: string, to: string, label: string) => {
+    if (from === to || declared.has(`${from}>${to}`) || out.some((l) => l.from === from && l.to === to)) return;
+    out.push({ from, to, label });
+  };
+  const template = (key: string | undefined) => (key ? model.templates.find((t) => t.key === key) : undefined);
+  const lobbies = [
+    ...model.worlds.map((w) => ({ name: w.name, lobby: w.lobby })),
+    ...model.templates.map((t) => ({ name: spawnableName(t), lobby: t.config.lobby })),
+  ].filter((l) => l.lobby);
+  for (const { name, lobby } of lobbies) {
+    model.worlds.forEach((w, i) => {
+      const renders = w.renders ?? i === 0;
+      if (renders && !w.lobby && !(w.tags ?? []).includes("server")) push(w.name, name, "joins lobby");
+    });
+    const match = template(lobby!.matchTemplate);
+    if (!match) continue;
+    push(name, spawnableName(match), "creates matches");
+    const client = template(lobby!.clientTemplate);
+    if (client) push(spawnableName(client), spawnableName(match), "joins match");
+  }
+  return out;
+}
+
 /** True if `name` is a Spawnable World's (and not a start-up World's), so its links apply when game code creates it. */
 export const isSpawnableName = (model: WorldsModel, name: string): boolean => !model.worlds.some((w) => w.name === name) && model.templates.some((t) => spawnableName(t) === name);
 
