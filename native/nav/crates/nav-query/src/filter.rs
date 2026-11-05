@@ -191,6 +191,11 @@ pub struct NavMeshQueryFilter<'a> {
     pub closed_gates: Option<&'a [bool]>,
     /// By polygon index: polygons an overlay has replaced, never entered or snapped to. `None`: none.
     pub switched_off: Option<&'a [bool]>,
+    /// By polygon: runtime cost volumes' multipliers (ADR 0070; `costs::EXCLUDED` = never entered). `None`, or shorter
+    /// than a polygon's index: 1.
+    pub poly_costs: Option<&'a [f32]>,
+    /// The cheapest entry of `poly_costs` (at most 1), for the A* heuristic (ignored while `poly_costs` is `None`).
+    pub min_poly_cost: f32,
 
     /// Reservations by other agents. Entering a polygon whose time slot is already full costs `congestion_cost` per
     /// agent over. `None`, or `congestion_cost` 0: congestion is ignored.
@@ -223,6 +228,8 @@ impl<'a> NavMeshQueryFilter<'a> {
             min_area_cost: 0.0,
             closed_gates: None,
             switched_off: None,
+            poly_costs: None,
+            min_poly_cost: 1.0,
             congestion: None,
             congestion_cost: 0.0,
             agent_speed: 0.0,
@@ -250,6 +257,29 @@ impl<'a> NavMeshQueryFilter<'a> {
     pub fn cheapest_travel(&self) -> f32 {
         min(1.0, min(self.wall_cost_multiplier, self.ceiling_cost_multiplier))
             * (if self.area_costs.is_empty() { 1.0 } else { min(1.0, self.min_area_cost) })
+            * self.poly_cost_scale()
+    }
+
+    /// What runtime cost volumes scale the heuristic by: 1, or their cheapest multiplier when it's below 1.
+    #[inline]
+    pub fn poly_cost_scale(&self) -> f32 {
+        if self.poly_costs.is_none() {
+            1.0
+        } else {
+            min(1.0, self.min_poly_cost)
+        }
+    }
+
+    /// A polygon's runtime cost multiplier (1 without cost volumes).
+    #[inline]
+    pub fn poly_cost(&self, poly: i32) -> f32 {
+        crate::costs::cost_at(self.poly_costs, poly)
+    }
+
+    /// True if a runtime cost volume makes the polygon impassable.
+    #[inline]
+    pub fn is_poly_excluded(&self, poly: i32) -> bool {
+        crate::costs::excluded_at(self.poly_costs, poly)
     }
 
     /// True if this gate is closed (`NavGates.IsClosed` on the filter's gate states).

@@ -14,7 +14,7 @@ import {
   type NavDebugSource,
 } from "../nav/debugGeometry";
 
-const colors: NavDebugColors = { outline: 1, shared: 2, fold: 3, jump: 4, chunkFace: 5, volume: 6, landing: 7, seam: 8, path: 9 };
+const colors: NavDebugColors = { outline: 1, shared: 2, fold: 3, jump: 4, chunkFace: 5, volume: 6, landing: 7, seam: 8, path: 9, costly: 10, cheap: 11, excluded: 12 };
 
 /** A World with a render backend that records the provider it was given. */
 function fakeWorld() {

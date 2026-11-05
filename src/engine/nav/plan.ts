@@ -235,3 +235,35 @@ export function leavesInBox(leaves: Float32Array, boxToWorld: ArrayLike<number>,
   }
   return Float32Array.from(out);
 }
+
+// ------------------------------------------------------------------------------------------- NavCostVolume (ADR 0070)
+
+/** What a NavCostVolume does, for its Inspector: a summary line, and warnings (agent types it can't affect). */
+export function describeNavCostVolume(
+  settings: NavigationSettings,
+  v: { cost: number; excluded: boolean; agents: readonly string[]; domain: string },
+): { summary: string; warnings: string[] } {
+  const ground = v.domain !== "air";
+  const air = v.domain !== "ground";
+  const where = ground && air ? "navmesh polygons and flight cells" : ground ? "navmesh polygons" : "flight cells";
+  const warnings: string[] = [];
+  const named: NavAgentType[] = [];
+  for (const id of v.agents) {
+    const t = id ? resolveAgentType(settings, id) : null;
+    if (!t) {
+      warnings.push(`Unknown agent type "${id}": it's ignored.`);
+      continue;
+    }
+    named.push(t);
+    if (!((ground && t.canWalk) || (air && t.canFly))) warnings.push(`${t.name || t.id} ${ground ? "doesn't walk" : "doesn't fly"}: this volume doesn't affect it.`);
+  }
+  const who = v.agents.length === 0 ? "every agent type" : named.map((t) => t.name || t.id).join(", ") || "no agent type";
+  const cost = Number.isFinite(v.cost) ? Math.max(0, v.cost) : 1;
+  let what: string;
+  if (v.excluded) what = `Makes the ${where} whose centres are inside the box impassable`;
+  else if (cost === 1) {
+    what = `Leaves the cost of the ${where} inside the box unchanged`;
+    warnings.push("A cost of 1 does nothing.");
+  } else what = `Multiplies the cost of travel through the ${where} whose centres are inside the box by ${+cost.toFixed(3)}`;
+  return { summary: `${what}, for ${who}. Applied while enabled at runtime; no rebake.`, warnings };
+}

@@ -53,6 +53,7 @@ Navigation reads your scene's nodes when you bake. By default, every render mesh
 | `NavModifierVolume` | Any node | An oriented box (`center`, `size`, the node's transform) that sets an `area` on `ground`, `air` or `both`, for chosen `agents`. |
 | `NavResolutionVolume` | Any node | An oriented box baked with a finer (or coarser) flight `cellSize`. |
 | `NavGate` | Any node | An oriented box with a `gateId`. Paths through it are blocked while `open` is false. |
+| `NavCostVolume` | Any node | Not baked: an oriented box that makes paths through it cost more (or blocks them) while it's enabled, at runtime. See [Cost volumes](#cost-volumes). |
 
 **What is collected by default.** The NavChunk's `collect` setting decides: `renderMeshes`, `colliders`, `both` (the default) or `none` (only nodes with a NavSurface or NavObstacle). `scope` is `scene` (the whole scene the chunk is in, the default) or `children` (the chunk node and its descendants).
 
@@ -247,7 +248,41 @@ function hunt(player: GameObject, monsters: NavAgent[], crowd: boolean): void {
 ### Other components
 
 - `NavGate.open`: set it at runtime to close or open a door. Queries and agents respect it from the next step.
+- `NavCostVolume`: a box that changes path costs during play. See [Cost volumes](#cost-volumes).
 - `NavAvoidanceObstacle` (`radius`, `layers`): a moving or still obstacle agents steer around, not baked into the navmesh. `layers` is the one avoidance layer it's on (a dropdown of the named layers).
+
+### Cost volumes
+
+A `NavCostVolume` ([ADR 0070](../decisions/0070-runtime-navigation-cost-volumes.md)) makes one spot of the map cost more during play, with no bake: a fog cloud a player drops, a fire, a danger zone. Planners route round it if there's a cheaper way, and go through it if there isn't.
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `center`, `size` | 0, 1 | The box, in the node's space (the node's position, rotation and scale apply). |
+| `cost` | 4 | Multiplies the cost of travel through the box. Below 1 makes it cheaper; 0 makes it free. |
+| `excluded` | false | Makes the box impassable instead, like a closed gate. |
+| `agents` | all | The agent types it applies to. |
+| `domain` | `both` | `ground` (navmesh polygons), `air` (flight cells) or `both`. |
+
+```ts
+import { GameObject, NavCostVolume } from "myco";
+
+const fog = GameObject.create("Fog");
+fog.transform!.position.set(12, 0, -4);
+const volume = fog.addComponent(NavCostVolume, { cost: 10 });
+volume.size.set(8, 4, 8);
+// later: GameObject.destroy(fog), or volume.enabled = false
+```
+
+- It takes effect while the component is enabled. Adding, removing, moving or changing one is picked up at the next navigation step.
+- Agents whose current path crosses a polygon whose cost changed plan again at once. Others keep their paths. Routes across chunks, walk-and-fly routes and flyers plan again when a chunk they cross (or their flight volume) changed.
+- `Navigation.findPath` and the other queries use the volumes as they are when you call them, including one added this frame.
+- Overlapping volumes multiply. An excluding volume wins.
+- It works per polygon: a polygon (or flight cell) is inside when its **centre** is inside the box. Big polygons on open ground give coarse edges, and a box smaller than a polygon may miss it. Smaller tiles (or a NavModifierVolume baked with a cost-1 area round the spot, which splits the polygons there) make edges finer.
+- An agent standing on an excluded polygon can't start a path from it, as on a closed gate.
+- In multiplayer it's a scene node like any other: the server, which runs navigation, sees it.
+- Hundreds of moving volumes cost frame time (each change recomputes the tables of every loaded chunk). A handful is cheap.
+
+The Inspector says what a volume does and warns about agent types it can't affect (a walker listed on an `air` volume, say).
 
 ## Queries: the Navigation facade
 
@@ -287,11 +322,11 @@ A `NavAgent` on a ghost (a node replicated from a server) is skipped: it doesn't
 - **Flight volume:** flight leaves (heavy, capped).
 - **Agent group:** which agent type's bake to draw.
 
-While playing it adds **Landing links**, **Seams** and **Agent paths**, drawn from the live runtime.
+While playing it adds **Landing links**, **Seams**, **Agent paths** and **Cost volumes** (the outlines of polygons a NavCostVolume makes costlier, cheaper or impassable, each in its own colour), drawn from the live runtime.
 
 **Counters.** The play-mode **Worlds** tab has a navigation panel: agents, paused agents, commands, chunk changes (overlays built, seams, route graphs) and the runtime's warnings.
 
-**In a game.** `Navigation.debug` holds the same switches for a World: `navmesh`, `links`, `volume`, `landing`, `seams`, `paths`. All are off by default.
+**In a game.** `Navigation.debug` holds the same switches for a World: `navmesh`, `links`, `volume`, `landing`, `seams`, `paths`, `costs`. All are off by default.
 
 ```ts
 import { Navigation } from "myco";

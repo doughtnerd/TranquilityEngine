@@ -398,6 +398,8 @@ pub fn serve(agents: &mut AgentStore, r: usize, flow: &FlowFields, frame: &Frame
     let mut filter: NavMeshQueryFilter<'_> = walk_filter(&walk, nav, &costs);
     filter.closed_gates = Some(snapshot.gates_of(entry_ix));
     filter.switched_off = Some(snapshot.switched_off_of(entry_ix));
+    filter.poly_costs = snapshot.poly_costs_for(entry_ix);
+    filter.min_poly_cost = snapshot.min_poly_cost;
     filter.agent_speed = config.speed();
     filter.agent_radius = walk.radius;
 

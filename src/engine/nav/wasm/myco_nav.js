@@ -204,6 +204,29 @@ export class NavRuntime {
         return v1;
     }
     /**
+     * A loaded chunk's polygons with a runtime cost multiplier other than 1: stride 7 (a xyz, b xyz, multiplier).
+     * @param {string} chunk_id
+     * @param {string} agent_type
+     * @returns {Float32Array}
+     */
+    debugCosts(chunk_id, agent_type) {
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passStringToWasm0(chunk_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(agent_type, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.navruntime_debugCosts(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        var v3 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v3;
+    }
+    /**
      * A loaded chunk's landing links for an agent type: stride 6 (ground xyz, air xyz).
      * @param {string} chunk_id
      * @param {string} agent_type
@@ -576,6 +599,18 @@ export class NavRuntime {
         const ptr0 = passStringToWasm0(area, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         wasm.navruntime_setAreaCost(this.__wbg_ptr, val2, ptr0, len0, val3, val4);
+    }
+    /**
+     * The runtime cost volumes (ADR 0070, `NavCostVolume`s): a JSON array replacing the previous set.
+     * @param {string} json
+     */
+    setCostVolumes(json) {
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.navruntime_setCostVolumes(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
     }
     /**
      * @param {number} agent_handle

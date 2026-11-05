@@ -19,6 +19,7 @@ export const NAV_RUNTIME_TYPES: ReadonlySet<string> = new Set([
   "engine.NavAgent",
   "engine.NavGroup",
   "engine.NavGate",
+  "engine.NavCostVolume",
   "engine.NavSurround",
   "engine.NavFlowGoal",
   "engine.NavAvoidanceObstacle",
@@ -176,6 +177,8 @@ export interface NavDebugSettings {
   seams: boolean;
   /** Agents' current paths. */
   paths: boolean;
+  /** Polygons tinted by their runtime cost multiplier (NavCostVolume, ADR 0070). */
+  costs: boolean;
 }
 
 const debugByWorld = new WeakMap<World, NavDebugSettings>();
@@ -184,7 +187,7 @@ const debugByWorld = new WeakMap<World, NavDebugSettings>();
 export function navDebugOf(world: World): NavDebugSettings {
   let d = debugByWorld.get(world);
   if (!d) {
-    d = { navmesh: false, links: false, volume: false, landing: false, seams: false, paths: false };
+    d = { navmesh: false, links: false, volume: false, landing: false, seams: false, paths: false, costs: false };
     debugByWorld.set(world, d);
   }
   return d;

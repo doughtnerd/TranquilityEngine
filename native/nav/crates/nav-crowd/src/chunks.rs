@@ -31,6 +31,7 @@ use nav_bake::overlay::{build_overlay, OverlayInput as BuildInput, OverlayNeighb
 use nav_math::hash::FingerprintHasher;
 use nav_math::Hash128;
 use nav_query::chunks::{LoadedChunk, NavChunks};
+use nav_query::costs::CostVolume;
 use nav_query::flow::{FlowSeam, FlowSeams};
 use nav_query::overlay::{NavOverlayLink, OverlayBuilt, OverlayManager, OverlayPlan};
 use nav_query::route_graph::{OverlayJoins, RouteGraphCache, RouteGraphs, SeamInput};
@@ -51,6 +52,9 @@ pub struct ChunkUpdate {
     pub graphs_rebuilt: bool,
     /// Gathers this tick (0 when nothing changed).
     pub gathers: usize,
+    /// Runtime cost volumes changed a polygon's or leaf's cost (ADR 0070): entries' `last_cost_change` is this tick's
+    /// time and the snapshot's `cost_changed` says which polygons.
+    pub costs_changed: bool,
 }
 
 /// Counters over the crowd's life (for tests and the debug panel).
@@ -85,6 +89,11 @@ pub struct ChunkWorld {
     pub loaded_version: u32,
     /// Bumped by every gather.
     pub snapshot_version: u32,
+    /// Runtime cost volumes (ADR 0070), as the host last set them, and whether the snapshot's tables are behind.
+    cost_volumes: Vec<CostVolume>,
+    costs_dirty: bool,
+    /// Bumped whenever the snapshot's cost tables change.
+    pub cost_version: u32,
     pub stats: ChunkStats,
 }
 
@@ -124,6 +133,20 @@ impl ChunkWorld {
 
     pub fn is_loaded(&self, id: Hash128) -> bool {
         self.loaded.contains_key(&id)
+    }
+
+    /// Replaces the runtime cost volumes (ADR 0070). The snapshot's tables follow on the next tick; one-shot queries
+    /// read [`ChunkWorld::cost_volumes`] at once.
+    pub fn set_cost_volumes(&mut self, volumes: Vec<CostVolume>) {
+        if volumes != self.cost_volumes {
+            self.cost_volumes = volumes;
+            self.costs_dirty = true;
+        }
+    }
+
+    /// The runtime cost volumes as last set.
+    pub fn cost_volumes(&self) -> &[CostVolume] {
+        &self.cost_volumes
     }
 
     /// This tick's snapshot (valid after [`ChunkWorld::update`]).
@@ -166,8 +189,10 @@ impl ChunkWorld {
         let mut up = ChunkUpdate::default();
         let gates_changed = self.gates.apply(time);
 
+        let mut before: Option<NavChunks> = None;
         if self.loaded_dirty {
             self.loaded_dirty = false;
+            before = Some(std::mem::take(&mut self.snapshot));
             // Plan, build and collect until planning settles: a collected overlay changes the snapshot (its entry), and
             // planning again for that snapshot schedules nothing (its key stands) but keeps the manager's signature in
             // step. Two rounds normally; three covers a replacement dropping an old overlay.
@@ -217,6 +242,16 @@ impl ChunkWorld {
         }
         up.gates_changed = gates_changed;
 
+        // Runtime cost volumes (ADR 0070): new tables when the volumes or the snapshot changed.
+        if self.costs_dirty || up.snapshot_changed {
+            self.costs_dirty = false;
+            let change = self.snapshot.apply_cost_volumes(&self.cost_volumes, before.as_ref(), time);
+            if change.any() {
+                up.costs_changed = true;
+                self.cost_version = self.cost_version.wrapping_add(1);
+            }
+        }
+
         if up.snapshot_changed {
             let s = self.seams.update(&self.snapshot);
             if s.changed {
@@ -252,11 +287,14 @@ impl ChunkWorld {
             rebuilt = true;
             warnings.log(self.graphs.describe(&format!("NavRoutes [{}]", warnings.label())));
         }
-        if !rebuilt && (up.gates_changed || up.snapshot_changed) {
+        if !rebuilt && (up.gates_changed || up.snapshot_changed || up.costs_changed) {
             let types: Vec<Hash128> = self.graphs.types().to_vec();
             for t in types {
                 if let Some(g) = self.graphs.get_mut(t) {
                     g.refresh_gates(&self.snapshot);
+                    if up.costs_changed || up.snapshot_changed {
+                        g.refresh_costs(&self.snapshot);
+                    }
                 }
             }
         }

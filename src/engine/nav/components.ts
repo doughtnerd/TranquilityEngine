@@ -165,6 +165,30 @@ export class NavGate extends Component {
 }
 
 /**
+ * A box that changes path costs at runtime, without a rebake (ADR 0070): fog, fire, a danger zone. Polygons (and
+ * flight leaves) whose centres are inside the oriented box (node transform × `center` / `size`) cost `cost` times
+ * more to travel through, or can't be entered at all with `excluded`. Overlapping volumes multiply; excluded wins.
+ * Takes effect while enabled; moving or changing it re-plans the agents whose paths it touches.
+ */
+@component("engine.NavCostVolume")
+export class NavCostVolume extends Component {
+  @field(Vector3) center = new Vector3(0, 0, 0);
+  @field(Vector3) size = new Vector3(1, 1, 1);
+  /** Cost multiplier (≥ 0; below 1 makes the box cheaper). */
+  @field(Number) cost = 4;
+  /** Impassable instead of costlier. */
+  @field(Boolean) excluded = false;
+  /** Agent type ids it applies to; empty = every type. */
+  @field([String], { choices: agentTypeChoices }) agents: string[] = [];
+  /** Navmesh polygons, flight leaves, or both. */
+  @field(String, { choices: ["ground", "air", "both"] }) domain = "both";
+
+  override _onAttach(): void {
+    ensureNavigationFor(this.world);
+  }
+}
+
+/**
  * A navigation agent: walks, flies or both by its agent type, avoiding other agents. With `updatePosition` /
  * `updateRotation` off, the node is left alone (drive it yourself from `desiredVelocity`).
  */

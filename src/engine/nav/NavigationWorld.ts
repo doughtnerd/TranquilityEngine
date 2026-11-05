@@ -18,7 +18,7 @@ import { Quaternion, Vector3 } from "../core/math";
 import { Mat4 } from "../core/math";
 import type { GameObject } from "../scene/GameObject";
 import { SceneInstance } from "../scene/SceneLoader";
-import { NavAgent, NavAvoidanceObstacle, NavChunk, NavFlowGoal, NavGate, NavGroup, NavSurround, type NavAgentStateData, type NavWaypoint } from "./components";
+import { NavAgent, NavAvoidanceObstacle, NavChunk, NavCostVolume, NavFlowGoal, NavGate, NavGroup, NavSurround, type NavAgentStateData, type NavWaypoint } from "./components";
 import { loadNavigation, type NavigationModule } from "./loader";
 import { formationMask, readFormationValue, type NavFormationAsset } from "./formation";
 import { Assets } from "../scene/Assets";
@@ -32,6 +32,7 @@ import {
   agentRow,
   type NavAgentDesc,
   type NavAreaCostOverride,
+  type NavCostVolumeDesc,
   type NavGroupDesc,
   type NavHandle,
   type NavWaypoint as RawWaypoint,
@@ -113,6 +114,8 @@ export class NavigationWorld {
   private nextTargetId = 1;
   /** Loaded chunks' users: a scene loaded twice shares its chunk. */
   private readonly chunkUsers = new Map<string, number>();
+  /** The cost volumes last sent to the runtime, as JSON ("" before any). */
+  private costVolumesSent = "";
 
   constructor(private readonly world: World) {
     if (!navModule) throw new Error("NavigationWorld: the navigation module isn't loaded (use ensureNavigation).");
@@ -234,6 +237,7 @@ export class NavigationWorld {
     const w = this.world;
     for (const c of w._componentsOfType(NavChunk)) this.syncChunk(c);
     for (const g of w._componentsOfType(NavGate)) this.syncGate(g);
+    this.syncCostVolumes();
 
     const ghostType = getComponentClass("net.Replicated") as (abstract new () => unknown) | undefined;
     const anyGhosts = ghostType !== undefined && (w._componentsOfType(ghostType as never) as unknown as { _isGhost: boolean }[]).some((r) => r._isGhost);
@@ -379,6 +383,35 @@ export class NavigationWorld {
     if (b && b.gateId === g.gateId && b.open === g.open) return;
     this.runtime.setGate(g.gateId, g.open);
     g._backend = { gateId: g.gateId, open: g.open };
+  }
+
+  // --- cost volumes (ADR 0070)
+
+  /** Sends the enabled NavCostVolumes when any was added, removed, moved or changed since the last send. */
+  private syncCostVolumes(): void {
+    const w = this.world;
+    const list: NavCostVolumeDesc[] = [];
+    const inv = new Float32Array(16);
+    for (const v of w._componentsOfType(NavCostVolume)) {
+      if (!v.isActiveAndEnabled || v.node.transform === null) continue;
+      const e = v.node.entity;
+      if (!Mat4.invert(inv, 0, w.worldMatrix(e), e * 16)) continue; // a zero scale: the box is empty
+      // Unknown types (warned once) stay listed, so a volume naming only them applies to nobody rather than everybody.
+      const agents = v.agents.filter((a) => a !== "").map((a) => this.resolveAgentType(a, `${v.node.name} (NavCostVolume)`) ?? a);
+      list.push({
+        worldToLocal: Array.from(inv),
+        center: [v.center.x, v.center.y, v.center.z],
+        halfSize: [Math.abs(v.size.x) / 2, Math.abs(v.size.y) / 2, Math.abs(v.size.z) / 2],
+        cost: Number.isFinite(v.cost) ? Math.max(0, v.cost) : 1,
+        excluded: v.excluded,
+        agents,
+        domain: v.domain === "ground" || v.domain === "air" ? v.domain : "both",
+      });
+    }
+    const json = JSON.stringify(list);
+    if (json === this.costVolumesSent) return;
+    this.costVolumesSent = json;
+    this.runtime.setCostVolumes(list);
   }
 
   // --- agents
@@ -791,9 +824,10 @@ export class NavigationWorld {
 
   // ------------------------------------------------------------------------------------------- queries (the facade)
 
-  /** Gates changed since the last step reach the runtime before a query, so it sees a gate closed this frame. */
+  /** Gates and cost volumes changed since the last step reach the runtime before a query, so it sees them this frame. */
   private syncGatesForQuery(): void {
     for (const g of this.world._componentsOfType(NavGate)) this.syncGate(g);
+    this.syncCostVolumes();
   }
 
   findPath(from: Vec3, to: Vec3, agentType: string) {

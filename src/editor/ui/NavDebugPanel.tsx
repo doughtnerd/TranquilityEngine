@@ -101,7 +101,7 @@ export function NavDebugPanel() {
 export function NavOverlayForm() {
   const s = cleanNavOverlay(navOverlaySettings.value);
   const types = projectNavigation(currentProject.value).agentTypes;
-  const check = (key: "navmesh" | "links" | "volume" | "landing" | "seams" | "paths", label: string, title?: string) => (
+  const check = (key: "navmesh" | "links" | "volume" | "landing" | "seams" | "paths" | "costs", label: string, title?: string) => (
     <label class="snap-row check" title={title}>
       <input type="checkbox" checked={s[key]} aria-label={label} onChange={(e) => updateNavOverlay({ [key]: (e.currentTarget as HTMLInputElement).checked })} />
       <span>{label}</span>
@@ -126,6 +126,7 @@ export function NavOverlayForm() {
       {check("landing", "Landing links")}
       {check("seams", "Seams")}
       {check("paths", "Agent paths")}
+      {check("costs", "Cost volumes", "Polygons whose cost a NavCostVolume changes: costlier, cheaper or excluded")}
     </div>
   );
 }

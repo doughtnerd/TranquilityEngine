@@ -264,6 +264,21 @@ pub(crate) fn urgent(path: &NavPath, entry: i32, frame: &Frame) -> bool {
     path.nav != frame.world.nav_key(entry) || (mv && path.computed_time < ce.last_gate_change)
 }
 
+/// ADR 0070: this tick's cost volume change touched a polygon of the walker's corridor ahead of it.
+pub(crate) fn corridor_costs_changed(w: &crate::agents::WalkerData, entry: i32, frame: &Frame) -> bool {
+    if !frame.update.costs_changed || !moving(w.path.state) {
+        return false;
+    }
+    let chunks = frame.world.snapshot();
+    let Ok(e) = usize::try_from(entry) else { return false };
+    let Some(ce) = chunks.entries.get(e) else { return false };
+    if ce.cost_changed_count == 0 || w.path.computed_time >= ce.last_cost_change {
+        return false;
+    }
+    let from = (w.cursor.index.max(0) as usize).min(w.corridor.len());
+    w.corridor[from..].iter().any(|c| chunks.poly_cost_changed(e, c.poly))
+}
+
 /// Enables the agent's request from where it stands (`Repath`'s and `NavFlowFollowing.Request`'s tail).
 fn request_path(d: &mut AgentData, surface: &NavMeshAgentSurface, goal: Float3) {
     d.path_request.start_from_current_position = true;
@@ -284,7 +299,8 @@ pub fn repath(sys: &mut WalkerSystems, agents: &mut AgentStore, targets: &Target
         }
         let (Some(walk), Some(w)) = (&d.walk, d.walker.as_deref()) else { continue };
         let entry = agents.chunk[r].entry;
-        if !(r as u32).wrapping_add(sys.repath_frame).is_multiple_of(CHECK_FRAMES) && !urgent(&w.path, entry, frame) {
+        let costs_hit = corridor_costs_changed(w, entry, frame);
+        if !(r as u32).wrapping_add(sys.repath_frame).is_multiple_of(CHECK_FRAMES) && !urgent(&w.path, entry, frame) && !costs_hit {
             continue;
         }
         if member(d) {
@@ -306,7 +322,7 @@ pub fn repath(sys: &mut WalkerSystems, agents: &mut AgentStore, targets: &Target
         let surface = agents.surface[r];
         let nav_key = frame.world.nav_key(entry);
         let last_gate_change = ce.last_gate_change;
-        if repath_one(&mut agents.data[r], &walk, &surface, nav_key, last_gate_change, frame.time, chasing, target_pos, repath_distance, following, field_stale) {
+        if repath_one(&mut agents.data[r], &walk, &surface, nav_key, last_gate_change, costs_hit, frame.time, chasing, target_pos, repath_distance, following, field_stale) {
             sys.stats.repaths += 1;
         }
     }
@@ -320,6 +336,7 @@ fn repath_one(
     surface: &NavMeshAgentSurface,
     nav_key: u64,
     last_gate_change: f64,
+    costs_hit: bool,
     time: f64,
     chasing: bool,
     target_pos: Float3,
@@ -364,6 +381,10 @@ fn repath_one(
     }
     // A gate of its chunk opened or closed since this path was computed.
     if !following && path.state != NavPathState::Arrived && path.computed_time < last_gate_change {
+        repath = true;
+    }
+    // A runtime cost volume changed the cost of a polygon ahead on its corridor (ADR 0070).
+    if !following && costs_hit {
         repath = true;
     }
     // Pushed off the current segment.
@@ -596,6 +617,8 @@ fn build_filter<'a>(d: &AgentData, config: &NavMeshAgentConfig, nav: &NavMeshDat
     let mut f: NavMeshQueryFilter<'a> = walk_filter(agent, nav, &costs);
     f.closed_gates = Some(chunks.gates_of(e));
     f.switched_off = Some(chunks.switched_off_of(e));
+    f.poly_costs = chunks.poly_costs_for(e);
+    f.min_poly_cost = chunks.min_poly_cost;
     f.congestion = congestion;
     f.congestion_cost = agent.congestion_cost;
     f.agent_speed = config.speed();

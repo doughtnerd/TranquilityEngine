@@ -19,7 +19,8 @@ use nav_query::raycast::{raycast as surface_raycast, RaycastFilter};
 use nav_query::route_search::NavRouteLegKind;
 use nav_query::routing::{self, NavChunkRouteLeg};
 use nav_query::straight_path::{straighten, NavMeshWaypoint};
-use nav_query::volume;
+use nav_query::costs;
+use nav_query::volume::{self, LeafCosts};
 use std::sync::Arc;
 
 /// Status codes in query results: a full path, a partial one (ends nearest the goal), or none.
@@ -117,6 +118,35 @@ fn with_gates<'a>(mut f: NavMeshQueryFilter<'a>, gates: &'a [bool]) -> NavMeshQu
     f
 }
 
+/// A navmesh's runtime cost table for the type as the host's cost volumes are now (ADR 0070: queries use the volumes
+/// in force when they run, not the last tick's tables). Empty when every polygon costs 1.
+fn live_poly_costs(crowd: &Crowd, nav: &NavMeshData, ty: &AgentTypeSettings) -> Vec<f32> {
+    costs::poly_cost_table(nav, crowd.chunks().cost_volumes(), ty.id).unwrap_or_default()
+}
+
+/// A flight volume's runtime cost table for the type as the host's cost volumes are now.
+fn live_leaf_costs(crowd: &Crowd, v: &NavVolumeData, ty: &AgentTypeSettings) -> Vec<f32> {
+    costs::leaf_cost_table(v, crowd.chunks().cost_volumes(), ty.id).unwrap_or_default()
+}
+
+fn leaf_view(table: &[f32]) -> LeafCosts<'_> {
+    if table.is_empty() {
+        LeafCosts::NONE
+    } else {
+        LeafCosts::new(Some(table), costs::min_cost(table))
+    }
+}
+
+fn with_costs<'a>(mut f: NavMeshQueryFilter<'a>, table: &'a [f32]) -> NavMeshQueryFilter<'a> {
+    if !table.is_empty() {
+        f.poly_costs = Some(table);
+        f.min_poly_cost = costs::min_cost(table);
+    } else {
+        f.poly_costs = None;
+    }
+    f
+}
+
 fn append_waypoints(out: &mut PathOut, wps: &[NavMeshWaypoint]) {
     for w in wps {
         out.push(w.position, w.normal, w.flags.0);
@@ -127,7 +157,10 @@ fn snap_of(walk: &NavMeshAgent) -> f32 {
     walk.max_snap_distance.max(0.5)
 }
 
-/// The nearest point on any loaded navmesh of the type within `max_distance`: (chunk index, nav, poly, point).
+/// Where a point was located: the navmesh, polygon and point, and that chunk's live gate states and cost table.
+type Located<'a> = (&'a Arc<NavMeshData>, i32, Float3, Vec<bool>, Vec<f32>);
+
+/// The nearest point on any loaded navmesh of the type within `max_distance`: (nav, poly, point, gates, costs).
 fn locate_on_chunks<'a>(
     crowd: &'a Crowd,
     ty: &AgentTypeSettings,
@@ -135,18 +168,19 @@ fn locate_on_chunks<'a>(
     costs: &[NavMeshAgentAreaCost],
     pos: Float3,
     max_distance: f32,
-) -> Option<(&'a Arc<NavMeshData>, i32, Float3, Vec<bool>)> {
-    let mut best: Option<(&Arc<NavMeshData>, i32, Float3, Vec<bool>)> = None;
+) -> Option<Located<'a>> {
+    let mut best: Option<Located<'a>> = None;
     let mut best_d2 = f32::MAX;
     for c in crowd.chunks().loaded() {
         let Some(nav) = chunk_parts(c, ty.id).nav else { continue };
         let gates = gates_of(crowd, c);
-        let filter = with_gates(walk_filter(walk, nav, costs), &gates);
+        let table = live_poly_costs(crowd, nav, ty);
+        let filter = with_costs(with_gates(walk_filter(walk, nav, costs), &gates), &table);
         if let Some((poly, p)) = pathfinding::find_nearest_poly(nav, pos, max_distance, &filter) {
             let d2 = p.distance_sq(pos);
             if d2 < best_d2 {
                 best_d2 = d2;
-                best = Some((nav, poly, p, gates));
+                best = Some((nav, poly, p, gates, table));
             }
         }
     }
@@ -179,7 +213,8 @@ pub fn walk_path(crowd: &Crowd, ty: &AgentTypeSettings, walk: &NavMeshAgent, cos
             // The graphs' gate states are as of the last tick: a chunk's own navmesh takes the live ones (overlays,
             // rebaked across edges, keep theirs).
             let live = if graph.overlay { Vec::new() } else { crowd.chunks().loaded().find(|c| c.id == graph.chunk).map(|c| gates_of(crowd, c)).unwrap_or_default() };
-            let filter = with_gates(graphs.filter_for(leg.graph, &base), &live);
+            let table = live_poly_costs(crowd, nav, ty);
+            let filter = with_costs(with_gates(graphs.filter_for(leg.graph, &base), &live), &table);
             let status = pathfinding::find_path(nav, leg.start_poly, leg.start, leg.end_poly, leg.end, &filter, &mut corridor);
             out.worsen(status);
             if status == NavPathStatus::InvalidInput {
@@ -195,8 +230,8 @@ pub fn walk_path(crowd: &Crowd, ty: &AgentTypeSettings, walk: &NavMeshAgent, cos
     }
 
     // No route graphs yet: one chunk's navmesh.
-    let Some((nav, sp, spos, gates)) = locate_on_chunks(crowd, ty, walk, costs, from, snap) else { return PathOut::invalid() };
-    let filter = with_gates(walk_filter(walk, nav, costs), &gates);
+    let Some((nav, sp, spos, gates, table)) = locate_on_chunks(crowd, ty, walk, costs, from, snap) else { return PathOut::invalid() };
+    let filter = with_costs(with_gates(walk_filter(walk, nav, costs), &gates), &table);
     let Some((gp, gpos)) = pathfinding::find_nearest_poly(nav, to, snap, &filter) else { return PathOut::invalid() };
     let mut corridor = Vec::new();
     let status = pathfinding::find_path(nav, sp, spos, gp, gpos, &filter, &mut corridor);
@@ -229,8 +264,9 @@ pub fn fly_path(crowd: &Crowd, ty: &AgentTypeSettings, fly: &NavFlightAgent, cos
     let snap = fly.max_snap_distance.max(0.5);
     let Some((_, v)) = volume_at(crowd, ty, from, snap) else { return PathOut::invalid() };
     let filter = flight_filter(v, costs);
+    let leaves = live_leaf_costs(crowd, v, ty);
     let mut points = Vec::new();
-    let status = volume::find_path(v, &filter, from, to, snap, fly.max_search_nodes, &mut points);
+    let status = volume::find_path_with(v, &filter, leaf_view(&leaves), from, to, snap, fly.max_search_nodes, &mut points);
     let mut out = PathOut::default();
     out.worsen(status);
     for p in points {
@@ -256,8 +292,11 @@ pub fn hybrid_path(
         let parts = chunk_parts(c, ty.id);
         let (Some(nav), Some(vol), Some(links)) = (parts.nav, parts.volume, parts.links) else { continue };
         let gates = gates_of(crowd, c);
-        let ground = with_gates(walk_filter(walk, nav, costs), &gates);
+        let table = live_poly_costs(crowd, nav, ty);
+        let ground = with_costs(with_gates(walk_filter(walk, nav, costs), &gates), &table);
         let air = flight_filter(vol, costs);
+        let leaf_table = live_leaf_costs(crowd, vol, ty);
+        let leaves = leaf_view(&leaf_table);
         let end_at = |p: Float3| {
             let mut e = NavRouteEnd::NONE;
             if let Some((poly, gp)) = pathfinding::find_nearest_poly(nav, p, wsnap, &ground) {
@@ -287,7 +326,8 @@ pub fn hybrid_path(
             ..NavHybridParams::default()
         };
         let mut legs = Vec::new();
-        let (status, _) = hybrid::find_route(nav, &ground, vol, &air, links, &params, &start, &goal, &mut legs);
+        let params = NavHybridParams { min_leaf_cost: leaves.table.map(|_| leaves.min), ..params };
+        let (status, _) = hybrid::find_route_with(nav, &ground, vol, &air, leaves, links, &params, &start, &goal, &mut legs);
         let mut out = PathOut::default();
         out.worsen(status);
         if status == NavPathStatus::InvalidInput {
@@ -313,7 +353,7 @@ pub fn hybrid_path(
                     }
                 }
                 NavRouteLegKind::Fly => {
-                    let st = volume::find_path(vol, &air, cur, leg.end, fsnap, fly.max_search_nodes, &mut points);
+                    let st = volume::find_path_with(vol, &air, leaves, cur, leg.end, fsnap, fly.max_search_nodes, &mut points);
                     if st == NavPathStatus::InvalidInput || points.is_empty() {
                         out.push(cur, up(), FLAG_FLIGHT);
                         out.push(leg.end, up(), FLAG_FLIGHT);
@@ -348,7 +388,7 @@ pub fn find_path(crowd: &Crowd, ty: &AgentTypeSettings, costs: &[NavMeshAgentAre
 /// (fly-only types) within `max_distance`, or empty.
 pub fn nearest_point(crowd: &Crowd, ty: &AgentTypeSettings, costs: &[NavMeshAgentAreaCost], pos: Float3, max_distance: f32) -> Vec<f32> {
     if let Some(walk) = ty.walk.as_deref() {
-        if let Some((nav, poly, p, _)) = locate_on_chunks(crowd, ty, walk, costs, pos, max_distance) {
+        if let Some((nav, poly, p, _, _)) = locate_on_chunks(crowd, ty, walk, costs, pos, max_distance) {
             let n = nav.polys[poly as usize].normal;
             let (sp, sn) = nav_query::surface::try_get_surface_point(nav, poly, p).unwrap_or((p, n));
             return vec![sp.x, sp.y, sp.z, sn.x, sn.y, sn.z];
@@ -373,7 +413,7 @@ pub fn nearest_point(crowd: &Crowd, ty: &AgentTypeSettings, costs: &[NavMeshAgen
 /// start isn't on navigation.
 pub fn raycast(crowd: &Crowd, ty: &AgentTypeSettings, costs: &[NavMeshAgentAreaCost], from: Float3, to: Float3) -> Vec<f32> {
     if let Some(walk) = ty.walk.as_deref() {
-        let Some((nav, poly, p, gates)) = locate_on_chunks(crowd, ty, walk, costs, from, snap_of(walk)) else { return Vec::new() };
+        let Some((nav, poly, p, gates, _)) = locate_on_chunks(crowd, ty, walk, costs, from, snap_of(walk)) else { return Vec::new() };
         let f: NavMeshQueryFilter = walk_filter(walk, nav, costs);
         let filter = RaycastFilter { allowed_bins: f.allowed_bins, max_fold_angle: f.max_fold_angle, excluded_areas: f.excluded_areas, closed_gates: &gates };
         let hit = surface_raycast(nav, &filter, poly, p, to);

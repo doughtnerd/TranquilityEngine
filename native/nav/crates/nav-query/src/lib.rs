@@ -4,6 +4,7 @@
 //! queries and A*; and across chunks (W4): the loaded-chunk snapshot, seams and overlays, route graphs,
 //! chunk and hybrid walk/fly routing, and flow fields.
 pub mod chunks;
+pub mod costs;
 pub mod crossing;
 pub mod filter;
 pub mod flow;

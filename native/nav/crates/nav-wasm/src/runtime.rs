@@ -4,7 +4,7 @@
 //! Handles (agents, obstacles) cross as `f64`: `index + generation * 2^32` (exact while generations stay under
 //! 2^21). The low 32 bits (`handle >>> 0` in JS) are the agent's row in the boundary buffers.
 use crate::debug;
-use crate::dto::{parse_id, AgentDescDto, AreaCostDto, NavigationSettingsDto, ObstacleDto, SurroundDto};
+use crate::dto::{parse_id, AgentDescDto, AreaCostDto, CostVolumeDto, NavigationSettingsDto, ObstacleDto, SurroundDto};
 use crate::queries::{self, chunk_parts};
 use nav_crowd::boundary::{AGENT_IN_STRIDE, AGENT_OUT_STRIDE, AGENT_STATE_STRIDE, OBSTACLE_IN_STRIDE};
 use nav_crowd::commands::Command;
@@ -115,6 +115,24 @@ impl RuntimeCore {
         self.world_costs.retain(|c| c.area_id != area);
         self.world_costs.push(NavMeshAgentAreaCost { area_id: area, excluded, cost });
         self.crowd.set_world_area_cost(area, cost, excluded);
+    }
+
+    /// Replaces the runtime cost volumes (ADR 0070) from a JSON array of [`CostVolumeDto`].
+    pub fn set_cost_volumes(&mut self, json: &str) -> Result<(), String> {
+        let list = CostVolumeDto::parse_list(json)?;
+        self.crowd.set_cost_volumes(list.iter().map(CostVolumeDto::to_volume).collect());
+        Ok(())
+    }
+
+    /// A loaded chunk's polygons whose runtime cost isn't 1, as their outlines: stride 7 (a xyz, b xyz, multiplier;
+    /// `Infinity` = excluded), from the cost volumes as they are now.
+    pub fn debug_costs(&self, chunk_id: &str, agent_type: &str) -> Vec<f32> {
+        let ty = parse_id(agent_type);
+        let Some(nav) = self.chunk(chunk_id).and_then(|c| chunk_parts(c, ty).nav) else { return Vec::new() };
+        match nav_query::costs::poly_cost_table(nav, self.crowd.chunks().cost_volumes(), ty) {
+            Some(table) => debug::poly_cost_lines(nav, &table),
+            None => Vec::new(),
+        }
     }
 
     pub fn tick(&mut self, dt: f32, time: f64) {
@@ -293,6 +311,18 @@ impl NavRuntime {
     #[wasm_bindgen(js_name = clearAreaCosts)]
     pub fn clear_area_costs(&mut self, agent_handle: f64) {
         self.core.crowd.push(Command::ClearAreaCosts(agent(agent_handle)));
+    }
+
+    /// The runtime cost volumes (ADR 0070, `NavCostVolume`s): a JSON array replacing the previous set.
+    #[wasm_bindgen(js_name = setCostVolumes)]
+    pub fn set_cost_volumes(&mut self, json: &str) -> Result<(), JsError> {
+        self.core.set_cost_volumes(json).map_err(|e| JsError::new(&e))
+    }
+
+    /// A loaded chunk's polygons with a runtime cost multiplier other than 1: stride 7 (a xyz, b xyz, multiplier).
+    #[wasm_bindgen(js_name = debugCosts)]
+    pub fn debug_costs(&self, chunk_id: &str, agent_type: &str) -> Vec<f32> {
+        self.core.debug_costs(chunk_id, agent_type)
     }
 
     /// The World's override of an area's cost (`Navigation.setAreaCost`), under every agent's own.
