@@ -1,7 +1,9 @@
 // What only clients do (ADR 0017, 0033): read the helm from the mouse and keyboard, float and
-// colour ships on the waves (ghostly while a ghost, hidden inside others' fog clouds), carry the
-// flag above its holder, bob power-ups, fade clouds, and play the effects the server reports.
-import { Audio, Camera, Color, GameObject, Input, MeshRenderer, Plane, Quaternion, Replicated, Transform, Vector3, Water, defineSystem } from "myco";
+// colour ships on the waves (ghostly while a ghost, hidden inside others' fog clouds, faded inside
+// a cloud when this client can still see them), carry the flag above its holder, bob power-ups,
+// thin out fading clouds, mark the arena's edge on the water, and play the effects the server
+// reports.
+import { Audio, Camera, Color, GameObject, Input, MeshRenderer, ParticleSystem, Plane, Quaternion, Replicated, Transform, Vector3, Water, defineSystem } from "myco";
 import {
   BOLT_PREFAB,
   Battery,
@@ -17,12 +19,15 @@ import {
   SPLASH_PREFAB,
   Ship,
   TEAM_COLORS,
-  inCloud,
+  cloudSpots,
+  game,
+  inCloudAmong,
   myShip,
   type CloudView,
   type FlagView,
   type ShipView,
 } from "./data";
+import { arenaRadius } from "./systems";
 import { flash } from "./weather";
 
 /** Each client World's chosen battery (A: port, D: starboard), kept between ticks. */
@@ -59,9 +64,23 @@ defineSystem({
   },
 });
 
-/** Sail colours already applied (per renderer), so each is set once. */
+/** Colours already applied (per renderer), so each is set once. */
 const tinted = new WeakMap<object, string>();
 const GHOST_SAILS = "#c8ffe8";
+/** A ship seen inside a fog cloud: a dark, see-through silhouette (it reads against the white fog) and faded sails. */
+const FOG_HULL = new Color(0.16, 0.22, 0.3, 0.6);
+const FOG_GHOST_HULL = new Color(0.2, 0.55, 0.45, 0.6);
+const FOG_SAILS_ALPHA = 0.6;
+
+/** Set a renderer's colour, only when it changes (`null`: back to its material's own). */
+function tint(renderer: MeshRenderer | null | undefined, colour: Color | null): void {
+  if (!renderer) return;
+  const key = colour ? `${colour.toHex()}${colour.a.toFixed(2)}` : "";
+  if (tinted.get(renderer) === key) return;
+  if (colour) renderer.setMaterialProperty("color", colour);
+  else renderer.clearMaterialProperty("color");
+  tinted.set(renderer, key);
+}
 
 /** Show or hide a node, only when that changes. */
 function show(node: GameObject | null | undefined, on: boolean): void {
@@ -71,7 +90,9 @@ function show(node: GameObject | null | undefined, on: boolean): void {
 /**
  * Floats each ship's `Visual` child on the waves (height, pitch and roll from four samples around
  * the hull), sinks it while it's sunk, blinks it while it can't be hurt, swaps in the ghostly hull
- * while it's a ghost, hides it inside another ship's fog cloud, and colours its sails by team.
+ * while it's a ghost, and colours its sails by team. Inside a fog cloud, another team's ship is
+ * hidden (unless the cloud is this client's own); this client's ship, or one it can still see
+ * there, draws faded and see-through, so its captain can tell the fog hides it.
  */
 defineSystem({
   name: "pirates.ShipVisuals",
@@ -81,19 +102,22 @@ defineSystem({
   run(rows, ctx) {
     const now = ctx.world.time.time;
     const me = myShip();
+    const spots = cloudSpots();
     for (const row of rows) {
       const ship = row.ship as ShipView;
       const visual = row.node.find("Visual");
       if (!visual?.transform) continue;
+      const mine = row.node.getBehavior(Replicated)?.isOwnedLocally ?? false;
+      const p = row.transform.position;
+      const hidden = !mine && inCloudAmong(spots, p.x, p.z, me?.data.team ?? -1);
+      const fogged = !hidden && inCloudAmong(spots, p.x, p.z);
       const ghost = ship.ghost > 0;
-      show(visual.find("Hull"), !ghost);
-      show(visual.find("GhostHull"), ghost);
-      const sails = visual.find("Sails")?.getBehavior(MeshRenderer);
-      const colour = ghost ? GHOST_SAILS : TEAM_COLORS[ship.team];
-      if (sails && tinted.get(sails) !== colour) {
-        sails.setMaterialProperty("color", Color.from(colour));
-        tinted.set(sails, colour);
-      }
+      show(visual.find("Hull"), !ghost && !fogged);
+      show(visual.find("GhostHull"), ghost || fogged);
+      tint(visual.find("GhostHull")?.getBehavior(MeshRenderer), fogged ? (ghost ? FOG_GHOST_HULL : FOG_HULL) : null);
+      const sails = Color.from(ghost ? GHOST_SAILS : TEAM_COLORS[ship.team]);
+      if (fogged) sails.a = FOG_SAILS_ALPHA;
+      tint(visual.find("Sails")?.getBehavior(MeshRenderer), sails);
       const at = (lx: number, lz: number) => {
         const w = row.transform.localToWorld({ x: lx, y: 0, z: lz });
         return Water.sample(w.x, w.z)?.height ?? 0;
@@ -111,9 +135,6 @@ defineSystem({
       }
       visual.transform.position.set(0, y, 0);
       visual.transform.rotation = Quaternion.fromEuler(pitch, 0, roll);
-      const mine = row.node.getBehavior(Replicated)?.isOwnedLocally ?? false;
-      const p = row.transform.position;
-      const hidden = !mine && inCloud(p.x, p.z, me?.data.team ?? -1);
       const blink = ship.invulnerable > 0 && Math.floor(now * 8) % 2 === 1;
       show(visual, !hidden && !blink);
       show(row.node.find("Visual/Flag"), ship.flag !== 0);
@@ -121,12 +142,12 @@ defineSystem({
   },
 });
 
-/** Cloud puffs' last alpha, so each is set only when it changes. */
-const faded = new WeakMap<object, number>();
+/** A fog cloud stops making new puffs when this many seconds are left, so it has thinned away by its end. */
+const CLOUD_FADE = 4.5;
 
 /**
  * The flag floats on the water where it was dropped, and is hidden while a ship carries it (the
- * holder shows its own pennant). Power-ups bob and turn; clouds turn slowly and fade out.
+ * holder shows its own pennant). Power-ups bob and turn; a fog cloud stops billowing near its end.
  */
 defineSystem({
   name: "pirates.Props",
@@ -156,15 +177,9 @@ defineSystem({
         continue;
       }
       const cloud = node.getData(Cloud) as CloudView | null;
-      if (cloud) {
-        row.transform.rotation = Quaternion.fromEuler(0, now * 8, 0);
-        const alpha = Math.round(50 * Math.min(1, cloud.life / 2)) / 100;
-        for (const puff of node.find("Visual")?.children ?? []) {
-          const r = puff.getBehavior(MeshRenderer);
-          if (!r || faded.get(r) === alpha) continue;
-          r.setMaterialProperty("color", new Color(0.9, 0.93, 0.95, alpha));
-          faded.set(r, alpha);
-        }
+      if (cloud && cloud.life < CLOUD_FADE) {
+        const puffs = node.find("Visual")?.getBehavior(ParticleSystem);
+        if (puffs?.isPlaying) puffs.stop();
       }
     }
   },
@@ -197,7 +212,7 @@ defineSystem({
         else Audio.playOneShot(sound.clip, { position: { x: fx.x, y: fx.y, z: fx.z }, volume: sound.volume, pitch, minDistance: 6, maxDistance: 120 });
       }
       if (fx.kind === FxKind.splash || fx.kind === FxKind.hit || fx.kind === FxKind.sink || fx.kind === FxKind.crunch || fx.kind === FxKind.cloud) {
-        const size = fx.kind === FxKind.sink ? 3 : fx.kind === FxKind.cloud ? 4 : fx.kind === FxKind.splash ? 1 : 0.7;
+        const size = fx.kind === FxKind.sink ? 3 : fx.kind === FxKind.cloud ? 6 : fx.kind === FxKind.splash ? 1 : 0.7;
         const node = GameObject.instantiate(SPLASH_PREFAB, { position: [fx.x, fx.y, fx.z] });
         node.transform!.scale.set(size, size, size);
       }
@@ -206,5 +221,59 @@ defineSystem({
         flash(ctx.world);
       }
     }
+  },
+});
+
+/** The arena's edge on the water: a glowing line of floats, with a buoy every few, built per arena. */
+const EDGE_MATERIAL = "asset:materials/edge.material.json";
+const EDGE_SPACING = 2.5;
+const BUOY_EVERY = 4;
+interface Edge {
+  radius: number;
+  root: GameObject;
+  floats: { transform: Transform; x: number; z: number; lift: number }[];
+}
+const edges = new WeakMap<object, Edge>();
+
+function buildEdge(radius: number): Edge {
+  const root = GameObject.create("Arena Edge");
+  const floats: Edge["floats"] = [];
+  const count = Math.max(24, Math.round((2 * Math.PI * radius) / EDGE_SPACING));
+  const length = ((2 * Math.PI * radius) / count) * 0.8;
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2;
+    const x = Math.sin(a) * radius, z = Math.cos(a) * radius;
+    const yaw = (a * 180) / Math.PI;
+    const float = GameObject.create(`Float ${i + 1}`, { parent: root });
+    float.transform!.position.set(x, 0, z);
+    float.transform!.rotation = Quaternion.fromEuler(0, yaw, 0);
+    float.transform!.scale.set(length, 0.12, 0.5);
+    float.addComponent(MeshRenderer, { mesh: "builtin:cube", material: EDGE_MATERIAL, castShadows: false, receiveShadows: false });
+    floats.push({ transform: float.transform!, x, z, lift: 0.12 });
+    if (i % BUOY_EVERY !== 0) continue;
+    const buoy = GameObject.create(`Buoy ${i / BUOY_EVERY + 1}`, { parent: root });
+    buoy.transform!.position.set(x, 0, z);
+    buoy.transform!.rotation = Quaternion.fromEuler(0, yaw, 0);
+    buoy.addComponent(MeshRenderer, { mesh: "asset:models/flag.obj#Buoy", castShadows: false });
+    floats.push({ transform: buoy.transform!, x, z, lift: -0.05 });
+  }
+  return { radius, root, floats };
+}
+
+/** Builds the arena's edge once its radius is known (again when the arena changes) and floats it on the waves. */
+defineSystem({
+  name: "pirates.ArenaEdge",
+  phase: "lateUpdate",
+  worlds: ["client"],
+  run(_rows, ctx) {
+    if (!game()) return;
+    const radius = arenaRadius();
+    let edge = edges.get(ctx.world);
+    if (!edge || !edge.root.isValid || edge.radius !== radius) {
+      if (edge?.root.isValid) GameObject.destroy(edge.root);
+      edge = buildEdge(radius);
+      edges.set(ctx.world, edge);
+    }
+    for (const f of edge.floats) f.transform.position.y = (Water.sample(f.x, f.z)?.height ?? 0) + f.lift;
   },
 });

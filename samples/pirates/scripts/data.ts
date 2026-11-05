@@ -66,7 +66,11 @@ export const WIND_SPEEDUP = 1.6;
 /** Ghost ship: seconds of ghostliness; F drops one fog cloud that lasts `CLOUD_SECONDS`. */
 export const GHOST_SECONDS = 60;
 export const CLOUD_SECONDS = 20;
-export const CLOUD_RADIUS = 9;
+/**
+ * A fog cloud hides ships within this many metres of its middle. The cloud's prefab matches it:
+ * its NavCostVolume is `2 × CLOUD_RADIUS` square and its particles fill a disc this wide.
+ */
+export const CLOUD_RADIUS = 18;
 /** Bots' path cost through a fog cloud (the cloud's NavCostVolume). */
 export const CLOUD_COST = 8;
 /** Stormy seas: seconds; the waves grow this much; lightning strikes another ship every so often. */
@@ -253,14 +257,34 @@ export function clouds(): { node: GameObject; data: CloudView }[] {
   return out;
 }
 
-/** True when (x, z) is inside a fog cloud (`except`: a team whose own clouds don't count). */
-export function inCloud(x: number, z: number, except = -1): boolean {
-  for (const c of clouds()) {
-    if (c.data.team === except) continue;
-    const p = c.node.transform!.position;
-    if ((p.x - x) ** 2 + (p.z - z) ** 2 < CLOUD_RADIUS * CLOUD_RADIUS) return true;
+/** A fog cloud on the water: who dropped it and where. */
+export interface CloudSpot {
+  readonly team: number;
+  readonly x: number;
+  readonly z: number;
+}
+
+/** The fog clouds in the current World, as spots. */
+export function cloudSpots(): CloudSpot[] {
+  return clouds().map((c) => ({ team: c.data.team, x: c.node.transform!.position.x, z: c.node.transform!.position.z }));
+}
+
+/** True when (x, z) is inside one of `spots` (`except`: a team whose own clouds don't count). */
+export function inCloudAmong(spots: readonly CloudSpot[], x: number, z: number, except = -1): boolean {
+  for (const c of spots) {
+    if (c.team === except) continue;
+    if ((c.x - x) ** 2 + (c.z - z) ** 2 < CLOUD_RADIUS * CLOUD_RADIUS) return true;
   }
   return false;
+}
+
+/**
+ * True when (x, z) is inside a fog cloud (`except`: a team whose own clouds don't count). A ship
+ * there is hidden from every team but `except`: `inCloud(x, z, viewer)` asks whether the viewer
+ * can't see it, `inCloud(x, z)` whether anyone can't.
+ */
+export function inCloud(x: number, z: number, except = -1): boolean {
+  return inCloudAmong(cloudSpots(), x, z, except);
 }
 
 /** Ships ranked: score, then enemy ships sunk (the tiebreaker), then fewest times sunk. */

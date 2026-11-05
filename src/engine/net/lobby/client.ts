@@ -6,8 +6,8 @@
  *
  * When the lobby starts a match, the client makes a match client World from the lobby's
  * `clientTemplate`, named `Match <id> Client`, and connects it to the match World with its ticket.
- * Meanwhile the page's other Worlds that render are paused (not destroyed), and the match World
- * gets the screen; when the match ends (or the player leaves it), the match client World is
+ * Meanwhile the page's other Worlds that render are paused (not destroyed), and the Engine hands
+ * the match World its main view and input (`Engine._handView`); when the match ends (or the player leaves it), the match client World is
  * destroyed and the paused Worlds resume.
  *
  * `LobbyClient` is the instance behind `Lobby`; tests make several to play several players in one
@@ -366,28 +366,12 @@ export class LobbyClient {
       handle.pause();
       this.paused.push(handle);
     }
-    // In a page with a canvas, draw the match World over the paused one (an Engine draws one World
-    // per surface, ADR 0032), and give it the keyboard.
-    const e = engine as unknown as { container?: HTMLElement | null; _attachView?(name: string, element: HTMLElement): () => void; _focusInput?(name: string | null): void };
-    const wants = states.length === 0 || engine._viewStates?.().find((s) => s.name === match.name)?.renders;
-    if (!wants || !e.container || typeof document === "undefined" || !e._attachView) return;
+    // The Engine hands its main view, and local input with it, to the match World (an Engine draws
+    // one World per surface, ADR 0032): it fills the screen as the menu did, in the editor's game
+    // view and the player alike. The view comes back when the match World goes.
+    if (!states.find((s) => s.name === match.name)?.renders || !engine._handView) return;
     try {
-      const container = e.container;
-      if (getComputedStyle(container).position === "static") container.style.position = "relative";
-      const overlay = document.createElement("div");
-      overlay.style.cssText = "position:absolute;inset:0;";
-      container.appendChild(overlay);
-      const detach = e._attachView(match.name, overlay);
-      e._focusInput?.(match.name);
-      this.detachView = () => {
-        try {
-          detach();
-          e._focusInput?.(null);
-        } catch {
-          // The Engine is gone.
-        }
-        overlay.remove();
-      };
+      this.detachView = engine._handView(match.name);
     } catch (err) {
       console.warn(`[myco] The match World couldn't take the screen: ${(err as Error).message}`);
     }

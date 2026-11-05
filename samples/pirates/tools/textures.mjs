@@ -104,6 +104,35 @@ function foam() {
   return cv.png();
 }
 
+/**
+ * A soft, billowing puff for fog and smoke particles: a few overlapping soft lobes, broken up by
+ * noise, white with the alpha falling to nothing well inside the edge (so no square shows).
+ */
+function smoke() {
+  const cv = new Canvas(S);
+  const n = fbm(71, 4, 4);
+  const r = rng(72);
+  const lobes = [[0, 0, 0.62]];
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + r() * 0.6;
+    const d = 0.22 + r() * 0.12;
+    lobes.push([Math.cos(a) * d, Math.sin(a) * d, 0.34 + r() * 0.12]);
+  }
+  cv.fill((x, y) => {
+    const u = (x + 0.5) / S - 0.5, v = (y + 0.5) / S - 0.5;
+    let k = 0;
+    for (const [lx, ly, lr] of lobes) {
+      const d = Math.hypot(u * 2 - lx, v * 2 - ly) / lr;
+      k = Math.max(k, Math.max(0, 1 - d * d));
+    }
+    const edge = Math.max(0, 1 - Math.hypot(u, v) * 2); // 0 at the inscribed circle
+    const a = k * Math.min(1, edge * 3) * (0.55 + n(x / S, y / S) * 0.7);
+    const shadeK = 0.86 + n((x + 40) / S, (y + 17) / S) * 0.14;
+    return [255 * shadeK, 255 * shadeK, 255 * Math.min(1, shadeK + 0.03), Math.min(1, a) * 255];
+  });
+  return cv.png();
+}
+
 // ---------- icons (transparent background, 128 px) ----------
 const circleBg = (cv, col) => {
   cv.disc(64, 64, 60, shade(col, 0.55));
@@ -180,6 +209,7 @@ export function makeTextures(teamColors) {
     "palm.png": palm(),
     "flag.png": flag(),
     "foam.png": foam(),
+    "smoke.png": smoke(),
     "icon_wind.png": iconWind(),
     "icon_ghost.png": iconGhost(),
     "icon_storm.png": iconStorm(),

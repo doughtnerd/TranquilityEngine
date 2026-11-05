@@ -65,9 +65,10 @@ export function createGameView(container: HTMLElement): GameView {
   const update = (engine: Engine) => {
     const states = worldViewStates(engine);
     const main = states.find((s) => s.mainView) ?? null;
-    // A World that draws to a surface the game gave it (a lobby's match World, drawn over the paused
-    // menu, ADR 0068) isn't tiled: its surface is already on screen.
-    const others = states.filter((s) => s.renders && !s.mainView && (!s.extraView || tiles.has(s.name)));
+    // Not tiled: a World that handed the main view to another (the menu while a lobby's match World
+    // plays, ADR 0068), which gets it back after, and a World drawing to a surface something else
+    // gave it, which is on screen already.
+    const others = states.filter((s) => s.renders && !s.mainView && !s.viewHanded && (!s.extraView || tiles.has(s.name)));
 
     for (const [name, tile] of tiles) {
       if (others.some((s) => s.name === name)) continue;

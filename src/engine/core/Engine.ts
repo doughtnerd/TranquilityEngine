@@ -61,6 +61,11 @@ export interface WorldViewState {
   readonly mainView: boolean;
   /** It draws to a surface of its own besides the main view (`Engine._attachView`). */
   readonly extraView: boolean;
+  /**
+   * It handed the main view to another World (`Engine._handView`, a lobby's match World): its
+   * surface is kept, hidden, until the view comes back. It's on no screen meanwhile.
+   */
+  readonly viewHanded: boolean;
   /** Local input reaches it. */
   readonly takesInput: boolean;
   readonly paused: boolean;
@@ -112,6 +117,11 @@ export class Engine implements BootstrapEngine {
   private readonly extraViews = new Map<World, RenderBackend>();
   /** Editor: the World `_focusInput` gave local input to; null: input follows the main view. */
   private inputWorld: World | null = null;
+  /**
+   * Main-view hand-overs (`_handView`), innermost last: the World that gave the view up (null once
+   * destroyed) with its surface, kept hidden so it comes back as it was, and the World given it.
+   */
+  private readonly handedViews: ViewHandOver[] = [];
   /** The canvas Input listens to: the input World's, when it has one. */
   private inputCanvas: HTMLCanvasElement | null = null;
   /** Scene loads of the start-up Worlds, which `Engine.create` waits for; null once it's done. */
@@ -373,6 +383,15 @@ export class Engine implements BootstrapEngine {
     this.extraViews.get(world)?.dispose();
     this.extraViews.delete(world);
     if (world === this.inputWorld) this.inputWorld = null;
+    // A World that handed its view away goes with its hidden surface; one given the view hands it back.
+    for (const h of this.handedViews) {
+      if (h.from !== world) continue;
+      h.backend?.dispose();
+      h.backend = null;
+      h.from = null;
+    }
+    const given = this.handedViews.findIndex((h) => h.to === world);
+    if (given >= 0) this.unwindViews(given);
     if (world === this.viewWorld) {
       world.render = null;
       this.render?.releaseWorld();
@@ -439,7 +458,68 @@ export class Engine implements BootstrapEngine {
       extraView: this.extraViews.has(w),
       takesInput: w._takesInput,
       paused: w._paused,
+      viewHanded: this.handedViews.some((h) => h.from === w),
     }));
+  }
+
+  /**
+   * @internal Give the main view, and local input with it, to the World named `name` (a lobby's
+   * match World over the paused menu, ADR 0068), as if it had always had it: its own surface in
+   * the Engine's container, laid out as the main canvas was. The World that had the view keeps its
+   * surface, hidden, and isn't drawn meanwhile. Returns a function that hands the view back (a
+   * no-op once done); it also comes back when the World given it is destroyed. If the World that
+   * had it is destroyed meanwhile, the World given the view keeps it. Hand-overs nest: handing
+   * back an outer one hands back the ones over it too.
+   */
+  _handView(name: string): () => void {
+    const world = this._world(name);
+    if (!world) throw new Error(`There's no World named "${name}" in this Engine.`);
+    if (!this.viewWishes.get(world)?.renders) throw new Error(`World "${name}" doesn't render, so it can't take the view.`);
+    if (world === this.viewWorld) return () => {};
+    if (this.handedViews.some((h) => h.from === world)) throw new Error(`World "${name}" handed its view to another World; hand that one back first.`);
+    // A surface of its own (an editor tile) gives way to the main view, as in `assignView`.
+    const tile = this.extraViews.get(world);
+    if (tile) {
+      this.extraViews.delete(world);
+      tile.dispose(); // Input moves off its canvas below, keeping what's held
+    }
+    const from = this.viewWorld;
+    let backend: RenderBackend | null = null;
+    if (from) {
+      from.render = null;
+      backend = this.render;
+      if (backend) backend.canvas.style.display = "none";
+      this.render = null;
+    }
+    const handOver: ViewHandOver = { from, backend, to: world };
+    this.handedViews.push(handOver);
+    this.viewWorld = world;
+    if (this.container) {
+      this.render ??= new RenderBackend(this.container, world.settings, world.kind);
+      world.render = this.render;
+    }
+    this.inputWorld = null; // input follows the view
+    this.applyInput();
+    return () => {
+      const at = this.handedViews.indexOf(handOver);
+      if (at >= 0) this.unwindViews(at);
+    };
+  }
+
+  /** Hand back the main view of every hand-over from index `at` on, innermost first. */
+  private unwindViews(at: number): void {
+    while (this.handedViews.length > at) {
+      const h = this.handedViews.pop()!;
+      if (!h.from) continue; // the World that gave the view up is gone: the one given it keeps it
+      if (h.to.render === this.render) h.to.render = null;
+      this.render?.dispose(); // the given World's three.js objects live in it and go with it
+      this.render = h.backend;
+      if (this.render) this.render.canvas.style.display = "block";
+      h.from.render = this.render;
+      this.viewWorld = h.from;
+      this.inputWorld = null;
+    }
+    this.applyInput();
   }
 
   /**
@@ -452,6 +532,7 @@ export class Engine implements BootstrapEngine {
     const world = this._world(name);
     if (!world) throw new Error(`There's no World named "${name}" in this Engine.`);
     if (world === this.viewWorld) throw new Error(`World "${name}" has the main view already.`);
+    if (this.handedViews.some((h) => h.from === world)) throw new Error(`World "${name}" handed its view to another World.`);
     if (this.extraViews.has(world)) throw new Error(`World "${name}" has a view already.`);
     const backend = new RenderBackend(element, world.settings, world.kind);
     this.extraViews.set(world, backend);
@@ -662,6 +743,7 @@ export class Engine implements BootstrapEngine {
     this.configs.clear();
     for (const backend of this.extraViews.values()) backend.dispose();
     this.extraViews.clear();
+    for (const h of this.handedViews.splice(0)) h.backend?.dispose();
     this.render?.dispose();
     this.render = null;
     this.viewWorld = null;
@@ -670,6 +752,13 @@ export class Engine implements BootstrapEngine {
     Input.detach();
     if (World.active && worlds.includes(World.active)) World.active = null;
   }
+}
+
+/** One `Engine._handView`: the World that gave the main view up (null once destroyed), its hidden surface, and the World given it. */
+interface ViewHandOver {
+  from: World | null;
+  backend: RenderBackend | null;
+  readonly to: World;
 }
 
 /** The one World an editor or server Engine gets when it's given no bootstrap. */

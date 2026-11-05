@@ -1,0 +1,440 @@
+{
+  "format": "myco.particles@2",
+  "properties": [],
+  "systems": [
+    {
+      "id": "s1",
+      "name": "Body",
+      "position": [
+        0,
+        0
+      ],
+      "settings": {
+        "space": "local",
+        "capacity": 160
+      },
+      "spawn": {
+        "settings": {
+          "duration": 4,
+          "looping": true,
+          "startDelay": 0,
+          "prewarm": true
+        },
+        "blocks": [
+          {
+            "id": "b12",
+            "type": "spawn.rate",
+            "inputs": {
+              "rate": 24
+            }
+          }
+        ]
+      },
+      "initialize": {
+        "blocks": [
+          {
+            "id": "b1",
+            "type": "init.lifetime",
+            "inputs": {
+              "lifetime": {
+                "random": [
+                  3.2,
+                  4.6
+                ]
+              }
+            }
+          },
+          {
+            "id": "b2",
+            "type": "init.velocity",
+            "inputs": {
+              "speed": {
+                "random": [
+                  0.1,
+                  0.6
+                ]
+              }
+            }
+          },
+          {
+            "id": "b3",
+            "type": "init.size",
+            "inputs": {
+              "size": {
+                "random": [
+                  7,
+                  11
+                ]
+              }
+            }
+          },
+          {
+            "id": "b4",
+            "type": "init.rotation",
+            "inputs": {
+              "rotation": {
+                "random": [
+                  0,
+                  360
+                ]
+              }
+            }
+          },
+          {
+            "id": "b5",
+            "type": "init.color",
+            "inputs": {
+              "color": {
+                "random": [
+                  "#eef2f5ff",
+                  "#c9d1d8ff"
+                ]
+              }
+            }
+          },
+          {
+            "id": "b6",
+            "type": "init.positionCircle",
+            "inputs": {
+              "radius": 15,
+              "arc": 360,
+              "thickness": 1,
+              "mode": "random",
+              "spread": 0,
+              "offset": [
+                0,
+                2,
+                0
+              ],
+              "rotation": [
+                90,
+                0,
+                0
+              ]
+            }
+          }
+        ]
+      },
+      "update": {
+        "blocks": [
+          {
+            "id": "b7",
+            "type": "update.colorOverLife",
+            "inputs": {
+              "color": {
+                "gradient": {
+                  "colors": [
+                    [
+                      0,
+                      "#ffffff"
+                    ],
+                    [
+                      1,
+                      "#ffffff"
+                    ]
+                  ],
+                  "alphas": [
+                    [
+                      0,
+                      0
+                    ],
+                    [
+                      0.25,
+                      0.42
+                    ],
+                    [
+                      0.7,
+                      0.42
+                    ],
+                    [
+                      1,
+                      0
+                    ]
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "b8",
+            "type": "update.sizeOverLife",
+            "inputs": {
+              "size": {
+                "curve": [
+                  [
+                    0,
+                    0.7
+                  ],
+                  [
+                    1,
+                    1.15
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "id": "b9",
+            "type": "update.rotationOverLife",
+            "inputs": {
+              "speed": {
+                "random": [
+                  -14,
+                  14
+                ]
+              }
+            }
+          },
+          {
+            "id": "b10",
+            "type": "update.forceOverLife",
+            "inputs": {
+              "x": 0,
+              "y": 0.12,
+              "z": 0
+            }
+          },
+          {
+            "id": "b11",
+            "type": "update.noise",
+            "inputs": {
+              "frequency": 0.25,
+              "power": 0.6,
+              "positionAmount": 0.4,
+              "rotationAmount": 0
+            }
+          }
+        ]
+      },
+      "output": {
+        "type": "quad",
+        "settings": {
+          "material": "",
+          "texture": "asset:textures/smoke.png",
+          "blending": "alpha",
+          "renderOrder": 1,
+          "mesh": "builtin:cube",
+          "speedScale": 0,
+          "lengthScale": 1,
+          "trailLength": 20
+        },
+        "blocks": []
+      }
+    },
+    {
+      "id": "s2",
+      "name": "Rim",
+      "position": [
+        420,
+        0
+      ],
+      "settings": {
+        "space": "local",
+        "capacity": 100
+      },
+      "spawn": {
+        "settings": {
+          "duration": 4,
+          "looping": true,
+          "startDelay": 0,
+          "prewarm": true
+        },
+        "blocks": [
+          {
+            "id": "b23",
+            "type": "spawn.rate",
+            "inputs": {
+              "rate": 20
+            }
+          }
+        ]
+      },
+      "initialize": {
+        "blocks": [
+          {
+            "id": "b13",
+            "type": "init.lifetime",
+            "inputs": {
+              "lifetime": {
+                "random": [
+                  3,
+                  4.2
+                ]
+              }
+            }
+          },
+          {
+            "id": "b14",
+            "type": "init.velocity",
+            "inputs": {
+              "speed": {
+                "random": [
+                  0.05,
+                  0.35
+                ]
+              }
+            }
+          },
+          {
+            "id": "b15",
+            "type": "init.size",
+            "inputs": {
+              "size": {
+                "random": [
+                  5,
+                  7.5
+                ]
+              }
+            }
+          },
+          {
+            "id": "b16",
+            "type": "init.rotation",
+            "inputs": {
+              "rotation": {
+                "random": [
+                  0,
+                  360
+                ]
+              }
+            }
+          },
+          {
+            "id": "b17",
+            "type": "init.color",
+            "inputs": {
+              "color": {
+                "random": [
+                  "#f4f7f9ff",
+                  "#d6dde3ff"
+                ]
+              }
+            }
+          },
+          {
+            "id": "b18",
+            "type": "init.positionCircle",
+            "inputs": {
+              "radius": 16.5,
+              "arc": 360,
+              "thickness": 0,
+              "mode": "random",
+              "spread": 0,
+              "offset": [
+                0,
+                1.6,
+                0
+              ],
+              "rotation": [
+                90,
+                0,
+                0
+              ]
+            }
+          }
+        ]
+      },
+      "update": {
+        "blocks": [
+          {
+            "id": "b19",
+            "type": "update.colorOverLife",
+            "inputs": {
+              "color": {
+                "gradient": {
+                  "colors": [
+                    [
+                      0,
+                      "#ffffff"
+                    ],
+                    [
+                      1,
+                      "#ffffff"
+                    ]
+                  ],
+                  "alphas": [
+                    [
+                      0,
+                      0
+                    ],
+                    [
+                      0.25,
+                      0.45
+                    ],
+                    [
+                      0.7,
+                      0.45
+                    ],
+                    [
+                      1,
+                      0
+                    ]
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "id": "b20",
+            "type": "update.sizeOverLife",
+            "inputs": {
+              "size": {
+                "curve": [
+                  [
+                    0,
+                    0.6
+                  ],
+                  [
+                    1,
+                    1.1
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "id": "b21",
+            "type": "update.rotationOverLife",
+            "inputs": {
+              "speed": {
+                "random": [
+                  -18,
+                  18
+                ]
+              }
+            }
+          },
+          {
+            "id": "b22",
+            "type": "update.noise",
+            "inputs": {
+              "frequency": 0.3,
+              "power": 0.5,
+              "positionAmount": 0.4,
+              "rotationAmount": 0
+            }
+          }
+        ]
+      },
+      "output": {
+        "type": "quad",
+        "settings": {
+          "material": "",
+          "texture": "asset:textures/smoke.png",
+          "blending": "alpha",
+          "renderOrder": 2,
+          "mesh": "builtin:cube",
+          "speedScale": 0,
+          "lengthScale": 1,
+          "trailLength": 20
+        },
+        "blocks": []
+      }
+    }
+  ],
+  "nodes": [],
+  "edges": [],
+  "events": [],
+  "notes": [],
+  "groups": []
+}
