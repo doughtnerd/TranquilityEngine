@@ -8,6 +8,7 @@ import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import JsonWorker from "monaco-editor/languages/features/json/json.worker.js?worker";
 import TsWorker from "monaco-editor/languages/features/typescript/ts.worker.js?worker";
 import engineTypes from "virtual:myco-types";
+import { codeLanguageOf } from "../projectPaths";
 import { codeAppearance, monacoColors } from "../theme";
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
@@ -51,12 +52,9 @@ export { monaco };
 
 const uriOf = (path: string) => monaco.Uri.parse(`file:///project/${path}`);
 
-/** Monaco's language for a project file, by extension. */
-const languageOf = (path: string) => (path.endsWith(".json") ? "json" : path.endsWith(".js") ? "javascript" : "typescript");
-
-/** The model for a project file (script, JSON or JavaScript), made if needed. */
+/** The model for a project file (a script, JSON, a JavaScript or TypeScript module, Markdown or text), made if needed. */
 export function modelFor(path: string, text: string): monaco.editor.ITextModel {
-  return monaco.editor.getModel(uriOf(path)) ?? monaco.editor.createModel(text, languageOf(path), uriOf(path));
+  return monaco.editor.getModel(uriOf(path)) ?? monaco.editor.createModel(text, codeLanguageOf(path), uriOf(path));
 }
 
 /**

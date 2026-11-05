@@ -1,7 +1,7 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, searchFiles, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
+import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, opensInCodePanel, searchFiles, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
 import { importKind, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { deleteAssets, entryPath, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "../assetDelete";
@@ -58,6 +58,8 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   json: "JSON",
   script: "Script",
   javascript: "JS",
+  typescript: "TS Module",
+  text: "Text",
   other: "File",
 };
 
@@ -114,11 +116,11 @@ function openEntry(entry: string): void {
   if (kind === "image") return openSpriteEditor(entry);
   if (kind === "shadergraph" || kind === "shadersubgraph") return openShaderGraphAsset(entry);
   if (kind === "particles") return openParticleGraphAsset(entry);
-  if (kind === "script" || kind === "json" || kind === "javascript") openScript(entry);
+  if (opensInCodePanel(kind)) openScript(entry);
   else if (kind === "scene" || kind === "prefab") void switchScene(entry);
 }
 
-const opens = (entry: string) => isFolderEntry(entry) || ["scene", "prefab", "script", "json", "javascript", "image", "sprite", "shadergraph", "shadersubgraph", "particles"].includes(assetKind(entry));
+const opens = (entry: string) => isFolderEntry(entry) || opensInCodePanel(assetKind(entry)) || ["scene", "prefab", "image", "sprite", "shadergraph", "shadersubgraph", "particles"].includes(assetKind(entry));
 
 /** Why `entries` can't be changed (renamed, moved, deleted), or null. */
 function whyNotEditable(project: EditorProject, entries: readonly string[]): string | null {
