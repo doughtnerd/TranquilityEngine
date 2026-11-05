@@ -15,6 +15,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   SpriteRenderer: "Rendering",
   Light: "Rendering",
   Environment: "Rendering",
+  Fog: "Rendering",
   PostProcessing: "Rendering",
   ReflectionProbe: "Rendering",
   ParticleSystem: "Rendering",
@@ -30,6 +31,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   SphereCollider: "Physics 3D",
   RigidBody: "Physics 3D",
   AudioSource: "Audio",
+  AudioListener: "Audio",
 };
 
 /** The category of an engine component id, or null when the table doesn't know it (it lands in Other). */

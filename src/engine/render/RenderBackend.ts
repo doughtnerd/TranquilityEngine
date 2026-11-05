@@ -73,11 +73,12 @@ import { resolvePostEffects, type PostSettings, type ResolvedPost } from "./post
 import type { PostEffects, PostProcessStack, PostViewport, ToneMappingName } from "./PostProcessStack";
 import type { CascadedShadows, CascadeSettings } from "./cascadedShadows";
 import { loadEquirectangular, prefilter } from "./environmentMap";
+import { applyFog } from "./fog";
 import type { World, WorldKind } from "../core/World";
 import { Assets, sidecarValue } from "../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../scene/importSettings";
 import type { GameObject } from "../scene/GameObject";
-import { Camera, Environment, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor } from "./components";
+import { Camera, Environment, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor } from "./components";
 import type { ParticlePreview, ParticleRenderer } from "./particles/ParticleRenderer";
 import type { ParticleRenderer as ParticleRendererSettings } from "../scene/particles";
 import { PROBE_RESOLUTION, ProbeCapture, pickProbe, type ProbeBox } from "./reflectionProbes";
@@ -652,6 +653,18 @@ export class RenderBackend {
     s.backgroundRotation.set(0, turn, 0);
   }
 
+  /** The World's first enabled Fog sets the scene's distance fog, after the environment has set the sky (ADR 0071). */
+  private syncFog(world: World): void {
+    let fog: Fog | null = null;
+    for (const f of world._componentsOfType(Fog)) {
+      if (f.isActiveAndEnabled) {
+        fog = f;
+        break;
+      }
+    }
+    applyFog(this.scene, fog, this.clearColor);
+  }
+
   private loadEnvironmentMap(path: string): void {
     this.envMap?.lighting?.dispose();
     this.envMap?.sky?.dispose();
@@ -767,6 +780,7 @@ export class RenderBackend {
     for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
     this.syncLights(world);
     this.syncEnvironment(world);
+    this.syncFog(world);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     for (const t of world._componentsOfType(Text)) this.syncText(t);
     this.syncParticles(world);
@@ -1064,6 +1078,13 @@ export class RenderBackend {
         material = m;
       } catch (err) {
         this.warnMaterial(path, `${(err as Error).message} Using the default material.`);
+      }
+    }
+    if (material && raw !== undefined) {
+      try {
+        (material as Material & { fog: boolean }).fog = parseMaterial(raw).settings.fog; // a material can opt out of the World's Fog (ADR 0071)
+      } catch {
+        /* already warned above */
       }
     }
     const deps = graph?.compiled.dependencies.map((p): [string, unknown] => [p, read(p)]);
@@ -1737,7 +1758,7 @@ export class RenderBackend {
       const box = new BufferGeometry();
       const v = [-1, -1, -1, 1, -1, -1, 1, -1, -1, 1, 1, -1, 1, 1, -1, -1, 1, -1, -1, 1, -1, -1, -1, -1, -1, -1, 1, 1, -1, 1, 1, -1, 1, 1, 1, 1, 1, 1, 1, -1, 1, 1, -1, 1, 1, -1, -1, 1, -1, -1, -1, -1, -1, 1, 1, -1, -1, 1, -1, 1, 1, 1, -1, 1, 1, 1, -1, 1, -1, -1, 1, 1].map((n) => n / 2);
       box.setAttribute("position", new Float32BufferAttribute(v, 3));
-      entry.gizmo = new LineSegments(box, new LineBasicMaterial({ color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+      entry.gizmo = new LineSegments(box, new LineBasicMaterial({ fog: false, color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
       entry.gizmo.matrixAutoUpdate = false;
       entry.gizmo.renderOrder = OUTLINE_ORDER;
       this.scene.add(entry.gizmo);
@@ -2160,7 +2181,7 @@ export class RenderBackend {
       const edges = [[0, 1], [2, 3], [4, 5], [6, 7], [0, 2], [1, 3], [4, 6], [5, 7], [0, 4], [1, 5], [2, 6], [3, 7]];
       this.boxOutlineGeometry = new BufferGeometry().setAttribute("position", new Float32BufferAttribute(edges.flatMap(([a, b]) => [...c(a), ...c(b)]), 3));
     }
-    this.outlineMaterial ??= new LineBasicMaterial({ color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true });
+    this.outlineMaterial ??= new LineBasicMaterial({ fog: false, color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true });
     const box = new LineSegments(this.boxOutlineGeometry, this.outlineMaterial);
     box.matrixAutoUpdate = false;
     box.frustumCulled = false;
@@ -2183,7 +2204,7 @@ export class RenderBackend {
       "position",
       new Float32BufferAttribute([-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0], 3),
     );
-    this.outlineMaterial ??= new LineBasicMaterial({ color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true });
+    this.outlineMaterial ??= new LineBasicMaterial({ fog: false, color: this.editorColors.outline, depthTest: false, depthWrite: false, transparent: true });
     const line = new LineLoop(this.outlineGeometry, this.outlineMaterial);
     line.matrixAutoUpdate = false;
     line.frustumCulled = false;
@@ -2255,7 +2276,7 @@ export class RenderBackend {
     this.syncOverlaySegments(overlay.segments ?? []);
     // Both are transparent so they draw after the (transparent) sprites, in render order.
     this.overlayLines ??= this.addOverlayObject(
-      new LineSegments(new BufferGeometry(), new LineBasicMaterial({ vertexColors: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 })),
+      new LineSegments(new BufferGeometry(), new LineBasicMaterial({ fog: false, vertexColors: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 })),
       OUTLINE_ORDER - 2,
     );
     fillOverlayGeometry(this.overlayLines, segs, colors);
@@ -2266,7 +2287,7 @@ export class RenderBackend {
       hc.push(...rgb(h.color));
     }
     this.overlayHandles ??= this.addOverlayObject(
-      new Points(new BufferGeometry(), new PointsMaterial({ size: 9, sizeAttenuation: false, vertexColors: true, depthTest: false, depthWrite: false, transparent: true })),
+      new Points(new BufferGeometry(), new PointsMaterial({ fog: false, size: 9, sizeAttenuation: false, vertexColors: true, depthTest: false, depthWrite: false, transparent: true })),
       OUTLINE_ORDER + 2,
     );
     fillOverlayGeometry(this.overlayHandles, hp, hc);
@@ -2285,7 +2306,7 @@ export class RenderBackend {
       if (slot && slot.positions === group.positions && slot.color === group.color) continue;
       if (!slot) {
         const object = this.addOverlayObject(
-          new LineSegments(new BufferGeometry(), new LineBasicMaterial({ depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 })),
+          new LineSegments(new BufferGeometry(), new LineBasicMaterial({ fog: false, depthTest: false, depthWrite: false, transparent: true, opacity: 0.9 })),
           OUTLINE_ORDER - 2,
         );
         slot = { positions: group.positions, color: group.color, object };
@@ -2366,6 +2387,7 @@ export class RenderBackend {
 
   private createCameraGizmo(c: Camera): { icon: ThreeSprite; frustum: LineSegments<BufferGeometry, LineBasicMaterial> } {
     this.cameraIconMaterial ??= new SpriteMaterial({
+      fog: false,
       map: cameraIconTexture(),
       sizeAttenuation: false,
       depthTest: false,
@@ -2376,7 +2398,7 @@ export class RenderBackend {
     icon.scale.set(CAMERA_ICON_SIZE, CAMERA_ICON_SIZE, 1);
     icon.renderOrder = OUTLINE_ORDER;
     const geometry = new BufferGeometry().setAttribute("position", new Float32BufferAttribute(new Float32Array(24 * 3), 3));
-    const frustum = new LineSegments(geometry, new LineBasicMaterial({ color: this.editorColors.cameraGizmo, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
+    const frustum = new LineSegments(geometry, new LineBasicMaterial({ fog: false, color: this.editorColors.cameraGizmo, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 }));
     frustum.matrixAutoUpdate = false;
     frustum.frustumCulled = false;
     frustum.renderOrder = OUTLINE_ORDER - 1;
@@ -2435,7 +2457,7 @@ export class RenderBackend {
       this.lightGizmos.delete(l);
     }
     this.lightWires ??= this.addOverlayObject(
-      new LineSegments(new BufferGeometry(), new LineBasicMaterial({ vertexColors: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 })),
+      new LineSegments(new BufferGeometry(), new LineBasicMaterial({ fog: false, vertexColors: true, depthTest: false, depthWrite: false, transparent: true, opacity: 0.85 })),
       OUTLINE_ORDER - 1,
     );
     fillOverlayGeometry(this.lightWires, segs, colors);
@@ -2444,7 +2466,7 @@ export class RenderBackend {
   private lightIconMaterial(type: string): SpriteMaterial {
     let m = this.lightIconMaterials.get(type);
     if (!m) {
-      m = new SpriteMaterial({ map: lightIconTexture(type), sizeAttenuation: false, depthTest: false, depthWrite: false, transparent: true });
+      m = new SpriteMaterial({ fog: false, map: lightIconTexture(type), sizeAttenuation: false, depthTest: false, depthWrite: false, transparent: true });
       this.lightIconMaterials.set(type, m);
     }
     return m;
@@ -2688,7 +2710,9 @@ function gridDivisions(cell: number): number {
 /** The editor grid: `cell` metres between lines. */
 function makeGrid(cell: number, colors: EditorColors): GridHelper {
   const n = gridDivisions(cell);
-  return new GridHelper(n * cell, n, colors.gridCenter, colors.grid);
+  const grid = new GridHelper(n * cell, n, colors.gridCenter, colors.grid);
+  (grid.material as LineBasicMaterial).fog = false; // editor chrome never takes fog (ADR 0071)
+  return grid;
 }
 
 /** A small camera glyph for editor camera icons: a body and lens, light with a dark outline. */

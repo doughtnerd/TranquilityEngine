@@ -1,4 +1,4 @@
-import { Vector3, type Vec3Like } from "../core/math";
+import { Ray, Vector3, type Vec3Like } from "../core/math";
 import { World } from "../core/World";
 import type { Collider } from "./Collider";
 
@@ -29,7 +29,22 @@ export class Physics {
   }
 
   /** Cast a ray; optionally restrict hits to the named layers. */
-  static raycast(origin: Vec3Like, direction: Vec3Like, maxDistance = Number.MAX_VALUE, layers?: string[]): RaycastHit | null {
+  static raycast(origin: Vec3Like, direction: Vec3Like, maxDistance?: number, layers?: string[]): RaycastHit | null;
+  /** Cast a `Ray`, such as `camera.screenPointToRay(Input.mousePosition)` (ADR 0073). */
+  static raycast(ray: Ray, maxDistance?: number, layers?: string[]): RaycastHit | null;
+  static raycast(a: Vec3Like | Ray, b?: Vec3Like | number, c?: number | string[], d?: string[]): RaycastHit | null {
+    let origin: Vec3Like, direction: Vec3Like, maxDistance: number, layers: string[] | undefined;
+    if (a instanceof Ray) {
+      origin = a.origin;
+      direction = a.direction;
+      maxDistance = (b as number | undefined) ?? Number.MAX_VALUE;
+      layers = c as string[] | undefined;
+    } else {
+      origin = a;
+      direction = b as Vec3Like;
+      maxDistance = (c as number | undefined) ?? Number.MAX_VALUE;
+      layers = d;
+    }
     const hit = physics().raycast(origin, direction, maxDistance, layers);
     if (!hit) return null;
     return { collider: hit.collider, point: Vector3.from(hit.point), normal: Vector3.from(hit.normal), distance: hit.distance };
