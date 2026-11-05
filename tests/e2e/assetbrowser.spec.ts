@@ -204,3 +204,53 @@ test("several selected images drag into the hierarchy together, as one undo step
   await expect(await undoItem(page)).toContainText(/Add 2 assets/);
   await closeMenus(page);
 });
+
+test("the Inspector follows the latest selection, between the Hierarchy and the Assets panel", async ({ page }) => {
+  await page.goto(EDITOR);
+  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  const material = JSON.stringify({ format: "myco.material@1", shader: "lit", color: "#ffffff" });
+  await page.evaluate((m) => (window as unknown as Hooks).openTestProject({ "materials/sail.material.json": m }), material);
+  await page.locator(".dock-tab", { hasText: "Assets" }).click();
+  const inspector = page.locator(".panel.inspector .inspector-body");
+  const assetInspector = page.locator(".panel.inspector .asset-inspector");
+  const node = (name: string) => page.locator(".panel.hierarchy .row", { has: page.locator(".name", { hasText: new RegExp(`^${name}$`) }) });
+  const showsNode = async () => {
+    await expect(assetInspector).toHaveCount(0);
+    await expect(inspector.locator(".component").first()).toBeVisible();
+  };
+
+  // A node, then a material: the material's editor replaces the node.
+  await node("Bird").click();
+  await showsNode();
+  await treeFolder(page, "materials").click();
+  await tile(page, "sail.material.json").click();
+  await expect(assetInspector).toContainText("sail.material.json");
+  await expect(page.locator(".panel.hierarchy .row.selected")).toHaveCount(0);
+
+  // The material, then a node: the node replaces it, and deselecting the node doesn't bring it back.
+  await node("Bird").click();
+  await showsNode();
+  await expect(selectedNames(page)).toHaveCount(0);
+  await node("Bird").click({ modifiers: ["ControlOrMeta"] });
+  await expect(page.locator(".panel.hierarchy .row.selected")).toHaveCount(0);
+  await expect(assetInspector).toHaveCount(0);
+
+  // Other kinds with an inspector: an image and a prefab, each after a node.
+  for (const [folder, file] of [["images", "PipeUp.png"], ["prefabs", "ground.prefab.json"]]) {
+    await node("Camera").click();
+    await showsNode();
+    await treeFolder(page, folder).click();
+    await tile(page, file).click();
+    await expect(assetInspector).toContainText(file);
+  }
+
+  // Several nodes, then the material.
+  await node("Camera").click();
+  await node("Bird").click({ modifiers: ["ControlOrMeta"] });
+  await expect(page.locator(".panel.hierarchy .row.selected")).toHaveCount(2);
+  await expect(assetInspector).toHaveCount(0);
+  await treeFolder(page, "materials").click();
+  await tile(page, "sail.material.json").click();
+  await expect(assetInspector).toContainText("sail.material.json");
+  await expect(page.locator(".panel.hierarchy .row.selected")).toHaveCount(0);
+});
