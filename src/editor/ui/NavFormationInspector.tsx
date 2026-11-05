@@ -26,13 +26,13 @@ import {
   type FormationShape,
   type NavFormationAsset,
 } from "../../engine/nav/formation";
-import { assetKind, fileName, folderOf } from "../assetBrowser";
-import { openFolder, select as selectAssets } from "../assetSelection";
+import { assetKind, fileName } from "../assetBrowser";
+import { showAsset } from "../assetImport";
 import { SetField } from "../document";
 import { createFormation, editFormation, formationHistory, readFormation, redoFormation, undoFormation } from "../formationAssets";
 import { errorStatus } from "../messages";
 import type { EditorProject } from "../projects";
-import { currentProject, docVersion, select as selectNodes, status, type OpenScene } from "../state";
+import { currentProject, docVersion, status, type OpenScene } from "../state";
 import { theme } from "../theme";
 import "./assetInspector.css";
 import "./navFormation.css";
@@ -368,13 +368,6 @@ function FormationThumb(props: { formation: NavFormationAsset }) {
     if (canvas.current) drawFormation(canvas.current, f, cell, false);
   });
   return <canvas ref={canvas} class="nav-formation-thumb" aria-label="Formation preview" />;
-}
-
-/** Select an asset in the Assets panel (and nothing in the scene), so the Inspector shows it. */
-function showAsset(path: string): void {
-  openFolder(folderOf(path));
-  selectAssets([path]);
-  selectNodes([]);
 }
 
 /**

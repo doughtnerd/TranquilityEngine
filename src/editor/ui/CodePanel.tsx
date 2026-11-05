@@ -7,13 +7,14 @@ import { activeScript, closeScript, codeFiles, codeFileText, dirtyScripts, loadM
 import { openScriptExternally, saveCodeFile } from "../session";
 import { currentProject, scriptsVersion, status } from "../state";
 import { codeAppearance } from "../theme";
+import { isScriptPath } from "../projectPaths";
 import { confirmInEditor } from "./ConfirmDialog";
 
 /**
- * The Code panel (ADR 0030): project scripts, JSON and JavaScript files in tabs, edited with
- * Monaco, which loads the first time the panel shows. Ctrl/Cmd+S saves (a script, or JSON a
- * script imports, reloads scripts); a dot marks unsaved edits. Read-only projects open files
- * read-only.
+ * The Code panel (ADR 0030): project scripts, JSON, JavaScript and TypeScript modules (such as
+ * a project's Node tools, `tools/*.mjs`), Markdown and text files in tabs, edited with Monaco,
+ * which loads the first time the panel shows. Ctrl/Cmd+S saves (a script, or JSON a script
+ * imports, reloads scripts); a dot marks unsaved edits. Read-only projects open files read-only.
  */
 export function CodePanel() {
   const project = currentProject.value;
@@ -27,7 +28,7 @@ export function CodePanel() {
     return (
       <p class="empty">
         {project.scripts.size > 0
-          ? "Double-click a script, JSON or JavaScript file in the Assets panel to open it."
+          ? "Double-click a script, JSON, JavaScript or text file in the Assets panel to open it."
           : project.root === null
             ? "This project has no scripts."
             : "This project has no scripts yet: add .ts files under scripts/."}
@@ -62,7 +63,11 @@ export function CodePanel() {
         {active && project.fileSystem?.openExternally && (
           <button
             class="code-external"
-            title={`Open ${active} in your code editor (the system's app for .ts files). Changes saved there reload here.`}
+            title={
+              isScriptPath(active)
+                ? `Open ${active} in your code editor (the system's app for .ts files). Changes saved there reload here.`
+                : `Open ${active} with the system's app for its file type. Reopen the project to see changes saved there.`
+            }
             onClick={() => void openScriptExternally(active)}
           >
             Open Externally

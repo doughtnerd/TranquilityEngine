@@ -1,8 +1,8 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, searchFiles, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
-import { importKind, openSpriteEditor, readImportSettings } from "../assetImport";
+import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, opensInCodePanel, searchFiles, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
+import { inspectSelectedAsset, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { deleteAssets, entryPath, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "../assetDelete";
 import { assetClipboard, duplicateAssets, newFolder, pasteAssets, renameAsset, splitExtension } from "../assetOps";
@@ -36,7 +36,7 @@ import { createShaderGraph, createShaderSubGraph, openShaderGraphAsset } from ".
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { switchScene } from "../session";
-import { currentProject, docVersion, openScene, playState, sceneCamera, scriptsVersion, select as selectNodes, selection, status } from "../state";
+import { currentProject, docVersion, openScene, playState, sceneCamera, scriptsVersion, selection, status } from "../state";
 import { TileThumbnail } from "./AssetPreview";
 import "./assets.css";
 import "./assetSlices.css";
@@ -58,6 +58,8 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   json: "JSON",
   script: "Script",
   javascript: "JS",
+  typescript: "TS Module",
+  text: "Text",
   other: "File",
 };
 
@@ -114,11 +116,11 @@ function openEntry(entry: string): void {
   if (kind === "image") return openSpriteEditor(entry);
   if (kind === "shadergraph" || kind === "shadersubgraph") return openShaderGraphAsset(entry);
   if (kind === "particles") return openParticleGraphAsset(entry);
-  if (kind === "script" || kind === "json" || kind === "javascript") openScript(entry);
+  if (opensInCodePanel(kind)) openScript(entry);
   else if (kind === "scene" || kind === "prefab") void switchScene(entry);
 }
 
-const opens = (entry: string) => isFolderEntry(entry) || ["scene", "prefab", "script", "json", "javascript", "image", "sprite", "shadergraph", "shadersubgraph", "particles"].includes(assetKind(entry));
+const opens = (entry: string) => isFolderEntry(entry) || opensInCodePanel(assetKind(entry)) || ["scene", "prefab", "image", "sprite", "shadergraph", "shadersubgraph", "particles"].includes(assetKind(entry));
 
 /** Why `entries` can't be changed (renamed, moved, deleted), or null. */
 function whyNotEditable(project: EditorProject, entries: readonly string[]): string | null {
@@ -398,6 +400,7 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
       handled();
       if (e.shiftKey && assetAnchor.value) select(clickSelection(entries, sel, assetAnchor.value, next, { shift: true, toggle: false }).selected, next, assetAnchor.value);
       else select([next]);
+      inspectSelectedAsset();
       list.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(next)}"]`)?.focus();
       return;
     }
@@ -554,8 +557,8 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         const mods = { shift: e.shiftKey, toggle: toggleKey(e) };
         const next = clickSelection(entries, sel, assetAnchor.value, entry, mods);
         select(next.selected, entry, next.anchor);
-        // Clicking one image or audio file shows its import settings, in place of the selected node (ADR 0040).
-        if (!mods.shift && !mods.toggle && next.selected.length === 1 && importKind(slice ? slice.image : path)) selectNodes([]);
+        // Selecting one asset with an inspector shows it, in place of the selected node (ADR 0040).
+        inspectSelectedAsset();
       }}
       onDblClick={() => openEntry(entry)}
       onContextMenu={(e) => {

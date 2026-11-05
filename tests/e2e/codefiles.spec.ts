@@ -18,12 +18,18 @@ export class Racer extends GameBehavior {
 }
 `;
 
+// A Node tool the project depends on (like samples/pirates/tools/*.mjs): edited, never loaded as a script.
+const TOOL = `import { writeFileSync } from "node:fs";
+writeFileSync("data/out.json", JSON.stringify({ ok: true }));
+`;
+
 async function openProject(page: Page): Promise<void> {
   await page.goto(EDITOR);
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
   await page.evaluate(
-    ([levels, racer]) => (window as unknown as Hooks).openTestProject({ "data/levels.json": levels, "scripts/Racer.ts": racer, "tools/build.js": "console.log('build');\n" }),
-    [LEVELS, RACER],
+    ([levels, racer, tool]) =>
+      (window as unknown as Hooks).openTestProject({ "data/levels.json": levels, "scripts/Racer.ts": racer, "tools/build.js": "console.log('build');\n", "tools/generate.mjs": tool, "tools/README.md": "# Tools\n\nRun `node tools/generate.mjs`.\n" }),
+    [LEVELS, RACER, TOOL],
   );
 }
 
@@ -70,6 +76,28 @@ test("JSON and JavaScript files open in the Code panel", async ({ page }) => {
   await page.keyboard.press("ControlOrMeta+s");
   await expect(page.locator(".status-text")).toHaveText("Saved tools/build.js.");
   expect(await page.evaluate(() => (window as unknown as Hooks).testFolder.read("tools/build.js"))).toContain("// edited");
+});
+
+// Their highlighting language (codeLanguageOf) is unit-tested: Monaco tokenizes when the page is idle, which a rendering headless page rarely is.
+test("tool modules (.mjs) and Markdown are listed, open in the Code panel, and save", async ({ page }) => {
+  await openProject(page);
+  await page.locator(".asset-folder", { hasText: /^tools$/ }).click();
+  await expect(page.locator(".asset-tile", { hasText: "generate.mjs" })).toContainText("JS");
+  await expect(page.locator(".asset-tile", { hasText: "README.md" })).toContainText("Text");
+  await page.locator(".asset-tile", { hasText: "generate.mjs" }).dblclick();
+  await expect(page.locator(".code-tab.active")).toContainText("generate.mjs");
+  await expect(editor(page).locator(".view-lines")).toContainText("writeFileSync", { timeout: 20_000 });
+  await typeAtEnd(page, "// edited\n");
+  await page.keyboard.press("ControlOrMeta+s");
+  await expect(page.locator(".status-text")).toHaveText("Saved tools/generate.mjs.");
+  expect(await page.evaluate(() => (window as unknown as Hooks).testFolder.read("tools/generate.mjs"))).toContain("// edited");
+  // It isn't a script: no script problems from its Node import.
+  await expect(page.locator(".status-text")).not.toContainText("node:fs");
+
+  await page.locator(".dock-tab", { hasText: "Assets" }).click();
+  await page.locator(".asset-tile", { hasText: "README.md" }).dblclick();
+  await expect(page.locator(".code-tab.active")).toContainText("README.md");
+  await expect(editor(page).locator(".view-lines")).toContainText("# Tools");
 });
 
 test("scripts import JSON with its types, and JSON is only saved when it parses", async ({ page }) => {

@@ -90,7 +90,7 @@ export const LIGHTNING_SCORE_SCALE = 10;
 /** Batteries: none chosen yet, the port (left) side, the starboard (right) side. */
 export const Battery = { none: 0, port: 1, starboard: 2 } as const;
 
-/** Team colours, one per slot; `sail_team<n>.png` matches. */
+/** Team colours, one per slot: each ship's sails are tinted with its colour (client.ts). */
 export const TEAM_COLORS = ["#d84a3a", "#3a7bd8", "#4caf50", "#f2c230", "#9c4fd8", "#f08a24", "#26a69a", "#ec6fa8"];
 
 // --- data ------------------------------------------------------------------------------------------

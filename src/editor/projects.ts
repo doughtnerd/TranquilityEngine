@@ -63,7 +63,9 @@ export interface EditorProject {
 /** True if `path` is `folder` or inside it. */
 export const isWithin = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
-const ASSET_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|mp3|ogg|wav|obj|mtl|fbx|hdr|exr|bin|json|js)$/i;
+const BINARY_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|mp3|ogg|wav|obj|mtl|fbx|hdr|exr|bin)$/i;
+/** Files a project folder lists as assets: binary assets, and the text files the Code panel edits (`isTextAsset`). Scripts are read apart. */
+const isAssetFile = (path: string) => BINARY_EXTENSIONS.test(path) || isTextAsset(path);
 
 /** The project's JSON files with their text (scripts can import them, ADR 0030). */
 export function jsonFiles(project: EditorProject): Map<string, string> {
@@ -337,7 +339,7 @@ export async function listAssetFiles(
   fs: FileSystem,
   root: string,
   dir = "",
-  accept: (path: string) => boolean = (p) => ASSET_EXTENSIONS.test(p),
+  accept: (path: string) => boolean = isAssetFile,
   folders?: Set<string>,
 ): Promise<string[]> {
   const out: string[] = [];

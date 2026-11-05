@@ -209,6 +209,16 @@ describe("lobby over loopback (ADR 0068)", () => {
     match.players[1].name = "Captain Hook"; // the game names its bots
     expect(match.players[1].name).toBe("Captain Hook");
     expect(match.settings).toEqual({ arena: "bay" }); // the default
+
+    // When it ends, Anne is back in the room, and it stays there: a quick room starts only its
+    // first match on its own (it used to start another at once, its timer long run out).
+    match.end({ winner: "Anne" });
+    await stepUntil([engine], () => a.state === "room" && a.room?.state === "waiting", "back in the room");
+    expect(a.room).toMatchObject({ quick: false, results: { winner: "Anne" } });
+    const backAt = engine._world("Lobby")!.time.realtimeSinceStartup;
+    await stepUntil([engine], () => engine._world("Lobby")!.time.realtimeSinceStartup - backAt > 2, "longer than quickMatchWait");
+    expect(a.state).toBe("room");
+    expect(engine.findWorld("Match 2")).toBeNull();
   });
 
   it("a match admits only ticketed connections, once; it ends when every player has left, or nobody joins in time", async () => {

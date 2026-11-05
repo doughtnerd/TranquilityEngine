@@ -9,6 +9,7 @@ import {
   groupProblems,
   isSpawnableName,
   linkableNames,
+  lobbyLinks,
   mentions,
   modelProblems,
   modelToConfig,
@@ -259,3 +260,35 @@ describe("Spawnable Worlds (ADR 0062)", () => {
     expect(mentions(scripts, ["Nope", "Server"])).toEqual(["scripts/data.ts"]); // a template's key or its World name
   });
 });
+
+describe("lobby links (ADR 0068)", () => {
+  // King of Pirates' bootstrap: a menu World, and Lobby, Match and MatchClient templates; no declared links.
+  const pirates = {
+    worlds: [{ name: "Menu", scenes: ["scenes/menu.scene.json"] }],
+    templates: {
+      Lobby: { tags: ["server", "lobby"], renders: false, input: false, lobby: { matchTemplate: "Match", clientTemplate: "MatchClient" } },
+      Match: { tags: ["server", "match"], renders: false, input: false },
+      MatchClient: { tags: ["client", "match-client"] },
+    },
+  };
+
+  it("shows the menu joining the lobby, the lobby creating matches and match clients joining them", () => {
+    const view = readBootstrap(pirates);
+    if (view.kind !== "graph") throw new Error("expected a graph");
+    expect(lobbyLinks(view.model)).toEqual([
+      { from: "Menu", to: "Lobby", label: "joins lobby" },
+      { from: "Lobby", to: "Match", label: "creates matches" },
+      { from: "MatchClient", to: "Match", label: "joins match" },
+    ]);
+  });
+
+  it("leaves out pairs a declared link covers, missing templates, and projects without a lobby", () => {
+    const view = readBootstrap({ ...pirates, links: [{ from: "Menu", to: "Lobby", transport: "loopback" }], templates: { ...pirates.templates, Lobby: { ...pirates.templates.Lobby, lobby: { matchTemplate: "Nope" } } } });
+    if (view.kind !== "graph") throw new Error("expected a graph");
+    expect(lobbyLinks(view.model)).toEqual([]);
+    const arena = readBootstrap({ worlds: [{ name: "Client", tags: ["client"] }], templates: { Server: { tags: ["server"] } }, links: [{ from: "Client", to: "Server", transport: "loopback" }] });
+    if (arena.kind !== "graph") throw new Error("expected a graph");
+    expect(lobbyLinks(arena.model)).toEqual([]);
+  });
+});
+

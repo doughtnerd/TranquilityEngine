@@ -6,7 +6,7 @@ import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "shadergraph" | "shadersubgraph" | "particles" | "formation" | "environment" | "json" | "script" | "javascript" | "other";
+export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "shadergraph" | "shadersubgraph" | "particles" | "formation" | "environment" | "json" | "script" | "javascript" | "typescript" | "text" | "other";
 
 /** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
 export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
@@ -37,9 +37,16 @@ export function assetKind(path: string): AssetKind {
   if (p.endsWith(".formation.json")) return "formation";
   if (p.endsWith(".json")) return "json";
   if (p.endsWith(".ts") && !p.endsWith(".d.ts")) return "script";
-  if (p.endsWith(".js")) return "javascript";
+  if (/\.(js|mjs|cjs)$/.test(p)) return "javascript";
+  if (/\.(mts|cts)$/.test(p)) return "typescript";
+  if (/\.(md|txt)$/.test(p)) return "text";
   return "other";
 }
+
+/** Kinds that open in the Code panel: scripts, plain JSON, JavaScript and TypeScript modules, and text (scenes, prefabs and graphs open in their own views). */
+const CODE_KINDS: ReadonlySet<AssetKind> = new Set(["script", "json", "javascript", "typescript", "text"]);
+/** True if an asset kind opens in the Code panel. */
+export const opensInCodePanel = (kind: AssetKind | "folder") => CODE_KINDS.has(kind as AssetKind);
 
 /** The file name of a project path: `images/bird.png` → `bird.png`. */
 export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);

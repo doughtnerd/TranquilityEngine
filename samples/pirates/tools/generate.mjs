@@ -9,18 +9,6 @@ import { makeTextures } from "./textures.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** The 8 team colours (red, blue, green, yellow, purple, orange, teal, pink) used for the sail variants. */
-export const TEAM_COLORS = [
-  [214, 60, 56],
-  [58, 112, 214],
-  [62, 176, 82],
-  [236, 200, 52],
-  [150, 86, 200],
-  [238, 138, 44],
-  [48, 184, 188],
-  [232, 112, 170],
-];
-
 function write(dir, name, data) {
   mkdirSync(join(root, dir), { recursive: true });
   writeFileSync(join(root, dir, name), data);
@@ -32,7 +20,7 @@ function clean(dir, keep) {
 }
 
 const models = makeModels();
-const textures = makeTextures(TEAM_COLORS);
+const textures = makeTextures();
 const audio = makeAudio();
 
 clean("models", new Set([...Object.keys(models).map((n) => `${n}.obj`), "pirates.mtl"]));

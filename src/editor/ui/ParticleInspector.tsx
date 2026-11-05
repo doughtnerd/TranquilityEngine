@@ -8,7 +8,7 @@ import type { CurveKey, ParticleColor, ParticleGradient } from "../../engine/sce
 import { assetKind, fileName, listedFiles } from "../assetBrowser";
 import { SetField, type NodePath } from "../document";
 import { createParticleEffect, openParticleGraphAsset, readEffect } from "../particleAssets";
-import { selectedAssets } from "../assetSelection";
+import { showAsset } from "../assetImport";
 import { currentProject, docVersion, type OpenScene } from "../state";
 import { CurveEditor } from "./particles/CurveEditor";
 import { GradientEditor } from "./particles/GradientEditor";
@@ -190,7 +190,7 @@ export function ParticleSystemEffect(props: { scene: OpenScene; path: NodePath; 
     <div class="particle-system-effect">
       <div class="particle-effect-source">
         <button onClick={() => openParticleGraphAsset(asset)}>Open in Particle Graph</button>
-        <button onClick={() => (selectedAssets.value = [asset])} title="Select the asset in the Assets panel">
+        <button onClick={() => showAsset(asset)} title="Select the asset in the Assets panel">
           Select Asset
         </button>
       </div>

@@ -1,5 +1,6 @@
 // The Code panel's state (ADR 0030): which files are open in it, which one shows, and which
-// have unsaved edits. Files are project scripts (TypeScript), JSON and plain JavaScript. Kept
+// have unsaved edits. Files are project scripts (TypeScript) and the project's text files
+// (`isTextAsset`: JSON, JavaScript and TypeScript modules, Markdown, plain text). Kept
 // apart from the Monaco code (code/monaco.ts), which loads lazily.
 import { signal } from "@preact/signals";
 import { showPanel } from "../layout/store";
@@ -7,7 +8,9 @@ import { isTextAsset, type EditorProject } from "../projects";
 
 /**
  * Every file the Code panel can show, by project path, with its text on disk: the scripts, and
- * the project's JSON and JavaScript files. Scenes and prefabs open in the scene view instead.
+ * the project's text files (JSON, `.js`/`.mjs`/`.cjs`, `.mts`/`.cts`, `.md`, `.txt`), which are
+ * edited only: tools such as `tools/*.mjs` never load as scripts. Scenes and prefabs open in the
+ * scene view instead.
  */
 export function codeFiles(project: EditorProject): Map<string, string> {
   const files = new Map(project.scripts);
