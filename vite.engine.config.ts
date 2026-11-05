@@ -1,5 +1,5 @@
 // ENGINE library bundle (ADR 0015): src/engine/index.ts as one ES module in dist/engine/.
-// three.js, Rapier and Howler stay external; the consuming game bundles them. Type
+// three.js, Babylon.js, Rapier and Howler stay external; the consuming game bundles them. Type
 // declarations come from `tsc -p tsconfig.engine.json` (see the build:engine script).
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -42,7 +42,7 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: true,
     rollupOptions: {
-      external: [/^three(\/.*)?$/, "howler", /^@dimforge\//, /^@tauri-apps\//],
+      external: [/^three(\/.*)?$/, /^@babylonjs\//, "howler", /^@dimforge\//, /^@tauri-apps\//],
     },
   },
 });

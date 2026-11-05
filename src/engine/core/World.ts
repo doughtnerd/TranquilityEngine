@@ -18,7 +18,7 @@ import { resolveSettings, type ProjectSettings, type ProjectSettingsInput } from
 import type { Physics2DWorld } from "../physics/Physics2DWorld";
 import type { Physics3DWorld } from "../physics/Physics3DWorld";
 import type { NavigationWorld } from "../nav/NavigationWorld";
-import type { RenderBackend } from "../render/RenderBackend";
+import type { RenderSurface } from "../render/RenderSurface";
 import type { NetworkTime } from "../net/time";
 import type { WorldTag } from "./worlds";
 
@@ -133,7 +133,7 @@ export class World {
   _accumulator = 0;
   /** @internal A paused World skips its frames (`WorldHandle.pause`). */
   _paused = false;
-  /** @internal */ render: RenderBackend | null = null;
+  /** @internal */ render: RenderSurface | null = null;
   /** @internal True while the Engine is running a frame; structural scene changes wait for its end. */
   _inFrame = false;
   /** @internal Scene loads/unloads deferred to the end of the frame (ADR 0011 step 10). */

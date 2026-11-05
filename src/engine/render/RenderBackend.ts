@@ -98,49 +98,9 @@ import { WaterRenderer } from "./water/WaterRenderer";
 import { WaterSurface } from "./water/WaterSurface";
 import { UICanvas, isUIComponent } from "../ui/components";
 import type { UIRuntime } from "../ui/UIRuntime";
+import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, RenderSurface, ScreenRect } from "./RenderSurface";
 
-/** @internal Editor gizmo settings (ADR 0022). */
-export interface GizmoOptions {
-  mode: "translate" | "rotate" | "scale";
-  /** 2D view: move/scale on X and Y only, rotate around Z only. */
-  planar: boolean;
-  /** Snap drags to `snapSteps` (default 0.25 m, 15° and 0.1 scale steps). */
-  snap: boolean;
-  /** Snap steps: metres for moves, degrees for turns, a factor for scaling. */
-  snapSteps?: { move: number; rotate: number; scale: number };
-  /** Move and turn along the world's axes (default) or the node's own (the active node's for several). */
-  space?: "world" | "local";
-  /** Several nodes: the gizmo sits at their centre (default) or on the active node's origin. */
-  pivot?: "center" | "pivot";
-  /** Which of the nodes is the active one (default: the last). */
-  activeIndex?: number;
-}
-
-/** @internal Editor overlay (e.g. collider outlines and handles), supplied every frame by the editor. */
-export interface EditorOverlay {
-  /** Polylines in world space; `color` is 0xRRGGBB. */
-  lines: { points: [number, number, number][]; closed: boolean; color: number }[];
-  /** Handles drawn as fixed-size squares on top of everything; picked by `pickOverlayHandle`. */
-  handles: { id: string; position: [number, number, number]; color: number }[];
-  /** Many loose segments in one colour (6 floats each: a xyz, b xyz), for big overlays like navmesh debug drawing. */
-  segments?: { positions: Float32Array; color: number }[];
-}
-
-/** @internal What the editor does with a gizmo drag: one start, many changes, one end. */
-export interface GizmoHandlers {
-  onStart(): void;
-  /** Each target node's new local Transform values, in the order the nodes were given. */
-  onChange(poses: LocalPose[]): void;
-  onEnd(): void;
-}
-
-/** @internal A rectangle on the canvas in CSS pixels (origin top-left); a point when left = right and top = bottom. */
-export interface ScreenRect {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-}
+export type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "./RenderSurface";
 
 interface SpriteEntry {
   mesh: Mesh<PlaneGeometry, MeshBasicMaterial>;
@@ -236,19 +196,6 @@ const tmpPivot = new Matrix4();
 const raycaster = new Raycaster();
 const ndc = new ThreeVector2();
 
-/**
- * @internal Editor overlay colours (ADR 0022), 0xRRGGBB: the viewport background, the grid's lines
- * and centre lines, the selection outline and unselected camera wireframes. The editor sets them
- * from its theme (`setEditorColors`).
- */
-export interface EditorColors {
-  background: number;
-  grid: number;
-  gridCenter: number;
-  outline: number;
-  cameraGizmo: number;
-}
-
 const DEFAULT_EDITOR_COLORS: EditorColors = { background: 0x24272d, grid: 0x3a3f47, gridCenter: 0x5a606b, outline: 0x4c8dff, cameraGizmo: 0xc9ccd1 };
 /** Editor camera gizmos: icon size (fraction of view height) and click radius (CSS px). */
 const CAMERA_ICON_SIZE = 0.065;
@@ -269,7 +216,7 @@ const TONE_MAPPING: Record<ToneMappingName, ThreeToneMapping> = { none: NoToneMa
 /** Which editor helpers a composed (post-processed) camera draws after its effects; see `renderComposed`. */
 type ComposedHelpers = "editor" | "overlays" | "none";
 
-export class RenderBackend {
+export class RenderBackend implements RenderSurface {
   readonly canvas: HTMLCanvasElement;
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();

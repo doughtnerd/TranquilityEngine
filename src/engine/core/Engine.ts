@@ -3,7 +3,8 @@ import { MemoryStorage, Storage, type StorageBackend } from "../platform/Storage
 import { BrowserStorage } from "../platform/BrowserStorage";
 import { getFileSystem, isTauri } from "../platform/FileSystem";
 import { TauriStorage } from "../platform/TauriStorage";
-import { RenderBackend } from "../render/RenderBackend";
+import { createRenderSurface } from "../render/createRenderSurface";
+import type { RenderSurface } from "../render/RenderSurface";
 import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
 import { connectWorlds, netSession } from "../net/session";
@@ -99,7 +100,7 @@ export class Engine implements BootstrapEngine {
   private readonly list: World[] = [];
   private readonly handles = new Map<World, WorldHandleImpl>();
   private readonly container: HTMLElement | null;
-  private render: RenderBackend | null = null;
+  private render: RenderSurface | null = null;
   /**
    * The World that has the view (the canvas, when there's a container) and, unless its config
    * says otherwise, local input. When it's destroyed, the view passes to the next World that
@@ -114,7 +115,7 @@ export class Engine implements BootstrapEngine {
    * Editor: Worlds drawn to a surface of their own besides the main view (tiled play mode), each
    * by its own backend, since a backend draws exactly one World (ADR 0032).
    */
-  private readonly extraViews = new Map<World, RenderBackend>();
+  private readonly extraViews = new Map<World, RenderSurface>();
   /** Editor: the World `_focusInput` gave local input to; null: input follows the main view. */
   private inputWorld: World | null = null;
   /**
@@ -414,7 +415,7 @@ export class Engine implements BootstrapEngine {
         // A World drawn to a surface of its own (an editor tile) gives it up for the main view.
         this.extraViews.get(next)?.dispose();
         this.extraViews.delete(next);
-        this.render ??= new RenderBackend(this.container, next.settings, next.kind);
+        this.render ??= createRenderSurface(this.container, next.settings, next.kind);
         next.render = this.render;
       }
     }
@@ -484,7 +485,7 @@ export class Engine implements BootstrapEngine {
       tile.dispose(); // Input moves off its canvas below, keeping what's held
     }
     const from = this.viewWorld;
-    let backend: RenderBackend | null = null;
+    let backend: RenderSurface | null = null;
     if (from) {
       from.render = null;
       backend = this.render;
@@ -495,7 +496,7 @@ export class Engine implements BootstrapEngine {
     this.handedViews.push(handOver);
     this.viewWorld = world;
     if (this.container) {
-      this.render ??= new RenderBackend(this.container, world.settings, world.kind);
+      this.render ??= createRenderSurface(this.container, world.settings, world.kind);
       world.render = this.render;
     }
     this.inputWorld = null; // input follows the view
@@ -534,7 +535,7 @@ export class Engine implements BootstrapEngine {
     if (world === this.viewWorld) throw new Error(`World "${name}" has the main view already.`);
     if (this.handedViews.some((h) => h.from === world)) throw new Error(`World "${name}" handed its view to another World.`);
     if (this.extraViews.has(world)) throw new Error(`World "${name}" has a view already.`);
-    const backend = new RenderBackend(element, world.settings, world.kind);
+    const backend = createRenderSurface(element, world.settings, world.kind);
     this.extraViews.set(world, backend);
     world.render = backend;
     this.applyInput(); // if it has input, Input listens to its canvas now
@@ -757,7 +758,7 @@ export class Engine implements BootstrapEngine {
 /** One `Engine._handView`: the World that gave the main view up (null once destroyed), its hidden surface, and the World given it. */
 interface ViewHandOver {
   from: World | null;
-  backend: RenderBackend | null;
+  backend: RenderSurface | null;
   readonly to: World;
 }
 

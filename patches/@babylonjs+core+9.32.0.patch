@@ -1,0 +1,15 @@
+diff --git a/node_modules/@babylonjs/core/FrameGraph/Tasks/Rendering/geometryRendererTask.js b/node_modules/@babylonjs/core/FrameGraph/Tasks/Rendering/geometryRendererTask.js
+index 4e54dfc..54c66d4 100644
+--- a/node_modules/@babylonjs/core/FrameGraph/Tasks/Rendering/geometryRendererTask.js
++++ b/node_modules/@babylonjs/core/FrameGraph/Tasks/Rendering/geometryRendererTask.js
+@@ -380,6 +380,10 @@ export class FrameGraphGeometryRendererTask extends FrameGraphObjectRendererTask
+     }
+     _prepareRendering(context, depthEnabled) {
+         context.setDepthStates(this.depthTest && depthEnabled, this.depthWrite && depthEnabled);
++        // Myco patch (ADR 0075): "MaxViewZ" textures (view depth) clear to the camera's far plane. Left at 0,
++        // the background read as the nearest depth and SSAO darkened it to black.
++        const maxViewZ = this.camera ? this.camera.maxZ : 1e8;
++        ClearColors[2].set(maxViewZ, maxViewZ, maxViewZ, maxViewZ);
+         context.pushDebugGroup(`Clear attachments`);
+         this._clearAttachmentsLayout.forEach((layout, clearType) => {
+             context.clearColorAttachments(ClearColors[clearType], layout);
