@@ -99,6 +99,31 @@ pub fn volume_leaves(v: &NavVolumeData) -> Vec<f32> {
     out
 }
 
+/// [`volume_leaves`], keeping only leaves in area `area` (by id; none if the volume doesn't list it) and, with
+/// `refined_only`, only leaves whose cell is smaller than the volume's base cell (inside a resolution region).
+pub fn filtered_volume_leaves(v: &NavVolumeData, area: Option<nav_math::Hash128>, refined_only: bool) -> Vec<f32> {
+    let area_index = match area {
+        Some(id) => match v.areas.iter().position(|a| a.id == id) {
+            Some(i) => Some(i as i32),
+            None => return Vec::new(),
+        },
+        None => None,
+    };
+    let base = nav_query::volume::base_cell_size(v);
+    let mut out = Vec::new();
+    for leaf in &v.leaves {
+        if area_index.is_some_and(|a| leaf.area as i32 != a) {
+            continue;
+        }
+        if refined_only && nav_query::volume::cell_size_at(v, nav_query::volume::leaf_center(v, leaf)) >= base {
+            continue;
+        }
+        let min = v.origin + Float3::new(leaf.min.x as f32, leaf.min.y as f32, leaf.min.z as f32) * v.cell_size;
+        out.extend_from_slice(&[min.x, min.y, min.z, leaf.size as f32 * v.cell_size, leaf.area as f32]);
+    }
+    out
+}
+
 /// Landing links, ground point to air point.
 pub fn landing_links(l: &NavLandingLinksData) -> Vec<f32> {
     let mut out = Vec::with_capacity(l.links.len() * 6);

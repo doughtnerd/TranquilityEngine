@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
+import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
 
 // Graphics quality tiers (ADR 0050): the Project panel edits project.json's tiers, the scene
@@ -69,6 +70,7 @@ test("the Project panel edits the tiers, saves them to project.json, and the edi
   await waitForFrames(page);
 
   await showTab(page, /^Project/);
+  await pickCategory(page, "Graphics");
   const panel = page.locator(".panel.project");
   const tiers = panel.getByRole("group", { name: "Graphics tiers" });
   await expect(tiers).toBeVisible();

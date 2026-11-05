@@ -82,6 +82,8 @@ afterEach(() => {
 interface SceneOptions {
   agents?: { id: string; position: Vec3; data?: Record<string, unknown>; extra?: { type: string; data?: Record<string, unknown> }[] }[];
   physics?: "3d";
+  /** Plain nodes (a Transform at `position`), e.g. goals. */
+  markers?: { id: string; position: Vec3 }[];
 }
 
 function sceneFile(options: SceneOptions) {
@@ -96,6 +98,7 @@ function sceneFile(options: SceneOptions) {
         name: a.id,
         components: [{ type: "engine.Transform", data: { position: a.position } }, { type: "engine.NavAgent", data: a.data ?? {} }, ...(a.extra ?? [])],
       })),
+      ...(options.markers ?? []).map((m) => ({ id: m.id, name: m.id, components: [{ type: "engine.Transform", data: { position: m.position } }] })),
     ],
   };
 }
@@ -196,6 +199,39 @@ describe("navigation in the engine (ADR 0065)", () => {
     a.warp([5, 0, 5]);
     steps(engine, 1);
     expect(dist(a.transform.position, [5, 0, 5])).toBeLessThan(0.1);
+  });
+
+  it("heads for its initial goal once, without following it (ADR 0066)", async () => {
+    const { engine } = await setup({ agents: [{ id: "a", position: [-6, 0, -6], data: { initialGoal: { $node: "goal" } } }], markers: [{ id: "goal", position: [6, 0, 6] }] });
+    const a = agentOf("a");
+    expect(a.initialGoal?.name).toBe("goal");
+    stepUntil(engine, () => a.pathState === "arrived");
+    expect(a.pathState).toBe("arrived");
+    expect(dist(a.transform.position, [6, 0, 6])).toBeLessThan(1);
+    find("goal")!.transform!.position.set(-6, 0, 6); // a goal, not a chase: it stays
+    steps(engine, 120);
+    expect(dist(a.transform.position, [6, 0, 6])).toBeLessThan(1);
+  });
+
+  it("chases its initial goal with chaseGoal (ADR 0066)", async () => {
+    const { engine } = await setup({
+      agents: [{ id: "a", position: [-6, 0, -6], data: { initialGoal: { $node: "goal" }, chaseGoal: true, chaseRepathDistance: 1 } }],
+      markers: [{ id: "goal", position: [-6, 0, 4] }],
+    });
+    const a = agentOf("a");
+    stepUntil(engine, () => dist(a.transform.position, [-6, 0, 4]) < 1.2, 600);
+    expect(dist(a.transform.position, [-6, 0, 4])).toBeLessThan(1.2);
+    find("goal")!.transform!.position.set(-2, 0, 8);
+    stepUntil(engine, () => dist(a.transform.position, [-2, 0, 8]) < 1.2, 600);
+    expect(dist(a.transform.position, [-2, 0, 8])).toBeLessThan(1.2);
+  });
+
+  it("lets a script's first command win over the initial goal (ADR 0066)", async () => {
+    const { engine } = await setup({ agents: [{ id: "a", position: [-6, 0, -6], data: { initialGoal: { $node: "goal" } } }], markers: [{ id: "goal", position: [6, 0, 6] }] });
+    const a = agentOf("a");
+    a.setDestination([-6, 0, 6]); // queued before the first sync
+    stepUntil(engine, () => a.pathState === "arrived");
+    expect(dist(a.transform.position, [-6, 0, 6])).toBeLessThan(1);
   });
 
   it("chases another agent", async () => {

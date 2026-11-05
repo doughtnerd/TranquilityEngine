@@ -232,6 +232,9 @@
       "coverageDeg": 45,
       "maxFoldDeg": 90
     },
-    "chunkGrid": 4
+    "chunkGrid": 4,
+    "avoidanceLayers": [
+      "Default"
+    ]
   }
 }

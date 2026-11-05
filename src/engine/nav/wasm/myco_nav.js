@@ -805,6 +805,42 @@ export function bakeInfo(bytes, verify) {
 }
 
 /**
+ * What a chunk bakes for each agent type (`plan::bake_plan`), as JSON.
+ * @param {string} input_json
+ * @param {string} walkable_for_json
+ * @returns {string}
+ */
+export function bakePlan(input_json, walkable_for_json) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passStringToWasm0(input_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(walkable_for_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.bakePlan(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
  * Strides of the boundary buffers: `[agentsIn, agentsOut, agentState, obstaclesIn, waypoint]`.
  * @returns {Uint32Array}
  */
@@ -843,6 +879,67 @@ export function chunkId(scene_path, chunk_node_id) {
     } finally {
         wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
     }
+}
+
+/**
+ * The bin each triangle (9 floats each) bakes into, -1 where it isn't walkable (`plan::classify_surface_bins`).
+ * @param {string} settings_json
+ * @param {Float32Array | number[]} positions
+ * @returns {Int32Array}
+ */
+export function classifySurfaceBins(settings_json, positions) {
+    let ptr0, len0, ptr1, len1;
+    try {
+        ptr0 = passStringToWasm0(settings_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        len0 = WASM_VECTOR_LEN;
+        ptr1 = passArrayF32ToWasm0(positions, wasm.__wbindgen_malloc);
+        len1 = WASM_VECTOR_LEN;
+    } catch (e) {
+        if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+        if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+        throw e;
+    }
+    const ret = wasm.classifySurfaceBins(ptr0, len0, ptr1, len1);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v3 = getArrayI32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v3;
+}
+
+/**
+ * A bake's flight volume (section `group`) leaves, filtered: stride 5 as [`debug_bake_leaves`]. With `area` (an area
+ * id as in project settings) only leaves in that area (none if the volume doesn't know it); with `refined_only` only
+ * leaves inside a resolution region (their cell is smaller than the volume's base cell). The editor's previews of the
+ * selected modifier and resolution volumes.
+ * @param {Uint8Array | number[]} bytes
+ * @param {number} group
+ * @param {string} area
+ * @param {boolean} refined_only
+ * @returns {Float32Array}
+ */
+export function debugBakeFlightLeaves(bytes, group, area, refined_only) {
+    const val3 = +group;
+    const val4 = +refined_only;
+    let ptr0, len0, ptr1, len1;
+    try {
+        ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        len0 = WASM_VECTOR_LEN;
+        ptr1 = passStringToWasm0(area, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        len1 = WASM_VECTOR_LEN;
+    } catch (e) {
+        if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+        if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+        throw e;
+    }
+    const ret = wasm.debugBakeFlightLeaves(ptr0, len0, val3, ptr1, len1, val4);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v5 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v5;
 }
 
 /**
@@ -915,6 +1012,26 @@ export function navId(id) {
         const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.navId(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
+ * The orientation bins the navigation settings make (`plan::surface_bin_layout`), as JSON.
+ * @param {string} settings_json
+ * @returns {string}
+ */
+export function surfaceBinLayout(settings_json) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(settings_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.surfaceBinLayout(ptr0, len0);
         deferred2_0 = ret[0];
         deferred2_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);

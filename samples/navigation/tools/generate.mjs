@@ -217,6 +217,8 @@ const navigation = {
   // Coverage 45: with 0.5 m voxels and 0.5 m steps a voxel field holds slopes up to 45 degrees (the bake warns past it).
   orientation: { maxSurfaceDeg: 180, groundCaptureDeg: 45, ceilingCaptureDeg: 45, coverageDeg: 45, maxFoldDeg: 90 },
   chunkGrid: 4,
+  // The Unity demo's agent types are all on Default and avoid Everything (Generated/Agents/*.asset), its only layer.
+  avoidanceLayers: ["Default"],
 };
 
 // ---------------------------------------------------------------------------------------------- materials

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { showTab } from "./tabs";
 import { menu } from "./menus";
+import { pickCategory } from "./projectCategory";
 
 // The Project panel (ADR 0038) on a writable in-memory copy of the Flappy sample: edits save into
 // project.json beside the Worlds panel's bootstrap, problems keep the file at its last valid
@@ -44,6 +45,7 @@ test("edits save to project.json, problems hold the save back, and Ctrl+Z undoes
   await expect(status(page)).toHaveText("Saved");
   await expect(p.getByRole("textbox", { name: "Project name" })).toHaveValue("flappy");
 
+  await pickCategory(page, "Display");
   await commit(page, "Display width", "800");
   await expect.poll(async () => (await projectJson(page)).display.width).toBe(800);
   await expect(status(page)).toHaveText("Saved");
@@ -66,6 +68,7 @@ test("edits save to project.json, problems hold the save back, and Ctrl+Z undoes
   await expect.poll(async () => (await projectJson(page)).display.width).toBe(800);
 
   // Renaming the project renames it in the toolbar too.
+  await pickCategory(page, "Project");
   await commit(page, "Project name", "Flappy Deluxe");
   await expect.poll(async () => (await projectJson(page)).name).toBe("Flappy Deluxe");
   await expect(page.locator(".project-name")).toHaveText("Flappy Deluxe");
@@ -73,6 +76,7 @@ test("edits save to project.json, problems hold the save back, and Ctrl+Z undoes
 
 test("physics layers and the collision grid", async ({ page }) => {
   await openProject(page);
+  await pickCategory(page, "Physics");
   const p = panel(page);
   const grid = p.locator(".collision-matrix");
   await expect(grid.getByRole("checkbox", { name: "Player collides with Ground" })).toBeChecked();
@@ -98,12 +102,14 @@ test("physics layers and the collision grid", async ({ page }) => {
 test("sorting layers reorder, and autoloads come and go", async ({ page }) => {
   await openProject(page);
   const p = panel(page);
+  await pickCategory(page, "Rendering");
   // Sorting layers: move Player one step towards the back.
   const sorting = p.getByRole("group", { name: "Sorting layers" });
   await sorting.getByRole("button", { name: "Move Player up" }).click();
   await expect.poll(async () => (await projectJson(page)).render.sortingLayers).toEqual(["Background", "Pipes", "Default", "Player", "Foreground"]);
 
   // Autoloads: remove the music prefab, add it back.
+  await pickCategory(page, "Autoloads");
   const autoloads = p.getByRole("group", { name: "Autoload list" });
   await autoloads.getByRole("button", { name: "Remove autoload prefabs/music.prefab.json" }).click();
   await expect.poll(async () => (await projectJson(page)).autoload).toEqual([]);
@@ -111,6 +117,7 @@ test("sorting layers reorder, and autoloads come and go", async ({ page }) => {
   await expect.poll(async () => (await projectJson(page)).autoload).toEqual(["prefabs/music.prefab.json"]);
 
   // Build settings for export (ADR 0041).
+  await pickCategory(page, "Build");
   await commit(page, "Version", "1.0");
   await expect(p.getByRole("list", { name: "Problems" })).toContainText("must look like 1.2.3");
   await commit(page, "Version", "1.0.0");
@@ -120,6 +127,7 @@ test("sorting layers reorder, and autoloads come and go", async ({ page }) => {
 
 test("the Project and Worlds panels both save into project.json without losing each other's edits", async ({ page }) => {
   await openProject(page);
+  await pickCategory(page, "Rendering");
   await commit(page, "Pixels per unit", "64");
   await expect.poll(async () => (await projectJson(page)).render.pixelsPerUnit).toBe(64);
 
@@ -130,6 +138,7 @@ test("the Project and Worlds panels both save into project.json without losing e
 
   await showTab(page, /^Project/);
   await expect(panel(page).getByRole("button", { name: "Undo" })).toBeEnabled(); // its history survived the Worlds save
+  await pickCategory(page, "Time");
   await commit(page, "Max frame time", "0.1");
   await expect.poll(async () => (await projectJson(page)).time.maxFrameTime).toBe(0.1);
   expect((await projectJson(page)).bootstrap.worlds).toHaveLength(2);
@@ -141,7 +150,9 @@ test("a sample is read-only in the Project panel", async ({ page }) => {
   await waitForEditor(page);
   await showTab(page, /^Project/);
   await expect(status(page)).toHaveText("Read-only");
+  await pickCategory(page, "Display");
   await expect(panel(page).getByRole("textbox", { name: "Display width" })).toBeDisabled();
+  await pickCategory(page, "Physics");
   await expect(panel(page).locator(".collision-matrix input").first()).toBeDisabled();
 });
 

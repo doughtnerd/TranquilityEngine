@@ -339,6 +339,7 @@ export class RenderBackend {
     this.msaa = Graphics.tier.antialias === "msaa";
     this.renderer = new WebGLRenderer({ canvas: this.canvas, antialias: this.msaa });
     this.renderer.autoClear = false;
+    this.renderer.info.autoReset = false; // counted over a whole frame (every camera and the UI), reset in `render`
     // Shadows are on unless the tier says "off" (applyQuality): then materials are compiled with
     // shadows and a light that starts casting them later shows them at once.
     this.renderer.shadowMap.type = PCFShadowMap;
@@ -772,8 +773,12 @@ export class RenderBackend {
       this.syncLightGizmos(world);
       this.syncOverlay();
       this.syncGizmo(world);
-    } else if (this.overlayProvider || this.overlayLines?.visible || this.overlaySegments.length > 0) {
-      this.syncOverlay(); // a game with a debug overlay (navigation, ADR 0065); one more pass clears it when removed
+    } else {
+      if (this.overlayProvider || this.overlayLines?.visible || this.overlaySegments.length > 0) {
+        this.syncOverlay(); // a game with a debug overlay (navigation, ADR 0065); one more pass clears it when removed
+      }
+      // Play mode's live Inspector selection (the editor outlines it); one more pass hides the outlines when cleared.
+      if (this.outlined.size > 0 || this.outlines.some((o) => o.visible) || this.boxOutlines.some((o) => o.visible)) this.syncOutlines();
     }
   }
 
@@ -1369,6 +1374,7 @@ export class RenderBackend {
     this.claim(world);
     if (Graphics._version !== this.appliedQuality) this.applyQuality();
     const r = this.renderer;
+    r.info.reset();
     this.graphUniforms.time.value = world.time.time;
     r.getDrawingBufferSize(this.graphUniforms.resolution.value);
     const cams = this.viewCameras(world);
@@ -2050,10 +2056,39 @@ export class RenderBackend {
     for (const n of nodes) this.outlined.add(n);
   }
 
+  private outlineShown = true;
+
+  /** @internal Editor: show or hide the selection outline without forgetting what's selected (play mode's Gizmos menu). */
+  setSelectionOutlineShown(shown: boolean): void {
+    this.outlineShown = shown;
+  }
+
+  /**
+   * @internal Editor: what the last frame drew for the whole view (every camera and the UI), from
+   * the renderer's counters: draw calls, primitives, and the GPU resources alive now.
+   */
+  renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number } {
+    const { render, memory, programs } = this.renderer.info;
+    return { drawCalls: render.calls, triangles: render.triangles, lines: render.lines, points: render.points, geometries: memory.geometries, textures: memory.textures, programs: programs?.length ?? 0 };
+  }
+
+  /** @internal Editor and tests: how much editor drawing is showing now: overlay line segments (lines and bulk groups), handles, and outlines. */
+  editorDrawingShown(): { segments: number; handles: number; outlines: number } {
+    const count = (o: { visible: boolean; geometry: BufferGeometry } | null): number => {
+      if (!o?.visible) return 0;
+      const n = o.geometry.drawRange.count; // Infinity: the whole buffer
+      return Number.isFinite(n) ? n : (o.geometry.getAttribute("position")?.count ?? 0);
+    };
+    let segments = Math.floor(count(this.overlayLines) / 2);
+    for (const s of this.overlaySegments) segments += Math.floor(count(s.object) / 2);
+    const outlines = this.outlines.filter((o) => o.visible).length + this.boxOutlines.filter((o) => o.visible).length;
+    return { segments, handles: count(this.overlayHandles), outlines };
+  }
+
   /** Position one outline per selected sprite, and a box around each selected mesh (called from `sync`, after renderers). */
   private syncOutlines(): void {
     let used = 0, boxes = 0;
-    if (this.outlined.size > 0) {
+    if (this.outlined.size > 0 && this.outlineShown) {
       for (const [s, entry] of this.sprites) {
         if (!entry.mesh.visible || !this.isOutlined(s.node)) continue;
         const line = this.outlines[used] ?? this.createOutline();

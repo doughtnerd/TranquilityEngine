@@ -421,7 +421,9 @@ export function navInputSignature(geometry: NavGeometry, settings: NavigationSet
     const u = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
     for (let i = 0; i < u.length; i++) byte(u[i]);
   };
-  text(JSON.stringify({ settings, chunk: navBakeChunk(geometry), scenePath, chunkNodeId }));
+  // Avoidance layer names only label the editor (ADR 0066), so naming a layer doesn't make bakes stale.
+  const { avoidanceLayers: _names, ...bakeSettings } = settings;
+  text(JSON.stringify({ settings: bakeSettings, chunk: navBakeChunk(geometry), scenePath, chunkNodeId }));
   for (const m of geometry.meshes) {
     text(JSON.stringify([m.kind ?? "navMesh", m.area ?? "", m.walkableFor ?? []]));
     bytes(m.positions);

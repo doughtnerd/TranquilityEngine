@@ -1,0 +1,11 @@
+/* Navigation settings (ADR 0065, 0066): avoidance layers, the who-avoids-whom matrix, summaries and warnings. */
+.nav-warnings { margin: 0; padding: 4px 8px 4px 20px; border: 1px solid var(--warning); border-radius: 4px; background: var(--warning-soft); color: var(--warning); font-size: 11px; }
+.nav-avoidance-summary { margin: 0; font-size: 11px; color: var(--muted); white-space: pre-line; }
+.nav-layer-list { display: flex; flex-direction: column; gap: 3px; width: 100%; }
+.nav-layer { display: flex; align-items: center; gap: 6px; }
+.nav-layer .nav-layer-index { flex: none; width: 52px; font-size: 11px; color: var(--muted); }
+.nav-layer input[type="text"] { flex: 1; min-width: 0; background: var(--input-bg); color: var(--text); }
+.nav-layer button.icon { flex: none; width: 22px; height: 22px; padding: 0; line-height: 1; }
+.nav-layer .nav-layer-warning { flex: none; font-size: 11px; color: var(--warning); }
+.nav-avoidance-matrix th[scope="row"] { max-width: 200px; }
+.nav-avoidance-matrix-wrap { overflow-x: auto; max-width: 100%; }

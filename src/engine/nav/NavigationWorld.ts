@@ -20,6 +20,8 @@ import type { GameObject } from "../scene/GameObject";
 import { SceneInstance } from "../scene/SceneLoader";
 import { NavAgent, NavAvoidanceObstacle, NavChunk, NavFlowGoal, NavGate, NavGroup, NavSurround, type NavAgentStateData, type NavWaypoint } from "./components";
 import { loadNavigation, type NavigationModule } from "./loader";
+import { formationMask, readFormationValue, type NavFormationAsset } from "./formation";
+import { Assets } from "../scene/Assets";
 import { loadNavBake, navBakeBytesIfLoaded, navDebugOf, type NavDebugSettings } from "./navigationSystems";
 import {
   AGENT_IN_STRIDE,
@@ -38,6 +40,9 @@ import {
 
 let navModule: NavigationModule | null = null;
 
+/** The formation asset whose mask each group body was last sent (by body, so a recreated body gets it again). */
+const appliedFormations = new WeakMap<NavAgentBackend, NavFormationAsset | null>();
+
 /** @internal Loads the navigation module (once). */
 export async function initNavigationModule(): Promise<void> {
   navModule ??= await loadNavigation();
@@ -48,7 +53,7 @@ export interface NavAgentBackend {
   handle: NavHandle;
   /** A group body's settings that need a new agent when they change. */
   signature: string;
-  /** An agent's settings that need a new agent when they change: type, avoidance layers, avoid layers, priority, updatePosition, updateRotation. */
+  /** An agent's settings that need a new agent when they change: type, priority, updatePosition, updateRotation. */
   settings?: readonly unknown[];
   speed: number;
   turnSpeed: number;
@@ -391,8 +396,6 @@ export class NavigationWorld {
       turnSpeedOverride: Math.max(0, a.turnSpeed),
       areaCosts: this.areaCostList(a.areaCosts),
     };
-    if (a.avoidanceLayers >= 0) desc.avoidanceLayers = a.avoidanceLayers;
-    if (a.avoidLayers >= 0) desc.avoidLayers = a.avoidLayers;
     if (a.priority >= 0) desc.avoidancePriority = a.priority;
     return desc;
   }
@@ -422,7 +425,7 @@ export class NavigationWorld {
     // Compared field by field (no strings built per agent per step); area costs only when there are any.
     let b = a._backend;
     const s = b?.settings;
-    if (b && (!s || s[0] !== type || s[1] !== a.avoidanceLayers || s[2] !== a.avoidLayers || s[3] !== a.priority || s[4] !== a.updatePosition || s[5] !== a.updateRotation)) {
+    if (b && (!s || s[0] !== type || s[1] !== a.priority || s[2] !== a.updatePosition || s[3] !== a.updateRotation)) {
       this.releaseAgent(a);
       b = null;
     }
@@ -434,7 +437,8 @@ export class NavigationWorld {
     const e = node.entity;
     if (!b) {
       const handle = this.runtime.addAgent(this.agentDesc(a, type, e));
-      a._backend = { handle, signature: "", settings: [type, a.avoidanceLayers, a.avoidLayers, a.priority, a.updatePosition, a.updateRotation], speed: a.speed, turnSpeed: a.turnSpeed, costs, syncedVersion: this.world.tVersion[e] };
+      a._backend = { handle, signature: "", settings: [type, a.priority, a.updatePosition, a.updateRotation], speed: a.speed, turnSpeed: a.turnSpeed, costs, syncedVersion: this.world.tVersion[e] };
+      if (!a._goalQueued) this.queueInitialGoal(a);
       return;
     }
     if (b.speed !== a.speed || b.turnSpeed !== a.turnSpeed) {
@@ -447,6 +451,18 @@ export class NavigationWorld {
       for (const c of this.areaCostList(a.areaCosts)) this.runtime.setAreaCost(b.handle, c.area, c.cost ?? -1, c.excluded ?? false);
       b.costs = costs;
     }
+  }
+
+  /**
+   * The agent's first sync (Foxfire's NavAgentAuthoring): head for `initialGoal`, or chase it. Put ahead of the
+   * commands scripts queued before the first step, so theirs win.
+   */
+  private queueInitialGoal(a: NavAgent): void {
+    a._goalQueued = true;
+    const goal = a.initialGoal;
+    if (!goal || !goal.isValid || goal.world !== this.world || goal.transform === null) return;
+    if (a.chaseGoal) a._commands.unshift({ op: "chase", target: goal, repathDistance: a.chaseRepathDistance > 0 ? a.chaseRepathDistance : 1 });
+    else a._commands.unshift({ op: "destination", point: [...this.pose(goal.entity).position] });
   }
 
   /** @internal */
@@ -495,17 +511,44 @@ export class NavigationWorld {
 
   // --- groups
 
-  private groupDesc(g: NavGroup): NavGroupDesc {
+  /** The group's formation asset's contents, or null without one (or when it can't be read: warned once). */
+  private groupFormation(g: NavGroup): NavFormationAsset | null {
+    const ref = g.formationAsset;
+    if (!ref) return null;
+    if (!Assets.has(ref)) {
+      this.warnOnce(`formation:${ref}`, `${g.node.name}: NavGroup's formation asset "${ref}" isn't among the project's assets.`);
+      return null;
+    }
+    let raw: unknown;
+    try {
+      raw = Assets.json(ref);
+    } catch {
+      raw = null;
+    }
+    return readFormationValue(raw, ref.replace(/^asset:/, ""));
+  }
+
+  /** Sends a formation asset's mask to the group body when the asset (or the body) changes. */
+  private applyFormationMask(g: NavGroup, asset: NavFormationAsset | null): void {
+    const b = g._backend;
+    if (!b) return;
+    const applied = appliedFormations.get(b);
+    if (applied === asset || (applied === undefined && asset === null)) return;
+    appliedFormations.set(b, asset);
+    this.runtime.setGroupMask(b.handle, asset ? formationMask(asset) : null);
+  }
+
+  private groupDesc(g: NavGroup, asset: NavFormationAsset | null = null): NavGroupDesc {
     return {
       mode: g.mode === "flock" ? "flock" : "formation",
-      formation: g.formation as NavGroupDesc["formation"],
+      formation: (asset ? asset.shape : g.formation) as NavGroupDesc["formation"],
       spacing: g.spacing,
       slack: g.slack,
       catchUp: g.catchUp,
       memberPriority: g.memberPriority,
       minPace: g.minPace,
-      layers: g.layers,
-      layerSpacing: g.layerSpacing,
+      layers: asset ? asset.layers : g.layers,
+      layerSpacing: asset ? asset.layerSpacing : g.layerSpacing,
       flockRadius: g.flockRadius,
       flockSeparation: g.flockSeparation,
       flockAlignment: g.flockAlignment,
@@ -538,14 +581,17 @@ export class NavigationWorld {
       if (g._backend) this.releaseGroup(g);
       return;
     }
-    const group = this.groupDesc(g);
+    const asset = this.groupFormation(g);
+    const group = this.groupDesc(g, asset);
     const signature = `${type}|${JSON.stringify(group)}`;
-    if (g._backend?.signature === signature) return;
-    if (g._backend) this.releaseGroup(g);
-    const e = node.entity;
-    const { position, rotation, up } = this.pose(e);
-    const handle = this.runtime.addAgent({ agentType: type, position, rotation, up, group });
-    g._backend = { handle, signature, speed: 0, turnSpeed: 0, costs: "", syncedVersion: this.world.tVersion[e] };
+    if (g._backend?.signature !== signature) {
+      if (g._backend) this.releaseGroup(g);
+      const e = node.entity;
+      const { position, rotation, up } = this.pose(e);
+      const handle = this.runtime.addAgent({ agentType: type, position, rotation, up, group });
+      g._backend = { handle, signature, speed: 0, turnSpeed: 0, costs: "", syncedVersion: this.world.tVersion[e] };
+    }
+    this.applyFormationMask(g, asset);
   }
 
   /** @internal */

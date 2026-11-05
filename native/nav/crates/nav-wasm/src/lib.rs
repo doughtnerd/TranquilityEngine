@@ -5,10 +5,12 @@
 //!   debug geometry.
 //! * [`baker::NavBaker`]: a chunk's bake, incremental across calls.
 //! * Free functions: [`version`], [`bake_info`], [`nav_id`], [`chunk_id`], and debug geometry straight from bake bytes.
+//! * Editor helpers ([`plan`]): the bake's agent grouping, orientation bins and per-triangle bins, without baking.
 //! * [`dto`]: the JSON shapes the TS side sends.
 pub mod baker;
 pub mod debug;
 pub mod dto;
+pub mod plan;
 pub mod queries;
 pub mod runtime;
 
@@ -104,6 +106,35 @@ pub fn debug_bake_leaves(bytes: &[u8], group: u32) -> Result<Vec<f32>, JsError> 
     let file = read(bytes).map_err(|e| JsError::new(&e.to_string()))?;
     let v = file.volumes.into_iter().find(|v| v.group == group).ok_or_else(|| JsError::new(&format!("no flight volume group {group}")))?;
     Ok(debug::volume_leaves(&v.data))
+}
+
+/// A bake's flight volume (section `group`) leaves, filtered: stride 5 as [`debug_bake_leaves`]. With `area` (an area
+/// id as in project settings) only leaves in that area (none if the volume doesn't know it); with `refined_only` only
+/// leaves inside a resolution region (their cell is smaller than the volume's base cell). The editor's previews of the
+/// selected modifier and resolution volumes.
+#[wasm_bindgen(js_name = debugBakeFlightLeaves)]
+pub fn debug_bake_flight_leaves(bytes: &[u8], group: u32, area: &str, refined_only: bool) -> Result<Vec<f32>, JsError> {
+    let file = read(bytes).map_err(|e| JsError::new(&e.to_string()))?;
+    let v = file.volumes.into_iter().find(|v| v.group == group).ok_or_else(|| JsError::new(&format!("no flight volume group {group}")))?;
+    Ok(debug::filtered_volume_leaves(&v.data, if area.is_empty() { None } else { Some(dto::parse_id(area)) }, refined_only))
+}
+
+/// What a chunk bakes for each agent type (`plan::bake_plan`), as JSON.
+#[wasm_bindgen(js_name = bakePlan)]
+pub fn bake_plan(input_json: &str, walkable_for_json: &str) -> Result<String, JsError> {
+    plan::bake_plan(input_json, walkable_for_json).map_err(|e| JsError::new(&e))
+}
+
+/// The orientation bins the navigation settings make (`plan::surface_bin_layout`), as JSON.
+#[wasm_bindgen(js_name = surfaceBinLayout)]
+pub fn surface_bin_layout(settings_json: &str) -> String {
+    plan::surface_bin_layout(settings_json)
+}
+
+/// The bin each triangle (9 floats each) bakes into, -1 where it isn't walkable (`plan::classify_surface_bins`).
+#[wasm_bindgen(js_name = classifySurfaceBins)]
+pub fn classify_surface_bins(settings_json: &str, positions: &[f32]) -> Result<Vec<i32>, JsError> {
+    plan::classify_surface_bins(settings_json, positions).map_err(|e| JsError::new(&e))
 }
 
 fn kind_name(kind: SectionKind) -> &'static str {

@@ -306,33 +306,6 @@ export function setSystem(model: WorldsModel, ref: WorldRef, entry: SystemCatalo
   return updateConfig(model, ref, { systems: selectSystem(config, entry, on) });
 }
 
-// --- graph layout -------------------------------------------------------------------------------
-
-/** Where each start-up World goes in the graph: a column per link depth (clients left of the servers they connect to), stacked within a column. */
-export function layoutWorlds(model: WorldsModel): { col: number; row: number }[] {
-  const n = model.worlds.length;
-  const index = new Map<string, number>();
-  model.worlds.forEach((w, i) => index.has(w.name) || index.set(w.name, i));
-  const col = new Array<number>(n).fill(0);
-  // Longest-path layering, capped at n passes so a cycle of links can't loop forever.
-  for (let pass = 0; pass < n; pass++) {
-    let changed = false;
-    for (const l of model.links) {
-      const a = index.get(l.from), b = index.get(l.to);
-      if (a === undefined || b === undefined || a === b || col[b] >= col[a] + 1 || col[a] + 1 >= n) continue;
-      col[b] = col[a] + 1;
-      changed = true;
-    }
-    if (!changed) break;
-  }
-  const rows = new Map<number, number>();
-  return col.map((c) => {
-    const row = rows.get(c) ?? 0;
-    rows.set(c, row + 1);
-    return { col: c, row };
-  });
-}
-
 // --- undo ---------------------------------------------------------------------------------------
 
 /** A small linear undo history of panel states (the scene's CommandStack is per scene document). */

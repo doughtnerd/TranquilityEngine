@@ -234,7 +234,7 @@ Showing several Worlds at once is something only the editor's play mode does so 
 
 The editor's **Worlds** tab (beside History) edits `project.json`'s `bootstrap` as a graph:
 
-- Start-up Worlds and Spawnable Worlds are nodes; links are edges. **+ World**, **+ Spawnable World** and **+ Link** create them, and each can be renamed or removed (links follow). Spawnable Worlds sit in their own row, dashed, as do links naming them.
+- Start-up Worlds and Spawnable Worlds are nodes; links are edges. **+ World**, **+ Spawnable World** and **+ Link** create them, and each can be renamed or removed (links follow). Both kinds share one graph, laid out in columns from clients to the servers they link to; Spawnable Worlds are dashed and tagged "spawnable", as are links naming them, and each link's transport sits on a label beside its arrow.
 - Selecting a Spawnable World shows the line of code that creates it, `Engine.createWorld("Name")`, with a copy button, and the project scripts that mention its name in quotes.
 - Selecting one shows its tags (preset chips plus your own), tick rate, time scale, **Renders**, **Input** and start-up scenes.
 - A checklist of every catalog system shows which ones the World runs and why: added by a tag, included or excluded by name. Ticking a box writes the smallest `include`/`exclude` that gets you there.

@@ -20,6 +20,9 @@ import { installSceneView } from "./cameraPreview";
 import { installThumbnails } from "./thumbnails";
 import { installColliderGizmo } from "./colliderGizmo";
 import { installNavGizmo } from "./navGizmo";
+import { installNavPreviews } from "./navPreviews";
+import { installPlayGizmos } from "./playGizmos";
+import { mountPlayTools } from "./ui/PlayStats";
 import { installGizmo } from "./gizmo";
 import { installViewportTheme } from "./viewportTheme";
 import { OrbitCamera } from "./OrbitCamera";
@@ -42,6 +45,8 @@ let session: { engine: Engine; dispose(): void } | null = null;
 let play: PlaySession | null = null;
 /** The running play session, for the Network panel (ADR 0033 §9); null while editing. */
 export const playing = signal<PlaySession | null>(null);
+/** Removes the play bar's tools from the game view (set while playing). */
+let unmountPlayTools: () => void = () => {};
 /** Each open scene's edit history on disk (ADR 0027), kept saving while its tab is open. */
 const histories = new Map<OpenScene, AttachedHistory>();
 
@@ -112,7 +117,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   orbit.mode = viewMode.value;
   sceneCamera.value = orbit;
-  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installNavGizmo(engine, playing), installSceneView(engine), installViewportTheme(engine)];
+  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine)];
   session = {
     engine,
     dispose() {
@@ -522,6 +527,7 @@ export async function startPlaying(): Promise<void> {
     });
     playing.value = play;
     playState.value = "playing";
+    unmountPlayTools = mountPlayTools(play); // the play bar's Gizmos and Stats
     Object.assign(window, { playEngine: play.engine }); // debug and end-to-end test hook
     const net = play.netPlay;
     const how = net
@@ -541,6 +547,8 @@ export function stopPlaying(): void {
   if (!play) return;
   const keptValues = takeKept(); // "Keep values" from the live Inspector (runtimeInspect.ts)
   endLiveInspection();
+  unmountPlayTools();
+  unmountPlayTools = () => {};
   play.stop();
   play = null;
   playing.value = null;

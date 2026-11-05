@@ -1,0 +1,54 @@
+/* Play mode's play bar tools (Gizmos, Stats) and the Stats overlay. Theme tokens only. */
+.play-bar { display: flex; align-items: center; gap: 6px; background: var(--panel); border-top: 1px solid var(--border); }
+.play-bar .world-strip { flex: 1; min-width: 0; border-top: none; background: none; }
+.play-tools { flex: none; padding: 4px 6px; font-size: calc(12px * var(--ui-scale)); }
+.play-tools-group { display: flex; align-items: center; gap: 6px; }
+.play-tools button { padding: 1px 8px; font-size: calc(12px * var(--ui-scale)); }
+.play-tools button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.gizmos-split { display: inline-flex; }
+.gizmos-split .gizmos-toggle { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.gizmos-split .gizmos-menu-button { padding: 1px 5px; border-left: none; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+
+.gizmos-menu { display: grid; gap: 4px; min-width: 180px; }
+.gizmos-kind { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.gizmos-kind.off { color: var(--muted); }
+.gizmos-note { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+
+/* The overlay layer: covers the game view but takes no clicks; only the Stats panel's close button does. */
+.play-hud { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.play-stats {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  max-height: calc(100% - 52px);
+  overflow: hidden;
+  padding: 4px 22px 4px 8px;
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: calc(11px * var(--ui-scale));
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  pointer-events: none;
+}
+.play-stats-close {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  padding: 0 5px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: calc(13px * var(--ui-scale));
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.play-stats-close:hover { color: var(--text); }
+.play-stats table { border-collapse: collapse; }
+.play-stats th { padding: 0 8px 0 0; color: var(--muted); font-weight: normal; text-align: left; white-space: nowrap; }
+.play-stats td { padding: 0 8px 0 0; text-align: right; white-space: nowrap; }
+.play-stats td.sub { color: var(--muted); text-align: left; }
+.play-stats td[colspan] { text-align: left; }
+.play-stats .world-head th { padding-top: 4px; color: var(--text); font-weight: 600; }

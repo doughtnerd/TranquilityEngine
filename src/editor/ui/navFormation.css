@@ -1,0 +1,21 @@
+/* Formation assets and NavGroup formations in the Inspector (ADR 0065). Theme tokens only. */
+.nav-formation:focus { outline: none; }
+.nav-formation-history,
+.nav-formation-tools { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+.nav-formation-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); margin: 4px 0; }
+.nav-formation-check { display: flex; align-items: center; gap: 4px; color: var(--text); }
+.nav-formation-grid { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 6px 0; min-width: 0; }
+.nav-formation-front { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.nav-formation-grid canvas { border: 1px solid var(--border); cursor: crosshair; touch-action: none; max-width: 100%; }
+.nav-formation-grid canvas.read-only { cursor: default; }
+.nav-formation-import { margin-top: 8px; font-size: 12px; }
+.nav-formation-import summary { cursor: pointer; color: var(--text); }
+.nav-formation-threshold { display: flex; align-items: center; gap: 6px; }
+.nav-formation-threshold input { flex: 1; min-width: 0; }
+.nav-group-formation { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 6px 8px 8px; border-top: 1px solid var(--border); font-size: 12px; }
+.nav-group-formation-head { display: flex; gap: 8px; align-items: baseline; color: var(--text); min-width: 0; max-width: 100%; }
+.nav-group-formation-head > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-group-formation-meta { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.nav-group-formation .hint { margin: 0; color: var(--muted); font-size: 11px; }
+.nav-formation-thumb { border: 1px solid var(--border); }
+.nav-formation .hint { color: var(--muted); font-size: 11px; }

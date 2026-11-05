@@ -30,6 +30,7 @@ import { openScript } from "../code/codeState";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
 import { createMaterial } from "../materialAssets";
+import { createFormation } from "../formationAssets";
 import { createParticleEffect, openParticleGraphAsset } from "../particleAssets";
 import { createShaderGraph, createShaderSubGraph, openShaderGraphAsset } from "../shaderGraphAssets";
 import { assetTileSize, assetView } from "../preferences";
@@ -53,6 +54,7 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   shadergraph: "Shader Graph",
   shadersubgraph: "Sub Graph",
   particles: "Particle Effect",
+  formation: "Formation",
   json: "JSON",
   script: "Script",
   javascript: "JS",
@@ -162,6 +164,8 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
     { label: "New Shader Graph", disabled: readOnly, run: () => void createShaderGraph(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Particle Effect", disabled: readOnly, run: () => void createParticleEffect(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Shader Sub Graph", disabled: readOnly, run: () => void createShaderSubGraph(pasteFolder(entries)).then((made) => made && select([made])) },
+    // Create › Navigation › Formation (Foxfire's NavFormation asset, ADR 0065).
+    { label: "New Navigation Formation", disabled: readOnly, run: () => void createFormation(pasteFolder(entries)).then((made) => made && select([made])) },
     ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),
   ];
   if (entries.length === 0) {

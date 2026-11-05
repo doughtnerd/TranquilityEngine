@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installFakeFolders, listFolder, nextFolder, readFile } from "./fakeFolders";
+import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
 
 // Navigation baking in the editor (ADR 0065): a NavChunk added to a scene bakes in the bake worker into
@@ -87,6 +88,7 @@ test("the Project panel's Navigation section adds an agent type to project.json"
   const errors = trackErrors(page);
   await openNavProject(page);
   await showTab(page, /^Project/);
+  await pickCategory(page, "Navigation");
   const nav = page.locator(".panel.project").getByRole("group", { name: "Navigation settings" });
   await expect(nav.getByRole("group", { name: "Agent type Humanoid" })).toBeVisible();
   await expect(nav.getByLabel("Humanoid voxels")).toContainText("0.25 × 0.125");

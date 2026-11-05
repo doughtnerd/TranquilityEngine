@@ -11,9 +11,10 @@ import { Vector3, type Vec3Input } from "../core/math";
 import { AssetRef, PlainObject, component, field } from "../core/registry";
 import type { ProjectSettings } from "../core/settings";
 import type { World } from "../core/World";
-import type { GameObject } from "../scene/GameObject";
+import { GameObject } from "../scene/GameObject";
 import type { NavAgentBackend, NavChunkBackend, NavGateBackend, NavObstacleBackend, NavTargetBackend } from "./NavigationWorld";
 import { ensureNavigationFor, readVec3 } from "./navigationSystems";
+import { navAvoidanceLayerName, navLayerBit, navShownLayers } from "./settings";
 
 /** Where an agent is on its path. */
 export type NavPathState = "none" | "following" | "partial" | "arrived" | "failed";
@@ -32,8 +33,19 @@ export interface NavWaypoint {
   flags: number;
 }
 
-const agentTypeChoices = (s: ProjectSettings): string[] => s.navigation.agentTypes.map((t) => t.id);
-const areaChoices = (s: ProjectSettings): string[] => ["", ...s.navigation.areas.map((a) => a.id)];
+/** Labelled choices (ADR 0066): a repeated label gets its value in brackets so every entry stays. */
+function labelled(entries: readonly [label: string, value: string | number][]): Record<string, string | number> {
+  const out: Record<string, string | number> = {};
+  for (const [label, value] of entries) out[label in out ? `${label} (${value})` : label] = value;
+  return out;
+}
+/** Agent type names, storing ids. */
+const agentTypeChoices = (s: ProjectSettings) => labelled(s.navigation.agentTypes.map((t) => [t.name, t.id]));
+/** Area names, storing ids ("" = plain walkable). */
+const areaChoices = (s: ProjectSettings) => labelled([["Walkable", ""], ...s.navigation.areas.map((a): [string, string] => [a.name, a.id])]);
+/** One avoidance layer (Foxfire's NavAvoidanceLayerDrawer): "Nothing" and the named layers, storing the bit. */
+const avoidanceLayerChoices = (s: ProjectSettings) =>
+  labelled([["Nothing", 0], ...navShownLayers(s.navigation).map((l): [string, number] => [navAvoidanceLayerName(s.navigation, l), navLayerBit(l)])]);
 const SOURCES = ["mesh", "collider", "both"];
 
 /** @internal What the backend writes after each step. */
@@ -164,16 +176,20 @@ export class NavAgent extends Component {
   @field(Number) turnSpeed = 0;
   @field(Boolean) updatePosition = true;
   @field(Boolean) updateRotation = true;
-  /** Avoidance layer bits; −1 = the type's. */
-  @field(Number) avoidanceLayers = -1;
-  /** Layers this agent avoids; −1 = the type's. */
-  @field(Number) avoidLayers = -1;
-  /** Avoidance priority; −1 = the type's. */
+  /** Avoidance priority; −1 = the type's. (Avoidance layers are the type's, as in Foxfire.) */
   @field(Number) priority = -1;
   /** Per-area costs over the type's: `{ areaId: cost | "excluded" }`. */
   @field(PlainObject) areaCosts: Record<string, number | "excluded"> = {};
+  /** Where the agent heads as soon as it starts (Foxfire's NavAgentAuthoring `InitialGoal`); null = nowhere. */
+  @field(GameObject) initialGoal: GameObject | null = null;
+  /** Chase `initialGoal` (follow it as it moves) instead of going to where it is once. */
+  @field(Boolean) chaseGoal = false;
+  /** While chasing `initialGoal`: plan a new path once it has moved this far (metres). */
+  @field(Number) chaseRepathDistance = 1;
 
   /** @internal */ _commands: NavAgentCommand[] = [];
+  /** @internal True once `initialGoal` has been acted on (the agent's first sync). */
+  _goalQueued = false;
   /** @internal */ _state: NavAgentStateData = { pathState: 0, mode: 0, flags: 0, velocity: [0, 0, 0], desiredVelocity: [0, 0, 0], remainingDistance: 0 };
   /** @internal */ _backend: NavAgentBackend | null = null;
 
@@ -252,6 +268,11 @@ export class NavGroup extends Component {
   @field(String, { choices: agentTypeChoices }) agentType = "";
   @field(String, { choices: ["formation", "flock"] }) mode = "formation";
   @field(String, { choices: ["box", "line", "column", "wedge", "circle", "mask"] }) formation = "box";
+  /**
+   * A formation asset (`*.formation.json`, Foxfire's NavFormation): when set, its shape, layers, layer spacing and
+   * painted mask replace `formation`, `layers` and `layerSpacing`.
+   */
+  @field(AssetRef) formationAsset = "";
   @field(Number) spacing = 3;
   @field(Number) slack = 4;
   @field(Number) catchUp = 2;
@@ -361,8 +382,8 @@ export class NavFlowGoal extends Component {
 @component("engine.NavAvoidanceObstacle")
 export class NavAvoidanceObstacle extends Component {
   @field(Number) radius = 0.5;
-  /** Avoidance layer bits. */
-  @field(Number) layers = 1;
+  /** The avoidance layer it's on (one bit; the editor shows the named layers). */
+  @field(Number, { choices: avoidanceLayerChoices }) layers = 1;
 
   /** @internal */ _backend: NavObstacleBackend | null = null;
 
