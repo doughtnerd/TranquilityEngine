@@ -4041,7 +4041,7 @@
     {
      "type": "engine.UIText",
      "data": {
-      "text": "Steer with the mouse.  A / D pick a battery.  Space fires.  F drops a ghost ship's fog.",
+      "text": "Steer with the mouse.  A / D pick a battery.  Space fires.  F drops a ghost ship's fog.  Esc leaves a match.",
       "fontSize": 15,
       "color": [
        0.95,

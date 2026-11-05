@@ -27,6 +27,7 @@ import {
   type FlagView,
   type ShipView,
 } from "./data";
+import { Hud } from "./behaviors/Hud";
 import { arenaRadius } from "./systems";
 import { flash } from "./weather";
 
@@ -35,10 +36,22 @@ const chosenBattery = new WeakMap<object, number>();
 
 const WATER_PLANE = Plane.fromNormalAndPoint(Vector3.up, Vector3.zero);
 
+/** The helm a client sends: what it would be, held while the "Leave the match?" dialog is open. */
+export type HelmInput = { x: number; z: number; steer: number; battery: number; fire: number; drop: number };
+
+/**
+ * The helm with the leave dialog open: the ship holds its course (no steering, so moving the mouse
+ * to the dialog's buttons doesn't swing it round), and doesn't fire or drop a fog cloud. The
+ * battery stays as it was.
+ */
+export function heldHelm(helm: HelmInput, dialogOpen: boolean): HelmInput {
+  return dialogOpen ? { ...helm, steer: 0, fire: 0, drop: 0 } : helm;
+}
+
 /**
  * This tick's helm: the point on the water under the mouse, the battery (A or D picks one, and
- * it stays picked), Space to fire and F to drop a ghost ship's fog cloud. Only the World with
- * local input sees the mouse and keys.
+ * it stays picked), Space to fire and F to drop a ghost ship's fog cloud; held while the HUD's
+ * leave dialog is open (`heldHelm`). Only the World with local input sees the mouse and keys.
  */
 defineSystem({
   name: "pirates.ReadHelm",
@@ -46,6 +59,7 @@ defineSystem({
   worlds: ["client"],
   before: ["pirates.Sail"],
   run(_rows, ctx) {
+    const leaving = GameObject.findObjectOfType(Hud)?.leaving ?? false;
     if (Input.getKey("a") || Input.getKey("arrowleft")) chosenBattery.set(ctx.world, Battery.port);
     if (Input.getKey("d") || Input.getKey("arrowright")) chosenBattery.set(ctx.world, Battery.starboard);
     const camera = Camera.main;
@@ -60,7 +74,8 @@ defineSystem({
         steer = 1;
       }
     }
-    Helm.write({ x, z, steer, battery: chosenBattery.get(ctx.world) ?? Battery.none, fire: Input.getKey("space") ? 1 : 0, drop: Input.getKey("f") ? 1 : 0 });
+    const helm = { x, z, steer, battery: chosenBattery.get(ctx.world) ?? Battery.none, fire: Input.getKey("space") ? 1 : 0, drop: Input.getKey("f") ? 1 : 0 };
+    Helm.write(heldHelm(helm, leaving));
   },
 });
 

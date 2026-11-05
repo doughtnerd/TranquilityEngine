@@ -29,6 +29,7 @@ import {
   clouds,
   flag,
   game,
+  pickLightningTarget,
   ranking,
   ships,
   type CloudView,
@@ -252,7 +253,10 @@ defineSystem({
 /** Seconds to the next lightning strike, per World. */
 const nextStrike = new WeakMap<object, number>();
 
-/** The storm wears off; while it lasts, lightning strikes a ship other than the one that called it every few seconds. */
+/**
+ * The storm wears off; while it lasts, lightning strikes a ship other than the one that called it
+ * every few seconds, picking the leaders more often (`pickLightningTarget`).
+ */
 defineSystem({
   name: "pirates.Storm",
   phase: "fixedUpdate",
@@ -265,8 +269,7 @@ defineSystem({
     let t = (nextStrike.get(ctx.world) ?? LIGHTNING_EVERY[0]) - ctx.dt;
     if (t <= 0) {
       t = LIGHTNING_EVERY[0] + Math.random() * (LIGHTNING_EVERY[1] - LIGHTNING_EVERY[0]);
-      const targets = ships().filter((s) => s.data.team !== g.stormTeam && s.data.sunk <= 0 && s.data.invulnerable <= 0);
-      const target = targets[Math.floor(Math.random() * targets.length)];
+      const target = pickLightningTarget(ships(), g.stormTeam, Math.random());
       if (target) {
         const p = target.node.transform!.position;
         damage(target, LIGHTNING_DAMAGE);

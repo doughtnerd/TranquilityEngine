@@ -1,6 +1,6 @@
 import { Audio, Color, GameBehavior, Lobby, Time, UIButton, UIInputField, UIPanel, UIText, behavior, type GameObject, type LobbyRoom } from "myco";
 import { TEAM_COLORS } from "../data";
-import { ARENAS, BOT_NAMES, MATCH_LENGTHS, SHIP_COUNTS, arenaOf, shipsOf } from "../lobby";
+import { ARENAS, BOT_NAMES, MATCH_LENGTHS, SHIP_COUNTS, arenaOf, forgetLeftMatch, leftMatchEarly, shipsOf } from "../lobby";
 
 const NAME_KEY = "pirates.name";
 const SERVER_KEY = "pirates.server";
@@ -194,7 +194,9 @@ export class Menu extends GameBehavior {
     // Status and buttons.
     const ready = room.members.find((m) => m.slot === me?.slot)?.ready ?? false;
     let status: string;
+    if (room.state !== "playing") forgetLeftMatch();
     if (room.state === "countdown") status = `Setting sail in ${room.countdown}...`;
+    else if (room.state === "playing" && leftMatchEarly()) status = "You left the match. The others sail on; the results come here when it ends.";
     else if (room.state === "playing") status = "Setting sail...";
     else if (room.quick) status = "Quick match: setting sail soon. Bots take the empty places.";
     else if (host) status = room.members.length > 1 ? "Start when you like, or when everyone is ready." : "Start when you like: bots take the empty places.";

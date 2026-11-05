@@ -1,8 +1,20 @@
-// What a captain can tell about the sea around them, as plain functions the HUD draws (and tests
-// check): how close the arena's edge is and the way back, what the minimap shows (fog clouds hide
-// ships from everyone but the cloud's own team, and a hidden flag holder hides the flag), and where
-// an off-screen marker sits on the screen's edge.
+// What a captain can tell about the sea around them, as plain functions the HUD draws, bots obey
+// (and tests check): how close the arena's edge is and the way back, what the minimap shows, and
+// where an off-screen marker sits on the screen's edge.
+//
+// Two kinds of hiding, one set of rules:
+// - Seen (on the water): a ship inside another team's fog cloud is hidden from that team, on the
+//   water, on the minimap, in the scoreboard's flag mark and from bots. `seenBy`.
+// - Charted (on the minimap and the off-screen flag marker): seen, and not a ghost ship. A ghost
+//   still sails in plain sight (translucent), but enemies' minimaps leave it out, and the flag's
+//   marker hides while a ghost holds it. `chartedBy`.
+// Bots have no minimap: they spot ships they can see within `BOT_SIGHT`, and a ghost only within
+// `BOT_GHOST_SIGHT` (it's hard to make out). `botSpots`.
 import { inCloudAmong, type CloudSpot } from "./data";
+
+/** How far a bot spots an enemy ship it can see, and a ghost ship (metres). */
+export const BOT_SIGHT = 50;
+export const BOT_GHOST_SIGHT = 25;
 
 /** Within this many metres of the arena's edge, the HUD warns that it's near. */
 export const EDGE_WARNING = 12;
@@ -50,21 +62,51 @@ export interface SeaShip {
   readonly sunk: boolean;
   /** The ship this client steers. */
   readonly mine: boolean;
+  /** A ghost ship (the power-up): left off enemies' minimaps. */
+  readonly ghost?: boolean;
 }
 
-/** True when `viewer`'s team can see `ship`: its own, or not inside someone else's fog cloud. */
+/** True when `viewer`'s team can see `ship` on the water: its own, or not inside someone else's fog cloud. */
 export function seenBy(viewer: number, ship: SeaShip, clouds: readonly CloudSpot[]): boolean {
   return ship.mine || ship.team === viewer || !inCloudAmong(clouds, ship.x, ship.z, viewer);
 }
 
-/** The flag as the viewer can tell it: where it is and who has it, or null when it's hidden. */
-export function flagSeenBy(viewer: number, flag: { x: number; z: number; carrier: number } | null, ships: readonly SeaShip[], clouds: readonly CloudSpot[]): { x: number; z: number; carrier: number } | null {
+/** True when `viewer`'s minimap shows `ship`: seen, and (unless it's the viewer's own) not a ghost. */
+export function chartedBy(viewer: number, ship: SeaShip, clouds: readonly CloudSpot[]): boolean {
+  if (ship.mine || ship.team === viewer) return true;
+  return !ship.ghost && seenBy(viewer, ship, clouds);
+}
+
+/**
+ * True when a bot of team `viewer`, `distance` metres away, spots `ship` to shoot at or hunt: not in
+ * someone else's fog cloud, within `BOT_SIGHT`, and within `BOT_GHOST_SIGHT` when it's a ghost.
+ */
+export function botSpots(viewer: number, ship: SeaShip, clouds: readonly CloudSpot[], distance: number): boolean {
+  if (ship.team === viewer) return false;
+  if (!seenBy(viewer, ship, clouds)) return false;
+  return distance <= (ship.ghost ? BOT_GHOST_SIGHT : BOT_SIGHT);
+}
+
+type FlagSpot = { x: number; z: number; carrier: number };
+
+/** The flag as `rule` lets the viewer tell it: where it is and who has it, or null when its holder is hidden. */
+function flagBy(rule: typeof seenBy, viewer: number, flag: FlagSpot | null, ships: readonly SeaShip[], clouds: readonly CloudSpot[]): FlagSpot | null {
   if (!flag) return null;
   if (flag.carrier < 0) return flag;
   const holder = ships.find((s) => s.team === flag.carrier);
   if (!holder) return flag;
-  if (!seenBy(viewer, holder, clouds)) return null;
+  if (!rule(viewer, holder, clouds)) return null;
   return { x: holder.x, z: holder.z, carrier: flag.carrier };
+}
+
+/** The flag as the viewer can see it on the water (the scoreboard's flag mark): null while its holder hides in fog. */
+export function flagSeenBy(viewer: number, flag: FlagSpot | null, ships: readonly SeaShip[], clouds: readonly CloudSpot[]): FlagSpot | null {
+  return flagBy(seenBy, viewer, flag, ships, clouds);
+}
+
+/** The flag as the viewer's minimap and off-screen marker show it: null while its holder hides in fog or is a ghost. */
+export function flagChartedBy(viewer: number, flag: FlagSpot | null, ships: readonly SeaShip[], clouds: readonly CloudSpot[]): FlagSpot | null {
+  return flagBy(chartedBy, viewer, flag, ships, clouds);
 }
 
 export type MapMarker =
@@ -84,17 +126,17 @@ export interface ChartInput {
 
 /**
  * What the minimap shows the viewer, bottom layer first: fog clouds, power-ups, the flag (when it's
- * loose), and the ships afloat that the viewer can see, the flag's holder marked. Ships hidden in
- * fog are left out, and so is a flag whose holder is hidden.
+ * loose), and the ships afloat that the viewer's chart shows, the flag's holder marked. Ships
+ * hidden in fog and other teams' ghost ships are left out, and so is a flag whose holder is.
  */
 export function chartMarkers(input: ChartInput): MapMarker[] {
   const out: MapMarker[] = [];
   for (const c of input.clouds) out.push({ kind: "cloud", x: c.x, z: c.z });
   for (const p of input.pickups) out.push({ kind: "pickup", x: p.x, z: p.z, power: p.power });
-  const flag = flagSeenBy(input.viewer, input.flag, input.ships, input.clouds);
+  const flag = flagChartedBy(input.viewer, input.flag, input.ships, input.clouds);
   if (flag && flag.carrier < 0) out.push({ kind: "flag", x: flag.x, z: flag.z });
   for (const s of input.ships) {
-    if (s.sunk || !seenBy(input.viewer, s, input.clouds)) continue;
+    if (s.sunk || !chartedBy(input.viewer, s, input.clouds)) continue;
     out.push({ kind: "ship", x: s.x, z: s.z, team: s.team, mine: s.mine, holder: !!flag && flag.carrier === s.team });
   }
   return out;

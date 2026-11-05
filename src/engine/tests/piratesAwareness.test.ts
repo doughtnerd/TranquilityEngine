@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { CLOUD_COST, CLOUD_RADIUS, inCloudAmong, type CloudSpot } from "../../../samples/pirates/scripts/data";
-import { EDGE_WARNING, chartMarkers, chartPoint, compass, edgeMarker, edgeStatus, flagSeenBy, seenBy, type SeaShip } from "../../../samples/pirates/scripts/awareness";
+import { BOT_GHOST_SIGHT, BOT_SIGHT, EDGE_WARNING, botSpots, chartMarkers, chartPoint, chartedBy, compass, edgeMarker, edgeStatus, flagChartedBy, flagSeenBy, seenBy, type SeaShip } from "../../../samples/pirates/scripts/awareness";
 
 // King of Pirates' situational awareness (samples/pirates/scripts/awareness.ts): the arena-edge warning, what the
 // minimap shows a captain when fog clouds hide ships, where off-screen markers sit, and the fog cloud prefab's
@@ -115,7 +115,7 @@ describe("King of Pirates: the fog cloud", () => {
     const particles = components.find((c: { type: string }) => c.type === "engine.ParticleSystem")!.data as { effect: string };
     const effect = json(particles.effect.replace(/^asset:/, ""));
     for (const system of effect.systems) {
-      const shape = system.initialize.blocks.find((b: { type: string }) => b.type === "init.positionCircle").inputs;
+      const shape = system.initialize.blocks.find((b: { type: string }) => b.type === "init.positionCircle" || b.type === "init.positionCone").inputs;
       const size = system.initialize.blocks.find((b: { type: string }) => b.type === "init.size").inputs.size.random as number[];
       // The puffs spawn inside the cloud and their soft edges reach about its radius, no further.
       expect(shape.radius).toBeLessThanOrEqual(CLOUD_RADIUS);
@@ -124,5 +124,79 @@ describe("King of Pirates: the fog cloud", () => {
       expect(system.output.settings.texture).toBe("asset:textures/smoke.png");
     }
     expect(readFileSync(SAMPLE + "textures/smoke.png").subarray(1, 4).toString()).toBe("PNG");
+  });
+});
+
+describe("King of Pirates: the weather's particle effects lie flat on the sea", () => {
+  // The engine's emitter shapes lie in the horizontal (XZ) plane and emit up (+Y) unrotated, like
+  // Unity's; a rotation of 90° about X stands them on edge, in a vertical sheet (the first version's mistake).
+  const shapeOf = (system: { initialize: { blocks: { type: string; inputs: Record<string, unknown> }[] } }) => system.initialize.blocks.find((b) => b.type.startsWith("init.position"))!;
+
+  it("the fog cloud's puffs fill a horizontal disc", () => {
+    for (const system of json("effects/fogcloud.particles.json").systems) {
+      const shape = shapeOf(system);
+      expect(["init.positionCone", "init.positionCircle"]).toContain(shape.type);
+      expect(shape.inputs.rotation).toEqual([0, 0, 0]);
+      expect((shape.inputs.offset as number[])[1]).toBeLessThan(3); // just over the water
+    }
+    // The body spreads its puffs evenly over the disc (a cone's disc), drifting outward more than up.
+    const body = shapeOf(json("effects/fogcloud.particles.json").systems[0]);
+    expect(body.type).toBe("init.positionCone");
+    expect(body.inputs.thickness).toBe(1);
+    expect(body.inputs.angle as number).toBeGreaterThanOrEqual(60);
+  });
+
+  it("rain starts over a horizontal disc and falls straight down", () => {
+    const system = json("effects/rain.particles.json").systems[0];
+    const shape = shapeOf(system);
+    expect(shape.type).toBe("init.positionCone");
+    expect(shape.inputs.angle).toBe(0); // straight along the axis
+    expect(shape.inputs.rotation).toEqual([180, 0, 0]); // the axis turned to point down
+    expect(shape.inputs.radius as number).toBeGreaterThanOrEqual(35); // wider than the camera's view of the water
+    expect(system.output.type).toBe("stretched");
+  });
+});
+
+describe("King of Pirates: ghost ships and fog", () => {
+  const clouds: CloudSpot[] = [{ team: 3, x: 20, z: 0 }];
+  const ghost = ship(1, -30, 0, { ghost: true });
+
+  it("leaves a ghost ship off enemies' minimaps, though they can see it on the water", () => {
+    expect(seenBy(0, ghost, [])).toBe(true);
+    expect(chartedBy(0, ghost, [])).toBe(false);
+    expect(chartedBy(1, ghost, [])).toBe(true); // its own team charts it
+    expect(chartedBy(0, ship(0, 5, 5, { mine: true, ghost: true }), [])).toBe(true); // and so does its captain
+    const markers = chartMarkers({ viewer: 0, ships: [ship(0, 0, 0, { mine: true }), ghost, ship(2, 10, 10)], clouds: [], flag: null, pickups: [] });
+    expect(markers.filter((m) => m.kind === "ship").map((m) => m.kind === "ship" && m.team)).toEqual([0, 2]);
+  });
+
+  it("hides a ship in someone else's fog cloud both on the water and on the chart", () => {
+    const fogged = ship(2, 22, 0);
+    expect(seenBy(0, fogged, clouds)).toBe(false);
+    expect(chartedBy(0, fogged, clouds)).toBe(false);
+    expect(chartedBy(3, fogged, clouds)).toBe(true);
+  });
+
+  it("hides the flag's marker while a ghost holds it, but the scoreboard still sees who has it", () => {
+    const ships = [ship(0, 0, 0, { mine: true }), ghost];
+    const theFlag = { x: -30, z: 0, carrier: 1 };
+    expect(flagChartedBy(0, theFlag, ships, [])).toBeNull();
+    expect(flagSeenBy(0, theFlag, ships, [])).toEqual(theFlag);
+    expect(chartMarkers({ viewer: 0, ships, clouds: [], flag: theFlag, pickups: [] }).some((m) => m.kind === "flag" || (m.kind === "ship" && m.team === 1))).toBe(false);
+    // A holder hidden in fog hides the flag from both.
+    const fogged = [ship(0, 0, 0, { mine: true }), ship(2, 22, 0)];
+    expect(flagSeenBy(0, { x: 22, z: 0, carrier: 2 }, fogged, clouds)).toBeNull();
+    expect(flagChartedBy(0, { x: 22, z: 0, carrier: 2 }, fogged, clouds)).toBeNull();
+  });
+
+  it("lets bots spot ships they can see within their sight, ghosts only close by, and nothing in fog", () => {
+    expect(botSpots(0, ship(1, 40, 0), [], 40)).toBe(true);
+    expect(botSpots(0, ship(1, 60, 0), [], BOT_SIGHT + 1)).toBe(false);
+    expect(botSpots(0, ghost, [], BOT_GHOST_SIGHT - 1)).toBe(true);
+    expect(botSpots(0, ghost, [], BOT_GHOST_SIGHT + 1)).toBe(false);
+    expect(botSpots(0, ship(2, 22, 0), clouds, 5)).toBe(false);
+    expect(botSpots(3, ship(2, 22, 0), clouds, 5)).toBe(true); // the cloud's own team sees through it
+    expect(botSpots(1, ship(1, 0, 0), [], 1)).toBe(false); // not its own team
+    expect(BOT_GHOST_SIGHT).toBeLessThan(BOT_SIGHT);
   });
 });

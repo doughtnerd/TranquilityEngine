@@ -1,11 +1,11 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, Lobby, Replicated, SceneInstance, UIButton, UIText } from "../index";
+import { Assets, Engine, GameObject, Lobby, Replicated, SceneInstance, UIButton, UIPanel, UIText } from "../index";
 import { World } from "../core/World";
 import { LobbyClient } from "../net/lobby/client";
 import { readProject } from "../../server/project";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
-import { CLOUD_PREFAB, CLOUD_RADIUS, Cloud, inCloudAmong, FlagState, Game, Phase, Ship, type CloudView, type FlagView, type GameView, type ShipView } from "../../../samples/pirates/scripts/data";
+import { CLOUD_PREFAB, CLOUD_RADIUS, Cloud, inCloudAmong, FlagState, Game, Phase, Ship, TEAM_COLORS, type CloudView, type FlagView, type GameView, type ShipView } from "../../../samples/pirates/scripts/data";
 import "../../../samples/pirates/scripts/systems";
 import "../../../samples/pirates/scripts/client";
 import "../../../samples/pirates/scripts/bots";
@@ -148,27 +148,50 @@ describe("the King of Pirates sample", () => {
     expect(mine[0].rep.isPredictedLocally).toBe(true);
     // The player's ship sails under their room slot's colours; the HUD names the bots.
     expect(mine[0].data.team).toBe(Lobby.me!.slot);
-    const fleet = client._componentsOfType(Hud)[0].node.find("Screen/Top/Fleet")!.getBehavior(UIText)!.text;
-    const names = [...fleet.matchAll(/Calico Jack|Anne Bonny|Blackbeard|You/g)].map((m) => m[0]);
+    const hud = client._componentsOfType(Hud)[0].node;
+    const textAt = (path: string) => hud.find(path)!.getBehavior(UIText)!.text;
+    const rows = () => [0, 1, 2, 3, 4, 5, 6, 7].map((i) => hud.find(`Overlay/Leaderboard/Row${i}`)!).filter((n) => n.active);
+    expect(rows()).toHaveLength(6);
+    const names = rows().map((r) => r.find("Name")!.getBehavior(UIText)!.text);
     expect(names).toContain("You");
     expect(names).toContain("Anne Bonny");
+    // Best first, the player's row lit, and the clock on top.
+    const scores = rows().map((r) => Number(r.find("Score")!.getBehavior(UIText)!.text));
+    expect([...scores].sort((a, b) => b - a)).toEqual(scores);
+    const myRow = rows().find((r) => r.find("Name")!.getBehavior(UIText)!.text === "You")!;
+    expect(myRow.getBehavior(UIPanel)!.backgroundColor!.a).toBeGreaterThan(0);
+    expect(textAt("Screen/Top/ClockBox/Clock")).toMatch(/^\d:\d\d$/);
+    expect(textAt("Screen/Bottom/Bars/Hull/Label")).toMatch(/^Hull \d+$/);
+    expect(textAt("Screen/Bottom/Bars/Port/Label")).toMatch(/^\[A\] Port/);
 
-    // The HUD's awareness. The minimap shows the ships afloat the player can see: their own, and any
-    // not inside another team's fog cloud (bots may have dropped some).
-    const hud = client._componentsOfType(Hud)[0].node;
+    // The HUD's awareness. The minimap shows the ships afloat the player's chart shows: their own,
+    // and any not inside another team's fog cloud (bots may have dropped some) and not a ghost.
     const activeDots = (layer: string) => hud.find(`Overlay/Minimap/Chart/${layer}`)!.children.filter((n) => n.active).length;
     const playerTeam = mine[0].data.team;
     const cloudsIn = (world: World) =>
       world._componentsOfType(Replicated).filter((r) => r.node.isValid && r.node.hasData(Cloud)).map((r) => ({ team: (r.node.getData(Cloud) as CloudView).team, x: r.node.transform!.position.x, z: r.node.transform!.position.z }));
     const visible = () => {
       const spots = cloudsIn(client);
-      return shipsIn(client).filter((s) => s.data.sunk <= 0 && (s.rep.isOwnedLocally || !inCloudAmong(spots, s.x, s.z, playerTeam))).length;
+      return shipsIn(client).filter((s) => s.data.sunk <= 0 && (s.rep.isOwnedLocally || (s.data.ghost <= 0 && !inCloudAmong(spots, s.x, s.z, playerTeam)))).length;
     };
     engine.step(STEP);
     expect(activeDots("Ships")).toBe(visible());
     expect(activeDots("Ships")).toBeGreaterThan(0);
     expect(activeDots("Land")).toBeGreaterThan(3);
     expect(activeDots("Clouds")).toBe(cloudsIn(client).length);
+
+    // A ghost ship is left off the player's minimap while the power-up lasts.
+    const ghostBot = shipsIn(server).find((s) => s.data.bot && s.data.sunk <= 0 && s.data.ghost <= 0)!;
+    const ghostTeam = ghostBot.data.team;
+    const ghostOnClient = () => shipsIn(client).find((s) => s.data.team === ghostTeam)!;
+    World._runIn(server, () => void Object.assign(ghostBot.data, { ghost: 30, cloud: 0, hp: 100, sunk: 0 }));
+    await stepUntil(engine, () => ghostOnClient().data.ghost > 0, "the ghost on the client", 120);
+    engine.step(STEP);
+    expect(activeDots("Ships")).toBe(visible());
+    const chartedTeams = hud.find("Overlay/Minimap/Chart/Ships")!.children.filter((n) => n.active).map((n) => n.getBehavior(UIPanel)!.backgroundColor!.toHex().toLowerCase());
+    expect(chartedTeams).not.toContain(TEAM_COLORS[ghostTeam].toLowerCase());
+    World._runIn(server, () => void (ghostBot.data.ghost = 0));
+    await stepUntil(engine, () => ghostOnClient().data.ghost <= 0, "the ghost wearing off", 120);
 
     // A fog cloud dropped by another ship over a bot hides it from the player, on the minimap and on the water.
     const bot = shipsIn(server).find((s) => s.data.bot && s.data.sunk <= 0)!;
@@ -219,6 +242,78 @@ describe("the King of Pirates sample", () => {
     await stepUntil(engine, () => title() === "The edge of the arena", "the near-edge warning", 120);
     place(0.3 * radius, 0.3 * radius, 0);
     await stepUntil(engine, () => !banner().active, "the warning gone", 120);
+    expect(errors).toEqual([]);
+  });
+
+  it("leaves a match from the HUD's dialog: back in the room, the ship gone from the server and a bot in its slot", { timeout: 120_000 }, async () => {
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => void errors.push(args.map(String).join(" ")));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const project = await readProject(SAMPLE);
+    Assets.addSource(project.assets);
+    const engine = await Engine.create({ headless: true, project: project.settings });
+    engines.push(engine);
+    const menuWorld = engine._world("Menu")!;
+    const menu = menuWorld._componentsOfType(Menu)[0].node;
+    await stepUntil(engine, () => Lobby.state === "lobby", "the menu's lobby");
+    // This page creates a room (Create Room, as clicked); Anne joins it by its code; the host starts it.
+    menu.find("Screen/Home/Left/CreateRoom")!.getBehavior(UIButton)!._simulateClick();
+    await stepUntil(engine, () => Lobby.state === "room", "the room");
+    const anne = new LobbyClient();
+    players.push(anne);
+    World._runIn(menuWorld, () => anne.connect("local", { name: "Anne" }));
+    await stepUntil(engine, () => anne.state === "lobby", "Anne's lobby");
+    anne.joinRoom(Lobby.room!.code);
+    await stepUntil(engine, () => anne.state === "room" && Lobby.room!.members.length === 2, "Anne in the room");
+    Lobby.start();
+    await stepUntil(engine, () => Lobby.state === "match" && anne.state === "match", "the match");
+    const server = engine._world("Match 1")!;
+    const client = engine._world(Lobby.matchWorld!.name)!;
+    await stepUntil(engine, () => shipsIn(server).length === 6 && shipsIn(server).filter((s) => !s.data.bot).length === 2, "both players' ships at sea", 1200);
+    await stepUntil(engine, () => client._componentsOfType(Hud).length > 0 && client._componentsOfType(Hud)[0].leaveMatch !== null, "the HUD", 600);
+    const myTeam = Lobby.me!.slot;
+    const anneTeam = anne.me!.slot;
+    const mine = shipsIn(server).find((s) => s.data.team === myTeam)!;
+    expect(mine.data.bot).toBe(0);
+
+    // Escape opens the dialog (as the HUD's keyboard check would); the ship holds fire while it's open.
+    const hud = client._componentsOfType(Hud)[0];
+    const dialog = hud.node.find("Leave")!;
+    expect(dialog.active).toBe(false);
+    hud.leaving = true;
+    engine.step(STEP);
+    expect(dialog.active).toBe(true);
+    expect(hud.node.find("Leave/Box/Title")!.getBehavior(UIText)!.text).toBe("Leave the match?");
+    expect(hud.node.find("Leave/Box/Buttons/Leave")!.active).toBe(true);
+    // Keep sailing closes it.
+    hud.node.find("Leave/Box/Buttons/Stay")!.getBehavior(UIButton)!._simulateClick();
+    engine.step(STEP);
+    expect(hud.leaving).toBe(false);
+    expect(dialog.active).toBe(false);
+    // Open it again and leave.
+    hud.leaving = true;
+    engine.step(STEP);
+    hud.node.find("Leave/Box/Buttons/Leave")!.getBehavior(UIButton)!._simulateClick();
+    engine.step(STEP);
+    expect(Lobby.matchWorld).toBeNull();
+    expect(engine._world(client.name)).toBeNull();
+    // Back in the room (its match still on for Anne), the menu World has the screen again and says so.
+    expect(["room", "starting"]).toContain(Lobby.state);
+    expect(Lobby.room!.state).toBe("playing");
+    expect(engine.findWorld("Menu")!.paused).toBe(false);
+    engine.step(STEP);
+    expect(menu.find("Screen/Room")!.active).toBe(true);
+    expect(menu.find("Screen/Room/Side/RoomStatus")!.getBehavior(UIText)!.text).toMatch(/^You left the match/);
+
+    // On the server the ship goes and a bot takes the slot; Anne sails on.
+    await stepUntil(engine, () => !shipsIn(server).some((s) => s.rep.node === mine.rep.node), "the ship removed on the server", 600);
+    await stepUntil(engine, () => shipsIn(server).length === 6, "a bot in the slot", 600);
+    const slot = shipsIn(server).find((s) => s.data.team === myTeam)!;
+    expect(slot.data.bot).toBe(1);
+    expect(shipsIn(server).filter((s) => !s.data.bot).map((s) => s.data.team)).toEqual([anneTeam]);
+    expect(engine._world("Match 1")).not.toBeNull();
+    expect(anne.state).toBe("match");
     expect(errors).toEqual([]);
   });
 
