@@ -67,6 +67,35 @@
         }
       ],
       "parent": "wreck"
+    },
+    {
+      "id": "wreck-nav",
+      "name": "Nav Footprint",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "scale": [
+              4.0,
+              0.75,
+              4.0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshCollider",
+          "data": {
+            "mesh": "builtin:cylinder"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {
+            "source": "collider"
+          }
+        }
+      ],
+      "parent": "wreck"
     }
   ]
 }
