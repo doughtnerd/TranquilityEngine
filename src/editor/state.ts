@@ -1,5 +1,6 @@
 // Shared editor UI state (ADR 0025). Signals so Preact panels re-render when it changes.
-import { signal } from "@preact/signals";
+import { batch, signal } from "@preact/signals";
+import { selectedAssets } from "./assetSelection";
 import type { GameObject } from "../engine";
 import type { CommandStack, NodePath, SceneDocument, WorldSync } from "./document";
 import type { OrbitCamera, ViewMode } from "./OrbitCamera";
@@ -62,13 +63,20 @@ export const selection = {
   },
 };
 
-/** Select `keys` (duplicates dropped). `active`, if among them, becomes the active node. */
+/**
+ * Select `keys` (duplicates dropped). `active`, if among them, becomes the active node. Selecting
+ * nodes deselects the Assets panel's entries, so the Inspector shows the latest selection (an
+ * asset click deselects the nodes in turn, assetImport.ts `inspectSelectedAsset`).
+ */
 export function select(keys: Iterable<string>, active?: string | null): void {
   const next = [...new Set(keys)];
   if (active != null && next.includes(active)) next.push(next.splice(next.indexOf(active), 1)[0]);
   const current = selectedKeys.peek();
   if (next.length === current.length && next.every((k, i) => k === current[i])) return;
-  selectedKeys.value = next;
+  batch(() => {
+    selectedKeys.value = next;
+    if (next.length > 0 && selectedAssets.peek().length > 0) selectedAssets.value = [];
+  });
 }
 
 /**
