@@ -75,6 +75,56 @@
         }
       ],
       "parent": "visual"
+    },
+    {
+      "id": "ghosthull",
+      "name": "GhostHull",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/ship.obj#Hull",
+            "material": "asset:materials/ghost.material.json",
+            "castShadows": false
+          }
+        }
+      ],
+      "parent": "visual",
+      "active": false
+    },
+    {
+      "id": "pennant",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              3.2,
+              -0.4
+            ],
+            "scale": [
+              0.9,
+              0.9,
+              0.9
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/flag.obj#Cloth",
+            "castShadows": false
+          }
+        }
+      ],
+      "parent": "visual",
+      "active": false
     }
   ]
 }

@@ -53,6 +53,8 @@
           "data": {
             "flexDirection": "row",
             "justifyContent": "center",
+            "alignItems": "center",
+            "gap": 24,
             "backgroundColor": [
               0.05,
               0.07,
@@ -65,6 +67,31 @@
         }
       ],
       "parent": "screen"
+    },
+    {
+      "id": "clock",
+      "name": "Clock",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 22,
+            "color": [
+              1,
+              0.9,
+              0.6,
+              1
+            ],
+            "fontWeight": "bold"
+          }
+        }
+      ],
+      "parent": "top"
     },
     {
       "id": "fleet",
@@ -91,8 +118,8 @@
       "parent": "top"
     },
     {
-      "id": "middle",
-      "name": "Middle",
+      "id": "middlerow",
+      "name": "MiddleRow",
       "components": [
         {
           "type": "engine.Transform",
@@ -109,6 +136,26 @@
       "parent": "screen"
     },
     {
+      "id": "middle",
+      "name": "Middle",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "column",
+            "alignItems": "center",
+            "padding": 18,
+            "borderRadius": 10
+          }
+        }
+      ],
+      "parent": "middlerow"
+    },
+    {
       "id": "status",
       "name": "Status",
       "components": [
@@ -120,14 +167,240 @@
           "type": "engine.UIText",
           "data": {
             "text": "",
-            "fontSize": 40,
+            "fontSize": 30,
             "color": [
               1,
               0.9,
               0.6,
               1
             ],
-            "fontWeight": "bold"
+            "fontWeight": "bold",
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "middle"
+    },
+    {
+      "id": "line0",
+      "name": "Line0",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 20,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "middle"
+    },
+    {
+      "id": "line1",
+      "name": "Line1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 20,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "middle"
+    },
+    {
+      "id": "line2",
+      "name": "Line2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 20,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "middle"
+    },
+    {
+      "id": "line3",
+      "name": "Line3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 20,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "middle"
+    },
+    {
+      "id": "line4",
+      "name": "Line4",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 20,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "middle"
+    },
+    {
+      "id": "line5",
+      "name": "Line5",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 20,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "middle"
+    },
+    {
+      "id": "line6",
+      "name": "Line6",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 20,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "middle"
+    },
+    {
+      "id": "line7",
+      "name": "Line7",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 20,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "middle"
+    },
+    {
+      "id": "next",
+      "name": "Next",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 18,
+            "color": [
+              0.8,
+              0.85,
+              0.9,
+              1
+            ],
+            "textAlign": "center"
           }
         }
       ],
@@ -456,12 +729,38 @@
           "type": "engine.UIPanel",
           "data": {
             "flexGrow": 1,
-            "flexDirection": "row",
-            "justifyContent": "flex-end"
+            "flexDirection": "column",
+            "alignItems": "flex-end",
+            "gap": 6
           }
         }
       ],
       "parent": "bottom"
+    },
+    {
+      "id": "powers",
+      "name": "Powers",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 18,
+            "color": [
+              0.7,
+              1,
+              0.85,
+              1
+            ],
+            "textAlign": "right"
+          }
+        }
+      ],
+      "parent": "help"
     },
     {
       "id": "helptext",
@@ -474,7 +773,7 @@
         {
           "type": "engine.UIText",
           "data": {
-            "text": "Mouse: steer   |   A / D: port or starboard battery   |   Space: fire",
+            "text": "Mouse: steer   |   A / D: battery   |   Space: fire   |   F: fog cloud (ghost ship)",
             "fontSize": 16,
             "color": [
               0.95,

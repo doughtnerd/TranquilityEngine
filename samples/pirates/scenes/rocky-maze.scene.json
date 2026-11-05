@@ -1,0 +1,1683 @@
+{
+  "format": "myco.scene@1",
+  "settings": {
+    "physics": "3d"
+  },
+  "nodes": [
+    {
+      "id": "camera-rig",
+      "prefab": "prefabs/camera.prefab.json"
+    },
+    {
+      "id": "sun",
+      "name": "Sun",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              40,
+              0
+            ],
+            "rotation": [
+              -45,
+              120,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "directional",
+            "intensity": 1.8,
+            "castShadows": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "ambient",
+      "name": "Ambient Light",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "ambient",
+            "intensity": 0.6,
+            "color": [
+              0.75,
+              0.85,
+              1,
+              1
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "fog",
+      "name": "Fog",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.Fog",
+          "data": {
+            "mode": "linear",
+            "color": [
+              0.58,
+              0.66,
+              0.72,
+              1
+            ],
+            "near": 55,
+            "far": 200,
+            "affectsSkybox": true,
+            "skyboxFog": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "sea",
+      "name": "Sea",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.WaterSurface",
+          "data": {
+            "size": 315.0,
+            "resolution": 200,
+            "waveScale": 0.7
+          }
+        }
+      ]
+    },
+    {
+      "id": "match",
+      "name": "Match",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "net.Replicated",
+          "data": {
+            "replicateTransform": false
+          }
+        },
+        {
+          "type": "pirates.Game",
+          "data": {
+            "radius": 70,
+            "winner": -1,
+            "stormTeam": -1
+          }
+        }
+      ]
+    },
+    {
+      "id": "flag",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "net.Replicated",
+          "data": {}
+        },
+        {
+          "type": "pirates.Flag",
+          "data": {
+            "carrier": -1
+          }
+        }
+      ]
+    },
+    {
+      "id": "flagvisual",
+      "name": "Visual",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "scale": [
+              1.3,
+              1.3,
+              1.3
+            ]
+          }
+        }
+      ],
+      "parent": "flag"
+    },
+    {
+      "id": "flagbuoy",
+      "name": "Buoy",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/flag.obj#Buoy"
+          }
+        }
+      ],
+      "parent": "flagvisual"
+    },
+    {
+      "id": "flagcloth",
+      "name": "Cloth",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/flag.obj#Cloth"
+          }
+        }
+      ],
+      "parent": "flagvisual"
+    },
+    {
+      "id": "flaglight",
+      "name": "Beacon",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              3,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "point",
+            "color": [
+              1,
+              0.85,
+              0.4,
+              1
+            ],
+            "intensity": 5,
+            "range": 10
+          }
+        }
+      ],
+      "parent": "flagvisual"
+    },
+    {
+      "id": "rain",
+      "name": "Rain",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              24,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.ParticleSystem",
+          "data": {
+            "effect": "asset:effects/rain.particles.json",
+            "emissionScale": 0
+          }
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/rain_loop.wav",
+            "loop": true,
+            "volume": 0,
+            "playOnAwake": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "actors",
+      "name": "Actors",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "pirates.Actors",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "hud-rig",
+      "prefab": "prefabs/hud.prefab.json"
+    },
+    {
+      "id": "spot-0",
+      "name": "Power-up Spot 1",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              25
+            ]
+          }
+        },
+        {
+          "type": "pirates.PickupSpot",
+          "data": {
+            "timer": 3
+          }
+        }
+      ]
+    },
+    {
+      "id": "spot-1",
+      "name": "Power-up Spot 2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              -25
+            ]
+          }
+        },
+        {
+          "type": "pirates.PickupSpot",
+          "data": {
+            "timer": 5
+          }
+        }
+      ]
+    },
+    {
+      "id": "spot-2",
+      "name": "Power-up Spot 3",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              43,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "pirates.PickupSpot",
+          "data": {
+            "timer": 7
+          }
+        }
+      ]
+    },
+    {
+      "id": "spot-3",
+      "name": "Power-up Spot 4",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -43,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "pirates.PickupSpot",
+          "data": {
+            "timer": 9
+          }
+        }
+      ]
+    },
+    {
+      "id": "prop-0",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            9.4,
+            0,
+            12.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            47,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.2,
+            1.2,
+            1.2
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-1",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            15.2,
+            0,
+            4.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            94,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.4,
+            1.4,
+            1.4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-2",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            15.2,
+            0,
+            -4.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            141,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.1,
+            1.1,
+            1.1
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-3",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            9.4,
+            0,
+            -12.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            188,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-4",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -9.4,
+            0,
+            -12.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            282,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.2,
+            1.2,
+            1.2
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-5",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -15.2,
+            0,
+            -4.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            329,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.4,
+            1.4,
+            1.4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-6",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -15.2,
+            0,
+            4.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            16,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.1,
+            1.1,
+            1.1
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-7",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -9.4,
+            0,
+            12.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            63,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-8",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            10.0,
+            0,
+            32.5
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-9",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            21.7,
+            0,
+            26.2
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            47,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.2,
+            1.2,
+            1.2
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-10",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            30.1,
+            0,
+            15.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            94,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.4,
+            1.4,
+            1.4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-11",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            32.5,
+            0,
+            -10.0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            188,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-12",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            26.2,
+            0,
+            -21.7
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            235,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-13",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            15.9,
+            0,
+            -30.1
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            282,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.2,
+            1.2,
+            1.2
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-14",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            3.1,
+            0,
+            -33.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            329,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.4,
+            1.4,
+            1.4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-15",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -10.0,
+            0,
+            -32.5
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            16,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.1,
+            1.1,
+            1.1
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-16",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -21.7,
+            0,
+            -26.2
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            63,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-17",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -30.1,
+            0,
+            -15.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            110,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-18",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -32.5,
+            0,
+            10.0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            204,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.4,
+            1.4,
+            1.4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-19",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -26.2,
+            0,
+            21.7
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            251,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.1,
+            1.1,
+            1.1
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-20",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -15.9,
+            0,
+            30.1
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            298,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-21",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -3.1,
+            0,
+            33.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            345,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-22",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            29.4,
+            0,
+            42.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            0,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-23",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            40.3,
+            0,
+            32.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            47,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.2,
+            1.2,
+            1.2
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-24",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            47.9,
+            0,
+            20.2
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            94,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.4,
+            1.4,
+            1.4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-25",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            51.7,
+            0,
+            5.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            141,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.1,
+            1.1,
+            1.1
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-26",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            51.2,
+            0,
+            -8.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            188,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-27",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            46.7,
+            0,
+            -23.0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            235,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-28",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            38.3,
+            0,
+            -35.2
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            282,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.2,
+            1.2,
+            1.2
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-29",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            13.2,
+            0,
+            -50.3
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            16,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.1,
+            1.1,
+            1.1
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-30",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -1.5,
+            0,
+            -52.0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            63,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-31",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -16.1,
+            0,
+            -49.5
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            110,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-32",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -29.4,
+            0,
+            -42.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            157,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.2,
+            1.2,
+            1.2
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-33",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -40.3,
+            0,
+            -32.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            204,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.4,
+            1.4,
+            1.4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-34",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -47.9,
+            0,
+            -20.2
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            251,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.1,
+            1.1,
+            1.1
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-35",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -51.7,
+            0,
+            -5.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            298,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-36",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -51.2,
+            0,
+            8.9
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            345,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-37",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -46.7,
+            0,
+            23.0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            32,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.2,
+            1.2,
+            1.2
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-38",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -38.3,
+            0,
+            35.2
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            79,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.4,
+            1.4,
+            1.4
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-39",
+      "prefab": "prefabs/rock1.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            -13.2,
+            0,
+            50.3
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            173,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.3,
+            1.3,
+            1.3
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-40",
+      "prefab": "prefabs/rock2.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            1.5,
+            0,
+            52.0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            220,
+            0
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prop-41",
+      "prefab": "prefabs/rock3.prefab.json",
+      "overrides": [
+        {
+          "component": "engine.Transform",
+          "field": "position",
+          "value": [
+            16.1,
+            0,
+            49.5
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "rotation",
+          "value": [
+            0,
+            267,
+            0
+          ]
+        },
+        {
+          "component": "engine.Transform",
+          "field": "scale",
+          "value": [
+            1.2,
+            1.2,
+            1.2
+          ]
+        }
+      ]
+    }
+  ]
+}

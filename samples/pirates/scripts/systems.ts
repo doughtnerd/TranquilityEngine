@@ -2,7 +2,8 @@
 // - client and server: the predicted sailing system (a client runs it only for its own ship,
 //   ahead of the server, and again after a correction);
 // - the server only: a ship per connection plus bots, broadsides, cannonballs and hits,
-//   collisions, the arena edge, sinking and respawning.
+//   collisions, the arena edge, sinking and respawning. The match, the flag, power-ups and the
+//   storm are in rules.ts.
 import { Connection, ConnectionState, GameObject, Mathf, Quaternion, Replicated, Transform, Water, defineSystem } from "myco";
 import { Actors } from "./behaviors/Actors";
 import {
@@ -23,7 +24,10 @@ import {
   Helm,
   OUTSIDE_DAMAGE,
   Obstacle,
-  PROTOTYPE_SHIPS,
+  DEFAULT_SHIPS,
+  Phase,
+  WIND_SPEEDUP,
+  game,
   RAM_DAMAGE,
   RELOAD,
   RESPAWN_DELAY,
@@ -46,20 +50,25 @@ import {
   type ShipView,
 } from "./data";
 
+/** The arena's radius: the scene's `Game.radius`, or the default. */
+export function arenaRadius(): number {
+  return game()?.radius || ARENA_RADIUS;
+}
+
 /** Where ships start and respawn: a ring facing the middle. */
 function spawnPoint(slot: number, count = 8): { x: number; z: number; heading: number } {
   const a = (slot / count) * Math.PI * 2 + 0.3;
-  const r = ARENA_RADIUS * 0.7;
+  const r = arenaRadius() * 0.75;
   const x = Math.sin(a) * r, z = Math.cos(a) * r;
   return { x, z, heading: bearing(x, z, 0, 0) + 90 };
 }
 
 /** The helm a ship sails by this tick: its owner's input, or a bot's own fields. */
-function helmOf(node: GameObject, ship: ShipView): { x: number; z: number; steer: boolean; battery: number; fire: boolean } | null {
-  if (ship.bot) return { x: ship.aimX, z: ship.aimZ, steer: true, battery: ship.battery, fire: ship.fire !== 0 };
+export function helmOf(node: GameObject, ship: ShipView): { x: number; z: number; steer: boolean; battery: number; fire: boolean; drop: boolean } | null {
+  if (ship.bot) return { x: ship.aimX, z: ship.aimZ, steer: true, battery: ship.battery, fire: ship.fire !== 0, drop: ship.cloud !== 0 && ship.fire !== 0 };
   const input = Helm.of(node);
   if (!input) return null;
-  return { x: input.x, z: input.z, steer: input.steer !== 0, battery: input.battery, fire: input.fire !== 0 };
+  return { x: input.x, z: input.z, steer: input.steer !== 0, battery: input.battery, fire: input.fire !== 0, drop: input.drop !== 0 };
 }
 
 // --- client and server -----------------------------------------------------------------------------
@@ -76,6 +85,7 @@ defineSystem({
   worlds: ["client", "server"],
   query: [Transform, Ship],
   run(rows, ctx) {
+    const over = game()?.phase === Phase.over;
     for (const row of rows) {
       const ship = row.ship as ShipView;
       const p = row.transform.position;
@@ -84,14 +94,15 @@ defineSystem({
         continue;
       }
       const helm = helmOf(row.node, ship);
-      let wanted = SHIP_SPEED;
+      const full = SHIP_SPEED * (ship.wind > 0 ? WIND_SPEEDUP : 1);
+      let wanted = over ? 0 : full;
       if (helm?.steer) {
         const dx = helm.x - p.x, dz = helm.z - p.z;
         if (dx * dx + dz * dz > 4) {
           const turn = angleDelta(bearing(p.x, p.z, helm.x, helm.z), ship.heading);
           const step = SHIP_TURN_RATE * ctx.dt;
           ship.heading = angleDelta(ship.heading + Mathf.clamp(turn, -step, step), 0);
-          wanted = SHIP_SPEED * (1 - 0.5 * Math.min(1, Math.abs(turn) / 90));
+          if (!over) wanted = full * (1 - 0.5 * Math.min(1, Math.abs(turn) / 90));
         }
       }
       ship.speed += Mathf.clamp(wanted - ship.speed, -SHIP_ACCEL * ctx.dt, SHIP_ACCEL * ctx.dt);
@@ -111,7 +122,8 @@ function freeTeam(all: readonly ShipInfo[]): number {
   return 0;
 }
 
-function placeAtSpawn(node: GameObject, ship: ShipView): void {
+/** Puts a ship back at its spawn point, repaired, briefly invulnerable and without power-ups. */
+export function resetShip(node: GameObject, ship: ShipView): void {
   const s = spawnPoint(ship.team);
   node.transform!.position.set(s.x, 0, s.z);
   node.transform!.rotation = Quaternion.fromEuler(0, s.heading, 0);
@@ -122,6 +134,10 @@ function placeAtSpawn(node: GameObject, ship: ShipView): void {
   ship.invulnerable = SPAWN_INVULNERABLE;
   ship.reloadPort = 0;
   ship.reloadStarboard = 0;
+  ship.wind = 0;
+  ship.ghost = 0;
+  ship.cloud = 0;
+  ship.flag = 0;
 }
 
 function spawnShip(parent: GameObject, owner: number, bot: boolean, team: number): void {
@@ -133,12 +149,12 @@ function spawnShip(parent: GameObject, owner: number, bot: boolean, team: number
   ship.team = team;
   ship.bot = bot ? 1 : 0;
   ship.battery = Battery.starboard;
-  placeAtSpawn(node, ship);
+  resetShip(node, ship);
 }
 
 /**
  * A ship for each open connection, removed when the connection goes, and bots so there are
- * `PROTOTYPE_SHIPS` in all (a bot leaves when a player needs its place). Ships spawn under the
+ * `shipCount` in all (a bot leaves when a player needs its place). Ships spawn under the
  * scene's `Actors` node, so they wait for the scene.
  */
 defineSystem({
@@ -170,12 +186,22 @@ defineSystem({
     }
     // Bots only once someone is playing, so an empty server stays idle.
     if (open.size === 0) return;
-    for (let n = all.length; n < PROTOTYPE_SHIPS; n++) {
+    for (let n = all.length; n < shipCount(); n++) {
       spawnShip(actors, 0, true, freeTeam(all));
       all = ships().filter((s) => s.node.isValid);
     }
   },
 });
+
+/** How many ships a match has, players and bots together. */
+let shipCountOverride: (() => number) | null = null;
+export function shipCount(): number {
+  return shipCountOverride?.() ?? DEFAULT_SHIPS;
+}
+/** Lets the lobby's match settings decide the ship count. */
+export function setShipCount(count: (() => number) | null): void {
+  shipCountOverride = count;
+}
 
 /** Picks the battery and fires a broadside when fire is held and that battery is loaded. */
 defineSystem({
@@ -191,7 +217,7 @@ defineSystem({
       ship.reloadPort = Math.max(0, ship.reloadPort - ctx.dt);
       ship.reloadStarboard = Math.max(0, ship.reloadStarboard - ctx.dt);
       ship.invulnerable = Math.max(0, ship.invulnerable - ctx.dt);
-      if (ship.sunk > 0) continue;
+      if (ship.sunk > 0 || game()?.phase === Phase.over) continue;
       const helm = helmOf(row.node, ship);
       if (!helm) continue;
       if (helm.battery === Battery.port || helm.battery === Battery.starboard) ship.battery = helm.battery;
@@ -228,14 +254,21 @@ defineSystem({
   },
 });
 
-/** Damages a ship (unless it's sunk or just respawned); sinks it at 0. */
-function damage(target: ShipInfo, amount: number): void {
+/**
+ * Damages a ship (unless it's sunk or just respawned); sinks it at 0. `by` is the team that did
+ * it (-1: the sea, a rock or the weather), credited with a kill when it sinks someone else.
+ */
+export function damage(target: ShipInfo, amount: number, by = -1): void {
   const ship = target.data;
-  if (ship.sunk > 0 || ship.invulnerable > 0) return;
+  if (ship.sunk > 0 || ship.invulnerable > 0 || game()?.phase === Phase.over) return;
   ship.hp = Math.max(0, ship.hp - amount);
   if (ship.hp > 0) return;
   ship.sunk = RESPAWN_DELAY;
   ship.sinks++;
+  if (by >= 0 && by !== ship.team) {
+    const killer = ships().find((s) => s.data.team === by);
+    if (killer) killer.data.kills++;
+  }
   const p = target.node.transform!.position;
   Fx.send({ kind: FxKind.sink, x: p.x, y: 0, z: p.z });
 }
@@ -268,7 +301,7 @@ defineSystem({
         const along = dx * f.x + dz * f.z, across = dx * s.x + dz * s.z;
         if (Math.abs(along) > HULL_HALF_LENGTH + BALL_RADIUS || Math.abs(across) > HULL_HALF_WIDTH + BALL_RADIUS || p.y > 2.6) continue;
         done = true;
-        damage(target, BALL_DAMAGE);
+        damage(target, BALL_DAMAGE, ball.shooter);
         Fx.send({ kind: FxKind.hit, x: p.x, y: p.y, z: p.z });
       }
       for (const o of obstacles) {
@@ -349,7 +382,8 @@ defineSystem({
           s.data.speed *= 0.97;
         }
       }
-      if (p.x * p.x + p.z * p.z > ARENA_RADIUS * ARENA_RADIUS) damage(s, OUTSIDE_DAMAGE * ctx.dt);
+      const radius = arenaRadius();
+      if (p.x * p.x + p.z * p.z > radius * radius) damage(s, OUTSIDE_DAMAGE * ctx.dt);
     }
     for (let i = 0; i < all.length; i++) {
       for (let j = i + 1; j < all.length; j++) {
@@ -383,7 +417,7 @@ defineSystem({
       const ship = row.ship as ShipView;
       if (ship.sunk <= 0) continue;
       ship.sunk -= ctx.dt;
-      if (ship.sunk <= 0) placeAtSpawn(row.node, ship);
+      if (ship.sunk <= 0) resetShip(row.node, ship);
     }
   },
 });
