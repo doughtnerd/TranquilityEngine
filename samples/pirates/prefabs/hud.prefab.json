@@ -1,0 +1,491 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "hud",
+      "name": "HUD",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UICanvas",
+          "data": {}
+        },
+        {
+          "type": "pirates.Hud",
+          "data": {}
+        }
+      ]
+    },
+    {
+      "id": "screen",
+      "name": "Screen",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "100%",
+            "height": "100%",
+            "flexDirection": "column",
+            "justifyContent": "space-between",
+            "padding": 16
+          }
+        }
+      ],
+      "parent": "hud"
+    },
+    {
+      "id": "top",
+      "name": "Top",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "justifyContent": "center",
+            "backgroundColor": [
+              0.05,
+              0.07,
+              0.1,
+              0.55
+            ],
+            "borderRadius": 8,
+            "padding": 8
+          }
+        }
+      ],
+      "parent": "screen"
+    },
+    {
+      "id": "fleet",
+      "name": "Fleet",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 18,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "top"
+    },
+    {
+      "id": "middle",
+      "name": "Middle",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "justifyContent": "center"
+          }
+        }
+      ],
+      "parent": "screen"
+    },
+    {
+      "id": "status",
+      "name": "Status",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 40,
+            "color": [
+              1,
+              0.9,
+              0.6,
+              1
+            ],
+            "fontWeight": "bold"
+          }
+        }
+      ],
+      "parent": "middle"
+    },
+    {
+      "id": "bottom",
+      "name": "Bottom",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "row",
+            "alignItems": "flex-end",
+            "gap": 12
+          }
+        }
+      ],
+      "parent": "screen"
+    },
+    {
+      "id": "hullbox",
+      "name": "Hull",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "column",
+            "gap": 6,
+            "width": "280",
+            "padding": 10,
+            "backgroundColor": [
+              0.05,
+              0.07,
+              0.1,
+              0.7
+            ],
+            "borderRadius": 8
+          }
+        }
+      ],
+      "parent": "bottom"
+    },
+    {
+      "id": "swatch",
+      "name": "Swatch",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "100%",
+            "height": "4",
+            "backgroundColor": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "borderRadius": 2
+          }
+        }
+      ],
+      "parent": "hullbox"
+    },
+    {
+      "id": "hulllabel",
+      "name": "Label",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Hull 100",
+            "fontSize": 18,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "hullbox"
+    },
+    {
+      "id": "bar",
+      "name": "Bar",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "100%",
+            "height": "14",
+            "backgroundColor": [
+              0.15,
+              0.15,
+              0.18,
+              1
+            ],
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "hullbox"
+    },
+    {
+      "id": "fill",
+      "name": "Fill",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "100%",
+            "height": "100%",
+            "backgroundColor": [
+              0.35,
+              0.8,
+              0.3,
+              1
+            ],
+            "borderRadius": 4
+          }
+        }
+      ],
+      "parent": "bar"
+    },
+    {
+      "id": "port",
+      "name": "Port",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "column",
+            "gap": 6,
+            "width": "200",
+            "padding": 10,
+            "backgroundColor": [
+              0.05,
+              0.07,
+              0.1,
+              0.7
+            ],
+            "borderRadius": 8,
+            "borderWidth": 2,
+            "borderColor": [
+              0.4,
+              0.45,
+              0.5,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "bottom"
+    },
+    {
+      "id": "port-label",
+      "name": "Label",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "[A] Port",
+            "fontSize": 18,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "port"
+    },
+    {
+      "id": "port-reload",
+      "name": "Reload",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "100%",
+            "height": "6",
+            "backgroundColor": [
+              0.95,
+              0.75,
+              0.3,
+              1
+            ],
+            "borderRadius": 3
+          }
+        }
+      ],
+      "parent": "port"
+    },
+    {
+      "id": "starboard",
+      "name": "Starboard",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "column",
+            "gap": 6,
+            "width": "200",
+            "padding": 10,
+            "backgroundColor": [
+              0.05,
+              0.07,
+              0.1,
+              0.7
+            ],
+            "borderRadius": 8,
+            "borderWidth": 2,
+            "borderColor": [
+              0.4,
+              0.45,
+              0.5,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "bottom"
+    },
+    {
+      "id": "starboard-label",
+      "name": "Label",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Starboard [D]",
+            "fontSize": 18,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "starboard"
+    },
+    {
+      "id": "starboard-reload",
+      "name": "Reload",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "100%",
+            "height": "6",
+            "backgroundColor": [
+              0.95,
+              0.75,
+              0.3,
+              1
+            ],
+            "borderRadius": 3
+          }
+        }
+      ],
+      "parent": "starboard"
+    },
+    {
+      "id": "help",
+      "name": "Help",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexGrow": 1,
+            "flexDirection": "row",
+            "justifyContent": "flex-end"
+          }
+        }
+      ],
+      "parent": "bottom"
+    },
+    {
+      "id": "helptext",
+      "name": "Text",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Mouse: steer   |   A / D: port or starboard battery   |   Space: fire",
+            "fontSize": 16,
+            "color": [
+              0.95,
+              0.95,
+              0.95,
+              0.85
+            ]
+          }
+        }
+      ],
+      "parent": "help"
+    }
+  ]
+}

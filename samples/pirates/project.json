@@ -1,0 +1,48 @@
+{
+  "name": "King of Pirates",
+  "display": {
+    "width": 1280,
+    "height": 720,
+    "backgroundColor": "#8fb3cf"
+  },
+  "time": {
+    "fixedDeltaTime": 0.016666666666666666
+  },
+  "render": {
+    "sortingLayers": [
+      "Default"
+    ],
+    "pixelsPerUnit": 100
+  },
+  "bootstrap": {
+    "worlds": [
+      {
+        "name": "Server",
+        "tags": [
+          "server"
+        ],
+        "renders": false,
+        "input": false,
+        "scenes": [
+          "scenes/island-bay.scene.json"
+        ]
+      },
+      {
+        "name": "Client",
+        "tags": [
+          "client"
+        ],
+        "scenes": [
+          "scenes/island-bay.scene.json"
+        ]
+      }
+    ],
+    "links": [
+      {
+        "from": "Client",
+        "to": "Server",
+        "transport": "loopback"
+      }
+    ]
+  }
+}

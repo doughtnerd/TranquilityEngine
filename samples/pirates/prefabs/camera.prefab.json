@@ -1,0 +1,69 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              20,
+              -13
+            ],
+            "rotation": [
+              57,
+              180,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Camera",
+          "data": {
+            "projection": "perspective",
+            "fieldOfView": 50,
+            "far": 600
+          }
+        },
+        {
+          "type": "engine.AudioListener",
+          "data": {}
+        },
+        {
+          "type": "pirates.FollowCamera",
+          "data": {}
+        },
+        {
+          "type": "engine.PostProcessing",
+          "data": {
+            "bloom": true,
+            "vignette": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "ocean",
+      "name": "Ocean Sound",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/ocean_loop.wav",
+            "loop": true,
+            "volume": 0.35,
+            "playOnAwake": true
+          }
+        }
+      ],
+      "parent": "camera"
+    }
+  ]
+}

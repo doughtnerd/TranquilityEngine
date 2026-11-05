@@ -1,3 +1,4 @@
+import { effect, signal } from "@preact/signals";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LOG_LIMIT, clearLog, describeError, errorStatus, installMessageLog, logMessage, logOpen, logText, messageLog, unseenErrors } from "./messages";
 import { status } from "./state";
@@ -75,14 +76,31 @@ describe("installed", () => {
     expect(status.value?.text).toMatch(/Something went wrong: bad thing\. Click the status bar for details\./);
   });
 
-  it("logs console errors and warnings, still passing them to the console", () => {
+  it("logs console errors and warnings, still passing them to the console", async () => {
     const err = new Error("texture failed");
     console.error("[myco] failed to load texture:", err);
     console.warn("[editor] careful");
+    await Promise.resolve();
     expect(messageLog.value.map((e) => [e.kind, e.text])).toEqual([
       ["error", "[myco] failed to load texture: texture failed"],
       ["warning", "[editor] careful"],
     ]);
     expect(messageLog.value[0].detail).toBe(err.stack);
+  });
+
+  it("logs a warning made inside a signal effect just after, outside the effect", async () => {
+    // uikit warns about missing glyphs from inside its layout effects.
+    const text = signal("a");
+    let logDuringEffect = -1;
+    const stop = effect(() => {
+      void text.value;
+      console.warn('Missing glyph info for character "·"');
+      logDuringEffect = messageLog.peek().length;
+    });
+    text.value = "b";
+    stop();
+    expect(logDuringEffect).toBe(0);
+    await Promise.resolve();
+    expect(messageLog.value.map((e) => e.text)).toEqual(['Missing glyph info for character "·"', 'Missing glyph info for character "·"']);
   });
 });

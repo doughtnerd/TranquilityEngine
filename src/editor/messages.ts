@@ -99,7 +99,10 @@ export function installMessageLog(target: Window = window): () => void {
   const capture = (kind: "error" | "warning", args: unknown[]) => {
     const err = args.find((a) => a instanceof Error) as Error | undefined;
     const text = args.map((a) => (a instanceof Error ? a.message : typeof a === "string" ? a : describeError(a).message)).join(" ");
-    logMessage(kind, text, err?.stack);
+    // Logged just after, never inside the caller: a library can log from inside its own signal
+    // effects (uikit warns about missing glyphs while it lays out text), and writing the log's
+    // signals there re-runs effects in the same batch until preact gives up with "Cycle detected".
+    queueMicrotask(() => logMessage(kind, text, err?.stack));
   };
   console.error = (...args: unknown[]) => {
     original.error.apply(console, args);

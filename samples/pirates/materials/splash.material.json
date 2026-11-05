@@ -1,0 +1,10 @@
+{
+  "format": "myco.material@1",
+  "shader": "unlit",
+  "color": [
+    1,
+    1,
+    1,
+    0.85
+  ]
+}

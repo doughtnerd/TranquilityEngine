@@ -1,0 +1,38 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "rock2",
+      "name": "Rock2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "pirates.Obstacle",
+          "data": {
+            "radius": 2.6
+          }
+        }
+      ]
+    },
+    {
+      "id": "rock2-rock2",
+      "name": "Rock2",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/rock2.obj#Rock2"
+          }
+        }
+      ],
+      "parent": "rock2"
+    }
+  ]
+}

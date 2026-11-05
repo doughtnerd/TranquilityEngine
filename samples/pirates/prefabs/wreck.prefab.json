@@ -1,0 +1,72 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "wreck",
+      "name": "Wreck",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "pirates.Obstacle",
+          "data": {
+            "radius": 2.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "wreck-hull",
+      "name": "Hull",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/wreck.obj#Hull"
+          }
+        }
+      ],
+      "parent": "wreck"
+    },
+    {
+      "id": "wreck-mast",
+      "name": "Mast",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/wreck.obj#Mast"
+          }
+        }
+      ],
+      "parent": "wreck"
+    },
+    {
+      "id": "wreck-debris",
+      "name": "Debris",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/wreck.obj#Debris"
+          }
+        }
+      ],
+      "parent": "wreck"
+    }
+  ]
+}

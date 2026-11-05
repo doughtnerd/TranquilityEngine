@@ -1,0 +1,80 @@
+{
+  "format": "myco.scene@1",
+  "nodes": [
+    {
+      "id": "ship",
+      "name": "Ship",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "net.Replicated",
+          "data": {
+            "mode": "predicted"
+          }
+        },
+        {
+          "type": "pirates.Ship",
+          "data": {
+            "hp": 100,
+            "battery": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "visual",
+      "name": "Visual",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        }
+      ],
+      "parent": "ship"
+    },
+    {
+      "id": "hull",
+      "name": "Hull",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/ship.obj#Hull"
+          }
+        }
+      ],
+      "parent": "visual"
+    },
+    {
+      "id": "sails",
+      "name": "Sails",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/ship.obj#Sails",
+            "material": "asset:materials/sail.material.json"
+          }
+        }
+      ],
+      "parent": "visual"
+    }
+  ]
+}
