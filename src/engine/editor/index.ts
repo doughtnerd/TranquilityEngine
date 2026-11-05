@@ -599,7 +599,7 @@ export function setSelectionOutlineShown(world: World, shown: boolean): void {
 }
 
 /** How much editor drawing `world`'s view shows now: overlay line segments, handles and selection outlines. Null headless. */
-export function editorDrawingShown(world: World): { segments: number; handles: number; outlines: number } | null {
+export function editorDrawingShown(world: World): { segments: number; handles: number; outlines: number; drawnObjects: number } | null {
   return world.render?.editorDrawingShown() ?? null;
 }
 
