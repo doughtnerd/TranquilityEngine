@@ -8,6 +8,7 @@ import { FlagState, Game, Phase, Ship, type FlagView, type GameView, type ShipVi
 import "../../../samples/pirates/scripts/systems";
 import "../../../samples/pirates/scripts/client";
 import "../../../samples/pirates/scripts/bots";
+import { navStats } from "../../../samples/pirates/scripts/navigation";
 import "../../../samples/pirates/scripts/rules";
 import "../../../samples/pirates/scripts/weather";
 import "../../../samples/pirates/scripts/behaviors/Bolt";
@@ -89,6 +90,8 @@ describe("the King of Pirates sample", () => {
       const from = start!.get(s.data.team)!;
       expect(Math.hypot(s.x - from.x, s.z - from.z) + s.data.sinks).toBeGreaterThan(5);
     }
+    // The bots planned their routes on the arena's navmesh.
+    expect(navStats.get(server)?.plans).toBeGreaterThan(0);
     // The bots fought: someone was hurt, and someone sank.
     expect(minHp).toBeLessThan(100);
     expect(maxSinks).toBeGreaterThan(0);

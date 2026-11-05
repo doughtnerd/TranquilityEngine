@@ -50,6 +50,35 @@
         }
       ],
       "parent": "island1"
+    },
+    {
+      "id": "island1-nav",
+      "name": "Nav Footprint",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "scale": [
+              6.0,
+              0.75,
+              6.0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshCollider",
+          "data": {
+            "mesh": "builtin:cylinder"
+          }
+        },
+        {
+          "type": "engine.NavObstacle",
+          "data": {
+            "source": "collider"
+          }
+        }
+      ],
+      "parent": "island1"
     }
   ]
 }

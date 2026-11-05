@@ -39,3 +39,4 @@ A fresh-agent code review of the waves' diff, fixes, an e2e smoke test that the 
 
 - 2026-11-04: ADRs 0067–0074 written and accepted on the owner's go-ahead. Added `@pmndrs/uikit` 1.0.77.
 - 2026-11-05: Wave 1 merged (W1-NET, W1-UI, W1-NAV, W1-WATER, W1-SMALL, W1-ASSETS). Typecheck, build and Vitest pass except two `websocket.test.ts` cases that also fail before wave 1 in the cloud sandbox (its proxy hides failed WebSocket handshakes from Node's client). Not yet run in a browser: the water shader, uikit text and input, and the lobby's hand-over of the screen to the match World (drawn on an overlay through the editor's view hooks; a proper Engine hook is a follow-up).
+- 2026-11-05: Bots navigate: each arena has a baked navmesh (`scenes/<arena>.nav.bin`, the "Ship" agent type in `project.json`), and `scripts/navigation.ts` steers bots along `Navigation.findPath` routes, round rocks and fog clouds' cost volumes, falling back to the tangent steer without one.

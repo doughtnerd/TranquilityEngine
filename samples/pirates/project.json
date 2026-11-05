@@ -44,5 +44,34 @@
         "transport": "loopback"
       }
     ]
+  },
+  "navigation": {
+    "agentTypes": [
+      {
+        "id": "c4a7e2d1-5b3f-4e8a-9d61-2f0b8e7c3a10",
+        "name": "Ship",
+        "canWalk": true,
+        "walk": {
+          "radius": 2,
+          "height": 3,
+          "pivotOffset": 0,
+          "stepHeight": 0.6,
+          "speed": 9,
+          "canJump": false,
+          "maxFallDistance": 0.5,
+          "waypointReachedDistance": 3,
+          "arrivalDistance": 3,
+          "maxSnapDistance": 4
+        },
+        "canFly": false,
+        "avoidance": null
+      }
+    ],
+    "cellsPerRadius": 8,
+    "tileSize": 16,
+    "build": {
+      "maxSimplificationError": 1,
+      "maxEdgeLength": 8
+    }
   }
 }

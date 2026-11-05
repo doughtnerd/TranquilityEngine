@@ -129,6 +129,58 @@
       ]
     },
     {
+      "id": "navigation",
+      "name": "Navigation",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.NavChunk",
+          "data": {
+            "collect": "none",
+            "scope": "scene",
+            "bake": "asset:scenes/island-bay.nav.bin"
+          }
+        }
+      ]
+    },
+    {
+      "id": "nav-water",
+      "name": "Sailable Water",
+      "parent": "navigation",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              -0.05,
+              0
+            ],
+            "scale": [
+              144.0,
+              0.05,
+              144.0
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshCollider",
+          "data": {
+            "mesh": "builtin:cylinder"
+          }
+        },
+        {
+          "type": "engine.NavSurface",
+          "data": {
+            "source": "collider"
+          }
+        }
+      ]
+    },
+    {
       "id": "flag",
       "name": "Flag",
       "components": [

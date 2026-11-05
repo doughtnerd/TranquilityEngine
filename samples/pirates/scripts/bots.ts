@@ -113,20 +113,24 @@ defineSystem({
       }
 
       ship.fire = 0;
-      let heading = steer(ctx.world, ship.team, p.x, p.z, goal.x, goal.z, ship.heading);
       if (target) {
         const toTarget = bearing(p.x, p.z, target.x, target.z);
         const side = (target.x - p.x) * s.x + (target.z - p.z) * s.z >= 0 ? Battery.starboard : Battery.port;
         ship.battery = side;
         const beam = toTarget + (side === Battery.starboard ? 90 : -90); // the heading that puts it abeam
-        // Hunting (rather than racing for the free flag or running with it): run parallel once in range.
-        if (holder >= 0 && holder !== ship.team && target.d < RANGE) heading = beam;
+        // Hunting (rather than racing for the free flag or running with it): run parallel once in range,
+        // steering for a point ahead on that course like any other goal, so it doesn't run onto a rock.
+        if (holder >= 0 && holder !== ship.team && target.d < RANGE) {
+          const b = forward(beam);
+          goal = { x: p.x + b.x * 20, z: p.z + b.z * 20 };
+        }
         const off = Math.abs(angleDelta(ship.heading, beam));
         const reload = side === Battery.port ? ship.reloadPort : ship.reloadStarboard;
         if (off < AIM_TOLERANCE && target.d < RANGE && reload <= 0) ship.fire = 1;
         // A ghost holding the flag drops its cloud when someone's close (a bot's drop is "fire" while it has a cloud).
         if (ship.cloud && holder === ship.team && target.d < 25) ship.fire = 1;
       }
+      let heading = steer(ctx.world, ship.team, p.x, p.z, goal.x, goal.z, ship.heading);
 
       if (Math.hypot(p.x, p.z) > arenaRadius() * 0.85) heading = bearing(p.x, p.z, 0, 0);
       const aim = forward(heading);
