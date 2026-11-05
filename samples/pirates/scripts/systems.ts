@@ -55,11 +55,23 @@ export function arenaRadius(): number {
   return game()?.radius || ARENA_RADIUS;
 }
 
-/** Where ships start and respawn: a ring facing the middle. */
-function spawnPoint(slot: number, count = 8): { x: number; z: number; heading: number } {
-  const a = (slot / count) * Math.PI * 2 + 0.3;
-  const r = arenaRadius() * 0.75;
-  const x = Math.sin(a) * r, z = Math.cos(a) * r;
+/**
+ * Where ships start and respawn: a ring facing the middle, each slot sliding along the ring (then
+ * inward) until it's clear of the arena's obstacles.
+ */
+function spawnPoint(world: object | null, slot: number, count = 8): { x: number; z: number; heading: number } {
+  const obstacles = world ? obstacleList(world) : [];
+  const clear = (x: number, z: number) => obstacles.every((o) => Math.hypot(o.x - x, o.z - z) > o.r + SHIP_RADIUS + 2);
+  const base = (slot / count) * Math.PI * 2 + 0.3;
+  for (let ring = 0; ring < 4; ring++) {
+    const r = arenaRadius() * (0.75 - ring * 0.08);
+    for (let step = 0; step < 12; step++) {
+      const a = base + (step % 2 ? 1 : -1) * Math.ceil(step / 2) * 0.05;
+      const x = Math.sin(a) * r, z = Math.cos(a) * r;
+      if (clear(x, z)) return { x, z, heading: bearing(x, z, 0, 0) + 90 };
+    }
+  }
+  const x = Math.sin(base) * arenaRadius() * 0.75, z = Math.cos(base) * arenaRadius() * 0.75;
   return { x, z, heading: bearing(x, z, 0, 0) + 90 };
 }
 
@@ -123,8 +135,8 @@ function freeTeam(all: readonly ShipInfo[]): number {
 }
 
 /** Puts a ship back at its spawn point, repaired, briefly invulnerable and without power-ups. */
-export function resetShip(node: GameObject, ship: ShipView): void {
-  const s = spawnPoint(ship.team);
+export function resetShip(node: GameObject, ship: ShipView, world: object | null = null): void {
+  const s = spawnPoint(world, ship.team);
   node.transform!.position.set(s.x, 0, s.z);
   node.transform!.rotation = Quaternion.fromEuler(0, s.heading, 0);
   ship.heading = angleDelta(s.heading, 0);
@@ -140,7 +152,7 @@ export function resetShip(node: GameObject, ship: ShipView): void {
   ship.flag = 0;
 }
 
-function spawnShip(parent: GameObject, owner: number, bot: boolean, team: number): void {
+function spawnShip(world: object, parent: GameObject, owner: number, bot: boolean, team: number): void {
   const node = GameObject.instantiate(SHIP_PREFAB, { parent });
   const rep = node.getBehavior(Replicated)!;
   rep.ownerId = owner;
@@ -149,7 +161,7 @@ function spawnShip(parent: GameObject, owner: number, bot: boolean, team: number
   ship.team = team;
   ship.bot = bot ? 1 : 0;
   ship.battery = Battery.starboard;
-  resetShip(node, ship);
+  resetShip(node, ship, world);
 }
 
 /**
@@ -162,7 +174,7 @@ defineSystem({
   phase: "update",
   worlds: ["server"],
   query: [Connection],
-  run(rows) {
+  run(rows, ctx) {
     const actors = GameObject.findObjectOfType(Actors)?.node;
     if (!actors) return;
     const open = new Set<number>();
@@ -181,13 +193,13 @@ defineSystem({
         GameObject.destroy(bot.node);
         all = all.filter((s) => s !== bot);
       }
-      spawnShip(actors, id, false, team);
+      spawnShip(ctx.world, actors, id, false, team);
       all = ships().filter((s) => s.node.isValid);
     }
     // Bots only once someone is playing, so an empty server stays idle.
     if (open.size === 0) return;
     for (let n = all.length; n < shipCount(); n++) {
-      spawnShip(actors, 0, true, freeTeam(all));
+      spawnShip(ctx.world, actors, 0, true, freeTeam(all));
       all = ships().filter((s) => s.node.isValid);
     }
   },
@@ -417,7 +429,7 @@ defineSystem({
       const ship = row.ship as ShipView;
       if (ship.sunk <= 0) continue;
       ship.sunk -= ctx.dt;
-      if (ship.sunk <= 0) resetShip(row.node, ship);
+      if (ship.sunk <= 0) resetShip(row.node, ship, ctx.world);
     }
   },
 });

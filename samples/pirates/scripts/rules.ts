@@ -75,7 +75,7 @@ function startMatch(world: object): void {
     s.data.score = 0;
     s.data.kills = 0;
     s.data.sinks = 0;
-    resetShip(s.node, s.data);
+    resetShip(s.node, s.data, world);
   }
   const f = flag();
   const home = flagHome.get(world);
