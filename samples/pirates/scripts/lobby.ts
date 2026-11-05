@@ -8,8 +8,9 @@
 //   the clock runs out shows the results for `LOBBY_RESULTS_SECONDS`, then ends the match with them
 //   (`Match.current.end`): the players are back in their room, which shows the results.
 // - The match client World loads the arena the server names and puts the captains' names and
-//   "back to the harbour in…" on the HUD.
-import { Connection, ConnectionState, GameObject, Match, SceneManager, defineRpc, defineSystem, str, u8, type MatchInfo } from "myco";
+//   "back to the harbour in…" on the HUD, and gives the HUD's "Leave the match?" dialog its Leave
+//   (`Lobby.leaveMatch()`).
+import { Connection, ConnectionState, GameObject, Lobby, Match, SceneManager, defineRpc, defineSystem, str, u8, type MatchInfo } from "myco";
 import { DEFAULT_SHIPS, MATCH_SECONDS, Phase, game, myShip, ships } from "./data";
 import { Hud, setCaptainNames } from "./behaviors/Hud";
 import { onMatchOver, setMatchLength, type MatchResult } from "./rules";
@@ -157,6 +158,16 @@ defineSystem({
 
 // --- the match client World -----------------------------------------------------------------------
 
+/** This page left its match before the end (the room's match may still be on); the menu says so. */
+let leftEarly = false;
+export function leftMatchEarly(): boolean {
+  return leftEarly;
+}
+/** The room's match is over (or another began): forget that this page left it early. */
+export function forgetLeftMatch(): void {
+  leftEarly = false;
+}
+
 interface ClientMatch {
   scene: string;
   names: Map<number, string>;
@@ -187,6 +198,17 @@ defineSystem({
 
     const hud = GameObject.findObjectOfType(Hud);
     if (!hud) return;
+    // The HUD's Leave button: back to the room. The match server sees the connection close and
+    // removes the ship (a flag it held drops where it was), and a bot takes the slot
+    // (systems.ts `pirates.SpawnShips`); a match every player has left ends.
+    const ours = Lobby.matchWorld?.name === ctx.world.name;
+    if (ours && !hud.leaveMatch) {
+      hud.leaveMatch = () => {
+        leftEarly = true;
+        Lobby.leaveMatch();
+      };
+    }
+    else if (!ours && hud.leaveMatch) hud.leaveMatch = null;
     const mine = myShip()?.data.team ?? -1;
     const names = new Map([...st.names].filter(([team]) => team !== mine)); // your own ship is "You"
     namesByHud.set(hud, names);
