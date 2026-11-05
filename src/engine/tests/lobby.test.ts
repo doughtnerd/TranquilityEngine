@@ -115,6 +115,10 @@ describe("lobby over loopback (ADR 0068)", () => {
     expect(a.matchWorld!.name).toBe("Match 1 Client");
     expect(b.matchWorld!.name).toBe("Match 1 Client 2");
     expect(engine.findWorld("Menu")!.paused).toBe(true); // the page's rendering World waits
+    // ...having handed the view, and input with it, to the match client Worlds (hot-seat: the last one has it).
+    const view = (name: string) => engine._viewStates().find((v) => v.name === name)!;
+    expect(view("Menu")).toMatchObject({ mainView: false, takesInput: false, viewHanded: true });
+    expect(view("Match 1 Client 2")).toMatchObject({ mainView: true, takesInput: true });
 
     const match = matchOf(engine, "Match 1");
     await stepUntil([engine], () => match.players.every((p) => p.connectionId > 0), "both players' connections");
@@ -141,6 +145,7 @@ describe("lobby over loopback (ADR 0068)", () => {
     expect(a.room!.results).toEqual({ winner: "Bart" });
     expect(a.room!.members.every((m) => !m.ready)).toBe(true);
     expect(engine.findWorld("Menu")!.paused).toBe(false);
+    expect(view("Menu")).toMatchObject({ mainView: true, takesInput: true, viewHanded: false }); // and has the view back
   });
 
   it("private rooms by code, host settings, kicking, host hand-over and refusals with reasons", async () => {
