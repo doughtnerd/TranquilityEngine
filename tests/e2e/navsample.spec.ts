@@ -114,6 +114,27 @@ test("Play: chunks stream in round the agents, agents of every kind move, the Na
   const withoutNavmesh = (await overlay(page))?.play[0] ?? 0;
   await page.getByRole("checkbox", { name: "Navmesh" }).check();
   await expect.poll(async () => (await overlay(page))?.play[0] ?? 0).toBeGreaterThan(withoutNavmesh);
+
+  // Post-processing on the camera keeps the debug drawing: it's drawn back after the effects (a bloom pass used to
+  // hide it for good in play Worlds).
+  const drawnObjects = () =>
+    page.evaluate(() => {
+      const rows = (window as unknown as { playEditorDrawing?: () => { drawn: { drawnObjects: number } | null }[] }).playEditorDrawing?.() ?? [];
+      return rows.reduce((n, r) => n + (r.drawn?.drawnObjects ?? 0), 0);
+    });
+  await expect.poll(drawnObjects).toBeGreaterThan(0);
+  const added = await page.evaluate(() => {
+    type C = { node: { addBehavior(type: unknown, init?: object): unknown } };
+    const myco = (globalThis as unknown as { __myco?: { Camera: unknown; PostProcessing: unknown } }).__myco;
+    const w = (window as unknown as { playEngine?: { world: { _componentsOfType(type: unknown): C[] } } | null }).playEngine?.world;
+    const camera = myco && w?._componentsOfType(myco.Camera)[0];
+    if (!camera) return false;
+    camera.node.addBehavior(myco.PostProcessing, { bloom: true });
+    return true;
+  });
+  expect(added).toBe(true);
+  await page.waitForTimeout(1_000); // the post-processing libraries load, then frames go through the composer
+  await expect.poll(drawnObjects, { timeout: 10_000 }).toBeGreaterThan(0);
   await page.getByRole("checkbox", { name: "Navmesh" }).uncheck();
 
   await page.getByRole("button", { name: /Stop/ }).click();

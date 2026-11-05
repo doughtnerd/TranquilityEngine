@@ -261,6 +261,9 @@ const tmpCorner = new ThreeVector3();
 /** The renderer's tone mapping for each PostProcessing `toneMapping` (ADR 0051). */
 const TONE_MAPPING: Record<ToneMappingName, ThreeToneMapping> = { none: NoToneMapping, aces: ACESFilmicToneMapping, agx: AgXToneMapping, neutral: NeutralToneMapping };
 
+/** Which editor helpers a composed (post-processed) camera draws after its effects; see `renderComposed`. */
+type ComposedHelpers = "editor" | "overlays" | "none";
+
 export class RenderBackend {
   readonly canvas: HTMLCanvasElement;
   private readonly renderer: WebGLRenderer;
@@ -1375,6 +1378,8 @@ export class RenderBackend {
     if (Graphics._version !== this.appliedQuality) this.applyQuality();
     const r = this.renderer;
     r.info.reset();
+    this.overlayDraws.last = this.overlayDraws.count;
+    this.overlayDraws.count = 0;
     this.graphUniforms.time.value = world.time.time;
     r.getDrawingBufferSize(this.graphUniforms.resolution.value);
     const cams = this.viewCameras(world);
@@ -1399,7 +1404,7 @@ export class RenderBackend {
       r.toneMappingExposure = resolved.exposure;
       r.setClearColor(c.backgroundColor ? new ThreeColor(c.backgroundColor.toHex()) : this.clearColor, 1);
       const stack = resolved.composer ? this.stackFor(c) : null; // null while the libraries load
-      if (stack && this.composeSafely(stack, resolved.composer!, camera, world.time.deltaTime, { overlay: i > 0 && !c.backgroundColor, viewport: full ? undefined : vp, helpers: i === 0 && this.fill })) {
+      if (stack && this.composeSafely(stack, resolved.composer!, camera, world.time.deltaTime, { overlay: i > 0 && !c.backgroundColor, viewport: full ? undefined : vp, helpers: i !== 0 ? "none" : this.fill ? "editor" : "overlays" })) {
         frame.composed = true;
         return;
       }
@@ -1431,7 +1436,7 @@ export class RenderBackend {
   }
 
   /** Render through a composer; a failure turns post-processing off (with an error) instead of losing the frame. False if it didn't draw. */
-  private composeSafely(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number, opts: { overlay: boolean; viewport?: PostViewport; helpers: boolean }): boolean {
+  private composeSafely(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number, opts: { overlay: boolean; viewport?: PostViewport; helpers: ComposedHelpers }): boolean {
     try {
       this.renderComposed(stack, effects, camera, dt, opts);
       return true;
@@ -1505,14 +1510,18 @@ export class RenderBackend {
   }
 
   /**
-   * The main camera through the composer. In the editor, the grid, gizmos and outlines stay out
-   * of the effects: they draw afterwards, over a depth-only pass so meshes still hide the grid.
+   * The main camera through the composer. Editor helpers never go through the effects; they draw afterwards:
+   * - `"editor"` (the editor's own World): grid, gizmos, outlines and overlays, over a depth-only pass so meshes
+   *   still hide the grid;
+   * - `"overlays"` (a game or play World's first camera): its overlays and selection outlines, the debug drawing
+   *   (navigation, ADR 0065) a game or play mode adds. They don't depth-test, so no depth pass is needed;
+   * - `"none"` (other cameras, the camera preview): nothing.
    */
-  private renderComposed(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number, opts: { overlay: boolean; viewport?: PostViewport; helpers: boolean }): void {
+  private renderComposed(stack: PostProcessStack, effects: PostEffects, camera: ThreeCamera, dt: number, opts: { overlay: boolean; viewport?: PostViewport; helpers: ComposedHelpers }): void {
     const r = this.renderer;
     r.toneMapping = NoToneMapping; // the composer tone-maps at its end
-    const helpers = opts.helpers ? this.editorHelpers() : [];
-    const hidden = opts.helpers ? helpers : this.editorHelpers(); // helpers never go through effects
+    const hidden = this.editorHelpers(); // helpers never go through effects
+    const helpers = opts.helpers === "editor" ? hidden : opts.helpers === "overlays" ? hidden.filter((o) => this.isGameOverlay(o)) : [];
     for (const o of hidden) o.visible = false;
     const w = opts.viewport?.width ?? this.canvas.clientWidth, h = opts.viewport?.height ?? this.canvas.clientHeight;
     const size = `${w}x${h}@${r.getPixelRatio()}`;
@@ -1528,6 +1537,10 @@ export class RenderBackend {
     }
     if (!helpers.length) return;
     r.toneMapping = NoToneMapping;
+    if (opts.helpers === "overlays") {
+      this.renderOnly(helpers, camera);
+      return;
+    }
     r.clearDepth();
     this.depthOnly ??= new MeshBasicMaterial({ colorWrite: false });
     // Particles too: their batches draw instanced quads that only their own shader places, so under
@@ -1547,6 +1560,19 @@ export class RenderBackend {
   }
 
   /** The editor's helpers in the scene that are showing: grid, axes, gizmos, outlines, overlays. */
+  /** Overlays and selection outlines: what a game or play World can draw of the editor helpers. */
+  private isGameOverlay(o: Object3D): boolean {
+    return o === this.overlayLines || o === this.overlayHandles || this.overlaySegments.some((s) => s.object === o) || (this.outlines as Object3D[]).includes(o) || (this.boxOutlines as Object3D[]).includes(o);
+  }
+
+  /** Draws just `objects` (scene children) with `camera`, over what's already there. */
+  private renderOnly(objects: readonly Object3D[], camera: ThreeCamera): void {
+    const others = this.scene.children.filter((o) => o.visible && !objects.includes(o));
+    for (const o of others) o.visible = false;
+    this.renderer.render(this.scene, camera);
+    for (const o of others) o.visible = true;
+  }
+
   private editorHelpers(): Object3D[] {
     const helpers: (Object3D | null)[] = [this.grid, this.axes, this.overlayLines, this.overlayHandles, ...this.overlaySegments.map((s) => s.object), this.gizmo?.getHelper() ?? null, this.lightWires, ...this.outlines, ...this.boxOutlines];
     for (const g of this.cameraGizmos.values()) helpers.push(g.icon, g.frustum);
@@ -1788,7 +1814,7 @@ export class RenderBackend {
     const resolved = resolvePostEffects(this.postSettings(p.camera), Graphics.tier);
     r.toneMappingExposure = resolved.exposure;
     const stack = resolved.composer ? this.stackFor(p.camera) : null;
-    const composed = !!stack && this.composeSafely(stack, resolved.composer!, camera, dt, { overlay: false, viewport: vp, helpers: false });
+    const composed = !!stack && this.composeSafely(stack, resolved.composer!, camera, dt, { overlay: false, viewport: vp, helpers: "none" });
     this.setViewportRect(vp);
     if (!composed) {
       r.toneMapping = TONE_MAPPING[resolved.toneMapping];
@@ -2072,8 +2098,15 @@ export class RenderBackend {
     return { drawCalls: render.calls, triangles: render.triangles, lines: render.lines, points: render.points, geometries: memory.geometries, textures: memory.textures, programs: programs?.length ?? 0 };
   }
 
-  /** @internal Editor and tests: how much editor drawing is showing now: overlay line segments (lines and bulk groups), handles, and outlines. */
-  editorDrawingShown(): { segments: number; handles: number; outlines: number } {
+  /** Overlay objects drawn: this frame so far, and in the whole last frame. */
+  private readonly overlayDraws = { count: 0, last: 0 };
+
+  /**
+   * @internal Editor and tests: how much editor drawing is showing now: overlay line segments (lines and bulk groups),
+   * handles, outlines, and how many overlay objects the last frame really drew (0 when something hid them, e.g. a
+   * post-processing pass that didn't draw them back).
+   */
+  editorDrawingShown(): { segments: number; handles: number; outlines: number; drawnObjects: number } {
     const count = (o: { visible: boolean; geometry: BufferGeometry } | null): number => {
       if (!o?.visible) return 0;
       const n = o.geometry.drawRange.count; // Infinity: the whole buffer
@@ -2082,7 +2115,7 @@ export class RenderBackend {
     let segments = Math.floor(count(this.overlayLines) / 2);
     for (const s of this.overlaySegments) segments += Math.floor(count(s.object) / 2);
     const outlines = this.outlines.filter((o) => o.visible).length + this.boxOutlines.filter((o) => o.visible).length;
-    return { segments, handles: count(this.overlayHandles), outlines };
+    return { segments, handles: count(this.overlayHandles), outlines, drawnObjects: this.overlayDraws.last };
   }
 
   /** Position one outline per selected sprite, and a box around each selected mesh (called from `sync`, after renderers). */
@@ -2279,6 +2312,7 @@ export class RenderBackend {
   private addOverlayObject<T extends LineSegments<BufferGeometry, LineBasicMaterial> | Points<BufferGeometry, PointsMaterial>>(object: T, renderOrder: number): T {
     object.frustumCulled = false;
     object.renderOrder = renderOrder;
+    object.onAfterRender = () => void this.overlayDraws.count++; // what actually reached the screen (editorDrawingShown)
     this.scene.add(object);
     return object;
   }
