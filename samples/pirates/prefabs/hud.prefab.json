@@ -785,6 +785,643 @@
         }
       ],
       "parent": "help"
+    },
+    {
+      "id": "overlay",
+      "name": "Overlay",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "positionType": "absolute",
+            "top": "0",
+            "left": "0",
+            "width": "100%",
+            "height": "100%"
+          }
+        }
+      ],
+      "parent": "hud"
+    },
+    {
+      "id": "minimap",
+      "name": "Minimap",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "positionType": "absolute",
+            "top": "64",
+            "right": "16",
+            "width": "176",
+            "height": "196",
+            "flexDirection": "column",
+            "alignItems": "center",
+            "padding": 6,
+            "gap": 2,
+            "backgroundColor": [
+              0.05,
+              0.07,
+              0.1,
+              0.6
+            ],
+            "borderRadius": 10
+          }
+        }
+      ],
+      "parent": "overlay"
+    },
+    {
+      "id": "chart",
+      "name": "Chart",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "164",
+            "height": "164",
+            "borderRadius": 82,
+            "backgroundColor": [
+              0.09,
+              0.26,
+              0.4,
+              0.9
+            ],
+            "borderWidth": 2,
+            "borderColor": [
+              1,
+              0.45,
+              0.25,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "minimap"
+    },
+    {
+      "id": "chart-land",
+      "name": "Land",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        }
+      ],
+      "parent": "chart"
+    },
+    {
+      "id": "chart-clouds",
+      "name": "Clouds",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        }
+      ],
+      "parent": "chart"
+    },
+    {
+      "id": "chart-pickups",
+      "name": "Pickups",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        }
+      ],
+      "parent": "chart"
+    },
+    {
+      "id": "chart-flag",
+      "name": "Flag",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        }
+      ],
+      "parent": "chart"
+    },
+    {
+      "id": "chart-ships",
+      "name": "Ships",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        }
+      ],
+      "parent": "chart"
+    },
+    {
+      "id": "north",
+      "name": "North",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "positionType": "absolute",
+            "top": "2",
+            "left": "76",
+            "width": "12",
+            "height": "16",
+            "alignItems": "center"
+          }
+        }
+      ],
+      "parent": "chart"
+    },
+    {
+      "id": "north-label",
+      "name": "Label",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "N",
+            "fontSize": 12,
+            "color": [
+              1,
+              1,
+              1,
+              0.8
+            ],
+            "fontWeight": "bold"
+          }
+        }
+      ],
+      "parent": "north"
+    },
+    {
+      "id": "chart-legend",
+      "name": "Legend",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 12,
+            "color": [
+              0.85,
+              0.88,
+              0.92,
+              0.9
+            ]
+          }
+        }
+      ],
+      "parent": "minimap"
+    },
+    {
+      "id": "flagmarker",
+      "name": "FlagMarker",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "positionType": "absolute",
+            "top": "0",
+            "left": "0",
+            "width": "64",
+            "height": "60",
+            "flexDirection": "column",
+            "alignItems": "center",
+            "gap": 2
+          }
+        }
+      ],
+      "parent": "overlay"
+    },
+    {
+      "id": "flagmarker-badge",
+      "name": "Badge",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "36",
+            "height": "36",
+            "borderRadius": 18,
+            "backgroundColor": [
+              0.05,
+              0.07,
+              0.1,
+              0.8
+            ],
+            "borderWidth": 3,
+            "borderColor": [
+              1,
+              0.85,
+              0.4,
+              1
+            ],
+            "alignItems": "center",
+            "justifyContent": "center"
+          }
+        }
+      ],
+      "parent": "flagmarker"
+    },
+    {
+      "id": "flagmarker-icon",
+      "name": "Icon",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIImage",
+          "data": {
+            "image": "asset:textures/icon_flag.png",
+            "width": "24",
+            "height": "24"
+          }
+        }
+      ],
+      "parent": "flagmarker-badge"
+    },
+    {
+      "id": "flagmarker-label",
+      "name": "Label",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 13,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "fontWeight": "bold",
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "flagmarker"
+    },
+    {
+      "id": "homemarker",
+      "name": "HomeMarker",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "positionType": "absolute",
+            "top": "0",
+            "left": "0",
+            "width": "64",
+            "height": "60",
+            "flexDirection": "column",
+            "alignItems": "center",
+            "gap": 2
+          }
+        }
+      ],
+      "parent": "overlay"
+    },
+    {
+      "id": "homemarker-badge",
+      "name": "Badge",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "width": "36",
+            "height": "36",
+            "borderRadius": 18,
+            "backgroundColor": [
+              0.05,
+              0.07,
+              0.1,
+              0.8
+            ],
+            "borderWidth": 3,
+            "borderColor": [
+              1,
+              0.45,
+              0.25,
+              1
+            ],
+            "alignItems": "center",
+            "justifyContent": "center"
+          }
+        }
+      ],
+      "parent": "homemarker"
+    },
+    {
+      "id": "homemarker-icon",
+      "name": "Icon",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "!",
+            "fontSize": 20,
+            "color": [
+              1,
+              0.45,
+              0.25,
+              1
+            ],
+            "fontWeight": "bold"
+          }
+        }
+      ],
+      "parent": "homemarker-badge"
+    },
+    {
+      "id": "homemarker-label",
+      "name": "Label",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Battle",
+            "fontSize": 13,
+            "color": [
+              0.95,
+              0.93,
+              0.85,
+              1
+            ],
+            "fontWeight": "bold",
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "homemarker"
+    },
+    {
+      "id": "edge",
+      "name": "Edge",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "positionType": "absolute",
+            "top": "70",
+            "left": "0",
+            "width": "100%",
+            "flexDirection": "column",
+            "alignItems": "center"
+          }
+        }
+      ],
+      "parent": "overlay"
+    },
+    {
+      "id": "edge-box",
+      "name": "Box",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "column",
+            "alignItems": "center",
+            "gap": 4,
+            "padding": 12,
+            "borderRadius": 10,
+            "backgroundColor": [
+              0.75,
+              0.12,
+              0.08,
+              0.88
+            ],
+            "borderWidth": 2,
+            "borderColor": [
+              1,
+              0.8,
+              0.6,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "edge"
+    },
+    {
+      "id": "edge-title",
+      "name": "Title",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 28,
+            "color": [
+              1,
+              0.97,
+              0.9,
+              1
+            ],
+            "fontWeight": "bold",
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "edge-box"
+    },
+    {
+      "id": "edge-detail",
+      "name": "Detail",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "",
+            "fontSize": 18,
+            "color": [
+              1,
+              0.92,
+              0.85,
+              1
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "edge-box"
+    },
+    {
+      "id": "fog",
+      "name": "Fog",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "positionType": "absolute",
+            "bottom": "96",
+            "left": "0",
+            "width": "100%",
+            "flexDirection": "column",
+            "alignItems": "center"
+          }
+        }
+      ],
+      "parent": "overlay"
+    },
+    {
+      "id": "fog-box",
+      "name": "Box",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIPanel",
+          "data": {
+            "flexDirection": "column",
+            "alignItems": "center",
+            "gap": 2,
+            "padding": 10,
+            "borderRadius": 10,
+            "backgroundColor": [
+              0.55,
+              0.6,
+              0.66,
+              0.8
+            ],
+            "borderWidth": 2,
+            "borderColor": [
+              0.9,
+              0.93,
+              0.96,
+              1
+            ]
+          }
+        }
+      ],
+      "parent": "fog"
+    },
+    {
+      "id": "fog-title",
+      "name": "Title",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Hidden in the fog",
+            "fontSize": 22,
+            "color": [
+              1,
+              1,
+              1,
+              1
+            ],
+            "fontWeight": "bold",
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "fog-box"
+    },
+    {
+      "id": "fog-detail",
+      "name": "Detail",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {}
+        },
+        {
+          "type": "engine.UIText",
+          "data": {
+            "text": "Your enemies can't see you",
+            "fontSize": 16,
+            "color": [
+              0.95,
+              0.97,
+              1,
+              1
+            ],
+            "textAlign": "center"
+          }
+        }
+      ],
+      "parent": "fog-box"
     }
   ]
 }
