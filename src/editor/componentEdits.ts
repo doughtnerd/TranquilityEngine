@@ -25,7 +25,7 @@ import {
 import type { OpenScene } from "./state";
 
 /** Components a node can have only one of. Colliders, audio sources and scripts can repeat. */
-const SINGLE = new Set(["engine.RigidBody2D", "engine.SpriteRenderer", "engine.Camera", "engine.Text"]);
+const SINGLE = new Set(["engine.RigidBody2D", "engine.SpriteRenderer", "engine.Camera", "engine.Text", "engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField"]);
 
 const shortName = (type: string) => type.replace(/^[^.]*\./, "");
 

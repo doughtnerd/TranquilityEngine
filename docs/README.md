@@ -11,6 +11,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Editor](guide/editor.md) | The Projects window, the menu bar, docks and panels, asset previews, the `.myco/` folder |
 | [Worlds](guide/worlds.md) | Several Worlds per Engine: tags, bootstraps, systems and time per World, creating Worlds at runtime, isolation, async code, the Worlds panel |
 | [Multiplayer](guide/multiplayer.md) | Client and server Worlds, links and transports, RPCs, replication, inputs, prediction, the dedicated server (`npm run server`), the Network panel, known gaps |
+| [Game UI](guide/ui.md) | Canvases (screen and world), the UI tree, flexbox layout, panels, text, images, buttons and input fields, scripting them, how the pointer and keyboard go to UI first, headless Worlds and tests |
 | [Navigation](guide/navigation.md) | Built-in navigation: agent types and areas, marking geometry, baking (editor and `npm run nav:bake`), streaming chunks, scripting `NavAgent`, groups, surround and flow fields, the `Navigation` queries, multiplayer, debug drawing, performance, known issues |
 
 ## Architecture

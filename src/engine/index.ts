@@ -47,6 +47,8 @@ export { Navigation, type NavNearestPoint, type NavPathResult, type NavPathStatu
 export type { NavDebugSettings } from "./nav/navigationSystems";
 export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 
+export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlign, type UICanvasMode, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UIPositionType, type UITextAlign, type UIWordBreak } from "./ui/components";
+
 export { Audio, AudioSource } from "./audio/AudioSource";
 export { Input } from "./input/Input";
 export { Storage, MemoryStorage, type StorageBackend } from "./platform/Storage";
