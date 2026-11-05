@@ -18,6 +18,8 @@ export interface LobbyEngine {
   _world(name: string): import("../../core/World").World | null;
   _worldConfig?(name: string): Readonly<import("../../core/worlds").WorldConfig> | null;
   _viewStates?(): readonly { readonly name: string; readonly renders: boolean; readonly paused: boolean }[];
+  /** Give the main view and input to a World; returns a function that hands them back (`Engine._handView`). */
+  _handView?(name: string): () => void;
 }
 
 /** The Engine a World belongs to, or null. */
