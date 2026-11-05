@@ -18,7 +18,7 @@ import "../ui/editor.css";
 import { launcherActions } from "./actions";
 import { linkToEditor, tauriBus } from "./handoff";
 import "./launcher.css";
-import { measureScrollbar, windowSizeFor } from "./windowSize";
+import { fitWindowToWorkArea, measureScrollbar } from "./windowSize";
 
 /** False until the editor window has loaded (a project picked before then waits for it). */
 const editorReady = signal(false);
@@ -38,8 +38,11 @@ function WindowControls({ window }: { window: Window }) {
 }
 
 /**
- * Keeps the window the size of the start panel and the status line under it, and drags it by the
- * banner. The window is centred again after its first fit, since it shrinks from its configured size.
+ * Keeps the window the size of the start panel and the status line under it, capped to the work
+ * area of the monitor it is on (scale factor and taskbar included; the page scrolls when capped),
+ * and drags it by the banner. The first fit centres the window on that monitor; later fits (the
+ * panel grows for New Project, the status line appears) keep where the user put it but nudge it
+ * back inside the work area, since a window grows down from its top edge.
  */
 function useCardWindow(window: Window): void {
   useEffect(() => {
@@ -49,21 +52,29 @@ function useCardWindow(window: Window): void {
     const scrollbar = measureScrollbar(document);
     let frame = 0;
     let centred = false;
-    const fit = () => {
+    const fit = async () => {
       frame = 0;
+      const { LogicalSize, PhysicalPosition, currentMonitor, primaryMonitor } = await import("@tauri-apps/api/window");
       const { width, height } = card.getBoundingClientRect();
-      const size = windowSizeFor({ width, height: height + (statusLine?.offsetHeight ?? 0) }, screen.availHeight, scrollbar);
-      void import("@tauri-apps/api/window")
-        .then(({ LogicalSize }) => window.setSize(new LogicalSize(size.width, size.height)))
-        .then(() => {
-          if (centred) return;
-          centred = true;
-          return window.center();
-        });
+      const content = { width, height: height + (statusLine?.offsetHeight ?? 0) };
+      const monitor = (await currentMonitor()) ?? (await primaryMonitor());
+      if (!monitor) {
+        await window.setSize(new LogicalSize(Math.ceil(content.width), Math.ceil(Math.min(content.height, screen.availHeight - 48))));
+        if (!centred) await window.center();
+        centred = true;
+        return;
+      }
+      const area = { ...monitor.workArea.position, ...monitor.workArea.size };
+      const current = centred ? await window.outerPosition() : undefined;
+      const fitted = fitWindowToWorkArea(content, area, monitor.scaleFactor, scrollbar, current);
+      await window.setSize(new LogicalSize(fitted.size.width, fitted.size.height));
+      await window.setPosition(new PhysicalPosition(fitted.position.x, fitted.position.y));
+      centred = true;
     };
-    const observer = new ResizeObserver(() => {
-      if (!frame) frame = requestAnimationFrame(fit);
-    });
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(() => void fit().catch(console.error));
+    };
+    const observer = new ResizeObserver(schedule);
     observer.observe(card);
     if (statusLine) observer.observe(statusLine);
     const drag = (e: MouseEvent) => {
