@@ -144,6 +144,8 @@ export class NavResolutionVolume extends Component {
   @field(Vector3) center = new Vector3(0, 0, 0);
   @field(Vector3) size = new Vector3(1, 1, 1);
   @field(Number) cellSize = 0.1;
+  /** The flying agent types whose flight volumes it refines (Foxfire's Affected Agents); empty = every type. */
+  @field([String], { choices: agentTypeChoices }) agents: string[] = [];
 }
 
 /** An oriented box of navmesh that can be closed at runtime (a door). */
