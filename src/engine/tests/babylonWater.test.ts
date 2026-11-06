@@ -8,13 +8,11 @@ import type { MaterialPluginBase } from "@babylonjs/core/Materials/materialPlugi
 import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import { Scene } from "@babylonjs/core/scene.js";
-import { Scene as ThreeScene } from "three";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { World } from "../core/World";
 import { Assets, Engine, GameObject, Graphics, SceneManager, WaterSurface } from "../index";
 import { BabylonWater, babylonWaterResolution, waterCustomCode, waterGridData, waterUniformBuffer } from "../render/babylon/water";
 import { GERSTNER_BODY, MAX_WAVES, gerstner, gerstnerBodyJS } from "../render/water/gerstner";
-import { WaterRenderer } from "../render/water/WaterRenderer";
 import { waterTime } from "../render/water/WaterSurface";
 import { ALBEDO_ANCHOR } from "../render/babylon/graphMaterial";
 
@@ -300,7 +298,7 @@ describe("the water Babylon draws is the water physics samples (pirates: hulls u
     expect(plugin!.isCompatible(ShaderLanguage.WGSL)).toBe(true);
   });
 
-  it("draws the height WaterSurface.sample reports, in GLSL and WGSL, as three.js draws it", () => {
+  it("draws the height WaterSurface.sample reports, in GLSL and WGSL", () => {
     const node = GameObject.create("sea");
     const w = node.addBehavior(WaterSurface);
     w.waveScale = 1.7;
@@ -310,14 +308,6 @@ describe("the water Babylon draws is the water physics samples (pirates: hulls u
     expect(time).toBeGreaterThan(1);
     water.sync(world(), [w]);
     const u = bound(water.meshes()[0].material as PBRMaterial);
-
-    const three = new WaterRenderer(new ThreeScene());
-    three.sync(world(), [w]);
-    const tu = (three as unknown as { entries: Map<WaterSurface, { uniforms: { mycoWaves: { value: Float32Array }; mycoWaveCount: { value: number } } }> }).entries.get(w)!.uniforms;
-    const threeWaves = Float32Array.from(tu.mycoWaves.value);
-    const threeCount = tu.mycoWaveCount.value;
-    three.dispose();
-    const threeFn = new Function("mycoWaves", "mycoWaveCount", "px", "pz", `${gerstnerBodyJS()}\nreturn [gx, gy, gz];`) as (a: Float32Array, n: number, x: number, z: number) => number[];
 
     const packed = w._pack(time);
     for (const language of [ShaderLanguage.GLSL, ShaderLanguage.WGSL]) {
@@ -329,7 +319,6 @@ describe("the water Babylon draws is the water physics samples (pirates: hulls u
         expect(d[1], at).toBeCloseTo(cpu.dy, 4);
         expect(d[0], at).toBeCloseTo(cpu.dx, 4);
         expect(d[2], at).toBeCloseTo(cpu.dz, 4);
-        expect(threeFn(threeWaves, threeCount, px, pz)[1], at).toBeCloseTo(d[1], 4);
         // The physics truth: where the drawn vertex lands in the world, the sampled surface is at its height.
         expect(w.sample(px + d[0] + 3, pz + d[2] - 5).height, at).toBeCloseTo(d[1] + 2, 3);
       }

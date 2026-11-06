@@ -36,7 +36,7 @@ Built in steps, each ending with `npm test`, `npm run typecheck` and the samples
 
 1. Remove the toggle (Babylon always).
 2. Move the three.js maths outside the backend to `core/math`.
-3. Delete the backend, the quarks player, the UI runtime and the GLSL graph output; remove the four dependencies.
+3. Delete the backend, the quarks player, the UI runtime and the GLSL graph output; remove the four dependencies. (Split while building: 3a deletes the backend and the dependencies; 3b strips the GLSL output from the compiler and the node library, which also touches the graph format's Custom Function `body` and the editor's listing.)
 4. Limit `three` to `scene/models.ts`, with the import test; update docs (`CLAUDE.md`, implementation status, guides).
 
 ## Alternatives considered

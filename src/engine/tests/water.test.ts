@@ -1,4 +1,3 @@
-import { Mesh, Scene, ShaderLib } from "three";
 import { afterEach, describe, expect, it } from "vitest";
 import { Buoyancy, Engine, GameObject, Graphics, Quaternion, RigidBody, SceneManager, Assets, Vector3, Water, WaterSurface, type WaterWave } from "../index";
 import type { World } from "../core/World";
@@ -12,13 +11,10 @@ import {
   deepWaterSpeed,
   gerstner,
   gerstnerBodyJS,
-  gerstnerGLSL,
   packWaves,
   sampleWaves,
   type PackedWaves,
 } from "../render/water/gerstner";
-import { patchWaterShader } from "../render/water/waterShader";
-import { WaterRenderer, waterResolution } from "../render/water/WaterRenderer";
 import { sampleSurface, waterTime } from "../render/water/WaterSurface";
 
 /** A seeded random source, so failures reproduce. */
@@ -32,7 +28,7 @@ function randomWaves(r: () => number, count: number): WaterWave[] {
 }
 
 /**
- * The shader's wave sum, run as JavaScript: the exact text `gerstnerGLSL()` puts in the vertex
+ * The shader's wave sum, run as JavaScript: the exact text the water plugin puts in its vertex
  * shader, with only `float`/`int` → `let` and `sin`/`cos` → `Math.*`.
  */
 const shaderWaves = new Function("mycoWaves", "mycoWaveCount", "px", "pz", `${gerstnerBodyJS()}\nreturn [gx, gy, gz, tx, ty, tz, bx, by, bz];`) as (w: ArrayLike<number>, n: number, px: number, pz: number) => number[];
@@ -40,15 +36,9 @@ const shaderWaves = new Function("mycoWaves", "mycoWaveCount", "px", "pz", `${ge
 const shaderAt = (p: PackedWaves, x: number, z: number) => shaderWaves(p.data, p.count, x, z);
 
 describe("Gerstner waves: one sum for the GPU and the CPU (ADR 0072)", () => {
-  it("the GLSL is the shared body with only the type words filled in", () => {
-    const glsl = gerstnerGLSL();
-    expect(glsl).not.toContain("$");
-    expect(glsl).toContain(`uniform float mycoWaves[${MAX_WAVES * WAVE_STRIDE}];`);
-    expect(glsl).toContain("uniform int mycoWaveCount;");
-    expect(glsl).toContain("void mycoGerstner(float px, float pz, out vec3 disp, out vec3 tangent, out vec3 binormal)");
-    // Every statement of the body appears verbatim (after the type substitution) in the GLSL and the JavaScript.
-    const glslBody = GERSTNER_BODY.replace(/\$float/g, "float").replace(/\$int/g, "int");
-    expect(glsl).toContain(glslBody);
+  it("the JavaScript is the shared body with only the type words filled in", () => {
+    // Every statement of the body appears verbatim (after the type substitution) in the JavaScript;
+    // babylonWater.test.ts checks the WGSL and GLSL the water plugin builds from it.
     expect(gerstnerBodyJS().replace(/Math\./g, "").replace(/\blet\b/g, "T")).toBe(GERSTNER_BODY.replace(/\$float|\$int/g, "T"));
   });
 
@@ -124,21 +114,6 @@ describe("Gerstner waves: one sum for the GPU and the CPU (ADR 0072)", () => {
   });
 });
 
-describe("Water material (ADR 0072)", () => {
-  it("patches three's physical shader: displaced vertices, analytic normal, foam and colour, fog chunks kept", () => {
-    const shader = { vertexShader: ShaderLib.physical.vertexShader, fragmentShader: ShaderLib.physical.fragmentShader };
-    patchWaterShader(shader);
-    expect(shader.vertexShader).toContain("mycoGerstner(position.x, position.z, mycoDisp, mycoTangent, mycoBinormal);");
-    expect(shader.vertexShader).toContain("transformed += mycoDisp;");
-    expect(shader.vertexShader).not.toContain("#include <beginnormal_vertex>");
-    expect(shader.vertexShader).toContain("#include <fog_vertex>");
-    expect(shader.fragmentShader).toContain("#include <fog_fragment>");
-    expect(shader.fragmentShader).toContain("mycoFoamColor");
-    // The displacement comes before the vertex is projected, so shadows and fog see the moved vertex.
-    expect(shader.vertexShader.indexOf("transformed += mycoDisp;")).toBeLessThan(shader.vertexShader.indexOf("#include <project_vertex>"));
-  });
-});
-
 describe("WaterSurface and Water.sample (ADR 0072)", () => {
   afterEach(() => Graphics._apply("High"));
 
@@ -193,51 +168,6 @@ describe("WaterSurface and Water.sample (ADR 0072)", () => {
     expect(waterTime(world)).toBeCloseTo(120.5 / 60, 12);
     const local = { time: { time: 7.25, fixedAlpha: 0.3 } } as unknown as World;
     expect(waterTime(local)).toBe(7.25);
-  });
-
-  it("the renderer draws a grid per surface from the same packed waves, halved on the low shader level", async () => {
-    const engine = await setup();
-    const world = engine.world as unknown as World;
-    const node = GameObject.create("sea");
-    const water = node.addBehavior(WaterSurface);
-    water.resolution = 64;
-    water.size = 50;
-    engine.step(1 / 60);
-    const scene = new Scene();
-    const renderer = new WaterRenderer(scene);
-    renderer.sync(world, [water]);
-    const mesh = renderer.meshes()[0] as Mesh;
-    expect(scene.children).toContain(mesh);
-    expect(mesh.geometry.getAttribute("position").count).toBe(64 * 64);
-    mesh.geometry.computeBoundingBox();
-    expect(mesh.geometry.boundingBox!.max.x).toBeCloseTo(25, 6);
-    expect(mesh.geometry.boundingBox!.max.y).toBeCloseTo(0, 6);
-    expect(mesh.castShadow).toBe(false);
-    expect(mesh.receiveShadow).toBe(true);
-    const material = mesh.material as import("three").MeshPhysicalMaterial;
-    expect(material.customProgramCacheKey()).toBe("myco-water-1");
-    // The uniforms are the component's packed waves at the water clock.
-    const shader = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: ShaderLib.physical.vertexShader, fragmentShader: ShaderLib.physical.fragmentShader };
-    material.onBeforeCompile(shader as never, null as never);
-    const packed = water._pack(waterTime(world));
-    expect(Array.from(shader.uniforms.mycoWaves.value as Float32Array)).toEqual(Array.from(new Float32Array(packed.data)));
-    expect(shader.uniforms.mycoWaveCount.value).toBe(WATER_PRESET.length);
-    expect(material.transparent).toBe(false);
-    water.opacity = 0.6;
-    renderer.sync(world, [water]);
-    expect(material.transparent).toBe(true);
-    expect(material.opacity).toBeCloseTo(0.6, 6);
-
-    expect(waterResolution(128, "high")).toBe(128);
-    expect(waterResolution(128, "low")).toBe(64);
-    Graphics._apply("Low");
-    renderer.sync(world, [water]);
-    expect(mesh.geometry.getAttribute("position").count).toBe(32 * 32);
-
-    renderer.sync(world, []);
-    expect(renderer.meshes()).toHaveLength(0);
-    expect(scene.children).not.toContain(mesh);
-    engine.dispose();
   });
 });
 

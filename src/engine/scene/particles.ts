@@ -1,7 +1,7 @@
 /**
  * Particle effect assets (ADR 0057): `*.particles.json` files a ParticleSystem plays. An effect has
- * one or more emitters, each built from Unity-like modules. The format is ours: the render backend
- * translates it into three.quarks systems, which never appear in the file or the public API.
+ * one or more emitters, each built from Unity-like modules. The format is ours: the renderer-neutral
+ * simulation (`render/particles/simulation.ts`) plays it and the Babylon backend draws it.
  *
  * ```jsonc
  * {

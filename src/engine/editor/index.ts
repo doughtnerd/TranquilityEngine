@@ -16,7 +16,7 @@ import { Input } from "../input/Input";
 import { localPoseFromMatrix, matrixFrom, type LocalPose } from "../render/gizmoMath";
 import type { NavigationWorld } from "../nav/NavigationWorld";
 import { NavAgent } from "../nav/components";
-import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
+import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderSurface";
 import { Camera, MeshRenderer, SpriteRenderer } from "../render/components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import type { GameObject } from "../scene/GameObject";
@@ -247,7 +247,7 @@ export function pick(world: World, x: number, y: number): GameObject[] {
   return world.render?.pick(world, x, y) ?? [];
 }
 
-export type { ScreenRect } from "../render/RenderBackend";
+export type { ScreenRect } from "../render/RenderSurface";
 
 /**
  * Where each active node under `root` is on the canvas (CSS pixels): the rectangle around its
@@ -266,7 +266,7 @@ export function worldToCanvas(world: World, point: readonly number[]): [number, 
  * UI elements (ADR 0069, 0077) drawn under a canvas point (CSS pixels), topmost first: screen
  * canvases, then world canvases nearest first, picked with the UI's layout boxes (canvases
  * themselves aren't listed). World canvases are hit with the view camera's ray. Empty headless and
- * before the UI loads. Both backends (the UI core on Babylon, uikit's layout on three.js).
+ * before the UI loads.
  */
 export function pickUI(world: World, x: number, y: number): UIComponentType[] {
   const ui = world.render?.uiRuntime();
@@ -303,14 +303,14 @@ export function setSelectionOutline(world: World, nodes: readonly GameObject[]):
   world.render?.setSelectionOutline(nodes);
 }
 
-export type { EditorColors } from "../render/RenderBackend";
+export type { EditorColors } from "../render/RenderSurface";
 
 /** Recolour the viewport's background, grid, selection outline and camera gizmos (the editor's theme). No-op headless. */
 export function setEditorColors(world: World, colors: EditorColors): void {
   world.render?.setEditorColors(colors);
 }
 
-export type { GizmoHandlers, GizmoOptions } from "../render/RenderBackend";
+export type { GizmoHandlers, GizmoOptions } from "../render/RenderSurface";
 export type { LocalPose } from "../render/gizmoMath";
 
 /**
@@ -551,7 +551,7 @@ export function localPositionFor(node: GameObject, point: readonly number[]): [n
   return Mat4.transformPoint(inverse, 0, x, y, z);
 }
 
-export type { EditorOverlay } from "../render/RenderBackend";
+export type { EditorOverlay } from "../render/RenderSurface";
 
 /**
  * What an overlay draws, so the editor can show or hide each kind (play mode's Gizmos menu):

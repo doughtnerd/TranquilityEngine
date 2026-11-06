@@ -1,14 +1,38 @@
 /**
- * @internal The editor's preview renderers as the editor sees them (ADR 0061, 0075 stage 7): one
- * renderer-neutral shape, implemented by the three.js classes in `render/` and the Babylon.js ones in
- * `render/babylon/previews/`. `src/engine/editor` picks the implementation by `rendererChoice()`.
- * Type-only: nothing here loads a renderer.
+ * @internal The editor's preview renderers as the editor sees them (ADR 0061, 0075 stage 7, 0081),
+ * implemented by the Babylon.js classes in `render/babylon/previews/`. Type-only: nothing here loads a
+ * renderer.
  */
 import type { ParticleProgram } from "../scene/particleCompile";
-import type { PreviewBackground } from "./particles/EffectPreview";
-import type { ThumbnailKind, ThumbnailPreview } from "./ThumbnailRenderer";
+import type { BuiltinMesh } from "../scene/models";
 
-export type { PreviewBackground, ThumbnailKind, ThumbnailPreview };
+/** What gets a rendered thumbnail. */
+export type ThumbnailKind = "model" | "material" | "shadergraph" | "environment" | "particles" | "prefab";
+
+/** The particle effect preview's backdrop. */
+export type PreviewBackground = "dark" | "light" | "grid";
+
+/** The meshes a shader graph preview can show. */
+export type PreviewMesh = Extract<BuiltinMesh, "sphere" | "cube" | "capsule" | "plane" | "quad">;
+
+/**
+ * A live, orbitable preview drawn into a canvas (the Inspector's): it redraws when the view changes,
+ * and continuously while the asset animates. One at a time; while one is open, tiles show stills.
+ */
+export interface ThumbnailPreview {
+  /** Resolves true once the asset is drawn, false if it can't be (or the preview stopped first). */
+  readonly ready: Promise<boolean>;
+  /** Turn the view around the asset by `dyaw` (about the vertical) and `dpitch` radians. */
+  orbit(dyaw: number, dpitch: number): void;
+  /** Move closer (below 1) or further away (above 1). */
+  zoom(factor: number): void;
+  /** Back to the starting view. */
+  reset(): void;
+  /** Redraw at the canvas's current size (after it was resized). */
+  redraw(): void;
+  stop(): void;
+}
+
 
 /** The asset thumbnail renderer (ADR 0061). */
 export interface ThumbnailRendererApi {

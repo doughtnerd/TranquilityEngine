@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 import { defaultShaderGraph, type GraphNode, type ShaderGraph } from "../scene/shaderGraph";
 import { compileShaderGraph } from "../render/shaderGraph/compile";
 import { nodePorts } from "../render/shaderGraph/nodes";
-import { createGraphMaterial, createSharedGraphUniforms, patchFragmentShader } from "../render/shaderGraph/threeMaterial";
-import { ShaderLib } from "three";
 
 const graph = (nodes: GraphNode[], edges: [string, string][], extra: Partial<ShaderGraph> = {}): ShaderGraph => ({
   ...defaultShaderGraph(),
@@ -61,45 +59,5 @@ describe("physical shader graphs", () => {
     const changed = graph([], [], { target: "physical" });
     outputOf(changed).inputs = { ior: 1.33 };
     expect(compileShaderGraph(changed).fragment.physical).toHaveProperty("ior");
-  });
-});
-
-describe("patching and building physical materials", () => {
-  const g = graph([node("f", "float", { inputs: { x: 0.4 } })], [["f.out", "output.clearcoat"]], { target: "physical" });
-  outputOf(g).inputs = { sheenColor: [1, 0, 0], transmission: 0.5, iridescence: 0.3, ior: 1.33, specularIntensity: 0.8 };
-
-  it("patches three.js's physical fragment shader with the graph's values", () => {
-    const c = compileShaderGraph(g);
-    expect(c.problems).toEqual([]);
-    const fs = patchFragmentShader(ShaderLib.physical.fragmentShader, c);
-    for (const s of [
-      "material.clearcoat = saturate(",
-      "material.sheenColor = ",
-      "material.iridescence = saturate(",
-      "material.ior = ",
-      "material.specularF90 = mix(mycoSpecularIntensity",
-      "material.transmission = saturate(",
-      "material.thickness = max(",
-    ]) expect(fs, s).toContain(s);
-    expect(fs).not.toContain("#include <transmission_fragment>");
-  });
-
-  it("makes a MeshPhysicalMaterial with the features switched on", () => {
-    const made = createGraphMaterial(compileShaderGraph(g), {}, createSharedGraphUniforms(), () => new Promise(() => {}));
-    expect(made.material.type).toBe("MeshPhysicalMaterial");
-    const m = made.material as unknown as Record<string, number>;
-    expect(m.clearcoat).toBeGreaterThan(0);
-    expect(m.sheen).toBeGreaterThan(0);
-    expect(m.transmission).toBeGreaterThan(0);
-    expect(m.iridescence).toBeGreaterThan(0);
-    made.dispose();
-  });
-
-  it("leaves the features off when a physical graph uses none of them", () => {
-    const made = createGraphMaterial(compileShaderGraph({ ...defaultShaderGraph(), target: "physical" }), {}, createSharedGraphUniforms(), () => new Promise(() => {}));
-    expect(made.material.type).toBe("MeshPhysicalMaterial");
-    const m = made.material as unknown as Record<string, number>;
-    expect([m.clearcoat, m.sheen, m.transmission, m.iridescence]).toEqual([0, 0, 0, 0]);
-    made.dispose();
   });
 });

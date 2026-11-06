@@ -10,7 +10,7 @@ import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import type { LocalPose } from "./gizmoMath";
 import type { Camera, SpriteRenderer } from "./components";
-import type { PostEffects, ToneMappingName } from "./PostProcessStack";
+import type { PostEffects, ToneMappingName } from "./postEffects";
 import type { UICoreLike } from "../ui/uiCoreTypes";
 
 /** @internal Editor gizmo settings (ADR 0022). */
@@ -118,7 +118,7 @@ export interface RenderSurface {
   probeState(): { captured: number; probes: number; reflecting: number };
   particleState(): ParticleStats | null;
   renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number };
-  /** Tests and the editor: the UI's layout and hit testing, once loaded (uikit on three.js, the UI core on Babylon). */
+  /** Tests and the editor: the UI core's layout and hit testing, once loaded. */
   uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "cornersOf"> | null;
 
   // Editor (ADR 0022 and later).

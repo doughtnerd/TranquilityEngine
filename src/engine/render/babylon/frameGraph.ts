@@ -50,7 +50,7 @@ import type { Color4 } from "@babylonjs/core/Maths/math.color.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { ThinDepthOfFieldEffectBlurLevel } from "@babylonjs/core/PostProcesses/thinDepthOfFieldEffect.js";
-import { stackKey, type PostEffects, type ToneMappingName } from "../PostProcessStack";
+import { stackKey, type PostEffects, type ToneMappingName } from "../postEffects";
 import { FINISH_SHADER, FINISH_UNIFORMS, TONE_MAPPING_CODE } from "./finishShader";
 import { reclusterForNextCamera } from "./lighting";
 import { cascadeCasterList, type CustomRenderList } from "./shadowCulling";

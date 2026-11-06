@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composerSamples, stackKey, viewportPixels, type PostEffects } from "../render/PostProcessStack";
+import { stackKey, type PostEffects } from "../render/postEffects";
 
 function fx(over: Partial<PostEffects> = {}): PostEffects {
   return {
@@ -14,7 +14,7 @@ function fx(over: Partial<PostEffects> = {}): PostEffects {
   };
 }
 
-describe("PostProcessStack structure", () => {
+describe("post-effect pass layout key", () => {
   it("keeps the key when only values change", () => {
     const a = fx();
     const b = fx({ exposure: 2, bloom: { intensity: 3, threshold: 0.5, radius: 0.2 } });
@@ -49,19 +49,4 @@ describe("PostProcessStack structure", () => {
     expect(stackKey(fx(), false)).toBe(stackKey(fx()));
   });
 
-  it("converts a CSS viewport to whole drawing-buffer pixels", () => {
-    expect(viewportPixels({ x: 10, y: 20, width: 100, height: 50 }, 2)).toEqual({ x: 20, y: 40, width: 200, height: 100 });
-    // Edges are rounded, so adjacent rectangles share an edge.
-    const a = viewportPixels({ x: 0, y: 0, width: 100.5, height: 10 }, 1.5);
-    const b = viewportPixels({ x: 100.5, y: 0, width: 100.5, height: 10 }, 1.5);
-    expect(a.x + a.width).toBe(b.x);
-    expect(viewportPixels({ x: 0, y: 0, width: 0, height: 0 }, 1)).toEqual({ x: 0, y: 0, width: 1, height: 1 });
-  });
-
-  it("uses 4 samples for msaa without AO, otherwise 0", () => {
-    expect(composerSamples(fx({ antialias: "msaa" }))).toBe(4);
-    expect(composerSamples(fx({ antialias: "msaa", ambientOcclusion: { intensity: 1, radius: 1, quality: "medium" } }))).toBe(0);
-    expect(composerSamples(fx({ antialias: "smaa" }))).toBe(0);
-    expect(composerSamples(fx({ antialias: "off" }))).toBe(0);
-  });
 });

@@ -11,7 +11,7 @@
  */
 import type { GraphValue, ShaderGraph } from "../scene/shaderGraph";
 import { Graphics } from "./Graphics";
-import type { PreviewMesh } from "./MaterialPreview";
+import type { PreviewMesh } from "./previewTypes";
 import type { ParticleEffectPreviewApi, ThumbnailRendererApi } from "./previewTypes";
 import { compileShaderGraph, type CompiledShaderGraph } from "./shaderGraph/compile";
 

@@ -70,7 +70,7 @@ import type { BabylonParticles } from "./particles";
 import { PARTICLE_SCALE } from "../../core/graphics";
 import { Graphics } from "../Graphics";
 import { resolvePostEffects, type PostSettings } from "../postEffects";
-import type { PostEffects, ToneMappingName } from "../PostProcessStack";
+import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { spriteFrame } from "../spriteFrame";

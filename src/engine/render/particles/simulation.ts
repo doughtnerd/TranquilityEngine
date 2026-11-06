@@ -2,8 +2,8 @@
 // renderer (no three.js, no Babylon). It reads the effect format (`scene/particles.ts`) and keeps,
 // per emitter, a pooled list of particles with world-space output a backend draws.
 //
-// It follows the behaviour of the three.quarks translation (`quarksEffect.ts`): the same modules,
-// the same live-value paths (ADR 0060), the same quality-scale and tint rules.
+// It kept the behaviour of the three.quarks translation it replaced (removed with the three.js
+// backend, ADR 0081): the same modules, live-value paths (ADR 0060), quality-scale and tint rules.
 import {
   evalCurve,
   parseHexColor,

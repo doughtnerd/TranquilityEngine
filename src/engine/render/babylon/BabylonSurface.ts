@@ -17,7 +17,7 @@ import type { World, WorldKind } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import type { Camera, SpriteRenderer } from "../components";
 import type { UICoreLike } from "../../ui/uiCoreTypes";
-import type { PostEffects, ToneMappingName } from "../PostProcessStack";
+import type { PostEffects, ToneMappingName } from "../postEffects";
 import type {
   EditorColors,
   EditorOverlay,

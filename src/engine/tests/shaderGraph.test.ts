@@ -3,8 +3,6 @@ import { formatMaterial, materialGraph, parseMaterial, defaultMaterialSettings }
 import { defaultShaderGraph, formatShaderGraph, parseShaderGraph, SHADER_GRAPH_FORMAT, type GraphNode, type ShaderGraph } from "../scene/shaderGraph";
 import { compileShaderGraph, convert, glslFloat, linearColor, shaderGraphListing } from "../render/shaderGraph/compile";
 import { NODES, nodePorts } from "../render/shaderGraph/nodes";
-import { createGraphMaterial, createSharedGraphUniforms, patchFragmentShader, patchVertexShader } from "../render/shaderGraph/threeMaterial";
-import { ShaderLib } from "three";
 
 const graph = (nodes: GraphNode[], edges: [string, string][], extra: Partial<ShaderGraph> = {}): ShaderGraph => ({
   ...defaultShaderGraph(),
@@ -189,41 +187,5 @@ describe("compiling shader graphs to GLSL", () => {
       expect(c.problems, def.type).toEqual([]);
       expect(c.fragment.body, def.type).toContain("m1_");
     }
-  });
-});
-
-describe("patching three.js's materials", () => {
-  // The patch points are three.js shader chunk names: a three.js upgrade that renames one fails here.
-  const g = graph(
-    [node("n", "normal", { settings: { space: "object" } }), node("v", "vector3", { inputs: { z: 1 } })],
-    [["n.out", "output.vertexOffset"], ["v.out", "output.normal"]],
-  );
-  g.nodes[0].inputs = { alphaClip: 0.5 };
-
-  it("patches the lit, unlit and shadow shaders", () => {
-    const lit = compileShaderGraph(g);
-    const vs = patchVertexShader(ShaderLib.standard.vertexShader, lit, true);
-    expect(vs).toMatch(/#include <begin_vertex>\n[\s\S]*transformed \+= mOut_vertexOffset;/);
-    expect(vs).toContain("vMycoWorldPos = ");
-    const fs = patchFragmentShader(ShaderLib.standard.fragmentShader, lit);
-    for (const s of ["diffuseColor = vec4(mOut_baseColor, mOut_alpha);", "discard;", "roughnessFactor = mOut_roughness;", "metalnessFactor = mOut_metalness;", "mycoTangentFrame(-vViewPosition", "totalEmissiveRadiance = mOut_emission;"]) expect(fs).toContain(s);
-    expect(fs.indexOf("void main() {")).toBeLessThan(fs.indexOf("vec3 mOut_baseColor"));
-    const unlit = compileShaderGraph({ ...g, target: "unlit" });
-    expect(patchFragmentShader(ShaderLib.basic.fragmentShader, unlit)).toContain("diffuseColor = vec4(mOut_baseColor, mOut_alpha);");
-    expect(patchVertexShader(ShaderLib.basic.vertexShader, unlit, true)).toContain("vMycoUv = uv;");
-    expect(patchVertexShader(ShaderLib.depth.vertexShader, lit, false)).toContain("transformed += mOut_vertexOffset;");
-    expect(patchVertexShader(ShaderLib.distance.vertexShader, lit, false)).toContain("transformed += mOut_vertexOffset;");
-  });
-
-  it("makes a material whose uniforms take the material's property values", () => {
-    const pg = graph([node("p", "property", { settings: { property: "Tint" } })], [["p.out", "output.baseColor"]], { properties: [{ name: "Tint", type: "color", value: "#ffffff" }], surface: "transparent" });
-    const made = createGraphMaterial(compileShaderGraph(pg), { Tint: "#000000" }, createSharedGraphUniforms(), () => new Promise(() => {}));
-    const shader = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: ShaderLib.standard.vertexShader, fragmentShader: ShaderLib.standard.fragmentShader };
-    made.material.onBeforeCompile(shader as never, null as never);
-    expect((shader.uniforms.uP0_Tint.value as { x: number }).x).toBe(0);
-    expect(shader.uniforms.uMycoTime).toBeDefined();
-    expect(made.material.transparent).toBe(true);
-    expect(made.depth).toBeNull(); // no vertex offset
-    made.dispose();
   });
 });
