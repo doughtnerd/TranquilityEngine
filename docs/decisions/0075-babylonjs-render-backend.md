@@ -79,7 +79,7 @@ We will replace three.js with **Babylon.js** as the only renderer, and move to *
   - **Picking and camera rays (0073):** Babylon's ray tests.
   - Each of these records is amended when its part is ported.
 - **Particles (0021, 0057):** three.quarks is replaced by Babylon's particle systems. Our effect format and the `ParticleSystem` component stay as they are, and only the translator changes.
-- **In-canvas UI (0020, 0069):** uikit only works with three.js, so it can't stay. Its replacement, Babylon GUI or a renderer-independent UI layer, gets its own record before the UI stage. The `UICanvas` component API is kept.
+- **In-canvas UI (0020, 0069):** uikit only works with three.js, so it can't stay. Its replacement is 0076: Yoga lays out, Babylon GUI draws, the engine routes input. The `UICanvas` component API is kept.
 - **Model import (0044):** glTF and OBJ load through `@babylonjs/loaders`. Babylon has no FBX loader; see Open questions.
 
 **Migration**
@@ -149,7 +149,7 @@ We will replace three.js with **Babylon.js** as the only renderer, and move to *
   6. Reflection probes and fog.
   7. Model import and thumbnails.
   8. Editor: picking, gizmos, outlines, previews.
-  9. UI (after its record).
+  9. UI (0076, 0077).
   10. Delete three.js.
 - **Tests.** Headless unit tests use Babylon's `NullEngine`. Browser tests (0023) run the samples on WebGPU in Chromium. WebKit runs are dropped for rendering, since it isn't a target.
 
@@ -195,7 +195,6 @@ Until then they stay. 0004 becomes `Superseded by 0075`. 0010, 0014, 0020/0069, 
 ## Open questions
 
 - **Bundle size** stays close to the 400 KB budget: about 395 KB is estimated for the engine's equivalent of the spike scene. Whether patching out `AudioV2` and other unused modules is worth carrying a patch.
-- **The UI replacement:** Babylon GUI, or a renderer-independent layer.
 - **FBX import:** convert at import time (a build-time FBX-to-glTF converter, or keep three's `FBXLoader` in the editor only, as a converter), or drop FBX.
 - **GPU timing** under a frame graph, for the editor's profiler and for quality detection (0055).
 - **Light probes and GI:** Babylon's IBL shadows and reflective-shadow-map GI versus our own probe grid. This needs its own record.

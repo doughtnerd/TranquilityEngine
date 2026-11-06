@@ -50,7 +50,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0017](decisions/0017-user-systems-and-data-components.md) | User systems and data components in v1; no engine event system | Accepted |
 | [0018](decisions/0018-promise-based-waits.md) | Promise-based waits for scripts | Accepted |
 | [0019](decisions/0019-public-api-conventions.md) | Public API conventions: names, angles, live vectors | Accepted |
-| [0020](decisions/0020-in-canvas-ui-with-uikit.md) | In-canvas UI built on pmndrs uikit | Accepted |
+| [0020](decisions/0020-in-canvas-ui-with-uikit.md) | In-canvas UI built on pmndrs uikit | Accepted; partly superseded by 0076 (uikit) |
 | [0021](decisions/0021-particles-with-three-quarks.md) | Particles with three.quarks | Accepted |
 | [0022](decisions/0022-editor-is-a-v1-goal.md) | A scene editor is a v1 goal | Accepted |
 | [0023](decisions/0023-testing-vitest-and-browser-smoke-tests.md) | Testing: Vitest + browser smoke tests | Accepted |
@@ -99,13 +99,15 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0066](decisions/0066-navigation-authoring-parity-with-foxfire.md) | Navigation authoring matches Foxfire: named avoidance layers, formation assets, agent goals | Accepted |
 | [0067](decisions/0067-runtime-listen-and-path-routing.md) | Server Worlds can listen at runtime, and several share one WebSocket port by path | Accepted |
 | [0068](decisions/0068-lobbies-and-matchmaking.md) | Lobbies and matchmaking: a lobby server World hands players to match Worlds it creates | Accepted |
-| [0069](decisions/0069-ui-components-on-uikit.md) | Game UI components on pmndrs uikit: canvases, panels, text, images, buttons, inputs, UI-first pointer routing | Accepted |
+| [0069](decisions/0069-ui-components-on-uikit.md) | Game UI components on pmndrs uikit: canvases, panels, text, images, buttons, inputs, UI-first pointer routing | Accepted; partly superseded by 0076 (uikit), extended by 0077 |
 | [0070](decisions/0070-runtime-navigation-cost-volumes.md) | Runtime navigation cost volumes change path costs inside a box without rebaking | Accepted |
 | [0071](decisions/0071-fog.md) | A Fog component sets a World's distance fog, honoured by every engine material | Accepted |
 | [0072](decisions/0072-water-surfaces-and-buoyancy.md) | Water surfaces with Gerstner waves, sampled the same on the CPU for buoyancy | Accepted |
 | [0073](decisions/0073-camera-rays-and-screen-points.md) | Cameras convert between screen points and world rays; `Ray` and `Plane` are public maths types | Accepted |
 | [0074](decisions/0074-spatial-audio-with-howler.md) | Spatial audio through Howler's spatial API, with an AudioListener component | Accepted |
 | [0075](decisions/0075-babylonjs-render-backend.md) | Babylon.js replaces three.js as the render backend (WebGPU, plain WGSL, frame graph), from upstream with module-by-module imports and copied subsystems instead of a fork | Accepted |
+| [0076](decisions/0076-ui-yoga-layout-babylon-gui-drawing.md) | Game UI: Yoga lays out, Babylon GUI draws, the engine routes input; partly supersedes 0069 (uikit) | Accepted |
+| [0077](decisions/0077-ui-documents-markup-styles-scripts.md) | UI is authored as markup documents with stylesheets, driven by scripts on a data-oriented core, and edited in the scene view | Accepted |
 
 ## Working with decisions
 
