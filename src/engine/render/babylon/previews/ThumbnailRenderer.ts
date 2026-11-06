@@ -590,7 +590,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
         step: live ? (dt) => withRandom(random, () => step(dt)) : undefined,
         matte: true,
         dispose: () => {
-          for (const d of draws) d.ps.dispose(false);
+          for (const d of draws) d.dispose();
           scene.dispose();
         },
       };

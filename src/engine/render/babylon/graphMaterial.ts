@@ -13,16 +13,27 @@
  *   into `reflectivityBlock`'s first argument, the normal just before the albedo block, emission
  *   before the final colour is composed.
  *
- * WebGPU only: on the WebGL2 fallback the plugin turns itself off and the material draws as plain PBR.
+ * Shadows: a graph with a vertex offset gives its material a `ShadowDepthWrapper`, so shadow maps draw
+ * the displaced mesh, as the three.js backend's depth and distance materials do. The wrapper is
+ * standalone over a second, unlit PBR material carrying the graph's vertex code only (no surface code),
+ * and Babylon splices its shadow-map code into that material's shaders: plain, cascaded and point-light
+ * (cube) maps alike. Graphs without an offset draw their shadows with Babylon's own shadow shader.
+ * Like three.js, shadows ignore the graph's alpha clip.
+ *
+ * WebGPU only: on the WebGL2 fallback the plugin turns itself off and the material draws as plain PBR
+ * (with plain shadows).
  */
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
+import { DrawWrapper } from "@babylonjs/core/Materials/drawWrapper.js";
+import type { Effect } from "@babylonjs/core/Materials/effect.js";
 import { Material } from "@babylonjs/core/Materials/material.js";
 import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
+import { ShadowDepthWrapper } from "@babylonjs/core/Materials/shadowDepthWrapper.js";
 import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
@@ -33,7 +44,13 @@ import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, t
 export interface GraphShared {
   time: number;
   resolution: [number, number];
+  /** The main light for Main Light nodes (`BabylonLighting.mainLight`); previews without one get (0.4, 1, 0.6) and white. */
+  mainLight?: { readonly direction: readonly number[]; readonly color: readonly number[] };
 }
+
+/** Uniforms the WGSL Main Light helpers read (`nodes.ts`), bound from `GraphShared.mainLight`. */
+export const MAIN_LIGHT_UNIFORMS = { direction: "uMycoMainLightDir", color: "uMycoMainLightColor" } as const;
+const FALLBACK_LIGHT_DIR = [0.4, 1, 0.6].map((v) => v / Math.hypot(0.4, 1, 0.6));
 
 /** Load a texture asset; `linear` asks for data (normal maps) rather than sRGB colour. */
 export type LoadGraphTexture = (path: string, linear: boolean) => Promise<BaseTexture>;
@@ -143,6 +160,21 @@ export function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [
   return code;
 }
 
+/**
+ * @internal The graph's code in the shadow-depth material (graphs with a vertex offset): the vertex code
+ * as the material draws it, and on the fragment side only the declarations its varyings and textures
+ * need, so the shadow pass runs no surface code.
+ */
+export function graphShadowCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: string]: string } {
+  return shaderType === "vertex" ? graphCustomCode(c, "vertex") : { CUSTOM_FRAGMENT_DEFINITIONS: c.fragment.declarations };
+}
+
+/**
+ * @internal Names Babylon's injected shadow-map vertex code reads, remapped to the PBR vertex shader's:
+ * its world normal is the varying (`worldPos` is already a `var` of that name).
+ */
+export const SHADOW_REMAPPED_VARIABLES = ["vNormalW", "vertexOutputs.vNormalW"];
+
 /** A graph material's values: each uniform's numbers and each texture slot's texture, refreshed by `setProperties`. */
 export interface GraphState {
   numbers: Map<string, number[]>;
@@ -154,6 +186,8 @@ export function graphUniformBuffer(c: CompiledShaderGraph): { name: string; size
   const ubo: { name: string; size: number; type: string }[] = [
     { name: SHARED_UNIFORMS.time, size: 1, type: "float" },
     { name: SHARED_UNIFORMS.resolution, size: 2, type: "vec2" },
+    { name: MAIN_LIGHT_UNIFORMS.direction, size: 3, type: "vec3" },
+    { name: MAIN_LIGHT_UNIFORMS.color, size: 3, type: "vec3" },
   ];
   for (const u of c.uniforms) if (u.type !== "sampler2D") ubo.push({ name: u.name, size: UBO_SIZE[u.type], type: u.type });
   return ubo;
@@ -166,10 +200,13 @@ class MycoGraphPlugin extends MaterialPluginBase {
     private readonly compiled: CompiledShaderGraph,
     private readonly shared: GraphShared,
     private readonly state: GraphState,
+    /** The shadow-depth material's plugin: vertex code only (`graphShadowCustomCode`). */
+    private readonly depth = false,
   ) {
-    // A define per graph, so materials with different graphs never share a compiled program.
+    // A define per graph, so materials with different graphs never share a compiled program (Babylon
+    // caches effects by defines, not by plugin code: the depth variant needs a define of its own too).
     // Registered after the fields are set: registering reads the plugin's code, which needs `compiled`.
-    super(material, "MycoGraph", 200, { [`MYCO_GRAPH_${compiled.key.replace(/[^A-Za-z0-9_]/g, "_")}`]: true }, false);
+    super(material, "MycoGraph", 200, { [`MYCO_GRAPH_${depth ? "DEPTH_" : ""}${compiled.key.replace(/[^A-Za-z0-9_]/g, "_")}`]: true }, false);
     (this._pluginManager as unknown as { _addPlugin(p: MaterialPluginBase): boolean })._addPlugin(this);
     this._enable(true);
   }
@@ -193,6 +230,10 @@ class MycoGraphPlugin extends MaterialPluginBase {
   override bindForSubMesh(ubo: UniformBuffer, _scene: Scene, _engine: AbstractEngine, _subMesh: SubMesh): void {
     ubo.updateFloat(SHARED_UNIFORMS.time, this.shared.time);
     ubo.updateFloat2(SHARED_UNIFORMS.resolution, this.shared.resolution[0], this.shared.resolution[1]);
+    const d = this.shared.mainLight?.direction ?? FALLBACK_LIGHT_DIR;
+    const c = this.shared.mainLight?.color;
+    ubo.updateFloat3(MAIN_LIGHT_UNIFORMS.direction, d[0], d[1], d[2]);
+    ubo.updateFloat3(MAIN_LIGHT_UNIFORMS.color, c ? c[0] : 1, c ? c[1] : 1, c ? c[2] : 1);
     for (const u of this.compiled.uniforms) {
       if (u.type === "sampler2D") {
         const t = this.state.textures.get(u.name);
@@ -216,7 +257,8 @@ class MycoGraphPlugin extends MaterialPluginBase {
   }
 
   override getCustomCode(shaderType: string, shaderLanguage?: ShaderLanguage): { [point: string]: string } | null {
-    return shaderLanguage === ShaderLanguage.WGSL ? graphCustomCode(this.compiled, shaderType) : null;
+    if (shaderLanguage !== ShaderLanguage.WGSL) return null;
+    return this.depth ? graphShadowCustomCode(this.compiled, shaderType) : graphCustomCode(this.compiled, shaderType);
   }
 }
 
@@ -260,7 +302,9 @@ export function createGraphMaterial(scene: Scene, name: string, c: CompiledShade
   }
   const state: GraphState = { numbers: new Map(), textures: new Map() };
   // Babylon refuses a WGSL-only plugin on a GLSL material: the WebGL2 fallback draws plain PBR.
-  if (material.shaderLanguage === ShaderLanguage.WGSL) new MycoGraphPlugin(material, c, shared, state);
+  const wgsl = material.shaderLanguage === ShaderLanguage.WGSL;
+  if (wgsl) new MycoGraphPlugin(material, c, shared, state);
+  const shadow = wgsl && c.vertex.offset ? graphShadowDepth(scene, name, c, shared, state, material) : null;
   let disposed = false;
   const slotPaths = new Map<string, string>();
   const apply = (values: Record<string, GraphValue>) => {
@@ -294,8 +338,65 @@ export function createGraphMaterial(scene: Scene, name: string, c: CompiledShade
     },
     dispose() {
       disposed = true;
+      shadow?.wrapper.dispose();
+      shadow?.depth.dispose();
       material.dispose();
     },
   };
   return result;
+}
+
+/**
+ * A graph material's shadow-depth wrapper (graphs with a vertex offset): standalone over an unlit PBR
+ * material with the graph's vertex code, sharing the material's uniform values and textures. The
+ * shadow generator draws with the wrapper's effect and binds this material, so its uniforms follow
+ * the graph material's property changes and the shared time with no extra per-frame work.
+ */
+function graphShadowDepth(scene: Scene, name: string, c: CompiledShaderGraph, shared: GraphShared, state: GraphState, material: PBRMaterial): { depth: PBRMaterial; wrapper: ShadowDepthWrapper } {
+  const depth = new PBRMaterial(`${name}:shadow`, scene);
+  depth.doNotSerialize = true;
+  depth.unlit = true;
+  depth.disableLighting = true;
+  new MycoGraphPlugin(depth, c, shared, state, true);
+  const wrapper = new ShadowDepthWrapper(depth, scene, { standalone: true, remappedVariables: SHADOW_REMAPPED_VARIABLES });
+  shareShadowEffects(wrapper);
+  material.shadowDepthWrapper = wrapper;
+  return { depth, wrapper };
+}
+
+/** The parts of Babylon 9's `ShadowDepthWrapper` that `shareShadowEffects` works with. */
+interface WrapperInternals {
+  _scene: Scene;
+  _subMeshToEffect: Map<SubMesh, [Effect, number]>;
+  _subMeshToDepthWrapper: { mm: Map<SubMesh, Map<object, unknown>>; set(subMesh: SubMesh, generator: object, params: unknown): void };
+  _makeEffect(subMesh: SubMesh, defines: string[], generator: object, passId: number): Effect | null;
+}
+
+/**
+ * @internal Make a wrapper's submeshes share their shadow effects. Babylon gives each submesh and
+ * shadow generator a random token, so it compiles a shadow program per mesh (a hitch for each new mesh,
+ * which the warm-up can't prevent) and per shadow generator (the frame graph makes new ones when it
+ * rebuilds, on a resize), and with `Effect.PersistentMode` keeps them all. The program follows from
+ * the base material's effect and the generator's defines, so the token is the effect's id instead,
+ * and the engine's effect cache hands every submesh the same program. Entries for disposed shadow
+ * generators are dropped when a submesh meets a new one. Work only when a submesh meets a generator.
+ */
+export function shareShadowEffects(wrapper: ShadowDepthWrapper): void {
+  const w = wrapper as unknown as WrapperInternals;
+  const make = w._makeEffect;
+  w._makeEffect = function (subMesh, defines, generator, passId) {
+    const orig = w._subMeshToEffect.get(subMesh);
+    const byGenerator = w._subMeshToDepthWrapper.mm.get(subMesh);
+    if (orig && orig[0].isReady() && !byGenerator?.has(generator)) {
+      if (byGenerator) for (const g of byGenerator.keys()) if (!(g as { getShadowMap?(): unknown }).getShadowMap?.()) byGenerator.delete(g);
+      // As Babylon makes the entry (`ShadowDepthWrapper._makeEffect`), with a token of our own.
+      const main = new DrawWrapper(w._scene.getEngine());
+      const defines0 = (subMesh as unknown as { _getDrawWrapper(id: number): DrawWrapper | undefined })._getDrawWrapper(orig[1])?.defines;
+      main.defines = typeof defines0 === "string" ? null : (defines0 ?? null);
+      const drawWrapper: DrawWrapper[] = [];
+      drawWrapper[passId] = main;
+      w._subMeshToDepthWrapper.set(subMesh, generator, { drawWrapper, mainDrawWrapper: main, depthDefines: "", token: `myco-graph-shadow-${orig[0].uniqueId}` });
+    }
+    return make.call(this, subMesh, defines, generator, passId);
+  };
 }

@@ -3,20 +3,24 @@
 // particle features don't cover the effect format (trails, orbit, turbulence, rate over distance,
 // sub-emitters…); Babylon only draws. Each emitter instance gets one Babylon CPU `ParticleSystem`
 // whose particle list mirrors the simulation's every frame: Babylon's own emission, gravity and
-// gradients are off (`emitRate` 0, an empty `updateFunction`). Loaded on demand by the renderer,
-// so games without particles never load it. Babylon types stay inside this folder (ADR 0010).
+// gradients are off (`emitRate` 0, an empty `updateFunction`). Mesh and trail modes and emitters
+// with a material asset draw as meshes instead (`particleDraw.ts`, `particleMeshes.ts`). Loaded on
+// demand by the renderer, so games without particles never load it. Babylon types stay inside this
+// folder (ADR 0010).
+import type { Material } from "@babylonjs/core/Materials/material.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../scene/Assets";
 import { GameObject } from "../../scene/GameObject";
+import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import { compileParticleGraph, type ParticleProgram } from "../../scene/particleCompile";
 import { parseParticleGraph } from "../../scene/particleGraphFormat";
 import type { ParticleSystem } from "../components";
 import type { ParticlePreviewSettings, ParticleStats } from "../RenderSurface";
 import { ProgramRunner } from "../particles/programRunner";
 import { EffectSimulation, linearRGB, type SimEmitter } from "../particles/simulation";
-import { copyParticles, createDotTexture, makeDraw as makeBabylonDraw, type Draw } from "./particleDraw";
+import { createDotTexture, makeDraw as makeBabylonDraw, type Draw } from "./particleDraw";
 
 /** What the particle player needs from the render backend. */
 export interface BabylonParticleHost {
@@ -32,6 +36,13 @@ export interface BabylonParticleHost {
   texture(path: string): Promise<BaseTexture>;
   /** The quality tier's particle scale (`PARTICLE_SCALE[Graphics.tier.particles]`); multiplies emission and the particle limit. */
   tierScale(): number;
+  /**
+   * A material asset (an emitter's `renderer.material`) as a Babylon material, shared with the
+   * renderer, or null (missing, not a material, or still loading). Null draws with the emitter's
+   * texture and blending; the effect is rebuilt when the material appears or changes. Optional:
+   * without it material assets are never used.
+   */
+  material?(path: string): Material | null;
 }
 
 type PlayState = "playing" | "paused" | "stopped";
@@ -73,6 +84,9 @@ export class BabylonParticles {
   private readonly warned = new Set<string>();
   private readonly textures = new Map<string, { tex: BaseTexture | null; failed: boolean }>();
   private dot: RawTexture | null = null;
+  /** Model meshes' ids in build keys. */
+  private readonly meshIds = new WeakMap<ModelMesh, number>();
+  private nextMeshId = 1;
   readonly preview: ParticlePreviewSettings = { playing: true, speed: 1, simulateAll: false };
 
   constructor(private readonly host: BabylonParticleHost) {}
@@ -332,11 +346,34 @@ export class BabylonParticles {
     return (this.dot ??= createDotTexture(this.host.scene));
   }
 
-  /** What the build depends on (each emitter's texture), or null while one still loads. */
+  /** An emitter's material asset, or null (none, or not available yet). */
+  private materialFor(path: string): Material | null {
+    return path ? (this.host.material?.(path) ?? null) : null;
+  }
+
+  /** Mesh mode: the model mesh drawn (null while it loads, undefined when there's none to be had). */
+  private meshFor(ref: string): ModelMesh | null | undefined {
+    const meshes = meshesIfLoaded(ref);
+    return meshes === null ? null : meshes[0];
+  }
+
+  /** What the build depends on (each emitter's material, mesh and texture), or null while one still loads. */
   private buildKey(program: ParticleProgram): string | null {
     const parts: string[] = [];
     for (const e of program.effect.emitters) {
       if (!e.enabled) continue;
+      if (e.renderer.mode === "mesh") {
+        const mesh = this.meshFor(e.renderer.mesh);
+        if (mesh === null) return null; // a model still loading
+        let id = mesh ? this.meshIds.get(mesh) : 0;
+        if (mesh && !id) this.meshIds.set(mesh, (id = this.nextMeshId++));
+        parts.push(`mesh:${id}`);
+      }
+      const material = this.materialFor(e.renderer.material);
+      if (material) {
+        parts.push(`mat:${material.uniqueId}`); // drawn with the material: the texture isn't needed
+        continue;
+      }
       if (!e.renderer.texture) {
         parts.push("dot");
         continue;
@@ -351,36 +388,35 @@ export class BabylonParticles {
   private warnRenderer(c: ParticleSystem, e: SimEmitter): void {
     const where = `${c.node.name}'s emitter "${e.name}"`;
     const r = e.renderer;
-    if (r.mode === "mesh" || r.mode === "trail") this.warnOnce(`mode|${where}|${r.mode}`, `${where}: the "${r.mode}" render mode isn't on the Babylon backend yet; drawing billboards.`);
-    if (r.material) this.warnOnce(`material|${where}`, `${where}: material assets aren't used for particles on the Babylon backend yet; drawing with its texture and blending.`);
-    if (r.blendTiles) this.warnOnce(`blend|${where}`, `${where}: blended flipbook tiles aren't on the Babylon backend yet; tiles switch without blending.`);
+    if (r.mode === "mesh" && r.tiles[0] * r.tiles[1] > 1) this.warnOnce(`meshTiles|${where}`, `${where}: flipbook tiles aren't applied to mesh particles on the Babylon backend.`);
   }
 
   // --- drawing --------------------------------------------------------------------------------------------
 
-  private makeDraw(name: string, e: SimEmitter, scale: number, capacity = Math.max(1, Math.ceil(e.settings.maxParticles * Math.max(1, scale)))): Draw {
-    const path = e.renderer.texture;
-    const found = path ? this.textureFor(path) : null;
+  private makeDraw(name: string, e: SimEmitter, scale: number): Draw {
+    const capacity = Math.max(1, Math.ceil(e.settings.maxParticles * Math.max(1, scale)));
+    const r = e.renderer;
+    const material = this.materialFor(r.material);
+    const found = r.texture && !material ? this.textureFor(r.texture) : null;
     const texture = found && found !== "failed" ? found : this.dotTexture();
-    return makeBabylonDraw(this.host.scene, name, e, capacity, texture, texture === this.dot);
+    const mesh = r.mode === "mesh" ? this.meshFor(r.mesh) : undefined;
+    return makeBabylonDraw(this.host.scene, name, e, capacity, texture, texture === this.dot, { material, mesh });
   }
 
-  /** Copy the simulation's particles into Babylon's list for drawing. */
+  /** Copy the simulation's particles into the draw (growing it when the particle limit went up). */
   private mirror(inst: Instance, d: Draw): void {
-    const e = d.emitter;
-    const need = Math.max(1, Math.floor(e.settings.maxParticles * inst.scale));
-    if (need > d.capacity) {
-      // Babylon sizes its buffers at construction: rebuild bigger (the simulation keeps its state).
-      const next = this.makeDraw(d.name, e, inst.scale, Math.ceil(need * 1.5));
-      d.ps.dispose(false);
-      Object.assign(d, next);
-    }
-    copyParticles(d);
+    d.ensure(Math.max(1, Math.floor(d.emitter.settings.maxParticles * inst.scale)));
+    d.update();
   }
 
   private disposeDraws(inst: Instance): void {
-    for (const d of inst.draws) d.ps.dispose(false);
+    for (const d of inst.draws) d.dispose();
     inst.draws = [];
+  }
+
+  /** @internal Tests: a system's draws. */
+  drawsOf(c: ParticleSystem): readonly Draw[] {
+    return this.instances.get(c)?.draws ?? [];
   }
 
   private warnOnce(key: string, message: string): void {
@@ -401,7 +437,7 @@ export class BabylonParticles {
     this.instances.delete(c);
   }
 
-  /** @internal Tests and the editor overlay: what's playing. `batches` counts Babylon particle systems. */
+  /** @internal Tests and the editor overlay: what's playing. `batches` counts draws (a Babylon particle system or a mesh each). */
   state(): ParticleStats {
     let emitters = 0;
     let particles = 0;

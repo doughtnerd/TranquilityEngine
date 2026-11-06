@@ -1,9 +1,11 @@
 /**
  * @internal Editor: a live preview of a particle effect (ADR 0060) on the Babylon backend (ADR 0075
  * stage 7), with the same API as `render/particles/EffectPreview.ts` (three.js): a canvas of its own, a
- * ground grid, an orbit camera (drag to turn, wheel to zoom), and our own `EffectSimulation` drawn by
- * Babylon particle systems (`particleDraw.ts`, as in a World). It mirrors what `BabylonParticles` does for
- * a World's ParticleSystem (build, delays, one-shot repeat) but without a World.
+ * ground grid, an orbit camera (drag to turn, wheel to zoom), and our own `EffectSimulation` drawn as
+ * in a World (`particleDraw.ts`: Babylon particle systems, or meshes for mesh and trail modes and
+ * material assets). It mirrors what `BabylonParticles` does for a World's ParticleSystem (build, delays,
+ * one-shot repeat) but without a World. Material assets are built here (`buildPreviewMaterial`), lit by
+ * the preview's own soft lights.
  *
  * The engine starts asynchronously (WebGPU needs `initAsync`), so the constructor returns at once; a
  * program set before that is built when it's up.
@@ -18,12 +20,14 @@ import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { CreateLineSystem } from "@babylonjs/core/Meshes/Builders/linesBuilder.js";
 import type { LinesMesh } from "@babylonjs/core/Meshes/linesMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
+import { meshesIfLoaded } from "../../../scene/models";
 import type { ParticleProgram } from "../../../scene/particleCompile";
 import { ProgramRunner } from "../../particles/programRunner";
 import { EffectSimulation } from "../../particles/simulation";
 import type { ParticleEffectPreviewApi, PreviewBackground } from "../../previewTypes";
+import type { GraphShared } from "../graphMaterial";
 import { copyParticles, createDotTexture, makeDraw, type Draw } from "../particleDraw";
-import { aimCamera, createPreviewEngine, createPreviewScene, loadTexture, renderFrame } from "./common";
+import { addPreviewLights, aimCamera, buildPreviewMaterial, createPreviewEngine, createPreviewScene, loadTexture, renderFrame, type PreviewMaterial } from "./common";
 
 export type { PreviewBackground } from "../../previewTypes";
 
@@ -43,6 +47,8 @@ const WHITE: [number, number, number, number] = [1, 1, 1, 1];
 
 /** An emitter texture: loading, failed (the dot stands in), or ready. */
 type TextureState = Promise<unknown> | "failed" | Texture;
+/** An emitter's material asset: loading, failed (its texture and blending stand in), or built. */
+type MaterialState = Promise<unknown> | "failed" | PreviewMaterial;
 
 /** A GridHelper(20, 20): a line every unit over [-10, 10] on the ground, the two through the origin in `center`. */
 function gridLines(scene: Scene, center: string, other: string): LinesMesh {
@@ -76,6 +82,8 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
   private grid: LinesMesh | null = null;
   private readonly resizeObserver: ResizeObserver;
   private readonly textures = new Map<string, TextureState>();
+  private readonly materials = new Map<string, MaterialState>();
+  private readonly shared: GraphShared = { time: 0, resolution: [1, 1] };
   private dot: RawTexture | null = null;
 
   private runner: ProgramRunner | null = null;
@@ -123,6 +131,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
       camera.maxZ = 200;
       camera.rotationQuaternion = Quaternion.Identity();
       scene.activeCamera = camera;
+      addPreviewLights(scene, 0.35, 1); // for lit material assets (Babylon's particle systems and the unlit material ignore them)
       this.scene = scene;
       this.camera = camera;
       this.background = this._background;
@@ -210,7 +219,9 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
     this.canvas.removeEventListener("wheel", this.onWheel);
     this.clearEmitters();
     this.textures.clear();
-    this.scene?.dispose(); // the grid, textures and particle systems go with it
+    for (const m of this.materials.values()) if (typeof m === "object" && !(m instanceof Promise)) m.dispose();
+    this.materials.clear();
+    this.scene?.dispose(); // the grid, textures, particle systems and meshes go with it
     this.engine?.dispose();
     this.canvas.remove();
   }
@@ -218,7 +229,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
   // --- building --------------------------------------------------------------------------------------
 
   private clearEmitters(): void {
-    for (const d of this.draws) d.ps.dispose(false);
+    for (const d of this.draws) d.dispose();
     this.draws = [];
     this.sim = null;
     this.count = 0;
@@ -246,13 +257,42 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
     return have;
   }
 
+  /** An emitter's material asset: undefined while it builds (the build starts), null if it failed, else the material. */
+  private material(path: string): PreviewMaterial | null | undefined {
+    const have = this.materials.get(path);
+    if (have === undefined) {
+      const p = buildPreviewMaterial(this.scene!, path, this.shared).then(
+        (m) => {
+          if (this.disposed) m.dispose();
+          else this.materials.set(path, m);
+        },
+        (err: Error) => {
+          console.warn(`[myco] preview: couldn't build particle material "${path}": ${err.message}`);
+          this.materials.set(path, "failed");
+        },
+      );
+      this.materials.set(path, p);
+      return undefined;
+    }
+    if (have === "failed") return null;
+    if (have instanceof Promise) return undefined;
+    return have;
+  }
+
   private build(): void {
     const scene = this.scene;
     if (!scene || !this.runner || this.sim) return;
     const effect = this.runner.effect();
-    // Wait for every texture the emitters draw with, so the build isn't redone.
+    // Wait for every material, model and texture the emitters draw with, so the build isn't redone.
     let waiting = false;
-    for (const e of effect.emitters) if (e.enabled && e.renderer.texture && this.texture(e.renderer.texture) === undefined) waiting = true;
+    for (const e of effect.emitters) {
+      if (!e.enabled) continue;
+      const r = e.renderer;
+      const material = r.material ? this.material(r.material) : null;
+      if (material === undefined) waiting = true;
+      else if (!material && r.texture && this.texture(r.texture) === undefined) waiting = true;
+      if (r.mode === "mesh" && meshesIfLoaded(r.mesh) === null) waiting = true;
+    }
     if (waiting) {
       this.retry = RETRY_INTERVAL; // still loading something
       return;
@@ -260,8 +300,11 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
     const sim = new EffectSimulation(effect, { live: this.runner.live });
     this.sim = sim;
     this.draws = sim.emitters.map((e) => {
-      const tex = e.renderer.texture ? this.texture(e.renderer.texture) : null;
-      return makeDraw(scene, `particles:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles)), tex ?? (this.dot ??= createDotTexture(scene)), !tex);
+      const r = e.renderer;
+      const material = (r.material ? this.material(r.material) : null)?.material ?? null;
+      const tex = r.texture && !material ? this.texture(r.texture) : null;
+      const mesh = r.mode === "mesh" ? meshesIfLoaded(r.mesh)?.[0] : undefined;
+      return makeDraw(scene, `particles:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles)), tex ?? (this.dot ??= createDotTexture(scene)), !tex, { material, mesh });
     });
     this.restartEmitters();
   }
@@ -310,6 +353,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
       this.runner?.update(this.time, dt, d > 0 ? this.time % d : this.time);
       sim.step(dt, IDENTITY, 1, WHITE);
     }
+    this.shared.time += realDt; // graph materials' Time node
     for (const d of this.draws) copyParticles(d);
     this.count = sim.count;
     if (this._playing && this.looping) {

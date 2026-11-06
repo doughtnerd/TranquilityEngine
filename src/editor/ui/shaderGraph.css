@@ -96,6 +96,7 @@
 .sg-side-card .sg-property-row > span { color: var(--muted); }
 .sg-ports-head { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: calc(11px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 4px; }
 .sg-ports-head button, .sg-ports button { padding: 0 6px; }
+.sg-wgsl-label { margin-top: 6px; }
 .sg-function-body { min-height: 110px; resize: vertical; font-family: var(--font-code); font-size: var(--font-size-code); white-space: pre; }
 
 .sg-node-header { gap: 4px; }

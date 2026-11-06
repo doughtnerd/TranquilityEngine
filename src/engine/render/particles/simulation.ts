@@ -304,6 +304,8 @@ export class SimParticle {
   b = 1;
   a = 1;
   tile = 0;
+  /** How far the flipbook has moved from `tile` towards the next tile, 0-1 (`blendTiles` cross-fades by it). */
+  tileBlend = 0;
   /** Life fraction, 0 (born) to 1 (dying). */
   t = 0;
   /** Trail history (world positions, a ring of `trailCap` points); empty unless the emitter draws trails. */
@@ -876,7 +878,7 @@ export class EffectSimulation {
     p.startG = this.col[1] * this.tint[1];
     p.startB = this.col[2] * this.tint[2];
     p.startA = this.col[3] * this.tint[3];
-    p.startTile = Math.floor(evalNum(e.tileN, frac, rnd()));
+    p.startTile = evalNum(e.tileN, frac, rnd()); // floored when drawn; the fraction blends tiles
     p.speedMod = 1;
     p.noise.fill(0);
     // Position and direction in the node's space.
@@ -1200,7 +1202,7 @@ export class EffectSimulation {
           if (dt > 0) p.rotation += evalNum(bh.n, t, stable(seed, 4000 + i)) * dt;
           break;
         case "frame":
-          tile = Math.floor(evalNum(bh.n, t, stable(seed, 4000 + i)));
+          tile = evalNum(bh.n, t, stable(seed, 4000 + i));
           break;
         default:
       }
@@ -1210,7 +1212,9 @@ export class EffectSimulation {
     p.g = g;
     p.b = b;
     p.a = a;
-    p.tile = ((tile % e.tiles) + e.tiles) % e.tiles;
+    const whole = Math.floor(tile);
+    p.tile = ((whole % e.tiles) + e.tiles) % e.tiles;
+    p.tileBlend = tile - whole;
     if (e.renderer.mode === "stretched") p.length = p.size * e.renderer.lengthScale + speed * e.renderer.speedScale;
     else p.length = p.size;
   }

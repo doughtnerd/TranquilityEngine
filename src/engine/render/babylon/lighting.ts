@@ -24,6 +24,7 @@ import { Color3 } from "@babylonjs/core/Maths/math.color.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { SHADOW_MAP_SIZE } from "../../core/graphics";
 import type { World } from "../../core/World";
@@ -126,6 +127,13 @@ export class BabylonLighting {
   private readonly warned = new Set<string>();
   /** Whether the last sync asked for cascaded shadows, for tests. */
   private cascading = false;
+  /**
+   * The main light shader graphs read (Main Light Direction / Color nodes), chosen as three.js's
+   * `directionalLights[0]` is: the first shadow-casting directional light, else the first directional
+   * one, else the default sun when the World has no Lights, else (0.4, 1, 0.6) and white. `direction`
+   * is a unit world vector toward the light; `color` is linear colour × intensity. Updated in place.
+   */
+  readonly mainLight = { direction: [0.4, 1, 0.6].map((v) => v / Math.hypot(0.4, 1, 0.6)), color: [1, 1, 1] };
   /** How much the World's fog covers the sky (ADR 0071): the skybox dims by it and hides at 1. */
   private skyFog = 0;
 
@@ -155,6 +163,8 @@ export class BabylonLighting {
     let any = false;
     this.cascading = false;
     const shadows: ShadowRequest[] = [];
+    let main: BabylonLight | null = null;
+    let mainCasts = false;
     for (const l of world._componentsOfType(Light)) {
       const on = this.syncLight(world, l);
       const entry = this.lights.get(l)!;
@@ -162,6 +172,10 @@ export class BabylonLighting {
       setShadowEnabled(entry.light, casts);
       if (!on) continue;
       any = true;
+      if (l.type === "directional" && (!main || (casts && !mainCasts))) {
+        main = entry.light;
+        mainCasts = casts;
+      }
       if (!casts) continue;
       const light = entry.light as BabylonLight & IShadowLight;
       const cascaded = l === cascadeLight;
@@ -175,7 +189,29 @@ export class BabylonLighting {
       d.setEnabled(!any);
       setShadowEnabled(d, false);
     }
+    this.syncMainLight(main ?? (any ? null : this.defaults[1]));
     return shadows;
+  }
+
+  private syncMainLight(light: BabylonLight | null): void {
+    const { direction, color } = this.mainLight;
+    if (light instanceof DirectionalLight) {
+      const d = light.direction;
+      const len = Math.hypot(d.x, d.y, d.z) || 1;
+      direction[0] = -d.x / len;
+      direction[1] = -d.y / len;
+      direction[2] = -d.z / len;
+      const c = light.diffuse; // already linear (`syncLight`)
+      color[0] = c.r * light.intensity;
+      color[1] = c.g * light.intensity;
+      color[2] = c.b * light.intensity;
+    } else {
+      const len = Math.hypot(0.4, 1, 0.6);
+      direction[0] = 0.4 / len;
+      direction[1] = 1 / len;
+      direction[2] = 0.6 / len;
+      color[0] = color[1] = color[2] = 1;
+    }
   }
 
   /** Mirror one Light; true if it lights the scene. */
@@ -359,8 +395,12 @@ export class BabylonLighting {
     }
     if (!this.skybox) {
       this.skybox = CreateBox("myco.skybox", { size: 1 }, this.scene);
-      this.skybox.infiniteDistance = true;
       this.skybox.isPickable = false;
+      // One box serves every camera: `fitSky` centres and sizes it for each camera just before it draws
+      // (not `infiniteDistance`, whose matrix followed whichever camera computed it last, nor a size from
+      // the first camera's far plane, which put the sky past the editor's camera preview inset's far
+      // plane, drawing it black). Culling is skipped: each camera's cull task ran before its `fitSky`.
+      this.skybox.alwaysSelectAsActiveMesh = true;
       this.skyMaterial = new PBRMaterial("myco.skybox", this.scene);
       this.skyMaterial.backFaceCulling = false;
       this.skyMaterial.disableLighting = true;
@@ -369,11 +409,22 @@ export class BabylonLighting {
     }
     const mat = this.skyMaterial!;
     this.skybox.setEnabled(true);
-    this.skybox.scaling.setAll(Math.max(1, far) * 1.1); // the box's corners stay inside the far plane
+    this.skybox.scaling.setAll(Math.max(1, far) * 1.1); // until `fitSky` sizes it per camera
     if (mat.reflectionTexture !== sky) mat.reflectionTexture = sky;
     if ("rotationY" in sky) (sky as { rotationY: number }).rotationY = turn;
     mat.microSurface = 1 - Math.min(1, Math.max(0, env!.skyboxBlur));
     mat.environmentIntensity = Math.max(0, env!.skyboxIntensity) * (1 - this.skyFog);
+  }
+
+  /** Centre and size the skybox for the camera about to draw: its corners stay inside the far plane. */
+  fitSky(camera: TargetCamera): void {
+    const box = this.skybox;
+    if (!box?.isEnabled()) return;
+    const far = camera.maxZ > 0 ? camera.maxZ : 10000; // 0 is Babylon's infinite far plane
+    camera.getViewMatrix(); // refreshes globalPosition (cached when the camera hasn't moved)
+    box.position.copyFrom(camera.globalPosition);
+    box.scaling.setAll(Math.max(1, far) * 1.1);
+    box.computeWorldMatrix(true);
   }
 
   private loadEnvironmentMap(path: string): void {
