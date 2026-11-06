@@ -93,6 +93,8 @@ class FakeCore implements UICoreLike {
   elements() { return this.es; }
   rectOf() { return null; }
   hitTest() { return null; }
+  pickAll() { return []; }
+  cornersOf() { return null; }
   release(): void {}
   dispose(): void {}
 }

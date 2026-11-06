@@ -82,6 +82,12 @@ export interface UILaidOutElement {
   readonly opacity: number;
 }
 
+/** A ray in world space, for picking world canvases. */
+export interface UIPickRay {
+  readonly origin: readonly [number, number, number];
+  readonly direction: readonly [number, number, number];
+}
+
 /** The renderer-neutral UI core (ADR 0076). */
 export interface UICoreLike {
   /** Step 8: mirror the World's UI components and lay them out for a drawing canvas of `width × height` CSS pixels. */
@@ -98,6 +104,10 @@ export interface UICoreLike {
   rectOf(c: UIComponentType): { x: number; y: number; width: number; height: number } | null;
   /** Tests: the topmost interactive element under a canvas CSS point, or null. */
   hitTest(x: number, y: number): UIComponentType | null;
+  /** Editor (ADR 0077): every drawn element (canvases excepted) under a canvas CSS point, topmost first. */
+  pickAll(x: number, y: number, ray?: UIPickRay | null): UIComponentType[];
+  /** Editor (ADR 0077): an element's box corners, in canvas CSS pixels (screen canvases) or world space (world canvases); null when not laid out. */
+  cornersOf(c: UIComponentType): { space: "screen" | "world"; points: number[][] } | null;
   /** Forget a removed component. */
   release(c: UIComponentType): void;
   dispose(): void;

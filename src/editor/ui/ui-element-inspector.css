@@ -1,0 +1,22 @@
+/* The Inspector for a UI document element (ADR 0077): fields with where each value comes from. Colours are editor.css's tokens. */
+.ui-element-inspector .ui-element-name { font-weight: 600; color: var(--text-strong); }
+.ui-element-inspector .ui-element-note { margin: 0 0 8px; font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
+.ui-element-inspector .ui-element-from { color: var(--muted); }
+.ui-element-inspector .link-button { font: inherit; }
+.fields.ui-element-fields { align-items: start; }
+.ui-element-fields .label-cell { min-height: 18px; }
+.ui-element-fields .ui-field-value { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.ui-element-fields .ui-field-current { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.ui-element-fields .ui-origin { display: inline-flex; gap: 4px; align-items: baseline; max-width: 100%; padding: 0 5px; border: none; border-radius: 3px; font: inherit; font-size: calc(10px * var(--ui-scale)); line-height: 15px; text-align: left; background: var(--badge); color: var(--badge-text); }
+.ui-element-fields button.ui-origin { cursor: pointer; }
+.ui-element-fields button.ui-origin:hover { box-shadow: inset 0 0 0 1px currentColor; }
+.ui-element-fields .ui-origin-detail { color: var(--text); opacity: 0.8; overflow-wrap: anywhere; }
+.ui-element-fields .ui-origin.origin-default { background: none; color: var(--faint); padding: 0; }
+.ui-element-fields .ui-origin.origin-rule { background: var(--accent-faint); color: var(--accent); }
+.ui-element-fields .ui-origin.origin-inherited { background: var(--accent2-soft); color: var(--accent2); }
+.ui-element-fields .ui-origin.origin-binding, .ui-element-fields .ui-origin.origin-content { background: var(--warning-soft); color: var(--warning); }
+.ui-element-fields .label-cell.origin-default > label { color: var(--faint); }
+.ui-element-fields .label-cell.origin-attribute, .ui-element-fields .label-cell.origin-rule, .ui-element-fields .label-cell.origin-inherited,
+.ui-element-fields .label-cell.origin-content, .ui-element-fields .label-cell.origin-binding { border-left-color: var(--accent); }
+.ui-element-fields .ui-field-value:has(> .origin-default) { flex-direction: row; align-items: baseline; gap: 6px; }
+.ui-element-fields .ui-origin .ui-origin-kind { flex: none; white-space: nowrap; }

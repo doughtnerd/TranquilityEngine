@@ -69,6 +69,7 @@ export const selection = {
  * asset click deselects the nodes in turn, assetImport.ts `inspectSelectedAsset`).
  */
 export function select(keys: Iterable<string>, active?: string | null): void {
+  if (selectedUIElement.peek() !== null) selectedUIElement.value = null; // any node selection replaces a UI element's
   const next = [...new Set(keys)];
   if (active != null && next.includes(active)) next.push(next.splice(next.indexOf(active), 1)[0]);
   const current = selectedKeys.peek();
@@ -78,6 +79,13 @@ export function select(keys: Iterable<string>, active?: string | null): void {
     if (next.length > 0 && selectedAssets.peek().length > 0) selectedAssets.value = [];
   });
 }
+
+/**
+ * The selected element of a UI document (ADR 0077), as a `uiDocuments.ts` key (`uiRefKey`), or
+ * null. Elements aren't document nodes, so they're selected apart: selecting one clears
+ * `selectedKeys` (`selectUIElement`), and selecting nodes (`select`) clears it.
+ */
+export const selectedUIElement = signal<string | null>(null);
 
 /**
  * The Alt+click list (ADR 0022): nodes near the click, with their children, shown at a page

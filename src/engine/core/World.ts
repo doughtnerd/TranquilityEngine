@@ -266,7 +266,8 @@ export class World {
 
   /**
    * @internal Mark a node as the root of a subtree being edited (ADR 0026). Inside it, GameBehavior
-   * hooks don't run, built-in activation side effects (e.g. audio playback) are skipped and user
+   * hooks don't run, built-in activation side effects (e.g. audio playback) are skipped (unless the
+   * component opts in with `_activatesInEditMode`, as UIDocument does) and user
    * systems don't see its nodes, so a scene open in the editor stays still. Editor tools outside
    * the subtree keep running.
    */
@@ -452,7 +453,7 @@ export class World {
     c._active = active;
     const editing = this.inEditMode(e);
     if (active) {
-      if (!editing) c._onActivate();
+      if (!editing || c._activatesInEditMode) c._onActivate();
       if (c instanceof GameBehavior) {
         if (c.onEnable) this.invoke(c, "onEnable");
         if (!c._started && !this.pendingStart.includes(c)) {
@@ -461,7 +462,7 @@ export class World {
         }
       }
     } else {
-      if (!editing) c._onDeactivate();
+      if (!editing || c._activatesInEditMode) c._onDeactivate();
       if (c instanceof GameBehavior) {
         if (c.onDisable) this.invoke(c, "onDisable");
         this.cancelAsync(c);
@@ -753,7 +754,7 @@ export class World {
     if (c._destroyed) return;
     if (c._active) {
       c._active = false;
-      if (!this.inEditMode(c._node.entity)) c._onDeactivate();
+      if (!this.inEditMode(c._node.entity) || c._activatesInEditMode) c._onDeactivate();
       if (c instanceof GameBehavior && c.onDisable) this.invoke(c, "onDisable");
     }
     if (c instanceof GameBehavior) {

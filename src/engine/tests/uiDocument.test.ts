@@ -374,3 +374,106 @@ describe("UIDocument", () => {
     expect(() => doc.query("[x]")).toThrow(/Bad selector/);
   });
 });
+
+describe("UIDocument in the editor (ADR 0077 wave B)", () => {
+  beforeEach(() => {
+    files["ui/menu.ui.xml"] = MENU;
+    files["ui/menu.ui.css"] = MENU_CSS;
+  });
+
+  /** A document under an edit-mode scene root, as the Editor World has it (ADR 0026). */
+  function editing(): { scene: GameObject; doc: UIDocument } {
+    const scene = GameObject.create("Scene");
+    World.require().setEditMode(scene.entity, true);
+    const node = GameObject.create("UI", { parent: scene });
+    const doc = node.addBehavior(UIDocument, { document: "asset:ui/menu.ui.xml" });
+    return { scene, doc };
+  }
+
+  it("builds inside a scene being edited, at once when the parsers are loaded", () => {
+    const { doc } = editing();
+    expect(doc.root).not.toBeNull(); // no await: built as the component activated
+    expect(doc.query("#play")!.as(UIButton).backgroundColor).toEqual(Color.from("#336699"));
+    expect(doc._markupPath).toBe("ui/menu.ui.xml");
+    expect(doc._files).toEqual(["ui/menu.ui.xml", "ui/menu.ui.css"]);
+    expect(doc._sheets.map((s) => s.file)).toEqual(["ui/menu.ui.css"]);
+  });
+
+  it("hot-reloads in edit mode when a file's asset value changes", () => {
+    const { doc } = editing();
+    const built = vi.fn();
+    const stop = UIDocument._onBuilt(built);
+    files["ui/menu.ui.css"] = MENU_CSS.replace("#336699", "#112233");
+    engine.step(DT);
+    expect(built).toHaveBeenCalledWith(doc);
+    expect(doc.query("#play")!.as(UIButton).backgroundColor).toEqual(Color.from("#112233"));
+    stop();
+  });
+
+  it("rebuilds once a missing document appears", () => {
+    const node = GameObject.create("Late");
+    const doc = node.addBehavior(UIDocument, { document: "asset:ui/late.ui.xml" });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(doc.root).toBeNull();
+    files["ui/late.ui.xml"] = `<Canvas><Text id="t">Late</Text></Canvas>`;
+    engine.step(DT);
+    expect(doc.query("#t")!.as(UIText).text).toBe("Late");
+  });
+
+  it("finds elements by component and by their static path, and keeps paths across rebuilds", () => {
+    const { doc } = editing();
+    const play = doc.query("#play")!;
+    expect(UIDocument._elementOf(play.component)).toBe(play);
+    expect(play._path).toBe("/#menu/#play");
+    expect(doc.root!._path).toBe("");
+    const label = play.children[0];
+    expect(label._synthetic).toBe(true);
+    expect(label._path).toBe("/#menu/#play/label");
+    expect(doc._elementAt("/#menu/#play")).toBe(play);
+    expect(doc._elementAt("/#menu/#nope")).toBeNull();
+    // Rows have no path, nor does anything inside them.
+    const [row] = doc.list("#rows", [{ label: "a", n: 1 }]);
+    expect(row._path).toBeNull();
+    // A rebuild keeps static paths, and the old component no longer maps.
+    const oldComp = play.component;
+    files["ui/menu.ui.css"] = MENU_CSS + "\n.extra { gap: 1px; }";
+    engine.step(DT);
+    const again = doc._elementAt("/#menu/#play")!;
+    expect(again).not.toBeNull();
+    expect(UIDocument._elementOf(again.component)).toBe(again);
+    expect(again.component).not.toBe(oldComp);
+  });
+
+  it("collects no events and runs no handlers in a scene being edited", () => {
+    const { doc } = editing();
+    const play = doc.query("#play")!;
+    const handler = vi.fn();
+    play.on("click", handler);
+    play.as(UIButton)._clickFrame = World.require().time.frameCount + 1;
+    engine.step(DT);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("removes its tree with the component, and listeners hear it", () => {
+    const { doc } = editing();
+    const built = vi.fn();
+    const stop = UIDocument._onBuilt(built);
+    const canvasNode = doc.root!.node;
+    doc.node.removeBehavior(doc);
+    engine.step(DT);
+    expect(canvasNode.isValid).toBe(false);
+    expect(built).toHaveBeenCalledWith(doc);
+    stop();
+  });
+
+  it("resolves an element's style at another pseudo-class state without writing it", () => {
+    const { doc } = editing();
+    const play = doc.query("#play")!;
+    const hover = doc._resolveAt(play, { hover: true }).get("backgroundColor")!;
+    expect(hover.value).toEqual(Color.from("#4477aa"));
+    expect(hover.source.kind).toBe("rule");
+    expect(play.as(UIButton).backgroundColor).toEqual(Color.from("#336699"));
+    expect(play._boundFields()).toEqual([]);
+    expect(doc.query("#title")!._boundFields()).toEqual(["text"]);
+  });
+});

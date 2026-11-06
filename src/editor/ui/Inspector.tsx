@@ -42,9 +42,10 @@ import { assetKind, listedFiles } from "../assetBrowser";
 import { BUILTIN_MESHES } from "../../engine/scene/models";
 import { liveInspecting } from "../runtimeInspect";
 import { RuntimeInspector } from "./RuntimeInspector";
+import { UIElementInspector } from "./UIElementInspector";
 import { openScript, scriptFor } from "../code/codeState";
 import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
-import { currentProject, docVersion, editingCollider, openScene, scriptsVersion, selectedKeys, selection, status, type OpenScene } from "../state";
+import { currentProject, docVersion, editingCollider, openScene, scriptsVersion, selectedKeys, selectedUIElement, selection, status, type OpenScene } from "../state";
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -59,6 +60,7 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
 export function Inspector() {
   if (liveInspecting()) return <RuntimeInspector />; // a live World of the running game
   if (showsAssetInspector()) return <AssetInspector />; // an image or audio file selected in the Assets panel (ADR 0040)
+  if (selectedUIElement.value !== null) return <UIElementInspector />; // an element of a UI document (ADR 0077)
   docVersion.value; // re-render when the document changes
   const scene = openScene.value;
   if (!scene) return <p class="empty">Nothing selected</p>;

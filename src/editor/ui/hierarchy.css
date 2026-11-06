@@ -22,6 +22,11 @@
 .tree .row.filter-context .name { opacity: 0.55; }
 .tree .row.scene-hidden .name { font-style: italic; opacity: 0.55; }
 
+/* Elements a UI document builds (ADR 0077): the markup file's, not the scene's, so muted and read-only. */
+.tree .row.ui-element { color: var(--muted); font-style: italic; }
+.tree .row.ui-element.selected { color: var(--selection-text); }
+.tree .row.ui-element .ui-element-icon { flex: none; width: 12px; margin-right: 3px; font-size: 9px; font-style: normal; color: var(--accent); opacity: 0.8; }
+
 .tree .row .name { flex: 0 1 auto; min-width: 0; }
 .tree .row-flags { margin-left: auto; padding-left: 4px; display: flex; gap: 1px; flex: none; }
 .tree .row-flag {

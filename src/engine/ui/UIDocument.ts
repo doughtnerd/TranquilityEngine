@@ -181,6 +181,7 @@ export class UIDocumentElement {
   /** @internal */ _lastValue: string | null = null;
   /** @internal */ _changeFrame = -1;
   /** @internal True for a button's label made from its text content. */ _synthetic = false;
+  /** @internal Its place among the document's static elements (`""` for the root, `/#id`, `/Panel[1]`, `/label`…); null in list rows. */ _path: string | null = null;
 
   /** @internal */
   constructor(readonly document: UIDocument) {
@@ -311,6 +312,11 @@ export class UIDocumentElement {
     return this.describe();
   }
 
+  /** @internal Editor (ADR 0077 wave B): fields a `{name}` binding or the text content writes, which the cascade leaves alone. */
+  _boundFields(): string[] {
+    return this._bindings.map((b) => b.field);
+  }
+
   /** @internal */
   _markDirty(): void {
     this.document._styleDirty.add(this);
@@ -326,6 +332,21 @@ export class UIDocumentElement {
 
 /** Built documents, for the frame systems. */
 const liveDocuments = new Set<UIDocument>();
+
+/** Each built element by its component, for the editor's picking (ADR 0077 wave B). */
+const elementByComponent = new WeakMap<UIComponentType, UIDocumentElement>();
+
+/** Called after a document builds or rebuilds, and after its tree is removed (editor: the hierarchy follows). */
+const buildListeners = new Set<(doc: UIDocument) => void>();
+function notifyBuilt(doc: UIDocument): void {
+  for (const fn of [...buildListeners]) {
+    try {
+      fn(doc);
+    } catch (err) {
+      console.error("[myco] a UI document build listener threw:", err);
+    }
+  }
+}
 
 /** Default field values per component class, for fields the cascade stops setting. */
 const defaults = new Map<ComponentClass, UIComponentType>();
@@ -475,12 +496,66 @@ export class UIDocument extends Component {
     return rows;
   }
 
+  // --- Editor (ADR 0077 wave B) ------------------------------------------------------------------
+
+  /** @internal Editor: call `listener` after any document builds, rebuilds or loses its tree. Returns a function that stops it. */
+  static _onBuilt(listener: (doc: UIDocument) => void): () => void {
+    buildListeners.add(listener);
+    return () => buildListeners.delete(listener);
+  }
+
+  /** @internal Editor: the live document element a UI component belongs to, or null (hand-built UI, or removed). */
+  static _elementOf(component: UIComponentType): UIDocumentElement | null {
+    const el = elementByComponent.get(component);
+    return el && el._alive ? el : null;
+  }
+
+  /** @internal Editor: the static element at `path` (see `UIDocumentElement._path`), or null. */
+  _elementAt(path: string): UIDocumentElement | null {
+    const root = this.rootElement;
+    if (!root) return null;
+    let found: UIDocumentElement | null = null;
+    walk(root, (el) => {
+      if (!found && el._alive && el._path === path) found = el;
+    });
+    return found;
+  }
+
+  /**
+   * @internal Editor: an element's cascade as if its pseudo-class state were `state` (the rest as it
+   * is now), without writing anything: where a button's `:hover` / `:pressed` colours come from.
+   */
+  _resolveAt(el: UIDocumentElement, state: Partial<Record<UIPseudo, boolean>>): ReadonlyMap<string, ResolvedValue> {
+    if (!parsers) return new Map();
+    return parsers.resolveStyle({ ...el._target, state: { ...el._target.state, ...state } }, el._markup, el._comp.constructor as ComponentClass, this.sheets, el._parent?._resolved ?? null, () => {});
+  }
+
+  /** @internal Editor: the markup file the tree was built from (project path), or null before a build. */
+  get _markupPath(): string | null {
+    return this.builtFrom === null ? null : normalizeAssetPath(this.builtFrom) || null;
+  }
+
+  /** @internal Editor: the stylesheets of the last build, in cascade order. */
+  get _sheets(): readonly UIStylesheet[] {
+    return this.sheets;
+  }
+
+  /** @internal Editor: every file the last build read (the markup, used documents, stylesheets). */
+  get _files(): readonly string[] {
+    return [...this.sources.keys()];
+  }
+
   /** Rebuild from the files now (the engine does this by itself when one of them changes). */
   reload(): void {
     if (this.isActiveAndEnabled) this.rebuild();
   }
 
   // --- Lifecycle --------------------------------------------------------------------------------
+
+  /** @internal The editor shows a document's elements in the scene being edited. */
+  override get _activatesInEditMode(): boolean {
+    return true;
+  }
 
   /** @internal */
   override _onActivate(): void {
@@ -527,7 +602,10 @@ export class UIDocument extends Component {
     this.selectorCache.clear();
     const path = normalizeAssetPath(this.document);
     const read = (p: string): string | null => {
-      if (!Assets.has(p)) return null;
+      if (!Assets.has(p)) {
+        if (!this.sources.has(p)) this.sources.set(p, undefined); // rebuilt once the file appears
+        return null;
+      }
       const v = Assets.get(p);
       this.sources.set(p, v);
       return typeof v === "string" ? v : null;
@@ -566,6 +644,7 @@ export class UIDocument extends Component {
     this.readyPromise = null;
     this.readyResolve = null;
     resolve?.();
+    notifyBuilt(this);
   }
 
   private problem(message: string): void {
@@ -584,6 +663,7 @@ export class UIDocument extends Component {
       if (!keep.has(el)) dropElement(el);
     });
     destroyNode(root._node, flush);
+    if (!reuse) notifyBuilt(this); // removed for good (a rebuild notifies once it's done)
   }
 
   /**
@@ -620,6 +700,8 @@ export class UIDocument extends Component {
     const node = world._createNode(idAttr ?? markup.tag, parentNode.entity);
     el._node = node;
     el._comp = node.addBehavior(type);
+    el._path = scope || parent?._path === null ? null : path; // list rows and what's inside them have none
+    elementByComponent.set(el._comp, el);
 
     // Bindings: bound attributes, and the text content (a Text's text, an InputField's value).
     const fields = P.fieldsOf(type);
@@ -788,6 +870,7 @@ export class UIDocument extends Component {
     const root = this.rootElement;
     if (!root) return;
     const world = this.world;
+    if (world.inEditMode(this.node.entity)) return; // a scene being edited: no events (ADR 0026)
     const frame = world.time.frameCount;
     const events: UIEvent[] = [];
     walk(root, (el) => {

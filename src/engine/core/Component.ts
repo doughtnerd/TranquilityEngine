@@ -91,6 +91,13 @@ export abstract class Component {
   _onActivate(): void {}
   /** @internal Called whenever the component stops being active and enabled. */
   _onDeactivate(): void {}
+  /**
+   * @internal True for built-in components whose activation hooks also run inside an edit-mode
+   * subtree (ADR 0026), because the editor must show what they make (a UIDocument's elements, ADR 0077).
+   */
+  get _activatesInEditMode(): boolean {
+    return false;
+  }
 }
 
 /** Lifecycle hooks a GameBehavior may implement (ADR 0007). All are optional. */

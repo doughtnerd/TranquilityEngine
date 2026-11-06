@@ -16,7 +16,7 @@ import type { GameObject } from "../scene/GameObject";
 import { Input } from "../input/Input";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "./components";
 import { UI_FONT_FAMILY, UI_LINE_HEIGHT, canvasScale, cssFontWeight, estimateText, loadYogaOnce, uiLength } from "./layout";
-import type { TextMeasureRequest, UICoreHost, UICoreLike, UICoreOptions, UIKind, UILaidOutCanvas, UILaidOutElement } from "./uiCoreTypes";
+import type { TextMeasureRequest, UICoreHost, UICoreLike, UICoreOptions, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay } from "./uiCoreTypes";
 
 export { canvasScale, uiLength } from "./layout";
 
@@ -577,6 +577,90 @@ export class UICore implements UICoreLike {
     if (focused) Input._claimKeyboard();
   }
 
+  /**
+   * Editor (ADR 0077 wave B): every drawn element under a canvas CSS point, not only interactive ones,
+   * topmost first: screen canvases from the highest `sortOrder` (each canvas's elements from the last
+   * drawn), then world canvases nearest first. Canvases themselves aren't listed. `ray` is the view's
+   * ray under the point for world canvases (the editor passes its scene camera's); without it the
+   * host's view camera makes one.
+   */
+  pickAll(x: number, y: number, ray?: UIPickRay | null): UIComponentType[] {
+    const out: UIComponentType[] = [];
+    for (let k = this.screenList.length - 1; k >= 0; k--) {
+      const canvas = this.screenList[k];
+      const px = x / canvas.scale, py = y / canvas.scale;
+      for (let i = canvas.elements.length - 1; i >= 0; i--) {
+        const e = canvas.elements[i];
+        if (!this.hittable(e)) continue;
+        const b = e.box;
+        if (px >= b.x && px <= b.x + b.width && py >= b.y && py <= b.y + b.height) out.push(e.comp);
+      }
+    }
+    const r = ray ?? this.viewRay(x, y);
+    if (!r) return out;
+    const hits: { comps: UIComponentType[]; t: number }[] = [];
+    for (const laid of this.canvasList) {
+      const canvas = laid.mode === "world" ? this.canvasEntries.get(laid.comp) : undefined;
+      const at = canvas ? this.onWorldCanvas(laid, r) : null;
+      if (!canvas || !at) continue;
+      const comps: UIComponentType[] = [];
+      for (let i = canvas.elements.length - 1; i >= 0; i--) {
+        const e = canvas.elements[i];
+        if (!this.hittable(e)) continue;
+        const b = e.box;
+        if (at.ux >= b.x && at.ux <= b.x + b.width && at.uy >= b.y && at.uy <= b.y + b.height) comps.push(e.comp);
+      }
+      if (comps.length) hits.push({ comps, t: at.t });
+    }
+    hits.sort((a, b) => a.t - b.t);
+    for (const h of hits) out.push(...h.comps);
+    return out;
+  }
+
+  /**
+   * Editor (ADR 0077 wave B): an element's box corners (top-left, top-right, bottom-right,
+   * bottom-left) from the last layout: canvas CSS pixels `[x, y]` on a screen canvas, world points
+   * `[x, y, z]` on a world canvas. Null when it isn't laid out.
+   */
+  cornersOf(c: UIComponentType): { space: "screen" | "world"; points: number[][] } | null {
+    const entry = this.entries.get(c);
+    const canvas = entry?.canvas;
+    if (!entry || !canvas || !this.yoga) return null;
+    const b = entry.box;
+    const xs = [b.x, b.x + b.width, b.x + b.width, b.x], ys = [b.y, b.y, b.y + b.height, b.y + b.height];
+    if (canvas.comp.mode !== "world") return { space: "screen", points: xs.map((x, i) => [x * canvas.scale, ys[i] * canvas.scale]) };
+    const laid = this.canvasList.find((l) => l.comp === canvas.comp);
+    if (!laid?.worldMatrix) return null;
+    const m = laid.worldMatrix;
+    const points = xs.map((x, i) => {
+      const lx = (x - laid.width / 2) * laid.pixelSize, ly = (laid.height / 2 - ys[i]) * laid.pixelSize;
+      return [m[0] * lx + m[4] * ly + m[12], m[1] * lx + m[5] * ly + m[13], m[2] * lx + m[6] * ly + m[14]];
+    });
+    return { space: "world", points };
+  }
+
+  private viewRay(x: number, y: number): UIPickRay | null {
+    const camera = this.host.viewCamera?.();
+    if (!camera) return null;
+    const ray = camera.screenPointToRay(new Vector2(x, y));
+    return { origin: [ray.origin.x, ray.origin.y, ray.origin.z], direction: [ray.direction.x, ray.direction.y, ray.direction.z] };
+  }
+
+  /** Where a ray meets a world canvas, in its UI pixels, with the ray parameter (a world distance); null if it misses the plane. */
+  private onWorldCanvas(laid: UILaidOutCanvas, ray: UIPickRay): { ux: number; uy: number; t: number } | null {
+    if (!laid.visible || !laid.worldMatrix) return null;
+    // The ray in the canvas's local space (an affine map keeps the ray parameter, so t is a world distance).
+    Mat4.invert(scratchInv, 0, laid.worldMatrix, 0);
+    const m = scratchInv;
+    const [oX, oY, oZ] = ray.origin, [dX, dY, dZ] = ray.direction;
+    const ox = m[0] * oX + m[4] * oY + m[8] * oZ + m[12], oy = m[1] * oX + m[5] * oY + m[9] * oZ + m[13], oz = m[2] * oX + m[6] * oY + m[10] * oZ + m[14];
+    const dx = m[0] * dX + m[4] * dY + m[8] * dZ, dy = m[1] * dX + m[5] * dY + m[9] * dZ, dz = m[2] * dX + m[6] * dY + m[10] * dZ;
+    if (Math.abs(dz) < 1e-9) return null;
+    const t = -oz / dz;
+    if (t < 0) return null;
+    return { ux: (ox + dx * t) / laid.pixelSize + laid.width / 2, uy: laid.height / 2 - (oy + dy * t) / laid.pixelSize, t };
+  }
+
   /** The topmost interactive element under a canvas point: screen canvases from the highest `sortOrder`, then the nearest in world canvases. */
   private hit(x: number, y: number): Entry | null {
     for (let k = this.screenList.length - 1; k >= 0; k--) {
@@ -589,25 +673,14 @@ export class UICore implements UICoreLike {
         if (px >= b.x && px <= b.x + b.width && py >= b.y && py <= b.y + b.height) return e;
       }
     }
-    const camera = this.host.viewCamera?.();
-    if (!camera) return null;
-    const ray = camera.screenPointToRay(new Vector2(x, y));
+    const ray = this.viewRay(x, y);
+    if (!ray) return null;
     let best: Entry | null = null, bestDistance = Infinity;
     for (const laid of this.canvasList) {
-      if (laid.mode !== "world" || !laid.visible || !laid.worldMatrix) continue;
-      const canvas = this.canvasEntries.get(laid.comp);
-      if (!canvas) continue;
-      // The ray in the canvas's local space (an affine map keeps the ray parameter, so t is a world distance).
-      Mat4.invert(scratchInv, 0, laid.worldMatrix, 0);
-      const m = scratchInv;
-      const o = ray.origin, d = ray.direction;
-      const ox = m[0] * o.x + m[4] * o.y + m[8] * o.z + m[12], oy = m[1] * o.x + m[5] * o.y + m[9] * o.z + m[13], oz = m[2] * o.x + m[6] * o.y + m[10] * o.z + m[14];
-      const dx = m[0] * d.x + m[4] * d.y + m[8] * d.z, dy = m[1] * d.x + m[5] * d.y + m[9] * d.z, dz = m[2] * d.x + m[6] * d.y + m[10] * d.z;
-      if (Math.abs(dz) < 1e-9) continue;
-      const t = -oz / dz;
-      if (t < 0) continue;
-      const ux = (ox + dx * t) / laid.pixelSize + laid.width / 2;
-      const uy = laid.height / 2 - (oy + dy * t) / laid.pixelSize;
+      const canvas = laid.mode === "world" ? this.canvasEntries.get(laid.comp) : undefined;
+      const at = canvas ? this.onWorldCanvas(laid, ray) : null;
+      if (!canvas || !at) continue;
+      const { ux, uy, t } = at;
       for (let i = canvas.interactive.length - 1; i >= 0; i--) {
         const e = canvas.interactive[i];
         if (!this.hittable(e)) continue;

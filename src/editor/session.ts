@@ -38,6 +38,8 @@ import { isScriptPath, replaceScripts } from "./scriptLoader";
 import { viewportElements } from "./ui/ScenePanel";
 import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
 import { installViewportSelection } from "./viewportSelection";
+import { installUIElementOutline } from "./uiOutline";
+import { loadUIDocumentSupport } from "../engine/ui/UIDocument";
 import { reloadGraphics } from "./graphicsPreview";
 import { migrateEmbeddedEffects } from "./particleMigration";
 
@@ -111,13 +113,17 @@ export async function loadProject(project: EditorProject): Promise<void> {
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;
   void setUpScripting(project);
-  const engine = await Engine.create({ kind: "editor", container: viewportElements().viewport, project: editorSettings(project) });
+  // UI documents' parsers load with the editor (ADR 0077), so documents build with the scene, not a moment after.
+  const [engine] = await Promise.all([
+    Engine.create({ kind: "editor", container: viewportElements().viewport, project: editorSettings(project) }),
+    loadUIDocumentSupport().catch((err: unknown) => console.warn("[editor] the UI document parsers didn't load; documents build once they do:", err)),
+  ]);
   reloadGraphics(engine.settings.graphics); // the Quality menu lists the project's tiers
   // Editor tools live under the World root, outside the edited scene, so they keep running (ADR 0026).
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   orbit.mode = viewMode.value;
   sceneCamera.value = orbit;
-  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine)];
+  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine), installUIElementOutline(engine)];
   session = {
     engine,
     dispose() {

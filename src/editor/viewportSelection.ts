@@ -9,14 +9,16 @@
 // outlined in the viewport, and the scene camera's F key frames it.
 import { effect } from "@preact/signals";
 import type { Engine, GameObject } from "../engine";
-import { gizmoActive, pick, pointOnSpritePlane, screenBounds, setSelectionOutline, viewportCanvas, worldToCanvas, type ScreenRect } from "../engine/editor";
+import { gizmoActive, pick, pickUI, pointOnSpritePlane, screenBounds, setSelectionOutline, viewportCanvas, worldToCanvas, type ScreenRect } from "../engine/editor";
+import type { UIComponentType } from "../engine/ui/components";
 import { colliderShapes } from "./colliderGizmo";
 import { pointInPolygon, polygonArea } from "./colliderMath";
 import { pathKey, type NodePath } from "./document";
 import type { OrbitCamera } from "./OrbitCamera";
 import { isLocked } from "./nodeVisibility";
 import { combineSelection, selectModeFor, withDescendants, type SelectMode } from "./selectionModel";
-import { docVersion, openScene, refineList, select, selectedKeys, selectedNodes, selection } from "./state";
+import { docVersion, openScene, refineList, select, selectedKeys, selectedNodes, selectedUIElement, selection } from "./state";
+import { elementOfComponent, parseUIRefKey, refOfElement, selectUIElement, uiRefKey, type NodeLookup } from "./uiDocuments";
 
 /** Pointer travel (CSS pixels) under which a press and release count as a click, not a drag. */
 export const CLICK_SLOP = 4;
@@ -100,6 +102,32 @@ export function keysNear(bounds: readonly { node: GameObject; rect: ScreenRect }
     out.add(pathKey(path));
   }
   return [...out];
+}
+
+/**
+ * Selection keys for the UI under a click (ADR 0077), topmost first: a UI document's element as its
+ * `uiRefKey`, a hand-built UI node (ADR 0069) as its document node id. Elements outside the edited
+ * scene, list rows and nodes `pickable` refuses (locked) are left out; duplicates too.
+ */
+export function uiHitKeys(comps: readonly UIComponentType[], lookup: NodeLookup & { nodeIdOf(node: GameObject): string | null }, pickable: (node: GameObject) => boolean): string[] {
+  const out: string[] = [];
+  for (const c of comps) {
+    const el = elementOfComponent(c);
+    let key: string | null = null;
+    if (el) {
+      const ref = el.document.node.isValid && pickable(el.document.node) ? refOfElement(lookup, el) : null;
+      key = ref ? uiRefKey(ref) : null;
+    } else if (pickable(c.owner)) key = lookup.nodeIdOf(c.owner);
+    if (key !== null && !out.includes(key)) out.push(key);
+  }
+  return out;
+}
+
+/** Select what a plain click chose: a UI element's key (`ui:...`), a node id, or nothing. */
+export function applyClickSelection(key: string | null): void {
+  const ref = key ? parseUIRefKey(key) : null;
+  if (ref) selectUIElement(ref);
+  else selection.value = key;
 }
 
 type Shape = { node: GameObject; points: readonly (readonly number[])[] };
@@ -244,13 +272,16 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
       return;
     }
     if (!isPlainClick(start, p)) return;
-    // Colliders containing the pointer first (smallest first), then renderers under it (topmost first).
+    // UI under the pointer first (ADR 0077: drawn over the scene; its elements topmost first), then
+    // colliders containing the pointer (smallest first), then renderers under it (topmost first).
     const inColliders = colliderHits(shapes(), (z) => pointOnSpritePlane(world, p.x, p.y, z));
     const hits = hitIds([...inColliders, ...pick(world, p.x, p.y)].filter(pickable), (n) => scene.sync.nodeIdOf(n));
     const mode: SelectMode = selectModeFor(e);
     if (mode === "replace") {
       const sameSpot = lastClick !== null && Math.hypot(p.x - lastClick.x, p.y - lastClick.y) < CLICK_SLOP;
-      selection.value = chooseSelection(hits, selection.value, sameSpot);
+      const ui = uiHitKeys(pickUI(world, p.x, p.y), scene.sync, pickable);
+      const all = [...ui, ...hits.filter((h) => !ui.includes(h))];
+      applyClickSelection(chooseSelection(all, selectedUIElement.peek() ?? selection.peek(), sameSpot));
     } else if (hits.length > 0) {
       select(combineSelection(selectedKeys.peek(), [hits[0]], mode));
     }

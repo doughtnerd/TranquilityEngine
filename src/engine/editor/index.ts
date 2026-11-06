@@ -20,6 +20,7 @@ import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRe
 import { Camera, MeshRenderer, SpriteRenderer } from "../render/components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import type { GameObject } from "../scene/GameObject";
+import type { UIComponentType } from "../ui/components";
 import { SceneInstance, _instantiatedPrefabOf, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 import type { Schema } from "../core/data";
 import { _undefineInput, _writeSyntheticInput, definedInputs } from "../net/input";
@@ -260,6 +261,36 @@ export function screenBounds(world: World, root: GameObject): { node: GameObject
 /** A world point's place on the canvas (CSS pixels), or null (headless, or behind the camera). */
 export function worldToCanvas(world: World, point: readonly number[]): [number, number] | null {
   return world.render?.worldToCanvas(world, point) ?? null;
+}
+
+/**
+ * UI elements (ADR 0069, 0077) drawn under a canvas point (CSS pixels), topmost first: screen
+ * canvases, then world canvases nearest first, picked with the UI core's layout boxes (canvases
+ * themselves aren't listed). World canvases are hit with the view camera's ray. Empty headless,
+ * before the UI loads, and on the three.js backend (no picking there yet).
+ */
+export function pickUI(world: World, x: number, y: number): UIComponentType[] {
+  const ui = world.render?.uiRuntime();
+  if (!ui?.pickAll) return [];
+  return ui.pickAll(x, y, rayAt(world, x, y));
+}
+
+/**
+ * A UI element's laid-out box as four canvas points (CSS pixels: top-left, top-right, bottom-right,
+ * bottom-left), for outlining it in the viewport. A world canvas's corners are projected through the
+ * view camera. Null when it isn't laid out, a corner is behind the camera, headless, or on three.js.
+ */
+export function uiElementOutline(world: World, c: UIComponentType): [number, number][] | null {
+  const corners = world.render?.uiRuntime()?.cornersOf?.(c);
+  if (!corners) return null;
+  if (corners.space === "screen") return corners.points.map((p) => [p[0], p[1]]);
+  const out: [number, number][] = [];
+  for (const p of corners.points) {
+    const q = worldToCanvas(world, p);
+    if (!q) return null;
+    out.push(q);
+  }
+  return out;
 }
 
 /** Outline the renderers of these nodes (and their descendants) in the viewport until changed. */

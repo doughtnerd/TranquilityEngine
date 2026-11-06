@@ -810,3 +810,38 @@ describe("UICore typing (DOM)", () => {
     expect(a.value).toBe("aa");
   });
 });
+
+describe("UICore editor picking (ADR 0077)", () => {
+  it("lists every drawn element under a point, topmost first, canvases excepted", async () => {
+    const { column, play } = menu();
+    const c = await core({ interactive: false });
+    sync(c);
+    // Play is at (20, 20)–(220, 70) inside the column.
+    expect(c.pickAll(100, 40)).toEqual([play, column]);
+    expect(c.pickAll(600, 600)).toEqual([column]);
+    play.visible = false;
+    sync(c);
+    expect(c.pickAll(100, 40)).toEqual([column]);
+  });
+
+  it("gives screen boxes in canvas pixels and world boxes as world corners, picked by a given ray", async () => {
+    const { column, play } = menu();
+    const c = await core({ interactive: false });
+    sync(c);
+    expect(c.cornersOf(play)).toEqual({ space: "screen", points: [[20, 20], [220, 20], [220, 70], [20, 70]] });
+    expect(c.cornersOf(column)!.points[2]).toEqual([1280, 720]);
+
+    const sign = node("Sign", null, UICanvas, { mode: "world", referenceResolution: new Vector2(200, 100), pixelSize: 0.01 } as Partial<UICanvas>);
+    sign.node.transform!.position.set(0, 0, -5);
+    const label = node("Label", sign.node, UIText, { text: "Hi", width: 100 as UILength, height: 50 as UILength } as Partial<UIText>);
+    engine.step(DT);
+    sync(c);
+    const corners = c.cornersOf(label)!;
+    expect(corners.space).toBe("world");
+    expect(corners.points[0].map((v) => +v.toFixed(5))).toEqual([-1, 0.5, -5]);
+    expect(corners.points[2].map((v) => +v.toFixed(5))).toEqual([0, 0, -5]);
+    // The screen column is listed first (screen canvases draw over world ones), then the world label under the ray.
+    expect(c.pickAll(5, 5, { origin: [-0.5, 0.25, 0], direction: [0, 0, -1] })).toEqual([column, label]);
+    expect(c.pickAll(5, 5, { origin: [0.5, 0.25, 0], direction: [0, 0, -1] })).toEqual([column]); // the sign's right half has no element
+  });
+});
