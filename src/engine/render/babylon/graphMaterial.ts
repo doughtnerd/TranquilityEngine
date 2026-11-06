@@ -28,6 +28,7 @@ import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { DrawWrapper } from "@babylonjs/core/Materials/drawWrapper.js";
 import type { Effect } from "@babylonjs/core/Materials/effect.js";
 import { Material } from "@babylonjs/core/Materials/material.js";
+import type { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
 import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
@@ -111,6 +112,15 @@ function texturePath(u: CompiledUniform, overrides: Record<string, GraphValue>):
   const own = u.property ? overrides[u.property] : undefined;
   const v = typeof own === "string" ? own : u.value;
   return typeof v === "string" ? v.replace(/^asset:/, "") : "";
+}
+
+/**
+ * @internal Whether a graph reads the mesh's UVs (a UV node, or anything defaulting to them). Babylon's
+ * PBR material binds the UV attribute only when the material itself needs it (a texture), so without
+ * asking, `mycoVUv` read zero: a UV-driven graph with no texture drew flat (the ripple sample).
+ */
+export function graphUsesUv(c: CompiledShaderGraph): boolean {
+  return /\bmycoVUv\b/.test(`${c.vertex.body}\n${c.vertex.varyings}\n${c.vertex.offset ?? ""}`);
 }
 
 /**
@@ -218,6 +228,13 @@ class MycoGraphPlugin extends MaterialPluginBase {
   override isCompatible(shaderLanguage: ShaderLanguage): boolean {
     return shaderLanguage === ShaderLanguage.WGSL;
   }
+
+  /** Ask for the mesh's UVs when the graph reads them (`graphUsesUv`); Babylon then defines UV1. */
+  override prepareDefinesBeforeAttributes(defines: MaterialDefines): void {
+    if ((this.usesUv ??= graphUsesUv(this.compiled))) defines._needUVs = true;
+  }
+
+  private usesUv: boolean | undefined;
 
   override getUniforms(): { ubo: { name: string; size: number; type: string }[] } {
     return { ubo: graphUniformBuffer(this.compiled) };

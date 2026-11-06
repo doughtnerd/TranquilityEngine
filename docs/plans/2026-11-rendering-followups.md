@@ -15,9 +15,9 @@ What's left after the frame-drop work of 2026-11-06 (commit `e60c9af`, branch `c
 
 - **The compile cost moved into the load:** frames of 260–520 ms over the match's first 3 s.
 
-## Fast follow-up
+## Fast follow-up (done 2026-11-06)
 
-- **The ripple sub-graph's UV node preview draws black** (Shader Graph panel, `samples/playground3d/shaders/ripple.shadersubgraph.json`; seen 2026-11-06 on WebGPU). The sub-graph's own preview is also a flat grey sphere, without its rings. It isn't from ADR 0081 step 3b: the WGSL for every sample graph and node preview is identical to before. Start by checking that the preview mesh has UVs and that `mycoVUv` reaches the fragment stage in the node preview renderer (`render/babylon/previews/MaterialPreview.ts`).
+- **The ripple sub-graph's UV node preview drew black**, and the sub-graph's preview was a flat grey sphere. The cause wasn't the previews: Babylon's PBR material binds the mesh's UV attribute only when the material itself needs UVs (one of its textures), so a graph that reads UVs but samples no texture got `mycoVUv` = 0. Every such material was affected, in the game too (the Playground's water, which uses the ripple). Fixed in `render/babylon/graphMaterial.ts`: the graph plugin's `prepareDefinesBeforeAttributes` sets `_needUVs` when the graph reads UVs (`graphUsesUv`), so Babylon defines `UV1`. Test: `babylonGraphMaterial.test.ts` (UV1 on with a UV-reading graph and no texture, off without). Seen in the Shader Graph panel: the UV gradient, the ripple's rings and the banded sphere.
 
 ## To do, in suggested order
 
