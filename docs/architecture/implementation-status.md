@@ -1,6 +1,6 @@
 # Implementation Status
 
-What exists in `src/engine/` versus what the decision records describe. Updated 2026-10-31, when the first vertical slice landed (3D rows 0043–0045 and shader graph rows 0046–0049 added 2026-11-03): enough engine for the Flappy Bird demo to play end to end. The demo is now a sample project in `samples/flappy/` (ADR 0031). The 0032–0035 rows were checked against the code on 2026-11-02 (T17); user guides are in [docs/guide/](../guide/).
+What exists in `src/engine/` versus what the decision records describe. Updated 2026-10-31, when the first vertical slice landed (3D rows 0043–0045 and shader graph rows 0046–0049 added 2026-11-03): enough engine for the Flappy Bird demo to play end to end. The demo is now a sample project in `samples/flappy/` (ADR 0031). The 0075 row was brought up to date on 2026-11-06, when the Babylon backend's leftovers landed (0075 is Done; stage 10 was dropped by 0078). The 0032–0035 rows were checked against the code on 2026-11-02 (T17); user guides are in [docs/guide/](../guide/).
 
 Legend: **Done** = implemented as decided · **Partial** = works, with listed gaps · **Not started**.
 
