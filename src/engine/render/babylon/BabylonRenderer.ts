@@ -200,7 +200,7 @@ export class BabylonRenderer {
   /** The image each built-in material copy's `texture` override asks for (null: the base's texture). */
   private readonly wantedTextures = new WeakMap<PBRMaterial, string | null>();
   /** Time and drawing-buffer size, read by every graph material. */
-  private readonly graphShared: GraphShared = { time: 0, resolution: [1, 1] };
+  private readonly graphShared: GraphShared = { time: 0, resolution: [1, 1] }; // `mainLight` is the lighting's, set once it exists
   /** Graph textures, sampled raw by graph code: colour ones through sRGB buffers, data ones linear. */
   private readonly graphTextures = new Map<string, Promise<Texture>>();
   /** Babylon materials made from models' own materials. */
@@ -293,7 +293,9 @@ export class BabylonRenderer {
     this.scene = scene;
 
     this.lighting = new BabylonLighting(scene);
+    this.graphShared.mainLight = this.lighting.mainLight;
     this.frame = new BabylonFrame(scene);
+    this.frame.beforeView = (camera) => this.lighting.fitSky(camera);
     this.probes = new BabylonProbes(scene);
 
     this.defaultMaterial = pbr("myco.default", scene);
@@ -680,6 +682,7 @@ export class BabylonRenderer {
             selected: (c) => this.selectedNodes.has(c.node),
             texture: (path) => this.texture(path),
             tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
+            material: (path) => this.materialAsset(path), // shared with MeshRenderers; null while missing
           });
           Object.assign(this.particles.preview, this.particlePreview);
         })

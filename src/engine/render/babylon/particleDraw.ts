@@ -1,31 +1,41 @@
-// Internal (ADR 0057, 0075): how simulated particles are drawn on the Babylon backend. One Babylon CPU
-// `ParticleSystem` per emitter, with its own emission and update turned off, shows the particle list
-// `EffectSimulation` produced (billboards, stretched, flipbook sheets, blending). Shared by the World's
-// player (`particles.ts`) and the editor's effect preview (`previews/EffectPreview.ts`).
+// Internal (ADR 0057, 0075): how simulated particles are drawn on the Babylon backend. Shared by the
+// World's player (`particles.ts`) and the editor's previews (`previews/EffectPreview.ts`,
+// `previews/ThumbnailRenderer.ts`). `makeDraw` picks, per emitter:
+//
+// - a Babylon CPU `ParticleSystem`, with its own emission and update turned off, showing the particle
+//   list `EffectSimulation` produced (billboards, stretched, horizontal, vertical, flipbook sheets,
+//   blending) — the cheapest, used whenever it can draw the emitter;
+// - mesh particles (`mesh` mode), trails (`trail` mode), and any emitter with a material asset, which
+//   Babylon's particle system can't draw, as meshes (`particleMeshes.ts`).
+//
+// `renderOrder`: Babylon draws a rendering group's particle systems in the order of
+// `scene.particleSystems`, so `sortParticleSystems` keeps that list stably sorted by the emitters'
+// renderOrder (systems that aren't ours count as 0). They all draw before the group's transparent
+// meshes, mesh-based particles included, so a negative renderOrder can't put a billboard emitter under
+// a transparent mesh, nor a positive one over it, as it can on three.js (see `particleMeshes.ts` for
+// how the mesh draws sort).
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import type { Material } from "@babylonjs/core/Materials/material.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Particle } from "@babylonjs/core/Particles/particle.js";
 import { ParticleSystem as BabylonParticleSystem } from "@babylonjs/core/Particles/particleSystem.js";
 import type { Scene } from "@babylonjs/core/scene.js";
+import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import type { ParticleRenderer as RendererSettings } from "../../scene/particles";
-import type { SimEmitter } from "../particles/simulation";
+import type { SimEmitter, SimParticle } from "../particles/simulation";
+import { BLEND_EPSILON, InstanceDraw, QuadDraw, type Draw } from "./particleMeshes";
 
-/** One emitter's Babylon particle system. */
-export interface Draw {
-  name: string;
-  emitter: SimEmitter;
-  ps: BabylonParticleSystem;
-  capacity: number;
-  /** Babylon particles taken off the list, reused later. */
-  spare: Particle[];
-  mode: "billboard" | "stretched" | "horizontal" | "vertical";
-  texture: BaseTexture;
-}
+export type { Draw } from "./particleMeshes";
+export { particleAlphaIndex } from "./particleMeshes";
 
 /** The default dot texture's size in pixels. */
 export const DOT_SIZE = 64;
+
+/** The mesh a mesh-mode emitter draws when its own can't be had. */
+const FALLBACK_MESH = "builtin:cube";
 
 // Babylon's billboard modes (`ParticleSystem.BILLBOARDMODE_*`).
 const BILLBOARD_ALL = 7;
@@ -51,44 +61,150 @@ export function createDotTexture(scene: Scene): RawTexture {
   return dot;
 }
 
-/** A started Babylon particle system for an emitter, holding up to `capacity` particles; `isDot` when `texture` is the default dot. */
-export function makeDraw(scene: Scene, name: string, e: SimEmitter, capacity: number, texture: BaseTexture, isDot: boolean): Draw {
-  const r: RendererSettings = e.renderer;
-  const sheet = r.tiles[0] * r.tiles[1] > 1;
-  const ps = new BabylonParticleSystem(name, capacity, scene, null, sheet);
-  ps.particleTexture = texture;
-  ps.emitter = Vector3.Zero();
-  ps.emitRate = 0;
-  ps.updateFunction = () => {}; // the simulation owns the list; sync mirrors into it
-  ps.renderingGroupId = 0; // draw order among transparent things is left to Babylon (renderOrder isn't used)
-  ps.blendMode = r.blending === "additive" ? BabylonParticleSystem.BLENDMODE_ADD : r.blending === "premultiplied" ? Constants.ALPHA_PREMULTIPLIED : BabylonParticleSystem.BLENDMODE_STANDARD;
-  const mode: Draw["mode"] = r.mode === "stretched" || r.mode === "horizontal" || r.mode === "vertical" ? r.mode : "billboard";
-  ps.isBillboardBased = mode !== "horizontal";
-  ps.billboardMode = mode === "stretched" ? BILLBOARD_STRETCHED : mode === "vertical" ? BILLBOARD_Y : BILLBOARD_ALL;
-  if (sheet) {
-    const size = isDot ? { width: DOT_SIZE, height: DOT_SIZE } : texture.getBaseSize();
-    ps.spriteCellWidth = size.width / r.tiles[0];
-    ps.spriteCellHeight = size.height / r.tiles[1];
-  }
-  ps.start();
-  return { name, emitter: e, ps, capacity, spare: [], mode, texture };
+/** What an emitter's draw needs besides its texture. */
+export interface DrawOptions {
+  /** The emitter's material asset as a Babylon material (shared, never disposed by the draw), or null for none. */
+  material?: Material | null;
+  /** Mesh mode: the model mesh to draw. Default: the emitter's mesh if it's loaded, else a cube. */
+  mesh?: ModelMesh | null;
+  /** The camera trails and material-asset quads face. Default: the scene's active camera (the World's first view). */
+  camera?: () => Camera | null;
 }
 
-/** Copy the simulation's particles into Babylon's list for drawing (the list must be no larger than `d.capacity`). */
+/** A Babylon draw for an emitter, holding up to `capacity` particles before it grows; `isDot` when `texture` is the default dot. */
+export function makeDraw(scene: Scene, name: string, e: SimEmitter, capacity: number, texture: BaseTexture, isDot: boolean, options: DrawOptions = {}): Draw {
+  const r = e.renderer;
+  const material = options.material ?? null;
+  const camera = options.camera ?? (() => scene.activeCamera ?? scene.cameraToUseForPointers);
+  if (r.mode === "mesh") {
+    const source = options.mesh ?? meshesIfLoaded(r.mesh)?.[0] ?? meshesIfLoaded(FALLBACK_MESH)![0];
+    return new InstanceDraw(scene, name, e, capacity, source, material, texture);
+  }
+  if (r.mode === "trail") return new QuadDraw(scene, name, e, capacity, "trail", material, texture, camera);
+  if (material) return new QuadDraw(scene, name, e, capacity, "quads", material, texture, camera);
+  return new SystemDraw(scene, name, e, capacity, texture, isDot);
+}
+
+/** Copy the simulation's particles into the draw (it must hold `e.count`, see `Draw.ensure`). */
 export function copyParticles(d: Draw): void {
-  const e = d.emitter;
-  const list = d.ps.particles;
-  const n = Math.min(e.count, d.capacity);
-  while (list.length < n) list.push(d.spare.pop() ?? new Particle(d.ps));
-  while (list.length > n) d.spare.push(list.pop()!);
-  for (let i = 0; i < n; i++) {
-    const p = e.pool[i];
-    const b = list[i];
+  d.update();
+}
+
+// --- render order -----------------------------------------------------------------------------------
+
+/** Each of our Babylon particle systems' renderOrder. */
+const ORDER = new WeakMap<object, number>();
+const orderOf = (ps: object): number => ORDER.get(ps) ?? 0;
+
+/** Stably sort the scene's particle systems by renderOrder, so higher ones draw later (a no-op when sorted). */
+export function sortParticleSystems(scene: Scene): void {
+  const list = scene.particleSystems;
+  for (let i = 1; i < list.length; i++) {
+    if (orderOf(list[i - 1]) > orderOf(list[i])) {
+      list.sort((a, b) => orderOf(a) - orderOf(b)); // stable
+      return;
+    }
+  }
+}
+
+// --- Babylon particle systems -----------------------------------------------------------------------
+
+/**
+ * An emitter drawn by a Babylon CPU particle system whose list mirrors the simulation.
+ *
+ * `blendTiles` (three.quarks mixes the texels of the flipbook's tile and the next by the tile value's
+ * fraction): each particle is drawn twice, on its tile at (1 − f) of its opacity and on the next tile
+ * at f, from `SimParticle.tileBlend`. That is exact for additive and premultiplied blending (two
+ * weighted sums add up to the mixed texel) and close for alpha blending (where the second copy also
+ * dims the first a little); it keeps Babylon's own particle shader, where a custom one would need
+ * GLSL and WGSL twins of Babylon's particle shaders. It costs a second particle only while a
+ * particle is between tiles.
+ */
+class SystemDraw implements Draw {
+  readonly kind = "system";
+  ps: BabylonParticleSystem;
+  capacity: number;
+  /** Babylon particles taken off the list, reused later. */
+  private spare: Particle[] = [];
+  readonly mode: "billboard" | "stretched" | "horizontal" | "vertical";
+  /** Blended flipbook: up to two Babylon particles per simulated one. */
+  private readonly blend: boolean;
+
+  constructor(
+    private readonly scene: Scene,
+    readonly name: string,
+    readonly emitter: SimEmitter,
+    capacity: number,
+    readonly texture: BaseTexture,
+    private readonly isDot: boolean,
+  ) {
+    const r = emitter.renderer;
+    this.mode = r.mode === "stretched" || r.mode === "horizontal" || r.mode === "vertical" ? r.mode : "billboard";
+    this.blend = r.blendTiles && r.tiles[0] * r.tiles[1] > 1;
+    this.capacity = Math.max(1, capacity);
+    this.ps = this.build();
+  }
+
+  private build(): BabylonParticleSystem {
+    const r: RendererSettings = this.emitter.renderer;
+    const sheet = r.tiles[0] * r.tiles[1] > 1;
+    const ps = new BabylonParticleSystem(this.name, this.capacity * (this.blend ? 2 : 1), this.scene, null, sheet);
+    ps.particleTexture = this.texture;
+    ps.emitter = Vector3.Zero();
+    ps.emitRate = 0;
+    ps.updateFunction = () => {}; // the simulation owns the list; update() mirrors into it
+    ps.renderingGroupId = 0;
+    ps.blendMode = r.blending === "additive" ? BabylonParticleSystem.BLENDMODE_ADD : r.blending === "premultiplied" ? Constants.ALPHA_PREMULTIPLIED : BabylonParticleSystem.BLENDMODE_STANDARD;
+    ps.isBillboardBased = this.mode !== "horizontal";
+    ps.billboardMode = this.mode === "stretched" ? BILLBOARD_STRETCHED : this.mode === "vertical" ? BILLBOARD_Y : BILLBOARD_ALL;
+    if (sheet) {
+      const size = this.isDot ? { width: DOT_SIZE, height: DOT_SIZE } : this.texture.getBaseSize();
+      ps.spriteCellWidth = size.width / r.tiles[0];
+      ps.spriteCellHeight = size.height / r.tiles[1];
+    }
+    ORDER.set(ps, r.renderOrder);
+    ps.start();
+    sortParticleSystems(this.scene);
+    return ps;
+  }
+
+  ensure(need: number): void {
+    if (need <= this.capacity) return;
+    // Babylon sizes its buffers at construction: rebuild bigger (the simulation keeps its state).
+    this.capacity = Math.ceil(need * 1.5);
+    this.ps.dispose(false);
+    this.spare = [];
+    this.ps = this.build();
+  }
+
+  update(): void {
+    const e = this.emitter;
+    const list = this.ps.particles;
+    const n = Math.min(e.count, this.capacity);
+    let total = n;
+    if (this.blend) for (let i = 0; i < n; i++) if (e.pool[i].tileBlend > BLEND_EPSILON) total++;
+    while (list.length < total) list.push(this.spare.pop() ?? new Particle(this.ps));
+    while (list.length > total) this.spare.push(list.pop()!);
+    const tiles = this.emitter.renderer.tiles[0] * this.emitter.renderer.tiles[1];
+    // Premultiplied blending takes the colour as already multiplied by alpha (Babylon's particle shader doesn't): weight it all.
+    const premultiplied = this.emitter.renderer.blending === "premultiplied";
+    let j = 0;
+    for (let i = 0; i < n; i++) {
+      const p = e.pool[i];
+      const f = this.blend ? p.tileBlend : 0;
+      this.write(list[j++], p, p.tile, 1 - f, premultiplied);
+      if (f > BLEND_EPSILON) this.write(list[j++], p, (p.tile + 1) % tiles, f, premultiplied);
+    }
+  }
+
+  /** One Babylon particle showing `p` on flipbook `tile`, its opacity times `weight`. */
+  private write(b: Particle, p: SimParticle, tile: number, weight: number, premultiplied: boolean): void {
     b.position.set(p.wx, p.wy, p.wz);
-    b.color.set(p.r, p.g, p.b, p.a);
-    b.cellIndex = p.tile;
+    const k = premultiplied ? weight : 1;
+    b.color.set(p.r * k, p.g * k, p.b * k, p.a * weight);
+    b.cellIndex = tile;
     b.size = 1;
-    switch (d.mode) {
+    switch (this.mode) {
       case "stretched": {
         const speed = Math.hypot(p.wvx, p.wvy, p.wvz);
         b.angle = 0;
@@ -106,5 +222,9 @@ export function copyParticles(d: Draw): void {
         b.angle = p.rotation;
         b.scale.set(p.size, p.size);
     }
+  }
+
+  dispose(): void {
+    this.ps.dispose(false);
   }
 }

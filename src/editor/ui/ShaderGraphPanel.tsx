@@ -1035,6 +1035,19 @@ function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; readOnly: 
       {side("outputs", "Outputs")}
       <textarea class="sg-function-body" aria-label="Function body" spellcheck={false} disabled={props.readOnly} value={f.body} onChange={(e) => set({ ...f, body: (e.currentTarget as HTMLTextAreaElement).value })} />
       <p class="sg-hint">GLSL ES 3.0. Assign every output; inputs and outputs are named as above. uMycoTime is the time in seconds.</p>
+      <label class="sg-property-row sg-wgsl-label">
+        <span>WGSL body</span>
+      </label>
+      <textarea
+        class="sg-function-body sg-function-wgsl"
+        aria-label="WGSL body"
+        spellcheck={false}
+        disabled={props.readOnly}
+        placeholder="Out = In;"
+        value={f.wgsl ?? ""}
+        onChange={(e) => set({ ...f, wgsl: (e.currentTarget as HTMLTextAreaElement).value })}
+      />
+      {!f.wgsl?.trim() && <p class="sg-hint">Needed on WebGPU (Babylon backend); without it the node outputs its defaults.</p>}
     </div>
   );
 }

@@ -254,28 +254,13 @@ fn mycoHsvToRgb(c: vec3f) -> vec3f {
   let c: f32 = cos(r);
   return vec2f(d.x * c - d.y * s, d.x * s + d.y * c) + center;
 }`,
-  // light0 exists only when the scene has a light; Babylon's vLightData holds a directional light's direction of travel.
+  // The Babylon backend binds the main light (three.js's rule: first shadow-casting directional light, else
+  // the first directional one) as uniforms; Babylon's own light0 is whatever light the mesh lists first.
   mainLight: `fn mycoMainLightDirection() -> vec3f {
-#ifdef LIGHT0
-#ifdef DIRLIGHT0
-  return normalize(-light0.vLightData.xyz);
-#else
-  return normalize(vec3f(0.4, 1.0, 0.6));
-#endif
-#else
-  return normalize(vec3f(0.4, 1.0, 0.6));
-#endif
+  return normalize(uniforms.uMycoMainLightDir);
 }
 fn mycoMainLightColor() -> vec3f {
-#ifdef LIGHT0
-#ifdef DIRLIGHT0
-  return light0.vLightDiffuse.rgb;
-#else
-  return vec3f(1.0);
-#endif
-#else
-  return vec3f(1.0);
-#endif
+  return uniforms.uMycoMainLightColor;
 }`,
   tangentFrame: `fn mycoTangentFrame(eyePos: vec3f, n: vec3f, uv: vec2f) -> mat3x3f {
   let q0: vec3f = dpdx(eyePos);

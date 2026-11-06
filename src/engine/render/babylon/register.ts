@@ -32,6 +32,8 @@ import "@babylonjs/core/Engines/Extensions/engine.prefilteredCubeTexture.js"; //
 import "@babylonjs/core/Engines/Extensions/engine.uniformBuffer.js";
 import "@babylonjs/core/Engines/Extensions/engine.dynamicBuffer.js";
 import "@babylonjs/core/Engines/Extensions/engine.textureSelector.js";
+// Mesh methods: thin instances (mesh-mode particles, `particleMeshes.ts`).
+import "@babylonjs/core/Meshes/thinInstanceMesh.js";
 
 import { Effect } from "@babylonjs/core/Materials/effect.js";
 // Keep compiled effects (shaders and their WebGPU pipelines) for the engine's life instead of

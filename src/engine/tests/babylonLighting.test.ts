@@ -11,6 +11,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SHADOW_MAP_SIZE } from "../core/graphics";
 import { World } from "../core/World";
 import { Assets, Color, Engine, GameObject, Graphics, Light, SceneManager } from "../index";
+import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
 import type { ShadowRequest } from "../render/babylon/frameGraph";
 import { BabylonLighting, reclusterForNextCamera } from "../render/babylon/lighting";
 import { studioHdr } from "../render/babylon/studioEnvironment";
@@ -95,6 +98,49 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(spot.angle).toBeCloseTo(Math.PI / 3);
     expect(spot.innerAngle).toBeCloseTo(Math.PI / 6);
     expect(byName("light:light ambient")!.getClassName()).toBe("HemisphericLight");
+  });
+
+  it("picks the main light for Main Light nodes as three.js does: shadow-casting directional first, toward the light, linear × intensity", () => {
+    sync();
+    const len = Math.hypot(4, 10, 6);
+    expect(lighting.mainLight.direction.map((v) => +v.toFixed(4))).toEqual([4 / len, 10 / len, 6 / len].map((v) => +v.toFixed(4))); // the default sun
+    light({ type: "ambient", intensity: 0.3 }); // made first, so Babylon's light0 isn't directional
+    light({ type: "point" });
+    light({ type: "directional", intensity: 3, color: new Color(1, 0, 0, 1) }, [0, 0, 0], [0, 0, 0]); // faces -Z: light travels -Z
+    light({ type: "directional", intensity: 2, color: new Color(0.5, 0.5, 0.5, 1), castShadows: true }, [0, 5, 0], [-90, 0, 0]); // looking down
+    sync();
+    const [dx, dy, dz] = lighting.mainLight.direction;
+    expect(dx).toBeCloseTo(0);
+    expect(dy).toBeCloseTo(1); // toward the shadow caster, which shines down
+    expect(dz).toBeCloseTo(0);
+    const half = Math.pow(0.5, 2.2); // sRGB 0.5 in linear, by Babylon's toLinearSpace
+    expect(lighting.mainLight.color[0]).toBeCloseTo(half * 2, 3);
+    expect(lighting.mainLight.color[1]).toBeCloseTo(half * 2, 3);
+  });
+
+  it("falls back to (0.4, 1, 0.6) and white when the World's Lights include no directional one", () => {
+    light({ type: "point" });
+    sync();
+    const len = Math.hypot(0.4, 1, 0.6);
+    expect(lighting.mainLight.direction[1]).toBeCloseTo(1 / len);
+    expect(lighting.mainLight.color).toEqual([1, 1, 1]);
+  });
+
+  it("centres and sizes the one skybox for each camera before it draws, inside that camera's far plane", () => {
+    // The studio map can't load on NullEngine, so the box is put where `syncEnvironment` keeps it.
+    const box = CreateBox("myco.skybox", { size: 1 }, scene);
+    (lighting as unknown as { skybox: typeof box }).skybox = box;
+    const near = new TargetCamera("inset", new Vector3(3, 4, 5), scene);
+    near.maxZ = 100;
+    lighting.fitSky(near);
+    expect(box!.getAbsolutePosition().asArray()).toEqual([3, 4, 5]);
+    const corner = 0.5 * box!.scaling.x * Math.sqrt(3);
+    expect(corner).toBeLessThan(100);
+    expect(corner).toBeGreaterThan(50);
+    const far = new TargetCamera("view", new Vector3(0, 0, 0), scene);
+    far.maxZ = 2000;
+    lighting.fitSky(far);
+    expect(0.5 * box!.scaling.x * Math.sqrt(3)).toBeGreaterThan(1000); // the editor view keeps its distant meshes in front of the sky
   });
 
   it("brings the defaults back when the World's Lights are disabled", () => {

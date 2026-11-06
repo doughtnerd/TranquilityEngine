@@ -234,6 +234,8 @@ export class BabylonFrame {
   ui: (() => Layer | null) | null = null;
   /** Editor: the game's screen UI laid out for the camera preview inset, drawn after the view marked `previewUI`. */
   previewUI: (() => Layer | null) | null = null;
+  /** Called just before each camera draws its objects (the renderer fits the skybox to it). */
+  beforeView: ((camera: TargetCamera) => void) | null = null;
   /** Every mesh in the scene, drawn by each camera (the scene's own list, so new meshes join at once). */
   private readonly objects = new FrameGraphObjectList();
   /** The meshes that cast shadows, refilled each frame. */
@@ -402,6 +404,7 @@ export class BabylonFrame {
     // once a frame, for the first camera; first in line, this makes it cluster again for this one.
     const render = new FrameGraphObjectRendererTask(`render${i}`, graph, this.scene, { enableClusteredLights: true });
     render.objectRenderer.onInitRenderingObservable.add(() => reclusterForNextCamera(this.scene), undefined, true);
+    render.objectRenderer.onBeforeRenderObservable.add(() => this.beforeView?.(v.camera));
     render.targetTexture = clear.outputTexture;
     render.depthTexture = clear.outputDepthTexture;
     render.camera = v.camera;

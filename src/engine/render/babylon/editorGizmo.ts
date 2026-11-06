@@ -14,6 +14,7 @@
  * view camera. `sync` itself sets `overlay.setRenderCamera(view camera)` while the gizmo shows.
  */
 import "@babylonjs/core/Culling/ray.js"; // Scene.pick, for gizmoActiveAt
+import { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { GizmoCoordinatesMode } from "@babylonjs/core/Gizmos/gizmo.js";
 import { PositionGizmo } from "@babylonjs/core/Gizmos/positionGizmo.js";
 import { RotationGizmo } from "@babylonjs/core/Gizmos/rotationGizmo.js";
@@ -34,13 +35,75 @@ type Mode = GizmoOptions["mode"];
 const DEFAULT_STEPS = { move: 0.25, rotate: 15, scale: 0.1 };
 const MODES: readonly Mode[] = ["translate", "rotate", "scale"];
 
-/** A positive finite step, or 0 (Babylon's "no snapping"). */
+/** A positive finite step, or 0 (no snapping). */
 const step = (n: number): number => (n > 0 && Number.isFinite(n) ? n : 0);
+
+type Part = PositionGizmo["xGizmo"] | PositionGizmo["xPlaneGizmo"] | RotationGizmo["xGizmo"] | ScaleGizmo["xGizmo"];
+
+/** Every sub-gizmo (axis, plane and uniform handles) with the axes it drags: three's `axis` string ("X", "YZ", "XYZ"). */
+function gizmoParts(g: AnyGizmo): { part: Part; axes: string }[] {
+  if (g instanceof PositionGizmo) {
+    // A plane gizmo is named by its normal: the X plane drags Y and Z (three's "YZ" square).
+    return [
+      { part: g.xGizmo, axes: "X" }, { part: g.yGizmo, axes: "Y" }, { part: g.zGizmo, axes: "Z" },
+      { part: g.xPlaneGizmo, axes: "YZ" }, { part: g.yPlaneGizmo, axes: "XZ" }, { part: g.zPlaneGizmo, axes: "XY" },
+    ];
+  }
+  if (g instanceof RotationGizmo) return [{ part: g.xGizmo, axes: "X" }, { part: g.yGizmo, axes: "Y" }, { part: g.zGizmo, axes: "Z" }];
+  return [{ part: g.xGizmo, axes: "X" }, { part: g.yGizmo, axes: "Y" }, { part: g.zGizmo, axes: "Z" }, { part: g.uniformScaleGizmo, axes: "XYZ" }];
+}
 
 /** Every root mesh of a gizmo: its own and each axis/plane handle's (the handles are not its children). */
 function gizmoRoots(g: AnyGizmo): Mesh[] {
-  const parts = g instanceof PositionGizmo ? [g.xGizmo, g.yGizmo, g.zGizmo, g.xPlaneGizmo, g.yPlaneGizmo, g.zPlaneGizmo] : g instanceof RotationGizmo ? [g.xGizmo, g.yGizmo, g.zGizmo] : [g.xGizmo, g.yGizmo, g.zGizmo, g.uniformScaleGizmo];
-  return [g._rootMesh, ...parts.map((p) => p._rootMesh)];
+  return [g._rootMesh, ...gizmoParts(g).map((p) => p.part._rootMesh)];
+}
+
+// --- On-screen size: matching three's TransformControls ---------------------------------------------
+//
+// three (TransformControls.updateMatrixWorld) scales every handle by `factor * size / 4`, where
+//   perspective:  factor = distance(gizmo, camera) * min(1.9 * tan(fov / 2) / zoom, 7)
+//                 (1.9 * tan(fov / 2) * distance is 0.95 x the visible world height at the gizmo)
+//   orthographic: factor = (top - bottom) / zoom   (the visible world height)
+// and its geometry is authored in unit-ish handle units: the move arrow's tip is 0.6 out, the
+// rotation ring's radius 0.5, the scale handle's far edge 0.58.
+//
+// Babylon (Gizmo._update, updateScale on) sets the gizmo root's scale to `scaleRatio x depth along the
+// camera's forward axis` (perspective: depth, not distance, so it shrinks toward the screen edge and
+// ignores fov) or `scaleRatio x (orthoTop - orthoBottom)`. Its geometry is authored smaller and under a
+// 1/3 child scale: the move arrow's tip is 0.3375 / 3 = 0.1125 out, the ring's radius 0.3 / 3 = 0.1,
+// the scale box's far edge 0.32 / 3 = 0.1067.
+//
+// So the root scale that puts Babylon's handles where three's are is
+//   R = (factor * size / 4) * (three reach / Babylon reach)
+// per mode (the ratios are 5.333, 5 and 5.4375). We turn `updateScale` off and set `scaleRatio = R`
+// (with updateScale off Babylon sets the root scale to exactly `scaleRatio`) every frame, using three's
+// own distance and fov terms, so even off-centre gizmos match. `zoom` is 1 here: Babylon's orthographic
+// zoom is already in orthoTop/orthoBottom. `size` is three's default of 1.
+
+/** TransformControls.size. */
+const GIZMO_SIZE = 1;
+const THREE_REACH: Record<Mode, number> = { translate: 0.6, rotate: 0.5, scale: 0.58 };
+const BABYLON_REACH: Record<Mode, number> = { translate: 0.3375 / 3, rotate: 0.3 / 3, scale: 0.32 / 3 };
+
+/** The root scale (Babylon `scaleRatio` with `updateScale` off) giving a `mode` gizmo at `at` the on-screen size three's TransformControls draws. */
+export function gizmoRootScale(mode: Mode, camera: Camera, at: Vector3): number {
+  let factor: number;
+  if (camera.mode === Camera.ORTHOGRAPHIC_CAMERA) {
+    factor = (camera.orthoTop ?? 1) - (camera.orthoBottom ?? -1);
+  } else {
+    let fov = camera.fov; // vertical, as three's
+    if (camera.fovMode === Camera.FOVMODE_HORIZONTAL_FIXED) fov = 2 * Math.atan(Math.tan(fov / 2) / camera.getScene().getEngine().getAspectRatio(camera));
+    factor = Vector3.Distance(at, camera.getWorldMatrix().getTranslation()) * Math.min(1.9 * Math.tan(fov / 2), 7);
+  }
+  return ((factor * GIZMO_SIZE) / 4) * (THREE_REACH[mode] / BABYLON_REACH[mode]);
+}
+
+/** three's per-axis rounding: each axis in `mask` to a multiple of `st` (`keepNonZero`: scale, never to 0). */
+function roundAxes(v: ThreeVector3, mask: string, st: number, keepNonZero = false): void {
+  const r = (x: number) => (Math.round(x / st) * st || (keepNonZero ? st : 0)) + 0; // + 0: no negative zero
+  if (mask.includes("X")) v.x = r(v.x);
+  if (mask.includes("Y")) v.y = r(v.y);
+  if (mask.includes("Z")) v.z = r(v.z);
 }
 
 export class BabylonEditorGizmo {
@@ -56,6 +119,10 @@ export class BabylonEditorGizmo {
   private dragging = false;
   /** World matrices when the drag started: the proxy's and each target's. */
   private start: { proxy: Matrix4; targets: Matrix4[] } | null = null;
+  /** The axes the dragged handle moves ("X", "YZ", "XYZ"...), or null (snapping then treats every axis as dragged). */
+  private axes: string | null = null;
+  /** The view camera (set by `sync`), for the gizmo's screen-constant size. */
+  private camera: Camera | null = null;
 
   constructor(private readonly ctx: BabylonEditorContext) {
     this.proxy = new TransformNode("myco.gizmoProxy", ctx.scene);
@@ -97,6 +164,7 @@ export class BabylonEditorGizmo {
     const view = this.ctx.viewCameras()[0];
     const camera = view ? this.ctx.babylonCamera(view) : null;
     const nodes = this.targets.filter((n) => n.isValid && n.transform && n.activeInHierarchy);
+    this.camera = camera;
     this.ok = !!camera && nodes.length > 0 && nodes.length === this.targets.length;
     if (camera && this.ok && this.ctx.overlay.getRenderCamera() !== camera) this.ctx.overlay.setRenderCamera(camera);
     if (this.ok && !this.dragging) this.place(world);
@@ -142,6 +210,14 @@ export class BabylonEditorGizmo {
   private create(mode: Mode): AnyGizmo {
     const layer = this.ctx.overlay;
     const gizmo: AnyGizmo = mode === "translate" ? new PositionGizmo(layer) : mode === "rotate" ? new RotationGizmo(layer) : new ScaleGizmo(layer);
+    // Babylon's own screen-constant scaling is replaced by three's (`gizmoRootScale`), and its snapping is off:
+    // it is incremental from the drag start, three's is to the absolute grid (`snapped`).
+    for (const { part, axes } of gizmoParts(gizmo)) {
+      part.updateScale = false;
+      part.dragBehavior.onDragStartObservable.add(() => {
+        this.axes = axes;
+      });
+    }
     gizmo.onDragStartObservable.add(() => {
       if (this.current() !== gizmo || !this.handlers) return;
       this.dragging = true;
@@ -175,6 +251,7 @@ export class BabylonEditorGizmo {
   private endDrag(): void {
     this.dragging = false;
     this.start = null;
+    this.axes = null;
     this.handlers?.onEnd();
   }
 
@@ -196,6 +273,7 @@ export class BabylonEditorGizmo {
       this.detach(current);
       return;
     }
+    this.resize(current);
     if (this.dragging) return;
     this.configure(current);
     // Re-attaching hands the node to whichever sub-gizmos are enabled now.
@@ -209,10 +287,17 @@ export class BabylonEditorGizmo {
     g._rootMesh.setEnabled(false);
   }
 
-  /** Axes, space and snapping (the three.js gizmo's `applyGizmoOptions`). */
+  /** Give every handle three's on-screen size (each frame: the camera and the proxy move). */
+  private resize(g: AnyGizmo): void {
+    if (!this.camera) return;
+    const scale = gizmoRootScale(this.options.mode, this.camera, this.proxy.position);
+    for (const { part } of gizmoParts(g)) part.scaleRatio = scale;
+    g.scaleRatio = scale;
+  }
+
+  /** Axes and space (the three.js gizmo's `applyGizmoOptions`); snapping is done in `snapped`, not by Babylon. */
   private configure(g: AnyGizmo): void {
-    const { planar, snap, space } = this.options;
-    const steps = this.options.snapSteps ?? DEFAULT_STEPS;
+    const { planar, space } = this.options;
     const coordinates = space === "local" ? GizmoCoordinatesMode.Local : GizmoCoordinatesMode.World;
     if (g instanceof PositionGizmo) {
       // Planar (2D view): X and Y arrows and the XY square; no Z, no XZ/YZ squares.
@@ -220,21 +305,21 @@ export class BabylonEditorGizmo {
       g.zGizmo.isEnabled = !planar;
       g.xPlaneGizmo.isEnabled = g.yPlaneGizmo.isEnabled = !planar;
       g.zPlaneGizmo.isEnabled = true;
-      g.snapDistance = snap ? step(steps.move) : 0;
+      g.snapDistance = 0;
       g.coordinatesMode = coordinates;
     } else if (g instanceof RotationGizmo) {
       // Planar: around Z only.
       g.xGizmo.isEnabled = g.yGizmo.isEnabled = !planar;
       g.zGizmo.isEnabled = true;
-      g.snapDistance = snap ? (step(steps.rotate) * Math.PI) / 180 : 0;
+      g.snapDistance = 0;
       g.coordinatesMode = coordinates;
     } else {
       // Scaling is always along the node's own axes. Planar: X and Y only, no uniform handle.
       g.xGizmo.isEnabled = g.yGizmo.isEnabled = true;
       g.zGizmo.isEnabled = !planar;
       g.uniformScaleGizmo.isEnabled = !planar;
-      g.snapDistance = snap ? step(steps.scale) : 0;
-      g.incrementalSnap = true;
+      g.snapDistance = 0;
+      g.incrementalSnap = false;
     }
   }
 
@@ -253,13 +338,54 @@ export class BabylonEditorGizmo {
   }
 
   /**
+   * The proxy's pose `now` with three's TransformControls snapping applied. The proxy itself stays where the
+   * pointer put it, so the next drag step doesn't fight the rounding. `start` is the proxy's matrix when the
+   * drag began. As in three, only the dragged handle's axes snap:
+   *  - translate: the proxy's world position rounds to multiples of the step (an absolute grid), per axis; in
+   *    local space the position is rounded in the proxy's start orientation instead;
+   *  - rotate: the turn since the drag began, about the dragged axis (the world axis, or the proxy's own in
+   *    local space), rounds to a multiple of the step angle;
+   *  - scale: the proxy's scale rounds to a multiple of the step per axis (never to 0).
+   */
+  private snapped(now: Matrix4, start: Matrix4): Matrix4 {
+    const { snap, mode, space } = this.options;
+    if (!snap) return now;
+    const steps = this.options.snapSteps ?? DEFAULT_STEPS;
+    const mask = this.axes ?? "XYZ";
+    const position = new ThreeVector3(), quaternion = new ThreeQuaternion(), scale = new ThreeVector3();
+    now.decompose(position, quaternion, scale);
+    const startQuaternion = new ThreeQuaternion();
+    start.decompose(new ThreeVector3(), startQuaternion, new ThreeVector3());
+    if (mode === "translate") {
+      const st = step(steps.move);
+      if (!st) return now;
+      if (space === "local") position.applyQuaternion(startQuaternion.clone().invert());
+      roundAxes(position, mask, st);
+      if (space === "local") position.applyQuaternion(startQuaternion);
+    } else if (mode === "rotate") {
+      const st = (step(steps.rotate) * Math.PI) / 180;
+      if (!st || mask.length !== 1) return now;
+      const axis = new ThreeVector3(mask === "X" ? 1 : 0, mask === "Y" ? 1 : 0, mask === "Z" ? 1 : 0);
+      if (space === "local") axis.applyQuaternion(startQuaternion);
+      const turn = quaternion.clone().multiply(startQuaternion.clone().invert());
+      const angle = 2 * Math.atan2(turn.x * axis.x + turn.y * axis.y + turn.z * axis.z, turn.w);
+      quaternion.setFromAxisAngle(axis, Math.round(angle / st) * st).multiply(startQuaternion);
+    } else {
+      const st = step(steps.scale);
+      if (!st) return now;
+      roundAxes(scale, mask, st, true);
+    }
+    return new Matrix4().compose(position, quaternion, scale);
+  }
+
+  /**
    * The targets' local poses implied by how the gizmo has moved the proxy since the drag began: the
    * same change (new proxy x inverse of the start proxy) applied to each target's start pose.
    */
   private poses(): LocalPose[] | null {
     const start = this.start, world = this.world;
     if (!start || !world || !this.targets.every((n) => n.isValid)) return null;
-    const now = this.proxyMatrix();
+    const now = this.snapped(this.proxyMatrix(), start.proxy);
     const delta = now.clone().multiply(start.proxy.clone().invert());
     const position = new ThreeVector3(), quaternion = new ThreeQuaternion(), scale = new ThreeVector3();
     return this.targets.map((node, i) => {

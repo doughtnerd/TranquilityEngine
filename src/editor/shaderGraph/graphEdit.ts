@@ -455,6 +455,7 @@ export function setFunction(graph: ShaderGraph, nodeId: string, fn: CustomFuncti
   const n = g.nodes.find((m) => m.id === nodeId);
   if (!n) return graph;
   n.function = structuredClone(fn);
+  if (!n.function.wgsl?.trim()) delete n.function.wgsl; // an empty WGSL body removes the key
   for (const e of g.edges) {
     const from = splitPortRef(e.from), to = splitPortRef(e.to);
     if (from.node === nodeId && renamed[from.port]) e.from = portRef(nodeId, renamed[from.port]);

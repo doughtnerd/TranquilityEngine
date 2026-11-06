@@ -1,6 +1,7 @@
 // ADR 0075 stage 8: the editor's transform gizmo on the Babylon backend, run headless on Babylon's
 // NullEngine with a real utility layer.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
+import { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera.js";
 import type { PositionGizmo } from "@babylonjs/core/Gizmos/positionGizmo.js";
 import type { RotationGizmo } from "@babylonjs/core/Gizmos/rotationGizmo.js";
@@ -12,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
 import { Assets, Engine, GameObject, SceneManager } from "../index";
 import type { LocalPose } from "../render/gizmoMath";
-import { BabylonEditorGizmo } from "../render/babylon/editorGizmo";
+import { BabylonEditorGizmo, gizmoRootScale } from "../render/babylon/editorGizmo";
 import type { BabylonEditorContext } from "../render/babylon/editorContext";
 import type { GizmoHandlers, GizmoOptions } from "../render/RenderSurface";
 
@@ -188,30 +189,159 @@ describe("the transform gizmo on the Babylon backend (ADR 0075 stage 8)", () => 
     expect(t.zGizmo.attachedNode).toBe(proxy());
   });
 
-  it("snaps to the steps (defaults 0.25 m, 15 degrees, 0.1) and not at all when snapping is off", () => {
+  it("leaves Babylon's own snapping off and takes over sizing (snapping is done on the pose; see below)", () => {
     const a = node("a", [0, 0, 0]);
-    gizmo.setGizmo([a], { ...base, snap: true }, handlers);
-    sync();
-    expect(internals().gizmos.translate!.snapDistance).toBe(0.25);
-    gizmo.setGizmo([a], { ...base, mode: "rotate", snap: true }, handlers);
-    sync();
-    expect(internals().gizmos.rotate!.snapDistance).toBeCloseTo((15 * Math.PI) / 180, 8);
-    gizmo.setGizmo([a], { ...base, mode: "scale", snap: true }, handlers);
-    sync();
-    expect(internals().gizmos.scale!.snapDistance).toBe(0.1);
+    for (const mode of ["translate", "rotate", "scale"] as const) {
+      gizmo.setGizmo([a], { ...base, mode, snap: true }, handlers);
+      sync();
+      const g = internals().gizmos[mode]!;
+      expect(g.snapDistance).toBe(0);
+      expect(g.updateScale).toBe(false);
+      expect(g.scaleRatio).toBeCloseTo(gizmoRootScale(mode, camera, BVector3.Zero()), 8);
+    }
+  });
 
-    const steps = { move: 1, rotate: 45, scale: 0.5 };
-    gizmo.setGizmo([a], { ...base, snap: true, snapSteps: steps }, handlers);
-    gizmo.setGizmo([a], { ...base, mode: "rotate", snap: true, snapSteps: steps }, handlers);
-    gizmo.setGizmo([a], { ...base, mode: "scale", snap: true, snapSteps: steps }, handlers);
-    sync();
-    expect(internals().gizmos.translate!.snapDistance).toBe(1);
-    expect(internals().gizmos.rotate!.snapDistance).toBeCloseTo(Math.PI / 4, 8);
-    expect(internals().gizmos.scale!.snapDistance).toBe(0.5);
+  // three's TransformControls: handle scale = factor * size / 4 with factor = distance * 1.9 * tan(fov / 2)
+  // (perspective) or the visible height (orthographic); reaches 0.6 / 0.5 / 0.58 against Babylon's 0.1125 / 0.1 / 0.10667.
+  it("sizes the gizmo like three's TransformControls for a perspective camera", () => {
+    camera.fov = Math.PI / 2; // tan(fov / 2) = 1
+    const at = new BVector3(0, 0, 0); // 10 from the camera at z = 10
+    expect(gizmoRootScale("translate", camera, at)).toBeCloseTo(((10 * 1.9) / 4) * (0.6 / (0.3375 / 3)), 8);
+    expect(gizmoRootScale("rotate", camera, at)).toBeCloseTo(((10 * 1.9) / 4) * 5, 8);
+    expect(gizmoRootScale("scale", camera, at)).toBeCloseTo(((10 * 1.9) / 4) * (0.58 / (0.32 / 3)), 8);
+    // Distance, not depth: the same point 5 units off to the side is further away, so bigger.
+    expect(gizmoRootScale("translate", camera, new BVector3(5, 0, 0))).toBeCloseTo((gizmoRootScale("translate", camera, at) * Math.sqrt(125)) / 10, 8);
+    camera.fov = 0.5;
+    expect(gizmoRootScale("rotate", camera, at)).toBeCloseTo(((10 * 1.9 * Math.tan(0.25)) / 4) * 5, 8);
+  });
 
-    gizmo.setGizmo([a], { ...base, mode: "scale", snap: false }, handlers);
+  it("sizes the gizmo like three's TransformControls for an orthographic camera", () => {
+    camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+    camera.orthoTop = 3;
+    camera.orthoBottom = -3; // visible height 6, whatever the distance
+    expect(gizmoRootScale("translate", camera, BVector3.Zero())).toBeCloseTo((6 / 4) * (0.6 / (0.3375 / 3)), 8);
+    expect(gizmoRootScale("rotate", camera, new BVector3(0, 0, -50))).toBeCloseTo((6 / 4) * 5, 8);
+    camera.orthoTop = 1;
+    camera.orthoBottom = -1; // zoomed in 3x
+    expect(gizmoRootScale("scale", camera, BVector3.Zero())).toBeCloseTo((2 / 4) * (0.58 / (0.32 / 3)), 8);
+  });
+
+  it("applies that size to the root of every handle each frame", () => {
+    const a = node("a", [0, 0, 0]);
+    gizmo.setGizmo([a], base, handlers);
     sync();
-    expect(internals().gizmos.scale!.snapDistance).toBe(0);
+    const g = internals().gizmos.translate!;
+    overlay.utilityLayerScene.render();
+    const near = g.xGizmo._rootMesh.scaling.x;
+    expect(near).toBeCloseTo(gizmoRootScale("translate", camera, BVector3.Zero()), 6);
+    expect(g.xPlaneGizmo.scaleRatio).toBeCloseTo(near, 6);
+    const far = node("far", [0, 0, -10]); // twice as far from the camera: twice the size
+    gizmo.setGizmo([far], base, handlers);
+    sync();
+    expect(g.zGizmo.scaleRatio).toBeCloseTo(near * 2, 6);
+  });
+
+  /** Start a drag on a handle, as Babylon's pointer behaviour does, then move the proxy by hand and report. */
+  const drag = (g: PositionGizmo | RotationGizmo | ScaleGizmo, handle: { dragBehavior: { onDragStartObservable: { notifyObservers(e: never): void } } }, move: () => void) => {
+    handle.dragBehavior.onDragStartObservable.notifyObservers({ dragPlanePoint: BVector3.Zero(), dragPlaneNormal: BVector3.Up(), pointerId: 1 } as never);
+    move();
+    g.onDragObservable.notifyObservers({} as never);
+  };
+  const snapOn = { ...base, snap: true, snapSteps: { move: 0.5, rotate: 30, scale: 0.25 } };
+
+  it("snaps a translate drag to the absolute world grid from an off-grid start, on the dragged axes only", () => {
+    const a = node("a", [0.13, 0.13, 0.13]);
+    gizmo.setGizmo([a], { ...snapOn, mode: "translate" }, handlers);
+    sync();
+    const t = internals().gizmos.translate!;
+    drag(t, t.xGizmo, () => (proxy().position.x += 0.3)); // 0.43 -> nearest multiple of 0.5 is 0.5 (not 0.13 + 0.5)
+    expect(changes.at(-1)![0].position).toEqual([0.5, 0.13, 0.13]);
+    proxy().position.x += 0.1; // 0.53 -> 0.5
+    t.onDragObservable.notifyObservers({} as never);
+    expect(changes.at(-1)![0].position[0]).toBe(0.5);
+    proxy().position.x += 0.2; // 0.73 -> 0.5
+    t.onDragObservable.notifyObservers({} as never);
+    expect(changes.at(-1)![0].position[0]).toBe(0.5);
+    proxy().position.x += 0.1; // 0.83 -> 1
+    t.onDragObservable.notifyObservers({} as never);
+    expect(changes.at(-1)![0].position[0]).toBe(1);
+    t.xGizmo.dragBehavior.onDragEndObservable.notifyObservers({} as never);
+
+    // A plane handle snaps its two axes (the Z plane: X and Y); the third is untouched.
+    sync();
+    drag(t, t.zPlaneGizmo, () => proxy().position.set(1.3, -0.2, 0.9));
+    expect(changes.at(-1)![0].position).toEqual([1.5, 0, 0.9]);
+  });
+
+  it("snaps translation in the node's own axes in local space, and the centre of a selection in world space", () => {
+    const a = node("a", [0.13, 0, 0], [0, 0, 90]); // local X is world Y
+    gizmo.setGizmo([a], { ...snapOn, space: "local" }, handlers);
+    sync();
+    const t = internals().gizmos.translate!;
+    drag(t, t.xGizmo, () => proxy().position.set(0.13, 0.7, 0)); // along local X: 0.7 -> 0.5; world X stays
+    const p = changes.at(-1)![0].position;
+    expect(p[0]).toBeCloseTo(0.13, 4);
+    expect(p[1]).toBeCloseTo(0.5, 4);
+    t.xGizmo.dragBehavior.onDragEndObservable.notifyObservers({} as never);
+
+    GameObject.destroy(a);
+    const b = node("b", [1.1, 0, 0]);
+    const c = node("c", [3.1, 0, 0]);
+    gizmo.setGizmo([b, c], { ...snapOn, space: "world" }, handlers); // centre (2.1, 0, 0)
+    sync();
+    drag(t, t.xGizmo, () => (proxy().position.x += 0.2)); // centre 2.3 -> 2.5: the pair moves by +0.4
+    const [pb, pc] = changes.at(-1)!;
+    expect(pb.position[0]).toBeCloseTo(1.5, 4);
+    expect(pc.position[0]).toBeCloseTo(3.5, 4);
+  });
+
+  it("snaps rotation to the step angle counted from the drag start, to the nearest step", () => {
+    const a = node("a", [0, 0, 0], [0, 0, 20]); // off-grid start: 20 degrees
+    gizmo.setGizmo([a], { ...snapOn, mode: "rotate" }, handlers);
+    sync();
+    const r = internals().gizmos.rotate!;
+    const turn = (deg: number) => proxy().rotationQuaternion!.copyFrom(BQuaternion.FromEulerAngles(0, 0, ((20 + deg) * Math.PI) / 180));
+    drag(r, r.zGizmo, () => turn(10)); // 10 degrees -> nearest 30 is 0
+    expect(changes.at(-1)![0].rotation[2]).toBeCloseTo(20, 3);
+    turn(20); // 20 degrees -> 30, from the start: 20 + 30 = 50 (not 60, the absolute grid)
+    r.onDragObservable.notifyObservers({} as never);
+    expect(changes.at(-1)![0].rotation[2]).toBeCloseTo(50, 3);
+    turn(-50); // -50 -> -60
+    r.onDragObservable.notifyObservers({} as never);
+    expect(changes.at(-1)![0].rotation[2]).toBeCloseTo(-40, 3);
+  });
+
+  it("snaps scale to an absolute multiple of the step per axis and never to zero", () => {
+    const a = node("a", [0, 0, 0]);
+    a.transform!.scale.set(1.13, 0.9, 1.0);
+    gizmo.setGizmo([a], { ...snapOn, mode: "scale" }, handlers);
+    sync();
+    const s = internals().gizmos.scale!;
+    drag(s, s.xGizmo, () => proxy().scaling.set(1.4, 0.9, 1)); // 1.4 -> 1.5 (step 0.25); Y stays off-grid, not dragged
+    expect(changes.at(-1)![0].scale[0]).toBeCloseTo(1.5, 5);
+    expect(changes.at(-1)![0].scale[1]).toBeCloseTo(0.9, 5);
+    proxy().scaling.set(0.05, 0.9, 1); // would round to 0: stays at one step
+    s.onDragObservable.notifyObservers({} as never);
+    expect(changes.at(-1)![0].scale[0]).toBeCloseTo(0.25, 5);
+    s.xGizmo.dragBehavior.onDragEndObservable.notifyObservers({} as never);
+
+    sync();
+    drag(s, s.uniformScaleGizmo, () => proxy().scaling.set(1.3, 0.9, 1.1)); // the uniform handle snaps all three
+    expect(changes.at(-1)![0].scale.map((v) => Math.round(v * 1e4) / 1e4)).toEqual([1.25, 1, 1]);
+  });
+
+  it("does not snap when snapping is off or a step is invalid", () => {
+    const a = node("a", [0.13, 0, 0]);
+    gizmo.setGizmo([a], { ...base, snapSteps: { move: 0.5, rotate: 30, scale: 0.25 } }, handlers);
+    sync();
+    const t = internals().gizmos.translate!;
+    drag(t, t.xGizmo, () => (proxy().position.x += 0.3));
+    expect(changes.at(-1)![0].position[0]).toBeCloseTo(0.43, 5);
+    t.xGizmo.dragBehavior.onDragEndObservable.notifyObservers({} as never);
+    gizmo.setGizmo([a], { ...base, snap: true, snapSteps: { move: 0, rotate: 30, scale: 0.25 } }, handlers);
+    sync();
+    drag(t, t.xGizmo, () => (proxy().position.x += 0.3));
+    expect(changes.at(-1)![0].position[0]).toBeCloseTo(0.43, 5);
   });
 
   it("reports a single node's drag through Babylon's own axis handler as onStart, onChange and onEnd", () => {
