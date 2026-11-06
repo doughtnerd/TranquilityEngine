@@ -25,6 +25,7 @@ import "@babylonjs/core/Materials/standardMaterial.js"; // the GUI's mesh materi
 import "@babylonjs/core/Layers/layerSceneComponent.js"; // the fullscreen texture's layer
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import type { Scene } from "@babylonjs/core/scene.js";
+import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture.js";
 import { Container } from "@babylonjs/gui/2D/controls/container.js";
 import { Control } from "@babylonjs/gui/2D/controls/control.js";
@@ -117,6 +118,7 @@ export class BabylonUI {
     this.offFont = onFontLoaded(() => this.fontsChanged());
     this.screen = AdvancedDynamicTexture.CreateFullscreenUI("myco.ui", true, { width: 0, height: 0, scene, useStandalone: true } as never);
     quiet(this.screen);
+    uploadRedrawnPart(this.screen);
     this.textRoot = new Container("myco.texts");
     placeBox(this.textRoot);
     this.textRoot.zIndex = -1e9;
@@ -645,6 +647,82 @@ function anchorFactors(anchor: Anchor): [number, number] {
     case "bottom-right": return [1, 1];
     default: return [0.5, 0.5];
   }
+}
+
+// --- uploading only what was redrawn ---
+
+/** A rectangle of a texture, in its pixels from the top-left. */
+export interface PixelRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * @internal The whole pixels a redraw touched: Babylon GUI's invalidated rectangle (fractional, and
+ * possibly past the edges) grown by a pixel for antialiasing and clamped to the texture. Null when
+ * nothing of it is on the texture.
+ */
+export function redrawnPixels(r: { left: number; top: number; width: number; height: number }, width: number, height: number): PixelRect | null {
+  const x = Math.max(0, Math.floor(r.left) - 1), y = Math.max(0, Math.floor(r.top) - 1);
+  const w = Math.min(width, Math.ceil(r.left + r.width) + 1) - x, h = Math.min(height, Math.ceil(r.top + r.height) + 1) - y;
+  return w > 0 && h > 0 ? { x, y, width: w, height: h } : null;
+}
+
+/** @internal `rows` rows of RGBA pixels, `rowBytes` each, in reverse order, into `into` (grown as needed). */
+export function flipRows(pixels: Uint8ClampedArray | Uint8Array, rowBytes: number, rows: number, into: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
+  const out = into.length >= rows * rowBytes ? into : new Uint8Array(rows * rowBytes);
+  for (let j = 0; j < rows; j++) out.set(pixels.subarray(j * rowBytes, (j + 1) * rowBytes), (rows - 1 - j) * rowBytes);
+  return out;
+}
+
+/**
+ * On WebGPU, a GUI texture's update writes only the part its redraw touched (ADR 0075 notes). Babylon
+ * GUI redraws only its invalidated rectangle, but its update copied the whole canvas with
+ * `copyExternalImageToTexture`, which cost about 5–15 ms of GPU queue time per copy whatever its
+ * size, and the pirates HUD's moving ship markers redraw it every other frame. Reading the redrawn
+ * pixels back and writing them with `writeTexture` costs in proportion to their area. Anything the
+ * shortcut can't do exactly (the first upload, a resize, a full redraw, mipmaps, premultiplied alpha,
+ * WebGL2) goes through Babylon's own update.
+ */
+/** The bit of WebGPU's queue this uses (the project builds without WebGPU's type declarations). */
+interface GPUQueueLike {
+  writeTexture(destination: { texture: unknown; origin: { x: number; y: number } }, data: ArrayBufferView, layout: { bytesPerRow: number; rowsPerImage: number }, size: { width: number; height: number }): void;
+}
+
+function uploadRedrawnPart(adt: AdvancedDynamicTexture): void {
+  const engine = adt.getScene()?.getEngine() as (AbstractEngine & { _device?: { queue: GPUQueueLike } }) | undefined;
+  if (!engine?.isWebGPU || !engine._device) return;
+  const device = engine._device;
+  let pending: PixelRect | null = null;
+  let flipped = new Uint8Array(0);
+  // Called after layout, as the redraw starts: the invalidated rectangle is final then.
+  adt.onBeginRenderObservable.add(() => {
+    const r = (adt as unknown as { _invalidatedRectangle: { left: number; top: number; width: number; height: number } | null })._invalidatedRectangle;
+    const size = adt.getSize();
+    pending = r ? redrawnPixels(r, size.width, size.height) : null;
+  });
+  const full = adt.update.bind(adt);
+  adt.update = (invertY?: boolean, premulAlpha?: boolean, allowGPUOptimization?: boolean) => {
+    const rect = pending;
+    pending = null;
+    const internal = adt.getInternalTexture();
+    const gpu = (internal as unknown as { _hardwareTexture?: { underlyingResource?: unknown } } | null)?._hardwareTexture?.underlyingResource;
+    const size = adt.getSize();
+    if (!rect || !internal || !gpu || !internal.isReady || internal.generateMipMaps || premulAlpha || internal.width !== size.width || internal.height !== size.height) {
+      full(invertY, premulAlpha, allowGPUOptimization);
+      return;
+    }
+    const rowBytes = rect.width * 4;
+    let pixels: Uint8ClampedArray | Uint8Array = adt.getContext().getImageData(rect.x, rect.y, rect.width, rect.height).data;
+    let y = rect.y;
+    if (invertY) {
+      pixels = flipped = flipRows(pixels, rowBytes, rect.height, flipped);
+      y = size.height - rect.y - rect.height;
+    }
+    device.queue.writeTexture({ texture: gpu, origin: { x: rect.x, y } }, pixels, { bytesPerRow: rowBytes, rowsPerImage: rect.height }, { width: rect.width, height: rect.height });
+  };
 }
 
 // --- text measuring ---

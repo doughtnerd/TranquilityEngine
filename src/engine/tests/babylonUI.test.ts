@@ -13,7 +13,7 @@ import { World } from "../core/World";
 import { Color, Engine, GameObject, Text, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, Vector2 } from "../index";
 import type { UIComponentType } from "../ui/components";
 import type { UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../ui/uiCoreTypes";
-import { BabylonUI, WORLD_RESOLUTION, _resetTextMeasurer, cssWeight, measureText } from "../render/babylon/ui";
+import { BabylonUI, WORLD_RESOLUTION, _resetTextMeasurer, cssWeight, flipRows, measureText, redrawnPixels } from "../render/babylon/ui";
 import { _resetFonts, loadBundledFont } from "../ui/fonts";
 
 /** A 2D context that draws nothing and measures half an em per character. */
@@ -517,5 +517,29 @@ describe("the editor's camera preview UI (ADR 0076)", () => {
     } finally {
       preview.dispose();
     }
+  });
+});
+
+describe("uploading only the redrawn part of the screen UI (ADR 0075 notes)", () => {
+  it("covers the whole pixels of the invalidated rectangle, a pixel wider, inside the texture", () => {
+    expect(redrawnPixels({ left: 10.4, top: 20.6, width: 30.2, height: 5 }, 100, 100)).toEqual({ x: 9, y: 19, width: 33, height: 8 });
+    expect(redrawnPixels({ left: -5, top: -5, width: 20, height: 20 }, 100, 100)).toEqual({ x: 0, y: 0, width: 16, height: 16 });
+    expect(redrawnPixels({ left: 90, top: 95, width: 50, height: 50 }, 100, 100)).toEqual({ x: 89, y: 94, width: 11, height: 6 });
+    expect(redrawnPixels({ left: 150, top: 10, width: 10, height: 10 }, 100, 100)).toBeNull();
+  });
+
+  it("flips rows for a texture that's uploaded upside down, reusing its buffer", () => {
+    const pixels = new Uint8ClampedArray([1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3]); // three one-pixel rows
+    const buffer = new Uint8Array(16);
+    const out = flipRows(pixels, 4, 3, buffer);
+    expect(out).toBe(buffer);
+    expect(Array.from(out.subarray(0, 12))).toEqual([3, 3, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1]);
+    expect(flipRows(pixels, 4, 3, new Uint8Array(4)).length).toBe(12); // grown when too small
+  });
+
+  it("leaves Babylon's own update alone off WebGPU", () => {
+    const ui = new BabylonUI(scene, { texture: () => Promise.reject(new Error("no textures")) });
+    expect(Object.prototype.hasOwnProperty.call(ui.screen, "update")).toBe(false);
+    ui.dispose();
   });
 });
