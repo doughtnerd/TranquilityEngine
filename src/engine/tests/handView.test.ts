@@ -36,6 +36,9 @@ vi.mock("../render/RenderBackend", async (importOriginal) => {
   return { ...original, RenderBackend: FakeRenderBackend };
 });
 
+// The fakes stand in for the three.js backend, so pick it (Babylon is the default, ADR 0078).
+vi.stubGlobal("location", { search: "?renderer=three" });
+
 const { Engine } = await import("../core/Engine");
 const { Input } = await import("../input/Input");
 
