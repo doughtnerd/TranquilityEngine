@@ -930,7 +930,7 @@ describe("UICore editor picking (ADR 0077)", () => {
     const { column, play } = menu();
     const c = await core({ interactive: false });
     sync(c);
-    expect(c.cornersOf(play)).toEqual({ space: "screen", points: [[20, 20], [220, 20], [220, 70], [20, 70]] });
+    expect(c.cornersOf(play)).toEqual({ space: "screen", points: [[20, 20], [220, 20], [220, 70], [20, 70]], size: [200, 50] });
     expect(c.cornersOf(column)!.points[2]).toEqual([1280, 720]);
 
     const sign = node("Sign", null, UICanvas, { mode: "world", referenceResolution: new Vector2(200, 100), pixelSize: 0.01 } as Partial<UICanvas>);
@@ -940,10 +940,25 @@ describe("UICore editor picking (ADR 0077)", () => {
     sync(c);
     const corners = c.cornersOf(label)!;
     expect(corners.space).toBe("world");
+    expect(corners.size).toEqual([100, 50]);
     expect(corners.points[0].map((v) => +v.toFixed(5))).toEqual([-1, 0.5, -5]);
     expect(corners.points[2].map((v) => +v.toFixed(5))).toEqual([0, 0, -5]);
     // The screen column is listed first (screen canvases draw over world ones), then the world label under the ray.
     expect(c.pickAll(5, 5, { origin: [-0.5, 0.25, 0], direction: [0, 0, -1] })).toEqual([column, label]);
     expect(c.pickAll(5, 5, { origin: [0.5, 0.25, 0], direction: [0, 0, -1] })).toEqual([column]); // the sign's right half has no element
+  });
+
+  it("places an absolute child's left/top from the parent's padding box (inside its border), as the handles assume", async () => {
+    const canvas = node("Canvas", null, UICanvas);
+    const parent = node("Parent", canvas.node, UIPanel, { width: 400 as UILength, height: 300 as UILength, padding: 20, borderWidth: 5, left: 10 as UILength, top: 10 as UILength, positionType: "absolute" } as Partial<UIPanel>);
+    const child = node("Child", parent.node, UIPanel, { width: 50 as UILength, height: 40 as UILength, positionType: "absolute", left: 30 as UILength, top: 7 as UILength } as Partial<UIPanel>);
+    const c = await core({ interactive: false });
+    sync(c);
+    const p = c.cornersOf(parent)!.points[0], q = c.cornersOf(child)!.points[0];
+    expect([q[0] - p[0] - 5, q[1] - p[1] - 5]).toEqual([30, 7]);
+    child.left = "50%";
+    sync(c);
+    // 50% of the padding box's width (400 - 2 × 5).
+    expect(c.cornersOf(child)!.points[0][0] - p[0] - 5).toBe(195);
   });
 });

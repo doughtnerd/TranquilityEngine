@@ -1,8 +1,8 @@
 // The selected UI document element's box, outlined in the scene view (ADR 0077 §4). Drawn as an SVG
 // polygon over the viewport, following the UI core's layout boxes every frame: a rectangle on a
-// screen canvas, the projected quad on a world canvas. Renderer-neutral DOM (no backend code), but
-// the boxes come from the UI core, which only the Babylon backend has (`uiElementOutline` is null on
-// three.js, so nothing is drawn there).
+// screen canvas, the projected quad on a world canvas. Renderer-neutral DOM (no backend code); the
+// boxes come from the UI's layout on either backend (the UI core on Babylon, uikit on three.js). The
+// resize handles and reorder marker are `uiHandles.ts`, in an overlay of their own above this one.
 import type { Engine } from "../engine";
 import { uiElementOutline, viewportCanvas } from "../engine/editor";
 import { viewportElements } from "./ui/ScenePanel";

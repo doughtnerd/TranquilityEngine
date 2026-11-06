@@ -155,6 +155,7 @@ function commit(scene: OpenScene, label: string, build: (edits: FileEdits) => vo
     build(edits);
     const writes = edits.writes;
     if (writes.length === 0) return false;
+    if (gesture) for (const w of writes) if (!gesture.before.has(w.path)) gesture.before.set(w.path, host.read(w.path));
     scene.stack.execute(new WriteFiles(label, writes));
     return true;
   } catch (err) {
@@ -183,12 +184,35 @@ export function beginUIEdit(label: string): boolean {
   const scene = editableScene();
   if (!scene) return false;
   scene.stack.beginGroup(label);
+  gesture = { scene, before: new Map() };
   return true;
 }
 
+/** The gesture in progress: the files it wrote, as they were before it. */
+let gesture: { scene: OpenScene; before: Map<string, string | null> } | null = null;
+
 /** End the gesture `beginUIEdit` started. */
 export function endUIEdit(): void {
-  openScene.peek()?.stack.endGroup();
+  const scene = gesture?.scene ?? openScene.peek();
+  gesture = null;
+  scene?.stack.endGroup();
+}
+
+/**
+ * End the gesture `beginUIEdit` started, putting back every file it wrote as it was (Escape during a
+ * handle drag). The step then changed nothing, so nothing is recorded.
+ */
+export function cancelUIEdit(): void {
+  const g = gesture;
+  gesture = null;
+  if (!g) return;
+  const host = g.scene.stack.files;
+  const writes = host ? [...g.before].filter(([path, text]) => host.read(path) !== text).map(([path, text]) => ({ path, text })) : [];
+  try {
+    if (writes.length) g.scene.stack.execute(new WriteFiles("Cancel", writes));
+  } finally {
+    g.scene.stack.endGroup();
+  }
 }
 
 // --- Names and paths ------------------------------------------------------------------------------

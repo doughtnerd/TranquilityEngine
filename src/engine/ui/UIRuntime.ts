@@ -13,6 +13,7 @@ import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { Input } from "../input/Input";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType, type UILength } from "./components";
+import type { UICorners, UIPickRay } from "./uiCoreTypes";
 
 /** What the render backend gives the runtime. */
 export interface UIHost {
@@ -70,6 +71,8 @@ interface CanvasEntry extends Entry {
   scale: number;
   /** The interactive elements in draw order (later is on top), from the last sync. */
   interactive: Entry[];
+  /** Every element in draw order (later is on top), from the last sync: the editor's picking. */
+  elements: Entry[];
 }
 
 const LEAF_KINDS: ReadonlySet<Kind> = new Set(["text", "image", "input"]);
@@ -169,6 +172,7 @@ export class UIRuntime {
     for (const canvas of this.canvases.values()) {
       canvas.canvas = canvas;
       canvas.interactive = [];
+      canvas.elements = [];
       placed.add(canvas);
       this.collect(canvas.comp.owner, canvas, canvas, byNode, placed);
     }
@@ -222,6 +226,84 @@ export class UIRuntime {
     return this.hit(x, y)?.comp ?? null;
   }
 
+  /**
+   * Editor (ADR 0077 wave B): every drawn element under a canvas CSS point, topmost first: screen
+   * canvases from the highest `sortOrder` (each canvas's elements from the last drawn), then world
+   * canvases nearest first, hit with `ray` (the editor's scene camera's) or else the host's camera.
+   * Canvases themselves aren't listed. The same contract as the UI core's `pickAll`.
+   */
+  pickAll(x: number, y: number, ray?: UIPickRay | null): UIComponentType[] {
+    const out: UIComponentType[] = [];
+    for (const canvas of this.screenCanvases().reverse()) {
+      const px = x / canvas.scale, py = -y / canvas.scale;
+      for (let i = canvas.elements.length - 1; i >= 0; i--) {
+        const e = canvas.elements[i];
+        if (!this.hittable(e)) continue;
+        const m = this.panelWorld(e, scratch.m);
+        if (!m) continue;
+        const p = scratch.v.set(px, py, 0).applyMatrix4(scratch.inv.copy(m).invert());
+        if (Math.abs(p.x) <= 0.5 && Math.abs(p.y) <= 0.5) out.push(e.comp);
+      }
+    }
+    const worldRay = this.pickRay(x, y, ray);
+    if (!worldRay) return out;
+    const hits: { comps: UIComponentType[]; t: number }[] = [];
+    const local = new Ray();
+    for (const canvas of this.canvases.values()) {
+      if (canvas.comp.mode !== "world" || !canvas.comp.isActiveAndEnabled || !canvas.obj.parent) continue;
+      const comps: UIComponentType[] = [];
+      let nearest = Infinity;
+      for (let i = canvas.elements.length - 1; i >= 0; i--) {
+        const e = canvas.elements[i];
+        if (!this.hittable(e)) continue;
+        const m = this.panelWorld(e, scratch.m);
+        if (!m) continue;
+        local.copy(worldRay).applyMatrix4(scratch.inv.copy(m).invert());
+        if (Math.abs(local.direction.z) < 1e-9) continue;
+        const t = -local.origin.z / local.direction.z;
+        if (t < 0) continue;
+        const p = local.at(t, scratch.v);
+        if (Math.abs(p.x) > 0.5 || Math.abs(p.y) > 0.5) continue;
+        comps.push(e.comp);
+        nearest = Math.min(nearest, p.applyMatrix4(m).distanceTo(worldRay.origin));
+      }
+      if (comps.length) hits.push({ comps, t: nearest });
+    }
+    hits.sort((a, b) => a.t - b.t);
+    for (const h of hits) out.push(...h.comps);
+    return out;
+  }
+
+  /**
+   * Editor (ADR 0077 wave B): an element's box corners (top-left, top-right, bottom-right,
+   * bottom-left) from the last layout, canvas CSS pixels on a screen canvas, world points on a world
+   * canvas, with its size in UI pixels. Null when it isn't laid out. As the UI core's `cornersOf`.
+   */
+  cornersOf(c: UIComponentType): UICorners | null {
+    const entry = this.entries.get(c);
+    const canvas = entry?.canvas;
+    const size = entry?.obj.size.value;
+    if (!entry || !canvas || !size) return null;
+    const m = this.panelWorld(entry, new Matrix4());
+    if (!m) return null;
+    const local = [[-0.5, 0.5], [0.5, 0.5], [0.5, -0.5], [-0.5, -0.5]];
+    const points = local.map(([lx, ly]) => {
+      const p = new ThreeVector3(lx, ly, 0).applyMatrix4(m);
+      return canvas.comp.mode === "world" ? [p.x, p.y, p.z] : [p.x * canvas.scale, -p.y * canvas.scale];
+    });
+    return { space: canvas.comp.mode === "world" ? "world" : "screen", points, size: [size[0], size[1]] };
+  }
+
+  /** A world ray under a canvas point: the given one, else the host camera's; null without either. */
+  private pickRay(x: number, y: number, ray?: UIPickRay | null): Ray | null {
+    if (ray) return new Ray(new ThreeVector3(...ray.origin), new ThreeVector3(...ray.direction).normalize());
+    const camera = this.host.camera?.();
+    if (!camera || !(this.width > 0 && this.height > 0)) return null;
+    scratch.ndc.set((x / this.width) * 2 - 1, 1 - (y / this.height) * 2);
+    scratch.raycaster.setFromCamera(scratch.ndc, camera);
+    return scratch.raycaster.ray.clone();
+  }
+
   /** Release the uikit object of a removed component. */
   release(c: UIComponentType): void {
     const entry = this.entries.get(c);
@@ -251,7 +333,7 @@ export class UIRuntime {
     if (kind === "canvas") {
       const scene = new Scene();
       const camera = new OrthographicCamera(0, 1, 0, -1, -1000, 1000);
-      const canvas: CanvasEntry = { comp: c as UICanvas, kind, obj: new Container(), sig: "", canvas: null, children: [], scene, camera, scale: 1, interactive: [] };
+      const canvas: CanvasEntry = { comp: c as UICanvas, kind, obj: new Container(), sig: "", canvas: null, children: [], scene, camera, scale: 1, interactive: [], elements: [] };
       this.canvases.set(c as UICanvas, canvas);
       entry = canvas;
     } else if (kind === "text") {
@@ -304,6 +386,7 @@ export class UIRuntime {
         const hiddenBelow = hidden || !c.visible;
         placed.add(entry);
         if (entry.kind === "button" || entry.kind === "input") canvas.interactive.push(entry);
+        canvas.elements.push(entry);
         if (LEAF_KINDS.has(into.kind)) {
           this.warnOnce(`leaf|${child.entity}`, `UI element "${child.name}" is under a ${into.comp.constructor.name}, which can't have children; it lays out beside it instead.`);
         }
