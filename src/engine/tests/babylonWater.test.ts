@@ -1,14 +1,21 @@
 // ADR 0075 stage 6: water surfaces on the Babylon backend. The grid mesh, its rebuilds, the node
-// following and release run headless on Babylon's NullEngine; the WGSL the material plugin splices
-// into Babylon's PBR shaders is checked as text (it only compiles on WebGPU).
+// following and release run headless on Babylon's NullEngine; the WGSL and GLSL the material plugin
+// splices into Babylon's PBR shaders are checked as text, and their wave functions are translated to
+// JavaScript and run on the uniforms the plugin binds, against the physics surface.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
+import type { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
+import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import { Scene } from "@babylonjs/core/scene.js";
+import { Scene as ThreeScene } from "three";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { World } from "../core/World";
 import { Assets, Engine, GameObject, Graphics, SceneManager, WaterSurface } from "../index";
 import { BabylonWater, babylonWaterResolution, waterCustomCode, waterGridData, waterUniformBuffer } from "../render/babylon/water";
-import { MAX_WAVES } from "../render/water/gerstner";
+import { GERSTNER_BODY, MAX_WAVES, gerstner, gerstnerBodyJS } from "../render/water/gerstner";
+import { WaterRenderer } from "../render/water/WaterRenderer";
+import { waterTime } from "../render/water/WaterSurface";
 import { ALBEDO_ANCHOR } from "../render/babylon/graphMaterial";
 
 describe("water surfaces on Babylon (ADR 0075 stage 6)", () => {
@@ -183,5 +190,149 @@ describe("the water WGSL", () => {
     expect(all).not.toMatch(/\bmix\([^)]*\)\s*;\s*\/\/ glsl/);
     expect(all).not.toContain("gl_");
     expect(all).toContain("mat3x3f");
+  });
+});
+
+describe("the water GLSL (WebGL2 fallback)", () => {
+  const vertex = waterCustomCode("vertex", ShaderLanguage.GLSL);
+  const fragment = waterCustomCode("fragment", ShaderLanguage.GLSL);
+
+  it("matches the lines of Babylon's GLSL PBR shaders it replaces", () => {
+    const pos = Object.keys(vertex).find((k) => k.startsWith("!"))!;
+    expect(new RegExp(pos.slice(1)).test("vec4 worldPos=finalWorld*vec4(positionUpdated,1.0);vPositionW=vec3(worldPos);")).toBe(true);
+    const keys = Object.keys(fragment).filter((k) => k.startsWith("!"));
+    expect(keys.some((k) => new RegExp(k.slice(1)).test("albedoOpacityOutParams albedoOpacityOut;"))).toBe(true);
+    expect(keys.some((k) => new RegExp(k.slice(1)).test("reflectivityOut=reflectivityBlock(\nvReflectivityColor"))).toBe(true);
+  });
+
+  it("sums the waves with GERSTNER_BODY itself, reads every packed uniform, and shadows none of them", () => {
+    expect(vertex.CUSTOM_VERTEX_DEFINITIONS).toContain(GERSTNER_BODY.replace(/\$float/g, "float").replace(/\$int/g, "int"));
+    const all = [...Object.values(vertex), ...Object.values(fragment)].join("\n");
+    for (const { name } of waterUniformBuffer()) {
+      expect(all).toMatch(new RegExp(`\\b${name}\\b`));
+      expect(all).not.toMatch(new RegExp(`\\b(float|vec[234]|int) ${name}\\b`)); // a local of a uniform's name
+    }
+    expect(all).not.toContain("uniforms.");
+    expect(all).not.toMatch(/\bvec[234]f\(/);
+  });
+});
+
+type V4 = { x: number; y: number; z: number; w: number };
+
+/** The wave function a shader's CUSTOM_VERTEX_DEFINITIONS declares, translated to JavaScript: (rest x, rest z, uniforms) → displacement. */
+function shaderWaves(language: ShaderLanguage): (px: number, pz: number, u: Record<string, V4>) => number[] {
+  const defs = waterCustomCode("vertex", language).CUSTOM_VERTEX_DEFINITIONS;
+  const start = defs.search(/(fn|void) mycoGerstner/);
+  let src = defs.slice(start, defs.indexOf("\n}\n", defs.search(/disp = vec3\(|return mat3x3f/)) + 2);
+  src = src.replace(/uniforms\./g, "").replace(/\b(mycoWave\d|mycoPhase\d|mycoWaterA)\b/g, "u.$1");
+  if (language === ShaderLanguage.WGSL) {
+    src = src
+      .replace(/^fn mycoGerstner\(.*\{/, "")
+      .replace(/array<\w+, \d+>\(([^;]*)\);/g, "[$1];")
+      .replace(/\bi32\(/g, "Math.trunc(")
+      .replace(/: i32/g, "")
+      .replace(/\b(var|let) /g, "let ")
+      .replace(/(\w) \+= (vec3f\(.*\));/g, "$1 = add($1, $2);")
+      .replace(/return mat3x3f\(g, t, b\);/, "return g;");
+  } else {
+    src = src
+      .replace(/^void mycoGerstner\(.*\{/, "let disp;")
+      .replace(/\w+ (\w+)\[\d+\] = \w+\[\d+\]\(([^;]*)\);/g, "let $1 = [$2];")
+      .replace(/float (\w+)\[(\d+)\];/g, "let $1 = new Array($2).fill(0);")
+      .replace(/\bint\(/g, "Math.trunc(")
+      .replace(/\b(float|int) (?=\w+ ?[=;])/g, "let ")
+      .replace(/\bvec3\(([^()]*)\)/g, "[$1]")
+      .replace(/\b(tangent|binormal) = .*;/g, "")
+      .replace(/\n\}\n?$/, "\nreturn disp;\n}");
+  }
+  src = src.replace(/\b(sin|cos)\(/g, "Math.$1(").replace(/\n\}\n?$/, "\n");
+  const vec3f = (...a: number[]) => (a.length === 1 ? [a[0], a[0], a[0]] : a);
+  const add = (a: number[], b: number[]) => a.map((v, i) => v + b[i]);
+  const fn = new Function("px", "pz", "u", "vec3f", "add", src);
+  return (px, pz, u) => fn(px, pz, u, vec3f, add) as number[];
+}
+
+describe("the water Babylon draws is the water physics samples (pirates: hulls under a flat sea)", () => {
+  let engine: Engine;
+  let babylon: NullEngine;
+  let scene: Scene;
+  let water: BabylonWater;
+
+  beforeEach(async () => {
+    Assets.clearSources();
+    Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
+    engine = await Engine.create({ headless: true });
+    await SceneManager.load("s.json");
+    babylon = new NullEngine();
+    scene = new Scene(babylon);
+    scene.useRightHandedSystem = true;
+    water = new BabylonWater(scene);
+  });
+
+  afterEach(() => {
+    water.dispose();
+    scene.dispose();
+    babylon.dispose();
+    engine.dispose();
+  });
+
+  const world = () => engine.world as unknown as World;
+
+  /** The uniforms the material's wave plugin binds for a draw, by name. */
+  function bound(material: PBRMaterial): Record<string, V4> {
+    const plugin = material.pluginManager?.getPlugin("MycoWater") as MaterialPluginBase | null | undefined;
+    expect(plugin, "the water material has no wave plugin: it draws a flat plane").toBeTruthy();
+    const out: Record<string, V4> = {};
+    const ubo = { updateFloat4: (name: string, x: number, y: number, z: number, w: number) => (out[name] = { x, y, z, w }) };
+    plugin!.bindForSubMesh(ubo as never, scene, babylon, null as never);
+    return out;
+  }
+
+  it("adds the wave plugin on the WebGL2 (GLSL) material too, not only on WebGPU", () => {
+    const w = GameObject.create("sea").addBehavior(WaterSurface);
+    engine.step(1 / 60);
+    water.sync(world(), [w]);
+    const m = water.meshes()[0].material as PBRMaterial;
+    expect(m.shaderLanguage).toBe(ShaderLanguage.GLSL); // NullEngine compiles GLSL, as WebGL2 does
+    const plugin = m.pluginManager?.getPlugin("MycoWater");
+    expect(plugin).toBeTruthy();
+    expect(plugin!.isCompatible(ShaderLanguage.GLSL)).toBe(true);
+    expect(plugin!.isCompatible(ShaderLanguage.WGSL)).toBe(true);
+  });
+
+  it("draws the height WaterSurface.sample reports, in GLSL and WGSL, as three.js draws it", () => {
+    const node = GameObject.create("sea");
+    const w = node.addBehavior(WaterSurface);
+    w.waveScale = 1.7;
+    node.transform!.position.set(3, 2, -5);
+    for (let i = 0; i < 200; i++) engine.step(1 / 60); // seconds in: the phases have moved on
+    const time = waterTime(world());
+    expect(time).toBeGreaterThan(1);
+    water.sync(world(), [w]);
+    const u = bound(water.meshes()[0].material as PBRMaterial);
+
+    const three = new WaterRenderer(new ThreeScene());
+    three.sync(world(), [w]);
+    const tu = (three as unknown as { entries: Map<WaterSurface, { uniforms: { mycoWaves: { value: Float32Array }; mycoWaveCount: { value: number } } }> }).entries.get(w)!.uniforms;
+    const threeWaves = Float32Array.from(tu.mycoWaves.value);
+    const threeCount = tu.mycoWaveCount.value;
+    three.dispose();
+    const threeFn = new Function("mycoWaves", "mycoWaveCount", "px", "pz", `${gerstnerBodyJS()}\nreturn [gx, gy, gz];`) as (a: Float32Array, n: number, x: number, z: number) => number[];
+
+    const packed = w._pack(time);
+    for (const language of [ShaderLanguage.GLSL, ShaderLanguage.WGSL]) {
+      const drawn = shaderWaves(language);
+      for (const [px, pz] of [[0, 0], [7.3, -4.1], [-30, 22], [55, 61]]) {
+        const d = drawn(px, pz, u);
+        const cpu = gerstner(packed, px, pz);
+        const at = `${ShaderLanguage[language]} at rest (${px}, ${pz})`;
+        expect(d[1], at).toBeCloseTo(cpu.dy, 4);
+        expect(d[0], at).toBeCloseTo(cpu.dx, 4);
+        expect(d[2], at).toBeCloseTo(cpu.dz, 4);
+        expect(threeFn(threeWaves, threeCount, px, pz)[1], at).toBeCloseTo(d[1], 4);
+        // The physics truth: where the drawn vertex lands in the world, the sampled surface is at its height.
+        expect(w.sample(px + d[0] + 3, pz + d[2] - 5).height, at).toBeCloseTo(d[1] + 2, 3);
+      }
+    }
   });
 });
