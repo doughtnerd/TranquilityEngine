@@ -109,10 +109,6 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
     expect(p.numbers.get("uSpeed")).toEqual([2]); // back to the graph's default
   });
 
-  it("refuses a graph compiled to GLSL", () => {
-    expect(() => createGraphMaterial(scene, "g", compiled({ language: "glsl" }), {}, shared, noTextures)).toThrow(/WGSL/);
-  });
-
   describe("shadows follow the vertex offset", () => {
     /** Materials made after this are WGSL (NullEngine materials are otherwise GLSL); nothing compiles. */
     const asWebGPU = () => ((engine as unknown as { _isWebGPU: boolean })._isWebGPU = true);

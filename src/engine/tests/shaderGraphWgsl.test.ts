@@ -2,11 +2,11 @@ import { readFileSync, readdirSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets } from "../index";
 import { compileShaderGraph, type CompiledShaderGraph } from "../render/shaderGraph/compile";
-import { HELPERS, HELPERS_WGSL, NODES, nodePorts } from "../render/shaderGraph/nodes";
+import { HELPERS_WGSL, NODES, nodePorts } from "../render/shaderGraph/nodes";
 import { defaultShaderGraph, parseShaderGraph, type GraphNode, type ShaderGraph } from "../scene/shaderGraph";
 
-// The WGSL output of the shader graph compiler (ADR 0075): the same node library as GLSL, written
-// for Babylon.js's WGSL dialect. No WGSL parser is installed, so these are string-level checks.
+// The WGSL output of the shader graph compiler (ADR 0075; its only output since ADR 0081), written for
+// Babylon.js's WGSL dialect. No WGSL parser is installed, so these are string-level checks.
 
 const graph = (nodes: GraphNode[], edges: [string, string][], extra: Partial<ShaderGraph> = {}): ShaderGraph => ({
   ...defaultShaderGraph(),
@@ -15,7 +15,7 @@ const graph = (nodes: GraphNode[], edges: [string, string][], extra: Partial<Sha
   ...extra,
 });
 const node = (id: string, type: string, extra: Partial<GraphNode> = {}): GraphNode => ({ id, type, position: [0, 0], ...extra });
-const wgsl = (g: ShaderGraph, shaderLevel: "low" | "medium" | "high" = "high") => compileShaderGraph(g, { language: "wgsl", shaderLevel });
+const wgsl = (g: ShaderGraph, shaderLevel: "low" | "medium" | "high" = "high") => compileShaderGraph(g, { shaderLevel });
 
 /** Every code string of a compile, to scan. */
 function code(c: CompiledShaderGraph): string {
@@ -48,7 +48,6 @@ function checkShape(text: string, label: string): void {
 }
 
 function expectWgsl(c: CompiledShaderGraph, label: string): void {
-  expect(c.language).toBe("wgsl");
   const text = code(c);
   for (const [name, re] of GLSL_ONLY) expect(text, `${label}: ${name}`).not.toMatch(re);
   checkShape(c.vertex.declarations + c.vertex.body + c.vertex.varyings, `${label} vertex`);
@@ -65,18 +64,16 @@ const useSampleAssets = () => {
 describe("WGSL output of the shader graph compiler", () => {
   afterEach(() => Assets.clearSources());
 
-  it("defaults to GLSL and keys the languages apart", () => {
+  it("compiles the default graph without problems, to the same key each time", () => {
     const g = defaultShaderGraph();
-    const glsl = compileShaderGraph(g), glslAgain = compileShaderGraph(g, { language: "glsl" }), w = wgsl(g);
-    expect(glsl.language).toBe("glsl");
-    expect(glslAgain.key).toBe(glsl.key);
-    expect(w.language).toBe("wgsl");
-    expect(w.key).not.toBe(glsl.key);
+    const w = wgsl(g);
+    expect(wgsl(g).key).toBe(w.key);
     expect(w.problems).toEqual([]);
+    expectWgsl(w, "default");
   });
 
-  it("has a WGSL helper for every GLSL helper, every function typed", () => {
-    expect(Object.keys(HELPERS_WGSL).sort()).toEqual(Object.keys(HELPERS).sort());
+  it("has every helper a node asks for, every function typed", () => {
+    expect(Object.keys(HELPERS_WGSL).sort()).toEqual(["gradientNoise", "hsv", "mainLight", "random", "rotate", "simpleNoise", "tangentFrame", "valueNoise", "voronoi"]);
     for (const [name, text] of Object.entries(HELPERS_WGSL)) {
       checkShape(text, name);
       for (const m of text.matchAll(/\bfn\s+\w+\([^)]*\)\s*(->)?/g)) expect(m[1], `${name}: ${m[0]}`).toBe("->");
@@ -285,18 +282,17 @@ describe("WGSL output of the shader graph compiler", () => {
     expect(c.fragment.declarations).toMatch(/struct ripple_\w+_Out \{ height: f32 \}/);
     expect(c.fragment.declarations).toMatch(/fn ripple_\w+\(uv: vec2f, t: f32, rings: f32, speed: f32\) -> ripple_\w+_Out \{\n {2}var height: f32 = 0\.0;\nlet d: f32 = length\(uv - vec2f\(0\.5\)\);/);
     expect(c.fragment.body).toMatch(/var m\w+_ret: ripple_\w+_Out = ripple_\w+\(/);
-    // GLSL still uses the GLSL body.
-    expect(compileShaderGraph(g).fragment.declarations).toContain("void ripple_");
   });
 
-  it("reports a Custom Function without WGSL code and reads its outputs as defaults", () => {
+  it("reports a Custom Function without WGSL code (GLSL only, or none) and reads its outputs as defaults", () => {
     const f = { name: "wave", inputs: [{ name: "x", type: "float" as const }], outputs: [{ name: "y", type: "vec3" as const }], body: "y = vec3(sin(x));" };
     const g = graph([node("t", "time"), node("f", "customFunction", { function: f })], [["t.time", "f.x"], ["f.y", "output.baseColor"]]);
     const c = wgsl(g);
-    expect(c.problems).toEqual(["Custom Function (f): this Custom Function has no WGSL code, which the Babylon backend needs; its outputs read their defaults"]);
+    expect(c.problems).toEqual(["Custom Function (f): this Custom Function has only GLSL code, which nothing compiles since the three.js backend went (ADR 0081): write it in WGSL; its outputs read their defaults"]);
     expect(c.fragment.body).toContain("var m2_y: vec3f = vec3f(0.0);");
     expect(code(c)).not.toContain("sin(x)");
-    expect(compileShaderGraph(g).problems).toEqual([]);
+    const none = wgsl(graph([node("t", "time"), node("f", "customFunction", { function: { ...f, body: undefined } })], [["t.time", "f.x"], ["f.y", "output.baseColor"]]));
+    expect(none.problems).toEqual(["Custom Function (f): this Custom Function has no WGSL code; its outputs read their defaults"]);
     const ok = wgsl(graph([node("t", "time"), node("f", "customFunction", { function: { ...f, wgsl: "y = vec3f(sin(x));" } })], [["t.time", "f.x"], ["f.y", "output.baseColor"]]));
     expect(ok.problems).toEqual([]);
     expect(ok.fragment.declarations).toContain("fn wave_2(x: f32) -> wave_2_Out {\n  var y: vec3f = vec3f(0.0);\ny = vec3f(sin(x));\n  return wave_2_Out(y);\n}");

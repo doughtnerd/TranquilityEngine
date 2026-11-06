@@ -11,7 +11,7 @@ Game developers write scripts that feel like Unity: a class extends `GameBehavio
 1. **Approachable scripting.** A developer who knows Unity's MonoBehaviour model should be productive in an afternoon. ECS concepts never appear in the default API; data-oriented developers can opt in to user systems and data components ([0017](../decisions/0017-user-systems-and-data-components.md)).
 2. **Scenes as node graphs.** Nodes nest, can be instanced, and are easy to reason about visually.
 3. **One engine for 2D and 3D.** Same scripting model, same renderer, dimension picked per scene.
-4. **Lean on proven libraries.** three.js for rendering, a WASM physics engine, Howler for audio. The engine's value is the integration and the scripting model, not reimplementing renderers.
+4. **Lean on proven libraries.** Babylon.js for rendering ([0075](../decisions/0075-babylonjs-render-backend.md), [0081](../decisions/0081-remove-the-threejs-render-backend.md)), a WASM physics engine, Howler for audio. The engine's value is the integration and the scripting model, not reimplementing renderers.
 5. **Swappable backends at the edges.** Physics, platform and (to a lesser extent) audio sit behind engine interfaces.
 6. **Runs in a plain browser too.** Tauri is the shipping target, but the dev loop and demos work in any modern browser.
 7. **A scene editor in v1**, built on the engine itself ([0022](../decisions/0022-editor-is-a-v1-goal.md)).
@@ -40,8 +40,8 @@ Game developers write scripts that feel like Unity: a class extends `GameBehavio
 │ sync, render sync, audio sync), type registry, scene loader  │
 ├───────────────┬───────────────┬──────────────┬───────────────┤
 │ Render        │ Physics       │ Audio        │ Input         │
-│ three.js,     │ Rapier 2D/3D  │ Howler +     │ DOM events,   │
-│ uikit, quarks │ (PhysX 3D     │ three audio  │ gamepad API   │
+│ Babylon.js,   │ Rapier 2D/3D  │ Howler       │ DOM events,   │
+│ Yoga (UI)     │ (PhysX 3D     │              │ gamepad API   │
 │               │ later)        │              │               │
 ├───────────────┴───────────────┴──────────────┴───────────────┤
 │ Platform adapter: browser | Tauri (files, window, Storage)   │
@@ -53,9 +53,9 @@ Rules between layers:
 - Game code depends only on the scripting API (including its advanced, opt-in part).
 - Every World has one root node; scenes are nodes under it ([0016](../decisions/0016-world-root-and-scenes-as-nodes.md)).
 - The scripting API is a thin facade over core. A `GameObject` is a handle to an entity; a `GameBehavior` is a component instance ([0007](../decisions/0007-hidden-ecs-with-lifecycle-scripting.md), [0008](../decisions/0008-gameobjects-as-node-graph.md)).
-- three.js never appears in the public API: no three.js types, no `Object3D` escape hatch ([0010](../decisions/0010-engine-graph-authoritative-over-threejs.md)).
-- Core never imports three.js, Rapier, Howler or Tauri directly. Backends are reached through engine-owned interfaces so core can run headless (tests, tooling, a future server).
-- The engine's node graph is the source of truth; three.js objects and physics bodies mirror it ([0010](../decisions/0010-engine-graph-authoritative-over-threejs.md)).
+- No render library appears in the public API: no Babylon.js (or three.js) types, no scene-object escape hatch ([0010](../decisions/0010-engine-graph-authoritative-over-threejs.md)). three.js remains only for its OBJ, MTL and FBX loaders inside `scene/models.ts` ([0081](../decisions/0081-remove-the-threejs-render-backend.md)).
+- Core never imports Babylon.js, three.js, Rapier, Howler or Tauri directly. Backends are reached through engine-owned interfaces so core can run headless (tests, tooling, a future server).
+- The engine's node graph is the source of truth; render objects and physics bodies mirror it ([0010](../decisions/0010-engine-graph-authoritative-over-threejs.md)).
 
 ## Proposed module layout
 
@@ -64,10 +64,10 @@ src/engine/
   core/        World, Entity, component storage, Scheduler, type registry, user system API
   scene/       GameObject (node), Transform, SceneInstance, SceneManager, scene/prefab loader, migrations
   scripting/   GameBehavior, lifecycle system, waits, Time
-  render/      three.js renderer backend, Camera, SpriteRenderer, MeshRenderer, Light, ParticleSystem, render sync
-  ui/          uikit-backed UI components
+  render/      Babylon.js renderer backend (render/babylon/), Camera, SpriteRenderer, MeshRenderer, Light, ParticleSystem (a renderer-neutral simulation), render sync
+  ui/          UI components and the renderer-neutral UI core (Yoga layout, input routing)
   physics/     physics interface, Rapier backend, RigidBody, Collider, CharacterController, physics sync
-  audio/       Howler + three positional audio, AudioSource, AudioListener
+  audio/       Howler (with its spatial audio), AudioSource, AudioListener
   input/       keyboard, mouse, gamepad, action mapping
   platform/    browser and Tauri adapters, Storage
   net/         sessions, transports (loopback, WebSocket), codec, RPCs, inputs, replication, prediction (ADR 0033)
@@ -87,7 +87,7 @@ requestAnimationFrame
  ├─ update scripts
  ├─ lateUpdate scripts
  ├─ transform propagation
- ├─ render sync → three.js render
+ ├─ render sync → Babylon.js frame graph
  └─ end of frame: deferred destroys, deferred scene loads
 ```
 
@@ -111,7 +111,7 @@ requestAnimationFrame
 | **Ghost** | A node the server World replicates to its clients, marked with `net.Replicated` ([0033](../decisions/0033-server-authoritative-netcode.md)). |
 | **Scene node** | A node created by instancing a scene/prefab file; its contents are its children ([0016](../decisions/0016-world-root-and-scenes-as-nodes.md)). |
 | **Prefab** | A scene file instanced inside another scene, with overrides ([0013](../decisions/0013-data-driven-scene-format.md)). |
-| **Backend** | A third-party library wrapped behind an engine interface (three.js, Rapier, Howler). |
+| **Backend** | A third-party library wrapped behind an engine interface (Babylon.js, Rapier, Howler). |
 
 ## Current state
 

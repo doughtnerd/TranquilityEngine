@@ -15,6 +15,10 @@ What's left after the frame-drop work of 2026-11-06 (commit `e60c9af`, branch `c
 
 - **The compile cost moved into the load:** frames of 260–520 ms over the match's first 3 s.
 
+## Fast follow-up
+
+- **The ripple sub-graph's UV node preview draws black** (Shader Graph panel, `samples/playground3d/shaders/ripple.shadersubgraph.json`; seen 2026-11-06 on WebGPU). The sub-graph's own preview is also a flat grey sphere, without its rings. It isn't from ADR 0081 step 3b: the WGSL for every sample graph and node preview is identical to before. Start by checking that the preview mesh has UVs and that `mycoVUv` reaches the fragment stage in the node preview renderer (`render/babylon/previews/MaterialPreview.ts`).
+
 ## To do, in suggested order
 
 1. **Editor support for `settings.preload` (0080).** Today the only fix for a miss the report names is hand-editing the scene file.

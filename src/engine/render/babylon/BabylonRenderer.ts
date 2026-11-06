@@ -1128,7 +1128,7 @@ export class BabylonRenderer {
   /** A graph compiled to WGSL as a Babylon material (ADR 0047, `graphMaterial.ts`). */
   private graphMaterial(graphRaw: unknown, where: string, properties: Record<string, GraphValue>): BabylonGraphMaterial {
     const { graph, problems } = parseShaderGraph(graphRaw, where);
-    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel, language: "wgsl" });
+    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
     for (const p of [...problems, ...compiled.problems.map((q) => `${where}: ${q}`)]) this.warnOnce(p, p);
     if (!this.engine.isWebGPU) this.warnOnce("graph|webgl", "shader graph materials need WebGPU on the Babylon backend; on the WebGL2 fallback they draw as plain PBR.");
     const made = createGraphMaterial(this.scene, `graph:${where}`, compiled, properties, this.graphShared, (p, linear) => this.graphTexture(p, linear));

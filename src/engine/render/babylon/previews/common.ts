@@ -264,7 +264,7 @@ export async function buildPreviewMaterial(scene: Scene, source: MaterialSource,
       warnedWebGL = true;
       console.warn("[myco] shader graph previews need WebGPU on the Babylon backend; on the WebGL2 fallback they draw as plain PBR.");
     }
-    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel, language: "wgsl" });
+    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
     const pending: Promise<unknown>[] = [];
     const made = createGraphMaterial(scene, `preview:${where}`, compiled, properties, shared, (p, linear) => {
       const t = loadTexture(scene, p, linear ? "graphData" : "graphColor");

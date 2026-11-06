@@ -6,7 +6,6 @@ import { Assets, normalizeAssetPath } from "../../scene/Assets";
 import type { GraphNode, GraphProperty, GraphPropertyType, InputValue, ShaderGraph } from "../../scene/shaderGraph";
 import { OUTPUT_NODE_TYPE, parseShaderGraph } from "../../scene/shaderGraph";
 import type { ShaderLevel } from "../../core/graphics";
-import type { ShaderLanguage } from "./wgsl";
 
 /** A value's GLSL type; `texture` is a `sampler2D` uniform. */
 export type ValueType = "float" | "vec2" | "vec3" | "vec4" | "texture";
@@ -48,12 +47,10 @@ export interface SettingDef {
 
 export type ShaderStage = "vertex" | "fragment";
 
-/** What a node's `emit` gets: its inputs as GLSL (or WGSL) expressions, already converted to each port's type. */
+/** What a node's `emit` gets: its inputs as WGSL expressions, already converted to each port's type. */
 export interface EmitContext {
   in: Record<string, string>;
-  /** The language being written. Most nodes need no branch: they use `typeName` and `sample`. */
-  language: ShaderLanguage;
-  /** A value type's name in the language: `vec3` or `vec3f`, `float` or `f32`. */
+  /** A value type's WGSL name: `vec3f`, `f32`. */
   typeName(t: ValueType): string;
   /** Sample a texture uniform at a UV expression (WGSL also needs the uniform's sampler, and a mip level in the vertex stage). */
   sample(texture: string, uv: string): string;
@@ -65,7 +62,7 @@ export interface EmitContext {
   shaderLevel: ShaderLevel;
   /** A built-in value's expression in this stage. */
   builtin(b: Builtin | "time" | "resolution"): string;
-  /** Add a helper function (from `HELPERS`) to this stage's declarations. */
+  /** Add a helper function (from `HELPERS_WGSL`) to this stage's declarations. */
   helper(name: HelperName): void;
   /** The uniform for an inline texture (an asset path); empty paths read white. */
   texture(path: string): string;
@@ -93,87 +90,19 @@ export interface NodeDef {
   branch?: boolean;
   /** Ports that depend on the node's settings or the graph, when they do. */
   ports?(node: GraphNode, graph: ShaderGraph): { inputs: PortDef[]; outputs: PortDef[] };
-  /** GLSL (or WGSL, by `c.language`) expressions for the outputs, by port id. */
+  /** WGSL expressions for the outputs, by port id. */
   emit(c: EmitContext): Record<string, string>;
 }
 
 // --- helper functions ------------------------------------------------------------------------------
 
-export const HELPERS = {
-  random: `float mycoRandom(vec2 uv) { return fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453); }`,
-  valueNoise: `float mycoValueNoise(vec2 uv) {
-  vec2 i = floor(uv); vec2 f = fract(uv); f = f * f * (3.0 - 2.0 * f);
-  float a = mycoRandom(i), b = mycoRandom(i + vec2(1.0, 0.0)), c = mycoRandom(i + vec2(0.0, 1.0)), d = mycoRandom(i + vec2(1.0, 1.0));
-  return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-}`,
-  simpleNoise: `float mycoSimpleNoise(vec2 uv, float scale) {
-  float t = 0.0;
-  for (int i = 0; i < 3; i++) { float freq = pow(2.0, float(i)); float amp = pow(0.5, float(3 - i)); t += mycoValueNoise(uv * scale / freq) * amp; }
-  return t;
-}`,
-  gradientNoise: `vec2 mycoGradientDir(vec2 p) {
-  p = mod(p, 289.0); float x = mod((34.0 * p.x + 1.0) * p.x, 289.0) + p.y; x = mod((34.0 * x + 1.0) * x, 289.0);
-  x = fract(x / 41.0) * 2.0 - 1.0; return normalize(vec2(x - floor(x + 0.5), abs(x) - 0.5));
-}
-float mycoGradientNoise(vec2 uv, float scale) {
-  vec2 p = uv * scale; vec2 ip = floor(p); vec2 fp = fract(p);
-  float d00 = dot(mycoGradientDir(ip), fp), d01 = dot(mycoGradientDir(ip + vec2(0.0, 1.0)), fp - vec2(0.0, 1.0));
-  float d10 = dot(mycoGradientDir(ip + vec2(1.0, 0.0)), fp - vec2(1.0, 0.0)), d11 = dot(mycoGradientDir(ip + vec2(1.0, 1.0)), fp - vec2(1.0, 1.0));
-  fp = fp * fp * fp * (fp * (fp * 6.0 - 15.0) + 10.0);
-  return mix(mix(d00, d01, fp.y), mix(d10, d11, fp.y), fp.x) + 0.5;
-}`,
-  voronoi: `vec2 mycoVoronoiOffset(vec2 uv, float offset) {
-  mat2 m = mat2(15.27, 47.63, 99.41, 89.98); uv = fract(sin(m * uv) * 46839.32);
-  return vec2(sin(uv.y * offset) * 0.5 + 0.5, cos(uv.x * offset) * 0.5 + 0.5);
-}
-vec2 mycoVoronoi(vec2 uv, float angleOffset, float cellDensity) {
-  vec2 g = floor(uv * cellDensity); vec2 f = fract(uv * cellDensity); float best = 8.0; float cell = 0.0;
-  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
-    vec2 lattice = vec2(float(x), float(y)); vec2 o = mycoVoronoiOffset(lattice + g, angleOffset); float d = distance(lattice + o, f);
-    if (d < best) { best = d; cell = o.x; }
-  }
-  return vec2(best, cell);
-}`,
-  hsv: `vec3 mycoRgbToHsv(vec3 c) {
-  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
-  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));
-  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));
-  float d = q.x - min(q.w, q.y); float e = 1.0e-10;
-  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
-}
-vec3 mycoHsvToRgb(vec3 c) {
-  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
-}`,
-  rotate: `vec2 mycoRotate(vec2 uv, vec2 center, float r) { vec2 d = uv - center; float s = sin(r), c = cos(r); return vec2(d.x * c - d.y * s, d.x * s + d.y * c) + center; }`,
-  mainLight: `vec3 mycoMainLightDirection() {
-#if defined( MYCO_LIT ) && NUM_DIR_LIGHTS > 0
-  return normalize((vec4(directionalLights[0].direction, 0.0) * viewMatrix).xyz);
-#else
-  return normalize(vec3(0.4, 1.0, 0.6));
-#endif
-}
-vec3 mycoMainLightColor() {
-#if defined( MYCO_LIT ) && NUM_DIR_LIGHTS > 0
-  return directionalLights[0].color;
-#else
-  return vec3(1.0);
-#endif
-}`,
-  tangentFrame: `mat3 mycoTangentFrame(vec3 eyePos, vec3 n, vec2 uv) {
-  vec3 q0 = dFdx(eyePos), q1 = dFdy(eyePos); vec2 st0 = dFdx(uv), st1 = dFdy(uv);
-  vec3 q1perp = cross(q1, n), q0perp = cross(n, q0);
-  vec3 T = q1perp * st0.x + q0perp * st1.x; vec3 B = q1perp * st0.y + q0perp * st1.y;
-  float det = max(dot(T, T), dot(B, B)); float scale = det == 0.0 ? 0.0 : inversesqrt(det);
-  return mat3(T * scale, B * scale, n);
-}`,
-} as const;
-export type HelperName = keyof typeof HELPERS;
+/** The helpers names a node can ask for (`EmitContext.helper`). */
+export type HelperName = "random" | "valueNoise" | "simpleNoise" | "gradientNoise" | "voronoi" | "hsv" | "rotate" | "mainLight" | "tangentFrame";
+
 /**
- * `HELPERS` in WGSL, hand-written (same keys, same dependencies). WGSL has no overloading, so
- * `mod` is spelled out as `x - y * floor(x / y)`, `?:` is `select`, and every function is typed.
- * The light helpers read Babylon's first directional light (`light0`), as the GLSL ones read three.js's.
+ * Helper functions in WGSL, hand-written. WGSL has no overloading, so `mod` is spelled out as
+ * `x - y * floor(x / y)`, `?:` is `select`, and every function is typed. The light helpers read the
+ * scene's main light (`uMycoMainLightDir`, `uMycoMainLightColor`).
  */
 export const HELPERS_WGSL: Record<HelperName, string> = {
   random: `fn mycoRandom(uv: vec2f) -> f32 { return fract(sin(dot(uv, vec2f(12.9898, 78.233))) * 43758.5453); }`,
@@ -296,7 +225,7 @@ function unary(type: string, title: string, fn: (a: string) => string, keywords?
 /** Modulo: GLSL's `mod` (floored, so the result takes the divisor's sign), which WGSL's `%` is not. */
 function modulo(): NodeDef {
   const def = binary("modulo", "Modulo", (a, b) => `mod(${a}, ${b})`, 0, 1, "mod remainder");
-  return { ...def, emit: (c) => ({ out: c.language === "wgsl" ? `(${c.in.a} - ${c.in.b} * floor(${c.in.a} / ${c.in.b}))` : `mod(${c.in.a}, ${c.in.b})` }) };
+  return { ...def, emit: (c) => ({ out: `(${c.in.a} - ${c.in.b} * floor(${c.in.a} / ${c.in.b}))` }) };
 }
 
 function binary(type: string, title: string, fn: (a: string, b: string) => string, defA: number, defB: number, keywords?: string): NodeDef {
@@ -437,7 +366,7 @@ export const NODES: readonly NodeDef[] = [
     fragmentOnly: true,
     inputs: [],
     outputs: [out("vec2")],
-    emit: (c) => ({ out: `(${c.language === "wgsl" ? "fragmentInputs.position.xy" : "gl_FragCoord.xy"} / ${c.builtin("resolution")})` }),
+    emit: (c) => ({ out: `(fragmentInputs.position.xy / ${c.builtin("resolution")})` }),
   },
   { type: "float", title: "Float", category: "Input", keywords: "number constant value vector1", inputs: [float("x", "X", 0)], outputs: [out("float")], emit: (c) => ({ out: c.in.x }) },
   {
@@ -569,7 +498,7 @@ export const NODES: readonly NodeDef[] = [
   binary("step", "Step", (a, b) => `step(${a}, ${b})`, 0.5, 0, "threshold edge"),
   unary("squareRoot", "Square Root", (a) => `sqrt(${a})`, "sqrt"),
   unary("absolute", "Absolute", (a) => `abs(${a})`, "abs"),
-  { ...unary("negate", "Negate", (a) => `(-${a})`, "minus invert"), emit: (c) => ({ out: c.language === "wgsl" ? `(-(${c.in.in}))` : `(-${c.in.in})` }) }, // WGSL: a literal like -1.0 must not form "--"
+  { ...unary("negate", "Negate", (a) => `(-${a})`, "minus invert"), emit: (c) => ({ out: `(-(${c.in.in}))` }) }, // WGSL: a literal like -1.0 must not form "--"
   unary("oneMinus", "One Minus", (a) => `(1.0 - ${a})`, "invert"),
   unary("reciprocal", "Reciprocal", (a) => `(1.0 / ${a})`, "inverse"),
   unary("sine", "Sine", (a) => `sin(${a})`, "sin wave"),
@@ -579,7 +508,7 @@ export const NODES: readonly NodeDef[] = [
   unary("ceiling", "Ceiling", (a) => `ceil(${a})`, "ceil"),
   unary("round", "Round", (a) => `floor(${a} + 0.5)`),
   unary("sign", "Sign", (a) => `sign(${a})`),
-  { ...unary("saturate", "Saturate", (a) => `clamp(${a}, 0.0, 1.0)`, "clamp01"), emit: (c) => ({ out: c.language === "wgsl" ? `saturate(${c.in.in})` : `clamp(${c.in.in}, 0.0, 1.0)` }) }, // WGSL's clamp wants vector bounds for a vector
+  { ...unary("saturate", "Saturate", (a) => `clamp(${a}, 0.0, 1.0)`, "clamp01"), emit: (c) => ({ out: `saturate(${c.in.in})` }) }, // WGSL's clamp wants vector bounds for a vector
   {
     type: "clamp",
     title: "Clamp",
@@ -665,7 +594,7 @@ export const NODES: readonly NodeDef[] = [
     inputs: [dyn("a", "A", 0), dyn("b", "B", 0)],
     outputs: [out("float")],
     // WGSL's dot takes vectors only; for two numbers it is their product.
-    emit: (c) => ({ out: c.language === "wgsl" && c.type === "float" ? `(${c.in.a} * ${c.in.b})` : `dot(${c.in.a}, ${c.in.b})` }),
+    emit: (c) => ({ out: c.type === "float" ? `(${c.in.a} * ${c.in.b})` : `dot(${c.in.a}, ${c.in.b})` }),
   },
   {
     type: "cross",
@@ -684,7 +613,7 @@ export const NODES: readonly NodeDef[] = [
     inputs: [dyn("in", "In", 0)],
     outputs: [out("dynamic")],
     // WGSL's normalize takes vectors only; a number normalizes to its sign.
-    emit: (c) => ({ out: c.language === "wgsl" && c.type === "float" ? `sign(${c.in.in})` : `normalize(${c.in.in})` }),
+    emit: (c) => ({ out: c.type === "float" ? `sign(${c.in.in})` : `normalize(${c.in.in})` }),
   },
   { type: "length", title: "Length", category: "Vector", keywords: "magnitude", inputs: [dyn("in", "In", 0)], outputs: [out("float")], emit: (c) => ({ out: `length(${c.in.in})` }) },
   { type: "distance", title: "Distance", category: "Vector", inputs: [dyn("a", "A", 0), dyn("b", "B", 0)], outputs: [out("float")], emit: (c) => ({ out: `distance(${c.in.a}, ${c.in.b})` }) },

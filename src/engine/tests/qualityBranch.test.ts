@@ -81,10 +81,10 @@ describe("Quality Branch", () => {
       expect(c.problems).toEqual([]);
       expect(c.portTypes["qb.out"]).toBe("vec3");
       expect(c.dynamicTypes["qb"]).toBe("vec3");
-      expect(c.fragment.body).toContain("vec3 m");
+      expect(c.fragment.body).toMatch(/var m\w+: vec3f/);
     }
     const low = compileShaderGraph(branchGraph(true), { shaderLevel: "low" });
-    expect(low.fragment.body).toContain("vec3 m6_out = vec3(m1_out);");
+    expect(low.fragment.body).toContain("var m6_out: vec3f = vec3f(m1_out);");
   });
 
   it("defaults to the high level", () => {

@@ -81,7 +81,7 @@ export class MaterialPreview {
     this.graph = { graph, properties };
     if (this.impl) return this.impl.setGraph(graph, properties);
     // The Babylon preview is still loading: compile as it will (the editor shows this graph's problems at once).
-    return compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel, language: "wgsl" });
+    return compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
   }
 
   /** Forget loaded textures (the project's images changed). */

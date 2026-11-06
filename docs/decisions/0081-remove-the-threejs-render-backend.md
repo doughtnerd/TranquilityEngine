@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-06
 - **Deciders:** Chris Carlson
-- **Supersedes:** 0078
+- **Supersedes:** 0078, 0021
 - **Related:** 0010, 0044, 0047, 0057, 0069, 0075, 0076, 0079, 0080
 
 ## Context
@@ -63,6 +63,7 @@ Built in steps, each ending with `npm test`, `npm run typecheck` and the samples
 - **0078** (superseded): the toggle and the dual-backend rule.
 - **0075's Deprecates list** comes back in force for the renderer: the three.js backend code and `postprocessing`, `n8ao`, `three.quarks`, `@pmndrs/uikit`. `three` and `@types/three` stay for the loaders.
 - **0047's GLSL chunk output** is removed; WGSL stays.
+- **0021** (particles on three.quarks) is superseded, and **0057** amended: effects play on the renderer-neutral simulation, drawn by Babylon.js (0075 stage 5).
 
 ## Open questions
 

@@ -1,6 +1,6 @@
 /**
  * Shader graph materials on the Babylon backend (ADR 0047, 0049, 0075 stage 4). A graph compiled to
- * WGSL (`compileShaderGraph(graph, { language: "wgsl" })`) is spliced into Babylon's PBR material
+ * WGSL (`compileShaderGraph(graph)`) is spliced into Babylon's PBR material
  * by a material plugin, so graphs keep Babylon's lights, shadows, environment and the frame graph's
  * effects. Lit and physical graphs set the surface (base colour, alpha, metalness, roughness,
  * emission, normal); unlit graphs draw their colour directly.
@@ -284,7 +284,6 @@ export function _resetGraphTextures(): void {
  * `loadTexture` fetches texture assets (slots read white until they load).
  */
 export function createGraphMaterial(scene: Scene, name: string, c: CompiledShaderGraph, overrides: Record<string, GraphValue>, shared: GraphShared, loadTexture: LoadGraphTexture): BabylonGraphMaterial {
-  if (c.language !== "wgsl") throw new Error(`shader graph: the Babylon backend needs a graph compiled to WGSL, not ${c.language}`);
   const material = new PBRMaterial(name, scene);
   material.sideOrientation = Material.CounterClockWiseSideOrientation;
   material.maxSimultaneousLights = 8;

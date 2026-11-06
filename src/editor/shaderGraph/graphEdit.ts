@@ -444,7 +444,7 @@ export function removeSubGraphOutput(graph: ShaderGraph, name: string): ShaderGr
 }
 
 /** A new Custom Function node's code. */
-export const defaultFunction = (): CustomFunction => ({ name: "myFunction", inputs: [{ name: "In", type: "vec3" }], outputs: [{ name: "Out", type: "vec3" }], body: "Out = In;" });
+export const defaultFunction = (): CustomFunction => ({ name: "myFunction", inputs: [{ name: "In", type: "vec3" }], outputs: [{ name: "Out", type: "vec3" }], wgsl: "Out = In;" });
 
 /**
  * Change a Custom Function node's code. `renamed` maps old port names to new ones (inputs and

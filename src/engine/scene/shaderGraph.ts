@@ -53,14 +53,19 @@ export interface FunctionPort {
   type: "float" | "vec2" | "vec3" | "vec4" | "texture";
 }
 
-/** A Custom Function node's GLSL (ADR 0048): `void name(inputs, out outputs) { body }`. */
+/** A Custom Function node's code (ADR 0048, 0075). */
 export interface CustomFunction {
   name: string;
   inputs: FunctionPort[];
   outputs: FunctionPort[];
-  body: string;
-  /** The same function in WGSL (ADR 0075): the statements of `fn name(inputs) -> outputs`, where each output is a `var` already declared. Without it the Babylon backend can't use the node. */
+  /** The function in WGSL: the statements of `fn name(inputs) -> outputs`, where each output is a `var` already declared. Without it the node's outputs read their defaults. */
   wgsl?: string;
+  /**
+   * The GLSL body older files have (`void name(inputs, out outputs) { body }`). Nothing compiles it
+   * since the three.js backend went (ADR 0081); it's kept, so the code isn't lost, until someone
+   * ports it to `wgsl`.
+   */
+  body?: string;
 }
 
 /** A titled box around nodes on the canvas. */
@@ -267,15 +272,15 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
       }
       if (n.function !== undefined) {
         const f = n.function;
-        if (isObject(f) && typeof f.name === "string" && isPortName(f.name) && typeof (f.body ?? "") === "string") {
+        if (isObject(f) && typeof f.name === "string" && isPortName(f.name)) {
           node.function = {
             name: f.name,
             inputs: parsePorts(f.inputs, `${where}: node "${n.id}" inputs`, problems, true),
             outputs: parsePorts(f.outputs, `${where}: node "${n.id}" outputs`, problems, false),
-            body: typeof f.body === "string" ? f.body : "",
             ...(typeof f.wgsl === "string" && f.wgsl ? { wgsl: f.wgsl } : {}),
+            ...(typeof f.body === "string" && f.body ? { body: f.body } : {}),
           };
-        } else problems.push(`${where}: node "${n.id}" has a function without a GLSL name.`);
+        } else problems.push(`${where}: node "${n.id}" has a function without a valid name.`);
       }
       if (n.preview === false) node.preview = false;
       graph.nodes.push(node);
@@ -347,7 +352,7 @@ export function shaderGraphJSON(graph: ShaderGraph): Record<string, unknown> {
     const node: Record<string, unknown> = { id: n.id, type: n.type, position: [Math.round(n.position[0]), Math.round(n.position[1])] };
     if (n.inputs && Object.keys(n.inputs).length) node.inputs = { ...n.inputs };
     if (n.settings && Object.keys(n.settings).length) node.settings = { ...n.settings };
-    if (n.function) node.function = { name: n.function.name, inputs: n.function.inputs.map((p) => ({ ...p })), outputs: n.function.outputs.map((p) => ({ ...p })), body: n.function.body, ...(n.function.wgsl ? { wgsl: n.function.wgsl } : {}) };
+    if (n.function) node.function = { name: n.function.name, inputs: n.function.inputs.map((p) => ({ ...p })), outputs: n.function.outputs.map((p) => ({ ...p })), ...(n.function.wgsl ? { wgsl: n.function.wgsl } : {}), ...(n.function.body ? { body: n.function.body } : {}) };
     if (n.preview === false) node.preview = false;
     return node;
   });

@@ -1,7 +1,7 @@
 // ADR 0075: Babylon.js is imported module by module (never the "@babylonjs/core" barrel, which
 // bundles the whole library), and only inside the Babylon backend, so it stays out of the public
-// API (ADR 0010) and a page on the three.js backend never loads it. Tests may import it to drive
-// the backend headless.
+// API (ADR 0010) and a page loads it only when it draws. Tests may import it to drive the backend
+// headless.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
