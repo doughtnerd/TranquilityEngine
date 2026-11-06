@@ -8,8 +8,10 @@ import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisi
 import { innerNodes, type InnerNode } from "../prefabs";
 import { ancestorKeys, combineSelection, rangeBetween } from "../selectionModel";
 import { docVersion, isSelected, openScene, select, selectedKeys, selectedUIElement } from "../state";
-import { documentRows, rowAncestry, selectUIElement, selectedUIRef, uiBuildVersion, watchUIDocumentBuilds, type UIDocumentRows, type UIElementRow } from "../uiDocuments";
-import { HierarchyMenu, openCreateMenu, openHierarchyMenu } from "./HierarchyMenu";
+import { documentRows, resolveUIElement, rowAncestry, selectUIElement, selectedUIRef, uiBuildVersion, watchUIDocumentBuilds, type UIDocumentRows, type UIElementRow } from "../uiDocuments";
+import { HierarchyMenu, openCreateMenu, openHierarchyMenu, openUIElementMenu } from "./HierarchyMenu";
+import { renameUIElement, whyNotEditableUI } from "../uiDocumentEdits";
+import { renamingUIElement, startUIElementDrag, uiDropDescription, uiElementDrag } from "../uiElementDrag";
 import "./hierarchy.css";
 import { liveInspecting } from "../runtimeInspect";
 import { RuntimeHierarchy, WorldPicker } from "./RuntimeHierarchy";
@@ -127,6 +129,7 @@ export function Hierarchy() {
       </ul>
       {filter && filter.matches.size === 0 && <p class="empty hierarchy-no-match">No nodes match “{hierarchyQuery.value.trim()}”</p>}
       <HierarchyMenu />
+      <UIElementDragGhost />
     </div>
   );
 }
@@ -240,8 +243,9 @@ function InnerTreeNode(props: { doc: SceneDocument; node: InnerNode; depth: numb
 
 /**
  * A node's UI documents' elements (ADR 0077), under its own children: built from the markup file,
- * not saved in the scene, so they're marked as the file's and are read-only for now (no rename,
- * delete, drag or menu). Clicking one selects the element.
+ * not saved in the scene, so they're marked as the file's. Clicking one selects the element; the
+ * right-click menu creates inside it, renames (its id), duplicates and deletes; double-click or F2
+ * renames; dragging reorders or reparents within its file. Edits are written to the markup.
  */
 function UIDocumentElements(props: { documents: readonly UIDocumentRows[]; depth: number }) {
   selectedUIElement.value;
@@ -256,27 +260,49 @@ function UIDocumentElements(props: { documents: readonly UIDocumentRows[]; depth
   );
 }
 
+/** How a dragged UI element would land on the row `key`, if it's the target. */
+function uiDropMode(key: string): string | null {
+  const t = uiElementDrag.value?.target;
+  return t && t.row === key ? t.mode : null;
+}
+
 function UIElementTreeRow(props: { row: UIElementRow; depth: number; file: string; opened: ReadonlySet<string> }) {
   const { row, depth, opened } = props;
   const selected = selectedUIElement.value === row.key;
   const expandable = row.children.length > 0;
   const open = uiExpanded.value.has(row.key) || opened.has(row.key);
   const where = row.file === props.file ? row.file : `${row.file} (used by ${props.file})`;
+  const renaming = renamingUIElement.value === row.key;
+  const drop = uiDropMode(row.key);
+  const dragging = uiElementDrag.value?.key === row.key;
+  const classes = ["row", "ui-element", selected && "selected", drop && `drop-${drop}`, dragging && "dragging"].filter(Boolean).join(" ");
   return (
     <li role="treeitem" aria-selected={selected} aria-expanded={expandable ? open : undefined}>
       <div
-        class={`row ui-element${selected ? " selected" : ""}`}
+        class={classes}
         data-ui-key={row.key}
+        tabIndex={-1}
         style={{ paddingLeft: `${depth * 14 + 4}px` }}
-        title={`${row.synthetic ? "A button's text content" : `<${row.tag}>`} from ${where}. Built from the file, not saved in the scene; read-only here for now.`}
+        title={`${row.synthetic ? "A button's text content" : `<${row.tag}>`} from ${where}. Built from the file, not saved in the scene; edits are written to the file.`}
+        onPointerDown={(e) => {
+          if (!row.synthetic && !renaming) startUIElementDrag(e, row.ref, row.key, row.label);
+        }}
         onClick={(e) => {
           e.stopPropagation();
           selectUIElement(row.ref);
+        }}
+        onDblClick={(e) => {
+          e.stopPropagation();
+          if (!row.synthetic && !whyNotEditableUI()) renamingUIElement.value = row.key;
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "F2" && !row.synthetic && !whyNotEditableUI()) renamingUIElement.value = row.key;
         }}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
           selectUIElement(row.ref);
+          openUIElementMenu(e.clientX, e.clientY, row.ref);
         }}
       >
         <span
@@ -291,7 +317,7 @@ function UIElementTreeRow(props: { row: UIElementRow; depth: number; file: strin
         <span class="ui-element-icon" aria-hidden="true">
           ◇
         </span>
-        <span class="name">{row.label}</span>
+        {renaming ? <UIElementRename row={row} /> : <span class="name">{row.label}</span>}
       </div>
       {expandable && open && (
         <ul role="group">
@@ -301,6 +327,53 @@ function UIElementTreeRow(props: { row: UIElementRow; depth: number; file: strin
         </ul>
       )}
     </li>
+  );
+}
+
+/** Renaming an element row in place: its id (empty removes it). Enter or leaving commits, Escape cancels. */
+function UIElementRename(props: { row: UIElementRow }) {
+  const scene = openScene.value;
+  const el = scene ? resolveUIElement(scene.sync, props.row.ref) : null;
+  const initial = el?.id ?? "";
+  let done = false;
+  const finish = (value: string | null) => {
+    if (done) return;
+    done = true;
+    renamingUIElement.value = null;
+    if (value !== null && value.trim() !== initial) renameUIElement(props.row.ref, value);
+  };
+  return (
+    <input
+      class="rename-input"
+      aria-label="Element id"
+      placeholder="id"
+      value={initial}
+      ref={(input) => {
+        if (input && document.activeElement !== input) {
+          input.focus();
+          input.select();
+        }
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish((e.currentTarget as HTMLInputElement).value);
+        if (e.key === "Escape") finish(null);
+      }}
+      onBlur={(e) => finish((e.currentTarget as HTMLInputElement).value)}
+    />
+  );
+}
+
+/** The label following a dragged UI element, saying what releasing will do (or why it can't). */
+function UIElementDragGhost() {
+  const drag = uiElementDrag.value;
+  if (!drag) return null;
+  return (
+    <div class={`asset-drag-ghost${drag.target ? "" : " invalid"}`} style={{ left: `${drag.x + 14}px`, top: `${drag.y + 14}px` }} role="status">
+      {uiDropDescription(drag)}
+    </div>
   );
 }
 

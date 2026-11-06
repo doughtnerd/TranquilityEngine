@@ -1,7 +1,7 @@
 // UI documents in the editor (ADR 0077 §4, wave B part 1): the model between the editor's selection,
 // the live `UIDocumentElement`s a `UIDocument` builds in the Editor World, and their markup (file,
-// element and attribute spans), with where each field's value comes from. Read-only for now; part 2
-// (editing, Move to class, handles) writes back to the files through the spans this module gives.
+// element and attribute spans), with where each field's value comes from. Editing (part 2) is
+// `uiDocumentEdits.ts`, which writes back to the files.
 //
 // Elements aren't document nodes: they belong to the markup file, aren't in the scene file and are
 // rebuilt when it changes. So they're addressed by a ref, not a node path: the host node's path key,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AddNode, CommandStack, ReparentNode, SceneDocument, SetField, applyPatch, changesBetween, diffFiles, hashFile, type SceneFile } from "./index";
+import { AddNode, CommandStack, ReparentNode, SceneDocument, SetField, WriteFiles, applyPatch, changesBetween, diffFiles, diffText, hashFile, type SceneFile } from "./index";
 
 const file = (): SceneFile => ({
   format: "myco.scene@1",
@@ -176,5 +176,74 @@ describe("saving and loading history", () => {
     const stack2 = new CommandStack(new SceneDocument(other));
     expect(stack2.load(saved)).toBeNull();
     expect(stack2.allStates).toHaveLength(1);
+  });
+});
+
+describe("text files in the history (ADR 0077)", () => {
+  const host = () => {
+    const files = new Map<string, string>([["ui/a.ui.xml", "<Canvas>\n  <Panel/>\n</Canvas>\n"]]);
+    const conflicts: string[] = [];
+    return {
+      files,
+      conflicts,
+      read: (p: string) => files.get(p) ?? null,
+      write: (p: string, t: string) => void files.set(p, t),
+      remove: (p: string) => void files.delete(p),
+      conflict: (p: string) => void conflicts.push(p),
+    };
+  };
+
+  it("records each file's change as a small patch, undone and redone in order with scene edits", () => {
+    const doc = new SceneDocument(file());
+    const stack = new CommandStack(doc);
+    const h = host();
+    stack.files = h;
+    const original = h.files.get("ui/a.ui.xml")!;
+    stack.execute(new WriteFiles("Set width", [{ path: "ui/a.ui.xml", text: original.replace("<Panel/>", `<Panel width="10"/>`) }]));
+    setX(stack, 5);
+    stack.execute(new WriteFiles("Add sheet", [{ path: "ui/a.ui.css", text: ".a { gap: 1px; }\n" }]));
+    const patch = stack.allStates.find((s) => s.label === "Set width")!.files![0];
+    expect(patch).toEqual({ path: "ui/a.ui.xml", start: 17, before: "", after: ` width="10"` });
+    stack.undo();
+    expect(h.files.has("ui/a.ui.css")).toBe(false); // made by the step: undo deletes it
+    stack.undo();
+    expect(x(doc)).toBe(0);
+    stack.undo();
+    expect(h.files.get("ui/a.ui.xml")).toBe(original);
+    stack.redo();
+    stack.redo();
+    stack.redo();
+    expect(h.files.get("ui/a.ui.css")).toBe(".a { gap: 1px; }\n");
+    expect(h.files.get("ui/a.ui.xml")).toContain(`width="10"`);
+    expect(x(doc)).toBe(5);
+    expect(JSON.stringify(stack.toFile("s.scene.json"))).toContain(`"files"`);
+  });
+
+  it("coalesces a group's writes per file, doesn't count file-only steps as unsaved, and refuses without a host", () => {
+    const doc = new SceneDocument(file());
+    const stack = new CommandStack(doc);
+    expect(() => stack.execute(new WriteFiles("x", [{ path: "a", text: "b" }]))).toThrow();
+    const h = host();
+    stack.files = h;
+    stack.beginGroup("Drag");
+    for (const w of [1, 2, 3]) stack.execute(new WriteFiles("Set width", [{ path: "ui/a.ui.xml", text: `<Canvas width="${w}"/>` }]));
+    stack.endGroup();
+    expect(stack.allStates.length).toBe(2);
+    expect(stack.allStates[1].files).toHaveLength(1);
+    expect(stack.dirty).toBe(false);
+    setX(stack, 2);
+    expect(stack.dirty).toBe(true);
+    stack.undo();
+    expect(stack.dirty).toBe(false);
+    h.files.set("ui/a.ui.xml", "changed elsewhere");
+    stack.undo();
+    expect(h.conflicts).toEqual(["ui/a.ui.xml"]);
+    expect(h.files.get("ui/a.ui.xml")).toBe("changed elsewhere");
+  });
+
+  it("diffs text to the differing middle", () => {
+    expect(diffText("abcXdef", "abcYYdef")).toEqual({ start: 3, before: "X", after: "YY" });
+    expect(diffText("aaa", "aaaa")).toEqual({ start: 3, before: "", after: "a" });
+    expect(diffText("same", "same")).toEqual({ start: 4, before: "", after: "" });
   });
 });

@@ -6,7 +6,7 @@ import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import type { OpenScene } from "./state";
 import { WATER_PRESET } from "../engine/render/water/gerstner";
 
-export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "particle-system" | "water" | `ui-${UIKind}`;
+export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "particle-system" | "water" | `ui-${UIKind}` | "ui-document";
 type Shape3D = "cube" | "sphere" | "capsule" | "cylinder" | "plane";
 type LightKind = "directional" | "point" | "spot" | "ambient";
 type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input-field";
@@ -48,6 +48,7 @@ export const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: 
   { kind: "ui-image", label: "UI Image", name: "Image" },
   { kind: "ui-button", label: "UI Button", name: "Button" },
   { kind: "ui-input-field", label: "UI Input Field", name: "Input Field" },
+  { kind: "ui-document", label: "UI Document", name: "UI Document" },
 ];
 
 /** The collider each 3D shape comes with. */
@@ -116,6 +117,9 @@ export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: stri
     case "particle-system":
       // Effects are assets (ADR 0060): `effect` is a new one `createParticleSystemNode` made, or empty.
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ParticleSystem", data: effect ? { effect } : {} }] };
+    case "ui-document":
+      // A markup document (ADR 0077): `effect` is the new `.ui.xml` `createNodeIn` made, or empty.
+      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.UIDocument", data: effect ? { document: effect } : {} }] };
     case "ui-canvas":
     case "ui-panel":
     case "ui-text":
@@ -147,7 +151,7 @@ export interface CreateOptions {
   index?: number;
   /** Where the node goes in its parent's space. */
   position?: Vec3;
-  /** Particle System: the effect asset it plays (`asset:<path>`). */
+  /** Particle System: the effect asset it plays; UI Document: its markup (`asset:<path>`). */
   effect?: string;
 }
 

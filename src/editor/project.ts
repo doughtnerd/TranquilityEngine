@@ -4,6 +4,7 @@ import { CommandStack, SceneDocument, WorldSync, type SceneFile } from "./docume
 import { formatSceneJSON, originalLayout } from "./document/format";
 import type { EditorProject } from "./projects";
 import { currentProject, docVersion, openScene, sceneCamera, selection, setViewMode } from "./state";
+import { editorTextFiles } from "./textFiles";
 
 /** Open a scene file into the Editor World and frame it in the scene view. Throws if it can't load. */
 export function openSceneFile(engine: Engine, path: string): void {
@@ -20,6 +21,7 @@ export function openSceneFile(engine: Engine, path: string): void {
     throw err;
   }
   const stack = new CommandStack(doc);
+  stack.files = editorTextFiles; // UI document edits (ADR 0077) write their files in the same history
   sync.attach(stack);
   stack.subscribe(() => docVersion.value++);
   openScene.value = { path, doc, stack, sync };

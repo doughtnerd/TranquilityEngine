@@ -1,4 +1,4 @@
-import type { Change, Command } from "./commands";
+import type { Change, Command, FileWrite } from "./commands";
 import { applyPatch, changesBetween, diffFiles, hashFile, type DocPatch } from "./patch";
 import type { SceneDocument, SceneFile } from "./SceneDocument";
 
@@ -10,6 +10,45 @@ export interface StackEvent {
 }
 
 export type StackListener = (event: StackEvent) => void;
+
+/**
+ * A text file's change in one step (ADR 0077: UI documents' markup and stylesheets): the text at
+ * `start` that was `before` became `after` (the differing middle, so history files stay small).
+ * `created`: the file didn't exist before (undo deletes it); `removed`: the step deleted it.
+ */
+export interface FilePatch {
+  path: string;
+  start: number;
+  before: string;
+  after: string;
+  created?: true;
+  removed?: true;
+}
+
+/**
+ * Where a CommandStack reads and writes the text files commands change (`Command.files`). Reads
+ * must see writes at once (the host queues the actual file writes).
+ */
+export interface TextFileHost {
+  /** The file's current text, or null when there's none. */
+  read(path: string): string | null;
+  write(path: string, text: string): void;
+  remove(path: string): void;
+  /** Undo or redo found a file changed elsewhere since the step: it's left as it is. */
+  conflict?(path: string, label: string): void;
+}
+
+/** The change from `a` to `b` as one replaced stretch: common prefix and suffix left out. */
+export function diffText(a: string, b: string): { start: number; before: string; after: string } {
+  let p = 0;
+  const max = Math.min(a.length, b.length);
+  while (p < max && a.charCodeAt(p) === b.charCodeAt(p)) p++;
+  let q = 0;
+  while (q < max - p && a.charCodeAt(a.length - 1 - q) === b.charCodeAt(b.length - 1 - q)) q++;
+  return { start: p, before: a.slice(p, a.length - q), after: b.slice(p, b.length - q) };
+}
+
+const emptyPatch = (p: DocPatch | undefined) => !p || (!p.nodes && !p.order && !p.top);
 
 /** One state of the history tree (ADR 0027). */
 export interface HistoryState {
@@ -27,6 +66,8 @@ export interface HistoryState {
   undo?: DocPatch;
   /** The child redo goes to: the one last visited. */
   redoChild?: number;
+  /** Text files the step changed besides the scene (ADR 0077), in the order to redo them. */
+  files?: FilePatch[];
 }
 
 /** The history tree as written to a history file (ADR 0027). */
@@ -51,6 +92,10 @@ export const HISTORY_LIMIT = 1000;
  * Undoing and then editing starts a new branch; the old one stays reachable (`jumpTo`, redo after
  * navigating, or `back`/`forward` in creation order). Listeners hear every change, including each
  * command inside an open group, so the World and UI stay live during a drag.
+ *
+ * Commands may also write text files (`Command.files`, ADR 0077's UI documents): the stack writes
+ * them through `files` and keeps each file's change in the step, so undo and redo write them back
+ * in order with scene edits. A step that only changed files doesn't make the scene dirty.
  */
 export class CommandStack {
   private states = new Map<number, HistoryState>();
@@ -62,6 +107,10 @@ export class CommandStack {
   private groupDepth = 0;
   private groupLabel = "";
   private listeners = new Set<StackListener>();
+  /** Each file's text before the step being recorded, for the files its commands write. */
+  private filesBefore: Map<string, string | null> | null = null;
+  /** Where commands' text files are read and written; null refuses commands that write files. */
+  files: TextFileHost | null = null;
 
   constructor(readonly doc: SceneDocument, readonly limit = HISTORY_LIMIT) {
     this.reset();
@@ -77,8 +126,11 @@ export class CommandStack {
 
   /** Apply a command and record it as a step (or part of the open group). */
   execute(command: Command): void {
+    const writes = command.files;
+    if (writes?.length && !this.files) throw new Error("This document can't write files.");
     this.stepBefore ??= this.doc.toJSON();
     const changes = command.apply(this.doc);
+    if (writes?.length) this.writeFiles(writes);
     this.emit({ reason: "execute", label: command.label, changes });
     if (this.groupDepth === 0) this.commit(command.label);
   }
@@ -99,15 +151,66 @@ export class CommandStack {
     if (this.commit(this.groupLabel)) this.emit({ reason: "group", label: this.groupLabel, changes: [] });
   }
 
+  private writeFiles(writes: readonly FileWrite[]): void {
+    const files = this.files!;
+    this.filesBefore ??= new Map();
+    for (const w of writes) {
+      if (!this.filesBefore.has(w.path)) this.filesBefore.set(w.path, files.read(w.path));
+      if (w.text === null) files.remove(w.path);
+      else files.write(w.path, w.text);
+    }
+  }
+
+  /** What the step did to each file it wrote (none for files it left as they were). */
+  private filePatches(before: ReadonlyMap<string, string | null>): FilePatch[] {
+    const out: FilePatch[] = [];
+    for (const [path, was] of before) {
+      const now = this.files!.read(path);
+      if (was === now) continue;
+      if (was === null) out.push({ path, start: 0, before: "", after: now!, created: true });
+      else if (now === null) out.push({ path, start: 0, before: was, after: "", removed: true });
+      else out.push({ path, ...diffText(was, now) });
+    }
+    return out;
+  }
+
+  /** Write a state's file changes forward (redo) or back (undo); files changed elsewhere since are left. */
+  private replayFiles(state: HistoryState, direction: "undo" | "redo"): void {
+    const host = this.files;
+    if (!state.files || !host) return;
+    const list = direction === "undo" ? [...state.files].reverse() : state.files;
+    for (const f of list) {
+      const current = host.read(f.path);
+      const [from, to] = direction === "undo" ? [f.after, f.before] : [f.before, f.after];
+      const deletes = direction === "undo" ? f.created : f.removed;
+      const creates = direction === "undo" ? f.removed : f.created;
+      if (creates) {
+        if (current === null) host.write(f.path, to);
+        else if (current !== to) host.conflict?.(f.path, state.label);
+      } else if (deletes) {
+        if (current === from) host.remove(f.path);
+        else if (current !== null) host.conflict?.(f.path, state.label);
+      } else if (current === null || current.slice(f.start, f.start + from.length) !== from) {
+        host.conflict?.(f.path, state.label);
+      } else {
+        host.write(f.path, current.slice(0, f.start) + to + current.slice(f.start + from.length));
+      }
+    }
+  }
+
   /** Record the step since `stepBefore` as a new child of the current state. */
   private commit(label: string): boolean {
     const before = this.stepBefore;
+    const filesBefore = this.filesBefore;
     this.stepBefore = null;
+    this.filesBefore = null;
     if (!before) return false;
     const after = this.doc.toJSON();
     const d = diffFiles(before, after);
-    if (!d) return false;
-    const state: HistoryState = { seq: this.nextSeq++, parent: this.currentSeq, label, time: Date.now(), hash: hashFile(after), redo: d.redo, undo: d.undo };
+    const files = filesBefore ? this.filePatches(filesBefore) : [];
+    if (!d && files.length === 0) return false;
+    const state: HistoryState = { seq: this.nextSeq++, parent: this.currentSeq, label, time: Date.now(), hash: hashFile(after), redo: d?.redo ?? {}, undo: d?.undo ?? {} };
+    if (files.length) state.files = files;
     this.states.set(state.seq, state);
     this.state(this.currentSeq).redoChild = state.seq;
     this.currentSeq = state.seq;
@@ -188,10 +291,12 @@ export class CommandStack {
     for (const s of up) {
       if (s === common) break;
       file = applyPatch(file, this.state(s).undo!);
+      this.replayFiles(this.state(s), "undo");
       this.state(this.state(s).parent).redoChild = s; // redo comes back this way
     }
     for (const s of down.slice(0, down.indexOf(common)).reverse()) {
       file = applyPatch(file, this.state(s).redo!);
+      this.replayFiles(this.state(s), "redo");
       this.state(this.state(s).parent).redoChild = s;
     }
     this.doc._replace(file);
@@ -202,9 +307,17 @@ export class CommandStack {
 
   // --- saving and state -------------------------------------------------------------------------
 
-  /** True if the document differs from the last save point. */
+  /**
+   * True if the document differs from the last save point: a step between them changed the scene
+   * (steps that only wrote text files, which are saved as they're made, don't count).
+   */
   get dirty(): boolean {
-    return this.currentSeq !== this.savedSeq;
+    if (this.currentSeq === this.savedSeq) return false;
+    if (!this.states.has(this.savedSeq)) return true;
+    const up = this.pathToRoot(this.currentSeq), down = this.pathToRoot(this.savedSeq);
+    const common = up.find((s) => down.includes(s))!;
+    const changesScene = (path: number[]) => path.slice(0, path.indexOf(common)).some((s) => !emptyPatch(this.state(s).redo));
+    return changesScene(up) || changesScene(down);
   }
 
   /** Record the current state as saved (call after writing the file). */
@@ -274,6 +387,7 @@ export class CommandStack {
     this.currentSeq = matched;
     this.savedSeq = matched; // the document came from the file on disk
     this.stepBefore = null;
+    this.filesBefore = null;
     this.groupDepth = 0;
     this.emit({ reason: "load", label: "Load history", changes: [] });
     return { matched, lastCurrent: this.states.has(file.current) ? file.current : matched };
@@ -288,6 +402,7 @@ export class CommandStack {
     this.savedSeq = 0;
     this.nextSeq = 1;
     this.stepBefore = null;
+    this.filesBefore = null;
     this.groupDepth = 0;
   }
 
@@ -325,6 +440,7 @@ export class CommandStack {
         s.parent = -1;
         delete s.redo;
         delete s.undo;
+        delete s.files;
         this.rootSeq = next;
       }
       if (!this.states.has(this.savedSeq)) this.savedSeq = -1;

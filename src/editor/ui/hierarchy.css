@@ -66,3 +66,6 @@
 .scene-tab:hover:not(.active) { color: var(--text); }
 .scene-tab-close { width: 16px; height: 16px; padding: 0; border: none; background: none; color: var(--muted); font-size: 11px; line-height: 16px; border-radius: 3px; }
 .scene-tab-close:hover { background: var(--button-hover); color: var(--text); }
+.tree .row.ui-element .rename-input { flex: 1; min-width: 0; font: inherit; font-style: normal; padding: 0 3px; background: var(--input-bg); color: var(--text); border: 1px solid var(--accent); border-radius: 2px; }
+.tree .row.ui-element.dragging { opacity: 0.5; }
+.tree .row.ui-element:focus { outline: none; }

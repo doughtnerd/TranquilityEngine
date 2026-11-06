@@ -15,7 +15,7 @@ import { canOpenFolders } from "../projectFs";
 import { recentProjects, recentVersion } from "../recentProjects";
 import { closeProject, openProjectFolder, openRecentProject, reloadScripts, save } from "../session";
 import { isEditable } from "../shortcuts";
-import { currentProject, docVersion, openScene, playState, selectedKeys } from "../state";
+import { currentProject, docVersion, openScene, playState, selectedKeys, selectedUIElement } from "../state";
 import { aboutOpen } from "./AboutDialog";
 import { exportOpen } from "./ExportDialog";
 import { createMenuItems } from "./HierarchyMenu";
@@ -153,7 +153,7 @@ function liveMenus(): Menu[] {
     visiblePanels: visiblePanels(),
     pasteBlocked: nodeClipboard.value ? whyNotPasteHere() : "nothing copied",
     selectionInPrefab: selectedKeys.value.some(isInsidePrefab),
-    hasSelection: selectedKeys.value.length > 0,
+    hasSelection: selectedKeys.value.length > 0 || selectedUIElement.value !== null,
     clipboard: returnTo?.closest(".asset-browser") ? "assets" : "nodes",
     createItems: createEntries(),
   };

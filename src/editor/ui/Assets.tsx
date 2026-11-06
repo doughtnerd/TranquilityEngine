@@ -30,6 +30,7 @@ import { openScript } from "../code/codeState";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
 import { createMaterial } from "../materialAssets";
+import { createUIDocument } from "../uiDocumentEdits";
 import { createFormation } from "../formationAssets";
 import { createParticleEffect, openParticleGraphAsset } from "../particleAssets";
 import { createShaderGraph, createShaderSubGraph, openShaderGraphAsset } from "../shaderGraphAssets";
@@ -162,6 +163,7 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
   const newItems: MenuItem[] = [
     { label: "New Folder", disabled: readOnly, run: () => void makeFolder(pasteFolder(entries)) },
     { label: "New Scene", disabled: readOnly, run: () => void createScene(pasteFolder(entries)) },
+    { label: "New UI Document", disabled: readOnly, run: () => void createUIDocument(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Material", disabled: readOnly, run: () => void createMaterial(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Shader Graph", disabled: readOnly, run: () => void createShaderGraph(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Particle Effect", disabled: readOnly, run: () => void createParticleEffect(pasteFolder(entries)).then((made) => made && select([made])) },

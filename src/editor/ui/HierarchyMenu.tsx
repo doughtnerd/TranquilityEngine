@@ -8,6 +8,9 @@ import { NEW_NODE_KINDS, whyNotCreatable } from "../nodeCreate";
 import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisibility";
 import { isInsidePrefab } from "../hierarchyEdit";
 import { openScene, playState, selectedKeys, selection, type OpenScene } from "../state";
+import { createUIElement, deleteUIElement, duplicateUIElement, NEW_ELEMENTS, whyNotEditableUI } from "../uiDocumentEdits";
+import { documentsOn, resolveUIElement, selectedUIRef, uiRefKey, type UIElementRef } from "../uiDocuments";
+import { renamingUIElement } from "../uiElementDrag";
 
 interface MenuItem {
   label: string;
@@ -36,12 +39,52 @@ function besideRow(scene: OpenScene, key: string): { parent: string | null; inde
   return { parent, index: scene.doc.children(parent).indexOf(id) + 1 };
 }
 
-/** The "+" menu: new nodes at the top level, and under the active selected node if there is one. */
+const ELEMENT_LABELS: Readonly<Record<keyof typeof NEW_ELEMENTS, string>> = { Panel: "Panel", Text: "Text", Image: "Image", Button: "Button", InputField: "Input Field" };
+
+/** "Create X in Document" items adding UI document elements (ADR 0077) into `at` (an element, or a document's root). */
+function uiElementItems(at: UIElementRef | { host: string; index: number }): MenuItem[] {
+  const reason = whyNotEditableUI();
+  return (Object.keys(NEW_ELEMENTS) as (keyof typeof NEW_ELEMENTS)[]).map((tag) => ({ label: `Create ${ELEMENT_LABELS[tag]} in Document`, disabled: reason, run: () => void createUIElement(tag, at) }));
+}
+
+/** Where the Create menu adds UI document elements: the selected element, or the selected node's (first) document. */
+function uiCreateTarget(scene: OpenScene): UIElementRef | { host: string; index: number } | null {
+  const ref = selectedUIRef();
+  if (ref) return ref;
+  const active = selection.value;
+  const node = active ? scene.sync.nodeFor(active) : null;
+  return node && documentsOn(node).length > 0 ? { host: active!, index: 0 } : null;
+}
+
+/** The "+" menu: new nodes at the top level, and under the active selected node if there is one; UI elements into the selected document. */
 export function createMenuItems(scene: OpenScene): MenuItem[] {
   const active = selection.value;
-  const items = createItems(scene, null, undefined, "");
+  const ui = uiCreateTarget(scene);
+  const items = ui ? [...uiElementItems(ui), SEPARATOR] : [];
+  items.push(...createItems(scene, null, undefined, ""));
   if (active && scene.doc.has(active.split("/")[0])) items.push(SEPARATOR, ...createItems(scene, active, undefined, " Child"));
   return items;
+}
+
+/** The right-click menu for a UI document element row (ADR 0077): create inside it, rename, duplicate, delete. */
+export function uiElementMenuItems(scene: OpenScene, ref: UIElementRef): MenuItem[] {
+  const el = resolveUIElement(scene.sync, ref);
+  const reason = whyNotEditableUI() ?? (el ? null : "it's gone");
+  const label = el?._synthetic ? "a button's label is its text content" : null;
+  const root = el && !el.parent ? "it's the document's root" : null;
+  return [
+    ...uiElementItems(ref),
+    SEPARATOR,
+    { label: "Rename", shortcut: "F2", disabled: reason ?? label, run: () => (renamingUIElement.value = uiRefKey(ref)) },
+    { label: "Duplicate", shortcut: "Ctrl+D", disabled: reason ?? label ?? root, run: () => void duplicateUIElement(ref) },
+    { label: "Delete", shortcut: "Del", disabled: reason ?? root, run: () => void deleteUIElement(ref) },
+  ];
+}
+
+/** Open the right-click menu for a UI document element row. */
+export function openUIElementMenu(x: number, y: number, ref: UIElementRef): void {
+  const scene = openScene.value;
+  if (scene) hierarchyMenu.value = { x, y, items: uiElementMenuItems(scene, ref) };
 }
 
 /** The right-click menu for the row `key`, or for empty space (null). */
