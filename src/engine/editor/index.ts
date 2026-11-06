@@ -30,7 +30,8 @@ import { netSession, type NetPeer, type NetTraffic } from "../net/session";
 import type { LinkConditions } from "../net/Transport";
 
 export type { InstantiateHooks } from "../scene/SceneLoader";
-// The preview renderers run on three.js or Babylon.js by `rendererChoice()` (ADR 0075); see render/previewRouting.ts.
+// The preview renderers run on three.js or Babylon.js by `rendererChoice()` (ADR 0075, 0078); see render/previewRouting.ts.
+export { rendererChoice, setStoredRendererChoice, storedRendererChoice, type RendererName } from "../render/createRenderSurface";
 export { MaterialPreview, NodePreviewRenderer, loadParticleEffectPreview, type PreviewMesh } from "../render/previewRouting";
 export type { ParticleEffectPreviewApi as ParticleEffectPreview, PreviewBackground } from "../render/previewTypes";
 

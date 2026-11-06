@@ -1,6 +1,6 @@
 # 0075. Babylon.js replaces three.js as the render backend, used from upstream with module-by-module imports and copied subsystems instead of a fork
 
-- **Status:** Accepted
+- **Status:** Accepted; stage 10 and the Deprecates list superseded by 0078 (both backends stay, Babylon by default)
 - **Date:** 2026-11-05
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0004

@@ -1,6 +1,6 @@
 /**
  * @internal Editor: the preview renderers on the renderer the dev flag picks (ADR 0075 stage 7). Each
- * has one name and one API; `rendererChoice()` decides whether it runs on three.js (the default) or
+ * has one name and one API; `rendererChoice()` decides whether it runs on three.js or
  * on Babylon.js, whose code is loaded with a dynamic `import()` so a three.js page never downloads it.
  *
  * - `createThumbnailRenderer`, `loadParticleEffectPreview`: already asynchronous, so they load the one chosen.
