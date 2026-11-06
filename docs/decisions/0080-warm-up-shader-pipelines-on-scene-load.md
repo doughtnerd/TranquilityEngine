@@ -104,7 +104,7 @@ What changed from the decision while building, and what's left:
   - The Engine holds the switch (`_setVariantReport`, `setVariantReport(engine, on)` in `engine/editor`), so Worlds made at runtime (a lobby's match) get it too. Play mode turns it on.
   - It caught the sails gap above, naming `prefabs/ship.prefab.json` and `+ALBEDO +ALPHABLEND`.
 - **Script scan.** `scene/scriptAssetRefs.ts` (no imports, so the Node exporter can use it). The editor's `loadScripts` sets it; exports write `assetRefs` into `game.json` (omitted when empty, no format change), and the player sets it from there. Headless Worlds don't warm and don't preload the warm set's assets.
-- **Not yet:**
+- **Not yet** (tracked in [the rendering follow-ups](../plans/2026-11-rendering-followups.md)):
   - the three.js backend (`warmUp` resolves at once);
   - the Inspector field for `settings.preload`, and whether the editor keeps the field when it saves a scene;
   - the message log's offer to add a path to it;
