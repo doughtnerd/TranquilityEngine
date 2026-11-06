@@ -43,6 +43,11 @@ export interface UICoreHost {
 export interface UICoreOptions {
   /** Route the pointer and keyboard to UI (false in the editor's own World: clicks select there). */
   interactive?: boolean;
+  /**
+   * Lay out only: no pointer routing and no typing. For a second layout of the same UI at another
+   * size (the editor's camera preview inset), beside the core that routes.
+   */
+  passive?: boolean;
   host?: UICoreHost;
 }
 

@@ -66,6 +66,8 @@ export interface CameraView {
   overlay?: boolean;
   /** Draw the game's screen UI after this camera and its overlay (at most one; ADR 0076). */
   ui?: boolean;
+  /** Editor: draw the camera preview's screen UI (`BabylonFrame.previewUI`) after this camera, the preview inset. */
+  previewUI?: boolean;
 }
 
 /** Runs a draw callback onto the canvas (the game's screen UI), without owning what it draws. */
@@ -89,7 +91,12 @@ class FrameGraphDrawTask extends FrameGraphTask {
     pass.setRenderTarget(this.outputTexture);
     pass.setExecuteFunc((context) => {
       const layer = this.draw();
-      if (layer) context.render(layer);
+      if (!layer) return;
+      // A layer draws into the engine's current viewport, which a camera drawn before (the editor's camera
+      // preview inset) may have left on its rectangle: the UI texture covers the whole canvas.
+      (context as unknown as { _applyRenderTarget(): void })._applyRenderTarget();
+      this._frameGraph.engine.setViewport(DRAW_VIEWPORT);
+      context.render(layer);
     });
     const disabled = this._frameGraph.addRenderPass(this.name + "_disabled", true);
     disabled.setRenderTarget(this.outputTexture);
@@ -98,6 +105,7 @@ class FrameGraphDrawTask extends FrameGraphTask {
 }
 
 const FULL_VIEWPORT = new Viewport(0, 0, 1, 1);
+const DRAW_VIEWPORT = new Viewport(0, 0, 1, 1);
 
 /** Renders an existing utility layer onto the canvas, in a camera's rectangle. */
 class FrameGraphOverlayTask extends FrameGraphTask {
@@ -208,6 +216,8 @@ export class BabylonFrame {
    * current), or null. Drawn after the camera marked `ui`.
    */
   ui: (() => Layer | null) | null = null;
+  /** Editor: the game's screen UI laid out for the camera preview inset, drawn after the view marked `previewUI`. */
+  previewUI: (() => Layer | null) | null = null;
   /** Every mesh in the scene, drawn by each camera (the scene's own list, so new meshes join at once). */
   private readonly objects = new FrameGraphObjectList();
   /** The meshes that cast shadows, refilled each frame. */
@@ -239,7 +249,7 @@ export class BabylonFrame {
     const key = JSON.stringify({
       samples,
       shadows: shadows.map((s) => [s.light.uniqueId, s.cascaded, s.mapSize, s.numCascades]),
-      views: views.map((v, i) => [v.camera.uniqueId, this.viewSize(v), v.clear ? "clear" : "over", v.effects ? stackKey(v.effects, i > 0 && !v.clear) : "plain", !!v.overlay && !!this.overlay, !!v.ui && !!this.ui]),
+      views: views.map((v, i) => [v.camera.uniqueId, this.viewSize(v), v.clear ? "clear" : "over", v.effects ? stackKey(v.effects, i > 0 && !v.clear) : "plain", !!v.overlay && !!this.overlay, !!v.ui && !!this.ui, !!v.previewUI && !!this.previewUI]),
     });
     if (key !== this.key && !this.building) this.rebuild(key, views, shadows, samples);
     if (!this.graph || this.building) return;
@@ -273,6 +283,12 @@ export class BabylonFrame {
       if (v.ui && this.ui) {
         const ui = this.ui;
         const task = new FrameGraphDrawTask(`ui${i}`, graph, () => ui());
+        task.targetTexture = backbufferColorTextureHandle;
+        graph.addTask(task);
+      }
+      if (v.previewUI && this.previewUI) {
+        const draw = this.previewUI;
+        const task = new FrameGraphDrawTask(`previewUI${i}`, graph, () => draw());
         task.targetTexture = backbufferColorTextureHandle;
         graph.addTask(task);
       }

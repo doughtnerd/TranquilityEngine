@@ -3,6 +3,8 @@ import { Camera, Engine, GameBehavior, GameObject, Input, UIButton, UICanvas, UI
 import { World } from "../core/World";
 import { UICore, canvasScale, uiLength } from "../ui/UICore";
 import type { TextMeasureRequest } from "../ui/uiCoreTypes";
+import { Assets } from "../scene/Assets";
+import { UI_FONT_FAMILY, _resetFonts, fontEpoch, fontFamilyOf, loadBundledFont, onFontLoaded } from "../ui/fonts";
 
 // ADR 0076: the renderer-neutral UI core: Yoga layout and UI-first routing, no renderer, no GPU.
 
@@ -380,6 +382,82 @@ describe("UICore text", () => {
     text.text = "ab\ncd";
     sync(c);
     expect(c.rectOf(text)!.height).toBeCloseTo(24);
+  });
+
+  it("measures with the font a text names, and again once a font arrives", async () => {
+    // A FontFace API stand-in: every font loads at once.
+    const added: { family: string; source: string }[] = [];
+    class FakeFontFace {
+      constructor(readonly family: string, readonly source: string) {}
+      load() {
+        return Promise.resolve(this);
+      }
+    }
+    vi.stubGlobal("FontFace", FakeFontFace);
+    vi.stubGlobal("document", { fonts: { add: (f: FakeFontFace) => added.push(f), delete: () => true } });
+    const source = { has: (p: string) => p === "fonts/Pirata One.ttf", get: () => "blob:pirata" };
+    Assets.addSource(source);
+    _resetFonts();
+    try {
+      const canvas = node("Canvas", null, UICanvas);
+      const top = node("Top", canvas.node, UIPanel, { alignItems: "flex-start" } as Partial<UIPanel>);
+      const text = node("T", top.node, UIText, { text: "Ahoy", font: "asset:fonts/Pirata One.ttf" } as Partial<UIText>);
+      const field = node("F", top.node, UIInputField, { placeholder: "Name" } as Partial<UIInputField>);
+      const host = fakeHost();
+      const c = await core({ interactive: true, host });
+      sync(c);
+      const family = "myco-font-fonts-Pirata-One-ttf";
+      expect(host.requests.find((r) => r.text === "Ahoy")!.fontFamily).toBe(`${family}, ${UI_FONT_FAMILY}`);
+      expect(host.requests.find((r) => r.text === "Name")!.fontFamily).toBe(UI_FONT_FAMILY);
+      expect(added).toEqual([expect.objectContaining({ family, source: 'url("blob:pirata")' })]);
+
+      // Each font that arrives makes every text measure again (it was measured in a fallback font).
+      await Promise.resolve();
+      const before = fontEpoch();
+      let heard = 0;
+      const off = onFontLoaded(() => heard++);
+      await loadBundledFont();
+      off();
+      expect(fontEpoch()).toBe(before + 1);
+      expect(heard).toBe(1);
+      expect(added.at(-1)).toMatchObject({ family: "Inter" });
+      expect(added.at(-1)!.source).toMatch(/Inter-latin-wght\.woff2"\) format\("woff2"\)$/);
+      host.requests.length = 0;
+      sync(c);
+      expect(host.requests.map((r) => r.text).sort()).toEqual(["Ahoy", "Name"]);
+      host.requests.length = 0;
+      sync(c);
+      expect(host.requests).toEqual([]); // nothing changed since
+      void text;
+      void field;
+    } finally {
+      Assets.removeSource(source);
+      vi.unstubAllGlobals();
+      _resetFonts();
+    }
+  });
+
+  it("uses Inter for an empty font, and warns once about a font field that isn't a font file", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(fontFamilyOf("")).toBe(UI_FONT_FAMILY);
+    expect(fontFamilyOf("asset:images/logo.png")).toBe(UI_FONT_FAMILY);
+    expect(fontFamilyOf("images/logo.png")).toBe(UI_FONT_FAMILY);
+    expect(warn).toHaveBeenCalledTimes(1);
+    // Node has no FontFace: a font file still gets its family name (and nothing loads).
+    expect(fontFamilyOf("fonts/a.woff2")).toBe(`myco-font-fonts-a-woff2, ${UI_FONT_FAMILY}`);
+    _resetFonts();
+  });
+
+  it("a passive core lays out but never routes", async () => {
+    const { play } = menu();
+    const passive = await core({ interactive: false, passive: true });
+    const c = await core();
+    sync(passive, 640, 360);
+    sync(c);
+    expect(passive.rectOf(play)).toEqual({ x: 10, y: 10, width: 100, height: 25 }); // half size
+    mouse("down", 100, 40);
+    expect(play.pressed).toBe(true); // the routing core's, untouched by the passive one
+    mouse("up", 100, 40);
   });
 
   it("sizes an input field at one line plus its padding and border", async () => {

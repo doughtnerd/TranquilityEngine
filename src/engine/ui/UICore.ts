@@ -15,7 +15,8 @@ import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { Input } from "../input/Input";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "./components";
-import { UI_FONT_FAMILY, UI_LINE_HEIGHT, canvasScale, cssFontWeight, estimateText, loadYogaOnce, uiLength } from "./layout";
+import { fontEpoch, fontFamilyOf } from "./fonts";
+import { UI_LINE_HEIGHT, canvasScale, cssFontWeight, estimateText, loadYogaOnce, loadedYoga, uiLength } from "./layout";
 import type { TextMeasureRequest, UICoreHost, UICoreLike, UICoreOptions, UIKind, UILaidOutCanvas, UILaidOutElement } from "./uiCoreTypes";
 
 export { canvasScale, uiLength } from "./layout";
@@ -76,6 +77,7 @@ export class UICore implements UICoreLike {
   private readonly interactiveMode: boolean;
   private readonly host: UICoreHost;
   private readonly removeHook: () => void;
+  private readonly passive: boolean;
   private readonly warned = new Set<string>();
   private world: World | null = null;
   private width = 0;
@@ -97,13 +99,20 @@ export class UICore implements UICoreLike {
   constructor(options: UICoreOptions = {}) {
     this.interactiveMode = options.interactive ?? true;
     this.host = options.host ?? {};
-    this.removeHook = Input._addFrameHook(() => this.route());
-    this.ready = loadYogaOnce().then((yoga) => {
-      if (this.disposed) return;
-      this.yoga = yoga;
-      this.config = yoga.Config.create();
-      this.config.setPointScaleFactor(0); // no rounding: boxes are exact in UI pixels
-    });
+    this.passive = options.passive ?? false;
+    this.removeHook = this.passive ? () => undefined : Input._addFrameHook(() => this.route());
+    // With Yoga loaded already (another core loaded it), lay out from the first sync: a World that
+    // syncs only when something changes (the editor's) may not sync again for a while.
+    const yoga = loadedYoga();
+    if (yoga) this.useYoga(yoga);
+    this.ready = yoga ? Promise.resolve() : loadYogaOnce().then((y) => this.useYoga(y));
+  }
+
+  private useYoga(yoga: Yoga): void {
+    if (this.disposed) return;
+    this.yoga = yoga;
+    this.config = yoga.Config.create();
+    this.config.setPointScaleFactor(0); // no rounding: boxes are exact in UI pixels
   }
 
   get hasScreenUI(): boolean {
@@ -365,8 +374,9 @@ export class UICore implements UICoreLike {
     n.setBorder(yoga.EDGE_ALL, c instanceof UIPanel ? finite(c.borderWidth) : 0);
 
     let sig: string | null = null;
-    if (c instanceof UIText) sig = `${c.text}|${c.fontSize}|${c.fontWeight}`;
-    else if (c instanceof UIInputField) sig = `${c.value || c.placeholder}|${c.fontSize}`;
+    // A font arriving (fontEpoch) changes every text's size, as does the field naming another.
+    if (c instanceof UIText) sig = `${c.text}|${c.fontSize}|${c.fontWeight}|${c.font}|${fontEpoch()}`;
+    else if (c instanceof UIInputField) sig = `${c.value || c.placeholder}|${c.fontSize}|${c.font}|${fontEpoch()}`;
     if (sig !== null && sig !== entry.measureSig) {
       entry.measureSig = sig;
       n.markDirty();
@@ -376,12 +386,12 @@ export class UICore implements UICoreLike {
   private measure(entry: Entry, maxWidth: number): { width: number; height: number } {
     const c = entry.comp;
     if (c instanceof UIText) {
-      const request: TextMeasureRequest = { text: c.text, fontSize: c.fontSize, fontWeight: cssFontWeight(c.fontWeight), fontFamily: UI_FONT_FAMILY, lineHeight: UI_LINE_HEIGHT, maxWidth };
+      const request: TextMeasureRequest = { text: c.text, fontSize: c.fontSize, fontWeight: cssFontWeight(c.fontWeight), fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, maxWidth };
       return this.host.measureText?.(request) ?? estimateText(request);
     }
     if (c instanceof UIInputField) {
       // One line at the field's size, whatever it holds.
-      const request: TextMeasureRequest = { text: c.value || c.placeholder, fontSize: c.fontSize, fontWeight: "400", fontFamily: UI_FONT_FAMILY, lineHeight: UI_LINE_HEIGHT, maxWidth: Infinity };
+      const request: TextMeasureRequest = { text: c.value || c.placeholder, fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, maxWidth: Infinity };
       const m = this.host.measureText?.(request) ?? estimateText(request);
       return { width: m.width, height: c.fontSize * UI_LINE_HEIGHT };
     }
@@ -492,7 +502,7 @@ export class UICore implements UICoreLike {
 
   /** Move DOM focus to or from the wanted field's hidden input, and mirror `value` and `maxLength` into it. */
   private syncDom(): void {
-    if (typeof document === "undefined") return;
+    if (this.passive || typeof document === "undefined") return;
     const want = this.wantedField();
     const wantComp = want ? (want.comp as UIInputField) : null;
     if (!wantComp) {

@@ -93,10 +93,20 @@ export class UIPanel extends UIElement {
   @field(Color) borderColor = Color.black;
 }
 
-/** Text laid out as an element, drawn crisply at any scale (MSDF). The bundled font is Inter. */
+/**
+ * Text laid out as an element. Its font is the bundled Inter (weights 100–900; Latin, Latin-1 and
+ * common punctuation, other characters falling back to the system font), or the project font file
+ * `font` names.
+ */
 @component("engine.UIText")
 export class UIText extends UIElement {
   @field(String) text = "";
+  /**
+   * A font file in the project (`asset:fonts/Pirata.ttf`; `.ttf`, `.otf`, `.woff` or `.woff2`), loaded
+   * the first time it's used; empty is the bundled Inter. Characters the font lacks use Inter. On the
+   * three.js renderer it's ignored: text there is always Inter.
+   */
+  @field(AssetRef) font = "";
   @field(Number) fontSize = 16;
   @field(Color) color = Color.white;
   /** `"normal"`, `"medium"`, `"semi-bold"`, `"bold"`, or a number 100–900. */
@@ -119,7 +129,7 @@ export class UIImage extends UIElement {
 }
 
 /**
- * A panel that takes the pointer. Its children (usually a `UIText`) are its label. Read its state
+ * A panel that takes the pointer. Its children (usually a `UIText`, which has the font) are its label. Read its state
  * from scripts: `hovered`, `pressed`, and `clicked`, true for the frame a click finished, like
  * `Input.getMouseButtonUp`. A pointer press on a button goes to the UI, not to `Input`.
  */
@@ -179,6 +189,8 @@ export class UIInputField extends UIPanel {
   @field(String) placeholder = "";
   /** 0: no limit. */
   @field(Number) maxLength = 0;
+  /** A font file in the project, as `UIText.font`; empty is the bundled Inter. Ignored on three.js. */
+  @field(AssetRef) font = "";
   @field(Number) fontSize = 16;
   @field(Color) color = Color.white;
   @field(Color) placeholderColor = new Color(1, 1, 1, 0.45);
