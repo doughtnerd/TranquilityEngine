@@ -54,6 +54,7 @@ export type { NavDebugSettings } from "./nav/navigationSystems";
 export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 
 export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlign, type UICanvasMode, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UIPositionType, type UITextAlign, type UIWordBreak } from "./ui/components";
+export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "./ui/UIDocument";
 
 export { Audio, AudioSource, type OneShotOptions, type Rolloff } from "./audio/AudioSource";
 export { AudioListener } from "./audio/AudioListener";

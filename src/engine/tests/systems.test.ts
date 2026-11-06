@@ -51,7 +51,7 @@ describe("user systems and data (ADR 0017)", () => {
     expect(a.transform!.position.x).toBeCloseTo(1);
     expect(inactive.transform!.position.x).toBe(0);
     expect(order.slice(0, 2)).toEqual(["system:first", "script:update"]);
-    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "test.First", "engine.UpdateScripts", "test.Move"]);
+    expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "test.First", "engine.UpdateScripts", "test.Move"]);
   });
 
   it("buffers are readable the same frame and cleared at the end of it", async () => {

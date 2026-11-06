@@ -6,6 +6,7 @@ import { effect } from "@preact/signals";
 import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
 import JsonWorker from "monaco-editor/languages/features/json/json.worker.js?worker";
+import CssWorker from "monaco-editor/languages/features/css/css.worker.js?worker";
 import TsWorker from "monaco-editor/languages/features/typescript/ts.worker.js?worker";
 import engineTypes from "virtual:myco-types";
 import { codeLanguageOf } from "../projectPaths";
@@ -13,7 +14,8 @@ import { codeAppearance, monacoColors } from "../theme";
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
   // Each language service runs in its own worker; everything else in the editor's.
-  getWorker: (_id, label) => (label === "typescript" || label === "javascript" ? new TsWorker() : label === "json" ? new JsonWorker() : new EditorWorker()),
+  getWorker: (_id, label) =>
+    label === "typescript" || label === "javascript" ? new TsWorker() : label === "json" ? new JsonWorker() : label === "css" ? new CssWorker() : new EditorWorker(), // UI stylesheets (ADR 0077); XML needs no worker
 };
 
 const ts = monaco.typescript;

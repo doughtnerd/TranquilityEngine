@@ -8,11 +8,12 @@ export function joinPath(root: string, path: string): string {
 }
 
 /** Monaco's id for a language the Code panel edits in. */
-export type CodeLanguage = "json" | "javascript" | "typescript" | "markdown" | "plaintext";
+export type CodeLanguage = "json" | "javascript" | "typescript" | "markdown" | "plaintext" | "xml" | "css";
 
 /**
  * Code and text files a project keeps as text besides its scripts, by extension, with the
- * language the Code panel edits them in. Only JSON is read by the game (scripts can import it);
+ * language the Code panel edits them in. JSON, and UI documents and stylesheets (`*.ui.xml`,
+ * `*.ui.css`, ADR 0077), are read by the game (scripts can import JSON);
  * the rest are edited only, never compiled or loaded: JavaScript and TypeScript modules such as
  * the Node tools that generate a project's assets (`tools/*.mjs`), and notes. A `.ts` file is a
  * script (`isScriptPath`), not one of these.
@@ -26,6 +27,8 @@ const TEXT_LANGUAGES: ReadonlyMap<string, CodeLanguage> = new Map([
   ["cts", "typescript"],
   ["md", "markdown"],
   ["txt", "plaintext"],
+  ["xml", "xml"],
+  ["css", "css"],
 ]);
 
 /** A path's extension, lower case, without the dot ("" if none; a leading dot, as in `.env`, isn't one). */

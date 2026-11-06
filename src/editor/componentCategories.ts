@@ -40,6 +40,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   UIImage: "UI",
   UIButton: "UI",
   UIInputField: "UI",
+  UIDocument: "UI",
 };
 
 /** The category of an engine component id, or null when the table doesn't know it (it lands in Other). */

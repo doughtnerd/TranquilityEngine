@@ -8,6 +8,7 @@ import { isModelPath, loadModel } from "./models";
 import type { GameObject } from "./GameObject";
 import { splitSpriteRef } from "./importSettings";
 import { SceneInstance, collectAssetRefs, instantiateFile, loadSceneFile } from "./SceneLoader";
+import { loadUIDocumentSupport } from "../ui/UIDocument";
 
 export interface LoadSceneOptions {
   /** Keep already-loaded scene nodes instead of replacing them (ADR 0016). */
@@ -64,6 +65,8 @@ export class SceneManager {
         // reported when the material is drawn
       }
     }
+    // UI documents (ADR 0077): their parsers, so documents build as the scene is instantiated.
+    if (refs.some((p) => p.endsWith(".ui.xml"))) await loadUIDocumentSupport();
     const images = [...new Set(refs.filter((p) => IMAGE.test(p)))];
     const models = refs.filter((p) => isModelPath(p) && Assets.has(p));
     await Promise.all(models.map((m) => loadModel(m).catch((err) => console.error(`[myco] failed to load the model "${m}":`, err))));
