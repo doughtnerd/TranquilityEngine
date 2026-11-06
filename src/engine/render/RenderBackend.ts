@@ -2640,7 +2640,7 @@ export class RenderBackend implements RenderSurface {
       }
       const parent = node.parent;
       const parentWorld = parent ? new Matrix4().fromArray(world.worldMatrix(parent.entity), parent.entity * 16) : null;
-      return localPoseFromWorld(parentWorld, position, quaternion, scale);
+      return localPoseFromWorld(parentWorld?.elements ?? null, position, quaternion, scale);
     });
   }
 

@@ -7,14 +7,13 @@ import { Component } from "../core/Component";
 import { _setScriptAssetRefs } from "../scene/warmUp";
 import { _undefineComponent, getDataComponentDef, listDataComponentIds, type DataComponentDef, type ScalarType } from "../core/data";
 import { _undefineSystem } from "../core/systems";
-import { Vector3 } from "../core/math";
+import { Mat4, Vector3 } from "../core/math";
 import { _setReplacingRegistrations, _takeRecordedRegistrations, _unregisterComponent, getComponentClass, getComponentId, getFields, listComponentIds, type ComponentClass, type FieldOptions, type FieldType, type ScriptRegistrations } from "../core/registry";
 import { World } from "../core/World";
 import type { Engine, EngineTiming, WorldViewState } from "../core/Engine";
 import type { WorldConfig } from "../core/worlds";
-import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { Input } from "../input/Input";
-import { localPoseFromWorld, type LocalPose } from "../render/gizmoMath";
+import { localPoseFromMatrix, matrixFrom, type LocalPose } from "../render/gizmoMath";
 import type { NavigationWorld } from "../nav/NavigationWorld";
 import { NavAgent } from "../nav/components";
 import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderBackend";
@@ -399,11 +398,8 @@ export function pointOnSpritePlane(world: World, x: number, y: number, z = 0): [
 export function localPoseUnder(node: GameObject, parent: GameObject | null): LocalPose | null {
   if (!node.transform) return null;
   const world = node.world;
-  const m = new Matrix4().fromArray(world.worldMatrix(node.entity), node.entity * 16);
-  const position = new ThreeVector3(), quaternion = new ThreeQuaternion(), scale = new ThreeVector3();
-  m.decompose(position, quaternion, scale);
-  const parentWorld = parent ? new Matrix4().fromArray(world.worldMatrix(parent.entity), parent.entity * 16) : null;
-  return localPoseFromWorld(parentWorld, position, quaternion, scale);
+  const parentWorld = parent ? matrixFrom(world.worldMatrix(parent.entity), parent.entity * 16) : null;
+  return localPoseFromMatrix(parentWorld, matrixFrom(world.worldMatrix(node.entity), node.entity * 16));
 }
 
 /** Set the scene view grid's cell size (metres) and whether it shows. No-op headless. */
@@ -530,14 +526,13 @@ export function worldBounds(node: GameObject): { min: [number, number, number]; 
   const world = node.world;
   const mesh = world.render?.meshBounds(node);
   if (mesh) return mesh;
-  const m = new Matrix4().fromArray(world.worldMatrix(node.entity), node.entity * 16);
+  const m = world.worldMatrix(node.entity), mo = node.entity * 16;
   const size = spriteSize(node);
   const corners = size
-    ? [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(([x, y]) => new ThreeVector3(x * size[0], y * size[1], 0).applyMatrix4(m))
-    : [new ThreeVector3().setFromMatrixPosition(m)];
+    ? [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(([x, y]) => Mat4.transformPoint(m, mo, x * size[0], y * size[1], 0))
+    : [Mat4.transformPoint(m, mo, 0, 0, 0)];
   const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
-  for (const c of corners) {
-    const a = c.toArray();
+  for (const a of corners) {
     for (let i = 0; i < 3; i++) {
       min[i] = Math.min(min[i], a[i]);
       max[i] = Math.max(max[i], a[i]);
@@ -549,9 +544,11 @@ export function worldBounds(node: GameObject): { min: [number, number, number]; 
 /** A world point in `node`'s parent's space: the local position that puts `node`'s origin there. */
 export function localPositionFor(node: GameObject, point: readonly number[]): [number, number, number] {
   const parent = node.parent;
-  const p = new ThreeVector3(point[0], point[1], point[2] ?? 0);
-  if (parent?.transform) p.applyMatrix4(new Matrix4().fromArray(node.world.worldMatrix(parent.entity), parent.entity * 16).invert());
-  return [p.x, p.y, p.z];
+  const x = point[0], y = point[1], z = point[2] ?? 0;
+  if (!parent?.transform) return [x, y, z];
+  const inverse = matrixFrom(node.world.worldMatrix(parent.entity), parent.entity * 16);
+  Mat4.invert(inverse, 0, inverse, 0);
+  return Mat4.transformPoint(inverse, 0, x, y, z);
 }
 
 export type { EditorOverlay } from "../render/RenderBackend";

@@ -413,23 +413,27 @@ export class Color {
   toJSON(): number[] { return [this.r, this.g, this.b, this.a]; }
 }
 
+/** @internal A 4x4 matrix's storage for `Mat4`. */
+type MatArray = Float32Array | Float64Array;
+
 /**
  * Column-major 4x4 matrix helpers operating on `(array, offset)` pairs, so world matrices
- * can live in one big Float32Array (ADR 0012). Layout matches WebGL/three.js.
+ * can live in one big Float32Array (ADR 0012). Layout matches WebGL/three.js. A Float64Array works too,
+ * for maths that must not lose precision (the editor's gizmo poses).
  * @internal
  */
 export const Mat4 = {
-  identity(out: Float32Array, o: number): void {
+  identity(out: MatArray, o: number): void {
     out.fill(0, o, o + 16);
     out[o] = out[o + 5] = out[o + 10] = out[o + 15] = 1;
   },
 
-  copy(out: Float32Array, o: number, a: Float32Array, ao: number): void {
+  copy(out: MatArray, o: number, a: MatArray, ao: number): void {
     for (let i = 0; i < 16; i++) out[o + i] = a[ao + i];
   },
 
   /** Compose translation, rotation quaternion and scale. */
-  compose(out: Float32Array, o: number, p: Storage, po: number, q: Storage, qo: number, s: Storage, so: number): void {
+  compose(out: MatArray, o: number, p: Storage, po: number, q: Storage, qo: number, s: Storage, so: number): void {
     const x = q[qo], y = q[qo + 1], z = q[qo + 2], w = q[qo + 3];
     const x2 = x + x, y2 = y + y, z2 = z + z;
     const xx = x * x2, xy = x * y2, xz = x * z2;
@@ -455,7 +459,7 @@ export const Mat4 = {
   },
 
   /** out = a * b. `out` may alias neither input. */
-  multiply(out: Float32Array, o: number, a: Float32Array, ao: number, b: Float32Array, bo: number): void {
+  multiply(out: MatArray, o: number, a: MatArray, ao: number, b: MatArray, bo: number): void {
     for (let col = 0; col < 4; col++) {
       const b0 = b[bo + col * 4], b1 = b[bo + col * 4 + 1], b2 = b[bo + col * 4 + 2], b3 = b[bo + col * 4 + 3];
       for (let row = 0; row < 4; row++) {
@@ -468,7 +472,7 @@ export const Mat4 = {
    * out = a × b for affine matrices (bottom row 0, 0, 0, 1), like every world matrix built from
    * position, rotation and scale: about half the work of `multiply`. `out` may be `a` or `b` at the same offset.
    */
-  multiplyAffine(out: Float32Array, o: number, a: Float32Array, ao: number, b: Float32Array, bo: number): void {
+  multiplyAffine(out: MatArray, o: number, a: MatArray, ao: number, b: MatArray, bo: number): void {
     const a00 = a[ao], a01 = a[ao + 1], a02 = a[ao + 2];
     const a10 = a[ao + 4], a11 = a[ao + 5], a12 = a[ao + 6];
     const a20 = a[ao + 8], a21 = a[ao + 9], a22 = a[ao + 10];
@@ -496,7 +500,7 @@ export const Mat4 = {
   },
 
   /** out = inverse(a). Returns false if not invertible. */
-  invert(out: Float32Array, o: number, a: Float32Array, ao: number): boolean {
+  invert(out: MatArray, o: number, a: MatArray, ao: number): boolean {
     const a00 = a[ao], a01 = a[ao + 1], a02 = a[ao + 2], a03 = a[ao + 3];
     const a10 = a[ao + 4], a11 = a[ao + 5], a12 = a[ao + 6], a13 = a[ao + 7];
     const a20 = a[ao + 8], a21 = a[ao + 9], a22 = a[ao + 10], a23 = a[ao + 11];
@@ -528,7 +532,7 @@ export const Mat4 = {
   },
 
   /** Decompose into translation, rotation and scale written to the given storages. */
-  decompose(m: Float32Array, mo: number, p: Storage, po: number, q: Storage, qo: number, s: Storage, so: number): void {
+  decompose(m: MatArray, mo: number, p: Storage, po: number, q: Storage, qo: number, s: Storage, so: number): void {
     let sx = Math.hypot(m[mo], m[mo + 1], m[mo + 2]);
     const sy = Math.hypot(m[mo + 4], m[mo + 5], m[mo + 6]);
     const sz = Math.hypot(m[mo + 8], m[mo + 9], m[mo + 10]);
@@ -565,11 +569,49 @@ export const Mat4 = {
     q[qo] = x; q[qo + 1] = y; q[qo + 2] = z; q[qo + 3] = w;
   },
 
-  transformPoint(m: Float32Array, mo: number, x: number, y: number, z: number): [number, number, number] {
+  transformPoint(m: MatArray, mo: number, x: number, y: number, z: number): [number, number, number] {
     return [
       m[mo] * x + m[mo + 4] * y + m[mo + 8] * z + m[mo + 12],
       m[mo + 1] * x + m[mo + 5] * y + m[mo + 9] * z + m[mo + 13],
       m[mo + 2] * x + m[mo + 6] * y + m[mo + 10] * z + m[mo + 14],
     ];
+  },
+};
+
+/** @internal A quaternion's components, read only. */
+export interface QuatLike {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly w: number;
+}
+
+/**
+ * Quaternion helpers the engine uses internally (physics, the editor's gizmo), kept off the public
+ * `Quaternion` class.
+ * @internal
+ */
+export const Quat = {
+  /** Turn `v` by `q` in place (a unit quaternion), and return it. */
+  rotate<V extends Vec3Like>(q: QuatLike, v: V): V {
+    const { x: qx, y: qy, z: qz, w: qw } = q;
+    const vx = v.x, vy = v.y, vz = v.z;
+    // t = 2 (q.xyz × v); v' = v + w t + q.xyz × t
+    const tx = 2 * (qy * vz - qz * vy), ty = 2 * (qz * vx - qx * vz), tz = 2 * (qx * vy - qy * vx);
+    v.x = vx + qw * tx + qy * tz - qz * ty;
+    v.y = vy + qw * ty + qz * tx - qx * tz;
+    v.z = vz + qw * tz + qx * ty - qy * tx;
+    return v;
+  },
+
+  /** The inverse of a unit quaternion: a new Quaternion. */
+  conjugate(q: QuatLike): Quaternion {
+    return new Quaternion(-q.x, -q.y, -q.z, q.w);
+  },
+
+  /** A turn of `radians` about the unit axis (x, y, z): a new Quaternion. */
+  fromAxisAngle(x: number, y: number, z: number, radians: number): Quaternion {
+    const h = radians / 2, s = Math.sin(h);
+    return new Quaternion(x * s, y * s, z * s, Math.cos(h));
   },
 };

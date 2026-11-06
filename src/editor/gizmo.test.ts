@@ -1,7 +1,6 @@
-import { Matrix4, Quaternion, Vector3 } from "three";
 import { beforeEach, describe, expect, it } from "vitest";
-import { Engine, GameObject, Input } from "../engine";
-import { localPoseFromWorld, type LocalPose } from "../engine/render/gizmoMath";
+import { Engine, GameObject, Input, Quaternion, Vector3 } from "../engine";
+import { composeMatrix, localPoseFromWorld, type LocalPose } from "../engine/render/gizmoMath";
 import { SetField } from "./document";
 import { gizmoEdit, gizmoMode } from "./gizmo";
 import { OrbitCamera } from "./OrbitCamera";
@@ -10,8 +9,7 @@ import { shortcutFor } from "./shortcuts";
 import { openScene, sceneCamera } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 
-const DEG = Math.PI / 180;
-const quat = (zDeg: number) => new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), zDeg * DEG);
+const quat = (zDeg: number) => Quaternion.fromEuler(0, 0, zDeg);
 
 describe("gizmo math: world pose → local Transform values", () => {
   it("is the world pose itself under the World root", () => {
@@ -20,7 +18,7 @@ describe("gizmo math: world pose → local Transform values", () => {
   });
 
   it("removes a moved, rotated and scaled parent", () => {
-    const parent = new Matrix4().compose(new Vector3(10, 0, 0), quat(90), new Vector3(2, 2, 2));
+    const parent = composeMatrix(new Vector3(10, 0, 0), quat(90), new Vector3(2, 2, 2));
     // A child at local (1, 0, 0), rotated 10° locally, sits at world (10, 2, 0) rotated 100°, scale 2.
     const pose = localPoseFromWorld(parent, new Vector3(10, 2, 0), quat(100), new Vector3(2, 2, 2));
     expect(pose.position).toEqual([1, 0, 0]);
