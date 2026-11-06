@@ -46,7 +46,12 @@ import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector
 import type { MaterialPropertyValue } from "../components";
 import { compileShaderGraph } from "../shaderGraph/compile";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "./graphMaterial";
-import { Camera, Light, MeshRenderer, ParticleSystem, PostProcessing, SpriteRenderer } from "../components";
+import { Camera, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, SpriteRenderer } from "../components";
+import { Scene as BabylonScene } from "@babylonjs/core/scene.js";
+import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
+import { BabylonProbes } from "./probes";
+import { BabylonWater } from "./water";
+import { WaterSurface } from "../water/WaterSurface";
 import type { GameObject } from "../../scene/GameObject";
 import type { ParticlePreviewSettings, ParticleStats } from "../RenderSurface";
 import type { BabylonParticles } from "./particles";
@@ -192,6 +197,18 @@ export class BabylonRenderer {
   private readonly warned = new Set<string>();
   private readonly defaultMaterial: PBRMaterial;
   private readonly lighting: BabylonLighting;
+  /** Reflection probes (stage 6). */
+  private readonly probes: BabylonProbes;
+  /** Water surfaces (ADR 0072; stage 6), made the first time a World has one. */
+  private water: BabylonWater | null = null;
+  /** Each material's copies reflecting a probe's map (ADR 0054), by the probe's texture. */
+  private readonly probeMaterials = new WeakMap<BabylonMaterial, Map<BaseTexture, PBRMaterial>>();
+  /** Meshes drawn with a probe's map last frame, for tests. */
+  private reflecting = 0;
+  /** Materials whose asset opts out of the World's fog (ADR 0071). */
+  private readonly noFog = new WeakSet<BabylonMaterial>();
+  /** The World's fog over the sky this frame (ADR 0071): how much, and its colour (sRGB). */
+  private skyFog: { amount: number; color: Color4 } | null = null;
   /** Particle effects (stage 5), loaded the first time a World has a ParticleSystem. */
   private particles: BabylonParticles | null = null;
   private particlesLoading = false;
@@ -237,6 +254,7 @@ export class BabylonRenderer {
 
     this.lighting = new BabylonLighting(scene);
     this.frame = new BabylonFrame(scene);
+    this.probes = new BabylonProbes(scene);
 
     this.defaultMaterial = pbr("myco.default", scene);
     this.defaultMaterial.albedoColor = new Color3(1, 1, 1);
@@ -334,11 +352,20 @@ export class BabylonRenderer {
     for (const [r, e] of this.meshRenderers) if (r.castShadows && r.isActiveAndEnabled) this.casters.push(...e.meshes);
     this.shadows = this.lighting.syncLights(world, camera);
     this.syncParticles(world);
+    this.syncFog(world);
     this.lighting.syncEnvironment(world, view?.far ?? 1000);
+    const ready = this.loading.size === 0 && [...this.meshRenderers.values()].every((m) => m.sources !== null);
+    this.probes.sync(world, this.scene.meshes, ready);
+    const surfaces = world._componentsOfType(WaterSurface);
+    if (surfaces.length || this.water) {
+      this.water ??= new BabylonWater(this.scene, (x, y, z) => this.probes.lookup(x, y, z));
+      this.water.sync(world, surfaces);
+    }
   }
 
   render(world: World): void {
     this.claim(world);
+    this.reflecting = 0;
     this.graphShared.time = world.time.time;
     this.graphShared.resolution = [this.engine.getRenderWidth(), this.engine.getRenderHeight()];
     const cams = this.viewCameras(world);
@@ -347,11 +374,13 @@ export class BabylonRenderer {
     const views: CameraView[] = cams.map((c, i) => {
       // Post-processing (ADR 0051, 0056): each camera's own component, filtered by the tier; the editor's view previews the scene camera's.
       const resolved = resolvePostEffects(this.postSettings(c) ?? (i === 0 && this.fill ? this.scenePostSettings(world) : null), Graphics.tier);
-      const background = c.backgroundColor ? clearColorOf(c.backgroundColor.toHex().slice(0, 7)) : this.clearColor;
+      let background = c.backgroundColor ? clearColorOf(c.backgroundColor.toHex().slice(0, 7)) : this.clearColor;
+      if (this.skyFog) background = Color4.Lerp(background, this.skyFog.color, this.skyFog.amount); // Fog's affectsSkybox (ADR 0071)
       const entry = this.cameras.get(c)!;
       return { camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure };
     });
     this.lastPost = views[0] ? { composed: !!views[0].effects, toneMapping: views[0].toneMapping, effects: views[0].effects } : null;
+    if (views.length) this.probes.capture(views[0].camera); // before the frame graph runs
     if (views.length) this.frame.render(views, this.shadows, this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
     if (!views.length || !this.frame.ready) engine.clear(this.clearColor, true, true, true);
     engine.endFrame();
@@ -421,6 +450,61 @@ export class BabylonRenderer {
     return this.particles?.state() ?? null;
   }
 
+  // --- Reflection probes and fog (ADR 0054, 0071; stage 6) ----------------------------------------
+
+  /** A copy of a material reflecting a probe's map, made once per material and probe. */
+  private probeMaterial(base: PBRMaterial, texture: BaseTexture, intensity: number): PBRMaterial {
+    let byProbe = this.probeMaterials.get(base);
+    if (!byProbe) {
+      byProbe = new Map();
+      this.probeMaterials.set(base, byProbe);
+    }
+    let m = byProbe.get(texture);
+    if (!m) {
+      m = base.clone(`${base.name}:probe`);
+      m.reflectionTexture = texture;
+      byProbe.set(texture, m);
+      if (this.noFog.has(base)) this.noFog.add(m);
+    }
+    m.environmentIntensity = intensity;
+    return m;
+  }
+
+  /** Tests: how many water surfaces are drawn. */
+  waterState(): { surfaces: number } {
+    return this.water?.state() ?? { surfaces: 0 };
+  }
+
+  /** Tests: probes captured, probes, and meshes reflecting one. */
+  probeState(): { captured: number; probes: number; reflecting: number } {
+    return this.probes.state(this.reflecting);
+  }
+
+  /**
+   * The World's first enabled Fog sets the scene's distance fog (ADR 0071): linear or exponential
+   * squared, like three.js's Fog and FogExp2. Its colour is linear here, since the scene renders in
+   * linear HDR. With `affectsSkybox`, the sky dims towards the fog and a plain background lerps to it.
+   */
+  private syncFog(world: World): void {
+    const fog = world._componentsOfType(Fog).find((f) => f.isActiveAndEnabled) ?? null;
+    const s = this.scene;
+    if (!fog) {
+      s.fogMode = BabylonScene.FOGMODE_NONE;
+      this.skyFog = null;
+      this.lighting.setSkyFog(0);
+      return;
+    }
+    const exp = fog.mode === "exponential";
+    s.fogMode = exp ? BabylonScene.FOGMODE_EXP2 : BabylonScene.FOGMODE_LINEAR;
+    s.fogColor = new Color3(fog.color.r, fog.color.g, fog.color.b).toLinearSpace();
+    s.fogDensity = Math.max(0, fog.density);
+    s.fogStart = Math.max(0, fog.near);
+    s.fogEnd = Math.max(s.fogStart + 1e-3, fog.far);
+    const amount = fog.affectsSkybox ? Math.min(1, Math.max(0, fog.skyboxFog)) : 0;
+    this.skyFog = amount > 0 ? { amount, color: new Color4(fog.color.r, fog.color.g, fog.color.b, 1) } : null;
+    this.lighting.setSkyFog(amount);
+  }
+
   /** Tests and the editor: what the last frame's first camera ran. */
   postState(): { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null } {
     return { composed: !!this.lastPost?.composed, loaded: this.frame.ready, toneMapping: this.lastPost?.toneMapping ?? "none", effects: this.lastPost?.effects ?? null };
@@ -441,6 +525,8 @@ export class BabylonRenderer {
         this.meshRenderers.delete(c);
       }
       this.releaseRendererMaterial(c);
+    } else if (c instanceof WaterSurface) {
+      this.water?.release(c);
     } else if (c instanceof ParticleSystem) {
       this.particles?.release(c);
     } else if (c instanceof Light) {
@@ -459,6 +545,8 @@ export class BabylonRenderer {
     if (this.disposed) return;
     this.disposed = true;
     this.particles?.dispose();
+    this.probes.dispose();
+    this.water?.dispose();
     this.frame.dispose();
     this.scene.dispose();
     this.engine.dispose();
@@ -636,6 +724,7 @@ export class BabylonRenderer {
         const mesh = new Mesh(`mesh:${r.node.name}:${src.name}`, this.scene);
         this.vertexDataOf(src).applyToMesh(mesh, false);
         mesh.material = material ?? this.modelMaterial(src) ?? this.defaultMaterial;
+        mesh.metadata = { mycoBase: mesh.material };
         return mesh;
       });
       entry.sources = sources;
@@ -646,7 +735,17 @@ export class BabylonRenderer {
     for (const m of entry.meshes) {
       m.setEnabled(visible);
       m.receiveShadows = r.receiveShadows;
-      if (visible) m.freezeWorldMatrix(Matrix.FromArray(world.worldMatrix(e) as unknown as number[], e * 16));
+      if (!visible) continue;
+      m.freezeWorldMatrix(Matrix.FromArray(world.worldMatrix(e) as unknown as number[], e * 16));
+      const base = (m.metadata as { mycoBase?: BabylonMaterial } | null)?.mycoBase ?? m.material;
+      if (!base) continue;
+      m.applyFog = !this.noFog.has(base);
+      // A reflection probe (ADR 0054) for built-in materials; graph materials keep the scene's environment.
+      const centre = m.getBoundingInfo().boundingBox.centerWorld;
+      const probe = base instanceof PBRMaterial && !this.graphs.has(base) ? this.probes.lookup(centre.x, centre.y, centre.z) : null;
+      const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe.texture, probe.intensity) : base;
+      if (probe) this.reflecting++;
+      if (m.material !== drawn) m.material = drawn;
     }
   }
 
@@ -752,6 +851,13 @@ export class BabylonRenderer {
     }
     const deps = graph?.compiled.dependencies.map((p): [string, unknown] => [p, read(p)]);
     const level = graph?.compiled.usesShaderLevel ? Graphics.tier.shaderLevel : undefined;
+    if (material && raw !== undefined) {
+      try {
+        if (!parseMaterial(raw).settings.fog) this.noFog.add(material); // a material can opt out of the World's Fog (ADR 0071)
+      } catch {
+        /* warned above */
+      }
+    }
     this.materialAssets.set(path, { raw, graphRaw, material, textures: owned, graph, deps, level });
     return material;
   }

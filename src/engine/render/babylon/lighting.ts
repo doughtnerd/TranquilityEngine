@@ -66,6 +66,8 @@ export class BabylonLighting {
   private readonly warned = new Set<string>();
   /** Whether the last sync asked for cascaded shadows, for tests. */
   private cascading = false;
+  /** How much the World's fog covers the sky (ADR 0071): the skybox dims by it and hides at 1. */
+  private skyFog = 0;
 
   constructor(private readonly scene: Scene) {
     // The light a World without Lights gets: a soft ambient light and a sun from above and in front.
@@ -197,7 +199,7 @@ export class BabylonLighting {
       if (copy) copy.coordinatesMode = Texture.SKYBOX_MODE;
       this.envMap!.sky = copy;
     }
-    const sky = env?.skybox && map ? this.envMap!.sky : null;
+    const sky = env?.skybox && map && this.skyFog < 1 ? this.envMap!.sky : null;
     if (!sky) {
       this.skybox?.setEnabled(false);
       return;
@@ -218,7 +220,7 @@ export class BabylonLighting {
     if (mat.reflectionTexture !== sky) mat.reflectionTexture = sky;
     if ("rotationY" in sky) (sky as { rotationY: number }).rotationY = turn;
     mat.microSurface = 1 - Math.min(1, Math.max(0, env!.skyboxBlur));
-    mat.environmentIntensity = Math.max(0, env!.skyboxIntensity);
+    mat.environmentIntensity = Math.max(0, env!.skyboxIntensity) * (1 - this.skyFog);
   }
 
   private loadEnvironmentMap(path: string): void {
@@ -249,6 +251,11 @@ export class BabylonLighting {
         : kind === "exr"
           ? new EXRCubeTexture(url, this.scene, ENV_SIZE, false, true, false, true, null, failed)
           : new EquiRectangularCubeTexture(url, this.scene, ENV_SIZE, false, true, null, failed);
+  }
+
+  /** The World's fog over the sky this frame, 0 to 1 (ADR 0071). */
+  setSkyFog(amount: number): void {
+    this.skyFog = amount;
   }
 
   /** Tests: whether cascaded shadows are on, and the environment map's state. */

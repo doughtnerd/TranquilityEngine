@@ -176,10 +176,10 @@ export class BabylonSurface implements RenderSurface {
     return 0;
   }
   waterState(): { surfaces: number } {
-    return { surfaces: 0 };
+    return this.renderer?.waterState() ?? { surfaces: 0 };
   }
   probeState(): { captured: number; probes: number; reflecting: number } {
-    return { captured: 0, probes: 0, reflecting: 0 };
+    return this.renderer?.probeState() ?? { captured: 0, probes: 0, reflecting: 0 };
   }
   particleState(): ParticleStats | null {
     return this.renderer?.particleState() ?? null;

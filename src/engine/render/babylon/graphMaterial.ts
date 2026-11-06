@@ -10,7 +10,7 @@
  *   `mycoVNormal`, `mycoVUv`), body, offset and varyings just before `worldPos` is computed;
  * - fragment: declarations at CUSTOM_FRAGMENT_DEFINITIONS, the body at the start of `main`, base
  *   colour and alpha (and the alpha clip) at CUSTOM_FRAGMENT_UPDATE_ALPHA, metalness and roughness
- *   into `reflectivityBlock`'s first argument, the normal after `pbrBlockNormalFinal`, emission
+ *   into `reflectivityBlock`'s first argument, the normal just before the albedo block, emission
  *   before the final colour is composed.
  *
  * WebGPU only: on the WebGL2 fallback the plugin turns itself off and the material draws as plain PBR.
@@ -50,7 +50,15 @@ export interface BabylonGraphMaterial {
   dispose(): void;
 }
 
-const UBO_SIZE = { float: 1, vec2: 2, vec3: 3, vec4: 4 } as const;
+/**
+ * Where code needing the final normal goes (a regular-expression key): Babylon's albedo block
+ * declaration, which follows it in the PBR fragment shader. Babylon expands its includes before
+ * plugin code goes in, so `#include<pbrBlockNormalFinal>` itself is no longer there to match.
+ * The replacement must end by re-declaring `var albedoOpacityOut: albedoOpacityOutParams;`.
+ */
+export const ALBEDO_ANCHOR = "!var\\s+albedoOpacityOut\\s*:\\s*albedoOpacityOutParams\\s*;";
+
+const UBO_SIZE ={ float: 1, vec2: 2, vec3: 3, vec4: 4 } as const;
 
 /** A world-space tangent frame from screen derivatives, for tangent-space graph normals. */
 const TANGENT_FRAME = /* wgsl */ `
@@ -130,7 +138,7 @@ export function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [
       code["!reflectivityBlock\\(\\s*uniforms\\.vReflectivityColor"] = `reflectivityBlock(vec4f(${f.metalness ?? "uniforms.vReflectivityColor.x"}, ${f.roughness ?? "uniforms.vReflectivityColor.y"}, uniforms.vReflectivityColor.zw)`;
     }
     if (f.emission) code.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION = `finalEmissive = ${f.emission};`;
-    if (f.normal) code["!#include<pbrBlockNormalFinal>"] = `#include<pbrBlockNormalFinal>\nnormalW = normalize(mycoBabylonTangentFrame(normalW, fragmentInputs.vPositionW, fragmentInputs.vMycoUv) * (${f.normal}));`;
+    if (f.normal) code[ALBEDO_ANCHOR] = `normalW = normalize(mycoBabylonTangentFrame(normalW, fragmentInputs.vPositionW, fragmentInputs.vMycoUv) * (${f.normal}));\nvar albedoOpacityOut: albedoOpacityOutParams;`;
   }
   return code;
 }
