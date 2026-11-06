@@ -75,6 +75,9 @@ import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph"
 import { BabylonLighting } from "./lighting";
 import { spriteFrame } from "../spriteFrame";
 import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
+import { PipelineWarmer, VariantReport } from "./warmUp";
+import type { WarmMesh } from "../../scene/warmUp";
+import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 
 interface SpriteEntry {
   mesh: Mesh;
@@ -204,6 +207,12 @@ export class BabylonRenderer {
   private readonly modelMaterials = new WeakMap<object, BabylonMaterial>();
   private readonly warned = new Set<string>();
   private readonly defaultMaterial: PBRMaterial;
+  /** ADR 0080: draws queued meshes once, hidden, so their shader pipelines exist before they're shown. */
+  private readonly warmer: PipelineWarmer;
+  /** ADR 0080: editor play mode's log of shader variants compiled after loading; null when off. */
+  private report: VariantReport | null = null;
+  /** When `render` last drew a frame: a warm-up only waits while frames are being drawn. */
+  private lastRenderAt = -Infinity;
   private readonly lighting: BabylonLighting;
   /** Reflection probes (stage 6). */
   private readonly probes: BabylonProbes;
@@ -258,7 +267,9 @@ export class BabylonRenderer {
   static async create(canvas: HTMLCanvasElement, settings: ProjectSettings, fill = false): Promise<BabylonRenderer> {
     let engine: AbstractEngine;
     if (await WebGPUEngine.IsSupportedAsync) {
-      const gpu = new WebGPUEngine(canvas, { antialias: true, adaptToDeviceRatio: false });
+      // The adapter's limits rather than WebGPU's minimums: a material with clustered lights (ADR 0079),
+      // cascaded shadows and two-sided lighting passes more than the minimum 16 values between its stages.
+      const gpu = new WebGPUEngine(canvas, { antialias: true, adaptToDeviceRatio: false, setMaximumLimits: true });
       await gpu.initAsync();
       engine = gpu;
     } else {
@@ -289,7 +300,46 @@ export class BabylonRenderer {
     this.defaultMaterial.albedoColor = new Color3(1, 1, 1);
     this.defaultMaterial.metallic = 0;
     this.defaultMaterial.roughness = 0.5;
+    this.warmer = new PipelineWarmer({
+      scene,
+      materialFor: (path) => this.materialAsset(path),
+      materialForSource: (src, mesh) => modelMaterial(this.scene, this.modelMaterials, src, mesh) ?? this.defaultMaterial,
+      isGraph: (m) => this.graphs.has(m),
+      fogless: (m) => this.noFog.has(m),
+      loadingTextures: () => this.loading.size > 0,
+    });
+    this.warmer.onDrained = () => this.report?.quiet();
     if (fill) this.editorTools();
+  }
+
+  // --- Warm-up (ADR 0080) -----------------------------------------------------------------------
+
+  /**
+   * Draw `meshes` once, hidden, in every pass the frame puts them in, so their pipelines exist before
+   * they're shown. Resolves when they've drawn, or at once while no frames are being drawn (a World's
+   * first scene, loaded before the engine starts): they're drawn over the first frames instead.
+   */
+  warmUp(meshes: readonly WarmMesh[]): Promise<void> {
+    const done = this.warmer.add(meshes);
+    return performance.now() - this.lastRenderAt < 500 ? done : Promise.resolve();
+  }
+
+  /** Editor play mode: log shader variants compiled after loading, naming their node and prefab (ADR 0080). */
+  setVariantReport(on: boolean): void {
+    if (on === !!this.report) return;
+    this.report?.dispose();
+    this.report = on ? new VariantReport(this.engine, this.scene, (m) => this.describeMesh(m)) : null;
+  }
+
+  /** The node (and prefab) a renderer's mesh belongs to, for the variant report; null for other meshes. */
+  private describeMesh(mesh: AbstractMesh): string | null {
+    for (const [r, e] of this.meshRenderers) {
+      if (!e.meshes.includes(mesh as Mesh)) continue;
+      let prefab: string | undefined;
+      for (let n: GameObject | null = r.node; n && !prefab; n = n.parent) prefab = _instantiatedPrefabOf(n);
+      return prefab ? `"${r.node.name}" (from ${prefab})` : `"${r.node.name}"`;
+    }
+    return null;
   }
 
   // --- Editor (ADR 0022; stage 8) ---------------------------------------------------------------
@@ -584,9 +634,15 @@ export class BabylonRenderer {
     if (preview) views.push(preview);
     this.cameraPreviewDrawn = !!preview && this.frame.ready;
     if (views.length) this.probes.capture(views[0].camera); // before the frame graph runs
+    this.warmer.beforeRender(views[0]?.camera ?? null, this.casters);
     if (views.length) this.frame.render(views, this.shadows, this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
     if (!views.length || !this.frame.ready) engine.clear(this.clearColor, true, true, true);
     engine.endFrame();
+    if (views.length && this.frame.ready) {
+      this.warmer.afterRender();
+      this.report?.afterRender();
+      this.lastRenderAt = performance.now();
+    }
   }
 
   /** A camera's PostProcessing component, if it has an enabled one. */
@@ -768,6 +824,8 @@ export class BabylonRenderer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.warmer.dispose();
+    this.report?.dispose();
     this.particles?.dispose();
     this.tools?.dispose();
     this.frame.ui = null;
@@ -1117,7 +1175,15 @@ export class BabylonRenderer {
       this.releaseRendererMaterial(r);
       entry = undefined;
     }
-    if (entry && entry.version === r._materialPropertiesVersion) return entry.material; // unchanged
+    if (entry && entry.version === r._materialPropertiesVersion) {
+      // A copy taken before its base's textures loaded (they arrive after the material is made) follows them.
+      const m = entry.material;
+      if (m !== base && m instanceof PBRMaterial && base instanceof PBRMaterial) {
+        if (this.wantedTextures.get(m) === null && m.albedoTexture !== base.albedoTexture) m.albedoTexture = base.albedoTexture;
+        if (m.bumpTexture !== base.bumpTexture) m.bumpTexture = base.bumpTexture;
+      }
+      return m; // unchanged
+    }
     const values: Record<string, GraphValue> = {};
     for (const [k, v] of overrides) values[k] = toGraphValue(v);
     const baseGraph = this.graphs.get(base);

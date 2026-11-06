@@ -45,7 +45,7 @@ export const LIGHT_ENVIRONMENT = 0.5;
 export async function createPreviewEngine(canvas: HTMLCanvasElement, antialias = true): Promise<AbstractEngine> {
   if (await WebGPUEngine.IsSupportedAsync) {
     try {
-      const gpu = new WebGPUEngine(canvas, { antialias, adaptToDeviceRatio: false });
+      const gpu = new WebGPUEngine(canvas, { antialias, adaptToDeviceRatio: false, setMaximumLimits: true }); // as BabylonRenderer.create
       await gpu.initAsync();
       return gpu;
     } catch (err) {

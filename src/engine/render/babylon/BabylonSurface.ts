@@ -8,6 +8,7 @@
  * before they load (grid, colours, selection, overlay, gizmo) is kept here and handed over once they
  * have. Until then queries answer "nothing".
  */
+import type { WarmMesh } from "../../scene/warmUp";
 import type { Component } from "../../core/Component";
 import { Graphics } from "../Graphics";
 import { SHADOW_MAP_SIZE } from "../../core/graphics";
@@ -37,6 +38,8 @@ export class BabylonSurface implements RenderSurface {
   private readonly resizeObserver: ResizeObserver;
   private readonly fill: boolean;
   private disposed = false;
+  /** ADR 0080: whether the renderer logs shader variants compiled after loading (editor play mode). */
+  private variantReport = false;
   private appliedQuality = -1;
   private pixelRatio = 1;
   private owner: World | null = null;
@@ -85,6 +88,7 @@ export class BabylonSurface implements RenderSurface {
           (g.__mycoBabylonSurfaces ??= []).push(this);
         }
         r.setClearColor(this.background);
+        r.setVariantReport(this.variantReport);
         r.setParticlePreview(this.particlePreview);
         r.setSelected(this.selection);
         if (this.cameraPreview) r.setCameraPreview(this.cameraPreview.camera, this.cameraPreview.frame);
@@ -172,6 +176,16 @@ export class BabylonSurface implements RenderSurface {
     this.renderer?.dispose();
     this.renderer = null;
     this.canvas.remove();
+  }
+
+  async warmUp(meshes: readonly WarmMesh[]): Promise<void> {
+    while (!this.renderer && !this.disposed) await new Promise((r) => setTimeout(r, 16));
+    await this.renderer?.warmUp(meshes);
+  }
+
+  _setVariantReport(on: boolean): void {
+    this.variantReport = on;
+    this.renderer?.setVariantReport(on);
   }
 
   async preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void> {

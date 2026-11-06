@@ -4,6 +4,7 @@
  * scene editor (`src/editor/`) imports it by path.
  */
 import { Component } from "../core/Component";
+import { _setScriptAssetRefs } from "../scene/warmUp";
 import { _undefineComponent, getDataComponentDef, listDataComponentIds, type DataComponentDef, type ScalarType } from "../core/data";
 import { _undefineSystem } from "../core/systems";
 import { Vector3 } from "../core/math";
@@ -663,6 +664,16 @@ export function renderStats(world: World): RenderStats | null {
 /** Report `engine`'s frame and per-World phase timings to `timing` from now on (null stops; then there's no cost). */
 export function setEngineTiming(engine: Engine, timing: EngineTiming | null): void {
   engine._setTiming(timing);
+}
+
+/** ADR 0080: the prefab and material files the project's scripts name, warmed up with every scene load. */
+export function setScriptAssetRefs(paths: readonly string[]): void {
+  _setScriptAssetRefs(paths);
+}
+
+/** ADR 0080: `engine`'s render surfaces, now and later, log shader variants compiled after loading, naming their prefab (editor play mode). */
+export function setVariantReport(engine: Engine, on: boolean): void {
+  engine._setVariantReport(on);
 }
 
 /** How many nodes `world` has (the World root not counted). */

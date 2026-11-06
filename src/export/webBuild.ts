@@ -11,6 +11,7 @@
 import type { ProjectSettingsInput } from "../engine";
 import { pickMainScene } from "../editor/projects";
 import { compileScript, ENGINE_MODULE, LEGACY_ENGINE_MODULE, isScriptPath, loadOrder, resolveScript, rewriteImports, type ScriptProblem } from "../editor/scriptLoader";
+import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
 import { ENGINE_FILE, MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, relativeSpecifier, type GameManifest } from "./format";
 
 /** A project to build, however it was read. */
@@ -130,6 +131,8 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     files: copies,
     scripts: order.map((path) => ({ source: path, module: modulePath(path) })),
   };
+  const assetRefs = projectScriptAssetRefs(source.scripts.values(), (p) => copies.includes(p));
+  if (assetRefs.length) (manifest as { assetRefs?: readonly string[] }).assetRefs = assetRefs;
   const generated = new Map(files);
   generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
   generated.set("serve.mjs", SERVE_SCRIPT);
