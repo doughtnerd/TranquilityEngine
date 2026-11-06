@@ -20,7 +20,7 @@ import type { ParticleSystem } from "../components";
 import type { ParticlePreviewSettings, ParticleStats } from "../RenderSurface";
 import { ProgramRunner } from "../particles/programRunner";
 import { EffectSimulation, linearRGB, type SimEmitter } from "../particles/simulation";
-import { createDotTexture, makeDraw as makeBabylonDraw, type Draw } from "./particleDraw";
+import { createDotTexture, makeDraw as makeBabylonDraw, usesSheet, type Draw } from "./particleDraw";
 
 /** What the particle player needs from the render backend. */
 export interface BabylonParticleHost {
@@ -32,8 +32,11 @@ export interface BabylonParticleHost {
   worldMatrix(c: ParticleSystem): ArrayLike<number>;
   /** Editor: whether the node is selected. */
   selected(c: ParticleSystem): boolean;
-  /** Loads a texture asset (sRGB colour) for particles. */
-  texture(path: string): Promise<BaseTexture>;
+  /**
+   * Loads a texture asset (sRGB colour) for particles: flipped as other textures (V 1 is the image's
+   * top), or with `sheet` unflipped (V 0 at the top), as Babylon's particle sprite sheets read it.
+   */
+  texture(path: string, sheet?: boolean): Promise<BaseTexture>;
   /** The quality tier's particle scale (`PARTICLE_SCALE[Graphics.tier.particles]`); multiplies emission and the particle limit. */
   tierScale(): number;
   /**
@@ -318,13 +321,14 @@ export class BabylonParticles {
   // --- textures -----------------------------------------------------------------------------------------
 
   /** A particle texture: null while it loads (the load starts), "failed" if it didn't. Re-asks the host, so a reimported texture is picked up. */
-  private textureFor(path: string): BaseTexture | null | "failed" {
-    let entry = this.textures.get(path);
+  private textureFor(path: string, sheet: boolean): BaseTexture | null | "failed" {
+    const key = sheet ? `${path}#sheet` : path;
+    let entry = this.textures.get(key);
     if (!entry) {
       const made: { tex: BaseTexture | null; failed: boolean } = { tex: null, failed: false };
       entry = made;
-      this.textures.set(path, made);
-      this.host.texture(path).then(
+      this.textures.set(key, made);
+      this.host.texture(path, sheet).then(
         (t) => (made.tex = t),
         (err: Error) => {
           made.failed = true;
@@ -333,7 +337,7 @@ export class BabylonParticles {
       );
     } else if (entry.tex) {
       const made = entry;
-      this.host.texture(path).then(
+      this.host.texture(path, sheet).then(
         (t) => (made.tex = t),
         () => {},
       );
@@ -378,7 +382,7 @@ export class BabylonParticles {
         parts.push("dot");
         continue;
       }
-      const t = this.textureFor(e.renderer.texture);
+      const t = this.textureFor(e.renderer.texture, usesSheet(e.renderer));
       if (t === null) return null;
       parts.push(t === "failed" ? `${e.renderer.texture}:failed` : `${e.renderer.texture}:${t.uniqueId}`);
     }
@@ -397,7 +401,7 @@ export class BabylonParticles {
     const capacity = Math.max(1, Math.ceil(e.settings.maxParticles * Math.max(1, scale)));
     const r = e.renderer;
     const material = this.materialFor(r.material);
-    const found = r.texture && !material ? this.textureFor(r.texture) : null;
+    const found = r.texture && !material ? this.textureFor(r.texture, usesSheet(e.renderer)) : null;
     const texture = found && found !== "failed" ? found : this.dotTexture();
     const mesh = r.mode === "mesh" ? this.meshFor(r.mesh) : undefined;
     return makeBabylonDraw(this.host.scene, name, e, capacity, texture, texture === this.dot, { material, mesh });

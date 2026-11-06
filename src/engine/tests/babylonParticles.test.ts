@@ -389,6 +389,54 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     expect([quads.uvs[8], quads.uvs[9]]).toEqual([0, 0]); // tile 2: bottom left
   });
 
+  it("loads a flipbook's texture unflipped for Babylon's sprite sheet, and other particle textures flipped", async () => {
+    // Babylon's particle shader reads a sheet's cells with V 0 at the image's top; loaded flipped like
+    // other textures, every flipbook showed the mirrored row's tile, upside down.
+    const asked: [string, boolean][] = [];
+    const tex = new RawTexture(new Uint8Array(16), 2, 2, 5, scene);
+    const p = make(false, true, {
+      texture: (path, sheet) => {
+        asked.push([path, !!sheet]);
+        return Promise.resolve(tex);
+      },
+    });
+    const c = fakeSystem({
+      emitters: [still("Plain", { texture: "plain.png" }), still("Sheet", { texture: "sheet.png", tiles: [4, 4] }), still("Trail", { texture: "trail.png", tiles: [4, 1], mode: "trail" })],
+    });
+    for (let i = 0; i < 4; i++) {
+      frames(p, c, 1); // the build waits on each texture in turn
+      await Promise.resolve();
+    }
+    expect(asked).toContainEqual(["plain.png", false]);
+    expect(asked).toContainEqual(["sheet.png", true]);
+    expect(asked).toContainEqual(["trail.png", false]); // trails are quads with their own UVs, on the flipped texture
+    expect(asked.some(([path, sheet]) => path === "sheet.png" && !sheet)).toBe(false);
+  });
+
+  it("gives material-asset quads and trails normals facing the camera, and plain trails none", () => {
+    // A graph material that reads the normal (a Fresnel node) didn't compile without one, and the
+    // invalid pipeline voided the whole frame on WebGPU.
+    const material = new StandardMaterial("fx", scene);
+    const p = make(false, true, { material: (path) => (path ? material : null) });
+    const c = fakeSystem({ emitters: [still("Q", { material: "fx.mat" }), still("T", { mode: "trail", material: "fx.mat" }, { startSpeed: 2 }), still("Plain", { mode: "trail" }, { startSpeed: 2 })] });
+    frames(p, c, 10);
+    const [q, t, plain] = p.drawsOf(c) as QuadDraw[];
+    expect(q.mesh.isVerticesDataPresent("normal")).toBe(true);
+    // The camera is on +Z looking at the particles at the origin: billboard normals point at it.
+    const n = q.normals!;
+    expect(n[0]).toBeCloseTo(0, 5);
+    expect(n[1]).toBeCloseTo(0, 5);
+    expect(n[2]).toBeCloseTo(1, 5);
+    expect(t.quads).toBeGreaterThan(0);
+    expect(t.mesh.isVerticesDataPresent("normal")).toBe(true);
+    const tn = t.normals!;
+    const toCamera = new Vector3(0, 0, 10).subtract(new Vector3(t.positions[0], t.positions[1], t.positions[2]));
+    expect(Vector3.Dot(new Vector3(tn[0], tn[1], tn[2]), toCamera)).toBeGreaterThan(0);
+    expect(Math.hypot(tn[0], tn[1], tn[2])).toBeCloseTo(1, 5);
+    expect(plain.normals).toBeNull();
+    expect(plain.mesh.isVerticesDataPresent("normal")).toBe(false);
+  });
+
   it("sets up blending, billboard modes and flipbooks on the Babylon system", () => {
     const base = defaultEmitter().renderer;
     const p = make();

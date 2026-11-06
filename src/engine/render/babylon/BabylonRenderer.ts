@@ -458,10 +458,16 @@ export class BabylonRenderer {
     );
   }
 
-  private texture(path: string): Promise<Texture> {
-    const cached = this.textures.get(path);
+  /**
+   * A texture asset, loaded flipped (V 1 is the image's top) unless `sheet`: Babylon's particle sprite
+   * sheets read cells with V 0 at the image's top, so a flipbook's texture is loaded unflipped (a copy
+   * of its own, cached apart).
+   */
+  private texture(path: string, sheet = false): Promise<Texture> {
+    const key = sheet ? `${path}#sheet` : path;
+    const cached = this.textures.get(key);
     if (cached) return Promise.resolve(cached);
-    let p = this.loading.get(path);
+    let p = this.loading.get(key);
     if (!p) {
       p = new Promise<Texture>((resolve, reject) => {
         const settings: ImportSettings = Assets.importSettings(path);
@@ -474,21 +480,21 @@ export class BabylonRenderer {
         }
         const tex = new Texture(url, this.scene, {
           noMipmap: !settings.mipmaps,
-          invertY: true,
+          invertY: !sheet,
           samplingMode: this.samplingMode(settings),
           onLoad: () => {
             this.applySampling(path, tex);
-            this.textures.set(path, tex);
-            this.loading.delete(path);
+            this.textures.set(key, tex);
+            this.loading.delete(key);
             resolve(tex);
           },
           onError: (message) => {
-            this.loading.delete(path);
+            this.loading.delete(key);
             reject(new Error(message ?? `couldn't load ${path}`));
           },
         });
       });
-      this.loading.set(path, p);
+      this.loading.set(key, p);
     }
     return p;
   }
@@ -680,7 +686,7 @@ export class BabylonRenderer {
               return (this.owner ?? world).worldMatrix(e).subarray(e * 16, e * 16 + 16);
             },
             selected: (c) => this.selectedNodes.has(c.node),
-            texture: (path) => this.texture(path),
+            texture: (path, sheet) => this.texture(path, sheet),
             tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
             material: (path) => this.materialAsset(path), // shared with MeshRenderers; null while missing
           });
