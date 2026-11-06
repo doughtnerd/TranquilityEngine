@@ -46,7 +46,11 @@ import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector
 import type { MaterialPropertyValue } from "../components";
 import { compileShaderGraph } from "../shaderGraph/compile";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "./graphMaterial";
-import { Camera, Light, MeshRenderer, PostProcessing, SpriteRenderer } from "../components";
+import { Camera, Light, MeshRenderer, ParticleSystem, PostProcessing, SpriteRenderer } from "../components";
+import type { GameObject } from "../../scene/GameObject";
+import type { ParticlePreviewSettings, ParticleStats } from "../RenderSurface";
+import type { BabylonParticles } from "./particles";
+import { PARTICLE_SCALE } from "../../core/graphics";
 import { Graphics } from "../Graphics";
 import { resolvePostEffects, type PostSettings } from "../postEffects";
 import type { PostEffects, ToneMappingName } from "../PostProcessStack";
@@ -188,6 +192,13 @@ export class BabylonRenderer {
   private readonly warned = new Set<string>();
   private readonly defaultMaterial: PBRMaterial;
   private readonly lighting: BabylonLighting;
+  /** Particle effects (stage 5), loaded the first time a World has a ParticleSystem. */
+  private particles: BabylonParticles | null = null;
+  private particlesLoading = false;
+  /** Editor preview settings set before the particles loaded. */
+  private readonly particlePreview: Partial<ParticlePreviewSettings> = {};
+  /** Editor: the selected nodes (the particle preview plays only theirs). */
+  private readonly selectedNodes = new Set<GameObject>();
   private readonly frame: BabylonFrame;
   private shadows: ShadowRequest[] = [];
   private readonly casters: Mesh[] = [];
@@ -322,6 +333,7 @@ export class BabylonRenderer {
     this.casters.length = 0;
     for (const [r, e] of this.meshRenderers) if (r.castShadows && r.isActiveAndEnabled) this.casters.push(...e.meshes);
     this.shadows = this.lighting.syncLights(world, camera);
+    this.syncParticles(world);
     this.lighting.syncEnvironment(world, view?.far ?? 1000);
   }
 
@@ -359,6 +371,56 @@ export class BabylonRenderer {
     return null;
   }
 
+  // --- Particles (ADR 0057, 0060; stage 5) -------------------------------------------------------
+
+  /** Load the particle player on first use (games without particles never download it), then step it. */
+  private syncParticles(world: World): void {
+    const systems = world._componentsOfType(ParticleSystem);
+    if (!this.particles) {
+      if (!systems.length || this.particlesLoading) return;
+      this.particlesLoading = true;
+      import("./particles")
+        .then((m) => {
+          if (this.disposed) return;
+          this.particles = new m.BabylonParticles({
+            scene: this.scene,
+            editor: this.fill,
+            worldMatrix: (c) => {
+              const e = c.node.entity;
+              return (this.owner ?? world).worldMatrix(e).subarray(e * 16, e * 16 + 16);
+            },
+            selected: (c) => this.selectedNodes.has(c.node),
+            texture: (path) => this.texture(path),
+            tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
+          });
+          Object.assign(this.particles.preview, this.particlePreview);
+        })
+        .catch((err) => console.error("[myco] particles couldn't start on the Babylon backend:", err))
+        .finally(() => (this.particlesLoading = false));
+      return;
+    }
+    this.particles.sync(systems, world.time.deltaTime, world.time.unscaledDeltaTime);
+  }
+
+  /** Editor: the selected nodes, for the particle preview. */
+  setSelected(nodes: readonly GameObject[]): void {
+    this.selectedNodes.clear();
+    for (const n of nodes) this.selectedNodes.add(n);
+  }
+
+  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
+    Object.assign(this.particlePreview, preview);
+    if (this.particles) Object.assign(this.particles.preview, preview);
+  }
+
+  restartParticlePreview(): void {
+    this.particles?.restartAll();
+  }
+
+  particleState(): ParticleStats | null {
+    return this.particles?.state() ?? null;
+  }
+
   /** Tests and the editor: what the last frame's first camera ran. */
   postState(): { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null } {
     return { composed: !!this.lastPost?.composed, loaded: this.frame.ready, toneMapping: this.lastPost?.toneMapping ?? "none", effects: this.lastPost?.effects ?? null };
@@ -379,6 +441,8 @@ export class BabylonRenderer {
         this.meshRenderers.delete(c);
       }
       this.releaseRendererMaterial(c);
+    } else if (c instanceof ParticleSystem) {
+      this.particles?.release(c);
     } else if (c instanceof Light) {
       this.lighting.release(c);
     } else if (c instanceof Camera) {
@@ -394,6 +458,7 @@ export class BabylonRenderer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.particles?.dispose();
     this.frame.dispose();
     this.scene.dispose();
     this.engine.dispose();

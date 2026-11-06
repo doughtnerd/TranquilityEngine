@@ -40,6 +40,9 @@ export class BabylonSurface implements RenderSurface {
   private pixelRatio = 1;
   private owner: World | null = null;
   private background: string | number;
+  /** Editor state set before the renderer loaded, applied once it has. */
+  private readonly particlePreview: Partial<ParticlePreviewSettings> = {};
+  private selection: GameObject[] = [];
 
   constructor(
     private readonly container: HTMLElement,
@@ -66,6 +69,8 @@ export class BabylonSurface implements RenderSurface {
         // Dev builds: every live Babylon scene, for inspecting the migration from the console.
         if (import.meta.env?.DEV) ((globalThis as { __mycoBabylonScenes?: unknown[] }).__mycoBabylonScenes ??= []).push(r.scene);
         r.setClearColor(this.background);
+        r.setParticlePreview(this.particlePreview);
+        r.setSelected(this.selection);
         this.applyQuality();
       })
       .catch((err) => console.error("[myco] the Babylon.js renderer couldn't start:", err));
@@ -177,13 +182,18 @@ export class BabylonSurface implements RenderSurface {
     return { captured: 0, probes: 0, reflecting: 0 };
   }
   particleState(): ParticleStats | null {
-    return null;
+    return this.renderer?.particleState() ?? null;
   }
   uiRuntime(): UIRuntime | null {
     return null;
   }
-  setParticlePreview(_preview: Partial<ParticlePreviewSettings>): void {}
-  restartParticlePreview(): void {}
+  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
+    Object.assign(this.particlePreview, preview);
+    this.renderer?.setParticlePreview(preview);
+  }
+  restartParticlePreview(): void {
+    this.renderer?.restartParticlePreview();
+  }
 
   // --- Editor helpers (stage 8) -----------------------------------------------------------------
 
@@ -215,7 +225,11 @@ export class BabylonSurface implements RenderSurface {
   pointOnPlane(_world: World, _x: number, _y: number, _normal: readonly number[], _point: readonly number[]): [number, number, number] | null {
     return null;
   }
-  setSelectionOutline(_nodes: readonly GameObject[]): void {}
+  /** Stage 8 draws the outline; until then the selection only steers the particle preview. */
+  setSelectionOutline(nodes: readonly GameObject[]): void {
+    this.selection = [...nodes];
+    this.renderer?.setSelected(nodes);
+  }
   setSelectionOutlineShown(_shown: boolean): void {}
   editorDrawingShown(): { segments: number; handles: number; outlines: number; drawnObjects: number } {
     return { segments: 0, handles: 0, outlines: 0, drawnObjects: 0 };

@@ -114,6 +114,11 @@ We will replace three.js with **Babylon.js** as the only renderer, and move to *
       - **Varyings are scarce.** WebGPU allows 16 vertex outputs, and PBR with shadows uses most of them. WGSL graphs therefore reuse Babylon's world position and normal varyings and declare only the ones they read.
       - **Graph textures** decode sRGB in hardware (sRGB texture formats), because graph code samples them raw.
       - **Per-renderer properties (ADR 0049):** a graph material's copy shares the program and changes only its values; a built-in material's copy is a fresh clone of the base with the overrides applied.
+    - **Stage 5** (`render/particles/simulation.ts`, `babylon/particles.ts`):
+      - **Our simulation, Babylon's drawing.** Babylon's particle system lacks much of the effect format (0057): trails, orbit, turbulence, plane collision, colour and size by speed, rate over distance, bursts with cycles and probability. A renderer-neutral CPU simulation (no three.js or Babylon imports, tested headless) plays every module. Babylon's CPU `ParticleSystem`, with its own emission and update turned off, only draws the simulated particles each frame (billboards, stretched, flipbook sheets, blending).
+      - **Unchanged parts:** the component API, the lifecycle commands, the editor preview and destroy-on-finish mirror the three.js player. Particle graph bindings (0060) run through the existing program runner, now free of three.js.
+      - **Colour:** particles draw in linear space, because the render task marks image processing as applied later, so the finish pass tone maps them once.
+      - **Not yet:** mesh and trail render modes draw billboards (trail history is already simulated); particle material assets, `renderOrder` and `blendTiles` are ignored. Each warns once.
     - **Effects (stage 3):** ambient occlusion is SSAO2; depth of field and bloom are Babylon's; chromatic aberration uses the tier's amount. The editor's scene view previews the scene camera's effects, minus depth of field, as on three.js. Babylon's frame graph has no SMAA, so FXAA stands in on tiers that ask for SMAA.
 - **Stages,** each ending with the samples rendering:
   1. Engine, camera, meshes, sprites and materials.

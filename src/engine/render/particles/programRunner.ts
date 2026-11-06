@@ -6,7 +6,7 @@ import type { GraphInputValue } from "../../scene/particleGraph";
 import type { ParticleBinding, ParticleProgram } from "../../scene/particleCompile";
 import type { EvalContext, NodeValue } from "../../scene/particleNodes";
 import { hexColor, type ParticleEffect } from "../../scene/particles";
-import { linearRGB, type LiveBox } from "./quarksEffect";
+import { linearRGB, type LiveBox } from "./simulation";
 
 export class ProgramRunner {
   private readonly boxes = new Map<string, LiveBox>();

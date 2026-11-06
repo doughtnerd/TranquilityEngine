@@ -1,7 +1,7 @@
 // Internal (ADR 0057, 0060): translates effect settings (compiled from particle graphs by
 // `compileParticleGraph`) into three.quarks particle systems.
 // three.js and quarks types are allowed here and never reach the public API (ADR 0010).
-import { Color, Euler, type BufferGeometry, type Material, Matrix4, SRGBColorSpace } from "three";
+import { Euler, type BufferGeometry, type Material, Matrix4 } from "three";
 import {
   ApplyForce,
   Bezier,
@@ -64,6 +64,7 @@ import {
   type ParticleRenderer,
   type ParticleShape,
 } from "../../scene/particles";
+import { linearRGB, type LiveBox } from "./simulation";
 
 const DEG = Math.PI / 180;
 const GRAVITY = 9.81;
@@ -88,10 +89,7 @@ export interface EffectContext {
   live?(emitter: number, path: string): LiveBox | undefined;
 }
 
-/** A value the caller updates in place: a number, or linear RGBA for colours. */
-export interface LiveBox {
-  value: number | number[];
-}
+export type { LiveBox };
 
 /** One emitter of a built effect. */
 export interface BuiltEmitter {
@@ -254,13 +252,8 @@ export function numberGen(v: ParticleNumber, scale = 1): NumberGen {
   return new RandomBetweenCurves(curveGen(v.randomCurves[0], scale), curveGen(v.randomCurves[1], scale));
 }
 
-const tmpColor = new Color();
-
-/** sRGB components (0–1) as linear RGB, through three's colour management. */
-export function linearRGB(r: number, g: number, b: number): [number, number, number] {
-  tmpColor.setRGB(r, g, b, SRGBColorSpace);
-  return [tmpColor.r, tmpColor.g, tmpColor.b];
-}
+// `linearRGB` and `LiveBox` live in the renderer-neutral simulation (the Babylon backend uses them too).
+export { linearRGB };
 
 /** sRGB `#rrggbb[aa]` as quarks' linear RGBA. */
 export function linearColor(hex: string): QVector4 {
