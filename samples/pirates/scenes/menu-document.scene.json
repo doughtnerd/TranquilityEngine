@@ -1,0 +1,532 @@
+{
+ "format": "myco.scene@1",
+ "nodes": [
+  {
+   "id": "sun",
+   "name": "Sun",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {
+      "position": [
+       0,
+       40,
+       0
+      ],
+      "rotation": [
+       -35,
+       210,
+       0
+      ]
+     }
+    },
+    {
+     "type": "engine.Light",
+     "data": {
+      "type": "directional",
+      "intensity": 2.2,
+      "castShadows": false
+     }
+    }
+   ]
+  },
+  {
+   "id": "ambient",
+   "name": "Ambient Light",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.Light",
+     "data": {
+      "type": "ambient",
+      "intensity": 0.65,
+      "color": [
+       0.75,
+       0.85,
+       1,
+       1
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "fog",
+   "name": "Fog",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.Fog",
+     "data": {
+      "mode": "linear",
+      "color": [
+       0.62,
+       0.74,
+       0.84,
+       1
+      ],
+      "near": 60,
+      "far": 220,
+      "affectsSkybox": true,
+      "skyboxFog": 1
+     }
+    }
+   ]
+  },
+  {
+   "id": "sea",
+   "name": "Sea",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.WaterSurface",
+     "data": {
+      "size": 360.0,
+      "resolution": 160,
+      "waveScale": 1.0
+     }
+    }
+   ]
+  },
+  {
+   "id": "backdrop",
+   "name": "Backdrop",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "pirates.MenuBackdrop",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "camera",
+   "name": "Camera",
+   "parent": "backdrop",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {
+      "position": [
+       0,
+       13,
+       44
+      ],
+      "rotation": [
+       12,
+       0,
+       0
+      ]
+     }
+    },
+    {
+     "type": "engine.Camera",
+     "data": {
+      "projection": "perspective",
+      "fieldOfView": 50,
+      "far": 600
+     }
+    },
+    {
+     "type": "engine.AudioListener",
+     "data": {}
+    },
+    {
+     "type": "engine.PostProcessing",
+     "data": {
+      "bloom": true,
+      "vignette": true
+     }
+    }
+   ]
+  },
+  {
+   "id": "ocean",
+   "name": "Ocean Sound",
+   "parent": "camera",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.AudioSource",
+     "data": {
+      "clip": "asset:audio/ocean_loop.wav",
+      "loop": true,
+      "volume": 0.3,
+      "playOnAwake": true
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship0",
+   "name": "Ship1",
+   "parent": "backdrop",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship0-visual",
+   "name": "Visual",
+   "parent": "ship0",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship0-hull",
+   "name": "Hull",
+   "parent": "ship0-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Hull"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship0-sails",
+   "name": "Sails",
+   "parent": "ship0-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Sails",
+      "material": "asset:materials/sail.material.json"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship1",
+   "name": "Ship2",
+   "parent": "backdrop",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship1-visual",
+   "name": "Visual",
+   "parent": "ship1",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship1-hull",
+   "name": "Hull",
+   "parent": "ship1-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Hull"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship1-sails",
+   "name": "Sails",
+   "parent": "ship1-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Sails",
+      "material": "asset:materials/sail.material.json"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship2",
+   "name": "Ship3",
+   "parent": "backdrop",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship2-visual",
+   "name": "Visual",
+   "parent": "ship2",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "id": "ship2-hull",
+   "name": "Hull",
+   "parent": "ship2-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Hull"
+     }
+    }
+   ]
+  },
+  {
+   "id": "ship2-sails",
+   "name": "Sails",
+   "parent": "ship2-visual",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.MeshRenderer",
+     "data": {
+      "mesh": "asset:models/ship.obj#Sails",
+      "material": "asset:materials/sail.material.json"
+     }
+    }
+   ]
+  },
+  {
+   "id": "prop0",
+   "prefab": "prefabs/island2.prefab.json",
+   "overrides": [
+    {
+     "component": "engine.Transform",
+     "field": "position",
+     "value": [
+      -6,
+      0,
+      2
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "rotation",
+     "value": [
+      0,
+      30,
+      0
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "scale",
+     "value": [
+      1.4,
+      1.4,
+      1.4
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prop1",
+   "prefab": "prefabs/island1.prefab.json",
+   "overrides": [
+    {
+     "component": "engine.Transform",
+     "field": "position",
+     "value": [
+      26,
+      0,
+      -22
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "rotation",
+     "value": [
+      0,
+      120,
+      0
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "scale",
+     "value": [
+      1.2,
+      1.2,
+      1.2
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prop2",
+   "prefab": "prefabs/rock1.prefab.json",
+   "overrides": [
+    {
+     "component": "engine.Transform",
+     "field": "position",
+     "value": [
+      -30,
+      0,
+      -16
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "rotation",
+     "value": [
+      0,
+      0,
+      0
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "scale",
+     "value": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prop3",
+   "prefab": "prefabs/rock3.prefab.json",
+   "overrides": [
+    {
+     "component": "engine.Transform",
+     "field": "position",
+     "value": [
+      18,
+      0,
+      30
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "rotation",
+     "value": [
+      0,
+      70,
+      0
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "scale",
+     "value": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "id": "prop4",
+   "prefab": "prefabs/island1.prefab.json",
+   "overrides": [
+    {
+     "component": "engine.Transform",
+     "field": "position",
+     "value": [
+      -34,
+      0,
+      30
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "rotation",
+     "value": [
+      0,
+      200,
+      0
+     ]
+    },
+    {
+     "component": "engine.Transform",
+     "field": "scale",
+     "value": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "id": "menu",
+   "name": "Menu",
+   "components": [
+    {
+     "type": "engine.Transform",
+     "data": {}
+    },
+    {
+     "type": "engine.UIDocument",
+     "data": {
+      "document": "asset:ui/menu.ui.xml"
+     }
+    },
+    {
+     "type": "pirates.MenuDocument",
+     "data": {}
+    }
+   ]
+  }
+ ]
+}
