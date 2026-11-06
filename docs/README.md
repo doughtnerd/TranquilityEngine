@@ -105,12 +105,13 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0072](decisions/0072-water-surfaces-and-buoyancy.md) | Water surfaces with Gerstner waves, sampled the same on the CPU for buoyancy | Accepted |
 | [0073](decisions/0073-camera-rays-and-screen-points.md) | Cameras convert between screen points and world rays; `Ray` and `Plane` are public maths types | Accepted |
 | [0074](decisions/0074-spatial-audio-with-howler.md) | Spatial audio through Howler's spatial API, with an AudioListener component | Accepted |
-| [0075](decisions/0075-babylonjs-render-backend.md) | Babylon.js replaces three.js as the render backend (WebGPU, plain WGSL, frame graph), from upstream with module-by-module imports and copied subsystems instead of a fork | Accepted; stage 10 superseded by 0078 |
+| [0075](decisions/0075-babylonjs-render-backend.md) | Babylon.js replaces three.js as the render backend (WebGPU, plain WGSL, frame graph), from upstream with module-by-module imports and copied subsystems instead of a fork | Accepted; stage 10 superseded by 0078, then restored for the renderer by 0081 |
 | [0076](decisions/0076-ui-yoga-layout-babylon-gui-drawing.md) | Game UI: Yoga lays out, Babylon GUI draws, the engine routes input; partly supersedes 0069 (uikit) | Accepted |
 | [0077](decisions/0077-ui-documents-markup-styles-scripts.md) | UI is authored as markup documents with stylesheets, driven by scripts on a data-oriented core, and edited in the scene view | Accepted |
-| [0078](decisions/0078-keep-both-render-backends.md) | Keep both render backends: Babylon.js by default, three.js as a toggle (no stage 10); three.js's loaders keep importing FBX and OBJ | Accepted |
+| [0078](decisions/0078-keep-both-render-backends.md) | Keep both render backends: Babylon.js by default, three.js as a toggle (no stage 10); three.js's loaders keep importing FBX and OBJ | Superseded by 0081 |
 | [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
 | [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
+| [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
 
 ## Working with decisions
 

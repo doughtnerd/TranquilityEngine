@@ -32,8 +32,7 @@ import { netSession, type NetPeer, type NetTraffic } from "../net/session";
 import type { LinkConditions } from "../net/Transport";
 
 export type { InstantiateHooks } from "../scene/SceneLoader";
-// The preview renderers run on three.js or Babylon.js by `rendererChoice()` (ADR 0075, 0078); see render/previewRouting.ts.
-export { rendererChoice, setStoredRendererChoice, storedRendererChoice, type RendererName } from "../render/createRenderSurface";
+// The preview renderers run on Babylon.js (ADR 0075, 0081); see render/previewRouting.ts.
 export { MaterialPreview, NodePreviewRenderer, loadParticleEffectPreview, type PreviewMesh } from "../render/previewRouting";
 export type { ParticleEffectPreviewApi as ParticleEffectPreview, PreviewBackground } from "../render/previewTypes";
 
@@ -969,5 +968,5 @@ export function liveLinks(engine: Engine): LiveLink[] {
 
 export type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi as ThumbnailRenderer } from "../render/previewTypes";
 
-/** The editor's asset thumbnail renderer (one offscreen GPU context), loaded the first time it's needed, on the renderer `rendererChoice()` picks. */
+/** The editor's asset thumbnail renderer (one offscreen GPU context), loaded the first time it's needed. */
 export { createThumbnailRenderer } from "../render/previewRouting";

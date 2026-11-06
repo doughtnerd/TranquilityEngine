@@ -1,6 +1,6 @@
 # 0078. Keep both render backends: Babylon.js by default, three.js as a toggle
 
-- **Status:** Accepted
+- **Status:** Superseded by 0081
 - **Date:** 2026-11-06
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0075 (in part: its stage 10 and its Deprecates list)
