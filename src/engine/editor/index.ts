@@ -30,10 +30,9 @@ import { netSession, type NetPeer, type NetTraffic } from "../net/session";
 import type { LinkConditions } from "../net/Transport";
 
 export type { InstantiateHooks } from "../scene/SceneLoader";
-export { MaterialPreview, NodePreviewRenderer, type PreviewMesh } from "../render/MaterialPreview";
-export type { ParticleEffectPreview, PreviewBackground } from "../render/particles/EffectPreview";
-/** The Particle Graph's effect preview (ADR 0060), loaded on demand: it brings three.quarks, which the editor (and the dedicated server) shouldn't load at start-up. */
-export const loadParticleEffectPreview = () => import("../render/particles/EffectPreview");
+// The preview renderers run on three.js or Babylon.js by `rendererChoice()` (ADR 0075); see render/previewRouting.ts.
+export { MaterialPreview, NodePreviewRenderer, loadParticleEffectPreview, type PreviewMesh } from "../render/previewRouting";
+export type { ParticleEffectPreviewApi as ParticleEffectPreview, PreviewBackground } from "../render/previewTypes";
 
 /** One node of a World, as listed by `listNodes`. */
 export interface NodeInfo {
@@ -919,13 +918,7 @@ export function liveLinks(engine: Engine): LiveLink[] {
 
 // --- Asset thumbnails (ADR 0061) -------------------------------------------------------------------
 
-export type { ThumbnailKind, ThumbnailRenderer } from "../render/ThumbnailRenderer";
+export type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi as ThumbnailRenderer } from "../render/previewTypes";
 
-/** The editor's asset thumbnail renderer (one offscreen WebGL context), loaded the first time it's needed. */
-export async function createThumbnailRenderer(size?: number): Promise<import("../render/ThumbnailRenderer").ThumbnailRenderer> {
-  const { ThumbnailRenderer } = await import("../render/ThumbnailRenderer");
-  return new ThumbnailRenderer(size);
-}
-
-/** An orbitable asset preview in the Inspector (ADR 0061): `ThumbnailRenderer.preview`. */
-export type { ThumbnailPreview } from "../render/ThumbnailRenderer";
+/** The editor's asset thumbnail renderer (one offscreen GPU context), loaded the first time it's needed, on the renderer `rendererChoice()` picks. */
+export { createThumbnailRenderer } from "../render/previewRouting";

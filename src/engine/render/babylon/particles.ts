@@ -5,22 +5,18 @@
 // whose particle list mirrors the simulation's every frame: Babylon's own emission, gravity and
 // gradients are off (`emitRate` 0, an empty `updateFunction`). Loaded on demand by the renderer,
 // so games without particles never load it. Babylon types stay inside this folder (ADR 0010).
-import { Constants } from "@babylonjs/core/Engines/constants.js";
-import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
-import { Particle } from "@babylonjs/core/Particles/particle.js";
-import { ParticleSystem as BabylonParticleSystem } from "@babylonjs/core/Particles/particleSystem.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../scene/Assets";
 import { GameObject } from "../../scene/GameObject";
 import { compileParticleGraph, type ParticleProgram } from "../../scene/particleCompile";
 import { parseParticleGraph } from "../../scene/particleGraphFormat";
-import type { ParticleRenderer as RendererSettings } from "../../scene/particles";
 import type { ParticleSystem } from "../components";
 import type { ParticlePreviewSettings, ParticleStats } from "../RenderSurface";
 import { ProgramRunner } from "../particles/programRunner";
 import { EffectSimulation, linearRGB, type SimEmitter } from "../particles/simulation";
+import { copyParticles, createDotTexture, makeDraw as makeBabylonDraw, type Draw } from "./particleDraw";
 
 /** What the particle player needs from the render backend. */
 export interface BabylonParticleHost {
@@ -39,18 +35,6 @@ export interface BabylonParticleHost {
 }
 
 type PlayState = "playing" | "paused" | "stopped";
-
-/** One emitter's Babylon particle system. */
-interface Draw {
-  name: string;
-  emitter: SimEmitter;
-  ps: BabylonParticleSystem;
-  capacity: number;
-  /** Babylon particles taken off the list, reused later. */
-  spare: Particle[];
-  mode: "billboard" | "stretched" | "horizontal" | "vertical";
-  texture: BaseTexture;
-}
 
 interface Instance {
   /** The effect JSON it was built from, compared by identity (the asset's, or the embedded object). */
@@ -83,14 +67,6 @@ interface Instance {
 const PREVIEW_REPEAT_GAP = 0.6;
 /** Seconds between checks of a built effect's textures. */
 const KEY_CHECK_INTERVAL = 0.25;
-
-/** The default dot texture's size in pixels. */
-const DOT_SIZE = 64;
-
-// Babylon's billboard modes (`ParticleSystem.BILLBOARDMODE_*`).
-const BILLBOARD_ALL = 7;
-const BILLBOARD_Y = 2;
-const BILLBOARD_STRETCHED = 8;
 
 export class BabylonParticles {
   private readonly instances = new Map<ParticleSystem, Instance>();
@@ -353,22 +329,7 @@ export class BabylonParticles {
 
   /** The soft round dot particles use when they have no texture. */
   private dotTexture(): RawTexture {
-    if (this.dot) return this.dot;
-    const size = DOT_SIZE;
-    const data = new Uint8Array(size * size * 4);
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const d = Math.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) / (size / 2);
-        const a = Math.max(0, 1 - d);
-        const i = (y * size + x) * 4;
-        data[i] = data[i + 1] = data[i + 2] = 255;
-        data[i + 3] = Math.round(a * a * (3 - 2 * a) * 255);
-      }
-    }
-    this.dot = new RawTexture(data, size, size, Constants.TEXTUREFORMAT_RGBA, this.host.scene, false, false, Constants.TEXTURE_BILINEAR_SAMPLINGMODE);
-    this.dot.hasAlpha = true;
-    this.dot.name = "particle dot";
-    return this.dot;
+    return (this.dot ??= createDotTexture(this.host.scene));
   }
 
   /** What the build depends on (each emitter's texture), or null while one still loads. */
@@ -398,28 +359,10 @@ export class BabylonParticles {
   // --- drawing --------------------------------------------------------------------------------------------
 
   private makeDraw(name: string, e: SimEmitter, scale: number, capacity = Math.max(1, Math.ceil(e.settings.maxParticles * Math.max(1, scale)))): Draw {
-    const r: RendererSettings = e.renderer;
-    const path = r.texture;
+    const path = e.renderer.texture;
     const found = path ? this.textureFor(path) : null;
     const texture = found && found !== "failed" ? found : this.dotTexture();
-    const sheet = r.tiles[0] * r.tiles[1] > 1;
-    const ps = new BabylonParticleSystem(name, capacity, this.host.scene, null, sheet);
-    ps.particleTexture = texture;
-    ps.emitter = Vector3.Zero();
-    ps.emitRate = 0;
-    ps.updateFunction = () => {}; // the simulation owns the list; sync mirrors into it
-    ps.renderingGroupId = 0; // draw order among transparent things is left to Babylon (renderOrder isn't used)
-    ps.blendMode = r.blending === "additive" ? BabylonParticleSystem.BLENDMODE_ADD : r.blending === "premultiplied" ? Constants.ALPHA_PREMULTIPLIED : BabylonParticleSystem.BLENDMODE_STANDARD;
-    const mode: Draw["mode"] = r.mode === "stretched" || r.mode === "horizontal" || r.mode === "vertical" ? r.mode : "billboard";
-    ps.isBillboardBased = mode !== "horizontal";
-    ps.billboardMode = mode === "stretched" ? BILLBOARD_STRETCHED : mode === "vertical" ? BILLBOARD_Y : BILLBOARD_ALL;
-    if (sheet) {
-      const size = texture === this.dot ? { width: DOT_SIZE, height: DOT_SIZE } : texture.getBaseSize();
-      ps.spriteCellWidth = size.width / r.tiles[0];
-      ps.spriteCellHeight = size.height / r.tiles[1];
-    }
-    ps.start();
-    return { name, emitter: e, ps, capacity, spare: [], mode, texture };
+    return makeBabylonDraw(this.host.scene, name, e, capacity, texture, texture === this.dot);
   }
 
   /** Copy the simulation's particles into Babylon's list for drawing. */
@@ -432,36 +375,7 @@ export class BabylonParticles {
       d.ps.dispose(false);
       Object.assign(d, next);
     }
-    const list = d.ps.particles;
-    const n = Math.min(e.count, d.capacity);
-    while (list.length < n) list.push(d.spare.pop() ?? new Particle(d.ps));
-    while (list.length > n) d.spare.push(list.pop()!);
-    for (let i = 0; i < n; i++) {
-      const p = e.pool[i];
-      const b = list[i];
-      b.position.set(p.wx, p.wy, p.wz);
-      b.color.set(p.r, p.g, p.b, p.a);
-      b.cellIndex = p.tile;
-      b.size = 1;
-      switch (d.mode) {
-        case "stretched": {
-          const speed = Math.hypot(p.wvx, p.wvy, p.wvz);
-          b.angle = 0;
-          b.scale.set(p.size, Math.max(p.length, 1e-4));
-          if (speed > 1e-6) b.direction.set(p.wvx, p.wvy, p.wvz);
-          else b.direction.set(0, 1, 0);
-          break;
-        }
-        case "horizontal":
-          b.angle = p.rotation;
-          b.scale.set(p.size, p.size);
-          b.direction.set(0.001, 1, 0); // the quad's normal; Babylon needs it off the pole
-          break;
-        default:
-          b.angle = p.rotation;
-          b.scale.set(p.size, p.size);
-      }
-    }
+    copyParticles(d);
   }
 
   private disposeDraws(inst: Instance): void {

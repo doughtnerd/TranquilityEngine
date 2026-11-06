@@ -1,0 +1,151 @@
+/**
+ * Babylon materials and meshes built from the engine's renderer-neutral data (ADR 0043, 0044, 0075):
+ * material assets as PBR materials, model geometry as vertex data, model surfaces as PBR materials.
+ * Shared by the World renderer (`BabylonRenderer.ts`) and the editor's preview renderers
+ * (`previews/`), so a material looks the same in the scene, the Inspector and a thumbnail.
+ */
+import { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
+import { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
+import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
+import { Color3 } from "@babylonjs/core/Maths/math.color.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
+import { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
+import type { Scene } from "@babylonjs/core/scene.js";
+import type { Color } from "../../core/math";
+import type { MaterialSettings } from "../../scene/material";
+import type { ModelMesh } from "../../scene/models";
+
+/**
+ * A PBR material for engine geometry. The engine's meshes wind their front faces counter-clockwise
+ * (three.js and glTF convention); Babylon's default, even in a right-handed scene, is clockwise.
+ */
+export function pbr(name: string, scene: Scene): PBRMaterial {
+  const m = new PBRMaterial(name, scene);
+  m.sideOrientation = BabylonMaterial.CounterClockWiseSideOrientation;
+  m.maxSimultaneousLights = 8; // Babylon's default is 4
+  return m;
+}
+
+/** An sRGB engine colour as a linear Babylon colour (PBR colours are linear). */
+export function linear(c: Color): Color3 {
+  return new Color3(c.r, c.g, c.b).toLinearSpace();
+}
+
+/** Vertex data made from each model geometry, shared by every mesh drawing it. */
+const vertexDatas = new WeakMap<object, VertexData>();
+
+/** A model mesh's vertices (its renderer-neutral data) as Babylon vertex data, made once per mesh. */
+export function vertexDataOf(src: ModelMesh): VertexData {
+  let data = vertexDatas.get(src.data);
+  if (data) return data;
+  const d = src.data;
+  data = new VertexData();
+  data.positions = d.positions;
+  data.indices = d.indices;
+  if (d.uvs) data.uvs = d.uvs;
+  if (d.normals) data.normals = d.normals;
+  else {
+    const normals: number[] = [];
+    VertexData.ComputeNormals(d.positions, d.indices, normals);
+    data.normals = normals;
+  }
+  vertexDatas.set(src.data, data);
+  return data;
+}
+
+/** One model surface as a PBR material, shared by every mesh using it (`cache` is the owner's, per scene). */
+export function surfaceMaterial(scene: Scene, cache: WeakMap<object, BabylonMaterial>, surface: ModelMesh["surfaces"][number], meshName: string): BabylonMaterial {
+  let m = cache.get(surface);
+  if (m) return m;
+  const made = pbr(`model:${meshName}:${surface.name}`, scene);
+  made.albedoColor = new Color3(surface.color[0], surface.color[1], surface.color[2]); // already linear
+  made.metallic = surface.metalness;
+  made.roughness = surface.roughness;
+  made.backFaceCulling = !surface.doubleSided;
+  if (surface.transparent && surface.opacity < 1) {
+    made.alpha = surface.opacity;
+    made.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+  }
+  const map = surface.map;
+  if (map?.src) made.albedoTexture = new Texture(map.src, scene, { invertY: true });
+  else if (map?.image) made.albedoTexture = new Texture("data:model-texture", scene, { invertY: true, buffer: map.image as HTMLImageElement });
+  m = made;
+  cache.set(surface, m);
+  return m;
+}
+
+/**
+ * A model's own materials (colour, texture, metalness, roughness) as Babylon PBR materials. A mesh
+ * with several, one per index group, gets a submesh per group under a `MultiMaterial`.
+ */
+export function modelMaterial(scene: Scene, cache: WeakMap<object, BabylonMaterial>, src: ModelMesh, mesh: Mesh): BabylonMaterial | null {
+  if (!src.surfaces.length) return null;
+  const one = (i: number) => surfaceMaterial(scene, cache, src.surfaces[i] ?? src.surfaces[0], src.name);
+  const groups = src.data.groups;
+  if (src.surfaces.length < 2 || groups.length < 2) return one(0);
+  const multi = new MultiMaterial(`model:${src.name}`, scene);
+  multi.subMaterials = src.surfaces.map((_, i) => one(i));
+  mesh.subMeshes = [];
+  const vertices = src.data.positions.length / 3;
+  for (const g of groups) new SubMesh(Math.min(g.materialIndex, src.surfaces.length - 1), 0, vertices, g.start, g.count, mesh);
+  return multi;
+}
+
+/** A Babylon mesh of a model mesh's renderer-neutral geometry (no material yet). */
+export function meshOf(scene: Scene, name: string, src: ModelMesh): Mesh {
+  const mesh = new Mesh(name, scene);
+  vertexDataOf(src).applyToMesh(mesh, false);
+  return mesh;
+}
+
+/** A lit, unlit or physical material asset's settings (all but its textures) on a PBR material (ADR 0043, 0052). */
+export function applyBuiltinSettings(m: PBRMaterial, settings: MaterialSettings): void {
+  m.albedoColor = linear(settings.color);
+  m.backFaceCulling = !settings.doubleSided;
+  m.twoSidedLighting = settings.doubleSided;
+  if (settings.color.a < 1) {
+    m.alpha = settings.color.a;
+    m.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+  }
+  if (settings.shader === "unlit") {
+    m.unlit = true;
+  } else {
+    m.metallic = settings.metalness;
+    m.roughness = settings.roughness;
+    m.emissiveColor = linear(settings.emission);
+  }
+  if (settings.shader === "physical") {
+    m.clearCoat.isEnabled = settings.clearcoat > 0;
+    m.clearCoat.intensity = settings.clearcoat;
+    m.clearCoat.roughness = settings.clearcoatRoughness;
+    m.sheen.isEnabled = settings.sheen > 0;
+    m.sheen.intensity = settings.sheen;
+    m.sheen.color = linear(settings.sheenColor);
+    m.sheen.roughness = settings.sheenRoughness;
+    m.subSurface.isRefractionEnabled = settings.transmission > 0;
+    m.subSurface.refractionIntensity = settings.transmission;
+    m.subSurface.maximumThickness = Math.max(settings.thickness, 0.001);
+    m.indexOfRefraction = settings.ior;
+    m.iridescence.isEnabled = settings.iridescence > 0;
+    m.iridescence.intensity = settings.iridescence;
+    m.iridescence.indexOfRefraction = settings.iridescenceIOR;
+    m.anisotropy.isEnabled = settings.anisotropy > 0;
+    m.anisotropy.intensity = settings.anisotropy;
+    m.anisotropy.angle = (settings.anisotropyRotation * Math.PI) / 180;
+    m.metallicF0Factor = settings.specularIntensity;
+    m.metallicReflectanceColor = linear(settings.specularColor);
+  }
+}
+
+/** A texture sharing `shared`'s image with its own tiling (a material's `tiling`); `shared` itself when it's 1×1. */
+export function tiledTexture(shared: Texture, tiling: readonly [number, number]): { texture: Texture; owned: boolean } {
+  const [tx, ty] = tiling;
+  if (tx === 1 && ty === 1) return { texture: shared, owned: false };
+  const tex = shared.clone(); // its own tiling; shares the image
+  tex.uScale = tx;
+  tex.vScale = ty;
+  tex.wrapU = tex.wrapV = Texture.WRAP_ADDRESSMODE;
+  return { texture: tex, owned: true };
+}

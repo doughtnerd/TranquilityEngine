@@ -47,6 +47,33 @@ export const BUILTIN_MESHES = ["cube", "sphere", "capsule", "cylinder", "plane",
 /** @internal */
 export type BuiltinMesh = (typeof BUILTIN_MESHES)[number];
 
+/** @internal A mesh's vertices without renderer types (ADR 0075): what the Babylon backend and physics read. */
+export interface MeshData {
+  /** x, y, z per vertex, in model space. */
+  readonly positions: Float32Array;
+  readonly normals: Float32Array | null;
+  /** u, v per vertex (v up, as three.js and glTF). */
+  readonly uvs: Float32Array | null;
+  /** Three per triangle, counter-clockwise front faces. */
+  readonly indices: Uint32Array;
+  /** Index ranges drawn with each surface (`surfaces[materialIndex]`); empty: one surface for all. */
+  readonly groups: readonly { start: number; count: number; materialIndex: number }[];
+}
+
+/** @internal A model's own material without renderer types (ADR 0075). */
+export interface SurfaceInfo {
+  readonly name: string;
+  /** Linear RGB. */
+  readonly color: readonly [number, number, number];
+  readonly opacity: number;
+  readonly transparent: boolean;
+  readonly metalness: number;
+  readonly roughness: number;
+  readonly doubleSided: boolean;
+  /** The base colour texture's image, as the loader decoded it, or null. */
+  readonly map: { image: unknown; src: string | null } | null;
+}
+
 /** @internal One mesh of a model, in model space. */
 export interface ModelMesh {
   /** Unique within its model; what `#name` refers to. */
@@ -54,6 +81,50 @@ export interface ModelMesh {
   readonly geometry: BufferGeometry;
   /** The model's own materials for this mesh, as the engine's default lit material (one per geometry group). */
   readonly materials: readonly Material[];
+  /** The same vertices as plain arrays (renderer-neutral). */
+  readonly data: MeshData;
+  /** The same materials as plain descriptions (renderer-neutral), one per entry of `materials`. */
+  readonly surfaces: readonly SurfaceInfo[];
+}
+
+/** A float attribute as a tightly packed array (copied only when interleaved or not float). */
+function packed(attr: BufferAttribute | undefined): Float32Array | null {
+  if (!attr) return null;
+  const a = attr as BufferAttribute & { isInterleavedBufferAttribute?: boolean };
+  if (!a.isInterleavedBufferAttribute && attr.array instanceof Float32Array && attr.array.length === attr.count * attr.itemSize) return attr.array;
+  const out = new Float32Array(attr.count * attr.itemSize);
+  for (let i = 0; i < attr.count; i++) for (let k = 0; k < attr.itemSize; k++) out[i * attr.itemSize + k] = attr.getComponent(i, k);
+  return out;
+}
+
+/** @internal The renderer-neutral views of a geometry and its materials. */
+export function neutralMesh(geometry: BufferGeometry, materials: readonly Material[]): { data: MeshData; surfaces: SurfaceInfo[] } {
+  const positions = packed(geometry.getAttribute("position") as BufferAttribute) ?? new Float32Array(0);
+  const count = positions.length / 3;
+  const index = geometry.getIndex();
+  const indices = index ? Uint32Array.from(index.array as ArrayLike<number>) : Uint32Array.from({ length: count - (count % 3) }, (_, i) => i);
+  const data: MeshData = {
+    positions,
+    normals: packed(geometry.getAttribute("normal") as BufferAttribute | undefined),
+    uvs: packed(geometry.getAttribute("uv") as BufferAttribute | undefined),
+    indices,
+    groups: geometry.groups.map((g) => ({ start: g.start, count: g.count, materialIndex: g.materialIndex ?? 0 })),
+  };
+  const surfaces = materials.map((source): SurfaceInfo => {
+    const m = source as Material & { color?: ThreeColor; metalness?: number; roughness?: number; map?: (Texture & { image?: { src?: string; currentSrc?: string } }) | null };
+    const image = m.map?.image ?? null;
+    return {
+      name: source.name,
+      color: m.color ? [m.color.r, m.color.g, m.color.b] : [1, 1, 1],
+      opacity: source.opacity,
+      transparent: source.transparent,
+      metalness: m.metalness ?? 0,
+      roughness: m.roughness ?? 0.6,
+      doubleSided: source.side === DoubleSide,
+      map: image ? { image, src: image.currentSrc || image.src || null } : null,
+    };
+  });
+  return { data, surfaces };
 }
 
 /** @internal A loaded model. */
@@ -170,7 +241,8 @@ function builtinMeshes(ref: string): readonly ModelMesh[] {
   }
   let data = builtins.get(name);
   if (!data) {
-    data = { meshes: [{ name, geometry: builtinGeometry(name), materials: [] }] };
+    const geometry = builtinGeometry(name);
+    data = { meshes: [{ name, geometry, materials: [], ...neutralMesh(geometry, []) }] };
     builtins.set(name, data);
   }
   return data.meshes;
@@ -303,7 +375,7 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
       if (!c) converted.set(m, (c = standardMaterial(m)));
       return c;
     });
-    meshes.push({ name: uniqueName(mesh.name || mesh.parent?.name || "mesh", used), geometry, materials });
+    meshes.push({ name: uniqueName(mesh.name || mesh.parent?.name || "mesh", used), geometry, materials, ...neutralMesh(geometry, materials) });
   });
   return { meshes };
 }
@@ -380,16 +452,7 @@ function disposeModel(data: ModelData): void {
  * vertex indices per triangle.
  */
 export function meshTriangles(mesh: ModelMesh): { vertices: Float32Array; indices: Uint32Array } {
-  const pos = mesh.geometry.getAttribute("position");
-  const vertices = new Float32Array(pos.count * 3);
-  for (let i = 0; i < pos.count; i++) {
-    vertices[i * 3] = pos.getX(i);
-    vertices[i * 3 + 1] = pos.getY(i);
-    vertices[i * 3 + 2] = pos.getZ(i);
-  }
-  const index = mesh.geometry.getIndex();
-  const indices = index ? Uint32Array.from(index.array as ArrayLike<number>) : Uint32Array.from({ length: pos.count - (pos.count % 3) }, (_, i) => i);
-  return { vertices, indices };
+  return { vertices: Float32Array.from(mesh.data.positions), indices: Uint32Array.from(mesh.data.indices) };
 }
 
 /** @internal Forget every loaded model (tests). */

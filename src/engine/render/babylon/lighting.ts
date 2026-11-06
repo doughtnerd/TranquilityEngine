@@ -44,7 +44,7 @@ interface EnvMap {
 }
 
 /** How an environment image is decoded, by file extension; null for unsupported files. */
-function environmentKind(path: string): "hdr" | "exr" | "ldr" | null {
+export function environmentKind(path: string): "hdr" | "exr" | "ldr" | null {
   const p = path.split(/[?#]/)[0]!.toLowerCase();
   if (p.endsWith(".hdr")) return "hdr";
   if (p.endsWith(".exr")) return "exr";
@@ -53,7 +53,7 @@ function environmentKind(path: string): "hdr" | "exr" | "ldr" | null {
 }
 
 /** The size of the prefiltered cube made from an environment map (per face). */
-const ENV_SIZE = 256;
+export const ENV_SIZE = 256;
 
 /** @internal Lights, shadows and environment on the Babylon backend (ADR 0075 stages 2–3). */
 export class BabylonLighting {

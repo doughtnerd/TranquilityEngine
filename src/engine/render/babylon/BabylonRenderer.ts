@@ -62,6 +62,7 @@ import type { PostEffects, ToneMappingName } from "../PostProcessStack";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { spriteFrame } from "../spriteFrame";
+import { applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
 
 interface SpriteEntry {
   mesh: Mesh;
@@ -122,21 +123,6 @@ function toGraphValue(v: MaterialPropertyValue): GraphValue {
   return Array.isArray(v) ? [...v] : (v as number | string);
 }
 
-/** The parts of a three.js BufferGeometry the converter reads, without importing three.js. */
-interface GeometryLike {
-  attributes: Record<string, { array: ArrayLike<number>; itemSize: number } | undefined>;
-  index: { array: ArrayLike<number> } | null;
-}
-
-/** The parts of a model's own (three.js) material the converter reads (ADR 0044's default lit material). */
-interface ModelMaterialLike {
-  color?: { r: number; g: number; b: number };
-  opacity?: number;
-  transparent?: boolean;
-  metalness?: number;
-  roughness?: number;
-  map?: { image?: { src?: string; currentSrc?: string } | null } | null;
-}
 
 const tmpMatrix = new Matrix();
 const tmpScale = new Vector3();
@@ -147,22 +133,6 @@ const QUAD_POSITIONS = [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0];
 const QUAD_NORMALS = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1];
 const QUAD_UVS = [0, 0, 1, 0, 1, 1, 0, 1];
 const QUAD_INDICES = [0, 1, 2, 0, 2, 3];
-
-/**
- * A PBR material for engine geometry. The engine's meshes wind their front faces counter-clockwise
- * (three.js and glTF convention); Babylon's default, even in a right-handed scene, is clockwise.
- */
-function pbr(name: string, scene: Scene): PBRMaterial {
-  const m = new PBRMaterial(name, scene);
-  m.sideOrientation = BabylonMaterial.CounterClockWiseSideOrientation;
-  m.maxSimultaneousLights = 8; // Babylon's default is 4
-  return m;
-}
-
-/** An sRGB engine colour as a linear Babylon colour (PBR colours are linear). */
-function linear(c: Color): Color3 {
-  return new Color3(c.r, c.g, c.b).toLinearSpace();
-}
 
 /** A CSS colour string or 0xRRGGBB number as a Babylon colour (gamma space, for clearing). */
 function clearColorOf(v: string | number): Color4 {
@@ -190,8 +160,6 @@ export class BabylonRenderer {
   private readonly graphShared: GraphShared = { time: 0, resolution: [1, 1] };
   /** Graph textures, sampled raw by graph code: colour ones through sRGB buffers, data ones linear. */
   private readonly graphTextures = new Map<string, Promise<Texture>>();
-  /** Vertex data made from each model geometry, shared by every renderer drawing it. */
-  private readonly vertexData = new WeakMap<object, VertexData>();
   /** Babylon materials made from models' own materials. */
   private readonly modelMaterials = new WeakMap<object, BabylonMaterial>();
   private readonly warned = new Set<string>();
@@ -721,9 +689,8 @@ export class BabylonRenderer {
     if (!same || entry.material !== material) {
       for (const m of entry.meshes) m.dispose();
       entry.meshes = (sources ?? []).map((src) => {
-        const mesh = new Mesh(`mesh:${r.node.name}:${src.name}`, this.scene);
-        this.vertexDataOf(src).applyToMesh(mesh, false);
-        mesh.material = material ?? this.modelMaterial(src) ?? this.defaultMaterial;
+        const mesh = meshOf(this.scene, `mesh:${r.node.name}:${src.name}`, src);
+        mesh.material = material ?? modelMaterial(this.scene, this.modelMaterials, src, mesh) ?? this.defaultMaterial;
         mesh.metadata = { mycoBase: mesh.material };
         return mesh;
       });
@@ -747,51 +714,6 @@ export class BabylonRenderer {
       if (probe) this.reflecting++;
       if (m.material !== drawn) m.material = drawn;
     }
-  }
-
-  /** A model geometry's vertices as Babylon vertex data (positions, normals, UVs, indices), made once. */
-  private vertexDataOf(src: ModelMesh): VertexData {
-    const g = src.geometry as unknown as GeometryLike;
-    let data = this.vertexData.get(g);
-    if (data) return data;
-    data = new VertexData();
-    const pos = g.attributes.position;
-    data.positions = pos ? Array.from(pos.array) : [];
-    const normal = g.attributes.normal;
-    if (normal) data.normals = Array.from(normal.array);
-    const uv = g.attributes.uv;
-    if (uv) data.uvs = Array.from(uv.array);
-    const count = data.positions.length / 3;
-    data.indices = g.index ? Array.from(g.index.array) : Array.from({ length: count }, (_, i) => i);
-    if (!normal) {
-      const normals: number[] = [];
-      VertexData.ComputeNormals(data.positions, data.indices, normals);
-      data.normals = normals;
-    }
-    this.vertexData.set(g, data);
-    return data;
-  }
-
-  /** A model's own material (its colour, texture, metalness and roughness) as a Babylon PBR material. */
-  private modelMaterial(src: ModelMesh): BabylonMaterial | null {
-    const own = src.materials[0] as unknown as ModelMaterialLike | undefined;
-    if (!own) return null;
-    if (src.materials.length > 1) this.warnOnce(`groups|${src.name}`, `${src.name}: meshes with several materials draw with the first on the Babylon backend for now.`);
-    let m = this.modelMaterials.get(own);
-    if (m) return m;
-    const made = pbr(`model:${src.name}`, this.scene);
-    if (own.color) made.albedoColor = new Color3(own.color.r, own.color.g, own.color.b); // three.js colours are linear already
-    made.metallic = own.metalness ?? 0;
-    made.roughness = own.roughness ?? 0.5;
-    if (own.transparent && (own.opacity ?? 1) < 1) {
-      made.alpha = own.opacity ?? 1;
-      made.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-    }
-    const src2 = own.map?.image?.currentSrc || own.map?.image?.src;
-    if (src2) made.albedoTexture = new Texture(src2, this.scene, { invertY: true });
-    m = made;
-    this.modelMaterials.set(own, m);
-    return m;
   }
 
   /**
@@ -1026,57 +948,16 @@ export class BabylonRenderer {
   /** A lit, unlit or physical material asset (ADR 0043, 0052) as a Babylon PBR material. */
   private builtinMaterial(path: string, settings: MaterialSettings, owned: Texture[]): PBRMaterial {
     const m = pbr(`material:${path}`, this.scene);
-    m.albedoColor = linear(settings.color);
-    m.backFaceCulling = !settings.doubleSided;
-    m.twoSidedLighting = settings.doubleSided;
-    if (settings.color.a < 1) {
-      m.alpha = settings.color.a;
-      m.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-    }
-    if (settings.shader === "unlit") {
-      m.unlit = true;
-    } else {
-      m.metallic = settings.metalness;
-      m.roughness = settings.roughness;
-      m.emissiveColor = linear(settings.emission);
-    }
-    if (settings.shader === "physical") {
-      m.clearCoat.isEnabled = settings.clearcoat > 0;
-      m.clearCoat.intensity = settings.clearcoat;
-      m.clearCoat.roughness = settings.clearcoatRoughness;
-      m.sheen.isEnabled = settings.sheen > 0;
-      m.sheen.intensity = settings.sheen;
-      m.sheen.color = linear(settings.sheenColor);
-      m.sheen.roughness = settings.sheenRoughness;
-      m.subSurface.isRefractionEnabled = settings.transmission > 0;
-      m.subSurface.refractionIntensity = settings.transmission;
-      m.subSurface.maximumThickness = Math.max(settings.thickness, 0.001);
-      m.indexOfRefraction = settings.ior;
-      m.iridescence.isEnabled = settings.iridescence > 0;
-      m.iridescence.intensity = settings.iridescence;
-      m.iridescence.indexOfRefraction = settings.iridescenceIOR;
-      m.anisotropy.isEnabled = settings.anisotropy > 0;
-      m.anisotropy.intensity = settings.anisotropy;
-      m.anisotropy.angle = (settings.anisotropyRotation * Math.PI) / 180;
-      m.metallicF0Factor = settings.specularIntensity;
-      m.metallicReflectanceColor = linear(settings.specularColor);
-    }
-    const [tx, ty] = settings.tiling;
+    applyBuiltinSettings(m, settings);
     const load = (ref: string, apply: (tex: Texture) => void) => {
       const image = ref.replace(/^asset:/, "");
       if (!image) return;
       this.texture(image)
         .then((shared) => {
           if (this.materialAssets.get(path)?.material !== m) return; // replaced meanwhile
-          let tex = shared;
-          if (tx !== 1 || ty !== 1) {
-            tex = shared.clone(); // its own tiling; shares the image
-            tex.uScale = tx;
-            tex.vScale = ty;
-            tex.wrapU = tex.wrapV = Texture.WRAP_ADDRESSMODE;
-            owned.push(tex);
-          }
-          apply(tex);
+          const { texture, owned: own } = tiledTexture(shared, settings.tiling);
+          if (own) owned.push(texture);
+          apply(texture);
         })
         .catch((err) => console.error(`[myco] failed to load texture "${image}" for ${path}:`, err));
     };
