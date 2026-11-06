@@ -11,7 +11,7 @@
  *   camera's rectangle of the canvas; a camera without a background colour blends over the ones
  *   before it. FXAA follows on tiers that ask for it.
  *
- * The game's screen UI (ADR 0076) draws after the camera marked `ui`, then the editor's overlay.
+ * The game's screen UI (ADR 0076) draws after the camera marked `ui`, over the editor's overlay.
  *
  * The editor's overlay (a utility layer: outlines, icons, gizmos; stage 8) draws right after the camera
  * marked `overlay`, straight onto the canvas without post-processing, so a camera preview inset drawn
@@ -64,7 +64,7 @@ export interface CameraView {
   exposure: number;
   /** Draw the editor's overlay right after this camera (at most one). */
   overlay?: boolean;
-  /** Draw the game's screen UI right after this camera, before the overlay (at most one; ADR 0076). */
+  /** Draw the game's screen UI after this camera and its overlay (at most one; ADR 0076). */
   ui?: boolean;
 }
 
@@ -263,17 +263,18 @@ export class BabylonFrame {
     this.shadowTasks = shadows.map((s, i) => this.shadowTask(graph, s, i, views[0].camera));
     this.views = views.map((v, i) => {
       const tasks = this.viewTasks(graph, v, i, samples, targets[i]);
-      if (v.ui && this.ui) {
-        const ui = this.ui;
-        const task = new FrameGraphDrawTask(`ui${i}`, graph, () => ui());
-        task.targetTexture = backbufferColorTextureHandle;
-        graph.addTask(task);
-      }
       if (v.overlay && this.overlay && !this.overlayTask) {
         const task = new FrameGraphOverlayTask(`overlay${i}`, graph, this.overlay, v);
         task.targetTexture = backbufferColorTextureHandle;
         graph.addTask(task);
         this.overlayTask = task;
+      }
+      // The game's UI covers the editor's helpers, as on three.js, where they're part of the 3D scene.
+      if (v.ui && this.ui) {
+        const ui = this.ui;
+        const task = new FrameGraphDrawTask(`ui${i}`, graph, () => ui());
+        task.targetTexture = backbufferColorTextureHandle;
+        graph.addTask(task);
       }
       return tasks;
     });

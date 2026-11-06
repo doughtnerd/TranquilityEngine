@@ -19,7 +19,7 @@
  *
  * Game UI (stage 9, ADR 0076): the renderer-neutral `UICore` lays out and routes, `ui.ts` draws it
  * with Babylon GUI (both loaded on demand), and the frame graph draws the screen UI after the game's
- * camera, before the editor overlay.
+ * camera (in the editor, over its overlay).
  */
 import "./register";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
@@ -491,7 +491,7 @@ export class BabylonRenderer {
       if (this.skyFog) background = Color4.Lerp(background, this.skyFog.color, this.skyFog.amount); // Fog's affectsSkybox (ADR 0071)
       const entry = this.cameras.get(c)!;
       entry.camera.layerMask = this.fill ? 0xffffffff : 0x0fffffff; // an editor World's view sees the grid
-      // The game's screen UI goes over the editor's view (before its overlay), else over the last camera.
+      // The game's screen UI goes over the editor's view (and its overlay), else over the last camera.
       return { ui: this.tools ? i === 0 : i === cams.length - 1, overlay: i === 0 && !!this.tools, camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure };
     });
     this.lastPost = views[0] ? { composed: !!views[0].effects, toneMapping: views[0].toneMapping, effects: views[0].effects } : null;

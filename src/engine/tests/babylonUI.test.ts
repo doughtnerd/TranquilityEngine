@@ -436,16 +436,16 @@ describe("measureText", () => {
     expect(estimated.height).toBeCloseTo(12);
     expect(estimated.width).toBeGreaterThan(0);
     withCanvas(() => {
-      expect(measureText(req())).toEqual({ width: 55, height: 12 }); // 11 characters x 5 px
+      expect(measureText(req())).toEqual({ width: 55 * 1.05 + 1, height: 12 }); // 11 characters x 5 px, with the room layout gets
       expect(measureText(req({ text: "" }))).toEqual({ width: 0, height: 12 });
     });
   });
 
   it("wraps at spaces to maxWidth and counts lines", () => {
     withCanvas(() => {
-      expect(measureText(req({ maxWidth: 30 }))).toEqual({ width: 25, height: 24 }); // "hello" / "world"
+      expect(measureText(req({ maxWidth: 30 }))).toEqual({ width: 25 * 1.05 + 1, height: 24 }); // "hello" / "world"
       expect(measureText(req({ text: "a\nb\nc" })).height).toBeCloseTo(36);
-      expect(measureText(req({ text: "unbreakable", maxWidth: 20 }))).toEqual({ width: 55, height: 12 });
+      expect(measureText(req({ text: "unbreakable", maxWidth: 20 }))).toEqual({ width: 55 * 1.05 + 1, height: 12 }); // overflows
     });
   });
 

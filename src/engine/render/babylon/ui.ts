@@ -447,7 +447,7 @@ export class BabylonUI {
       return;
     }
     const prefix = c.value.slice(0, Math.max(0, index));
-    const pw = prefix ? measureText({ text: prefix, fontSize: c.fontSize, fontWeight: "400", fontFamily: UI_FONT_FAMILY, lineHeight: UI_LINE_HEIGHT, maxWidth: Infinity }).width : 0;
+    const pw = prefix ? textSize(prefix, c.fontSize, "400", UI_FONT_FAMILY, UI_LINE_HEIGHT).width : 0; // exact, unlike layout's roomier measure
     caret.isVisible = true;
     const ch = c.fontSize * UI_LINE_HEIGHT;
     if (put(caret, "left", c.padding + pw)) caret.leftInPixels = c.padding + pw;
@@ -670,6 +670,15 @@ function textSize(text: string, fontSize: number, weight: string, family: string
  * tall and zero wide. Without a canvas (Node) it estimates.
  */
 export function measureText(req: TextMeasureRequest): { width: number; height: number } {
-  const { width, height } = textSize(req.text, req.fontSize, req.fontWeight, req.fontFamily, req.lineHeight, req.maxWidth);
-  return { width, height };
+  // The GUI measures text at the size it's drawn: a canvas's scale × the pixel ratio. Font hinting doesn't
+  // scale linearly, so at small drawn sizes text comes out a little wider than measured here at full size,
+  // and the GUI wrapped a one-line title onto a second, clipped line. So wrap against a narrower width
+  // (never fewer lines than the GUI draws) and report a slightly wider box.
+  const { width, height } = textSize(req.text, req.fontSize, req.fontWeight, req.fontFamily, req.lineHeight, req.maxWidth / TEXT_SLACK);
+  if (width <= 0) return { width: 0, height };
+  const roomy = width * TEXT_SLACK + 1;
+  return { width: width <= req.maxWidth ? Math.min(req.maxWidth, roomy) : roomy, height }; // a word wider than maxWidth overflows, as before
 }
+
+/** Room measured text gets over its full-size measurement (see `measureText`). */
+const TEXT_SLACK = 1.05;
