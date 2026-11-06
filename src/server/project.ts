@@ -30,7 +30,8 @@ export interface ServerProject {
   /** `project.json`, parsed. */
   readonly settings: ProjectSettingsInput;
   /**
-   * Every file by project-relative path: parsed JSON for `.json`, a `file:` URL otherwise (images
+   * Every file by project-relative path: parsed JSON for `.json`, text for `.xml` and `.css` (UI
+   * documents and stylesheets), a `file:` URL otherwise (images
    * and audio aren't loaded headless, but lookups of their paths succeed).
    */
   readonly assets: AssetSource;
@@ -71,6 +72,8 @@ export async function readProject(dir: string): Promise<ServerProject> {
       } catch (err) {
         bad.push(`  - ${path}: ${(err as Error).message}`);
       }
+    } else if (/\.(xml|css)$/i.test(path)) {
+      values.set(path, await readFile(full, "utf8")); // UI documents and stylesheets (ADR 0077) load as text, as in the editor and the player
     } else if (!path.endsWith(".ts")) {
       values.set(path, pathToFileURL(full).href);
     }

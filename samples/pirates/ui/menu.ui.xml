@@ -1,0 +1,123 @@
+<!--
+  The main menu and the room view as a UI document (ADR 0077): the same screens as the hand-built
+  menu in scenes/menu.scene.json, here as markup. The look is in menu.ui.css; the behaviour is
+  scripts/behaviors/MenuDocument.ts, which fills the {bindings}, makes the rows from the
+  <Template>s with list(), and shows and hides the screens.
+
+  The game boots the original. To play this one instead, point the Menu World at
+  scenes/menu-document.scene.json (Project Settings > Worlds, in a copy of the sample).
+-->
+<Canvas>
+  <Style src="menu.ui.css"/>
+  <Panel id="screen">
+
+    <Panel id="header">
+      <Panel id="titles">
+        <Text id="title">King of Pirates</Text>
+        <Text id="subtitle">Hold the flag. Sink the rest. Rule the waves.</Text>
+      </Panel>
+      <Panel id="connection" class="card">
+        <Text id="where">{where}</Text>
+        <Text id="status" class="muted">{status}</Text>
+      </Panel>
+    </Panel>
+
+    <!-- Home: play now, make or join a room, or switch to a dedicated server's lobby. -->
+    <Panel id="home" class="columns">
+      <Panel id="left" class="card">
+        <Text class="label">Your name, captain</Text>
+        <InputField id="name" placeholder="Your name" max-length="20"/>
+        <Button id="quick-match" class="primary">Quick Match</Button>
+        <Button id="practice" class="wide">Practice against bots</Button>
+        <Button id="create-room" class="wide">Create a room</Button>
+        <Text class="label">Join a room by its code</Text>
+        <Panel class="row">
+          <InputField id="code" class="grow" placeholder="ABCDE" max-length="5"/>
+          <Button id="join">Join</Button>
+        </Panel>
+      </Panel>
+
+      <Panel id="right" class="card grow">
+        <Text class="heading">Open rooms</Text>
+        <Panel id="rooms" class="stack">
+          <Template>
+            <Panel class="room">
+              <Text class="room-label">{label}</Text>
+              <Button class="room-join">Join</Button>
+            </Panel>
+          </Template>
+        </Panel>
+        <Text id="no-rooms" class="muted">No open rooms yet. Make one, or try a quick match!</Text>
+        <Panel class="grow"/>
+        <Text class="heading">Play on a server</Text>
+        <Panel class="row">
+          <InputField id="url" class="grow" placeholder="ws://localhost:7777"/>
+          <Button id="connect">Join Server</Button>
+          <Button id="local">Local</Button>
+        </Panel>
+        <Text id="server-hint" class="muted">Start one with: npm run server -- samples/pirates</Text>
+      </Panel>
+    </Panel>
+
+    <!-- The room: its crew (players, then the bots that fill the ships), the host's settings, results. -->
+    <Panel id="room" class="columns">
+      <Panel id="crew" class="card">
+        <Text id="room-title">{roomTitle}</Text>
+        <Text id="room-code" class="muted">{roomCode}</Text>
+        <Panel id="slots" class="stack">
+          <Template>
+            <Panel class="slot">
+              <Panel class="swatch" background-color="{swatch}"/>
+              <Text class="slot-name">{name}</Text>
+              <Text class="slot-tag">{tag}</Text>
+            </Panel>
+          </Template>
+        </Panel>
+      </Panel>
+
+      <Panel id="side" class="grow">
+        <Panel id="settings" class="card">
+          <Text class="heading">{settingsTitle}</Text>
+          <Panel id="setting-rows" class="stack">
+            <Template>
+              <Panel class="setting">
+                <Text class="setting-label">{label}</Text>
+                <Button class="step prev">&lt;</Button>
+                <Text class="setting-value">{value}</Text>
+                <Button class="step next">&gt;</Button>
+              </Panel>
+            </Template>
+          </Panel>
+        </Panel>
+
+        <Panel id="results" class="card">
+          <Text class="heading">{resultsTitle}</Text>
+          <Panel id="result-lines" class="stack">
+            <Template>
+              <Text class="result">{text}</Text>
+            </Template>
+          </Panel>
+        </Panel>
+
+        <Panel class="grow"/>
+        <Text id="room-status">{roomStatus}</Text>
+        <Panel id="room-buttons" class="row">
+          <Button id="ready">{readyLabel}</Button>
+          <Button id="start" class="primary">Start now</Button>
+          <Button id="leave">Leave</Button>
+        </Panel>
+      </Panel>
+    </Panel>
+
+    <!-- Over everything while the match World loads. -->
+    <Panel id="sailing" visible="false">
+      <Text visible="false">Raising the sails...</Text>
+    </Panel>
+
+    <Panel id="footer">
+      <!-- An attribute, not text content: content collapses runs of spaces, as in HTML. -->
+      <Text id="help" text="Steer with the mouse.  A / D pick a battery.  Space fires.  F drops a ghost ship's fog.  Esc leaves a match."/>
+      <Text id="error">{error}</Text>
+    </Panel>
+  </Panel>
+</Canvas>
