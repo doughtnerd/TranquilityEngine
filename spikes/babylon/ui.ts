@@ -27,7 +27,8 @@ async function main() {
   canvas.addBehavior(UICanvas, { mode: "screen" });
   const panel = GameObject.create("Panel", { parent: canvas });
   panel.addBehavior(UIPanel, { flexDirection: "column", gap: 12, padding: 20, margin: 24, backgroundColor: new Color(0.1, 0.12, 0.16, 0.9), borderRadius: 12, borderWidth: 2, borderColor: Color.from("#3fc1c9") });
-  GameObject.create("Title", { parent: panel }).addBehavior(UIText, { text: "Main Menu", fontSize: 40, fontWeight: "bold", color: Color.white });
+  const title = GameObject.create("Title", { parent: panel });
+  title.addBehavior(UIText, { text: "King of Pirates", fontSize: 60, fontWeight: "bold", color: Color.from("#f2c14e") }); // descenders: "g"
   const play = GameObject.create("Play", { parent: panel });
   play.addBehavior(UIButton, { padding: 12, backgroundColor: Color.from("#2a6f97"), borderRadius: 8, hoverColor: Color.from("#3fc1c9") });
   GameObject.create("Label", { parent: play }).addBehavior(UIText, { text: "Play", fontSize: 24, color: Color.white });
@@ -84,6 +85,26 @@ async function main() {
   }
   const px = ctx.getImageData(Math.floor(out.width * 0.03), Math.floor(out.height * 0.06), 1, 1).data;
   report.pixel = [px[0], px[1], px[2]];
+  // `?crop=title`: show the title's box (and a margin) magnified in the readback canvas.
+  if (new URLSearchParams(location.search).get("crop") === "title") {
+    const ui = (engine as unknown as { defaultWorld: { render: { uiRuntime(): { rectOf(c: unknown): { x: number; y: number; width: number; height: number } | null } | null } | null } }).defaultWorld.render?.uiRuntime();
+    const t = ui?.rectOf(title.getComponent(UIText)!);
+    if (t) {
+      const k = view.width / view.clientWidth;
+      const src = document.createElement("canvas");
+      src.width = out.width;
+      src.height = out.height;
+      src.getContext("2d")!.drawImage(out, 0, 0);
+      const [sx, sy, sw, sh] = [(t.x - 8) * k, (t.y - 8) * k, (t.width + 16) * k, (t.height + 24) * k];
+      out.width = Math.ceil(sw);
+      out.height = Math.ceil(sh);
+      out.style.width = "400px";
+      out.style.height = `${(400 * sh) / sw}px`;
+      ctx.drawImage(src, sx, sy, sw, sh, 0, 0, out.width, out.height);
+      ctx.strokeStyle = "#ff3050";
+      ctx.strokeRect(8 * k, 8 * k, t.width * k, t.height * k); // the layout box
+    }
+  }
   report.done = true;
 }
 main().catch((err) => {

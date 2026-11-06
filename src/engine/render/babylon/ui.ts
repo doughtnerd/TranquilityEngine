@@ -310,6 +310,10 @@ export class BabylonUI {
       const t = new TextBlock(name);
       t.resizeToFit = false;
       t.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+      // Layout gives each line 1.2 em, but a font's ascent plus descent can be a little taller (Inter's is),
+      // and a text block clips to its box: the last line's descenders were cut off. Text overflows its line
+      // box on the web too.
+      t.clipContent = false;
       control = t;
     } else if (el.kind === "image") {
       const image = new Image(name);
@@ -489,6 +493,7 @@ export class BabylonUI {
       const control = new TextBlock(`myco.text.${t.owner.name}`);
       control.resizeToFit = false;
       control.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+      control.clipContent = false; // descenders and outlines may reach past the box
       placeBox(control);
       control.isHitTestVisible = false;
       this.textRoot.addControl(control);
