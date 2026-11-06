@@ -14,7 +14,7 @@
 // still) and steps one frame at a time (`step`: one Engine frame of `STEP_SECONDS`, so a World's
 // fixed step runs when one is due); `stepWorld` steps a single World, paused or not.
 import { Assets, Engine, type AssetSource, type Bootstrap } from "../engine";
-import { engineWorld, engineWorldConfig, redrawEngine, resumeEditorWorld, stepEngineWorld } from "../engine/editor";
+import { engineWorld, engineWorldConfig, redrawEngine, resumeEditorWorld, setVariantReport, stepEngineWorld } from "../engine/editor";
 import { STEP_SECONDS, createGameView, type GameView } from "./gameView";
 import { applyNetConditions, conditionsOff, createThinInput, playBootstrap, withConditions, type NetConditionValues, type NetPlayBootstrap, type NetPlayOptions, type ThinInput, type ThinInputMode } from "./netPlay";
 import type { EditorProject } from "./projects";
@@ -118,6 +118,7 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
   try {
     view = container ? createGameView(container) : null;
     runtime = await Engine.create({ container: view?.main, headless: !container, project: settings, loadScript: loadBootstrapScript, quality: "keep" }); // keep the scene view's previewed tier
+    setVariantReport(runtime, true); // log shader variants compiled mid-game, naming their prefab (ADR 0080)
     for (const handle of runtime.worlds()) {
       const named = engineWorldConfig(runtime, handle.name)?.scenes !== undefined;
       if (!named && engineWorld(runtime, handle.name)!.sceneNodes.length === 0) await handle.loadScene(scene.path);

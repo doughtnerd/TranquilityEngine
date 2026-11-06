@@ -70,7 +70,8 @@ export interface NodeEntry {
 
 export interface SceneFile {
   format: string;
-  settings?: { physics?: "2d" | "3d" | "none" };
+  /** `preload` (ADR 0080): prefab and material files to warm up with the scene, for paths scripts compute at runtime. */
+  settings?: { physics?: "2d" | "3d" | "none"; preload?: string[] };
   nodes: NodeEntry[];
 }
 

@@ -52,6 +52,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import { ThinDepthOfFieldEffectBlurLevel } from "@babylonjs/core/PostProcesses/thinDepthOfFieldEffect.js";
 import { stackKey, type PostEffects, type ToneMappingName } from "../PostProcessStack";
 import { FINISH_SHADER, FINISH_UNIFORMS, TONE_MAPPING_CODE } from "./finishShader";
+import { reclusterForNextCamera } from "./lighting";
 import { cascadeCasterList, type CustomRenderList } from "./shadowCulling";
 
 /** One camera's part of the frame. */
@@ -397,7 +398,10 @@ export class BabylonFrame {
     cull.objectList = this.objects;
     graph.addTask(cull);
 
-    const render = new FrameGraphObjectRendererTask(`render${i}`, graph, this.scene);
+    // Clustered lights (ADR 0079): the task runs the clustering pass before drawing. Babylon clusters
+    // once a frame, for the first camera; first in line, this makes it cluster again for this one.
+    const render = new FrameGraphObjectRendererTask(`render${i}`, graph, this.scene, { enableClusteredLights: true });
+    render.objectRenderer.onInitRenderingObservable.add(() => reclusterForNextCamera(this.scene), undefined, true);
     render.targetTexture = clear.outputTexture;
     render.depthTexture = clear.outputDepthTexture;
     render.camera = v.camera;

@@ -10,7 +10,7 @@
 // scripts import too, so the game and its scripts share one engine.
 import * as engine from "../engine";
 import { Assets, Engine, type Bootstrap, type ProjectSettingsInput } from "../engine";
-import { engineWorld, engineWorldConfig } from "../engine/editor";
+import { engineWorld, engineWorldConfig, setScriptAssetRefs } from "../engine/editor";
 import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, type GameManifest } from "../export/format";
 
 /** A build file's URL, from its "/"-separated path. */
@@ -42,6 +42,7 @@ async function boot(): Promise<void> {
   );
   Assets.addSource({ has: (p) => values.has(p), get: (p) => values.get(p) });
 
+  setScriptAssetRefs(manifest.assetRefs ?? []); // warmed up with every scene (ADR 0080)
   for (const script of manifest.scripts) await import(/* @vite-ignore */ urlOf(script.module));
   const moduleOf = (path: string) => manifest.scripts.find((s) => s.source === path.replace(/^\.?\//, ""))?.module;
   const loadScript = async (path: string): Promise<Bootstrap> => {

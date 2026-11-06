@@ -4,6 +4,7 @@
  * The engine node graph is authoritative. Each frame, render sync copies world matrices into
  * three.js objects kept flat under one root, with `matrixAutoUpdate = false`.
  */
+import type { WarmMesh } from "../scene/warmUp";
 import {
   AdditiveBlending,
   AmbientLight,
@@ -457,6 +458,9 @@ export class RenderBackend implements RenderSurface {
     }
     this.renderer.setSize(Math.floor(w), Math.floor(h), true);
   }
+
+  /** ADR 0080 on three.js: not yet (three's `compileAsync` would do it); resolves at once. */
+  async warmUp(_meshes: readonly WarmMesh[]): Promise<void> {}
 
   /** Load textures ahead of time so sprites don't pop in. */
   async preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void> {

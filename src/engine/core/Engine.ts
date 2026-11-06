@@ -144,6 +144,8 @@ export class Engine implements BootstrapEngine {
   private running = false;
   /** @internal Editor: gets timings while set (play mode's Stats); null costs one check per phase. */
   private timing: EngineTiming | null = null;
+  /** ADR 0080: whether new render surfaces log shader variants compiled after loading (editor play mode). */
+  private variantReport = false;
 
   private constructor(private readonly options: EngineOptions) {
     this.settings = resolveSettings(options.project ?? {});
@@ -415,7 +417,7 @@ export class Engine implements BootstrapEngine {
         // A World drawn to a surface of its own (an editor tile) gives it up for the main view.
         this.extraViews.get(next)?.dispose();
         this.extraViews.delete(next);
-        this.render ??= createRenderSurface(this.container, next.settings, next.kind);
+        this.render ??= this.newSurface(this.container, next.settings, next.kind);
         next.render = this.render;
       }
     }
@@ -496,7 +498,7 @@ export class Engine implements BootstrapEngine {
     this.handedViews.push(handOver);
     this.viewWorld = world;
     if (this.container) {
-      this.render ??= createRenderSurface(this.container, world.settings, world.kind);
+      this.render ??= this.newSurface(this.container, world.settings, world.kind);
       world.render = this.render;
     }
     this.inputWorld = null; // input follows the view
@@ -535,7 +537,7 @@ export class Engine implements BootstrapEngine {
     if (world === this.viewWorld) throw new Error(`World "${name}" has the main view already.`);
     if (this.handedViews.some((h) => h.from === world)) throw new Error(`World "${name}" handed its view to another World.`);
     if (this.extraViews.has(world)) throw new Error(`World "${name}" has a view already.`);
-    const backend = createRenderSurface(element, world.settings, world.kind);
+    const backend = this.newSurface(element, world.settings, world.kind);
     this.extraViews.set(world, backend);
     world.render = backend;
     this.applyInput(); // if it has input, Input listens to its canvas now
@@ -628,6 +630,20 @@ export class Engine implements BootstrapEngine {
     }
     if (this.defaultWorld) World.active = this.defaultWorld;
     timing?.frame(dt * 1000, performance.now() - begun);
+  }
+
+  /** A render surface for a World, with the Engine's diagnostics applied. */
+  private newSurface(...args: Parameters<typeof createRenderSurface>): ReturnType<typeof createRenderSurface> {
+    const surface = createRenderSurface(...args);
+    if (this.variantReport) surface._setVariantReport?.(true);
+    return surface;
+  }
+
+  /** @internal Editor play mode (ADR 0080): every surface, now and later, logs shader variants compiled after loading. */
+  _setVariantReport(on: boolean): void {
+    this.variantReport = on;
+    this.render?._setVariantReport?.(on);
+    for (const s of this.extraViews.values()) s._setVariantReport?.(on);
   }
 
   /** @internal Editor: report frame and per-World phase timings to `timing` from now on (null stops). */

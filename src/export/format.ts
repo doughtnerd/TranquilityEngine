@@ -40,6 +40,8 @@ export interface GameManifest {
   readonly files: readonly string[];
   /** The compiled scripts, in load order: the source path, and the module's path in the build. */
   readonly scripts: readonly { readonly source: string; readonly module: string }[];
+  /** Prefab and material files the scripts name in string literals, warmed up with every scene (ADR 0080); omitted when none. */
+  readonly assetRefs?: readonly string[];
 }
 
 /** Where a compiled script, or a JSON file's module, goes in the build. */

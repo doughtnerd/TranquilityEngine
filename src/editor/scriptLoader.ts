@@ -5,7 +5,8 @@
 // contents, and `"myco"` points at a shim module that re-exports the editor's own engine.
 // Scripts and the editor then share one registry and one World.
 import * as engine from "../engine";
-import { unregisterScripts, withScriptRegistrations, type ScriptRegistrations } from "../engine/editor";
+import { setScriptAssetRefs, unregisterScripts, withScriptRegistrations, type ScriptRegistrations } from "../engine/editor";
+import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
 import { isScriptPath } from "./projectPaths";
 
 /** The bare specifier scripts import the engine by. */
@@ -194,6 +195,8 @@ export interface LoadResult {
  * as is anything importing it; the others still load.
  */
 export async function loadScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map()): Promise<LoadResult> {
+  // The prefabs and materials the scripts name, warmed up with every scene load (ADR 0080).
+  setScriptAssetRefs(projectScriptAssetRefs(scripts.values(), (p) => engine.Assets.has(p) || engine.Assets.has(`asset:${p}`)));
   const problems: ScriptProblem[] = [];
   const compiled = new Map<string, Compiled>();
   for (const [path, source] of scripts) {
@@ -280,7 +283,10 @@ let current: ScriptRegistrations = { components: [], data: [], systems: [], inpu
  * missing. Pass an empty map to unload everything.
  */
 export async function replaceScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map()): Promise<LoadResult> {
-  if (scripts.size === 0) loadedModules = new Map();
+  if (scripts.size === 0) {
+    loadedModules = new Map();
+    setScriptAssetRefs([]);
+  }
   const result = scripts.size > 0 ? await loadScripts(scripts, json) : { loaded: [], problems: [], registered: { components: [], data: [], systems: [], inputs: [] } };
   const gone = (old: string[], now: string[]) => old.filter((id) => !now.includes(id));
   unregisterScripts({

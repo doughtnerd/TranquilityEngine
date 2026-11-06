@@ -4,6 +4,7 @@
  * implement it while the renderer migrates; `createRenderSurface` picks one. Internal: game code
  * never sees it, and no renderer type appears here (ADR 0010).
  */
+import type { WarmMesh } from "../scene/warmUp";
 import type { Component } from "../core/Component";
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
@@ -99,6 +100,14 @@ export interface RenderSurface {
   dispose(): void;
   /** Load textures ahead of time so sprites don't pop in. */
   preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void>;
+  /**
+   * Draw each mesh once, hidden, in every pass the frame would put it in, so its shader pipelines exist
+   * before it's shown (ADR 0080). Resolves once they're drawn, or at once while the surface isn't
+   * drawing frames (they're drawn when it starts).
+   */
+  warmUp(meshes: readonly WarmMesh[]): Promise<void>;
+  /** @internal Editor play mode: log shader variants compiled after loading, naming their prefab (ADR 0080). */
+  _setVariantReport?(on: boolean): void;
 
   // Tests and diagnostics.
   qualityState(): { tier: string; pixelRatio: number; shadows: boolean; shadowMapSize: number; anisotropy: number; msaa: boolean };

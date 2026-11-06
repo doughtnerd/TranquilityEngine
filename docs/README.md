@@ -109,6 +109,8 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0076](decisions/0076-ui-yoga-layout-babylon-gui-drawing.md) | Game UI: Yoga lays out, Babylon GUI draws, the engine routes input; partly supersedes 0069 (uikit) | Accepted |
 | [0077](decisions/0077-ui-documents-markup-styles-scripts.md) | UI is authored as markup documents with stylesheets, driven by scripts on a data-oriented core, and edited in the scene view | Accepted |
 | [0078](decisions/0078-keep-both-render-backends.md) | Keep both render backends: Babylon.js by default, three.js as a toggle (no stage 10); three.js's loaders keep importing FBX and OBJ | Accepted |
+| [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
+| [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
 
 ## Working with decisions
 
