@@ -33,6 +33,7 @@
   "license": "MIT",
   "dependencies": {
     "@babylonjs/core": "9.32.0",
+    "@babylonjs/gui": "9.32.0",
     "@dimforge/rapier2d-compat": "^0.21.0",
     "@dimforge/rapier3d-compat": "^0.21.0",
     "@pmndrs/uikit": "1.0.77",
@@ -49,7 +50,8 @@
     "preact": "^11.1.1",
     "three": "^0.187.0",
     "three.quarks": "0.17.1",
-    "ws": "^8.22.1"
+    "ws": "^8.22.1",
+    "yoga-layout": "3.2.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

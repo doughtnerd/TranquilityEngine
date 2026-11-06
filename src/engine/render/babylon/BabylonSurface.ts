@@ -15,7 +15,7 @@ import type { ProjectSettings } from "../../core/settings";
 import type { World, WorldKind } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import type { Camera, SpriteRenderer } from "../components";
-import type { UIRuntime } from "../../ui/UIRuntime";
+import type { UICoreLike } from "../../ui/uiCoreTypes";
 import type { PostEffects, ToneMappingName } from "../PostProcessStack";
 import type {
   EditorColors,
@@ -53,6 +53,8 @@ export class BabylonSurface implements RenderSurface {
   private cameraPreview: { camera: Camera | null; frame: HTMLElement | null } | null = null;
   /** The editor helpers the state above was handed to. */
   private toolsSeen: BabylonEditorTools | null = null;
+  /** Something asked for an editor helper (games never do, so they never load the gizmos). */
+  private toolsWanted = false;
 
   constructor(
     private readonly container: HTMLElement,
@@ -128,11 +130,13 @@ export class BabylonSurface implements RenderSurface {
     if (!this.renderer) return;
     if (Graphics._version !== this.appliedQuality) this.applyQuality();
     this.renderer.sync(world);
-    this.tools(); // hand pending editor state over once the helpers have loaded
+    // Hand pending editor state over once the helpers have loaded (an editor World, or a game World an editor query reached).
+    if (this.fill || this.toolsWanted) this.tools();
   }
 
   /** The renderer's editor helpers once loaded (asking starts loading them), with this surface's editor state applied. */
   private tools(): BabylonEditorTools | null {
+    this.toolsWanted = true;
     const t = this.renderer?.editorTools() ?? null;
     if (t && t !== this.toolsSeen) {
       this.toolsSeen = t;
@@ -218,8 +222,8 @@ export class BabylonSurface implements RenderSurface {
   particleState(): ParticleStats | null {
     return this.renderer?.particleState() ?? null;
   }
-  uiRuntime(): UIRuntime | null {
-    return null;
+  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest"> | null {
+    return this.renderer?.uiState() ?? null;
   }
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
     Object.assign(this.particlePreview, preview);

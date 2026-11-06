@@ -17,7 +17,9 @@
  * overlay is a utility layer the frame graph draws after the view camera. The camera preview inset is
  * one more camera in the frame graph, drawn last.
  *
- * Not yet here (later stages): Text and UI.
+ * Game UI (stage 9, ADR 0076): the renderer-neutral `UICore` lays out and routes, `ui.ts` draws it
+ * with Babylon GUI (both loaded on demand), and the frame graph draws the screen UI after the game's
+ * camera, before the editor overlay.
  */
 import "./register";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
@@ -53,7 +55,10 @@ import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector
 import type { MaterialPropertyValue } from "../components";
 import { compileShaderGraph } from "../shaderGraph/compile";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "./graphMaterial";
-import { Camera, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, SpriteRenderer } from "../components";
+import { Camera, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, SpriteRenderer, Text } from "../components";
+import { UICanvas, isUIComponent } from "../../ui/components";
+import type { UICore } from "../../ui/UICore";
+import type { BabylonUI } from "./ui";
 import { Scene as BabylonScene } from "@babylonjs/core/scene.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { BabylonProbes } from "./probes";
@@ -207,6 +212,10 @@ export class BabylonRenderer {
   private preview: { camera: Camera; frame: HTMLElement } | null = null;
   /** Editor: whether the last frame drew the camera preview. */
   cameraPreviewDrawn = false;
+  /** Game UI (stage 9): the layout and routing core and the GUI drawing, loaded the first time a World has a UICanvas or Text. */
+  private uiCore: UICore | null = null;
+  private uiDraw: BabylonUI | null = null;
+  private uiLoading = false;
   /** What reflection probes capture: the scene's meshes minus editor-only ones, refilled each frame. */
   private readonly probeMeshes: AbstractMesh[] = [];
 
@@ -424,7 +433,47 @@ export class BabylonRenderer {
       this.water ??= new BabylonWater(this.scene, (x, y, z) => this.probes.lookup(x, y, z));
       this.water.sync(world, surfaces);
     }
+    this.syncUI(world);
     this.tools?.sync(world);
+  }
+
+  // --- Game UI (ADR 0069, 0076; stage 9) ----------------------------------------------------------
+
+  /** Load the UI on first use (games without UI never download Yoga or Babylon GUI), then lay out and mirror it. */
+  private syncUI(world: World): void {
+    if (!this.uiCore || !this.uiDraw) {
+      if (this.uiLoading || (!world._componentsOfType(UICanvas).length && !world._componentsOfType(Text).length)) return;
+      this.uiLoading = true;
+      Promise.all([import("../../ui/UICore"), import("./ui")])
+        .then(([core, draw]) => {
+          if (this.disposed) return;
+          this.uiDraw = new draw.BabylonUI(this.scene, { texture: (ref) => this.texture(ref) });
+          this.uiCore = new core.UICore({
+            interactive: !this.fill, // the editor's own World: clicks select, they don't press buttons
+            host: { viewCamera: () => (this.owner ? (this.viewCameras(this.owner)[0] ?? null) : null), measureText: draw.measureText },
+          });
+          const screen = this.uiDraw.screen;
+          this.frame.ui = () => {
+            screen._checkUpdate(null);
+            return screen._layerToDispose;
+          };
+        })
+        .catch((err) => console.error("[myco] the UI couldn't start on the Babylon backend:", err))
+        .finally(() => (this.uiLoading = false));
+      return;
+    }
+    const canvas = this.engine.getRenderingCanvas();
+    const cssW = canvas?.clientWidth || this.settings.display.width, cssH = canvas?.clientHeight || this.settings.display.height;
+    const pixelRatio = this.engine.getRenderWidth() / Math.max(1, cssW);
+    const core = this.uiCore;
+    core.sync(world, cssW, cssH, world.time.unscaledDeltaTime);
+    this.uiDraw.sync(world, core, { caretOf: (c) => core.caretOf(c) }, cssW, cssH, pixelRatio);
+    this.uiDraw.syncTexts(world, cssW, cssH);
+  }
+
+  /** @internal Tests and the editor: the UI core (layout and routing), once loaded. */
+  uiState(): UICore | null {
+    return this.uiCore;
   }
 
   render(world: World): void {
@@ -442,7 +491,8 @@ export class BabylonRenderer {
       if (this.skyFog) background = Color4.Lerp(background, this.skyFog.color, this.skyFog.amount); // Fog's affectsSkybox (ADR 0071)
       const entry = this.cameras.get(c)!;
       entry.camera.layerMask = this.fill ? 0xffffffff : 0x0fffffff; // an editor World's view sees the grid
-      return { overlay: i === 0 && !!this.tools, camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure };
+      // The game's screen UI goes over the editor's view (before its overlay), else over the last camera.
+      return { ui: this.tools ? i === 0 : i === cams.length - 1, overlay: i === 0 && !!this.tools, camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure };
     });
     this.lastPost = views[0] ? { composed: !!views[0].effects, toneMapping: views[0].toneMapping, effects: views[0].effects } : null;
     const preview = views.length ? this.previewView(views) : null;
@@ -579,6 +629,11 @@ export class BabylonRenderer {
   }
 
   release(c: Component): void {
+    if (this.uiDraw && this.uiCore && isUIComponent(c)) {
+      this.uiCore.release(c);
+      this.uiDraw.release(c);
+      return;
+    }
     if (c instanceof SpriteRenderer) {
       const e = this.sprites.get(c);
       if (e) {
@@ -599,6 +654,8 @@ export class BabylonRenderer {
       this.particles?.release(c);
     } else if (c instanceof Light) {
       this.lighting.release(c);
+    } else if (c instanceof Text) {
+      this.uiDraw?.release(c);
     } else if (c instanceof Camera) {
       this.cameras.get(c)?.camera.dispose();
       this.cameras.delete(c);
@@ -614,6 +671,9 @@ export class BabylonRenderer {
     this.disposed = true;
     this.particles?.dispose();
     this.tools?.dispose();
+    this.frame.ui = null;
+    this.uiCore?.dispose();
+    this.uiDraw?.dispose();
     this.frame.overlay = null;
     this.overlayLayer?.dispose();
     this.probes.dispose();
