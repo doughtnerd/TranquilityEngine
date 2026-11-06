@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Depth check</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; }
+      #out { position: fixed; left: 0; top: 0; width: 480px; height: 270px; z-index: 1; }
+      #view { width: 960px; height: 540px; margin-top: 280px; }
+    </style>
+  </head>
+  <body>
+    <canvas id="out"></canvas>
+    <div id="view"></div>
+    <script type="module" src="./depth.ts"></script>
+  </body>
+</html>

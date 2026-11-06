@@ -60,3 +60,42 @@ describe("a camera's passes (ADR 0075 stage 3)", () => {
     expect(cameraPasses(effects({ antialias: "msaa" }))).toEqual(["clear", "render", "finish"]);
   });
 });
+
+describe("the geometry pass's depth (ADR 0075)", () => {
+  // Without a depth buffer Babylon's geometry pass draws with no depth test, so ambient occlusion read
+  // meshes behind nearer ones and drew their edges through them (seen on the Playground's crates).
+  it("gets its own cleared depth buffer when a camera has ambient occlusion or depth of field", async () => {
+    const { NullEngine } = await import("@babylonjs/core/Engines/nullEngine.js");
+    const { Scene } = await import("@babylonjs/core/scene.js");
+    const { TargetCamera } = await import("@babylonjs/core/Cameras/targetCamera.js");
+    const { Color4 } = await import("@babylonjs/core/Maths/math.color.js");
+    const { Vector3 } = await import("@babylonjs/core/Maths/math.vector.js");
+    const { BabylonFrame } = await import("../render/babylon/frameGraph");
+    const engine = new NullEngine();
+    (engine as unknown as { buildTextureLayout(): number[] }).buildTextureLayout = () => []; // used by the object renderer's constructor; NullEngine lacks it
+    const scene = new Scene(engine);
+    const camera = new TargetCamera("c", Vector3.Zero(), scene);
+    const frame = new BabylonFrame(scene);
+    const view = {
+      camera,
+      viewport: { x: 0, y: 0, width: 1, height: 1 },
+      clear: new Color4(0, 0, 0, 1),
+      effects: { toneMapping: "agx", exposure: 1, antialias: "off", bloom: null, ambientOcclusion: { intensity: 1, radius: 1, quality: "high" }, colorGrading: null, vignette: null, depthOfField: null, chromaticAberration: null } as PostEffects,
+      toneMapping: "agx" as const,
+      exposure: 1,
+    };
+    try {
+      frame.render([view], [], [], 1); // builds the tasks; the GPU build itself fails on NullEngine, and is logged
+      const views = (frame as unknown as { views: { geometry: { depthTexture?: number; _frameGraph: { tasks: { name: string }[] } } | null }[] }).views;
+      const geometry = views[0].geometry!;
+      expect(geometry.depthTexture).toBeDefined();
+      const names = geometry._frameGraph.tasks.map((t) => t.name);
+      expect(names).toContain("geometryClear0");
+      expect(names.indexOf("geometryClear0")).toBeLessThan(names.indexOf("geometry0"));
+    } finally {
+      frame.dispose();
+      scene.dispose();
+      engine.dispose();
+    }
+  });
+});

@@ -131,6 +131,12 @@ interface ViewTasks {
   finishValues: Record<string, [number, number, number, number]>;
 }
 
+/** A camera's clear task, and the geometry pass's depth buffer (cleared) when it has one. */
+interface ViewTargets {
+  clear: FrameGraphClearTextureTask;
+  geometryDepth: FrameGraphTextureHandle | null;
+}
+
 const AO_SAMPLES = { low: 8, medium: 16, high: 32 } as const;
 
 /** @internal One kind of pass in a camera's part of the frame. */
@@ -263,8 +269,13 @@ export class BabylonFrame {
     return task;
   }
 
-  /** A camera's colour and depth textures, and the task that clears them. */
-  private viewTargets(graph: FrameGraph, v: CameraView, i: number, samples: number): FrameGraphClearTextureTask {
+  /**
+   * A camera's colour and depth textures and the task that clears them, plus, when its effects need
+   * the geometry pass, that pass's own depth buffer and its clear. Without a depth buffer the geometry
+   * pass draws with no depth test: the last mesh drawn wins, so ambient occlusion read the depth and
+   * normals of meshes behind nearer ones and drew their edges through them.
+   */
+  private viewTargets(graph: FrameGraph, v: CameraView, i: number, samples: number): ViewTargets {
     const tm = graph.textureManager;
     const size = this.viewSize(v);
     const texture = (name: string, type: number, format: number, s = samples): FrameGraphTextureHandle =>
@@ -282,10 +293,21 @@ export class BabylonFrame {
     clear.clearStencil = false;
     clear.convertColorToLinearSpace = true; // the finish pass encodes sRGB
     graph.addTask(clear);
-    return clear;
+
+    let geometryDepth: FrameGraphTextureHandle | null = null;
+    if (cameraPasses(effects).includes("geometry")) {
+      const gclear = new FrameGraphClearTextureTask(`geometryClear${i}`, graph);
+      gclear.depthTexture = texture("geometryDepth", Constants.TEXTURETYPE_FLOAT, Constants.TEXTUREFORMAT_DEPTH32_FLOAT, 1);
+      gclear.clearColor = false;
+      gclear.clearDepth = true;
+      gclear.clearStencil = false;
+      graph.addTask(gclear);
+      geometryDepth = gclear.outputDepthTexture;
+    }
+    return { clear, geometryDepth };
   }
 
-  private viewTasks(graph: FrameGraph, v: CameraView, i: number, samples: number, clear: FrameGraphClearTextureTask): ViewTasks {
+  private viewTasks(graph: FrameGraph, v: CameraView, i: number, samples: number, { clear, geometryDepth }: ViewTargets): ViewTasks {
     const tm = graph.textureManager;
     const size = this.viewSize(v);
     const texture = (name: string, type: number, format: number, s = samples): FrameGraphTextureHandle =>
@@ -314,6 +336,7 @@ export class BabylonFrame {
       geometry.size = { width: size.width, height: size.height };
       geometry.sizeIsPercentage = false; // the default reads the size as a percentage of the canvas
       geometry.samples = 1;
+      if (geometryDepth) geometry.depthTexture = geometryDepth; // depth-tested, like the render pass
       geometry.textureDescriptions = [
         // Half float: WebGPU can't filter 32-bit float textures, and the AO and depth-of-field passes sample with filtering.
         { type: Constants.PREPASS_DEPTH_TEXTURE_TYPE, textureType: Constants.TEXTURETYPE_HALF_FLOAT, textureFormat: Constants.TEXTUREFORMAT_R },
