@@ -16,8 +16,9 @@
  *
  * Waves are packed into vec4 uniforms (UBO arrays are avoided): `mycoWave0..7` hold
  * (direction x, direction z, wave number, amplitude) per wave and `mycoPhase0/1` the eight phases
- * (the fifth float of `WAVE_STRIDE`). WebGPU only: on the WebGL2 fallback the plugin is not added
- * and a surface draws as a plain coloured PBR plane.
+ * (the fifth float of `WAVE_STRIDE`). The plugin has a GLSL twin for the WebGL2 fallback, whose
+ * wave sum is `GERSTNER_BODY` itself: without it the fallback drew a flat plane at rest height
+ * while ships rode the sampled waves, so troughs hid their hulls.
  */
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Material } from "@babylonjs/core/Materials/material.js";
@@ -34,7 +35,7 @@ import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { World } from "../../core/World";
 import { Graphics } from "../Graphics";
-import { MAX_WAVES, maxAmplitude } from "../water/gerstner";
+import { GERSTNER_BODY, MAX_WAVES, WAVE_STRIDE, maxAmplitude } from "../water/gerstner";
 import { waterTime, type WaterSurface } from "../water/WaterSurface";
 import { ALBEDO_ANCHOR } from "./graphMaterial";
 
@@ -116,10 +117,62 @@ fn mycoNoise(p: vec2f) -> vec3f {
 `;
 
 /**
- * @internal Where the water's WGSL goes in Babylon's PBR shaders, by injection point (keys starting
- * with "!" are regular expressions Babylon replaces; see the file's header).
+ * The wave sum in GLSL (WebGL2): the vec4 uniforms unpacked into `GERSTNER_BODY`'s flat
+ * `WAVE_STRIDE` layout, then `GERSTNER_BODY` itself (the text three.js's shader and the CPU sampler's
+ * tests use), so the fallback draws exactly the waves `WaterSurface.sample` reports.
  */
-export function waterCustomCode(shaderType: string): { [point: string]: string } {
+const GLSL_GERSTNER = /* glsl */ `
+void mycoGerstner(float px, float pz, out vec3 disp, out vec3 tangent, out vec3 binormal) {
+  vec4 mycoWv[${MAX_WAVES}] = vec4[${MAX_WAVES}](${WAVE_UNIFORMS.join(", ")});
+  float mycoPh[${MAX_WAVES}] = float[${MAX_WAVES}](mycoPhase0.x, mycoPhase0.y, mycoPhase0.z, mycoPhase0.w, mycoPhase1.x, mycoPhase1.y, mycoPhase1.z, mycoPhase1.w);
+  float mycoWaves[${MAX_WAVES * WAVE_STRIDE}];
+  for (int j = 0; j < ${MAX_WAVES}; j++) {
+    mycoWaves[j * ${WAVE_STRIDE}] = mycoWv[j].x;
+    mycoWaves[j * ${WAVE_STRIDE} + 1] = mycoWv[j].y;
+    mycoWaves[j * ${WAVE_STRIDE} + 2] = mycoWv[j].z;
+    mycoWaves[j * ${WAVE_STRIDE} + 3] = mycoWv[j].w;
+    mycoWaves[j * ${WAVE_STRIDE} + 4] = mycoPh[j];
+  }
+  int mycoWaveCount = int(mycoWaterA.x + 0.5);
+${GERSTNER_BODY.replace(/\$float/g, "float").replace(/\$int/g, "int")}
+  disp = vec3(gx, gy, gz);
+  tangent = vec3(tx, ty, tz);
+  binormal = vec3(bx, by, bz);
+}
+`;
+
+/** `WGSL_NOISE` in GLSL (the same as `waterShader.ts`'s). */
+const GLSL_NOISE = /* glsl */ `
+float mycoHash(vec2 p) {
+  p = fract(p * vec2(123.34, 456.21));
+  p += dot(p, p + 45.32);
+  return fract(p.x * p.y);
+}
+vec3 mycoNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  vec2 du = 6.0 * f * (1.0 - f);
+  float a = mycoHash(i);
+  float b = mycoHash(i + vec2(1.0, 0.0));
+  float c = mycoHash(i + vec2(0.0, 1.0));
+  float d = mycoHash(i + vec2(1.0, 1.0));
+  float v = a + (b - a) * u.x + (c - a) * u.y + (a - b - c + d) * u.x * u.y;
+  vec2 g = du * vec2(b - a + (a - b - c + d) * u.y, c - a + (a - b - c + d) * u.x);
+  return vec3(v, g);
+}
+`;
+
+/** Babylon's GLSL PBR fragment: the albedo block's declaration, just after the normal is final. */
+const GLSL_ALBEDO_ANCHOR = "!albedoOpacityOutParams\\s+albedoOpacityOut\\s*;";
+
+/**
+ * @internal Where the water's code goes in Babylon's PBR shaders, by injection point (keys starting
+ * with "!" are regular expressions Babylon replaces; see the file's header). WGSL on WebGPU, GLSL
+ * on the WebGL2 fallback.
+ */
+export function waterCustomCode(shaderType: string, language: ShaderLanguage = ShaderLanguage.WGSL): { [point: string]: string } {
+  if (language === ShaderLanguage.GLSL) return waterCustomCodeGLSL(shaderType);
   if (shaderType === "vertex") {
     return {
       CUSTOM_VERTEX_DEFINITIONS: `${WGSL_GERSTNER}\nvarying vMycoW: vec4f;\nvarying vMycoX: vec3f;`,
@@ -174,7 +227,57 @@ export function waterCustomCode(shaderType: string): { [point: string]: string }
   };
 }
 
-/** The material plugin carrying the water shader (WGSL materials only). */
+/** `waterCustomCode` for Babylon's GLSL PBR shaders (WebGL2): the same steps, in GLSL. */
+function waterCustomCodeGLSL(shaderType: string): { [point: string]: string } {
+  if (shaderType === "vertex") {
+    return {
+      CUSTOM_VERTEX_DEFINITIONS: `${GLSL_GERSTNER}\nvarying vec4 vMycoW;\nvarying vec3 vMycoX;`,
+      "!vec4\\s+worldPos\\s*=\\s*finalWorld\\s*\\*\\s*vec4\\(\\s*positionUpdated\\s*,\\s*1\\.0\\s*\\)\\s*;": [
+        "vec3 mycoDisp; vec3 mycoTangent; vec3 mycoBinormal;",
+        "mycoGerstner(positionUpdated.x, positionUpdated.z, mycoDisp, mycoTangent, mycoBinormal);",
+        "vec2 mycoRest = positionUpdated.xz;",
+        "#ifdef NORMAL",
+        "normalUpdated = normalize(cross(mycoBinormal, mycoTangent));",
+        "#endif",
+        "positionUpdated = positionUpdated + mycoDisp;",
+        "vec4 worldPos = finalWorld * vec4(positionUpdated, 1.0);",
+        "vMycoW = vec4(mycoRest, mycoDisp.y, mycoTangent.x * mycoBinormal.z - mycoTangent.z * mycoBinormal.x);",
+        "vMycoX = normalize((finalWorld * vec4(1.0, 0.0, 0.0, 0.0)).xyz);",
+      ].join("\n"),
+    };
+  }
+  return {
+    CUSTOM_FRAGMENT_DEFINITIONS: `varying vec4 vMycoW;\nvarying vec3 vMycoX;\n${GLSL_NOISE}`,
+    [GLSL_ALBEDO_ANCHOR]: [
+      "float mycoFoamK = 0.0;",
+      "float mycoShallowK = 0.0;",
+      "{",
+      "  vec2 rest = vMycoW.xy;",
+      "  float t = mycoWaterA.y;",
+      "  vec3 r1 = mycoNoise(rest * 0.35 + vec2(t * 0.11, t * 0.07));",
+      "  vec3 r2 = mycoNoise(rest * 0.9 + vec2(-t * 0.05, t * 0.13));",
+      "  vec2 slope = (r1.yz * 0.35 + r2.yz * 0.9 * 0.5) * mycoWaterA.w * 0.25;",
+      "  vec3 axisX = normalize(vMycoX);",
+      "  vec3 axisZ = normalize(cross(axisX, vec3(0.0, 1.0, 0.0)));",
+      "  normalW = normalize(normalW - axisX * slope.x - axisZ * slope.y);",
+      "  vec3 view = normalize(vEyePosition.xyz - vPositionW);",
+      "  float facing = clamp(dot(normalW, view), 0.0, 1.0);",
+      "  float maxH = mycoWaterB.x;",
+      "  float crest = maxH > 0.0 ? clamp(vMycoW.z / max(maxH, 1e-6) * 0.5 + 0.5, 0.0, 1.0) : 0.5;",
+      "  mycoShallowK = clamp(0.55 * crest + 0.45 * (1.0 - facing), 0.0, 1.0);",
+      "  float fold = 1.0 - vMycoW.w + (r1.x - 0.5) * 0.15;",
+      "  float amount = clamp(mycoWaterA.z, 0.0, 1.0);",
+      "  float threshold = 1.0 - amount;",
+      "  mycoFoamK = amount > 0.0 ? smoothstep(threshold, threshold + 0.35, fold) : 0.0;",
+      "}",
+      "albedoOpacityOutParams albedoOpacityOut;",
+    ].join("\n"),
+    CUSTOM_FRAGMENT_UPDATE_ALPHA: "surfaceAlbedo = mix(mix(mycoDeep.rgb, mycoShallow.rgb, mycoShallowK), mycoFoam.rgb, mycoFoamK);",
+    "!reflectivityBlock\\(\\s*vReflectivityColor": "reflectivityBlock(vec4(0.0, mix(vReflectivityColor.y, 0.9, mycoFoamK), vReflectivityColor.zw)",
+  };
+}
+
+/** The material plugin carrying the water shader. */
 class MycoWaterPlugin extends MaterialPluginBase {
   constructor(
     material: PBRMaterial,
@@ -191,7 +294,7 @@ class MycoWaterPlugin extends MaterialPluginBase {
   }
 
   override isCompatible(shaderLanguage: ShaderLanguage): boolean {
-    return shaderLanguage === ShaderLanguage.WGSL;
+    return shaderLanguage === ShaderLanguage.WGSL || shaderLanguage === ShaderLanguage.GLSL;
   }
 
   override getUniforms(): { ubo: { name: string; size: number; type: string }[] } {
@@ -211,7 +314,7 @@ class MycoWaterPlugin extends MaterialPluginBase {
   }
 
   override getCustomCode(shaderType: string, shaderLanguage?: ShaderLanguage): { [point: string]: string } | null {
-    return shaderLanguage === ShaderLanguage.WGSL ? waterCustomCode(shaderType) : null;
+    return shaderLanguage === ShaderLanguage.WGSL || shaderLanguage === ShaderLanguage.GLSL ? waterCustomCode(shaderType, shaderLanguage) : null;
   }
 }
 
@@ -311,8 +414,7 @@ export class BabylonWater {
       material.albedoColor.set(1, 1, 1);
       material.metallic = 0;
       material.roughness = 0.08;
-      // Babylon refuses a WGSL-only plugin on a GLSL material: the WebGL2 fallback draws a plain plane.
-      if (material.shaderLanguage === ShaderLanguage.WGSL) new MycoWaterPlugin(material, state);
+      new MycoWaterPlugin(material, state);
       entry = { mesh: this.makeMesh(material, 1, 2), material, state, built: { size: -1, resolution: -1 }, probe: null };
       this.entries.set(w, entry);
     }
@@ -349,8 +451,6 @@ export class BabylonWater {
     s.foamAmount = clamp01(w.foamAmount);
     s.normalDetail = Math.max(0, w.normalDetail);
     s.maxHeight = maxAmplitude(packed);
-    // Without the plugin (WebGL2) the PBR plane shows the shallow colour.
-    entry.material.albedoColor.set(s.shallow[0], s.shallow[1], s.shallow[2]);
   }
 
   private applyMaterial(w: WaterSurface, entry: WaterEntry): void {
