@@ -35,6 +35,8 @@ interface Entry {
   canvas: CanvasEntry | null;
   /** What last made a measured node dirty. */
   measureSig: string;
+  /** The values last given to its Yoga node, by `applyProperties` slot, so unchanged ones aren't set again. */
+  applied: unknown[];
   /** Last laid-out result, in its canvas's UI pixels. */
   box: { x: number; y: number; width: number; height: number; visible: boolean; opacity: number };
   /** Input field: Enter was pressed since the last routing. */
@@ -107,6 +109,9 @@ export class UICore implements UICoreLike {
     if (yoga) this.useYoga(yoga);
     this.ready = yoga ? Promise.resolve() : loadYogaOnce().then((y) => this.useYoga(y));
   }
+
+  /** Yoga's enum values by the components' names, made once. */
+  private tables: ReturnType<typeof yogaTables> | null = null;
 
   private useYoga(yoga: Yoga): void {
     if (this.disposed) return;
@@ -246,7 +251,7 @@ export class UICore implements UICoreLike {
     const yoga = this.yoga!;
     const kind = kindOf(c);
     const node = yoga.Node.create(this.config ?? undefined);
-    const entry: Entry = { comp: c, kind, node, parent: null, children: [], canvas: null, measureSig: "", box: { x: 0, y: 0, width: 0, height: 0, visible: false, opacity: 1 } };
+    const entry: Entry = { comp: c, kind, node, parent: null, children: [], canvas: null, measureSig: "", applied: [], box: { x: 0, y: 0, width: 0, height: 0, visible: false, opacity: 1 } };
     if (kind === "canvas") {
       const canvas = entry as CanvasEntry;
       canvas.scale = 1;
@@ -352,26 +357,33 @@ export class UICore implements UICoreLike {
     if (entry.kind === "canvas") return;
     const c = entry.comp as Exclude<UIComponentType, UICanvas>;
     const n = entry.node;
-    const flexDirections = { row: yoga.FLEX_DIRECTION_ROW, column: yoga.FLEX_DIRECTION_COLUMN, "row-reverse": yoga.FLEX_DIRECTION_ROW_REVERSE, "column-reverse": yoga.FLEX_DIRECTION_COLUMN_REVERSE };
-    const justify = { "flex-start": yoga.JUSTIFY_FLEX_START, center: yoga.JUSTIFY_CENTER, "flex-end": yoga.JUSTIFY_FLEX_END, "space-between": yoga.JUSTIFY_SPACE_BETWEEN, "space-around": yoga.JUSTIFY_SPACE_AROUND, "space-evenly": yoga.JUSTIFY_SPACE_EVENLY };
-    const align = { "flex-start": yoga.ALIGN_FLEX_START, center: yoga.ALIGN_CENTER, "flex-end": yoga.ALIGN_FLEX_END, stretch: yoga.ALIGN_STRETCH, baseline: yoga.ALIGN_BASELINE };
-    n.setDisplay(c.isActiveAndEnabled && c.display !== "none" ? yoga.DISPLAY_FLEX : yoga.DISPLAY_NONE);
-    n.setFlexDirection(flexDirections[c.flexDirection] ?? yoga.FLEX_DIRECTION_ROW);
-    n.setJustifyContent(justify[c.justifyContent] ?? yoga.JUSTIFY_FLEX_START);
-    n.setAlignItems(align[c.alignItems] ?? yoga.ALIGN_STRETCH);
-    n.setGap(yoga.GUTTER_ALL, finite(c.gap));
-    n.setPadding(yoga.EDGE_ALL, finite(c.padding));
-    n.setMargin(yoga.EDGE_ALL, finite(c.margin));
-    n.setWidth(uiLength(c.width));
-    n.setHeight(uiLength(c.height));
-    n.setPositionType(c.positionType === "absolute" ? yoga.POSITION_TYPE_ABSOLUTE : yoga.POSITION_TYPE_RELATIVE);
-    n.setPosition(yoga.EDGE_TOP, autoToUndefined(uiLength(c.top)));
-    n.setPosition(yoga.EDGE_RIGHT, autoToUndefined(uiLength(c.right)));
-    n.setPosition(yoga.EDGE_BOTTOM, autoToUndefined(uiLength(c.bottom)));
-    n.setPosition(yoga.EDGE_LEFT, autoToUndefined(uiLength(c.left)));
-    n.setFlexGrow(finite(c.flexGrow));
-    n.setFlexShrink(entry.kind === "text" ? 1 : 0); // text wraps to what's left; other boxes keep their size
-    n.setBorder(yoga.EDGE_ALL, c instanceof UIPanel ? finite(c.borderWidth) : 0);
+    const t = (this.tables ??= yogaTables(yoga));
+    // Each value goes to Yoga only when it differs from what the node was last given: a Yoga setter is
+    // a call into WebAssembly, and about twenty per element every frame added up (ADR 0075 notes).
+    const last = entry.applied;
+    const put = (slot: number, value: unknown): boolean => {
+      if (last[slot] === value) return false;
+      last[slot] = value;
+      return true;
+    };
+    let v: unknown;
+    if (put(0, (v = c.isActiveAndEnabled && c.display !== "none" ? yoga.DISPLAY_FLEX : yoga.DISPLAY_NONE))) n.setDisplay(v as never);
+    if (put(1, (v = t.flexDirections[c.flexDirection] ?? yoga.FLEX_DIRECTION_ROW))) n.setFlexDirection(v as never);
+    if (put(2, (v = t.justify[c.justifyContent] ?? yoga.JUSTIFY_FLEX_START))) n.setJustifyContent(v as never);
+    if (put(3, (v = t.align[c.alignItems] ?? yoga.ALIGN_STRETCH))) n.setAlignItems(v as never);
+    if (put(4, (v = finite(c.gap)))) n.setGap(yoga.GUTTER_ALL, v as number);
+    if (put(5, (v = finite(c.padding)))) n.setPadding(yoga.EDGE_ALL, v as number);
+    if (put(6, (v = finite(c.margin)))) n.setMargin(yoga.EDGE_ALL, v as number);
+    if (put(7, (v = uiLength(c.width)))) n.setWidth(v as never);
+    if (put(8, (v = uiLength(c.height)))) n.setHeight(v as never);
+    if (put(9, (v = c.positionType === "absolute" ? yoga.POSITION_TYPE_ABSOLUTE : yoga.POSITION_TYPE_RELATIVE))) n.setPositionType(v as never);
+    if (put(10, (v = autoToUndefined(uiLength(c.top))))) n.setPosition(yoga.EDGE_TOP, v as never);
+    if (put(11, (v = autoToUndefined(uiLength(c.right))))) n.setPosition(yoga.EDGE_RIGHT, v as never);
+    if (put(12, (v = autoToUndefined(uiLength(c.bottom))))) n.setPosition(yoga.EDGE_BOTTOM, v as never);
+    if (put(13, (v = autoToUndefined(uiLength(c.left))))) n.setPosition(yoga.EDGE_LEFT, v as never);
+    if (put(14, (v = finite(c.flexGrow)))) n.setFlexGrow(v as number);
+    if (put(15, (v = entry.kind === "text" ? 1 : 0))) n.setFlexShrink(v as number); // text wraps to what's left; other boxes keep their size
+    if (put(16, (v = c instanceof UIPanel ? finite(c.borderWidth) : 0))) n.setBorder(yoga.EDGE_ALL, v as number);
 
     let sig: string | null = null;
     // A font arriving (fontEpoch) changes every text's size, as does the field naming another.
@@ -713,6 +725,15 @@ export class UICore implements UICoreLike {
     this.warned.add(key);
     console.warn(`[myco] ${message}`);
   }
+}
+
+/** Yoga's enum values by the components' property values. */
+function yogaTables(yoga: Yoga) {
+  return {
+    flexDirections: { row: yoga.FLEX_DIRECTION_ROW, column: yoga.FLEX_DIRECTION_COLUMN, "row-reverse": yoga.FLEX_DIRECTION_ROW_REVERSE, "column-reverse": yoga.FLEX_DIRECTION_COLUMN_REVERSE } as Record<string, number>,
+    justify: { "flex-start": yoga.JUSTIFY_FLEX_START, center: yoga.JUSTIFY_CENTER, "flex-end": yoga.JUSTIFY_FLEX_END, "space-between": yoga.JUSTIFY_SPACE_BETWEEN, "space-around": yoga.JUSTIFY_SPACE_AROUND, "space-evenly": yoga.JUSTIFY_SPACE_EVENLY } as Record<string, number>,
+    align: { "flex-start": yoga.ALIGN_FLEX_START, center: yoga.ALIGN_CENTER, "flex-end": yoga.ALIGN_FLEX_END, stretch: yoga.ALIGN_STRETCH, baseline: yoga.ALIGN_BASELINE } as Record<string, number>,
+  };
 }
 
 function finite(n: number): number {

@@ -289,6 +289,8 @@ export class RenderBackend implements RenderSurface {
     this.canvas.style.outline = "none";
     this.canvas.style.touchAction = "none";
     container.appendChild(this.canvas);
+    // Dev builds: every live three.js surface, for measuring it against the Babylon backend from the console.
+    if (import.meta.env?.DEV) ((globalThis as { __mycoThreeSurfaces?: unknown[] }).__mycoThreeSurfaces ??= []).push(this);
 
     // MSAA is fixed at context creation, so the tier's antialias applies from the next start (ADR 0050).
     this.msaa = Graphics.tier.antialias === "msaa";

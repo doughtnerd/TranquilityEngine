@@ -91,6 +91,8 @@ interface MeshEntry {
   meshes: Mesh[];
   sources: readonly ModelMesh[] | null;
   material: BabylonMaterial | null;
+  /** The world matrix its meshes were last frozen with (null: freeze next sync). */
+  matrix: Float32Array | null;
 }
 
 interface CameraEntry {
@@ -145,6 +147,23 @@ const QUAD_POSITIONS = [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0];
 const QUAD_NORMALS = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1];
 const QUAD_UVS = [0, 0, 1, 0, 1, 1, 0, 1];
 const QUAD_INDICES = [0, 1, 2, 0, 2, 3];
+
+/**
+ * @internal Whether a world matrix (16 floats of `source` from `offset`) differs from the one an
+ * entry's meshes were last frozen with; if so, it becomes the entry's.
+ */
+export function matrixChanged(entry: { matrix: Float32Array | null }, source: ArrayLike<number>, offset: number): boolean {
+  let m = entry.matrix;
+  if (m) {
+    let i = 0;
+    while (i < 16 && m[i] === source[offset + i]) i++;
+    if (i === 16) return false;
+  } else {
+    m = entry.matrix = new Float32Array(16);
+  }
+  for (let i = 0; i < 16; i++) m[i] = source[offset + i];
+  return true;
+}
 
 /** A CSS colour string or 0xRRGGBB number as a Babylon colour (gamma space, for clearing). */
 function clearColorOf(v: string | number): Color4 {
@@ -445,7 +464,8 @@ export class BabylonRenderer {
     this.syncParticles(world);
     this.syncFog(world);
     this.lighting.syncEnvironment(world, view?.far ?? 1000);
-    const ready = this.loading.size === 0 && [...this.meshRenderers.values()].every((m) => m.sources !== null);
+    let ready = this.loading.size === 0;
+    if (ready) for (const m of this.meshRenderers.values()) if (m.sources === null) { ready = false; break; }
     this.probeMeshes.length = 0;
     for (const m of this.scene.meshes) if ((m.layerMask & EDITOR_LAYER_MASK) === 0) this.probeMeshes.push(m);
     this.probes.sync(world, this.probeMeshes, ready);
@@ -625,6 +645,12 @@ export class BabylonRenderer {
   }
 
   // --- Reflection probes and fog (ADR 0054, 0071; stage 6) ----------------------------------------
+
+  /** The probe a mesh's bounds centre lies in, if any. */
+  private probeAt(m: Mesh): { texture: BaseTexture; intensity: number } | null {
+    const centre = m.getBoundingInfo().boundingBox.centerWorld;
+    return this.probes.lookup(centre.x, centre.y, centre.z);
+  }
 
   /** A copy of a material reflecting a probe's map, made once per material and probe. */
   private probeMaterial(base: PBRMaterial, texture: BaseTexture, intensity: number): PBRMaterial {
@@ -905,7 +931,7 @@ export class BabylonRenderer {
   private syncMesh(world: World, r: MeshRenderer): void {
     let entry = this.meshRenderers.get(r);
     if (!entry) {
-      entry = { meshes: [], sources: null, material: null };
+      entry = { meshes: [], sources: null, material: null, matrix: null };
       this.meshRenderers.set(r, entry);
     }
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
@@ -921,20 +947,22 @@ export class BabylonRenderer {
       });
       entry.sources = sources;
       entry.material = material;
+      entry.matrix = null;
     }
     const visible = r.isActiveAndEnabled;
     const e = r.node.entity;
+    // Freeze the meshes again only when the node moved: freezing recomputes their bounds.
+    const moved = visible && entry.meshes.length > 0 && matrixChanged(entry, world.worldMatrix(e), e * 16);
     for (const m of entry.meshes) {
       m.setEnabled(visible);
       m.receiveShadows = r.receiveShadows;
       if (!visible) continue;
-      m.freezeWorldMatrix(Matrix.FromArray(world.worldMatrix(e) as unknown as number[], e * 16));
+      if (moved) m.freezeWorldMatrix(Matrix.FromArray(entry.matrix! as unknown as number[]));
       const base = (m.metadata as { mycoBase?: BabylonMaterial } | null)?.mycoBase ?? m.material;
       if (!base) continue;
       m.applyFog = !this.noFog.has(base);
       // A reflection probe (ADR 0054) for built-in materials; graph materials keep the scene's environment.
-      const centre = m.getBoundingInfo().boundingBox.centerWorld;
-      const probe = base instanceof PBRMaterial && !this.graphs.has(base) ? this.probes.lookup(centre.x, centre.y, centre.z) : null;
+      const probe = this.probes.any && base instanceof PBRMaterial && !this.graphs.has(base) ? this.probeAt(m) : null;
       const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe.texture, probe.intensity) : base;
       if (probe) this.reflecting++;
       if (m.material !== drawn) m.material = drawn;

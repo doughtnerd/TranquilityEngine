@@ -52,6 +52,17 @@ export function environmentKind(path: string): "hdr" | "exr" | "ldr" | null {
   return null;
 }
 
+/**
+ * @internal A light's `shadowEnabled`: true only while it has a shadow map this frame. Babylon's
+ * frame graph object renderer sets every shadow-capable light's flag to "has a shadow map in this
+ * graph" before each render and restores it after; a light left at Babylon's default (true) without
+ * one flipped twice a frame, and each flip marks every mesh it lights as needing its shader defines
+ * rebuilt, which cost tens of milliseconds a frame in the pirates sample.
+ */
+export function setShadowEnabled(light: BabylonLight, casts: boolean): void {
+  if (light.shadowEnabled !== casts) light.shadowEnabled = casts;
+}
+
 /** The size of the prefiltered cube made from an environment map (per face). */
 export const ENV_SIZE = 256;
 
@@ -96,17 +107,24 @@ export class BabylonLighting {
     this.cascading = false;
     const shadows: ShadowRequest[] = [];
     for (const l of world._componentsOfType(Light)) {
-      if (!this.syncLight(world, l)) continue;
+      const on = this.syncLight(world, l);
+      const entry = this.lights.get(l)!;
+      const casts = on && l.castShadows && l.type !== "ambient" && !!mapSize;
+      setShadowEnabled(entry.light, casts);
+      if (!on) continue;
       any = true;
-      if (!l.castShadows || l.type === "ambient" || !mapSize) continue;
-      const light = this.lights.get(l)!.light as BabylonLight & IShadowLight;
+      if (!casts) continue;
+      const light = entry.light as BabylonLight & IShadowLight;
       const cascaded = l === cascadeLight;
       if (cascaded) this.cascading = true;
       else if (light instanceof DirectionalLight) this.fitShadowArea(light, l.shadowArea);
       shadows.push({ light, cascaded, mapSize, numCascades: tier.shadowCascades, shadowMaxZ: tier.shadowDistance });
     }
     // A World with no Light of its own gets the default ones, so meshes never draw black.
-    for (const d of this.defaults) d.setEnabled(!any);
+    for (const d of this.defaults) {
+      d.setEnabled(!any);
+      setShadowEnabled(d, false);
+    }
     return shadows;
   }
 

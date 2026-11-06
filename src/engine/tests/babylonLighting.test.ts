@@ -133,4 +133,25 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     sync();
     expect(shadows).toEqual([]);
   });
+
+  it("leaves shadowEnabled on only for lights with a shadow map, so Babylon's per-render toggle never dirties meshes", () => {
+    Graphics.quality = "High";
+    light({ type: "directional", castShadows: true }, [0, 10, 0], [-90, 0, 0]);
+    light({ type: "point" }, [1, 2, 3]);
+    sync();
+    expect(byName("light:light directional")!.shadowEnabled).toBe(true);
+    expect(byName("light:light point")!.shadowEnabled).toBe(false);
+    expect(byName("myco.default.sun")!.shadowEnabled).toBe(false);
+    // A frame changes nothing, so no mesh is marked as needing its shader defines rebuilt.
+    let marked = 0;
+    for (const l of scene.lights) {
+      const mark = l._markMeshesAsLightDirty.bind(l);
+      l._markMeshesAsLightDirty = () => {
+        marked++;
+        mark();
+      };
+    }
+    sync();
+    expect(marked).toBe(0);
+  });
 });

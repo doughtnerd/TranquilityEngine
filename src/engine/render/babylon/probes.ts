@@ -122,8 +122,14 @@ export class BabylonProbes {
     this.scene.activeCamera = previous;
   }
 
+  /** Whether any probe has captured (so `lookup` can find one). */
+  get any(): boolean {
+    return this.boxes.length > 0;
+  }
+
   /** The probe a point reflects (the smallest box holding it), or null for the scene's environment. */
   lookup(x: number, y: number, z: number): { texture: BaseTexture; intensity: number } | null {
+    if (!this.boxes.length) return null;
     const box = pickProbe({ x, y, z }, this.boxes.map((b) => b.box));
     const hit = box && this.boxes.find((b) => b.box === box);
     return hit ? { texture: hit.texture, intensity: hit.intensity } : null;

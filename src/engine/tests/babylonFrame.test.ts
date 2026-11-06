@@ -1,7 +1,9 @@
 // ADR 0075 stage 3: the finish pass and each camera's pass layout on the Babylon backend, without a GPU.
 import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
 import { describe, expect, it } from "vitest";
-import { cameraPasses } from "../render/babylon/frameGraph";
+import { cameraPasses, setCasters } from "../render/babylon/frameGraph";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import { matrixChanged } from "../render/babylon/BabylonRenderer";
 import { FINISH_SHADER, FINISH_UNIFORMS } from "../render/babylon/finishShader";
 import type { PostEffects } from "../render/PostProcessStack";
 
@@ -97,5 +99,40 @@ describe("the geometry pass's depth (ADR 0075)", () => {
       scene.dispose();
       engine.dispose();
     }
+  });
+});
+
+describe("per-frame work the Babylon backend skips when nothing changed (ADR 0075 notes)", () => {
+  it("refills the shadow casters' list only when its meshes change, in one splice", () => {
+    const [a, b, c] = [{ id: "a" }, { id: "b" }, { id: "c" }] as unknown as Mesh[];
+    const list: Mesh[] = [];
+    const calls: string[] = [];
+    // Babylon watches a render list's push and splice: count what reaches it.
+    for (const name of ["push", "splice"] as const) {
+      const f = list[name].bind(list) as (...args: unknown[]) => unknown;
+      (list as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => {
+        calls.push(name);
+        return f(...args);
+      };
+    }
+    expect(setCasters(list, [a, b])).toBe(true);
+    expect(setCasters(list, [a, b])).toBe(false);
+    expect(calls).toEqual(["splice"]);
+    expect(setCasters(list, [a, c])).toBe(true);
+    expect([...list]).toEqual([a, c]);
+    expect(calls).toEqual(["splice", "splice"]); // never emptied then pushed: an emptied list dirties every mesh
+  });
+
+  it("re-freezes a mesh only when its node's world matrix changed", () => {
+    const entry = { matrix: null as Float32Array | null };
+    const world = new Float32Array(32);
+    world.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 6, 7, 1], 16);
+    expect(matrixChanged(entry, world, 16)).toBe(true); // the first sync freezes it
+    expect(Array.from(entry.matrix!)).toEqual(Array.from(world.subarray(16)));
+    expect(matrixChanged(entry, world, 16)).toBe(false);
+    world[16 + 13] = 6.5;
+    expect(matrixChanged(entry, world, 16)).toBe(true);
+    expect(entry.matrix![13]).toBe(6.5);
+    expect(matrixChanged(entry, world, 16)).toBe(false);
   });
 });

@@ -34,6 +34,7 @@ import { FrameGraphChromaticAberrationTask } from "@babylonjs/core/FrameGraph/Ta
 import { FrameGraphCustomPostProcessTask } from "@babylonjs/core/FrameGraph/Tasks/PostProcesses/customPostProcessTask.js";
 import { FrameGraphDepthOfFieldTask } from "@babylonjs/core/FrameGraph/Tasks/PostProcesses/depthOfFieldTask.js";
 import { FrameGraphFXAATask } from "@babylonjs/core/FrameGraph/Tasks/PostProcesses/fxaaTask.js";
+import { FrameGraphCullObjectsTask } from "@babylonjs/core/FrameGraph/Tasks/Misc/cullObjectsTask.js";
 import { FrameGraphSSAO2RenderingPipelineTask } from "@babylonjs/core/FrameGraph/Tasks/PostProcesses/ssao2RenderingPipelineTask.js";
 import { FrameGraphCascadedShadowGeneratorTask } from "@babylonjs/core/FrameGraph/Tasks/Rendering/csmShadowGeneratorTask.js";
 import { FrameGraphGeometryRendererTask } from "@babylonjs/core/FrameGraph/Tasks/Rendering/geometryRendererTask.js";
@@ -181,6 +182,18 @@ interface ViewTargets {
 
 const AO_SAMPLES = { low: 8, medium: 16, high: 32 } as const;
 
+/**
+ * @internal Refill the shadow casters' list only when its meshes changed, in one splice. Babylon
+ * watches a shadow map's render list, and when it goes from empty to filled it marks every mesh in
+ * the scene as needing its shader defines rebuilt: clearing and refilling it each frame did that
+ * every frame.
+ */
+export function setCasters(list: Mesh[], casters: readonly Mesh[]): boolean {
+  if (list.length === casters.length && list.every((m, i) => m === casters[i])) return false;
+  list.splice(0, list.length, ...casters);
+  return true;
+}
+
 /** @internal One kind of pass in a camera's part of the frame. */
 export type PassKind = "clear" | "render" | "geometry" | "ao" | "dof" | "bloom" | "ca" | "finish" | "fxaa";
 
@@ -244,8 +257,7 @@ export class BabylonFrame {
 
   /** Draw a frame: rebuild the graph if its layout changed, update every value, run it. */
   render(views: CameraView[], shadows: ShadowRequest[], casters: readonly Mesh[], samples: number): void {
-    this.casterMeshes.length = 0;
-    this.casterMeshes.push(...casters);
+    setCasters(this.casterMeshes, casters);
     const key = JSON.stringify({
       samples,
       shadows: shadows.map((s) => [s.light.uniqueId, s.cascaded, s.mapSize, s.numCascades]),
@@ -376,11 +388,18 @@ export class BabylonFrame {
       tm.createRenderTargetTexture(`${name}${i}`, { size, sizeIsPercentage: false, options: { createMipMaps: false, samples: s, types: [type], formats: [format], useSRGBBuffers: [false], labels: [`${name}${i}`] } });
     const effects = v.effects;
 
+    // Frustum culling: Babylon's frame graph object renderer draws every mesh in its list, so without
+    // this every mesh in the scene was drawn (and readied) by every camera, on screen or not.
+    const cull = new FrameGraphCullObjectsTask(`cull${i}`, graph, this.scene);
+    cull.camera = v.camera;
+    cull.objectList = this.objects;
+    graph.addTask(cull);
+
     const render = new FrameGraphObjectRendererTask(`render${i}`, graph, this.scene);
     render.targetTexture = clear.outputTexture;
     render.depthTexture = clear.outputDepthTexture;
     render.camera = v.camera;
-    render.objectList = this.objects;
+    render.objectList = cull.outputObjectList;
     render.shadowGenerators = this.shadowTasks;
     render.isMainObjectRenderer = i === 0;
     render.forceLayerMaskCheck = true; // editor-only meshes (EDITOR_LAYER_MASK) show to editor cameras only
@@ -394,7 +413,7 @@ export class BabylonFrame {
     if (plan.has("geometry")) {
       geometry = new FrameGraphGeometryRendererTask(`geometry${i}`, graph, this.scene);
       geometry.camera = v.camera;
-      geometry.objectList = this.objects;
+      geometry.objectList = cull.outputObjectList;
       geometry.size = { width: size.width, height: size.height };
       geometry.sizeIsPercentage = false; // the default reads the size as a percentage of the canvas
       geometry.samples = 1;

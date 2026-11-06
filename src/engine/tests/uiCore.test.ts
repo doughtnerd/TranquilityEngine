@@ -91,6 +91,33 @@ describe("UICore layout", () => {
     expect(c.rectOf(canvas)).toEqual({ x: 0, y: 0, width: 1280, height: 720 });
   });
 
+  it("gives Yoga only the properties that changed since the last sync, and still lays out changes", async () => {
+    const { column, play, quit } = menu();
+    const c = await core();
+    sync(c);
+    const yogaNode = (comp: UIPanel) => (c as unknown as { entries: Map<unknown, { node: Record<string, (...a: unknown[]) => unknown> }> }).entries.get(comp)!.node;
+    let calls = 0;
+    for (const comp of [column, play, quit]) {
+      const n = yogaNode(comp);
+      for (const name of ["setDisplay", "setFlexDirection", "setJustifyContent", "setAlignItems", "setGap", "setPadding", "setMargin", "setWidth", "setHeight", "setPositionType", "setPosition", "setFlexGrow", "setFlexShrink", "setBorder"]) {
+        const f = n[name].bind(n);
+        n[name] = (...a: unknown[]) => {
+          calls++;
+          return f(...a);
+        };
+      }
+    }
+    sync(c);
+    expect(calls).toBe(0); // a WebAssembly call per property per element every frame added up
+    play.width = 300 as UILength;
+    sync(c);
+    expect(calls).toBe(1);
+    expect(c.rectOf(play)).toEqual({ x: 20, y: 20, width: 300, height: 50 });
+    play.width = 200 as UILength;
+    sync(c);
+    expect(c.rectOf(play)).toEqual({ x: 20, y: 20, width: 200, height: 50 });
+  });
+
   it("lays children out with flexbox inside their parent", async () => {
     const { canvas, column, play, quit } = menu();
     const c = await core();
