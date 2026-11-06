@@ -44,7 +44,11 @@ export interface MarkupElement {
   readonly attributes: readonly MarkupAttribute[];
   /** Child elements, in order. `<Use>` is already expanded (each gets `from` set); `<Style>` and `<Template>` aren't here. */
   readonly children: readonly MarkupElement[];
-  /** A `Text`, `Button` label shorthand or `InputField`'s text content, trimmed (null when none). Bindings left in. */
+  /**
+   * A `Text`, `Button` label shorthand or `InputField`'s text content, with whitespace collapsed as in
+   * HTML (runs of spaces, tabs and line breaks become one space, trimmed; `&#160;` isn't collapsed), or
+   * null when none. Bindings left in. A `text="…"` attribute keeps its spacing exactly.
+   */
   readonly text: string | null;
   /** The `<Template>` child's single element, for `list()` (null when none). */
   readonly template: MarkupElement | null;

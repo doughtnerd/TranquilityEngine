@@ -1,4 +1,4 @@
-import { Audio, GameBehavior, Lobby, Time, UIButton, UIDocument, UIPanel, behavior, type LobbyRoom, type UIDocumentElement } from "myco";
+import { Audio, GameBehavior, Lobby, Time, UIButton, UIDocument, behavior, type LobbyRoom, type UIDocumentElement } from "myco";
 import { TEAM_COLORS } from "../data";
 import { ARENAS, BOT_NAMES, MATCH_LENGTHS, SHIP_COUNTS, arenaOf, forgetLeftMatch, leftMatchEarly, shipsOf } from "../lobby";
 
@@ -54,7 +54,7 @@ function save(key: string, value: string): void {
  * (scenes/menu.scene.json), with the screens in ui/menu.ui.xml and their look in ui/menu.ui.css.
  * Buttons and fields get handlers once; each frame the script reads `Lobby` into `ui.data` (the
  * markup's `{bindings}`), makes the open rooms, the crew, the settings and the results with
- * `ui.list()` when they change, and shows the screen the lobby is in.
+ * `ui.list()` when they change, and shows the screen the lobby is in (the `hidden` class).
  *
  * While a match plays, the lobby pauses this World and the match World takes the screen; when the
  * match ends, this World resumes and shows the room with the results.
@@ -151,15 +151,7 @@ export class MenuDocument extends GameBehavior {
     const inRoom = (state === "room" || state === "starting") && room !== null;
     this.show("#home", !inRoom && state !== "match");
     this.show("#room", inRoom);
-    // The veil is absolutely placed, so it's hidden with `visible` (it takes no space either way, and
-    // starting hidden in the markup keeps it off the scene view). Its text too: the three.js backend
-    // doesn't hide a hidden panel's children.
-    const veil = this.el("#sailing");
-    const sailing = state === "match" || this.startWhenHost;
-    for (const el of [veil, ...veil.queryAll("*")]) {
-      const c = el.component as UIPanel;
-      if (c.visible !== sailing) c.visible = sailing;
-    }
+    this.show("#sailing", state === "match" || this.startWhenHost);
     if (inRoom) this.room(room!);
     else this.home();
     this.header();
@@ -322,9 +314,9 @@ export class MenuDocument extends GameBehavior {
     return el;
   }
 
+  /** Show or hide an element with the stylesheet's `.hidden` (`display: none`: it takes no space). */
   private show(selector: string, on: boolean): void {
-    const node = this.el(selector).node;
-    if (node.active !== on) node.setActive(on);
+    this.el(selector).classList.toggle("hidden", !on);
   }
 
   /** `ui.list()`, called again only when the items change. Returns the rows. */

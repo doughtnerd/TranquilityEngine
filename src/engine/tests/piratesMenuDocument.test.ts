@@ -67,7 +67,12 @@ async function openMenu(warnings: string[]): Promise<{ engine: Engine; menu: Wor
   return { engine, menu, ui };
 }
 
-const shown = (el: UIDocumentElement | null) => !!el && el.node.activeInHierarchy;
+/** Laid out and drawn: its node active, and neither it nor an element above it `display: none` (the script's `.hidden`). */
+const shown = (el: UIDocumentElement | null): boolean => {
+  if (!el || !el.node.activeInHierarchy) return false;
+  for (let e: UIDocumentElement | null = el; e; e = e.parent) if ((e.component as UIPanel).display === "none") return false;
+  return true;
+};
 const textOf = (el: UIDocumentElement | null) => el!.as(UIText).text;
 
 describe("the pirates menu as a UI document", () => {
@@ -102,7 +107,11 @@ describe("the pirates menu as a UI document", () => {
     expect(shown(ui.query("#room"))).toBe(false);
     expect(shown(ui.query("#no-rooms"))).toBe(true);
     expect(shown(ui.query("#local"))).toBe(false);
-    expect(ui.query("#sailing")!.as(UIPanel).visible).toBe(false);
+    expect(shown(ui.query("#sailing"))).toBe(false);
+    expect(ui.query("#sailing")!.as(UIPanel).positionType).toBe("absolute"); // `position: absolute`
+    // Screens are hidden with a class (`display: none`), not by deactivating nodes: their nodes stay active.
+    expect(ui.query("#room")!.classList.contains("hidden")).toBe(true);
+    expect(ui.query("#room")!.node.activeInHierarchy).toBe(true);
   });
 
   it("creates a room from its button: the crew and settings rows come from list(), and the host steps a setting", { timeout: 60_000 }, async () => {

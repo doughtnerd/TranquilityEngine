@@ -53,6 +53,8 @@ interface Entry {
   /** Image: the texture asset requested, and the texture once loaded. */
   texturePath?: string;
   texture?: Texture | null;
+  /** An element above it (in the UI tree) has `visible` false. */
+  hiddenByAncestor?: boolean;
   /** Input field: Enter was pressed since the last routing. */
   pendingSubmit?: boolean;
   /** Input field: the DOM listener to remove. */
@@ -286,32 +288,35 @@ export class UIRuntime {
   /** Walk `node`'s descendants in order, placing UI elements under `parent` (skipping nodes without one). */
   private collect(node: GameObject, parent: Entry, canvas: CanvasEntry, byNode: Map<number, UIComponentType>, placed: Set<Entry>): void {
     const children: Entry[] = [];
-    const walk = (n: GameObject, into: Entry, list: Entry[]) => {
+    // `hidden`: a UI element above (a leaf's parent included, for nodes under a leaf) has `visible` false.
+    const walk = (n: GameObject, into: Entry, list: Entry[], hidden: boolean) => {
       for (const child of n.children) {
         if (child.isComponentNode) continue; // its component counts as its owner's (ADR 0009)
         const c = byNode.get(child.entity);
         if (!c) {
-          walk(child, into, list);
+          walk(child, into, list, hidden);
           continue;
         }
         if (c instanceof UICanvas) continue; // a nested canvas is a root of its own
         const entry = this.entries.get(c)!;
         entry.canvas = canvas;
+        entry.hiddenByAncestor = hidden;
+        const hiddenBelow = hidden || !c.visible;
         placed.add(entry);
         if (entry.kind === "button" || entry.kind === "input") canvas.interactive.push(entry);
         if (LEAF_KINDS.has(into.kind)) {
           this.warnOnce(`leaf|${child.entity}`, `UI element "${child.name}" is under a ${into.comp.constructor.name}, which can't have children; it lays out beside it instead.`);
         }
         list.push(entry);
-        if (LEAF_KINDS.has(entry.kind)) walk(child, into, list); // children of a leaf join its parent
+        if (LEAF_KINDS.has(entry.kind)) walk(child, into, list, hiddenBelow); // children of a leaf join its parent
         else {
           const own: Entry[] = [];
-          walk(child, entry, own);
+          walk(child, entry, own, hiddenBelow);
           this.setChildren(entry, own);
         }
       }
     };
-    walk(node, parent, children);
+    walk(node, parent, children, false);
     this.setChildren(parent, children);
   }
 
@@ -347,7 +352,7 @@ export class UIRuntime {
   /** The uikit properties of an element, from its component's fields. */
   private properties(entry: Entry): Record<string, unknown> {
     const c = entry.comp;
-    const display = c.isActiveAndEnabled ? "flex" : "none";
+    const display = c.isActiveAndEnabled && (c instanceof UICanvas || c.display !== "none") ? "flex" : "none";
     if (c instanceof UICanvas) {
       const canvas = entry as CanvasEntry;
       if (c.mode === "world") {
@@ -374,7 +379,8 @@ export class UIRuntime {
       positionLeft: uiLength(c.left),
       flexGrow: c.flexGrow,
       opacity: c.opacity,
-      visibility: c.visible ? "visible" : "hidden",
+      // uikit's visibility doesn't reach children: an element under a hidden one is hidden too, as on Babylon.
+      visibility: c.visible && !entry.hiddenByAncestor ? "visible" : "hidden",
     };
     if (c instanceof UIPanel) {
       let background = c.backgroundColor;

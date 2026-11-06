@@ -179,6 +179,30 @@ describe("UICore layout", () => {
     expect(c.rectOf(b)!.x).toBe(0);
   });
 
+  it("takes display none elements and their children out of layout, drawing and routing, with their nodes still active", async () => {
+    const canvas = node("Canvas", null, UICanvas);
+    const a = node("A", canvas.node, UIPanel, { width: 100, height: 10 } as Partial<UIPanel>);
+    const inA = node("InA", a.node, UIButton, { width: 50, height: 10, padding: 0 } as Partial<UIButton>);
+    const b = node("B", canvas.node, UIPanel, { width: 100, height: 10 } as Partial<UIPanel>);
+    const c = await core();
+    sync(c);
+    expect(c.rectOf(b)!.x).toBe(100);
+    expect(c.hitTest(10, 5)).toBe(inA);
+    a.display = "none";
+    sync(c);
+    expect(c.rectOf(b)!.x).toBe(0); // takes no space
+    const els = c.elements();
+    expect(els.find((e) => e.comp === a)!.visible).toBe(false);
+    expect(els.find((e) => e.comp === inA)!.visible).toBe(false); // nor its children
+    expect(c.hitTest(10, 5)).toBeNull();
+    expect(c.pickAll(10, 5)).not.toContain(inA);
+    expect(a.node.activeInHierarchy && inA.isActiveAndEnabled).toBe(true);
+    a.display = "flex";
+    sync(c);
+    expect(c.rectOf(b)!.x).toBe(100);
+    expect(c.hitTest(10, 5)).toBe(inA);
+  });
+
   it("reports visibility and opacity down the tree, and draw order parents first", async () => {
     const canvas = node("Canvas", null, UICanvas);
     const outer = node("Outer", canvas.node, UIPanel, { width: 100, height: 100, opacity: 0.5 } as Partial<UIPanel>);

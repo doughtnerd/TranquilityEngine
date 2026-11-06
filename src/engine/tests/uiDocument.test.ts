@@ -61,6 +61,15 @@ describe("markup", () => {
     expect(m.root?.tag).toBe("Canvas");
   });
 
+  it("collapses text content's whitespace as HTML does, but not &#160; or attributes", () => {
+    const m = parseMarkup(`<Canvas><Text>\n   Two  spaces\tand\na line  </Text><Text>a&#160;&#160;b</Text><Text text="keep  these"/></Canvas>`, "ui/t.ui.xml", noFiles);
+    const [a, b, c] = m.root!.children;
+    expect(a.text).toBe("Two spaces and a line");
+    expect(b.text).toBe("a  b");
+    expect(c.text).toBeNull();
+    expect(c.attributes[0].value).toBe("keep  these");
+  });
+
   it("splits bindings", () => {
     expect(parseBindings("Score: {score}!")).toEqual([{ text: "Score: " }, { binding: "score" }, { text: "!" }]);
     expect(parseBindings("{{literal}} {a.b}")).toEqual([{ text: "{literal} " }, { binding: "a.b" }]);
@@ -136,6 +145,22 @@ describe("stylesheets", () => {
     expect(text.get("fontSize")?.value).toBe(20);
     expect(text.get("fontWeight")?.value).toBe("bold");
     expect(text.has("gap")).toBe(false); // layout properties don't inherit
+  });
+
+  it("takes display, and position as an alias of position-type, from rules and attributes", () => {
+    const sheet = parseStylesheet(`.veil { position: absolute; display: none; } .shown { display: flex; } .flow { position-type: relative; }`, "ui/s.ui.css");
+    const warnings: string[] = [];
+    const veil = resolveStyle(target("Panel", { classes: ["veil"] }), element("Panel"), UIPanel, [sheet], null, (m) => warnings.push(m));
+    expect(veil.get("positionType")?.value).toBe("absolute");
+    expect(veil.get("display")?.value).toBe("none");
+    const shown = resolveStyle(target("Panel", { classes: ["veil", "shown"] }), element("Panel"), UIPanel, [sheet], null, () => {});
+    expect(shown.get("display")?.value).toBe("flex"); // later rule, same specificity
+    const attrs = resolveStyle(target("Panel", { classes: ["flow"] }), element("Panel", { position: "absolute", display: "none" }), UIPanel, [sheet], null, (m) => warnings.push(m));
+    expect(attrs.get("positionType")?.value).toBe("absolute"); // the attribute beats the rule
+    expect(attrs.get("positionType")?.source.kind).toBe("attribute");
+    expect(attrs.get("display")?.value).toBe("none");
+    resolveStyle(target("Panel"), element("Panel", { display: "block" }), UIPanel, [sheet], null, (m) => warnings.push(m));
+    expect(warnings).toEqual([expect.stringMatching(/"block" isn't a valid display/)]);
   });
 
   it("leaves out values that don't convert, and warns", () => {
@@ -241,6 +266,31 @@ describe("UIDocument", () => {
     title.classList.remove("big");
     engine.step(DT);
     expect(title.as(UIText).fontSize).toBe(16); // back to the default
+  });
+
+  it("hides elements with display: none from a class, and shows them again, their nodes staying active", async () => {
+    files["ui/screens.ui.xml"] = `<Canvas><Style src="screens.ui.css"/>
+      <Panel id="home"><Button id="go">Go</Button></Panel>
+      <Panel id="room" class="hidden"><Text id="who">Crew</Text></Panel>
+      <Button id="hover-hide">x</Button>
+    </Canvas>`;
+    files["ui/screens.ui.css"] = `.hidden { display: none; } #hover-hide:hover { display: none; }`;
+    const doc = await open("ui/screens.ui.xml");
+    expect(doc.problems).toEqual([]);
+    const room = doc.query("#room")!;
+    expect(room.as(UIPanel).display).toBe("none");
+    expect(room.node.activeInHierarchy).toBe(true);
+    expect(doc.query("#who")!.as(UIText).display).toBe("flex"); // its children keep theirs: the parent's hides them
+    room.classList.remove("hidden");
+    doc.query("#home")!.classList.add("hidden");
+    engine.step(DT);
+    expect(room.as(UIPanel).display).toBe("flex");
+    expect(doc.query("#home")!.as(UIPanel).display).toBe("none");
+    // A pseudo-class can toggle it too.
+    const hoverHide = doc.query("#hover-hide")!.as(UIButton);
+    hoverHide._hovered = true;
+    engine.step(DT);
+    expect(hoverHide.display).toBe("none");
   });
 
   it("restyles on :hover", async () => {

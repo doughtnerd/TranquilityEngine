@@ -4,4 +4,4 @@
  * download them.
  */
 export { hasBinding, parseBindings, parseMarkup, resolvePath } from "./markup";
-export { attributeField, boundValue, cloneValue, convertValue, fieldsOf, matchSelector, parseStylesheet, resolveStyle, usesPseudo } from "./stylesheet";
+export { attributeField, boundValue, propertyField, cloneValue, convertValue, fieldsOf, matchSelector, parseStylesheet, resolveStyle, usesPseudo } from "./stylesheet";

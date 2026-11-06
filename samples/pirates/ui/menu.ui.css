@@ -40,6 +40,8 @@
 .row { gap: 10px; }
 .stack { flex-direction: column; gap: 12px; }
 .grow { flex-grow: 1; }
+/* The script shows and hides screens and controls with this class; display: none takes no space. */
+.hidden { display: none; }
 
 .card {
   flex-direction: column;
@@ -154,7 +156,7 @@ Button:pressed { background-color: var(--button-pressed); }
 /* --- Setting sail ------------------------------------------------------------------------------ */
 
 #sailing {
-  position-type: absolute;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;

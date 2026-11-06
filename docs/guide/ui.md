@@ -18,7 +18,7 @@ Canvas            UICanvas
 - Nodes without a UI component are skipped: their UI children lay out in the nearest UI ancestor. Use them to group things.
 - `UIText`, `UIImage` and `UIInputField` can't have children; UI nodes under one lay out beside it (with a warning).
 - An element with no `UICanvas` above it isn't drawn (with a warning).
-- A disabled component or an inactive node takes no space. `visible = false` hides an element and its children but keeps its space.
+- A disabled component or an inactive node takes no space. `display = "none"` does the same while the node stays active (its scripts run), like CSS's `display: none`. `visible = false` hides an element and its children but keeps its space. Hidden elements, and elements inside them, don't take the pointer.
 
 In the editor, **Create > UI Canvas, UI Panel, UI Text, UI Image, UI Button, UI Input Field** add each kind; the components are also in **Add Component > UI**. Their fields are in the Inspector. There's no drag-to-lay-out view yet: you lay out with the fields.
 
@@ -48,6 +48,8 @@ Every element has flexbox fields (Yoga's, with web defaults). Lengths are UI pix
 | `positionType` | `relative`, or `absolute` to take it out of the flow and place it by `top`, `right`, `bottom`, `left` |
 | `flexGrow` | how much of the parent's free space it takes |
 | `opacity` | 0–1, multiplied into its children's |
+| `visible` | `false` hides it and its children, keeping its space |
+| `display` | `flex` (default), or `none` to take it and its children out of layout, drawing and the pointer |
 
 Children shrink to fit a parent that's too small (flexbox's `flex-shrink: 1`).
 

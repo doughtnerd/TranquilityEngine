@@ -346,7 +346,7 @@ export class UICore implements UICoreLike {
     const flexDirections = { row: yoga.FLEX_DIRECTION_ROW, column: yoga.FLEX_DIRECTION_COLUMN, "row-reverse": yoga.FLEX_DIRECTION_ROW_REVERSE, "column-reverse": yoga.FLEX_DIRECTION_COLUMN_REVERSE };
     const justify = { "flex-start": yoga.JUSTIFY_FLEX_START, center: yoga.JUSTIFY_CENTER, "flex-end": yoga.JUSTIFY_FLEX_END, "space-between": yoga.JUSTIFY_SPACE_BETWEEN, "space-around": yoga.JUSTIFY_SPACE_AROUND, "space-evenly": yoga.JUSTIFY_SPACE_EVENLY };
     const align = { "flex-start": yoga.ALIGN_FLEX_START, center: yoga.ALIGN_CENTER, "flex-end": yoga.ALIGN_FLEX_END, stretch: yoga.ALIGN_STRETCH, baseline: yoga.ALIGN_BASELINE };
-    n.setDisplay(c.isActiveAndEnabled ? yoga.DISPLAY_FLEX : yoga.DISPLAY_NONE);
+    n.setDisplay(c.isActiveAndEnabled && c.display !== "none" ? yoga.DISPLAY_FLEX : yoga.DISPLAY_NONE);
     n.setFlexDirection(flexDirections[c.flexDirection] ?? yoga.FLEX_DIRECTION_ROW);
     n.setJustifyContent(justify[c.justifyContent] ?? yoga.JUSTIFY_FLEX_START);
     n.setAlignItems(align[c.alignItems] ?? yoga.ALIGN_STRETCH);
@@ -398,7 +398,7 @@ export class UICore implements UICoreLike {
       for (const e of parent.children) {
         const c = e.comp as Exclude<UIComponentType, UICanvas>;
         const x = ox + e.node.getComputedLeft(), y = oy + e.node.getComputedTop();
-        const v = visible && c.isActiveAndEnabled && c.visible;
+        const v = visible && c.isActiveAndEnabled && c.visible && c.display !== "none";
         const o = opacity * c.opacity;
         e.box = { x, y, width: e.node.getComputedWidth(), height: e.node.getComputedHeight(), visible: v, opacity: o };
         canvas.elements.push(e);

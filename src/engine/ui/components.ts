@@ -18,6 +18,8 @@ export type UIFlexDirection = "row" | "column" | "row-reverse" | "column-reverse
 export type UIJustify = "flex-start" | "center" | "flex-end" | "space-between" | "space-around" | "space-evenly";
 export type UIAlign = "flex-start" | "center" | "flex-end" | "stretch" | "baseline";
 export type UIPositionType = "relative" | "absolute";
+/** `none` takes an element and its children out of layout, drawing and the pointer. */
+export type UIDisplay = "flex" | "none";
 export type UICanvasMode = "screen" | "world";
 export type UITextAlign = "left" | "center" | "right" | "justify";
 export type UIWordBreak = "break-word" | "break-all" | "keep-all";
@@ -81,6 +83,12 @@ abstract class UIElement extends UIComponent {
   @field(Number) opacity = 1;
   /** False hides the element and its children but keeps its space (a disabled component or inactive node takes none). */
   @field(Boolean) visible = true;
+  /**
+   * `none` removes the element and its children from layout, drawing and the pointer, like CSS
+   * `display: none`, while its node stays active (its scripts run, and its state reads as before).
+   * `flex` (the default) lays it out.
+   */
+  @field(String, { choices: ["flex", "none"] }) display: UIDisplay = "flex";
 }
 
 /** A box: background, border and rounded corners, laying out its children. */

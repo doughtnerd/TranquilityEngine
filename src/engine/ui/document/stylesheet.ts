@@ -303,6 +303,15 @@ export function camelCase(name: string): string {
   return name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
 }
 
+/** Property and attribute names (camelCase) that name another field: CSS's `position` is `positionType`. */
+const ALIASES: Readonly<Record<string, string>> = { position: "positionType" };
+
+/** The field a property or attribute sets: its camelCase name (`flex-direction` → `flexDirection`), or the field an alias names (`position` → `positionType`). */
+export function propertyField(name: string): string {
+  const field = camelCase(name);
+  return ALIASES[field] ?? field;
+}
+
 /** `var(--x)` and `var(--x, fallback)` substituted from `vars`; undefined when a variable is missing and has no fallback. */
 export function substituteVars(value: string, vars: ReadonlyMap<string, string>, depth = 0): string | undefined {
   if (!value.includes("var(")) return value;
@@ -358,9 +367,9 @@ function isKnownField(name: string): boolean {
   return knownFields.has(name);
 }
 
-/** The field an attribute sets (`flex-direction` and `flexDirection` both name `flexDirection`), or null for `id`/`class`. */
+/** The field an attribute sets (`flex-direction` and `flexDirection` both name `flexDirection`; `position` names `positionType`), or null for `id`/`class`. */
 export function attributeField(attribute: MarkupAttribute): string | null {
-  return NOT_FIELDS.has(attribute.name) ? null : camelCase(attribute.name);
+  return NOT_FIELDS.has(attribute.name) ? null : propertyField(attribute.name);
 }
 
 /** A variable's key in a resolved map: `--name` (variables inherit, like the text properties). */
@@ -433,7 +442,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   for (const m of matched) {
     const prop = m.declaration.property;
     if (isVariable(prop)) continue;
-    const field = camelCase(prop);
+    const field = propertyField(prop);
     if (!isKnownField(field)) {
       warnOnce(`${m.file}: unknown property "${prop}" (in "${m.rule.selectorText}").`);
       continue;

@@ -73,7 +73,7 @@ describe("UI components (ADR 0069)", () => {
     expect(getComponentClass("engine.UIButton")).toBe(UIButton);
     expect(getComponentClass("engine.UIInputField")).toBe(UIInputField);
     const button = getFields(UIButton).map((f) => f.name);
-    for (const name of ["flexDirection", "justifyContent", "alignItems", "gap", "padding", "margin", "width", "height", "positionType", "top", "right", "bottom", "left", "flexGrow", "backgroundColor", "borderRadius", "borderWidth", "borderColor", "opacity", "visible", "hoverColor", "pressedColor", "interactable"]) {
+    for (const name of ["flexDirection", "justifyContent", "alignItems", "gap", "padding", "margin", "width", "height", "positionType", "top", "right", "bottom", "left", "flexGrow", "backgroundColor", "borderRadius", "borderWidth", "borderColor", "opacity", "visible", "display", "hoverColor", "pressedColor", "interactable"]) {
       expect(button).toContain(name);
     }
     expect(getFields(UICanvas).map((f) => f.name)).toEqual(["mode", "referenceResolution", "matchHeight", "sortOrder", "pixelSize"]);
@@ -359,6 +359,49 @@ describe("UI-first pointer routing (ADR 0069)", () => {
     engine.step(DT);
     expect(r.hitTest(100, 40)).toBeNull();
     expect(Input.pointerOverUI).toBe(false);
+  });
+
+  it("hides a hidden panel's children too, as the Babylon backend does", async () => {
+    const { canvas, column, play } = menu();
+    const r = runtime();
+    await layout(r, canvas);
+    const label = node("Label", play.node, UIText, { text: "Play" } as Partial<UIText>);
+    r.sync(world(), 1280, 720, DT);
+    const visibleOf = (c: UIPanel | UIText) => (r as unknown as { entries: Map<unknown, { obj: { isVisible: { value: boolean } } }> }).entries.get(c)!.obj.isVisible.value;
+    expect(visibleOf(label)).toBe(true);
+    expect(r.hitTest(100, 40)).toBe(play);
+    column.visible = false;
+    r.sync(world(), 1280, 720, DT);
+    expect(visibleOf(column)).toBe(false);
+    expect(visibleOf(play)).toBe(false);
+    expect(visibleOf(label)).toBe(false);
+    expect(r.hitTest(100, 40)).toBeNull();
+    expect(r.rectOf(play)).not.toBeNull(); // still laid out: visible keeps the space
+    column.visible = true;
+    r.sync(world(), 1280, 720, DT);
+    expect(visibleOf(label)).toBe(true);
+    expect(r.hitTest(100, 40)).toBe(play);
+  });
+
+  it("takes display none elements and their children out of layout, drawing and routing", async () => {
+    const { canvas, play, quit } = menu();
+    const r = runtime();
+    await layout(r, canvas);
+    const label = node("Label", play.node, UIText, { text: "Play" } as Partial<UIText>);
+    r.sync(world(), 1280, 720, DT);
+    const quitY = r.rectOf(quit)!.y;
+    play.display = "none";
+    r.sync(world(), 1280, 720, DT);
+    const visibleOf = (c: UIPanel | UIText) => (r as unknown as { entries: Map<unknown, { obj: { isVisible: { value: boolean } } }> }).entries.get(c)!.obj.isVisible.value;
+    expect(visibleOf(play)).toBe(false);
+    expect(visibleOf(label)).toBe(false);
+    expect(r.rectOf(quit)!.y).toBeLessThan(quitY); // Quit moved up into Play's place
+    expect(r.hitTest(100, 40)).toBe(quit);
+    expect(play.isActiveAndEnabled).toBe(true);
+    play.display = "flex";
+    r.sync(world(), 1280, 720, DT);
+    expect(r.rectOf(quit)!.y).toBe(quitY);
+    expect(r.hitTest(100, 40)).toBe(play);
   });
 
   it("tests canvases from the highest sortOrder down", async () => {

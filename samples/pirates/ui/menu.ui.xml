@@ -2,7 +2,8 @@
   The main menu and the room view as a UI document (ADR 0077): the same screens as the hand-built
   menu in scenes/menu.scene.json, here as markup. The look is in menu.ui.css; the behaviour is
   scripts/behaviors/MenuDocument.ts, which fills the {bindings}, makes the rows from the
-  <Template>s with list(), and shows and hides the screens.
+  <Template>s with list(), and shows and hides the screens by toggling the "hidden" class
+  (display: none). What starts hidden is marked here, so the scene view shows the home screen.
 
   The game boots the original. To play this one instead, point the Menu World at
   scenes/menu-document.scene.json (Project Settings > Worlds, in a copy of the sample).
@@ -39,7 +40,7 @@
 
       <Panel id="right" class="card grow">
         <Text class="heading">Open rooms</Text>
-        <Panel id="rooms" class="stack">
+        <Panel id="rooms" class="stack hidden">
           <Template>
             <Panel class="room">
               <Text class="room-label">{label}</Text>
@@ -53,14 +54,14 @@
         <Panel class="row">
           <InputField id="url" class="grow" placeholder="ws://localhost:7777"/>
           <Button id="connect">Join Server</Button>
-          <Button id="local">Local</Button>
+          <Button id="local" class="hidden">Local</Button>
         </Panel>
         <Text id="server-hint" class="muted">Start one with: npm run server -- samples/pirates</Text>
       </Panel>
     </Panel>
 
     <!-- The room: its crew (players, then the bots that fill the ships), the host's settings, results. -->
-    <Panel id="room" class="columns">
+    <Panel id="room" class="columns hidden">
       <Panel id="crew" class="card">
         <Text id="room-title">{roomTitle}</Text>
         <Text id="room-code" class="muted">{roomCode}</Text>
@@ -90,7 +91,7 @@
           </Panel>
         </Panel>
 
-        <Panel id="results" class="card">
+        <Panel id="results" class="card hidden">
           <Text class="heading">{resultsTitle}</Text>
           <Panel id="result-lines" class="stack">
             <Template>
@@ -110,8 +111,8 @@
     </Panel>
 
     <!-- Over everything while the match World loads. -->
-    <Panel id="sailing" visible="false">
-      <Text visible="false">Raising the sails...</Text>
+    <Panel id="sailing" class="hidden">
+      <Text>Raising the sails...</Text>
     </Panel>
 
     <Panel id="footer">

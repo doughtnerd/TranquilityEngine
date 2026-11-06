@@ -119,7 +119,16 @@ export function hasBinding(value: string): boolean {
   return parseBindings(value).some((p) => "binding" in p);
 }
 
-function attr(el: { attributes: readonly MarkupAttribute[] }, name: string): MarkupAttribute | undefined {
+/**
+ * Text content as HTML's `white-space: normal` shows it: runs of spaces, tabs and line breaks become
+ * one space, trimmed at both ends. Only those (HTML's ASCII whitespace) collapse, so `&#160;` keeps a
+ * space. A `text="…"` attribute is never collapsed: it's the way to give exact spacing.
+ */
+export function collapseWhitespace(text: string): string {
+  return text.replace(/[ \t\n\r\f]+/g, " ").replace(/^ | $/g, "");
+}
+
+function attr(el:{ attributes: readonly MarkupAttribute[] }, name: string): MarkupAttribute | undefined {
   return el.attributes.find((a) => a.name === name);
 }
 
@@ -240,7 +249,7 @@ function parseFile(source: string, file: string, read: (path: string) => string 
           return;
         }
         if (b.special) return; // unknown: reported at its open tag
-        const trimmed = b.text.replace(/\s+/g, " ").trim();
+        const trimmed = collapseWhitespace(b.text);
         const el: MarkupElement = {
           kind: "element",
           tag: name as UITag,
