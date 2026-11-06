@@ -19,6 +19,7 @@ import { isLocked } from "./nodeVisibility";
 import { combineSelection, selectModeFor, withDescendants, type SelectMode } from "./selectionModel";
 import { docVersion, openScene, refineList, select, selectedKeys, selectedNodes, selectedUIElement, selection } from "./state";
 import { elementOfComponent, parseUIRefKey, refOfElement, selectUIElement, uiRefKey, type NodeLookup } from "./uiDocuments";
+import { pressOnSelectedUI } from "./uiHandles";
 
 /** Pointer travel (CSS pixels) under which a press and release count as a click, not a drag. */
 export const CLICK_SLOP = 4;
@@ -192,7 +193,8 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
   };
   const sample = (e: PointerEvent): PointerSample => ({ ...local(e), button: e.button, alt: e.altKey });
 
-  let down: (PointerSample & { pointerId: number }) | null = null;
+  /** The press; `ui` when it's on the selected UI element's box, where a drag moves the element (`uiHandles.ts`), not a selection box. */
+  let down: (PointerSample & { pointerId: number; ui?: boolean }) | null = null;
   let lastClick: { x: number; y: number } | null = null;
   /** The selection box being dragged: the selection before it, and its element. */
   let box: { before: readonly string[]; element: HTMLDivElement } | null = null;
@@ -238,10 +240,10 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
   const onDown = (e: PointerEvent) => {
     // Presses on a gizmo handle drag the gizmo; they never change the selection.
     const p = sample(e);
-    down = e.button === 0 && !gizmoActive(world, p.x, p.y) ? { ...p, pointerId: e.pointerId } : null;
+    down = e.button === 0 && !gizmoActive(world, p.x, p.y) ? { ...p, pointerId: e.pointerId, ui: !e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && pressOnSelectedUI(world, [p.x, p.y]) } : null;
   };
   const onMove = (e: PointerEvent) => {
-    if (!down || down.alt || !openScene.value) return;
+    if (!down || down.alt || down.ui || !openScene.value) return;
     if (box) return updateBox(e);
     const p = local(e);
     if (Math.hypot(p.x - down.x, p.y - down.y) < CLICK_SLOP) return;

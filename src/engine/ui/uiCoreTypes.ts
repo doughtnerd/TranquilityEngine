@@ -93,6 +93,17 @@ export interface UIPickRay {
   readonly direction: readonly [number, number, number];
 }
 
+/**
+ * Editor (ADR 0077): an element's laid-out box. `points` are its corners (top-left, top-right,
+ * bottom-right, bottom-left): canvas CSS pixels `[x, y]` on a screen canvas, world points
+ * `[x, y, z]` on a world canvas. `size` is the box's width and height in UI pixels.
+ */
+export interface UICorners {
+  readonly space: "screen" | "world";
+  readonly points: number[][];
+  readonly size: readonly [number, number];
+}
+
 /** The renderer-neutral UI core (ADR 0076). */
 export interface UICoreLike {
   /** Step 8: mirror the World's UI components and lay them out for a drawing canvas of `width × height` CSS pixels. */
@@ -112,7 +123,7 @@ export interface UICoreLike {
   /** Editor (ADR 0077): every drawn element (canvases excepted) under a canvas CSS point, topmost first. */
   pickAll(x: number, y: number, ray?: UIPickRay | null): UIComponentType[];
   /** Editor (ADR 0077): an element's box corners, in canvas CSS pixels (screen canvases) or world space (world canvases); null when not laid out. */
-  cornersOf(c: UIComponentType): { space: "screen" | "world"; points: number[][] } | null;
+  cornersOf(c: UIComponentType): UICorners | null;
   /** Forget a removed component. */
   release(c: UIComponentType): void;
   dispose(): void;

@@ -17,7 +17,7 @@ import { Input } from "../input/Input";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "./components";
 import { fontEpoch, fontFamilyOf } from "./fonts";
 import { UI_LINE_HEIGHT, canvasScale, cssFontWeight, estimateText, loadYogaOnce, loadedYoga, uiLength } from "./layout";
-import type { TextMeasureRequest, UICoreHost, UICoreLike, UICoreOptions, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay } from "./uiCoreTypes";
+import type { TextMeasureRequest, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay } from "./uiCoreTypes";
 
 export { canvasScale, uiLength } from "./layout";
 
@@ -630,15 +630,16 @@ export class UICore implements UICoreLike {
   /**
    * Editor (ADR 0077 wave B): an element's box corners (top-left, top-right, bottom-right,
    * bottom-left) from the last layout: canvas CSS pixels `[x, y]` on a screen canvas, world points
-   * `[x, y, z]` on a world canvas. Null when it isn't laid out.
+   * `[x, y, z]` on a world canvas, with the box's size in UI pixels. Null when it isn't laid out.
    */
-  cornersOf(c: UIComponentType): { space: "screen" | "world"; points: number[][] } | null {
+  cornersOf(c: UIComponentType): UICorners | null {
     const entry = this.entries.get(c);
     const canvas = entry?.canvas;
     if (!entry || !canvas || !this.yoga) return null;
     const b = entry.box;
     const xs = [b.x, b.x + b.width, b.x + b.width, b.x], ys = [b.y, b.y, b.y + b.height, b.y + b.height];
-    if (canvas.comp.mode !== "world") return { space: "screen", points: xs.map((x, i) => [x * canvas.scale, ys[i] * canvas.scale]) };
+    const size: [number, number] = [b.width, b.height];
+    if (canvas.comp.mode !== "world") return { space: "screen", points: xs.map((x, i) => [x * canvas.scale, ys[i] * canvas.scale]), size };
     const laid = this.canvasList.find((l) => l.comp === canvas.comp);
     if (!laid?.worldMatrix) return null;
     const m = laid.worldMatrix;
@@ -646,7 +647,7 @@ export class UICore implements UICoreLike {
       const lx = (x - laid.width / 2) * laid.pixelSize, ly = (laid.height / 2 - ys[i]) * laid.pixelSize;
       return [m[0] * lx + m[4] * ly + m[12], m[1] * lx + m[5] * ly + m[13], m[2] * lx + m[6] * ly + m[14]];
     });
-    return { space: "world", points };
+    return { space: "world", points, size };
   }
 
   private viewRay(x: number, y: number): UIPickRay | null {

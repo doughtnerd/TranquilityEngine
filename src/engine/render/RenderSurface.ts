@@ -110,7 +110,7 @@ export interface RenderSurface {
   particleState(): ParticleStats | null;
   renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number };
   /** Tests and the editor: the UI's layout and hit testing, once loaded (uikit on three.js, the UI core on Babylon). */
-  uiRuntime(): (Pick<UICoreLike, "rectOf" | "hitTest"> & Partial<Pick<UICoreLike, "pickAll" | "cornersOf">>) | null;
+  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "cornersOf"> | null;
 
   // Editor (ADR 0022 and later).
   setEditorColors(colors: EditorColors): void;

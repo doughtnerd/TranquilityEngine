@@ -39,6 +39,7 @@ import { viewportElements } from "./ui/ScenePanel";
 import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
 import { installViewportSelection } from "./viewportSelection";
 import { installUIElementOutline } from "./uiOutline";
+import { installUIHandles } from "./uiHandles";
 import { loadUIDocumentSupport } from "../engine/ui/UIDocument";
 import { reloadGraphics } from "./graphicsPreview";
 import { migrateEmbeddedEffects } from "./particleMigration";
@@ -123,7 +124,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   orbit.mode = viewMode.value;
   sceneCamera.value = orbit;
-  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine), installUIElementOutline(engine)];
+  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine), installUIElementOutline(engine), installUIHandles(engine)];
   session = {
     engine,
     dispose() {

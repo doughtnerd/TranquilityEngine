@@ -265,32 +265,38 @@ export function worldToCanvas(world: World, point: readonly number[]): [number, 
 
 /**
  * UI elements (ADR 0069, 0077) drawn under a canvas point (CSS pixels), topmost first: screen
- * canvases, then world canvases nearest first, picked with the UI core's layout boxes (canvases
- * themselves aren't listed). World canvases are hit with the view camera's ray. Empty headless,
- * before the UI loads, and on the three.js backend (no picking there yet).
+ * canvases, then world canvases nearest first, picked with the UI's layout boxes (canvases
+ * themselves aren't listed). World canvases are hit with the view camera's ray. Empty headless and
+ * before the UI loads. Both backends (the UI core on Babylon, uikit's layout on three.js).
  */
 export function pickUI(world: World, x: number, y: number): UIComponentType[] {
   const ui = world.render?.uiRuntime();
-  if (!ui?.pickAll) return [];
+  if (!ui) return [];
   return ui.pickAll(x, y, rayAt(world, x, y));
 }
 
 /**
- * A UI element's laid-out box as four canvas points (CSS pixels: top-left, top-right, bottom-right,
- * bottom-left), for outlining it in the viewport. A world canvas's corners are projected through the
- * view camera. Null when it isn't laid out, a corner is behind the camera, headless, or on three.js.
+ * A UI element's laid-out box on the canvas: its four corners in canvas CSS pixels (top-left,
+ * top-right, bottom-right, bottom-left; a world canvas's projected through the view camera) and its
+ * size in UI pixels, for outlining it and for the scene view's resize and move handles. Null when it
+ * isn't laid out, a corner is behind the camera, or headless.
  */
-export function uiElementOutline(world: World, c: UIComponentType): [number, number][] | null {
-  const corners = world.render?.uiRuntime()?.cornersOf?.(c);
+export function uiElementBox(world: World, c: UIComponentType): { points: [number, number][]; size: readonly [number, number] } | null {
+  const corners = world.render?.uiRuntime()?.cornersOf(c);
   if (!corners) return null;
-  if (corners.space === "screen") return corners.points.map((p) => [p[0], p[1]]);
+  if (corners.space === "screen") return { points: corners.points.map((p) => [p[0], p[1]]), size: corners.size };
   const out: [number, number][] = [];
   for (const p of corners.points) {
     const q = worldToCanvas(world, p);
     if (!q) return null;
     out.push(q);
   }
-  return out;
+  return { points: out, size: corners.size };
+}
+
+/** A UI element's box corners on the canvas (see `uiElementBox`), or null. */
+export function uiElementOutline(world: World, c: UIComponentType): [number, number][] | null {
+  return uiElementBox(world, c)?.points ?? null;
 }
 
 /** Outline the renderers of these nodes (and their descendants) in the viewport until changed. */

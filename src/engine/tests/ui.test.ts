@@ -544,3 +544,41 @@ describe("UI colours", () => {
     expect(play.backgroundColor.a).toBe(0.5);
   });
 });
+
+describe("UIRuntime editor picking (ADR 0077, three.js)", () => {
+  it("lists every drawn element under a point, topmost first, and gives screen boxes in canvas pixels", async () => {
+    const { canvas, column, play } = menu();
+    const r = runtime();
+    await layout(r, canvas);
+    expect(r.pickAll(100, 40)).toEqual([play, column]);
+    expect(r.pickAll(600, 600)).toEqual([column]);
+    const corners = r.cornersOf(play)!;
+    expect(corners.space).toBe("screen");
+    expect(corners.size).toEqual([200, 50]);
+    expect(corners.points.map((p) => p.map((v) => Math.round(v)))).toEqual([[20, 20], [220, 20], [220, 70], [20, 70]]);
+    play.visible = false;
+    r.sync(world(), 1280, 720, DT);
+    expect(r.pickAll(100, 40)).toEqual([column]);
+  });
+
+  it("gives world boxes as world corners, picked by a given ray", async () => {
+    const sign = node("Sign", null, UICanvas, { mode: "world", referenceResolution: new Vector2(200, 100), pixelSize: 0.01 } as Partial<UICanvas>);
+    sign.node.transform!.position.set(0, 0, -5);
+    const label = node("Label", sign.node, UIPanel, { width: 100 as UILength, height: 50 as UILength } as Partial<UIPanel>);
+    const r = new UIRuntime({ interactive: false, host: { scene: new Scene() } });
+    runtimes.push(r);
+    engine.step(DT);
+    for (let i = 0; i < 50 && !r.cornersOf(label); i++) {
+      r.sync(world(), 1280, 720, DT);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    r.sync(world(), 1280, 720, DT);
+    const corners = r.cornersOf(label)!;
+    expect(corners.space).toBe("world");
+    expect(corners.size).toEqual([100, 50]);
+    expect(corners.points[0].map((v) => +v.toFixed(5))).toEqual([-1, 0.5, -5]);
+    expect(corners.points[2].map((v) => +v.toFixed(5))).toEqual([0, 0, -5]);
+    expect(r.pickAll(5, 5, { origin: [-0.5, 0.25, 0], direction: [0, 0, -1] })).toEqual([label]);
+    expect(r.pickAll(5, 5, { origin: [0.5, 0.25, 0], direction: [0, 0, -1] })).toEqual([]);
+  });
+});
