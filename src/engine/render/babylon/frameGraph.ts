@@ -11,6 +11,10 @@
  *   camera's rectangle of the canvas; a camera without a background colour blends over the ones
  *   before it. FXAA follows on tiers that ask for it.
  *
+ * The editor's overlay (a utility layer: outlines, icons, gizmos; stage 8) draws right after the camera
+ * marked `overlay`, straight onto the canvas without post-processing, so a camera preview inset drawn
+ * after it covers it.
+ *
  * The graph is rebuilt only when its layout changes (cameras, their sizes and effects, shadow
  * lights, MSAA); every value is updated in place each frame.
  */
@@ -18,6 +22,9 @@ import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { FrameGraph } from "@babylonjs/core/FrameGraph/frameGraph.js";
 import { FrameGraphObjectList } from "@babylonjs/core/FrameGraph/frameGraphObjectList.js";
+import { FrameGraphTask } from "@babylonjs/core/FrameGraph/frameGraphTask.js";
+import { Viewport } from "@babylonjs/core/Maths/math.viewport.js";
+import type { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRenderer.js";
 import { backbufferColorTextureHandle, type FrameGraphTextureHandle } from "@babylonjs/core/FrameGraph/frameGraphTypes.js";
 import { FrameGraphBloomTask } from "@babylonjs/core/FrameGraph/Tasks/PostProcesses/bloomTask.js";
 import { FrameGraphChromaticAberrationTask } from "@babylonjs/core/FrameGraph/Tasks/PostProcesses/chromaticAberrationTask.js";
@@ -52,6 +59,52 @@ export interface CameraView {
   effects: PostEffects | null;
   toneMapping: ToneMappingName;
   exposure: number;
+  /** Draw the editor's overlay right after this camera (at most one). */
+  overlay?: boolean;
+}
+
+const FULL_VIEWPORT = new Viewport(0, 0, 1, 1);
+
+/** Renders an existing utility layer onto the canvas, in a camera's rectangle. */
+class FrameGraphOverlayTask extends FrameGraphTask {
+  targetTexture: FrameGraphTextureHandle | undefined;
+  readonly outputTexture: FrameGraphTextureHandle;
+  private readonly rect = new Viewport(0, 0, 1, 1);
+
+  constructor(name: string, graph: FrameGraph, private readonly layer: UtilityLayerRenderer, public view: CameraView) {
+    super(name, graph);
+    this.outputTexture = this._frameGraph.textureManager.createDanglingHandle();
+  }
+
+  getClassName(): string {
+    return "FrameGraphOverlayTask";
+  }
+
+  record(): void {
+    if (this.targetTexture === undefined) throw new Error("overlay task: targetTexture is required");
+    this._frameGraph.textureManager.resolveDanglingHandle(this.outputTexture, this.targetTexture);
+    const pass = this._frameGraph.addRenderPass(this.name);
+    pass.setRenderTarget(this.outputTexture);
+    pass.setExecuteFunc((context) => {
+      const { camera, viewport: r } = this.view;
+      this.layer.setRenderCamera(camera);
+      this.layer.utilityLayerScene.activeCamera = camera;
+      // Cameras draw their own textures with a full viewport (frameGraph.ts); here the camera's rectangle of the canvas.
+      this.rect.x = r.x;
+      this.rect.y = r.y;
+      this.rect.width = r.width;
+      this.rect.height = r.height;
+      camera.viewport = this.rect;
+      try {
+        context.render(this.layer);
+      } finally {
+        camera.viewport = FULL_VIEWPORT;
+      }
+    });
+    const disabled = this._frameGraph.addRenderPass(this.name + "_disabled", true);
+    disabled.setRenderTarget(this.outputTexture);
+    disabled.setExecuteFunc(() => {});
+  }
 }
 
 /** A light that casts shadows this frame. */
@@ -107,6 +160,9 @@ export class BabylonFrame {
   private building = false;
   private views: ViewTasks[] = [];
   private shadowTasks: FrameGraphShadowGeneratorTask[] = [];
+  private overlayTask: FrameGraphOverlayTask | null = null;
+  /** The editor's overlay, drawn after the camera marked `overlay` (stage 8). */
+  overlay: UtilityLayerRenderer | null = null;
   /** Every mesh in the scene, drawn by each camera (the scene's own list, so new meshes join at once). */
   private readonly objects = new FrameGraphObjectList();
   /** The meshes that cast shadows, refilled each frame. */
@@ -138,7 +194,7 @@ export class BabylonFrame {
     const key = JSON.stringify({
       samples,
       shadows: shadows.map((s) => [s.light.uniqueId, s.cascaded, s.mapSize, s.numCascades]),
-      views: views.map((v, i) => [v.camera.uniqueId, this.viewSize(v), v.clear ? "clear" : "over", v.effects ? stackKey(v.effects, i > 0 && !v.clear) : "plain"]),
+      views: views.map((v, i) => [v.camera.uniqueId, this.viewSize(v), v.clear ? "clear" : "over", v.effects ? stackKey(v.effects, i > 0 && !v.clear) : "plain", !!v.overlay && !!this.overlay]),
     });
     if (key !== this.key && !this.building) this.rebuild(key, views, shadows, samples);
     if (!this.graph || this.building) return;
@@ -153,13 +209,23 @@ export class BabylonFrame {
     this.graph = null;
     this.views = [];
     this.shadowTasks = [];
+    this.overlayTask = null;
     if (!views.length) return;
     const graph = new FrameGraph(this.scene, false);
     // Every camera's clear runs before the shadow maps: a shadow map renders through Babylon's own render
     // target, behind the frame graph's back, and a clear right after it lands on the wrong target.
     const targets = views.map((v, i) => this.viewTargets(graph, v, i, samples));
     this.shadowTasks = shadows.map((s, i) => this.shadowTask(graph, s, i, views[0].camera));
-    this.views = views.map((v, i) => this.viewTasks(graph, v, i, samples, targets[i]));
+    this.views = views.map((v, i) => {
+      const tasks = this.viewTasks(graph, v, i, samples, targets[i]);
+      if (v.overlay && this.overlay && !this.overlayTask) {
+        const task = new FrameGraphOverlayTask(`overlay${i}`, graph, this.overlay, v);
+        task.targetTexture = backbufferColorTextureHandle;
+        graph.addTask(task);
+        this.overlayTask = task;
+      }
+      return tasks;
+    });
     this.building = true;
     graph
       .buildAsync()
@@ -233,6 +299,7 @@ export class BabylonFrame {
     render.objectList = this.objects;
     render.shadowGenerators = this.shadowTasks;
     render.isMainObjectRenderer = i === 0;
+    render.forceLayerMaskCheck = true; // editor-only meshes (EDITOR_LAYER_MASK) show to editor cameras only
     render.disableImageProcessing = true; // linear HDR out; the finish pass tone maps
     render.resolveMSAAColors = true; // the passes after it sample the resolved colours
     graph.addTask(render);
@@ -334,6 +401,7 @@ export class BabylonFrame {
     views.forEach((v, i) => {
       const t = this.views[i];
       if (!t) return;
+      if (v.overlay && this.overlayTask) this.overlayTask.view = v;
       const transparent = { r: 0, g: 0, b: 0, a: 0 };
       t.clear.color.copyFrom(v.clear ?? (transparent as Color4));
       const e = v.effects;

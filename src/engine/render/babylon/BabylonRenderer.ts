@@ -13,8 +13,11 @@
  * Shader graph materials and per-renderer material properties (stage 4) are in `graphMaterial.ts`
  * and `rendererMaterial` below.
  *
- * Not yet here (later stages): fog,
- * particles, water, reflection probes, Text and UI, and every editor helper.
+ * Editor helpers (stage 8) are in `editorTools.ts` (loaded on demand) over the context below; their
+ * overlay is a utility layer the frame graph draws after the view camera. The camera preview inset is
+ * one more camera in the frame graph, drawn last.
+ *
+ * Not yet here (later stages): Text and UI.
  */
 import "./register";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
@@ -32,6 +35,10 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import { Scene } from "@babylonjs/core/scene.js";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
+import { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRenderer.js";
+import { EDITOR_LAYER_MASK, type BabylonEditorContext, type EditorMesh, type EditorSprite } from "./editorContext";
+import type { BabylonEditorTools } from "./editorTools";
 import type { Component } from "../../core/Component";
 import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
@@ -192,6 +199,16 @@ export class BabylonRenderer {
   private clearColor: Color4;
   private owner: World | null = null;
   private disposed = false;
+  /** Editor helpers (stage 8), loaded on first use; an editor World loads them at once. */
+  private tools: BabylonEditorTools | null = null;
+  private toolsLoading = false;
+  private overlayLayer: UtilityLayerRenderer | null = null;
+  /** Editor: the camera drawn into an inset of the canvas (ADR 0022), and the element it fills. */
+  private preview: { camera: Camera; frame: HTMLElement } | null = null;
+  /** Editor: whether the last frame drew the camera preview. */
+  cameraPreviewDrawn = false;
+  /** What reflection probes capture: the scene's meshes minus editor-only ones, refilled each frame. */
+  private readonly probeMeshes: AbstractMesh[] = [];
 
   /** Creates the engine (WebGPU, else the WebGL2 fallback, loaded only then) and the scene. */
   static async create(canvas: HTMLCanvasElement, settings: ProjectSettings, fill = false): Promise<BabylonRenderer> {
@@ -228,6 +245,82 @@ export class BabylonRenderer {
     this.defaultMaterial.albedoColor = new Color3(1, 1, 1);
     this.defaultMaterial.metallic = 0;
     this.defaultMaterial.roughness = 0.5;
+    if (fill) this.editorTools();
+  }
+
+  // --- Editor (ADR 0022; stage 8) ---------------------------------------------------------------
+
+  /** The editor helpers, or null while they load (the first call starts loading them). */
+  editorTools(): BabylonEditorTools | null {
+    if (this.tools || this.toolsLoading || this.disposed) return this.tools;
+    this.toolsLoading = true;
+    import("./editorTools")
+      .then((m) => {
+        if (this.disposed) return;
+        // Manual rendering: the frame graph draws it (frameGraph.ts), straight onto the canvas.
+        const layer = new UtilityLayerRenderer(this.scene, true, true);
+        layer.utilityLayerScene._useCurrentFrameBuffer = true;
+        this.overlayLayer = layer;
+        this.frame.overlay = layer;
+        this.tools = new m.BabylonEditorTools(this.editorContext(layer));
+      })
+      .catch((err) => console.error("[myco] the Babylon editor helpers couldn't load:", err))
+      .finally(() => (this.toolsLoading = false));
+    return null;
+  }
+
+  /** What the editor helpers read (editorContext.ts). */
+  private editorContext(overlay: UtilityLayerRenderer): BabylonEditorContext {
+    const self = this;
+    return {
+      scene: this.scene,
+      overlay,
+      canvas: this.engine.getRenderingCanvas() as HTMLCanvasElement,
+      settings: this.settings,
+      editor: this.fill,
+      world: () => this.owner,
+      viewCameras: () => (this.owner ? this.viewCameras(this.owner) : []),
+      babylonCamera: (c) => this.cameras.get(c)?.camera ?? null,
+      *sprites(): Iterable<EditorSprite> {
+        for (const [component, e] of self.sprites) yield { component, mesh: e.mesh, size: e.size, order: self.sortOrder(component.sortingLayer, component.orderInLayer) };
+      },
+      *meshes(): Iterable<EditorMesh> {
+        for (const [component, e] of self.meshRenderers) yield { component, meshes: e.meshes };
+      },
+      texts: () => [], // Text draws from stage 9
+    };
+  }
+
+  /** Editor: draw `camera` into the canvas under `frame` (picture-in-picture), without editor helpers; null stops. */
+  setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void {
+    this.preview = camera && frame ? { camera, frame } : null;
+  }
+
+  /** The camera preview's part of the frame, or null. Its projection takes the inset's aspect ratio until the next sync. */
+  private previewView(views: CameraView[]): CameraView | null {
+    const p = this.preview;
+    const entry = p && p.camera.node.isValid && p.camera.isActiveAndEnabled ? this.cameras.get(p.camera) : undefined;
+    if (!p || !entry || views.some((v) => v.camera === entry.camera)) return null;
+    const canvas = this.engine.getRenderingCanvas();
+    if (!canvas) return null;
+    const c = canvas.getBoundingClientRect(), r = p.frame.getBoundingClientRect();
+    const cw = canvas.clientWidth, ch = canvas.clientHeight;
+    if (r.width < 2 || r.height < 2 || cw <= 0 || ch <= 0) return null;
+    const clamp = (n: number) => Math.min(1, Math.max(0, n));
+    const x = clamp((r.left - c.left) / cw), top = clamp((r.top - c.top) / ch);
+    const w = Math.min(clamp(r.width / cw), 1 - x), h = Math.min(clamp(r.height / ch), 1 - top);
+    const y = clamp(1 - top - h);
+    if (w <= 0.001 || h <= 0.001) return null;
+    const camera = entry.camera;
+    camera.layerMask = 0x0fffffff; // no editor-only meshes
+    if (p.camera.projection === "orthographic") {
+      const s = p.camera.orthographicSize, aspect = r.width / r.height;
+      camera.orthoLeft = -s * aspect;
+      camera.orthoRight = s * aspect;
+    }
+    const resolved = resolvePostEffects(this.postSettings(p.camera), Graphics.tier);
+    const bg = p.camera.backgroundColor;
+    return { camera, viewport: { x, y, width: w, height: h }, clear: bg ? clearColorOf(bg.toHex().slice(0, 7)) : this.clearColor, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure };
   }
 
   /** Sets the editor background (editor Worlds) and clear colour. */
@@ -323,12 +416,15 @@ export class BabylonRenderer {
     this.syncFog(world);
     this.lighting.syncEnvironment(world, view?.far ?? 1000);
     const ready = this.loading.size === 0 && [...this.meshRenderers.values()].every((m) => m.sources !== null);
-    this.probes.sync(world, this.scene.meshes, ready);
+    this.probeMeshes.length = 0;
+    for (const m of this.scene.meshes) if ((m.layerMask & EDITOR_LAYER_MASK) === 0) this.probeMeshes.push(m);
+    this.probes.sync(world, this.probeMeshes, ready);
     const surfaces = world._componentsOfType(WaterSurface);
     if (surfaces.length || this.water) {
       this.water ??= new BabylonWater(this.scene, (x, y, z) => this.probes.lookup(x, y, z));
       this.water.sync(world, surfaces);
     }
+    this.tools?.sync(world);
   }
 
   render(world: World): void {
@@ -345,9 +441,13 @@ export class BabylonRenderer {
       let background = c.backgroundColor ? clearColorOf(c.backgroundColor.toHex().slice(0, 7)) : this.clearColor;
       if (this.skyFog) background = Color4.Lerp(background, this.skyFog.color, this.skyFog.amount); // Fog's affectsSkybox (ADR 0071)
       const entry = this.cameras.get(c)!;
-      return { camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure };
+      entry.camera.layerMask = this.fill ? 0xffffffff : 0x0fffffff; // an editor World's view sees the grid
+      return { overlay: i === 0 && !!this.tools, camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure };
     });
     this.lastPost = views[0] ? { composed: !!views[0].effects, toneMapping: views[0].toneMapping, effects: views[0].effects } : null;
+    const preview = views.length ? this.previewView(views) : null;
+    if (preview) views.push(preview);
+    this.cameraPreviewDrawn = !!preview && this.frame.ready;
     if (views.length) this.probes.capture(views[0].camera); // before the frame graph runs
     if (views.length) this.frame.render(views, this.shadows, this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
     if (!views.length || !this.frame.ready) engine.clear(this.clearColor, true, true, true);
@@ -513,6 +613,9 @@ export class BabylonRenderer {
     if (this.disposed) return;
     this.disposed = true;
     this.particles?.dispose();
+    this.tools?.dispose();
+    this.frame.overlay = null;
+    this.overlayLayer?.dispose();
     this.probes.dispose();
     this.water?.dispose();
     this.frame.dispose();

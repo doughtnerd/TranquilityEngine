@@ -4,9 +4,9 @@
  * page on the three.js backend never downloads Babylon. Until the renderer is ready, frames are
  * skipped; sync mirrors the whole World every frame, so nothing is lost.
  *
- * Stage 1 draws cameras, meshes, sprites and material assets; stage 2 adds lights, shadows and the
- * environment. Editor helpers and later stages' state
- * report "nothing" here.
+ * Editor helpers (stage 8) live in the renderer's `editorTools`, loaded on demand; editor state set
+ * before they load (grid, colours, selection, overlay, gizmo) is kept here and handed over once they
+ * have. Until then queries answer "nothing".
  */
 import type { Component } from "../../core/Component";
 import { Graphics } from "../Graphics";
@@ -28,6 +28,7 @@ import type {
   ScreenRect,
 } from "../RenderSurface";
 import type { BabylonRenderer } from "./BabylonRenderer";
+import type { BabylonEditorTools } from "./editorTools";
 
 /** @internal The Babylon.js render surface (ADR 0075). */
 export class BabylonSurface implements RenderSurface {
@@ -43,6 +44,15 @@ export class BabylonSurface implements RenderSurface {
   /** Editor state set before the renderer loaded, applied once it has. */
   private readonly particlePreview: Partial<ParticlePreviewSettings> = {};
   private selection: GameObject[] = [];
+  private outlineShown = true;
+  private editorColors: EditorColors | null = null;
+  private gridPlane: "xz" | "xy" | null = null;
+  private grid: { cellSize: number; visible: boolean } | null = null;
+  private overlayProvider: (() => EditorOverlay) | null = null;
+  private gizmo: { nodes: readonly GameObject[]; options: GizmoOptions; handlers: GizmoHandlers | null } | null = null;
+  private cameraPreview: { camera: Camera | null; frame: HTMLElement | null } | null = null;
+  /** The editor helpers the state above was handed to. */
+  private toolsSeen: BabylonEditorTools | null = null;
 
   constructor(
     private readonly container: HTMLElement,
@@ -67,10 +77,15 @@ export class BabylonSurface implements RenderSurface {
         if (this.disposed) return r.dispose();
         this.renderer = r;
         // Dev builds: every live Babylon scene, for inspecting the migration from the console.
-        if (import.meta.env?.DEV) ((globalThis as { __mycoBabylonScenes?: unknown[] }).__mycoBabylonScenes ??= []).push(r.scene);
+        if (import.meta.env?.DEV) {
+          const g = globalThis as { __mycoBabylonScenes?: unknown[]; __mycoBabylonSurfaces?: unknown[] };
+          (g.__mycoBabylonScenes ??= []).push(r.scene);
+          (g.__mycoBabylonSurfaces ??= []).push(this);
+        }
         r.setClearColor(this.background);
         r.setParticlePreview(this.particlePreview);
         r.setSelected(this.selection);
+        if (this.cameraPreview) r.setCameraPreview(this.cameraPreview.camera, this.cameraPreview.frame);
         this.applyQuality();
       })
       .catch((err) => console.error("[myco] the Babylon.js renderer couldn't start:", err));
@@ -113,6 +128,23 @@ export class BabylonSurface implements RenderSurface {
     if (!this.renderer) return;
     if (Graphics._version !== this.appliedQuality) this.applyQuality();
     this.renderer.sync(world);
+    this.tools(); // hand pending editor state over once the helpers have loaded
+  }
+
+  /** The renderer's editor helpers once loaded (asking starts loading them), with this surface's editor state applied. */
+  private tools(): BabylonEditorTools | null {
+    const t = this.renderer?.editorTools() ?? null;
+    if (t && t !== this.toolsSeen) {
+      this.toolsSeen = t;
+      if (this.editorColors) t.overlays.setEditorColors(this.editorColors);
+      if (this.gridPlane) t.overlays.setEditorGridPlane(this.gridPlane);
+      if (this.grid) t.overlays.setEditorGrid(this.grid.cellSize, this.grid.visible);
+      t.overlays.setSelectionOutline(this.selection);
+      t.overlays.setSelectionOutlineShown(this.outlineShown);
+      t.overlays.setOverlayProvider(this.overlayProvider);
+      if (this.gizmo) t.gizmo.setGizmo(this.gizmo.nodes, this.gizmo.options, this.gizmo.handlers);
+    }
+    return t;
   }
 
   render(world: World): void {
@@ -162,6 +194,8 @@ export class BabylonSurface implements RenderSurface {
     if (!this.fill) return;
     this.background = colors.background;
     this.renderer?.setClearColor(colors.background);
+    this.editorColors = colors;
+    this.toolsSeen?.overlays.setEditorColors(colors);
   }
 
   // --- Later stages (ADR 0075): nothing to report yet --------------------------------------------
@@ -197,58 +231,78 @@ export class BabylonSurface implements RenderSurface {
 
   // --- Editor helpers (stage 8) -----------------------------------------------------------------
 
-  setEditorGridPlane(_plane: "xz" | "xy"): void {}
-  setEditorGrid(_cellSize: number, _visible: boolean): void {}
+  setEditorGridPlane(plane: "xz" | "xy"): void {
+    this.gridPlane = plane;
+    this.toolsSeen?.overlays.setEditorGridPlane(plane);
+  }
+  setEditorGrid(cellSize: number, visible: boolean): void {
+    this.grid = { cellSize, visible };
+    this.toolsSeen?.overlays.setEditorGrid(cellSize, visible);
+  }
   editorGrid(): { cellSize: number; visible: boolean; divisions: number } | null {
-    return null;
+    return this.tools()?.overlays.editorGrid() ?? null;
   }
-  setCameraPreview(_camera: Camera | null, _frame: HTMLElement | null): void {}
-  readonly cameraPreviewDrawn = false;
-  pick(_world: World, _x: number, _y: number): GameObject[] {
-    return [];
+  setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void {
+    this.cameraPreview = { camera, frame };
+    this.renderer?.setCameraPreview(camera, frame);
   }
-  meshBounds(_node: GameObject): { min: [number, number, number]; max: [number, number, number] } | null {
-    return null;
+  get cameraPreviewDrawn(): boolean {
+    return this.renderer?.cameraPreviewDrawn ?? false;
   }
-  rayAt(_world: World, _x: number, _y: number): { origin: [number, number, number]; direction: [number, number, number] } | null {
-    return null;
+  pick(world: World, x: number, y: number): GameObject[] {
+    return this.tools()?.queries.pick(world, x, y) ?? [];
   }
-  worldToCanvas(_world: World, _p: readonly number[]): [number, number] | null {
-    return null;
+  meshBounds(node: GameObject): { min: [number, number, number]; max: [number, number, number] } | null {
+    return this.tools()?.queries.meshBounds(node) ?? null;
   }
-  screenBounds(_world: World, _root: GameObject): { node: GameObject; rect: ScreenRect }[] {
-    return [];
+  rayAt(world: World, x: number, y: number): { origin: [number, number, number]; direction: [number, number, number] } | null {
+    return this.tools()?.queries.rayAt(world, x, y) ?? null;
   }
-  pointOnPlaneZ(_world: World, _x: number, _y: number, _z = 0): [number, number, number] | null {
-    return null;
+  worldToCanvas(world: World, p: readonly number[]): [number, number] | null {
+    return this.tools()?.queries.worldToCanvas(world, p) ?? null;
   }
-  pointOnPlane(_world: World, _x: number, _y: number, _normal: readonly number[], _point: readonly number[]): [number, number, number] | null {
-    return null;
+  screenBounds(world: World, root: GameObject): { node: GameObject; rect: ScreenRect }[] {
+    return this.tools()?.queries.screenBounds(world, root) ?? [];
   }
-  /** Stage 8 draws the outline; until then the selection only steers the particle preview. */
+  pointOnPlaneZ(world: World, x: number, y: number, z = 0): [number, number, number] | null {
+    return this.tools()?.queries.pointOnPlaneZ(world, x, y, z) ?? null;
+  }
+  pointOnPlane(world: World, x: number, y: number, normal: readonly number[], point: readonly number[]): [number, number, number] | null {
+    return this.tools()?.queries.pointOnPlane(world, x, y, normal, point) ?? null;
+  }
   setSelectionOutline(nodes: readonly GameObject[]): void {
     this.selection = [...nodes];
-    this.renderer?.setSelected(nodes);
+    this.renderer?.setSelected(nodes); // the particle preview plays the selection's effects
+    this.toolsSeen?.overlays.setSelectionOutline(nodes);
   }
-  setSelectionOutlineShown(_shown: boolean): void {}
+  setSelectionOutlineShown(shown: boolean): void {
+    this.outlineShown = shown;
+    this.toolsSeen?.overlays.setSelectionOutlineShown(shown);
+  }
   editorDrawingShown(): { segments: number; handles: number; outlines: number; drawnObjects: number } {
-    return { segments: 0, handles: 0, outlines: 0, drawnObjects: 0 };
+    return this.tools()?.overlays.editorDrawingShown() ?? { segments: 0, handles: 0, outlines: 0, drawnObjects: 0 };
   }
-  setOverlayProvider(_provider: (() => EditorOverlay) | null): void {}
-  overlayHandlesOnCanvas(_world: World): { id: string; x: number; y: number }[] {
-    return [];
+  setOverlayProvider(provider: (() => EditorOverlay) | null): void {
+    this.overlayProvider = provider;
+    this.toolsSeen?.overlays.setOverlayProvider(provider);
   }
-  pickOverlayHandle(_world: World, _x: number, _y: number, _radius = 9): string | null {
-    return null;
+  overlayHandlesOnCanvas(world: World): { id: string; x: number; y: number }[] {
+    return this.tools()?.overlays.overlayHandlesOnCanvas(world) ?? [];
   }
-  lightIconsOnCanvas(_world: World): { node: GameObject; x: number; y: number }[] {
-    return [];
+  pickOverlayHandle(world: World, x: number, y: number, radius = 9): string | null {
+    return this.tools()?.overlays.pickOverlayHandle(world, x, y, radius) ?? null;
+  }
+  lightIconsOnCanvas(world: World): { node: GameObject; x: number; y: number }[] {
+    return this.tools()?.overlays.lightIconsOnCanvas(world) ?? [];
   }
   lightWireCount(): number {
-    return 0;
+    return this.tools()?.overlays.lightWireCount() ?? 0;
   }
-  setGizmo(_nodes: readonly GameObject[], _options: GizmoOptions, _handlers: GizmoHandlers | null): void {}
-  gizmoActiveAt(_x: number, _y: number): boolean {
-    return false;
+  setGizmo(nodes: readonly GameObject[], options: GizmoOptions, handlers: GizmoHandlers | null): void {
+    this.gizmo = { nodes: [...nodes], options, handlers };
+    this.toolsSeen?.gizmo.setGizmo(nodes, options, handlers);
+  }
+  gizmoActiveAt(x: number, y: number): boolean {
+    return this.tools()?.gizmo.gizmoActiveAt(x, y) ?? false;
   }
 }
