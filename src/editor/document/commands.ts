@@ -13,11 +13,23 @@ export type Change =
   | { readonly kind: "name" | "active"; readonly node: string }
   | { readonly kind: "rebuild" | "add" | "remove" | "move"; readonly node: string };
 
+/** A text file a command writes besides the scene: its whole new text, or null to delete it. */
+export interface FileWrite {
+  readonly path: string;
+  readonly text: string | null;
+}
+
 /** An undoable edit of a SceneDocument (ADR 0026). `apply` and `undo` return what changed. */
 export interface Command {
   readonly label: string;
   apply(doc: SceneDocument): Change[];
   undo(doc: SceneDocument): Change[];
+  /**
+   * Text files the command writes besides the scene (a UI document's markup and stylesheets, ADR
+   * 0077). The CommandStack writes them through its `files` host and records the change in the
+   * step, so undo and redo write them back in order with scene edits.
+   */
+  readonly files?: readonly FileWrite[];
 }
 
 const clone = <T>(v: T): T => (v === undefined ? v : structuredClone(v));
@@ -484,5 +496,31 @@ export class CommandGroup implements Command {
     const out: Change[] = [];
     for (let i = this.commands.length - 1; i >= 0; i--) out.push(...this.commands[i].undo(doc));
     return out;
+  }
+
+  get files(): readonly FileWrite[] | undefined {
+    const all = this.commands.flatMap((c) => c.files ?? []);
+    return all.length ? all : undefined;
+  }
+}
+
+// --- text files -------------------------------------------------------------------------------
+
+/**
+ * Write text files (ADR 0077: a UI document's markup and stylesheets) as one undoable step. The
+ * scene doesn't change; the stack records each file's change and writes it back on undo and redo.
+ */
+export class WriteFiles implements Command {
+  constructor(
+    readonly label: string,
+    readonly files: readonly FileWrite[],
+  ) {}
+
+  apply(): Change[] {
+    return [];
+  }
+
+  undo(): Change[] {
+    return [];
   }
 }

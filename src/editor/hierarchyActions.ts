@@ -18,7 +18,9 @@ import {
   type NodeClipboard,
   type PasteTarget,
 } from "./nodeClipboard";
-import { openScene, playState, sceneCamera, select, selectedKeys, selection, status, viewMode, type OpenScene } from "./state";
+import { currentProject, openScene, playState, sceneCamera, select, selectedKeys, selection, status, viewMode, type OpenScene } from "./state";
+import { createUIDocument, duplicateUIElement } from "./uiDocumentEdits";
+import { selectedUIRef } from "./uiDocuments";
 
 /** The copied nodes, or null. */
 export const nodeClipboard = signal<NodeClipboard | null>(null);
@@ -133,6 +135,8 @@ function pasteAt(scene: OpenScene, clip: NodeClipboard, target: PasteTarget): bo
 
 /** Duplicate the selected nodes, each right after itself, and select the copies. */
 export function duplicateSelection(): boolean {
+  const ui = selectedUIRef();
+  if (ui) return duplicateUIElement(ui); // a UI document's element (ADR 0077): in its markup file
   const scene = editableScene("duplicate nodes");
   if (!scene) return false;
   const keys = selectedKeys.value;
@@ -170,6 +174,18 @@ export function createNodeIn(kind: NewNodeKind, parent: string | null, index?: n
     // Effects are assets (ADR 0060): write a new one first, then add the node playing it. A
     // read-only project gets the node with no effect (createParticleEffect says why in the status).
     void createParticleEffect("", undefined, "Particle System").then((made) => {
+      const note = status.peek();
+      if (openScene.peek() !== scene) return;
+      createNodeIn(kind, parent, index, made ? `asset:${made}` : "");
+      if (!made) status.value = note;
+    });
+    return null;
+  }
+  if (kind === "ui-document" && effect === undefined) {
+    // A new UI document (ADR 0077) with its stylesheet, then the node showing it. A read-only
+    // project gets the node with no document (createUIDocument says why in the status).
+    const folder = currentProject.peek()?.folders.includes("ui") ? "ui" : "";
+    void createUIDocument(folder).then((made) => {
       const note = status.peek();
       if (openScene.peek() !== scene) return;
       createNodeIn(kind, parent, index, made ? `asset:${made}` : "");

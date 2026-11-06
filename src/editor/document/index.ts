@@ -15,12 +15,14 @@ export {
   ReparentNode,
   SetActive,
   SetField,
+  WriteFiles,
   type AddNodeOptions,
   type Change,
   type Command,
+  type FileWrite,
   type SetFieldOptions,
 } from "./commands";
-export { CommandStack, HISTORY_LIMIT, type HistoryFile, type HistoryState, type StackEvent, type StackListener } from "./CommandStack";
+export { CommandStack, HISTORY_LIMIT, diffText, type FilePatch, type HistoryFile, type HistoryState, type StackEvent, type StackListener, type TextFileHost } from "./CommandStack";
 export { applyPatch, changesBetween, diffFiles, hashFile, hashText, type DocPatch } from "./patch";
 export { WorldSync } from "./WorldSync";
 export { RebuildInstances, RevertOverrides, SetOverrides } from "./prefabCommands";

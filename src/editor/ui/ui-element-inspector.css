@@ -20,3 +20,14 @@
 .ui-element-fields .label-cell.origin-content, .ui-element-fields .label-cell.origin-binding { border-left-color: var(--accent); }
 .ui-element-fields .ui-field-value:has(> .origin-default) { flex-direction: row; align-items: baseline; gap: 6px; }
 .ui-element-fields .ui-origin .ui-origin-kind { flex: none; white-space: nowrap; }
+/* Editing (wave B part 2): each field's editor, ✕ to remove its attribute, and Move to class. */
+.ui-element-fields .ui-field-edit { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; }
+.ui-element-fields .ui-field-edit > input[type="text"], .ui-element-fields .ui-field-edit > select { flex: 1; min-width: 0; }
+.ui-element-fields .ui-color-edit { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.ui-element-fields .ui-color-edit > input[type="text"] { flex: 1; min-width: 0; }
+.ui-element-fields .ui-field-reset { flex: none; padding: 0 4px; line-height: 1.2; font-size: calc(11px * var(--ui-scale)); background: none; border: none; color: var(--muted); }
+.ui-element-fields .ui-field-reset:hover { background: var(--button-hover); color: var(--danger); }
+.ui-element-inspector .node-meta input[type="text"] { width: 100%; min-width: 0; }
+.ui-element-inspector .ui-move-class { display: flex; align-items: center; gap: 4px; margin: 0 0 8px; }
+.ui-element-inspector .ui-move-class input { flex: 1; min-width: 0; }
+.ui-element-inspector .ui-move-class-dot { color: var(--muted); font-weight: 600; }

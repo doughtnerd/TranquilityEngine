@@ -23,7 +23,7 @@ describe("UI in the editor (ADR 0069)", () => {
     engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
     const doc = openScene.value!.doc;
-    expect(NEW_NODE_KINDS.filter((k) => k.kind.startsWith("ui-")).map((k) => k.label)).toEqual(["UI Canvas", "UI Panel", "UI Text", "UI Image", "UI Button", "UI Input Field"]);
+    expect(NEW_NODE_KINDS.filter((k) => k.kind.startsWith("ui-")).map((k) => k.label)).toEqual(["UI Canvas", "UI Panel", "UI Text", "UI Image", "UI Button", "UI Input Field", "UI Document"]);
     const types = (kind: Parameters<typeof newNodeEntry>[1]) => newNodeEntry(doc, kind, null).components!.map((c) => c.type);
     expect(types("ui-canvas")).toEqual(["engine.Transform", "engine.UICanvas"]);
     expect(types("ui-button")).toEqual(["engine.Transform", "engine.UIButton"]);
