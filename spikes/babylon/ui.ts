@@ -1,15 +1,45 @@
-// UI check page (ADR 0076, 0075 stage 9): a screen canvas (panel, text, button, input field), the
-// interim Text, and a world-space canvas, on the Babylon backend. Stepped by hand; each frame is copied
+// UI check page (ADR 0076, 0075 stage 9): a screen canvas (panel, text, button, input field, and an
+// image with `fit: "cover"`), the interim Text, and a world-space canvas, on the Babylon backend. Stepped by hand; each frame is copied
 // into the visible 2D canvas in the same task. Then a click on the button is simulated through Input.
 // Results land in `window.__ui`. Open /spikes/babylon/ui.html?renderer=babylon on the dev server.
-import { Assets, Camera, Color, Engine, GameObject, Input, Light, MeshRenderer, SceneManager, Text, UIButton, UICanvas, UIInputField, UIPanel, UIText, Vector2 } from "../../src/engine/index";
+import { Assets, Camera, Color, Engine, GameObject, Input, Light, MeshRenderer, SceneManager, Text, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, Vector2 } from "../../src/engine/index";
 
-type Report = { done: boolean; frames: number; clicked: boolean; hovered: boolean; buttonRect: unknown; errors: string[]; pixel: number[] | null };
-const report: Report = { done: false, frames: 0, clicked: false, hovered: false, buttonRect: null, errors: [], pixel: null };
+type Report = {
+  done: boolean;
+  frames: number;
+  clicked: boolean;
+  hovered: boolean;
+  buttonRect: unknown;
+  errors: string[];
+  pixel: number[] | null;
+  /** The bundled Inter: whether the document has it loaded, and the backend that drew. */
+  interLoaded: boolean;
+  backend: string;
+  /** The cover image's box (CSS pixels) and colours sampled near its left edge, centre and right edge. */
+  coverRect: unknown;
+  coverSamples: number[][];
+};
+const report: Report = { done: false, frames: 0, clicked: false, hovered: false, buttonRect: null, errors: [], pixel: null, interLoaded: false, backend: "", coverRect: null, coverSamples: [] };
+
+/**
+ * A 300 × 100 test image: red, green and blue thirds, so `cover` in a square box must show only the
+ * green middle (cropped left and right), while `fill` would squeeze all three in.
+ */
+function coverTestImage(): string {
+  const c = document.createElement("canvas");
+  c.width = 300;
+  c.height = 100;
+  const g = c.getContext("2d")!;
+  for (const [i, colour] of ["#ff0000", "#00ff00", "#0000ff"].entries()) {
+    g.fillStyle = colour;
+    g.fillRect(i * 100, 0, 100, 100);
+  }
+  return c.toDataURL("image/png");
+}
 (window as unknown as { __ui: Report }).__ui = report;
 
 async function main() {
-  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
+  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "images/thirds.png": coverTestImage() }));
   const container = document.getElementById("view")!;
   const engine = await Engine.create({ container, project: { display: { width: 960, height: 540 } } });
   await SceneManager.load("s.json");
@@ -33,6 +63,9 @@ async function main() {
   play.addBehavior(UIButton, { padding: 12, backgroundColor: Color.from("#2a6f97"), borderRadius: 8, hoverColor: Color.from("#3fc1c9") });
   GameObject.create("Label", { parent: play }).addBehavior(UIText, { text: "Play", fontSize: 24, color: Color.white });
   GameObject.create("Name", { parent: panel }).addBehavior(UIInputField, { placeholder: "Your name", width: 260, padding: 8, borderWidth: 1, borderColor: Color.from("#888888"), backgroundColor: Color.from("#111111") });
+  // A square box over a 3:1 image: cover crops to the middle third.
+  const cover = GameObject.create("Cover", { parent: canvas });
+  cover.addBehavior(UIImage, { image: "asset:images/thirds.png", fit: (new URLSearchParams(location.search).get("fit") ?? "cover") as "cover", width: 120, height: 120, positionType: "absolute", right: 24, top: 24 });
 
   // The interim Text, bottom-right.
   GameObject.create("Hint").addBehavior(Text, { text: "interim Text", fontSize: 28, anchor: "bottom-right", offset: new Vector2(-16, -16), outlineColor: Color.black, outlineWidth: 3 });
@@ -85,6 +118,18 @@ async function main() {
   }
   const px = ctx.getImageData(Math.floor(out.width * 0.03), Math.floor(out.height * 0.06), 1, 1).data;
   report.pixel = [px[0], px[1], px[2]];
+  report.interLoaded = document.fonts.check('16px "Inter"') && [...document.fonts].some((f) => f.family.replace(/"/g, "") === "Inter" && f.status === "loaded");
+  report.backend = device() ? "WebGPU" : "WebGL2";
+  const runtime = (engine as unknown as { defaultWorld: { render: { uiRuntime(): { rectOf(c: unknown): { x: number; y: number; width: number; height: number } | null } | null } | null } }).defaultWorld.render?.uiRuntime();
+  const cr = runtime?.rectOf(cover.getComponent(UIImage)!) ?? null;
+  report.coverRect = cr;
+  if (cr) {
+    const k = view.width / view.clientWidth;
+    for (const fx of [0.05, 0.5, 0.95]) {
+      const p = ctx.getImageData(Math.floor((cr.x + cr.width * fx) * k), Math.floor((cr.y + cr.height / 2) * k), 1, 1).data;
+      report.coverSamples.push([p[0], p[1], p[2]]);
+    }
+  }
   // `?crop=title`: show the title's box (and a margin) magnified in the readback canvas.
   if (new URLSearchParams(location.search).get("crop") === "title") {
     const ui = (engine as unknown as { defaultWorld: { render: { uiRuntime(): { rectOf(c: unknown): { x: number; y: number; width: number; height: number } | null } | null } | null } }).defaultWorld.render?.uiRuntime();

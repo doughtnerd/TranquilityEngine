@@ -7,13 +7,21 @@ import type { UILength } from "./components";
 import type { TextMeasureRequest } from "./uiCoreTypes";
 
 let yogaPromise: Promise<Yoga> | null = null;
+let yogaLoaded: Yoga | null = null;
+
+/** Yoga, if it has loaded already (a core made after that lays out from its first sync). */
+export function loadedYoga(): Yoga | null {
+  return yogaLoaded;
+}
 
 /**
  * Load Yoga's WebAssembly once. `yoga-layout/load` is the async entry (the default entry uses top-level
  * await, which not every bundle target allows); the module is only fetched when the first UI needs it.
  */
 export function loadYogaOnce(): Promise<Yoga> {
-  yogaPromise ??= import("yoga-layout/load").then((m) => m.loadYoga());
+  yogaPromise ??= import("yoga-layout/load")
+    .then((m) => m.loadYoga())
+    .then((yoga) => (yogaLoaded = yoga));
   return yogaPromise;
 }
 
@@ -53,7 +61,7 @@ export function cssFontWeight(w: string): string {
   }
 }
 
-export const UI_FONT_FAMILY = "Inter, system-ui, sans-serif";
+export { UI_FONT_FAMILY } from "./fonts";
 export const UI_LINE_HEIGHT = 1.2;
 
 /** The Node fallback: 0.55 em per character, greedy wrapping at spaces (a longer word overflows). */

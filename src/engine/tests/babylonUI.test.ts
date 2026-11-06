@@ -7,12 +7,14 @@ import type { Rectangle } from "@babylonjs/gui/2D/controls/rectangle.js";
 import type { TextBlock } from "@babylonjs/gui/2D/controls/textBlock.js";
 import type { Image } from "@babylonjs/gui/2D/controls/image.js";
 import type { Container } from "@babylonjs/gui/2D/controls/container.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Control } from "@babylonjs/gui/2D/controls/control.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
 import { Color, Engine, GameObject, Text, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, Vector2 } from "../index";
 import type { UIComponentType } from "../ui/components";
 import type { UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../ui/uiCoreTypes";
 import { BabylonUI, WORLD_RESOLUTION, _resetTextMeasurer, cssWeight, measureText } from "../render/babylon/ui";
+import { _resetFonts, loadBundledFont } from "../ui/fonts";
 
 /** A 2D context that draws nothing and measures half an em per character. */
 function fakeContext() {
@@ -234,6 +236,45 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
     expect(t.text).toBe("Bye");
   });
 
+  it("uses the font a UIText or UIInputField names, after which Inter", () => {
+    const canvas = node("C", null, UICanvas);
+    const text = node("T", canvas.node, UIText, { text: "Ahoy", font: "asset:fonts/Pirata.ttf" });
+    const field = node("F", canvas.node, UIInputField, { placeholder: "Name", font: "fonts/Pirata.ttf" });
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas)], [[text, canvas], [field, canvas]]);
+    sync(core);
+    expect((byName(rootOf(), "T") as TextBlock).fontFamily).toBe("myco-font-fonts-Pirata-ttf, Inter, system-ui, sans-serif");
+    expect(((byName(rootOf(), "F") as Rectangle).children[0] as TextBlock).fontFamily).toBe("myco-font-fonts-Pirata-ttf, Inter, system-ui, sans-serif");
+  });
+
+  it("redraws every text when a font arrives (font heights measured before it are forgotten)", async () => {
+    class FakeFontFace {
+      constructor(readonly family: string) {}
+      load() {
+        return Promise.resolve(this);
+      }
+    }
+    vi.stubGlobal("FontFace", FakeFontFace);
+    vi.stubGlobal("document", { fonts: { add: () => undefined, delete: () => true } });
+    _resetFonts();
+    try {
+      const canvas = node("C", null, UICanvas);
+      const text = node("T", canvas.node, UIText, { text: "Hello" });
+      const core = new FakeCore();
+      core.set([canvasInfo(canvas)], [[text, canvas]]);
+      sync(core);
+      const sizes = (Control as unknown as { _FontHeightSizes: Record<string, unknown> })._FontHeightSizes;
+      sizes["400 16px Inter, system-ui, sans-serif"] = { ascent: 1, height: 1, descent: 0 };
+      const dirty = vi.spyOn(ui.screen.rootContainer, "_markAllAsDirty");
+      await loadBundledFont();
+      expect(dirty).toHaveBeenCalled();
+      expect(Object.keys(sizes)).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+      _resetFonts();
+    }
+  });
+
   it("maps UIImage to an Image, loading the sprite's path, with fit as a stretch mode", async () => {
     const canvas = node("C", null, UICanvas);
     const image = node("I", canvas.node, UIImage, { image: "asset:images/logo.png#frame_2", fit: "contain" });
@@ -244,6 +285,7 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
     const img = byName(rootOf(), "I") as Image;
     expect(img.getClassName()).toBe("Image");
     expect(loaded).toEqual(["images/logo.png"]);
+    expect(img.source).toBe("data:,"); // the loaded texture's URL (this once never arrived)
     expect(img.stretch).toBe(2); // uniform
     image.fit = "fill";
     sync(core);
@@ -453,5 +495,27 @@ describe("measureText", () => {
 
   it("names weights as CSS", () => {
     expect(["light", "normal", "medium", "semi-bold", "bold", "650", "odd"].map(cssWeight)).toEqual(["300", "400", "500", "600", "700", "650", "400"]);
+  });
+});
+
+describe("the editor's camera preview UI (ADR 0076)", () => {
+  it("draws screen canvases and Text at the inset's origin, and leaves world canvases to the main layer", () => {
+    const preview = new BabylonUI(scene, { texture: async () => new Texture("data:,", scene, { noMipmap: true }), screenOnly: true });
+    try {
+      const screenCanvas = node("S", null, UICanvas);
+      const worldCanvas = node("W", null, UICanvas, { mode: "world" });
+      const panel = node("P", screenCanvas.node, UIPanel);
+      const core = new FakeCore();
+      core.set([canvasInfo(screenCanvas, { width: 320, height: 180, scale: 0.5 }), canvasInfo(worldCanvas, { worldMatrix: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]) })], [[panel, screenCanvas]]);
+      preview.sync(World.require(), core, {}, 160, 90, 2, { x: 1000, y: 500 });
+      expect(scene.getMeshByName("myco.canvas.W")).toBeNull();
+      const roots = preview.screen.rootContainer.children.filter((c) => (c.name ?? "").startsWith("myco.canvas")) as Container[];
+      expect(roots.map((r) => r.name)).toEqual(["myco.canvas.S"]);
+      expect([roots[0].leftInPixels, roots[0].topInPixels, roots[0].scaleX]).toEqual([2000, 1000, 1]); // texture pixels: CSS × pixel ratio
+      const texts = preview.screen.rootContainer.children.find((c) => c.name === "myco.texts") as Container;
+      expect([texts.leftInPixels, texts.topInPixels, texts.widthInPixels, texts.heightInPixels]).toEqual([2000, 1000, 160, 90]);
+    } finally {
+      preview.dispose();
+    }
   });
 });

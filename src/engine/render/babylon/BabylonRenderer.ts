@@ -216,6 +216,13 @@ export class BabylonRenderer {
   private uiCore: UICore | null = null;
   private uiDraw: BabylonUI | null = null;
   private uiLoading = false;
+  /** The UI modules, once loaded (the camera preview builds its own core and drawing from them). */
+  private uiModules: { core: typeof import("../../ui/UICore"); draw: typeof import("./ui") } | null = null;
+  /**
+   * Editor: the game's screen UI laid out again at the camera preview inset's size and drawn into it,
+   * so the preview shows what the game camera's view will (a passive core: no routing or typing).
+   */
+  private previewUI: { core: UICore; draw: BabylonUI } | null = null;
   /** What reflection probes capture: the scene's meshes minus editor-only ones, refilled each frame. */
   private readonly probeMeshes: AbstractMesh[] = [];
 
@@ -305,11 +312,14 @@ export class BabylonRenderer {
     this.preview = camera && frame ? { camera, frame } : null;
   }
 
-  /** The camera preview's part of the frame, or null. Its projection takes the inset's aspect ratio until the next sync. */
-  private previewView(views: CameraView[]): CameraView | null {
+  /**
+   * The camera preview inset as fractions of the canvas (x and width from the left, top and height from
+   * the top), or null when there's none to draw.
+   */
+  private previewRect(): { x: number; top: number; width: number; height: number } | null {
     const p = this.preview;
     const entry = p && p.camera.node.isValid && p.camera.isActiveAndEnabled ? this.cameras.get(p.camera) : undefined;
-    if (!p || !entry || views.some((v) => v.camera === entry.camera)) return null;
+    if (!p || !entry) return null;
     const canvas = this.engine.getRenderingCanvas();
     if (!canvas) return null;
     const c = canvas.getBoundingClientRect(), r = p.frame.getBoundingClientRect();
@@ -318,8 +328,19 @@ export class BabylonRenderer {
     const clamp = (n: number) => Math.min(1, Math.max(0, n));
     const x = clamp((r.left - c.left) / cw), top = clamp((r.top - c.top) / ch);
     const w = Math.min(clamp(r.width / cw), 1 - x), h = Math.min(clamp(r.height / ch), 1 - top);
-    const y = clamp(1 - top - h);
     if (w <= 0.001 || h <= 0.001) return null;
+    return { x, top, width: w, height: h };
+  }
+
+  /** The camera preview's part of the frame, or null. Its projection takes the inset's aspect ratio until the next sync. */
+  private previewView(views: CameraView[]): CameraView | null {
+    const p = this.preview;
+    const entry = p ? this.cameras.get(p.camera) : undefined;
+    const rect = this.previewRect();
+    if (!p || !entry || !rect || views.some((v) => v.camera === entry.camera)) return null;
+    const r = p.frame.getBoundingClientRect();
+    const { x, width: w, height: h } = rect;
+    const y = Math.min(1, Math.max(0, 1 - rect.top - h));
     const camera = entry.camera;
     camera.layerMask = 0x0fffffff; // no editor-only meshes
     if (p.camera.projection === "orthographic") {
@@ -329,7 +350,7 @@ export class BabylonRenderer {
     }
     const resolved = resolvePostEffects(this.postSettings(p.camera), Graphics.tier);
     const bg = p.camera.backgroundColor;
-    return { camera, viewport: { x, y, width: w, height: h }, clear: bg ? clearColorOf(bg.toHex().slice(0, 7)) : this.clearColor, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure };
+    return { camera, viewport: { x, y, width: w, height: h }, clear: bg ? clearColorOf(bg.toHex().slice(0, 7)) : this.clearColor, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure, previewUI: !!this.previewUI };
   }
 
   /** Sets the editor background (editor Worlds) and clear colour. */
@@ -444,9 +465,11 @@ export class BabylonRenderer {
     if (!this.uiCore || !this.uiDraw) {
       if (this.uiLoading || (!world._componentsOfType(UICanvas).length && !world._componentsOfType(Text).length)) return;
       this.uiLoading = true;
-      Promise.all([import("../../ui/UICore"), import("./ui")])
+      // The bundled Inter loads before the first layout, so text isn't measured in a fallback font first.
+      Promise.all([import("../../ui/UICore"), import("./ui"), import("../../ui/fonts").then((f) => f.loadBundledFont())])
         .then(([core, draw]) => {
           if (this.disposed) return;
+          this.uiModules = { core, draw };
           this.uiDraw = new draw.BabylonUI(this.scene, { texture: (ref) => this.texture(ref) });
           this.uiCore = new core.UICore({
             interactive: !this.fill, // the editor's own World: clicks select, they don't press buttons
@@ -469,6 +492,39 @@ export class BabylonRenderer {
     core.sync(world, cssW, cssH, world.time.unscaledDeltaTime);
     this.uiDraw.sync(world, core, { caretOf: (c) => core.caretOf(c) }, cssW, cssH, pixelRatio);
     this.uiDraw.syncTexts(world, cssW, cssH);
+    this.syncPreviewUI(world, cssW, cssH, pixelRatio);
+  }
+
+  /** Editor: lay the screen UI out at the camera preview inset's size and draw it there (or drop it when there's no inset). */
+  private syncPreviewUI(world: World, cssW: number, cssH: number, pixelRatio: number): void {
+    const rect = this.fill && this.uiModules ? this.previewRect() : null;
+    if (!rect) {
+      if (this.previewUI) {
+        this.frame.previewUI = null;
+        this.previewUI.core.dispose();
+        this.previewUI.draw.dispose();
+        this.previewUI = null;
+      }
+      return;
+    }
+    if (!this.previewUI) {
+      const { core, draw } = this.uiModules!;
+      const ui = {
+        core: new core.UICore({ interactive: false, passive: true, host: { measureText: draw.measureText } }),
+        draw: new draw.BabylonUI(this.scene, { texture: (ref) => this.texture(ref), screenOnly: true }),
+      };
+      this.previewUI = ui;
+      const screen = ui.draw.screen;
+      this.frame.previewUI = () => {
+        screen._checkUpdate(null);
+        return screen._layerToDispose;
+      };
+    }
+    const { core, draw } = this.previewUI;
+    const w = rect.width * cssW, h = rect.height * cssH;
+    core.sync(world, w, h, 0);
+    draw.sync(world, core, {}, w, h, pixelRatio, { x: rect.x * cssW, y: rect.top * cssH });
+    draw.syncTexts(world, w, h);
   }
 
   /** @internal Tests and the editor: the UI core (layout and routing), once loaded. */
@@ -632,6 +688,8 @@ export class BabylonRenderer {
     if (this.uiDraw && this.uiCore && isUIComponent(c)) {
       this.uiCore.release(c);
       this.uiDraw.release(c);
+      this.previewUI?.core.release(c);
+      this.previewUI?.draw.release(c);
       return;
     }
     if (c instanceof SpriteRenderer) {
@@ -656,6 +714,7 @@ export class BabylonRenderer {
       this.lighting.release(c);
     } else if (c instanceof Text) {
       this.uiDraw?.release(c);
+      this.previewUI?.draw.release(c);
     } else if (c instanceof Camera) {
       this.cameras.get(c)?.camera.dispose();
       this.cameras.delete(c);
@@ -672,8 +731,11 @@ export class BabylonRenderer {
     this.particles?.dispose();
     this.tools?.dispose();
     this.frame.ui = null;
+    this.frame.previewUI = null;
     this.uiCore?.dispose();
     this.uiDraw?.dispose();
+    this.previewUI?.core.dispose();
+    this.previewUI?.draw.dispose();
     this.frame.overlay = null;
     this.overlayLayer?.dispose();
     this.probes.dispose();

@@ -36,15 +36,14 @@ import type { Color } from "../../core/math";
 import type { World } from "../../core/World";
 import { splitSpriteRef } from "../../scene/importSettings";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../../ui/components";
+import { fontEpoch, fontFamilyOf, onFontLoaded } from "../../ui/fonts";
+import { UI_FONT_FAMILY, UI_LINE_HEIGHT } from "../../ui/layout";
 import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../../ui/uiCoreTypes";
 import { Text, type Anchor } from "../components";
 
 /** World canvases' texture pixels per UI pixel. */
 export const WORLD_RESOLUTION = 2;
-/** The font every UI text starts from, as on the three.js backend. */
-export const UI_FONT_FAMILY = "Inter, system-ui, sans-serif";
-/** Line height as a multiple of the font size (the core measures with the same). */
-export const UI_LINE_HEIGHT = 1.2;
+export { UI_FONT_FAMILY, UI_LINE_HEIGHT };
 
 // TextWrapping is a const enum in Babylon's declarations: use its values.
 const WRAP_CLIP = 0;
@@ -53,6 +52,19 @@ const WRAP_WORD = 1;
 export interface BabylonUIOptions {
   /** Loads a texture asset (`asset:images/logo.png`). Its URL is what the GUI image loads. */
   texture(ref: string): Promise<Texture>;
+  /**
+   * Draw screen canvases and the interim Text only, skipping world canvases (which the main drawing
+   * layer already puts in the scene). The editor's camera preview inset draws its UI with one.
+   */
+  screenOnly?: boolean;
+}
+
+/** Where `sync` puts the screen UI: a rectangle of the drawing canvas, in CSS pixels. */
+export interface ScreenRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 /** Last values given to a control, so unchanged properties cost one comparison per frame. */
@@ -98,8 +110,11 @@ export class BabylonUI {
   private readonly warned = new Set<string>();
   private stamp = 0;
   private disposed = false;
+  private readonly offFont: () => void;
 
   constructor(private readonly scene: Scene, private readonly options: BabylonUIOptions) {
+    // A font arrived: the GUI's cached font heights and our line spacings were measured with the fallback.
+    this.offFont = onFontLoaded(() => this.fontsChanged());
     this.screen = AdvancedDynamicTexture.CreateFullscreenUI("myco.ui", true, { width: 0, height: 0, scene, useStandalone: true } as never);
     quiet(this.screen);
     this.textRoot = new Container("myco.texts");
@@ -108,17 +123,27 @@ export class BabylonUI {
     this.screen.addControl(this.textRoot);
   }
 
-  /** Each frame after the core's sync: mirror its canvases and elements into GUI controls. */
-  sync(_world: World, core: UICoreLike, extra: { caretOf?(c: UIInputField): number | null }, cssWidth: number, cssHeight: number, pixelRatio: number): void {
+  /**
+   * Each frame after the core's sync: mirror its canvases and elements into GUI controls. The core laid
+   * the screen UI out for `cssWidth × cssHeight`; `origin` (CSS pixels, default the canvas's top-left)
+   * is where that rectangle is on the drawing canvas.
+   */
+  sync(_world: World, core: UICoreLike, extra: { caretOf?(c: UIInputField): number | null }, cssWidth: number, cssHeight: number, pixelRatio: number, origin: { x: number; y: number } = { x: 0, y: 0 }): void {
     if (this.disposed) return;
     const stamp = ++this.stamp;
+    this.origin = { x: origin.x * pixelRatio, y: origin.y * pixelRatio };
     this.textRoot.scaleX = this.textRoot.scaleY = pixelRatio;
     if (put(this.textRoot, "size", `${cssWidth}x${cssHeight}`)) {
       this.textRoot.widthInPixels = cssWidth;
       this.textRoot.heightInPixels = cssHeight;
     }
+    if (put(this.textRoot, "x", this.origin.x)) this.textRoot.leftInPixels = this.origin.x;
+    if (put(this.textRoot, "y", this.origin.y)) this.textRoot.topInPixels = this.origin.y;
 
-    for (const c of core.canvases()) this.syncCanvas(c, pixelRatio, stamp);
+    for (const c of core.canvases()) {
+      if (c.mode === "world" && this.options.screenOnly) continue;
+      this.syncCanvas(c, pixelRatio, stamp);
+    }
     for (const el of core.elements()) {
       const canvas = this.canvases.get(el.canvas);
       if (!canvas) continue;
@@ -170,6 +195,7 @@ export class BabylonUI {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.offFont();
     for (const [c, e] of [...this.canvases]) this.removeCanvas(c, e);
     this.elements.clear();
     this.texts.clear();
@@ -210,7 +236,22 @@ export class BabylonUI {
     } else {
       root.zIndex = c.sortOrder;
       root.scaleX = root.scaleY = c.scale * pixelRatio;
+      if (put(root, "x", this.origin.x)) root.leftInPixels = this.origin.x;
+      if (put(root, "y", this.origin.y)) root.topInPixels = this.origin.y;
     }
+  }
+
+  /** Where screen canvases start on the texture, in its pixels (see `sync`'s `origin`). */
+  private origin = { x: 0, y: 0 };
+
+  /** A font finished loading: forget font metrics measured without it, and redraw every text. */
+  private fontsChanged(): void {
+    if (this.disposed) return;
+    const sizes = (Control as unknown as { _FontHeightSizes?: Record<string, unknown> })._FontHeightSizes;
+    if (sizes) for (const k of Object.keys(sizes)) delete sizes[k];
+    this.spacings.clear();
+    this.screen.rootContainer._markAllAsDirty();
+    for (const e of this.canvases.values()) if (e.mesh) e.adt.rootContainer._markAllAsDirty();
   }
 
   private createScreenCanvas(c: UILaidOutCanvas): CanvasEntry {
@@ -373,7 +414,7 @@ export class BabylonUI {
   private syncUIText(e: ElementEntry, c: UIText, el: UILaidOutElement): void {
     const t = e.control as TextBlock;
     if (put(t, "text", c.text)) t.text = c.text;
-    this.setFont(t, c.fontSize, cssWeight(c.fontWeight), UI_FONT_FAMILY, UI_LINE_HEIGHT);
+    this.setFont(t, c.fontSize, cssWeight(c.fontWeight), fontFamilyOf(c.font), UI_LINE_HEIGHT);
     const ck = colorKey(c.color);
     if (put(t, "color", ck)) t.color = c.color.toCss();
     const align = c.textAlign === "center" ? Control.HORIZONTAL_ALIGNMENT_CENTER : c.textAlign === "right" ? Control.HORIZONTAL_ALIGNMENT_RIGHT : Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -396,7 +437,7 @@ export class BabylonUI {
         this.options
           .texture(ref)
           .then((tex) => {
-            if (e.dead || e.last.image !== ref) return;
+            if (e.dead || lasts.get(img)?.image !== ref) return; // removed, or showing another image by now
             const url = tex.url;
             if (url) img.source = url;
             else this.warnOnce(`img|${ref}`, `UI image "${ref}" has no URL to draw`);
@@ -436,7 +477,8 @@ export class BabylonUI {
     const inset = c.borderWidth; // the Rectangle already insets its children by its thickness
     const text = c.value || c.placeholder;
     if (put(label, "text", text)) label.text = text;
-    this.setFont(label, c.fontSize, "400", UI_FONT_FAMILY, UI_LINE_HEIGHT);
+    const family = fontFamilyOf(c.font);
+    this.setFont(label, c.fontSize, "400", family, UI_LINE_HEIGHT);
     const color = c.value ? c.color : c.placeholderColor;
     if (put(label, "color", colorKey(color))) label.color = color.toCss();
     if (put(label, "left", c.padding)) label.leftInPixels = c.padding;
@@ -451,7 +493,7 @@ export class BabylonUI {
       return;
     }
     const prefix = c.value.slice(0, Math.max(0, index));
-    const pw = prefix ? textSize(prefix, c.fontSize, "400", UI_FONT_FAMILY, UI_LINE_HEIGHT).width : 0; // exact, unlike layout's roomier measure
+    const pw = prefix ? textSize(prefix, c.fontSize, "400", family, UI_LINE_HEIGHT).width : 0; // exact, unlike layout's roomier measure
     caret.isVisible = true;
     const ch = c.fontSize * UI_LINE_HEIGHT;
     if (put(caret, "left", c.padding + pw)) caret.leftInPixels = c.padding + pw;
@@ -464,7 +506,7 @@ export class BabylonUI {
     if (put(t, "size", size)) t.fontSize = size;
     if (put(t, "weight", weight)) t.fontWeight = weight;
     if (put(t, "family", family)) t.fontFamily = family;
-    const key = `${weight}|${size}|${family}|${lineHeight}`;
+    const key = `${weight}|${size}|${family}|${lineHeight}|${fontEpoch()}`;
     if (put(t, "spacing", key)) t.lineSpacing = this.lineSpacing(`${weight} ${size}px ${family}`, size, lineHeight);
   }
 
