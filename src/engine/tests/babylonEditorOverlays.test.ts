@@ -187,6 +187,31 @@ describe("Babylon editor overlays (ADR 0075 stage 8)", () => {
     segments: [{ positions: new Float32Array([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3]), color: 0x0000ff }], // 2 segments
   });
 
+  it("uploads overlay lines again only when they change, and only the part in use", () => {
+    let points: [number, number, number][] = [[0, 0, 0], [1, 0, 0], [1, 1, 0]];
+    overlays.setOverlayProvider(() => ({ lines: [{ points, closed: false, color: 0xff0000 }], handles: [] }));
+    step();
+    step(); // the buffers exist now: later frames update them
+    const mesh = named(layer.utilityLayerScene, "myco.editor.overlayLines")[0] as Mesh;
+    const uploads: number[] = [];
+    const update = mesh.updateVerticesData.bind(mesh);
+    mesh.updateVerticesData = ((kind: string, data: Float32Array, ...rest: never[]) => {
+      if (kind === VertexBuffer.PositionKind) uploads.push(data.length);
+      return update(kind, data, ...rest);
+    }) as typeof mesh.updateVerticesData;
+    step();
+    step();
+    expect(uploads).toEqual([]); // the same lines: nothing to send
+    points = [[0, 0, 0], [2, 0, 0], [1, 1, 0]];
+    step();
+    expect(uploads).toEqual([4 * 3]); // 2 segments, 4 vertices, not the whole buffer
+    expect(mesh.subMeshes[0].indexCount).toBe(4);
+    points = [[0, 0, 0], [2, 0, 0]];
+    step();
+    expect(uploads).toEqual([12, 2 * 3]); // fewer vertices: the count changed, so it uploads
+    expect(mesh.subMeshes[0].indexCount).toBe(2);
+  });
+
   it("draws overlay lines, handles and segment groups, and clears them", () => {
     const o = overlay();
     overlays.setOverlayProvider(() => o);

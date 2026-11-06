@@ -42,6 +42,7 @@ import { FrameGraphObjectRendererTask } from "@babylonjs/core/FrameGraph/Tasks/R
 import { FrameGraphShadowGeneratorTask } from "@babylonjs/core/FrameGraph/Tasks/Rendering/shadowGeneratorTask.js";
 import { FrameGraphClearTextureTask } from "@babylonjs/core/FrameGraph/Tasks/Texture/clearTextureTask.js";
 import type { IShadowLight } from "@babylonjs/core/Lights/shadowLight.js";
+import type { CascadedShadowGenerator } from "@babylonjs/core/Lights/Shadows/cascadedShadowGenerator.js";
 import { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator.js";
 import type { Effect } from "@babylonjs/core/Materials/effect.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
@@ -51,6 +52,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import { ThinDepthOfFieldEffectBlurLevel } from "@babylonjs/core/PostProcesses/thinDepthOfFieldEffect.js";
 import { stackKey, type PostEffects, type ToneMappingName } from "../PostProcessStack";
 import { FINISH_SHADER, FINISH_UNIFORMS, TONE_MAPPING_CODE } from "./finishShader";
+import { cascadeCasterList, type CustomRenderList } from "./shadowCulling";
 
 /** One camera's part of the frame. */
 export interface CameraView {
@@ -500,7 +502,10 @@ export class BabylonFrame {
   private update(views: CameraView[], shadows: ShadowRequest[]): void {
     shadows.forEach((s, i) => {
       const task = this.shadowTasks[i];
-      if (task instanceof FrameGraphCascadedShadowGeneratorTask) task.shadowMaxZ = s.shadowMaxZ;
+      if (task instanceof FrameGraphCascadedShadowGeneratorTask) {
+        task.shadowMaxZ = s.shadowMaxZ;
+        cullCascades(task);
+      }
     });
     views.forEach((v, i) => {
       const t = this.views[i];
@@ -548,4 +553,18 @@ export class BabylonFrame {
   }
 }
 
+/** Each cascaded shadow generator's per-cascade caster list (see `shadowCulling.ts`). */
+const cascadeLists = new WeakMap<CascadedShadowGenerator, CustomRenderList>();
 
+/**
+ * Draw into each cascade only the casters that reach it. The task makes its generator when built and
+ * may make a new one when its settings change, so this checks every frame (a map lookup).
+ */
+function cullCascades(task: FrameGraphCascadedShadowGeneratorTask): void {
+  const generator = (task as unknown as { _shadowGenerator?: CascadedShadowGenerator })._shadowGenerator;
+  const map = generator?.getShadowMap();
+  if (!generator || !map) return;
+  let list = cascadeLists.get(generator);
+  if (!list) cascadeLists.set(generator, (list = cascadeCasterList((layer) => generator.getCascadeTransformMatrix(layer))));
+  if (map.getCustomRenderList !== list) map.getCustomRenderList = list as typeof map.getCustomRenderList;
+}

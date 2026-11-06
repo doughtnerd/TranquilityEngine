@@ -47,7 +47,7 @@ import type { World } from "../../core/World";
 import type { Color } from "../../core/math";
 import { Assets, sidecarValue } from "../../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
-import { parseMaterial, materialGraph, type MaterialSettings } from "../../scene/material";
+import { parseMaterial, materialGraphOfJson, type MaterialSettings } from "../../scene/material";
 import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../../scene/shaderGraph";
 import { colorHex } from "../../scene/material";
@@ -74,7 +74,7 @@ import type { PostEffects, ToneMappingName } from "../PostProcessStack";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { spriteFrame } from "../spriteFrame";
-import { applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
+import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
 
 interface SpriteEntry {
   mesh: Mesh;
@@ -85,6 +85,8 @@ interface SpriteEntry {
   uvKey: string;
   /** Size in node units (before the node's scale), once the texture has loaded. */
   size: [number, number] | null;
+  /** The world matrix the quad is frozen at (Babylon keeps it), or null before the first sync. */
+  matrix: Matrix | null;
 }
 
 interface MeshEntry {
@@ -139,6 +141,11 @@ function toGraphValue(v: MaterialPropertyValue): GraphValue {
 
 
 const tmpMatrix = new Matrix();
+/** Each renderer mesh's frozen world matrix (Babylon keeps the one it's given), refilled when its node moves. */
+const frozenMatrices = new WeakMap<Mesh, Matrix>();
+const tmpSpriteA = new Matrix();
+const tmpSpriteB = new Matrix();
+const tmpSpriteC = new Matrix();
 const tmpScale = new Vector3();
 const tmpQuat = new Quaternion();
 const tmpPos = new Vector3();
@@ -187,6 +194,8 @@ export class BabylonRenderer {
   private readonly graphs = new WeakMap<BabylonMaterial, BabylonGraphMaterial>();
   /** Renderers with property overrides, and their own materials (ADR 0049). */
   private readonly rendererMaterials = new Map<MeshRenderer, RendererMaterial>();
+  /** The image each built-in material copy's `texture` override asks for (null: the base's texture). */
+  private readonly wantedTextures = new WeakMap<PBRMaterial, string | null>();
   /** Time and drawing-buffer size, read by every graph material. */
   private readonly graphShared: GraphShared = { time: 0, resolution: [1, 1] };
   /** Graph textures, sampled raw by graph code: colour ones through sRGB buffers, data ones linear. */
@@ -696,12 +705,17 @@ export class BabylonRenderer {
     }
     const exp = fog.mode === "exponential";
     s.fogMode = exp ? BabylonScene.FOGMODE_EXP2 : BabylonScene.FOGMODE_LINEAR;
-    s.fogColor = new Color3(fog.color.r, fog.color.g, fog.color.b).toLinearSpace();
+    s.fogColor.set(fog.color.r, fog.color.g, fog.color.b).toLinearSpaceToRef(s.fogColor); // in place: no colour per frame
     s.fogDensity = Math.max(0, fog.density);
     s.fogStart = Math.max(0, fog.near);
     s.fogEnd = Math.max(s.fogStart + 1e-3, fog.far);
     const amount = fog.affectsSkybox ? Math.min(1, Math.max(0, fog.skyboxFog)) : 0;
-    this.skyFog = amount > 0 ? { amount, color: new Color4(fog.color.r, fog.color.g, fog.color.b, 1) } : null;
+    if (amount <= 0) this.skyFog = null;
+    else {
+      this.skyFog ??= { amount, color: new Color4() };
+      this.skyFog.amount = amount;
+      this.skyFog.color.set(fog.color.r, fog.color.g, fog.color.b, 1);
+    }
     this.lighting.setSkyFog(amount);
   }
 
@@ -855,7 +869,7 @@ export class BabylonRenderer {
       material.useAlphaFromAlbedoTexture = true;
       mesh.material = material;
       mesh.alwaysSelectAsActiveMesh = true;
-      entry = { mesh, material, spritePath: null, texture: null, uvKey: "", size: null };
+      entry = { mesh, material, spritePath: null, texture: null, uvKey: "", size: null, matrix: null };
       this.sprites.set(s, entry);
     }
     const { mesh, material } = entry;
@@ -883,7 +897,7 @@ export class BabylonRenderer {
     mesh.setEnabled(visible);
     if (!visible) return;
 
-    material.albedoColor = linear(s.color);
+    material.albedoColor.set(s.color.r, s.color.g, s.color.b).toLinearSpaceToRef(material.albedoColor);
     material.alpha = s.color.a;
     mesh.alphaIndex = this.sortOrder(s.sortingLayer, s.orderInLayer);
 
@@ -902,9 +916,16 @@ export class BabylonRenderer {
     entry.size = entry.texture || s.size ? [w, h] : null;
     // Scale the unit quad to size with the pivot at the node's origin (flips mirror about it).
     const e = s.node.entity;
-    const local = Matrix.Translation(0.5 - px, 0.5 - py, 0).multiply(Matrix.Scaling(s.flipX ? -w : w, s.flipY ? -h : h, 1));
+    // Without allocating, and frozen again only when it changed: freezing recomputes the bounds.
+    Matrix.TranslationToRef(0.5 - px, 0.5 - py, 0, tmpSpriteA);
+    Matrix.ScalingToRef(s.flipX ? -w : w, s.flipY ? -h : h, 1, tmpSpriteB);
+    tmpSpriteA.multiplyToRef(tmpSpriteB, tmpSpriteC);
     Matrix.FromArrayToRef(world.worldMatrix(e) as unknown as number[], e * 16, tmpMatrix);
-    mesh.freezeWorldMatrix(local.multiply(tmpMatrix));
+    tmpSpriteC.multiplyToRef(tmpMatrix, tmpSpriteA);
+    if (entry.matrix?.equals(tmpSpriteA)) return;
+    entry.matrix ??= new Matrix();
+    entry.matrix.copyFrom(tmpSpriteA);
+    mesh.freezeWorldMatrix(entry.matrix);
   }
 
   /** Draw a slice's part of the texture, or the whole texture. */
@@ -957,7 +978,13 @@ export class BabylonRenderer {
       m.setEnabled(visible);
       m.receiveShadows = r.receiveShadows;
       if (!visible) continue;
-      if (moved) m.freezeWorldMatrix(Matrix.FromArray(entry.matrix! as unknown as number[]));
+      if (moved) {
+        // Babylon keeps the matrix it's given: each mesh keeps one, refilled when the node moves.
+        let matrix = frozenMatrices.get(m);
+        if (!matrix) frozenMatrices.set(m, (matrix = new Matrix()));
+        Matrix.FromArrayToRef(entry.matrix! as unknown as number[], 0, matrix);
+        m.freezeWorldMatrix(matrix);
+      }
       const base = (m.metadata as { mycoBase?: BabylonMaterial } | null)?.mycoBase ?? m.material;
       if (!base) continue;
       m.applyFog = !this.noFog.has(base);
@@ -985,13 +1012,7 @@ export class BabylonRenderer {
     const raw = read(path);
     // A material naming a shader graph, or a renderer naming the graph itself, depends on the graph's JSON too.
     let graphPath: string | null = isShaderGraphPath(path) ? path : null;
-    if (!graphPath && raw !== undefined) {
-      try {
-        graphPath = materialGraph(parseMaterial(raw).settings);
-      } catch {
-        graphPath = null;
-      }
-    }
+    if (!graphPath && raw !== undefined) graphPath = materialGraphOfJson(raw);
     const graphRaw = graphPath ? read(graphPath) : undefined;
     const cached = this.materialAssets.get(path);
     const levelOk = !cached?.level || cached.level === Graphics.tier.shaderLevel; // Quality Branch nodes (ADR 0050)
@@ -1096,6 +1117,7 @@ export class BabylonRenderer {
       this.releaseRendererMaterial(r);
       entry = undefined;
     }
+    if (entry && entry.version === r._materialPropertiesVersion) return entry.material; // unchanged
     const values: Record<string, GraphValue> = {};
     for (const [k, v] of overrides) values[k] = toGraphValue(v);
     const baseGraph = this.graphs.get(base);
@@ -1114,80 +1136,31 @@ export class BabylonRenderer {
       entry.version = r._materialPropertiesVersion;
       if (entry.graph && baseGraph) entry.graph.setProperties({ ...baseGraph.properties, ...values });
       else if (base instanceof PBRMaterial) {
-        // A fresh copy of the base each time, so cleared overrides go back to the material's values.
-        if (entry.material !== base) entry.material.dispose();
-        entry.material = this.builtinOverrides(base, `${base.name}:${r.node.name}`, values);
+        // One copy per renderer, updated in place: the base's values, then the overrides. A new copy
+        // per change rebuilt the renderer's meshes and, once the old copy's effect was released,
+        // compiled its shaders again (a splash fading its colour every frame did both).
+        if (entry.material === base) entry.material = base.clone(`${base.name}:${r.node.name}`);
+        const m = entry.material as PBRMaterial;
+        applyBuiltinOverrides(m, base, values);
+        this.overrideTexture(m, base, values);
       }
     }
     return entry.material;
   }
 
-  /** A copy of a built-in material with a renderer's overrides (ADR 0049). */
-  private builtinOverrides(base: PBRMaterial, name: string, values: Record<string, GraphValue>): PBRMaterial {
-    const m = base.clone(name);
-    const color = (v: GraphValue): EngineColor | null => (typeof v === "string" || Array.isArray(v) ? EngineColor.from(v as string) : null);
-    const lin = (c: EngineColor) => new Color3(c.r, c.g, c.b).toLinearSpace();
-    if (values.color !== undefined) {
-      const c = color(values.color);
-      if (c) {
-        m.albedoColor = lin(c);
-        m.alpha = c.a;
-        m.transparencyMode = c.a < 1 ? PBRMaterial.PBRMATERIAL_ALPHABLEND : base.transparencyMode;
-      }
-    }
-    if (values.emission !== undefined) {
-      const c = color(values.emission);
-      if (c) m.emissiveColor = lin(c);
-    }
-    const num = (k: string) => (typeof values[k] === "number" ? (values[k] as number) : undefined);
-    if (num("metalness") !== undefined) m.metallic = num("metalness")!;
-    if (num("roughness") !== undefined) m.roughness = num("roughness")!;
-    if (num("clearcoat") !== undefined) {
-      m.clearCoat.isEnabled = num("clearcoat")! > 0;
-      m.clearCoat.intensity = num("clearcoat")!;
-    }
-    if (num("clearcoatRoughness") !== undefined) m.clearCoat.roughness = num("clearcoatRoughness")!;
-    if (num("sheen") !== undefined) {
-      m.sheen.isEnabled = num("sheen")! > 0;
-      m.sheen.intensity = num("sheen")!;
-    }
-    if (num("sheenRoughness") !== undefined) m.sheen.roughness = num("sheenRoughness")!;
-    if (values.sheenColor !== undefined) {
-      const c = color(values.sheenColor);
-      if (c) m.sheen.color = lin(c);
-    }
-    if (num("transmission") !== undefined) {
-      m.subSurface.isRefractionEnabled = num("transmission")! > 0;
-      m.subSurface.refractionIntensity = num("transmission")!;
-    }
-    if (num("thickness") !== undefined) m.subSurface.maximumThickness = Math.max(num("thickness")!, 0.001);
-    if (num("ior") !== undefined) m.indexOfRefraction = num("ior")!;
-    if (num("iridescence") !== undefined) {
-      m.iridescence.isEnabled = num("iridescence")! > 0;
-      m.iridescence.intensity = num("iridescence")!;
-    }
-    if (num("iridescenceIOR") !== undefined) m.iridescence.indexOfRefraction = num("iridescenceIOR")!;
-    if (num("anisotropy") !== undefined) {
-      m.anisotropy.isEnabled = num("anisotropy")! > 0;
-      m.anisotropy.intensity = num("anisotropy")!;
-    }
-    if (num("anisotropyRotation") !== undefined) m.anisotropy.angle = (num("anisotropyRotation")! * Math.PI) / 180;
-    if (num("specularIntensity") !== undefined) m.metallicF0Factor = num("specularIntensity")!;
-    if (values.specularColor !== undefined) {
-      const c = color(values.specularColor);
-      if (c) m.metallicReflectanceColor = lin(c);
-    }
-    if (typeof values.texture === "string") {
-      const image = values.texture.replace(/^asset:/, "");
-      if (!image) m.albedoTexture = null;
-      else
-        this.texture(image)
-          .then((tex) => {
-            if ([...this.rendererMaterials.values()].some((e) => e.material === m)) m.albedoTexture = tex;
-          })
-          .catch((err) => console.error(`[myco] failed to load texture "${image}":`, err));
-    }
-    return m;
+  /** A renderer's `texture` override on its copy of a built-in material (ADR 0049); the base's texture without one. */
+  private overrideTexture(m: PBRMaterial, base: PBRMaterial, values: Record<string, GraphValue>): void {
+    const image = typeof values.texture === "string" ? values.texture.replace(/^asset:/, "") : null;
+    this.wantedTextures.set(m, image);
+    if (image === null) m.albedoTexture = base.albedoTexture;
+    else if (!image) m.albedoTexture = null;
+    else
+      this.texture(image)
+        .then((tex) => {
+          // Still this renderer's copy, and still wanting this image.
+          if (this.wantedTextures.get(m) === image && [...this.rendererMaterials.values()].some((e) => e.material === m)) m.albedoTexture = tex;
+        })
+        .catch((err) => console.error(`[myco] failed to load texture "${image}":`, err));
   }
 
   private releaseRendererMaterial(r: MeshRenderer): void {

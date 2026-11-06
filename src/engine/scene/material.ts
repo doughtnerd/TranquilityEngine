@@ -43,6 +43,27 @@ export type MaterialShader = "lit" | "unlit" | "physical" | (string & {});
 /** The shader graph a material draws with, or null for the built-in shaders. */
 export const materialGraph = (settings: Pick<MaterialSettings, "shader">): string | null => (settings.shader !== "lit" && settings.shader !== "unlit" && settings.shader !== "physical" ? settings.shader : null);
 
+const graphOfRaw = new WeakMap<object, string | null>();
+
+/**
+ * The shader graph a material asset's JSON names (`materialGraph` of its parsed settings), or null:
+ * none, or JSON that doesn't parse. Cached per JSON object, since `Assets.json` hands out the same
+ * object until the file changes: the renderers ask for every MeshRenderer every frame.
+ */
+export function materialGraphOfJson(raw: unknown): string | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  let graph = graphOfRaw.get(raw);
+  if (graph === undefined) {
+    try {
+      graph = materialGraph(parseMaterial(raw).settings);
+    } catch {
+      graph = null;
+    }
+    graphOfRaw.set(raw, graph);
+  }
+  return graph;
+}
+
 /** A material asset's settings. */
 export interface MaterialSettings {
   shader: MaterialShader;

@@ -124,6 +124,9 @@ export function colliderShapes(engine: Engine): { node: GameObject; points: [num
 /** Each mesh collider's outline, worked out once per mesh. */
 const outlines = new WeakMap<object, MeshOutline>();
 
+/** Each 3D collider's last wireframe and what it was made from (pose and shape), so an unchanged one isn't rebuilt every frame. */
+const wires = new WeakMap<Collider, { key: string; source: unknown; wire: Wire }>();
+
 /** Every 3D collider in the edited scene, as a wireframe in world space. Mesh colliders whose model is loading are left out. */
 export function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire }[] {
   const out: { node: GameObject; wire: Wire }[] = [];
@@ -132,16 +135,28 @@ export function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire
     if (!node.transform || !engine.world.inEditMode(node.entity)) continue;
     const pose = pose3DOf(node);
     const center: V3 = [c.center.x, c.center.y, c.center.z];
-    if (c instanceof BoxCollider) out.push({ node, wire: boxWire(pose, center, [c.size.x, c.size.y, c.size.z]) });
-    else if (c instanceof SphereCollider) out.push({ node, wire: sphereWire(pose, center, c.radius) });
-    else if (c instanceof CapsuleCollider) out.push({ node, wire: capsuleWire(pose, center, c.radius, c.height, c.direction) });
-    else if (c instanceof MeshCollider) {
-      const mesh = meshTriangleData(c.mesh, node); // the same object while the mesh is unchanged
-      if (!mesh) continue;
-      let outline = outlines.get(mesh);
-      if (!outline) outlines.set(mesh, (outline = meshOutline(mesh.vertices, mesh.indices)));
-      out.push({ node, wire: meshWire(pose, center, mesh.vertices, mesh.indices, outline) });
+    const mesh = c instanceof MeshCollider ? meshTriangleData(c.mesh, node) : null; // the same object while the mesh is unchanged
+    if (c instanceof MeshCollider && !mesh) continue;
+    const shape =
+      c instanceof BoxCollider ? `b${c.size.x},${c.size.y},${c.size.z}` : c instanceof SphereCollider ? `s${c.radius}` : c instanceof CapsuleCollider ? `c${c.radius},${c.height},${c.direction}` : mesh ? "m" : null;
+    if (shape === null) continue;
+    const key = `${shape}|${pose.position}|${pose.rotation}|${pose.scale}|${center}`;
+    const cached = wires.get(c);
+    if (cached && cached.key === key && cached.source === mesh) {
+      out.push({ node, wire: cached.wire });
+      continue;
     }
+    let wire: Wire;
+    if (c instanceof BoxCollider) wire = boxWire(pose, center, [c.size.x, c.size.y, c.size.z]);
+    else if (c instanceof SphereCollider) wire = sphereWire(pose, center, c.radius);
+    else if (c instanceof CapsuleCollider) wire = capsuleWire(pose, center, c.radius, c.height, c.direction);
+    else {
+      let outline = outlines.get(mesh!);
+      if (!outline) outlines.set(mesh!, (outline = meshOutline(mesh!.vertices, mesh!.indices)));
+      wire = meshWire(pose, center, mesh!.vertices, mesh!.indices, outline);
+    }
+    wires.set(c, { key, source: mesh, wire });
+    out.push({ node, wire });
   }
   return out;
 }

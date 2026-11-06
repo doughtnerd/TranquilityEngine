@@ -32,3 +32,11 @@ import "@babylonjs/core/Engines/Extensions/engine.prefilteredCubeTexture.js"; //
 import "@babylonjs/core/Engines/Extensions/engine.uniformBuffer.js";
 import "@babylonjs/core/Engines/Extensions/engine.dynamicBuffer.js";
 import "@babylonjs/core/Engines/Extensions/engine.textureSelector.js";
+
+import { Effect } from "@babylonjs/core/Materials/effect.js";
+// Keep compiled effects (shaders and their WebGPU pipelines) for the engine's life instead of
+// reference counting them. Counted, an effect goes with the last material or particle system using
+// it, and the next one compiles it again: in the pirates sample each volley's first splash and spray
+// compiled the same shaders anew (a 100-180 ms frame). The variants a game uses are few; they're
+// freed with the engine.
+Effect.PersistentMode = true;

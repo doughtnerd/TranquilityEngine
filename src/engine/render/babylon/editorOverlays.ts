@@ -78,6 +78,10 @@ class LineBatch {
   private capacity = 0;
   private shown = true;
   private regrown = false;
+  /** Something written since the last upload differs from what the buffers hold (or the count changed). */
+  private dirty = false;
+  /** Vertices in the buffers at the last upload. */
+  private uploaded = 0;
 
   constructor(scene: Scene, name: string, group: number, alpha: boolean, onDraw?: () => void) {
     this.mesh = new LinesMesh(name, scene, null, null, undefined, true, alpha);
@@ -118,8 +122,12 @@ class LineBatch {
     this.reserve(this.count + 2);
     const p = this.positions, c = this.colors;
     let i = this.count * 3;
+    // Overlays are mostly the same frame to frame: note whether this one differs, so `end` can skip the upload.
+    const f = Math.fround; // the buffers hold 32-bit floats
+    if (!this.dirty && (p[i] !== f(ax) || p[i + 1] !== f(ay) || p[i + 2] !== f(az) || p[i + 3] !== f(bx) || p[i + 4] !== f(by) || p[i + 5] !== f(bz))) this.dirty = true;
     p[i] = ax; p[i + 1] = ay; p[i + 2] = az; p[i + 3] = bx; p[i + 4] = by; p[i + 5] = bz;
     i = this.count * 4;
+    if (!this.dirty && (c[i] !== f(r) || c[i + 1] !== f(g) || c[i + 2] !== f(b) || c[i + 3] !== f(a))) this.dirty = true;
     c[i] = r; c[i + 1] = g; c[i + 2] = b; c[i + 3] = a;
     c[i + 4] = r; c[i + 5] = g; c[i + 6] = b; c[i + 7] = a;
     this.count += 2;
@@ -135,12 +143,15 @@ class LineBatch {
         mesh.setVerticesData(VertexBuffer.ColorKind, this.colors, true, 4);
         mesh.setIndices(indices, this.capacity);
         this.regrown = false;
-      } else {
-        mesh.updateVerticesData(VertexBuffer.PositionKind, this.positions);
-        mesh.updateVerticesData(VertexBuffer.ColorKind, this.colors);
+      } else if (this.dirty || this.count !== this.uploaded) {
+        // Only the part in use; the rest of the buffer isn't drawn.
+        mesh.updateVerticesData(VertexBuffer.PositionKind, this.positions.subarray(0, this.count * 3));
+        mesh.updateVerticesData(VertexBuffer.ColorKind, this.colors.subarray(0, this.count * 4));
       }
       const sub = mesh.subMeshes[0];
       if (sub) partOfMesh(sub, this.count);
+      this.uploaded = this.count;
+      this.dirty = false;
     }
     mesh.isVisible = this.shown && this.count > 0;
   }
@@ -160,6 +171,8 @@ class LineBatch {
       mesh.setIndices(indices, count);
     }
     this.regrown = true; // it isn't the batch's own arrays: the next `end()` starts afresh
+    this.uploaded = count;
+    this.dirty = false;
     mesh.isVisible = this.shown && count > 0;
   }
 

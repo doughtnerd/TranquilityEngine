@@ -83,7 +83,7 @@ import type { ParticlePreview, ParticleRenderer } from "./particles/ParticleRend
 import type { ParticleRenderer as ParticleRendererSettings } from "../scene/particles";
 import { PROBE_RESOLUTION, ProbeCapture, pickProbe, type ProbeBox } from "./reflectionProbes";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
-import { colorHex, materialGraph, parseMaterial } from "../scene/material";
+import { colorHex, materialGraphOfJson, parseMaterial } from "../scene/material";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../scene/shaderGraph";
 import { Color, Vector2, Vector3 } from "../core/math";
 import type { MaterialPropertyValue } from "./components";
@@ -947,13 +947,7 @@ export class RenderBackend implements RenderSurface {
     const raw = read(path);
     // A material naming a shader graph, or a renderer naming the graph itself, depends on the graph's JSON too.
     let graphPath: string | null = isShaderGraphPath(path) ? path : null;
-    if (!graphPath && raw !== undefined) {
-      try {
-        graphPath = materialGraph(parseMaterial(raw).settings);
-      } catch {
-        graphPath = null;
-      }
-    }
+    if (!graphPath && raw !== undefined) graphPath = materialGraphOfJson(raw);
     const graphRaw = graphPath ? read(graphPath) : undefined;
     const cached = this.materialAssets.get(path);
     const levelOk = !cached?.level || cached.level === Graphics.tier.shaderLevel; // Quality Branch nodes (ADR 0050)
@@ -2305,7 +2299,7 @@ export class RenderBackend implements RenderSurface {
       const [r, g, b] = rgb(line.color);
       for (let i = 0; i < n; i++) {
         const a = p[i], q = p[(i + 1) % p.length];
-        segs.push(...a, ...q);
+        segs.push(a[0], a[1], a[2], q[0], q[1], q[2]);
         colors.push(r, g, b, r, g, b);
       }
     }
@@ -2897,12 +2891,19 @@ function anchorFactors(anchor: Anchor): [number, number] {
 }
 
 /** Write positions and colours into an overlay object's geometry, growing its buffers only when they're too small. */
+/** True if `array` starts with `values` (as 32-bit floats). */
+function sameFloats(array: Float32Array, values: readonly number[]): boolean {
+  for (let i = 0; i < values.length; i++) if (array[i] !== Math.fround(values[i])) return false;
+  return true;
+}
+
 function fillOverlayGeometry(object: { geometry: BufferGeometry; visible: boolean }, positions: number[], colors: number[]): void {
   const g = object.geometry;
   const count = positions.length / 3;
   let pos = g.getAttribute("position") as Float32BufferAttribute | undefined;
   let col = g.getAttribute("color") as Float32BufferAttribute | undefined;
-  if (!pos || pos.count < count) {
+  const grow = !pos || pos.count < count;
+  if (grow) {
     const capacity = Math.max(64, 2 ** Math.ceil(Math.log2(Math.max(count, 1))));
     g.dispose(); // frees the old GPU buffers
     pos = new Float32BufferAttribute(new Float32Array(capacity * 3), 3);
@@ -2910,10 +2911,17 @@ function fillOverlayGeometry(object: { geometry: BufferGeometry; visible: boolea
     g.setAttribute("position", pos);
     g.setAttribute("color", col);
   }
-  (pos.array as Float32Array).set(positions);
-  (col!.array as Float32Array).set(colors);
-  pos.needsUpdate = true;
-  col!.needsUpdate = true;
+  // Overlays are mostly the same frame to frame: upload only when they changed, and only the part in use.
+  const p = pos!, c = col!;
+  if (grow || count !== g.drawRange.count || !sameFloats(p.array as Float32Array, positions) || !sameFloats(c.array as Float32Array, colors)) {
+    (p.array as Float32Array).set(positions);
+    (c.array as Float32Array).set(colors);
+    for (const a of [p, c]) {
+      a.clearUpdateRanges();
+      a.addUpdateRange(0, count * 3);
+      a.needsUpdate = true;
+    }
+  }
   g.setDrawRange(0, count);
   object.visible = count > 0;
 }

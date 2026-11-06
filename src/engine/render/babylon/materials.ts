@@ -13,9 +13,10 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
-import type { Color } from "../../core/math";
+import { Color as EngineColor, type Color } from "../../core/math";
 import type { MaterialSettings } from "../../scene/material";
 import type { ModelMesh } from "../../scene/models";
+import type { GraphValue } from "../../scene/shaderGraph";
 
 /**
  * A PBR material for engine geometry. The engine's meshes wind their front faces counter-clockwise
@@ -148,4 +149,92 @@ export function tiledTexture(shared: Texture, tiling: readonly [number, number])
   tex.vScale = ty;
   tex.wrapU = tex.wrapV = Texture.WRAP_ADDRESSMODE;
   return { texture: tex, owned: true };
+}
+
+/** An override's colour value (a hex string or an [r, g, b, a] array), or null. */
+function overrideColor(v: GraphValue | undefined): EngineColor | null {
+  return typeof v === "string" || Array.isArray(v) ? EngineColor.from(v as string) : null;
+}
+
+/** `into` set to the sRGB colour `c` in linear space, without allocating. */
+function setLinear(into: Color3, c: EngineColor): void {
+  into.set(c.r, c.g, c.b).toLinearSpaceToRef(into);
+}
+
+/**
+ * A renderer's copy of a built-in material set in place (ADR 0049): every property an override can
+ * touch back to `base`'s value, then `values`' overrides (all but `texture`). Done in place so the copy
+ * (and the meshes drawing it, and its compiled effect) live as long as the renderer: changing an
+ * override every frame, as a fade does, only changes uniforms.
+ */
+export function applyBuiltinOverrides(m: PBRMaterial, base: PBRMaterial, values: Record<string, GraphValue>): void {
+  m.albedoColor.copyFrom(base.albedoColor);
+  m.alpha = base.alpha;
+  m.transparencyMode = base.transparencyMode;
+  m.emissiveColor.copyFrom(base.emissiveColor);
+  m.metallic = base.metallic;
+  m.roughness = base.roughness;
+  m.clearCoat.isEnabled = base.clearCoat.isEnabled;
+  m.clearCoat.intensity = base.clearCoat.intensity;
+  m.clearCoat.roughness = base.clearCoat.roughness;
+  m.sheen.isEnabled = base.sheen.isEnabled;
+  m.sheen.intensity = base.sheen.intensity;
+  m.sheen.roughness = base.sheen.roughness;
+  m.sheen.color.copyFrom(base.sheen.color);
+  m.subSurface.isRefractionEnabled = base.subSurface.isRefractionEnabled;
+  m.subSurface.refractionIntensity = base.subSurface.refractionIntensity;
+  m.subSurface.maximumThickness = base.subSurface.maximumThickness;
+  m.indexOfRefraction = base.indexOfRefraction;
+  m.iridescence.isEnabled = base.iridescence.isEnabled;
+  m.iridescence.intensity = base.iridescence.intensity;
+  m.iridescence.indexOfRefraction = base.iridescence.indexOfRefraction;
+  m.anisotropy.isEnabled = base.anisotropy.isEnabled;
+  m.anisotropy.intensity = base.anisotropy.intensity;
+  m.anisotropy.angle = base.anisotropy.angle;
+  m.metallicF0Factor = base.metallicF0Factor;
+  m.metallicReflectanceColor.copyFrom(base.metallicReflectanceColor);
+
+  const color = overrideColor(values.color);
+  if (color) {
+    setLinear(m.albedoColor, color);
+    m.alpha = color.a;
+    m.transparencyMode = color.a < 1 ? PBRMaterial.PBRMATERIAL_ALPHABLEND : base.transparencyMode;
+  }
+  const emission = overrideColor(values.emission);
+  if (emission) setLinear(m.emissiveColor, emission);
+  const num = (k: string): number | undefined => (typeof values[k] === "number" ? (values[k] as number) : undefined);
+  let v: number | undefined;
+  if ((v = num("metalness")) !== undefined) m.metallic = v;
+  if ((v = num("roughness")) !== undefined) m.roughness = v;
+  if ((v = num("clearcoat")) !== undefined) {
+    m.clearCoat.isEnabled = v > 0;
+    m.clearCoat.intensity = v;
+  }
+  if ((v = num("clearcoatRoughness")) !== undefined) m.clearCoat.roughness = v;
+  if ((v = num("sheen")) !== undefined) {
+    m.sheen.isEnabled = v > 0;
+    m.sheen.intensity = v;
+  }
+  if ((v = num("sheenRoughness")) !== undefined) m.sheen.roughness = v;
+  const sheenColor = overrideColor(values.sheenColor);
+  if (sheenColor) setLinear(m.sheen.color, sheenColor);
+  if ((v = num("transmission")) !== undefined) {
+    m.subSurface.isRefractionEnabled = v > 0;
+    m.subSurface.refractionIntensity = v;
+  }
+  if ((v = num("thickness")) !== undefined) m.subSurface.maximumThickness = Math.max(v, 0.001);
+  if ((v = num("ior")) !== undefined) m.indexOfRefraction = v;
+  if ((v = num("iridescence")) !== undefined) {
+    m.iridescence.isEnabled = v > 0;
+    m.iridescence.intensity = v;
+  }
+  if ((v = num("iridescenceIOR")) !== undefined) m.iridescence.indexOfRefraction = v;
+  if ((v = num("anisotropy")) !== undefined) {
+    m.anisotropy.isEnabled = v > 0;
+    m.anisotropy.intensity = v;
+  }
+  if ((v = num("anisotropyRotation")) !== undefined) m.anisotropy.angle = (v * Math.PI) / 180;
+  if ((v = num("specularIntensity")) !== undefined) m.metallicF0Factor = v;
+  const specular = overrideColor(values.specularColor);
+  if (specular) setLinear(m.metallicReflectanceColor, specular);
 }

@@ -29,6 +29,9 @@ import { Assets } from "../../scene/Assets";
 import { Environment, Light } from "../components";
 import { Graphics } from "../Graphics";
 import type { ShadowRequest } from "./frameGraph";
+
+/** Scratch vector for `fitShadowArea`. */
+const tmpBack = new Vector3();
 import { studioHdrUrl } from "./studioEnvironment";
 
 interface LightEntry {
@@ -149,29 +152,27 @@ export class BabylonLighting {
     const on = l.isActiveAndEnabled;
     light.setEnabled(on);
     if (!on) return false;
-    const color = new Color3(l.color.r, l.color.g, l.color.b).toLinearSpace();
-    light.diffuse = color;
-    light.specular = color;
+    // In place: no new colours or vectors per light per frame (Babylon reads them by value).
+    const color = light.diffuse.set(l.color.r, l.color.g, l.color.b).toLinearSpaceToRef(light.diffuse);
     light.intensity = Math.max(0, l.intensity);
     const m = world.worldMatrix(l.node.entity);
     const o = l.node.entity * 16;
-    const position = new Vector3(m[o + 12], m[o + 13], m[o + 14]);
-    const forward = new Vector3(-m[o + 8], -m[o + 9], -m[o + 10]).normalize(); // -Z, where cameras look too
     if (light instanceof HemisphericLight) {
-      light.groundColor = color; // three's AmbientLight: the same from every direction
-      light.specular = Color3.Black();
-    } else if (light instanceof DirectionalLight) {
-      light.position = position;
-      light.direction = forward;
-    } else if (light instanceof SpotLight) {
-      light.position = position;
-      light.direction = forward;
+      light.groundColor.copyFrom(color); // three's AmbientLight: the same from every direction
+      light.specular.set(0, 0, 0);
+      return true;
+    }
+    light.specular.copyFrom(color);
+    // Set in place, then handed back so lights that react to a new position or direction (spot) do.
+    const shadowLight = light as BabylonLight & IShadowLight;
+    shadowLight.position = shadowLight.position.set(m[o + 12], m[o + 13], m[o + 14]);
+    if (light instanceof DirectionalLight || light instanceof SpotLight) light.direction = light.direction.set(-m[o + 8], -m[o + 9], -m[o + 10]).normalize(); // -Z, where cameras look too
+    if (light instanceof SpotLight) {
       light.range = Math.max(0.001, l.range);
       const angle = (Math.min(Math.max(l.spotAngle, 1), 179) * Math.PI) / 180;
       light.angle = angle;
       light.innerAngle = angle * (1 - Math.min(Math.max(l.spotSoftness, 0), 1));
     } else if (light instanceof PointLight) {
-      light.position = position;
       light.range = Math.max(0.001, l.range);
     }
     return true;
@@ -185,7 +186,7 @@ export class BabylonLighting {
     light.orthoRight = light.orthoTop = half;
     // three.js puts the shadow camera's near plane behind the node; Babylon wants it in front, so the
     // light moves back along its direction by the same distance instead.
-    light.position = light.position.subtract(light.direction.scale(half * 2));
+    light.position = light.position.subtractInPlace(light.direction.scaleToRef(half * 2, tmpBack));
     light.shadowMinZ = 0;
     light.shadowMaxZ = half * 4;
   }
