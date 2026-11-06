@@ -305,14 +305,35 @@ function resolveRelative(folder: string, rel: string): string | null {
   return out.join("/");
 }
 
+/** A loading manager that also says when the textures it started have loaded (or failed). */
+type ModelLoadingManager = LoadingManager & { settled(): Promise<void> };
+
 /** A loading manager that finds a model's textures in the project, and (headless) leaves them blank. */
-function manager(modelPath: string): LoadingManager {
-  const m = new LoadingManager();
+function manager(modelPath: string): ModelLoadingManager {
+  const m = new LoadingManager() as ModelLoadingManager;
   m.setURLModifier((url) => textureUrl(modelPath, url));
   if (typeof document === "undefined") {
     const blank = { path: "", setPath() { return blank; }, setCrossOrigin() { return blank; }, load: () => new Texture() };
     m.addHandler(/\.(png|jpe?g|gif|webp|bmp|tga|tiff?|dds)$/i, blank as never);
   }
+  // The loaders hand textures back at once and fill their images in later. The renderer-neutral
+  // surfaces (`neutralMesh`) are a snapshot of them, so a model waits for its textures before it's
+  // baked; otherwise every texture is missing from the snapshot and the Babylon backend draws white.
+  let pending = 0;
+  let waiters: (() => void)[] = [];
+  const start = m.itemStart, end = m.itemEnd;
+  m.itemStart = (url) => {
+    pending++;
+    start(url);
+  };
+  m.itemEnd = (url) => {
+    end(url);
+    if (--pending > 0) return;
+    const done = waiters;
+    waiters = [];
+    for (const w of done) w();
+  };
+  m.settled = () => (pending > 0 ? new Promise<void>((resolve) => waiters.push(resolve)) : Promise.resolve());
   return m;
 }
 
@@ -342,6 +363,7 @@ async function parseModel(path: string, url: string, settings: ImportSettings): 
     }
     root = loader.parse(text);
   }
+  await loading.settled();
   const data = bakeMeshes(root, settings);
   if (!data.meshes.length) warnOnce(`${path} has no meshes.`);
   return data;
