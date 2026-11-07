@@ -18,6 +18,7 @@ import { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, t
 import { layerGroups } from "./layers";
 import { Queries3D } from "./queries3d";
 import { CharacterController, type CollisionFlags, type ControllerColliderHit } from "./CharacterController";
+import { AxisJoint, BallJoint, FixedJoint, HingeJoint, Joint, RopeJoint, SliderJoint, SpringJoint } from "./Joint";
 import { CollisionEvents, TriggerEvents } from "./physics3d";
 import { RigidBody } from "./RigidBody";
 import { AXIS_INDEX, boxHalfExtents, capsuleSize, scaledCenter, sphereRadius } from "./shape3d";
@@ -50,6 +51,17 @@ export interface ColliderHandleState3D {
   ownBody?: RAPIER.RigidBody;
 }
 
+/** @internal */
+export interface JointHandleState3D {
+  joint: RAPIER.ImpulseJoint;
+  signature: string;
+  settings: string;
+  body: RigidBody;
+  connected: RigidBody | null;
+  /** The fixed body standing in for the world, when the joint isn't connected to a body. */
+  ground: RAPIER.RigidBody | null;
+}
+
 let rapierReady: Promise<void> | null = null;
 
 /** @internal Initialize Rapier 3D's WASM once. */
@@ -79,6 +91,18 @@ const CAPSULE_TURN: Record<"x" | "y" | "z", Quaternion> = {
 
 /** A quaternion as Rapier takes it (a plain object: Rapier reads fields, not getters). */
 const rapierRotation = (q: QuatLike): RAPIER.Rotation => ({ x: q.x, y: q.y, z: q.z, w: q.w });
+
+/** How hard a joint motor drives towards its target velocity, before its `force` limit. */
+const MOTOR_GAIN = 1e4;
+
+/** The shortest turn taking the x axis onto unit vector `v`. */
+function fromXTo(v: Vector3): Quaternion {
+  const d = v.x;
+  if (d < -0.999999) return new Quaternion(0, 1, 0, 0); // half a turn around y
+  const q = new Quaternion(0, -v.z, v.y, 1 + d); // cross((1,0,0), v), 1 + dot
+  const len = Math.hypot(q.x, q.y, q.z, q.w);
+  return new Quaternion(q.x / len, q.y / len, q.z / len, q.w / len);
+}
 
 /** Normalized lerp between the rotations in two `[x, y, z, qx, qy, qz, qw]` poses, the short way round. */
 function nlerp(a: readonly number[], b: readonly number[], t: number): Quaternion {
@@ -134,6 +158,7 @@ export class Physics3DWorld {
   push(): void {
     for (const rb of this.world._componentsOfType(RigidBody)) this.pushBody(rb);
     for (const c of this.world._componentsOfType(Collider)) this.pushCollider(c);
+    for (const j of this.world._componentsOfType(Joint)) this.pushJoint(j);
   }
 
   private bodySignature(rb: RigidBody): string {
@@ -504,6 +529,117 @@ export class Physics3DWorld {
     }
   }
 
+  // --- joints (ADR 0092) ---------------------------------------------------------------------------
+
+  private pushJoint(j: Joint): void {
+    const active = j.isActiveAndEnabled;
+    const body = active ? j.body : null;
+    const connected = active ? j.connectedRigidbody : null;
+    if (active && !body) this.warnOnce(`jointbody:${j.node.entity}`, `${j.node.name}: ${j.constructor.name} needs a RigidBody on its node or above it.`);
+    if (active && j.connectedBody?.isValid && !connected) this.warnOnce(`jointother:${j.node.entity}`, `${j.node.name}: ${j.constructor.name}'s connected node "${j.connectedBody.name}" has no RigidBody.`);
+    const a = j.anchor, ca = j.connectedAnchor;
+    const signature = [j._jointSignature(), a.x, a.y, a.z, j.autoConfigureConnectedAnchor, ca.x, ca.y, ca.z, j.connectedBody?.isValid ? j.connectedBody.entity : -1, j.enableCollision].join("|");
+    let st = j._state;
+    if (st && (!active || st.signature !== signature || st.body !== body || st.connected !== connected || !st.body._state || (st.connected && !st.connected._state))) {
+      this.releaseJoint(j);
+      st = null;
+    }
+    if (!st) {
+      if (!active || !body?._state || (j.connectedBody?.isValid && !connected?._state)) return;
+      st = j._state = this.createJoint(j, body, connected, signature);
+    }
+    const settings = j._settingsSignature();
+    if (settings !== st.settings) {
+      st.settings = settings;
+      this.applyJointSettings(j, st);
+    }
+  }
+
+  /** A point in a node's local space, in world space. */
+  private pointOf(node: Joint["node"], local: { x: number; y: number; z: number }): Vector3 {
+    if (!node.transform) return new Vector3(local.x, local.y, local.z);
+    const [x, y, z] = Mat4.transformPoint(this.world.worldMatrix(node.entity), node.entity * 16, local.x, local.y, local.z);
+    return new Vector3(x, y, z);
+  }
+
+  private createJoint(j: Joint, body: RigidBody, connected: RigidBody | null, signature: string): JointHandleState3D {
+    const pose1 = body.node.transform ? worldPose(this.world, body.node.entity) : { p: new Vector3(), q: new Quaternion() };
+    const pw = this.pointOf(j.node, j.anchor);
+    let rb2: RAPIER.RigidBody, ground: RAPIER.RigidBody | null = null, pose2: { p: Vector3; q: Quaternion };
+    if (connected) {
+      rb2 = connected._state!.body;
+      pose2 = connected.node.transform ? worldPose(this.world, connected.node.entity) : { p: new Vector3(), q: new Quaternion() };
+    } else {
+      // The world: a fixed body where this body is now, so the two frames start out matching.
+      ground = rb2 = this.rapier.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(pose1.p.x, pose1.p.y, pose1.p.z).setRotation(rapierRotation(pose1.q)));
+      pose2 = pose1;
+    }
+    // The connected anchor: where the anchor is now, or `connectedAnchor`. Ropes and springs auto-anchor at the connected body's origin.
+    const distanceJoint = j instanceof RopeJoint || j instanceof SpringJoint;
+    let pw2: Vector3;
+    if (!j.autoConfigureConnectedAnchor) pw2 = connected ? this.pointOf(j.connectedBody!, j.connectedAnchor) : new Vector3(j.connectedAnchor.x, j.connectedAnchor.y, j.connectedAnchor.z);
+    else if (distanceJoint && connected) pw2 = pose2.p.clone();
+    else pw2 = pw.clone();
+    const inv1 = Quat.conjugate(pose1.q), inv2 = Quat.conjugate(pose2.q);
+    const a1 = Quat.rotate(inv1, pw.clone().sub(pose1.p)), a2 = Quat.rotate(inv2, pw2.clone().sub(pose2.p));
+    // The joint's frame in world space: its x axis along the hinge or slider axis. Each body holds it in its own frame.
+    const nodeQ = j.node.transform ? worldPose(this.world, j.node.entity).q : new Quaternion();
+    const ax = j instanceof AxisJoint ? j.axis : { x: 1, y: 0, z: 0 };
+    const len = Math.hypot(ax.x, ax.y, ax.z) || 1;
+    const frame = fromXTo(Quat.rotate(nodeQ, new Vector3(ax.x / len, ax.y / len, ax.z / len)));
+    const f1 = rapierRotation(Quat.conjugate(pose1.q).multiply(frame)), f2 = rapierRotation(Quat.conjugate(pose2.q).multiply(frame));
+    const dist = pw2.clone().sub(pw).length;
+    // Rapier's first body is the connected one, so angles and positions read as this body's relative to it.
+    let data: RAPIER.JointData;
+    if (j instanceof FixedJoint) data = RAPIER.JointData.fixed(a2, f2, a1, f1);
+    else if (j instanceof HingeJoint) data = RAPIER.JointData.revolute(a2, a1, { x: 1, y: 0, z: 0 });
+    else if (j instanceof SliderJoint) data = RAPIER.JointData.prismatic(a2, a1, { x: 1, y: 0, z: 0 });
+    else if (j instanceof BallJoint) data = RAPIER.JointData.spherical(a2, a1);
+    else if (j instanceof RopeJoint) data = RAPIER.JointData.rope(j.autoConfigureDistance ? dist : Math.max(j.maxDistance, 0), a2, a1);
+    else if (j instanceof SpringJoint) data = RAPIER.JointData.spring(j.autoConfigureDistance ? dist : Math.max(j.restLength, 0), j.spring, j.damper, a2, a1);
+    else throw new Error(`Unsupported joint type ${j.constructor.name}.`);
+    if (j instanceof AxisJoint && j.useLimits) {
+      const k = j instanceof HingeJoint ? DEG2RAD : 1;
+      data.limitsEnabled = true;
+      data.limits = [Math.min(j.limits.min, j.limits.max) * k, Math.max(j.limits.min, j.limits.max) * k];
+    }
+    const joint = this.rapier.createImpulseJoint(data, rb2, body._state!.body, true);
+    if (j instanceof HingeJoint || j instanceof SliderJoint || j instanceof BallJoint) {
+      joint.setLocalFrame1(a2, f2);
+      joint.setLocalFrame2(a1, f1);
+    }
+    joint.setContactsEnabled(j.enableCollision);
+    return { joint, signature, settings: "", body, connected, ground };
+  }
+
+  /** Limits, motor and spring on a live hinge or slider. */
+  private applyJointSettings(j: Joint, st: JointHandleState3D): void {
+    if (!(j instanceof AxisJoint)) return;
+    const unit = st.joint as RAPIER.UnitImpulseJoint;
+    const k = j instanceof HingeJoint ? DEG2RAD : 1;
+    if (j.useLimits) unit.setLimits(Math.min(j.limits.min, j.limits.max) * k, Math.max(j.limits.min, j.limits.max) * k);
+    if (j.useMotor || j.useSpring) unit.configureMotorModel(RAPIER.MotorModel.ForceBased);
+    if (j.useMotor) {
+      unit.configureMotorVelocity((j.motor?.targetVelocity ?? 0) * k, MOTOR_GAIN);
+      unit.setMotorMaxForce(Math.max(j.motor?.force ?? 0, 0));
+    } else if (j.useSpring) {
+      unit.configureMotorPosition((j.spring?.targetPosition ?? 0) * k, j.spring?.spring ?? 0, j.spring?.damper ?? 0);
+      unit.setMotorMaxForce(Number.MAX_VALUE);
+    } else {
+      unit.setMotorMaxForce(0); // off (configuring an idle motor instead would lock the axis)
+    }
+    st.body._state?.body.wakeUp();
+  }
+
+  /** @internal */
+  releaseJoint(j: Joint): void {
+    const st = j._state;
+    if (!st) return;
+    if (this.rapier.getImpulseJoint(st.joint.handle)) this.rapier.removeImpulseJoint(st.joint, true);
+    if (st.ground) this.rapier.removeRigidBody(st.ground);
+    j._state = null;
+  }
+
   // --- character controllers (ADR 0091) -----------------------------------------------------------
 
   private readonly controllers = new Map<CharacterController, { kcc: RAPIER.KinematicCharacterController; settings: string }>();
@@ -599,6 +735,7 @@ export class Physics3DWorld {
     const st = rb._state;
     if (!st) return;
     for (const c of this.world._componentsOfType(Collider)) if (c._state?.body === rb) this.releaseCollider(c);
+    for (const j of this.world._componentsOfType(Joint)) if (j._state && (j._state.body === rb || j._state.connected === rb)) this.releaseJoint(j);
     this.rapier.removeRigidBody(st.body);
     rb._state = null;
   }

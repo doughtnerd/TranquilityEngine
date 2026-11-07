@@ -10,7 +10,7 @@
  */
 import RAPIER from "@dimforge/rapier2d-compat";
 import { GameBehavior } from "../core/Component";
-import { DEG2RAD, RAD2DEG, Vector2 } from "../core/math";
+import { DEG2RAD, Mat4, RAD2DEG, Vector2 } from "../core/math";
 import type { World } from "../core/World";
 import { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type Collision2D } from "./Collider2D";
 import { layerGroups } from "./layers";
@@ -18,6 +18,7 @@ import { Queries2D } from "./queries2d";
 import { cleanPoints, convexParts } from "./polygon";
 import type { CollisionFlags } from "./CharacterController";
 import { CharacterController2D, type ControllerColliderHit2D } from "./CharacterController2D";
+import { AxisJoint2D, FixedJoint2D, HingeJoint2D, Joint2D, RopeJoint2D, SliderJoint2D, SpringJoint2D } from "./Joint2D";
 import { CollisionEvents2D, TriggerEvents2D } from "./physics2dSystems";
 import { RigidBody2D } from "./RigidBody2D";
 
@@ -46,6 +47,22 @@ export interface ColliderHandleState {
   /** A character controller's own kinematic body, which carries its collider (ADR 0091). */
   ownBody?: RAPIER.RigidBody;
 }
+
+/** @internal */
+export interface JointHandleState {
+  joint: RAPIER.ImpulseJoint;
+  signature: string;
+  settings: string;
+  body: RigidBody2D;
+  connected: RigidBody2D | null;
+  /** The fixed body standing in for the world, when the joint isn't connected to a body. */
+  ground: RAPIER.RigidBody | null;
+  /** A hinge's angle (radians) when it was made: its limits and targets count from there. */
+  restAngle: number;
+}
+
+/** How hard a joint motor drives towards its target velocity, before its `force` limit. */
+const MOTOR_GAIN = 1e4;
 
 let rapierReady: Promise<void> | null = null;
 
@@ -101,6 +118,136 @@ export class Physics2DWorld {
     const world = this.world;
     for (const rb of world._componentsOfType(RigidBody2D)) this.pushBody(rb);
     for (const c of world._componentsOfType(Collider2D)) this.pushCollider(c);
+    for (const j of world._componentsOfType(Joint2D)) this.pushJoint(j);
+  }
+
+  // --- joints (ADR 0092) ---------------------------------------------------------------------------
+
+  private readonly warned = new Set<string>();
+
+  private warnOnce(key: string, message: string): void {
+    if (this.warned.has(key)) return;
+    this.warned.add(key);
+    console.warn(`[myco] ${message}`);
+  }
+
+  private pushJoint(j: Joint2D): void {
+    const active = j.isActiveAndEnabled;
+    const body = active ? j.body : null;
+    const connected = active ? j.connectedRigidbody : null;
+    if (active && !body) this.warnOnce(`jointbody:${j.node.entity}`, `${j.node.name}: ${j.constructor.name} needs a RigidBody2D on its node or above it.`);
+    if (active && j.connectedBody?.isValid && !connected) this.warnOnce(`jointother:${j.node.entity}`, `${j.node.name}: ${j.constructor.name}'s connected node "${j.connectedBody.name}" has no RigidBody2D.`);
+    const signature = [j._jointSignature(), j.anchor.x, j.anchor.y, j.autoConfigureConnectedAnchor, j.connectedAnchor.x, j.connectedAnchor.y, j.connectedBody?.isValid ? j.connectedBody.entity : -1, j.enableCollision].join("|");
+    let st = j._state;
+    if (st && (!active || st.signature !== signature || st.body !== body || st.connected !== connected || !st.body._state || (st.connected && !st.connected._state))) {
+      this.releaseJoint(j);
+      st = null;
+    }
+    if (!st) {
+      if (!active || !body?._state || (j.connectedBody?.isValid && !connected?._state)) return;
+      st = j._state = this.createJoint(j, body, connected, signature);
+    }
+    const settings = j._settingsSignature();
+    if (settings !== st.settings) {
+      st.settings = settings;
+      this.applyJointSettings(j, st);
+    }
+  }
+
+  /** A node's world position and angle (radians). */
+  private pose2D(node: Joint2D["node"]): { x: number; y: number; a: number } {
+    const t = node.transform;
+    if (!t) return { x: 0, y: 0, a: 0 };
+    const p = t.worldPosition;
+    return { x: p.x, y: p.y, a: t.worldRotation2D * DEG2RAD };
+  }
+
+  /** A point in a node's local space, in world space. */
+  private pointOf(node: Joint2D["node"], local: { x: number; y: number }): { x: number; y: number } {
+    if (!node.transform) return { x: local.x, y: local.y };
+    const [x, y] = Mat4.transformPoint(this.world.worldMatrix(node.entity), node.entity * 16, local.x, local.y, 0);
+    return { x, y };
+  }
+
+  private createJoint(j: Joint2D, body: RigidBody2D, connected: RigidBody2D | null, signature: string): JointHandleState {
+    const p1 = this.pose2D(body.node);
+    const pw = this.pointOf(j.node, j.anchor);
+    let rb2: RAPIER.RigidBody, ground: RAPIER.RigidBody | null = null, p2 = p1;
+    if (connected) {
+      rb2 = connected._state!.body;
+      p2 = this.pose2D(connected.node);
+    } else {
+      // The world: a fixed body where this body is now, so the two frames start out matching.
+      ground = rb2 = this.rapier.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(p1.x, p1.y).setRotation(p1.a));
+    }
+    const distanceJoint = j instanceof RopeJoint2D || j instanceof SpringJoint2D;
+    let pw2: { x: number; y: number };
+    if (!j.autoConfigureConnectedAnchor) pw2 = connected ? this.pointOf(j.connectedBody!, j.connectedAnchor) : { x: j.connectedAnchor.x, y: j.connectedAnchor.y };
+    else if (distanceJoint && connected) pw2 = { x: p2.x, y: p2.y };
+    else pw2 = pw;
+    const local = (p: { x: number; y: number; a: number }, w: { x: number; y: number }) => {
+      const dx = w.x - p.x, dy = w.y - p.y, c = Math.cos(-p.a), s = Math.sin(-p.a);
+      return { x: dx * c - dy * s, y: dx * s + dy * c };
+    };
+    const a1 = local(p1, pw), a2 = local(p2, pw2);
+    const dist = Math.hypot(pw2.x - pw.x, pw2.y - pw.y);
+    const restAngle = p1.a - p2.a;
+    // Rapier's first body is the connected one, so angles and positions read as this body's relative to it.
+    let data: RAPIER.JointData;
+    if (j instanceof FixedJoint2D) data = RAPIER.JointData.fixed(a2, 0, a1, -restAngle);
+    else if (j instanceof HingeJoint2D) data = RAPIER.JointData.revolute(a2, a1);
+    else if (j instanceof SliderJoint2D) {
+      if (Math.abs(restAngle) > 1e-4) this.warnOnce(`slider:${j.node.entity}`, `${j.node.name}: SliderJoint2D's bodies should start at the same rotation; it turns them to match.`);
+      const t = j.node.transform;
+      const turn = t ? t.worldRotation2D * DEG2RAD - p2.a : 0;
+      const len = Math.hypot(j.axis.x, j.axis.y) || 1;
+      const ax = j.axis.x / len, ay = j.axis.y / len, c = Math.cos(turn), s = Math.sin(turn);
+      data = RAPIER.JointData.prismatic(a2, a1, { x: ax * c - ay * s, y: ax * s + ay * c });
+    } else if (j instanceof RopeJoint2D) data = RAPIER.JointData.rope(j.autoConfigureDistance ? dist : Math.max(j.maxDistance, 0), a2, a1);
+    else if (j instanceof SpringJoint2D) data = RAPIER.JointData.spring(j.autoConfigureDistance ? dist : Math.max(j.restLength, 0), j.spring, j.damper, a2, a1);
+    else throw new Error(`Unsupported joint type ${j.constructor.name}.`);
+    if (j instanceof AxisJoint2D && j.useLimits) {
+      const [lo, hi] = this.limitsOf(j, restAngle);
+      data.limitsEnabled = true;
+      data.limits = [lo, hi];
+    }
+    const joint = this.rapier.createImpulseJoint(data, rb2, body._state!.body, true);
+    joint.setContactsEnabled(j.enableCollision);
+    return { joint, signature, settings: "", body, connected, ground, restAngle };
+  }
+
+  /** A hinge's or slider's limits in Rapier's terms (hinges count from the angle they were made at). */
+  private limitsOf(j: AxisJoint2D, restAngle: number): [number, number] {
+    const lo = Math.min(j.limits.min, j.limits.max), hi = Math.max(j.limits.min, j.limits.max);
+    return j instanceof HingeJoint2D ? [lo * DEG2RAD + restAngle, hi * DEG2RAD + restAngle] : [lo, hi];
+  }
+
+  /** Limits, motor and spring on a live hinge or slider. */
+  private applyJointSettings(j: Joint2D, st: JointHandleState): void {
+    if (!(j instanceof AxisJoint2D)) return;
+    const unit = st.joint as RAPIER.UnitImpulseJoint;
+    const hinge = j instanceof HingeJoint2D, k = hinge ? DEG2RAD : 1, offset = hinge ? st.restAngle : 0;
+    if (j.useLimits) unit.setLimits(...this.limitsOf(j, st.restAngle));
+    if (j.useMotor || j.useSpring) unit.configureMotorModel(RAPIER.MotorModel.ForceBased);
+    if (j.useMotor) {
+      unit.configureMotorVelocity((j.motor?.targetVelocity ?? 0) * k, MOTOR_GAIN);
+      unit.setMotorMaxForce(Math.max(j.motor?.force ?? 0, 0));
+    } else if (j.useSpring) {
+      unit.configureMotorPosition((j.spring?.targetPosition ?? 0) * k + offset, j.spring?.spring ?? 0, j.spring?.damper ?? 0);
+      unit.setMotorMaxForce(Number.MAX_VALUE);
+    } else {
+      unit.setMotorMaxForce(0); // off (configuring an idle motor instead would lock the axis)
+    }
+    st.body._state?.body.wakeUp();
+  }
+
+  /** @internal */
+  releaseJoint(j: Joint2D): void {
+    const st = j._state;
+    if (!st) return;
+    if (this.rapier.getImpulseJoint(st.joint.handle)) this.rapier.removeImpulseJoint(st.joint, true);
+    if (st.ground) this.rapier.removeRigidBody(st.ground);
+    j._state = null;
   }
 
   private bodySignature(rb: RigidBody2D): string {
@@ -558,6 +705,7 @@ export class Physics2DWorld {
     for (const c of this.world._componentsOfType(Collider2D)) {
       if (c._state?.body === rb) this.releaseCollider(c);
     }
+    for (const j of this.world._componentsOfType(Joint2D)) if (j._state && (j._state.body === rb || j._state.connected === rb)) this.releaseJoint(j);
     this.rapier.removeRigidBody(st.body);
     rb._state = null;
   }
