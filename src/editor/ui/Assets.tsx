@@ -1,7 +1,7 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, opensInCodePanel, searchFiles, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
+import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, opensInCodePanel, searchEntries, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
 import { inspectSelectedAsset, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { deleteAssets, entryPath, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "../assetDelete";
@@ -106,7 +106,7 @@ const toggleKey = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.
 function listedEntries(project: EditorProject, folder: string, query: string): string[] {
   // Sidecars (`*.meta.json`) travel with their files and aren't listed (ADR 0040).
   const files = [...listedFiles(project.files), ...project.scripts.keys()];
-  if (query.trim()) return searchFiles(files.sort(), query);
+  if (query.trim()) return searchEntries(files.sort(), query, (image) => slicesOf(project, image).map((s) => s.name));
   const subfolders = project.folders.filter((f) => parentFolder(f) === folder).sort((a, b) => fileName(a).localeCompare(fileName(b)));
   const here = files.filter((f) => folderOf(f) === folder).sort((a, b) => fileName(a).localeCompare(fileName(b)));
   // An expanded image's slices follow it.

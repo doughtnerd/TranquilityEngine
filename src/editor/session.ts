@@ -33,6 +33,7 @@ import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAsset
 import { currentProject, docVersion, editingCollider, openScene, openScenes, playState, sceneCamera, scriptProblems, scriptsVersion, select, selectedKeys, selection, setViewMode, status, viewMode, type OpenScene } from "./state";
 import type { ViewMode } from "./OrbitCamera";
 import { closeAllScripts, preloadCodeEditor } from "./code/codeState";
+import { prefetchEngine } from "./prefetch";
 import { resetAssetBrowser } from "./assetSelection";
 import { isScriptPath, replaceScripts } from "./scriptLoader";
 import { viewportElements } from "./ui/ScenePanel";
@@ -105,6 +106,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   docVersion.value++;
 
   useProjectAssets(project);
+  void prefetchEngine(); // the renderer's chunks load while the scripts compile (ADR 0082)
   // Project scripts register their types before any scene is built, replacing the previous
   // project's (ADR 0030).
   pendingReload = false;
@@ -148,6 +150,20 @@ export async function loadProject(project: EditorProject): Promise<void> {
       detail: list.join("\n"),
     };
   }
+}
+
+/**
+ * Resolves once the open project's scene view has its renderer (loaded, GPU device made), or after
+ * `timeout` ms at the latest (ADR 0082): the desktop editor shows its window then, so the scene view
+ * draws on its first frame rather than staying blank while the renderer loads. (A hidden window
+ * gets no animation frames, so this doesn't wait for one.)
+ */
+export async function sceneViewStarted(timeout = 4000): Promise<void> {
+  const started = session?.engine.world.render?.started;
+  if (!started) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([started, new Promise<void>((resolve) => (timer = setTimeout(resolve, timeout)))]);
+  clearTimeout(timer);
 }
 
 /**

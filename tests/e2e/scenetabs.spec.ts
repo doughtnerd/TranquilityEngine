@@ -53,9 +53,16 @@ test("each open scene has a tab with its own unsaved edits and undo history", as
   await closeMenus(page);
   await expect(row(page, "bird")).toHaveCount(0);
 
-  // Back to the scene: the edit and its undo are still there, and the selection too.
+  // Back to the scene: the edit and its undo are still there. (Clicking the prefab in the Assets
+  // panel deselected the nodes, so the selection is made again here.)
   await tab(page, "main.scene.json").click();
   await expect(page.locator(".scene-name")).toContainText("main.scene.json");
+  await row(page, "bird").click();
+  await expect(row(page, "bird")).toHaveClass(/selected/);
+  // A tab keeps its selection while another is active.
+  await tab(page, "pipe-pair").click();
+  await expect(row(page, "bird")).toHaveCount(0);
+  await tab(page, "main.scene.json").click();
   await expect(row(page, "bird")).toHaveClass(/selected/);
   await expect(birdY(page)).toHaveValue("5");
   await page.keyboard.press("ControlOrMeta+z");

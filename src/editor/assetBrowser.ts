@@ -110,6 +110,23 @@ export function searchFiles(files: readonly string[], query: string): string[] {
   return files.filter((f) => words.every((w) => fileName(f).toLowerCase().includes(w))).sort((a, b) => fileName(a).localeCompare(fileName(b)));
 }
 
+/**
+ * Search results including slices (ADR 0115): the files `searchFiles` finds, plus a slice entry
+ * (`images/a.png#walk_0`) for each slice of an image whose name contains every word. `sliceNames`
+ * gives an image's slice names. Sorted by name ("hero" sorts before "hero_walk", so slices named after their image list before it).
+ */
+export function searchEntries(files: readonly string[], query: string, sliceNames: (image: string) => readonly string[]): string[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const out = [...searchFiles(files, query)];
+  for (const f of files) {
+    if (assetKind(f) !== "image") continue;
+    for (const name of sliceNames(f)) if (words.every((w) => name.toLowerCase().includes(w))) out.push(sliceEntry(f, name));
+  }
+  const key = (e: string) => (isSliceEntry(e) ? splitSliceEntry(e).slice : fileName(e));
+  return out.sort((a, b) => key(a).localeCompare(key(b)) || (isSliceEntry(a) ? 1 : 0) - (isSliceEntry(b) ? 1 : 0));
+}
+
 /** A node id from a file name: `pipe-pair.prefab.json` → `pipe-pair`, `flappyBird.png` → `flappy-bird`. */
 export function idBase(path: string): string {
   const base = fileName(path).replace(/\.(scene|prefab)\.json$/i, "").replace(/\.[^.]+$/, "");

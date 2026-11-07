@@ -45,7 +45,7 @@ test("the Asset Inspector edits an image's import settings and applies them to i
   const apply = inspector(page).getByRole("button", { name: "Apply" });
   await expect(apply).toBeDisabled();
 
-  await inspector(page).getByLabel("Filter Mode").selectOption("point");
+  await inspector(page).getByLabel("Filter Mode", { exact: true }).selectOption("point");
   await inspector(page).getByLabel("Pixels Per Unit").fill("50");
   await inspector(page).getByLabel("Pixels Per Unit").press("Tab");
   await inspector(page).getByLabel("Pivot", { exact: true }).selectOption("Bottom");
@@ -55,9 +55,9 @@ test("the Asset Inspector edits an image's import settings and applies them to i
   await expect(apply).toBeDisabled();
 
   // Revert drops unapplied edits; the sidecar file isn't listed.
-  await inspector(page).getByLabel("Wrap Mode").selectOption("repeat");
+  await inspector(page).getByLabel("Wrap Mode", { exact: true }).selectOption("repeat");
   await inspector(page).getByRole("button", { name: "Revert" }).click();
-  await expect(inspector(page).getByLabel("Wrap Mode")).toHaveValue("clamp");
+  await expect(inspector(page).getByLabel("Wrap Mode", { exact: true })).toHaveValue("clamp");
   await expect(tile(page, "flappyBird.png.meta.json")).toHaveCount(0);
 
   // Audio has its own settings.
