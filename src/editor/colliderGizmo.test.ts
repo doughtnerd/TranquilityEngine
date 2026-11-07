@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, PolygonCollider2D } from "../engine";
 import { AddComponent, SetField } from "./document";
-import { colliderOverlay } from "./colliderGizmo";
-import { MIN_EXTENT, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";
+import { colliderOverlay, colliderShapes } from "./colliderGizmo";
+import { MIN_EXTENT, capsule2DHandles, capsule2DPoints, dragCapsule2DHeight, dragCapsule2DRadius, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";
 import { openSceneFile } from "./project";
 import { editingCollider, openScene, selection } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
@@ -32,6 +32,25 @@ describe("collider shapes in world space", () => {
     close(points[1], [0, 1.5, 0]);
     const handles = circleHandles({ ...pose, rotation: 90 }, [0, 0], 0.5);
     close(handles["radius-right"], [0, 1.5, 0]); // rim handles turn with the node
+  });
+});
+
+describe("upright 2D capsule", () => {
+  it("sizes by |scale.x| for the radius and |scale.y| for the height, and ignores rotation", () => {
+    const pose: Pose2D = { position: [1, 2, 0], rotation: 0, scale: [2, 1] };
+    const h = capsule2DHandles(pose, [0, 0], 0.5, 4);
+    close(h["radius-right"], [2, 2, 0]);
+    close(h["height-top"], [1, 4, 0]);
+    close(h["height-bottom"], [1, 0, 0]);
+    const pts = capsule2DPoints(pose, [0, 0], 0.5, 4);
+    expect(Math.max(...pts.map((p) => p[1]))).toBeCloseTo(4);
+    expect(Math.min(...pts.map((p) => p[0]))).toBeCloseTo(0);
+  });
+
+  it("turns handle drags into radius and height", () => {
+    expect(dragCapsule2DRadius([0.7, 3], [0, 0])).toBeCloseTo(0.7);
+    expect(dragCapsule2DHeight([0, -1.5], [0, 0])).toBeCloseTo(3);
+    expect(dragCapsule2DRadius([0, 0], [0, 0])).toBe(MIN_EXTENT);
   });
 });
 
@@ -90,6 +109,20 @@ describe("the overlay with the demo scene open", () => {
     expect(bird.color).not.toBe(overlay.lines.find((l) => l !== bird)!.color);
     close(bird.points[0], [-4 + 0.7, 1, 0]);
     expect(overlay.handles).toEqual([]);
+  });
+
+  it("outlines a 2D character controller upright and gives it radius, height and centre handles", () => {
+    const { stack, sync } = openScene.value!;
+    stack.execute(new AddComponent("bird", { type: "engine.CharacterController2D", data: { radius: 0.5, height: 2 } }));
+    const node = sync.nodeFor("bird")!;
+    stack.execute(new SetField("bird", "engine.Transform", "rotation", 90));
+    const shape = colliderShapes(engine).filter((s) => s.node === node).find((s) => s.points.length > 8)!;
+    const ys = shape.points.map((p) => p[1]), xs = shape.points.map((p) => p[0]);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(2 * Math.abs(node.transform!.worldScale.y));
+    expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(1 * Math.abs(node.transform!.worldScale.x));
+    selection.value = "bird";
+    editingCollider.value = { key: "bird", type: "engine.CharacterController2D", index: 0 };
+    expect(colliderOverlay(engine).handles.map((h) => h.id).sort()).toEqual(["center", "height-bottom", "height-top", "radius-left", "radius-right"]);
   });
 
   it("adds handles for the collider being edited", () => {

@@ -21,7 +21,7 @@ import {
   sphereHandles3D,
   type Pose3D,
 } from "./collider3dMath";
-import { colliderOverlay } from "./colliderGizmo";
+import { EDITABLE_COLLIDERS, collider3dShapes, colliderOverlay } from "./colliderGizmo";
 import { AddComponent, SetField } from "./document";
 import { createNode, newNodeEntry } from "./nodeCreate";
 import { openSceneFile } from "./project";
@@ -120,6 +120,59 @@ describe("3D colliders in the editor", () => {
     selection.value = id;
     editingCollider.value = { key: id, type: "engine.CapsuleCollider", index: 0 };
     expect(colliderOverlay(engine).handles.map((h) => h.id).sort()).toEqual(["center", "height+", "height-", "radius:u+", "radius:u-", "radius:v+", "radius:v-"]);
+  });
+});
+
+describe("character controller and mesh collider gizmos", () => {
+  let engine: Engine;
+
+  beforeEach(async () => {
+    engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
+    openSceneFile(engine, DEMO_SCENE);
+  });
+
+  afterEach(() => {
+    editingCollider.value = null;
+    selection.value = null;
+    engine.dispose();
+  });
+
+  it("draws the controller's capsule upright even when the node is turned, and puts handles on it", () => {
+    const scene = openScene.value!;
+    const id = createNode(scene, "empty", { position: [1, 2, 3] });
+    scene.stack.execute(new SetField(id, "engine.Transform", "rotation", [0, 0, 90]));
+    scene.stack.execute(new AddComponent(id, { type: "engine.CharacterController", data: { center: [0, 0.5, 0], radius: 0.5, height: 2 } }));
+    selection.value = id;
+    const node = scene.sync.nodeFor(id)!;
+    const shapes = collider3dShapes(engine).filter((s) => s.node === node);
+    expect(shapes).toHaveLength(1);
+    const ys = shapes[0].wire.flat().map((p) => p[1]);
+    close([Math.min(...ys), Math.max(...ys)], [2.5 - 1, 2.5 + 1]); // centre y 2.5, half the 2 height each way
+    const xs = shapes[0].wire.flat().map((p) => p[0]);
+    close([Math.min(...xs), Math.max(...xs)], [0.5, 1.5]); // radius 0.5 around x = 1
+    editingCollider.value = { key: id, type: "engine.CharacterController", index: 0 };
+    const handles = Object.fromEntries(colliderOverlay(engine).handles.map((h) => [h.id, h.position]));
+    expect(Object.keys(handles).sort()).toEqual(["center", "height+", "height-", "radius:u+", "radius:u-", "radius:v+", "radius:v-"]);
+    close(handles.center, [1, 2.5, 3]);
+    close(handles["height+"], [1, 3.5, 3]);
+  });
+
+  it("matches capsuleWire with an upright pose", () => {
+    const turned: Pose3D = { position: [0, 0, 0], rotation: turnY90, scale: [1, 1, 1] };
+    const upright = capsuleWire({ ...turned, rotation: [0, 0, 0, 1] }, [0, 0, 0], 0.5, 2, "y");
+    expect(upright.flat().every((p) => Math.abs(p[1]) <= 1 + 1e-9)).toBe(true);
+  });
+
+  it("edits a mesh collider's centre only", () => {
+    const scene = openScene.value!;
+    const id = createNode(scene, "plane");
+    selection.value = id;
+    expect(EDITABLE_COLLIDERS.has("engine.MeshCollider")).toBe(true);
+    editingCollider.value = { key: id, type: "engine.MeshCollider", index: 0 };
+    scene.stack.execute(new SetField(id, "engine.MeshCollider", "center", [0, 1, 0]));
+    const handles = colliderOverlay(engine).handles;
+    expect(handles.map((h) => h.id)).toEqual(["center"]);
+    expect(EDITABLE_COLLIDERS.has("engine.CharacterController2D")).toBe(true);
   });
 });
 
