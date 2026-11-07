@@ -151,7 +151,7 @@ export function sampleManifest(): { samples: SampleInfo[] } {
   return { samples };
 }
 
-const SAMPLE_TYPES: Record<string, string> = { json: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", mp3: "audio/mpeg", ogg: "audio/ogg", wav: "audio/wav", obj: "model/obj", mtl: "model/mtl", fbx: "application/octet-stream", hdr: "application/octet-stream", exr: "application/octet-stream", bin: "application/octet-stream", woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" };
+const SAMPLE_TYPES: Record<string, string> = { json: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", mp3: "audio/mpeg", ogg: "audio/ogg", wav: "audio/wav", obj: "model/obj", mtl: "model/mtl", fbx: "application/octet-stream", gltf: "model/gltf+json", glb: "model/gltf-binary", ktx2: "image/ktx2", hdr: "application/octet-stream", exr: "application/octet-stream", bin: "application/octet-stream", woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" };
 
 /**
  * Ship the sample projects in samples/ beside the editor (ADR 0031), never inside it: the dev

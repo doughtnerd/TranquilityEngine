@@ -117,6 +117,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0085](decisions/0085-import-files-dragged-in-from-the-os.md) | Files dragged from the OS into the Assets panel are copied into the project | Proposed |
 | [0086](decisions/0086-prefab-instances-add-and-remove-child-nodes.md) | Prefab instances can add and remove child nodes as overrides | Proposed |
 | [0087](decisions/0087-multi-node-create-prefab-and-apply.md) | Create Prefab works on several sibling nodes, and Apply on several instances | Proposed |
+| [0088](decisions/0088-gltf-import-through-threejs-gltfloader.md) | glTF 2.0 models import through three.js's GLTFLoader, baked into model space like OBJ and FBX, with the file's node tree kept for the editor | Proposed |
+| [0089](decisions/0089-material-slots.md) | A MeshRenderer has a material slot per material of its model, filled by `materials[i]`, then `material`, then the model's import settings | Proposed |
+| [0090](decisions/0090-baked-models-in-game-builds.md) | Game builds carry each model baked into a `.mycomesh` file, which the engine loads instead of parsing the model | Proposed |
 | [0115](decisions/0115-sprite-editor-9-slice-undo-and-per-platform-import.md) | Sprites draw 9-sliced from a slice's border; the Sprite Editor gets border guides, undo/redo and slice search; import sidecars gain per-platform overrides, `maxSize` and `compression` (the last two advisory) | Proposed |
 | [0116](decisions/0116-editor-themes-display-scaling-layer-rename-and-history-pruning.md) | Theme import/export and per-project themes, bundled fonts and a light logo; display scaling; project-wide layer rename; persisted desktop folder access; age-based history pruning | Proposed |
 | [0117](decisions/0117-shader-graph-search-node-preview-shapes-and-scene-thumbnails.md) | Shader graph find, per-node preview shapes, and camera-view scene thumbnails | Proposed |

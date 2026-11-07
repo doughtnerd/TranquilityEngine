@@ -32,7 +32,7 @@ import { Assets } from "../../../scene/Assets";
 import { materialGraph } from "../../../scene/material";
 import { compileParticleGraph } from "../../../scene/particleCompile";
 import { parseParticleGraph } from "../../../scene/particleGraphFormat";
-import { loadMeshes, meshesIfLoaded, type ModelMesh } from "../../../scene/models";
+import { loadMeshes, materialSlots, meshesIfLoaded, type ModelMesh, type SurfaceInfo } from "../../../scene/models";
 import { flattenSceneNodes } from "../../sceneFlatten";
 import { ProgramRunner } from "../../particles/programRunner";
 import { EffectSimulation } from "../../particles/simulation";
@@ -66,6 +66,35 @@ import {
 
 export { frameView, seededRandom } from "../../thumbnailMath";
 export type { ThumbnailKind, ThumbnailPreview } from "../../previewTypes";
+
+/**
+ * What draws each material slot (ADR 0089) of `sources` in a preview: the renderer's `materials[i]`,
+ * then its `material`, then the model's import settings, as the World renderer does; null leaves a
+ * slot to the model's own material.
+ */
+async function slotPicker(scene: Scene, shared: GraphShared, ref: string, sources: readonly ModelMesh[], materials: readonly string[], all: string): Promise<(surface: SurfaceInfo) => Material | null> {
+  const built = new Map<string, Promise<PreviewMaterial | null>>();
+  const build = (path: string) => {
+    const key = path.replace(/^asset:/, "");
+    let p = built.get(key);
+    if (!p) built.set(key, (p = buildPreviewMaterial(scene, key, shared).catch(() => null)));
+    return p;
+  };
+  let remap: Record<string, string> = {};
+  if (!ref.startsWith("builtin:")) {
+    try {
+      remap = Assets.importSettings(ref.replace(/^asset:/, "").split("#")[0]).materials;
+    } catch {
+      // no sidecar
+    }
+  }
+  const bySurface = new Map<SurfaceInfo, Material | null>();
+  for (const [i, slot] of materialSlots(sources).entries()) {
+    const path = materials[i] || all || remap[slot.surface.name] || "";
+    bySurface.set(slot.surface, path ? ((await build(path))?.material ?? null) : null);
+  }
+  return (surface) => bySurface.get(surface) ?? null;
+}
 
 /** Thumbnails are this many pixels square: about twice the Assets panel's largest tile. */
 export const THUMBNAIL_SIZE = 256;
@@ -460,9 +489,10 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     const cache = new WeakMap<object, Material>();
     const fallback = defaultPreviewMaterial(scene);
     const box = new BoundsBox();
+    const pick = await slotPicker(scene, { time: 0, resolution: [this.size, this.size] }, path, sources, [], "");
     for (const src of sources) {
       const mesh = meshOf(scene, `model:${src.name}`, src);
-      mesh.material = modelMaterial(scene, cache, src, mesh) ?? fallback;
+      mesh.material = modelMaterial(scene, cache, src, mesh, pick) ?? fallback;
       box.add(src.data.positions, null);
     }
     await this.ready(scene, 3000); // the models' textures load on their own
@@ -649,11 +679,11 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
           if (c.type === "engine.MeshRenderer") {
             const ref = typeof data.mesh === "string" ? data.mesh : "builtin:cube";
             const parts: readonly ModelMesh[] = await loadMeshes(ref).catch(() => []);
-            let built: PreviewMaterial | null = null;
-            if (typeof data.material === "string" && data.material) built = await buildPreviewMaterial(scene, data.material.replace(/^asset:/, ""), shared).catch(() => null);
+            const list = Array.isArray(data.materials) ? data.materials.map((m) => (typeof m === "string" ? m : "")) : [];
+            const pick = await slotPicker(scene, shared, ref, parts, list, typeof data.material === "string" ? data.material : "");
             for (const part of parts) {
               const mesh = meshOf(scene, `prefab:${n.id}:${part.name}`, part);
-              mesh.material = built?.material ?? modelMaterial(scene, cache, part, mesh) ?? defaultPreviewMaterial(scene);
+              mesh.material = modelMaterial(scene, cache, part, mesh, pick) ?? defaultPreviewMaterial(scene);
               const world = worldOf(n);
               mesh.freezeWorldMatrix(Matrix.FromArray(world));
               box.add(part.data.positions, world);

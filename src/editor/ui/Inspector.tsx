@@ -811,7 +811,7 @@ function axesOf(values: unknown[]): (number | null)[] {
  */
 function assetListFor(type: string, field: string): string {
   if (field === "mesh" && (type === "engine.MeshRenderer" || type === "engine.MeshCollider")) return "asset-list-mesh";
-  if (field === "material" && type === "engine.MeshRenderer") return "asset-list-material";
+  if ((field === "material" || /^materials\[\d+\]$/.test(field)) && type === "engine.MeshRenderer") return "asset-list-material";
   if (field === "effect" && type === "engine.ParticleSystem") return "asset-list-particles";
   if (field === "formationAsset" && type === "engine.NavGroup") return "asset-list-formation";
   return "asset-list-all";

@@ -13,7 +13,7 @@ export type PreviewKind = "model" | "material" | "shadergraph" | "environment" |
 export function previewKind(path: string): PreviewKind | null {
   const p = path.toLowerCase();
   if (p.includes("#") || isSidecarPath(p)) return null;
-  if (/\.(obj|fbx)$/.test(p)) return "model";
+  if (/\.(obj|fbx|gltf|glb)$/.test(p)) return "model";
   if (p.endsWith(".material.json")) return "material";
   if (p.endsWith(".shadergraph.json")) return "shadergraph";
   if (/\.(hdr|exr)$/.test(p)) return "environment";
@@ -69,6 +69,30 @@ function wavefrontReferences(path: string, text: string, files: ReadonlySet<stri
   return out;
 }
 
+/** A .gltf's external buffers and images, relative to the file (ADR 0088). */
+function gltfReferences(path: string, text: string, files: ReadonlySet<string>): string[] {
+  let json: { buffers?: { uri?: unknown }[]; images?: { uri?: unknown }[] };
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const folder = folderOf(path);
+  const out: string[] = [];
+  for (const item of [...(json.buffers ?? []), ...(json.images ?? [])]) {
+    if (typeof item?.uri !== "string" || item.uri.startsWith("data:")) continue;
+    let name = item.uri;
+    try {
+      name = decodeURIComponent(name);
+    } catch {
+      // kept as written
+    }
+    const p = join(folder, name.replace(/^\.\//, ""));
+    if (files.has(p)) out.push(p);
+  }
+  return out;
+}
+
 /**
  * Every file an asset's preview depends on, besides the asset itself, sorted: textures, shader
  * graphs, models, materials, and import settings sidecars (which change how models and images
@@ -85,6 +109,7 @@ export function previewDependencies(path: string, source: DependencySource): str
     const lower = p.toLowerCase();
     if (text !== undefined && lower.endsWith(".json")) refs.push(...jsonReferences(text, files));
     else if (text !== undefined && /\.(obj|mtl)$/.test(lower)) refs.push(...wavefrontReferences(p, text, files));
+    else if (text !== undefined && lower.endsWith(".gltf")) refs.push(...gltfReferences(p, text, files));
     const sidecar = sidecarPath(p);
     if (files.has(sidecar)) refs.push(sidecar);
     for (const r of refs) {

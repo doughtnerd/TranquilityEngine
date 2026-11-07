@@ -24,7 +24,10 @@
  *   "stream": true,               // audio: stream (HTML5 audio) instead of decoding up front (default false)
  *   "scale": 0.01,                // models: multiplies the model's size (default 1)
  *   "upAxis": "z",                // models: the axis that is up in the file, "y" (default) or "z" (ADR 0044)
- *   "normals": "calculate"        // models: "import" (default; calculated when the file has none) or "calculate"
+ *   "normals": "calculate",       // models: "import" (default; calculated when the file has none) or "calculate"
+ *   "materials": {                // models: a material asset for each of the model's own materials, by name (ADR 0089)
+ *     "Paint": "asset:materials/car-paint.material.json"
+ *   }
  * }
  * ```
  *
@@ -91,6 +94,8 @@ export interface ImportSettings {
   scale: number;
   upAxis: ModelUpAxis;
   normals: ModelNormals;
+  /** Models (ADR 0089): a material asset (`asset:` path) drawn in place of each of the model's own materials, by the material's name. */
+  materials: Record<string, string>;
 }
 
 export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSettings>({
@@ -108,10 +113,11 @@ export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<I
   scale: 1,
   upAxis: "y",
   normals: "import",
+  materials: Object.freeze({}) as Record<string, string>,
 });
 
 /** A copy of the defaults (safe to change). */
-export const defaultImportSettings = (): ImportSettings => ({ ...DEFAULT_IMPORT_SETTINGS, pivot: [0.5, 0.5], sprites: [], platforms: {} });
+export const defaultImportSettings = (): ImportSettings => ({ ...DEFAULT_IMPORT_SETTINGS, pivot: [0.5, 0.5], sprites: [], materials: {}, platforms: {} });
 
 /** `images/a.png` → `images/a.png.meta.json`. */
 export const sidecarPath = (assetPath: string): string => `${assetPath}${SIDECAR_SUFFIX}`;
@@ -232,6 +238,16 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
     if (raw.normals === "import" || raw.normals === "calculate") settings.normals = raw.normals;
     else bad("normals", '"import" or "calculate"');
   }
+  if (raw.materials !== undefined) {
+    if (!isObject(raw.materials)) bad("materials", "an object of material asset paths by material name");
+    else {
+      for (const [name, path] of Object.entries(raw.materials)) {
+        if (typeof path === "string") {
+          if (path) settings.materials[name] = path;
+        } else problems.push(`${where}: materials["${name}"] should be a material asset path; ignored.`);
+      }
+    }
+  }
   if (raw.sprites !== undefined) {
     if (!Array.isArray(raw.sprites)) bad("sprites", "a list");
     else {
@@ -339,6 +355,8 @@ export function importSettingsJSON(settings: ImportSettings): Record<string, unk
   if (settings.scale !== d.scale) out.scale = settings.scale;
   if (settings.upAxis !== d.upAxis) out.upAxis = settings.upAxis;
   if (settings.normals !== d.normals) out.normals = settings.normals;
+  const materials = Object.entries(settings.materials ?? {}).filter(([, v]) => v);
+  if (materials.length) out.materials = Object.fromEntries(materials);
   if (settings.sprites.length > 0) {
     out.sprites = settings.sprites.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" } : {}) }));
   }
