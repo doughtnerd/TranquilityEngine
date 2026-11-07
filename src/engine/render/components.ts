@@ -395,7 +395,7 @@ export class Fog extends Component {
 
 export type FogMode = "linear" | "exponential";
 
-export type ProbeRefresh = "onLoad" | "everyFrame";
+export type ProbeRefresh = "onLoad" | "everyFrame" | "baked";
 
 /**
  * Captures the scene around its node into a local environment map (ADR 0054). Lit and physical
@@ -408,8 +408,23 @@ export class ReflectionProbe extends Component {
   @field(Vector3) size = new Vector3(10, 10, 10);
   /** Strength of the reflections. */
   @field(Number) intensity = 1;
-  /** `onLoad` captures once after the scene loads; `everyFrame` recaptures continuously. */
-  @field(String, { choices: ["onLoad", "everyFrame"] }) refresh: ProbeRefresh = "onLoad";
+  /**
+   * `onLoad` captures once after the scene loads; `everyFrame` recaptures continuously; `baked` uses
+   * `bakedMap`, captured ahead of time in the editor (ADR 0110), and captures on load without one.
+   */
+  @field(String, { choices: ["onLoad", "everyFrame", "baked"] }) refresh: ProbeRefresh = "onLoad";
+  /**
+   * Box projection (ADR 0110): reflections are corrected as if the surroundings were the probe's box,
+   * so they line up with a room's walls near them. For rooms and interiors; off suits open spaces.
+   */
+  @field(Boolean) boxProjection = false;
+  /**
+   * Where meshes start blending towards this probe from a neighbour, in metres inside its box's
+   * faces (ADR 0110). 0: no blending, the probe takes over at its box's edge.
+   */
+  @field(Number) blendDistance = 1;
+  /** A capture baked in the editor (a prefiltered `.env` cube map), used when `refresh` is `baked`. */
+  @field(AssetRef) bakedMap = "";
 
   /** @internal Bumped by `capture()`; the render backend recaptures when it changes. */
   _captureRequests = 0;

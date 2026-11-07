@@ -15,7 +15,7 @@ import { SHADOW_MAP_SIZE } from "../../core/graphics";
 import type { ProjectSettings } from "../../core/settings";
 import type { World, WorldKind } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
-import type { Camera, SpriteRenderer } from "../components";
+import type { Camera, ReflectionProbe, SpriteRenderer } from "../components";
 import type { UICoreLike } from "../../ui/uiCoreTypes";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import type {
@@ -232,6 +232,12 @@ export class BabylonSurface implements RenderSurface {
   }
   probeState(): { captured: number; probes: number; reflecting: number } {
     return this.renderer?.probeState() ?? { captured: 0, probes: 0, reflecting: 0 };
+  }
+  bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer> {
+    return this.renderer ? this.renderer.bakeReflectionProbe(probe) : Promise.reject(new Error("the renderer hasn't started yet"));
+  }
+  renderTextureState(): Record<string, { width: number; height: number; format: string }> {
+    return this.renderer?.renderTextureState() ?? {};
   }
   particleState(): ParticleStats | null {
     return this.renderer?.particleState() ?? null;

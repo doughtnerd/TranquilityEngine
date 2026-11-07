@@ -55,13 +55,14 @@ import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector
 import type { MaterialPropertyValue } from "../components";
 import { compileShaderGraph } from "../shaderGraph/compile";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "./graphMaterial";
-import { Camera, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, SpriteRenderer, Text } from "../components";
+import { Camera, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text } from "../components";
 import { UICanvas, isUIComponent } from "../../ui/components";
 import type { UICore } from "../../ui/UICore";
 import type { BabylonUI } from "./ui";
 import { Scene as BabylonScene } from "@babylonjs/core/scene.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
-import { BabylonProbes } from "./probes";
+import { BabylonProbes, type ProbeHit } from "./probes";
+import { MycoProbeBlendPlugin } from "./probeBlend";
 import { BabylonRenderTextures } from "./renderTextures";
 import { isRenderTexturePath } from "../renderTexture";
 import { BabylonWater } from "./water";
@@ -227,8 +228,8 @@ export class BabylonRenderer {
   private readonly renderTextures: BabylonRenderTextures;
   /** Water surfaces (ADR 0072; stage 6), made the first time a World has one. */
   private water: BabylonWater | null = null;
-  /** Each material's copies reflecting a probe's map (ADR 0054), by the probe's texture. */
-  private readonly probeMaterials = new WeakMap<BabylonMaterial, Map<BaseTexture, PBRMaterial>>();
+  /** Each material's copies reflecting a probe's map (ADR 0054), by the probe's texture and any blend (ADR 0110). */
+  private readonly probeMaterials = new WeakMap<BabylonMaterial, Map<string, PBRMaterial>>();
   /** Meshes drawn with a probe's map last frame, for tests. */
   private reflecting = 0;
   /** Materials whose asset opts out of the World's fog (ADR 0071). */
@@ -759,32 +760,50 @@ export class BabylonRenderer {
   // --- Reflection probes and fog (ADR 0054, 0071; stage 6) ----------------------------------------
 
   /** The probe a mesh's bounds centre lies in, if any. */
-  private probeAt(m: Mesh): { texture: BaseTexture; intensity: number } | null {
+  private probeAt(m: Mesh): ProbeHit | null {
     const centre = m.getBoundingInfo().boundingBox.centerWorld;
     return this.probes.lookup(centre.x, centre.y, centre.z);
   }
 
-  /** A copy of a material reflecting a probe's map, made once per material and probe. */
-  private probeMaterial(base: PBRMaterial, texture: BaseTexture, intensity: number): PBRMaterial {
+  /**
+   * A copy of a material reflecting a probe's map, made once per material, probe, and blend (a
+   * neighbour's map and the primary's share, rounded to `BLEND_STEPS`; ADR 0110).
+   */
+  private probeMaterial(base: PBRMaterial, hit: ProbeHit): PBRMaterial {
     let byProbe = this.probeMaterials.get(base);
     if (!byProbe) {
       byProbe = new Map();
       this.probeMaterials.set(base, byProbe);
     }
-    let m = byProbe.get(texture);
+    const b = hit.blend;
+    const key = b ? `${hit.texture.uniqueId}|${b.texture.uniqueId}|${b.weight}` : `${hit.texture.uniqueId}`;
+    let m = byProbe.get(key);
     if (!m) {
       m = base.clone(`${base.name}:probe`);
-      m.reflectionTexture = texture;
-      byProbe.set(texture, m);
+      m.reflectionTexture = hit.texture;
+      if (b) new MycoProbeBlendPlugin(m, { texture: b.texture, weight: b.weight, intensityRatio: 1, box: null });
+      byProbe.set(key, m);
       if (this.noFog.has(base)) this.noFog.add(m);
     }
-    m.environmentIntensity = intensity;
+    m.environmentIntensity = hit.intensity;
+    if (b) {
+      const plugin = m.pluginManager?.getPlugin<MycoProbeBlendPlugin>("MycoProbeBlend");
+      if (plugin) {
+        plugin.state.intensityRatio = hit.intensity > 0 ? b.intensity / hit.intensity : 0;
+        plugin.state.box = b.box;
+      }
+    }
     return m;
   }
 
   /** Tests: how many water surfaces are drawn. */
   waterState(): { surfaces: number } {
     return this.water?.state() ?? { surfaces: 0 };
+  }
+
+  /** Editor (ADR 0110): a probe's current capture as a prefiltered `.env` file. */
+  bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer> {
+    return this.probes.bake(probe);
   }
 
   /** Tests: probes captured, probes, and meshes reflecting one. */
@@ -1110,7 +1129,7 @@ export class BabylonRenderer {
       m.applyFog = !this.noFog.has(base);
       // A reflection probe (ADR 0054) for built-in materials; graph materials keep the scene's environment.
       const probe = this.probes.any && base instanceof PBRMaterial && !this.graphs.has(base) ? this.probeAt(m) : null;
-      const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe.texture, probe.intensity) : base;
+      const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe) : base;
       if (probe) this.reflecting++;
       if (m.material !== drawn) m.material = drawn;
     }
