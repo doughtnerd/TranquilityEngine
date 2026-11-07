@@ -19,6 +19,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
 | [Audio mixer](guide/audio-mixer.md) | Buses, effects, snapshots, ducking, `AudioSource.output`, `Audio.bus(...)` |
 | [FMOD backend](guide/fmod.md) | Experimental, untested: dropping the FMOD HTML5 SDK in and wiring it up |
+| [Materials, shaders and batching](guide/materials-and-shaders.md) | Hand-written shader assets (WGSL/GLSL), keywords and variants, changing materials from scripts, GPU instancing and sprite batching, pixel-perfect cameras |
 
 ## Architecture
 
@@ -137,6 +138,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0103](decisions/0103-tilemaps.md) | Tilemaps: tileset assets, a layered Tilemap component in chunks, and native editor painting | Proposed |
 | [0104](decisions/0104-2d-physics-backend-review.md) | Keep Rapier 2D as the 2D physics backend after reviewing Box2D v3 and Planck.js | Proposed |
 | [0105](decisions/0105-tile-colliders-and-one-way-platforms.md) | Tile colliders merge into seam-free Rapier shapes; one-way platforms use contact-pair hooks | Proposed |
+| [0106](decisions/0106-hand-written-shaders-keywords-and-variants.md) | Hand-written shader assets are surface functions in WGSL and GLSL; shaders and graphs share keywords that select variants | Proposed |
+| [0107](decisions/0107-script-material-api-shared-and-instance.md) | Scripts change materials through engine `Material` objects, shared per asset or instanced per renderer | Proposed |
+| [0108](decisions/0108-gpu-instancing-sprite-batching-pixel-perfect-camera.md) | MeshRenderers draw GPU-instanced by mesh and material; sprites batch per atlas; cameras can be pixel-perfect | Proposed |
 | [0115](decisions/0115-sprite-editor-9-slice-undo-and-per-platform-import.md) | Sprites draw 9-sliced from a slice's border; the Sprite Editor gets border guides, undo/redo and slice search; import sidecars gain per-platform overrides, `maxSize` and `compression` (the last two advisory) | Proposed |
 | [0116](decisions/0116-editor-themes-display-scaling-layer-rename-and-history-pruning.md) | Theme import/export and per-project themes, bundled fonts and a light logo; display scaling; project-wide layer rename; persisted desktop folder access; age-based history pruning | Proposed |
 | [0117](decisions/0117-shader-graph-search-node-preview-shapes-and-scene-thumbnails.md) | Shader graph find, per-node preview shapes, and camera-view scene thumbnails | Proposed |

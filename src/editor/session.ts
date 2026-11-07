@@ -2,7 +2,7 @@
 // project tears the World down and boots a new one with that project's settings and assets.
 import { installTilemapPainting } from "./tilemap/paintTool";
 import { errorStatus } from "./messages";
-import { Engine, GameObject } from "../engine";
+import { Engine, GameObject, Material } from "../engine";
 import { overlayHandlesOnCanvas, screenBounds } from "../engine/editor";
 import { pathKey } from "./document";
 import type { FileSystem } from "../engine/platform/FileSystem";
@@ -604,6 +604,7 @@ export function stopPlaying(): void {
   unmountPlayTools = () => {};
   play.stop();
   play = null;
+  Material._resetShared(); // scripts' changes to shared Materials are play-mode state, never the asset's (ADR 0107)
   playing.value = null;
   Object.assign(window, { playEngine: null });
   playState.value = "edit";

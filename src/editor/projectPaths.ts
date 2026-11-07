@@ -29,6 +29,8 @@ const TEXT_LANGUAGES: ReadonlyMap<string, CodeLanguage> = new Map([
   ["txt", "plaintext"],
   ["xml", "xml"],
   ["css", "css"],
+  ["wgsl", "plaintext"], // shader code (ADR 0106: shader assets, Custom Function files), read by the game
+  ["glsl", "plaintext"],
 ]);
 
 /** A path's extension, lower case, without the dot ("" if none; a leading dot, as in `.env`, isn't one). */

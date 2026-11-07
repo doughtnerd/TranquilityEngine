@@ -35,6 +35,7 @@ export type { ImportPlatform, ImportSettings, PlatformOverrides, TextureCompress
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
 export { Camera, Environment, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type FogMode, type LightType, type MaterialPropertyValue, type ParticlePropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";
+export { Material, type MaterialValue } from "./render/Material";
 export { Water, WaterSurface, type WaterSample } from "./render/water/WaterSurface";
 export type { WaterWave } from "./render/water/gerstner";
 

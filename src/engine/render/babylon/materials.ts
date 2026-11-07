@@ -212,6 +212,48 @@ export function modelMaterial(
   return multi;
 }
 
+/**
+ * A model mesh's material with each slot picked (ADR 0089), without a mesh: one material, or a
+ * `MultiMaterial` shared by every caller with the same sub-materials (cached in `multis` by model
+ * mesh and their ids), so identical renderers draw in one instanced batch (ADR 0108). A
+ * `MultiMaterial` needs `modelSubMeshes` on the mesh drawing it.
+ */
+export function modelBaseMaterial(
+  scene: Scene,
+  cache: WeakMap<object, BabylonMaterial>,
+  src: ModelMesh,
+  pick: (surface: SurfaceInfo) => BabylonMaterial | null = () => null,
+  multis: WeakMap<object, Map<string, MultiMaterial>> = new WeakMap(),
+): BabylonMaterial | null {
+  if (!src.surfaces.length) return pick(DEFAULT_SLOT);
+  const one = (i: number) => {
+    const surface = src.surfaces[i] ?? src.surfaces[0];
+    return pick(surface) ?? surfaceMaterial(scene, cache, surface, src.name);
+  };
+  if (src.surfaces.length < 2 || src.data.groups.length < 2) return one(0);
+  const subs = src.surfaces.map((_, i) => one(i));
+  if (subs.every((m) => m === subs[0])) return subs[0];
+  let byTuple = multis.get(src);
+  if (!byTuple) multis.set(src, (byTuple = new Map()));
+  const key = subs.map((m) => m.uniqueId).join(",");
+  let multi = byTuple.get(key);
+  if (!multi) {
+    multi = new MultiMaterial(`model:${src.name}`, scene);
+    multi.subMaterials = subs;
+    byTuple.set(key, multi);
+  }
+  return multi;
+}
+
+/** A submesh per index group of a model mesh with several materials (one per surface). */
+export function modelSubMeshes(src: ModelMesh, mesh: Mesh): void {
+  const groups = src.data.groups;
+  if (src.surfaces.length < 2 || groups.length < 2) return;
+  mesh.subMeshes = [];
+  const vertices = src.data.positions.length / 3;
+  for (const g of groups) new SubMesh(Math.min(g.materialIndex, src.surfaces.length - 1), 0, vertices, g.start, g.count, mesh);
+}
+
 /** A Babylon mesh of a model mesh's renderer-neutral geometry (no material yet). */
 export function meshOf(scene: Scene, name: string, src: ModelMesh): Mesh {
   const mesh = new Mesh(name, scene);

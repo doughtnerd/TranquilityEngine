@@ -19,6 +19,7 @@ import {
   type NodePreviewShape,
   type ShaderGraph,
 } from "../../engine/scene/shaderGraph";
+import { KEYWORD_NAME, type ShaderKeyword } from "../../engine/scene/shaderKeywords";
 
 const clone = (g: ShaderGraph): ShaderGraph => structuredClone(g);
 
@@ -256,6 +257,68 @@ export function moveProperty(graph: ShaderGraph, name: string, delta: -1 | 1): S
   return g;
 }
 
+// --- keywords (ADR 0106) ----------------------------------------------------------------------------
+
+/** A keyword name the graph doesn't use: `KEYWORD`, `KEYWORD_2`… */
+export function freeKeywordName(graph: ShaderGraph, base = "KEYWORD"): string {
+  const taken = (n: string) => (graph.keywords ?? []).some((k) => k.name === n);
+  if (!taken(base)) return base;
+  for (let i = 2; ; i++) if (!taken(`${base}_${i}`)) return `${base}_${i}`;
+}
+
+/** Add an on/off keyword. */
+export function addKeyword(graph: ShaderGraph): { graph: ShaderGraph; name: string } {
+  const name = freeKeywordName(graph);
+  const g = clone(graph);
+  g.keywords = [...(g.keywords ?? []), { name }];
+  return { graph: g, name };
+}
+
+/** Why a keyword can't be renamed to `name`, or null. */
+export function whyNotKeywordName(graph: ShaderGraph, from: string, name: string): string | null {
+  if (!KEYWORD_NAME.test(name)) return "a keyword name is upper case: letters, digits and _, starting with a letter";
+  if (name !== from && (graph.keywords ?? []).some((k) => k.name === name)) return `there's already a keyword named "${name}"`;
+  return null;
+}
+
+/** Rename a keyword, and the Keyword nodes reading it. */
+export function renameKeyword(graph: ShaderGraph, from: string, to: string): ShaderGraph {
+  if (from === to || whyNotKeywordName(graph, from, to)) return graph;
+  const g = clone(graph);
+  const k = g.keywords?.find((q) => q.name === from);
+  if (!k) return graph;
+  k.name = to;
+  for (const n of g.nodes) if (n.type === "keyword" && n.settings?.keyword === from) n.settings = { ...n.settings, keyword: to };
+  return g;
+}
+
+/** Remove a keyword and the Keyword nodes reading it. */
+export function removeKeyword(graph: ShaderGraph, name: string): ShaderGraph {
+  const g = clone(graph);
+  if (g.keywords) {
+    g.keywords = g.keywords.filter((k) => k.name !== name);
+    if (g.keywords.length === 0) delete g.keywords;
+  }
+  return removeNodes(g, g.nodes.filter((n) => n.type === "keyword" && n.settings?.keyword === name).map((n) => n.id));
+}
+
+/** Change a keyword's `values` (an enum, two or more; undefined for on/off) or `variants`; connections to ports that vanish go. */
+export function setKeyword(graph: ShaderGraph, name: string, patch: { values?: string[] | null; variants?: ShaderKeyword["variants"] }): ShaderGraph {
+  const g = clone(graph);
+  const k = g.keywords?.find((q) => q.name === name);
+  if (!k) return graph;
+  if (patch.values !== undefined) {
+    if (patch.values === null) delete k.values;
+    else if (patch.values.length >= 2 && patch.values.every((v) => KEYWORD_NAME.test(v)) && new Set(patch.values).size === patch.values.length) k.values = [...patch.values];
+    else return graph;
+  }
+  if (patch.variants !== undefined) {
+    if (patch.variants === "all") k.variants = "all";
+    else delete k.variants;
+  }
+  return dropInvalidEdges(g);
+}
+
 const CATEGORY_ORDER = { Input: 0, Math: 1, Vector: 2, Color: 3, Noise: 4, Lighting: 5, Output: 6 } as const;
 /** Where a node category sorts in the node search. */
 export const categoryRank = (category: keyof typeof CATEGORY_ORDER) => CATEGORY_ORDER[category];
@@ -284,6 +347,8 @@ export interface GraphClipboard {
   nodes: GraphNode[];
   edges: { from: string; to: string }[];
   properties: GraphProperty[];
+  /** The keywords the copied Keyword nodes read. */
+  keywords?: ShaderKeyword[];
 }
 
 /** Copy nodes (not the output node) with the connections between them and the properties they read. */
@@ -292,8 +357,11 @@ export function copyNodes(graph: ShaderGraph, ids: Iterable<string>): GraphClipb
   if (picked.size === 0) return null;
   const nodes = graph.nodes.filter((n) => picked.has(n.id)).map((n) => structuredClone(n));
   const used = new Set(nodes.filter((n) => n.type === "property").map((n) => n.settings?.property));
+  const usedKeywords = new Set(nodes.filter((n) => n.type === "keyword").map((n) => n.settings?.keyword));
+  const keywords = (graph.keywords ?? []).filter((k) => usedKeywords.has(k.name)).map((k) => structuredClone(k));
   return {
     format: CLIPBOARD_FORMAT,
+    ...(keywords.length ? { keywords } : {}),
     nodes,
     edges: graph.edges.filter((e) => picked.has(splitPortRef(e.from).node) && picked.has(splitPortRef(e.to).node)).map((e) => ({ ...e })),
     properties: graph.properties.filter((p) => used.has(p.name)).map((p) => structuredClone(p)),
@@ -312,6 +380,7 @@ export function parseClipboard(text: string): GraphClipboard | null {
 export function pasteNodes(graph: ShaderGraph, clip: GraphClipboard, at: [number, number]): { graph: ShaderGraph; ids: string[] } {
   const g = clone(graph);
   for (const p of clip.properties ?? []) if (!g.properties.some((q) => q.name === p.name)) g.properties.push(structuredClone(p));
+  for (const k of clip.keywords ?? []) if (!g.keywords?.some((q) => q.name === k.name)) g.keywords = [...(g.keywords ?? []), structuredClone(k)];
   const x0 = Math.min(...clip.nodes.map((n) => n.position[0])), y0 = Math.min(...clip.nodes.map((n) => n.position[1]));
   const map = new Map<string, string>();
   const taken = new Set<string>();
