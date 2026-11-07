@@ -59,7 +59,7 @@ export const U = {
   misc: 11,
   /** Events: count per trigger, probability, rate × dt (frame triggers), inherit velocity (0/1). */
   event: 12,
-  /** trigger (0 birth, 1 death, 2 frame; -1 no parent), gravity (m/s²), world space (0/1), unused. */
+  /** trigger (0 birth, 1 death, 2 frame; -1 no parent), unused, world space (0/1), the event parent's world space (0/1). */
   flags: 13,
   /** Camera view-projection, 4 columns (depth collision). */
   viewProj: 14,

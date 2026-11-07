@@ -192,7 +192,7 @@ export class KernelEffect {
       const count = settings.emission.bursts.reduce((n, b) => n + (typeof b.count === "number" ? b.count : 0), 0) || 1;
       const rate = typeof settings.emission.rateOverTime === "number" ? settings.emission.rateOverTime : 0;
       u.set([count, s.active ? k.event.probability : 0, rate * dt, k.event.inheritVelocity ? 1 : 0], U.event * 4);
-      u.set([k.event.trigger === "birth" ? 0 : k.event.trigger === "death" ? 1 : 2, 0, k.space === "world" ? 1 : 0, 0], U.flags * 4);
+      u.set([k.event.trigger === "birth" ? 0 : k.event.trigger === "death" ? 1 : 2, 0, k.space === "world" ? 1 : 0, parent.kernel.space === "world" ? 1 : 0], U.flags * 4);
     } else {
       u.set([0, 0, 0, 0], U.event * 4);
       u.set([-1, 0, k.space === "world" ? 1 : 0, 0], U.flags * 4);
