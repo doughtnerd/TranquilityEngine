@@ -17,6 +17,7 @@ import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
 import type { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
+import { EngineStore } from "@babylonjs/core/Engines/engineStore.js";
 import { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
 import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { RegisterMaterialPlugin } from "@babylonjs/core/Materials/materialPluginManager.js";
@@ -166,7 +167,12 @@ export class MycoHeightFogPlugin extends MaterialPluginBase {
 }
 
 // Every PBR material made after this module loads carries the plugin (dormant until a scene has height fog).
-RegisterMaterialPlugin("MycoHeightFog", (material: Material) => (material instanceof PBRMaterial || material instanceof StandardMaterial ? new MycoHeightFogPlugin(material) : null));
+const registerHeightFog = (): void =>
+  RegisterMaterialPlugin("MycoHeightFog", (material: Material) => (material instanceof PBRMaterial || material instanceof StandardMaterial ? new MycoHeightFogPlugin(material) : null));
+registerHeightFog();
+// Babylon drops every registered plugin when its last engine is disposed (a World closing, a preview, a
+// test): register again after it does, or engines made later would have no height fog.
+EngineStore.OnEnginesDisposedObservable.add(registerHeightFog);
 
 // --- the hook for custom shaders (ADR 0126) -----------------------------------------------------------------
 

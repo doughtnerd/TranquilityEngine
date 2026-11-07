@@ -324,6 +324,8 @@ function lowerOutput(
   r.speedScale = output.settings.speedScale;
   r.lengthScale = output.settings.lengthScale;
   r.trailLength = output.settings.trailLength;
+  if ((output.settings.softness ?? 0) > 0) r.softness = output.settings.softness;
+  else delete r.softness;
   for (const b of output.blocks) {
     if (b.enabled === false) continue;
     if (b.type === "output.flipbook") {

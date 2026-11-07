@@ -299,6 +299,7 @@ export function migrateParticleEffect(effect: ParticleEffect): ParticleGraph {
           speedScale: r.speedScale,
           lengthScale: r.lengthScale,
           trailLength: scalarOf(r.trailLength),
+          ...((r.softness ?? 0) > 0 ? { softness: r.softness } : {}),
         },
         blocks: output,
       },

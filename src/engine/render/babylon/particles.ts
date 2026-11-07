@@ -24,6 +24,7 @@ import { ProgramRunner, playTimes } from "../particles/programRunner";
 import { randomForSeed } from "../particles/random";
 import { EffectSimulation, linearRGB, type ParticleRaycast, type SimEmitter } from "../particles/simulation";
 import { createDotTexture, makeDraw as makeBabylonDraw, usesSheet, type Draw } from "./particleDraw";
+import { heightFogOn } from "./heightFog";
 import { chooseBackend, compileParticleKernels, type KernelProgram, type KernelSystem, type SystemBackend } from "../../scene/particleKernel";
 import type { ParticleGraph } from "../../scene/particleGraph";
 import { KernelEffect } from "../particles/gpu/kernelEffect";
@@ -508,7 +509,9 @@ export class BabylonParticles {
 
   /** What the build depends on (each emitter's material, mesh and texture), or null while one still loads. */
   private buildKey(program: ParticleProgram): string | null {
-    const parts: string[] = [];
+    // Height fog moves billboards to mesh quads (ADR 0126): rebuild when it's turned on or off.
+    const fog = heightFogOn(this.host.scene);
+    const parts: string[] = [fog ? "fog" : ""];
     for (const e of program.effect.emitters) {
       if (!e.enabled) continue;
       if (e.renderer.mode === "mesh") {
@@ -527,7 +530,7 @@ export class BabylonParticles {
         parts.push("dot");
         continue;
       }
-      const t = this.textureFor(e.renderer.texture, usesSheet(e.renderer));
+      const t = this.textureFor(e.renderer.texture, usesSheet(e.renderer, fog));
       if (t === null) return null;
       parts.push(t === "failed" ? `${e.renderer.texture}:failed` : `${e.renderer.texture}:${t.uniqueId}`);
     }
@@ -546,10 +549,12 @@ export class BabylonParticles {
     const capacity = Math.max(1, Math.ceil(e.settings.maxParticles * Math.max(1, scale)));
     const r = e.renderer;
     const material = this.materialFor(r.material);
-    const found = r.texture && !material ? this.textureFor(r.texture, usesSheet(e.renderer)) : null;
+    const heightFog = heightFogOn(this.host.scene);
+    const found = r.texture && !material ? this.textureFor(r.texture, usesSheet(e.renderer, heightFog)) : null;
     const texture = found && found !== "failed" ? found : this.dotTexture();
     const mesh = r.mode === "mesh" ? this.meshFor(r.mesh) : undefined;
-    return makeBabylonDraw(this.host.scene, name, e, capacity, texture, texture === this.dot, { material, mesh });
+    const depth = (r.softness ?? 0) > 0 ? this.sceneDepth() : null;
+    return makeBabylonDraw(this.host.scene, name, e, capacity, texture, texture === this.dot, { material, mesh, depth, heightFog });
   }
 
   /** Copy the simulation's particles into the draw (growing it when the particle limit went up). */
@@ -596,10 +601,12 @@ export class BabylonParticles {
     return sim.emitters.map((e) => {
       const r = e.renderer;
       const material = this.materialFor(r.material);
-      const found = r.texture && !material ? this.textureFor(r.texture, usesSheet(r)) : null;
+      const heightFog = heightFogOn(this.host.scene);
+      const found = r.texture && !material ? this.textureFor(r.texture, usesSheet(r, heightFog)) : null;
       const texture = found && found !== "failed" ? found : this.dotTexture();
       const mesh = r.mode === "mesh" ? this.meshFor(r.mesh) : undefined;
-      const d = makeBabylonDraw(this.host.scene, `${name}:${e.name}`, e, 1, texture, texture === this.dot, { material, mesh, camera });
+      const depth = (r.softness ?? 0) > 0 ? this.sceneDepth() : null;
+      const d = makeBabylonDraw(this.host.scene, `${name}:${e.name}`, e, 1, texture, texture === this.dot, { material, mesh, camera, depth, heightFog });
       const p = e.alloc();
       p.wx = at.x;
       p.wy = at.y;

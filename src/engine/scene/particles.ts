@@ -171,6 +171,8 @@ export interface ParticleRenderer {
   trailLength: ParticleNumber;
   /** Higher draws later (on top of other transparent things). */
   renderOrder: number;
+  /** Soft particles (ADR 0096, 0126): fade over this many metres in front of surfaces. 0 or absent: off. */
+  softness?: number;
 }
 
 export interface ParticleEmitterSettings {
@@ -568,6 +570,7 @@ function parseRenderer(raw: unknown, where: string, problems: Problems): Particl
     lengthScale: num(raw, "lengthScale", d.lengthScale, where, problems),
     trailLength: parseParticleNumber(raw.trailLength, d.trailLength, `${where} trailLength`, problems),
     renderOrder: num(raw, "renderOrder", d.renderOrder, where, problems),
+    ...(typeof raw.softness === "number" && raw.softness > 0 ? { softness: raw.softness } : {}),
   };
 }
 
