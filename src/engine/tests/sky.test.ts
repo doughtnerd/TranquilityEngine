@@ -161,3 +161,53 @@ describe("Sky component", () => {
   });
 });
 
+
+describe("sky uniforms and cubemaps", async () => {
+  const { packSkyUniforms } = await import("../render/babylon/sky/skyUniforms");
+  const { SKY_UNIFORMS } = await import("../render/babylon/sky/skyShader");
+  const { parseCubemap, formatCubemap, isCubemapPath } = await import("../sky/cubemapFormat");
+  const { environmentKind } = await import("../render/babylon/lighting");
+  const at = (u: Float32Array, name: string) => Array.from(u.slice(SKY_UNIFORMS.indexOf(name as never) * 4, SKY_UNIFORMS.indexOf(name as never) * 4 + 4));
+  const frame = (over = {}) => ({ settings: defaultSky(), time: 12, seconds: 0, rotation: 0, intensity: 1, fog: null, baking: false, moonTexture: false, milkyWayTexture: false, ...over });
+
+  it("packs the sun, mode, exposure, fog and bake flags", () => {
+    const u = packSkyUniforms(frame());
+    expect(u).toHaveLength(SKY_UNIFORMS.length * 4);
+    expect(at(u, "sunDir")[1]).toBeGreaterThan(0.5);
+    expect(at(u, "sunDir")[3]).toBe(0);
+    expect(at(u, "skyOut")).toEqual([1, 1, 0, 0]);
+    const baked = packSkyUniforms(frame({ baking: true, intensity: 3, fog: { color: [1, 0, 0], amount: 0.5 } }));
+    expect(at(baked, "skyOut")).toEqual([1, -1, 0, 0]); // no skybox intensity, Z mirrored
+    expect(at(baked, "moonDir")[3]).toBe(1);
+    expect(at(baked, "fogCol").slice(0, 3)).toEqual([1, 0, 0]);
+    expect(at(baked, "fogShape")[1]).toBe(0.5);
+    const s = defaultSky();
+    s.mode = "gradient";
+    s.exposure = 1;
+    s.clouds = [];
+    const g = packSkyUniforms(frame({ settings: s, intensity: 2 }));
+    expect(at(g, "sunDir")[3]).toBe(1);
+    expect(at(g, "skyOut")[0]).toBe(4);
+    expect(at(g, "cloudADrift")[2]).toBe(0);
+  });
+
+  it("turns the sky with the Environment's rotation", () => {
+    const a = at(packSkyUniforms(frame()), "sunDir");
+    const b = at(packSkyUniforms(frame({ rotation: 90 })), "sunDir");
+    expect(Math.hypot(a[0], a[2])).toBeCloseTo(Math.hypot(b[0], b[2]), 5);
+    expect(a[0]).not.toBeCloseTo(b[0], 2);
+  });
+
+  it("reads cubemap assets and classifies environment files", () => {
+    const faces = { px: "a/px.png", nx: "asset:a/nx.png", py: "a/py.png", ny: "a/ny.png", pz: "a/pz.png", nz: "a/nz.png" };
+    const parsed = parseCubemap(JSON.parse(formatCubemap(faces as never)));
+    expect(parsed.nx).toBe("a/nx.png");
+    expect(() => parseCubemap({ px: "x" }, "c.cubemap.json")).toThrow(/py, pz, nx, ny, nz/);
+    expect(isCubemapPath("s/Box.CUBEMAP.json")).toBe(true);
+    expect(environmentKind("s/a.env")).toBe("cube");
+    expect(environmentKind("s/a.dds")).toBe("cube");
+    expect(environmentKind("s/a.cubemap.json")).toBe("faces");
+    expect(environmentKind("s/a.sky.json")).toBe("sky");
+    expect(environmentKind("s/a.json")).toBeNull();
+  });
+});
