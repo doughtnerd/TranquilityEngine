@@ -81,7 +81,7 @@ describe("blending between reflection probes (ADR 0110)", () => {
     const state = { texture: null, weight: 0.5, intensityRatio: 1, box: null };
     const plugin = new MycoProbeBlendPlugin(m, state);
     const defines = { MYCO_PROBE_BLEND: true } as unknown as Parameters<typeof plugin.prepareDefines>[0];
-    plugin.prepareDefines(defines, scene, null as never);
+    (plugin.prepareDefines as (d: unknown) => void)(defines);
     expect((defines as unknown as { MYCO_PROBE_BLEND: boolean }).MYCO_PROBE_BLEND).toBe(false); // no neighbour texture
     for (const lang of [ShaderLanguage.WGSL, ShaderLanguage.GLSL]) {
       const code = plugin.getCustomCode("fragment", lang)!;

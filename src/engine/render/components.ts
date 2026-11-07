@@ -379,7 +379,8 @@ export class Environment extends Component {
  */
 @component("engine.Fog")
 export class Fog extends Component {
-  @field(String, { choices: ["linear", "exponential"] }) mode: FogMode = "linear";
+  /** Distance fog's curve, or `none` for height fog alone (ADR 0110). */
+  @field(String, { choices: ["linear", "exponential", "none"] }) mode: FogMode = "linear";
   @field(Color) color = new Color(0.7, 0.75, 0.8, 1);
   /** Distance where linear fog starts, in metres. */
   @field(Number) near = 10;
@@ -391,9 +392,17 @@ export class Fog extends Component {
   @field(Boolean) affectsSkybox = false;
   /** How far the sky fades to the fog colour when `affectsSkybox` is on, 0 to 1. */
   @field(Number) skyboxFog = 1;
+  /** Height fog (ADR 0110): thick near `heightFogBase` and thinning above it, on top of distance fog. */
+  @field(Boolean) heightFog = false;
+  /** Height fog's thickness at `heightFogBase` (about 1 / the distance it fades out over there). */
+  @field(Number) heightFogDensity = 0.05;
+  /** The height, in metres, where height fog has `heightFogDensity`; it's thicker below and thinner above. */
+  @field(Number) heightFogBase = 0;
+  /** How fast height fog thins with height: it falls to about a third every 1 / falloff metres up. */
+  @field(Number) heightFogFalloff = 0.2;
 }
 
-export type FogMode = "linear" | "exponential";
+export type FogMode = "linear" | "exponential" | "none";
 
 export type ProbeRefresh = "onLoad" | "everyFrame" | "baked";
 

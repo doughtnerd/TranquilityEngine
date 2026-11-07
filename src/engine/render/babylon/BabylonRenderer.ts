@@ -63,6 +63,7 @@ import { Scene as BabylonScene } from "@babylonjs/core/scene.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { BabylonProbes, type ProbeHit } from "./probes";
 import { MycoProbeBlendPlugin } from "./probeBlend";
+import { setHeightFog } from "./heightFog";
 import { BabylonRenderTextures } from "./renderTextures";
 import { isRenderTexturePath } from "../renderTexture";
 import { BabylonWater } from "./water";
@@ -148,6 +149,8 @@ function toGraphValue(v: MaterialPropertyValue): GraphValue {
 
 
 const tmpMatrix = new Matrix();
+const HEIGHT_FOG_OFF = { on: false, density: 0, base: 0, falloff: 1, color: [1, 1, 1] as [number, number, number] };
+const HEIGHT_FOG_SCRATCH = { on: false, density: 0, base: 0, falloff: 1, color: [1, 1, 1] as [number, number, number] };
 /** Each renderer mesh's frozen world matrix (Babylon keeps the one it's given), refilled when its node moves. */
 const frozenMatrices = new WeakMap<Mesh, Matrix>();
 const tmpSpriteA = new Matrix();
@@ -823,10 +826,11 @@ export class BabylonRenderer {
       s.fogMode = BabylonScene.FOGMODE_NONE;
       this.skyFog = null;
       this.lighting.setSkyFog(0);
+      setHeightFog(s, HEIGHT_FOG_OFF);
       return;
     }
     const exp = fog.mode === "exponential";
-    s.fogMode = exp ? BabylonScene.FOGMODE_EXP2 : BabylonScene.FOGMODE_LINEAR;
+    s.fogMode = fog.mode === "none" ? BabylonScene.FOGMODE_NONE : exp ? BabylonScene.FOGMODE_EXP2 : BabylonScene.FOGMODE_LINEAR;
     s.fogColor.set(fog.color.r, fog.color.g, fog.color.b).toLinearSpaceToRef(s.fogColor); // in place: no colour per frame
     s.fogDensity = Math.max(0, fog.density);
     s.fogStart = Math.max(0, fog.near);
@@ -839,6 +843,16 @@ export class BabylonRenderer {
       this.skyFog.color.set(fog.color.r, fog.color.g, fog.color.b, 1);
     }
     this.lighting.setSkyFog(amount);
+    // Height fog (ADR 0110): in the same linear colour as distance fog.
+    const hf = HEIGHT_FOG_SCRATCH;
+    hf.on = fog.heightFog;
+    hf.density = Math.max(0, fog.heightFogDensity);
+    hf.base = fog.heightFogBase;
+    hf.falloff = Math.max(1e-4, fog.heightFogFalloff);
+    hf.color[0] = s.fogColor.r;
+    hf.color[1] = s.fogColor.g;
+    hf.color[2] = s.fogColor.b;
+    setHeightFog(s, hf);
   }
 
   /** Tests and the editor: what the last frame's first camera ran. */
