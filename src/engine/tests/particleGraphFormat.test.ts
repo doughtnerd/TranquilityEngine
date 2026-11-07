@@ -207,25 +207,44 @@ describe("particle graph parsing and writing", () => {
     const json = JSON.parse(formatParticleGraph(g));
     json.systems[0].update.blocks.push({ id: "bx", type: "update.future", inputs: { power: { random: [1, 2] }, label: "x" } });
     json.systems[0].update.blocks[0].inputs.bogus = 5;
-    json.systems[0].settings.seed = 7;
+    json.systems[0].settings.mystery = 7;
     json.systems[0].spawn.settings.mystery = true;
     json.nodes = [{ id: "n9", type: "hyperNode", position: [1, 2], settings: { k: 1 } }];
     const r = parseParticleGraph(json, "x", { knownNodeTypes: new Set(["gradient"]) });
     const ats = r.problems.map((p) => p.at);
     expect(ats).toContain("s1.bx");
     expect(ats).toContain("s1.b6.bogus"); // the first update block
-    expect(ats).toContain("s1.settings.seed");
+    expect(ats).toContain("s1.settings.mystery");
     expect(ats).toContain("s1.spawn.mystery");
     expect(ats).toContain("n9");
     expect(r.problems.every((p) => p.severity === "warning")).toBe(true);
     const sys = r.graph.systems[0];
     expect(sys.update.blocks.at(-1)).toEqual({ id: "bx", type: "update.future", inputs: { power: { random: [1, 2] }, label: "x" } });
     expect(sys.update.blocks[0].inputs.bogus).toBe(5);
-    expect((sys.settings as unknown as Record<string, unknown>).seed).toBe(7);
+    expect((sys.settings as unknown as Record<string, unknown>).mystery).toBe(7);
     expect(r.graph.nodes[0]).toEqual({ id: "n9", type: "hyperNode", position: [1, 2], settings: { k: 1 } });
     // and survive a round trip
     const again = parseParticleGraph(JSON.parse(formatParticleGraph(r.graph)), "x", { knownNodeTypes: new Set(["gradient"]) });
     expect(again.graph).toEqual(r.graph);
+  });
+
+  it("reads a system's optional seed, rounds it and round-trips it; null and absent mean the component's", () => {
+    const g = defaultParticleGraph();
+    expect(g.systems[0].settings.seed).toBeUndefined();
+    const json = JSON.parse(formatParticleGraph(g));
+    json.systems[0].settings.seed = 41.6;
+    const r = parseParticleGraph(json, "x");
+    expect(r.problems).toEqual([]);
+    expect(r.graph.systems[0].settings.seed).toBe(42);
+    expect(parseParticleGraph(JSON.parse(formatParticleGraph(r.graph)), "x").graph).toEqual(r.graph);
+    json.systems[0].settings.seed = null;
+    const nul = parseParticleGraph(json, "x");
+    expect(nul.problems).toEqual([]);
+    expect(nul.graph.systems[0].settings.seed).toBeUndefined();
+    json.systems[0].settings.seed = "x";
+    const bad = parseParticleGraph(json, "x");
+    expect(bad.problems.map((p) => p.at)).toContain("s1.settings.seed");
+    expect(bad.graph.systems[0].settings.seed).toBeUndefined();
   });
 
   it("warns about bad values with id paths and falls back to defaults", () => {

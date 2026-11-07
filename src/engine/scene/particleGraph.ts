@@ -88,6 +88,13 @@ export interface SystemSettings {
    * "gpu": a kernel backend (WebGPU compute, else WebGL2 textures, else JavaScript).
    */
   simulation?: SimulationChoice;
+  /**
+   * Optional random seed for this system alone (an integer). Absent or null: the system uses the
+   * ParticleSystem component's `seed`. The compiler carries it as `ParticleProgram.seeds`. The CPU
+   * (Babylon particle) backend draws every emitter from one generator seeded by the component's
+   * seed and ignores per-system seeds, so they only take effect on kernel backends (ADR 0094).
+   */
+  seed?: number | null;
 }
 
 export type SimulationChoice = "auto" | "cpu" | "gpu";

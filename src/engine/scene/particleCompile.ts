@@ -55,6 +55,8 @@ export interface ParticleProgram {
   bindings: ParticleBinding[];
   /** Per emitter: starts when the effect plays (no start wires, or wired from On Play). */
   autoStart: boolean[];
+  /** Per emitter: the system's own random seed (`SystemSettings.seed`), or null to use the component's. Only the GPU backend applies it; the CPU backend seeds the whole effect from the component. */
+  seeds: (number | null)[];
   onPlay: EventRoute;
   onStop: EventRoute;
   /** Custom events by name (`ParticleSystem.sendEvent`). */
@@ -163,7 +165,7 @@ export function compileParticleGraph(graph: ParticleGraph): ParticleProgram {
   }
   const autoStart = systems.map((_, i) => !startWired.has(i) || onPlay.start.includes(i));
 
-  return { effect, systems: systems.map((s) => s.id), bindings, autoStart, onPlay, onStop, custom, properties: [...properties], problems };
+  return { effect, systems: systems.map((s) => s.id), bindings, autoStart, seeds: systems.map((s) => s.settings.seed ?? null), onPlay, onStop, custom, properties: [...properties], problems };
 }
 
 type InputFn = (sys: ParticleGraphSystem, emitter: number, block: GraphBlock, name: string, path: string, kind: ParticleBinding["kind"]) => GraphInputValue;

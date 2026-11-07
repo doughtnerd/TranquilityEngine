@@ -18,7 +18,8 @@ import { compileParticleGraph, type ParticleProgram } from "../../scene/particle
 import { parseParticleGraph } from "../../scene/particleGraphFormat";
 import type { ParticleSystem } from "../components";
 import type { ParticlePreviewSettings, ParticleStats } from "../RenderSurface";
-import { ProgramRunner } from "../particles/programRunner";
+import { ProgramRunner, playTimes } from "../particles/programRunner";
+import { randomForSeed } from "../particles/random";
 import { EffectSimulation, linearRGB, type SimEmitter } from "../particles/simulation";
 import { createDotTexture, makeDraw as makeBabylonDraw, usesSheet, type Draw } from "./particleDraw";
 
@@ -57,6 +58,12 @@ interface Instance {
   key: string;
   program: ParticleProgram | null;
   runner: ProgramRunner | null;
+  /** The component's `seed` (read each frame; used when the effect next restarts). */
+  seed: number;
+  /** The effect's random: the simulation and the runner call it, so it can be swapped on restart (seeded: `randomForSeed(seed)` again, so every restart repeats). */
+  random: () => number;
+  /** What the simulation and the runner are given: forwards to `random`. */
+  readonly rnd: () => number;
   /** The overrides object last given to the runner (`setProperty` replaces it). */
   overrides: unknown;
   sim: EffectSimulation | null;
@@ -114,17 +121,20 @@ export class BabylonParticles {
       inst.sim = null;
       inst.raw = raw;
       inst.program = this.parse(c, raw);
-      inst.runner = inst.program && new ProgramRunner(inst.program);
+      inst.runner = inst.program && new ProgramRunner(inst.program, inst.rnd);
       inst.overrides = undefined;
       inst.key = "";
     }
     if (!inst) {
       const program = this.parse(c, raw);
-      inst = {
+      const made: Instance = {
         raw,
         key: "",
         program,
-        runner: program && new ProgramRunner(program),
+        runner: null,
+        seed: c.seed,
+        random: randomForSeed(c.seed),
+        rnd: () => made.random(),
         overrides: undefined,
         sim: null,
         draws: [],
@@ -137,8 +147,11 @@ export class BabylonParticles {
         idle: 0,
         started: false,
       };
+      made.runner = program && new ProgramRunner(program, made.rnd);
+      inst = made;
       this.instances.set(c, inst);
     }
+    inst.seed = c.seed;
     inst.scale = this.host.tierScale() * Math.max(0, c.emissionScale);
     const t = c.tint;
     const [lr, lg, lb] = linearRGB(t.r, t.g, t.b);
@@ -155,7 +168,7 @@ export class BabylonParticles {
     const checking = !inst.key || inst.keyAge >= KEY_CHECK_INTERVAL;
     const key = checking ? this.buildKey(inst.program) : inst.key;
     // Bindings that aren't live (a shape's radius from a property, say) rebuild when their value changes.
-    const stale = checking && !!inst.key && inst.runner.update(inst.time, 0, this.playTime(inst), true);
+    const stale = checking && !!inst.key && inst.runner.update(inst.time, 0, playTimes(inst.program, inst.time), true);
     if (key === inst.key && !stale) {
       if (inst.keyAge >= KEY_CHECK_INTERVAL) inst.keyAge = 0;
     } else {
@@ -168,7 +181,7 @@ export class BabylonParticles {
       }
       inst.key = key;
       const effect = inst.runner.effect();
-      inst.sim = new EffectSimulation(effect, { live: inst.runner.live });
+      inst.sim = new EffectSimulation(effect, { live: inst.runner.live, random: inst.rnd });
       for (const e of inst.sim.emitters) this.warnRenderer(c, e);
       inst.draws = inst.sim.emitters.map((e) => this.makeDraw(`particles:${c.node.name}:${e.name}`, e, inst!.scale));
       const was = inst.state;
@@ -201,7 +214,7 @@ export class BabylonParticles {
 
     if (inst.state !== "paused" && dt > 0) {
       inst.time += dt;
-      inst.runner.update(inst.time, dt, this.playTime(inst));
+      inst.runner.update(inst.time, dt, playTimes(inst.program, inst.time));
       sim.step(dt, this.host.worldMatrix(c), inst.scale, inst.tint);
     }
 
@@ -237,6 +250,7 @@ export class BabylonParticles {
         inst.state = "paused";
         return;
       case "restart":
+        inst.random = randomForSeed(inst.seed); // a seeded effect repeats exactly on every restart
         sim?.restart();
         // Systems started by events (not On Play) wait for them.
         for (const e of sim?.emitters ?? []) if (!this.autoStarts(inst, e)) sim!.endEmit(e);
@@ -274,12 +288,6 @@ export class BabylonParticles {
         inst.sim.endEmit(e);
       }
     }
-  }
-
-  /** Seconds into the current cycle, for Play Time nodes (by the first system's duration). */
-  private playTime(inst: Instance): number {
-    const d = inst.program?.effect.emitters[0]?.duration ?? 0;
-    return d > 0 ? inst.time % d : inst.time;
   }
 
   private emit(inst: Instance, count: number): void {
