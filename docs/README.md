@@ -15,6 +15,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Game UI](guide/ui.md) | Canvases (screen and world), the UI tree, flexbox layout, panels, text, images, buttons and input fields, scripting them, how the pointer and keyboard go to UI first, headless Worlds and tests |
 | [Navigation](guide/navigation.md) | Built-in navigation: agent types and areas, marking geometry, baking (editor and `npm run nav:bake`), streaming chunks, scripting `NavAgent`, groups, surround and flow fields, the `Navigation` queries, multiplayer, debug drawing, performance, known issues |
 | [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
+| [Materials, shaders and batching](guide/materials-and-shaders.md) | Hand-written shader assets (WGSL/GLSL), keywords and variants, changing materials from scripts, GPU instancing and sprite batching, pixel-perfect cameras |
 
 ## Architecture
 
