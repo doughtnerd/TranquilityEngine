@@ -306,6 +306,61 @@ export async function createPrefab(scene: OpenScene, project: EditorProject, id:
   return path;
 }
 
+/**
+ * Turn several sibling nodes into one prefab (ADR 0087): the file's root is a new "Group" node
+ * (just a Transform) holding copies of them, and one instance of it replaces them where the
+ * first stood. The nodes must share a parent, and none may be a prefab instance's inner node.
+ * With one id this is `createPrefab`. One undo step. Returns the prefab path.
+ */
+export async function createPrefabFromNodes(scene: OpenScene, project: EditorProject, ids: readonly string[], name = "Group"): Promise<string> {
+  if (ids.length === 1) return createPrefab(scene, project, ids[0]);
+  const { doc, stack } = scene;
+  if (ids.length === 0) throw new Error("Select the nodes to turn into a prefab.");
+  if (!project.canSave) throw new Error(`${project.name} is read-only. Open a project folder to create prefabs.`);
+  const parent = doc.parentOf(ids[0]);
+  if (ids.some((id) => doc.parentOf(id) !== parent)) throw new Error("The nodes must share a parent to become one prefab.");
+  // Siblings in hierarchy order; a selected node's ancestor can't also be selected (same parent).
+  const order = doc.children(parent);
+  const sorted = [...ids].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  const inside = new Set(sorted.flatMap((id) => doc.subtree(id)));
+  const broken = doc.references().filter((r) => !inside.has(r.path[0]) && inside.has(r.to));
+  if (broken.length) throw new Error(`"${broken[0].path[0]}" references "${broken[0].to}", which would move into the prefab; only the prefab's root can be referenced from outside.`);
+
+  const used = new Set(doc.nodes.map((n) => n.id));
+  const fresh = (base: string) => {
+    let id = base, k = 2;
+    while (used.has(id)) id = `${base}-${k++}`;
+    used.add(id);
+    return id;
+  };
+  const rootId = fresh(prefabFileName(name));
+  const root: NodeEntry = { id: rootId, name, components: [{ type: "engine.Transform" }] };
+  const nodes: NodeEntry[] = [root];
+  for (const id of sorted) {
+    const sub = doc.subtree(id).map((n) => structuredClone(doc.node(n)));
+    sub[0].parent = rootId;
+    nodes.push(...sub);
+  }
+  const path = newPrefabPath(project, name);
+  await writeSceneFile(project, path, { format: doc.format, nodes });
+  const index = order.indexOf(sorted[0]);
+  stack.beginGroup(`Create prefab ${path.split("/").pop()}`);
+  try {
+    for (const id of sorted) stack.execute(new RemoveNode(id));
+    stack.execute(new AddNode({ id: rootId, name, prefab: path }, { parent, index }));
+  } finally {
+    stack.endGroup();
+  }
+  return path;
+}
+
+/** Apply the overrides of several instances (one undo step each); returns how many overrides were applied in all. */
+export async function applyOverridesTo(open: OpenScene, project: EditorProject, instances: readonly string[]): Promise<number> {
+  let total = 0;
+  for (const id of instances) total += await applyOverrides(open, project, id);
+  return total;
+}
+
 export { RebuildInstances };
 
 /**

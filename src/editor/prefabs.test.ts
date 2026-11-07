@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, SpriteRenderer } from "../engine";
 import { AddNode, RevertOverrides, SetField, SetOverrides, type SceneFile } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
-import { addInnerNode, removeInnerNode, applyOverrides, createPrefab, findInner, innerNodes, isOverridden, newPrefabPath, prefabFileName } from "./prefabs";
+import { createPrefabFromNodes, addInnerNode, removeInnerNode, applyOverrides, createPrefab, findInner, innerNodes, isOverridden, newPrefabPath, prefabFileName } from "./prefabs";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, openScene, sceneCamera } from "./state";
@@ -207,5 +207,26 @@ describe("child node overrides (ADR 0086)", () => {
     const path = addInnerNode(openScene.value!, "pipe", [], { name: "X" });
     removeInnerNode(openScene.value!, path);
     expect(openScene.value!.doc.node("pipe").overrides).toBeUndefined();
+  });
+});
+
+describe("multi-node prefabs (ADR 0087)", () => {
+  it("turns sibling nodes into one prefab under a Group root", async () => {
+    const { doc } = openScene.value!;
+    const roots = doc.roots().slice(0, 2);
+    const path = await createPrefabFromNodes(openScene.value!, project, roots, "Pair");
+    const file = fileOf(path);
+    expect(file.nodes[0]).toMatchObject({ name: "Pair" });
+    expect(file.nodes.filter((n) => n.parent === file.nodes[0].id).map((n) => n.id)).toEqual(roots);
+    expect(roots.some((id) => doc.has(id))).toBe(false);
+    expect(doc.nodes.find((n) => n.prefab === path)).toBeDefined();
+    openScene.value!.stack.undo();
+    expect(roots.every((id) => doc.has(id))).toBe(true);
+  });
+
+  it("refuses nodes with different parents", async () => {
+    const { doc } = openScene.value!;
+    const child = doc.nodes.find((n) => n.parent)!;
+    await expect(createPrefabFromNodes(openScene.value!, project, [doc.roots()[0], child.id])).rejects.toThrow(/share a parent/);
   });
 });
