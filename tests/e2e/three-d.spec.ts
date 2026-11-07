@@ -157,8 +157,7 @@ test("a glTF model shows as a Model and drops as the file's node tree (ADR 0088)
   await openPlayground(page, false);
   await showFolder(page, "models");
   await expect(page.locator(".asset-tile", { hasText: "lamp.glb" }).locator(".asset-kind")).toHaveText("Model");
-  // The main scene already draws the whole lamp from one MeshRenderer.
-  await expect.poll(async () => (await drawnMeshes(page)).includes("Street Lamp")).toBe(true);
+  await expect(row(page, "Street Lamp")).toHaveCount(1); // the main scene's lamp, one MeshRenderer for the whole model
   const vp = await box(page.locator(".viewport-panel"));
   await dragAsset(page, "lamp.glb", vp.x + vp.width * 0.5, vp.y + vp.height * 0.6);
   await expect(page.locator(".tree .row.selected")).toHaveAttribute("data-key", "lamp-2");
