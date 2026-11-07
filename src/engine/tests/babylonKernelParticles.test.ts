@@ -1,6 +1,6 @@
 // ADR 0094: kernel particle systems in the World player (render/babylon/particles.ts), on Babylon's
 // NullEngine, where the only executor is JavaScript. The GPU executors are compared with it in a
-// browser (tests/e2e/gpuParticles.spec.ts).
+// browser (`npm run bench:particles`).
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js";

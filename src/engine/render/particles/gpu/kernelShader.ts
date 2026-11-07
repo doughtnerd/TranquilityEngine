@@ -7,7 +7,7 @@
 // - `KBITU(i)` to reinterpret an int as uint;
 // - no ternaries, no multi-component swizzle writes, no implicit int/float conversions, and
 //   parentheses around every mix of bitwise and arithmetic operators (WGSL requires them).
-// It mirrors `kernelJs.ts` line for line; a browser test compares them (`tests/e2e/gpuParticles.spec.ts`).
+// It mirrors `kernelJs.ts` line for line; `npm run bench:particles` compares them in a browser (bench/particles/parity.html).
 import {
   ATTR,
   LOCAL_WIDTH,

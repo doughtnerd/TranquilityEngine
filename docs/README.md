@@ -90,7 +90,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0057](decisions/0057-particle-effects-and-the-particlesystem-component.md) | Particle effects are assets in our own format, played by a ParticleSystem component on three.quarks | Accepted, amended by 0081 (no three.quarks) |
 | [0058](decisions/0058-particle-graph-editor.md) | A particle graph editor: a node view of particle effect assets, on the shader graph's canvas | Superseded by 0060 |
 | [0059](decisions/0059-projects-window-and-faster-editor-start.md) | The desktop editor opens on a Projects window while the editor loads hidden; faster start-up | Proposed |
-| [0060](decisions/0060-vfx-graph-particle-authoring.md) | Particle effects are VFX-Graph-style graph assets, authored only in the Particle Graph | Accepted |
+| [0060](decisions/0060-vfx-graph-particle-authoring.md) | Particle effects are VFX-Graph-style graph assets, authored only in the Particle Graph | Accepted (0094–0096 proposed amendments: kernel backends, attributes, sub-graphs and custom blocks) |
 | [0061](decisions/0061-asset-previews-and-the-thumbnail-cache.md) | Asset previews are rendered in the editor and cached by content in the project's `.myco/thumbnails/` | Accepted |
 | [0062](decisions/0062-links-to-spawnable-worlds.md) | Bootstrap links apply whenever both Worlds exist, so they can name Spawnable Worlds (templates) | Accepted |
 | [0063](decisions/0063-editor-menu-bar.md) | The editor's commands live in a menu bar below the system title bar | Accepted |
@@ -112,6 +112,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
 | [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
 | [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
+| [0094](decisions/0094-gpu-particle-simulation-backends.md) | Particle systems compile to per-particle kernels run on WebGPU compute, WebGL2 textures or JavaScript, chosen per system (auto/cpu/gpu); resolves O16 | Proposed |
+| [0095](decisions/0095-particle-attributes-subgraphs-and-custom-blocks.md) | Particle graphs gain Particle attribute nodes, Set Attribute blocks, and sub-graph and custom block assets inlined before compiling | Proposed |
+| [0096](decisions/0096-soft-particles-collisions-seed-and-particle-materials.md) | Soft particles, depth-buffer (GPU) and collider (CPU) collisions, deterministic seeds, a shader-graph Particle Color node; quarks.art import dropped | Proposed |
 
 ## Working with decisions
 

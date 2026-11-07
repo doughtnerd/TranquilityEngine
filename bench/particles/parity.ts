@@ -1,5 +1,5 @@
 // Runs the same kernels on the JavaScript, WebGPU and WebGL2 executors with the same uniforms and
-// compares their particle state (ADR 0094). Opened by tests/e2e/gpuParticles.spec.ts; results in
+// compares their particle state (ADR 0094). Opened by `npm run bench:particles` (run.mjs); results in
 // `window.__parity`.
 import { compileParticleGraph } from "../../src/engine/scene/particleCompile";
 import { compileParticleKernels, KERNEL_FLOATS, type KernelSystem } from "../../src/engine/scene/particleKernel";
