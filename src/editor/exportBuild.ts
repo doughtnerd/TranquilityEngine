@@ -4,16 +4,19 @@
 // like the samples, ADR 0031), and the project's files come from what the editor already holds.
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { ENGINE_FILE, MANIFEST_FILE, PLAYER_FILE_LIST, PLAYER_PAGE } from "../export/format";
-import { ExportError, copiedPath, isOutputInsideProject, planWebBuild, type WebBuildPlan } from "../export/webBuild";
+import { bakeModelFile } from "../engine/scene/models";
+import { ExportError, copiedPath, isOutputInsideProject, planWebBuild, withBakedModels, type WebBuildPlan } from "../export/webBuild";
 import { joinPath, jsonFiles, type EditorProject } from "./projects";
 
 /** The command-line export, for what the editor can't do (desktop packages need Rust and a shell). */
 export const desktopExportCommand = (project: EditorProject) => `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop`;
 
 /** Plan a web build of the open project (compiles its scripts). Throws an `ExportError` if it can't be built. */
-export function planProjectBuild(project: EditorProject): Promise<WebBuildPlan> {
+export async function planProjectBuild(project: EditorProject, bake = true): Promise<WebBuildPlan> {
   const files = [...new Set([...project.files, ...project.scripts.keys()])];
-  return planWebBuild({ name: project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name, settings: project.settings, files, scripts: project.scripts, json: jsonFiles(project) });
+  const plan = await planWebBuild({ name: project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name, settings: project.settings, files, scripts: project.scripts, json: jsonFiles(project) });
+  // Models baked for the build (ADR 0090), through the project's assets the editor already serves.
+  return bake ? withBakedModels(plan, bakeModelFile, (line) => console.warn(`[myco] ${line}`)) : plan;
 }
 
 async function fetchOk(url: string): Promise<Response> {
@@ -47,7 +50,7 @@ export async function exportProjectBuild(project: EditorProject, fs: FileSystem,
       for (const entry of entries) await fs.remove(joinPath(out, entry.name), { recursive: entry.isDirectory });
     }
   }
-  const total = player.length + plan.copies.length + plan.generated.size;
+  const total = player.length + plan.copies.length + plan.generated.size + (plan.binaries?.size ?? 0);
   let done = 0;
   const made = new Set<string>();
   const ensureDir = async (path: string) => {
@@ -80,6 +83,11 @@ export async function exportProjectBuild(project: EditorProject, fs: FileSystem,
   for (const [path, text] of plan.generated) {
     await ensureDir(path);
     await fs.writeText(joinPath(out, path), text);
+    step();
+  }
+  for (const [path, bytes] of plan.binaries ?? []) {
+    await ensureDir(path);
+    await fs.writeBinary(joinPath(out, path), bytes);
     step();
   }
   return plan;

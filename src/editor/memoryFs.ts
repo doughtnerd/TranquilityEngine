@@ -25,6 +25,7 @@ export class MemoryFileSystem implements FileSystem {
     this.files.set(this.key(p), data);
   }
   async list(dir: string): Promise<DirEntry[]> {
+    if (this.files.has(this.key(dir))) throw new Error(`${dir} is not a directory`); // as Tauri's readDir
     const prefix = this.key(dir).replace(/\\$/, "") + "\\";
     const names = new Map<string, boolean>();
     for (const k of this.files.keys()) {

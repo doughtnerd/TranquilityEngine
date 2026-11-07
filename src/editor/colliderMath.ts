@@ -103,6 +103,53 @@ export function dragCircleRadius(pose: Pose2D, p: V2, center: V2): number {
   return Math.max(MIN_EXTENT, Math.hypot(w[0] - c[0], w[1] - c[1]) / scale);
 }
 
+// --- Character controller (an upright capsule that never turns with the node) -------------------
+
+/** World size of an upright 2D capsule: radius × |scale.x|, half straight part = max(0, height × |scale.y| / 2 − radius). */
+export function capsule2DSize(pose: Pose2D, radius: number, height: number): { radius: number; halfStraight: number } {
+  const r = Math.abs(radius) * Math.abs(pose.scale[0]);
+  return { radius: r, halfStraight: Math.max(0, (Math.abs(height) * Math.abs(pose.scale[1])) / 2 - r) };
+}
+
+/** An upright capsule's outline in world space (counter-clockwise from the right of the top cap), `segments` points per cap. */
+export function capsule2DPoints(pose: Pose2D, center: V2, radius: number, height: number, segments = 16): [number, number, number][] {
+  const c = toWorld(pose, center), { radius: r, halfStraight: hh } = capsule2DSize(pose, radius, height);
+  const out: [number, number, number][] = [];
+  for (let i = 0; i <= segments; i++) {
+    const a = (i / segments) * Math.PI;
+    out.push([c[0] + Math.cos(a) * r, c[1] + hh + Math.sin(a) * r, c[2]]);
+  }
+  for (let i = 0; i <= segments; i++) {
+    const a = Math.PI + (i / segments) * Math.PI;
+    out.push([c[0] + Math.cos(a) * r, c[1] - hh + Math.sin(a) * r, c[2]]);
+  }
+  return out;
+}
+
+export type CapsuleHandle2D = "radius-right" | "radius-left" | "height-top" | "height-bottom" | "center";
+
+/** Handles for an upright capsule: the radius on both sides, the two ends, and the centre. */
+export function capsule2DHandles(pose: Pose2D, center: V2, radius: number, height: number): Record<CapsuleHandle2D, [number, number, number]> {
+  const c = toWorld(pose, center), { radius: r, halfStraight: hh } = capsule2DSize(pose, radius, height);
+  return {
+    "radius-right": [c[0] + r, c[1], c[2]],
+    "radius-left": [c[0] - r, c[1], c[2]],
+    "height-top": [c[0], c[1] + hh + r, c[2]],
+    "height-bottom": [c[0], c[1] - hh - r, c[2]],
+    center: c,
+  };
+}
+
+/** Dragging a capsule's side handle to local point `p`: the radius (local units; the scale cancels). */
+export function dragCapsule2DRadius(p: V2, center: V2): number {
+  return Math.max(MIN_EXTENT, Math.abs(p[0] - center[0]));
+}
+
+/** Dragging a capsule's end handle to local point `p`: the height (both ends move). */
+export function dragCapsule2DHeight(p: V2, center: V2): number {
+  return Math.max(MIN_EXTENT, 2 * Math.abs(p[1] - center[1]));
+}
+
 /** Round away float noise so files stay readable. */
 export const tidy = (n: number) => Math.round(n * 1e4) / 1e4;
 

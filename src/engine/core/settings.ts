@@ -4,6 +4,10 @@ import { parseAudioSettings, type AudioSettings } from "../audio/settings";
 import type { BootstrapSetting } from "./worlds";
 import { lobbyOptionProblems } from "../net/lobby/protocol";
 
+/** How the game canvas scales to its container (see `ProjectSettings.display.scaleMode`). */
+export type ScaleMode = "fit" | "stretch" | "pixel-perfect";
+export const SCALE_MODES: readonly ScaleMode[] = ["fit", "stretch", "pixel-perfect"];
+
 /** Project settings, normally loaded from the game's `project.json`. */
 export interface ProjectSettings {
   name: string;
@@ -12,6 +16,13 @@ export interface ProjectSettings {
     width: number;
     height: number;
     backgroundColor: string;
+    /**
+     * How the canvas fits its container (ADR 0116): "fit" keeps the aspect ratio and scales to the
+     * largest size that fits (letterboxed); "stretch" fills the container, ignoring the aspect
+     * ratio; "pixel-perfect" scales by whole numbers only (falling back to "fit" when the
+     * container is smaller than the reference size).
+     */
+    scaleMode: ScaleMode;
   };
   time: {
     fixedDeltaTime: number;
@@ -60,7 +71,7 @@ export type ProjectSettingsInput = {
 
 export const defaultSettings: ProjectSettings = {
   name: "Untitled",
-  display: { width: 1280, height: 720, backgroundColor: "#000000" },
+  display: { width: 1280, height: 720, backgroundColor: "#000000", scaleMode: "fit" },
   time: { fixedDeltaTime: 1 / 60, maxSubSteps: 5, maxFrameTime: 0.25 },
   physics: { gravity: [0, -9.81], layers: ["Default"] },
   render: { sortingLayers: ["Default"], pixelsPerUnit: 100 },

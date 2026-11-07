@@ -54,6 +54,12 @@ interface CanvasEntry extends Entry {
   interactive: Entry[];
 }
 
+/** True when a point lies within `edge` pixels inside the border of the `width` x `height` frame at the origin. */
+export function onFrameEdge(x: number, y: number, width: number, height: number, edge: number): boolean {
+  if (x < 0 || y < 0 || x > width || y > height) return false;
+  return x < edge || y < edge || x > width - edge || y > height - edge;
+}
+
 const LEAF_KINDS: ReadonlySet<UIKind> = new Set(["text", "image", "input"]);
 
 function kindOf(c: UIComponentType): UIKind {
@@ -636,6 +642,31 @@ export class UICore implements UICoreLike {
     }
     hits.sort((a, b) => a.t - b.t);
     for (const h of hits) out.push(...h.comps);
+    return out;
+  }
+
+  /**
+   * Editor (ADR 0117): the canvases a click selects, topmost first. A world canvas is a plane in the
+   * scene: its whole rectangle counts (nearest first). A screen canvas covers the view, so only a strip
+   * `edge` CSS pixels wide along the inside of its frame counts; a click on its bare interior never
+   * selects it (that click deselects). Screen canvases come before world ones, highest `sortOrder` first.
+   */
+  pickCanvases(x: number, y: number, ray?: UIPickRay | null, edge = 8): UICanvas[] {
+    const out: UICanvas[] = [];
+    for (let k = this.screenList.length - 1; k >= 0; k--) {
+      const c = this.screenList[k];
+      if (c.comp.node.activeInHierarchy && onFrameEdge(x, y, c.width * c.scale, c.height * c.scale, edge)) out.push(c.comp);
+    }
+    const r = ray ?? this.viewRay(x, y);
+    if (!r) return out;
+    const hits: { comp: UICanvas; t: number }[] = [];
+    for (const laid of this.canvasList) {
+      if (laid.mode !== "world") continue;
+      const at = this.onWorldCanvas(laid, r);
+      if (at && at.ux >= 0 && at.ux <= laid.width && at.uy >= 0 && at.uy <= laid.height) hits.push({ comp: laid.comp, t: at.t });
+    }
+    hits.sort((a, b) => a.t - b.t);
+    for (const h of hits) out.push(h.comp);
     return out;
   }
 

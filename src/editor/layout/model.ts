@@ -11,11 +11,11 @@
 // to) but draws as a strip one header thick, its tabs along it. Tabs that don't fit a header go
 // behind an overflow button (`fitTabs`).
 
-export type PanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "shadergraph" | "particlegraph";
+export type PanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "shadergraph" | "particlegraph" | "tilepalette";
 export type Side = "left" | "right" | "bottom";
 
-export const PANELS: readonly PanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "shadergraph", "particlegraph"];
-export const PANEL_TITLES: Record<PanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", shadergraph: "Shader Graph", particlegraph: "Particle Graph" };
+export const PANELS: readonly PanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "shadergraph", "particlegraph", "tilepalette"];
+export const PANEL_TITLES: Record<PanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", shadergraph: "Shader Graph", particlegraph: "Particle Graph", tilepalette: "Tile Palette" };
 
 export interface TabGroup {
   id: string;
@@ -72,7 +72,7 @@ export function defaultLayout(): Layout {
   return {
     version: 1,
     docks: [
-      { id: "bottom", side: "bottom", size: DEFAULT_SIZE.bottom, groups: [{ id: "assets", panels: ["assets", "code"], active: "assets" }], fractions: [1] },
+      { id: "bottom", side: "bottom", size: DEFAULT_SIZE.bottom, groups: [{ id: "assets", panels: ["assets", "code", "tilepalette"], active: "assets" }], fractions: [1] },
       { id: "left", side: "left", size: DEFAULT_SIZE.left, groups: [{ id: "hierarchy", panels: ["hierarchy"], active: "hierarchy" }], fractions: [1] },
       { id: "right", side: "right", size: DEFAULT_SIZE.right, groups: [{ id: "inspector", panels: ["inspector", "history", "worlds", "network", "project"], active: "inspector" }], fractions: [1] },
       // Innermost: fills the middle.
@@ -238,7 +238,7 @@ export function parseLayout(value: unknown): Layout | null {
     if (missing.length) {
       const groups = result.docks.flatMap((d) => d.groups);
       const holding = (p: PanelId) => groups.find((g) => g.panels.includes(p));
-      const beside: Partial<Record<PanelId, PanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", shadergraph: "scene", particlegraph: "shadergraph" };
+      const beside: Partial<Record<PanelId, PanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", shadergraph: "scene", particlegraph: "shadergraph", tilepalette: "assets" };
       for (const p of missing) (((beside[p] && holding(beside[p])) || holding("inspector")) ?? groups[0]).panels.push(p);
     }
     return result;

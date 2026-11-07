@@ -48,7 +48,7 @@ import type { Color } from "../../core/math";
 import { Assets, sidecarValue } from "../../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
 import { parseMaterial, materialGraphOfJson, type MaterialSettings } from "../../scene/material";
-import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
+import { materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../../scene/shaderGraph";
 import { colorHex } from "../../scene/material";
 import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector3 } from "../../core/math";
@@ -73,7 +73,9 @@ import { resolvePostEffects, type PostSettings } from "../postEffects";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
-import { spriteFrame } from "../spriteFrame";
+import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
+import { BabylonTilemaps } from "./tilemaps";
+import { Tilemap } from "../../tilemap/Tilemap";
 import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
 import { AsyncPipelines } from "./asyncPipelines";
 import { effectClock, PipelineWarmer, VariantReport } from "./warmUp";
@@ -87,6 +89,8 @@ interface SpriteEntry {
   texture: Texture | null;
   /** The UVs the quad has, as a key ("" for the whole texture). */
   uvKey: string;
+  /** The mesh's vertex count (16 for the 9-slice grid; more when tiled). */
+  vertexCount: number;
   /** Size in node units (before the node's scale), once the texture has loaded. */
   size: [number, number] | null;
   /** The world matrix the quad is frozen at (Babylon keeps it), or null before the first sync. */
@@ -97,6 +101,11 @@ interface MeshEntry {
   meshes: Mesh[];
   sources: readonly ModelMesh[] | null;
   material: BabylonMaterial | null;
+  /** Its meshes' material slots (ADR 0089), and the material asset drawn in each, or null for the model's own. */
+  slotList: MaterialSlot[];
+  slots: (BabylonMaterial | null)[];
+  /** Multi-materials made for its meshes, disposed with them. */
+  owned: BabylonMaterial[];
   /** The world matrix its meshes were last frozen with (null: freeze next sync). */
   matrix: Float32Array | null;
 }
@@ -154,10 +163,8 @@ const tmpScale = new Vector3();
 const tmpQuat = new Quaternion();
 const tmpPos = new Vector3();
 /** Unit quad facing +Z, centred on the origin: bottom-left, bottom-right, top-right, top-left. */
-const QUAD_POSITIONS = [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0];
-const QUAD_NORMALS = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1];
-const QUAD_UVS = [0, 0, 1, 0, 1, 1, 0, 1];
-const QUAD_INDICES = [0, 1, 2, 0, 2, 3];
+const SPRITE_GRID_NORMALS = Array.from({ length: 16 }, () => [0, 0, 1]).flat();
+const WHOLE_FRAME: SpriteFrame = { uv: null, size: [1, 1], pivot: [0.5, 0.5], border: null, fill: "stretch", pixelsPerUnit: 1, pixelSize: [1, 1], missingSlice: false };
 
 /**
  * @internal Whether a world matrix (16 floats of `source` from `offset`) differs from the one an
@@ -219,6 +226,8 @@ export class BabylonRenderer {
   /** When `render` last drew a frame: a warm-up only waits while frames are being drawn. */
   private lastRenderAt = -Infinity;
   private readonly lighting: BabylonLighting;
+  /** Tilemap chunks (ADR 0103). */
+  private readonly tilemaps: BabylonTilemaps;
   /** Reflection probes (stage 6). */
   private readonly probes: BabylonProbes;
   /** Water surfaces (ADR 0072; stage 6), made the first time a World has one. */
@@ -302,6 +311,19 @@ export class BabylonRenderer {
     this.frame = new BabylonFrame(scene);
     this.frame.beforeView = (camera) => this.lighting.fitSky(camera);
     this.probes = new BabylonProbes(scene);
+    this.tilemaps = new BabylonTilemaps({
+      scene,
+      texture: (path, onLoad) => {
+        const t = this.textures.get(path);
+        if (t) {
+          if (this.textureMeta.get(path) !== sidecarValue(path)) this.applySampling(path, t);
+          return t;
+        }
+        this.texture(path).then(onLoad, (err) => this.warnOnce(`tile|${path}`, `failed to load tile texture "${path}": ${(err as Error).message}`));
+        return null;
+      },
+      sortOrder: (layer, order) => this.sortOrder(layer, order),
+    });
 
     this.defaultMaterial = pbr("myco.default", scene);
     this.defaultMaterial.albedoColor = new Color3(1, 1, 1);
@@ -532,6 +554,7 @@ export class BabylonRenderer {
   sync(world: World): void {
     this.claim(world);
     for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s);
+    this.tilemaps.sync(world);
     for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     const view = this.viewCameras(world)[0];
@@ -819,9 +842,12 @@ export class BabylonRenderer {
       const e = this.meshRenderers.get(c);
       if (e) {
         for (const m of e.meshes) m.dispose();
+        for (const m of e.owned) m.dispose(false, false);
         this.meshRenderers.delete(c);
       }
       this.releaseRendererMaterial(c);
+    } else if (c instanceof Tilemap) {
+      this.tilemaps.release(c);
     } else if (c instanceof WaterSurface) {
       this.water?.release(c);
     } else if (c instanceof ParticleSystem) {
@@ -859,6 +885,7 @@ export class BabylonRenderer {
     this.frame.overlay = null;
     this.overlayLayer?.dispose();
     this.probes.dispose();
+    this.tilemaps.dispose();
     this.water?.dispose();
     this.frame.dispose();
     this.scene.dispose();
@@ -935,10 +962,11 @@ export class BabylonRenderer {
     if (!entry) {
       const mesh = new Mesh(`sprite:${s.node.name}`, this.scene);
       const data = new VertexData();
-      data.positions = QUAD_POSITIONS;
-      data.normals = QUAD_NORMALS;
-      data.uvs = QUAD_UVS;
-      data.indices = QUAD_INDICES;
+      const grid = spriteMeshData(WHOLE_FRAME, 1, 1); // a 4 × 4 vertex grid, so a slice's 9-slice border can move the inner lines (ADR 0115)
+      data.positions = grid.positions;
+      data.normals = SPRITE_GRID_NORMALS;
+      data.uvs = grid.uvs;
+      data.indices = SPRITE_GRID_INDICES as number[];
       data.applyToMesh(mesh, true);
       const material = pbr(`sprite:${s.node.name}`, this.scene);
       material.unlit = true;
@@ -949,7 +977,7 @@ export class BabylonRenderer {
       material.useAlphaFromAlbedoTexture = true;
       mesh.material = material;
       mesh.alwaysSelectAsActiveMesh = true;
-      entry = { mesh, material, spritePath: null, texture: null, uvKey: "", size: null, matrix: null };
+      entry = { mesh, material, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null };
       this.sprites.set(s, entry);
     }
     const { mesh, material } = entry;
@@ -988,7 +1016,7 @@ export class BabylonRenderer {
       [w, h] = frame.size;
       [px, py] = frame.pivot;
       if (frame.missingSlice) this.warnOnce(`slice|${s.sprite}`, `${image} has no slice named "${slice}" (in ${image}.meta.json); drawing the whole image.`);
-      this.setSpriteUVs(entry, frame.uv);
+      this.setSpriteGeometry(entry, frame, size.width, size.height);
     } else if (s.size) {
       w = s.size.x;
       h = s.size.y;
@@ -1008,17 +1036,25 @@ export class BabylonRenderer {
     mesh.freezeWorldMatrix(entry.matrix);
   }
 
-  /** Draw a slice's part of the texture, or the whole texture. */
-  private setSpriteUVs(entry: SpriteEntry, uv: [number, number, number, number] | null): void {
-    const key = uv ? uv.join(",") : "";
+  /** Draw a slice's part of the texture (9-sliced when it has a border), or the whole texture. */
+  private setSpriteGeometry(entry: SpriteEntry, frame: SpriteFrame, texWidth: number, texHeight: number): void {
+    const key = frame.uv || frame.border || frame.fill === "tile" ? `${frame.uv?.join(",") ?? ""}|${frame.border?.join(",") ?? ""}|${frame.fill}|${frame.size.join(",")}|${frame.pixelsPerUnit}|${texWidth}x${texHeight}` : "";
     if (key === entry.uvKey) return;
     entry.uvKey = key;
-    if (!uv) {
-      entry.mesh.updateVerticesData(VertexBuffer.UVKind, QUAD_UVS);
+    const grid = spriteMeshData(frame, texWidth, texHeight);
+    if (grid.tileCapped) this.warnOnce(`tiles|${entry.spritePath}`, `sprite "${entry.spritePath}" would need more than ${MAX_TILE_QUADS} tiles; drawing it stretched. Use a bigger tile or a smaller sprite.`);
+    if (grid.indices === SPRITE_GRID_INDICES && entry.vertexCount === 16) {
+      entry.mesh.updateVerticesData(VertexBuffer.PositionKind, grid.positions);
+      entry.mesh.updateVerticesData(VertexBuffer.UVKind, grid.uvs);
       return;
     }
-    const [u0, v0, u1, v1] = uv;
-    entry.mesh.updateVerticesData(VertexBuffer.UVKind, [u0, v0, u1, v0, u1, v1, u0, v1]);
+    // A different vertex count (tiling): replace the buffers and indices.
+    const count = grid.positions.length / 3;
+    entry.vertexCount = count;
+    entry.mesh.setVerticesData(VertexBuffer.PositionKind, grid.positions, true);
+    entry.mesh.setVerticesData(VertexBuffer.NormalKind, Array.from({ length: count }, () => [0, 0, 1]).flat());
+    entry.mesh.setVerticesData(VertexBuffer.UVKind, grid.uvs, true);
+    entry.mesh.setIndices(grid.indices);
   }
 
   /** @internal The sprite's size in node units once its texture has loaded. */
@@ -1032,22 +1068,32 @@ export class BabylonRenderer {
   private syncMesh(world: World, r: MeshRenderer): void {
     let entry = this.meshRenderers.get(r);
     if (!entry) {
-      entry = { meshes: [], sources: null, material: null, matrix: null };
+      entry = { meshes: [], sources: null, material: null, slotList: [], slots: [], owned: [], matrix: null };
       this.meshRenderers.set(r, entry);
     }
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
     const material = this.rendererMaterial(r, this.materialAsset(r.material));
+    // Material slots (ADR 0089): the renderer's `materials[i]`, then `material`, then the model's import settings.
     const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
-    if (!same || entry.material !== material) {
+    const slots = same ? entry.slotList : sources ? materialSlots(sources) : [];
+    const remap = sources && slots.length ? this.sidecarMaterials(r.mesh) : null;
+    const slotMaterials = slots.map((slot, i) => this.materialAsset(r.materials[i] ?? "") ?? material ?? (remap?.[slot.surface.name] ? this.materialAsset(remap[slot.surface.name]) : null));
+    const sameSlots = entry.slots.length === slotMaterials.length && entry.slots.every((m, i) => m === slotMaterials[i]);
+    if (!same || entry.material !== material || !sameSlots) {
       for (const m of entry.meshes) m.dispose();
+      for (const m of entry.owned) m.dispose(false, false);
+      entry.owned = [];
+      const bySurface = new Map(slots.map((slot, i) => [slot.surface, slotMaterials[i]]));
       entry.meshes = (sources ?? []).map((src) => {
         const mesh = meshOf(this.scene, `mesh:${r.node.name}:${src.name}`, src);
-        mesh.material = material ?? modelMaterial(this.scene, this.modelMaterials, src, mesh) ?? this.defaultMaterial;
+        mesh.material = modelMaterial(this.scene, this.modelMaterials, src, mesh, (surface) => bySurface.get(surface) ?? null, entry!.owned) ?? this.defaultMaterial;
         mesh.metadata = { mycoBase: mesh.material };
         return mesh;
       });
       entry.sources = sources;
       entry.material = material;
+      entry.slots = slotMaterials;
+      entry.slotList = slots;
       entry.matrix = null;
     }
     const visible = r.isActiveAndEnabled;
@@ -1073,6 +1119,18 @@ export class BabylonRenderer {
       const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe.texture, probe.intensity) : base;
       if (probe) this.reflecting++;
       if (m.material !== drawn) m.material = drawn;
+    }
+  }
+
+  /** A model's import settings' material assets by material name (ADR 0089), or null for a built-in mesh or none. */
+  private sidecarMaterials(ref: string): Readonly<Record<string, string>> | null {
+    if (!ref || ref.startsWith("builtin:")) return null;
+    try {
+      const path = splitSpriteRef(ref.replace(/^asset:/, "")).path;
+      const materials = Assets.importSettings(path).materials;
+      return Object.keys(materials).length ? materials : null;
+    } catch {
+      return null;
     }
   }
 
