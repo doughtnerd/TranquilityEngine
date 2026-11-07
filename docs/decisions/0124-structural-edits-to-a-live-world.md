@@ -73,8 +73,16 @@ Nothing.
 
 ## Open questions
 
-- Should **Keep** extend to structural changes on scene nodes (added/removed components, moves, deletions) on Stop?
-- Should live edits get undo after all (fields at least, which can be put back)?
+**Proposed functionality (not built; tracked in [open-questions.md](../architecture/open-questions.md)):**
+
+- **Keep structural changes** — on Stop, write structural changes to scene nodes (added/removed components, moves,
+  deletions) into the document as part of the "Keep play-mode changes" undo step, mapped through `docPathFor` like
+  Keep values.
+- **Undo for live edits** — a session-only undo for live edits, at least for field values, which can be put back
+  (a deleted node can't be restored as the same node).
+
+Also left out:
+
 - Outlines for headless Worlds and showing several Worlds outside the editor stay out of scope (0032 row).
 
 ## References
