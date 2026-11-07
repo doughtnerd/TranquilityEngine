@@ -23,7 +23,7 @@ Candidates for the parser, measured on the installed packages:
 | --- | --- | --- | --- |
 | New dependency | yes (Apache-2.0; 7.4 MB unpacked package) | no (MIT, in `three`, which 0081 keeps for loaders) | no |
 | Output | Babylon meshes in a Babylon `Scene` (needs an engine; headless means `NullEngine`) | three.js objects, which `bakeMeshes` already turns into neutral data | neutral data directly |
-| Size | the glTF loader and its extensions, plus a scene per load | `GLTFLoader.js` 120 KB source, meshopt decoder 29 KB, loaded on demand | smallest, but every extension written and maintained by us |
+| Size | the glTF loader and its extensions, plus a scene per load | 46 KB minified (13.6 KB gzipped) plus the meshopt decoder 26 KB, loaded on demand | smallest, but every extension written and maintained by us |
 | Decoders | Draco, meshopt, KTX2 fetched from Babylon's CDN by default | Draco and KTX2 through workers and decoder files served by URL; meshopt bundled | none |
 
 ## Decision
@@ -60,7 +60,7 @@ We will import `.gltf` and `.glb` with three.js's `GLTFLoader`, imported on firs
 - Parsing decodes no images, so the dedicated server and tests load glTF files without image support.
 
 **Negative / costs**
-- `GLTFLoader` (with the meshopt decoder) is a new on-demand chunk; the Draco decoder (513 KB, 109 KB gzipped, unminified) is a second one, loaded only for Draco files, and is slower than the wasm decoder.
+- New on-demand chunks in the player build: `GLTFLoader` 46 KB (13.6 KB gzipped), the meshopt decoder 26 KB (7.3 KB), the engine's glTF module 8 KB (3.4 KB), loaded with the first glTF file; the Draco decoder 446 KB (105 KB gzipped), loaded only for Draco files and slower than the wasm decoder. Nothing is added to games without glTF models.
 - KTX2 textures depend on Babylon fetching its KTX2 transcoder from `cdn.babylonjs.com` on first use; offline builds and strict hosts draw those textures as missing. Untested by an automated test (no KTX2 fixture; the transcoder needs the network).
 - Parts still turn about the model's origin; the node tree is organisational.
 - Skinned and animated models import as static meshes until the animation design lands.
