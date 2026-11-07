@@ -35,6 +35,11 @@ import {
   transportChoices,
   updateConfig,
   updateLink,
+  setLinkOption,
+  linkOptionsFor,
+  extraOptionKeys,
+  optionText,
+  parseOptionText,
   withBootstrap,
   type BootstrapView,
   type GroupedProblems,
@@ -736,6 +741,7 @@ function Links(props: { s: PanelState; model: WorldsModel; problems: GroupedProb
           {(isSpawnableName(model, l.from) || isSpawnableName(model, l.to)) && (
             <p class="worlds-none">Applies when game code creates {[l.from, l.to].filter((n) => isSpawnableName(model, n)).join(" or ")}.</p>
           )}
+          <LinkOptions s={s} model={model} index={i} />
           {problems.links.has(i) && <Problems list={problems.links.get(i)!} />}
         </div>
       ))}
@@ -743,6 +749,69 @@ function Links(props: { s: PanelState; model: WorldsModel; problems: GroupedProb
         + Link
       </button>
     </section>
+  );
+}
+
+/** A link's `options`: one input per known option of its transport, plus any other keys it holds, collapsed by default. */
+function LinkOptions(props: { s: PanelState; model: WorldsModel; index: number }) {
+  const { s, model, index } = props;
+  const l = model.links[index];
+  const count = Object.keys(l.options ?? {}).length;
+  const where = `${l.from} → ${l.to}`;
+  const set = (key: string, value: unknown) => edit(s, `Set ${where} ${key}`, setLinkOption(model, index, key, value));
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const addOption = () => {
+    const key = newKey.trim();
+    const value = parseOptionText(newValue);
+    if (key === "" || value === undefined) return;
+    set(key, value);
+    setNewKey("");
+    setNewValue("");
+  };
+  return (
+    <details class="worlds-link-options" data-link-options={index}>
+      <summary>Options{count > 0 ? ` (${count})` : ""}</summary>
+      <div class="worlds-option-grid">
+        {linkOptionsFor(l.transport).map((o) => {
+          const v = l.options?.[o.key];
+          const id = `link-${index}-${o.key}`;
+          return (
+            <div key={o.key} class="worlds-option" title={o.hint}>
+              <label for={id}>{o.label}</label>
+              {o.kind === "number" && (v === undefined || typeof v === "number") ? (
+                <NumberField id={id} value={v as number | undefined} placeholder={o.default !== undefined ? String(o.default) : "off"} label={`Link ${index + 1} ${o.key}`} onCommit={(n) => set(o.key, n)} />
+              ) : (
+                <TextField label={`Link ${index + 1} ${o.key}`} value={v === undefined ? "" : optionText(v)} placeholder={o.kind === "string" ? "" : "number"} onCommit={(t) => set(o.key, o.kind === "string" ? t : parseOptionText(t))} />
+              )}
+            </div>
+          );
+        })}
+        {extraOptionKeys(l).map((k) => (
+          <div key={k} class="worlds-option extra">
+            <span class="worlds-option-key">{k}</span>
+            <TextField label={`Link ${index + 1} option ${k}`} value={optionText(l.options![k])} onCommit={(t) => set(k, parseOptionText(t))} />
+            <button class="worlds-chip-x" aria-label={`Remove option ${k}`} title="Remove this option" onClick={() => set(k, undefined)}>
+              ×
+            </button>
+          </div>
+        ))}
+        <div class="worlds-option add">
+          <input type="text" aria-label={`Link ${index + 1} new option name`} placeholder="option name" value={newKey} onInput={(e) => setNewKey((e.currentTarget as HTMLInputElement).value)} />
+          <input
+            type="text"
+            aria-label={`Link ${index + 1} new option value`}
+            placeholder="value (JSON or text)"
+            value={newValue}
+            onInput={(e) => setNewValue((e.currentTarget as HTMLInputElement).value)}
+            onKeyDown={(e) => e.key === "Enter" && addOption()}
+          />
+          <button title="Add an option this panel has no field for" disabled={newKey.trim() === "" || newValue.trim() === ""} onClick={addOption}>
+            Add option
+          </button>
+        </div>
+      </div>
+    </details>
   );
 }
 
