@@ -741,6 +741,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
         else skip(b, "not a block the kernel knows");
     }
   }
+  init.push({ s: "set", target: { attr: "color" }, mode: "mul", e: { k: "uniform", slot: U.tint, w: 4 } });
   init.push({ s: "builtin", b: "shape", args: shapeArgs, shape: { type: shapeType, mode: shapeMode }, rotation: rotation ? (rotation as { slot: number }).slot : undefined });
   init.push({ s: "builtin", b: "place", args: [offset, speed] });
   init.push(...attrSets);
