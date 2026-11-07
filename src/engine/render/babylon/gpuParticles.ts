@@ -167,7 +167,11 @@ class WebGpuBabylonRun implements BabylonRun {
           return (t?._hardwareTexture as { view?: unknown } | null | undefined)?.view ?? null;
         },
       },
+      { deadList: true },
     );
+  }
+  get alive(): number | null {
+    return this.run.alive;
   }
   step(u: Float32Array, lut: Float32Array | null, parent: KernelRun | null): void {
     this.run.step(u, lut, parent instanceof WebGpuBabylonRun ? parent.run : null);
@@ -273,6 +277,9 @@ class JsBabylonRun implements BabylonRun {
       this.textures = this.planes.map((p) => RawTexture.CreateRGBATexture(p, this.width, this.height, scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT));
       this.lutTexture = RawTexture.CreateRGBATexture(this.run.js.lut, LUT_SAMPLES, Math.max(1, kernel.luts.length), scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
     }
+  }
+  get alive(): number {
+    return this.run.alive;
   }
   step(u: Float32Array, lut: Float32Array | null, parent: KernelRun | null): void {
     this.run.step(u, lut, parent instanceof JsBabylonRun ? parent.run : null);

@@ -178,6 +178,8 @@ GLOBAL(KV4, a1);
 GLOBAL(KV4, a2);
 GLOBAL(KV4, a3);
 GLOBAL(KF, k_idx);
+GLOBAL(KF, k_rel);
+GLOBAL(KF, k_sidx);
 GLOBAL(KF, k_t);
 GLOBAL(KF, k_step);
 GLOBAL(KF, k_dies);
@@ -354,8 +356,7 @@ FN(KF, k_shapeU, KI mode, KF spread) {
   VAR(KF, r) = k_rand(a3.w, 900u);
   if (mode == 0) { return r; }
   VAR(KF, cap) = ku[${U.spawn}].z;
-  VAR(KF, rel) = k_idx - ku[${U.spawn}].x;
-  rel = rel - floor(rel / cap) * cap;
+  VAR(KF, rel) = k_rel;
   if (mode == 3) { return rel / max(1.0, ku[${U.spawn}].y); }
   VAR(KF, ordinal) = ku[${U.misc}].x + rel;
   VAR(KF, x) = ordinal / max(1.0, cap);
@@ -706,7 +707,7 @@ FN(void, k_run, KF spawnHere) {
     a0 = KV4(0.0, 0.0, 0.0, 0.0);
     a1 = KV4(0.0, 0.0, 0.0, 0.0);
     a2 = KV4(0.0, 0.0, 0.0, 0.0);
-    a3 = KV4(0.0, 0.0, 0.0, k_seed(k_idx, ku[${U.spawn}].w, ku[${U.misc}].y));
+    a3 = KV4(0.0, 0.0, 0.0, k_seed(k_sidx, ku[${U.spawn}].w, ku[${U.misc}].y));
     k_t = 0.0;
     k_init();
     return;
@@ -727,6 +728,7 @@ FN(KF, k_spawnRing) {
   VAR(KF, cap) = ku[${U.spawn}].z;
   VAR(KF, rel) = k_idx - ku[${U.spawn}].x;
   rel = rel - floor(rel / cap) * cap;
+  k_rel = rel;
   if (ku[${U.spawn}].y > 0.0 && rel < ku[${U.spawn}].y) { return 1.0; }
   return 0.0;
 }
@@ -800,7 +802,8 @@ export const WORKGROUP = 64;
  * (state write), kl (look-up table); kp (the event parent's state) when it has one; kdepth when it
  * collides with the depth buffer. The parent's space flag rides in `ku[flags].w`.
  */
-export function wgslSimulation(kernel: KernelSystem): string {
+export function wgslSimulation(kernel: KernelSystem, opts: { deadList?: boolean } = {}): string {
+  const dead = !!opts.deadList && !kernel.event;
   const head = `
 @group(0) @binding(0) var<storage, read> ku: array<vec4f>;
 @group(0) @binding(1) var<storage, read> ksrc: array<vec4f>;
@@ -808,6 +811,7 @@ export function wgslSimulation(kernel: KernelSystem): string {
 @group(0) @binding(3) var<storage, read> kl: array<vec4f>;
 ${kernel.event ? "@group(0) @binding(4) var<storage, read> kp: array<vec4f>;" : ""}
 ${kernel.depth ? "@group(0) @binding(5) var kdepth: texture_2d<f32>;" : ""}
+${dead ? "@group(0) @binding(6) var<storage, read_write> kdead: array<i32>;\n@group(0) @binding(7) var<storage, read_write> kcount: array<atomic<i32>>;" : ""}
 fn k_lutAt(row: i32, i: i32) -> vec4f { return kl[row * ${LUT_SAMPLES} + i]; }
 ${kernel.event ? "fn k_par(i: i32, slot: i32) -> vec4f { return kp[i * 4 + slot]; }\nfn k_srcLife(j: i32) -> f32 { return ksrc[j * 4 + 1].w; }" : ""}
 ${kernel.depth ? "fn k_depthAt(x: i32, y: i32) -> f32 { return textureLoad(kdepth, vec2i(x, y), 0).r; }" : ""}
@@ -823,16 +827,66 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
   a2 = ksrc[b + 2u];
   a3 = ksrc[b + 3u];
   k_idx = f32(i);
+  k_rel = k_idx;
+  k_sidx = k_idx;
   k_hasParent = 0.0;
-  ${kernel.event ? "k_run(k_spawnEvent());" : "k_run(k_spawnRing());"}
+  ${
+    dead
+      ? `let dying = a1.w < 0.0;
+  k_run(0.0);
+  if (dying) {
+    let at = atomicAdd(&kcount[0], 1);
+    kdead[at] = i32(i);
+  }
+  if (a1.w > 0.0) { atomicAdd(&kcount[1], 1); }`
+      : kernel.event
+        ? "k_run(k_spawnEvent());"
+        : "k_run(k_spawnRing());"
+  }
+  kdst[b] = a0;
+  kdst[b + 1u] = a1;
+  kdst[b + 2u] = a2;
+  kdst[b + 3u] = a3;
+}
+${dead ? SPAWN_MAIN : ""}`;
+  return head + ksl(simulationKsl(kernel, "wgsl"), "wgsl") + main;
+}
+
+/**
+ * The dead list's spawn pass (ADR 0126): one invocation per particle this frame spawns, after the update
+ * pass. Each pops a free slot (kcount[0] counts them, kdead holds them) and initialises it in the state
+ * just written; when none is left the spawn is dropped. The seed hashes the spawn number, not the slot.
+ */
+const SPAWN_MAIN = `
+@compute @workgroup_size(${WORKGROUP})
+fn spawn(@builtin(global_invocation_id) gid: vec3u) {
+  let t = gid.x;
+  if (f32(t) >= ku[${U.spawn}].y) { return; }
+  let old = atomicSub(&kcount[0], 1);
+  if (old <= 0) {
+    atomicAdd(&kcount[0], 1);
+    return;
+  }
+  let i = u32(kdead[old - 1]);
+  let b = i * 4u;
+  k_idx = f32(i);
+  k_rel = f32(t);
+  k_sidx = f32(t);
+  k_hasParent = 0.0;
+  k_run(1.0);
+  if (a1.w <= 0.0) {
+    // Born without a lifetime: marked finished, so the next update pass frees the slot (no push here,
+    // where other invocations are popping).
+    a1.w = -1e-20;
+  } else {
+    atomicAdd(&kcount[1], 1);
+  }
   kdst[b] = a0;
   kdst[b + 1u] = a1;
   kdst[b + 2u] = a2;
   kdst[b + 3u] = a3;
 }
 `;
-  return head + ksl(simulationKsl(kernel, "wgsl"), "wgsl") + main;
-}
 
 // --- GLSL ES 3.0 texture simulation ---------------------------------------------------------------------
 
@@ -893,6 +947,8 @@ void main() {
   a3 = texelFetch(ks3, c, 0);
   if (float(i) < ku[${U.spawn}].z) {
     k_idx = float(i);
+    k_rel = k_idx;
+    k_sidx = k_idx;
     k_hasParent = 0.0;
     ${kernel.event ? "k_run(k_spawnEvent());" : "k_run(k_spawnRing());"}
   }
