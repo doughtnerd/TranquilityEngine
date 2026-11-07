@@ -50,10 +50,14 @@ import { splitSpriteRef, type ImportSettings } from "../../scene/importSettings"
 import { parseMaterial, materialGraphOfJson, type MaterialSettings } from "../../scene/material";
 import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../../scene/shaderGraph";
+import { isShaderAssetPath, parseShaderAsset } from "../../scene/shaderAsset";
+import { compileShaderAsset, type ShaderAssetSources } from "../shaderGraph/shaderAsset";
+import { normalizeAssetPath } from "../../scene/Assets";
 import { colorHex } from "../../scene/material";
 import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector3 } from "../../core/math";
 import type { MaterialPropertyValue } from "../components";
-import { compileShaderGraph } from "../shaderGraph/compile";
+import { compileShaderGraph, type CompiledShaderGraph } from "../shaderGraph/compile";
+import { resolveKeywords } from "../../scene/shaderKeywords";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "./graphMaterial";
 import { Camera, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, SpriteRenderer, Text } from "../components";
 import { UICanvas, isUIComponent } from "../../ui/components";
@@ -1093,7 +1097,7 @@ export class BabylonRenderer {
     };
     const raw = read(path);
     // A material naming a shader graph, or a renderer naming the graph itself, depends on the graph's JSON too.
-    let graphPath: string | null = isShaderGraphPath(path) ? path : null;
+    let graphPath: string | null = isShaderGraphPath(path) || isShaderAssetPath(path) ? path : null;
     if (!graphPath && raw !== undefined) graphPath = materialGraphOfJson(raw);
     const graphRaw = graphPath ? read(graphPath) : undefined;
     const cached = this.materialAssets.get(path);
@@ -1110,9 +1114,13 @@ export class BabylonRenderer {
       this.warnOnce(`missing|${path}`, `material "${where}" isn't in the project; using the default material.`);
     } else if (graphPath) {
       try {
-        const properties: Record<string, GraphValue> = graphPath === path ? {} : parseMaterial(raw, where).settings.properties;
-        if (graphRaw === undefined) throw new Error(`shader graph "${graphPath.replace(/^asset:/, "")}" isn't in the project.`);
-        graph = this.graphMaterial(graphRaw, graphPath.replace(/^asset:/, ""), properties);
+        const settings = graphPath === path ? null : parseMaterial(raw, where).settings;
+        if (graphRaw === undefined) throw new Error(`${isShaderAssetPath(graphPath) ? "shader" : "shader graph"} "${graphPath.replace(/^asset:/, "")}" isn't in the project.`);
+        graph = this.graphMaterial(graphRaw, graphPath.replace(/^asset:/, ""), settings?.properties ?? {}, isShaderAssetPath(graphPath) ? read : undefined);
+        // Keyword values (ADR 0106): unknown names and values are warned once.
+        const kw = settings?.keywords ?? {};
+        resolveKeywords(graph.compiled.keywords, kw, (m) => this.warnOnce(`${path}|kw|${m}`, `${where}: ${m}`));
+        graph.setKeywords(kw);
         material = graph.material;
       } catch (err) {
         const message = `${where}: ${(err as Error).message} Using the default material.`;
@@ -1140,12 +1148,40 @@ export class BabylonRenderer {
     return material;
   }
 
-  /** A graph compiled to WGSL as a Babylon material (ADR 0047, `graphMaterial.ts`). */
-  private graphMaterial(graphRaw: unknown, where: string, properties: Record<string, GraphValue>): BabylonGraphMaterial {
-    const { graph, problems } = parseShaderGraph(graphRaw, where);
-    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
+  /**
+   * A graph compiled to WGSL as a Babylon material (ADR 0047, `graphMaterial.ts`), or a hand-written shader
+   * asset (ADR 0106) when `readCode` is given: it reads the asset's code files, which become dependencies.
+   */
+  private graphMaterial(graphRaw: unknown, where: string, properties: Record<string, GraphValue>, readCode?: (path: string) => unknown): BabylonGraphMaterial {
+    let compiled: CompiledShaderGraph;
+    let problems: string[];
+    if (readCode) {
+      const parsed = parseShaderAsset(graphRaw, where);
+      problems = parsed.problems;
+      const sources: ShaderAssetSources = {};
+      const deps: string[] = [];
+      for (const lang of ["wgsl", "glsl"] as const) {
+        const code = parsed.shader[lang];
+        if (!code) continue;
+        if ("code" in code) sources[lang] = code.code;
+        else {
+          const file = normalizeAssetPath(code.file);
+          deps.push(file);
+          const text = readCode(file);
+          if (typeof text === "string") sources[lang] = text;
+          else problems.push(`${where}: its ${lang.toUpperCase()} file "${file}" isn't in the project.`);
+        }
+      }
+      compiled = compileShaderAsset(parsed.shader, sources, deps);
+      const language = this.engine.isWebGPU ? "WGSL" : "GLSL";
+      if (this.engine.isWebGPU ? compiled.noWgsl : !compiled.glsl) this.warnOnce(`shader|lang|${where}`, `${where}: has no ${language} code for this ${this.engine.isWebGPU ? "WebGPU" : "WebGL2"} engine; it draws as plain PBR.`);
+    } else {
+      const parsed = parseShaderGraph(graphRaw, where);
+      problems = parsed.problems;
+      compiled = compileShaderGraph(parsed.graph, { shaderLevel: Graphics.tier.shaderLevel });
+      if (!this.engine.isWebGPU) this.warnOnce("graph|webgl", "shader graph materials need WebGPU on the Babylon backend; on the WebGL2 fallback they draw as plain PBR.");
+    }
     for (const p of [...problems, ...compiled.problems.map((q) => `${where}: ${q}`)]) this.warnOnce(p, p);
-    if (!this.engine.isWebGPU) this.warnOnce("graph|webgl", "shader graph materials need WebGPU on the Babylon backend; on the WebGL2 fallback they draw as plain PBR.");
     const made = createGraphMaterial(this.scene, `graph:${where}`, compiled, properties, this.graphShared, (p, linear) => this.graphTexture(p, linear));
     this.graphs.set(made.material, made);
     return made;

@@ -187,8 +187,8 @@ describe("compiling shader graphs to WGSL", () => {
   it("compiles every node type without problems", () => {
     for (const def of NODES) {
       if (def.type === "output" || def.type === "subgraph" || def.type === "customFunction") continue; // they need files or code of their own (tested below)
-      const n = node("n", def.type, def.type === "property" ? { settings: { property: "P" } } : {});
-      const g = graph([n], [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }] });
+      const n = node("n", def.type, def.type === "property" ? { settings: { property: "P" } } : def.type === "keyword" ? { settings: { keyword: "K" } } : {});
+      const g = graph([n], [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }], keywords: [{ name: "K" }] });
       const out = nodePorts(n, g).outputs.find((p) => p.type !== "texture");
       if (!out) continue; // texture-only nodes (Texture 2D Asset) are tested with Sample Texture 2D
       g.edges.push({ from: `n.${out.id}`, to: "output.baseColor" });
