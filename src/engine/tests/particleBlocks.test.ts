@@ -64,6 +64,7 @@ describe("particle block registry (ADR 0060)", () => {
     expect(blocksFor("spawn").map((b) => b.type)).toEqual(["spawn.rate", "spawn.rateOverDistance", "spawn.burst", "spawn.periodicBurst"]);
     expect(blocksFor("output").map((b) => b.type)).toEqual(["attribute.color", "attribute.alpha", "attribute.size", "output.flipbook", "output.widthOverLength"]);
     expect(blocksFor("initialize").length).toBe(20);
+    expect(blocksFor("update").map((b) => b.type)).toContain("update.collisionDepth");
     expect(blocksFor("update").filter((b) => b.type.startsWith("attribute.")).map((b) => b.type)).toEqual([
       "attribute.position",
       "attribute.velocity",

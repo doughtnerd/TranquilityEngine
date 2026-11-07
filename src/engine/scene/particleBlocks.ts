@@ -205,6 +205,29 @@ export const BLOCKS: readonly BlockDef[] = [
     ],
   },
   {
+    type: "update.collisionColliders",
+    label: "Collide with colliders",
+    description: "Bounces particles off the World's physics colliders, or kills them there (ADR 0096). CPU simulation only: one ray per particle per frame, so keep the capacity modest.",
+    contexts: IN_UPDATE,
+    inputs: [
+      scalar("bounce", "Bounce", 0.5, { min: 0, step: 0.01 }),
+      scalar("friction", "Friction", 0, { min: 0, max: 1, step: 0.01 }),
+      bool("kill", "Kill on hit", false),
+      scalar("radius", "Radius", 0, { min: 0, unit: "m" }),
+    ],
+  },
+  {
+    type: "update.collisionDepth",
+    label: "Collide with depth buffer",
+    description: "Bounces particles off whatever the camera sees, using the scene's depth (ADR 0096). Kernel (GPU) backends only; particles off screen or behind surfaces don't collide.",
+    contexts: IN_UPDATE,
+    inputs: [
+      scalar("bounce", "Bounce", 0.5, { min: 0, step: 0.01 }),
+      bool("kill", "Kill on hit", false),
+      scalar("thickness", "Thickness", 0.5, { min: 0, unit: "m" }),
+    ],
+  },
+  {
     type: "update.triggerEvent",
     label: "Trigger Event",
     description: "Sends an event from particles; wire it to a system's start to spawn from them.",

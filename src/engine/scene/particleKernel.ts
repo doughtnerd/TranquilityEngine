@@ -813,6 +813,10 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
       }
       case "update.triggerEvent":
         break;
+      case "update.collisionColliders":
+        skip(b, "colliders are CPU only");
+        report("Collide with colliders runs only on the CPU simulation; kernel backends skip it (use Collide with depth buffer).", `${sys.id}.${b.id}`);
+        break;
       default:
         if (b.type.startsWith("attribute.")) {
           const stmts = setAttribute(b, life);

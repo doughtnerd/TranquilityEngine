@@ -271,6 +271,10 @@ function lowerSystem(sys: ParticleGraphSystem, i: number, input: InputFn, proble
 
   for (const b of sys.update.blocks.filter(on)) {
     if (kernelOnly(b)) continue;
+    if (b.type === "update.collisionDepth") {
+      problems.push({ severity: "warning", message: "Collide with depth buffer needs a kernel (GPU) backend; the CPU simulation skips it.", at: `${sys.id}.${b.id}`, cpuOnly: true });
+      continue;
+    }
     if (b.type === "update.gravity") {
       e.gravity = num(input(sys, i, b, "strength", "gravity", "number"), 1);
       continue;
