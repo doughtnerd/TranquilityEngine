@@ -21,7 +21,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
 }
 
 type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { meshRenderers: Map<{ node: { name: string } }, { objects: { material: { type: string; clearcoat?: number; transmission?: number } }[] }> } } };
+  engine?: { world: { time: { frameCount: number }; render: { meshRenderers: Map<{ node: { name: string } }, { meshes: { material: { getClassName(): string; clearCoat: { isEnabled: boolean; intensity: number }; subSurface: { refractionIntensity: number } } | null }[] }> } } };
   shaderGraphPreview?: { setGraph(g: unknown): unknown; readCenter(): number[] | null };
 };
 
@@ -35,8 +35,8 @@ function trackErrors(page: Page): string[] {
 const meshMaterial = (page: Page, name: string) =>
   page.evaluate((n) => {
     for (const [r, e] of (window as unknown as Hooks).engine!.world.render.meshRenderers) {
-      const m = r.node.name === n ? e.objects[0]?.material : undefined;
-      if (m) return { type: m.type, clearcoat: m.clearcoat, transmission: m.transmission }; // getters: read them here
+      const m = r.node.name === n ? e.meshes[0]?.material : undefined;
+      if (m) return { type: m.getClassName(), clearcoat: m.clearCoat.isEnabled ? m.clearCoat.intensity : 0, transmission: m.subSurface.refractionIntensity }; // getters: read them here
     }
     return null;
   }, name);
@@ -60,7 +60,7 @@ test("a physical material's fields save to its file and the mesh draws with clea
     await material.getByRole("spinbutton", { name: label, exact: true }).press("Enter");
   }
   await expect.poll(async () => JSON.parse((await readFile(page, "Playground/materials/metal.material.json")) ?? "{}")).toMatchObject({ shader: "physical", clearcoat: 1, transmission: 0.5, ior: 1.33 });
-  await expect.poll(async () => (await meshMaterial(page, "Body"))?.type).toBe("MeshPhysicalMaterial");
+  await expect.poll(async () => (await meshMaterial(page, "Body"))?.type).toBe("PBRMaterial");
   expect(await meshMaterial(page, "Body")).toMatchObject({ clearcoat: 1, transmission: 0.5 });
   expect(errors).toEqual([]);
 });

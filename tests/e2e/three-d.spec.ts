@@ -34,7 +34,7 @@ type Hooks = {
     world: {
       time: { frameCount: number };
       render: {
-        meshRenderers: Map<{ node: { name: string } }, { objects: { visible: boolean }[] }>;
+        meshRenderers: Map<{ node: { name: string } }, { meshes: { isEnabled(): boolean }[] }>; // the Babylon renderer's private map (ADR 0081)
         lightIconsOnCanvas(world: unknown): { node: { name: string }; x: number; y: number }[];
         lightWireCount(): number;
       };
@@ -71,7 +71,7 @@ async function openPlayground(page: Page, writable: boolean): Promise<void> {
 const drawnMeshes = (page: Page) =>
   page.evaluate(() => {
     const names = new Set<string>();
-    for (const [r, e] of (window as unknown as Hooks).engine!.world.render.meshRenderers) if (e.objects.some((o) => o.visible)) names.add(r.node.name);
+    for (const [r, e] of (window as unknown as Hooks).engine!.world.render.meshRenderers) if (e.meshes.some((m) => m.isEnabled())) names.add(r.node.name);
     return [...names].sort();
   });
 

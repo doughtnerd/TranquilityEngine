@@ -23,7 +23,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
 
 type Renderer = { node: { name: string }; setMaterialProperty(name: string, value: unknown): void; clearMaterialProperties(): void };
 type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { meshRenderers: Map<Renderer, { objects: { material: { type: string; uuid: string; uniforms?: unknown } }[] }> } } };
+  engine?: { world: { time: { frameCount: number }; render: { meshRenderers: Map<Renderer, { meshes: { material: { unlit: boolean; uniqueId: number } | null }[] }> } } };
 };
 
 function trackErrors(page: Page, allow: RegExp[] = []): string[] {
@@ -59,10 +59,10 @@ const node = (page: Page, id: string) => page.locator(`.sg-node[data-node="${id}
 const json = async (page: Page, path: string) => JSON.parse((await readFile(page, path)) ?? "{}");
 const card = (page: Page, name: string) => page.locator(".inspector-body .component").filter({ has: page.getByRole("checkbox", { name: `${name} enabled`, exact: true }) });
 const row = (page: Page, name: string) => page.locator(".tree .row", { has: page.locator(".name", { hasText: new RegExp(`^${name}$`) }) });
-/** The material a node's mesh draws with: three.js type and id. */
+/** The material a node's mesh draws with: Babylon lit/unlit and id. */
 const meshMaterial = (page: Page, name: string) =>
   page.evaluate((n) => {
-    for (const [r, e] of (window as unknown as Hooks).engine!.world.render.meshRenderers) if (r.node.name === n) return e.objects[0] ? `${e.objects[0].material.type}:${e.objects[0].material.uuid}` : null;
+    for (const [r, e] of (window as unknown as Hooks).engine!.world.render.meshRenderers) if (r.node.name === n) { const m = e.meshes[0]?.material; return m ? `${m.unlit ? "unlit" : "lit"}:${m.uniqueId}` : null; }
     return null;
   }, name);
 
@@ -77,7 +77,7 @@ test("sub-graphs rebuild the materials using them; custom functions, copy and pa
   const material = card(page, "MeshRenderer").getByRole("combobox", { name: "material" });
   await material.fill("materials/water.material.json");
   await material.press("Enter");
-  await expect.poll(async () => (await meshMaterial(page, "Ground"))?.split(":")[0]).toBe("MeshStandardMaterial");
+  await expect.poll(async () => (await meshMaterial(page, "Ground"))?.split(":")[0]).toBe("lit");
   const before = await meshMaterial(page, "Ground");
 
   // Editing the sub-graph rebuilds the Ground's material.
@@ -158,7 +158,7 @@ test("node previews draw, the minimap pans the canvas, and scripts override a re
 
   // A script's override gives the Pillar its own copy of the graph material; clearing it shares the asset's again.
   const shared = await meshMaterial(page, "Pillar");
-  expect(shared).toMatch(/^MeshStandardMaterial:/);
+  expect(shared).toMatch(/^lit:/);
   await page.evaluate(() => {
     for (const [r] of (window as unknown as Hooks).engine!.world.render.meshRenderers) if (r.node.name === "Pillar") r.setMaterialProperty("Tint", [1, 0, 0]);
   });

@@ -26,7 +26,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
 type Pixel = [number, number, number, number];
 /** The editor's debug hooks on `window`. Page callbacks are serialized, so each casts `window` itself. */
 type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { meshRenderers: Map<{ node: { name: string } }, { objects: { material: { type: string; uuid: string } }[] }> } } };
+  engine?: { world: { time: { frameCount: number }; render: { meshRenderers: Map<{ node: { name: string } }, { meshes: { material: { unlit: boolean } | null }[] }> } } };
   shaderGraphPreview?: { readCenter(): Pixel | null; setGraph(graph: unknown): unknown };
 };
 
@@ -160,18 +160,18 @@ test("editing a graph updates the scene's meshes whose material uses it", async 
   await openPlayground(page, true);
   const pillarMaterial = () =>
     page.evaluate(() => {
-      for (const [r, e] of (window as unknown as Hooks).engine!.world.render.meshRenderers) if (r.node.name === "Pillar") return e.objects[0]?.material.type ?? null;
+      for (const [r, e] of (window as unknown as Hooks).engine!.world.render.meshRenderers) if (r.node.name === "Pillar") { const m = e.meshes[0]?.material; return m ? (m.unlit ? "unlit" : "lit") : null; }
       return null;
     });
   // The Pillar's material draws with shaders/pulse.shadergraph.json, a lit graph.
-  await expect.poll(pillarMaterial).toBe("MeshStandardMaterial");
+  await expect.poll(pillarMaterial).toBe("lit");
   await showFolder(page, "shaders");
   await page.locator(".asset-tile", { hasText: "pulse.shadergraph.json" }).dblclick();
   const panel = page.locator(".shader-graph");
   await expect(node(page, "fresnel1")).toBeVisible();
   await panel.getByRole("combobox", { name: "Target" }).selectOption("unlit");
   await expect.poll(async () => (await graphFile(page, "Playground/shaders/pulse.shadergraph.json")).target).toBe("unlit");
-  await expect.poll(pillarMaterial).toBe("MeshBasicMaterial");
+  await expect.poll(pillarMaterial).toBe("unlit");
 
   // The material's own property values show in the Inspector beside the graph's.
   await showFolder(page, "materials");
