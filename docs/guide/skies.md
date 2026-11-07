@@ -12,7 +12,7 @@ Myco draws the sky and lights the scene from the World's `Environment` component
 ## Procedural skies
 
 Create one with **New Sky** in the Assets panel's right-click menu (it starts as Clear Day; `skies/` if the
-project has that folder), then double-click it to open the **Sky** panel. **Start from a preset…** switches to Clear
+project has that folder), then double-click it (or use **Edit sky** on an Environment, or **Window > Sky**) to open the **Sky** panel, which opens on demand rather than with the editor. **Start from a preset…** switches to Clear
 Day, Sunset, Overcast, Night or Simple Gradient. Every change previews live and is saved to the file a moment later;
 Undo and Redo (Ctrl+Z, Ctrl+Shift+Z) step through this session's edits.
 Set an Environment's `map` to the asset to use it in a scene; `samples/playground3d/scenes/skies.scene.json` is a
@@ -84,6 +84,9 @@ orientation; if a seam shows, swap or rotate the files.
   GPU when it fills the screen, and gradient mode about a tenth of that.
 - A bake (128² per face by default) is six small draws, prefiltering and an asynchronous read-back: an estimated
   1–3 ms of GPU, about four times that at 256². See ADR 0112 for the budget.
+
+Lower quality tiers (their **shader level**) take fewer atmosphere and cloud steps and cap the bake size:
+low 64², medium 128², high up to 512².
 
 ## Known limits
 

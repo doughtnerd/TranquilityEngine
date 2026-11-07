@@ -191,6 +191,15 @@ describe("sky uniforms and cubemaps", async () => {
     expect(at(g, "cloudADrift")[2]).toBe(0);
   });
 
+  it("takes fewer steps on lower quality tiers, but always bakes at full quality", async () => {
+    const { SKY_QUALITY } = await import("../render/babylon/sky/skyUniforms");
+    expect(at(packSkyUniforms(frame()), "quality").slice(0, 3)).toEqual([12, 6, 5]);
+    expect(at(packSkyUniforms(frame({ level: "low" })), "quality").slice(0, 3)).toEqual([6, 3, 3]);
+    expect(at(packSkyUniforms(frame({ level: "low", baking: true })), "quality").slice(0, 3)).toEqual([12, 6, 5]);
+    expect(SKY_QUALITY.low.maxBakeSize).toBeLessThan(SKY_QUALITY.high.maxBakeSize);
+    for (const q of Object.values(SKY_QUALITY)) expect(q.viewSteps).toBeLessThanOrEqual(12); // the shaders' loop bounds
+  });
+
   it("turns the sky with the Environment's rotation", () => {
     const a = at(packSkyUniforms(frame()), "sunDir");
     const b = at(packSkyUniforms(frame({ rotation: 90 })), "sunDir");

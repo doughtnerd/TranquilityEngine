@@ -2,9 +2,21 @@
  * Packs a sky's settings, time and the World's fog into the sky shader's vec4 uniforms (ADR 0112;
  * `SKY_UNIFORMS` in `skyShader.ts` lists each one). No Babylon types, so it's tested headless.
  */
+import type { ShaderLevel } from "../../../core/graphics";
 import { hexToLinear, type SkySettings } from "../../../sky/skyFormat";
 import { bodyDirections, moonPhase, skyLight, starRotation, transmittance } from "../../../sky/skyMath";
 import { SKY_UNIFORMS, type SkyUniform } from "./skyShader";
+
+/**
+ * Per shader level (the quality tier's `shaderLevel`, ADR 0050): steps along each view ray and each
+ * light ray of the atmosphere, cloud noise octaves, and the largest bake face. Bakes always use the
+ * full step counts (they're small and rare); only their size follows the tier.
+ */
+export const SKY_QUALITY: Record<ShaderLevel, { viewSteps: number; lightSteps: number; cloudOctaves: number; maxBakeSize: number }> = {
+  low: { viewSteps: 6, lightSteps: 3, cloudOctaves: 3, maxBakeSize: 64 },
+  medium: { viewSteps: 8, lightSteps: 4, cloudOctaves: 4, maxBakeSize: 128 },
+  high: { viewSteps: 12, lightSteps: 6, cloudOctaves: 5, maxBakeSize: 512 },
+};
 
 /** Sunlight's radiance in the atmosphere integral: a clear noon zenith comes out near 0.4 (linear). */
 export const SUN_RADIANCE = 30;
@@ -25,6 +37,8 @@ export interface SkyFrame {
   baking: boolean;
   moonTexture: boolean;
   milkyWayTexture: boolean;
+  /** The quality tier's shader level (default high). */
+  level?: ShaderLevel;
 }
 
 const smoothstep = (a: number, b: number, x: number) => {
@@ -120,6 +134,8 @@ export function packSkyUniforms(f: SkyFrame, out = new Float32Array(SKY_UNIFORMS
   const moonLit = s.moon.enabled ? 0.5 * (1 - Math.cos(2 * Math.PI * moonPhase(s))) : 0;
   const night = (1 - day) * (1 + 2 * moonLit);
   set("nightCol", 0.004 * night, 0.006 * night, 0.012 * night);
+  const q = SKY_QUALITY[f.baking ? "high" : (f.level ?? "high")];
+  set("quality", q.viewSteps, q.lightSteps, q.cloudOctaves);
   set("skyOut", 2 ** s.exposure * (f.baking ? 1 : f.intensity), f.baking ? -1 : 1);
   return out;
 }

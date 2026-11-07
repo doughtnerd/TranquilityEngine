@@ -36,7 +36,8 @@ import type { SkySettings } from "../../../sky/skyFormat";
 import { SkyBakeScheduler, skyLight } from "../../../sky/skyMath";
 import { Environment, Fog } from "../../components";
 import { SKY_BAKE_SHADER, SKY_SAMPLERS, SKY_SHADER, SKY_UNIFORMS } from "./skyShader";
-import { packSkyUniforms, type SkyFrame } from "./skyUniforms";
+import { Graphics } from "../../Graphics";
+import { packSkyUniforms, SKY_QUALITY, type SkyFrame } from "./skyUniforms";
 
 /** What the sky hands the lighting each frame. */
 export interface SkyLightingHooks {
@@ -321,7 +322,8 @@ export class BabylonSky {
 
     this.drawable ??= new SkyDrawable(this.scene);
     this.drawable.mesh.setEnabled(env.skybox);
-    this.drawn = { settings, time, seconds: world.time.realtimeSinceStartup, rotation: env.rotation, intensity: Math.max(0, env.skyboxIntensity), fog: fogFrame, baking: false };
+    const level = Graphics.tier.shaderLevel;
+    this.drawn = { settings, time, seconds: world.time.realtimeSinceStartup, rotation: env.rotation, intensity: Math.max(0, env.skyboxIntensity), fog: fogFrame, baking: false, level };
     this.drawable.update(this.drawn);
 
     if (settings.lighting.driveSunLight) {
@@ -335,8 +337,10 @@ export class BabylonSky {
       return;
     }
     const requests = sky?._rebakes ?? 0;
-    if (requests !== this.rebakes) {
+    const size = Math.min(settings.lighting.bakeSize, SKY_QUALITY[level].maxBakeSize);
+    if (requests !== this.rebakes || size !== this.bakeSize) {
       this.rebakes = requests;
+      this.bakeSize = size; // a new tier caps the bake differently: rebake at the new size
       this.scheduler.invalidate();
     }
     this.envRotation = env.rotation;
@@ -347,6 +351,8 @@ export class BabylonSky {
   }
 
   private envRotation = 0;
+  /** The bake's face size: the asset's, capped by the quality tier. */
+  private bakeSize = 128;
   private fogFrame: SkyFrame["fog"] = null;
   /** This frame's drawn sky, put back after a bake packs its own uniforms. */
   private drawn: Omit<SkyFrame, "moonTexture" | "milkyWayTexture"> | null = null;
@@ -360,7 +366,7 @@ export class BabylonSky {
     const uniforms = this.drawable.uniforms.slice();
     // Put the drawn sky's uniforms back (the bake's differ: no discs, mirrored Z).
     if (this.drawn) this.drawable.update(this.drawn);
-    const pending = this.baker.bake(this.settings.lighting.bakeSize, uniforms, (set) => this.drawable!.bindTextures(set));
+    const pending = this.baker.bake(this.bakeSize, uniforms, (set) => this.drawable!.bindTextures(set));
     if (!pending) return; // the bake shader is still compiling
     this.lastBakeMs = performance.now() - start;
     this.pending = pending;

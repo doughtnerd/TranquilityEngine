@@ -44,6 +44,7 @@ export const SKY_UNIFORMS = [
   "fogCol", // rgb horizon/fog colour, w horizon blend 0–1
   "fogShape", // sin(horizon height), whole-sky fog 0–1, -, -
   "nightCol", // rgb night-sky glow
+  "quality", // atmosphere view steps (≤ 12), light steps (≤ 6), cloud octaves (≤ 5), - (`SKY_QUALITY`)
   "skyOut", // multiplier (exposure × skybox intensity), Z flip for baking (1/-1), -, -
 ] as const;
 
@@ -98,9 +99,11 @@ vec3 atmosphere(vec3 r, vec3 sun) {
   float pMie = 3.0 / (8.0 * PI) * ((1.0 - g * g) * (mu * mu + 1.0)) / (pow(max(1.0 + g * g - 2.0 * mu * g, 1e-4), 1.5) * (2.0 + g * g));
   vec3 kR = K_RLH * atmos.x;
   float kM = K_MIE * atmos.y;
+  float n = quality.x;
   for (int i = 0; i < 12; i++) {
-    float fa = float(i) / 12.0;
-    float fb = float(i + 1) / 12.0;
+    if (float(i) >= n) break;
+    float fa = float(i) / n;
+    float fb = float(i + 1) / n;
     float iStart = t0 + len * fa * fa;
     float iStep = len * (fb * fb - fa * fa);
     vec3 iPos = ro + r * (iStart + iStep * 0.5);
@@ -110,11 +113,12 @@ vec3 atmosphere(vec3 r, vec3 sun) {
     // Sunlight that passes through the planet doesn't reach this sample.
     vec2 shade = rsi(iPos, sun, RE);
     float lit = shade.x <= shade.y && shade.x > 0.0 ? 0.0 : 1.0;
-    float jStep = rsi(iPos, sun, RA).y / 6.0;
+    float jStep = rsi(iPos, sun, RA).y / quality.y;
     float jTime = 0.0;
     float jodR = 0.0;
     float jodM = 0.0;
     for (int j = 0; j < 6; j++) {
+      if (float(j) >= quality.y) break;
       vec3 jPos = iPos + sun * (jTime + jStep * 0.5);
       float jHeight = length(jPos) - RE;
       jodR += exp(-jHeight / SH_RLH) * jStep;
@@ -153,6 +157,7 @@ float fbm(vec2 p) {
   float v = 0.0;
   float a = 0.5;
   for (int i = 0; i < 5; i++) {
+    if (float(i) >= quality.z) break;
     v += a * noise2(p);
     p = p * 2.03 + vec2(17.1, 9.2);
     a *= 0.5;
@@ -335,9 +340,11 @@ fn atmosphere(r: vec3f, sun: vec3f) -> vec3f {
   let pMie = 3.0 / (8.0 * PI) * ((1.0 - g * g) * (mu * mu + 1.0)) / (pow(max(1.0 + g * g - 2.0 * mu * g, 1e-4), 1.5) * (2.0 + g * g));
   let kR = K_RLH * uniforms.atmos.x;
   let kM = K_MIE * uniforms.atmos.y;
+  let n = uniforms.quality.x;
   for (var i = 0; i < 12; i++) {
-    let fa = f32(i) / 12.0;
-    let fb = f32(i + 1) / 12.0;
+    if (f32(i) >= n) { break; }
+    let fa = f32(i) / n;
+    let fb = f32(i + 1) / n;
     let iStart = t0 + len * fa * fa;
     let iStep = len * (fb * fb - fa * fa);
     let iPos = ro + r * (iStart + iStep * 0.5);
@@ -346,11 +353,12 @@ fn atmosphere(r: vec3f, sun: vec3f) -> vec3f {
     let odStepM = exp(-iHeight / SH_MIE) * iStep;
     let shade = rsi(iPos, sun, RE);
     let lit = select(1.0, 0.0, shade.x <= shade.y && shade.x > 0.0);
-    let jStep = rsi(iPos, sun, RA).y / 6.0;
+    let jStep = rsi(iPos, sun, RA).y / uniforms.quality.y;
     var jTime = 0.0;
     var jodR = 0.0;
     var jodM = 0.0;
     for (var j = 0; j < 6; j++) {
+      if (f32(j) >= uniforms.quality.y) { break; }
       let jPos = iPos + sun * (jTime + jStep * 0.5);
       let jHeight = length(jPos) - RE;
       jodR += exp(-jHeight / SH_RLH) * jStep;
@@ -390,6 +398,7 @@ fn fbm(p0: vec2f) -> f32 {
   var v = 0.0;
   var a = 0.5;
   for (var i = 0; i < 5; i++) {
+    if (f32(i) >= uniforms.quality.z) { break; }
     v += a * noise2(p);
     p = p * 2.03 + vec2f(17.1, 9.2);
     a *= 0.5;
