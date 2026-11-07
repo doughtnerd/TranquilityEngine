@@ -112,6 +112,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
 | [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
 | [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
+| [0112](decisions/0112-procedural-sky-assets.md) | Procedural skies are `*.sky.json` assets drawn live and baked to a prefiltered cubemap for lighting | Proposed |
+| [0113](decisions/0113-cubemap-environments.md) | Environments take prefiltered `.env`/`.dds` cubes and six-image `*.cubemap.json` assets | Proposed |
+| [0114](decisions/0114-sky-component-and-sun-light.md) | A `Sky` component scripts the procedural sky, and the sky can drive the main directional light | Proposed |
 
 ## Working with decisions
 
