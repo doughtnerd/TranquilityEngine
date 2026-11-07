@@ -7,6 +7,7 @@
 // with a material asset draw as meshes instead (`particleDraw.ts`, `particleMeshes.ts`). Loaded on
 // demand by the renderer, so games without particles never load it. Babylon types stay inside this
 // folder (ADR 0010).
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
@@ -109,6 +110,8 @@ interface Instance {
 
 /** Editor preview: a finished one-shot effect plays again after this many seconds. */
 const PREVIEW_REPEAT_GAP = 0.6;
+/** A warm-up particle's size in metres: drawn, but covering no pixel. */
+const WARM_PARTICLE_SIZE = 1e-5;
 /** Seconds between checks of a built effect's textures. */
 const KEY_CHECK_INTERVAL = 0.25;
 
@@ -374,13 +377,18 @@ export class BabylonParticles {
       if (c.effect) this.warnOnce(`missing|${c.effect}`, `particle effect "${where}" isn't in the project.`);
       return null;
     }
+    return this.compile(raw, where, c);
+  }
+
+  /** Parse and compile an effect; `c`, when it's a system's, has the files it expands from recorded (to rebuild when they change). */
+  private compile(raw: unknown, where: string, c?: ParticleSystem): ParticleProgram | null {
     try {
       const parsed = parseParticleGraph(raw, where);
       // Sub-graphs and custom blocks are inlined first (ADR 0095).
       const expanded = expandParticleGraph(parsed.graph, projectAssets);
       const graph = expanded.graph;
       const problems = [...parsed.problems, ...expanded.problems];
-      this.deps.set(c, expansionDependencies(parsed.graph, projectAssets));
+      if (c) this.deps.set(c, expansionDependencies(parsed.graph, projectAssets));
       const program = compileParticleGraph(graph);
       const plan = this.plan(graph, program, where);
       const onKernel = (at: string | undefined) => !!at && plan.running.some((k) => at === k.id || at.startsWith(`${k.id}.`));
@@ -557,6 +565,65 @@ export class BabylonParticles {
     inst.kdraws = [];
     inst.kfx?.dispose();
     inst.kfx = null;
+  }
+
+  // --- warm-up (ADR 0080) ---------------------------------------------------------------------------------
+
+  /**
+   * @internal The draws an effect makes, as `syncOne` would build them, each holding one particle at
+   * `at` too small to see, so drawing them once makes their shaders' pipelines. `effect` is an asset
+   * path or an embedded effect object. Null while a texture, material or model it needs is loading
+   * (ask again later); empty when it can't be built (missing or broken: the load reports it).
+   */
+  warmDraws(effect: string | object, name: string, at: { x: number; y: number; z: number }, camera: () => Camera | null): Draw[] | null {
+    let raw: unknown = effect;
+    let where = "a particle effect";
+    if (typeof effect === "string") {
+      where = effect.replace(/^asset:/, "");
+      try {
+        raw = Assets.has(effect) ? Assets.json(effect) : Assets.has(where) ? Assets.json(where) : undefined;
+      } catch {
+        raw = undefined;
+      }
+      if (raw === undefined) return [];
+    }
+    const program = this.compile(raw, where);
+    if (!program) return [];
+    const key = this.buildKey(program);
+    if (key === null) return null;
+    const runner = new ProgramRunner(program);
+    const sim = new EffectSimulation(runner.effect(), { live: runner.live });
+    return sim.emitters.map((e) => {
+      const r = e.renderer;
+      const material = this.materialFor(r.material);
+      const found = r.texture && !material ? this.textureFor(r.texture, usesSheet(r)) : null;
+      const texture = found && found !== "failed" ? found : this.dotTexture();
+      const mesh = r.mode === "mesh" ? this.meshFor(r.mesh) : undefined;
+      const d = makeBabylonDraw(this.host.scene, `${name}:${e.name}`, e, 1, texture, texture === this.dot, { material, mesh, camera });
+      const p = e.alloc();
+      p.wx = at.x;
+      p.wy = at.y;
+      p.wz = at.z;
+      p.size = p.length = WARM_PARTICLE_SIZE;
+      p.tileBlend = 0;
+      if (r.mode === "trail") {
+        // Two trail points, so the ribbon has a segment to draw.
+        p.trail = new Float32Array([at.x, at.y, at.z, at.x, at.y + WARM_PARTICLE_SIZE, at.z]);
+        p.trailCap = 2;
+        p.trailCount = 2;
+        p.trailHead = 0;
+      }
+      d.update();
+      return d;
+    });
+  }
+
+  /** @internal The variant report: the ParticleSystem a draw's Babylon particle system or mesh belongs to, if any. */
+  ownerOf(drawn: object): ParticleSystem | null {
+    for (const [c, inst] of this.instances) {
+      for (const d of inst.draws) if (d.ps === drawn || (d as { mesh?: unknown }).mesh === drawn) return c;
+    }
+    return null;
   }
 
   /** @internal Tests: a system's draws. */

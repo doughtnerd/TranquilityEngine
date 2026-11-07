@@ -1,12 +1,12 @@
 /**
- * ADR 0080: the prefab and material files a script names in string literals, so scene loads warm
+ * ADR 0080: the prefab, material and particle effect files a script names in string literals, so scene loads warm
  * them up. No imports, so the exporter (Node) can use it as well as the editor.
  */
 
-/** A string literal (quotes, or a backtick without substitutions) naming a prefab or material file. */
-const LITERAL = /(["'`])((?:asset:)?[\w./ -]+\.(?:prefab|material)\.json)\1/g;
+/** A string literal (quotes, or a backtick without substitutions) naming a prefab, material or particle effect file. */
+const LITERAL = /(["'`])((?:asset:)?[\w./ -]+\.(?:prefab|material|particles)\.json)\1/g;
 
-/** Asset paths (without `asset:`) the string literals of a script's source name: prefab and material files only. */
+/** Asset paths (without `asset:`) the string literals of a script's source name: prefab, material and particle effect files only. */
 export function scriptAssetRefs(source: string): string[] {
   const out = new Set<string>();
   for (const m of source.matchAll(LITERAL)) out.add(m[2]!.replace(/^asset:/, ""));

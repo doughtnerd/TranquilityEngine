@@ -92,8 +92,9 @@ import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatche
 import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
 import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
 import { AsyncPipelines } from "./asyncPipelines";
-import { effectClock, PipelineWarmer, VariantReport, WARM_PREFIX } from "./warmUp";
-import type { WarmMesh } from "../../scene/warmUp";
+import { effectClock, PipelineWarmer, VariantReport, WARM_PREFIX, type ParticleSystemLike, type WarmCustom, type WarmItem, type WarmParts } from "./warmUp";
+import type { WarmContent, WarmEffect } from "../../scene/warmUp";
+import type { QualityTier } from "../../core/graphics";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 
 interface SpriteEntry {
@@ -222,6 +223,18 @@ export function matrixChanged(entry: { matrix: Float32Array | null }, source: Ar
 }
 
 /** A CSS colour string or 0xRRGGBB number as a Babylon colour (gamma space, for clearing). */
+/** World-space UI canvases' planes are named with this (`ui.ts`). */
+const CANVAS_PREFIX = "myco.canvas.";
+
+/**
+ * @internal The tier settings that change the pipelines draws need (ADR 0080): the sample count, the
+ * passes (post-processing, ambient occlusion, depth of field, bloom), shadow maps and cascades, the
+ * shader level graph materials compile for, and probe captures. Not the render scale or particle budget.
+ */
+export function pipelineTierKey(t: Readonly<QualityTier>): string {
+  return [t.antialias, t.shadows, t.shadowCascades, t.shaderLevel, t.postProcessing, t.bloom, t.ambientOcclusion, t.depthOfField, t.reflectionProbes].join("|");
+}
+
 function clearColorOf(v: string | number): Color4 {
   if (typeof v === "number") return Color4.FromColor3(Color3.FromInts((v >> 16) & 255, (v >> 8) & 255, v & 255), 1);
   const hex = /^#([0-9a-f]{6})$/i.test(v) ? v : /^#([0-9a-f]{3})$/i.test(v) ? "#" + [...v.slice(1)].map((c) => c + c).join("") : "#000000";
@@ -275,8 +288,8 @@ export class BabylonRenderer {
   private readonly effects: { ms(): number; dispose(): void };
   /** ADR 0080: editor play mode's log of shader variants compiled after loading; null when off. */
   private report: VariantReport | null = null;
-  /** The quality tier version the warm-up last ran for (-1 before the first frame). */
-  private warmedVersion = -1;
+  /** The tier settings the warmed pipelines were made for (`pipelineTierKey`). */
+  private warmedTier = pipelineTierKey(Graphics.tier);
   /** How many probes had captured when the warm-up last covered their copies. */
   private warmedProbes = 0;
   /** When `render` last drew a frame: a warm-up only waits while frames are being drawn. */
@@ -327,6 +340,9 @@ export class BabylonRenderer {
   private uiCore: UICore | null = null;
   private uiDraw: BabylonUI | null = null;
   private uiLoading = false;
+  /** The UI drawing module loaded for the warm-up (a world canvas's plane) before the World had UI. */
+  private uiDrawModule: typeof import("./ui") | null = null;
+  private uiDrawLoading: Promise<unknown> | null = null;
   /** The UI modules, once loaded (the camera preview builds its own core and drawing from them). */
   private uiModules: { core: typeof import("../../ui/UICore"); draw: typeof import("./ui") } | null = null;
   /**
@@ -398,7 +414,7 @@ export class BabylonRenderer {
     this.defaultMaterial.roughness = 0.5;
     // Before the warmer, which asks whether compiles are async. Only while it's busy: everywhere else a
     // missing pipeline is made as Babylon makes it, so what's drawn never skips a frame.
-    this.asyncPipelines = AsyncPipelines.install(this.engine, () => this.warmer?.busy ?? false);
+    this.asyncPipelines = AsyncPipelines.install(this.engine, () => this.warmer?.drawing ?? false);
     this.effects = effectClock(this.engine);
     this.warmer = new PipelineWarmer({
       scene,
@@ -424,9 +440,69 @@ export class BabylonRenderer {
    * they're shown. Resolves when they've drawn, or at once while no frames are being drawn (a World's
    * first scene, loaded before the engine starts): they're drawn over the first frames instead.
    */
-  warmUp(meshes: readonly WarmMesh[]): Promise<void> {
-    const done = this.warmer.add(meshes);
+  warmUp(set: WarmContent): Promise<void> {
+    const items: WarmItem[] = [...set.meshes];
+    for (const e of set.effects) items.push(this.warmEffect(e));
+    if (set.worldUI) items.push(this.warmWorldCanvas());
+    const done = this.warmer.add(items);
     return performance.now() - this.lastRenderAt < 500 ? done : Promise.resolve();
+  }
+
+  /** A particle effect to warm: its draws, built by the particle player (loaded now if it isn't). */
+  private warmEffect(effect: WarmEffect): WarmCustom {
+    const name = `${WARM_PREFIX}particles:${typeof effect === "string" ? effect : "embedded"}`;
+    return {
+      key: typeof effect === "string" ? name : `${name}:${JSON.stringify(effect)}`,
+      build: (_at, position, camera) => {
+        const particles = this.loadParticles();
+        const draws = particles?.warmDraws(effect, name, position, () => camera);
+        if (!draws) return null; // the player, or a texture or model, is still loading
+        const meshes: Mesh[] = [];
+        const systems: { render(): number; isReady(): boolean }[] = [];
+        for (const d of draws) {
+          if (d.kind === "system") systems.push(d.ps as unknown as { render(): number; isReady(): boolean });
+          else meshes.push((d as unknown as { mesh: Mesh }).mesh);
+        }
+        return {
+          meshes,
+          systems,
+          ready: () => meshes.every((m) => m.isReady(true)) && systems.every((s) => s.isReady()),
+          dispose: () => draws.forEach((d) => d.dispose()),
+        };
+      },
+    };
+  }
+
+  /** A world-space UI canvas's plane to warm (ADR 0076): the GUI's material on a plane (the UI drawing loads now if it isn't). */
+  private warmWorldCanvas(): WarmCustom {
+    return {
+      key: "worldUI",
+      build: (at) => {
+        const ui = this.loadUIDraw();
+        if (!ui) return null;
+        const parts: WarmParts = ui.warmWorldCanvas(this.scene, `${WARM_PREFIX}canvas`, at);
+        return parts;
+      },
+    };
+  }
+
+  /** The UI drawing module for the warm-up, or null while it loads (the first call starts loading it). */
+  private loadUIDraw(): typeof import("./ui") | null {
+    if (this.uiModules) return this.uiModules.draw;
+    if (!this.uiDrawLoading) {
+      this.uiDrawLoading = import("./ui")
+        .then((m) => (this.uiDrawModule = m))
+        .catch((err) => console.error("[myco] the UI couldn't load for the warm-up:", err));
+    }
+    return this.uiDrawModule;
+  }
+
+  /** The tier changed what draws need (MSAA, passes, shadows, shader level): draw what this World warmed again in the new passes. */
+  private rewarmOnTierChange(): void {
+    const key = pipelineTierKey(Graphics.tier);
+    if (key === this.warmedTier) return;
+    this.warmedTier = key;
+    void this.warmer.rewarm();
   }
 
   /** Editor play mode: log shader variants compiled after loading, naming their node and prefab (ADR 0080). */
@@ -437,13 +513,19 @@ export class BabylonRenderer {
   }
 
   /** The node (and prefab) a renderer's mesh belongs to, for the variant report; null for other meshes. */
-  private describeMesh(mesh: AbstractMesh): { what: string; prefab?: string } | null {
-    for (const [r, e] of this.meshRenderers) {
-      if (!e.meshes.includes(mesh) && !e.drawables.some((d) => d.source === mesh)) continue;
+  private describeMesh(drawn: AbstractMesh | ParticleSystemLike): { what: string; prefab?: string } | null {
+    const of = (node: GameObject, what: string, asset?: string) => {
       let prefab: string | undefined;
-      for (let n: GameObject | null = r.node; n && !prefab; n = n.parent) prefab = _instantiatedPrefabOf(n);
-      return prefab ? { what: `"${r.node.name}" (from ${prefab})`, prefab } : { what: `"${r.node.name}"` };
+      for (let n: GameObject | null = node; n && !prefab; n = n.parent) prefab = _instantiatedPrefabOf(n);
+      if (prefab) return { what: `${what} (from ${prefab})`, prefab };
+      return asset ? { what, prefab: asset } : { what };
+    };
+    for (const [r, e] of this.meshRenderers) {
+      if (e.meshes.includes(drawn as AbstractMesh) || e.drawables.some((d) => d.source === drawn)) return of(r.node, `"${r.node.name}"`);
     }
+    const system = this.particles?.ownerOf(drawn);
+    if (system) return of(system.node, `The particle effect of "${system.node.name}"`, system.effect ? system.effect.replace(/^asset:/, "") : undefined);
+    if (drawn.name.startsWith(CANVAS_PREFIX)) return { what: `The world-space UI canvas "${drawn.name.slice(CANVAS_PREFIX.length)}"` };
     return null;
   }
 
@@ -741,11 +823,7 @@ export class BabylonRenderer {
 
   render(world: World): void {
     this.claim(world);
-    // A new quality tier changes the passes (shadows, cascades, probes): warm what's been warmed again (ADR 0080).
-    if (Graphics._version !== this.warmedVersion) {
-      if (this.warmedVersion >= 0) void this.warmer.rewarm();
-      this.warmedVersion = Graphics._version;
-    }
+    this.rewarmOnTierChange();
     this.reflecting = 0;
     this.graphShared.time = world.time.time;
     this.graphShared.resolution = [this.engine.getRenderWidth(), this.engine.getRenderHeight()];
@@ -813,7 +891,15 @@ export class BabylonRenderer {
   private syncParticles(world: World): void {
     const systems = world._componentsOfType(ParticleSystem);
     if (!this.particles) {
-      if (!systems.length || this.particlesLoading) return;
+      if (systems.length) this.loadParticles();
+      return;
+    }
+    this.particles.sync(systems, world.time.deltaTime, world.time.unscaledDeltaTime);
+  }
+
+  /** The particle player, or null while it loads (the first call starts loading it). */
+  private loadParticles(): BabylonParticles | null {
+    if (!this.particles && !this.particlesLoading && !this.disposed) {
       this.particlesLoading = true;
       import("./particles")
         .then((m) => {
@@ -823,7 +909,7 @@ export class BabylonRenderer {
             editor: this.fill,
             worldMatrix: (c) => {
               const e = c.node.entity;
-              return (this.owner ?? world).worldMatrix(e).subarray(e * 16, e * 16 + 16);
+              return this.owner!.worldMatrix(e).subarray(e * 16, e * 16 + 16);
             },
             selected: (c) => this.selectedNodes.has(c.node),
             texture: (path, sheet) => this.texture(path, sheet),
@@ -831,7 +917,7 @@ export class BabylonRenderer {
             material: (path) => this.materialAsset(path), // shared with MeshRenderers; null while missing
             // 3D physics only; null while the World has none (loaded later by a scene)
             raycast: (ox, oy, oz, dx, dy, dz, maxDistance) => {
-              const hit = world.physics3D?.raycast({ x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, maxDistance);
+              const hit = this.owner?.physics3D?.raycast({ x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, maxDistance);
               return hit ? { point: [hit.point.x, hit.point.y, hit.point.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance } : null;
             },
           });
@@ -839,9 +925,8 @@ export class BabylonRenderer {
         })
         .catch((err) => console.error("[myco] particles couldn't start on the Babylon backend:", err))
         .finally(() => (this.particlesLoading = false));
-      return;
     }
-    this.particles.sync(systems, world.time.deltaTime, world.time.unscaledDeltaTime);
+    return this.particles;
   }
 
   /** Editor: the selected nodes, for the particle preview. */

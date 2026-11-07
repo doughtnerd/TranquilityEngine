@@ -265,20 +265,7 @@ export class BabylonUI {
 
   private createWorldCanvas(c: UILaidOutCanvas): CanvasEntry {
     const name = `myco.canvas.${c.comp.owner.name}`;
-    const mesh = CreatePlane(name, { width: Math.max(1e-6, c.width * c.pixelSize), height: Math.max(1e-6, c.height * c.pixelSize) }, this.scene);
-    mesh.isPickable = false;
-    mesh.doNotSyncBoundingInfo = false;
-    const w = Math.max(1, Math.round(c.width * WORLD_RESOLUTION));
-    const h = Math.max(1, Math.round(c.height * WORLD_RESOLUTION));
-    // Facing: the plane's UVs run +x right and +y up, so seen from the node's +Z the texture reads upright.
-    // The material doesn't cull, so the winding doesn't matter (the back reads mirrored, as a sign does).
-    const adt = AdvancedDynamicTexture.CreateForMesh(mesh, w, h, false);
-    quiet(adt);
-    const material = mesh.material as StandardMaterial | null;
-    if (material) {
-      material.disableLighting = true;
-      material.backFaceCulling = false;
-    }
+    const { mesh, adt } = worldCanvasPlane(this.scene, name, c.width * c.pixelSize, c.height * c.pixelSize, Math.round(c.width * WORLD_RESOLUTION), Math.round(c.height * WORLD_RESOLUTION));
     const root = new Container(name);
     placeBox(root);
     adt.addControl(root);
@@ -598,6 +585,44 @@ function placeBox(c: Control): void {
     c.transformCenterX = 0;
     c.transformCenterY = 0;
   }
+}
+
+/**
+ * A world canvas's plane (`width` x `height` metres) and its GUI texture (`w` x `h` pixels).
+ * Facing: the plane's UVs run +x right and +y up, so seen from the node's +Z the texture reads upright.
+ * The material doesn't cull, so the winding doesn't matter (the back reads mirrored, as a sign does).
+ */
+function worldCanvasPlane(scene: Scene, name: string, width: number, height: number, w: number, h: number): { mesh: Mesh; adt: AdvancedDynamicTexture } {
+  const mesh = CreatePlane(name, { width: Math.max(1e-6, width), height: Math.max(1e-6, height) }, scene);
+  mesh.isPickable = false;
+  mesh.doNotSyncBoundingInfo = false;
+  const adt = AdvancedDynamicTexture.CreateForMesh(mesh, Math.max(1, w), Math.max(1, h), false);
+  quiet(adt);
+  const material = mesh.material as StandardMaterial | null;
+  if (material) {
+    material.disableLighting = true;
+    material.backFaceCulling = false;
+  }
+  return { mesh, adt };
+}
+
+/**
+ * @internal ADR 0080: a world canvas's plane for the warm-up, made as `createWorldCanvas` makes one
+ * (the GUI's material: emissive and opacity from its texture, unlit, not culled) and placed at `at`,
+ * so drawing it once makes the pipelines world-space UI draws with.
+ */
+export function warmWorldCanvas(scene: Scene, name: string, at: Matrix): { meshes: Mesh[]; systems: never[]; ready(): boolean; dispose(): void } {
+  const { mesh, adt } = worldCanvasPlane(scene, name, 1, 1, 2, 2);
+  mesh.freezeWorldMatrix(at);
+  return {
+    meshes: [mesh],
+    systems: [],
+    ready: () => mesh.isReady(true),
+    dispose: () => {
+      adt.dispose();
+      mesh.dispose(false, true);
+    },
+  };
 }
 
 /** The engine owns the pointer and the keyboard: Babylon's handling is off. */
