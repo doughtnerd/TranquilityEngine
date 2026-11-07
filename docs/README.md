@@ -154,6 +154,8 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0115](decisions/0115-sprite-editor-9-slice-undo-and-per-platform-import.md) | Sprites draw 9-sliced from a slice's border; the Sprite Editor gets border guides, undo/redo and slice search; import sidecars gain per-platform overrides, `maxSize` and `compression` (the last two advisory) | Proposed |
 | [0116](decisions/0116-editor-themes-display-scaling-layer-rename-and-history-pruning.md) | Theme import/export and per-project themes, bundled fonts and a light logo; display scaling; project-wide layer rename; persisted desktop folder access; age-based history pruning | Proposed |
 | [0117](decisions/0117-shader-graph-search-node-preview-shapes-and-scene-thumbnails.md) | Shader graph find, per-node preview shapes, and camera-view scene thumbnails | Proposed |
+| [0122](decisions/0122-rename-and-deactivate-inside-instances-and-open-prefab-from-an-instance.md) | Rename and deactivate nodes inside a prefab instance (overrides Apply writes), and Open Prefab from an instance in its own tab | Proposed |
+| [0123](decisions/0123-per-component-field-migrations.md) | Per-component field migrations with component versions recorded per file | Proposed (not to be built yet) |
 
 ## Working with decisions
 
