@@ -17,6 +17,8 @@ import { layerGroups } from "./layers";
 import { cleanPoints, convexParts } from "./polygon";
 import { CollisionEvents2D, TriggerEvents2D } from "./physics2dSystems";
 import { RigidBody2D } from "./RigidBody2D";
+import { TilemapCollider2D } from "../tilemap/TilemapCollider2D";
+import { TilemapPhysics2D } from "./tilemapPhysics2D";
 
 /** @internal */
 export interface BodyHandleState {
@@ -51,11 +53,25 @@ export class Physics2DWorld {
   private readonly events = new RAPIER.EventQueue(true);
   private readonly colliderByHandle = new Map<number, Collider2D>();
   private readonly layerGroups = new Map<string, number>();
+  /** Tilemap colliders and one-way platforms (ADR 0105). */
+  private readonly tilemaps: TilemapPhysics2D;
+  private readonly hooks: RAPIER.PhysicsHooks;
 
   constructor(private readonly world: World) {
     const [gx, gy] = world.settings.physics.gravity;
     this.rapier = new RAPIER.World({ x: gx, y: gy });
     this.buildLayerGroups();
+    this.tilemaps = new TilemapPhysics2D({
+      rapier: this.rapier,
+      world,
+      groupsFor: (layer) => this.groupsFor(layer),
+      register: (handle, c) => this.colliderByHandle.set(handle, c),
+      unregister: (handle) => this.colliderByHandle.delete(handle),
+    });
+    this.hooks = {
+      filterContactPair: (c1, c2) => this.tilemaps.filter(c1, c2),
+      filterIntersectionPair: () => true,
+    };
   }
 
   get gravity(): { x: number; y: number } {
@@ -176,6 +192,7 @@ export class Physics2DWorld {
   }
 
   private pushCollider(c: Collider2D): void {
+    if (c instanceof TilemapCollider2D) return this.tilemaps.push(c);
     const active = c.isActiveAndEnabled;
     const body = active ? c.attachedRigidbody : null;
     const t = c.node.transform;
@@ -289,7 +306,8 @@ export class Physics2DWorld {
   /** @internal */
   step(dt: number): void {
     this.rapier.timestep = dt;
-    this.rapier.step(this.events);
+    this.tilemaps.beforeStep(dt);
+    this.rapier.step(this.events, this.tilemaps.hasOneWay ? this.hooks : undefined);
   }
 
   /** @internal */
@@ -322,7 +340,7 @@ export class Physics2DWorld {
   /** Call the hook on active behaviors of `self`'s node, owner and body node. */
   private notify(self: Collider2D, other: Collider2D, trigger: boolean, started: boolean): void {
     const nodes = new Set([self.node.entity, self.owner.entity]);
-    const body = self._state?.body;
+    const body = self._state?.body ?? (self instanceof TilemapCollider2D ? self._tileState?.body : null);
     if (body?.node.isValid) nodes.add(body.node.entity);
     const hook = trigger ? (started ? "onTriggerEnter" : "onTriggerExit") : started ? "onCollisionEnter" : "onCollisionExit";
     const collision: Collision2D | null = trigger
@@ -370,6 +388,7 @@ export class Physics2DWorld {
     // Colliders attached to this body go with it; they are recreated (as static or on another body) next push.
     for (const c of this.world._componentsOfType(Collider2D)) {
       if (c._state?.body === rb) this.releaseCollider(c);
+      else if (c instanceof TilemapCollider2D && c._tileState?.body === rb) this.tilemaps.release(c);
     }
     this.rapier.removeRigidBody(st.body);
     rb._state = null;
@@ -377,6 +396,7 @@ export class Physics2DWorld {
 
   /** @internal */
   releaseCollider(c: Collider2D): void {
+    if (c instanceof TilemapCollider2D) return this.tilemaps.release(c);
     const st = c._state;
     if (!st) return;
     this.colliderByHandle.delete(st.collider.handle);
