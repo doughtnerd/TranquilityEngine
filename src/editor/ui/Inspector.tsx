@@ -1,4 +1,6 @@
 import { errorStatus } from "../messages";
+import { isSkyPath } from "../../engine/sky/skyFormat";
+import { openSkyAsset } from "../skyAssets";
 import { signal } from "@preact/signals";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
@@ -548,6 +550,8 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
           overrides={info.fields.find((f) => f.name === "overrides")?.value}
         />
       )}
+      {/* An Environment using a procedural sky opens it in the Sky panel (ADR 0112). */}
+      {info.type === "engine.Environment" && <EditSkyButton map={String(info.fields.find((f) => f.name === "map")?.value ?? "")} />}
       {/* A NavChunk bakes from here (ADR 0065). */}
       {info.type === "engine.NavChunk" && paths.length === 1 && paths[0].length === 1 && <NavChunkPlanSummary scene={scene} nodeId={paths[0][0]} />}
       {info.type === "engine.NavChunk" && paths.length === 1 && paths[0].length === 1 && <NavChunkBake scene={scene} nodeId={paths[0][0]} />}
@@ -1277,4 +1281,17 @@ function formatNumber(n: number): string {
 /** `orderInLayer` → "Order In Layer". */
 function humanize(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
+}
+
+/** "Edit sky" under an Environment whose map is a sky asset in the project. */
+function EditSkyButton({ map }: { map: string }) {
+  const path = map.replace(/^asset:/, "");
+  if (!isSkyPath(path) || !currentProject.value?.files.includes(path)) return null;
+  return (
+    <div class="prefab-actions">
+      <button type="button" onClick={() => openSkyAsset(path)} title={`Open ${path} in the Sky panel`}>
+        Edit sky
+      </button>
+    </div>
+  );
 }
