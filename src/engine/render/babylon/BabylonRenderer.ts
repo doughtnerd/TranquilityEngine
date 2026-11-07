@@ -91,7 +91,7 @@ import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelBaseM
 import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
 import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
 import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
-import { AsyncPipelines } from "./asyncPipelines";
+import { AsyncPipelines, FirstFrames } from "./asyncPipelines";
 import { effectClock, PipelineWarmer, VariantReport, WARM_PREFIX, type ParticleSystemLike, type WarmCustom, type WarmItem, type WarmParts } from "./warmUp";
 import type { WarmContent, WarmEffect, WarmMesh } from "../../scene/warmUp";
 import type { QualityTier } from "../../core/graphics";
@@ -282,6 +282,12 @@ export class BabylonRenderer {
   private readonly defaultMaterial: PBRMaterial;
   /** ADR 0080: draws queued meshes once, hidden, so their shader pipelines exist before they're shown. */
   private readonly warmer: PipelineWarmer;
+  /** A World's first frames, held while their pipelines compile asynchronously (ADR 0120). */
+  private readonly firstFrames = new FirstFrames();
+  /** True while the frame graph runs in a held first frame: `AsyncPipelines` skips any draw then, not just the warmer's. */
+  private firstFrameDrawing = false;
+  /** Whether the World's textures and models had all loaded at the last sync (a held first frame waits for them). */
+  private contentLoaded = false;
   /** WebGPU: the warm-up's pipelines compile asynchronously while the warmer is busy (no frame waits for them); null elsewhere. */
   private readonly asyncPipelines: AsyncPipelines | null;
   /** Time spent creating effects, which sizes the warm-up's batches. */
@@ -414,7 +420,8 @@ export class BabylonRenderer {
     this.defaultMaterial.roughness = 0.5;
     // Before the warmer, which asks whether compiles are async. Only while it's busy: everywhere else a
     // missing pipeline is made as Babylon makes it, so what's drawn never skips a frame.
-    this.asyncPipelines = AsyncPipelines.install(this.engine, () => this.warmer?.drawing ?? false);
+    // A World's first frames (ADR 0120) use it for every draw of the frame graph.
+    this.asyncPipelines = AsyncPipelines.install(this.engine, () => (this.warmer?.drawing ?? false) || this.firstFrameDrawing, () => !(this.warmer?.drawing ?? false));
     this.effects = effectClock(this.engine);
     this.warmer = new PipelineWarmer({
       scene,
@@ -749,6 +756,7 @@ export class BabylonRenderer {
     this.lighting.syncEnvironment(world, view?.far ?? 1000);
     let ready = this.loading.size === 0;
     if (ready) for (const m of this.meshRenderers.values()) if (m.sources === null) { ready = false; break; }
+    this.contentLoaded = ready;
     this.probeMeshes.length = 0;
     for (const m of this.scene.meshes) if ((m.layerMask & EDITOR_LAYER_MASK) === 0) this.probeMeshes.push(m);
     this.probes.sync(world, this.probeMeshes, ready);
@@ -879,8 +887,22 @@ export class BabylonRenderer {
     this.sky.bake(); // before the frame graph runs, like probe captures
     if (views.length) this.probes.capture(views[0].camera); // before the frame graph runs
     this.warmer.beforeRender(views[0]?.camera ?? null, this.casters);
-    if (views.length) this.frame.render(views, this.shadows, this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
-    if (!views.length || !this.frame.ready) engine.clear(this.clearColor, true, true, true);
+    let held = false;
+    if (views.length) {
+      // A World's first frames (ADR 0120): every missing pipeline compiles asynchronously, and a frame missing a draw is held on the clear colour.
+      const first = !!this.asyncPipelines && this.firstFrames.begin(this.frame.ready, performance.now());
+      const skipped = this.asyncPipelines?.skippedShown ?? 0;
+      this.firstFrameDrawing = first;
+      try {
+        this.frame.render(views, this.shadows, this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
+      } finally {
+        this.firstFrameDrawing = false;
+      }
+      // A layout change rebuilds the graph instead of running it: that frame shows the clear colour and doesn't count.
+      if (first && this.frame.ready) held = this.firstFrames.end(this.asyncPipelines!.skippedShown > skipped, this.contentLoaded && !this.uiLoading, performance.now());
+      if (held) engine.restoreDefaultFramebuffer();
+    }
+    if (!views.length || !this.frame.ready || held) engine.clear(this.clearColor, true, true, true);
     engine.endFrame();
     if (views.length && this.frame.ready) {
       this.warmer.afterRender();

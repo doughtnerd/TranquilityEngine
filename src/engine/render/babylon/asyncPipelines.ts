@@ -10,6 +10,10 @@
  * async compile with the state Babylon has just set up for it, and that one draw is skipped; once the
  * pipeline is in Babylon's cache, draws with that state find it there.
  *
+ * A World's first frames (`FirstFrames`, ADR 0120) use the same path for every draw of the frame graph,
+ * Babylon's own post-process passes and the screen UI layer included, and are held on the clear colour
+ * while any was skipped.
+ *
  * Relies on Babylon internals (`_cacheRenderPipeline`, `_lookupRenderPipeline`, `_buildRenderPipelineDescriptor`,
  * `_setRenderPipeline`, `_parameter.token`, `WebGPUEngine._draw`): re-check on each Babylon upgrade.
  */
@@ -59,8 +63,10 @@ export class AsyncPipelines {
   compiled = 0;
   /** Draws skipped while their pipeline compiled. */
   skipped = 0;
+  /** Of those, draws that weren't the warmer's own (`shown()`): content a held first frame (`FirstFrames`) would have shown. */
+  skippedShown = 0;
 
-  private constructor(cache: PipelineCache, device: GPUDevice, engine: WebGPUInternals, active: () => boolean) {
+  private constructor(cache: PipelineCache, device: GPUDevice, engine: WebGPUInternals, active: () => boolean, shown: () => boolean) {
     const lookupOriginal = cache.getRenderPipeline;
     const drawOriginal = engine._draw!;
     // Only a mesh draw (`_draw`) can be skipped. Babylon asks the cache from elsewhere too (the clear
@@ -89,6 +95,7 @@ export class AsyncPipelines {
         this.pending.set(token, done);
       }
       this.skipped++;
+      if (shown()) this.skippedShown++;
       throw SKIP;
     };
     engine._draw = (...args: unknown[]) => {
@@ -108,12 +115,12 @@ export class AsyncPipelines {
   }
 
   /** Hook `engine`'s pipeline cache; null where it can't be (the warmer then compiles as Babylon does, stalling). */
-  static install(engine: AbstractEngine, active: () => boolean): AsyncPipelines | null {
+  static install(engine: AbstractEngine, active: () => boolean, shown: () => boolean = () => false): AsyncPipelines | null {
     const e = engine as unknown as WebGPUInternals;
     const cache = e._cacheRenderPipeline;
     if (!enabled || !engine.isWebGPU || !cache || !e._device || typeof e._draw !== "function") return null;
     if (typeof cache._lookupRenderPipeline !== "function" || typeof cache._buildRenderPipelineDescriptor !== "function" || typeof cache._setRenderPipeline !== "function") return null;
-    return new AsyncPipelines(cache, e._device, e, active);
+    return new AsyncPipelines(cache, e._device, e, active, shown);
   }
 
   /** Compiles still running. */
@@ -128,5 +135,53 @@ export class AsyncPipelines {
 
   dispose(): void {
     this.restore();
+  }
+}
+
+/** How long, at most, a World's first frames are held while their pipelines compile. */
+const HOLD_MS = 3000;
+
+/**
+ * @internal ADR 0120: a World's first frames. Its frame graph's first runs compile every pipeline they
+ * need at once (the scene's meshes in each pass, Babylon's post-process passes, the screen UI layer):
+ * blocking, that was a frame of several hundred milliseconds as a new World appeared, and more as its
+ * textures, models and UI arrived. Instead, until the World's content has loaded and a frame draws
+ * complete, every draw whose pipeline is missing compiles asynchronously and is skipped
+ * (`AsyncPipelines`), and every frame is covered with the clear colour, as the frames before its graph
+ * was ready were. A time limit ends it too, after which pipelines compile as Babylon makes them.
+ * Rebuilding the graph later (a resize, a camera's effects changing) doesn't hold: there's a picture on
+ * screen to keep.
+ */
+export class FirstFrames {
+  private started = -1;
+  private over = false;
+
+  constructor(private readonly maxMs = HOLD_MS) {}
+
+  /** Whether the World's first frames are over. */
+  get done(): boolean {
+    return this.over;
+  }
+
+  /** Before a frame: whether its graph runs with missing pipelines compiled asynchronously (`graphReady`: the frame graph will run this frame). */
+  begin(graphReady: boolean, now: number): boolean {
+    if (this.over) return false;
+    if (this.started < 0) this.started = now;
+    return graphReady;
+  }
+
+  /**
+   * After a frame `begin` said to run so: whether to cover it with the clear colour. `skipped`: a draw
+   * that would have shown was skipped; `loaded`: the World's textures, models and UI have loaded.
+   */
+  end(skipped: boolean, loaded: boolean, now: number): boolean {
+    if (this.over) return false;
+    if (!skipped && loaded) {
+      this.over = true; // complete: show it
+      return false;
+    }
+    if (now - this.started < this.maxMs) return true;
+    this.over = true; // give up holding: later frames compile as they draw
+    return skipped;
   }
 }
