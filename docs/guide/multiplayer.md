@@ -507,7 +507,7 @@ From [implementation status](../architecture/implementation-status.md) and [open
 - **Snapshot rate and size.** Set them per server World: `"replication": { "sendRate": 20, "maxSnapshotBytes": 1200 }` on its World config or template (ADR 0101). At a lower send rate, raise clients' `interpolationMs` so they always have two snapshots to blend.
 - **Prediction** covers data components, behavior fields and the transform moved by `predicted` systems. Behaviors aren't re-simulated, and physics isn't predicted.
 - WebSocket carries unreliable messages over TCP, so packet loss delays them instead of dropping them. WebRTC, which would fix that, needs a signalling server and is deferred.
-- **Interest management** checks every distance-limited ghost against every connection each snapshot (fine for thousands of ghosts and 64 connections; there's no spatial grid). A scene ghost out of relevance stays on clients deactivated with its last values. There's no custom relevancy function and no distance-scaled priority.
+- **Interest management** checks every distance-limited ghost against every connection each snapshot (fine for thousands of ghosts and 64 connections; there's no spatial grid). A scene ghost out of relevance stays on clients deactivated with its last values. A spatial grid, a custom relevancy function and distance-scaled priority are proposed, not built.
 - Not built: lag compensation, host migration, a single-World host, client-authoritative modes.
 - Bandwidth per ghost type counts each ghost's spawn and state bits; snapshot headers and despawns aren't attributed to any type.
 - A client World and a server World can't be the same World, and one World can't be both a client and a server (a relay).

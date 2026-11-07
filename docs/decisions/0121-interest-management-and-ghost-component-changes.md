@@ -73,9 +73,15 @@ Nothing. (0033's "all ghosts to every connection" becomes the default case: no d
 
 ## Open questions
 
-- A spatial grid for very many ghosts; per-connection send rates (0101).
-- Relevancy-scaled priority (closer ghosts sent more often) on top of `importance`.
-- A custom relevancy filter function.
+**Proposed updates (not built; tracked in [open-questions.md](../architecture/open-questions.md)):**
+
+- **Spatial grid** (O19) — bucket ghosts in a uniform grid behind the same `relevantDistance` API, for very many ghosts.
+- **Custom relevancy filter** (O20) — an optional per-World `(connection, ghost) => boolean` after distance and group.
+- **Distance-scaled priority** (O21) — closer relevant ghosts sent more often, on top of `importance`.
+- **Order among all siblings** (O22) — today only the order among sibling ghosts replicates.
+- **Reordering from game code** (O23) — a public `GameObject.setSiblingIndex`; only the editor and UI reorder today.
+
+Also left out: per-connection send rates (0101's open question).
 
 ## References
 
