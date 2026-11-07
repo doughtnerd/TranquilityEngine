@@ -26,7 +26,7 @@ We will add two override forms. `addNodes: NodeEntry[]` is a flat subtree in the
 
 **Negative / costs**
 - `$node` references from an added node resolve within the added nodes and to top-level scene nodes only, not to prefab-internal nodes.
-- The Hierarchy's delete/create commands for rows inside an instance are not yet routed to these helpers (API and loader are done).
+- ~~The Hierarchy's delete/create commands for rows inside an instance are not yet routed to these helpers.~~ Done: `deleteSelection.ts` and `nodeCreate.ts` call them.
 
 ## Deprecates
 

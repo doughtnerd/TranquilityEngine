@@ -1,6 +1,6 @@
 # 0017. User systems and data components in v1; no engine event system
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0032 (several Worlds, each with its own loop, clock and tick rate)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0007)
