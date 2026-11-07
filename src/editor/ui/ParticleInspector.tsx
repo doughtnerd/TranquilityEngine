@@ -2,6 +2,7 @@
 // Assets panel (a summary), and under a ParticleSystem component the effect's exposed properties as
 // per-instance overrides. Effects are edited in the Particle Graph panel, not here.
 import type { ComponentChildren } from "preact";
+import { expandParticleGraph, projectAssets } from "../../engine/scene/particleSubgraphs";
 import type { GraphProperty, ParticleGraph } from "../../engine/scene/particleGraph";
 import { compileParticleGraph } from "../../engine/scene/particleCompile";
 import type { CurveKey, ParticleColor, ParticleGradient } from "../../engine/scene/particles";
@@ -18,7 +19,7 @@ import { LargePreview } from "./AssetPreview";
 
 /** Problems of a graph: its parse problems plus what compiling it reports. */
 function allProblems(graph: ParticleGraph, parse: { message: string }[]): string[] {
-  const compiled = compileParticleGraph(graph).problems.map((p) => p.message);
+  const compiled = compileParticleGraph(expandParticleGraph(graph, projectAssets).graph).problems.map((p) => p.message);
   return [...new Set([...parse.map((p) => p.message), ...compiled])];
 }
 

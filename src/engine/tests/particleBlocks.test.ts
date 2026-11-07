@@ -11,7 +11,8 @@ describe("particle block registry (ADR 0060)", () => {
     for (const b of BLOCKS) {
       expect(b.contexts.length).toBeGreaterThan(0);
       for (const c of b.contexts) expect(CONTEXT_KINDS).toContain(c);
-      expect(b.type.startsWith({ spawn: "spawn.", initialize: "init.", update: "update.", output: "output." }[b.contexts[0]])).toBe(true);
+      // Set Attribute blocks (ADR 0095) fit several contexts and share the "attribute." prefix.
+      expect(b.type === "custom" || b.type.startsWith("attribute.") || b.type.startsWith({ spawn: "spawn.", initialize: "init.", update: "update.", output: "output." }[b.contexts[0]])).toBe(true);
       expect(b.label).not.toBe("");
       expect(b.description).not.toBe("");
     }
@@ -60,9 +61,18 @@ describe("particle block registry (ADR 0060)", () => {
 
   it("looks blocks up and filters them by context", () => {
     expect(blockDef("nope")).toBeUndefined();
-    expect(blocksFor("spawn").map((b) => b.type)).toEqual(["spawn.rate", "spawn.rateOverDistance", "spawn.burst", "spawn.periodicBurst"]);
-    expect(blocksFor("output").map((b) => b.type)).toEqual(["output.flipbook", "output.widthOverLength"]);
-    expect(blocksFor("initialize").length).toBe(13);
+    expect(blocksFor("spawn").map((b) => b.type)).toEqual(["spawn.rate", "spawn.rateOverDistance", "spawn.burst", "spawn.periodicBurst", "custom"]);
+    expect(blocksFor("output").map((b) => b.type)).toEqual(["attribute.color", "attribute.alpha", "attribute.size", "custom", "output.flipbook", "output.widthOverLength"]);
+    expect(blocksFor("initialize").length).toBe(21);
+    expect(blocksFor("update").map((b) => b.type)).toContain("update.collisionDepth");
+    expect(blocksFor("update").filter((b) => b.type.startsWith("attribute.")).map((b) => b.type)).toEqual([
+      "attribute.position",
+      "attribute.velocity",
+      "attribute.color",
+      "attribute.alpha",
+      "attribute.size",
+      "attribute.rotation",
+    ]);
   });
 
   it("gives each default block its own copy of the defaults", () => {

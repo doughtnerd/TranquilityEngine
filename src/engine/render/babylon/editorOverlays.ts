@@ -35,7 +35,7 @@ import { Vector3 as EngineVector3 } from "../../core/math";
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import { frustumSegments } from "../cameraGizmo";
-import { Camera, Light } from "../components";
+import { Camera, Light, ParticleSystem } from "../components";
 import type { EditorColors, EditorOverlay } from "../RenderSurface";
 import { EDITOR_LAYER_MASK, type BabylonEditorContext } from "./editorContext";
 
@@ -46,6 +46,7 @@ const DEFAULT_EDITOR_COLORS: EditorColors = { background: 0x24272d, grid: 0x3a3f
 /** Icon sizes (a fraction of the view's height, as three.js's constant-size sprites) and the click radius in CSS pixels. */
 const CAMERA_ICON_SIZE = 0.065;
 const LIGHT_ICON_SIZE = 0.055;
+const PARTICLE_ICON_SIZE = 0.055;
 const ICON_PICK_RADIUS = 16;
 /** An overlay handle's size on screen, CSS pixels. */
 const HANDLE_SIZE = 9;
@@ -356,6 +357,14 @@ function lightIconPixels(type: string): Uint8Array {
   return paintIcon(layers);
 }
 
+const PARTICLE_FILL: [number, number, number] = [0xff, 0x9a, 0x5c];
+
+/** A particle system's icon: a burst of dots of different sizes around a larger core. */
+function particleIconPixels(): Uint8Array {
+  const dots: [number, number, number][] = [[32, 34, 9], [18, 20, 5], [46, 18, 4], [50, 40, 5], [16, 46, 4], [33, 12, 3], [30, 54, 3]];
+  return paintIcon(dots.map(([x, y, r]) => ({ shape: circle(x, y, r), fill: PARTICLE_FILL })));
+}
+
 // --- Light wireframes ------------------------------------------------------------------------
 
 /**
@@ -435,6 +444,10 @@ interface CameraGizmo {
   icon: Mesh;
 }
 
+interface ParticleGizmo {
+  icon: Mesh;
+}
+
 interface LightGizmo {
   icon: Mesh;
   type: string;
@@ -494,6 +507,8 @@ export class BabylonEditorOverlays {
   private readonly lightGizmos = new Map<Light, LightGizmo>();
   private lightWires: LineBatch | null = null;
   private readonly lightMaterials = new Map<string, { material: StandardMaterial; texture: RawTexture }>();
+  private readonly particleGizmos = new Map<ParticleSystem, ParticleGizmo>();
+  private particleMaterial: { material: StandardMaterial; texture: RawTexture } | null = null;
   private handleMaterial: StandardMaterial | null = null;
 
   private view: View | null = null;
@@ -668,6 +683,7 @@ export class BabylonEditorOverlays {
       this.syncOutlines();
       this.syncCameraGizmos(world);
       this.syncLightGizmos(world);
+      this.syncParticleGizmos(world);
       this.syncOverlay();
     } else {
       if (this.provider || this.overlayLines?.visible || this.overlaySegments.length > 0) this.syncOverlay(); // one more pass clears it when removed
@@ -959,6 +975,38 @@ export class BabylonEditorOverlays {
     return out;
   }
 
+  // --- Particle system icons ---------------------------------------------------------------------
+
+  /** Particle systems have no mesh to click, so each in the edited scene shows an icon (constant size on screen) that picks it. */
+  private syncParticleGizmos(world: World): void {
+    const seen = new Set<ParticleSystem>();
+    for (const ps of world._componentsOfType(ParticleSystem)) {
+      if (!world.inEditMode(ps.node.entity)) continue;
+      seen.add(ps);
+      let gizmo = this.particleGizmos.get(ps);
+      if (!gizmo) {
+        this.particleMaterial ??= this.iconMaterial("myco.editor.particleIcon", particleIconPixels());
+        gizmo = { icon: this.makeIcon("myco.editor.particleGizmo", this.particleMaterial.material) };
+        this.particleGizmos.set(ps, gizmo);
+      }
+      const visible = ps.node.activeInHierarchy;
+      gizmo.icon.isVisible = visible;
+      if (!visible) continue;
+      const e = ps.node.entity, m = world.worldMatrix(e), o = e * 16;
+      this.placeIcon(gizmo.icon, this.view, m[o + 12], m[o + 13], m[o + 14], PARTICLE_ICON_SIZE);
+    }
+    for (const [ps, gizmo] of this.particleGizmos) {
+      if (seen.has(ps) && ps.node.isValid) continue;
+      gizmo.icon.dispose(false, false);
+      this.particleGizmos.delete(ps);
+    }
+  }
+
+  /** How many particle systems in the edited scene have an icon (for tests). */
+  particleGizmoCount(): number {
+    return this.particleGizmos.size;
+  }
+
   /** How many light wireframe segments were drawn last frame (for tests). */
   lightWireCount(): number {
     return this.lightWires?.visible ? this.lightWires.count / 2 : 0;
@@ -966,7 +1014,7 @@ export class BabylonEditorOverlays {
 
   // --- Picking icons ----------------------------------------------------------------------------
 
-  /** Camera and light icons within a click's reach of a canvas point (CSS pixels), nearest first. */
+  /** Camera, light and particle system icons within a click's reach of a canvas point (CSS pixels), nearest first. */
   iconsAt(_world: World, x: number, y: number): GameObject[] {
     const view = this.ctx.viewCameras()[0];
     if (!view) return [];
@@ -981,6 +1029,7 @@ export class BabylonEditorOverlays {
     };
     for (const [c, g] of this.cameraGizmos) test(c.node, g.icon);
     for (const [l, g] of this.lightGizmos) test(l.node, g.icon);
+    for (const [p, g] of this.particleGizmos) test(p.node, g.icon);
     return hits.sort((a, b) => a.distance - b.distance).map((h) => h.node);
   }
 
@@ -992,6 +1041,10 @@ export class BabylonEditorOverlays {
     this.overlayHandles?.dispose();
     for (const g of this.cameraGizmos.values()) g.icon.dispose(false, false);
     for (const g of this.lightGizmos.values()) g.icon.dispose(false, false);
+    for (const g of this.particleGizmos.values()) g.icon.dispose(false, false);
+    this.particleGizmos.clear();
+    this.particleMaterial?.material.dispose(false, true);
+    this.particleMaterial = null;
     this.cameraGizmos.clear();
     this.lightGizmos.clear();
     this.spriteOutlines.length = this.boxOutlines.length = this.overlaySegments.length = 0;

@@ -26,12 +26,13 @@ export function blockItems(kind: ContextKind): GraphSearchItem[] {
   return items.sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category));
 }
 
-const CATEGORY_ORDER: NodeCategory[] = ["Value", "Property", "Time", "Math", "Trigonometry", "Sampling", "Vector", "Colour", "Event"];
+const CATEGORY_ORDER: NodeCategory[] = ["Value", "Particle", "Property", "Time", "Math", "Trigonometry", "Sampling", "Vector", "Colour", "Event"];
 const TEMPLATES: [TemplateKind, string, string][] = [
   ["empty", "System: Empty", "empty blank new system"],
   ["simpleLoop", "System: Simple Loop", "simple loop new system continuous"],
   ["burst", "System: Burst", "burst explosion new system one shot"],
   ["trail", "System: Trail", "trail ribbon new system"],
+  ["gpuFountain", "System: GPU Fountain", "gpu kernel webgpu compute fountain many particles operators outputs new system"],
 ];
 
 /** Systems, nodes, properties and events for the empty canvas. */

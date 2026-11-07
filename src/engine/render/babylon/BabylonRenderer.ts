@@ -700,6 +700,11 @@ export class BabylonRenderer {
             texture: (path, sheet) => this.texture(path, sheet),
             tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
             material: (path) => this.materialAsset(path), // shared with MeshRenderers; null while missing
+            // 3D physics only; null while the World has none (loaded later by a scene)
+            raycast: (ox, oy, oz, dx, dy, dz, maxDistance) => {
+              const hit = world.physics3D?.raycast({ x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, maxDistance);
+              return hit ? { point: [hit.point.x, hit.point.y, hit.point.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance } : null;
+            },
           });
           Object.assign(this.particles.preview, this.particlePreview);
         })

@@ -26,6 +26,8 @@ const project = {
   "g.shadergraph.json": readFileSync(new URL("../../../samples/playground3d/shaders/pulse.shadergraph.json", import.meta.url), "utf8"),
   "gm.material.json": { format: "myco.material@1", shader: "asset:g.shadergraph.json" },
   "c.particles.json": campfire,
+  // The campfire with its first emitter drawing a material asset.
+  "cm.particles.json": { ...campfire, systems: campfire.systems.map((s: { output: { settings: object } }, i: number) => (i === 0 ? { ...s, output: { ...s.output, settings: { ...s.output.settings, material: "asset:m.material.json" } } } : s)) },
   "p.prefab.json": {
     format: "myco.scene@1",
     nodes: [
@@ -123,6 +125,16 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       expect(live.step).toBeTypeOf("function");
       live.step!(1 / 30);
       live.dispose();
+    });
+
+    it("draws an emitter that has a material asset with that material, not a Babylon particle system", async () => {
+      const plain = (await renderer.prepare("particles", "c.particles.json", false))!;
+      const withMaterial = (await renderer.prepare("particles", "cm.particles.json", false))!;
+      expect(systems(withMaterial.scene)).toHaveLength(systems(plain.scene).length - 1);
+      expect(withMaterial.scene.meshes.some((m) => m.material?.name === "preview:m.material.json")).toBe(true);
+      expect(plain.scene.meshes.some((m) => m.material?.name === "preview:m.material.json")).toBe(false);
+      plain.dispose();
+      withMaterial.dispose();
     });
 
     it("simulates the same particles every time", async () => {

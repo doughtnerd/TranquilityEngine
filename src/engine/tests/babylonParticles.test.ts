@@ -9,6 +9,8 @@ import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import type { ParticleSystem as BabylonParticleSystem } from "@babylonjs/core/Particles/particleSystem.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createGraphMaterial } from "../render/babylon/graphMaterial";
+import type { CompiledShaderGraph } from "../render/shaderGraph/compile";
 import { Color as EngineColor } from "../core/math";
 import type { InstanceDraw, QuadDraw } from "../render/babylon/particleMeshes";
 import { BabylonParticles, type BabylonParticleHost } from "../render/babylon/particles";
@@ -27,6 +29,7 @@ function fakeSystem(effect: ParticleEffect, over: Partial<ParticleSystem> = {}) 
     tint: EngineColor.white,
     emissionScale: 1,
     destroyOnFinish: false,
+    seed: 0,
     _commands: [] as ParticleCommand[],
     _state: { playing: false, paused: false, time: 0, count: 0, alive: false },
     node: { name: "Fx" },
@@ -95,6 +98,34 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     expect(b.size).toBe(1);
     expect(b.scale.x).toBeGreaterThan(0);
     expect(b.color.a).toBeGreaterThan(0);
+  });
+
+  describe("seed", () => {
+    const randomFx = (): ParticleEffect => ({ emitters: [{ ...defaultEmitter("E"), startLife: 10, startSpeed: 3, shape: { ...defaultShape(), type: "sphere", radius: 1 }, emission: { rateOverTime: 50, rateOverDistance: 0, bursts: [] } }] });
+    const snapshot = (p: BabylonParticles, c: ParticleSystem) => {
+      const sim = p.drawsOf(c)[0].emitter;
+      return sim.pool.slice(0, sim.count).map((q) => [q.wx, q.wy, q.wz].map((v) => v.toFixed(5)).join(","));
+    };
+    const play = (seed: number) => {
+      const p = make();
+      const c = fakeSystem(randomFx(), { seed } as Partial<ParticleSystem>);
+      frames(p, c, 30);
+      return { p, c, at: snapshot(p, c) };
+    };
+
+    it("plays the same particles for the same seed, and a restart repeats them", () => {
+      const a = play(12);
+      expect(a.at.length).toBeGreaterThan(10);
+      expect(play(12).at).toEqual(a.at);
+      expect(play(13).at).not.toEqual(a.at);
+      a.c._commands.push({ op: "restart" } as ParticleCommand);
+      frames(a.p, a.c, 30);
+      expect(snapshot(a.p, a.c)).toEqual(a.at);
+    });
+
+    it("plays differently every time with seed 0", () => {
+      expect(play(0).at).not.toEqual(play(0).at);
+    });
   });
 
   it("clamps bursts to the particle limit", () => {
@@ -322,6 +353,28 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     expect(bounds.boundingBox.minimumWorld.y).toBeCloseTo(tail.y, 5);
   });
 
+  it("gives a graph material's particle draws the per-particle colours it reads", () => {
+    // Quads carry a vertex colour buffer, mesh instances a thin-instance colour buffer: Babylon defines
+    // VERTEXCOLOR / INSTANCESCOLOR from them, which the Particle Color node (mycoVColor) reads.
+    (engine as unknown as { _isWebGPU: boolean })._isWebGPU = true;
+    const graphMaterial = createGraphMaterial(scene, "fx", colorGraph(), {}, { time: 0, resolution: [1, 1] }, () => Promise.reject(new Error("no textures"))).material;
+    const p = make(false, true, { material: () => graphMaterial });
+    const c = fakeSystem({ emitters: [still("Q", { material: "fx.mat" }), still("M", { mode: "mesh", material: "fx.mat" })] });
+    frames(p, c, 20);
+    const [quads, meshes] = p.drawsOf(c);
+    const q = (quads as QuadDraw).mesh;
+    const m = (meshes as InstanceDraw).mesh;
+    for (const mesh of [q, m]) expect(mesh.material).toBe(graphMaterial);
+    const defines = (mesh: typeof q) => {
+      graphMaterial.isReadyForSubMesh(mesh, mesh.subMeshes[0]);
+      return mesh.subMeshes[0].materialDefines as unknown as Record<string, unknown>;
+    };
+    expect(defines(q).VERTEXCOLOR).toBe(true);
+    expect(defines(q).VERTEXALPHA).toBe(true);
+    expect(m.hasVertexAlpha).toBe(true);
+    expect(defines(m).INSTANCESCOLOR).toBe(true);
+  });
+
   it("draws with an emitter's material asset once it's there, with the texture and blending until then", () => {
     let material: StandardMaterial | null = null;
     const asked: string[] = [];
@@ -460,3 +513,23 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     expect(upright.blendMode).toBe(7); // premultiplied
   });
 });
+
+/** A minimal compiled graph that reads the particle colour. */
+function colorGraph(): CompiledShaderGraph {
+  return {
+    language: "wgsl",
+    target: "unlit",
+    surface: "transparent",
+    doubleSided: true,
+    vertex: { declarations: "", body: "", offset: null, varyings: "" },
+    fragment: { declarations: "", body: "", baseColor: "mycoVColor.rgb", alpha: "mycoVColor.a", metalness: null, roughness: null, emission: null, normal: null, physical: null, alphaClip: null },
+    uniforms: [],
+    problems: [],
+    nodeProblems: {},
+    portTypes: {},
+    dynamicTypes: {},
+    dependencies: [],
+    usesShaderLevel: false,
+    key: "particlecolor",
+  } as unknown as CompiledShaderGraph;
+}

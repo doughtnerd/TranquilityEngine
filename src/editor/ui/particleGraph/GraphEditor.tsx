@@ -4,6 +4,7 @@
 // following the Shader Graph panel's conventions: every edit is a pure function on the graph,
 // recorded for undo, shown, and saved; a change to the file from elsewhere replaces the graph.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
+import { expandParticleGraph, projectAssets } from "../../../engine/scene/particleSubgraphs";
 import { compileParticleGraph } from "../../../engine/scene/particleCompile";
 import type { ContextKind, GraphGroup, GraphProblem, ParticleGraph, Vec2 } from "../../../engine/scene/particleGraph";
 import { formatParticleGraph } from "../../../engine/scene/particleGraphFormat";
@@ -30,7 +31,9 @@ import {
   removeBlock,
   removeItems,
   removeNote,
+  collapsedSystems,
   setGroupTitle,
+  setSystemCollapsed,
   sourceOf,
   splitRef,
   ungroup,
@@ -61,7 +64,7 @@ let previewSize = { w: 300, h: 220 };
 
 /** What a dropped wire connects a node from the search to. */
 type Pending = { side: "output" | "input"; ref: string } | null;
-type SearchTarget = { kind: "canvas" } | { kind: "context"; system: string; context: ContextKind };
+type SearchTarget = { kind: "canvas" } | { kind: "context"; system: string; context: ContextKind; output: number };
 
 const effectName = (path: string) => fileName(path).replace(/\.particles\.json$/i, "");
 
@@ -84,7 +87,6 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   const [search, setSearch] = useState<{ at: Point; target: SearchTarget; pending: Pending } | null>(null);
   const [box, setBox] = useState<{ a: Point; b: Point } | null>(null);
   const [blockDrag, setBlockDrag] = useState<{ key: string; drop: BlockDrop | null } | null>(null);
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [maximized, setMaximized] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
   const [showPreview, setShowPreview] = useState(true);
@@ -115,7 +117,8 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     });
   }
 
-  const compiled = useMemo(() => compileParticleGraph(graph), [graph]);
+  const collapsed = useMemo(() => collapsedSystems(graph), [graph]);
+  const compiled = useMemo(() => compileParticleGraph(expandParticleGraph(graph, projectAssets).graph), [graph]);
   const problems = useMemo(() => {
     const seen = new Set<string>();
     return [...parseProblems, ...compiled.problems].filter((p) => {
@@ -221,23 +224,37 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     show(next);
   };
 
+  /** Collapse or expand a system's frame: a view change, so it marks the asset dirty (saves) but stays out of undo. */
+  const setCollapsed = (id: string, c: boolean) => {
+    if (readOnly) return;
+    const next = setSystemCollapsed(live.current.graph, id, c);
+    if (next !== live.current.graph) show(next);
+  };
+
+  // Undo and redo restore the graph as it was edited, but keep the frames as they are now.
+  const keepView = (restored: ParticleGraph): ParticleGraph => {
+    const now = collapsedSystems(live.current.graph);
+    let g = restored;
+    for (const s of restored.systems) g = setSystemCollapsed(g, s.id, now.has(s.id));
+    return g;
+  };
   const history = effectHistory(path);
   const undo = () => {
     if (readOnly) return;
     const prev = undoEffectEdit(path, live.current.graph);
-    if (prev) show(prev);
+    if (prev) show(keepView(prev));
   };
   const redo = () => {
     if (readOnly) return;
     const next = redoEffectEdit(path, live.current.graph);
-    if (next) show(next);
+    if (next) show(keepView(next));
   };
 
   // --- search ----------------------------------------------------------------------------------------
 
   const contextTarget = (el: HTMLElement): SearchTarget => {
-    const [system, context] = el.dataset.context!.split(":") as [string, ContextKind];
-    return { kind: "context", system, context };
+    const [system, context, output] = el.dataset.context!.split(":") as [string, ContextKind, string | undefined];
+    return { kind: "context", system, context, output: Number(output ?? 0) };
   };
 
   const openSearch = (at: Point, target: SearchTarget, pending: Pending) => {
@@ -265,7 +282,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     const p = toGraph(at, canvas.viewRef.current);
     const g = live.current.graph;
     if (item.pick.kind === "block" && target.kind === "context") {
-      const made = addBlock(g, target.system, target.context, item.pick.type);
+      const made = addBlock(g, target.system, target.context, item.pick.type, undefined, target.output);
       commit(made.graph);
       if (made.id) setSelectedBlock(`${target.system}.${made.id}`);
     } else if (item.pick.kind === "system") {
@@ -421,15 +438,16 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       const el = document.elementFromPoint(m.clientX, m.clientY)?.closest<HTMLElement>("[data-context]");
       drop = null;
       if (el) {
-        const [s, k] = el.dataset.context!.split(":") as [string, ContextKind];
-        if (canMoveBlock(live.current.graph, system, block, s, k)) {
+        const [s, k, ox] = el.dataset.context!.split(":") as [string, ContextKind, string | undefined];
+        const o = Number(ox ?? 0);
+        if (canMoveBlock(live.current.graph, system, block, s, k, o)) {
           const rows = [...el.querySelectorAll<HTMLElement>("[data-block]")];
           let index = rows.findIndex((r) => {
             const b = r.getBoundingClientRect();
             return m.clientY < b.top + b.height / 2;
           });
           if (index < 0) index = rows.length;
-          drop = { system: s, kind: k, index };
+          drop = { system: s, kind: k, output: o, index };
         }
       }
       setBlockDrag({ key, drop });
@@ -439,7 +457,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       handle.removeEventListener("pointerup", up);
       handle.removeEventListener("pointercancel", up);
       setBlockDrag(null);
-      if (drop) commit(moveBlock(live.current.graph, system, block, drop.system, drop.kind, drop.index));
+      if (drop) commit(moveBlock(live.current.graph, system, block, drop.system, drop.kind, drop.index, drop.output));
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up);
@@ -511,7 +529,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     setSelection(new Set([id]));
     setSelectedBlock(place.block ? `${place.system}.${place.block}` : null);
     setSelectedWire(null);
-    if (collapsed.has(id)) setCollapsed(new Set([...collapsed].filter((c) => c !== id)));
+    if (collapsed.has(id)) setCollapsed(id, false);
     const n = live.current.nodes.find((c) => c.id === id);
     if (n) frameAll([n]);
   };
@@ -583,9 +601,9 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       setSelectedWire(null);
     },
     onPortDown,
-    openBlockSearch: (system, context, client) => {
+    openBlockSearch: (system, context, output, client) => {
       const r = pane.current!.getBoundingClientRect();
-      openSearch({ x: client.x - r.left, y: client.y - r.top }, { kind: "context", system, context }, null);
+      openSearch({ x: client.x - r.left, y: client.y - r.top }, { kind: "context", system, context, output }, null);
     },
     startBlockDrag,
     draggingBlock: blockDrag?.key ?? null,
@@ -721,7 +739,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
                   at={position(s)}
                   selected={selection.has(s.id)}
                   collapsed={collapsed.has(s.id)}
-                  onCollapse={(c) => setCollapsed(c ? new Set([...collapsed, s.id]) : new Set([...collapsed].filter((x) => x !== s.id)))}
+                  onCollapse={(c) => setCollapsed(s.id, c)}
                   onDown={onItemDown}
                   drag={dragHooks}
                 />

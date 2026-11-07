@@ -123,6 +123,8 @@ export class InstanceDraw implements Draw {
     this.mesh.alphaIndex = particleAlphaIndex(r.renderOrder);
     this.own = material ? null : unlitParticleMaterial(scene, `${name}:material`, texture, r.blending, false);
     this.mesh.material = material ?? this.own;
+    // A material asset (a graph's Particle Color node, a PBR material) gets the per-instance alpha too: without this flag Babylon's colour mixing forces vertex alpha to 1.
+    if (material) this.mesh.hasVertexAlpha = true;
     this.allocate(Math.max(1, capacity));
   }
 
