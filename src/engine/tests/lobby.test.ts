@@ -303,10 +303,19 @@ describe("lobby over WebSocket (ADR 0067, 0068)", () => {
     const matchAddress = host.findWorld("Match 1")!.addresses()[0];
     expect(matchAddress).toBe(`ws://127.0.0.1:${port}/match/1`);
     const match = matchOf(host, "Match 1");
-    await stepUntil(all, () => match.players.every((p) => p.connectionId > 0), "both connected to the match", 3000, true);
-    const clientWorld = pages[0]._world(a.matchWorld!.name)!;
-    const conn = [...clientWorld._query([Connection])][0].connection as { state: number };
-    expect(conn.state).toBe(ConnectionState.open);
+    // The server admits a player (connectionId > 0) when the hello arrives; the client's own
+    // connection opens only when the server's welcome comes back over the socket, a frame or more
+    // later. Wait for both ends rather than assume the welcome has landed.
+    const clientConnection = (page: Engine, client: LobbyClient) => [...page._world(client.matchWorld!.name)!._query([Connection])][0]?.connection as { state: number } | undefined;
+    await stepUntil(
+      all,
+      () => match.players.every((p) => p.connectionId > 0) && clientConnection(pages[0], a)?.state === ConnectionState.open && clientConnection(pages[1], b)?.state === ConnectionState.open,
+      "both connected to the match",
+      3000,
+      true,
+    );
+    expect(clientConnection(pages[0], a)!.state).toBe(ConnectionState.open);
+    expect(clientConnection(pages[1], b)!.state).toBe(ConnectionState.open);
 
     match.end({ winner: "Anne" });
     await stepUntil(all, () => a.state === "room" && b.state === "room", "back in the room", 3000, true);

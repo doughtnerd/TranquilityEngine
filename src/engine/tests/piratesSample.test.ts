@@ -59,7 +59,7 @@ function sceneOf(world: World): string | null {
   return world.sceneNodes[0]?.getBehavior(SceneInstance)?.source ?? null;
 }
 
-/** Step until `done` holds (letting scene loads settle). */
+/** Step until `done` holds (letting scene loads settle). `maxFrames` bounds game time, for game state. */
 async function stepUntil(engine: Engine, done: () => boolean, what: string, maxFrames = 3000): Promise<void> {
   for (let i = 0; i < maxFrames; i++) {
     if (done()) return;
@@ -67,6 +67,18 @@ async function stepUntil(engine: Engine, done: () => boolean, what: string, maxF
     if (i % 5 === 0) await settle();
   }
   if (!done()) throw new Error(`Timed out waiting for ${what}`);
+}
+
+/**
+ * Step until both match Worlds have loaded the arena. Scene files load from disk, which takes wall
+ * time, not frames: under a busy machine a frame budget can run out while a read is still queued.
+ * So this yields to the event loop for real between frames, and is bounded by the test's timeout.
+ */
+async function arenaLoaded(engine: Engine, server: World, client: World): Promise<void> {
+  while (sceneOf(server) === null || sceneOf(client) === null) {
+    engine.step(STEP);
+    await new Promise<void>((resolve) => setTimeout(resolve, 2));
+  }
 }
 
 function shipsIn(world: World): { rep: Replicated; data: ShipView; x: number; z: number }[] {
@@ -95,18 +107,22 @@ describe("the King of Pirates sample", () => {
     const server = engine._world("Match 1")!, client = engine._world("Match 1 Client")!;
     expect(server && client).toBeTruthy();
     expect(engine.findWorld("Menu")!.paused).toBe(true); // the match World has the screen
-    await stepUntil(engine, () => sceneOf(server) !== null && sceneOf(client) !== null, "the arena in both match Worlds");
+    await arenaLoaded(engine, server, client);
     expect(sceneOf(server)).toBe("scenes/island-bay.scene.json");
     expect(sceneOf(client)).toBe("scenes/island-bay.scene.json");
 
     let start: Map<number, { x: number; z: number }> | null = null;
     let maxSinks = 0, minHp = 100, maxScore = 0, carried = false;
+    /** The furthest each team's ship got from where it started, over the whole run. */
+    const furthest = new Map<number, number>();
     for (let i = 0; i < 150 * 60; i++) {
       engine.step(STEP);
       if (i % 10 === 0) await settle();
       const ships = shipsIn(server);
       if (!start && ships.length === 6) start = new Map(ships.map((s) => [s.data.team, { x: s.x, z: s.z }]));
       for (const s of ships) {
+        const from = start?.get(s.data.team);
+        if (from) furthest.set(s.data.team, Math.max(furthest.get(s.data.team) ?? 0, Math.hypot(s.x - from.x, s.z - from.z)));
         maxSinks = Math.max(maxSinks, s.data.sinks);
         minHp = Math.min(minHp, s.data.hp);
         maxScore = Math.max(maxScore, s.data.score);
@@ -120,11 +136,11 @@ describe("the King of Pirates sample", () => {
     expect(ships.filter((s) => s.data.bot)).toHaveLength(5);
     const player = ships.find((s) => !s.data.bot)!;
     expect(player.rep.ownerId).toBeGreaterThan(0);
-    // Everyone sailed somewhere.
-    for (const s of ships) {
-      const from = start!.get(s.data.team)!;
-      expect(Math.hypot(s.x - from.x, s.z - from.z) + s.data.sinks).toBeGreaterThan(5);
-    }
+    // Everyone sailed somewhere. Measured as the furthest each ship got, not where it is at the end:
+    // a ship sunk and respawned, or come round again, can finish near its start, and which one does
+    // varies with the frame the arena's navmesh finishes loading on.
+    expect(start).not.toBeNull();
+    for (const s of ships) expect(furthest.get(s.data.team) ?? 0, `team ${s.data.team}`).toBeGreaterThan(5);
     // The bots planned their routes on the arena's navmesh.
     expect(navStats.get(server)?.plans).toBeGreaterThan(0);
     // The bots fought: someone was hurt, and someone sank.
@@ -270,6 +286,7 @@ describe("the King of Pirates sample", () => {
     await stepUntil(engine, () => Lobby.state === "match" && anne.state === "match", "the match");
     const server = engine._world("Match 1")!;
     const client = engine._world(Lobby.matchWorld!.name)!;
+    await arenaLoaded(engine, server, client);
     await stepUntil(engine, () => shipsIn(server).length === 6 && shipsIn(server).filter((s) => !s.data.bot).length === 2, "both players' ships at sea", 1200);
     await stepUntil(engine, () => client._componentsOfType(Hud).length > 0 && client._componentsOfType(Hud)[0].leaveMatch !== null, "the HUD", 600);
     const myTeam = Lobby.me!.slot;
@@ -339,7 +356,7 @@ describe("the King of Pirates sample", () => {
     anne.quickMatch({ arena: "maze", length: "20", ships: "4" });
     await stepUntil(engine, () => anne.state === "match", "the quick match");
     const server = engine._world("Match 1")!, client = engine._world(anne.matchWorld!.name)!;
-    await stepUntil(engine, () => sceneOf(server) !== null && sceneOf(client) !== null, "the arena in both match Worlds");
+    await arenaLoaded(engine, server, client);
     expect(sceneOf(server)).toBe("scenes/rocky-maze.scene.json");
     expect(sceneOf(client)).toBe("scenes/rocky-maze.scene.json");
 

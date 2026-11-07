@@ -10,6 +10,11 @@ import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, readOnlyProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, openScene, playState, sceneCamera, select, status } from "./state";
 import { editorTextFiles } from "./textFiles";
+// Imported up front, not with await import() inside the tests: loading the editor's UI modules cold
+// on a busy machine could take longer than a test's own time limit.
+import { deleteSelected } from "./deleteSelection";
+import { duplicateSelection } from "./hierarchyActions";
+import { createMenuItems, uiElementMenuItems } from "./ui/HierarchyMenu";
 import {
   beginUIEdit,
   createUIDocument,
@@ -405,7 +410,6 @@ describe("documents keep building", () => {
 
 describe("menus", () => {
   it("the Create menu adds elements into the selected element or the selected node's document; element rows have a menu", async () => {
-    const { createMenuItems, uiElementMenuItems } = await import("./ui/HierarchyMenu");
     select([]);
     expect(createMenuItems(scene()).some((i) => i.label.includes("in Document"))).toBe(false);
     select(["bare"]);
@@ -421,8 +425,6 @@ describe("menus", () => {
   });
 
   it("Delete and Duplicate act on a selected element", async () => {
-    const { deleteSelected } = await import("./deleteSelection");
-    const { duplicateSelection } = await import("./hierarchyActions");
     selectUIElement(ref("/#menu/#play"));
     expect(duplicateSelection()).toBe(true);
     await settle();
