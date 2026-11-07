@@ -3,7 +3,7 @@ import { destroyNow, instantiateDocument, instantiateNodes, moveNode, setSibling
 import type { GameObject } from "../../engine/scene/GameObject";
 import type { Change } from "./commands";
 import type { CommandStack } from "./CommandStack";
-import { pathKey, type ComponentEntry, type NodePath, type SceneDocument } from "./SceneDocument";
+import { pathKey, sameTarget, type ComponentEntry, type NodePath, type SceneDocument } from "./SceneDocument";
 
 interface Mapped {
   readonly generation: number;
@@ -71,8 +71,12 @@ export class WorldSync {
     for (const change of changes) {
       switch (change.kind) {
         case "field": this.field(change.path, change.type, change.index, change.field); break;
-        case "name": this.name(change.node); break;
-        case "active": this.active(change.node); break;
+        case "name":
+        case "active":
+          if (change.path && change.path.length > 1) this.innerProperty(change.path, change.kind);
+          else if (change.kind === "name") this.name(change.node);
+          else this.active(change.node);
+          break;
         case "move": this.move(change.node); break;
         case "add":
         case "rebuild": this.rebuild(change.node); break;
@@ -125,6 +129,20 @@ export class WorldSync {
     if (entry.name !== undefined) node.name = entry.name;
     else if (entry.prefab) this.rebuild(id); // back to the prefab root's own name
     else node.name = entry.id;
+  }
+
+  /**
+   * A node inside a prefab instance got or lost a name or active override (ADR 0122). With no
+   * override left only a fresh instance knows the prefab's value, so the instance is rebuilt.
+   */
+  private innerProperty(path: NodePath, key: "name" | "active"): void {
+    const [id, ...target] = path;
+    if (!this.doc.has(id)) return;
+    const node = this.nodeFor(path);
+    const o = [...this.doc.overrides(id)].reverse().find((x) => x[key] !== undefined && x.component === undefined && sameTarget(x.target, target));
+    if (!node || !o) return this.rebuild(id);
+    if (key === "name") node.name = o.name!;
+    else node.setActive(o.active!);
   }
 
   private active(id: string): void {

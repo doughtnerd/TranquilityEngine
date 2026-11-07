@@ -195,6 +195,8 @@ Add a `net.Replicated` component to a prefab's root (and to any node inside it t
 | `ownerId` | 0 | The owning connection's `id`. 0: the server owns it. The owner sends input for it. |
 | `importance` | 1 | Priority when a snapshot is full. |
 | `replicateTransform` | true | Send its local position, rotation and scale. |
+| `relevantDistance` | 0 | Send it only to connections with a viewpoint this close (world units); 0: any distance. See [Interest management](#interest-management). |
+| `group` | `""` | Send it only to connections in this interest group; `""`: no group. |
 
 On the server, game code sets `ownerId` and `mode`. On clients, read them. `Replicated` also has `ghostId`, `isGhost` (true on clients for nodes the server drives), `isOwnedLocally` and `isPredictedLocally`.
 
@@ -227,13 +229,45 @@ On the server, game code sets `ownerId` and `mode`. On clients, read them. `Repl
 
   Numbers, booleans and strings replicate. `quantize` rounds a number to a step before sending, to save bandwidth. A `String` field (`@field(String, { replicate: true }) captain = ""`) is sent whole, reliably, when it changes (capped at 255 bytes), not in every snapshot, so it suits names and labels rather than values that change every tick.
 
-What a ghost sends is fixed when the server first sees it. Components added later aren't sent.
+Components added to a ghost later (a replicated data component, or a behavior with replicated fields) are sent too, and ones removed are removed on clients; a client that joins later gets the components as they are then. Turning such a behavior's `enabled` off or on on the server does the same on clients, at the interpolation tick. Adding, removing or disabling other components (with nothing replicated) stays local to each World. A ghost's order among its sibling ghosts follows the server's too (non-ghost siblings may sit in a different order).
 
 ### Prefab ghosts and scene ghosts
 
 - **Prefab ghosts.** When the server instantiates a prefab whose root has `Replicated` (`GameObject.instantiate` or `this.instantiate`), clients instantiate the same prefab, by path, under their active scene, or under the ghost that's its parent on the server. Destroying it on the server destroys it on clients.
 - **Scene ghosts.** A node placed in a scene matches the same node in the client's copy of that scene, by scene and node id. Clients don't spawn these; they wait until they've loaded the scene.
 - A replicated node made with `GameObject.create`, or inside an instance whose root isn't replicated, can't be found on clients. The server skips it and warns once.
+
+### Interest management
+
+By default every ghost goes to every connection. Two `Replicated` fields narrow that (ADR 0121):
+
+- **`relevantDistance`**: sent only while the ghost is within that distance of one of the connection's viewpoints. A connection's viewpoints are the root ghosts it owns (its player), or the node set with `Interest.setViewer`. A ghost that's sent keeps being sent until it's 10% beyond the distance, so one at the edge doesn't flicker.
+- **`group`**: sent only to connections that joined the group. A connection can be in many groups; a ghost has at most one.
+
+A connection always gets the ghosts it owns, and a ghost is only sent when every ghost above it (its parent, its prefab instance's root) is too. Interest is set on the server:
+
+```ts
+import { Connection, ConnectionState, Interest, defineSystem } from "myco";
+
+defineSystem({
+  name: "game.TeamInterest",
+  phase: "update",
+  worlds: ["server"],
+  query: [Connection],
+  run(rows) {
+    for (const row of rows) {
+      const c = row.node.getData(Connection)!;
+      if (c.state !== ConnectionState.open) continue;
+      const team = c.id % 2 ? "red" : "blue";
+      if (!Interest.inGroup(row.node, team)) Interest.join(row.node, team);
+    }
+  },
+});
+```
+
+`Interest.join`, `leave`, `groups` and `inGroup` manage groups; `setViewer(connection, node | null)` and `viewer` the viewpoint; `isRelevant(connection, ghost)` says whether a ghost is being sent to a connection. Use a group per player (`"player:3"`) for things only one player should see.
+
+When a ghost stops being relevant, clients destroy it if it's a prefab ghost, or deactivate it if it was placed in a scene (it can't be made again); when it's relevant again it's spawned afresh, with its current state and strings. Hidden ghosts aren't sent at all, so they also can't be read by a modified client. Relevancy is worked out first; `importance` then orders the relevant ghosts when a snapshot is over budget.
 
 ### Interpolation
 
@@ -469,10 +503,11 @@ From [implementation status](../architecture/implementation-status.md) and [open
 - **Bootstrap links to a server elsewhere.** A link names two Worlds of the project (start-up or Spawnable, ADR 0062); a server in another process is joined at runtime with `connect(address, transport)`.
 - **Lobbies:** one lobby process; no skill rating, regions, parties, spectators, joining a match in progress, or reconnecting to a match after a disconnect (the player goes back to the room). Tickets stop casual joins; they aren't authentication. In a page with a canvas the match World is drawn over the paused menu on a surface of its own; that hand-over is checked by hand in a browser, not by headless or end-to-end tests.
 - **WebSocket in the browser.** A `websocket` link between two Worlds of a page runs over loopback there (no WebSocket framing or limits).
-- **Not replicated:** components' enabled state, sibling order, and components added to a ghost after the server first saw it. A ghost's own active flag and its parent are (ADR 0100): clients see `setActive` and `setParent` at the interpolation tick. A parent must be the World root, a ghost or a node with ids inside one, or a scene-placed node; anything else (a node from `GameObject.create`) lands under the client's active scene, with a warning on the server.
+- **Structure.** A ghost's own active flag and its parent replicate (ADR 0100): clients see `setActive` and `setParent` at the interpolation tick. Enabled state and added or removed components replicate only for replicated components; sibling order only among ghosts (ADR 0121). A parent must be the World root, a ghost or a node with ids inside one, or a scene-placed node; anything else (a node from `GameObject.create`) lands under the client's active scene, with a warning on the server.
 - **Snapshot rate and size.** Set them per server World: `"replication": { "sendRate": 20, "maxSnapshotBytes": 1200 }` on its World config or template (ADR 0101). At a lower send rate, raise clients' `interpolationMs` so they always have two snapshots to blend.
 - **Prediction** covers data components, behavior fields and the transform moved by `predicted` systems. Behaviors aren't re-simulated, and physics isn't predicted.
 - WebSocket carries unreliable messages over TCP, so packet loss delays them instead of dropping them. WebRTC, which would fix that, needs a signalling server and is deferred.
-- Not built: lag compensation, relevancy and interest management, host migration, a single-World host, client-authoritative modes.
+- **Interest management** checks every distance-limited ghost against every connection each snapshot (fine for thousands of ghosts and 64 connections; there's no spatial grid). A scene ghost out of relevance stays on clients deactivated with its last values. A spatial grid, a custom relevancy function and distance-scaled priority are proposed, not built.
+- Not built: lag compensation, host migration, a single-World host, client-authoritative modes.
 - Bandwidth per ghost type counts each ghost's spawn and state bits; snapshot headers and despawns aren't attributed to any type.
 - A client World and a server World can't be the same World, and one World can't be both a client and a server (a relay).

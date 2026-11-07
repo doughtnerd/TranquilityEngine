@@ -96,9 +96,15 @@ export class ServerStrings {
 
   /**
    * Send each open connection the string fields that changed since it was last sent them.
-   * `ghosts`: every live ghost; `despawned`: ids that went this tick.
+   * `ghosts`: every live ghost; `despawned`: ids that went this tick; `relevant`: whether a ghost is
+   * sent to a connection (ADR 0121).
    */
-  send(session: NetSession, ghosts: Iterable<{ readonly id: number; readonly node: GameObject; readonly rep: Replicated }>, despawned: readonly number[]): void {
+  send(
+    session: NetSession,
+    ghosts: Iterable<{ readonly id: number; readonly node: GameObject; readonly rep: Replicated }>,
+    despawned: readonly number[],
+    relevant: (peer: NetPeer, id: number) => boolean = () => true,
+  ): void {
     const now: { id: number; strings: Map<Key, Entry> }[] = [];
     for (const g of ghosts) {
       const strings = readStrings(g.node, g.rep);
@@ -110,6 +116,11 @@ export class ServerStrings {
       for (const id of despawned) known.delete(id);
       const changes: (Entry & { id: number })[] = [];
       for (const { id, strings } of now) {
+        // Not sent to this connection (ADR 0121): forget, so all its strings go again when it's back.
+        if (!relevant(peer, id)) {
+          known.delete(id);
+          continue;
+        }
         let last = known.get(id);
         if (!last) known.set(id, (last = new Map()));
         for (const [key, entry] of strings) {

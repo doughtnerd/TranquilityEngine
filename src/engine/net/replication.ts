@@ -35,6 +35,10 @@ export interface ReplicatedSettings {
    * every component's Transform getter.)
    */
   replicateTransform: boolean;
+  /** Interest management (ADR 0121): relevant only within this distance of a connection's viewpoint; 0: everywhere. */
+  relevantDistance: number;
+  /** Interest management (ADR 0121): relevant only to connections in this group (`Interest.join`); "": no group. */
+  group: string;
 }
 
 /** Replicate a data component's fields on replicated nodes. */

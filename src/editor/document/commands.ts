@@ -3,14 +3,14 @@ import { isFieldOverride, type ComponentEntry, type NodeEntry, type NodePath, ty
 /**
  * What a command changed, so the Editor World can catch up incrementally (see `WorldSync`).
  * - `field`: one component field (on a plain node, or a prefab override for the node at `path`)
- * - `name` / `active`: a node's name or active flag
+ * - `name` / `active`: a node's name or active flag (`path`: a node inside a prefab instance, ADR 0122)
  * - `rebuild`: re-create the subtree rooted at a document node
  * - `add` / `remove`: a subtree was added to or removed from the document
  * - `move`: a node got a new parent or sibling position
  */
 export type Change =
   | { readonly kind: "field"; readonly path: NodePath; readonly type: string; readonly index: number; readonly field: string }
-  | { readonly kind: "name" | "active"; readonly node: string }
+  | { readonly kind: "name" | "active"; readonly node: string; readonly path?: NodePath }
   | { readonly kind: "rebuild" | "add" | "remove" | "move"; readonly node: string };
 
 /** A text file a command writes besides the scene: its whole new text, or null to delete it. */

@@ -61,6 +61,28 @@ export interface Structure {
   readonly tick: number;
   readonly active: boolean;
   readonly parent: ParentRef | null;
+  /**
+   * Sibling order (ADR 0121): the id of the nearest ghost before it among its siblings, 0 when no
+   * sibling ghost comes before it, or `AFTER_UNSPECIFIED` (where the client finds it: a scene or
+   * nested ghost whose order hasn't changed).
+   */
+  readonly after: number;
+  /** The layout's behaviors that are disabled (ADR 0121), by component id and index, sorted. */
+  readonly disabled: readonly ComponentRef[];
+}
+
+/** A behavior on a ghost's node: its component id and which of the node's components of that class (0 = first). */
+export interface ComponentRef {
+  readonly id: string;
+  readonly index: number;
+}
+
+/** `Structure.after` when the order isn't specified. */
+export const AFTER_UNSPECIFIED = -1;
+
+/** Whether two structures' sibling order and disabled lists are the same. */
+export function sameOrderAndEnabled(a: Structure, b: { after: number; disabled: readonly ComponentRef[] }): boolean {
+  return a.after === b.after && a.disabled.length === b.disabled.length && a.disabled.every((d, i) => d.id === b.disabled[i].id && d.index === b.disabled[i].index);
 }
 
 /** Strings in a spawn go through the connection's string table (ADR 0100): these write and read one. */
@@ -83,6 +105,11 @@ export function writeSpawn(w: BitWriter, spawn: SpawnInfo, spec: LayoutSpec, str
     w.writeVarUint(spawn.owner);
     writeStrings(w, spawn.ids, str);
   }
+  writeSpec(w, spec, str);
+}
+
+/** A layout spec (in spawns and relayouts, ADR 0121). */
+export function writeSpec(w: BitWriter, spec: LayoutSpec, str: WriteString): void {
   w.writeBool(spec.transform);
   w.writeVarUint(spec.data.length);
   for (const d of spec.data) {
@@ -104,6 +131,10 @@ export function readSpawn(r: BitReader, str: ReadString): { spawn: SpawnInfo; sp
   else if (kind === SPAWN_SCENE) spawn = { kind, source: str(r), occurrence: r.readVarUint(), ids: readStrings(r, str) };
   else if (kind === SPAWN_NESTED) spawn = { kind, owner: r.readVarUint(), ids: readStrings(r, str) };
   else throw new RangeError(`unknown spawn kind ${kind}`);
+  return { spawn, spec: readSpec(r, str) };
+}
+
+export function readSpec(r: BitReader, str: ReadString): LayoutSpec {
   const transform = r.readBool();
   const dataCount = r.readVarUint();
   if (dataCount > 1024) throw new RangeError("too many replicated data components");
@@ -113,16 +144,22 @@ export function readSpawn(r: BitReader, str: ReadString): { spawn: SpawnInfo; sp
   if (count > 1024) throw new RangeError("too many replicated behaviors");
   const behaviors: { id: string; index: number; fields: FieldShape[] }[] = [];
   for (let i = 0; i < count; i++) behaviors.push({ id: str(r), index: r.readVarUint(), fields: readShapes(r) });
-  return { spawn, spec: { transform, data, behaviors } };
+  return { transform, data, behaviors };
 }
 
-/** A structure, in a snapshot for tick `tick`: version, the tick gap back to its change, active, then its parent (a bit, then the ref). */
+/** A structure, in a snapshot for tick `tick`: version, the tick gap back to its change, active, its parent (a bit, then the ref), `after + 1`, then the disabled components (ADR 0121). */
 export function writeStructure(w: BitWriter, s: Structure, tick: number, str: WriteString): void {
   w.writeVarUint(s.version);
   w.writeVarUint(Math.max(0, tick - s.tick));
   w.writeBool(s.active);
   w.writeBool(s.parent !== null);
   if (s.parent) writeParent(w, s.parent, str);
+  w.writeVarUint(s.after + 1);
+  w.writeVarUint(s.disabled.length);
+  for (const d of s.disabled) {
+    str(w, d.id);
+    w.writeVarUint(d.index);
+  }
 }
 
 export function readStructure(r: BitReader, tick: number, str: ReadString): Structure {
@@ -130,7 +167,12 @@ export function readStructure(r: BitReader, tick: number, str: ReadString): Stru
   const at = tick - r.readVarUint();
   const active = r.readBool();
   const parent = r.readBool() ? readParent(r, str) : null;
-  return { version, tick: at, active, parent };
+  const after = r.readVarUint() - 1;
+  const n = r.readVarUint();
+  if (n > 1024) throw new RangeError("too many disabled components");
+  const disabled: ComponentRef[] = [];
+  for (let i = 0; i < n; i++) disabled.push({ id: str(r), index: r.readVarUint() });
+  return { version, tick: at, active, parent, after, disabled };
 }
 
 function writeParent(w: BitWriter, p: ParentRef, str: WriteString): void {
