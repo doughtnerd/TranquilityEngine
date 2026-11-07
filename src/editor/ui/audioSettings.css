@@ -1,0 +1,22 @@
+/* Audio settings (ADR 0097): the bus tree, snapshots, ducking rules and backend. */
+.audio-settings input[type="text"], .audio-settings input[type="number"], .audio-settings select { background: var(--input-bg); color: var(--text); min-width: 0; }
+.audio-problems { margin: 0; padding: 4px 8px 4px 20px; border: 1px solid var(--danger); border-radius: 4px; color: var(--danger); font-size: 11px; }
+.audio-bus { width: 100%; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); }
+.audio-bus > summary { display: flex; align-items: center; gap: 6px; padding: 3px 6px; cursor: pointer; flex-wrap: wrap; }
+.audio-bus-name { flex: 1 1 110px; }
+.audio-bus input[type="number"] { width: 64px; }
+.audio-bus-check { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
+.audio-bus-body { display: flex; flex-direction: column; gap: 4px; padding: 4px 8px 6px; border-top: 1px solid var(--border); }
+.audio-effect { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.audio-effect-type { font-weight: 600; min-width: 80px; }
+.audio-effect label { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
+.audio-effect input[type="number"] { width: 70px; }
+.audio-add-effect { display: flex; gap: 6px; align-items: center; }
+.audio-card { display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); }
+.audio-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.audio-row label { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
+.audio-row input[type="number"] { width: 70px; }
+.audio-row .audio-grow { flex: 1 1 140px; }
+.audio-settings button.icon { flex: none; width: 22px; height: 22px; padding: 0; line-height: 1; }
+.audio-settings button.audio-remove:hover { color: var(--danger); }
+.audio-hint-accent { color: var(--accent); }

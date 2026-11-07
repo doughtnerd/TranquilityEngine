@@ -4,8 +4,13 @@ import type { Page } from "@playwright/test";
 // with in-memory File System Access handles (ADR 0038). `window.fakeFolders` lets a test queue the
 // folder the next pick returns and read or change what the editor wrote.
 
-/** Seed folders: name → files (path → text). */
+/** Seed folders: name → files (path → text, or `binarySeed(bytes)` for a binary file). */
 export type FolderSeed = Record<string, Record<string, string>>;
+
+/** The marker a seed value starts with when the rest is a binary file in base64. */
+const BINARY = "\u0000base64:";
+/** A seed value for a binary file. */
+export const binarySeed = (bytes: Uint8Array) => BINARY + Buffer.from(bytes).toString("base64");
 
 export interface FakeFolders {
   /** The folder the next `showDirectoryPicker()` returns (made empty if it doesn't exist); null cancels. */
@@ -115,7 +120,7 @@ export async function installFakeFolders(page: Page, seed: FolderSeed = {}): Pro
       for (const [path, text] of Object.entries(files)) {
         const at = walk(`${folder}/${path}`, true)!;
         const f = new FileHandle(at.name);
-        f.data = new TextEncoder().encode(text);
+        f.data = text.startsWith("\u0000base64:") ? Uint8Array.from(atob(text.slice(8)), (c) => c.charCodeAt(0)) : new TextEncoder().encode(text);
         at.dir.entries.set(at.name, f);
       }
     }

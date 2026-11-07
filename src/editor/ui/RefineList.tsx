@@ -41,6 +41,7 @@ function Popup(props: NonNullable<typeof refineList.value>) {
   const choose = (i: number, mods: { ctrl: boolean; shift: boolean }) => {
     const key = keys[i];
     setFocus(i);
+    ref.current?.focus({ preventScroll: true }); // keep the keys (Enter, Esc) going to the list after a click
     if (mods.shift) {
       const range = rangeBetween(keys, anchor.current ?? key, key);
       select(mods.ctrl ? combineSelection(selectedKeys.peek(), range, "add") : range, key);

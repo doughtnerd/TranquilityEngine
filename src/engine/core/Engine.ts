@@ -9,6 +9,9 @@ import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
 import { connectWorlds, netSession } from "../net/session";
 import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
+import { mixer } from "../audio/backend";
+import { useFmodBackendIfConfigured } from "../audio/fmodBackend";
+import { parseAudioSettings } from "../audio/settings";
 import { navigationSettingsProblems, resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { parseGraphics } from "./graphics";
 import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
@@ -161,6 +164,10 @@ export class Engine implements BootstrapEngine {
     for (const p of parseGraphics(options.project?.graphics).problems) console.warn(`[myco] project.json ${p}`);
     // Navigation (ADR 0065): a bad section falls back to defaults, so say what was replaced.
     if (options.project?.navigation !== undefined) for (const p of navigationSettingsProblems(options.project.navigation)) console.warn(`[myco] project.json ${p}`);
+    // Audio (ADR 0097): the project's mixer buses; one shared mixer, like the one audio context.
+    for (const p of parseAudioSettings(options.project?.audio).problems) console.warn(`[myco] project.json ${p}`);
+    mixer.configure(engine.settings.audio);
+    if (engine.settings.audio.backend === "fmod" && (options.kind ?? "runtime") === "runtime") await useFmodBackendIfConfigured(engine.settings.audio);
     if ((options.quality ?? "player") === "player") {
       const graphics = engine.settings.graphics;
       const saved = await Storage.load(QUALITY_KEY, "settings").catch(() => undefined);
@@ -714,6 +721,12 @@ export class Engine implements BootstrapEngine {
         if (steps === settings.maxSubSteps) world._accumulator = Math.min(world._accumulator, fdt);
       }
       time.fixedAlpha = fdt > 0 ? world._accumulator / fdt : 0;
+      const surface = world === this.viewWorld ? this.render : this.extraViews.get(world);
+      if (surface) {
+        // Rendered Worlds show interpolating bodies between their last two fixed steps (ADR 0093).
+        world.physics2D?.interpolate(time.fixedAlpha);
+        world.physics3D?.interpolate(time.fixedAlpha);
+      }
       if (timing) [fixedMs, mark] = [performance.now() - mark, performance.now()];
 
       // 5–6. update and lateUpdate
@@ -726,7 +739,6 @@ export class Engine implements BootstrapEngine {
       if (timing) [updateMs, mark] = [performance.now() - mark, performance.now()];
 
       // 8–9. Render sync and render: to the main view, or to the World's own surface (editor tiles)
-      const surface = world === this.viewWorld ? this.render : this.extraViews.get(world);
       if (surface) {
         surface.sync(world);
         surface.render(world);

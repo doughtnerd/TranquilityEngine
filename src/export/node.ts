@@ -12,7 +12,9 @@ import { fileURLToPath } from "node:url";
 import { readProject, ServerError } from "../server/project";
 import { DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
 import { ENGINE_FILE, MANIFEST_FILE, PLAYER_FILE_LIST, PLAYER_PAGE } from "./format";
-import { ExportError, copiedPath, isOutputInsideProject, planWebBuild, type WebBuildPlan } from "./webBuild";
+import { Assets } from "../engine/scene/Assets";
+import { bakeModelFile } from "../engine/scene/models";
+import { ExportError, copiedPath, isOutputInsideProject, planWebBuild, withBakedModels, type WebBuildPlan } from "./webBuild";
 
 export type ExportTarget = "web" | "desktop";
 
@@ -52,7 +54,14 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (isOutputInsideProject(project.root, out)) {
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
-  const plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json }, { mainScene: options.mainScene });
+  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json }, { mainScene: options.mainScene });
+  // Bake the models (ADR 0090), loading them through the project's files as the server does.
+  Assets.addSource(project.assets);
+  try {
+    plan = await withBakedModels(plan, bakeModelFile, log);
+  } finally {
+    Assets.removeSource(project.assets);
+  }
   const playerDir = options.playerDir ?? (await ensurePlayer(log));
 
   await prepareOutput(out, target);
@@ -121,6 +130,11 @@ export async function writeWebBuild(plan: WebBuildPlan, projectRoot: string, pla
   for (const file of player.files) await copy(join(playerDir, ...file.split("/")), join(web, file === PLAYER_PAGE ? "index.html" : file));
   for (const path of plan.copies) await copy(join(projectRoot, ...path.split("/")), join(web, ...copiedPath(path).split("/")));
   for (const [path, text] of plan.generated) await writeText(join(web, ...path.split("/")), text);
+  for (const [path, bytes] of plan.binaries ?? []) {
+    const to = join(web, ...path.split("/"));
+    await mkdir(dirname(to), { recursive: true });
+    await writeFile(to, bytes);
+  }
 }
 
 async function copy(from: string, to: string): Promise<void> {

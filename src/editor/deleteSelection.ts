@@ -1,8 +1,9 @@
 // Deleting the selected nodes from the open scene, asking first when other nodes reference them
 // (unless the user chose not to be asked again).
-import { deleteNodes, describeReference, referencesInto, whyNotDeletable } from "./hierarchyEdit";
+import { deleteNodes, isInsidePrefab, describeReference, referencesInto, whyNotDeletable } from "./hierarchyEdit";
 import { askBeforeClearingReferences } from "./preferences";
 import { topmostKeys } from "./selectionModel";
+import { removeInnerNode } from "./prefabs";
 import { openScene, playState, select, selectedKeys, status } from "./state";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { deleteUIElement } from "./uiDocumentEdits";
@@ -15,6 +16,18 @@ export async function deleteSelected(): Promise<boolean> {
   const scene = openScene.value;
   if (!scene || selectedKeys.value.length === 0 || playState.value !== "edit") return false;
   const keys = topmostKeys(scene.doc, selectedKeys.value); // children go with their parents
+  if (keys.length > 0 && keys.every(isInsidePrefab)) {
+    // Nodes inside prefab instances go as `removeNode` overrides (ADR 0086).
+    scene.stack.beginGroup(keys.length === 1 ? "Remove node" : `Remove ${keys.length} nodes`);
+    try {
+      for (const key of keys) removeInnerNode(scene, key.split("/"));
+    } finally {
+      scene.stack.endGroup();
+    }
+    select([]);
+    status.value = { kind: "info", text: `Removed ${keys.length === 1 ? "the node" : `${keys.length} nodes`} from the prefab instance. Undo restores them.` };
+    return true;
+  }
   for (const key of keys) {
     const reason = whyNotDeletable(scene.doc, key);
     if (reason) {

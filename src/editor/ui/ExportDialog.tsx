@@ -1,13 +1,11 @@
-import { signal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
+import { exportOpen } from "./dialogState";
 import { getFileSystem, type FileSystem } from "../../engine/platform/FileSystem";
 import { desktopExportCommand, exportProjectBuild } from "../exportBuild";
 import { projectFileSystem } from "../projectFs";
 import { currentProject, openScene, status } from "../state";
 import "./export.css";
 
-/** The Build / Export dialog is open (ADR 0041). */
-export const exportOpen = signal(false);
 
 
 type Target = "web" | "desktop";
@@ -122,3 +120,6 @@ export function ExportDialog() {
     </div>
   );
 }
+
+/** Re-exported from dialogState.ts (ADR 0083), where the menus read it without loading this dialog. */
+export { exportOpen };

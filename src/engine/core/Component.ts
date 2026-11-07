@@ -112,10 +112,18 @@ export interface LifecycleHooks {
   onDestroy?(): void;
   /** The other collider: a Collider2D in 2D physics, a Collider in 3D physics. */
   onTriggerEnter?(other: import("../physics/Collider2D").Collider2D | import("../physics/Collider").Collider): void;
+  /** Every fixed step after onTriggerEnter while the two still overlap (ADR 0093). */
+  onTriggerStay?(other: import("../physics/Collider2D").Collider2D | import("../physics/Collider").Collider): void;
   onTriggerExit?(other: import("../physics/Collider2D").Collider2D | import("../physics/Collider").Collider): void;
   /** A Collision2D in 2D physics, a Collision in 3D physics. */
   onCollisionEnter?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
+  /** Every fixed step after onCollisionEnter while the two still touch (ADR 0093). */
+  onCollisionStay?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
   onCollisionExit?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
+  /** A joint on this node broke (its `breakForce` or `breakTorque` was exceeded); it is destroyed after this (ADR 0092). */
+  onJointBreak?(joint: import("../physics/Joint").Joint | import("../physics/Joint2D").Joint2D, force: number, torque: number): void;
+  /** A CharacterController or CharacterController2D on this node ran into a collider during `move` (ADR 0091). */
+  onControllerColliderHit?(hit: import("../physics/CharacterController").ControllerColliderHit | import("../physics/CharacterController2D").ControllerColliderHit2D): void;
 }
 
 export type FrameHook = "fixedUpdate" | "update" | "lateUpdate";

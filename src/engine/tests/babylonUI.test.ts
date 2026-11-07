@@ -96,6 +96,7 @@ class FakeCore implements UICoreLike {
   rectOf() { return null; }
   hitTest() { return null; }
   pickAll() { return []; }
+  pickCanvases() { return []; }
   cornersOf() { return null; }
   release(): void {}
   dispose(): void {}

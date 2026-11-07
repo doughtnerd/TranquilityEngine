@@ -35,6 +35,12 @@ export const askBeforeClearingReferences = persisted("myco.editor.askBeforeClear
  */
 export const historyLocation = persisted<"project" | "user">("myco.editor.historyLocation", "project");
 
+/**
+ * Prune saved edit history older than this many days when it's loaded and saved (ADR 0116);
+ * 0 keeps everything. States on the way to the current state or the saved one are always kept.
+ */
+export const historyPruneDays = persisted<number>("myco.editor.historyPruneDays", 0);
+
 /** How the Assets panel lists files: tiles in a grid, or rows with kind and size. */
 export const assetView = persisted<"grid" | "list">("myco.editor.assetView", "grid");
 

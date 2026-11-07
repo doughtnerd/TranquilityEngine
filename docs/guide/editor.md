@@ -4,7 +4,7 @@ The scene editor is in `src/editor/` (page: `editor.html`). It runs in a browser
 
 ## The Projects window
 
-**Desktop.** The editor opens on the **Projects window**: New Project…, Open Project…, recent projects and the samples. It's a separate small window with no system title bar, and the editor loads hidden behind it. Picking a project hands it to the editor window, which shows itself while the Projects window hides.
+**Desktop.** The editor opens on the **Projects window**: New Project…, Open Project…, recent projects and the samples. It's a separate small window with no system title bar, and once it has appeared the editor starts loading, hidden, behind it (ADR 0082). Picking a project hands it to the editor window, which shows itself once the project and its scene view are ready, while the Projects window hides.
 
 - **Move it** by dragging the black banner at the top.
 - **Minimise and close** are the two small buttons in the card's top-right corner.
@@ -45,6 +45,8 @@ Disabled items say why in their tooltip ("nothing selected", "stop playing to ed
 
 The editor is a set of **docks** (strips along the left, right and bottom edges) around the Scene view, which fills what's left. A dock holds one or more **tab groups**; each group shows one panel and has the others as tabs.
 
+Panels load the first time they show (ADR 0083): the ones your layout shows load at start-up, the rest shortly after, so a tab picked in the first moments may say "Loading…" briefly. Adding a panel in code: an id in `layout/model.ts` and a `lazyComponent` entry in `ui/panels.tsx`.
+
 - **Move a panel** by dragging its tab or header. A highlight shows where it will land; drop elsewhere or press Escape to leave everything as it was.
 - **Resize** by dragging the handles between panels and docks.
 - **Collapse a dock** by double-clicking its border (a small grip mark shows where) or clicking the chevron in its header.
@@ -63,7 +65,7 @@ The Assets panel shows tiles (or rows, in list view). Tiles that scroll into vie
 
 | Asset | Picture |
 | --- | --- |
-| Models (`.obj`, `.fbx`) | the model, framed from three-quarters above |
+| Models (`.obj`, `.fbx`, `.gltf`, `.glb`) | the model, framed from three-quarters above |
 | Materials (`.material.json`), shader graphs (`.shadergraph.json`) | a sphere |
 | Environments (`.hdr`, `.exr`) | a chrome sphere |
 | Particle effects (`.particles.json`) | the effect about one second in |
@@ -77,6 +79,18 @@ Images and sprite slices show as they are. Scenes and everything else get an ico
 **Audio tiles.** A **▶** button appears on hover and plays the clip; click again to pause. Only one clip plays at a time anywhere in the editor, and it stops when you switch projects or the file goes away.
 
 **In the Inspector.** Selecting a model, material, shader graph, environment map, prefab or particle effect shows a live preview: drag to turn it, use the wheel to zoom, double-click to reset. It updates as you edit the asset or anything it uses. (The Particle Graph panel keeps its own preview, with play, pause and speed.) Selecting an audio clip shows a player: a waveform you click to seek, Play/Pause, Stop, Loop, Volume, and the clip's length, channels and sample rate. **Auto-play on select** (off by default) plays a clip as soon as you select it; it's a per-user preference.
+
+## Models
+
+**Formats.** `.obj` (with its `.mtl`), `.fbx`, `.gltf` and `.glb` files are models. A `.gltf` finds its `.bin` buffers and images beside it, by the paths it names. Draco- and meshopt-compressed glTF files load too; KTX2 textures need Babylon's transcoder, which it downloads from its CDN the first time. Skins, animations, morph targets, cameras and lights in a file aren't imported yet: skinned meshes show their bind pose, and the console says once what was left out.
+
+**Adding one to a scene.** Drag it into the scene view or the Hierarchy (or press **+**). A model of one mesh becomes one node; a model of several becomes the file's node tree, each mesh on its own node. Every part sits at the model's origin, so parts turn about the model's origin, not their own pivot.
+
+**Import settings.** Select the model: the Inspector shows **Scale**, **Up Axis** and **Normals**, and its **Materials**, one row per material in the file. Put a material asset in a row to draw it wherever the model is used; leave it empty for the model's own. **Extract Materials** writes each of the model's materials as a material asset in a `<model> Materials` folder beside it (textures stored inside the model are written as images there) and fills in the rows; the status bar says what a material asset couldn't keep (for example a glTF occlusion map). **Apply** saves the settings beside the file as `<model>.meta.json`.
+
+**Per renderer.** A MeshRenderer's **material** replaces every material it draws. Its **materials** list replaces one slot each: the slots are the model's materials in the order its meshes first use them (a built-in mesh has one slot).
+
+**In game builds.** Build / Export (and `npm run export`) bakes each model into `<model>.mycomesh` beside it, which the game loads without parsing the model.
 
 ## The `.myco/` folder
 
