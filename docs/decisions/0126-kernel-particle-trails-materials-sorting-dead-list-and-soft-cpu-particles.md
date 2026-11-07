@@ -41,6 +41,15 @@ Dead slots sort last and collapse as before. Several outputs of one system sort 
 
 **Editor (0095's open questions).** A Sub-graph node takes its ports from its asset (`inputs`, `outputs`, with types and rates, so wires validate as for any node) and shows "missing asset" when it can't; a Custom block shows its asset's inputs inline. The Assets menu gains **New Particle Sub-graph** and **New Particle Block** (templates with one input and one output, or one Set Attribute block), and both kinds open in the Particle Graph as documents of their own. "Save selection as sub-graph" moves selected operator nodes into a new asset and replaces them with a Sub-graph node wired as before.
 
+**Found while building (2026-11-07).**
+- Babylon draws a mesh with `forcedInstanceCount` as hardware instancing and multiplies by per-instance world matrices it has no buffer for, so the material plugin also sets the world position at `CUSTOM_VERTEX_UPDATE_WORLDPOS`.
+- Babylon shares compiled effects between materials whose defines match, so the plugin's define carries a hash of its code (two kernel outputs would otherwise draw with one shader).
+- Babylon asks a plugin for its injection points inside `MaterialPluginBase`'s constructor, before subclass fields exist: the height-fog plugin's standard-material code never reached the shader until it read the material type from the material itself.
+- Babylon unregisters every registered material plugin when its last engine is disposed; height fog registers again then.
+- Shader graph materials can't be cloned (Babylon can't recreate their plugin), so the renderer hands out copies (`BabylonParticleHost.materialCopy`: a new graph material for graphs, a clone otherwise), also used by soft CPU particles with a material asset.
+- The WebGPU alive count lags further while the GPU queue is behind (each read waits for the work before it); paced frames get it a frame or two late.
+- The Particle Graph's live preview draws kernel material-asset outputs with the texture (it has no material copies).
+
 ## Alternatives considered
 
 - **Soft CPU particles through a custom Babylon particle effect** (`createEffectForParticles` with our own fragment shader). Keeps Babylon's particle draw, but needs GLSL and WGSL copies of Babylon's particle fragment shader and its includes, re-checked on every Babylon upgrade; our mesh draws already exist and take any material.
