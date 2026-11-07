@@ -24,6 +24,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Open questions](architecture/open-questions.md) | Design decisions not yet made, with leanings |
 | [Implementation status](architecture/implementation-status.md) | What `src/engine/` implements today versus each decision record |
 | [Worlds and netcode plan](architecture/worlds-and-netcode-plan.md) | Task breakdown, waves and agent roles for 0032 and 0033 |
+| [Tilemap research](architecture/tilemap-research.md) | Tiled, LDtk, Unity and Godot tilemaps compared; what Myco borrows (0103) |
 | [Legacy codebase](architecture/legacy-codebase.md) | The 2021 prototype (removed 2026-10-31), its known problems, and what replaced each part |
 | [Decision records](decisions/) | Short-form RFC/ADR records, one decision per file |
 
@@ -112,6 +113,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
 | [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
 | [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
+| [0103](decisions/0103-tilemaps.md) | Tilemaps: tileset assets, a layered Tilemap component in chunks, and native editor painting | Proposed |
+| [0104](decisions/0104-2d-physics-backend-review.md) | Keep Rapier 2D as the 2D physics backend after reviewing Box2D v3 and Planck.js | Proposed |
+| [0105](decisions/0105-tile-colliders-and-one-way-platforms.md) | Tile colliders merge into seam-free Rapier shapes; one-way platforms use contact-pair hooks | Proposed |
 
 ## Working with decisions
 
