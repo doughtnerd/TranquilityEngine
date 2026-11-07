@@ -224,4 +224,4 @@ export class WebSocketTransport implements Transport {
   }
 }
 
-registerTransport("websocket", (options) => new WebSocketTransport(options));
+registerTransport("websocket", (options) => new WebSocketTransport(options), { listen: false });

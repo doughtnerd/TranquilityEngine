@@ -230,11 +230,17 @@ describe("connections (T10)", () => {
     expect(connections(world(host, "Server"))).toMatchObject([{ id: 1, state: ConnectionState.open }]);
   });
 
-  it("reports a WebSocket server World outside Node clearly", async () => {
+  it("reports a WebSocket server World outside Node clearly (links between two of its Worlds use loopback, ADR 0102)", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
     const bootstrap: BootstrapConfig = { ...clientServer(), links: [{ from: "Client", to: "Server", transport: "websocket", options: { port: 0 } }] };
-    await expect(Engine.create({ headless: true, bootstrap })).rejects.toThrow(/World "Server" can't listen over "websocket" at "0": .*only connect; listening needs the Node server/);
-    const noPort: BootstrapConfig = { ...clientServer(), links: [{ from: "Client", to: "Server", transport: "websocket" }] };
-    await expect(Engine.create({ headless: true, bootstrap: noPort })).rejects.toThrow(/give the link options.port or options.address/);
+    const engine = await Engine.create({ headless: true, bootstrap });
+    try {
+      // Listening for clients elsewhere still needs the Node server.
+      const other = engine.createWorld({ name: "Other", tags: ["server"], renders: false });
+      await expect(other.listen("websocket", { port: 0 })).rejects.toThrow(/only connect; listening needs the Node server/);
+    } finally {
+      engine.dispose();
+    }
   });
 });
 

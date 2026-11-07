@@ -83,7 +83,7 @@ export function navigationSettingsProblems(input: unknown): string[] {
 }
 
 const BOOTSTRAP_KEYS = ["worlds", "links", "templates"];
-const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems", "lobby"];
+const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems", "lobby", "replication"];
 const LINK_KEYS = ["from", "to", "transport", "options"];
 
 /**
@@ -177,6 +177,7 @@ function worldProblems(world: unknown, where: string, nameRequired: boolean, kno
   }
   if (world.scenes !== undefined && !isStringList(world.scenes)) problems.push(`${where}: scenes must be a list of scene paths (got ${describe(world.scenes)}).`);
   if (world.lobby !== undefined) problems.push(...lobbyOptionProblems(world.lobby, `${where}: lobby`)); // ADR 0068
+  if (world.replication !== undefined) replicationProblems(world.replication, `${where}: replication`, problems); // ADR 0101
 
   const systems = world.systems;
   if (systems === undefined) return;
@@ -218,6 +219,22 @@ function linkProblems(link: unknown, where: string, worlds: readonly string[], p
     problems.push(`${where}: transport must be a transport name such as "loopback" (got ${describe(link.transport)}).`);
   }
   if (link.options !== undefined && !isRecord(link.options)) problems.push(`${where}: options must be an object (got ${describe(link.options)}).`);
+}
+
+/** Problems with a World config's `replication` settings (ADR 0101). */
+function replicationProblems(value: unknown, where: string, problems: string[]): void {
+  if (!isRecord(value)) {
+    problems.push(`${where} must be an object with sendRate and maxSnapshotBytes (got ${describe(value)}).`);
+    return;
+  }
+  unknownKeys(value, ["sendRate", "maxSnapshotBytes"], where, problems);
+  const { sendRate, maxSnapshotBytes } = value;
+  if (sendRate !== undefined && !(typeof sendRate === "number" && Number.isFinite(sendRate) && sendRate > 0)) {
+    problems.push(`${where}: sendRate must be a positive number of snapshots per second (got ${describe(sendRate)}).`);
+  }
+  if (maxSnapshotBytes !== undefined && !(typeof maxSnapshotBytes === "number" && Number.isInteger(maxSnapshotBytes) && maxSnapshotBytes >= 256)) {
+    problems.push(`${where}: maxSnapshotBytes must be a whole number of bytes, 256 or more (got ${describe(maxSnapshotBytes)}).`);
+  }
 }
 
 function unknownKeys(value: Record<string, unknown>, keys: readonly string[], where: string, problems: string[]): void {

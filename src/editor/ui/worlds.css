@@ -90,6 +90,13 @@ button.worlds-chip.add:hover { color: var(--text); border-color: var(--accent); 
 
 .worlds-links-list { padding: 8px 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .worlds-link-row { width: 100%; }
+.worlds-link-options { margin: 2px 0 4px 8px; font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
+.worlds-link-options summary { cursor: pointer; user-select: none; }
+.worlds-option-grid { display: flex; flex-direction: column; gap: 3px; padding: 4px 0 2px 10px; border-left: 1px solid var(--border); margin-top: 3px; }
+.worlds-option { display: flex; align-items: center; gap: 6px; }
+.worlds-option > label, .worlds-option-key { width: 130px; flex: none; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worlds-option.add input { width: 130px; }
+.worlds-option.add input + input { width: 160px; }
 .worlds-link-edit { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; font-size: calc(12px * var(--ui-scale)); color: var(--muted); }
 
 /* Spawnable Worlds and live connections (ADR 0062). */

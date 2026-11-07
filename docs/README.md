@@ -112,6 +112,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
 | [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
 | [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
+| [0100](decisions/0100-replicate-node-structure-and-a-string-table.md) | Replication sends each ghost's active flag and parent as a versioned structure, and spawn strings through a per-connection string table | Proposed |
+| [0101](decisions/0101-replication-settings-on-world-configs.md) | A server World's snapshot rate and budget are set by `replication` on its World config | Proposed |
+| [0102](decisions/0102-in-page-websocket-links-use-loopback.md) | A link between two Worlds of one page over a transport that can't listen there connects them over loopback | Proposed |
 
 ## Working with decisions
 
