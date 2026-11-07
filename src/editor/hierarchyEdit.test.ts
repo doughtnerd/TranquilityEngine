@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { GameManager } from "../../samples/flappy/scripts/behaviors/GameManager";
-import { deleteNode, moveNode, referencesInto, whyNotDeletable, whyNotMovable } from "./hierarchyEdit";
+import { deleteNode, moveNode, moveNodes, referencesInto, whyNotDeletable, whyNotMovable } from "./hierarchyEdit";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
@@ -117,5 +117,15 @@ describe("deleting nodes", () => {
 
   it("refuses nodes inside prefab instances", () => {
     expect(whyNotDeletable(openScene.value!.doc, "bg-a/tile")).toMatch(/inside a prefab/);
+  });
+});
+
+describe("moving several nodes at once", () => {
+  it("refuses the whole move, changing nothing, if one node can't go there", () => {
+    const scene = openScene.value!;
+    const { doc } = scene;
+    const before = doc.roots();
+    expect(() => moveNodes(scene, ["ceiling", "bird"], "bird")).toThrow(/inside itself/);
+    expect(doc.roots()).toEqual(before);
   });
 });

@@ -119,7 +119,8 @@ export function startNodeDrag(e: PointerEvent, key: string): void {
 /** Text for the ghost label while dragging a node. */
 export function nodeDropDescription(drag: NodeDrag, doc: SceneDocument | null): string {
   const label = (id: string | null) => (id && doc?.has(id) ? doc.node(id).name ?? id : "the scene");
-  const name = drag.keys.length > 1 ? `${drag.keys.length} nodes` : isInsidePrefab(drag.key) ? drag.key.split("/").pop()! : label(drag.key);
+  const own = isInsidePrefab(drag.key) ? drag.key.split("/").pop()! : label(drag.key);
+  const name = drag.keys.length > 1 ? `${drag.keys.includes(drag.key) ? own : label(drag.keys[0])} +${drag.keys.length - 1}` : own;
   if (drag.problem || !drag.target) return `${name}: ${drag.problem ?? "can't drop here"}`;
   const t = drag.target;
   switch (t.mode) {
