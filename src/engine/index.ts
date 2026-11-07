@@ -11,6 +11,7 @@ export { Lobby, type LobbyConnectOptions, type LobbyProfile } from "./net/lobby/
 export { Match, type MatchInfo, type MatchPlayer } from "./net/lobby/match";
 export type { LobbyMe, LobbyMember, LobbyOptions, LobbyRoom, LobbyRoomInfo, LobbyRoomState, LobbyState } from "./net/lobby/protocol";
 export { Replicated } from "./net/Replicated";
+export { Interest } from "./net/interest";
 export { replicate, type DataReplication, type ReplicatedSettings, type ReplicationMode } from "./net/replication";
 export type { FieldEncoding } from "./net/codec";
 export { isResimulating, predictedTick } from "./net/prediction";
