@@ -66,6 +66,7 @@ export class Sky extends Component {
   /** @internal */ _rebakes = 0;
   private seenTime = Number.NaN;
   private seenSpeed = Number.NaN;
+  private seenAssetTime = Number.NaN;
   private anchorTime = 0;
   private anchorHour = 0;
 
@@ -96,9 +97,13 @@ export class Sky extends Component {
   /** The time of day now, 0–24: `timeOfDay` (or the asset's) advanced by `daySpeed` since it was set. */
   get currentTime(): number {
     const now = this._node ? this.world.time.time : 0;
-    if (this.timeOfDay !== this.seenTime || this.daySpeed !== this.seenSpeed) {
+    // Following the asset's time (timeOfDay -1): a new asset time (another sky, an edit) restarts from it.
+    const assetTime = this.timeOfDay < 0 ? this.settings.sun.timeOfDay : Number.NaN;
+    const newAsset = this.timeOfDay < 0 && assetTime !== this.seenAssetTime;
+    if (this.timeOfDay !== this.seenTime || this.daySpeed !== this.seenSpeed || newAsset) {
       // Re-anchor: on a new time, start from it; on a new speed alone, carry on from where the sky is.
-      const from = this.timeOfDay !== this.seenTime || Number.isNaN(this.seenSpeed) ? this.baseHour() : this.hourAt(now);
+      const from = this.timeOfDay !== this.seenTime || newAsset || Number.isNaN(this.seenSpeed) ? this.baseHour() : this.hourAt(now);
+      this.seenAssetTime = assetTime;
       this.seenTime = this.timeOfDay;
       this.seenSpeed = this.daySpeed;
       this.anchorTime = now;

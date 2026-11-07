@@ -1,0 +1,77 @@
+{
+  "format": "myco.sky@1",
+  "mode": "atmosphere",
+  "sun": {
+    "placement": "timeOfDay",
+    "timeOfDay": 23.5,
+    "latitude": 45,
+    "dayOfYear": 172,
+    "northOffset": 0,
+    "elevation": 45,
+    "azimuth": 135
+  },
+  "atmosphere": {
+    "rayleigh": 1,
+    "mie": 1,
+    "mieAnisotropy": 0.76,
+    "groundColor": "#59564f"
+  },
+  "gradient": {
+    "zenith": "#2f6fc4",
+    "horizon": "#bcd6ee",
+    "ground": "#4d4a44",
+    "sharpness": 2
+  },
+  "sunDisc": {
+    "enabled": true,
+    "size": 0.8,
+    "glow": 0.4,
+    "color": "#fff6e6",
+    "intensity": 1
+  },
+  "moon": {
+    "enabled": true,
+    "size": 1.6,
+    "glow": 0.5,
+    "color": "#e6ecff",
+    "intensity": 1,
+    "autoPhase": false,
+    "phase": 0.45,
+    "texture": ""
+  },
+  "clouds": [
+    {
+      "enabled": true,
+      "coverage": 0.2,
+      "density": 0.4,
+      "scale": 1,
+      "speed": 0.4,
+      "direction": 60,
+      "altitude": 2,
+      "color": "#9aa4b8"
+    }
+  ],
+  "stars": {
+    "enabled": true,
+    "density": 0.7,
+    "brightness": 1.5,
+    "twinkle": 0.5,
+    "milkyWay": "",
+    "milkyWayIntensity": 0.5
+  },
+  "horizon": {
+    "fogBlend": 0,
+    "height": 10,
+    "color": "#c8d2dc"
+  },
+  "exposure": 2,
+  "lighting": {
+    "driveSunLight": true,
+    "sunIntensity": 3,
+    "moonIntensity": 0.25,
+    "bake": true,
+    "bakeSize": 128,
+    "rebakeHours": 0.25,
+    "rebakeInterval": 0.5
+  }
+}

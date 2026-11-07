@@ -44,7 +44,7 @@ export const SKY_UNIFORMS = [
   "fogCol", // rgb horizon/fog colour, w horizon blend 0–1
   "fogShape", // sin(horizon height), whole-sky fog 0–1, -, -
   "nightCol", // rgb night-sky glow
-  "output", // multiplier (exposure × skybox intensity), Z flip for baking (1/-1), -, -
+  "skyOut", // multiplier (exposure × skybox intensity), Z flip for baking (1/-1), -, -
 ] as const;
 
 export type SkyUniform = (typeof SKY_UNIFORMS)[number];
@@ -78,15 +78,16 @@ vec2 rsi(vec3 ro, vec3 rd, float r) {
   return vec2(-b - s, -b + s);
 }
 
-// Single scattering of sunlight along r (wwwtyro's glsl-atmosphere, fewer steps).
+// Single scattering of sunlight along r (after wwwtyro's glsl-atmosphere, with fewer, quadratically spaced steps).
 vec3 atmosphere(vec3 r, vec3 sun) {
   vec3 ro = vec3(0.0, RE + atmos.w, 0.0);
   vec2 p = rsi(ro, r, RA);
   if (p.x > p.y) return vec3(0.0);
-  float ground = rsi(ro, r, RE).x;
-  if (ground > 0.0) p.y = min(p.y, ground);
-  float iStep = (p.y - max(p.x, 0.0)) / 12.0;
-  float iTime = max(p.x, 0.0);
+  vec2 ground = rsi(ro, r, RE);
+  if (ground.x <= ground.y && ground.x > 0.0) p.y = min(p.y, ground.x);
+  // Steps grow quadratically: the dense air (and haze) near the viewer gets most of the samples.
+  float t0 = max(p.x, 0.0);
+  float len = p.y - t0;
   vec3 totalRlh = vec3(0.0);
   vec3 totalMie = vec3(0.0);
   float odR = 0.0;
@@ -98,12 +99,17 @@ vec3 atmosphere(vec3 r, vec3 sun) {
   vec3 kR = K_RLH * atmos.x;
   float kM = K_MIE * atmos.y;
   for (int i = 0; i < 12; i++) {
-    vec3 iPos = ro + r * (iTime + iStep * 0.5);
+    float fa = float(i) / 12.0;
+    float fb = float(i + 1) / 12.0;
+    float iStart = t0 + len * fa * fa;
+    float iStep = len * (fb * fb - fa * fa);
+    vec3 iPos = ro + r * (iStart + iStep * 0.5);
     float iHeight = length(iPos) - RE;
     float odStepR = exp(-iHeight / SH_RLH) * iStep;
     float odStepM = exp(-iHeight / SH_MIE) * iStep;
-    odR += odStepR;
-    odM += odStepM;
+    // Sunlight that passes through the planet doesn't reach this sample.
+    vec2 shade = rsi(iPos, sun, RE);
+    float lit = shade.x <= shade.y && shade.x > 0.0 ? 0.0 : 1.0;
     float jStep = rsi(iPos, sun, RA).y / 6.0;
     float jTime = 0.0;
     float jodR = 0.0;
@@ -115,10 +121,11 @@ vec3 atmosphere(vec3 r, vec3 sun) {
       jodM += exp(-jHeight / SH_MIE) * jStep;
       jTime += jStep;
     }
-    vec3 attn = exp(-(kM * 1.1 * (odM + jodM) + kR * (odR + jodR)));
+    vec3 attn = lit * exp(-(kM * 1.1 * (odM + 0.5 * odStepM + jodM) + kR * (odR + 0.5 * odStepR + jodR)));
     totalRlh += odStepR * attn;
     totalMie += odStepM * attn;
-    iTime += iStep;
+    odR += odStepR;
+    odM += odStepM;
   }
   return sunTint.w * (pRlh * kR * totalRlh + pMie * kM * totalMie);
 }
@@ -231,7 +238,7 @@ vec3 skyColor(vec3 dir) {
   col = cloudLayer(col, dir, sun, cloudA, cloudADrift, cloudACol.rgb);
   col = cloudLayer(col, dir, sun, cloudB, cloudBDrift, cloudBCol.rgb);
   // Horizon blend towards the fog colour, then the World's fog over the whole sky (ADR 0071).
-  col *= output.x;
+  col *= skyOut.x;
   float hb = fogCol.w * (1.0 - smoothstep(0.0, max(fogShape.x, 1e-3), max(up, 0.0)));
   col = mix(col, fogCol.rgb, clamp(hb, 0.0, 1.0));
   col = mix(col, fogCol.rgb, fogShape.y);
@@ -277,7 +284,7 @@ varying vec3 vDir;
 ${GLSL_BODY}
 void main(void) {
   vec3 d = normalize(vDir);
-  gl_FragColor = vec4(skyColor(vec3(d.x, d.y, d.z * output.y)), 1.0);
+  gl_FragColor = vec4(skyColor(vec3(d.x, d.y, d.z * skyOut.y)), 1.0);
 }
 `;
 
@@ -314,10 +321,10 @@ fn atmosphere(r: vec3f, sun: vec3f) -> vec3f {
   let ro = vec3f(0.0, RE + uniforms.atmos.w, 0.0);
   var p = rsi(ro, r, RA);
   if (p.x > p.y) { return vec3f(0.0); }
-  let ground = rsi(ro, r, RE).x;
-  if (ground > 0.0) { p.y = min(p.y, ground); }
-  let iStep = (p.y - max(p.x, 0.0)) / 12.0;
-  var iTime = max(p.x, 0.0);
+  let ground = rsi(ro, r, RE);
+  if (ground.x <= ground.y && ground.x > 0.0) { p.y = min(p.y, ground.x); }
+  let t0 = max(p.x, 0.0);
+  let len = p.y - t0;
   var totalRlh = vec3f(0.0);
   var totalMie = vec3f(0.0);
   var odR = 0.0;
@@ -329,12 +336,16 @@ fn atmosphere(r: vec3f, sun: vec3f) -> vec3f {
   let kR = K_RLH * uniforms.atmos.x;
   let kM = K_MIE * uniforms.atmos.y;
   for (var i = 0; i < 12; i++) {
-    let iPos = ro + r * (iTime + iStep * 0.5);
+    let fa = f32(i) / 12.0;
+    let fb = f32(i + 1) / 12.0;
+    let iStart = t0 + len * fa * fa;
+    let iStep = len * (fb * fb - fa * fa);
+    let iPos = ro + r * (iStart + iStep * 0.5);
     let iHeight = length(iPos) - RE;
     let odStepR = exp(-iHeight / SH_RLH) * iStep;
     let odStepM = exp(-iHeight / SH_MIE) * iStep;
-    odR += odStepR;
-    odM += odStepM;
+    let shade = rsi(iPos, sun, RE);
+    let lit = select(1.0, 0.0, shade.x <= shade.y && shade.x > 0.0);
     let jStep = rsi(iPos, sun, RA).y / 6.0;
     var jTime = 0.0;
     var jodR = 0.0;
@@ -346,10 +357,11 @@ fn atmosphere(r: vec3f, sun: vec3f) -> vec3f {
       jodM += exp(-jHeight / SH_MIE) * jStep;
       jTime += jStep;
     }
-    let attn = exp(-(kM * 1.1 * (odM + jodM) + kR * (odR + jodR)));
+    let attn = lit * exp(-(kM * 1.1 * (odM + 0.5 * odStepM + jodM) + kR * (odR + 0.5 * odStepR + jodR)));
     totalRlh += odStepR * attn;
     totalMie += odStepM * attn;
-    iTime += iStep;
+    odR += odStepR;
+    odM += odStepM;
   }
   return uniforms.sunTint.w * (pRlh * kR * totalRlh + pMie * kM * totalMie);
 }
@@ -461,7 +473,7 @@ fn skyColor(dir: vec3f) -> vec3f {
   }
   col = cloudLayer(col, dir, sun, uniforms.cloudA, uniforms.cloudADrift, uniforms.cloudACol.rgb);
   col = cloudLayer(col, dir, sun, uniforms.cloudB, uniforms.cloudBDrift, uniforms.cloudBCol.rgb);
-  col *= uniforms.output.x;
+  col *= uniforms.skyOut.x;
   let hb = uniforms.fogCol.w * (1.0 - smoothstep(0.0, max(uniforms.fogShape.x, 1e-3), max(up, 0.0)));
   col = mix(col, uniforms.fogCol.rgb, clamp(hb, 0.0, 1.0));
   col = mix(col, uniforms.fogCol.rgb, uniforms.fogShape.y);
@@ -508,7 +520,7 @@ ${WGSL_BODY}
 @fragment
 fn main(input: FragmentInputs) -> FragmentOutputs {
   let d = normalize(fragmentInputs.vDir);
-  fragmentOutputs.color = vec4f(skyColor(vec3f(d.x, d.y, d.z * uniforms.output.y)), 1.0);
+  fragmentOutputs.color = vec4f(skyColor(vec3f(d.x, d.y, d.z * uniforms.skyOut.y)), 1.0);
 }
 `;
 

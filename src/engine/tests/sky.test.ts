@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SKY_PRESETS, skyPreset } from "../sky/presets";
+import { Sky } from "../sky/Sky";
 import { bakeSizeOf, defaultSky, formatSky, hexToLinear, isSkyPath, linearToHex, parseSky, SKY_FORMAT } from "../sky/skyFormat";
 import { bakeSignature, bodyDirections, directionFromAngles, hoursApart, moonPhase, SkyBakeScheduler, skyLight, starRotation, sunAngles, transmittance } from "../sky/skyMath";
 
@@ -138,3 +139,25 @@ describe("sky maths", () => {
     expect(bakeSignature({ ...sky, sun: { ...sky.sun, timeOfDay: 3 } })).toBe(bakeSignature(sky));
   });
 });
+
+describe("Sky component", () => {
+  it("follows the asset's time until timeOfDay is set, then runs the day cycle from it", () => {
+    const sky = new Sky();
+    sky.settings = skyPreset("night");
+    expect(sky.currentTime).toBe(23.5);
+    sky.settings = skyPreset("sunset");
+    expect(sky.currentTime).toBeCloseTo(19.3);
+    sky.timeOfDay = 18.5;
+    expect(sky.currentTime).toBe(18.5);
+    sky.timeOfDay = 25; // wraps
+    expect(sky.currentTime).toBe(1);
+    expect(sky.sunDirection.y).toBeLessThan(0);
+    sky.timeOfDay = 12;
+    expect(sky.sunDirection.y).toBeGreaterThan(0);
+    expect(sky.light.body).toBe("sun");
+    const before = sky._rebakes;
+    sky.rebake();
+    expect(sky._rebakes).toBe(before + 1);
+  });
+});
+

@@ -112,13 +112,14 @@ export function packSkyUniforms(f: SkyFrame, out = new Float32Array(SKY_UNIFORMS
   set("starRot1", r[3], r[4], r[5]);
   set("starRot2", r[6], r[7], r[8]);
 
-  const fogColor = f.fog ? f.fog.color : hexToLinear(s.horizon.color);
+  // The World's Fog colour is as authored; the asset's own horizon colour dims with daylight.
+  const fogColor = f.fog ? f.fog.color : hexToLinear(s.horizon.color).map((c) => c * Math.max(day, 0.03));
   set3("fogCol", fogColor, s.horizon.fogBlend);
   set("fogShape", Math.sin((Math.max(0.5, s.horizon.height) * Math.PI) / 180), f.fog ? Math.min(1, Math.max(0, f.fog.amount)) : 0);
 
   const moonLit = s.moon.enabled ? 0.5 * (1 - Math.cos(2 * Math.PI * moonPhase(s))) : 0;
   const night = (1 - day) * (1 + 2 * moonLit);
   set("nightCol", 0.004 * night, 0.006 * night, 0.012 * night);
-  set("output", 2 ** s.exposure * (f.baking ? 1 : f.intensity), f.baking ? -1 : 1);
+  set("skyOut", 2 ** s.exposure * (f.baking ? 1 : f.intensity), f.baking ? -1 : 1);
   return out;
 }

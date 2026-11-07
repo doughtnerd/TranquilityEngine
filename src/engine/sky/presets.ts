@@ -22,7 +22,7 @@ export function skyPreset(id: SkyPresetId): SkySettings {
       sky.clouds = [{ ...defaultCloudLayer(), coverage: 0.3, density: 0.5, scale: 1.2 }];
       break;
     case "sunset":
-      sky.sun.timeOfDay = 20.2;
+      sky.sun.timeOfDay = 19.3;
       sky.atmosphere.mie = 2.5;
       sky.sunDisc.size = 1.2;
       sky.sunDisc.glow = 0.7;
