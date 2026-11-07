@@ -52,8 +52,14 @@ describe("a camera's passes (ADR 0075 stage 3)", () => {
       depthOfField: { focusDistance: 10, focusRange: 5, bokehScale: 2 },
       chromaticAberration: { amount: 0.002 },
     });
-    expect(cameraPasses(all)).toEqual(["clear", "render", "geometry", "ao", "dof", "bloom", "ca", "finish"]);
-    expect(cameraPasses(effects({ depthOfField: { focusDistance: 10, focusRange: 5, bokehScale: 2 } }))).toEqual(["clear", "render", "geometry", "dof", "finish"]);
+    expect(cameraPasses(all)).toEqual(["clear", "geometry", "render", "ao", "dof", "bloom", "ca", "finish"]);
+    expect(cameraPasses(effects({ depthOfField: { focusDistance: 10, focusRange: 5, bokehScale: 2 } }))).toEqual(["clear", "geometry", "render", "dof", "finish"]);
+  });
+
+  it("add a depth pass before the render pass when something asks for the scene depth (ADR 0109)", () => {
+    expect(cameraPasses(null, true)).toEqual(["clear", "geometry", "render", "finish"]);
+    // Shared with ambient occlusion: one geometry pass.
+    expect(cameraPasses(effects({ ambientOcclusion: { intensity: 2, radius: 1, quality: "medium" } }), true)).toEqual(["clear", "geometry", "render", "ao", "finish"]);
   });
 
   it("end with FXAA on tiers with FXAA or SMAA, not MSAA", () => {

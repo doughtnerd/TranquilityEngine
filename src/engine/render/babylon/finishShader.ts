@@ -22,7 +22,7 @@ var textureSamplerSampler: sampler;
 var textureSampler: texture_2d<f32>;
 // Three vec4s keep the parameters few and aligned.
 uniform grade: vec4f; // brightness, contrast, saturation, hue (radians)
-uniform tone: vec4f; // exposure, tone mapping (TONE_MAPPING_CODE), vignette on (0/1), -
+uniform tone: vec4f; // exposure, tone mapping (TONE_MAPPING_CODE, -1 linear out), vignette on (0/1), -
 uniform vignetteShape: vec4f; // darkness, offset, -, -
 
 fn aces(c0: vec3f) -> vec3f {
@@ -93,6 +93,11 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
     c = c * smoothstep(0.8, uniforms.vignetteShape.y * 0.799, d * (uniforms.vignetteShape.x + uniforms.vignetteShape.y));
   }
   c = c * uniforms.tone.x;
+  // -1: an HDR render texture (ADR 0109) keeps linear, unclamped colour.
+  if (uniforms.tone.y < -0.5) {
+    fragmentOutputs.color = vec4f(c, source.a);
+    return fragmentOutputs;
+  }
   let mode = i32(uniforms.tone.y + 0.5);
   if (mode == 1) { c = aces(c); }
   else if (mode == 2) { c = agx(c); }
@@ -174,6 +179,11 @@ void main(void) {
     c *= smoothstep(0.8, vignetteShape.y * 0.799, d * (vignetteShape.x + vignetteShape.y));
   }
   c *= tone.x;
+  // -1: an HDR render texture (ADR 0109) keeps linear, unclamped colour.
+  if (tone.y < -0.5) {
+    gl_FragColor = vec4(c, source.a);
+    return;
+  }
   int mode = int(tone.y + 0.5);
   if (mode == 1) c = aces(c);
   else if (mode == 2) c = agx(c);

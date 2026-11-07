@@ -51,6 +51,12 @@ export class Camera extends Component {
   @field(Vector2) viewportPosition = new Vector2(0, 0);
   /** The camera's rectangle on the canvas: its width and height as fractions of the canvas (ADR 0056). */
   @field(Vector2) viewportSize = new Vector2(1, 1);
+  /**
+   * A render texture asset (`*.rendertexture.json`, ADR 0109) to draw into instead of the canvas.
+   * Materials, sprites and UI images that name the same asset show what the camera sees (a frame
+   * later: cameras drawing into textures draw after the ones on the canvas). Empty: the canvas.
+   */
+  @field(AssetRef) targetTexture = "";
 
   /** The enabled camera with the lowest depth in the current World (ADR 0032). */
   static get main(): Camera | null {

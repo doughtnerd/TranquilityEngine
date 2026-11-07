@@ -49,6 +49,7 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   image: "Image",
   sprite: "Sprite",
   environment: "Environment",
+  lut: "Colour LUT",
   audio: "Audio",
   model: "Model",
   material: "Material",

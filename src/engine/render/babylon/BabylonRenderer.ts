@@ -62,6 +62,8 @@ import type { BabylonUI } from "./ui";
 import { Scene as BabylonScene } from "@babylonjs/core/scene.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { BabylonProbes } from "./probes";
+import { BabylonRenderTextures } from "./renderTextures";
+import { isRenderTexturePath } from "../renderTexture";
 import { BabylonWater } from "./water";
 import { WaterSurface } from "../water/WaterSurface";
 import type { GameObject } from "../../scene/GameObject";
@@ -221,6 +223,8 @@ export class BabylonRenderer {
   private readonly lighting: BabylonLighting;
   /** Reflection probes (stage 6). */
   private readonly probes: BabylonProbes;
+  /** Render texture assets cameras draw into (ADR 0109). */
+  private readonly renderTextures: BabylonRenderTextures;
   /** Water surfaces (ADR 0072; stage 6), made the first time a World has one. */
   private water: BabylonWater | null = null;
   /** Each material's copies reflecting a probe's map (ADR 0054), by the probe's texture. */
@@ -302,6 +306,7 @@ export class BabylonRenderer {
     this.frame = new BabylonFrame(scene);
     this.frame.beforeView = (camera) => this.lighting.fitSky(camera);
     this.probes = new BabylonProbes(scene);
+    this.renderTextures = new BabylonRenderTextures(scene);
 
     this.defaultMaterial = pbr("myco.default", scene);
     this.defaultMaterial.albedoColor = new Color3(1, 1, 1);
@@ -478,6 +483,14 @@ export class BabylonRenderer {
     const key = sheet ? `${path}#sheet` : path;
     const cached = this.textures.get(key);
     if (cached) return Promise.resolve(cached);
+    if (isRenderTexturePath(path)) {
+      // A render texture asset (ADR 0109): the texture a camera draws into, shared by everything naming it.
+      const rt = this.renderTextures.texture(path);
+      if (!rt) return Promise.reject(new Error(`render texture "${path}" isn't in the project`));
+      this.textures.set(key, rt);
+      this.textureMeta.set(path, sidecarValue(path)); // sampled from the asset's own settings, not a sidecar
+      return Promise.resolve(rt);
+    }
     let p = this.loading.get(key);
     if (!p) {
       p = new Promise<Texture>((resolve, reject) => {
@@ -649,6 +662,17 @@ export class BabylonRenderer {
       return { ui: this.tools ? i === 0 : i === cams.length - 1, overlay: i === 0 && !!this.tools, camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure };
     });
     this.lastPost = views[0] ? { composed: !!views[0].effects, toneMapping: views[0].toneMapping, effects: views[0].effects } : null;
+    // Cameras drawing into render textures (ADR 0109), after the canvas's: what samples their texture shows the last frame.
+    for (const c of this.targetCameras(world)) {
+      const target = this.renderTextures.target(c.targetTexture);
+      if (!target) continue;
+      const resolved = resolvePostEffects(this.postSettings(c), Graphics.tier);
+      let background = c.backgroundColor ? clearColorOf(c.backgroundColor.toHex().slice(0, 7)) : this.clearColor;
+      if (this.skyFog) background = Color4.Lerp(background, this.skyFog.color, this.skyFog.amount);
+      const entry = this.cameras.get(c)!;
+      entry.camera.layerMask = 0x0fffffff; // no editor-only meshes
+      views.push({ camera: entry.camera, viewport: { x: 0, y: 0, width: 1, height: 1 }, clear: background, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure, target });
+    }
     const preview = views.length ? this.previewView(views) : null;
     if (preview) views.push(preview);
     this.cameraPreviewDrawn = !!preview && this.frame.ready;
@@ -859,6 +883,7 @@ export class BabylonRenderer {
     this.frame.overlay = null;
     this.overlayLayer?.dispose();
     this.probes.dispose();
+    this.renderTextures.dispose();
     this.water?.dispose();
     this.frame.dispose();
     this.scene.dispose();
@@ -874,7 +899,18 @@ export class BabylonRenderer {
   private viewCameras(world: World): Camera[] {
     return world
       ._componentsOfType(Camera)
-      .filter((c) => c.isActiveAndEnabled && this.cameras.has(c) && !world.inEditMode(c.node.entity))
+      .filter((c) => c.isActiveAndEnabled && !c.targetTexture && this.cameras.has(c) && !world.inEditMode(c.node.entity))
+      .sort((a, b) => a.depth - b.depth);
+  }
+
+  /**
+   * Enabled cameras drawing into render textures (ADR 0109), in depth order. Drawn in the editor's edit
+   * mode too, so materials showing their texture look in the scene view as they will in the game.
+   */
+  private targetCameras(world: World): Camera[] {
+    return world
+      ._componentsOfType(Camera)
+      .filter((c) => c.isActiveAndEnabled && !!c.targetTexture && this.cameras.has(c))
       .sort((a, b) => a.depth - b.depth);
   }
 
@@ -897,7 +933,8 @@ export class BabylonRenderer {
     entry.rect = { x, y, width: w, height: h };
     const canvas = this.engine.getRenderingCanvas();
     const cw = canvas?.clientWidth || this.settings.display.width, ch = canvas?.clientHeight || this.settings.display.height;
-    const aspect = (cw * w) / (ch * h);
+    const target = c.targetTexture ? this.renderTextures.target(c.targetTexture) : null;
+    const aspect = target ? target.width / target.height : (cw * w) / (ch * h); // a render texture's own shape (ADR 0109)
     if (c.projection === "orthographic") {
       camera.mode = BabylonCamera.ORTHOGRAPHIC_CAMERA;
       const s = c.orthographicSize;
@@ -1153,6 +1190,12 @@ export class BabylonRenderer {
   private graphTexture(path: string, linear: boolean): Promise<Texture> {
     const key = `${linear ? "linear" : "srgb"}|${path}`;
     let p = this.graphTextures.get(key);
+    if (!p && isRenderTexturePath(path)) {
+      // Graph code samples raw: a render texture's colour is what the camera wrote (ADR 0109).
+      const rt = this.renderTextures.texture(path);
+      p = rt ? Promise.resolve(rt) : Promise.reject(new Error(`render texture "${path}" isn't in the project`));
+      this.graphTextures.set(key, p);
+    }
     if (!p) {
       p = new Promise<Texture>((resolve, reject) => {
         const settings: ImportSettings = Assets.importSettings(path);
@@ -1278,6 +1321,11 @@ export class BabylonRenderer {
     load(settings.texture, (tex) => (m.albedoTexture = tex));
     if (settings.shader !== "unlit") load(settings.normalMap, (tex) => (m.bumpTexture = tex));
     return m;
+  }
+
+  /** Tests and the editor: the render texture assets made so far (ADR 0109). */
+  renderTextureState(): ReturnType<BabylonRenderTextures["state"]> {
+    return this.renderTextures.state();
   }
 
   /** Tests: cascaded shadows and the environment map's state. */

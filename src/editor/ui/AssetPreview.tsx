@@ -135,6 +135,7 @@ const ICONS: Partial<Record<AssetKind | "folder", string>> & { other: string } =
   material: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM6 9a7 7 0 0 1 6-4",
   formation: "M5 5h3v3H5zM10.5 5h3v3h-3zM16 5h3v3h-3zM8 11h3v3H8zM13 11h3v3h-3zM10.5 17h3v3h-3z",
   environment: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18",
+  lut: "M4 4h16v16H4zM4 12h16M12 4v16M8 4v16M16 4v16",
   other: "M7 3h7l5 5v13H7zM14 3v5h5",
 };
 

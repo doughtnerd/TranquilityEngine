@@ -63,7 +63,7 @@ export interface EditorProject {
 /** True if `path` is `folder` or inside it. */
 export const isWithin = (path: string, folder: string) => path === folder || path.startsWith(`${folder}/`);
 
-const BINARY_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|mp3|ogg|wav|obj|mtl|fbx|hdr|exr|bin)$/i;
+const BINARY_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|mp3|ogg|wav|obj|mtl|fbx|hdr|exr|cube|bin)$/i;
 /** Files a project folder lists as assets: binary assets, and the text files the Code panel edits (`isTextAsset`). Scripts are read apart. */
 const isAssetFile = (path: string) => BINARY_EXTENSIONS.test(path) || isTextAsset(path);
 
@@ -82,7 +82,7 @@ const MIME: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
   mp3: "audio/mpeg", ogg: "audio/ogg", wav: "audio/wav",
   obj: "model/obj", mtl: "model/mtl", fbx: "application/octet-stream",
-  hdr: "application/octet-stream", exr: "application/octet-stream", bin: "application/octet-stream",
+  hdr: "application/octet-stream", exr: "application/octet-stream", cube: "text/plain", bin: "application/octet-stream",
 };
 
 export const isScenePath = (path: string) => /\.(scene|prefab)\.json$/.test(path);
