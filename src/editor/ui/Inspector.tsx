@@ -763,6 +763,7 @@ function axesOf(values: unknown[]): (number | null)[] {
 function assetListFor(type: string, field: string): string {
   if (field === "mesh" && (type === "engine.MeshRenderer" || type === "engine.MeshCollider")) return "asset-list-mesh";
   if (field === "material" && type === "engine.MeshRenderer") return "asset-list-material";
+  if (field === "targetTexture" && type === "engine.Camera") return "asset-list-rendertexture";
   if (field === "effect" && type === "engine.ParticleSystem") return "asset-list-particles";
   if (field === "formationAsset" && type === "engine.NavGroup") return "asset-list-formation";
   return "asset-list-all";
@@ -783,6 +784,7 @@ function AssetLists() {
           {options(files.filter((f) => assetKind(f) === "model"))}
         </datalist>
         <datalist id="asset-list-material">{options(files.filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph"))}</datalist>
+        <datalist id="asset-list-rendertexture">{options(files.filter((f) => assetKind(f) === "rendertexture"))}</datalist>
         <datalist id="asset-list-particles">{options(files.filter((f) => assetKind(f) === "particles"))}</datalist>
         <datalist id="asset-list-formation">{options(files.filter((f) => assetKind(f) === "formation"))}</datalist>
         <datalist id="asset-list-all">{options(files)}</datalist>

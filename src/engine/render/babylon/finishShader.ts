@@ -11,7 +11,10 @@ import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
 export const FINISH_SHADER = "mycoFinish";
 
 /** The finish pass's uniforms (vec4s; see the shaders for their components). */
-export const FINISH_UNIFORMS: readonly string[] = Object.freeze(["grade", "tone", "vignetteShape"]);
+export const FINISH_UNIFORMS: readonly string[] = Object.freeze(["grade", "tone", "vignetteShape", "lut", "backdrop"]);
+
+/** The finish pass's extra textures: the colour lookup table strip (ADR 0111, `lutTextures.ts`). */
+export const FINISH_SAMPLERS: readonly string[] = Object.freeze(["lutSampler"]);
 
 /** `toneMapping` uniform values. */
 export const TONE_MAPPING_CODE = { none: 0, aces: 1, agx: 2, neutral: 3 } as const;
@@ -24,6 +27,24 @@ var textureSampler: texture_2d<f32>;
 uniform grade: vec4f; // brightness, contrast, saturation, hue (radians)
 uniform tone: vec4f; // exposure, tone mapping (TONE_MAPPING_CODE, -1 linear out), vignette on (0/1), -
 uniform vignetteShape: vec4f; // darkness, offset, -, -
+uniform lut: vec4f; // intensity (0: none), table size, -, -
+uniform backdrop: vec4f; // editor background (sRGB) behind the scene, on (a = 1) or off (ADR 0111)
+var lutSamplerSampler: sampler;
+var lutSampler: texture_2d<f32>;
+
+// A colour lookup table laid out as a strip of slices (render/lut.ts), blending two slices for blue.
+fn applyLut(c0: vec3f) -> vec3f {
+  let n = uniforms.lut.y;
+  let c = clamp(c0, vec3f(0.0), vec3f(1.0));
+  let b = c.b * (n - 1.0);
+  let b0 = floor(b);
+  let b1 = min(b0 + 1.0, n - 1.0);
+  let x = c.r * (n - 1.0) + 0.5;
+  let y = (c.g * (n - 1.0) + 0.5) / n;
+  let s0 = textureSampleLevel(lutSampler, lutSamplerSampler, vec2f((x + b0 * n) / (n * n), y), 0.0).rgb;
+  let s1 = textureSampleLevel(lutSampler, lutSamplerSampler, vec2f((x + b1 * n) / (n * n), y), 0.0).rgb;
+  return mix(s0, s1, b - b0);
+}
 
 fn aces(c0: vec3f) -> vec3f {
   let input = mat3x3f(0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
@@ -103,7 +124,15 @@ fn main(input: FragmentInputs) -> FragmentOutputs {
   else if (mode == 2) { c = agx(c); }
   else if (mode == 3) { c = clamp(neutral(c), vec3f(0.0), vec3f(1.0)); }
   else { c = clamp(c, vec3f(0.0), vec3f(1.0)); }
-  fragmentOutputs.color = vec4f(srgb(c), source.a);
+  var outc = srgb(c);
+  // A .cube table grades the display-referred image, after tone mapping and encoding.
+  if (uniforms.lut.x > 0.0) { outc = mix(outc, applyLut(outc), uniforms.lut.x); }
+  if (uniforms.backdrop.a > 0.5) {
+    // The editor's background, not tone mapped: behind what the camera drew (premultiplied by its alpha).
+    fragmentOutputs.color = vec4f(outc + uniforms.backdrop.rgb * (1.0 - clamp(source.a, 0.0, 1.0)), 1.0);
+    return fragmentOutputs;
+  }
+  fragmentOutputs.color = vec4f(outc, source.a);
 }
 `;
 
@@ -113,6 +142,22 @@ uniform sampler2D textureSampler;
 uniform vec4 grade; // brightness, contrast, saturation, hue (radians)
 uniform vec4 tone; // exposure, tone mapping (TONE_MAPPING_CODE), vignette on (0/1), -
 uniform vec4 vignetteShape; // darkness, offset, -, -
+uniform vec4 lut; // intensity (0: none), table size, -, -
+uniform vec4 backdrop; // editor background (sRGB) behind the scene, on (a = 1) or off
+uniform sampler2D lutSampler;
+
+vec3 applyLut(vec3 c) {
+  float n = lut.y;
+  c = clamp(c, 0.0, 1.0);
+  float b = c.b * (n - 1.0);
+  float b0 = floor(b);
+  float b1 = min(b0 + 1.0, n - 1.0);
+  float x = c.r * (n - 1.0) + 0.5;
+  float y = (c.g * (n - 1.0) + 0.5) / n;
+  vec3 s0 = texture2D(lutSampler, vec2((x + b0 * n) / (n * n), y)).rgb;
+  vec3 s1 = texture2D(lutSampler, vec2((x + b1 * n) / (n * n), y)).rgb;
+  return mix(s0, s1, b - b0);
+}
 
 vec3 aces(vec3 c) {
   const mat3 inputM = mat3(0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
@@ -189,7 +234,13 @@ void main(void) {
   else if (mode == 2) c = agx(c);
   else if (mode == 3) c = clamp(neutral(c), 0.0, 1.0);
   else c = clamp(c, 0.0, 1.0);
-  gl_FragColor = vec4(srgb(c), source.a);
+  vec3 outc = srgb(c);
+  if (lut.x > 0.0) outc = mix(outc, applyLut(outc), lut.x);
+  if (backdrop.a > 0.5) {
+    gl_FragColor = vec4(outc + backdrop.rgb * (1.0 - clamp(source.a, 0.0, 1.0)), 1.0);
+    return;
+  }
+  gl_FragColor = vec4(outc, source.a);
 }
 `;
 

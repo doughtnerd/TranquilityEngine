@@ -53,10 +53,11 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { ThinDepthOfFieldEffectBlurLevel } from "@babylonjs/core/PostProcesses/thinDepthOfFieldEffect.js";
 import { stackKey, type PostEffects, type ToneMappingName } from "../postEffects";
-import { FINISH_SHADER, FINISH_UNIFORMS, TONE_MAPPING_CODE } from "./finishShader";
+import { FINISH_SAMPLERS, FINISH_SHADER, FINISH_UNIFORMS, TONE_MAPPING_CODE } from "./finishShader";
 import { reclusterForNextCamera } from "./lighting";
 import { cascadeCasterList, type CustomRenderList } from "./shadowCulling";
 import type { RenderTarget } from "./renderTextures";
+import { BabylonLuts } from "./lutTextures";
 
 /** One camera's part of the frame. */
 export interface CameraView {
@@ -80,6 +81,11 @@ export interface CameraView {
    * `viewport` is ignored. With `hdr` the finish pass writes linear colour without tone mapping.
    */
   target?: RenderTarget;
+  /**
+   * Editor (ADR 0111): a colour (sRGB) shown behind the scene as it is, not tone mapped with it. The
+   * camera clears to transparent and the finish pass puts this behind what it drew.
+   */
+  backdrop?: Color4;
 }
 
 /**
@@ -203,6 +209,8 @@ interface ViewTasks {
   finishValues: Record<string, [number, number, number, number]>;
   /** The camera's scene depth once built (ADR 0109), wrapped on first request. */
   depth: SceneDepth | null;
+  /** The camera's colour lookup table this frame (ADR 0111). */
+  lutPath: string | null;
 }
 
 /** A camera's clear task, and the geometry pass's depth buffer (cleared) when it has one. */
@@ -211,7 +219,16 @@ interface ViewTargets {
   geometryDepth: FrameGraphTextureHandle | null;
 }
 
-const AO_SAMPLES = { low: 8, medium: 16, high: 32 } as const;
+/**
+ * Ambient occlusion per quality (ADR 0111): sample count and the share of the camera's resolution it
+ * runs at. Low and medium run at half resolution (a quarter of the pixels), then blur at full.
+ */
+export const AO_SETTINGS = {
+  low: { samples: 8, ratio: 0.5 },
+  medium: { samples: 16, ratio: 0.5 },
+  high: { samples: 32, ratio: 1 },
+  ultra: { samples: 48, ratio: 1 },
+} as const;
 
 /**
  * @internal Refill the shadow casters' list only when its meshes changed, in one splice. Babylon
@@ -296,6 +313,8 @@ export class BabylonFrame {
   private readonly casterMeshes: Mesh[] = [];
   /** What asked for the scene depth (ADR 0109); while any is left, every camera gets a depth pass. */
   private readonly depthConsumers = new Set<object>();
+  /** Colour lookup tables for the finish pass (ADR 0111). */
+  private readonly luts: BabylonLuts;
 
   constructor(private readonly scene: Scene) {
     this.objects.meshes = scene.meshes;
@@ -303,6 +322,7 @@ export class BabylonFrame {
     this.casterList.meshes = this.casterMeshes;
     this.casterList.particleSystems = [];
     frames.set(scene, this);
+    this.luts = new BabylonLuts(scene);
   }
 
   /** Whether a graph is ready to draw. */
@@ -351,7 +371,7 @@ export class BabylonFrame {
       samples,
       depth: this.depthConsumers.size > 0,
       shadows: shadows.map((s) => [s.light.uniqueId, s.cascaded, s.mapSize, s.numCascades]),
-      views: views.map((v, i) => [v.camera.uniqueId, this.viewSize(v), v.clear ? "clear" : "over", v.effects ? stackKey(v.effects, i > 0 && !v.clear) : "plain", !!v.overlay && !!this.overlay, !!v.ui && !!this.ui, !!v.previewUI && !!this.previewUI, v.target?.key ?? ""]),
+      views: views.map((v, i) => [v.camera.uniqueId, this.viewSize(v), v.clear ? "clear" : "over", v.effects ? stackKey(v.effects, i > 0 && !v.clear) : "plain", !!v.overlay && !!this.overlay, !!v.ui && !!this.ui, !!v.previewUI && !!this.previewUI, v.target?.key ?? "", !!v.backdrop]),
     });
     if (key !== this.key && !this.building) this.rebuild(key, views, shadows, samples);
     if (!this.graph || this.building) return;
@@ -525,7 +545,8 @@ export class BabylonFrame {
 
     let ao: FrameGraphSSAO2RenderingPipelineTask | null = null;
     if (plan.has("ao") && effects?.ambientOcclusion && geometry) {
-      ao = new FrameGraphSSAO2RenderingPipelineTask(`ao${i}`, graph, 1, 1, Constants.TEXTURETYPE_HALF_FLOAT);
+      const ratio = AO_SETTINGS[effects.ambientOcclusion.quality as keyof typeof AO_SETTINGS]?.ratio ?? 1;
+      ao = new FrameGraphSSAO2RenderingPipelineTask(`ao${i}`, graph, ratio, 1, Constants.TEXTURETYPE_HALF_FLOAT);
       ao.sourceTexture = source;
       ao.depthTexture = geometry.geometryViewDepthTexture;
       ao.normalTexture = geometry.geometryViewNormalTexture;
@@ -564,10 +585,19 @@ export class BabylonFrame {
       useShaderStore: true,
       shaderLanguage: webgpu ? ShaderLanguage.WGSL : ShaderLanguage.GLSL,
       uniforms: [...FINISH_UNIFORMS], // a copy: Babylon adds the vertex stage's "scale" to the list it's given
+      samplers: [...FINISH_SAMPLERS],
     });
     const finishValues: Record<string, [number, number, number, number]> = {};
+    const lutPath = () => this.views[i]?.lutPath ?? null;
     finish.onApplyObservable.add((effect: Effect) => {
+      // The camera's colour lookup table once loaded (ADR 0111), else the identity table at intensity 0.
+      const path = lutPath();
+      const lut = path ? this.luts.get(path) : null;
+      effect.setTexture(FINISH_SAMPLERS[0], lut?.texture ?? this.luts.identity());
+      const l = finishValues.lut ?? [0, 2, 0, 0];
+      effect.setFloat4("lut", lut ? l[0] : 0, lut?.size ?? 2, 0, 0);
       for (const u of FINISH_UNIFORMS) {
+        if (u === "lut") continue;
         const [x, y, z, w] = finishValues[u] ?? [0, 0, 0, 0];
         effect.setFloat4(u, x, y, z, w);
       }
@@ -593,7 +623,7 @@ export class BabylonFrame {
       if (!v.target) finish.viewport = viewport;
       graph.addTask(finish);
     }
-    return { render, geometry, ao, dof, bloom, ca, finish, fxaa, clear, finishValues, depth: null };
+    return { render, geometry, ao, dof, bloom, ca, finish, fxaa, clear, finishValues, depth: null, lutPath: null };
   }
 
   /** Values that change without changing the graph's layout. */
@@ -610,12 +640,12 @@ export class BabylonFrame {
       if (!t) return;
       if (v.overlay && this.overlayTask) this.overlayTask.view = v;
       const transparent = { r: 0, g: 0, b: 0, a: 0 };
-      t.clear.color.copyFrom(v.clear ?? (transparent as Color4));
+      t.clear.color.copyFrom(v.backdrop ? (transparent as Color4) : (v.clear ?? (transparent as Color4)));
       const e = v.effects;
       if (t.ao && e?.ambientOcclusion) {
         t.ao.ssao.totalStrength = e.ambientOcclusion.intensity * 0.5;
         t.ao.ssao.radius = e.ambientOcclusion.radius;
-        t.ao.ssao.samples = AO_SAMPLES[e.ambientOcclusion.quality as keyof typeof AO_SAMPLES] ?? 16;
+        t.ao.ssao.samples = AO_SETTINGS[e.ambientOcclusion.quality as keyof typeof AO_SETTINGS]?.samples ?? 16;
       }
       if (t.dof && e?.depthOfField) {
         const d = t.dof.depthOfField;
@@ -637,6 +667,10 @@ export class BabylonFrame {
       // An HDR render texture (ADR 0109) keeps linear colour: no tone mapping, clamp or sRGB encode.
       f.tone = [v.exposure, v.target?.hdr ? -1 : TONE_MAPPING_CODE[v.toneMapping], e?.vignette ? 1 : 0, 0];
       f.vignetteShape = [e?.vignette?.darkness ?? 0, e?.vignette?.offset ?? 0, 0, 0];
+      t.lutPath = e?.lut?.path ?? null;
+      f.lut = [e?.lut?.intensity ?? 0, 2, 0, 0];
+      const b = v.backdrop;
+      f.backdrop = b ? [b.r, b.g, b.b, 1] : [0, 0, 0, 0];
     });
   }
 
@@ -646,6 +680,7 @@ export class BabylonFrame {
   }
 
   dispose(): void {
+    this.luts.dispose();
     this.scene.frameGraph = null;
     this.graph?.dispose();
     this.graph = null;

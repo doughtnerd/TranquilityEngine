@@ -659,7 +659,10 @@ export class BabylonRenderer {
       const entry = this.cameras.get(c)!;
       entry.camera.layerMask = this.fill ? 0xffffffff : 0x0fffffff; // an editor World's view sees the grid
       // The game's screen UI goes over the editor's view (and its overlay), else over the last camera.
-      return { ui: this.tools ? i === 0 : i === cams.length - 1, overlay: i === 0 && !!this.tools, camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure };
+      // The editor's own view (it previews the scene camera's effects, having none of its own) shows the
+      // editor background as set, not tone mapped with the scene (ADR 0111).
+      const backdrop = this.fill && i === 0 && !c.backgroundColor && !this.postSettings(c) ? background : undefined;
+      return { ui: this.tools ? i === 0 : i === cams.length - 1, overlay: i === 0 && !!this.tools, camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure, backdrop };
     });
     this.lastPost = views[0] ? { composed: !!views[0].effects, toneMapping: views[0].toneMapping, effects: views[0].effects } : null;
     // Cameras drawing into render textures (ADR 0109), after the canvas's: what samples their texture shows the last frame.

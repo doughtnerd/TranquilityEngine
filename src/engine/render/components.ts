@@ -323,6 +323,13 @@ export class PostProcessing extends Component {
   @field(Number) saturation = 0;
   /** Hue rotation in degrees (0 = unchanged). */
   @field(Number) hue = 0;
+  /**
+   * A colour lookup table (`.cube`, ADR 0111) applied to the final, tone-mapped image, as exported by
+   * grading tools (DaVinci Resolve, Photoshop). Empty: none.
+   */
+  @field(AssetRef) lut = "";
+  /** How much of the lookup table's look to apply, 0 to 1. */
+  @field(Number) lutIntensity = 1;
 
   /** Darkens the edges of the screen. */
   @field(Boolean) vignette = false;
