@@ -186,6 +186,37 @@ export class RenameNode implements Command {
   }
 }
 
+/**
+ * Set the scene's `settings.preload` list (ADR 0080). An empty list removes the key, and `settings`
+ * goes too when nothing else is in it; a new `settings` goes before `nodes`, where a person would
+ * write it. Undo puts the file's root back exactly, key order included.
+ */
+export class SetScenePreload implements Command {
+  readonly label: string;
+  private before: SceneFile | null = null;
+  readonly paths: readonly string[];
+  constructor(paths: readonly string[], label = "Change Preload List") {
+    this.paths = [...new Set(paths.map((p) => p.trim().replace(/^asset:/, "")).filter(Boolean))];
+    this.label = label;
+  }
+
+  apply(doc: SceneDocument): Change[] {
+    const file = doc._file;
+    this.before = snapshot(file);
+    const settings: Record<string, unknown> = { ...(file.settings ?? {}) };
+    if (this.paths.length) settings.preload = [...this.paths];
+    else delete settings.preload;
+    if (Object.keys(settings).length) setKey(file, "settings", settings, ["format"]);
+    else delete (file as { settings?: unknown }).settings;
+    return []; // nothing in the World changes: the warm-up reads the list when the scene loads
+  }
+
+  undo(doc: SceneDocument): Change[] {
+    restore(doc._file, this.before!);
+    return [];
+  }
+}
+
 /** Activate or deactivate a node. Active is the default, so `true` removes the `active` key. */
 export class SetActive implements Command {
   readonly label: string;

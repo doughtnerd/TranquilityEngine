@@ -334,12 +334,12 @@ export class BabylonRenderer {
   }
 
   /** The node (and prefab) a renderer's mesh belongs to, for the variant report; null for other meshes. */
-  private describeMesh(mesh: AbstractMesh): string | null {
+  private describeMesh(mesh: AbstractMesh): { what: string; prefab?: string } | null {
     for (const [r, e] of this.meshRenderers) {
       if (!e.meshes.includes(mesh as Mesh)) continue;
       let prefab: string | undefined;
       for (let n: GameObject | null = r.node; n && !prefab; n = n.parent) prefab = _instantiatedPrefabOf(n);
-      return prefab ? `"${r.node.name}" (from ${prefab})` : `"${r.node.name}"`;
+      return prefab ? { what: `"${r.node.name}" (from ${prefab})`, prefab } : { what: `"${r.node.name}"` };
     }
     return null;
   }

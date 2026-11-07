@@ -21,12 +21,9 @@ What's left after the frame-drop work of 2026-11-06 (commit `e60c9af`, branch `c
 
 ## To do, in suggested order
 
-1. **Editor support for `settings.preload` (0080).** Today the only fix for a miss the report names is hand-editing the scene file.
-   - Check the editor keeps `settings.preload` when it saves a scene (not verified; scene saving may drop unknown `settings` keys).
-   - Add an Inspector field for the scene's preload list (prefab and material paths).
-   - The message log offers to add the path the report names (`[myco] … drew a shader variant that wasn't warmed up …`).
+1. ~~**Editor support for `settings.preload` (0080).**~~ Done 2026-11-06: Scene settings in the Inspector (click the scene's name in the Hierarchy, or select nothing) edit the list, saving keeps it, and the message log's **Add to preload list** button takes the file a warm-up warning names. See 0080's row in the implementation status.
 2. **Pixel compare of clustered against regular lighting (0079).** On a paused match frame with particles and the UI pass off (see 0075's "Measuring" note), check the spot cone at a few `spotSoftness` values especially. The clustered PBR path uses the same falloff functions, but it's a different code path.
-3. **Warm-up on three.js (0080).** `RenderBackend.warmUp` resolves at once. Planned: hidden copies of the warm set's meshes through three's `renderer.compileAsync`.
+3. ~~**Warm-up on three.js (0080).**~~ Dropped: the three.js backend was removed (0081).
 4. **Load-time budget (0080 open question).** 6 warm meshes a frame (`BATCH` in `render/babylon/warmUp.ts`) makes the load's frames 260–520 ms. Decide whether to spread them thinner or warm behind a loading screen.
 5. **Variants not warmed yet (0080):**
    - particle systems;

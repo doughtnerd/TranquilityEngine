@@ -207,7 +207,8 @@ export class VariantReport {
   constructor(
     engine: AbstractEngine,
     private readonly scene: Scene,
-    private readonly describe: (mesh: AbstractMesh) => string | null,
+    /** The node a renderer's mesh belongs to (and the prefab it came from), or null for other meshes. */
+    private readonly describe: (mesh: AbstractMesh) => { what: string; prefab?: string } | null,
   ) {
     const effects = (engine as unknown as { _compiledEffects: Record<string, Effect> })._compiledEffects;
     const count = () => Object.keys(effects).length;
@@ -251,19 +252,28 @@ export class VariantReport {
         const prev = this.byMaterial.get(material);
         this.byMaterial.set(material, effect.defines);
         if (silent || warm) continue;
-        const what = this.describe(mesh);
-        if (!what) continue; // not a renderer's mesh (editor helpers, particles)
+        const described = this.describe(mesh);
+        if (!described) continue; // not a renderer's mesh (editor helpers, particles)
         const change = prev === undefined ? "not warmed up" : definesChange(prev, effect.defines);
         const key = `${material}|${change}`;
         if (this.logged.has(key)) continue;
         this.logged.add(key);
-        console.warn(
-          `[myco] ${what} drew a shader variant that wasn't warmed up (${material.replace(/^material:/, "")}: ${change}), so its frame waited for the shader to compile. ` +
-            `Add its prefab to the scene's settings.preload list, or SceneManager.preload it, or report the rule the warm-up is missing (ADR 0080).`,
-        );
+        console.warn(variantWarning(described.what, material, change, described.prefab));
       }
     }
   }
+}
+
+/**
+ * @internal The variant report's warning. It names the file to add to the scene's `settings.preload`
+ * when there is one (the prefab the node came from, else the material asset), in a fixed phrase the
+ * editor's message log finds (`preloadSuggestion`) to offer adding it.
+ */
+export function variantWarning(what: string, material: string, change: string, prefab?: string): string {
+  const name = material.replace(/^material:/, "");
+  const asset = prefab ?? (/^(?:asset:)?([^#]+\.material\.json)/.exec(name)?.[1] ?? null);
+  const fix = asset ? `Add ${asset.replace(/^asset:/, "")} to the scene's settings.preload list` : "Add its prefab to the scene's settings.preload list";
+  return `[myco] ${what} drew a shader variant that wasn't warmed up (${name}: ${change}), so its frame waited for the shader to compile. ${fix}, or SceneManager.preload it, or report the rule the warm-up is missing (ADR 0080).`;
 }
 
 /**

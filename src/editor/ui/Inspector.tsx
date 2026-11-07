@@ -41,6 +41,7 @@ import { showsAssetInspector } from "../assetImport";
 import { assetKind, listedFiles } from "../assetBrowser";
 import { BUILTIN_MESHES } from "../../engine/scene/models";
 import { liveInspecting } from "../runtimeInspect";
+import { addToPreload, preloadCandidates, removeFromPreload } from "../scenePreload";
 import { RuntimeInspector } from "./RuntimeInspector";
 import { UIElementInspector } from "./UIElementInspector";
 import { openScript, scriptFor } from "../code/codeState";
@@ -68,7 +69,7 @@ export function Inspector() {
   const paths = selectedKeys.value
     .map((k) => k.split("/") as NodePath)
     .filter((p) => scene.doc.has(p[0]) && (p.length === 1 || findInner(scene.doc, p)));
-  if (paths.length === 0) return <p class="empty">Nothing selected</p>;
+  if (paths.length === 0) return <SceneSettings scene={scene} />;
   if (paths.length > 1) return <MultiInspector scene={scene} paths={paths} />;
   const path = paths[0];
   const inner = path.length > 1 ? findInner(scene.doc, path) : null;
@@ -125,6 +126,70 @@ export function Inspector() {
       ))}
       <MissingComponents scene={scene} path={path} />
       {node && <AddComponentMenu scene={scene} targets={[{ path, node }]} />}
+    </div>
+  );
+}
+
+/**
+ * With no node selected, the open scene's own settings: its warm-up preload list (ADR 0080), the
+ * prefabs and materials scripts pick at runtime, so their shaders compile while the scene loads.
+ */
+function SceneSettings(props: { scene: OpenScene }) {
+  const { scene } = props;
+  const list = scene.doc.preload;
+  const [draft, setDraft] = useState("");
+  const version = docVersion.value;
+  const project = currentProject.value;
+  const candidates = useMemo(() => preloadCandidates(listedFiles(project?.files ?? [])).filter((f) => !list.includes(f)), [project, version, project?.files, list]);
+  const add = () => {
+    const path = draft.trim().replace(/^asset:/, "");
+    if (!path) return;
+    if (list.includes(path)) status.value = { kind: "info", text: `${path} is already on the preload list.` };
+    else if (!addToPreload(scene, path)) status.value = { kind: "error", text: `The preload list takes prefabs and materials (.prefab.json, .material.json), not ${path}.` };
+    setDraft("");
+  };
+  return (
+    <div class="inspector-body scene-settings">
+      <p class="empty">Nothing selected</p>
+      <section class="component" aria-label="Scene settings">
+        <h3>Scene settings</h3>
+        <div class="scene-setting-label">Preload</div>
+        <p class="scene-setting-hint">Prefabs and materials scripts spawn by a computed path. Their shaders compile while the scene loads, so they don't stall a frame the first time they draw.</p>
+        <ul class="preload-list" aria-label="Preload list">
+          {list.length === 0 && <li class="empty">Nothing listed. The warm-up already covers the scene's own content and paths written in scripts.</li>}
+          {list.map((p) => (
+            <li key={p}>
+              <span class="preload-path" title={p}>
+                {p}
+              </span>
+              <button class="remove-component" aria-label={`Remove ${p} from the preload list`} title="Remove" onClick={() => removeFromPreload(scene, p)}>
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div class="preload-add">
+          <input
+            type="text"
+            list="preload-candidates"
+            aria-label="Add to the preload list"
+            placeholder="prefabs/boss.prefab.json"
+            value={draft}
+            onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") add();
+            }}
+          />
+          <button disabled={!draft.trim()} onClick={add}>
+            Add
+          </button>
+          <datalist id="preload-candidates">
+            {candidates.map((f) => (
+              <option key={f} value={f} />
+            ))}
+          </datalist>
+        </div>
+      </section>
     </div>
   );
 }

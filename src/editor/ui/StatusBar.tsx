@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { clearLog, logOpen, logText, messageLog, unseenErrors, type LogEntry } from "../messages";
-import { scriptProblems, status } from "../state";
+import { addToPreload, preloadSuggestion } from "../scenePreload";
+import { docVersion, openScene, scriptProblems, status } from "../state";
 import { menuOpen } from "./MenuBar";
 
 /**
@@ -129,6 +130,31 @@ function MessageLog() {
   );
 }
 
+/**
+ * A warm-up warning (ADR 0080) names the file whose shaders weren't warmed: offer to put it on the
+ * open scene's preload list (one undoable edit; saved with the scene).
+ */
+function PreloadOffer(props: { text: string }) {
+  const path = preloadSuggestion(props.text);
+  docVersion.value; // re-render when the list changes (an undo)
+  const scene = openScene.value;
+  if (!path || !scene) return null;
+  const listed = scene.doc.preload.includes(path);
+  const name = scene.path.split("/").pop();
+  return (
+    <button
+      class="message-action"
+      disabled={listed}
+      title={listed ? `${path} is on ${name}'s preload list` : `Add ${path} to ${name}'s preload list (Scene settings in the Inspector)`}
+      onClick={() => {
+        if (addToPreload(scene, path)) status.value = { kind: "info", text: `Added ${path} to ${name}'s preload list.` };
+      }}
+    >
+      {listed ? "On the preload list" : "Add to preload list"}
+    </button>
+  );
+}
+
 function Entry(props: { entry: LogEntry }) {
   const { entry } = props;
   // Errors show their details straight away; other entries on request.
@@ -139,6 +165,7 @@ function Entry(props: { entry: LogEntry }) {
         <time>{entry.time.toLocaleTimeString()}</time>
         <span class="message-kind">{entry.kind}</span>
         <span class="message-text">{entry.text}</span>
+        <PreloadOffer text={entry.text} />
         {entry.detail && (
           <button class="message-detail-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
             {open ? "Hide details" : "Details"}

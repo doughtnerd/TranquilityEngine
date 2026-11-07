@@ -105,9 +105,9 @@ What changed from the decision while building, and what's left:
   - It caught the sails gap above, naming `prefabs/ship.prefab.json` and `+ALBEDO +ALPHABLEND`.
 - **Script scan.** `scene/scriptAssetRefs.ts` (no imports, so the Node exporter can use it). The editor's `loadScripts` sets it; exports write `assetRefs` into `game.json` (omitted when empty, no format change), and the player sets it from there. Headless Worlds don't warm and don't preload the warm set's assets.
 - **Not yet** (tracked in [the rendering follow-ups](../plans/2026-11-rendering-followups.md)):
-  - the three.js backend (`warmUp` resolves at once);
-  - the Inspector field for `settings.preload`, and whether the editor keeps the field when it saves a scene;
-  - the message log's offer to add a path to it;
+  - ~~the three.js backend~~ (removed by 0081);
+  - ~~the Inspector field for `settings.preload`, and whether the editor keeps it on save~~ (built 2026-11-06: Scene settings in the Inspector; saving keeps the field);
+  - ~~the message log's offer to add a path to it~~ (built 2026-11-06: the warning names the file, and the log offers to add it);
   - particles, world-space UI and reflection-probe variants;
   - warming again on a tier change.
 - **Measured** (pirates Practice match, about 70 s from the click, same procedure as 0075's notes):
