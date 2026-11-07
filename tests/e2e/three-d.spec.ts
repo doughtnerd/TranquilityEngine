@@ -1,12 +1,12 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
+import { binarySeed, installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // 3D in the editor (ADR 0043–0045): importing OBJ and FBX models into a scene, materials and model
 // import settings in the Asset Inspector, 3D shapes, lights and colliders from the Hierarchy, and
-// resizing 3D colliders with their gizmo handles. The 3D Playground sample's files are all text,
-// so a writable copy is seeded as an in-memory folder (fakeFolders.ts).
+// resizing 3D colliders with their gizmo handles; glTF models (ADR 0088). A writable copy of the 3D
+// Playground sample is seeded as an in-memory folder (fakeFolders.ts; its .glb as binary).
 
 test.describe.configure({ timeout: 60_000 }); // WebKit renders on the CPU
 
@@ -17,7 +17,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) Object.assign(out, sampleFiles(full));
-    else if (name !== "sample.json") out[relative(SAMPLE, full).split(sep).join("/")] = readFileSync(full, "utf8");
+    else if (name !== "sample.json") out[relative(SAMPLE, full).split(sep).join("/")] = /\.glb$/i.test(name) ? binarySeed(readFileSync(full)) : readFileSync(full, "utf8");
   }
   return out;
 }
@@ -115,7 +115,7 @@ const num = async (l: Locator) => parseFloat(await l.inputValue());
 test("the 3D Playground draws its models, shapes and lights", async ({ page }) => {
   const errors = trackErrors(page);
   await openPlayground(page, false);
-  await expect.poll(() => drawnMeshes(page)).toEqual(["Ball", "Body", "Crate 1", "Crate 2", "Crate 3", "Crate 4", "Ground", "Head", "Orb", "Pillar"]);
+  await expect.poll(() => drawnMeshes(page)).toEqual(["Ball", "Body", "Crate 1", "Crate 2", "Crate 3", "Crate 4", "Ground", "Head", "Orb", "Pillar", "Street Lamp"]);
   // Every light shows an icon; the sun's arrow and other wireframes are drawn.
   const icons = await page.evaluate(() => {
     const w = (window as unknown as Hooks).engine!.world;
@@ -149,6 +149,22 @@ test("dropping an FBX model in the viewport adds a node with a child per mesh; a
   await expect(card(page, "MeshRenderer").getByRole("combobox", { name: "mesh" })).toHaveValue("models/crate.obj");
   await page.keyboard.press("ControlOrMeta+z");
   await expect(row(page, "Crate")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("a glTF model shows as a Model and drops as the file's node tree (ADR 0088)", async ({ page }) => {
+  const errors = trackErrors(page);
+  await openPlayground(page, false);
+  await showFolder(page, "models");
+  await expect(page.locator(".asset-tile", { hasText: "lamp.glb" }).locator(".asset-kind")).toHaveText("Model");
+  await expect(row(page, "Street Lamp")).toHaveCount(1); // the main scene's lamp, one MeshRenderer for the whole model
+  const vp = await box(page.locator(".viewport-panel"));
+  await dragAsset(page, "lamp.glb", vp.x + vp.width * 0.5, vp.y + vp.height * 0.6);
+  await expect(page.locator(".tree .row.selected")).toHaveAttribute("data-key", "lamp-2");
+  await expect(page.locator('.tree .row[data-key="lamp-2-pole"] .name')).toHaveText("Pole");
+  await expect(page.locator('.tree .row[data-key="lamp-2-head"] .name')).toHaveText("Head");
+  await page.locator('.tree .row[data-key="lamp-2-bulb"]').click();
+  await expect(card(page, "MeshRenderer").getByRole("combobox", { name: "mesh" })).toHaveValue("models/lamp.glb#Bulb");
   expect(errors).toEqual([]);
 });
 

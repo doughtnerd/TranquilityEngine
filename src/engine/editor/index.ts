@@ -482,12 +482,9 @@ export function meshTriangleData(ref: string, node?: GameObject): { readonly ver
   if (cached && cached.meshes.length === meshes.length && cached.meshes.every((m, i) => m === meshes[i])) return cached.data;
   const vertices: number[] = [], indices: number[] = [];
   for (const m of meshes) {
-    const pos = m.geometry.getAttribute("position");
     const base = vertices.length / 3;
-    for (let i = 0; i < pos.count; i++) vertices.push(pos.getX(i), pos.getY(i), pos.getZ(i));
-    const index = m.geometry.getIndex();
-    const count = index ? index.count : pos.count;
-    for (let i = 0; i < count; i++) indices.push(base + (index ? index.getX(i) : i));
+    for (const v of m.data.positions) vertices.push(v);
+    for (const i of m.data.indices) indices.push(base + i);
   }
   const data = { vertices, indices };
   triangleCache.set(mesh, { meshes: [...meshes], data });
@@ -506,12 +503,12 @@ export function meshLocalBounds(node: GameObject): { min: [number, number, numbe
   if (!meshes?.length) return null;
   const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
   for (const m of meshes) {
-    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
-    const b = m.geometry.boundingBox!;
-    const lo = b.min.toArray(), hi = b.max.toArray();
-    for (let i = 0; i < 3; i++) {
-      min[i] = Math.min(min[i], lo[i]);
-      max[i] = Math.max(max[i], hi[i]);
+    const p = m.data.positions;
+    for (let v = 0; v < p.length; v += 3) {
+      for (let i = 0; i < 3; i++) {
+        min[i] = Math.min(min[i], p[v + i]);
+        max[i] = Math.max(max[i], p[v + i]);
+      }
     }
   }
   return { min, max };

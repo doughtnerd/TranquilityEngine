@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, BoxCollider, Engine, MeshRenderer } from "../engine";
-import { addAsset, prepareAssets, whyNotAddable } from "./assetBrowser";
+import { addAsset, assetKind, prepareAssets, whyNotAddable } from "./assetBrowser";
 import { newComponentEntry } from "./componentEdits";
 import {
   boxHandles3D,
@@ -158,6 +158,37 @@ describe("adding models from the Assets panel (ADR 0044)", () => {
       expect(scene.sync.nodeFor(crate)!.getBehavior(MeshRenderer)!.mesh).toBe("models/crate.obj");
       scene.stack.undo();
       expect(scene.doc.has(crate)).toBe(false);
+    } finally {
+      Assets.removeSource(extra);
+      engine.dispose();
+    }
+  });
+});
+
+describe("adding glTF models from the Assets panel (ADR 0088)", () => {
+  it("adds a glTF as the file's node tree, less the levels every mesh shares", async () => {
+    const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
+    const file = (p: string) => `data:application/octet-stream;base64,${readFileSync(new URL(`../../samples/playground3d/${p}`, import.meta.url)).toString("base64")}`;
+    const extra = Assets.fromObject({ "models/lamp.glb": file("models/lamp.glb") });
+    Assets.addSource(extra);
+    try {
+      openSceneFile(engine, DEMO_SCENE);
+      const scene = openScene.value!;
+      expect(assetKind("models/lamp.glb")).toBe("model");
+      await prepareAssets(["models/lamp.glb"]);
+      const lamp = addAsset(scene, "models/lamp.glb");
+      const names = (id: string) => scene.doc.children(id).map((c) => scene.doc.node(c).name);
+      const mesh = (id: string) => scene.doc.node(id).components!.find((c) => c.type === "engine.MeshRenderer")?.data;
+      expect(names(lamp)).toEqual(["Base", "Pole"]);
+      const pole = scene.doc.children(lamp)[1];
+      expect(mesh(pole)).toEqual({ mesh: "asset:models/lamp.glb#Pole" });
+      expect(names(pole)).toEqual(["Head"]);
+      const head = scene.doc.children(pole)[0];
+      expect(mesh(head)).toBeUndefined();
+      expect(names(head)).toEqual(["Bulb", "Shade"]);
+      expect(mesh(scene.doc.children(head)[0])).toEqual({ mesh: "asset:models/lamp.glb#Bulb" });
+      scene.stack.undo();
+      expect(scene.doc.has(lamp)).toBe(false);
     } finally {
       Assets.removeSource(extra);
       engine.dispose();

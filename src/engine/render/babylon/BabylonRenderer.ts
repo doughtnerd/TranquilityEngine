@@ -48,7 +48,7 @@ import type { Color } from "../../core/math";
 import { Assets, sidecarValue } from "../../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
 import { parseMaterial, materialGraphOfJson, type MaterialSettings } from "../../scene/material";
-import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
+import { materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../../scene/shaderGraph";
 import { colorHex } from "../../scene/material";
 import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector3 } from "../../core/math";
@@ -97,6 +97,11 @@ interface MeshEntry {
   meshes: Mesh[];
   sources: readonly ModelMesh[] | null;
   material: BabylonMaterial | null;
+  /** Its meshes' material slots (ADR 0089), and the material asset drawn in each, or null for the model's own. */
+  slotList: MaterialSlot[];
+  slots: (BabylonMaterial | null)[];
+  /** Multi-materials made for its meshes, disposed with them. */
+  owned: BabylonMaterial[];
   /** The world matrix its meshes were last frozen with (null: freeze next sync). */
   matrix: Float32Array | null;
 }
@@ -819,6 +824,7 @@ export class BabylonRenderer {
       const e = this.meshRenderers.get(c);
       if (e) {
         for (const m of e.meshes) m.dispose();
+        for (const m of e.owned) m.dispose(false, false);
         this.meshRenderers.delete(c);
       }
       this.releaseRendererMaterial(c);
@@ -1032,22 +1038,32 @@ export class BabylonRenderer {
   private syncMesh(world: World, r: MeshRenderer): void {
     let entry = this.meshRenderers.get(r);
     if (!entry) {
-      entry = { meshes: [], sources: null, material: null, matrix: null };
+      entry = { meshes: [], sources: null, material: null, slotList: [], slots: [], owned: [], matrix: null };
       this.meshRenderers.set(r, entry);
     }
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
     const material = this.rendererMaterial(r, this.materialAsset(r.material));
+    // Material slots (ADR 0089): the renderer's `materials[i]`, then `material`, then the model's import settings.
     const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
-    if (!same || entry.material !== material) {
+    const slots = same ? entry.slotList : sources ? materialSlots(sources) : [];
+    const remap = sources && slots.length ? this.sidecarMaterials(r.mesh) : null;
+    const slotMaterials = slots.map((slot, i) => this.materialAsset(r.materials[i] ?? "") ?? material ?? (remap?.[slot.surface.name] ? this.materialAsset(remap[slot.surface.name]) : null));
+    const sameSlots = entry.slots.length === slotMaterials.length && entry.slots.every((m, i) => m === slotMaterials[i]);
+    if (!same || entry.material !== material || !sameSlots) {
       for (const m of entry.meshes) m.dispose();
+      for (const m of entry.owned) m.dispose(false, false);
+      entry.owned = [];
+      const bySurface = new Map(slots.map((slot, i) => [slot.surface, slotMaterials[i]]));
       entry.meshes = (sources ?? []).map((src) => {
         const mesh = meshOf(this.scene, `mesh:${r.node.name}:${src.name}`, src);
-        mesh.material = material ?? modelMaterial(this.scene, this.modelMaterials, src, mesh) ?? this.defaultMaterial;
+        mesh.material = modelMaterial(this.scene, this.modelMaterials, src, mesh, (surface) => bySurface.get(surface) ?? null, entry!.owned) ?? this.defaultMaterial;
         mesh.metadata = { mycoBase: mesh.material };
         return mesh;
       });
       entry.sources = sources;
       entry.material = material;
+      entry.slots = slotMaterials;
+      entry.slotList = slots;
       entry.matrix = null;
     }
     const visible = r.isActiveAndEnabled;
@@ -1073,6 +1089,18 @@ export class BabylonRenderer {
       const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe.texture, probe.intensity) : base;
       if (probe) this.reflecting++;
       if (m.material !== drawn) m.material = drawn;
+    }
+  }
+
+  /** A model's import settings' material assets by material name (ADR 0089), or null for a built-in mesh or none. */
+  private sidecarMaterials(ref: string): Readonly<Record<string, string>> | null {
+    if (!ref || ref.startsWith("builtin:")) return null;
+    try {
+      const path = splitSpriteRef(ref.replace(/^asset:/, "")).path;
+      const materials = Assets.importSettings(path).materials;
+      return Object.keys(materials).length ? materials : null;
+    } catch {
+      return null;
     }
   }
 

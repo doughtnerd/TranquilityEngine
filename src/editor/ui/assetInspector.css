@@ -58,3 +58,4 @@
 
 /* A particle effect's live preview in its Inspector (the Particle Graph panel's, reused). */
 .particle-inspector-preview { height: 220px; margin: 8px 0; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.import-slot > span:first-child { padding-left: 12px; }
