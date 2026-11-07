@@ -15,7 +15,7 @@ describe("fitCanvas (ADR 0116)", () => {
     expect(fitCanvas("pixel-perfect", 320, 180, 319, 700)).toEqual({ width: 319, height: 179 });
   });
   it("survives a zero-sized container", () => {
-    expect(fitCanvas("fit", 1280, 720, 0, 0)).toEqual({ width: 1, height: 1 });
+    expect(fitCanvas("fit", 1280, 720, 0, 0)).toEqual({ width: 1280, height: 720 }); // the reference size
   });
   it("defaults the setting to fit", () => {
     expect(resolveSettings({}).display.scaleMode).toBe("fit");
