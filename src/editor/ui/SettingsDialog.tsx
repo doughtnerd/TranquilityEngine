@@ -2,7 +2,7 @@ import { signal } from "@preact/signals";
 import { settingsOpen } from "./dialogState";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { PRODUCT_NAME } from "../brand";
-import { askBeforeClearingReferences, askBeforeDeletingAssets, historyLocation, historyPruneDays } from "../preferences";
+import { askBeforeClearingReferences, askBeforeDeletingAssets, checkScriptsBeforePlay, historyLocation, historyPruneDays } from "../preferences";
 import { cleanPruneDays } from "../historyPrune";
 import { currentProject } from "../state";
 import { removeProjectTheme, writeProjectTheme } from "../projectTheme";
@@ -162,6 +162,14 @@ function GeneralSettings() {
             onChange={(e) => (askBeforeDeletingAssets.value = (e.currentTarget as HTMLInputElement).checked)}
           />
           Ask before deleting an asset or script
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={checkScriptsBeforePlay.value}
+            onChange={(e) => (checkScriptsBeforePlay.value = (e.currentTarget as HTMLInputElement).checked)}
+          />
+          Check scripts for type errors before Play
         </label>
       </fieldset>
     </>

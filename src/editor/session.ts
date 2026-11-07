@@ -34,10 +34,13 @@ import { openSceneFile, saveOpenScene } from "./project";
 import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, docVersion, editingCollider, openScene, openScenes, playState, sceneCamera, scriptProblems, scriptsVersion, select, selectedKeys, selection, setViewMode, status, viewMode, type OpenScene } from "./state";
 import type { ViewMode } from "./OrbitCamera";
-import { closeAllScripts, preloadCodeEditor } from "./code/codeState";
+import { closeAllScripts, loadedMonaco, preloadCodeEditor } from "./code/codeState";
 import { prefetchEngine } from "./prefetch";
 import { resetAssetBrowser } from "./assetSelection";
-import { isScriptPath, replaceScripts } from "./scriptLoader";
+import { isScriptPath, loadedPackageSpecifiers, loadedRegistrations, replaceScripts } from "./scriptLoader";
+import { checkBeforePlay, refreshPackageTypes } from "./scriptCheck";
+import { packageSourceFor } from "./projectPackages";
+import { captureScriptTypes, swapScriptTypes, type ScriptSwap } from "../engine/editor";
 import { viewportElements } from "./ui/ScenePanel";
 import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
 import { installViewportSelection } from "./viewportSelection";
@@ -114,7 +117,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   pendingReload = false;
   closeAllScripts();
   resetAssetBrowser();
-  const scripts = await replaceScripts(project.scripts, jsonFiles(project));
+  const scripts = await replaceScripts(project.scripts, jsonFiles(project), packageSourceFor(project));
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;
   void setUpScripting(project);
@@ -143,6 +146,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world), nodeRect });
   if (project.mainScene) openScene_(project.mainScene);
   preloadCodeEditor(project); // so the first file opens without the wait
+  syncPackageTypes(project);
   if (scripts.problems.length > 0) {
     const list = scripts.problems.map((p) => `${p.path}: ${p.message}`);
     const scene = status.value?.kind === "error" ? ` · ${status.value.text}` : "";
@@ -566,7 +570,16 @@ export async function save(): Promise<void> {
 /** Play the open scene in an Engine built from the project's bootstrap, shown in the game view (ADR 0022, 0032). */
 export async function startPlaying(): Promise<void> {
   const scene = openScene.value, project = currentProject.value;
-  if (!session || !scene || !project || playState.value !== "edit") return;
+  if (!session || !scene || !project || playState.value !== "edit" || checkingScripts) return;
+  // Type-check the scripts first (ADR 0125); with errors the user picks Play anyway or not.
+  checkingScripts = true;
+  let go: boolean;
+  try {
+    go = await checkBeforePlay(project);
+  } finally {
+    checkingScripts = false;
+  }
+  if (!go || !session || openScene.value !== scene || currentProject.value !== project || playState.value !== "edit") return;
   playState.value = "starting";
   const setup = netPlaySetup.value;
   try {
@@ -594,6 +607,15 @@ export async function startPlaying(): Promise<void> {
     status.value = errorStatus(`Couldn't play ${scene.path}`, err);
   }
 }
+
+/** The Code panel's TypeScript service learns the npm packages the scripts import (ADR 0125); loads Monaco only when there are some. */
+function syncPackageTypes(project: EditorProject): void {
+  if (typeof document === "undefined" || (loadedPackageSpecifiers().length === 0 && !loadedMonaco)) return;
+  refreshPackageTypes(project).catch((err: unknown) => console.warn("[editor] couldn't read the npm packages' types:", err));
+}
+
+/** True while Play waits for the scripts' type check. */
+let checkingScripts = false;
 
 /** Leave play mode: dispose the game's Engine and resume editing (and reload scripts saved meanwhile). */
 export function stopPlaying(): void {
@@ -688,6 +710,7 @@ export async function reloadScripts(options: { outside?: boolean } = {}): Promis
     const after = project.scripts;
     if (after.size === before.size && [...after].every(([path, text]) => before.get(path) === text)) return;
   }
+  if (playState.value === "playing" && play) return reloadIntoGame(project, play);
   if (playState.value !== "edit") {
     pendingReload = true;
     status.value = { kind: "info", text: "Scripts changed. They'll reload when you stop playing." };
@@ -700,9 +723,10 @@ export async function reloadScripts(options: { outside?: boolean } = {}): Promis
     status.value = errorStatus(`Couldn't read the scripts`, err);
     return;
   }
-  const result = await replaceScripts(project.scripts, jsonFiles(project));
+  const result = await replaceScripts(project.scripts, jsonFiles(project), packageSourceFor(project));
   scriptProblems.value = result.problems;
   scriptsVersion.value++;
+  syncPackageTypes(project);
   const scene = openScene.value;
   if (scene) {
     scene.sync.build();
@@ -720,6 +744,38 @@ export async function reloadScripts(options: { outside?: boolean } = {}): Promis
         : result.loaded.length === 0
           ? { kind: "info", text: "Reloaded scripts: there are none under scripts/ now." }
           : { kind: "info", text: `Reloaded ${result.loaded.length} script${result.loaded.length === 1 ? "" : "s"}.` };
+}
+
+/**
+ * Reload scripts into the running game (ADR 0125): load them again, then swap every World of the
+ * game to the new types, keeping each component's properties. The Editor World rebuilds on Stop.
+ */
+async function reloadIntoGame(project: EditorProject, session: PlaySession): Promise<void> {
+  try {
+    await project.rereadScripts();
+  } catch (err) {
+    status.value = errorStatus(`Couldn't read the scripts`, err);
+    return;
+  }
+  const before = captureScriptTypes(loadedRegistrations());
+  const result = await replaceScripts(project.scripts, jsonFiles(project), packageSourceFor(project));
+  scriptProblems.value = result.problems;
+  scriptsVersion.value++;
+  pendingReload = true; // the Editor World rebuilds from its document on Stop
+  if (play !== session) return; // stopped meanwhile: Stop's reload covers it
+  let swap: ScriptSwap;
+  try {
+    swap = swapScriptTypes(session.engine, before);
+    session.redraw();
+  } catch (err) {
+    status.value = errorStatus("Couldn't reload the scripts into the running game", err);
+    return;
+  }
+  const problems = result.problems.map((p) => `${p.path}: ${p.message}`);
+  const kept = swap.kept.length ? `; ${swap.kept.join(", ")} keep${swap.kept.length === 1 ? "s" : ""} running the old code until Stop` : "";
+  status.value = problems.length
+    ? { kind: "error", text: `Reloaded scripts into the game (${swap.swapped} component${swap.swapped === 1 ? "" : "s"} swapped); ${problems.join("; ")}${kept}`, detail: problems.join("\n") }
+    : { kind: "info", text: `Reloaded scripts into the running game: ${swap.swapped} component${swap.swapped === 1 ? "" : "s"} swapped, state kept${kept}.` };
 }
 
 /**

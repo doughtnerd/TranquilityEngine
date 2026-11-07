@@ -26,6 +26,9 @@ export function persisted<T>(key: string, fallback: T): Signal<T> {
 /** Ask before deleting an asset or script file from the project (it can't be undone). */
 export const askBeforeDeletingAssets = persisted("myco.editor.askBeforeDeletingAssets", true);
 
+/** Type-check project scripts before Play, stopping at a dialog when there are errors (ADR 0125). */
+export const checkScriptsBeforePlay = persisted("myco.editor.checkScriptsBeforePlay", true);
+
 /** Ask before deleting a node that other nodes reference (their fields are set to None). */
 export const askBeforeClearingReferences = persisted("myco.editor.askBeforeClearingReferences", true);
 

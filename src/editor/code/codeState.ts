@@ -57,10 +57,14 @@ export const activeScript = signal<string | null>(null);
 /** Open scripts whose text differs from what's on disk. */
 export const dirtyScripts = signal<ReadonlySet<string>>(new Set());
 
-/** Open a script in the Code panel (as a new tab, or its existing one) and bring the panel forward. */
-export function openScript(path: string): void {
+/** A place to show once its file is open in the Code panel (a type error's line, ADR 0125). */
+export const revealAt = signal<{ path: string; line: number; column: number } | null>(null);
+
+/** Open a script in the Code panel (as a new tab, or its existing one) and bring the panel forward; with `at`, put the cursor there. */
+export function openScript(path: string, at?: { line: number; column: number }): void {
   if (!openScripts.value.includes(path)) openScripts.value = [...openScripts.value, path];
   activeScript.value = path;
+  if (at) revealAt.value = { path, ...at };
   showPanel("code");
 }
 

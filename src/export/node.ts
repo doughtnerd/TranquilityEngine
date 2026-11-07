@@ -10,6 +10,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProject, ServerError } from "../server/project";
+import { nodePackageSource } from "../server/packages";
 import { DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
 import { ENGINE_FILE, MANIFEST_FILE, PLAYER_FILE_LIST, PLAYER_PAGE } from "./format";
 import { Assets } from "../engine/scene/Assets";
@@ -54,7 +55,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (isOutputInsideProject(project.root, out)) {
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
-  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json }, { mainScene: options.mainScene });
+  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene });
   // Bake the models (ADR 0090), loading them through the project's files as the server does.
   Assets.addSource(project.assets);
   try {

@@ -3,7 +3,7 @@ import { effect } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type * as Monaco from "monaco-editor";
 import { fileName } from "../assetBrowser";
-import { activeScript, closeScript, codeFiles, codeFileText, dirtyScripts, loadMonaco, loadedMonaco, openScripts, setDirty } from "../code/codeState";
+import { activeScript, closeScript, codeFiles, codeFileText, dirtyScripts, loadMonaco, loadedMonaco, openScripts, revealAt, setDirty } from "../code/codeState";
 import { openScriptExternally, saveCodeFile } from "../session";
 import { currentProject, scriptsVersion, status } from "../state";
 import { codeAppearance } from "../theme";
@@ -149,6 +149,14 @@ function MonacoHost() {
           e.updateOptions({ fontFamily: font, fontSize: size });
           monaco.editor.remeasureFonts();
         });
+        const applyReveal = () => {
+          const at = revealAt.peek();
+          if (!at || activeScript.peek() !== at.path || e.getModel()?.uri.path !== `/project/${at.path}`) return;
+          revealAt.value = null;
+          e.setPosition({ lineNumber: at.line, column: at.column });
+          e.revealLineInCenter(at.line);
+          e.focus();
+        };
         const watchers = new Map<string, Monaco.IDisposable>();
         // Follow the project's scripts, the tab showing, and read-only-ness.
         const stopFiles = effect(() => {
@@ -175,12 +183,20 @@ function MonacoHost() {
             });
           }
           if (e.getModel() !== model) e.setModel(model);
+          applyReveal();
           // Clear the overlay once the file has drawn.
           requestAnimationFrame(() => activeScript.peek() === path && setOpening(null));
+        });
+        // Go to a line asked for (a type error clicked in the Play check's dialog), once its file shows.
+        const stopReveal = effect(() => {
+          revealAt.value;
+          activeScript.value;
+          applyReveal();
         });
         stop = () => {
           stopFiles();
           stopFont();
+          stopReveal();
         };
       })
       .catch((err) => setFailed(err instanceof Error ? err.message : String(err)));
