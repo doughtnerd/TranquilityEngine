@@ -98,6 +98,11 @@ export interface RenderSurface {
   /** Forget the World this surface draws, so another may claim it. */
   releaseWorld(): void;
   dispose(): void;
+  /**
+   * Resolves once the renderer has started (true) or failed to (false); frames before then draw
+   * nothing. The desktop editor shows its window after this, so the scene view opens drawn (ADR 0082).
+   */
+  readonly started?: Promise<boolean>;
   /** Load textures ahead of time so sprites don't pop in. */
   preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void>;
   /**
@@ -121,7 +126,7 @@ export interface RenderSurface {
   particleState(): ParticleStats | null;
   renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number };
   /** Tests and the editor: the UI core's layout and hit testing, once loaded. */
-  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "cornersOf"> | null;
+  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "pickCanvases" | "cornersOf"> | null;
 
   // Editor (ADR 0022 and later).
   setEditorColors(colors: EditorColors): void;

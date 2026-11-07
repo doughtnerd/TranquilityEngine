@@ -41,7 +41,7 @@ describe("default layout", () => {
 describe("moving panels", () => {
   it("to the outer edge: a new outermost dock that claims the full height", () => {
     const l = movePanel(defaultLayout(), "inspector", { kind: "edge", side: "left", placement: "outer" });
-    expect(sides(l)).toEqual(["left:inspector", "bottom:assets+code", "left:hierarchy", "right:history+worlds+network+project", "left:scene+shadergraph+particlegraph"]); // History stays on the right
+    expect(sides(l)).toEqual(["left:inspector", "bottom:assets+code+tilepalette", "left:hierarchy", "right:history+worlds+network+project", "left:scene+shadergraph+particlegraph"]); // History stays on the right
     const geo = computeGeometry(l, bounds);
     expect(geo.docks[0].rect).toEqual({ x: 0, y: 0, w: 240, h: 800 });
     expect(geo.docks[1].rect.x).toBe(240); // the bottom dock now starts right of it
@@ -49,7 +49,7 @@ describe("moving panels", () => {
 
   it("to the filling dock's edge: a new dock just outside it", () => {
     const l = movePanel(defaultLayout(), "assets", { kind: "edge", side: "right", placement: "inner" });
-    expect(sides(l)).toEqual(["bottom:code", "left:hierarchy", "right:inspector+history+worlds+network+project", "right:assets", "left:scene+shadergraph+particlegraph"]);
+    expect(sides(l)).toEqual(["bottom:code+tilepalette", "left:hierarchy", "right:inspector+history+worlds+network+project", "right:assets", "left:scene+shadergraph+particlegraph"]);
     const geo = computeGeometry(l, bounds);
     expect(geo.docks[3].rect.h).toBe(610); // inside the bottom dock, which still holds Code
     expect(geo.fill.x + geo.fill.w).toBe(geo.docks[3].rect.x); // the scene still fills the rest
@@ -57,15 +57,15 @@ describe("moving panels", () => {
 
   it("into a dock: splits it evenly at the drop position", () => {
     let l = resizeSplit(movePanel(defaultLayout(), "assets", { kind: "split", dock: "left", index: 0 }), "left", 0, 0.3);
-    expect(sides(l)).toEqual(["bottom:code", "left:assets|hierarchy", "right:inspector+history+worlds+network+project", "left:scene+shadergraph+particlegraph"]);
+    expect(sides(l)).toEqual(["bottom:code+tilepalette", "left:assets|hierarchy", "right:inspector+history+worlds+network+project", "left:scene+shadergraph+particlegraph"]);
     l = movePanel(l, "inspector", { kind: "split", dock: "left", index: 1 });
-    expect(sides(l)).toEqual(["bottom:code", "left:assets|inspector|hierarchy", "right:history+worlds+network+project", "left:scene+shadergraph+particlegraph"]);
+    expect(sides(l)).toEqual(["bottom:code+tilepalette", "left:assets|inspector|hierarchy", "right:history+worlds+network+project", "left:scene+shadergraph+particlegraph"]);
     expect(where(l, "assets").fractions).toEqual([1 / 3, 1 / 3, 1 / 3]); // uniform again after the drop
   });
 
   it("onto another panel's header: joins it as the active tab", () => {
     const l = movePanel(defaultLayout(), "inspector", { kind: "tab", group: "hierarchy" });
-    expect(sides(l)).toEqual(["bottom:assets+code", "left:hierarchy+inspector", "right:history+worlds+network+project", "left:scene+shadergraph+particlegraph"]);
+    expect(sides(l)).toEqual(["bottom:assets+code+tilepalette", "left:hierarchy+inspector", "right:history+worlds+network+project", "left:scene+shadergraph+particlegraph"]);
     expect(where(l, "inspector").groups[0].active).toBe("inspector");
   });
 
@@ -87,7 +87,7 @@ describe("moving panels", () => {
 describe("the scene view as a panel", () => {
   it("can join another group as a tab; the next dock in then fills the middle", () => {
     const l = movePanel(movePanel(movePanel(defaultLayout(), "shadergraph", { kind: "tab", group: "assets" }), "particlegraph", { kind: "tab", group: "assets" }), "scene", { kind: "tab", group: "assets" });
-    expect(sides(l)).toEqual(["bottom:assets+code+shadergraph+particlegraph+scene", "left:hierarchy", "right:inspector+history+worlds+network+project"]);
+    expect(sides(l)).toEqual(["bottom:assets+code+tilepalette+shadergraph+particlegraph+scene", "left:hierarchy", "right:inspector+history+worlds+network+project"]);
     const geo = computeGeometry(l, bounds);
     expect(geo.fill).toEqual(geo.docks[2].rect); // the Inspector's dock takes the rest
     expect(geo.fill).toEqual({ x: 240, y: 0, w: 960, h: 610 });
@@ -183,7 +183,7 @@ describe("layouts saved before a panel existed", () => {
       ],
     };
     const l = parseLayout(old)!;
-    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history+worlds+network+project|assets+code", "left:scene+shadergraph+particlegraph"]); // Code joins Assets, where there's width
+    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history+worlds+network+project|assets+code+tilepalette", "left:scene+shadergraph+particlegraph"]); // Code joins Assets, where there's width
     expect(l.docks[0].size).toBe(300); // the user's arrangement is kept
     expect(where(l, "history").groups[0].active).toBe("inspector");
     const geo = computeGeometry(l, bounds);
@@ -195,14 +195,14 @@ describe("layouts saved before a panel existed", () => {
       version: 1,
       docks: [{ id: "b", side: "bottom", size: 200, groups: [{ id: "g", panels: ["assets", "hierarchy"], active: "assets" }], fractions: [1] }],
     })!;
-    expect(sides(l)).toEqual(["bottom:assets+hierarchy+inspector+history+code+worlds+network+project", "left:scene+shadergraph+particlegraph"]);
+    expect(sides(l)).toEqual(["bottom:assets+hierarchy+inspector+history+code+worlds+network+project+tilepalette", "left:scene+shadergraph+particlegraph"]);
   });
 
   it("adds the Worlds panel as a tab beside History, wherever History was moved", () => {
     const saved = movePanel(defaultLayout(), "history", { kind: "tab", group: "hierarchy" });
     for (const d of saved.docks) for (const g of d.groups) g.panels = g.panels.filter((p) => p !== "worlds" && p !== "network" && p !== "project"); // saved before they existed
     const l = parseLayout(JSON.parse(JSON.stringify(saved)))!;
-    expect(sides(l)).toEqual(["bottom:assets+code", "left:hierarchy+history+worlds+network+project", "right:inspector", "left:scene+shadergraph+particlegraph"]);
+    expect(sides(l)).toEqual(["bottom:assets+code+tilepalette", "left:hierarchy+history+worlds+network+project", "right:inspector", "left:scene+shadergraph+particlegraph"]);
     expect(where(l, "worlds").groups[0].active).toBe("history"); // the user's active tab is kept
   });
 
@@ -210,7 +210,7 @@ describe("layouts saved before a panel existed", () => {
     const saved = movePanel(defaultLayout(), "worlds", { kind: "tab", group: "assets" });
     for (const d of saved.docks) for (const g of d.groups) g.panels = g.panels.filter((p) => p !== "network" && p !== "project"); // saved before they existed
     const l = parseLayout(JSON.parse(JSON.stringify(saved)))!;
-    expect(sides(l)).toEqual(["bottom:assets+code+worlds+network+project", "left:hierarchy", "right:inspector+history", "left:scene+shadergraph+particlegraph"]);
+    expect(sides(l)).toEqual(["bottom:assets+code+tilepalette+worlds+network+project", "left:hierarchy", "right:inspector+history", "left:scene+shadergraph+particlegraph"]);
     expect(where(l, "network").groups[0].active).toBe("worlds");
   });
 });

@@ -481,6 +481,28 @@
           }
         }
       ]
+    },
+    {
+      "id": "street-lamp",
+      "name": "Street Lamp",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              -3,
+              0,
+              2
+            ]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "asset:models/lamp.glb"
+          }
+        }
+      ]
     }
   ]
 }

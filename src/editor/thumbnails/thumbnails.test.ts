@@ -64,6 +64,8 @@ describe("thumbnail kinds and dependencies (ADR 0061)", () => {
   it("previews models, materials, graphs, environments, effects, prefabs and audio, not images or scenes", () => {
     expect(previewKind("models/robot.fbx")).toBe("model");
     expect(previewKind("models/crate.OBJ")).toBe("model");
+    expect(previewKind("models/lamp.glb")).toBe("model");
+    expect(previewKind("models/car.gltf")).toBe("model");
     expect(previewKind("materials/wood.material.json")).toBe("material");
     expect(previewKind("shaders/water.shadergraph.json")).toBe("shadergraph");
     expect(previewKind("sky/studio.hdr")).toBe("environment");
@@ -73,8 +75,18 @@ describe("thumbnail kinds and dependencies (ADR 0061)", () => {
     expect(previewKind("skies/day.sky.json")).toBe("sky");
     expect(previewKind("effects/fire.particles.json")).toBe("particles");
     expect(previewKind("prefabs/pipe.prefab.json")).toBe("prefab");
+    expect(previewKind("scenes/main.scene.json")).toBe("scene");
     expect(previewKind("music/town.mp3")).toBe("audio");
-    for (const p of ["images/bird.png", "images/sheet.png#walk", "scenes/main.scene.json", "data.json", "models/robot.fbx.meta.json"]) expect(previewKind(p), p).toBeNull();
+    for (const p of ["images/bird.png", "images/sheet.png#walk", "data.json", "models/robot.fbx.meta.json"]) expect(previewKind(p), p).toBeNull();
+  });
+
+  it("follows a .gltf's external buffers and images (ADR 0088)", () => {
+    const src = project({
+      "models/car/car.gltf": JSON.stringify({ buffers: [{ uri: "car.bin" }, { uri: "data:application/octet-stream;base64,AA==" }], images: [{ uri: "./tex/paint%20red.png" }, { uri: "missing.png" }] }),
+      "models/car/car.bin": new Uint8Array([1]),
+      "models/car/tex/paint red.png": new Uint8Array([1]),
+    });
+    expect(previewDependencies("models/car/car.gltf", src)).toEqual(["models/car/car.bin", "models/car/tex/paint red.png"]);
   });
 
   it("follows JSON references transitively, with or without asset:, and ignores strings that aren't files", () => {
@@ -99,6 +111,23 @@ describe("thumbnail kinds and dependencies (ADR 0061)", () => {
       "models/tex/crate.png",
       "shaders/grain.shadergraph.json",
     ]);
+  });
+
+  it("follows a scene's prefab instances, materials and their textures (ADR 0117)", async () => {
+    const src = project({
+      "scenes/main.scene.json": JSON.stringify({ nodes: [{ id: "a", prefab: "prefabs/pipe.prefab.json" }, { id: "b", components: [{ type: "engine.MeshRenderer", data: { material: "asset:materials/m.material.json" } }] }] }),
+      "prefabs/pipe.prefab.json": JSON.stringify({ nodes: [{ id: "r", components: [{ type: "engine.SpriteRenderer", data: { sprite: "asset:images/pipe.png#top" } }] }] }),
+      "materials/m.material.json": JSON.stringify({ texture: "asset:images/m.png" }),
+      "images/pipe.png": new Uint8Array([1]),
+      "images/m.png": new Uint8Array([2]),
+      "images/unused.png": new Uint8Array([3]),
+    });
+    expect(previewDependencies("scenes/main.scene.json", src)).toEqual(["images/m.png", "images/pipe.png", "materials/m.material.json", "prefabs/pipe.prefab.json"]);
+    // Editing a dependency changes the scene's key; the kind keeps a scene's key apart from a prefab's.
+    const scene = enc(src.text("scenes/main.scene.json")!);
+    const a = await contentKey("scene", scene, [enc("1"), enc("2")]);
+    expect(await contentKey("scene", scene, [enc("1"), enc("3")])).not.toBe(a);
+    expect(await contentKey("prefab", scene, [enc("1"), enc("2")])).not.toBe(a);
   });
 
   it("cuts reference cycles", () => {

@@ -197,6 +197,60 @@ describe("myco-server (T14)", () => {
     expect(server.listeners.map((l) => l.world)).toEqual(["Lobby"]);
   });
 
+  it("has a server template created at runtime listen where its link says (ADR 0062)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
+    temps.push(dir);
+    writeFileSync(
+      join(dir, "project.json"),
+      JSON.stringify({
+        bootstrap: {
+          worlds: [{ name: "Game", tags: ["client"] }, { name: "Lobby", tags: ["server"] }],
+          templates: { Arena: { name: "Arena 1", tags: ["server"], renders: false, tickRate: 30 }, Quiet: { tags: ["server"], renders: false } },
+          links: [
+            { from: "Game", to: "Arena 1", transport: "websocket", options: { address: "ws://127.0.0.1:0/arena" } },
+            { from: "Game", to: "Quiet", transport: "loopback" },
+          ],
+        },
+      }),
+    );
+    const lines: string[] = [];
+    const server = await startServer({ projectDir: dir, statsIntervalMs: 0, log: (l) => lines.push(l), port: 0, host: "127.0.0.1" });
+    servers.push(server);
+    expect(server.listeners.map((l) => l.world)).toEqual(["Lobby"]);
+    const arena = server.engine.createWorld("Arena");
+    expect(arena.name).toBe("Arena 1");
+    await until(() => arena.addresses().length > 0);
+    expect(arena.addresses()[0]).toMatch(/^ws:\/\/127\.0\.0\.1:\d+\/arena$/);
+    await until(() => lines.some((l) => l.includes('World "Arena 1" was created at runtime and is listening')));
+    const engine = await Engine.create({ headless: true, project: { time: { fixedDeltaTime: 1 / 30 } }, bootstrap: { worlds: [{ name: "Player", tags: ["client"] }] } });
+    engines.push(engine);
+    engine.findWorld("Player")!.connect(arena.addresses()[0], "websocket");
+    await until(() => connectionStates(engine.world).includes(ConnectionState.open));
+    // A loopback link means nothing to a dedicated server: said once, no listen.
+    const quiet = server.engine.createWorld("Quiet");
+    await until(() => lines.some((l) => l.includes('World "Quiet" (created at runtime): its link from "Game" uses "loopback"')));
+    expect(quiet.addresses()).toEqual([]);
+  });
+
+  it("names server templates run at start as createWorld would, so links by the template's name apply", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
+    temps.push(dir);
+    writeFileSync(
+      join(dir, "project.json"),
+      JSON.stringify({
+        bootstrap: {
+          worlds: [{ name: "Client", tags: ["client"] }],
+          templates: { ServerTemplate: { name: "Server", tags: ["server"], renders: false } },
+          links: [{ from: "Client", to: "Server", transport: "websocket", options: { port: 7777 } }],
+        },
+      }),
+    );
+    const server = await startServer({ projectDir: dir, statsIntervalMs: 0, log: () => {}, port: 0, host: "127.0.0.1" });
+    servers.push(server);
+    expect(server.engine.worlds().map((w) => w.name)).toEqual(["Server"]);
+    expect(server.listeners.map((l) => l.world)).toEqual(["Server"]);
+  });
+
   it("ignores a loopback link's address (a name for editor play) and listens on the server's own port", async () => {
     const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
     temps.push(dir);

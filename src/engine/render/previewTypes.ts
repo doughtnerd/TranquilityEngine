@@ -7,7 +7,7 @@ import type { ParticleProgram } from "../scene/particleCompile";
 import type { BuiltinMesh } from "../scene/models";
 
 /** What gets a rendered thumbnail. */
-export type ThumbnailKind = "model" | "material" | "shadergraph" | "environment" | "sky" | "particles" | "prefab";
+export type ThumbnailKind = "model" | "material" | "shadergraph" | "environment" | "sky" | "particles" | "prefab" | "scene";
 
 /** The particle effect preview's backdrop. */
 export type PreviewBackground = "dark" | "light" | "grid";

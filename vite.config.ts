@@ -14,5 +14,18 @@ export default defineConfig({
   oxc: false,
   // Tauri (src-tauri/) expects a fixed dev port, its own output left on screen, and Rust sources unwatched.
   clearScreen: false,
-  server: { port: 3000, strictPort: true, watch: { ignored: ["**/src-tauri/**"] } },
+  server: {
+    port: 3000,
+    strictPort: true,
+    watch: { ignored: ["**/src-tauri/**"] },
+    // Start-up (ADR 0082): transform the Projects window's and the editor's entries as the server
+    // starts, before a window asks for them. Projects first: it is the window shown first.
+    warmup: { clientFiles: ["./src/editor/launcher/main.tsx", "./src/editor/main.tsx"] },
+  },
+  optimizeDeps: {
+    // The dependency scanner compiles JSX itself and never sees the `preact/jsx-runtime` import that
+    // tsc (typescriptTranspile) adds, so on a cold cache it was found late, re-bundled, and every open
+    // page reloaded: both desktop windows started over (ADR 0082).
+    include: ["preact/jsx-runtime"],
+  },
 });

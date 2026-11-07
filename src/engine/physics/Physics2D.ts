@@ -9,6 +9,30 @@ export interface RaycastHit2D {
   distance: number;
 }
 
+/** A 2D shape cast hit (ADR 0010: engine types only). `distance` is how far the shape travelled. */
+export interface ShapeCastHit2D {
+  collider: Collider2D;
+  point: Vector2;
+  normal: Vector2;
+  distance: number;
+}
+
+type CastShape2D = { kind: "circle"; radius: number } | { kind: "box"; halfExtents: Vec2Like } | { kind: "capsule"; radius: number; halfHeight: number };
+
+const toRad = (deg: number) => (deg * Math.PI) / 180;
+
+/** Vertical capsule from its full size (Unity CapsuleDirection2D.Vertical). */
+function capsuleOf(size: Vec2Like): CastShape2D {
+  const radius = size.x / 2;
+  return { kind: "capsule", radius, halfHeight: Math.max(0, size.y / 2 - radius) };
+}
+
+function cast(origin: Vec2Like, shape: CastShape2D, angle: number, direction: Vec2Like, maxDistance: number, layers?: string[]): ShapeCastHit2D | null {
+  const hit = physics().queries.castShape(shape, origin, toRad(angle), direction, maxDistance, layers);
+  if (!hit) return null;
+  return { collider: hit.collider, point: Vector2.from(hit.point), normal: Vector2.from(hit.normal), distance: hit.distance };
+}
+
 function physics() {
   const p = World.require().physics2D;
   if (!p) throw new Error('2D physics is not running. Load a scene with "settings": { "physics": "2d" }.');
@@ -33,5 +57,40 @@ export class Physics2D {
     const hit = physics().raycast(origin, direction, maxDistance, layers);
     if (!hit) return null;
     return { collider: hit.collider, point: Vector2.from(hit.point), normal: Vector2.from(hit.normal), distance: hit.distance };
+  }
+
+  /** Sweep a circle along `direction`; returns the first collider hit. */
+  static circleCast(origin: Vec2Like, radius: number, direction: Vec2Like, maxDistance = Number.MAX_VALUE, layers?: string[]): ShapeCastHit2D | null {
+    return cast(origin, { kind: "circle", radius }, 0, direction, maxDistance, layers);
+  }
+
+  /** Sweep a box (full `size`, rotated by `angle` degrees) along `direction`. */
+  static boxCast(origin: Vec2Like, size: Vec2Like, angle: number, direction: Vec2Like, maxDistance = Number.MAX_VALUE, layers?: string[]): ShapeCastHit2D | null {
+    return cast(origin, { kind: "box", halfExtents: { x: size.x / 2, y: size.y / 2 } }, angle, direction, maxDistance, layers);
+  }
+
+  /** Sweep a vertical capsule (full `size`, rotated by `angle` degrees) along `direction`. */
+  static capsuleCast(origin: Vec2Like, size: Vec2Like, angle: number, direction: Vec2Like, maxDistance = Number.MAX_VALUE, layers?: string[]): ShapeCastHit2D | null {
+    return cast(origin, capsuleOf(size), angle, direction, maxDistance, layers);
+  }
+
+  /** Every collider overlapping a circle. */
+  static overlapCircle(point: Vec2Like, radius: number, layers?: string[]): Collider2D[] {
+    return physics().queries.overlap({ kind: "circle", radius }, point, 0, layers);
+  }
+
+  /** Every collider overlapping a box (full `size`, rotated by `angle` degrees). */
+  static overlapBox(point: Vec2Like, size: Vec2Like, angle = 0, layers?: string[]): Collider2D[] {
+    return physics().queries.overlap({ kind: "box", halfExtents: { x: size.x / 2, y: size.y / 2 } }, point, toRad(angle), layers);
+  }
+
+  /** Every collider overlapping a vertical capsule (full `size`, rotated by `angle` degrees). */
+  static overlapCapsule(point: Vec2Like, size: Vec2Like, angle = 0, layers?: string[]): Collider2D[] {
+    return physics().queries.overlap(capsuleOf(size), point, toRad(angle), layers);
+  }
+
+  /** Every collider containing the point. */
+  static overlapPoint(point: Vec2Like, layers?: string[]): Collider2D[] {
+    return physics().queries.overlapPoint(point, layers);
   }
 }

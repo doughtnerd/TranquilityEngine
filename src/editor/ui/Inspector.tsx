@@ -36,6 +36,8 @@ import { deleteSelected } from "../deleteSelection";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
 import { ParticleSystemEffect } from "./ParticleInspector";
+import { showPanel } from "../layout/store";
+import { tilemapOf } from "../tilemap/brush";
 import { NavChunkBake } from "./NavChunkInspector";
 import { NavAgentBakeNote, NavAvoidanceNote, NavChunkPlanSummary, NavCostVolumeNote, NavModifierPreviewNote, NavResolutionSummary } from "./NavComponentInspectors";
 import { NavGroupFormation } from "./NavFormationInspector";
@@ -47,7 +49,7 @@ import { addToPreload, preloadCandidates, removeFromPreload } from "../scenePrel
 import { RuntimeInspector } from "./RuntimeInspector";
 import { UIElementInspector } from "./UIElementInspector";
 import { openScript, scriptFor } from "../code/codeState";
-import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
+import { applyOverrides, applyOverridesTo, createPrefabFromNodes, createPrefab, findInner, isOverridden } from "../prefabs";
 import { currentProject, docVersion, editingCollider, openScene, scriptsVersion, selectedKeys, selectedUIElement, selection, status, type OpenScene } from "../state";
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -211,6 +213,7 @@ function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
   return (
     <div class="inspector-body">
       <AssetLists />
+      <MultiPrefabActions scene={scene} paths={paths} />
       <div class="node-header">
         <input
           type="checkbox"
@@ -345,6 +348,54 @@ function PrefabActions(props: { scene: OpenScene; id: string }) {
   );
 }
 
+/** Create Prefab for several sibling nodes, and Apply for several instances (ADR 0087). */
+function MultiPrefabActions(props: { scene: OpenScene; paths: NodePath[] }) {
+  docVersion.value;
+  const { scene, paths } = props;
+  const project = currentProject.value;
+  if (paths.some((p) => p.length > 1)) return null;
+  const ids = paths.map((p) => p[0]);
+  const plain = ids.filter((id) => !scene.doc.node(id).prefab);
+  const withOverrides = ids.filter((id) => scene.doc.node(id).prefab && (scene.doc.node(id).overrides?.length ?? 0) > 0);
+  const canSave = !!project?.canSave;
+  return (
+    <div class="prefab-actions">
+      {plain.length === ids.length && (
+        <button
+          disabled={!canSave}
+          title={canSave ? "Save these nodes as one prefab (under a new Group root) and replace them with an instance" : "This project is read-only. Open a project folder to create prefabs."}
+          onClick={async () => {
+            try {
+              const path = await createPrefabFromNodes(scene, project!, ids);
+              status.value = { kind: "info", text: `Created ${path}. Undo turns the nodes back; the file stays on disk.` };
+            } catch (err) {
+              status.value = errorStatus(null, err);
+            }
+          }}
+        >
+          Create Prefab
+        </button>
+      )}
+      {withOverrides.length > 0 && (
+        <button
+          disabled={!canSave}
+          title="Write the selected instances' overrides into their prefab files"
+          onClick={async () => {
+            try {
+              const n = await applyOverridesTo(scene, project!, withOverrides);
+              status.value = { kind: "info", text: `Applied ${n} override${n === 1 ? "" : "s"} from ${withOverrides.length} instances.` };
+            } catch (err) {
+              status.value = errorStatus(null, err);
+            }
+          }}
+        >
+          Apply
+        </button>
+      )}
+    </div>
+  );
+}
+
 function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
   docVersion.value;
   const { scene, id } = props;
@@ -373,7 +424,7 @@ function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
   );
 }
 
-const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D", "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider"]);
+const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D", "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider", "engine.MeshCollider", "engine.CharacterController", "engine.CharacterController2D"]);
 
 /** One component, shared by every node in `paths` (`infos` holds each node's copy, in the same order). */
 /** Where a dragged component would land: next to the component `type`#`index`, before or after it. */
@@ -464,6 +515,8 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
   const badge = badges.size > 1 ? MIXED : [...badges][0] ?? null;
   // A ParticleSystem's effect is edited below its fields, not as raw JSON (ADR 0057).
   const particles = info.type === "engine.ParticleSystem";
+  // A Tilemap's layers are painted in the Tile Palette, not edited as raw data (ADR 0103).
+  const tilemap = info.type === "engine.Tilemap";
   return (
     <section class={`component${dropHere}${allEnabled ? "" : " off"}`} {...(reorderable ? { "data-reorder": "", "data-type": info.type, "data-index": String(info.index) } : {})}>
       <h3>
@@ -534,7 +587,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
       ) : (
         <div class="fields">
           {info.fields
-            .filter((f) => !(particles && (f.name === "embeddedEffect" || f.name === "overrides")))
+            .filter((f) => !(particles && (f.name === "embeddedEffect" || f.name === "overrides")) && !(tilemap && f.name === "layers"))
             .map((f) => (
               <FieldRow key={f.name} {...props} info={info} values={infos.map((i) => i.fields.find((o) => o.name === f.name)?.value)} field={f} />
             ))}
@@ -550,6 +603,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
           overrides={info.fields.find((f) => f.name === "overrides")?.value}
         />
       )}
+      {tilemap && paths.length === 1 && <TilemapSummary scene={scene} path={paths[0]} />}
       {/* An Environment using a procedural sky opens it in the Sky panel (ADR 0112). */}
       {info.type === "engine.Environment" && <EditSkyButton map={String(info.fields.find((f) => f.name === "map")?.value ?? "")} />}
       {/* A NavChunk bakes from here (ADR 0065). */}
@@ -766,7 +820,7 @@ function axesOf(values: unknown[]): (number | null)[] {
  */
 function assetListFor(type: string, field: string): string {
   if (field === "mesh" && (type === "engine.MeshRenderer" || type === "engine.MeshCollider")) return "asset-list-mesh";
-  if (field === "material" && type === "engine.MeshRenderer") return "asset-list-material";
+  if ((field === "material" || /^materials\[\d+\]$/.test(field)) && type === "engine.MeshRenderer") return "asset-list-material";
   if (field === "effect" && type === "engine.ParticleSystem") return "asset-list-particles";
   if (field === "formationAsset" && type === "engine.NavGroup") return "asset-list-formation";
   if (field === "map" && type === "engine.Environment") return "asset-list-environment";
@@ -1281,6 +1335,23 @@ function formatNumber(n: number): string {
 /** `orderInLayer` → "Order In Layer". */
 function humanize(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
+}
+
+/** A Tilemap's layer and tile counts, and the way to the Tile Palette (ADR 0103). */
+function TilemapSummary(props: { scene: OpenScene; path: NodePath }) {
+  docVersion.value;
+  const map = tilemapOf(props.scene.sync.nodeFor(props.path));
+  if (!map) return null;
+  let tiles = 0;
+  for (let l = 0; l < map.layerCount; l++) for (const _ of map.tiles(l)) tiles++;
+  return (
+    <div class="tilemap-summary">
+      <span>
+        {map.layerCount} layer{map.layerCount === 1 ? "" : "s"} · {tiles} tile{tiles === 1 ? "" : "s"}
+      </span>
+      <button onClick={() => showPanel("tilepalette")}>Open Tile Palette</button>
+    </div>
+  );
 }
 
 /** "Edit sky" under an Environment whose map is a sky asset in the project. */

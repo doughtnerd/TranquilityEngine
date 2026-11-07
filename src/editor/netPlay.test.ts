@@ -228,17 +228,20 @@ describe("stats helpers", () => {
     expect(ghostTypeLabel("prefabs/units/tank.prefab.json › turret")).toBe("tank › turret");
   });
 
-  it("puts conditions in loopback links' options, so links simulate them from the handshake", () => {
+  it("puts conditions in loopback links' options (and WebSocket ones, loopback in a page), so links simulate them from the handshake", () => {
     const config: BootstrapConfig = {
       worlds: [{ name: "Client" }, { name: "Server" }, { name: "Remote" }],
       links: [
         { from: "Client", to: "Server", transport: "loopback", options: { address: "a", latencyMs: 5 } },
         { from: "Remote", to: "Server", transport: "websocket", options: { url: "ws://x" } },
+        { from: "Client", to: "Server", transport: "custom" },
       ],
     };
     const out = withConditions(config, { latencyMs: 120, jitterMs: 4, lossPercent: 10 }) as BootstrapConfig;
     expect(out.links![0].options).toEqual({ address: "a", latencyMs: 120, jitterMs: 4, loss: 0.1 });
-    expect(out.links![1]).toBe(config.links![1]);
+    // In a page, a WebSocket link between two of its Worlds runs over loopback (ADR 0102).
+    expect(out.links![1].options).toEqual({ url: "ws://x", latencyMs: 120, jitterMs: 4, loss: 0.1 });
+    expect(out.links![2]).toBe(config.links![2]);
     expect(withConditions(config, null)).toBe(config);
     expect(withConditions("scripts/boot.ts", { latencyMs: 1, jitterMs: 0, lossPercent: 0 })).toBe("scripts/boot.ts");
   });
