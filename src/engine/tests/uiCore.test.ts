@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Camera, Engine, GameBehavior, GameObject, Input, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, Vector2, type UILength } from "../index";
 import { World } from "../core/World";
-import { UICore, canvasScale, uiLength } from "../ui/UICore";
+import { UICore, canvasScale, onFrameEdge, uiLength } from "../ui/UICore";
 import type { TextMeasureRequest } from "../ui/uiCoreTypes";
 import { Assets } from "../scene/Assets";
 import { UI_FONT_FAMILY, _resetFonts, fontEpoch, fontFamilyOf, loadBundledFont, onFontLoaded } from "../ui/fonts";
@@ -973,6 +973,26 @@ describe("UICore editor picking (ADR 0077)", () => {
     // The screen column is listed first (screen canvases draw over world ones), then the world label under the ray.
     expect(c.pickAll(5, 5, { origin: [-0.5, 0.25, 0], direction: [0, 0, -1] })).toEqual([column, label]);
     expect(c.pickAll(5, 5, { origin: [0.5, 0.25, 0], direction: [0, 0, -1] })).toEqual([column]); // the sign's right half has no element
+  });
+
+  it("picks canvases (ADR 0117): a screen canvas by its frame's edge strip only, a world canvas by its rect", async () => {
+    const { canvas } = menu();
+    const c = await core({ interactive: false });
+    sync(c);
+    expect(c.pickCanvases(640, 360)).toEqual([]); // the bare interior deselects, never selects
+    expect(c.pickCanvases(3, 360)).toEqual([canvas]);
+    expect(c.pickCanvases(1275, 360)).toEqual([canvas]);
+    expect(c.pickCanvases(640, 716)).toEqual([canvas]);
+    expect(c.pickCanvases(100, 100, null, 8)).toEqual([]);
+    expect(onFrameEdge(1281, 3, 1280, 720, 8)).toBe(false); // outside the frame
+    const sign = node("Sign", null, UICanvas, { mode: "world", referenceResolution: new Vector2(200, 100), pixelSize: 0.01 } as Partial<UICanvas>);
+    sign.node.transform!.position.set(0, 0, -5);
+    engine.step(DT);
+    sync(c);
+    const ray = (x: number, y: number) => ({ origin: [x, y, 0] as [number, number, number], direction: [0, 0, -1] as [number, number, number] });
+    expect(c.pickCanvases(640, 360, ray(0.9, 0.4))).toEqual([sign]); // anywhere on the plane's rectangle
+    expect(c.pickCanvases(640, 360, ray(1.1, 0))).toEqual([]);
+    expect(c.pickCanvases(3, 360, ray(0, 0))).toEqual([canvas, sign]); // screen canvases first
   });
 
   it("places an absolute child's left/top from the parent's padding box (inside its border), as the handles assume", async () => {

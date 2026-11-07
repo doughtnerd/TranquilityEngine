@@ -6,7 +6,7 @@ import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "shadergraph" | "shadersubgraph" | "particles" | "formation" | "environment" | "json" | "script" | "javascript" | "typescript" | "text" | "other";
+export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "shadergraph" | "shadersubgraph" | "particles" | "formation" | "environment" | "json" | "script" | "javascript" | "typescript" | "text" | "uidocument" | "stylesheet" | "xml" | "other";
 
 /** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
 export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
@@ -36,6 +36,9 @@ export function assetKind(path: string): AssetKind {
   if (p.endsWith(".particles.json")) return "particles";
   if (p.endsWith(".formation.json")) return "formation";
   if (p.endsWith(".json")) return "json";
+  if (p.endsWith(".ui.xml")) return "uidocument";
+  if (p.endsWith(".css")) return "stylesheet";
+  if (p.endsWith(".xml")) return "xml";
   if (p.endsWith(".ts") && !p.endsWith(".d.ts")) return "script";
   if (/\.(js|mjs|cjs)$/.test(p)) return "javascript";
   if (/\.(mts|cts)$/.test(p)) return "typescript";
@@ -44,7 +47,7 @@ export function assetKind(path: string): AssetKind {
 }
 
 /** Kinds that open in the Code panel: scripts, plain JSON, JavaScript and TypeScript modules, and text (scenes, prefabs and graphs open in their own views). */
-const CODE_KINDS: ReadonlySet<AssetKind> = new Set(["script", "json", "javascript", "typescript", "text"]);
+const CODE_KINDS: ReadonlySet<AssetKind> = new Set(["script", "json", "javascript", "typescript", "text", "uidocument", "stylesheet", "xml"]);
 /** True if an asset kind opens in the Code panel. */
 export const opensInCodePanel = (kind: AssetKind | "folder") => CODE_KINDS.has(kind as AssetKind);
 
@@ -105,6 +108,23 @@ export function searchFiles(files: readonly string[], query: string): string[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
   return files.filter((f) => words.every((w) => fileName(f).toLowerCase().includes(w))).sort((a, b) => fileName(a).localeCompare(fileName(b)));
+}
+
+/**
+ * Search results including slices (ADR 0115): the files `searchFiles` finds, plus a slice entry
+ * (`images/a.png#walk_0`) for each slice of an image whose name contains every word. `sliceNames`
+ * gives an image's slice names. Sorted by name ("hero" sorts before "hero_walk", so slices named after their image list before it).
+ */
+export function searchEntries(files: readonly string[], query: string, sliceNames: (image: string) => readonly string[]): string[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [];
+  const out = [...searchFiles(files, query)];
+  for (const f of files) {
+    if (assetKind(f) !== "image") continue;
+    for (const name of sliceNames(f)) if (words.every((w) => name.toLowerCase().includes(w))) out.push(sliceEntry(f, name));
+  }
+  const key = (e: string) => (isSliceEntry(e) ? splitSliceEntry(e).slice : fileName(e));
+  return out.sort((a, b) => key(a).localeCompare(key(b)) || (isSliceEntry(a) ? 1 : 0) - (isSliceEntry(b) ? 1 : 0));
 }
 
 /** A node id from a file name: `pipe-pair.prefab.json` → `pipe-pair`, `flappyBird.png` → `flappy-bird`. */

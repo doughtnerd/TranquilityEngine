@@ -20,7 +20,7 @@ import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRe
 import { Camera, MeshRenderer, SpriteRenderer } from "../render/components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import type { GameObject } from "../scene/GameObject";
-import type { UIComponentType } from "../ui/components";
+import type { UICanvas, UIComponentType } from "../ui/components";
 import { SceneInstance, _instantiatedPrefabOf, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 import type { Schema } from "../core/data";
 import { _undefineInput, _writeSyntheticInput, definedInputs } from "../net/input";
@@ -272,6 +272,16 @@ export function pickUI(world: World, x: number, y: number): UIComponentType[] {
   const ui = world.render?.uiRuntime();
   if (!ui) return [];
   return ui.pickAll(x, y, rayAt(world, x, y));
+}
+
+/**
+ * UI canvases (ADR 0117) a click at a canvas point selects, topmost first: a world canvas by its
+ * rectangle, a screen canvas only by the edge strip of its frame. Empty headless.
+ */
+export function pickUICanvases(world: World, x: number, y: number): UICanvas[] {
+  const ui = world.render?.uiRuntime();
+  if (!ui) return [];
+  return ui.pickCanvases(x, y, rayAt(world, x, y));
 }
 
 /**

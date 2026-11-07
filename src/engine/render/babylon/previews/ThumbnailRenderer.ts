@@ -8,6 +8,10 @@
  *
  * Reached through `src/engine/editor`, which loads this file only when the Babylon renderer is chosen.
  */
+import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
+import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
+import { PointLight } from "@babylonjs/core/Lights/pointLight.js";
+import { SpotLight } from "@babylonjs/core/Lights/spotLight.js";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
@@ -29,6 +33,7 @@ import { materialGraph } from "../../../scene/material";
 import { compileParticleGraph } from "../../../scene/particleCompile";
 import { parseParticleGraph } from "../../../scene/particleGraphFormat";
 import { loadMeshes, materialSlots, meshesIfLoaded, type ModelMesh, type SurfaceInfo } from "../../../scene/models";
+import { flattenSceneNodes } from "../../sceneFlatten";
 import { ProgramRunner } from "../../particles/programRunner";
 import { EffectSimulation } from "../../particles/simulation";
 import { colorFromHex, frameView, moveOrbit, orbitOf, orbitPosition, previewPixels, seededRandom, type Bounds, type Orbit } from "../../thumbnailMath";
@@ -441,6 +446,8 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
           return await this.prepareParticles(path, live);
         case "prefab":
           return await this.preparePrefab(path);
+        case "scene":
+          return await this.prepareScene(path);
       }
     } catch (err) {
       console.warn(`[myco] thumbnail: couldn't draw ${path}:`, err);
@@ -631,8 +638,23 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   }
 
   private async preparePrefab(path: string): Promise<Prepared> {
-    const raw = Assets.json(path) as { nodes?: PrefabNode[] };
-    const nodes = Array.isArray(raw?.nodes) ? raw.nodes : [];
+    return this.prepareNodes(path, false);
+  }
+
+  /** A scene seen from its main camera, with its own lights; framed like a prefab when it has no camera (ADR 0117). */
+  private async prepareScene(path: string): Promise<Prepared> {
+    return this.prepareNodes(path, true);
+  }
+
+  /** The meshes and sprites of a prefab's or scene's nodes (instances expanded), drawn as a prefab or from the scene's camera. */
+  private async prepareNodes(path: string, asScene: boolean): Promise<Prepared> {
+    const nodes: PrefabNode[] = flattenSceneNodes(path, (p) => {
+      try {
+        return Assets.json(p.replace(/^asset:/, ""));
+      } catch {
+        return undefined;
+      }
+    });
     const byId = new Map(nodes.map((n) => [n.id, n]));
     const worlds = new Map<string, number[]>();
     const worldOf = (n: PrefabNode, depth = 0): number[] => {
@@ -681,13 +703,90 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
         }
       }
       if (!meshes && !sprites) throw new Error("it has nothing to draw.");
+      const view = asScene ? this.sceneView(scene, nodes, worldOf) : null;
       await this.ready(scene, 3000);
-      // Sprites only: a 2D prefab, seen from the front.
-      return { scene, ...this.camera(scene, box.bounds(), meshes ? DIRECTION_3D : DIRECTION_FRONT, UNIT), dispose: () => scene.dispose() };
+      // A scene is seen from its camera; otherwise (and for prefabs) from three-quarters above, or the front for sprites only.
+      return { scene, ...(view ?? this.camera(scene, box.bounds(), meshes ? DIRECTION_3D : DIRECTION_FRONT, UNIT)), dispose: () => scene.dispose() };
     } catch (err) {
       scene.dispose();
       throw err;
     }
+  }
+
+  /**
+   * Put the scene's own lights in `scene` (replacing the default ones, if it has any) and aim a camera
+   * like its main one: the lowest depth, the first in the file on a tie. Null when it has no camera.
+   */
+  private sceneView(scene: Scene, nodes: readonly PrefabNode[], worldOf: (n: PrefabNode) => number[]): { camera: TargetCamera; target: [number, number, number] } | null {
+    const lights = nodes.flatMap((n) => (n.components ?? []).filter((c) => c.type === "engine.Light").map((c) => ({ n, data: (c.data ?? {}) as Record<string, unknown> })));
+    if (lights.length) {
+      for (const l of [...scene.lights]) l.dispose();
+      for (const { n, data } of lights) {
+        const m = worldOf(n);
+        const type = typeof data.type === "string" ? data.type : "directional";
+        const rgb = colorOfData(data.color) ?? [1, 1, 1];
+        const intensity = typeof data.intensity === "number" ? Math.max(0, data.intensity) : 1;
+        const range = typeof data.range === "number" && data.range > 0 ? data.range : Number.MAX_VALUE;
+        const color = new Color3(rgb[0], rgb[1], rgb[2]).toLinearSpace();
+        const position = new Vector3(m[12], m[13], m[14]);
+        const direction = new Vector3(-m[8], -m[9], -m[10]).normalize(); // -Z, where cameras look too
+        let light;
+        if (type === "ambient") {
+          const h = new HemisphericLight("scene.ambient", new Vector3(0, 1, 0), scene);
+          h.groundColor = color.clone();
+          h.specular = Color3.Black();
+          light = h;
+        } else if (type === "point") {
+          const pl = new PointLight("scene.point", position, scene);
+          pl.range = range;
+          light = pl;
+        } else if (type === "spot") {
+          const angle = (Math.min(Math.max(typeof data.spotAngle === "number" ? data.spotAngle : 30, 1), 179) * Math.PI) / 180;
+          const sl = new SpotLight("scene.spot", position, direction, angle, 2, scene);
+          sl.range = range;
+          light = sl;
+        } else light = new DirectionalLight("scene.sun", direction, scene);
+        light.diffuse = color;
+        if (!(light instanceof HemisphericLight)) light.specular = color;
+        light.intensity = intensity;
+      }
+    }
+    let best: { n: PrefabNode; data: Record<string, unknown>; depth: number } | null = null;
+    for (const n of nodes) {
+      for (const c of n.components ?? []) {
+        if (c.type !== "engine.Camera") continue;
+        const data = (c.data ?? {}) as Record<string, unknown>;
+        const depth = typeof data.depth === "number" ? data.depth : 0;
+        if (!best || depth < best.depth) best = { n, data, depth };
+      }
+    }
+    if (!best) return null;
+    const { n, data } = best;
+    const m = worldOf(n);
+    const eye: [number, number, number] = [m[12], m[13], m[14]];
+    const target: [number, number, number] = [eye[0] - m[8] * 10, eye[1] - m[9] * 10, eye[2] - m[10] * 10];
+    const camera = new TargetCamera("scene.camera", Vector3.Zero(), scene, false);
+    const near = typeof data.near === "number" && data.near > 0 ? data.near : 0.1;
+    const far = typeof data.far === "number" && data.far > near ? data.far : 1000;
+    camera.minZ = near;
+    camera.maxZ = far;
+    if (data.projection === "perspective") {
+      camera.fov = (((typeof data.fieldOfView === "number" ? data.fieldOfView : 60) as number) * Math.PI) / 180;
+      camera.fovMode = Camera.FOVMODE_VERTICAL_FIXED;
+    } else {
+      // The thumbnail is square: show the camera's full height, as wide.
+      const half = typeof data.orthographicSize === "number" && data.orthographicSize > 0 ? data.orthographicSize : 5;
+      camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+      camera.orthoLeft = -half;
+      camera.orthoRight = half;
+      camera.orthoTop = half;
+      camera.orthoBottom = -half;
+    }
+    aimCamera(camera, eye, target);
+    scene.activeCamera = camera;
+    const bg = colorOfData(data.backgroundColor);
+    if (bg) scene.clearColor = new Color4(bg[0], bg[1], bg[2], 1).toLinearSpace();
+    return { camera, target };
   }
 
   /** The studio room, once per renderer: ready for every scene, or not at all (thumbnails then have no reflections). */
@@ -712,6 +811,16 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
 }
 
 // --- helpers ------------------------------------------------------------------------------------------
+
+/** A colour field's `[r, g, b(, a)]` (0 to 1) or `#rrggbb`, as 0 to 1 sRGB components; null when it is neither. */
+function colorOfData(v: unknown): [number, number, number] | null {
+  if (Array.isArray(v) && v.length >= 3 && v.every((x) => typeof x === "number")) return [v[0], v[1], v[2]];
+  if (typeof v === "string") {
+    const hex = colorFromHex(v);
+    return [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+  }
+  return null;
+}
 
 interface PrefabNode {
   id: string;

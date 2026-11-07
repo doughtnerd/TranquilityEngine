@@ -21,7 +21,7 @@ export { AssetRef, PlainObject, behavior, component, field, getComponentClass, g
 export { defineBuffer, defineComponent, f32, i32, u8, type BufferDef, type ColumnArray, type Columns, type DataComponentDef, type DataView, type ScalarType, type Schema } from "./core/data";
 export { defineSystem, type Phase, type Row, type SystemContext, type SystemDef } from "./core/systems";
 export type { Rows } from "./core/rows";
-export type { ProjectSettings, ProjectSettingsInput } from "./core/settings";
+export type { ProjectSettings, ProjectSettingsInput, ScaleMode } from "./core/settings";
 export type { AntialiasMode, GraphicsSettings, ParticleQuality, QualityTier, ShaderLevel, ShadowQuality } from "./core/graphics";
 export { Graphics } from "./render/Graphics";
 
@@ -29,8 +29,9 @@ export { GameObject, type InstantiateOptions } from "./scene/GameObject";
 export { Transform } from "./scene/Transform";
 export { SceneManager, type LoadSceneOptions } from "./scene/SceneManager";
 export { SceneInstance, registerSceneMigration, type SceneFile } from "./scene/SceneLoader";
+export { scene, prefab, ref, asset, setField, SceneBuilder, PrefabBuilder, NodeBuilder, type InstanceOptions, type NodeComponentOptions, type ComponentEntry, type NodeEntry, type OverrideEntry } from "./scene/sceneBuilder";
 export { Assets, type AssetSource } from "./scene/Assets";
-export type { ImportSettings, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
+export type { ImportPlatform, ImportSettings, PlatformOverrides, TextureCompression, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
 export { Camera, Environment, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type FogMode, type LightType, type MaterialPropertyValue, type ParticlePropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";

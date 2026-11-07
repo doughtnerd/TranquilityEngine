@@ -50,7 +50,7 @@ describe("creating nodes", () => {
     expect(doc.fieldValue(text, "engine.Text", "text")).toBe("New Text");
     const empty = createNode(scene, "empty", { position: [1, 2, 0] });
     expect(doc.fieldValue(empty, "engine.Transform", "position")).toEqual([1, 2, 0]);
-    expect(() => createNode(scene, "empty", { parent: "pipe/top" })).toThrow(/inside a prefab/);
+    expect(() => createNode(scene, "empty", { parent: "pipe/top" })).toThrow(/gone/);
   });
 
   it("numbers names among siblings only", () => {

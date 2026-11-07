@@ -91,9 +91,9 @@ test("Play: chunks stream in round the agents, agents of every kind move, the Na
   // A few seconds on, agents of every kind have moved; the flyers are in the air.
   const kindOf = (name: string) => name.replace(/ \d+$/, "").replace(/ member$/, "");
   const start = new Map(first.agents.map((a) => [a.name, a]));
-  await page.waitForTimeout(8_000);
+  // Wait on frames, not a fixed time: software GL renders this scene at a few frames a second.
+  await expect.poll(async () => ((await playState(page))?.frame ?? 0) - first.frame, { timeout: 90_000 }).toBeGreaterThan(120);
   const later = (await playState(page))!;
-  expect(later.frame).toBeGreaterThan(first.frame + 120);
   const moved = new Map<string, number>();
   for (const a of later.agents) {
     const s = start.get(a.name);

@@ -1,5 +1,5 @@
-// The desktop editor's Projects window (ADR 0059): the start screen on its own, shown at start-up
-// while the editor window loads hidden. Picking a project hands it to the editor window, and this
+// The desktop editor's Projects window (ADR 0059): the start screen on its own, shown at start-up;
+// once it has painted it creates the hidden editor window, which loads in the background (ADR 0082). Picking a project hands it to the editor window, and this
 // window hides until the editor closes the project. It loads no engine code, so it shows at once.
 // Outside the desktop app there's no second window, so it goes to the editor page instead.
 import type { Window } from "@tauri-apps/api/window";
@@ -11,12 +11,14 @@ import { recentVersion } from "../recentProjects";
 import { setStartActions } from "../startActions";
 import { status } from "../state";
 import { installTheme } from "../theme";
+import "../ui/fonts";
 import { AboutDialog } from "../ui/AboutDialog";
 import { NewProjectDialog } from "../ui/NewProjectDialog";
 import { StartScreen } from "../ui/StartScreen";
 import "../ui/editor.css";
 import { launcherActions } from "./actions";
-import { linkToEditor, tauriBus } from "./handoff";
+import { startEditorWindow, startEditorWindowWhenIdle } from "./editorWindowStart";
+import { linkToEditor, tauriBus, type EditorLink } from "./handoff";
 import "./launcher.css";
 import { fitWindowToWorkArea, measureScrollbar } from "./windowSize";
 
@@ -118,8 +120,11 @@ async function main(): Promise<void> {
     void window.show().then(() => window.setFocus());
   });
   void link.ready.then(() => (editorReady.value = true));
-  setStartActions(launcherActions(link, () => void window.hide()));
+  // The editor window is created once this one shows (ADR 0082), or at once if a project is picked first.
+  const handOff: EditorLink = { ready: link.ready, dispose: () => link.dispose(), open: (request) => startEditorWindow().then(() => link.open(request)) };
+  setStartActions(launcherActions(handOff, () => void window.hide()));
   render(<ProjectsWindow window={window} />, document.getElementById("app")!);
+  startEditorWindowWhenIdle();
 }
 
 main().catch((err) => {

@@ -50,6 +50,14 @@ describe("three.js imports (ADR 0081)", () => {
     expect(readFileSync(join(root, "engine/scene/bakedModel.ts"), "utf8")).not.toMatch(/from\s*["']three/);
   });
 
+  it("loads three.js only when a model file is parsed, never at start-up (ADR 0082)", () => {
+    const text = readFileSync(join(root, "engine/scene/models.ts"), "utf8");
+    const staticImports = [...text.matchAll(/^import\s+(type\s+)?[^;]*?from\s*["']three(?:\/[^"']*)?["']/gm)];
+    expect(staticImports.length).toBeGreaterThan(0); // the scan works
+    for (const m of staticImports) expect(m[1], m[0]).toBe("type ");
+    expect(readFileSync(join(root, "engine/scene/builtinMeshes.ts"), "utf8")).not.toMatch(/from\s*["']three/);
+  });
+
   it("leaves the three.js backend's libraries out of the sources and the package", () => {
     const pkg = JSON.parse(readFileSync(join(root, "../package.json"), "utf8")) as Record<string, Record<string, string> | undefined>;
     for (const name of REMOVED) {
