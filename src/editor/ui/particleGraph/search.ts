@@ -26,7 +26,7 @@ export function blockItems(kind: ContextKind): GraphSearchItem[] {
   return items.sort((a, b) => order.indexOf(a.category) - order.indexOf(b.category));
 }
 
-const CATEGORY_ORDER: NodeCategory[] = ["Value", "Property", "Time", "Math", "Trigonometry", "Sampling", "Vector", "Colour", "Event"];
+const CATEGORY_ORDER: NodeCategory[] = ["Value", "Particle", "Property", "Time", "Math", "Trigonometry", "Sampling", "Vector", "Colour", "Event"];
 const TEMPLATES: [TemplateKind, string, string][] = [
   ["empty", "System: Empty", "empty blank new system"],
   ["simpleLoop", "System: Simple Loop", "simple loop new system continuous"],

@@ -126,6 +126,10 @@
 .pg-context.k-update { --ctx: var(--pg-update); }
 .pg-context.k-output { --ctx: var(--pg-output); }
 .pg-context-head { padding: 4px 8px 6px; background: color-mix(in srgb, var(--ctx) 14%, var(--surface)); border-bottom: 1px solid var(--border); cursor: grab; }
+.pg-add-output { display: block; width: 100%; height: 22px; margin-top: 8px; padding: 0; background: transparent; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--muted); font: inherit; cursor: pointer; }
+.pg-add-output:hover:not(:disabled) { color: var(--text); border-color: var(--accent); background: var(--accent-faint); }
+.pg-add-output:disabled { opacity: 0.4; cursor: default; }
+.pg-output-x { float: right; }
 .pg-context-title { font-weight: 700; color: var(--text-strong); }
 .pg-context-sub { color: var(--ctx); }
 .pg-settings { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px 10px; margin-top: 4px; }
