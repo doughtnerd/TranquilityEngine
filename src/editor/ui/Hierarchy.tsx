@@ -7,6 +7,7 @@ import { nodeDrag, startNodeDrag } from "../nodeDrag";
 import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisibility";
 import { innerNodes, type InnerNode } from "../prefabs";
 import { ancestorKeys, combineSelection, rangeBetween } from "../selectionModel";
+import { selectedAssets } from "../assetSelection";
 import { docVersion, isSelected, openScene, select, selectedKeys, selectedUIElement } from "../state";
 import { documentRows, resolveUIElement, rowAncestry, selectUIElement, selectedUIRef, uiBuildVersion, watchUIDocumentBuilds, type UIDocumentRows, type UIElementRow } from "../uiDocuments";
 import { HierarchyMenu, openCreateMenu, openHierarchyMenu, openUIElementMenu } from "./HierarchyMenu";
@@ -15,6 +16,12 @@ import { renamingUIElement, startUIElementDrag, uiDropDescription, uiElementDrag
 import "./hierarchy.css";
 import { liveInspecting } from "../runtimeInspect";
 import { RuntimeHierarchy, WorldPicker } from "./RuntimeHierarchy";
+
+/** The Inspector shows the open scene's settings when nothing is selected: clear the node and asset selections. */
+function showSceneSettings(): void {
+  select([]);
+  if (selectedAssets.peek().length) selectedAssets.value = [];
+}
 
 /** Collapsed scene nodes, by path key. */
 const collapsed = signal<ReadonlySet<string>>(new Set());
@@ -113,7 +120,19 @@ export function Hierarchy() {
     >
       <WorldPicker />
       <div class="hierarchy-header">
-        <div class={`scene-name${dropMode(null) === "root" ? " drop-into" : ""}`} title={scene.path}>
+        <div
+          class={`scene-name${dropMode(null) === "root" ? " drop-into" : ""}`}
+          title={`${scene.path}: click for the scene's settings`}
+          role="button"
+          tabIndex={0}
+          onClick={showSceneSettings}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              showSceneSettings();
+            }
+          }}
+        >
           {scene.path.split("/").pop()}
           {scene.stack.dirty && " •"}
         </div>

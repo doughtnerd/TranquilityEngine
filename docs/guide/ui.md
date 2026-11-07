@@ -1,6 +1,6 @@
 # Game UI
 
-Menus, HUDs, lobbies and world-space panels are built from **UI components** on nodes. They lay out with flexbox, draw inside the game canvas with crisp text at any size, and take the pointer before the game does. The design is in [ADR 0069](../decisions/0069-ui-components-on-uikit.md) (built on pmndrs uikit, as [ADR 0020](../decisions/0020-in-canvas-ui-with-uikit.md) decided). This guide is about using it.
+Menus, HUDs, lobbies and world-space panels are built from **UI components** on nodes. They lay out with flexbox, draw inside the game canvas with crisp text at any size, and take the pointer before the game does. The components are [ADR 0069](../decisions/0069-ui-components-on-uikit.md)'s; they lay out with Yoga and draw with Babylon GUI ([ADR 0076](../decisions/0076-ui-yoga-layout-babylon-gui-drawing.md)), which replaced the pmndrs uikit of [ADR 0020](../decisions/0020-in-canvas-ui-with-uikit.md). This guide is about using them.
 
 ## The UI tree
 

@@ -224,7 +224,17 @@ export class QuadDraw implements Draw {
   positions = new Float32Array(0);
   colors = new Float32Array(0);
   uvs = new Float32Array(0);
+  /** Per-vertex normals, only with a material asset: a lit or graph material reads the normal (a Fresnel node, lighting), and its shader doesn't compile without one. */
+  normals: Float32Array | null = null;
   private quadCap = 0;
+  /** The normal `vertex` writes, set per quad or trail point. */
+  private nx = 0;
+  private ny = 0;
+  private nz = 1;
+  /** The camera's position, for normals that face it. */
+  private ex = 0;
+  private ey = 0;
+  private ez = 0;
   /**
    * The drawn part's bounds. Drawing fewer quads than the buffers hold makes the submesh partial, and a
    * partial submesh has no bounds of its own, which Babylon's transparent sort reads (its distance).
@@ -255,6 +265,7 @@ export class QuadDraw implements Draw {
     this.mesh.alphaIndex = particleAlphaIndex(r.renderOrder);
     this.own = material ? null : unlitParticleMaterial(scene, `${name}:material`, texture, r.blending, true);
     this.mesh.material = material ?? this.own;
+    if (material) this.normals = new Float32Array(0);
     this.grow(kind === "trail" ? this.capacity * 8 : this.capacity * (r.blendTiles ? 2 : 1));
   }
 
@@ -264,6 +275,7 @@ export class QuadDraw implements Draw {
     this.positions = new Float32Array(v * 3);
     this.colors = new Float32Array(v * 4);
     this.uvs = new Float32Array(v * 2);
+    if (this.normals) this.normals = new Float32Array(v * 3);
     const indices = new Uint32Array(this.quadCap * 6);
     for (let q = 0; q < this.quadCap; q++) {
       const i = q * 6;
@@ -278,6 +290,7 @@ export class QuadDraw implements Draw {
     this.mesh.setVerticesData(VertexBuffer.PositionKind, this.positions, true, 3);
     this.mesh.setVerticesData(VertexBuffer.ColorKind, this.colors, true, 4);
     this.mesh.setVerticesData(VertexBuffer.UVKind, this.uvs, true, 2);
+    if (this.normals) this.mesh.setVerticesData(VertexBuffer.NormalKind, this.normals, true, 3);
     this.mesh.setIndices(indices, v);
     this.mesh.isVisible = false;
   }
@@ -301,6 +314,9 @@ export class QuadDraw implements Draw {
     } else need = n * (e.renderer.blendTiles ? 2 : 1);
     if (need > this.quadCap) this.grow(Math.ceil(need * 1.5));
     const w = cam.getWorldMatrix().m; // rows: right, up, back; then the position
+    this.ex = w[12];
+    this.ey = w[13];
+    this.ez = w[14];
     this.show(this.kind === "trail" ? this.writeTrails(n, w) : this.writeQuads(n, w));
   }
 
@@ -313,6 +329,7 @@ export class QuadDraw implements Draw {
     this.mesh.getVertexBuffer(VertexBuffer.PositionKind)?.getWrapperBuffer().updateDirectly(this.positions, 0, v);
     this.mesh.getVertexBuffer(VertexBuffer.ColorKind)?.getWrapperBuffer().updateDirectly(this.colors, 0, v);
     this.mesh.getVertexBuffer(VertexBuffer.UVKind)?.getWrapperBuffer().updateDirectly(this.uvs, 0, v);
+    if (this.normals) this.mesh.getVertexBuffer(VertexBuffer.NormalKind)?.getWrapperBuffer().updateDirectly(this.normals, 0, v);
     const sub = this.mesh.subMeshes?.[0];
     if (!sub) return;
     sub.indexCount = quads * 6;
@@ -331,7 +348,22 @@ export class QuadDraw implements Draw {
     sub.setBoundingInfo(this.bounds);
   }
 
-  /** Write one vertex: position, colour, UV. */
+  /** Set the normal the next vertices take: (x, y, z) normalized, turned to face the camera from (px, py, pz). */
+  private facing(x: number, y: number, z: number, px: number, py: number, pz: number): void {
+    const l = Math.hypot(x, y, z);
+    if (l < 1e-12) {
+      x = this.ex - px;
+      y = this.ey - py;
+      z = this.ez - pz;
+    }
+    const d = x * (this.ex - px) + y * (this.ey - py) + z * (this.ez - pz);
+    const k = (d < 0 ? -1 : 1) / (Math.hypot(x, y, z) || 1);
+    this.nx = x * k;
+    this.ny = y * k;
+    this.nz = z * k;
+  }
+
+  /** Write one vertex: position, colour, UV (and the normal set by `facing`, with a material asset). */
   private vertex(i: number, x: number, y: number, z: number, r: number, g: number, b: number, a: number, u: number, v: number): void {
     const p = this.positions;
     const c = this.colors;
@@ -345,6 +377,12 @@ export class QuadDraw implements Draw {
     c[i * 4 + 3] = a;
     t[i * 2] = u;
     t[i * 2 + 1] = v;
+    const nrm = this.normals;
+    if (nrm) {
+      nrm[i * 3] = this.nx;
+      nrm[i * 3 + 1] = this.ny;
+      nrm[i * 3 + 2] = this.nz;
+    }
   }
 
   /**
@@ -363,6 +401,7 @@ export class QuadDraw implements Draw {
     const v0 = 1 - (row + 1) / rows;
     const v1 = 1 - row / rows;
     const i = q * 4;
+    if (this.normals) this.facing(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx, px, py, pz);
     // Corners as Babylon's particle offsets (0,0) (1,0) (1,1) (0,1).
     this.vertex(i, px - ax - bx, py - ay - by, pz - az - bz, r, g, b, a, u0, v0);
     this.vertex(i + 1, px + ax - bx, py + ay - by, pz + az - bz, r, g, b, a, u1, v0);
@@ -502,6 +541,7 @@ export class QuadDraw implements Draw {
         const n3 = k3 + 3;
         const ua = (col + 1 - k / (count - 1)) / cols;
         const ub = (col + 1 - (k + 1) / (count - 1)) / cols;
+        if (this.normals) this.facing(0, 0, 0, pts[k3], pts[k3 + 1], pts[k3 + 2]); // a ribbon faces the camera
         this.vertex(j, pts[k3] - sides[k3], pts[k3 + 1] - sides[k3 + 1], pts[k3 + 2] - sides[k3 + 2], p.r, p.g, p.b, p.a, ua, vLo);
         this.vertex(j + 1, pts[k3] + sides[k3], pts[k3 + 1] + sides[k3 + 1], pts[k3 + 2] + sides[k3 + 2], p.r, p.g, p.b, p.a, ua, vHi);
         this.vertex(j + 2, pts[n3] + sides[n3], pts[n3 + 1] + sides[n3 + 1], pts[n3 + 2] + sides[n3 + 2], p.r, p.g, p.b, p.a, ub, vHi);

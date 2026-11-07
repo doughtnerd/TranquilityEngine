@@ -5,7 +5,7 @@ import { cameraPasses, setCasters } from "../render/babylon/frameGraph";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { matrixChanged } from "../render/babylon/BabylonRenderer";
 import { FINISH_SHADER, FINISH_UNIFORMS } from "../render/babylon/finishShader";
-import type { PostEffects } from "../render/PostProcessStack";
+import type { PostEffects } from "../render/postEffects";
 
 describe("the finish pass (ADR 0075)", () => {
   it("is registered in WGSL and GLSL, each declaring every uniform", () => {

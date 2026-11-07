@@ -1,6 +1,5 @@
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { rendererChoice, setStoredRendererChoice, storedRendererChoice, type RendererName } from "../../engine/editor";
 import { PRODUCT_NAME } from "../brand";
 import { askBeforeClearingReferences, askBeforeDeletingAssets, historyLocation } from "../preferences";
 import {
@@ -108,44 +107,10 @@ export function SettingsDialog() {
   );
 }
 
-/** The renderer stored for the next load (ADR 0078); the one running now is `rendererChoice()`. */
-const storedRenderer = signal<RendererName>(storedRendererChoice());
-
-function RendererSettings() {
-  const stored = storedRenderer.value;
-  const running = rendererChoice();
-  const pick = (name: RendererName) => {
-    setStoredRendererChoice(name);
-    storedRenderer.value = name;
-  };
-  return (
-    <fieldset>
-      <legend>Renderer</legend>
-      <label>
-        <input type="radio" name="renderer" checked={stored === "babylon"} onChange={() => pick("babylon")} />
-        Babylon.js (default)
-      </label>
-      <label>
-        <input type="radio" name="renderer" checked={stored === "three"} onChange={() => pick("three")} />
-        three.js
-      </label>
-      {stored !== running ? (
-        <p class="note">
-          Running on {running === "babylon" ? "Babylon.js" : "three.js"}. The change applies when the editor reloads.{" "}
-          <button onClick={() => location.reload()}>Reload now</button>
-        </p>
-      ) : (
-        <p class="note">Games you play from the editor use it too. A `?renderer=` in the address overrides it.</p>
-      )}
-    </fieldset>
-  );
-}
-
 function GeneralSettings() {
   const location = historyLocation.value;
   return (
     <>
-      <RendererSettings />
       <fieldset>
         <legend>Edit history location</legend>
         <label>

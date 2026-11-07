@@ -2,7 +2,7 @@
 .hierarchy-view { min-height: 100%; display: flex; flex-direction: column; }
 .hierarchy-view .tree { flex: none; }
 .hierarchy-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-.hierarchy-header .scene-name { flex: 1; min-width: 0; margin-bottom: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hierarchy-header .scene-name { flex: 1; min-width: 0; margin-bottom: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .hierarchy-add { flex: none; width: 22px; height: 20px; padding: 0; line-height: 18px; font-size: 14px; }
 .hierarchy-search {
   width: 100%;

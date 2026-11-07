@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { formatMaterial, materialGraph, parseMaterial, defaultMaterialSettings } from "../scene/material";
 import { defaultShaderGraph, formatShaderGraph, parseShaderGraph, SHADER_GRAPH_FORMAT, type GraphNode, type ShaderGraph } from "../scene/shaderGraph";
-import { compileShaderGraph, convert, glslFloat, linearColor, shaderGraphListing } from "../render/shaderGraph/compile";
+import { compileShaderGraph, convert, floatLiteral, linearColor, shaderGraphListing } from "../render/shaderGraph/compile";
 import { NODES, nodePorts } from "../render/shaderGraph/nodes";
-import { createGraphMaterial, createSharedGraphUniforms, patchFragmentShader, patchVertexShader } from "../render/shaderGraph/threeMaterial";
-import { ShaderLib } from "three";
 
 const graph = (nodes: GraphNode[], edges: [string, string][], extra: Partial<ShaderGraph> = {}): ShaderGraph => ({
   ...defaultShaderGraph(),
@@ -42,6 +40,17 @@ describe("shader graph files", () => {
     expect(problems.length).toBe(8);
   });
 
+  it("keeps a Custom Function's old GLSL body, and writes none when there isn't one (ADR 0081)", () => {
+    const fn = { name: "wave", inputs: [{ name: "x", type: "float" }], outputs: [{ name: "y", type: "float" }] };
+    const old = parseShaderGraph({ format: SHADER_GRAPH_FORMAT, nodes: [{ ...node("f", "customFunction"), function: { ...fn, body: "y = sin(x);" } }], edges: [] });
+    expect(old.problems).toEqual([]);
+    expect(old.graph.nodes[1].function).toEqual({ ...fn, body: "y = sin(x);" });
+    expect(formatShaderGraph(old.graph)).toContain('"body": "y = sin(x);"');
+    const fresh = parseShaderGraph({ format: SHADER_GRAPH_FORMAT, nodes: [{ ...node("f", "customFunction"), function: { ...fn, wgsl: "y = sin(x);" } }], edges: [] });
+    expect(fresh.graph.nodes[1].function).toEqual({ ...fn, wgsl: "y = sin(x);" });
+    expect(formatShaderGraph(fresh.graph)).not.toContain('"body"');
+  });
+
   it("refuses another format", () => {
     expect(() => parseShaderGraph({ format: "myco.material@1" })).toThrow(/unknown format/);
   });
@@ -64,22 +73,21 @@ describe("materials naming a shader graph", () => {
   });
 });
 
-describe("compiling shader graphs to GLSL", () => {
+describe("compiling shader graphs to WGSL", () => {
   it("compiles the default graph to a white surface", () => {
     const c = compileShaderGraph(defaultShaderGraph());
     expect(c.problems).toEqual([]);
-    expect(c.fragment.body).toContain("vec3 mOut_baseColor = vec3(1.0, 1.0, 1.0);");
-    expect(c.fragment.body).toContain("float mOut_roughness = 0.5;");
+    expect(c.fragment.body).toContain("var mOut_baseColor: vec3f = vec3f(1.0, 1.0, 1.0);");
+    expect(c.fragment.body).toContain("var mOut_roughness: f32 = 0.5;");
     expect(c.vertex.offset).toBeNull();
     expect(c.fragment.normal).toBeNull();
     expect(c.fragment.alphaClip).toBeNull();
-    expect(c.fragment.declarations).toContain("#define MYCO_LIT");
+    expect(c.fragment.metalness).toBe("mOut_metalness"); // lit
   });
 
   it("unlit graphs have no lit outputs", () => {
     const c = compileShaderGraph({ ...defaultShaderGraph(), target: "unlit" });
     expect([c.fragment.metalness, c.fragment.roughness, c.fragment.emission]).toEqual([null, null, null]);
-    expect(c.fragment.declarations).not.toContain("MYCO_LIT");
   });
 
   it("emits nodes in dependency order, each once, with properties as uniforms", () => {
@@ -93,37 +101,36 @@ describe("compiling shader graphs to GLSL", () => {
     expect(c.uniforms).toEqual([{ name: "uP0_Tint", type: "vec4", property: "Tint", propertyType: "color", value: "#ff0000" }]);
     const body = c.fragment.body.split("\n");
     const at = (prefix: string) => body.findIndex((l) => l.startsWith(prefix));
-    expect(at("float m2_time")).toBeLessThan(at("float m4_out = sin(m2_time)"));
-    expect(at("vec4 m1_out = uP0_Tint;")).toBeGreaterThanOrEqual(0);
-    expect(at("float m4_out")).toBeLessThan(at("vec4 m3_out = (m1_out * vec4(m4_out))"));
-    expect(body.filter((l) => l.startsWith("float m4_out"))).toHaveLength(1); // used twice, computed once
-    expect(c.fragment.body).toContain("vec3 mOut_baseColor = m3_out.xyz;");
+    expect(at("var m2_time")).toBeLessThan(at("var m4_out: f32 = sin(m2_time)"));
+    expect(at("var m1_out: vec4f = uniforms.uP0_Tint;")).toBeGreaterThanOrEqual(0); // the plugin's uniform buffer
+    expect(at("var m4_out")).toBeLessThan(at("var m3_out: vec4f = (m1_out * vec4f(m4_out))"));
+    expect(body.filter((l) => l.startsWith("var m4_out"))).toHaveLength(1); // used twice, computed once
+    expect(c.fragment.body).toContain("var mOut_baseColor: vec3f = m3_out.xyz;");
     expect(c.dynamicTypes.m).toBe("vec4");
     expect(c.portTypes["m.out"]).toBe("vec4");
-    expect(c.fragment.declarations).toContain("uniform vec4 uP0_Tint;");
   });
 
   it("resolves dynamic types from inline vectors", () => {
     const c = compileShaderGraph(graph([node("a", "add", { inputs: { a: [1, 0, 0], b: 0.5 } })], [["a.out", "output.baseColor"]]));
-    expect(c.fragment.body).toContain("vec3 m1_out = (vec3(1.0, 0.0, 0.0) + vec3(0.5));");
+    expect(c.fragment.body).toContain("var m1_out: vec3f = (vec3f(1.0, 0.0, 0.0) + vec3f(0.5));");
   });
 
   it("converts between vector sizes", () => {
-    expect(convert("v", "float", "vec3")).toBe("vec3(v)");
+    expect(convert("v", "float", "vec3")).toBe("vec3f(v)");
     expect(convert("v", "vec4", "vec2")).toBe("v.xy");
     expect(convert("v", "vec3", "float")).toBe("v.x");
-    expect(convert("v", "vec3", "vec4")).toBe("vec4(v, 1.0)");
-    expect(convert("v", "vec2", "vec4")).toBe("vec4(v, 0.0, 1.0)");
-    expect(convert("v", "vec2", "vec3")).toBe("vec3(v, 0.0)");
-    expect(glslFloat(2)).toBe("2.0");
-    expect(glslFloat(-0.25)).toBe("-0.25");
-    expect(glslFloat(1e-7)).toBe("1e-7");
+    expect(convert("v", "vec3", "vec4")).toBe("vec4f(v, 1.0)");
+    expect(convert("v", "vec2", "vec4")).toBe("vec4f(v, 0.0, 1.0)");
+    expect(convert("v", "vec2", "vec3")).toBe("vec3f(v, 0.0)");
+    expect(floatLiteral(2)).toBe("2.0");
+    expect(floatLiteral(-0.25)).toBe("-0.25");
+    expect(floatLiteral(1e-7)).toBe("1e-7");
   });
 
   it("colour inputs are sRGB inline and linear in the shader", () => {
     const c = compileShaderGraph(graph([], [], { nodes: [{ id: "output", type: "output", position: [0, 0], inputs: { baseColor: [1, 0.5, 0] } }] }));
     const lin = linearColor("#ff8000")[1];
-    expect(c.fragment.body).toMatch(/vec3 mOut_baseColor = vec3\(1\.0, 0\.21\d*, 0\.0\);/);
+    expect(c.fragment.body).toMatch(/var mOut_baseColor: vec3f = vec3f\(1\.0, 0\.21\d*, 0\.0\);/);
     expect(lin).toBeCloseTo(0.2158, 3);
   });
 
@@ -131,7 +138,7 @@ describe("compiling shader graphs to GLSL", () => {
     const c = compileShaderGraph(graph([node("a", "add"), node("b", "add"), node("x", "wobble")], [["a.out", "b.a"], ["b.out", "a.a"], ["a.out", "output.alpha"], ["x.out", "output.roughness"]]));
     expect(c.nodeProblems.a.join()).toMatch(/loop/);
     expect(c.problems.join("\n")).toMatch(/connection x\.out → output\.roughness goes to a port that isn't there/);
-    expect(c.fragment.body).toContain("float mOut_roughness = 0.5;");
+    expect(c.fragment.body).toContain("var mOut_roughness: f32 = 0.5;");
   });
 
   it("refuses textures into number ports", () => {
@@ -146,7 +153,7 @@ describe("compiling shader graphs to GLSL", () => {
     );
     const c = compileShaderGraph(g);
     expect(c.uniforms).toEqual([{ name: "uTex0", type: "sampler2D", value: "asset:images/a.png" }]);
-    expect(c.fragment.body).toContain("vec3 m1_rgb = texture(uTex0, vMycoUv).rgb;");
+    expect(c.fragment.body).toContain("var m1_rgb: vec3f = textureSample(uTex0, uTex0Sampler, fragmentInputs.vMycoUv).rgb;");
   });
 
   it("computes the vertex offset in the vertex stage and refuses per-pixel nodes there", () => {
@@ -154,8 +161,8 @@ describe("compiling shader graphs to GLSL", () => {
     const c = compileShaderGraph(g);
     expect(c.problems).toEqual([]);
     expect(c.vertex.offset).toBe("mOut_vertexOffset");
-    expect(c.vertex.body).toContain("vec3 m1_out = normalize(normal);");
-    expect(c.fragment.body).toContain("mycoFaceNormal(vMycoWorldNormal)");
+    expect(c.vertex.body).toContain("var m1_out: vec3f = normalize(mycoVNormal);");
+    expect(c.fragment.body).toContain("mycoFaceNormal(fragmentInputs.vNormalW)");
     const bad = compileShaderGraph(graph([node("f", "fresnel")], [["f.out", "output.vertexOffset"]]));
     expect(bad.nodeProblems.f.join()).toMatch(/can't feed Vertex Offset/);
   });
@@ -165,9 +172,9 @@ describe("compiling shader graphs to GLSL", () => {
     g.nodes[0].inputs = { alphaClip: 0.5 };
     const c = compileShaderGraph(g);
     expect(c.fragment.normal).toBe("mOut_normal");
-    expect(c.fragment.declarations).toContain("mat3 mycoTangentFrame");
+    expect(c.fragment.declarations).toContain("fn mycoTangentFrame");
     expect(c.fragment.alphaClip).toBe("mOut_alphaClip");
-    expect(shaderGraphListing(c)).toContain("if (diffuseColor.a < mOut_alphaClip) discard;");
+    expect(shaderGraphListing(c)).toContain("// clip below mOut_alphaClip");
   });
 
   it("changes the key only when the code changes", () => {
@@ -189,41 +196,5 @@ describe("compiling shader graphs to GLSL", () => {
       expect(c.problems, def.type).toEqual([]);
       expect(c.fragment.body, def.type).toContain("m1_");
     }
-  });
-});
-
-describe("patching three.js's materials", () => {
-  // The patch points are three.js shader chunk names: a three.js upgrade that renames one fails here.
-  const g = graph(
-    [node("n", "normal", { settings: { space: "object" } }), node("v", "vector3", { inputs: { z: 1 } })],
-    [["n.out", "output.vertexOffset"], ["v.out", "output.normal"]],
-  );
-  g.nodes[0].inputs = { alphaClip: 0.5 };
-
-  it("patches the lit, unlit and shadow shaders", () => {
-    const lit = compileShaderGraph(g);
-    const vs = patchVertexShader(ShaderLib.standard.vertexShader, lit, true);
-    expect(vs).toMatch(/#include <begin_vertex>\n[\s\S]*transformed \+= mOut_vertexOffset;/);
-    expect(vs).toContain("vMycoWorldPos = ");
-    const fs = patchFragmentShader(ShaderLib.standard.fragmentShader, lit);
-    for (const s of ["diffuseColor = vec4(mOut_baseColor, mOut_alpha);", "discard;", "roughnessFactor = mOut_roughness;", "metalnessFactor = mOut_metalness;", "mycoTangentFrame(-vViewPosition", "totalEmissiveRadiance = mOut_emission;"]) expect(fs).toContain(s);
-    expect(fs.indexOf("void main() {")).toBeLessThan(fs.indexOf("vec3 mOut_baseColor"));
-    const unlit = compileShaderGraph({ ...g, target: "unlit" });
-    expect(patchFragmentShader(ShaderLib.basic.fragmentShader, unlit)).toContain("diffuseColor = vec4(mOut_baseColor, mOut_alpha);");
-    expect(patchVertexShader(ShaderLib.basic.vertexShader, unlit, true)).toContain("vMycoUv = uv;");
-    expect(patchVertexShader(ShaderLib.depth.vertexShader, lit, false)).toContain("transformed += mOut_vertexOffset;");
-    expect(patchVertexShader(ShaderLib.distance.vertexShader, lit, false)).toContain("transformed += mOut_vertexOffset;");
-  });
-
-  it("makes a material whose uniforms take the material's property values", () => {
-    const pg = graph([node("p", "property", { settings: { property: "Tint" } })], [["p.out", "output.baseColor"]], { properties: [{ name: "Tint", type: "color", value: "#ffffff" }], surface: "transparent" });
-    const made = createGraphMaterial(compileShaderGraph(pg), { Tint: "#000000" }, createSharedGraphUniforms(), () => new Promise(() => {}));
-    const shader = { uniforms: {} as Record<string, { value: unknown }>, vertexShader: ShaderLib.standard.vertexShader, fragmentShader: ShaderLib.standard.fragmentShader };
-    made.material.onBeforeCompile(shader as never, null as never);
-    expect((shader.uniforms.uP0_Tint.value as { x: number }).x).toBe(0);
-    expect(shader.uniforms.uMycoTime).toBeDefined();
-    expect(made.material.transparent).toBe(true);
-    expect(made.depth).toBeNull(); // no vertex offset
-    made.dispose();
   });
 });

@@ -1,6 +1,6 @@
 # 0047. Shader graph assets compile to GLSL that extends the built-in lit and unlit materials; materials name a graph as their shader
 
-- **Status:** Accepted, amended by [0075](0075-babylonjs-render-backend.md) (graphs also compile to WGSL for the Babylon backend; Custom Function nodes gain an optional WGSL body, `function.wgsl`)
+- **Status:** Accepted, amended by [0075](0075-babylonjs-render-backend.md) (graphs also compile to WGSL for the Babylon backend; Custom Function nodes gain an optional WGSL body, `function.wgsl`) and by [0081](0081-remove-the-threejs-render-backend.md) (WGSL is the only output; the GLSL output and three.js material patching are removed, and a Custom Function's GLSL `body` is kept in files but no longer compiled)
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -51,7 +51,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0018](decisions/0018-promise-based-waits.md) | Promise-based waits for scripts | Accepted |
 | [0019](decisions/0019-public-api-conventions.md) | Public API conventions: names, angles, live vectors | Accepted |
 | [0020](decisions/0020-in-canvas-ui-with-uikit.md) | In-canvas UI built on pmndrs uikit | Accepted; partly superseded by 0076 (uikit) |
-| [0021](decisions/0021-particles-with-three-quarks.md) | Particles with three.quarks | Accepted |
+| [0021](decisions/0021-particles-with-three-quarks.md) | Particles with three.quarks | Superseded by 0081 |
 | [0022](decisions/0022-editor-is-a-v1-goal.md) | A scene editor is a v1 goal | Accepted |
 | [0023](decisions/0023-testing-vitest-and-browser-smoke-tests.md) | Testing: Vitest + browser smoke tests | Accepted |
 | [0024](decisions/0024-storage-via-platform-adapter.md) | Saves and settings through a platform Storage API | Accepted |
@@ -77,7 +77,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0044](decisions/0044-obj-fbx-model-import.md) | OBJ and FBX models import through three.js's loaders, as meshes in model space | Proposed |
 | [0045](decisions/0045-3d-physics-rapier3d.md) | 3D physics on Rapier 3D, loaded on demand, with the 2D API's shape | Proposed |
 | [0046](decisions/0046-shader-graph-editor-on-xyflow-system.md) | The shader graph editor is a Preact panel on xyflow's framework-free core (`@xyflow/system`) | Accepted |
-| [0047](decisions/0047-shader-graph-assets-compile-to-glsl.md) | Shader graph assets compile to GLSL that extends the built-in lit and unlit materials; materials name a graph as their shader | Accepted, amended by 0075 (WGSL output) |
+| [0047](decisions/0047-shader-graph-assets-compile-to-glsl.md) | Shader graph assets compile to GLSL that extends the built-in lit and unlit materials; materials name a graph as their shader | Accepted, amended by 0075 (WGSL output) and 0081 (WGSL only) |
 | [0048](decisions/0048-shader-sub-graphs-and-custom-functions.md) | Shader sub-graphs, custom function nodes, normal-map sampling and node previews | Accepted |
 | [0049](decisions/0049-runtime-material-properties.md) | Scripts set material properties per MeshRenderer, like Unity's MaterialPropertyBlock | Accepted |
 | [0050](decisions/0050-graphics-quality-tiers.md) | Graphics quality tiers in project.json, chosen by the player through `Graphics.quality` | Accepted |
@@ -87,7 +87,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0054](decisions/0054-reflection-probes.md) | Reflection probes capture local environment maps for the meshes inside them | Accepted |
 | [0055](decisions/0055-automatic-quality-detection.md) | Automatic graphics quality: a first guess from the GPU, then adjusting to the frame rate | Accepted |
 | [0056](decisions/0056-camera-viewports-and-per-camera-effects.md) | Camera viewports, and post-processing on every camera | Accepted |
-| [0057](decisions/0057-particle-effects-and-the-particlesystem-component.md) | Particle effects are assets in our own format, played by a ParticleSystem component on three.quarks | Accepted |
+| [0057](decisions/0057-particle-effects-and-the-particlesystem-component.md) | Particle effects are assets in our own format, played by a ParticleSystem component on three.quarks | Accepted, amended by 0081 (no three.quarks) |
 | [0058](decisions/0058-particle-graph-editor.md) | A particle graph editor: a node view of particle effect assets, on the shader graph's canvas | Superseded by 0060 |
 | [0059](decisions/0059-projects-window-and-faster-editor-start.md) | The desktop editor opens on a Projects window while the editor loads hidden; faster start-up | Proposed |
 | [0060](decisions/0060-vfx-graph-particle-authoring.md) | Particle effects are VFX-Graph-style graph assets, authored only in the Particle Graph | Accepted |
@@ -105,12 +105,13 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0072](decisions/0072-water-surfaces-and-buoyancy.md) | Water surfaces with Gerstner waves, sampled the same on the CPU for buoyancy | Accepted |
 | [0073](decisions/0073-camera-rays-and-screen-points.md) | Cameras convert between screen points and world rays; `Ray` and `Plane` are public maths types | Accepted |
 | [0074](decisions/0074-spatial-audio-with-howler.md) | Spatial audio through Howler's spatial API, with an AudioListener component | Accepted |
-| [0075](decisions/0075-babylonjs-render-backend.md) | Babylon.js replaces three.js as the render backend (WebGPU, plain WGSL, frame graph), from upstream with module-by-module imports and copied subsystems instead of a fork | Accepted; stage 10 superseded by 0078 |
+| [0075](decisions/0075-babylonjs-render-backend.md) | Babylon.js replaces three.js as the render backend (WebGPU, plain WGSL, frame graph), from upstream with module-by-module imports and copied subsystems instead of a fork | Accepted; stage 10 superseded by 0078, then restored for the renderer by 0081 |
 | [0076](decisions/0076-ui-yoga-layout-babylon-gui-drawing.md) | Game UI: Yoga lays out, Babylon GUI draws, the engine routes input; partly supersedes 0069 (uikit) | Accepted |
 | [0077](decisions/0077-ui-documents-markup-styles-scripts.md) | UI is authored as markup documents with stylesheets, driven by scripts on a data-oriented core, and edited in the scene view | Accepted |
-| [0078](decisions/0078-keep-both-render-backends.md) | Keep both render backends: Babylon.js by default, three.js as a toggle (no stage 10); three.js's loaders keep importing FBX and OBJ | Accepted |
+| [0078](decisions/0078-keep-both-render-backends.md) | Keep both render backends: Babylon.js by default, three.js as a toggle (no stage 10); three.js's loaders keep importing FBX and OBJ | Superseded by 0081 |
 | [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
 | [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
+| [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
 
 ## Working with decisions
 

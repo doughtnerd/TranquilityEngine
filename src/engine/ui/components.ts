@@ -4,9 +4,9 @@
  * flexbox. A `UICanvas` is the root.
  *
  * These are plain data, like other components: they register and hold values in any World. Only a
- * World with a render backend builds the uikit objects that lay them out and draw them (loaded the
- * first time it has a `UICanvas`), so servers and tests can create UI without WebGL. uikit and
- * three.js never appear here (ADR 0010).
+ * World with a render backend lays them out (the UI core, ADR 0076) and draws them (Babylon GUI),
+ * loaded the first time it has a `UICanvas`, so servers and tests can create UI without WebGL. No
+ * renderer types appear here (ADR 0010).
  */
 import { Component } from "../core/Component";
 import { Color, Vector2 } from "../core/math";
@@ -29,7 +29,7 @@ const FLEX_DIRECTIONS = ["row", "column", "row-reverse", "column-reverse"];
 const JUSTIFY = ["flex-start", "center", "flex-end", "space-between", "space-around", "space-evenly"];
 const ALIGN = ["flex-start", "center", "flex-end", "stretch", "baseline"];
 
-/** Releases the uikit objects of a removed UI component (the render backend's UI runtime). */
+/** Releases what the render backend built for a removed UI component (its layout node and drawing). */
 abstract class UIComponent extends Component {
   override _onDetach(): void {
     this.world.render?.release(this);

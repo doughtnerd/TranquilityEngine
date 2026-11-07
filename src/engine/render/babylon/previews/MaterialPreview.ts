@@ -3,7 +3,7 @@
  * same API as `render/MaterialPreview.ts` (three.js). `MaterialPreview` is a live preview of a graph on a
  * built-in mesh in a canvas of its own, lit like a default scene (a sun, soft ambient light and the studio
  * environment); drag to turn the mesh. `NodePreviewRenderer` draws every node's preview with one offscreen
- * engine, copied into each node's 2D canvas. Graphs compile to WGSL (`language: "wgsl"`).
+ * engine, copied into each node's 2D canvas. Graphs compile to WGSL.
  *
  * The engine starts asynchronously (WebGPU needs `initAsync`), so the constructors return at once and
  * the first frames appear a moment later; calls made before that are applied when it's up.
@@ -138,7 +138,7 @@ export class MaterialPreview {
 
   /** Draw `graph` (with a material's `properties`, if given). Returns the compiled graph. */
   setGraph(graph: ShaderGraph, properties: Record<string, GraphValue> = {}): CompiledShaderGraph {
-    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel, language: "wgsl" });
+    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
     this.last = { graph, properties, compiled, usesShaderLevel: compiled.usesShaderLevel, version: Graphics._version };
     this.shaderFailed = false;
     this.onShaderError?.(null);
@@ -308,7 +308,7 @@ export class NodePreviewRenderer {
     const key = `${level}|${JSON.stringify(graph)}`;
     let e = this.entries.get(key);
     if (!e) {
-      const compiled = compileShaderGraph(graph, { shaderLevel: level, language: "wgsl" });
+      const compiled = compileShaderGraph(graph, { shaderLevel: level });
       const made = createGraphMaterial(scene, "preview.node", compiled, {}, this.shared, (p, linear) => loadTexture(scene, p, linear ? "graphData" : "graphColor"));
       const entry = { compiled, graph: made, used: true, failed: false };
       watchShaderErrors(made, () => (entry.failed = true));

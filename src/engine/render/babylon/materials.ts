@@ -26,7 +26,19 @@ export function pbr(name: string, scene: Scene): PBRMaterial {
   const m = new PBRMaterial(name, scene);
   m.sideOrientation = BabylonMaterial.CounterClockWiseSideOrientation;
   m.maxSimultaneousLights = 8; // Babylon's default is 4
+  useEngineLightFalloff(m);
   return m;
+}
+
+/**
+ * Light the material as the Light component says: point and spot lights fade with the square of
+ * distance to nothing at their `range`, and a spot's edge is as soft as its `spotSoftness`. That is
+ * Babylon's glTF falloff (KHR_lights_punctual, as three.js lit); its default physical falloff ignores
+ * both the range and a spot's inner angle, so every spot drew as the same soft blob. The clustered
+ * lights (ADR 0079) follow the material's falloff too.
+ */
+export function useEngineLightFalloff(m: PBRMaterial): void {
+  m.useGLTFLightFalloff = true;
 }
 
 /** An sRGB engine colour as a linear Babylon colour (PBR colours are linear). */

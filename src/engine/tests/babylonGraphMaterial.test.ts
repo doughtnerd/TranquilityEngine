@@ -4,10 +4,11 @@
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import { CreatePlane } from "@babylonjs/core/Meshes/Builders/planeBuilder.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { pbrVertexShaderWGSL } from "@babylonjs/core/ShadersWGSL/pbr.vertex.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createGraphMaterial, graphCustomCode, graphShadowCustomCode, graphUniformBuffer, SHADOW_REMAPPED_VARIABLES, type GraphShared } from "../render/babylon/graphMaterial";
+import { createGraphMaterial, graphCustomCode, graphUsesUv, graphShadowCustomCode, graphUniformBuffer, SHADOW_REMAPPED_VARIABLES, type GraphShared } from "../render/babylon/graphMaterial";
 import type { CompiledShaderGraph } from "../render/shaderGraph/compile";
 
 function compiled(overrides: Partial<CompiledShaderGraph> = {}): CompiledShaderGraph {
@@ -109,8 +110,21 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
     expect(p.numbers.get("uSpeed")).toEqual([2]); // back to the graph's default
   });
 
-  it("refuses a graph compiled to GLSL", () => {
-    expect(() => createGraphMaterial(scene, "g", compiled({ language: "glsl" }), {}, shared, noTextures)).toThrow(/WGSL/);
+  it("asks for the mesh's UVs when the graph reads them, even with no texture (the ripple preview drew flat)", () => {
+    (engine as unknown as { _isWebGPU: boolean })._isWebGPU = true; // a WGSL material, so the plugin attaches
+    const noTexture = { uniforms: [], fragment: { ...compiled().fragment, declarations: "varying vMycoUv: vec2f;" } };
+    const reads = compiled({ ...noTexture, vertex: { ...compiled().vertex, offset: null } });
+    const ignores = compiled({ ...noTexture, key: "def456", vertex: { declarations: "", body: "", offset: null, varyings: "" } });
+    expect(graphUsesUv(reads)).toBe(true);
+    expect(graphUsesUv(ignores)).toBe(false);
+    const uv1 = (c: CompiledShaderGraph) => {
+      const mesh = CreatePlane(`p${c.key}`, { size: 1 }, scene); // has UVs
+      mesh.material = createGraphMaterial(scene, "g", c, {}, shared, noTextures).material;
+      mesh.material.isReadyForSubMesh(mesh, mesh.subMeshes[0]);
+      return (mesh.subMeshes[0].materialDefines as unknown as Record<string, unknown> | null)?.UV1;
+    };
+    expect(uv1(reads)).toBe(true);
+    expect(uv1(ignores)).toBe(false);
   });
 
   describe("shadows follow the vertex offset", () => {

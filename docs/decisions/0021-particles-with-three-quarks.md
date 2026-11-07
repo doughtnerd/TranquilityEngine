@@ -1,6 +1,6 @@
 # 0021. Particles with three.quarks
 
-- **Status:** Accepted
+- **Status:** Superseded by [0081](0081-remove-the-threejs-render-backend.md) (three.quarks was removed with the three.js backend; effects run on the engine's own simulation, drawn by Babylon.js, ADR 0075)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

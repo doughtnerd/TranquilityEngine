@@ -1,6 +1,6 @@
 /**
  * Shader graph materials on the Babylon backend (ADR 0047, 0049, 0075 stage 4). A graph compiled to
- * WGSL (`compileShaderGraph(graph, { language: "wgsl" })`) is spliced into Babylon's PBR material
+ * WGSL (`compileShaderGraph(graph)`) is spliced into Babylon's PBR material
  * by a material plugin, so graphs keep Babylon's lights, shadows, environment and the frame graph's
  * effects. Lit and physical graphs set the surface (base colour, alpha, metalness, roughness,
  * emission, normal); unlit graphs draw their colour directly.
@@ -28,6 +28,7 @@ import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { DrawWrapper } from "@babylonjs/core/Materials/drawWrapper.js";
 import type { Effect } from "@babylonjs/core/Materials/effect.js";
 import { Material } from "@babylonjs/core/Materials/material.js";
+import type { MaterialDefines } from "@babylonjs/core/Materials/materialDefines.js";
 import { MaterialPluginBase } from "@babylonjs/core/Materials/materialPluginBase.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
@@ -38,6 +39,7 @@ import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import { checkPropertyValue, type GraphValue } from "../../scene/shaderGraph";
+import { useEngineLightFalloff } from "./materials";
 import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, type CompiledUniform } from "../shaderGraph/compile";
 
 /** Values every graph material reads, owned by the renderer and updated each frame. */
@@ -111,6 +113,15 @@ function texturePath(u: CompiledUniform, overrides: Record<string, GraphValue>):
   const own = u.property ? overrides[u.property] : undefined;
   const v = typeof own === "string" ? own : u.value;
   return typeof v === "string" ? v.replace(/^asset:/, "") : "";
+}
+
+/**
+ * @internal Whether a graph reads the mesh's UVs (a UV node, or anything defaulting to them). Babylon's
+ * PBR material binds the UV attribute only when the material itself needs it (a texture), so without
+ * asking, `mycoVUv` read zero: a UV-driven graph with no texture drew flat (the ripple sample).
+ */
+export function graphUsesUv(c: CompiledShaderGraph): boolean {
+  return /\bmycoVUv\b/.test(`${c.vertex.body}\n${c.vertex.varyings}\n${c.vertex.offset ?? ""}`);
 }
 
 /**
@@ -219,6 +230,13 @@ class MycoGraphPlugin extends MaterialPluginBase {
     return shaderLanguage === ShaderLanguage.WGSL;
   }
 
+  /** Ask for the mesh's UVs when the graph reads them (`graphUsesUv`); Babylon then defines UV1. */
+  override prepareDefinesBeforeAttributes(defines: MaterialDefines): void {
+    if ((this.usesUv ??= graphUsesUv(this.compiled))) defines._needUVs = true;
+  }
+
+  private usesUv: boolean | undefined;
+
   override getUniforms(): { ubo: { name: string; size: number; type: string }[] } {
     return { ubo: graphUniformBuffer(this.compiled) };
   }
@@ -284,10 +302,10 @@ export function _resetGraphTextures(): void {
  * `loadTexture` fetches texture assets (slots read white until they load).
  */
 export function createGraphMaterial(scene: Scene, name: string, c: CompiledShaderGraph, overrides: Record<string, GraphValue>, shared: GraphShared, loadTexture: LoadGraphTexture): BabylonGraphMaterial {
-  if (c.language !== "wgsl") throw new Error(`shader graph: the Babylon backend needs a graph compiled to WGSL, not ${c.language}`);
   const material = new PBRMaterial(name, scene);
   material.sideOrientation = Material.CounterClockWiseSideOrientation;
   material.maxSimultaneousLights = 8;
+  useEngineLightFalloff(material);
   material.albedoColor.set(1, 1, 1);
   material.metallic = 0;
   material.roughness = 1;

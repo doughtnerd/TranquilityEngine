@@ -9,7 +9,7 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets } from "../index";
-import { PipelineWarmer, WARM_PREFIX } from "../render/babylon/warmUp";
+import { effectClock, nextBatchSize, PipelineWarmer, WARM_PREFIX } from "../render/babylon/warmUp";
 import { projectScriptAssetRefs, scriptAssetRefs } from "../scene/scriptAssetRefs";
 import { _setScriptAssetRefs, warmSet } from "../scene/warmUp";
 
@@ -167,5 +167,26 @@ describe("the Babylon warmer (ADR 0080)", () => {
     warmer.beforeRender(camera, []);
     expect(warmMeshes()).toHaveLength(1);
     expect(warmMeshes()[0]!.material).toBe(fallback); // no material asset: what a renderer without one draws
+  });
+});
+
+describe("warm batch sizing (ADR 0080)", () => {
+  it("doubles while a batch's effects are cheap, and scales to the budget when they aren't", () => {
+    expect(nextBatchSize(4, 2, 24)).toBe(8); // effects mostly shared: grow
+    expect(nextBatchSize(16, 0, 24)).toBe(24); // capped
+    expect(nextBatchSize(4, 48, 24)).toBe(1); // 48 ms for 4 meshes: one at a time
+    expect(nextBatchSize(8, 24, 24)).toBe(4); // twice the budget: half the size
+    expect(nextBatchSize(1, 200, 24)).toBe(1); // never below one
+  });
+
+  it("times the engine's effect creation", () => {
+    const engine = new NullEngine();
+    const clock = effectClock(engine);
+    const before = clock.ms();
+    const original = (engine as unknown as { createEffect: unknown }).createEffect;
+    expect(original).not.toBeUndefined();
+    clock.dispose();
+    expect(clock.ms()).toBe(before);
+    engine.dispose();
   });
 });

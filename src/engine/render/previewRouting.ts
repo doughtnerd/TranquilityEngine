@@ -1,19 +1,17 @@
 /**
- * @internal Editor: the preview renderers on the renderer the dev flag picks (ADR 0075 stage 7). Each
- * has one name and one API; `rendererChoice()` decides whether it runs on three.js or
- * on Babylon.js, whose code is loaded with a dynamic `import()` so a three.js page never downloads it.
+ * @internal Editor: the preview renderers (ADR 0075 stage 7, 0081), on Babylon.js, whose code is loaded
+ * with a dynamic `import()` the first time a preview is wanted.
  *
- * - `createThumbnailRenderer`, `loadParticleEffectPreview`: already asynchronous, so they load the one chosen.
- * - `MaterialPreview`, `NodePreviewRenderer`: constructed synchronously by the shader graph panel. On
- *   Babylon they're thin wrappers that make the real preview when its module arrives and replay what was
- *   asked of them meanwhile.
+ * - `createThumbnailRenderer`, `loadParticleEffectPreview`: already asynchronous.
+ * - `MaterialPreview`, `NodePreviewRenderer`: constructed synchronously by the shader graph panel, so
+ *   they're thin wrappers that make the real preview when its module arrives and replay what was asked
+ *   of them meanwhile.
  *
  * Babylon is imported nowhere in this file (the check in `babylonImports.test.ts`).
  */
 import type { GraphValue, ShaderGraph } from "../scene/shaderGraph";
 import { Graphics } from "./Graphics";
-import { MaterialPreview as ThreeMaterialPreview, NodePreviewRenderer as ThreeNodePreviewRenderer, type PreviewMesh } from "./MaterialPreview";
-import { rendererChoice } from "./createRenderSurface";
+import type { PreviewMesh } from "./previewTypes";
 import type { ParticleEffectPreviewApi, ThumbnailRendererApi } from "./previewTypes";
 import { compileShaderGraph, type CompiledShaderGraph } from "./shaderGraph/compile";
 
@@ -21,20 +19,16 @@ export type { PreviewMesh };
 
 /** The editor's asset thumbnail renderer (one offscreen GPU context), loaded the first time it's needed. */
 export async function createThumbnailRenderer(size?: number): Promise<ThumbnailRendererApi> {
-  if (rendererChoice() === "babylon") {
-    const { ThumbnailRenderer } = await import("./babylon/previews/ThumbnailRenderer");
-    return ThumbnailRenderer.create(size);
-  }
-  const { ThumbnailRenderer } = await import("./ThumbnailRenderer");
-  return new ThumbnailRenderer(size);
+  const { ThumbnailRenderer } = await import("./babylon/previews/ThumbnailRenderer");
+  return ThumbnailRenderer.create(size);
 }
 
 /** The particle graph editor's effect preview class, loaded on demand. */
 export async function loadParticleEffectPreview(): Promise<{ ParticleEffectPreview: new (container: HTMLElement) => ParticleEffectPreviewApi }> {
-  return rendererChoice() === "babylon" ? import("./babylon/previews/EffectPreview") : import("./particles/EffectPreview");
+  return import("./babylon/previews/EffectPreview");
 }
 
-/** What a shader graph preview does, as both renderers' classes do it. */
+/** What a shader graph preview does. */
 interface MaterialPreviewImpl {
   readonly canvas: HTMLCanvasElement;
   onShaderError: ((message: string | null) => void) | null;
@@ -55,22 +49,16 @@ export class MaterialPreview {
   private disposed = false;
 
   constructor(container: HTMLElement) {
-    if (rendererChoice() === "babylon") {
-      this.canvas = document.createElement("canvas");
-      container.appendChild(this.canvas);
-      void import("./babylon/previews/MaterialPreview").then(({ MaterialPreview: Babylon }) => {
-        if (this.disposed) return;
-        const impl: MaterialPreviewImpl = new Babylon(container, this.canvas);
-        this.impl = impl;
-        impl.onShaderError = this.errorHandler;
-        if (this.mesh) impl.setMesh(this.mesh);
-        if (this.graph) impl.setGraph(this.graph.graph, this.graph.properties);
-      });
-    } else {
-      const impl = new ThreeMaterialPreview(container);
+    this.canvas = document.createElement("canvas");
+    container.appendChild(this.canvas);
+    void import("./babylon/previews/MaterialPreview").then(({ MaterialPreview: Babylon }) => {
+      if (this.disposed) return;
+      const impl: MaterialPreviewImpl = new Babylon(container, this.canvas);
       this.impl = impl;
-      this.canvas = impl.canvas;
-    }
+      impl.onShaderError = this.errorHandler;
+      if (this.mesh) impl.setMesh(this.mesh);
+      if (this.graph) impl.setGraph(this.graph.graph, this.graph.properties);
+    });
   }
 
   /** Called with the shader compiler's log when the generated shader fails to compile (a compiler bug), or null once one compiles. */
@@ -93,7 +81,7 @@ export class MaterialPreview {
     this.graph = { graph, properties };
     if (this.impl) return this.impl.setGraph(graph, properties);
     // The Babylon preview is still loading: compile as it will (the editor shows this graph's problems at once).
-    return compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel, language: "wgsl" });
+    return compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
   }
 
   /** Forget loaded textures (the project's images changed). */
@@ -127,13 +115,9 @@ export class NodePreviewRenderer {
   private disposed = false;
 
   constructor(readonly size = 96) {
-    if (rendererChoice() === "babylon") {
-      void import("./babylon/previews/MaterialPreview").then(({ NodePreviewRenderer: Babylon }) => {
-        if (!this.disposed) this.impl = new Babylon(size);
-      });
-    } else {
-      this.impl = new ThreeNodePreviewRenderer(size);
-    }
+    void import("./babylon/previews/MaterialPreview").then(({ NodePreviewRenderer: Babylon }) => {
+      if (!this.disposed) this.impl = new Babylon(size);
+    });
   }
 
   /** Start a pass over every preview: advances time. */

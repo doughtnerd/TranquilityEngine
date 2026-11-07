@@ -9,9 +9,8 @@
  * - static bodies and colliders without a body: pushed when their Transform changes.
  */
 import RAPIER from "@dimforge/rapier3d-compat";
-import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
 import { GameBehavior } from "../core/Component";
-import { DEG2RAD, Quaternion } from "../core/math";
+import { DEG2RAD, Mat4, Quat, Quaternion, Vector3, type QuatLike } from "../core/math";
 import type { World } from "../core/World";
 import { MeshRenderer } from "../render/components";
 import { meshesIfLoaded, meshTriangles, type ModelMesh } from "../scene/models";
@@ -50,23 +49,25 @@ export function initRapier3D(): Promise<void> {
   }));
 }
 
-const m4 = new Matrix4();
-const pos = new ThreeVector3();
-const rot = new ThreeQuaternion();
-const scl = new ThreeVector3();
+const pos = [0, 0, 0];
+const rot = [0, 0, 0, 1];
+const scl = [1, 1, 1];
 
 /** A node's world position, rotation and (positive) scale. */
-function worldPose(world: World, entity: number): { p: ThreeVector3; q: ThreeQuaternion; s: [number, number, number] } {
-  m4.fromArray(world.worldMatrix(entity), entity * 16).decompose(pos, rot, scl);
-  return { p: pos.clone(), q: rot.clone(), s: [Math.abs(scl.x), Math.abs(scl.y), Math.abs(scl.z)] };
+function worldPose(world: World, entity: number): { p: Vector3; q: Quaternion; s: [number, number, number] } {
+  Mat4.decompose(world.worldMatrix(entity), entity * 16, pos, 0, rot, 0, scl, 0);
+  return { p: new Vector3(pos[0], pos[1], pos[2]), q: new Quaternion(rot[0], rot[1], rot[2], rot[3]), s: [Math.abs(scl[0]), Math.abs(scl[1]), Math.abs(scl[2])] };
 }
 
 /** Rapier capsules lie along Y: the turn that lays one along X or Z. */
-const CAPSULE_TURN: Record<"x" | "y" | "z", ThreeQuaternion> = {
-  x: new ThreeQuaternion().setFromAxisAngle(new ThreeVector3(0, 0, 1), -Math.PI / 2),
-  y: new ThreeQuaternion(),
-  z: new ThreeQuaternion().setFromAxisAngle(new ThreeVector3(1, 0, 0), Math.PI / 2),
+const CAPSULE_TURN: Record<"x" | "y" | "z", Quaternion> = {
+  x: Quat.fromAxisAngle(0, 0, 1, -Math.PI / 2),
+  y: new Quaternion(),
+  z: Quat.fromAxisAngle(1, 0, 0, Math.PI / 2),
 };
+
+/** A quaternion as Rapier takes it (a plain object: Rapier reads fields, not getters). */
+const rapierRotation = (q: QuatLike): RAPIER.Rotation => ({ x: q.x, y: q.y, z: q.z, w: q.w });
 
 /** @internal */
 export class Physics3DWorld {
@@ -170,9 +171,9 @@ export class Physics3DWorld {
   }
 
   private createBody(rb: RigidBody): BodyHandleState3D {
-    const { p, q } = rb.node.transform ? worldPose(this.world, rb.node.entity) : { p: new ThreeVector3(), q: new ThreeQuaternion() };
+    const { p, q } = rb.node.transform ? worldPose(this.world, rb.node.entity) : { p: new Vector3(), q: new Quaternion() };
     const desc = rb.bodyType === "static" ? RAPIER.RigidBodyDesc.fixed() : rb.bodyType === "kinematic" ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.dynamic();
-    desc.setTranslation(p.x, p.y, p.z).setRotation(q);
+    desc.setTranslation(p.x, p.y, p.z).setRotation(rapierRotation(q));
     const body = this.rapier.createRigidBody(desc);
     this.applyBodySettings(rb, body);
     return { body, signature: this.bodySignature(rb), syncedVersion: this.world.tVersion[rb.node.entity], active: true };
@@ -201,8 +202,8 @@ export class Physics3DWorld {
     const version = this.world.tVersion[e];
     const cached = this.scales.get(c);
     if (cached && cached.version === version) return cached.scale;
-    m4.fromArray(this.world.worldMatrix(e), e * 16).decompose(pos, rot, scl);
-    const scale: [number, number, number] = [Math.abs(scl.x), Math.abs(scl.y), Math.abs(scl.z)];
+    Mat4.decompose(this.world.worldMatrix(e), e * 16, pos, 0, rot, 0, scl, 0);
+    const scale: [number, number, number] = [Math.abs(scl[0]), Math.abs(scl[1]), Math.abs(scl[2])];
     this.scales.set(c, { version, scale });
     return scale;
   }
@@ -252,10 +253,10 @@ export class Physics3DWorld {
   }
 
   /** World pose of the collider's shape: the node's pose plus its turned, scaled `center` (and a capsule's axis). */
-  private colliderWorldPose(c: Collider, ws: readonly number[]): { p: ThreeVector3; q: ThreeQuaternion } {
-    if (!c.node.transform) return { p: new ThreeVector3(c.center.x, c.center.y, c.center.z), q: new ThreeQuaternion() };
+  private colliderWorldPose(c: Collider, ws: readonly number[]): { p: Vector3; q: Quaternion } {
+    if (!c.node.transform) return { p: new Vector3(c.center.x, c.center.y, c.center.z), q: new Quaternion() };
     const { p, q } = worldPose(this.world, c.node.entity);
-    const offset = new ThreeVector3(...scaledCenter([c.center.x, c.center.y, c.center.z], ws)).applyQuaternion(q);
+    const offset = Quat.rotate(q, new Vector3(...scaledCenter([c.center.x, c.center.y, c.center.z], ws)));
     const turn = c instanceof CapsuleCollider ? CAPSULE_TURN[c.direction] ?? CAPSULE_TURN.y : null;
     return { p: p.add(offset), q: turn ? q.clone().multiply(turn) : q };
   }
@@ -279,11 +280,11 @@ export class Physics3DWorld {
     if (body?._state) {
       // Placed relative to the body, in the body's turned frame.
       const b = body._state.body, bp = b.translation(), br = b.rotation();
-      const inv = new ThreeQuaternion(br.x, br.y, br.z, br.w).invert();
-      const rel = pose.p.clone().sub(new ThreeVector3(bp.x, bp.y, bp.z)).applyQuaternion(inv);
-      desc.setTranslation(rel.x, rel.y, rel.z).setRotation(inv.multiply(pose.q)).setDensity(0);
+      const inv = Quat.conjugate(br);
+      const rel = Quat.rotate(inv, pose.p.clone().sub(new Vector3(bp.x, bp.y, bp.z)));
+      desc.setTranslation(rel.x, rel.y, rel.z).setRotation(rapierRotation(inv.multiply(pose.q))).setDensity(0);
     } else {
-      desc.setTranslation(pose.p.x, pose.p.y, pose.p.z).setRotation(pose.q);
+      desc.setTranslation(pose.p.x, pose.p.y, pose.p.z).setRotation(rapierRotation(pose.q));
     }
     desc
       .setSensor(c.isTrigger)

@@ -2,7 +2,7 @@
  * Particle effect graphs (ADR 0060): `*.particles.json` in format `myco.particles@2`, a VFX-Graph-
  * style document of systems (Spawn, Initialize, Update and Output contexts holding blocks), value
  * and operator nodes wired into block inputs, and events between systems. It's the asset: the
- * editor edits it, and `compileParticleGraph` lowers it for a backend (three.quarks today).
+ * editor edits it, and `compileParticleGraph` lowers it for the CPU simulation (`render/particles/simulation.ts`).
  * `myco.particles@1` files (ADR 0057) are read and migrated (see `particleGraphFormat.ts`).
  *
  * Block types live in `particleBlocks.ts`, node types in `particleNodes.ts`.

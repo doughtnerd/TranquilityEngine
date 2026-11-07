@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Camera, ReflectionProbe } from "../index";
-import { pickProbe, type ProbeBox } from "../render/reflectionProbes";
+import { pickProbe, type ProbeBox } from "../render/probeBoxes";
 
 const box = (id: number, size: number, x = 0, y = 0, z = 0): ProbeBox => ({ id, center: { x, y, z }, size: { x: size, y: size, z: size } });
 

@@ -2,6 +2,7 @@
 // the sync that keeps an Editor World showing the document. No UI here.
 export { SceneDocument, pathKey, sameTarget, isFieldOverride, type NodePath, type NodeReference, type ComponentEntry, type NodeEntry, type OverrideEntry, type SceneFile } from "./SceneDocument";
 export {
+  SetScenePreload,
   AddComponent,
   AddNode,
   CommandGroup,

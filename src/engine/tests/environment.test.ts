@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Environment } from "../render/components";
-import { environmentKind } from "../render/environmentMap";
+import { environmentKind } from "../render/babylon/lighting";
 
 describe("environment", () => {
   it("classifies environment image paths", () => {

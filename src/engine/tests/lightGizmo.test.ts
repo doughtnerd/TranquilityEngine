@@ -1,9 +1,8 @@
-import { Matrix4 } from "three";
 import { describe, expect, it } from "vitest";
-import { lightSegments } from "../render/RenderBackend";
+import { lightSegments } from "../render/babylon/editorOverlays";
 
 describe("light gizmo wireframes (ADR 0043)", () => {
-  const at = new Matrix4().makeTranslation(1, 2, 3);
+  const at = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 2, 3, 1]; // a translation to (1, 2, 3)
 
   it("draws a directional light's rays down its -Z axis", () => {
     const segs = lightSegments({ type: "directional", range: 10, spotAngle: 30 }, at, false);

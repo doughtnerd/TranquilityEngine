@@ -22,10 +22,10 @@ import { ScaleGizmo } from "@babylonjs/core/Gizmos/scaleGizmo.js";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode.js";
-import { Matrix4, Quaternion as ThreeQuaternion, Vector3 as ThreeVector3 } from "three";
+import { Mat4, Quat, Quaternion as EngineQuaternion, Vector3 as EngineVector3 } from "../../core/math";
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
-import { localPoseFromWorld, type LocalPose } from "../gizmoMath";
+import { composeMatrix, localPoseFromMatrix, matrixFrom, type LocalPose } from "../gizmoMath";
 import type { GizmoHandlers, GizmoOptions } from "../RenderSurface";
 import type { BabylonEditorContext } from "./editorContext";
 
@@ -99,7 +99,7 @@ export function gizmoRootScale(mode: Mode, camera: Camera, at: Vector3): number 
 }
 
 /** three's per-axis rounding: each axis in `mask` to a multiple of `st` (`keepNonZero`: scale, never to 0). */
-function roundAxes(v: ThreeVector3, mask: string, st: number, keepNonZero = false): void {
+function roundAxes(v: EngineVector3, mask: string, st: number, keepNonZero = false): void {
   const r = (x: number) => (Math.round(x / st) * st || (keepNonZero ? st : 0)) + 0; // + 0: no negative zero
   if (mask.includes("X")) v.x = r(v.x);
   if (mask.includes("Y")) v.y = r(v.y);
@@ -118,7 +118,7 @@ export class BabylonEditorGizmo {
   private ok = false;
   private dragging = false;
   /** World matrices when the drag started: the proxy's and each target's. */
-  private start: { proxy: Matrix4; targets: Matrix4[] } | null = null;
+  private start: { proxy: Float64Array; targets: Float64Array[] } | null = null;
   /** The axes the dragged handle moves ("X", "YZ", "XYZ"...), or null (snapping then treats every axis as dragged). */
   private axes: string | null = null;
   /** The view camera (set by `sync`), for the gizmo's screen-constant size. */
@@ -325,15 +325,15 @@ export class BabylonEditorGizmo {
 
   // --- Drags ---------------------------------------------------------------------------------------
 
-  /** The proxy's world matrix as three's (both libraries store a transform's 16 floats in the same order). */
-  private proxyMatrix(): Matrix4 {
-    return new Matrix4().fromArray(this.proxy.computeWorldMatrix(true).asArray());
+  /** The proxy's world matrix (Babylon stores a transform's 16 floats in the engine's order). */
+  private proxyMatrix(): Float64Array {
+    return matrixFrom(this.proxy.computeWorldMatrix(true).asArray());
   }
 
-  private matrices(world: World): { proxy: Matrix4; targets: Matrix4[] } {
+  private matrices(world: World): { proxy: Float64Array; targets: Float64Array[] } {
     return {
       proxy: this.proxyMatrix(),
-      targets: this.targets.map((n) => new Matrix4().fromArray(world.worldMatrix(n.entity), n.entity * 16)),
+      targets: this.targets.map((n) => matrixFrom(world.worldMatrix(n.entity), n.entity * 16)),
     };
   }
 
@@ -347,35 +347,37 @@ export class BabylonEditorGizmo {
    *    local space), rounds to a multiple of the step angle;
    *  - scale: the proxy's scale rounds to a multiple of the step per axis (never to 0).
    */
-  private snapped(now: Matrix4, start: Matrix4): Matrix4 {
+  private snapped(now: Float64Array, start: Float64Array): Float64Array {
     const { snap, mode, space } = this.options;
     if (!snap) return now;
     const steps = this.options.snapSteps ?? DEFAULT_STEPS;
     const mask = this.axes ?? "XYZ";
-    const position = new ThreeVector3(), quaternion = new ThreeQuaternion(), scale = new ThreeVector3();
-    now.decompose(position, quaternion, scale);
-    const startQuaternion = new ThreeQuaternion();
-    start.decompose(new ThreeVector3(), startQuaternion, new ThreeVector3());
+    const p = [0, 0, 0], q = [0, 0, 0, 1], s = [1, 1, 1], sq = [0, 0, 0, 1];
+    Mat4.decompose(now, 0, p, 0, q, 0, s, 0);
+    Mat4.decompose(start, 0, [0, 0, 0], 0, sq, 0, [1, 1, 1], 0);
+    const position = new EngineVector3(p[0], p[1], p[2]), scale = new EngineVector3(s[0], s[1], s[2]);
+    let quaternion = new EngineQuaternion(q[0], q[1], q[2], q[3]);
+    const startQuaternion = new EngineQuaternion(sq[0], sq[1], sq[2], sq[3]);
     if (mode === "translate") {
       const st = step(steps.move);
       if (!st) return now;
-      if (space === "local") position.applyQuaternion(startQuaternion.clone().invert());
+      if (space === "local") Quat.rotate(Quat.conjugate(startQuaternion), position);
       roundAxes(position, mask, st);
-      if (space === "local") position.applyQuaternion(startQuaternion);
+      if (space === "local") Quat.rotate(startQuaternion, position);
     } else if (mode === "rotate") {
       const st = (step(steps.rotate) * Math.PI) / 180;
       if (!st || mask.length !== 1) return now;
-      const axis = new ThreeVector3(mask === "X" ? 1 : 0, mask === "Y" ? 1 : 0, mask === "Z" ? 1 : 0);
-      if (space === "local") axis.applyQuaternion(startQuaternion);
-      const turn = quaternion.clone().multiply(startQuaternion.clone().invert());
+      const axis = new EngineVector3(mask === "X" ? 1 : 0, mask === "Y" ? 1 : 0, mask === "Z" ? 1 : 0);
+      if (space === "local") Quat.rotate(startQuaternion, axis);
+      const turn = quaternion.clone().multiply(Quat.conjugate(startQuaternion));
       const angle = 2 * Math.atan2(turn.x * axis.x + turn.y * axis.y + turn.z * axis.z, turn.w);
-      quaternion.setFromAxisAngle(axis, Math.round(angle / st) * st).multiply(startQuaternion);
+      quaternion = Quat.fromAxisAngle(axis.x, axis.y, axis.z, Math.round(angle / st) * st).multiply(startQuaternion);
     } else {
       const st = step(steps.scale);
       if (!st) return now;
       roundAxes(scale, mask, st, true);
     }
-    return new Matrix4().compose(position, quaternion, scale);
+    return composeMatrix(position, quaternion, scale);
   }
 
   /**
@@ -386,14 +388,18 @@ export class BabylonEditorGizmo {
     const start = this.start, world = this.world;
     if (!start || !world || !this.targets.every((n) => n.isValid)) return null;
     const now = this.snapped(this.proxyMatrix(), start.proxy);
-    const delta = now.clone().multiply(start.proxy.clone().invert());
-    const position = new ThreeVector3(), quaternion = new ThreeQuaternion(), scale = new ThreeVector3();
+    const startInverse = new Float64Array(16);
+    Mat4.invert(startInverse, 0, start.proxy, 0);
+    const delta = new Float64Array(16);
+    Mat4.multiply(delta, 0, now, 0, startInverse, 0);
+    const moved = new Float64Array(16);
     return this.targets.map((node, i) => {
       // A single node is exactly the proxy, so it never picks up rounding error.
-      (this.targets.length === 1 ? now : delta.clone().multiply(start.targets[i])).decompose(position, quaternion, scale);
+      if (this.targets.length === 1) moved.set(now);
+      else Mat4.multiply(moved, 0, delta, 0, start.targets[i], 0);
       const parent = node.parent;
-      const parentWorld = parent ? new Matrix4().fromArray(world.worldMatrix(parent.entity), parent.entity * 16) : null;
-      return localPoseFromWorld(parentWorld, position, quaternion, scale);
+      const parentWorld = parent ? matrixFrom(world.worldMatrix(parent.entity), parent.entity * 16) : null;
+      return localPoseFromMatrix(parentWorld, moved);
     });
   }
 }

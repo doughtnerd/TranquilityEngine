@@ -46,3 +46,12 @@ A torus knot uses a **custom `ShaderMaterial` written as a complete plain-WGSL v
 - Volumetrics from spot or point lights.
 - Light probes or GI, and IBL with an environment map.
 - Deep-import bundle size, and GPU cost per effect.
+
+## Check pages
+
+Run with `npm run dev` and keep the browser window visible (a hidden page stops `requestAnimationFrame`; these step the engine by hand anyway).
+
+- `/spikes/babylon/depth.html`: depth order (a red cube in front of a blue one), or `?scene=playground`; results in `window.__depth`.
+- `/spikes/babylon/stage6.html`: water, fog, a probe and shadows on the GPU; results in `window.__stage6`.
+- `/spikes/babylon/ui.html`: the screen UI pass; results in `window.__ui`.
+- `/spikes/babylon/lights.html`: clustered against regular point and spot lights (ADR 0079), the same scene drawn both ways and diffed, with spot lights at four `spotSoftness` values; results in `window.__lights`.

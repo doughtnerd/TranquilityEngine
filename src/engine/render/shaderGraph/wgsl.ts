@@ -13,9 +13,6 @@
  */
 import type { Builtin, ShaderStage, ValueType } from "./nodes";
 
-/** The language the compiler writes: GLSL ES 3.0 for three.js, WGSL for Babylon.js. */
-export type ShaderLanguage = "glsl" | "wgsl";
-
 const WGSL_TYPES: Record<Exclude<ValueType, "texture">, string> = { float: "f32", vec2: "vec2f", vec3: "vec3f", vec4: "vec4f" };
 
 /** A value type's WGSL name (`float` is `f32`, `vec3` is `vec3f`); a texture is `texture_2d<f32>`. */

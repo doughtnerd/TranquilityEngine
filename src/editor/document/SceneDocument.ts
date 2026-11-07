@@ -45,6 +45,17 @@ export class SceneDocument {
     return this.file.format;
   }
 
+  /** The scene's `settings` (physics, the warm-up `preload` list), as authored. Treat as read-only. */
+  get settings(): Readonly<NonNullable<SceneFile["settings"]>> {
+    return this.file.settings ?? {};
+  }
+
+  /** The scene's `settings.preload` list (ADR 0080): prefab and material files warmed up with it. */
+  get preload(): readonly string[] {
+    const list = this.file.settings?.preload;
+    return Array.isArray(list) ? list.filter((p): p is string => typeof p === "string") : [];
+  }
+
   /** All node entries in file order. Treat as read-only. */
   get nodes(): readonly NodeEntry[] {
     return this.file.nodes;
@@ -160,6 +171,11 @@ export class SceneDocument {
   /** @internal The raw entries array, for commands. */
   get _entries(): NodeEntry[] {
     return this.file.nodes;
+  }
+
+  /** @internal The file's root object, for commands that edit `settings`. */
+  get _file(): SceneFile {
+    return this.file;
   }
 
   /** @internal Rebuild the id index after a structural change. */

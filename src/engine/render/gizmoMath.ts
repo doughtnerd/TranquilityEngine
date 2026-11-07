@@ -1,11 +1,10 @@
 /**
  * Editor gizmo math (ADR 0022). Internal: converts the gizmo's world-space pose into the values
  * a node's Transform stores relative to its parent. Kept free of the renderer so it can be
- * tested headless.
+ * tested headless. Works in double precision (`Float64Array`), so poses written to scene files
+ * don't pick up float32 noise.
  */
-import { Euler, Matrix4, Quaternion, Vector3 } from "three";
-
-const RAD2DEG = 180 / Math.PI;
+import { Mat4, Quaternion, type QuatLike, type Vec3Like } from "../core/math";
 
 /** @internal A Transform's local values in scene-file form: metres, Euler XYZ degrees, scale factors. */
 export interface LocalPose {
@@ -14,13 +13,13 @@ export interface LocalPose {
   scale: [number, number, number];
 }
 
-const world = new Matrix4();
-const inverse = new Matrix4();
-const local = new Matrix4();
-const p = new Vector3();
-const q = new Quaternion();
-const s = new Vector3();
-const euler = new Euler();
+const world = new Float64Array(16);
+const inverse = new Float64Array(16);
+const local = new Float64Array(16);
+const p = [0, 0, 0];
+const q = [0, 0, 0, 1];
+const s = [1, 1, 1];
+const rotation = new Quaternion();
 
 /** Round away float noise so files don't fill with 0.30000000000000004. */
 function clean(n: number): number {
@@ -28,20 +27,45 @@ function clean(n: number): number {
   return Object.is(r, -0) ? 0 : r;
 }
 
+/** @internal A matrix (16 floats, column-major) from `array` at `offset`, widened to double precision. */
+export function matrixFrom(array: ArrayLike<number>, offset = 0): Float64Array {
+  const m = new Float64Array(16);
+  for (let i = 0; i < 16; i++) m[i] = array[offset + i];
+  return m;
+}
+
+/** @internal The matrix of position, rotation and scale (a new `Float64Array`). */
+export function composeMatrix(position: Vec3Like, quaternion: QuatLike, scale: Vec3Like): Float64Array {
+  const m = new Float64Array(16);
+  Mat4.compose(m, 0, [position.x, position.y, position.z], 0, [quaternion.x, quaternion.y, quaternion.z, quaternion.w], 0, [scale.x, scale.y, scale.z], 0);
+  return m;
+}
+
+/**
+ * @internal Local pose of a node whose world matrix is `nodeWorld` (16 floats), given its parent's world
+ * matrix (null for a node under the World root). Euler order XYZ matches the engine's
+ * `Quaternion.setFromEuler`.
+ */
+export function localPoseFromMatrix(parentWorld: ArrayLike<number> | null, nodeWorld: ArrayLike<number>): LocalPose {
+  for (let i = 0; i < 16; i++) world[i] = nodeWorld[i];
+  if (parentWorld) {
+    for (let i = 0; i < 16; i++) inverse[i] = parentWorld[i];
+    Mat4.invert(inverse, 0, inverse, 0);
+    Mat4.multiply(local, 0, inverse, 0, world, 0);
+  } else local.set(world);
+  Mat4.decompose(local, 0, p, 0, q, 0, s, 0);
+  const euler = rotation.set(q[0], q[1], q[2], q[3]).toEuler();
+  return {
+    position: [clean(p[0]), clean(p[1]), clean(p[2])],
+    rotation: [clean(euler.x), clean(euler.y), clean(euler.z)],
+    scale: [clean(s[0]), clean(s[1]), clean(s[2])],
+  };
+}
+
 /**
  * @internal Local pose of a node whose world transform is (`position`, `quaternion`, `scale`), given its
- * parent's world matrix (null for a node under the World root). Euler order XYZ matches the
- * engine's `Quaternion.setFromEuler`.
+ * parent's world matrix (null for a node under the World root).
  */
-export function localPoseFromWorld(parentWorld: Matrix4 | null, position: Vector3, quaternion: Quaternion, scale: Vector3): LocalPose {
-  world.compose(position, quaternion, scale);
-  if (parentWorld) local.multiplyMatrices(inverse.copy(parentWorld).invert(), world);
-  else local.copy(world);
-  local.decompose(p, q, s);
-  euler.setFromQuaternion(q, "XYZ");
-  return {
-    position: [clean(p.x), clean(p.y), clean(p.z)],
-    rotation: [clean(euler.x * RAD2DEG), clean(euler.y * RAD2DEG), clean(euler.z * RAD2DEG)],
-    scale: [clean(s.x), clean(s.y), clean(s.z)],
-  };
+export function localPoseFromWorld(parentWorld: ArrayLike<number> | null, position: Vec3Like, quaternion: QuatLike, scale: Vec3Like): LocalPose {
+  return localPoseFromMatrix(parentWorld, composeMatrix(position, quaternion, scale));
 }

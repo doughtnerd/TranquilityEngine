@@ -95,7 +95,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   const [detached, setDetached] = useState<string | null>(null);
   const [search, setSearch] = useState<{ at: Point; pending: Pending } | null>(null);
   const [box, setBox] = useState<{ a: Point; b: Point } | null>(null);
-  const [showGlsl, setShowGlsl] = useState(false);
+  const [showCode, setShowCode] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [shaderError, setShaderError] = useState<string | null>(null);
   const [, setHistoryTick] = useState(0);
@@ -506,8 +506,8 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
         <button title="Show every node (F)" onClick={() => frameAll()}>
           Frame
         </button>
-        <button class={showGlsl ? "active" : ""} aria-pressed={showGlsl} title="Show the GLSL this graph compiles to" onClick={() => setShowGlsl(!showGlsl)}>
-          GLSL
+        <button class={showCode ? "active" : ""} aria-pressed={showCode} title="Show the WGSL this graph compiles to" onClick={() => setShowCode(!showCode)}>
+          WGSL
         </button>
         {!sub && (
           <button title="Create a material that draws with this graph" disabled={readOnly} onClick={() => void createMaterialForGraph(path)}>
@@ -635,7 +635,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
           )}
           {readOnly && <p class="sg-readonly">This project is read-only.</p>}
         </div>
-        {showGlsl && <pre class="sg-glsl" aria-label="Generated GLSL">{shaderGraphListing(compiled)}</pre>}
+        {showCode && <pre class="sg-glsl" aria-label="Generated WGSL">{shaderGraphListing(compiled)}</pre>}
       </div>
     </div>
   );
@@ -992,7 +992,7 @@ function SubGraphOutputs(props: { graph: ShaderGraph; readOnly: boolean; commit(
   );
 }
 
-/** The selected Custom Function node's name, ports and GLSL body. */
+/** The selected Custom Function node's name, ports and WGSL body. */
 function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; readOnly: boolean; commit(g: ShaderGraph): void }) {
   const { node, graph, commit } = props;
   const f: CustomFunction = node.function ?? defaultFunction();
@@ -1025,7 +1025,7 @@ function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; readOnly: 
             const name = (e.currentTarget as HTMLInputElement).value;
             if (isPortName(name)) set({ ...f, name });
             else {
-              status.value = { kind: "error", text: `"${name}" isn't a GLSL function name (letters, digits and _, not starting with a digit).` };
+              status.value = { kind: "error", text: `"${name}" isn't a valid function name (letters, digits and _, not starting with a digit).` };
               (e.currentTarget as HTMLInputElement).value = f.name;
             }
           }}
@@ -1033,8 +1033,6 @@ function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; readOnly: 
       </label>
       {side("inputs", "Inputs")}
       {side("outputs", "Outputs")}
-      <textarea class="sg-function-body" aria-label="Function body" spellcheck={false} disabled={props.readOnly} value={f.body} onChange={(e) => set({ ...f, body: (e.currentTarget as HTMLTextAreaElement).value })} />
-      <p class="sg-hint">GLSL ES 3.0. Assign every output; inputs and outputs are named as above. uMycoTime is the time in seconds.</p>
       <label class="sg-property-row sg-wgsl-label">
         <span>WGSL body</span>
       </label>
@@ -1047,7 +1045,22 @@ function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; readOnly: 
         value={f.wgsl ?? ""}
         onChange={(e) => set({ ...f, wgsl: (e.currentTarget as HTMLTextAreaElement).value })}
       />
-      {!f.wgsl?.trim() && <p class="sg-hint">Needed on WebGPU (Babylon backend); without it the node outputs its defaults.</p>}
+      <p class="sg-hint">Assign every output (each is a var already declared); inputs and outputs are named as above.{!f.wgsl?.trim() && " Without a body the node outputs its defaults."}</p>
+      {f.body?.trim() && (
+        <>
+          <label class="sg-property-row">
+            <span>Old GLSL body</span>
+          </label>
+          <textarea class="sg-function-body" aria-label="Old GLSL body" spellcheck={false} readOnly value={f.body} />
+          <p class="sg-hint">
+            From before WGSL; nothing compiles it now. Port it to the WGSL body, then{" "}
+            <button disabled={props.readOnly} onClick={() => set({ ...f, body: undefined })}>
+              remove it
+            </button>
+            .
+          </p>
+        </>
+      )}
     </div>
   );
 }

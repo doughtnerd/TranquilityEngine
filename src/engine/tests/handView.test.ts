@@ -12,9 +12,9 @@ interface FakeSurface {
 }
 const surfaces: FakeSurface[] = [];
 
-vi.mock("../render/RenderBackend", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../render/RenderBackend")>();
-  class FakeRenderBackend {
+vi.mock("../render/babylon/BabylonSurface", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../render/babylon/BabylonSurface")>();
+  class FakeBabylonSurface {
     readonly id = surfaces.length;
     readonly canvas = { style: { display: "block" } };
     drew: string[] = [];
@@ -33,11 +33,8 @@ vi.mock("../render/RenderBackend", async (importOriginal) => {
       this.disposed = true;
     }
   }
-  return { ...original, RenderBackend: FakeRenderBackend };
+  return { ...original, BabylonSurface: FakeBabylonSurface };
 });
-
-// The fakes stand in for the three.js backend, so pick it (Babylon is the default, ADR 0078).
-vi.stubGlobal("location", { search: "?renderer=three" });
 
 const { Engine } = await import("../core/Engine");
 const { Input } = await import("../input/Input");

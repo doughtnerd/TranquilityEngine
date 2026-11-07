@@ -38,6 +38,7 @@ import { Graphics } from "../Graphics";
 import { GERSTNER_BODY, MAX_WAVES, WAVE_STRIDE, maxAmplitude } from "../water/gerstner";
 import { waterTime, type WaterSurface } from "../water/WaterSurface";
 import { ALBEDO_ANCHOR } from "./graphMaterial";
+import { useEngineLightFalloff } from "./materials";
 
 /** A reflection probe's map and strength (ADR 0054), or null for the scene's environment only. */
 export type BabylonWaterProbe = (x: number, y: number, z: number) => { texture: BaseTexture; intensity: number } | null;
@@ -411,6 +412,7 @@ export class BabylonWater {
       const material = new PBRMaterial("myco-water", this.scene);
       material.sideOrientation = Material.CounterClockWiseSideOrientation;
       material.maxSimultaneousLights = 8;
+      useEngineLightFalloff(material);
       material.albedoColor.set(1, 1, 1);
       material.metallic = 0;
       material.roughness = 0.08;

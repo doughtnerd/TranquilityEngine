@@ -3,7 +3,42 @@
  * active quality tier. Pure, so the rules are unit-tested without WebGL.
  */
 import type { QualityTier } from "../core/graphics";
-import type { PostEffects, ToneMappingName } from "./PostProcessStack";
+
+export type ToneMappingName = "none" | "aces" | "agx" | "neutral";
+/** Ambient occlusion quality once the tier allows it (the tier's "off" leaves `ambientOcclusion` null). */
+export type AOQuality = "low" | "medium" | "high" | "ultra";
+
+/** The effects to run: the camera's PostProcessing component, already filtered by the quality tier. Null members are off. */
+export interface PostEffects {
+  toneMapping: ToneMappingName;
+  exposure: number;
+  antialias: "off" | "msaa" | "smaa" | "fxaa";
+  bloom: { intensity: number; threshold: number; radius: number } | null;
+  ambientOcclusion: { intensity: number; radius: number; quality: AOQuality } | null;
+  colorGrading: { brightness: number; contrast: number; saturation: number; hue: number } | null; // hue in degrees
+  vignette: { darkness: number; offset: number } | null;
+  depthOfField: { focusDistance: number; focusRange: number; bokehScale: number } | null;
+  chromaticAberration: { amount: number } | null;
+}
+
+/**
+ * Identifies the pass layout: equal keys mean the frame graph can update values in place, different keys mean a rebuild.
+ * Deliberately excludes every numeric value and the multisample count (a plain property on the composer).
+ */
+export function stackKey(effects: PostEffects, overlay = false): string {
+  return [
+    overlay ? "overlay" : "base",
+    effects.toneMapping,
+    effects.antialias === "smaa" || effects.antialias === "fxaa" ? effects.antialias : "no-aa-pass",
+    effects.bloom ? "bloom" : "-",
+    effects.ambientOcclusion ? `ao:${effects.ambientOcclusion.quality}` : "-",
+    effects.colorGrading ? "grade" : "-",
+    effects.vignette ? "vig" : "-",
+    effects.depthOfField ? "dof" : "-",
+    effects.chromaticAberration ? "ca" : "-",
+  ].join("|");
+}
+
 
 /** A PostProcessing component's values (the fields `resolvePostEffects` reads). */
 export interface PostSettings {

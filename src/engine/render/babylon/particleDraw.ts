@@ -72,6 +72,16 @@ export interface DrawOptions {
 }
 
 /** A Babylon draw for an emitter, holding up to `capacity` particles before it grows; `isDot` when `texture` is the default dot. */
+/**
+ * Whether an emitter drawn without a material asset is drawn by a Babylon particle system reading its
+ * texture as a sprite sheet. Its texture is then loaded unflipped: Babylon's particle shader reads a
+ * sheet's cells with V 0 at the image's top, unlike its other textures (trails, `QuadDraw`, read
+ * flipped ones).
+ */
+export function usesSheet(r: RendererSettings): boolean {
+  return r.mode !== "mesh" && r.mode !== "trail" && r.tiles[0] * r.tiles[1] > 1;
+}
+
 export function makeDraw(scene: Scene, name: string, e: SimEmitter, capacity: number, texture: BaseTexture, isDot: boolean, options: DrawOptions = {}): Draw {
   const r = e.renderer;
   const material = options.material ?? null;

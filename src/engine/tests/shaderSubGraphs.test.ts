@@ -77,8 +77,8 @@ describe("shader sub-graphs", () => {
     const c = compileShaderGraph(g);
     expect(c.problems).toEqual([]);
     expect(c.dependencies).toEqual(["shaders/double.shadersubgraph.json"]);
-    expect(c.fragment.body).toContain("float m1s1_out = 3.0;"); // the sub-graph's property node reads the input
-    expect(c.fragment.body).toContain("vec4 m1_Out = vec4(m1s2_out);");
+    expect(c.fragment.body).toContain("var m1s1_out: f32 = 3.0;"); // the sub-graph's property node reads the input
+    expect(c.fragment.body).toContain("var m1_Out: vec4f = vec4f(m1s2_out);");
     expect(c.uniforms).toEqual([]); // a sub-graph's properties aren't uniforms
   });
 
@@ -142,16 +142,17 @@ describe("shader sub-graphs", () => {
     const c = compileShaderGraph(g);
     expect(c.problems).toEqual([]);
     const uniform = (value: string) => c.uniforms.find((u) => u.value === value)!;
-    expect(c.fragment.body).toContain(`texture(${uniform("asset:images/a.png").name}, vMycoUv)`); // the sub-graph's own texture
+    const own = uniform("asset:images/a.png").name;
+    expect(c.fragment.body).toContain(`textureSample(${own}, ${own}Sampler, fragmentInputs.vMycoUv)`); // the sub-graph's own texture
     expect(uniform("asset:images/default.png").linear).toBe(true); // an unconnected input reads the property's default, here as a normal map
-    expect(c.fragment.body).toContain("texture(uP0_Mine, vMycoUv)"); // a connected input passes the graph's property through
+    expect(c.fragment.body).toContain("textureSample(uP0_Mine, uP0_MineSampler, fragmentInputs.vMycoUv)"); // a connected input passes the graph's property through
   });
 
   it("preview a first texture output as the texture", () => {
     const { graph: sub } = parseShaderGraph({ format: "myco.shadersubgraph@1", outputs: [{ name: "T", type: "texture" }], nodes: [{ id: "output", type: "output", position: [0, 0] }, { id: "a", type: "textureAsset", position: [0, 0], settings: { texture: "x.png" } }], edges: [{ from: "a.out", to: "output.T" }] });
     const c = compileShaderGraph(sub);
     expect(c.problems).toEqual([]);
-    expect(c.fragment.body).toContain("vec3 mOut_base = texture(uTex0, vMycoUv).rgb;");
+    expect(c.fragment.body).toContain("var mOut_base: vec3f = textureSample(uTex0, uTex0Sampler, fragmentInputs.vMycoUv).rgb;");
   });
 
   it("compile on their own as their first output, unlit", () => {
@@ -166,11 +167,11 @@ describe("shader sub-graphs", () => {
 
 describe("custom function nodes", () => {
   it("emit a function and call it with the node's inputs", () => {
-    const f = { name: "wave", inputs: [{ name: "x", type: "float" as const }], outputs: [{ name: "y", type: "vec3" as const }], body: "y = vec3(sin(x));" };
+    const f = { name: "wave", inputs: [{ name: "x", type: "float" as const }], outputs: [{ name: "y", type: "vec3" as const }], wgsl: "y = vec3f(sin(x));" };
     const c = compileShaderGraph(graph([node("t", "time"), node("f", "customFunction", { function: f })], [["t.time", "f.x"], ["f.y", "output.baseColor"]]));
     expect(c.problems).toEqual([]);
-    expect(c.fragment.declarations).toContain("void wave_2(float x, out vec3 y) {\ny = vec3(sin(x));\n}");
-    expect(c.fragment.body).toContain("vec3 m2_y = vec3(0.0);\nwave_2(m1_time, m2_y);");
+    expect(c.fragment.declarations).toContain("fn wave_2(x: f32) -> wave_2_Out {\n  var y: vec3f = vec3f(0.0);\ny = vec3f(sin(x));\n  return wave_2_Out(y);\n}");
+    expect(c.fragment.body).toContain("var m2_ret: wave_2_Out = wave_2(m1_time);\nvar m2_y: vec3f = m2_ret.y;");
   });
 });
 
@@ -178,7 +179,7 @@ describe("normal maps", () => {
   it("sample linear data and unpack it", () => {
     const c = compileShaderGraph(graph([node("s", "sampleTexture", { settings: { texture: "asset:n.png", type: "normal" } })], [["s.rgb", "output.normal"]]));
     expect(c.uniforms).toEqual([{ name: "uTex0", type: "sampler2D", value: "asset:n.png", linear: true }]);
-    expect(c.fragment.body).toContain("(texture(uTex0, vMycoUv).rgb * 2.0 - 1.0)");
+    expect(c.fragment.body).toContain("(textureSample(uTex0, uTex0Sampler, fragmentInputs.vMycoUv).rgb * 2.0 - 1.0)");
   });
 
   it("report a texture property sampled both ways, which reads as colour", () => {

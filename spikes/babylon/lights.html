@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Clustered lights check</title>
+    <style>
+      html, body { margin: 0; background: #111; color: #ddd; font: 13px system-ui, sans-serif; }
+      .row { display: flex; gap: 8px; padding: 8px; }
+      figure { margin: 0; }
+      figcaption { padding: 2px 0; }
+      canvas.shot { width: 480px; height: 270px; background: #000; }
+      #view { width: 960px; height: 540px; }
+      pre { padding: 0 8px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <div class="row">
+      <figure><canvas id="a" class="shot"></canvas><figcaption>Clustered</figcaption></figure>
+      <figure><canvas id="b" class="shot"></canvas><figcaption>Regular lights</figcaption></figure>
+      <figure><canvas id="d" class="shot"></canvas><figcaption>Difference × 16</figcaption></figure>
+    </div>
+    <pre id="log"></pre>
+    <div id="view"></div>
+    <script type="module" src="./lights.ts"></script>
+  </body>
+</html>

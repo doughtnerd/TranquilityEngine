@@ -24,8 +24,18 @@ import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import type { WarmMesh } from "../../scene/warmUp";
 import { meshOf } from "./materials";
 
-/** Warm meshes drawn per frame: each new pipeline stalls its frame, so they're spread out. */
+/** The most Babylon meshes a warm batch makes when pipelines compile as Babylon makes them: each new one stalls its frame. */
 const BATCH = 6;
+/** The most a batch takes when pipelines compile asynchronously (`asyncPipelines.ts`): no stall. */
+const ASYNC_BATCH = 24;
+/** A first batch's size; later ones follow the time their effects took (`EFFECT_BUDGET_MS`). */
+const START_BATCH = 4;
+/**
+ * Milliseconds a batch may spend creating Babylon effects. Each new effect preprocesses Babylon's PBR
+ * shader in JavaScript, about 10 ms in the pirates sample: 24 meshes at once made 220 ms frames. Batches
+ * grow while their meshes share effects that already exist, and shrink when they don't.
+ */
+const EFFECT_BUDGET_MS = 12;
 /** Frames a batch waits for its materials (textures, shader imports) before it's given up. */
 const MAX_FRAMES = 240;
 /** Frames a warm mesh whose model is still loading is put back before it's dropped. */
@@ -48,6 +58,36 @@ export interface WarmDeps {
   fogless(material: BabylonMaterial): boolean;
   /** Whether textures are still loading: a material's texture changes its shader, so a batch waits for them. */
   loadingTextures(): boolean;
+  /** With async pipeline compiles (WebGPU): resolves once the compiles started so far finish. Without, warm draws compile (and stall) as they go. */
+  compiling?(): Promise<void>;
+  /** Milliseconds spent creating effects so far (`effectClock`), to size the batches; without it batches keep their largest size. */
+  effectMs?(): number;
+}
+
+/** @internal A running total of the time `engine` spends in `createEffect` (shader preprocessing runs there). */
+export function effectClock(engine: AbstractEngine): { ms(): number; dispose(): void } {
+  let total = 0;
+  const create = engine.createEffect;
+  engine.createEffect = ((...args: Parameters<AbstractEngine["createEffect"]>) => {
+    const t = performance.now();
+    try {
+      return create.apply(engine, args);
+    } finally {
+      total += performance.now() - t;
+    }
+  }) as AbstractEngine["createEffect"];
+  return {
+    ms: () => total,
+    dispose: () => {
+      if (engine.createEffect !== create) engine.createEffect = create;
+    },
+  };
+}
+
+/** @internal The next batch's size from the last one's: double while its effects took under half the budget, else scale to the budget. */
+export function nextBatchSize(size: number, effectMs: number, max: number): number {
+  if (effectMs < EFFECT_BUDGET_MS / 2) return Math.min(max, size * 2);
+  return Math.max(1, Math.min(max, Math.round((size * EFFECT_BUDGET_MS) / effectMs)));
 }
 
 interface Batch {
@@ -60,6 +100,9 @@ interface Batch {
   casters: Mesh[];
   frames: number;
   readyFrames: number;
+  /** `effectMs()` when the batch was built, and how many meshes it was meant to take. */
+  effectStart: number;
+  size: number;
 }
 
 /** @internal Queues meshes to warm and draws a batch of them each frame (ADR 0080). */
@@ -71,8 +114,16 @@ export class PipelineWarmer {
   private readonly matrix = new Matrix();
   /** Called when the queue drains (the report keeps quiet for a moment after). */
   onDrained: (() => void) | null = null;
+  /** The next batch's size (`nextBatchSize`). */
+  private size: number;
 
-  constructor(private readonly deps: WarmDeps) {}
+  constructor(private readonly deps: WarmDeps) {
+    this.size = deps.effectMs ? START_BATCH : this.maxBatch;
+  }
+
+  private get maxBatch(): number {
+    return this.deps.compiling ? ASYNC_BATCH : BATCH;
+  }
 
   /** Whether meshes are queued or being drawn. */
   get busy(): boolean {
@@ -113,6 +164,7 @@ export class PipelineWarmer {
     b.frames++;
     if (!this.deps.loadingTextures() && b.meshes.every((m) => m.isReady(true))) b.readyFrames++;
     if (b.readyFrames < 2 && b.frames < MAX_FRAMES) return;
+    if (this.deps.effectMs) this.size = nextBatchSize(b.size, this.deps.effectMs() - b.effectStart, this.maxBatch);
     this.drop(b);
     this.batch = null;
     if (!this.queue.length) this.drained();
@@ -128,8 +180,14 @@ export class PipelineWarmer {
   private drained(): void {
     const waiters = this.waiters;
     this.waiters = [];
-    for (const w of waiters) w();
-    this.onDrained?.();
+    const finish = () => {
+      for (const w of waiters) w();
+      this.onDrained?.();
+    };
+    // With async compiles, the warm draws only started them: done once the pipelines are in the cache.
+    const compiling = this.deps.compiling?.();
+    if (compiling) void compiling.then(finish);
+    else finish();
   }
 
   private drop(b: Batch): void {
@@ -138,13 +196,13 @@ export class PipelineWarmer {
   }
 
   private build(camera: Camera): Batch {
-    const b: Batch = { meshes: [], clones: [], blends: [], watched: [], casters: [], frames: 0, readyFrames: 0 };
+    const b: Batch = { meshes: [], clones: [], blends: [], watched: [], casters: [], frames: 0, readyFrames: 0, effectStart: this.deps.effectMs?.() ?? 0, size: this.size };
     const forward = camera.getDirection(Vector3.Forward(this.deps.scene.useRightHandedSystem));
     const at = camera.globalPosition.add(forward.scale(Math.max(camera.minZ, 0.01) * 4));
     Matrix.ComposeToRef(new Vector3(WARM_SCALE, WARM_SCALE, WARM_SCALE), Quaternion.Identity(), at, this.matrix);
     const later: WarmMesh[] = [];
     let taken = 0;
-    while (this.queue.length && taken < BATCH) {
+    while (this.queue.length && taken < b.size) {
       const w = this.queue.shift()!;
       const sources = meshesIfLoaded(w.mesh);
       if (sources === null) {
@@ -155,7 +213,6 @@ export class PipelineWarmer {
         continue;
       }
       this.retries.delete(w);
-      taken++;
       const base = w.material ? this.deps.materialFor(w.material) : null;
       const variants: (BabylonMaterial | null)[] = [base];
       if (w.blended && base instanceof PBRMaterial && !this.deps.isGraph(base)) {
@@ -167,6 +224,8 @@ export class PipelineWarmer {
         b.blends.push([blend, base]);
         variants.push(blend);
       }
+      // Counted in Babylon meshes: a model of many parts, or a blend copy, is several draws and effects.
+      taken += variants.length * sources.length;
       for (const variant of variants) {
         for (const src of sources) {
           const mesh = meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}`, src);
@@ -207,7 +266,8 @@ export class VariantReport {
   constructor(
     engine: AbstractEngine,
     private readonly scene: Scene,
-    private readonly describe: (mesh: AbstractMesh) => string | null,
+    /** The node a renderer's mesh belongs to (and the prefab it came from), or null for other meshes. */
+    private readonly describe: (mesh: AbstractMesh) => { what: string; prefab?: string } | null,
   ) {
     const effects = (engine as unknown as { _compiledEffects: Record<string, Effect> })._compiledEffects;
     const count = () => Object.keys(effects).length;
@@ -251,19 +311,28 @@ export class VariantReport {
         const prev = this.byMaterial.get(material);
         this.byMaterial.set(material, effect.defines);
         if (silent || warm) continue;
-        const what = this.describe(mesh);
-        if (!what) continue; // not a renderer's mesh (editor helpers, particles)
+        const described = this.describe(mesh);
+        if (!described) continue; // not a renderer's mesh (editor helpers, particles)
         const change = prev === undefined ? "not warmed up" : definesChange(prev, effect.defines);
         const key = `${material}|${change}`;
         if (this.logged.has(key)) continue;
         this.logged.add(key);
-        console.warn(
-          `[myco] ${what} drew a shader variant that wasn't warmed up (${material.replace(/^material:/, "")}: ${change}), so its frame waited for the shader to compile. ` +
-            `Add its prefab to the scene's settings.preload list, or SceneManager.preload it, or report the rule the warm-up is missing (ADR 0080).`,
-        );
+        console.warn(variantWarning(described.what, material, change, described.prefab));
       }
     }
   }
+}
+
+/**
+ * @internal The variant report's warning. It names the file to add to the scene's `settings.preload`
+ * when there is one (the prefab the node came from, else the material asset), in a fixed phrase the
+ * editor's message log finds (`preloadSuggestion`) to offer adding it.
+ */
+export function variantWarning(what: string, material: string, change: string, prefab?: string): string {
+  const name = material.replace(/^material:/, "");
+  const asset = prefab ?? (/^(?:asset:)?([^#]+\.material\.json)/.exec(name)?.[1] ?? null);
+  const fix = asset ? `Add ${asset.replace(/^asset:/, "")} to the scene's settings.preload list` : "Add its prefab to the scene's settings.preload list";
+  return `[myco] ${what} drew a shader variant that wasn't warmed up (${name}: ${change}), so its frame waited for the shader to compile. ${fix}, or SceneManager.preload it, or report the rule the warm-up is missing (ADR 0080).`;
 }
 
 /**

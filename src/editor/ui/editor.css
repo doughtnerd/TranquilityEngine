@@ -440,6 +440,18 @@ button.primary:hover:not(:disabled) { background: var(--accent-hover); border-co
 .add-component-menu li.active { background: var(--selection); color: var(--selection-text); }
 .add-component-menu li.disabled { color: var(--muted); opacity: 0.6; }
 .component.off .fields { opacity: 0.55; }
+/* Scene settings (no node selected): the warm-up preload list (ADR 0080). */
+.scene-settings > .empty { margin-bottom: 6px; }
+.scene-setting-label { font-weight: 600; margin: 4px 0 2px; }
+.scene-setting-hint { color: var(--muted); margin: 0 0 6px; font-size: calc(11px * var(--ui-scale)); }
+.preload-list { list-style: none; margin: 0 0 6px; padding: 0; }
+.preload-list li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.preload-list li.empty { color: var(--muted); font-style: italic; }
+.preload-list .preload-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preload-list .remove-component { padding: 0 6px; font-size: calc(11px * var(--ui-scale)); line-height: 18px; color: var(--muted); background: transparent; border-color: transparent; }
+.preload-list .remove-component:hover { color: var(--danger-text); background: var(--danger-strong); border-color: var(--danger-strong); }
+.preload-add { display: flex; gap: 6px; }
+.preload-add input { flex: 1; min-width: 0; }
 .component.off h3 { color: var(--muted); }
 .component h3 .reorder-grip { padding: 0 2px; margin-right: 2px; border: none; background: transparent; color: var(--muted); cursor: grab; font-size: calc(13px * var(--ui-scale)); line-height: 18px; touch-action: none; }
 .component h3 .reorder-grip:hover { color: var(--text); }
@@ -533,6 +545,7 @@ button:disabled.primary { opacity: 0.5; }
 .message-log-bar button { padding: 1px 10px; font-size: calc(12px * var(--ui-scale)); }
 .message-log-list { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; user-select: text; }
 .message-log-list .empty { padding: 10px; color: var(--muted); }
+.message-entry .message-action { flex: none; font-size: calc(11px * var(--ui-scale)); padding: 1px 8px; }
 .message-entry { padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: calc(12px * var(--ui-scale)); }
 .message-entry-head { display: flex; align-items: baseline; gap: 8px; }
 .message-entry time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }

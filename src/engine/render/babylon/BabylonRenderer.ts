@@ -70,12 +70,13 @@ import type { BabylonParticles } from "./particles";
 import { PARTICLE_SCALE } from "../../core/graphics";
 import { Graphics } from "../Graphics";
 import { resolvePostEffects, type PostSettings } from "../postEffects";
-import type { PostEffects, ToneMappingName } from "../PostProcessStack";
+import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { spriteFrame } from "../spriteFrame";
 import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
-import { PipelineWarmer, VariantReport } from "./warmUp";
+import { AsyncPipelines } from "./asyncPipelines";
+import { effectClock, PipelineWarmer, VariantReport } from "./warmUp";
 import type { WarmMesh } from "../../scene/warmUp";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 
@@ -209,6 +210,10 @@ export class BabylonRenderer {
   private readonly defaultMaterial: PBRMaterial;
   /** ADR 0080: draws queued meshes once, hidden, so their shader pipelines exist before they're shown. */
   private readonly warmer: PipelineWarmer;
+  /** WebGPU: the warm-up's pipelines compile asynchronously while the warmer is busy (no frame waits for them); null elsewhere. */
+  private readonly asyncPipelines: AsyncPipelines | null;
+  /** Time spent creating effects, which sizes the warm-up's batches. */
+  private readonly effects: { ms(): number; dispose(): void };
   /** ADR 0080: editor play mode's log of shader variants compiled after loading; null when off. */
   private report: VariantReport | null = null;
   /** When `render` last drew a frame: a warm-up only waits while frames are being drawn. */
@@ -302,6 +307,10 @@ export class BabylonRenderer {
     this.defaultMaterial.albedoColor = new Color3(1, 1, 1);
     this.defaultMaterial.metallic = 0;
     this.defaultMaterial.roughness = 0.5;
+    // Before the warmer, which asks whether compiles are async. Only while it's busy: everywhere else a
+    // missing pipeline is made as Babylon makes it, so what's drawn never skips a frame.
+    this.asyncPipelines = AsyncPipelines.install(this.engine, () => this.warmer?.busy ?? false);
+    this.effects = effectClock(this.engine);
     this.warmer = new PipelineWarmer({
       scene,
       materialFor: (path) => this.materialAsset(path),
@@ -309,6 +318,8 @@ export class BabylonRenderer {
       isGraph: (m) => this.graphs.has(m),
       fogless: (m) => this.noFog.has(m),
       loadingTextures: () => this.loading.size > 0,
+      ...(this.asyncPipelines ? { compiling: () => this.asyncPipelines!.settled() } : {}),
+      effectMs: () => this.effects.ms(),
     });
     this.warmer.onDrained = () => this.report?.quiet();
     if (fill) this.editorTools();
@@ -334,12 +345,12 @@ export class BabylonRenderer {
   }
 
   /** The node (and prefab) a renderer's mesh belongs to, for the variant report; null for other meshes. */
-  private describeMesh(mesh: AbstractMesh): string | null {
+  private describeMesh(mesh: AbstractMesh): { what: string; prefab?: string } | null {
     for (const [r, e] of this.meshRenderers) {
       if (!e.meshes.includes(mesh as Mesh)) continue;
       let prefab: string | undefined;
       for (let n: GameObject | null = r.node; n && !prefab; n = n.parent) prefab = _instantiatedPrefabOf(n);
-      return prefab ? `"${r.node.name}" (from ${prefab})` : `"${r.node.name}"`;
+      return prefab ? { what: `"${r.node.name}" (from ${prefab})`, prefab } : { what: `"${r.node.name}"` };
     }
     return null;
   }
@@ -458,10 +469,16 @@ export class BabylonRenderer {
     );
   }
 
-  private texture(path: string): Promise<Texture> {
-    const cached = this.textures.get(path);
+  /**
+   * A texture asset, loaded flipped (V 1 is the image's top) unless `sheet`: Babylon's particle sprite
+   * sheets read cells with V 0 at the image's top, so a flipbook's texture is loaded unflipped (a copy
+   * of its own, cached apart).
+   */
+  private texture(path: string, sheet = false): Promise<Texture> {
+    const key = sheet ? `${path}#sheet` : path;
+    const cached = this.textures.get(key);
     if (cached) return Promise.resolve(cached);
-    let p = this.loading.get(path);
+    let p = this.loading.get(key);
     if (!p) {
       p = new Promise<Texture>((resolve, reject) => {
         const settings: ImportSettings = Assets.importSettings(path);
@@ -474,21 +491,21 @@ export class BabylonRenderer {
         }
         const tex = new Texture(url, this.scene, {
           noMipmap: !settings.mipmaps,
-          invertY: true,
+          invertY: !sheet,
           samplingMode: this.samplingMode(settings),
           onLoad: () => {
             this.applySampling(path, tex);
-            this.textures.set(path, tex);
-            this.loading.delete(path);
+            this.textures.set(key, tex);
+            this.loading.delete(key);
             resolve(tex);
           },
           onError: (message) => {
-            this.loading.delete(path);
+            this.loading.delete(key);
             reject(new Error(message ?? `couldn't load ${path}`));
           },
         });
       });
-      this.loading.set(path, p);
+      this.loading.set(key, p);
     }
     return p;
   }
@@ -680,7 +697,7 @@ export class BabylonRenderer {
               return (this.owner ?? world).worldMatrix(e).subarray(e * 16, e * 16 + 16);
             },
             selected: (c) => this.selectedNodes.has(c.node),
-            texture: (path) => this.texture(path),
+            texture: (path, sheet) => this.texture(path, sheet),
             tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
             material: (path) => this.materialAsset(path), // shared with MeshRenderers; null while missing
           });
@@ -828,6 +845,8 @@ export class BabylonRenderer {
     if (this.disposed) return;
     this.disposed = true;
     this.warmer.dispose();
+    this.asyncPipelines?.dispose();
+    this.effects.dispose();
     this.report?.dispose();
     this.particles?.dispose();
     this.tools?.dispose();
@@ -1122,7 +1141,7 @@ export class BabylonRenderer {
   /** A graph compiled to WGSL as a Babylon material (ADR 0047, `graphMaterial.ts`). */
   private graphMaterial(graphRaw: unknown, where: string, properties: Record<string, GraphValue>): BabylonGraphMaterial {
     const { graph, problems } = parseShaderGraph(graphRaw, where);
-    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel, language: "wgsl" });
+    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
     for (const p of [...problems, ...compiled.problems.map((q) => `${where}: ${q}`)]) this.warnOnce(p, p);
     if (!this.engine.isWebGPU) this.warnOnce("graph|webgl", "shader graph materials need WebGPU on the Babylon backend; on the WebGL2 fallback they draw as plain PBR.");
     const made = createGraphMaterial(this.scene, `graph:${where}`, compiled, properties, this.graphShared, (p, linear) => this.graphTexture(p, linear));

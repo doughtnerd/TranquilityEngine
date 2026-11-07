@@ -15,15 +15,26 @@ What's left after the frame-drop work of 2026-11-06 (commit `e60c9af`, branch `c
 
 - **The compile cost moved into the load:** frames of 260–520 ms over the match's first 3 s.
 
+## Fast follow-up (done 2026-11-06)
+
+- **The ripple sub-graph's UV node preview drew black**, and the sub-graph's preview was a flat grey sphere. The cause wasn't the previews: Babylon's PBR material binds the mesh's UV attribute only when the material itself needs UVs (one of its textures), so a graph that reads UVs but samples no texture got `mycoVUv` = 0. Every such material was affected, in the game too (the Playground's water, which uses the ripple). Fixed in `render/babylon/graphMaterial.ts`: the graph plugin's `prepareDefinesBeforeAttributes` sets `_needUVs` when the graph reads UVs (`graphUsesUv`), so Babylon defines `UV1`. Test: `babylonGraphMaterial.test.ts` (UV1 on with a UV-reading graph and no texture, off without). Seen in the Shader Graph panel: the UV gradient, the ripple's rings and the banded sphere.
+
 ## To do, in suggested order
 
-1. **Editor support for `settings.preload` (0080).** Today the only fix for a miss the report names is hand-editing the scene file.
-   - Check the editor keeps `settings.preload` when it saves a scene (not verified; scene saving may drop unknown `settings` keys).
-   - Add an Inspector field for the scene's preload list (prefab and material paths).
-   - The message log offers to add the path the report names (`[myco] … drew a shader variant that wasn't warmed up …`).
-2. **Pixel compare of clustered against regular lighting (0079).** On a paused match frame with particles and the UI pass off (see 0075's "Measuring" note), check the spot cone at a few `spotSoftness` values especially. The clustered PBR path uses the same falloff functions, but it's a different code path.
-3. **Warm-up on three.js (0080).** `RenderBackend.warmUp` resolves at once. Planned: hidden copies of the warm set's meshes through three's `renderer.compileAsync`.
-4. **Load-time budget (0080 open question).** 6 warm meshes a frame (`BATCH` in `render/babylon/warmUp.ts`) makes the load's frames 260–520 ms. Decide whether to spread them thinner or warm behind a loading screen.
+1. ~~**Editor support for `settings.preload` (0080).**~~ Done 2026-11-06: Scene settings in the Inspector (click the scene's name in the Hierarchy, or select nothing) edit the list, saving keeps it, and the message log's **Add to preload list** button takes the file a warm-up warning names. See 0080's row in the implementation status.
+2. ~~**Pixel compare of clustered against regular lighting (0079).**~~ Done 2026-11-06 with `spikes/babylon/lights.html`: the two match exactly. It found that `spotSoftness` and `range` did nothing on Babylon (physical light falloff); lit materials now use glTF falloff. See the 0079 and 0075 rows.
+3. ~~**Warm-up on three.js (0080).**~~ Dropped: the three.js backend was removed (0081).
+4. ~~**Load-time budget (0080 open question).**~~ Done 2026-11-06 by compiling the warm-up's pipelines asynchronously on WebGPU (`render/babylon/asyncPipelines.ts`): no compile stalls a frame now, and batches went from 6 to 24 meshes. The pirates load's worst frame went from 600 to about 250 ms; what's left is the load's own JavaScript (main-thread long tasks of 64–275 ms), not pipelines. See 0080's row.
+   - **Found (2026-11-06):** the long tasks are mostly Babylon creating effects (about 10 ms each, shader preprocessing in JavaScript). Warm batches are now sized to about 12 ms of effect creation, which helped a little (worst frame about 210 ms). Still to do, each a question of its own:
+     - ~~**The swap lump.**~~ Not real: logging every effect the match World created showed none after the warm-up drains; the effects I'd put at the swap were made during the warm-up.
+     - ~~**The cost of one effect.**~~ Profiled 2026-11-06 (16 PBR effects, 410 ms): our plugins 2 ms, Babylon's WGSL processor about 49 ms, pipeline-context preparation 13 ms, Babylon's core preprocessor about 21 ms an effect (includes and `#ifdef`s expanded afresh per set of defines). Nothing of ours to trim; cheaper would mean patching Babylon's preprocessor (caching its parsed include tree across define sets), which is upstream work.
+     - **A new World's own effects (shelved 2026-11-06):** each World has its own Babylon engine, so the match World makes again the effects and pipelines the menu World already has. The owner chose to **keep one engine per World** for its isolation (a broken World blacks out only its own view), clean teardown (disposing a World frees all its GPU memory) and simple multi-view; the cost is about a second of 40–60 ms frames during a load. Options weighed, none started:
+       - share one engine between Worlds: rejected for now (it touches everything that assumes one renderer per engine: the async pipeline hook, the effect clock, the variant report, `reclusterForNextCamera`);
+       - **a process-wide cache of preprocessed shader code** (the preferred lever if loads ever matter): wrap `Effect._processShaderCodeAsync` from `register.ts`, keyed on shader name or sources, defines, language and the engine settings the preprocessor reads; store the final code and a copy of the WebGPU processing context, and on a hit go straight to `_prepareEffect` (about 25 ms an effect down to 1–2 ms on a second engine). Estimated half a day to a day; the risk is copying the processing context correctly. First check (about 10 minutes) how many of the match World's effect keys the menu World already made: worth it only if most of them;
+       - reuse the outgoing World's engine when another takes over the view (ADR 0068);
+       - warm behind a loading screen.
+     - **Instantiating the scene:** about 90 ms, some 1,000 vertex buffers.
+     - Whether the few internal pipelines Babylon still compiles blocking (clear quad, post-process, UI) are worth warming.
 5. **Variants not warmed yet (0080):**
    - particle systems;
    - world-space UI;

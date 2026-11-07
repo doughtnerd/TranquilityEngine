@@ -5,10 +5,10 @@
  *   of per-wave constants: direction, wave number, amplitude and phase. Time is folded into the
  *   phase here (wrapped to one period, in doubles), so the shader never multiplies a large time
  *   by a frequency in 32-bit floats.
- * - `GERSTNER_BODY` is the wave sum written once, in the subset of syntax GLSL and JavaScript
- *   share. `gerstnerGLSL()` wraps it as a GLSL function the water material calls in its vertex
- *   shader; `gerstnerBodyJS()` gives the same text as JavaScript (tests compile it to prove the
- *   sampler below computes what the shader computes).
+ * - `GERSTNER_BODY` is the wave sum written once, in the subset of syntax WGSL, GLSL and
+ *   JavaScript share: Babylon's water plugin (`render/babylon/water.ts`) fills in its type words for
+ *   each shader language; `gerstnerBodyJS()` gives the same text as JavaScript (tests compile it to
+ *   prove the sampler below computes what the shader computes).
  * - `gerstner` is that sum in TypeScript for the CPU, and `sampleWaves` inverts the horizontal
  *   displacement so a height can be asked for at a world XZ position.
  *
@@ -133,20 +133,7 @@ for ($int i = 0; i < ${MAX_WAVES}; i++) {
 }
 `;
 
-/** `GERSTNER_BODY` as GLSL: the uniforms and `mycoGerstner(px, pz, out disp, out tangent, out binormal)`. */
-export function gerstnerGLSL(): string {
-  const body = GERSTNER_BODY.replace(/\$float/g, "float").replace(/\$int/g, "int");
-  return `uniform float mycoWaves[${MAX_WAVES * WAVE_STRIDE}];
-uniform int mycoWaveCount;
-void mycoGerstner(float px, float pz, out vec3 disp, out vec3 tangent, out vec3 binormal) {${body}
-  disp = vec3(gx, gy, gz);
-  tangent = vec3(tx, ty, tz);
-  binormal = vec3(bx, by, bz);
-}
-`;
-}
-
-/** `GERSTNER_BODY` as JavaScript statements (the same text the GLSL is made from). */
+/** `GERSTNER_BODY` as JavaScript statements (the same text the shaders are made from). */
 export function gerstnerBodyJS(): string {
   return GERSTNER_BODY.replace(/\$float|\$int/g, "let").replace(/\b(sin|cos)\(/g, "Math.$1(");
 }
