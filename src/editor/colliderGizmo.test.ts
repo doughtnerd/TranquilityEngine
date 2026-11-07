@@ -116,7 +116,7 @@ describe("the overlay with the demo scene open", () => {
     stack.execute(new AddComponent("bird", { type: "engine.CharacterController2D", data: { radius: 0.5, height: 2 } }));
     const node = sync.nodeFor("bird")!;
     stack.execute(new SetField("bird", "engine.Transform", "rotation", 90));
-    const shape = colliderShapes(engine).filter((s) => s.node === node).find((s) => s.points.length > 8)!;
+    const shape = colliderShapes(engine).filter((s) => s.node === node).find((s) => s.points.length === 34)!;
     const ys = shape.points.map((p) => p[1]), xs = shape.points.map((p) => p[0]);
     expect(Math.max(...ys) - Math.min(...ys)).toBeCloseTo(2 * Math.abs(node.transform!.worldScale.y));
     expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(1 * Math.abs(node.transform!.worldScale.x));

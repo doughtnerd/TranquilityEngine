@@ -93,6 +93,6 @@ export function jointOverlay(engine: Engine): EditorOverlay {
 
 /** Draw joint gizmos. Returns a function that removes them. */
 export function installJointGizmo(engine: Engine): () => void {
-  addEditorOverlay(engine.world, "joints", () => jointOverlay(engine));
+  addEditorOverlay(engine.world, "joints", () => jointOverlay(engine), "colliders"); // toggled with the collider gizmos
   return () => removeEditorOverlay(engine.world, "joints");
 }

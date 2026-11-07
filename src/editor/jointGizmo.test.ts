@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Engine } from "../engine";
-import { AddComponent, SetField } from "./document";
+import { Engine, HingeJoint } from "../engine";
+import { AddComponent } from "./document";
 import { jointOverlay } from "./jointGizmo";
 import { ARC_RADIUS, arcPoints, crossLines, jointWire, perpendicular, rotateAround, zigzag } from "./jointMath";
 import { createNode } from "./nodeCreate";
@@ -70,7 +70,7 @@ describe("joint overlay", () => {
     const b = createNode(scene, "empty", { position: [3, 0, 0] });
     expect(jointOverlay(engine).lines).toEqual([]);
     scene.stack.execute(new AddComponent(a, { type: "engine.HingeJoint", data: { anchor: [1, 0, 0], axis: [0, 1, 0], autoConfigureConnectedAnchor: false, connectedAnchor: [0, 0, 0], useLimits: true, limits: { min: -45, max: 45 } } }));
-    scene.stack.execute(new SetField(a, "engine.HingeJoint", "connectedBody", b));
+    scene.sync.nodeFor(a)!.getBehavior(HingeJoint)!.connectedBody = scene.sync.nodeFor(b)!; // object references aren't document fields here
     const overlay = jointOverlay(engine);
     const lines = overlay.lines;
     // cross (3), link, axis, arc, two radii
