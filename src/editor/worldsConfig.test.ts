@@ -28,6 +28,7 @@ import {
   updateConfig,
   withBootstrap,
   type WorldsModel,
+  withReplicationSetting,
 } from "./worldsConfig";
 
 const CATALOG: SystemCatalogEntry[] = [
@@ -352,5 +353,16 @@ describe("link options", () => {
     expect(groupProblems(modelProblems(ws, CATALOG)).links.get(0)![0]).toContain("at most 65535");
     const ok = setLinkOption(setLinkOption(base(), 0, "latencyMs", 50), 0, "loss", 0.2);
     expect(groupProblems(modelProblems(ok, CATALOG)).links.size).toBe(0);
+  });
+});
+
+describe("replication settings (ADR 0101)", () => {
+  it("sets and removes one setting, dropping replication when none is left", () => {
+    const one = withReplicationSetting(undefined, "sendRate", 20);
+    expect(one).toEqual({ sendRate: 20 });
+    const both = withReplicationSetting(one, "maxSnapshotBytes", 1200);
+    expect(both).toEqual({ sendRate: 20, maxSnapshotBytes: 1200 });
+    expect(withReplicationSetting(both, "sendRate", undefined)).toEqual({ maxSnapshotBytes: 1200 });
+    expect(withReplicationSetting({ sendRate: 20 }, "sendRate", undefined)).toBeUndefined();
   });
 });

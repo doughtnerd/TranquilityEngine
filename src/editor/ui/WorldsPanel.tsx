@@ -47,6 +47,7 @@ import {
   type TemplateEntry,
   type WorldRef,
   type WorldsModel,
+  withReplicationSetting,
 } from "../worldsConfig";
 import { PROJECT_FILE, queueProjectFileWrite } from "../projectFile";
 import { DEFAULT_LAYOUT, layoutGraph, type LayoutLinkIn, type LayoutNodeIn } from "../worldsLayout";
@@ -575,6 +576,29 @@ function Details(props: { s: PanelState; model: WorldsModel; target: WorldRef; p
           label="Tick rate"
           onCommit={(v) => set("Set tick rate", { tickRate: v })}
         />
+
+        {tags.includes("server") && (
+          <>
+            <label for="worlds-send-rate">Snapshot rate</label>
+            <NumberField
+              id="worlds-send-rate"
+              value={config.replication?.sendRate}
+              placeholder="tick rate"
+              suffix="/s"
+              label="Snapshot rate"
+              onCommit={(v) => set("Set snapshot rate", { replication: withReplicationSetting(config.replication, "sendRate", v) })}
+            />
+            <label for="worlds-snapshot-bytes">Snapshot budget</label>
+            <NumberField
+              id="worlds-snapshot-bytes"
+              value={config.replication?.maxSnapshotBytes}
+              placeholder="65536"
+              suffix="bytes"
+              label="Snapshot budget"
+              onCommit={(v) => set("Set snapshot budget", { replication: withReplicationSetting(config.replication, "maxSnapshotBytes", v) })}
+            />
+          </>
+        )}
 
         <label for="worlds-scale">Time scale</label>
         <NumberField id="worlds-scale" value={config.timeScale} placeholder="1" label="Time scale" onCommit={(v) => set("Set time scale", { timeScale: v })} />

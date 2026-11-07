@@ -2,7 +2,7 @@
 // Spawnable Worlds (`templates`) and links, the edits the panel makes to them, why each catalog system is in or out
 // of a World, and writing the section back into the file. Pure, so it's unit-tested;
 // WorldsPanel.tsx draws it and saves the result.
-import type { BootstrapConfig, LinkConfig, SystemSelection, WorldConfig, WorldTag } from "../engine";
+import type { BootstrapConfig, LinkConfig, ReplicationSettings, SystemSelection, WorldConfig, WorldTag } from "../engine";
 import { validateBootstrap } from "../engine/core/settings";
 import type { SystemCatalogEntry } from "../engine/core/systems";
 import { DEFAULT_WORLD_NAME, DEFAULT_WORLD_TAGS, worldsMatch } from "../engine/core/worlds";
@@ -133,7 +133,22 @@ export function groupProblems(problems: readonly string[]): GroupedProblems {
 
 // --- edits --------------------------------------------------------------------------------------
 
-const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems"];
+const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems", "lobby", "replication"];
+
+/**
+ * A World config's `replication` (ADR 0101) with `key` set to `value` (undefined removes it);
+ * undefined when nothing is left, so the key goes from project.json.
+ */
+export function withReplicationSetting(
+  replication: ReplicationSettings | undefined,
+  key: keyof ReplicationSettings,
+  value: number | undefined,
+): ReplicationSettings | undefined {
+  const next: Record<string, number> = { ...(replication as Record<string, number> | undefined) };
+  if (value === undefined) delete next[key];
+  else next[key] = value;
+  return Object.keys(next).length > 0 ? (next as ReplicationSettings) : undefined;
+}
 
 /** `base`, else `base 2`, `base 3`… : the first not in `taken`. */
 export function uniqueName(base: string, taken: readonly string[]): string {

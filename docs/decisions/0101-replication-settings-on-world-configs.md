@@ -26,7 +26,7 @@ We add `replication?: { sendRate?, maxSnapshotBytes? }` to `WorldConfig` (public
 - Declarative, validated, and the dedicated server honours it (it runs the same configs).
 
 **Negative / costs**
-- Not editable at runtime; the Worlds panel doesn't edit it yet (it keeps it).
+- Not editable at runtime (the Worlds panel edits it for server-tagged Worlds and templates).
 
 ## Deprecates
 
