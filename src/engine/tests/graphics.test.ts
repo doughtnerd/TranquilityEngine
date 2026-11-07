@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultGraphics, PARTICLE_SCALE, parseGraphics, SHADOW_MAP_SIZE, type QualityTier } from "../core/graphics";
+import { defaultGraphics, detectPlatform, PARTICLE_SCALE, parseGraphics, SHADOW_MAP_SIZE, type QualityTier } from "../core/graphics";
 import { resolveSettings } from "../core/settings";
 import { Graphics, QUALITY_KEY } from "../render/Graphics";
 import { MemoryStorage, Storage } from "../platform/Storage";
@@ -8,7 +8,7 @@ import { MemoryStorage, Storage } from "../platform/Storage";
 // Graphics class that switches the active tier.
 
 const DEFAULT_NAMES = ["Low", "Medium", "High", "Ultra"];
-const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high" };
+const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, cascadedLights: 2, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high" };
 
 afterEach(() => {
   Graphics._configure(defaultGraphics());
@@ -26,8 +26,8 @@ describe("parseGraphics", () => {
     const raw = {
       defaultTier: "Only",
       tiers: [
-        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", shadowCascades: 1, shadowDistance: 20, anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" },
-        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 500, anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true, reflectionProbes: "high", particles: "medium" },
+        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", shadowCascades: 1, cascadedLights: 1, shadowDistance: 20, anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" },
+        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", shadowCascades: 4, cascadedLights: 3, shadowDistance: 500, anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true, reflectionProbes: "high", particles: "medium" },
       ],
     };
     const { graphics, problems } = parseGraphics(raw);
@@ -253,5 +253,68 @@ describe("Graphics", () => {
 describe("SHADOW_MAP_SIZE", () => {
   it("maps each shadow quality to its map size", () => {
     expect(SHADOW_MAP_SIZE).toEqual({ off: 0, low: 512, medium: 1024, high: 2048, ultra: 4096 });
+  });
+});
+
+describe("cascadedLights", () => {
+  it("defaults to 1, 1, 2, 4 across the default tiers", () => {
+    expect(defaultGraphics().tiers.map((t) => t.cascadedLights)).toEqual([1, 1, 2, 4]);
+  });
+
+  it("is read, and a bad value is reported and replaced by the High tier's", () => {
+    const ok = parseGraphics({ tiers: [{ name: "A", cascadedLights: 3 }] });
+    expect(ok.graphics.tiers[0].cascadedLights).toBe(3);
+    expect(ok.problems).toEqual([]);
+    for (const bad of [0, 5, 1.5, "2"]) {
+      const { graphics, problems } = parseGraphics({ tiers: [{ name: "A", cascadedLights: bad }] });
+      expect(graphics.tiers[0].cascadedLights).toBe(2);
+      expect(problems.join()).toContain("cascadedLights");
+    }
+  });
+});
+
+describe("platform defaults", () => {
+  it("parses valid entries and omits the key when there are none", () => {
+    expect(parseGraphics({ platformDefaults: { mobile: "Low", web: "Medium" } }).graphics.platformDefaults).toEqual({ mobile: "Low", web: "Medium" });
+    expect(parseGraphics({}).graphics.platformDefaults).toBeUndefined();
+  });
+
+  it("reports and drops unknown platforms and unknown tiers", () => {
+    const { graphics, problems } = parseGraphics({ platformDefaults: { desktop: "Ultra", console: "Low", mobile: "Nope", web: 3 } });
+    expect(graphics.platformDefaults).toEqual({ desktop: "Ultra" });
+    expect(problems).toHaveLength(3);
+    expect(parseGraphics({ platformDefaults: [] }).problems).toHaveLength(1);
+    expect(parseGraphics({ platformDefaults: { desktop: "Nope" } }).graphics.platformDefaults).toBeUndefined();
+  });
+
+  it("detects the platform", () => {
+    expect(detectPlatform({ __TAURI_INTERNALS__: {}, navigator: { userAgent: "Android Mobile" } })).toBe("desktop");
+    expect(detectPlatform({ navigator: { userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)" } })).toBe("mobile");
+    expect(detectPlatform({ navigator: { userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8)" } })).toBe("mobile");
+    expect(detectPlatform({ navigator: { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", maxTouchPoints: 5 } })).toBe("mobile");
+    expect(detectPlatform({ navigator: { userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", maxTouchPoints: 0 } })).toBe("web");
+    expect(detectPlatform({ navigator: { userAgent: "Mozilla/5.0 (X11; Linux x86_64)" } })).toBe("web");
+    expect(detectPlatform({})).toBe("web");
+  });
+
+  it("starts on: saved choice, then the platform default, then defaultTier", () => {
+    const g = { ...defaultGraphics(), platformDefaults: { mobile: "Low" } };
+    Graphics._configure(g, undefined, undefined, "mobile");
+    expect(Graphics.quality).toBe("Low");
+    expect(Graphics.defaultQuality).toBe("Low");
+    expect(Graphics.platform).toBe("mobile");
+    Graphics._configure(g, "Ultra", undefined, "mobile");
+    expect(Graphics.quality).toBe("Ultra");
+    Graphics._configure(g, undefined, undefined, "web");
+    expect(Graphics.quality).toBe("High");
+    expect(Graphics.defaultQuality).toBe("High");
+    Graphics._configure({ ...g, platformDefaults: { mobile: "Gone" } }, undefined, undefined, "mobile");
+    expect(Graphics.quality).toBe("High");
+  });
+
+  it("lets the auto-detected tier win over the platform default", () => {
+    const g = { ...defaultGraphics(), autoDetect: true, platformDefaults: { web: "Low" } };
+    Graphics._configure(g, undefined, "Medium", "web");
+    expect(Graphics.quality).toBe("Medium");
   });
 });

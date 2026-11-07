@@ -71,6 +71,12 @@ export interface WarmDeps {
    * ADR 0106), drawn too so those variants compile now; each with its dispose.
    */
   keywordVariants?(material: BabylonMaterial): { material: BabylonMaterial; dispose(): void }[];
+  /**
+   * The renderer's reflection-probe copies of a built-in material, one per captured probe (ADR 0054;
+   * box projection changes the shader, ADR 0110), so meshes entering a probe's box don't compile then.
+   * They're the renderer's own copies, kept: not disposed with the batch.
+   */
+  probeVariants?(base: PBRMaterial): PBRMaterial[];
   /** With async pipeline compiles (WebGPU): resolves once the compiles started so far finish. Without, warm draws compile (and stall) as they go. */
   compiling?(): Promise<void>;
   /** Milliseconds spent creating effects so far (`effectClock`), to size the batches; without it batches keep their largest size. */
@@ -145,11 +151,24 @@ export class PipelineWarmer {
     return this.queue.length > 0 || this.batch !== null;
   }
 
+  /** Everything queued so far, to warm again when the passes change (`rewarm`). */
+  private readonly history = new Set<WarmMesh>();
+
   /** Queue `meshes`; resolves when everything queued so far has been drawn. */
   add(meshes: readonly WarmMesh[]): Promise<void> {
     this.queue.push(...meshes);
+    for (const m of meshes) this.history.add(m);
     if (!this.busy) return Promise.resolve();
     return new Promise((resolve) => this.waiters.push(resolve));
+  }
+
+  /**
+   * The passes changed (a new quality tier switched shadows, cascades or probes): warm everything warmed
+   * so far again, so the new variants compile now rather than as each mesh comes into view (ADR 0080).
+   */
+  rewarm(): Promise<void> {
+    const all = [...this.history].filter((m) => !this.queue.includes(m));
+    return all.length ? this.add(all) : Promise.resolve();
   }
 
   /** Before the frame graph runs: place this frame's batch in front of `camera`, its shadow casters onto `casters`. */
@@ -246,6 +265,7 @@ export class PipelineWarmer {
           b.disposers.push(v.dispose);
         }
       }
+      if (base instanceof PBRMaterial && !this.deps.isGraph(base)) variants.push(...(this.deps.probeVariants?.(base) ?? []));
       const mode = this.deps.instancing ? this.deps.instancing(w.material || null) : "off";
       // Counted in Babylon meshes: a model of many parts, or a blend copy, is several draws and effects.
       taken += variants.length * sources.length;

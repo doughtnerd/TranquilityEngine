@@ -4,7 +4,7 @@
  * the same tier. Setting `Graphics.quality` applies the tier at once and saves the choice, so it
  * comes back the next time the game starts.
  */
-import { defaultGraphics, type GraphicsSettings, type QualityTier } from "../core/graphics";
+import { defaultGraphics, detectPlatform, type Platform, type GraphicsSettings, type QualityTier } from "../core/graphics";
 import { Storage } from "../platform/Storage";
 import { guessTier, tierForGuess, type DeviceInfo } from "./qualityDetect";
 
@@ -18,6 +18,8 @@ let current: QualityTier = settings.tiers.find((t) => t.name === settings.defaul
 let version = 0;
 let autoDetected = false;
 let device: DeviceInfo | null = null;
+let platform: Platform = "web";
+let effectiveDefault = settings.defaultTier;
 
 /** What the browser says about the machine (ADR 0055): the GPU's name, cores, memory and screen. Read once. */
 function deviceInfo(): DeviceInfo {
@@ -47,11 +49,14 @@ export class Graphics {
    * @internal Set by the Engine from `project.json`, with the player's saved choice if it still
    * names a tier, else (with `autoDetect`) the tier detection chose earlier (ADR 0055).
    */
-  static _configure(graphics: GraphicsSettings, saved?: unknown, auto?: unknown): void {
+  static _configure(graphics: GraphicsSettings, saved?: unknown, auto?: unknown, where: Platform = detectPlatform()): void {
     settings = graphics;
+    platform = where;
+    const forPlatform = graphics.platformDefaults?.[where];
+    effectiveDefault = pick(forPlatform) ? forPlatform! : graphics.defaultTier;
     const player = pick(typeof saved === "string" ? saved : undefined);
     const detected = graphics.autoDetect && !player ? pick(typeof auto === "string" ? auto : undefined) : undefined;
-    current = player ?? detected ?? pick(graphics.defaultTier) ?? graphics.tiers[0];
+    current = player ?? detected ?? pick(effectiveDefault) ?? graphics.tiers[0];
     autoDetected = !!detected;
     version++;
   }
@@ -86,9 +91,14 @@ export class Graphics {
     return settings.tiers.map((t) => t.name);
   }
 
-  /** The project's default tier: the one used until the player picks another. */
+  /** The default tier: the one used until the player picks another. The project's default for this platform (`platformDefaults`) if it sets one, else `defaultTier`. */
   static get defaultQuality(): string {
-    return settings.defaultTier;
+    return effectiveDefault;
+  }
+
+  /** Where the game runs (desktop, mobile or web), as detected when the project was configured. */
+  static get platform(): Platform {
+    return platform;
   }
 
   /** The active tier's name. Setting it applies that tier now and saves it as the player's choice; an unknown name is ignored with a warning. */

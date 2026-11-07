@@ -61,6 +61,12 @@ export class Camera extends Component {
   @field(Boolean) pixelPerfect = false;
   /** With `pixelPerfect` on, sprites' world positions snap to the texel grid (1 / pixelsPerUnit units) when drawn. */
   @field(Boolean) pixelSnapping = true;
+  /**
+   * A render texture asset (`*.rendertexture.json`, ADR 0109) to draw into instead of the canvas.
+   * Materials, sprites and UI images that name the same asset show what the camera sees (a frame
+   * later: cameras drawing into textures draw after the ones on the canvas). Empty: the canvas.
+   */
+  @field(AssetRef) targetTexture = "";
 
   /** The enabled camera with the lowest depth in the current World (ADR 0032). */
   static get main(): Camera | null {
@@ -445,6 +451,13 @@ export class PostProcessing extends Component {
   @field(Number) saturation = 0;
   /** Hue rotation in degrees (0 = unchanged). */
   @field(Number) hue = 0;
+  /**
+   * A colour lookup table (`.cube`, ADR 0111) applied to the final, tone-mapped image, as exported by
+   * grading tools (DaVinci Resolve, Photoshop). Empty: none.
+   */
+  @field(AssetRef) lut = "";
+  /** How much of the lookup table's look to apply, 0 to 1. */
+  @field(Number) lutIntensity = 1;
 
   /** Darkens the edges of the screen. */
   @field(Boolean) vignette = false;
@@ -474,7 +487,7 @@ export class PostProcessing extends Component {
  */
 @component("engine.Environment")
 export class Environment extends Component {
-  /** An .hdr, .exr, .png or .jpg equirectangular image. Empty: the built-in studio room. */
+  /** An .hdr, .exr, .png or .jpg equirectangular image, an .env/.dds cube or a .cubemap.json (ADR 0113), or a .sky.json procedural sky (ADR 0112). Empty: the built-in studio room. */
   @field(AssetRef) map = "";
   /** Strength of the environment lighting (1 = unchanged). */
   @field(Number) intensity = 1;
@@ -494,7 +507,8 @@ export class Environment extends Component {
  */
 @component("engine.Fog")
 export class Fog extends Component {
-  @field(String, { choices: ["linear", "exponential"] }) mode: FogMode = "linear";
+  /** Distance fog's curve, or `none` for height fog alone (ADR 0110). */
+  @field(String, { choices: ["linear", "exponential", "none"] }) mode: FogMode = "linear";
   @field(Color) color = new Color(0.7, 0.75, 0.8, 1);
   /** Distance where linear fog starts, in metres. */
   @field(Number) near = 10;
@@ -506,11 +520,19 @@ export class Fog extends Component {
   @field(Boolean) affectsSkybox = false;
   /** How far the sky fades to the fog colour when `affectsSkybox` is on, 0 to 1. */
   @field(Number) skyboxFog = 1;
+  /** Height fog (ADR 0110): thick near `heightFogBase` and thinning above it, on top of distance fog. */
+  @field(Boolean) heightFog = false;
+  /** Height fog's thickness at `heightFogBase` (about 1 / the distance it fades out over there). */
+  @field(Number) heightFogDensity = 0.05;
+  /** The height, in metres, where height fog has `heightFogDensity`; it's thicker below and thinner above. */
+  @field(Number) heightFogBase = 0;
+  /** How fast height fog thins with height: it falls to about a third every 1 / falloff metres up. */
+  @field(Number) heightFogFalloff = 0.2;
 }
 
-export type FogMode = "linear" | "exponential";
+export type FogMode = "linear" | "exponential" | "none";
 
-export type ProbeRefresh = "onLoad" | "everyFrame";
+export type ProbeRefresh = "onLoad" | "everyFrame" | "baked";
 
 /**
  * Captures the scene around its node into a local environment map (ADR 0054). Lit and physical
@@ -523,8 +545,23 @@ export class ReflectionProbe extends Component {
   @field(Vector3) size = new Vector3(10, 10, 10);
   /** Strength of the reflections. */
   @field(Number) intensity = 1;
-  /** `onLoad` captures once after the scene loads; `everyFrame` recaptures continuously. */
-  @field(String, { choices: ["onLoad", "everyFrame"] }) refresh: ProbeRefresh = "onLoad";
+  /**
+   * `onLoad` captures once after the scene loads; `everyFrame` recaptures continuously; `baked` uses
+   * `bakedMap`, captured ahead of time in the editor (ADR 0110), and captures on load without one.
+   */
+  @field(String, { choices: ["onLoad", "everyFrame", "baked"] }) refresh: ProbeRefresh = "onLoad";
+  /**
+   * Box projection (ADR 0110): reflections are corrected as if the surroundings were the probe's box,
+   * so they line up with a room's walls near them. For rooms and interiors; off suits open spaces.
+   */
+  @field(Boolean) boxProjection = false;
+  /**
+   * Where meshes start blending towards this probe from a neighbour, in metres inside its box's
+   * faces (ADR 0110). 0: no blending, the probe takes over at its box's edge.
+   */
+  @field(Number) blendDistance = 1;
+  /** A capture baked in the editor (a prefiltered `.env` cube map), used when `refresh` is `baked`. */
+  @field(AssetRef) bakedMap = "";
 
   /** @internal Bumped by `capture()`; the render backend recaptures when it changes. */
   _captureRequests = 0;

@@ -63,6 +63,11 @@ export interface QualityTier {
    * light with shadows is drawn with cascaded shadow maps following the main camera; 1 is off.
    */
   shadowCascades: number;
+  /**
+   * How many directional lights with shadows get cascaded shadow maps when `shadowCascades` is
+   * above 1 (a whole number, 1 to 4); further ones get a plain shadow map.
+   */
+  cascadedLights: number;
   /** How far the shadow cascades reach from the camera, in metres (10–1000). */
   shadowDistance: number;
   /** Texture filtering at grazing angles: 1 (off) to 16, capped at what the GPU supports. */
@@ -94,6 +99,29 @@ export interface GraphicsSettings {
   autoDetect: boolean;
   /** The frame rate automatic detection aims for (20–240). */
   targetFrameRate: number;
+  /** Per-platform default tiers (ADR 0050): used instead of `defaultTier` on that platform, until the player picks one. Absent when none is set. */
+  platformDefaults?: PlatformDefaults;
+}
+
+/** Where the game runs: inside the desktop shell (Tauri), a phone or tablet browser, or any other browser. */
+export type Platform = "desktop" | "mobile" | "web";
+export const PLATFORMS: readonly Platform[] = ["desktop", "mobile", "web"];
+/** A tier name for some platforms. */
+export type PlatformDefaults = Partial<Record<Platform, string>>;
+
+/** What `detectPlatform` reads: a `navigator`, and Tauri's `__TAURI_INTERNALS__` marker. */
+export interface PlatformEnv {
+  navigator?: { userAgent?: string; maxTouchPoints?: number };
+  __TAURI_INTERNALS__?: unknown;
+}
+
+/** Desktop inside Tauri; mobile for a phone or tablet user agent (iPadOS reports as a Mac with a touch screen); else web. */
+export function detectPlatform(env: PlatformEnv = globalThis as PlatformEnv): Platform {
+  if ("__TAURI_INTERNALS__" in env) return "desktop";
+  const ua = env.navigator?.userAgent ?? "";
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return "mobile";
+  if (/Macintosh/.test(ua) && (env.navigator?.maxTouchPoints ?? 0) > 1) return "mobile";
+  return "web";
 }
 
 /** The tiers a project gets when its `project.json` has no `graphics` section. */
@@ -102,10 +130,10 @@ export const defaultGraphics = (): GraphicsSettings => ({
   autoDetect: false,
   targetFrameRate: 60,
   tiers: [
-    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", shadowCascades: 1, shadowDistance: 30, anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" },
-    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", shadowCascades: 2, shadowDistance: 50, anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "low", particles: "medium" },
-    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high" },
-    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", shadowCascades: 4, shadowDistance: 120, anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, reflectionProbes: "high", particles: "high" },
+    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", shadowCascades: 1, cascadedLights: 1, shadowDistance: 30, anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" },
+    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", shadowCascades: 2, cascadedLights: 1, shadowDistance: 50, anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "low", particles: "medium" },
+    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, cascadedLights: 2, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high" },
+    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", shadowCascades: 4, cascadedLights: 4, shadowDistance: 120, anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, reflectionProbes: "high", particles: "high" },
   ],
 });
 
@@ -113,7 +141,7 @@ export const defaultGraphics = (): GraphicsSettings => ({
 export const defaultTier = (name: string): QualityTier => ({ ...defaultGraphics().tiers[2], name });
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField", "reflectionProbes", "particles"];
+const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "cascadedLights", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField", "reflectionProbes", "particles"];
 
 /**
  * Read a `graphics` section leniently: bad values are reported and replaced by the default
@@ -123,7 +151,7 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
   const problems: string[] = [];
   if (raw === undefined) return { graphics: defaultGraphics(), problems };
   if (!isObject(raw)) return { graphics: defaultGraphics(), problems: [`${where} must be an object with "tiers" and "defaultTier"; using the default tiers.`] };
-  for (const key of Object.keys(raw)) if (key !== "tiers" && key !== "defaultTier" && key !== "autoDetect" && key !== "targetFrameRate") problems.push(`${where}: unknown setting "${key}".`);
+  for (const key of Object.keys(raw)) if (key !== "tiers" && key !== "defaultTier" && key !== "autoDetect" && key !== "targetFrameRate" && key !== "platformDefaults") problems.push(`${where}: unknown setting "${key}".`);
   const tiers: QualityTier[] = [];
   if (Array.isArray(raw.tiers)) {
     raw.tiers.forEach((t: unknown, i) => {
@@ -146,6 +174,10 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
       if (t.shadowCascades !== undefined) {
         if (typeof t.shadowCascades === "number" && Number.isInteger(t.shadowCascades) && t.shadowCascades >= 1 && t.shadowCascades <= 4) tier.shadowCascades = t.shadowCascades;
         else bad("shadowCascades", "a whole number from 1 to 4");
+      }
+      if (t.cascadedLights !== undefined) {
+        if (typeof t.cascadedLights === "number" && Number.isInteger(t.cascadedLights) && t.cascadedLights >= 1 && t.cascadedLights <= 4) tier.cascadedLights = t.cascadedLights;
+        else bad("cascadedLights", "a whole number from 1 to 4");
       }
       if (t.shadowDistance !== undefined) {
         if (typeof t.shadowDistance === "number" && t.shadowDistance >= 10 && t.shadowDistance <= 1000) tier.shadowDistance = t.shadowDistance;
@@ -195,5 +227,18 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
     if (typeof raw.targetFrameRate === "number" && raw.targetFrameRate >= 20 && raw.targetFrameRate <= 240) targetFrameRate = raw.targetFrameRate;
     else problems.push(`${where}.targetFrameRate should be a number from 20 to 240; using 60.`);
   }
-  return { graphics: { tiers, defaultTier: chosen, autoDetect, targetFrameRate }, problems };
+  const graphics: GraphicsSettings = { tiers, defaultTier: chosen, autoDetect, targetFrameRate };
+  if (raw.platformDefaults !== undefined) {
+    if (!isObject(raw.platformDefaults)) problems.push(`${where}.platformDefaults should be an object with "desktop", "web" and "mobile" tier names; ignored.`);
+    else {
+      const found: PlatformDefaults = {};
+      for (const [key, name] of Object.entries(raw.platformDefaults)) {
+        if (!(PLATFORMS as readonly string[]).includes(key)) problems.push(`${where}.platformDefaults: unknown platform "${key}" (use "desktop", "web" or "mobile"); dropped.`);
+        else if (typeof name !== "string" || !tiers.some((t) => t.name === name)) problems.push(`${where}.platformDefaults.${key} names no tier (${JSON.stringify(name)}); dropped.`);
+        else found[key as Platform] = name;
+      }
+      if (Object.keys(found).length) graphics.platformDefaults = found;
+    }
+  }
+  return { graphics, problems };
 }

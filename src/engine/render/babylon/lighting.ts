@@ -33,9 +33,13 @@ import { Environment, Light } from "../components";
 import { Graphics } from "../Graphics";
 import type { ShadowRequest } from "./frameGraph";
 
+/** The default sun's direction (a World without Lights). */
+const DEFAULT_SUN = new Vector3(-4, -10, -6).normalize();
+
 /** Scratch vector for `fitShadowArea`. */
 const tmpBack = new Vector3();
 import { studioHdrUrl } from "./studioEnvironment";
+import { cubemapReady, loadCubemap } from "./sky/cubemaps";
 
 interface LightEntry {
   light: BabylonLight;
@@ -95,12 +99,19 @@ interface EnvMap {
   sky: BaseTexture | null;
 }
 
-/** How an environment image is decoded, by file extension; null for unsupported files. */
-export function environmentKind(path: string): "hdr" | "exr" | "ldr" | null {
+/**
+ * How an environment map is read, by file name; null for unsupported files. Equirectangular images
+ * (ADR 0053), prefiltered `.env`/`.dds` cubes and six-image `*.cubemap.json` assets (ADR 0113), and
+ * procedural `*.sky.json` skies (ADR 0112, drawn and baked by `sky/BabylonSky.ts`).
+ */
+export function environmentKind(path: string): "hdr" | "exr" | "ldr" | "cube" | "faces" | "sky" | null {
   const p = path.split(/[?#]/)[0]!.toLowerCase();
   if (p.endsWith(".hdr")) return "hdr";
   if (p.endsWith(".exr")) return "exr";
   if (/\.(png|jpe?g)$/.test(p)) return "ldr";
+  if (/\.(env|dds)$/.test(p)) return "cube";
+  if (p.endsWith(".cubemap.json")) return "faces";
+  if (p.endsWith(".sky.json")) return "sky";
   return null;
 }
 
@@ -146,6 +157,8 @@ export class BabylonLighting {
   private readonly warned = new Set<string>();
   /** Whether the last sync asked for cascaded shadows, for tests. */
   private cascading = false;
+  /** How many lights the last sync gave cascades (ADR 0110), for tests. */
+  private cascadedCount = 0;
   /**
    * The main light shader graphs read (Main Light Direction / Color nodes), chosen as three.js's
    * `directionalLights[0]` is: the first shadow-casting directional light, else the first directional
@@ -155,6 +168,10 @@ export class BabylonLighting {
   readonly mainLight = { direction: [0.4, 1, 0.6].map((v) => v / Math.hypot(0.4, 1, 0.6)), color: [1, 1, 1] };
   /** How much the World's fog covers the sky (ADR 0071): the skybox dims by it and hides at 1. */
   private skyFog = 0;
+  /** A procedural sky's baked environment (ADR 0112), set by `BabylonSky`; null until its first bake. */
+  private skyEnvironment: BaseTexture | null = null;
+  /** The sky's sun (ADR 0114): the main directional light follows it when set (`setSunOverride`). */
+  private sunOverride: { direction: readonly number[]; color: readonly number[]; intensity: number } | null = null;
 
   constructor(private readonly scene: Scene) {
     // The light a World without Lights gets: a soft ambient light and a sun from above and in front.
@@ -162,30 +179,36 @@ export class BabylonLighting {
     ambient.intensity = 0.35;
     ambient.groundColor = new Color3(1, 1, 1);
     ambient.specular = Color3.Black();
-    const sun = new DirectionalLight("myco.default.sun", new Vector3(-4, -10, -6).normalize(), scene);
+    const sun = new DirectionalLight("myco.default.sun", DEFAULT_SUN.clone(), scene);
     sun.intensity = 1;
     this.defaults = [ambient, sun];
   }
 
   /**
    * Step 8: mirror the World's Lights, and return the shadow maps this frame needs: one per enabled
-   * shadow-casting light, cascaded for the first directional one on tiers with cascades when a camera
-   * draws the view (cascades follow it).
+   * shadow-casting light, cascaded for the first `cascadedLights` directional ones (ADR 0110) on tiers
+   * with cascades when a camera draws the view (cascades follow it).
    */
   syncLights(world: World, camera: BabylonCamera | null): ShadowRequest[] {
     const tier = Graphics.tier;
     const mapSize = SHADOW_MAP_SIZE[tier.shadows];
-    let cascadeLight: Light | null = null;
+    const cascadeLights = new Set<Light>();
     if (camera && mapSize && tier.shadowCascades > 1) {
-      cascadeLight = world._componentsOfType(Light).find((l) => l.type === "directional" && l.castShadows && l.isActiveAndEnabled) ?? null;
+      for (const l of world._componentsOfType(Light)) {
+        if (cascadeLights.size >= this.cascadeLimit(tier.cascadedLights ?? 1)) break;
+        if (l.type === "directional" && l.castShadows && l.isActiveAndEnabled) cascadeLights.add(l);
+      }
     }
     let any = false;
     this.cascading = false;
+    this.cascadedCount = 0;
     const shadows: ShadowRequest[] = [];
     let main: BabylonLight | null = null;
     let mainCasts = false;
+    const sunTarget = this.sunOverride ? this.sunLight(world) : null;
     for (const l of world._componentsOfType(Light)) {
       const on = this.syncLight(world, l);
+      if (on && l === sunTarget) this.applySun(this.lights.get(l)!.light);
       const entry = this.lights.get(l)!;
       const casts = on && l.castShadows && l.type !== "ambient" && !!mapSize;
       setShadowEnabled(entry.light, casts);
@@ -197,8 +220,11 @@ export class BabylonLighting {
       }
       if (!casts) continue;
       const light = entry.light as BabylonLight & IShadowLight;
-      const cascaded = l === cascadeLight;
-      if (cascaded) this.cascading = true;
+      const cascaded = cascadeLights.has(l);
+      if (cascaded) {
+        this.cascading = true;
+        this.cascadedCount++;
+      }
       else if (light instanceof DirectionalLight) this.fitShadowArea(light, l.shadowArea);
       shadows.push({ light, cascaded, mapSize, numCascades: tier.shadowCascades, shadowMaxZ: tier.shadowDistance });
     }
@@ -208,8 +234,55 @@ export class BabylonLighting {
       d.setEnabled(!any);
       setShadowEnabled(d, false);
     }
+    this.syncDefaultSun();
     this.syncMainLight(main ?? (any ? null : this.defaults[1]));
     return shadows;
+  }
+
+  /** Drive the main directional light from the sky (ADR 0114); null to leave Lights as authored. */
+  setSunOverride(sun: { direction: readonly number[]; color: readonly number[]; intensity: number } | null): void {
+    this.sunOverride = sun;
+  }
+
+  /** The Light the sky drives: the first enabled shadow-casting directional light, else the first directional one. */
+  private sunLight(world: World): Light | null {
+    let first: Light | null = null;
+    for (const l of world._componentsOfType(Light)) {
+      if (l.type !== "directional" || !l.isActiveAndEnabled) continue;
+      if (l.castShadows) return l;
+      first ??= l;
+    }
+    return first;
+  }
+
+  private applySun(light: BabylonLight): void {
+    const sun = this.sunOverride;
+    if (!sun || !(light instanceof DirectionalLight)) return;
+    light.direction = light.direction.set(-sun.direction[0], -sun.direction[1], -sun.direction[2]);
+    light.diffuse.set(sun.color[0], sun.color[1], sun.color[2]);
+    light.specular.copyFrom(light.diffuse);
+    light.intensity = Math.max(0, sun.intensity);
+  }
+
+  /** The default sun (a World without Lights) follows the sky too, and goes back when it stops. */
+  private syncDefaultSun(): void {
+    const sun = this.defaults[1] as DirectionalLight;
+    if (this.sunOverride) return this.applySun(sun);
+    sun.direction = sun.direction.copyFrom(DEFAULT_SUN);
+    sun.diffuse.set(1, 1, 1);
+    sun.specular.set(1, 1, 1);
+    sun.intensity = 1;
+  }
+
+  /**
+   * How many lights may have cascades: the tier's `cascadedLights`, but one on devices at WebGPU's
+   * minimum of 16 values between shader stages. Each cascaded light passes two more (its position from
+   * the camera and depth metric), and a material past the device's limit fails to compile and draws
+   * black (see `clusterContainer`).
+   */
+  private cascadeLimit(wanted: number): number {
+    const max = this.scene.getEngine().getCaps().maxVaryingVectors;
+    return max <= MIN_STAGE_VARIABLES ? 1 : Math.max(1, Math.min(4, wanted));
   }
 
   private syncMainLight(light: BabylonLight | null): void {
@@ -390,9 +463,11 @@ export class BabylonLighting {
    */
   syncEnvironment(world: World, far: number): void {
     const env = world._componentsOfType(Environment).find((e) => e.isActiveAndEnabled) ?? null;
-    const path = env?.map.replace(/^asset:/, "") ?? "";
+    let path = env?.map.replace(/^asset:/, "") ?? "";
+    const procedural = environmentKind(path) === "sky";
+    if (procedural) path = ""; // drawn and baked by the sky (ADR 0112); its bake comes in through `setSkyEnvironment`
     if (path !== (this.envMap?.path ?? "")) this.loadEnvironmentMap(path);
-    const map = this.envMap?.texture?.isReady() ? this.envMap.texture : null;
+    const map = procedural ? this.skyEnvironment : this.envMap?.texture && cubemapReady(this.envMap.texture) ? this.envMap.texture : null;
     this.studio ??= new HDRCubeTexture(studioHdrUrl(), this.scene, 128, false, true, false, true);
     const turn = env ? (env.rotation * Math.PI) / 180 : 0;
     // Only a ready texture goes to the scene: prefiltering swaps a cube's GPU texture when it finishes,
@@ -402,6 +477,10 @@ export class BabylonLighting {
     if (this.scene.environmentTexture !== lighting) this.scene.environmentTexture = lighting;
     this.scene.environmentIntensity = env ? Math.max(0, env.intensity) * (map ? 1 : 0.4) : 0.4;
 
+    if (procedural) {
+      this.skybox?.setEnabled(false);
+      return;
+    }
     // The sky's copy is made once the map is ready (after prefiltering), for the same reason.
     if (map && !this.envMap!.sky) {
       const copy = map.clone();
@@ -465,10 +544,18 @@ export class BabylonLighting {
     }
     const kind = environmentKind(path);
     if (!kind) {
-      this.warnOnce(`env|${path}`, `environment map "${path}" isn't an .hdr, .exr, .png or .jpg file; using the built-in environment.`);
+      this.warnOnce(`env|${path}`, `environment map "${path}" isn't an .hdr, .exr, .png, .jpg, .env, .dds, .cubemap.json or .sky.json file; using the built-in environment.`);
       return;
     }
     const failed = (message?: string) => console.error(`[myco] failed to load environment map "${path}": ${message ?? "unknown error"}`);
+    if (kind === "cube" || kind === "faces") {
+      try {
+        entry.texture = loadCubemap(path, kind, this.scene, failed);
+      } catch (err) {
+        failed((err as Error).message);
+      }
+      return;
+    }
     entry.texture =
       kind === "hdr"
         ? new HDRCubeTexture(url, this.scene, ENV_SIZE, false, true, false, true, null, failed)
@@ -477,17 +564,23 @@ export class BabylonLighting {
           : new EquiRectangularCubeTexture(url, this.scene, ENV_SIZE, false, true, null, failed);
   }
 
+  /** A procedural sky's baked environment, or null (ADR 0112). */
+  setSkyEnvironment(texture: BaseTexture | null): void {
+    this.skyEnvironment = texture;
+  }
+
   /** The World's fog over the sky this frame, 0 to 1 (ADR 0071). */
   setSkyFog(amount: number): void {
     this.skyFog = amount;
   }
 
   /** Tests: whether cascaded shadows are on, and the environment map's state. */
-  state(): { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean } {
+  state(): { cascades: boolean; cascadedLights: number; environment: string; environmentLoaded: boolean; skybox: boolean } {
     return {
       cascades: this.cascading,
+      cascadedLights: this.cascadedCount,
       environment: this.envMap?.path ?? "",
-      environmentLoaded: !!this.envMap?.texture?.isReady(),
+      environmentLoaded: !!this.envMap?.texture && cubemapReady(this.envMap.texture),
       skybox: !!this.skybox?.isEnabled(),
     };
   }

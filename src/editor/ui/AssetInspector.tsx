@@ -4,12 +4,14 @@ import { IMPORT_PLATFORMS, TEXTURE_COMPRESSIONS, withPlatformOverride, type Impo
 import { assetKind, fileName } from "../assetBrowser";
 import { extractModelMaterials } from "../materialExtract";
 import { AudioPreview, LargePreview } from "./AssetPreview";
+import { RenderTextureInspector } from "./RenderTextureInspector";
 import { MaterialInspector, ShaderGraphInspector } from "./MaterialInspector";
 import { ParticleEffectInspector } from "./ParticleInspector";
 import { NavFormationInspector } from "./NavFormationInspector";
 import { TilesetInspector } from "./TilesetInspector";
 import { importKind, inspectedAsset, openSpriteEditor, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
 import { errorStatus } from "../messages";
+import { openSkyAsset } from "../skyAssets";
 import { PIVOT_PRESETS, pivotLabel } from "../spriteSlicing";
 import { currentProject, docVersion, status } from "../state";
 import "./assetInspector.css";
@@ -22,9 +24,11 @@ export function AssetInspector() {
   const path = inspectedAsset.value;
   const kind = path ? assetKind(path) : null;
   if (path && kind === "particles") return <ParticleEffectInspector path={path} />;
+  if (path && kind === "rendertexture") return <RenderTextureInspector path={path} />;
   if (path && kind === "formation") return <NavFormationInspector path={path} />;
   if (path && kind === "tileset") return <TilesetInspector path={path} />;
-  if (path && (kind === "environment" || kind === "prefab")) return <PreviewInspector path={path} kind={kind} />;
+  if (path && (kind === "environment" || kind === "cubemap" || kind === "prefab")) return <PreviewInspector path={path} kind={kind} />;
+  if (path && kind === "sky") return <SkyInspector path={path} />;
   return path && kind === "material" ? <MaterialInspector path={path} /> : path && (kind === "shadergraph" || kind === "shadersubgraph") ? <ShaderGraphInspector path={path} /> : <ImportInspector />;
 }
 
@@ -103,16 +107,34 @@ function PlatformOverridesEditor(props: { draft: ImportSettings; onChange: (s: I
 const KIND_TITLES = { image: "Image", audio: "Audio", model: "Model" } as const;
 
 /** Environments and prefabs: no settings to edit here, just a look at them (ADR 0061). */
-function PreviewInspector(props: { path: string; kind: "environment" | "prefab" }) {
+function PreviewInspector(props: { path: string; kind: "environment" | "cubemap" | "prefab" }) {
   return (
     <div class="asset-inspector">
       <h3>{fileName(props.path)}</h3>
       <p class="hint">
         {props.kind === "environment"
           ? "Environment map. An Environment component lights the scene with it and can show it as the sky."
-          : "Prefab. Drag it into the Hierarchy or the scene view to place a copy."}
+          : props.kind === "cubemap"
+            ? "Cubemap (ADR 0113): six images as a skybox. Use it as an Environment's map."
+            : "Prefab. Drag it into the Hierarchy or the scene view to place a copy."}
       </p>
       <LargePreview path={props.path} />
+    </div>
+  );
+}
+
+/** A procedural sky (ADR 0112): a look at it, and a way into the Sky panel. */
+function SkyInspector(props: { path: string }) {
+  return (
+    <div class="asset-inspector">
+      <h3>{fileName(props.path)}</h3>
+      <p class="hint">A procedural sky (ADR 0112). Use it as an Environment's map.</p>
+      <LargePreview path={props.path} />
+      <div class="asset-inspector-actions">
+        <button class="primary" onClick={() => openSkyAsset(props.path)}>
+          Edit in Sky panel
+        </button>
+      </div>
     </div>
   );
 }

@@ -136,9 +136,13 @@ const ICONS: Partial<Record<AssetKind | "folder", string>> & { other: string } =
   audio: "M9 17V6l10-2v11M9 17a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM19 15a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z",
   model: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
   material: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM6 9a7 7 0 0 1 6-4",
+  rendertexture: "M4 5h16v14H4zM8 9h8v6H8zM4 5l4 4M20 5l-4 4M4 19l4-4M20 19l-4-4",
   formation: "M5 5h3v3H5zM10.5 5h3v3h-3zM16 5h3v3h-3zM8 11h3v3H8zM13 11h3v3h-3zM10.5 17h3v3h-3z",
   tileset: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
   environment: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18",
+  lut: "M4 4h16v16H4zM4 12h16M12 4v16M8 4v16M16 4v16",
+  sky: "M12 3v2M4.2 7.2l1.4 1.4M19.8 7.2l-1.4 1.4M3 13h2M19 13h2M8 13a4 4 0 0 1 8 0M6 20a3 3 0 0 1 .5-6h11a3 3 0 0 1 0 6z",
+  cubemap: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
   other: "M7 3h7l5 5v13H7zM14 3v5h5",
 };
 

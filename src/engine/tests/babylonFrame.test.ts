@@ -1,10 +1,10 @@
 // ADR 0075 stage 3: the finish pass and each camera's pass layout on the Babylon backend, without a GPU.
 import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
 import { describe, expect, it } from "vitest";
-import { cameraPasses, setCasters } from "../render/babylon/frameGraph";
+import { AO_SETTINGS, cameraPasses, setCasters } from "../render/babylon/frameGraph";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { matrixChanged } from "../render/babylon/BabylonRenderer";
-import { FINISH_SHADER, FINISH_UNIFORMS } from "../render/babylon/finishShader";
+import { FINISH_SAMPLERS, FINISH_SHADER, FINISH_UNIFORMS } from "../render/babylon/finishShader";
 import type { PostEffects } from "../render/postEffects";
 
 describe("the finish pass (ADR 0075)", () => {
@@ -17,6 +17,20 @@ describe("the finish pass (ADR 0075)", () => {
       expect(wgsl).toContain(`uniform ${u}: vec4f;`);
       expect(glsl).toContain(`uniform vec4 ${u};`);
     }
+  });
+
+  it("declares the colour lookup table's sampler in both languages (ADR 0111)", () => {
+    const wgsl = ShaderStore.ShadersStoreWGSL[`${FINISH_SHADER}PixelShader`];
+    const glsl = ShaderStore.ShadersStore[`${FINISH_SHADER}PixelShader`];
+    for (const s of FINISH_SAMPLERS) {
+      expect(wgsl).toContain(`var ${s}: texture_2d<f32>;`);
+      expect(glsl).toContain(`uniform sampler2D ${s};`);
+    }
+  });
+
+  it("runs ambient occlusion at half resolution on low and medium, full on high and ultra (ADR 0111)", () => {
+    expect([AO_SETTINGS.low.ratio, AO_SETTINGS.medium.ratio, AO_SETTINGS.high.ratio, AO_SETTINGS.ultra.ratio]).toEqual([0.5, 0.5, 1, 1]);
+    expect(AO_SETTINGS.ultra.samples).toBeGreaterThan(AO_SETTINGS.high.samples); // ultra used to fall back to 16
   });
 
   it("keeps its uniform list read-only (Babylon appends the vertex stage's 'scale' to the list it's given)", () => {
@@ -33,6 +47,7 @@ describe("a camera's passes (ADR 0075 stage 3)", () => {
     bloom: null,
     ambientOcclusion: null,
     colorGrading: null,
+    lut: null,
     vignette: null,
     depthOfField: null,
     chromaticAberration: null,
@@ -52,8 +67,14 @@ describe("a camera's passes (ADR 0075 stage 3)", () => {
       depthOfField: { focusDistance: 10, focusRange: 5, bokehScale: 2 },
       chromaticAberration: { amount: 0.002 },
     });
-    expect(cameraPasses(all)).toEqual(["clear", "render", "geometry", "ao", "dof", "bloom", "ca", "finish"]);
-    expect(cameraPasses(effects({ depthOfField: { focusDistance: 10, focusRange: 5, bokehScale: 2 } }))).toEqual(["clear", "render", "geometry", "dof", "finish"]);
+    expect(cameraPasses(all)).toEqual(["clear", "geometry", "render", "ao", "dof", "bloom", "ca", "finish"]);
+    expect(cameraPasses(effects({ depthOfField: { focusDistance: 10, focusRange: 5, bokehScale: 2 } }))).toEqual(["clear", "geometry", "render", "dof", "finish"]);
+  });
+
+  it("add a depth pass before the render pass when something asks for the scene depth (ADR 0109)", () => {
+    expect(cameraPasses(null, true)).toEqual(["clear", "geometry", "render", "finish"]);
+    // Shared with ambient occlusion: one geometry pass.
+    expect(cameraPasses(effects({ ambientOcclusion: { intensity: 2, radius: 1, quality: "medium" } }), true)).toEqual(["clear", "geometry", "render", "ao", "finish"]);
   });
 
   it("end with FXAA on tiers with FXAA or SMAA, not MSAA", () => {
@@ -82,7 +103,7 @@ describe("the geometry pass's depth (ADR 0075)", () => {
       camera,
       viewport: { x: 0, y: 0, width: 1, height: 1 },
       clear: new Color4(0, 0, 0, 1),
-      effects: { toneMapping: "agx", exposure: 1, antialias: "off", bloom: null, ambientOcclusion: { intensity: 1, radius: 1, quality: "high" }, colorGrading: null, vignette: null, depthOfField: null, chromaticAberration: null } as PostEffects,
+      effects: { toneMapping: "agx", exposure: 1, antialias: "off", bloom: null, ambientOcclusion: { intensity: 1, radius: 1, quality: "high" }, colorGrading: null, lut: null, vignette: null, depthOfField: null, chromaticAberration: null } as PostEffects,
       toneMapping: "agx" as const,
       exposure: 1,
     };
