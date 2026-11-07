@@ -9,6 +9,8 @@ import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
 import { connectWorlds, netSession } from "../net/session";
 import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
+import { mixer } from "../audio/backend";
+import { parseAudioSettings } from "../audio/settings";
 import { navigationSettingsProblems, resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { parseGraphics } from "./graphics";
 import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
@@ -161,6 +163,9 @@ export class Engine implements BootstrapEngine {
     for (const p of parseGraphics(options.project?.graphics).problems) console.warn(`[myco] project.json ${p}`);
     // Navigation (ADR 0065): a bad section falls back to defaults, so say what was replaced.
     if (options.project?.navigation !== undefined) for (const p of navigationSettingsProblems(options.project.navigation)) console.warn(`[myco] project.json ${p}`);
+    // Audio (ADR 0097): the project's mixer buses; one shared mixer, like the one audio context.
+    for (const p of parseAudioSettings(options.project?.audio).problems) console.warn(`[myco] project.json ${p}`);
+    mixer.configure(engine.settings.audio);
     if ((options.quality ?? "player") === "player") {
       const graphics = engine.settings.graphics;
       const saved = await Storage.load(QUALITY_KEY, "settings").catch(() => undefined);
