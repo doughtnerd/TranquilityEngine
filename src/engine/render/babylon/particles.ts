@@ -19,7 +19,7 @@ import { parseParticleGraph } from "../../scene/particleGraphFormat";
 import type { ParticleSystem } from "../components";
 import type { ParticlePreviewSettings, ParticleStats } from "../RenderSurface";
 import { ProgramRunner } from "../particles/programRunner";
-import { EffectSimulation, linearRGB, type SimEmitter } from "../particles/simulation";
+import { EffectSimulation, linearRGB, type ParticleRaycast, type SimEmitter } from "../particles/simulation";
 import { createDotTexture, makeDraw as makeBabylonDraw, usesSheet, type Draw } from "./particleDraw";
 
 /** What the particle player needs from the render backend. */
@@ -46,6 +46,11 @@ export interface BabylonParticleHost {
    * without it material assets are never used.
    */
   material?(path: string): Material | null;
+  /**
+   * A world-space ray cast against the World's physics colliders, for the `collisionColliders`
+   * behaviour. Optional: without it that behaviour does nothing.
+   */
+  raycast?: ParticleRaycast;
 }
 
 type PlayState = "playing" | "paused" | "stopped";
@@ -168,7 +173,7 @@ export class BabylonParticles {
       }
       inst.key = key;
       const effect = inst.runner.effect();
-      inst.sim = new EffectSimulation(effect, { live: inst.runner.live });
+      inst.sim = new EffectSimulation(effect, { live: inst.runner.live, raycast: this.host.raycast });
       for (const e of inst.sim.emitters) this.warnRenderer(c, e);
       inst.draws = inst.sim.emitters.map((e) => this.makeDraw(`particles:${c.node.name}:${e.name}`, e, inst!.scale));
       const was = inst.state;

@@ -203,6 +203,18 @@ export const BLOCKS: readonly BlockDef[] = [
     ],
   },
   {
+    type: "update.collisionColliders",
+    label: "Collide with colliders",
+    description: "Bounces particles off the scene's physics colliders, or kills them there (CPU backend).",
+    contexts: IN_UPDATE,
+    inputs: [
+      scalar("bounce", "Bounce", bd("collisionColliders", "bounce") as number, { min: 0, step: 0.01 }),
+      scalar("friction", "Friction", bd("collisionColliders", "friction") as number, { min: 0, max: 1, step: 0.01 }),
+      bool("kill", "Kill on hit", bd("collisionColliders", "kill") as boolean),
+      scalar("radius", "Radius", bd("collisionColliders", "radius") as number, { min: 0, step: 0.01, unit: "m" }),
+    ],
+  },
+  {
     type: "update.triggerEvent",
     label: "Trigger Event",
     description: "Sends an event from particles; wire it to a system's start to spawn from them.",

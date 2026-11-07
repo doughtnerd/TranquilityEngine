@@ -46,7 +46,20 @@ export interface SimulationOptions {
   /** Uniform random in [0, 1); default `Math.random`. Inject a seeded one for deterministic runs. */
   random?: () => number;
   live?: LiveLookup;
+  /** World-space ray cast against the physics colliders, for the `collisionColliders` behaviour. Without it that behaviour does nothing. */
+  raycast?: ParticleRaycast;
 }
+
+/** A world-space ray cast: the nearest hit within `maxDistance` along the unit direction, or null. */
+export type ParticleRaycast = (
+  ox: number,
+  oy: number,
+  oz: number,
+  dx: number,
+  dy: number,
+  dz: number,
+  maxDistance: number,
+) => { point: [number, number, number]; normal: [number, number, number]; distance: number } | null;
 
 // --- compiled values --------------------------------------------------------------------------------
 
@@ -209,7 +222,8 @@ type Behave =
   | { k: "limit"; n: Num; dampen: number }
   | { k: "cspeed"; c: Col; min: number; max: number }
   | { k: "sspeed"; n: Num; min: number; max: number }
-  | { k: "collision"; h: number; bounce: number; kill: boolean };
+  | { k: "collision"; h: number; bounce: number; kill: boolean }
+  | { k: "colliders"; bounce: number; friction: number; kill: boolean; radius: number };
 
 const PHASE: Record<Behave["k"], Phase> = {
   color: 3,
@@ -226,6 +240,7 @@ const PHASE: Record<Behave["k"], Phase> = {
   cspeed: 3,
   sspeed: 3,
   collision: 2,
+  colliders: 2,
 };
 
 // --- noise ---------------------------------------------------------------------------------------------
@@ -513,6 +528,8 @@ export class SimEmitter {
         return "width";
       case "collision":
         return { k: "collision", h: b.height, bounce: b.bounce, kill: b.kill };
+      case "collisionColliders":
+        return { k: "colliders", bounce: b.bounce, friction: Math.min(1, Math.max(0, b.friction)), kill: b.kill, radius: Math.max(0, b.radius) };
     }
   }
 
@@ -564,6 +581,7 @@ const SUB_BUDGET = 4096;
 export class EffectSimulation {
   readonly emitters: SimEmitter[] = [];
   private readonly rnd: () => number;
+  private readonly raycast: ParticleRaycast | undefined;
   // The node's world matrix (column-major), its linear part, translation and inverses.
   private readonly m = new Float64Array(16);
   private readonly inv = new Float64Array(9);
@@ -573,6 +591,7 @@ export class EffectSimulation {
   private budget = SUB_BUDGET;
   private prewarmPending = false;
   private readonly tmpO = new Float64Array(3);
+  private readonly tmpP = new Float64Array(3);
   private readonly sample = new Float64Array(6);
   private readonly col = [0, 0, 0, 0];
   /** World down in the node's space (for local-space emitters). */
@@ -583,6 +602,7 @@ export class EffectSimulation {
     options: SimulationOptions = {},
   ) {
     this.rnd = options.random ?? Math.random;
+    this.raycast = options.raycast;
     this.m.set(IDENTITY);
     this.computeInverse();
     const subs = subEmitterNames(effect);
@@ -1013,11 +1033,21 @@ export class EffectSimulation {
         const b = late[i];
         if (b.k === "speed") p.speedMod *= evalNum(b.n, t, stable(seed, 1000 + i));
       }
+      const colliders = this.raycast !== undefined && e.behaviors[2].length > 0;
+      if (colliders) this.worldPos(e, p, this.tmpP);
       p.x += p.vx * p.speedMod * step;
       p.y += p.vy * p.speedMod * step;
       p.z += p.vz * p.speedMod * step;
       for (const b of e.behaviors[1]) this.positionBehavior(e, p, b, t, seed, step);
       for (const b of e.behaviors[2]) {
+        if (b.k === "colliders") {
+          if (colliders && this.collideColliders(e, p, b) && b.kill) {
+            dies = true;
+            p.age = p.life;
+            break;
+          }
+          continue;
+        }
         if (b.k !== "collision" || p.y >= b.h) continue;
         if (b.kill) {
           dies = true;
@@ -1031,6 +1061,72 @@ export class EffectSimulation {
     this.appearance(e, p, step);
     if (dies) return Math.max(0, dt - step);
     return -1;
+  }
+
+  /** Casts from the world position saved in `tmpP` to the particle's new one; on a hit bounces it (kill mode leaves that to the caller). True on a hit. */
+  private collideColliders(e: SimEmitter, p: SimParticle, b: Extract<Behave, { k: "colliders" }>): boolean {
+    const raycast = this.raycast;
+    if (!raycast) return false;
+    const a = this.tmpP;
+    const w = this.tmpO;
+    this.worldPos(e, p, w);
+    const dx = w[0] - a[0];
+    const dy = w[1] - a[1];
+    const dz = w[2] - a[2];
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-9) return false;
+    const hit = raycast(a[0], a[1], a[2], dx / len, dy / len, dz / len, len + b.radius);
+    if (!hit || hit.distance > len + b.radius) return false;
+    if (b.kill) return true;
+    const n = hit.normal;
+    const nl = Math.hypot(n[0], n[1], n[2]) || 1;
+    const nx = n[0] / nl;
+    const ny = n[1] / nl;
+    const nz = n[2] / nl;
+    const off = Math.max(b.radius, 0.001);
+    const hx = hit.point[0] + nx * off;
+    const hy = hit.point[1] + ny * off;
+    const hz = hit.point[2] + nz * off;
+    // velocity in world space
+    let vx = p.vx;
+    let vy = p.vy;
+    let vz = p.vz;
+    const m = this.m;
+    const local = !e.world;
+    if (local) {
+      vx = m[0] * p.vx + m[4] * p.vy + m[8] * p.vz;
+      vy = m[1] * p.vx + m[5] * p.vy + m[9] * p.vz;
+      vz = m[2] * p.vx + m[6] * p.vy + m[10] * p.vz;
+    }
+    const vn = vx * nx + vy * ny + vz * nz;
+    if (vn < 0) {
+      const tx = vx - vn * nx;
+      const ty = vy - vn * ny;
+      const tz = vz - vn * nz;
+      const f = 1 - b.friction;
+      const r = -vn * b.bounce;
+      vx = tx * f + nx * r;
+      vy = ty * f + ny * r;
+      vz = tz * f + nz * r;
+    }
+    if (local) {
+      const v = this.inv;
+      const t = this.invT;
+      p.x = v[0] * hx + v[1] * hy + v[2] * hz + t[0];
+      p.y = v[3] * hx + v[4] * hy + v[5] * hz + t[1];
+      p.z = v[6] * hx + v[7] * hy + v[8] * hz + t[2];
+      p.vx = v[0] * vx + v[1] * vy + v[2] * vz;
+      p.vy = v[3] * vx + v[4] * vy + v[5] * vz;
+      p.vz = v[6] * vx + v[7] * vy + v[8] * vz;
+    } else {
+      p.x = hx;
+      p.y = hy;
+      p.z = hz;
+      p.vx = vx;
+      p.vy = vy;
+      p.vz = vz;
+    }
+    return true;
   }
 
   private velocityBehavior(e: SimEmitter, p: SimParticle, b: Behave, t: number, seed: number, dt: number): void {

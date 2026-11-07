@@ -115,7 +115,7 @@ describe("lowering", () => {
     const { g, sys } = emptyGraph();
     const types = [
       "colorOverLife", "sizeOverLife", "rotationOverLife", "speedOverLife", "forceOverLife", "gravityPoint", "noise",
-      "turbulence", "orbit", "frameOverLife", "limitSpeed", "colorBySpeed", "sizeBySpeed", "collision",
+      "turbulence", "orbit", "frameOverLife", "limitSpeed", "colorBySpeed", "sizeBySpeed", "collision", "collisionColliders",
     ];
     for (const t of types) addBlock(g, sys, "update", `update.${t}`);
     const p = compileParticleGraph(g);
