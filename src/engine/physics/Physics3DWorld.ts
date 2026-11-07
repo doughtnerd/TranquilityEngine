@@ -16,6 +16,7 @@ import { MeshRenderer } from "../render/components";
 import { meshesIfLoaded, meshTriangles, type ModelMesh } from "../scene/models";
 import { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type Collision } from "./Collider";
 import { layerGroups } from "./layers";
+import { Queries3D } from "./queries3d";
 import { CollisionEvents, TriggerEvents } from "./physics3d";
 import { RigidBody } from "./RigidBody";
 import { AXIS_INDEX, boxHalfExtents, capsuleSize, scaledCenter, sphereRadius } from "./shape3d";
@@ -26,6 +27,11 @@ export interface BodyHandleState3D {
   signature: string;
   syncedVersion: number;
   active: boolean;
+  /** Interpolation (ADR 0093): the body's pose before and after the last step, `[x, y, z, qx, qy, qz, qw]`. */
+  prev: number[] | null;
+  curr: number[] | null;
+  /** True while the Transform shows an interpolated pose rather than `curr`. */
+  interpolated: boolean;
 }
 
 /** @internal */
@@ -37,6 +43,8 @@ export interface ColliderHandleState3D {
   active: boolean;
   /** A mesh collider's meshes, to rebuild it when its model loads again. */
   meshes: readonly ModelMesh[] | null;
+  /** A collider on a body's descendant: its pose relative to the body, to follow the node when it moves (ADR 0093). */
+  local: number[] | null;
 }
 
 let rapierReady: Promise<void> | null = null;
@@ -69,9 +77,19 @@ const CAPSULE_TURN: Record<"x" | "y" | "z", Quaternion> = {
 /** A quaternion as Rapier takes it (a plain object: Rapier reads fields, not getters). */
 const rapierRotation = (q: QuatLike): RAPIER.Rotation => ({ x: q.x, y: q.y, z: q.z, w: q.w });
 
+/** Normalized lerp between the rotations in two `[x, y, z, qx, qy, qz, qw]` poses, the short way round. */
+function nlerp(a: readonly number[], b: readonly number[], t: number): Quaternion {
+  const s = a[3] * b[3] + a[4] * b[4] + a[5] * b[5] + a[6] * b[6] < 0 ? -1 : 1;
+  const x = a[3] + (b[3] * s - a[3]) * t, y = a[4] + (b[4] * s - a[4]) * t, z = a[5] + (b[5] * s - a[5]) * t, w = a[6] + (b[6] * s - a[6]) * t;
+  const len = Math.hypot(x, y, z, w) || 1;
+  return new Quaternion(x / len, y / len, z / len, w / len);
+}
+
 /** @internal */
 export class Physics3DWorld {
   readonly rapier: RAPIER.World;
+  /** @internal */
+  readonly queries: Queries3D;
   private readonly events = new RAPIER.EventQueue(true);
   private readonly colliderByHandle = new Map<number, Collider>();
   private readonly layerGroups: Map<string, number>;
@@ -81,6 +99,7 @@ export class Physics3DWorld {
     const g = world.settings.physics.gravity as readonly number[];
     this.rapier = new RAPIER.World({ x: g[0] ?? 0, y: g[1] ?? -9.81, z: g[2] ?? 0 });
     this.layerGroups = layerGroups(world.settings.physics);
+    this.queries = new Queries3D(this.rapier, (h) => this.colliderByHandle.get(h), (l) => this.groupsFor(l));
   }
 
   get gravity(): { x: number; y: number; z: number } {
@@ -147,7 +166,9 @@ export class Physics3DWorld {
       } else {
         body.setTranslation(p, true);
         body.setRotation(q, true);
+        st.prev = st.curr = null; // teleported: nothing to blend from
       }
+      st.interpolated = false;
       st.syncedVersion = version;
     }
     if (rb._pendingVelocity) {
@@ -176,7 +197,7 @@ export class Physics3DWorld {
     desc.setTranslation(p.x, p.y, p.z).setRotation(rapierRotation(q));
     const body = this.rapier.createRigidBody(desc);
     this.applyBodySettings(rb, body);
-    return { body, signature: this.bodySignature(rb), syncedVersion: this.world.tVersion[rb.node.entity], active: true };
+    return { body, signature: this.bodySignature(rb), syncedVersion: this.world.tVersion[rb.node.entity], active: true, prev: null, curr: null, interpolated: false };
   }
 
   private applyBodySettings(rb: RigidBody, body: RAPIER.RigidBody): void {
@@ -242,8 +263,22 @@ export class Physics3DWorld {
       st.active = active;
       st.collider.setEnabled(active);
     }
-    if (!active || body) return;
+    if (!active) return;
     const version = this.world.tVersion[e];
+    if (body) {
+      // A collider on a descendant of its body's node follows the node when it moves relative to the body.
+      if (body.node.entity !== e && version !== st.syncedVersion) {
+        const rel = this.poseInBody(c, body, ws);
+        const local = [rel.p.x, rel.p.y, rel.p.z, rel.q.x, rel.q.y, rel.q.z, rel.q.w];
+        if (!st.local || local.some((v, i) => Math.abs(v - st!.local![i]) > 1e-5)) {
+          st.collider.setTranslationWrtParent(rel.p);
+          st.collider.setRotationWrtParent(rapierRotation(rel.q));
+          st.local = local;
+        }
+        st.syncedVersion = version;
+      }
+      return;
+    }
     if (version !== st.syncedVersion) {
       const pose = this.colliderWorldPose(c, ws);
       st.collider.setTranslation(pose.p);
@@ -276,14 +311,14 @@ export class Physics3DWorld {
     } else {
       throw new Error(`Unsupported collider type ${c.constructor.name}.`);
     }
-    const pose = this.colliderWorldPose(c, ws);
+    let local: number[] | null = null;
     if (body?._state) {
       // Placed relative to the body, in the body's turned frame.
-      const b = body._state.body, bp = b.translation(), br = b.rotation();
-      const inv = Quat.conjugate(br);
-      const rel = Quat.rotate(inv, pose.p.clone().sub(new Vector3(bp.x, bp.y, bp.z)));
-      desc.setTranslation(rel.x, rel.y, rel.z).setRotation(rapierRotation(inv.multiply(pose.q))).setDensity(0);
+      const rel = this.poseInBody(c, body, ws);
+      desc.setTranslation(rel.p.x, rel.p.y, rel.p.z).setRotation(rapierRotation(rel.q)).setDensity(0);
+      local = [rel.p.x, rel.p.y, rel.p.z, rel.q.x, rel.q.y, rel.q.z, rel.q.w];
     } else {
+      const pose = this.colliderWorldPose(c, ws);
       desc.setTranslation(pose.p.x, pose.p.y, pose.p.z).setRotation(rapierRotation(pose.q));
     }
     desc
@@ -295,7 +330,18 @@ export class Physics3DWorld {
       .setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
     const collider = this.rapier.createCollider(desc, body?._state?.body);
     this.colliderByHandle.set(collider.handle, c);
-    return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true, meshes };
+    return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true, meshes, local };
+  }
+
+  /**
+   * The collider's shape pose in its body's frame, from the two nodes' Transforms (not the Rapier
+   * body, whose pose an interpolated Transform may lag behind; the two nodes lag together).
+   */
+  private poseInBody(c: Collider, body: RigidBody, ws: readonly number[]): { p: Vector3; q: Quaternion } {
+    const pose = this.colliderWorldPose(c, ws);
+    const b = body.node.transform ? worldPose(this.world, body.node.entity) : { p: new Vector3(), q: new Quaternion() };
+    const inv = Quat.conjugate(b.q);
+    return { p: Quat.rotate(inv, pose.p.clone().sub(b.p)), q: inv.multiply(pose.q) };
   }
 
   /** A mesh collider's shape: the meshes' triangles, scaled with the node, exact or wrapped in their convex hull. */
@@ -331,33 +377,100 @@ export class Physics3DWorld {
   writeBack(): void {
     for (const rb of this.world._componentsOfType(RigidBody)) {
       const st = rb._state;
-      if (!st || !st.active || rb.bodyType !== "dynamic" || st.body.isSleeping()) continue;
+      if (!st || !st.active || rb.bodyType !== "dynamic") continue;
+      if (st.body.isSleeping()) {
+        if (st.curr) st.prev = st.curr; // at rest: nothing left to blend
+        continue;
+      }
       const t = rb.node.transform;
       if (!t) continue;
       const p = st.body.translation(), r = st.body.rotation();
+      if (rb.interpolate) {
+        const pose = [p.x, p.y, p.z, r.x, r.y, r.z, r.w];
+        st.prev = st.curr ?? pose;
+        st.curr = pose;
+      } else {
+        st.prev = st.curr = null;
+      }
       t._setWorldPose3D(p.x, p.y, p.z, new Quaternion(r.x, r.y, r.z, r.w));
+      st.interpolated = false;
       st.syncedVersion = this.world.tVersion[rb.node.entity];
     }
   }
 
+  /**
+   * @internal Interpolation (ADR 0093), in Worlds that render: show each interpolating dynamic body
+   * `alpha` of the way from its pose before the last step to its pose after it.
+   */
+  interpolate(alpha: number): void {
+    for (const rb of this.world._componentsOfType(RigidBody)) {
+      const st = rb._state;
+      if (!st?.prev || !st.curr || !st.active || !rb.interpolate || rb.bodyType !== "dynamic") continue;
+      const t = rb.node.transform;
+      if (!t || this.world.tVersion[rb.node.entity] !== st.syncedVersion) continue; // a script moved it: that wins
+      const a = st.prev, b = st.curr;
+      if (a === b && !st.interpolated) continue; // at rest and already showing it
+      const q = nlerp(a, b, alpha);
+      t._setWorldPose3D(a[0] + (b[0] - a[0]) * alpha, a[1] + (b[1] - a[1]) * alpha, a[2] + (b[2] - a[2]) * alpha, q);
+      st.interpolated = true;
+      st.syncedVersion = this.world.tVersion[rb.node.entity];
+    }
+  }
+
+  /** @internal Before a fixed step's scripts: put interpolated bodies back at their simulated pose. */
+  restoreInterpolated(): void {
+    for (const rb of this.world._componentsOfType(RigidBody)) {
+      const st = rb._state;
+      if (!st?.interpolated || !st.curr) continue;
+      st.interpolated = false;
+      const t = rb.node.transform;
+      if (!t || this.world.tVersion[rb.node.entity] !== st.syncedVersion) continue;
+      const c = st.curr;
+      t._setWorldPose3D(c[0], c[1], c[2], new Quaternion(c[3], c[4], c[5], c[6]));
+      st.syncedVersion = this.world.tVersion[rb.node.entity];
+    }
+  }
+
+  /** Pairs of colliders touching (or overlapping, for triggers) since an earlier step, for `Stay` hooks (ADR 0093). */
+  private readonly touching = new Map<string, { h1: number; h2: number; fresh: boolean }>();
+
   /** @internal */
   dispatchEvents(): void {
     this.events.drainCollisionEvents((h1, h2, started) => {
+      const key = h1 < h2 ? `${h1}:${h2}` : `${h2}:${h1}`;
+      if (started) this.touching.set(key, { h1, h2, fresh: true });
+      else this.touching.delete(key);
       const a = this.colliderByHandle.get(h1), b = this.colliderByHandle.get(h2);
       if (!a || !b || a._destroyed || b._destroyed) return;
       const trigger = a.isTrigger || b.isTrigger;
       this.world._buffer(trigger ? TriggerEvents : CollisionEvents).push({ a, b, started });
-      this.notify(a, b, trigger, started);
-      this.notify(b, a, trigger, started);
+      this.notify(a, b, trigger, started ? "Enter" : "Exit");
+      this.notify(b, a, trigger, started ? "Enter" : "Exit");
     });
+    // onCollisionStay / onTriggerStay: every step after the one that began the contact, while it lasts.
+    for (const [key, pair] of this.touching) {
+      if (pair.fresh) {
+        pair.fresh = false;
+        continue;
+      }
+      const a = this.colliderByHandle.get(pair.h1), b = this.colliderByHandle.get(pair.h2);
+      if (!a || !b || a._destroyed || b._destroyed) {
+        this.touching.delete(key);
+        continue;
+      }
+      if (!a.isActiveAndEnabled || !b.isActiveAndEnabled) continue;
+      const trigger = a.isTrigger || b.isTrigger;
+      this.notify(a, b, trigger, "Stay");
+      this.notify(b, a, trigger, "Stay");
+    }
   }
 
   /** Call the hook on active behaviors of `self`'s node, owner and body node. */
-  private notify(self: Collider, other: Collider, trigger: boolean, started: boolean): void {
+  private notify(self: Collider, other: Collider, trigger: boolean, phase: "Enter" | "Stay" | "Exit"): void {
     const nodes = new Set([self.node.entity, self.owner.entity]);
     const body = self._state?.body;
     if (body?.node.isValid) nodes.add(body.node.entity);
-    const hook = trigger ? (started ? "onTriggerEnter" : "onTriggerExit") : started ? "onCollisionEnter" : "onCollisionExit";
+    const hook = `${trigger ? "onTrigger" : "onCollision"}${phase}`;
     const collision: Collision | null = trigger ? null : { collider: other, otherCollider: self, gameObject: other.owner, rigidbody: other._state?.body ?? null };
     for (const e of nodes) {
       for (const comp of [...this.world._componentsOf(e)]) {
@@ -404,8 +517,10 @@ export class Physics3DWorld {
   releaseCollider(c: Collider): void {
     const st = c._state;
     if (!st) return;
-    this.colliderByHandle.delete(st.collider.handle);
-    if (this.rapier.getCollider(st.collider.handle)) this.rapier.removeCollider(st.collider, true);
+    const h = st.collider.handle;
+    this.colliderByHandle.delete(h);
+    for (const [key, pair] of this.touching) if (pair.h1 === h || pair.h2 === h) this.touching.delete(key);
+    if (this.rapier.getCollider(h)) this.rapier.removeCollider(st.collider, true);
     c._state = null;
   }
 }

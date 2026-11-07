@@ -39,12 +39,12 @@ export type { WaterWave } from "./render/water/gerstner";
 
 export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
 export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D, type PhysicsMaterial, type PhysicsMaterial2D } from "./physics/Collider2D";
-export { Physics2D, type RaycastHit2D } from "./physics/Physics2D";
+export { Physics2D, type RaycastHit2D, type ShapeCastHit2D } from "./physics/Physics2D";
 export { CollisionEvents2D, TriggerEvents2D, type PhysicsEvent2D } from "./physics/physics2dSystems";
 
 export { RigidBody, type RigidBodyConstraints } from "./physics/RigidBody";
 export { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type CapsuleDirection, type Collision } from "./physics/Collider";
-export { Physics, type RaycastHit } from "./physics/Physics";
+export { Physics, type RaycastHit, type ShapeCastHit } from "./physics/Physics";
 export { CollisionEvents, TriggerEvents, type PhysicsEvent } from "./physics/physics3d";
 export { Buoyancy, type BuoyancyMode } from "./physics/Buoyancy";
 

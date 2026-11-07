@@ -14,6 +14,7 @@ import { DEG2RAD, RAD2DEG } from "../core/math";
 import type { World } from "../core/World";
 import { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type Collision2D } from "./Collider2D";
 import { layerGroups } from "./layers";
+import { Queries2D } from "./queries2d";
 import { cleanPoints, convexParts } from "./polygon";
 import { CollisionEvents2D, TriggerEvents2D } from "./physics2dSystems";
 import { RigidBody2D } from "./RigidBody2D";
@@ -24,6 +25,11 @@ export interface BodyHandleState {
   signature: string;
   syncedVersion: number;
   active: boolean;
+  /** Interpolation (ADR 0093): the body's pose before and after the last step, `[x, y, radians]`. */
+  prev: number[] | null;
+  curr: number[] | null;
+  /** True while the Transform shows an interpolated pose rather than `curr`. */
+  interpolated: boolean;
 }
 
 /** @internal */
@@ -33,6 +39,8 @@ export interface ColliderHandleState {
   signature: string;
   syncedVersion: number;
   active: boolean;
+  /** A collider on a body's descendant: its pose relative to the body `[x, y, radians]`, to follow the node when it moves (ADR 0093). */
+  local?: number[] | null;
 }
 
 let rapierReady: Promise<void> | null = null;
@@ -48,6 +56,8 @@ export function initRapier2D(): Promise<void> {
 /** @internal */
 export class Physics2DWorld {
   readonly rapier: RAPIER.World;
+  /** @internal */
+  readonly queries: Queries2D;
   private readonly events = new RAPIER.EventQueue(true);
   private readonly colliderByHandle = new Map<number, Collider2D>();
   private readonly layerGroups = new Map<string, number>();
@@ -56,6 +66,7 @@ export class Physics2DWorld {
     const [gx, gy] = world.settings.physics.gravity;
     this.rapier = new RAPIER.World({ x: gx, y: gy });
     this.buildLayerGroups();
+    this.queries = new Queries2D(this.rapier, (h) => this.colliderByHandle.get(h), (l) => this.groupsFor(l));
   }
 
   get gravity(): { x: number; y: number } {
@@ -126,7 +137,9 @@ export class Physics2DWorld {
         // Static body moved, or a script teleported a dynamic body.
         body.setTranslation({ x: p.x, y: p.y }, true);
         body.setRotation(angle, true);
+        st.prev = st.curr = null; // teleported: nothing to blend from
       }
+      st.interpolated = false;
       st.syncedVersion = version;
     }
 
@@ -156,7 +169,7 @@ export class Physics2DWorld {
     desc.setTranslation(p.x, p.y).setRotation(angle);
     const body = this.rapier.createRigidBody(desc);
     this.applyBodySettings(rb, body);
-    return { body, signature: this.bodySignature(rb), syncedVersion: this.world.tVersion[rb.node.entity], active: true };
+    return { body, signature: this.bodySignature(rb), syncedVersion: this.world.tVersion[rb.node.entity], active: true, prev: null, curr: null, interpolated: false };
   }
 
   private applyBodySettings(rb: RigidBody2D, body: RAPIER.RigidBody): void {
@@ -197,10 +210,24 @@ export class Physics2DWorld {
       st.active = active;
       st.collider.setEnabled(active);
     }
-    if (!active || body) return;
+    if (!active) return;
+    const version = this.world.tVersion[e];
+    if (body) {
+      // A collider on a descendant of its body's node follows the node when it moves relative to the body.
+      if (body.node.entity !== e && version !== st.syncedVersion) {
+        const local = this.poseInBody(c, body);
+        const old = st.local;
+        if (!old || Math.abs(local[0] - old[0]) > 1e-5 || Math.abs(local[1] - old[1]) > 1e-5 || Math.abs(local[2] - old[2]) > 1e-6) {
+          st.collider.setTranslationWrtParent({ x: local[0], y: local[1] });
+          st.collider.setRotationWrtParent(local[2]);
+          st.local = local;
+        }
+        st.syncedVersion = version;
+      }
+      return;
+    }
 
     // Static collider without a body: follow the Transform when it changes.
-    const version = this.world.tVersion[e];
     if (version !== st.syncedVersion) {
       const pose = this.colliderWorldPose(c);
       st.collider.setTranslation({ x: pose.x, y: pose.y });
@@ -235,14 +262,11 @@ export class Physics2DWorld {
       throw new Error(`Unsupported collider type ${c.constructor.name}.`);
     }
     const pose = this.colliderWorldPose(c);
+    let local: number[] | null = null;
     if (body) {
       // Position relative to the body, in the body's rotated frame.
-      const bt = body.node.transform;
-      const bp = bt ? bt.worldPosition : { x: 0, y: 0 };
-      const ba = bt ? bt.worldRotation2D * DEG2RAD : 0;
-      const dx = pose.x - bp.x, dy = pose.y - bp.y;
-      const cos = Math.cos(-ba), sin = Math.sin(-ba);
-      desc.setTranslation(dx * cos - dy * sin, dx * sin + dy * cos).setRotation(pose.angle - ba).setDensity(0);
+      local = this.poseInBody(c, body);
+      desc.setTranslation(local[0], local[1]).setRotation(local[2]).setDensity(0);
     } else {
       desc.setTranslation(pose.x, pose.y).setRotation(pose.angle);
     }
@@ -255,7 +279,18 @@ export class Physics2DWorld {
       .setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
     const collider = this.rapier.createCollider(desc, body?._state?.body);
     this.colliderByHandle.set(collider.handle, c);
-    return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true };
+    return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true, local };
+  }
+
+  /** The collider's shape pose in its body's frame, `[x, y, radians]`, from the two nodes' Transforms. */
+  private poseInBody(c: Collider2D, body: RigidBody2D): number[] {
+    const pose = this.colliderWorldPose(c);
+    const bt = body.node.transform;
+    const bp = bt ? bt.worldPosition : { x: 0, y: 0 };
+    const ba = bt ? bt.worldRotation2D * DEG2RAD : 0;
+    const dx = pose.x - bp.x, dy = pose.y - bp.y;
+    const cos = Math.cos(-ba), sin = Math.sin(-ba);
+    return [dx * cos - dy * sin, dx * sin + dy * cos, pose.angle - ba];
   }
 
   /**
@@ -297,34 +332,99 @@ export class Physics2DWorld {
     const world = this.world;
     for (const rb of world._componentsOfType(RigidBody2D)) {
       const st = rb._state;
-      if (!st || !st.active || rb.bodyType !== "dynamic" || st.body.isSleeping()) continue;
+      if (!st || !st.active || rb.bodyType !== "dynamic") continue;
+      if (st.body.isSleeping()) {
+        if (st.curr) st.prev = st.curr; // at rest: nothing left to blend
+        continue;
+      }
       const t = rb.node.transform;
       if (!t) continue;
-      const p = st.body.translation();
-      t._setWorldPose2D(p.x, p.y, st.body.rotation() * RAD2DEG);
+      const p = st.body.translation(), angle = st.body.rotation();
+      if (rb.interpolate) {
+        const pose = [p.x, p.y, angle];
+        st.prev = st.curr ?? pose;
+        st.curr = pose;
+      } else {
+        st.prev = st.curr = null;
+      }
+      t._setWorldPose2D(p.x, p.y, angle * RAD2DEG);
+      st.interpolated = false;
       st.syncedVersion = world.tVersion[rb.node.entity];
     }
   }
 
+  /**
+   * @internal Interpolation (ADR 0093), in Worlds that render: show each interpolating dynamic body
+   * `alpha` of the way from its pose before the last step to its pose after it.
+   */
+  interpolate(alpha: number): void {
+    for (const rb of this.world._componentsOfType(RigidBody2D)) {
+      const st = rb._state;
+      if (!st?.prev || !st.curr || !st.active || !rb.interpolate || rb.bodyType !== "dynamic") continue;
+      const t = rb.node.transform;
+      if (!t || this.world.tVersion[rb.node.entity] !== st.syncedVersion) continue; // a script moved it: that wins
+      const a = st.prev, b = st.curr;
+      if (a === b && !st.interpolated) continue; // at rest and already showing it
+      t._setWorldPose2D(a[0] + (b[0] - a[0]) * alpha, a[1] + (b[1] - a[1]) * alpha, (a[2] + (b[2] - a[2]) * alpha) * RAD2DEG);
+      st.interpolated = true;
+      st.syncedVersion = this.world.tVersion[rb.node.entity];
+    }
+  }
+
+  /** @internal Before a fixed step's scripts: put interpolated bodies back at their simulated pose. */
+  restoreInterpolated(): void {
+    for (const rb of this.world._componentsOfType(RigidBody2D)) {
+      const st = rb._state;
+      if (!st?.interpolated || !st.curr) continue;
+      st.interpolated = false;
+      const t = rb.node.transform;
+      if (!t || this.world.tVersion[rb.node.entity] !== st.syncedVersion) continue;
+      t._setWorldPose2D(st.curr[0], st.curr[1], st.curr[2] * RAD2DEG);
+      st.syncedVersion = this.world.tVersion[rb.node.entity];
+    }
+  }
+
+  /** Pairs of colliders touching (or overlapping, for triggers) since an earlier step, for `Stay` hooks (ADR 0093). */
+  private readonly touching = new Map<string, { h1: number; h2: number; fresh: boolean }>();
+
   /** @internal */
   dispatchEvents(): void {
     this.events.drainCollisionEvents((h1, h2, started) => {
+      const key = h1 < h2 ? `${h1}:${h2}` : `${h2}:${h1}`;
+      if (started) this.touching.set(key, { h1, h2, fresh: true });
+      else this.touching.delete(key);
       const a = this.colliderByHandle.get(h1);
       const b = this.colliderByHandle.get(h2);
       if (!a || !b || a._destroyed || b._destroyed) return;
       const trigger = a.isTrigger || b.isTrigger;
       this.world._buffer(trigger ? TriggerEvents2D : CollisionEvents2D).push({ a, b, started }); // this World's, whichever is current
-      this.notify(a, b, trigger, started);
-      this.notify(b, a, trigger, started);
+      this.notify(a, b, trigger, started ? "Enter" : "Exit");
+      this.notify(b, a, trigger, started ? "Enter" : "Exit");
     });
+    // onCollisionStay / onTriggerStay: every step after the one that began the contact, while it lasts.
+    for (const [key, pair] of this.touching) {
+      if (pair.fresh) {
+        pair.fresh = false;
+        continue;
+      }
+      const a = this.colliderByHandle.get(pair.h1), b = this.colliderByHandle.get(pair.h2);
+      if (!a || !b || a._destroyed || b._destroyed) {
+        this.touching.delete(key);
+        continue;
+      }
+      if (!a.isActiveAndEnabled || !b.isActiveAndEnabled) continue;
+      const trigger = a.isTrigger || b.isTrigger;
+      this.notify(a, b, trigger, "Stay");
+      this.notify(b, a, trigger, "Stay");
+    }
   }
 
   /** Call the hook on active behaviors of `self`'s node, owner and body node. */
-  private notify(self: Collider2D, other: Collider2D, trigger: boolean, started: boolean): void {
+  private notify(self: Collider2D, other: Collider2D, trigger: boolean, phase: "Enter" | "Stay" | "Exit"): void {
     const nodes = new Set([self.node.entity, self.owner.entity]);
     const body = self._state?.body;
     if (body?.node.isValid) nodes.add(body.node.entity);
-    const hook = trigger ? (started ? "onTriggerEnter" : "onTriggerExit") : started ? "onCollisionEnter" : "onCollisionExit";
+    const hook = `${trigger ? "onTrigger" : "onCollision"}${phase}`;
     const collision: Collision2D | null = trigger
       ? null
       : { collider: other, otherCollider: self, gameObject: other.owner, rigidbody: other._state?.body ?? null };
@@ -379,8 +479,10 @@ export class Physics2DWorld {
   releaseCollider(c: Collider2D): void {
     const st = c._state;
     if (!st) return;
-    this.colliderByHandle.delete(st.collider.handle);
-    if (this.rapier.getCollider(st.collider.handle)) this.rapier.removeCollider(st.collider, true);
+    const h = st.collider.handle;
+    this.colliderByHandle.delete(h);
+    for (const [key, pair] of this.touching) if (pair.h1 === h || pair.h2 === h) this.touching.delete(key);
+    if (this.rapier.getCollider(h)) this.rapier.removeCollider(st.collider, true);
     c._state = null;
   }
 }

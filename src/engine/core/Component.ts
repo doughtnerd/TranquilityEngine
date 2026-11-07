@@ -112,9 +112,13 @@ export interface LifecycleHooks {
   onDestroy?(): void;
   /** The other collider: a Collider2D in 2D physics, a Collider in 3D physics. */
   onTriggerEnter?(other: import("../physics/Collider2D").Collider2D | import("../physics/Collider").Collider): void;
+  /** Every fixed step after onTriggerEnter while the two still overlap (ADR 0093). */
+  onTriggerStay?(other: import("../physics/Collider2D").Collider2D | import("../physics/Collider").Collider): void;
   onTriggerExit?(other: import("../physics/Collider2D").Collider2D | import("../physics/Collider").Collider): void;
   /** A Collision2D in 2D physics, a Collision in 3D physics. */
   onCollisionEnter?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
+  /** Every fixed step after onCollisionEnter while the two still touch (ADR 0093). */
+  onCollisionStay?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
   onCollisionExit?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
 }
 
