@@ -24,7 +24,7 @@ try {
   for (const r of parity) {
     const ok = !r.available || (r.errors.length === 0 && r.alive[0] === r.alive[1] && r.mismatched === 0 && r.maxError < 0.01);
     if (!ok) failed = true;
-    console.log(`  ${r.backend.padEnd(7)} ${r.system.padEnd(10)} ${r.available ? `alive ${r.alive[0]}/${r.alive[1]}  max rel. error ${r.maxError.toExponential(2)}  ${ok ? "ok" : "MISMATCH"}` : "not available"}${r.errors.length ? `\n${r.errors.join("\n")}` : ""}`);
+    console.log(`  ${r.backend.padEnd(18)} ${r.system.padEnd(10)} ${r.available ? `alive ${r.alive[0]}/${r.alive[1]}  max rel. error ${r.maxError.toExponential(2)}  ${ok ? "ok" : "MISMATCH"}` : "not available"}${r.errors.length ? `\n${r.errors.join("\n")}` : ""}`);
   }
   if (!parityOnly) {
     const runs = [

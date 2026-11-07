@@ -57,7 +57,49 @@ function compare(a: Float32Array, b: Float32Array, k: KernelSystem): { alive: [n
   return { alive: [aliveA, aliveB], maxError, mismatched };
 }
 
+/**
+ * Dead-list runs (ADR 0126) put particles in different slots (WebGPU pops free slots in whatever order its
+ * invocations run), so particles are matched by their seed instead of their slot.
+ */
+function compareBySeed(a: Float32Array, b: Float32Array, k: KernelSystem): { alive: [number, number]; maxError: number; mismatched: number } {
+  const bySeed = (s: Float32Array) => {
+    const m = new Map<number, number>();
+    for (let i = 0; i < k.capacity; i++) if (s[i * KERNEL_FLOATS + 7] > 0) m.set(s[i * KERNEL_FLOATS + 15], i);
+    return m;
+  };
+  const ma = bySeed(a);
+  const mb = bySeed(b);
+  let maxError = 0;
+  let mismatched = 0;
+  for (const [seed, i] of ma) {
+    const j = mb.get(seed);
+    if (j === undefined) {
+      mismatched++;
+      continue;
+    }
+    for (let c = 0; c < KERNEL_FLOATS; c++) {
+      const x = a[i * KERNEL_FLOATS + c];
+      maxError = Math.max(maxError, Math.abs(x - b[j * KERNEL_FLOATS + c]) / Math.max(1, Math.abs(x)));
+    }
+  }
+  for (const seed of mb.keys()) if (!ma.has(seed)) mismatched++;
+  return { alive: [ma.size, mb.size], maxError, mismatched };
+}
+
+/**
+ * A GPU-event child keeps the slot mapping (its slots belong to its parent's slots), and with a dead list
+ * the parent's slots differ between executors, so the child's seeds do too: only its count is compared.
+ */
+function childCounts(r: ReturnType<typeof compareBySeed>, k: KernelSystem): ReturnType<typeof compareBySeed> {
+  return k.event ? { ...r, mismatched: 0, maxError: 0 } : r;
+}
+
 async function run(): Promise<Result[]> {
+  return [...(await runMode(false)), ...(await runMode(true))];
+}
+
+/** One parity run: 0094's ring on every executor, or the dead list on JavaScript and WebGPU (WebGL2 has none). */
+async function runMode(deadList: boolean): Promise<Result[]> {
   const g = parityGraph(2048);
   const program = compileParticleGraph(g);
   const kp = compileParticleKernels(g, program);
@@ -77,24 +119,38 @@ async function run(): Promise<Result[]> {
   const host = {
     executors: ["js" as const],
     createRun(k: KernelSystem): KernelRun {
-      const js = new JsRun(k);
-      const gpu = device ? new WebGpuRun(device, k) : null;
-      const glr = glOk ? new WebGl2Run(gl!, k) : null;
+      const js = new JsRun(k, { deadList });
+      const gpu = device ? new WebGpuRun(device, k, undefined, null, { deadList }) : null;
+      const glr = glOk && !deadList ? new WebGl2Run(gl!, k) : null;
       runs.set(k, { js, gpu, gl: glr });
       return new TeeRun([js, ...(gpu ? [gpu] : []), ...(glr ? [glr] : [])]);
     },
   };
   const fx = new KernelEffect(kp.systems, program.effect.emitters, host, { seed: 1234 });
   const world = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.5, 1, -0.25, 1];
-  for (let f = 0; f < 90; f++) fx.step(1 / 60, world, 1, [1, 1, 1, 1], { time: f / 60, deltaTime: 1 / 60, playTime: f / 60, properties: new Map(), random: Math.random }, null);
+  const frame = (f: number) => fx.step(1 / 60, world, 1, [1, 1, 1, 1], { time: f / 60, deltaTime: 1 / 60, playTime: f / 60, properties: new Map(), random: Math.random }, null);
+  for (let f = 0; f < 90; f++) frame(f);
+  if (deadList) {
+    // Frames a game's pace apart, so the dead list's count read-backs land (the loop above outruns them).
+    for (let f = 90; f < 93; f++) {
+      await new Promise((res) => setTimeout(res, 50));
+      frame(f);
+    }
+  }
 
   for (const [k, r] of runs) {
     const js = r.js.js.state;
     if (r.gpu) {
       const errors = await r.gpu.ready;
       const s = await r.gpu.read();
-      out.push({ backend: "webgpu", system: k.name, available: true, errors, ...compare(js, s, k) });
+      if (deadList && !k.event) {
+        // The dead list's alive counter, read back without waiting (a frame or two late): let it land.
+        await new Promise((res) => setTimeout(res, 100));
+        out.push({ backend: "webgpu (count)", system: k.name, available: true, errors: [], alive: [r.js.alive, r.gpu.alive ?? -1], maxError: 0, mismatched: 0 });
+      }
+      out.push({ backend: deadList ? "webgpu (dead list)" : "webgpu", system: k.name, available: true, errors, ...(deadList ? childCounts(compareBySeed(js, s, k), k) : compare(js, s, k)) });
     } else out.push({ backend: "webgpu", system: k.name, available: false, errors: [], alive: [0, 0], maxError: 0, mismatched: 0 });
+    if (deadList) continue;
     if (r.gl) {
       const s = r.gl.read();
       out.push({ backend: "webgl2", system: k.name, available: true, errors: r.gl.errors, ...compare(js, s, k) });
