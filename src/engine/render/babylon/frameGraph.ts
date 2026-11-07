@@ -20,6 +20,7 @@
  * The graph is rebuilt only when its layout changes (cameras, their sizes and effects, shadow
  * lights, MSAA); every value is updated in place each frame.
  */
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { FrameGraph } from "@babylonjs/core/FrameGraph/frameGraph.js";
@@ -191,7 +192,7 @@ const AO_SAMPLES = { low: 8, medium: 16, high: 32 } as const;
  * the scene as needing its shader defines rebuilt: clearing and refilling it each frame did that
  * every frame.
  */
-export function setCasters(list: Mesh[], casters: readonly Mesh[]): boolean {
+export function setCasters(list: AbstractMesh[], casters: readonly AbstractMesh[]): boolean {
   if (list.length === casters.length && list.every((m, i) => m === casters[i])) return false;
   list.splice(0, list.length, ...casters);
   return true;
@@ -240,7 +241,7 @@ export class BabylonFrame {
   private readonly objects = new FrameGraphObjectList();
   /** The meshes that cast shadows, refilled each frame. */
   private readonly casterList = new FrameGraphObjectList();
-  private readonly casterMeshes: Mesh[] = [];
+  private readonly casterMeshes: AbstractMesh[] = [];
 
   constructor(private readonly scene: Scene) {
     this.objects.meshes = scene.meshes;
@@ -261,7 +262,7 @@ export class BabylonFrame {
   }
 
   /** Draw a frame: rebuild the graph if its layout changed, update every value, run it. */
-  render(views: CameraView[], shadows: ShadowRequest[], casters: readonly Mesh[], samples: number): void {
+  render(views: CameraView[], shadows: ShadowRequest[], casters: readonly AbstractMesh[], samples: number): void {
     setCasters(this.casterMeshes, casters);
     const key = JSON.stringify({
       samples,

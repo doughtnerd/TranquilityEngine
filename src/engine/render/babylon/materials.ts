@@ -94,16 +94,32 @@ export function surfaceMaterial(scene: Scene, cache: WeakMap<object, BabylonMate
  * with several, one per index group, gets a submesh per group under a `MultiMaterial`.
  */
 export function modelMaterial(scene: Scene, cache: WeakMap<object, BabylonMaterial>, src: ModelMesh, mesh: Mesh): BabylonMaterial | null {
+  const m = modelBaseMaterial(scene, cache, src);
+  if (m instanceof MultiMaterial) modelSubMeshes(src, mesh);
+  return m;
+}
+
+/** A model mesh's own material, made once per model mesh (`cache` is the owner's, per scene); a `MultiMaterial` needs `modelSubMeshes` on the mesh drawing it. */
+export function modelBaseMaterial(scene: Scene, cache: WeakMap<object, BabylonMaterial>, src: ModelMesh): BabylonMaterial | null {
   if (!src.surfaces.length) return null;
   const one = (i: number) => surfaceMaterial(scene, cache, src.surfaces[i] ?? src.surfaces[0], src.name);
+  if (src.surfaces.length < 2 || src.data.groups.length < 2) return one(0);
+  let multi = cache.get(src);
+  if (!multi) {
+    const made = new MultiMaterial(`model:${src.name}`, scene);
+    made.subMaterials = src.surfaces.map((_, i) => one(i));
+    cache.set(src, (multi = made));
+  }
+  return multi;
+}
+
+/** A submesh per index group of a model mesh with several materials (one per surface). */
+export function modelSubMeshes(src: ModelMesh, mesh: Mesh): void {
   const groups = src.data.groups;
-  if (src.surfaces.length < 2 || groups.length < 2) return one(0);
-  const multi = new MultiMaterial(`model:${src.name}`, scene);
-  multi.subMaterials = src.surfaces.map((_, i) => one(i));
+  if (src.surfaces.length < 2 || groups.length < 2) return;
   mesh.subMeshes = [];
   const vertices = src.data.positions.length / 3;
   for (const g of groups) new SubMesh(Math.min(g.materialIndex, src.surfaces.length - 1), 0, vertices, g.start, g.count, mesh);
-  return multi;
 }
 
 /** A Babylon mesh of a model mesh's renderer-neutral geometry (no material yet). */

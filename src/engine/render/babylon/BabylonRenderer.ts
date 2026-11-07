@@ -47,7 +47,7 @@ import type { World } from "../../core/World";
 import type { Color } from "../../core/math";
 import { Assets, sidecarValue } from "../../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
-import { defaultMaterialSettings, parseMaterial, materialGraphOfJson, type MaterialSettings } from "../../scene/material";
+import { defaultMaterialSettings, parseMaterial, materialGraphOfJson, type MaterialInstancing, type MaterialSettings } from "../../scene/material";
 import { Material as EngineMaterial } from "../Material";
 import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../../scene/shaderGraph";
@@ -58,7 +58,7 @@ import { colorHex } from "../../scene/material";
 import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector3 } from "../../core/math";
 import type { MaterialPropertyValue } from "../components";
 import { compileShaderGraph, type CompiledShaderGraph } from "../shaderGraph/compile";
-import { resolveKeywords } from "../../scene/shaderKeywords";
+import { MAX_WARM_VARIANTS, resolveKeywords, warmKeywordVariants } from "../../scene/shaderKeywords";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "./graphMaterial";
 import { Camera, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, SpriteRenderer, Text } from "../components";
 import { UICanvas, isUIComponent } from "../../ui/components";
@@ -79,9 +79,10 @@ import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { spriteFrame } from "../spriteFrame";
-import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
+import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelBaseMaterial, modelMaterial, pbr, tiledTexture } from "./materials";
+import { drawKey, MeshBatches, type DrawKey, type Drawable } from "./meshBatches";
 import { AsyncPipelines } from "./asyncPipelines";
-import { effectClock, PipelineWarmer, VariantReport } from "./warmUp";
+import { effectClock, PipelineWarmer, VariantReport, WARM_PREFIX } from "./warmUp";
 import type { WarmMesh } from "../../scene/warmUp";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 
@@ -99,7 +100,12 @@ interface SpriteEntry {
 }
 
 interface MeshEntry {
-  meshes: Mesh[];
+  /** The renderer's own Babylon meshes (instances, or whole meshes with instancing off); none in a thin batch. */
+  meshes: AbstractMesh[];
+  /** One per model mesh: where it draws (ADR 0108). */
+  drawables: Drawable[];
+  /** Drawables that haven't had a matrix yet. */
+  pending: boolean[];
   sources: readonly ModelMesh[] | null;
   material: BabylonMaterial | null;
   /** The world matrix its meshes were last frozen with (null: freeze next sync). */
@@ -207,6 +213,8 @@ export class BabylonRenderer {
   readonly scene: Scene;
   private readonly sprites = new Map<SpriteRenderer, SpriteEntry>();
   private readonly meshRenderers = new Map<MeshRenderer, MeshEntry>();
+  /** MeshRenderer meshes batched for GPU instancing (ADR 0108). */
+  private readonly batches: MeshBatches;
   private readonly cameras = new Map<Camera, CameraEntry>();
   private readonly textures = new Map<string, Texture>();
   private readonly loading = new Map<string, Promise<Texture>>();
@@ -265,7 +273,7 @@ export class BabylonRenderer {
   private readonly selectedNodes = new Set<GameObject>();
   private readonly frame: BabylonFrame;
   private shadows: ShadowRequest[] = [];
-  private readonly casters: Mesh[] = [];
+  private readonly casters: AbstractMesh[] = [];
   /** What the last frame's first camera ran, for tests and the editor. */
   private lastPost: { composed: boolean; toneMapping: ToneMappingName; effects: PostEffects | null } | null = null;
   private clearColor: Color4;
@@ -327,6 +335,7 @@ export class BabylonRenderer {
     this.frame = new BabylonFrame(scene);
     this.frame.beforeView = (camera) => this.lighting.fitSky(camera);
     this.probes = new BabylonProbes(scene);
+    this.batches = new MeshBatches(scene);
 
     this.defaultMaterial = pbr("myco.default", scene);
     this.defaultMaterial.albedoColor = new Color3(1, 1, 1);
@@ -342,6 +351,8 @@ export class BabylonRenderer {
       materialForSource: (src, mesh) => modelMaterial(this.scene, this.modelMaterials, src, mesh) ?? this.defaultMaterial,
       isGraph: (m) => this.graphs.has(m),
       fogless: (m) => this.noFog.has(m),
+      instancing: (path) => this.instancingOf(path),
+      keywordVariants: (m) => this.keywordVariants(m),
       loadingTextures: () => this.loading.size > 0,
       ...(this.asyncPipelines ? { compiling: () => this.asyncPipelines!.settled() } : {}),
       effectMs: () => this.effects.ms(),
@@ -372,7 +383,7 @@ export class BabylonRenderer {
   /** The node (and prefab) a renderer's mesh belongs to, for the variant report; null for other meshes. */
   private describeMesh(mesh: AbstractMesh): { what: string; prefab?: string } | null {
     for (const [r, e] of this.meshRenderers) {
-      if (!e.meshes.includes(mesh as Mesh)) continue;
+      if (!e.meshes.includes(mesh) && !e.drawables.some((d) => d.source === mesh)) continue;
       let prefab: string | undefined;
       for (let n: GameObject | null = r.node; n && !prefab; n = n.parent) prefab = _instantiatedPrefabOf(n);
       return prefab ? { what: `"${r.node.name}" (from ${prefab})`, prefab } : { what: `"${r.node.name}"` };
@@ -563,6 +574,7 @@ export class BabylonRenderer {
     const camera = view ? this.cameras.get(view)!.camera : null;
     this.casters.length = 0;
     for (const [r, e] of this.meshRenderers) if (r.castShadows && r.isActiveAndEnabled) this.casters.push(...e.meshes);
+    for (const m of this.batches.thinCasters()) this.casters.push(m);
     this.shadows = this.lighting.syncLights(world, camera);
     this.syncParticles(world);
     this.syncFog(world);
@@ -843,7 +855,7 @@ export class BabylonRenderer {
     } else if (c instanceof MeshRenderer) {
       const e = this.meshRenderers.get(c);
       if (e) {
-        for (const m of e.meshes) m.dispose();
+        for (const d of e.drawables) this.batches.release(d);
         this.meshRenderers.delete(c);
       }
       this.releaseRendererMaterial(c);
@@ -870,6 +882,7 @@ export class BabylonRenderer {
     if (this.disposed) return;
     this.disposed = true;
     this.warmer.dispose();
+    this.batches.dispose();
     this.asyncPipelines?.dispose();
     this.effects.dispose();
     this.report?.dispose();
@@ -1059,54 +1072,93 @@ export class BabylonRenderer {
     for (const e of this.instanceMaterials.values()) e.seen = false;
     for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
     for (const [m, e] of this.instanceMaterials) if (!e.seen) this.disposeInstance(m);
+    this.batches.flush();
   }
 
   private syncMesh(world: World, r: MeshRenderer): void {
     let entry = this.meshRenderers.get(r);
     if (!entry) {
-      entry = { meshes: [], sources: null, material: null, matrix: null };
+      entry = { meshes: [], drawables: [], pending: [], sources: null, material: null, matrix: null };
       this.meshRenderers.set(r, entry);
     }
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
     const material = this.rendererMaterial(r, this.drawnMaterial(r));
     const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
-    if (!same || entry.material !== material) {
-      for (const m of entry.meshes) m.dispose();
-      entry.meshes = (sources ?? []).map((src) => {
-        const mesh = meshOf(this.scene, `mesh:${r.node.name}:${src.name}`, src);
-        mesh.material = material ?? modelMaterial(this.scene, this.modelMaterials, src, mesh) ?? this.defaultMaterial;
-        mesh.metadata = { mycoBase: mesh.material };
-        return mesh;
-      });
+    if (!same) {
+      for (const d of entry.drawables) this.batches.release(d);
+      entry.drawables = [];
+      entry.pending = [];
       entry.sources = sources;
-      entry.material = material;
       entry.matrix = null;
     }
+    entry.material = material;
     const visible = r.isActiveAndEnabled;
     const e = r.node.entity;
-    // Freeze the meshes again only when the node moved: freezing recomputes their bounds.
-    const moved = visible && entry.meshes.length > 0 && matrixChanged(entry, world.worldMatrix(e), e * 16);
-    for (const m of entry.meshes) {
-      m.setEnabled(visible);
-      m.receiveShadows = r.receiveShadows;
-      if (!visible) continue;
-      if (moved) {
-        // Babylon keeps the matrix it's given: each mesh keeps one, refilled when the node moves.
-        let matrix = frozenMatrices.get(m);
-        if (!matrix) frozenMatrices.set(m, (matrix = new Matrix()));
-        Matrix.FromArrayToRef(entry.matrix! as unknown as number[], 0, matrix);
-        m.freezeWorldMatrix(matrix);
-      }
-      const base = (m.metadata as { mycoBase?: BabylonMaterial } | null)?.mycoBase ?? m.material;
-      if (!base) continue;
-      m.applyFog = !this.noFog.has(base);
+    const world16 = world.worldMatrix(e);
+    // Refill the drawables' matrices only when the node moved: freezing recomputes their bounds.
+    const moved = visible && (sources?.length ?? 0) > 0 && matrixChanged(entry, world16, e * 16);
+    const mode = this.instancingFor(r);
+    let changed = !same;
+    (sources ?? []).forEach((src, i) => {
+      const base = material ?? this.modelBase(src);
       // A reflection probe (ADR 0054) for built-in materials; graph materials keep the scene's environment.
-      const probe = this.probes.any && base instanceof PBRMaterial && !this.graphs.has(base) ? this.probeAt(m) : null;
+      const probe = visible && this.probes.any && base instanceof PBRMaterial && !this.graphs.has(base) ? this.probes.lookup(world16[e * 16 + 12], world16[e * 16 + 13], world16[e * 16 + 14]) : null;
       const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe.texture, probe.intensity) : base;
       if (probe) this.reflecting++;
-      if (m.material !== drawn) m.material = drawn;
-    }
+      // The batch it draws in (ADR 0108): same geometry, material and shadow settings draw instanced.
+      const key: DrawKey = { src, material: drawn, receiveShadows: r.receiveShadows, castShadows: r.castShadows, mode, applyFog: !this.noFog.has(base) };
+      let d = entry!.drawables[i];
+      if (!d || d.key !== drawKey(key)) {
+        if (d) this.batches.release(d);
+        d = this.batches.acquire(key, `${r.node.name}:${src.name}`);
+        entry!.drawables[i] = d;
+        entry!.pending[i] = true;
+        changed = true;
+      }
+      d.setEnabled(visible);
+      if (visible && (moved || entry!.pending[i]) && entry!.matrix) {
+        Matrix.FromArrayToRef(entry!.matrix as unknown as number[], 0, tmpMatrix);
+        d.setMatrix(tmpMatrix);
+        entry!.pending[i] = false;
+      }
+    });
+    if (changed) entry.meshes = entry.drawables.flatMap((d) => (d.mesh ? [d.mesh] : []));
   }
+
+  /** How a renderer's meshes batch (ADR 0108): its material asset's `instancing`. */
+  private instancingFor(r: MeshRenderer): MaterialInstancing {
+    return this.instancingOf(r.material);
+  }
+
+  /** A material asset's `instancing` ("auto" without one); the editor's scene view keeps per-object meshes for picking. */
+  private instancingOf(path: string | null): MaterialInstancing {
+    const mode = (path && this.materialAssets.get(path)?.settings?.instancing) || "auto";
+    return mode === "thin" && this.fill ? "auto" : mode;
+  }
+
+  /**
+   * Warm-up's extra copies of a graph or shader-asset material (ADR 0106): one per combination of its
+   * `"variants": "all"` keywords beyond the one it draws, sharing its compiled program, so a script's
+   * keyword switch finds its variant compiled. At most 16 per material.
+   */
+  private keywordVariants(m: BabylonMaterial): { material: BabylonMaterial; dispose(): void }[] {
+    const g = this.graphs.get(m);
+    if (!g || !g.compiled.keywords?.some((k) => k.variants === "all")) return [];
+    const { variants, capped } = warmKeywordVariants(g.compiled.keywords, g.keywords);
+    if (capped) this.warnOnce(`warm-cap|${m.name}`, `${m.name}: its "variants": "all" keywords make more than ${MAX_WARM_VARIANTS} combinations; warm-up compiles the first ${MAX_WARM_VARIANTS}.`);
+    return variants.slice(1).map((kw) => {
+      const copy = createGraphMaterial(this.scene, `${WARM_PREFIX}${m.name}:variant`, g.compiled, { ...g.properties }, this.graphShared, (p, linear) => this.graphTexture(p, linear));
+      copy.setKeywords(kw);
+      if (this.noFog.has(m)) this.noFog.add(copy.material);
+      return { material: copy.material, dispose: () => copy.dispose() };
+    });
+  }
+
+  /** A model mesh's own material (its surfaces), else the default material. */
+  private modelBase(src: ModelMesh): BabylonMaterial {
+    return modelBaseMaterial(this.scene, this.modelMaterials, src) ?? this.defaultMaterial;
+  }
+
 
   /**
    * The Babylon material for a material asset, or null for none (empty, missing, or not a material:

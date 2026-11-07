@@ -5,6 +5,8 @@ import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
+import type { InstancedMesh } from "@babylonjs/core/Meshes/instancedMesh.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -188,5 +190,70 @@ describe("warm batch sizing (ADR 0080)", () => {
     clock.dispose();
     expect(clock.ms()).toBe(before);
     engine.dispose();
+  });
+});
+
+describe("the warmer draws the variants the scene will (ADR 0106, 0108)", () => {
+  let babylon: NullEngine;
+  let scene: Scene;
+  let camera: TargetCamera;
+  beforeEach(() => {
+    babylon = new NullEngine();
+    scene = new Scene(babylon);
+    scene.useRightHandedSystem = true;
+    camera = new TargetCamera("view", new Vector3(0, 2, 10), scene);
+    camera.setTarget(Vector3.Zero());
+  });
+  afterEach(() => {
+    scene.dispose();
+    babylon.dispose();
+  });
+
+  const warmerWith = (mode: "auto" | "thin" | "off", variants: PBRMaterial[] = []) => {
+    const shared = new PBRMaterial("material:a", scene);
+    const disposed: string[] = [];
+    const warmer = new PipelineWarmer({
+      scene,
+      materialFor: () => shared,
+      materialForSource: () => shared,
+      isGraph: () => true,
+      fogless: () => false,
+      loadingTextures: () => false,
+      instancing: () => mode,
+      keywordVariants: () => variants.map((material) => ({ material, dispose: () => disposed.push(material.name) })),
+    });
+    return { warmer, disposed };
+  };
+  const warm = (warmer: PipelineWarmer) => warmer.add([{ mesh: "builtin:cube", material: "asset:a.material.json", castShadows: true, receiveShadows: true, blended: false }]);
+
+  it("draws instanced materials as an instance of a hidden source", () => {
+    const { warmer } = warmerWith("auto");
+    void warm(warmer);
+    const casters: AbstractMesh[] = [];
+    warmer.beforeRender(camera, casters);
+    const instance = scene.meshes.find((m) => m.name.startsWith(WARM_PREFIX) && m.name.endsWith(":instance"))!;
+    expect(instance).toBeTruthy();
+    expect((instance as InstancedMesh).sourceMesh.isVisible).toBe(false);
+    expect(casters).toEqual([instance]);
+    warmer.dispose();
+  });
+
+  it("draws thin materials as a thin instance", () => {
+    const { warmer } = warmerWith("thin");
+    void warm(warmer);
+    warmer.beforeRender(camera, []);
+    const mesh = scene.meshes.find((m) => m.name.startsWith(WARM_PREFIX)) as Mesh;
+    expect(mesh.thinInstanceCount).toBe(1);
+    warmer.dispose();
+  });
+
+  it("draws every keyword variant it's given and disposes them with the batch", () => {
+    const v1 = new PBRMaterial("variant1", scene), v2 = new PBRMaterial("variant2", scene);
+    const { warmer, disposed } = warmerWith("off", [v1, v2]);
+    void warm(warmer);
+    warmer.beforeRender(camera, []);
+    expect(scene.meshes.filter((m) => m.name.startsWith(WARM_PREFIX)).map((m) => m.material?.name)).toEqual(["material:a", "variant1", "variant2"]);
+    warmer.dispose();
+    expect(disposed).toEqual(["variant1", "variant2"]);
   });
 });
