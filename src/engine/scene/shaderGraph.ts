@@ -103,7 +103,17 @@ export interface GraphNode {
   function?: CustomFunction;
   /** False: the node's preview is collapsed in the editor. */
   preview?: false;
+  /** The shape this node's preview is drawn on; the graph's `previewShape` when unset (ADR 0117). */
+  previewShape?: NodePreviewShape;
 }
+
+/** The shapes a node's preview can be drawn on: a flat quad (the default), a sphere or a cube (ADR 0117). */
+export type NodePreviewShape = "quad" | "sphere" | "cube";
+export const NODE_PREVIEW_SHAPES: readonly NodePreviewShape[] = ["quad", "sphere", "cube"];
+const isPreviewShape = (v: unknown): v is NodePreviewShape => typeof v === "string" && (NODE_PREVIEW_SHAPES as readonly string[]).includes(v);
+
+/** The shape a node's preview is drawn on: its own, else the graph's default, else a quad. */
+export const nodePreviewShape = (graph: ShaderGraph, node: GraphNode): NodePreviewShape => node.previewShape ?? graph.previewShape ?? "quad";
 
 /** A connection from an output port to an input port, each written `nodeId.portId`. */
 export interface GraphEdge {
@@ -124,6 +134,8 @@ export interface ShaderGraph {
   subgraph?: { outputs: FunctionPort[] };
   groups?: GraphGroup[];
   notes?: GraphNote[];
+  /** Editor metadata: the default shape for node previews (absent: quads). */
+  previewShape?: NodePreviewShape;
 }
 
 export const OUTPUT_NODE_TYPE = "output";
@@ -307,6 +319,7 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
         } else problems.push(`${where}: node "${n.id}" has a function without a valid name.`);
       }
       if (n.preview === false) node.preview = false;
+      if (isPreviewShape(n.previewShape)) node.previewShape = n.previewShape;
       graph.nodes.push(node);
     }
   } else if (raw.nodes !== undefined) problems.push(`${where}: "nodes" should be a list.`);
@@ -359,6 +372,7 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
     }
     if (notes.length) graph.notes = notes;
   }
+  if (isPreviewShape(raw.previewShape)) graph.previewShape = raw.previewShape;
   return { graph, problems };
 }
 
@@ -379,11 +393,13 @@ export function shaderGraphJSON(graph: ShaderGraph): Record<string, unknown> {
     if (n.settings && Object.keys(n.settings).length) node.settings = { ...n.settings };
     if (n.function) node.function = { name: n.function.name, inputs: n.function.inputs.map((p) => ({ ...p })), outputs: n.function.outputs.map((p) => ({ ...p })), ...(n.function.wgsl ? { wgsl: n.function.wgsl } : {}), ...(n.function.file ? { file: n.function.file } : {}), ...(n.function.body ? { body: n.function.body } : {}) };
     if (n.preview === false) node.preview = false;
+    if (n.previewShape) node.previewShape = n.previewShape;
     return node;
   });
   out.edges = graph.edges.map((e) => ({ from: e.from, to: e.to }));
   if (graph.groups?.length) out.groups = graph.groups.map((g) => ({ id: g.id, title: g.title, nodes: [...g.nodes] }));
   if (graph.notes?.length) out.notes = graph.notes.map((n) => ({ id: n.id, position: [Math.round(n.position[0]), Math.round(n.position[1])], size: [Math.round(n.size[0]), Math.round(n.size[1])], text: n.text }));
+  if (graph.previewShape && graph.previewShape !== "quad") out.previewShape = graph.previewShape;
   return out;
 }
 

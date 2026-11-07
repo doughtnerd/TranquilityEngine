@@ -1,6 +1,8 @@
 import { useEffect, useState } from "preact/hooks";
-import type { ImportSettings } from "../../engine/scene/importSettings";
+import { DEFAULT_SLOT, loadMeshes, materialSlots } from "../../engine/scene/models";
+import { IMPORT_PLATFORMS, TEXTURE_COMPRESSIONS, withPlatformOverride, type ImportPlatform, type ImportSettings, type PlatformOverrides } from "../../engine/scene/importSettings";
 import { assetKind, fileName } from "../assetBrowser";
+import { extractModelMaterials } from "../materialExtract";
 import { AudioPreview, LargePreview } from "./AssetPreview";
 import { MaterialInspector, ShaderGraphInspector } from "./MaterialInspector";
 import { ParticleEffectInspector } from "./ParticleInspector";
@@ -22,6 +24,78 @@ export function AssetInspector() {
   if (path && kind === "formation") return <NavFormationInspector path={path} />;
   if (path && (kind === "environment" || kind === "prefab")) return <PreviewInspector path={path} kind={kind} />;
   return path && kind === "material" ? <MaterialInspector path={path} /> : path && (kind === "shadergraph" || kind === "shadersubgraph") ? <ShaderGraphInspector path={path} /> : <ImportInspector />;
+}
+
+const COMPRESSION_LABELS = { none: "None", low: "Low quality (smallest)", normal: "Normal quality", high: "High quality" } as const;
+const PLATFORM_LABELS: Record<ImportPlatform, string> = { web: "Web", desktop: "Desktop" };
+const parseMaxSize = (text: string) => {
+  const v = Math.round(Number(text));
+  return Number.isFinite(v) && v > 0 ? v : 0;
+};
+
+/** Per-platform overrides of an image's settings (ADR 0115): "Same" inherits the value above; the current platform's are the ones used at load. */
+function PlatformOverridesEditor(props: { draft: ImportSettings; onChange: (s: ImportSettings) => void }) {
+  const { draft, onChange } = props;
+  const put = <K extends keyof PlatformOverrides>(platform: ImportPlatform, key: K, value: PlatformOverrides[K] | undefined) => onChange(withPlatformOverride(draft, platform, key, value));
+  const choice = <K extends "filter" | "wrap" | "compression">(platform: ImportPlatform, key: K, label: string, options: readonly (readonly [string, string])[]) => (
+    <label class="import-row import-override">
+      <span>{label}</span>
+      <select
+        aria-label={`${PLATFORM_LABELS[platform]} ${label}`}
+        value={draft.platforms[platform]?.[key] ?? ""}
+        onChange={(e) => put(platform, key, ((e.currentTarget as HTMLSelectElement).value || undefined) as PlatformOverrides[K] | undefined)}
+      >
+        <option value="">Same</option>
+        {options.map(([value, text]) => (
+          <option key={value} value={value}>
+            {text}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  return (
+    <details class="import-platforms" open={Object.keys(draft.platforms).length > 0}>
+      <summary>Platform Overrides</summary>
+      {IMPORT_PLATFORMS.map((platform) => {
+        const o = draft.platforms[platform];
+        return (
+          <fieldset key={platform} class="import-platform" aria-label={`${PLATFORM_LABELS[platform]} overrides`}>
+            <legend>{PLATFORM_LABELS[platform]}</legend>
+            {choice(platform, "filter", "Filter Mode", [["linear", "Linear"], ["point", "Point"]])}
+            {choice(platform, "wrap", "Wrap Mode", [["clamp", "Clamp"], ["repeat", "Repeat"], ["mirror", "Mirror"]])}
+            <label class="import-row import-override">
+              <span>Mipmaps</span>
+              <select
+                aria-label={`${PLATFORM_LABELS[platform]} Mipmaps`}
+                value={o?.mipmaps === undefined ? "" : o.mipmaps ? "on" : "off"}
+                onChange={(e) => put(platform, "mipmaps", ({ "": undefined, on: true, off: false } as const)[(e.currentTarget as HTMLSelectElement).value as "" | "on" | "off"])}
+              >
+                <option value="">Same</option>
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </select>
+            </label>
+            <label class="import-row import-override">
+              <span>Max Size</span>
+              <input
+                type="number"
+                min={0}
+                aria-label={`${PLATFORM_LABELS[platform]} Max Size`}
+                placeholder="Same"
+                value={o?.maxSize ?? ""}
+                onChange={(e) => {
+                  const text = (e.currentTarget as HTMLInputElement).value;
+                  put(platform, "maxSize", text.trim() === "" ? undefined : parseMaxSize(text));
+                }}
+              />
+            </label>
+            {choice(platform, "compression", "Compression", TEXTURE_COMPRESSIONS.map((c) => [c, COMPRESSION_LABELS[c]] as const))}
+          </fieldset>
+        );
+      })}
+    </details>
+  );
 }
 
 const KIND_TITLES = { image: "Image", audio: "Audio", model: "Model" } as const;
@@ -125,6 +199,35 @@ function ImportInspector() {
               <span>Generate Mipmaps</span>
               <input type="checkbox" aria-label="Generate Mipmaps" checked={draft.mipmaps} onChange={(e) => set({ mipmaps: (e.currentTarget as HTMLInputElement).checked })} />
             </label>
+            <label class="import-row">
+              <span>Max Size</span>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                aria-label="Max Size"
+                title="Largest side in pixels (0 = no limit). Advisory for now: recorded for game builds, not applied while drawing."
+                placeholder="No limit"
+                value={draft.maxSize > 0 ? draft.maxSize : ""}
+                onChange={(e) => set({ maxSize: parseMaxSize((e.currentTarget as HTMLInputElement).value) })}
+              />
+            </label>
+            <label class="import-row">
+              <span>Compression</span>
+              <select
+                aria-label="Compression"
+                title="Texture compression quality. Advisory for now: recorded for game builds; the browser can't GPU-compress an image while loading it."
+                value={draft.compression}
+                onChange={(e) => set({ compression: (e.currentTarget as HTMLSelectElement).value as ImportSettings["compression"] })}
+              >
+                {TEXTURE_COMPRESSIONS.map((c) => (
+                  <option key={c} value={c}>
+                    {COMPRESSION_LABELS[c]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <PlatformOverridesEditor draft={draft} onChange={setDraft} />
             <PivotRow pivot={draft.pivot} onChange={(pivot) => set({ pivot })} />
             <div class="import-row">
               <span>Sprites</span>
@@ -171,6 +274,7 @@ function ImportInspector() {
                 <option value="calculate">Calculate</option>
               </select>
             </label>
+            <ModelMaterialRows path={path} materials={draft.materials} dirty={dirty} readOnly={readOnly} onChange={(materials) => set({ materials })} />
           </>
         ) : (
           <>
@@ -207,6 +311,84 @@ function ImportInspector() {
         Saved beside the file as <code>{fileName(path)}.meta.json</code>.
       </p>
     </div>
+  );
+}
+
+/**
+ * A model's material slots (ADR 0089): a material asset to draw in place of each of the model's own
+ * materials (empty: its own), and Extract Materials, which writes them out as material assets.
+ */
+function ModelMaterialRows(props: { path: string; materials: Record<string, string>; dirty: boolean; readOnly: string | null; onChange: (materials: Record<string, string>) => void }) {
+  const { path, materials } = props;
+  const [slots, setSlots] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const project = currentProject.value;
+  useEffect(() => {
+    let live = true;
+    setSlots(null);
+    loadMeshes(`asset:${path}`)
+      .then((meshes) => live && setSlots(materialSlots(meshes).filter((s) => s.surface !== DEFAULT_SLOT).map((s) => s.name)))
+      .catch(() => live && setSlots([]));
+    return () => {
+      live = false;
+    };
+  }, [path, docVersion.value]);
+  const extract = async () => {
+    if (!project) return;
+    setBusy(true);
+    try {
+      const result = await extractModelMaterials(project, path);
+      docVersion.value++;
+      const count = Object.keys(result.materials).length;
+      const lost = result.lost.length ? ` Not kept: ${result.lost.join("; ")}.` : "";
+      status.value = { kind: "info", text: `Extracted ${count} material${count === 1 ? "" : "s"} from ${fileName(path)}.${lost}` };
+    } catch (err) {
+      status.value = errorStatus(`Couldn't extract the materials of ${fileName(path)}`, err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const files = (project?.files ?? []).filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph");
+  return (
+    <>
+      <div class="import-row">
+        <span>Materials</span>
+        <span class="import-sprites">
+          <span class="import-count">{slots === null ? "Loading…" : slots.length === 0 ? "None" : `${slots.length} slot${slots.length === 1 ? "" : "s"}`}</span>
+          <button
+            disabled={busy || props.dirty || !!props.readOnly || !slots?.length}
+            title={props.readOnly ?? (props.dirty ? "Apply or revert these settings first" : "Write each material out as a material asset and use them")}
+            onClick={() => void extract()}
+          >
+            Extract Materials
+          </button>
+        </span>
+      </div>
+      <datalist id="model-material-list">
+        {files.map((f) => (
+          <option key={f} value={`asset:${f}`} />
+        ))}
+      </datalist>
+      {(slots ?? []).map((name) => (
+        <label class="import-row import-slot" key={name}>
+          <span title={name}>{name}</span>
+          <input
+            type="text"
+            list="model-material-list"
+            aria-label={`Material ${name}`}
+            placeholder="The model's own"
+            value={materials[name] ?? ""}
+            onChange={(e) => {
+              const v = (e.currentTarget as HTMLInputElement).value.trim();
+              const next = { ...materials };
+              if (v) next[name] = v;
+              else delete next[name];
+              props.onChange(next);
+            }}
+          />
+        </label>
+      ))}
+    </>
   );
 }
 

@@ -2,6 +2,7 @@
 // tint and the slice's UV rectangle per instance; the editor's scene view keeps a mesh per sprite.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
+import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { pbrVertexShader } from "@babylonjs/core/Shaders/pbr.vertex.js";
@@ -81,7 +82,12 @@ describe("sprites on the Babylon renderer (ADR 0108)", () => {
 
   beforeEach(async () => {
     Assets.clearSources();
-    Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
+    Assets.addSource(
+      Assets.fromObject({
+        "s.json": { format: "myco.scene@1", nodes: [] },
+        "images/ui.png.meta.json": { format: "myco.import@1", sprites: [{ name: "panel", rect: [0, 0, 8, 8], pivot: [0.5, 0.5], border: [2, 2, 2, 2] }, { name: "dot", rect: [8, 0, 8, 8], pivot: [0.5, 0.5] }] },
+      }),
+    );
     await Engine.create({ headless: true, project: { render: { pixelsPerUnit: 16 } } });
     await SceneManager.load("s.json");
     world = World.require();
@@ -112,6 +118,20 @@ describe("sprites on the Babylon renderer (ADR 0108)", () => {
     b.enabled = false;
     syncSprites(r);
     expect(internals.spriteBatcher.stats().sprites).toBe(1);
+    r.dispose();
+  });
+
+  it("gives 9-sliced sprites a mesh of their own in the batched path (the batcher draws plain quads)", () => {
+    const r = make(false);
+    const tex = RawTexture.CreateRGBATexture(new Uint8Array(16 * 8 * 4), 16, 8, (r as unknown as { scene: Scene }).scene);
+    (r as unknown as { textures: Map<string, unknown> }).textures.set("images/ui.png", tex);
+    const sliced = sprite("panel", 0, { sprite: "asset:images/ui.png#panel", size: new Vector2(3, 2) });
+    const plain = sprite("dot", 1, { sprite: "asset:images/ui.png#dot" });
+    syncSprites(r);
+    const internals = r as unknown as Internals;
+    expect(internals.sprites.get(sliced)!.mesh).not.toBeNull();
+    expect(internals.sprites.get(plain)!.mesh).toBeNull();
+    expect(internals.spriteBatcher.stats()).toEqual({ batches: 1, sprites: 1 });
     r.dispose();
   });
 

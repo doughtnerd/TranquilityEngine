@@ -13,6 +13,9 @@
 .start-card h1.start-title { margin: 0; line-height: 0; }
 .start-logo { width: min(240px, 60vw); height: auto; display: block; }
 .start-tagline { margin: 2px 0 0; color: var(--brand-text); font-size: calc(12px * var(--ui-scale)); letter-spacing: 0.08em; text-transform: uppercase; }
+.start-brand.light-logo { background: var(--panel); }
+.start-brand.light-logo .start-tagline { color: var(--muted); }
+.about-hero.light-logo { background: var(--panel); }
 .start-footer { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 18px -24px -20px; padding: 8px 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
 .start-footer img { width: 20px; height: 20px; border-radius: 50%; }
 .start-footer-sep { color: var(--faint); }

@@ -281,3 +281,10 @@ describe("the Project panel's settings", () => {
     });
   });
 });
+
+describe("display scaling (ADR 0116)", () => {
+  it("accepts the three scale modes and flags others", () => {
+    for (const m of ["fit", "stretch", "pixel-perfect"]) expect(settingsProblems({ display: { scaleMode: m as never } })).toEqual([]);
+    expect(settingsProblems({ display: { scaleMode: "zoom" as never } }).map((p) => p.field)).toEqual(["display.scaleMode"]);
+  });
+});

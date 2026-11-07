@@ -16,6 +16,7 @@ import {
   type GraphPropertyType,
   type GraphValue,
   type InputValue,
+  type NodePreviewShape,
   type ShaderGraph,
 } from "../../engine/scene/shaderGraph";
 import { KEYWORD_NAME, type ShaderKeyword } from "../../engine/scene/shaderKeywords";
@@ -534,6 +535,25 @@ export function setFunction(graph: ShaderGraph, nodeId: string, fn: CustomFuncti
 }
 
 /** Show or collapse a node's preview. */
+/** Set the shape one node's preview is drawn on, or `null` to follow the graph's default (ADR 0117). */
+export function setNodePreviewShape(graph: ShaderGraph, nodeId: string, shape: NodePreviewShape | null): ShaderGraph {
+  const g = clone(graph);
+  const n = g.nodes.find((m) => m.id === nodeId);
+  if (!n || n.previewShape === (shape ?? undefined)) return graph;
+  if (shape) n.previewShape = shape;
+  else delete n.previewShape;
+  return g;
+}
+
+/** Set the graph's default node preview shape (quads are the default and aren't stored). */
+export function setGraphPreviewShape(graph: ShaderGraph, shape: NodePreviewShape): ShaderGraph {
+  if ((graph.previewShape ?? "quad") === shape) return graph;
+  const g = clone(graph);
+  if (shape === "quad") delete g.previewShape;
+  else g.previewShape = shape;
+  return g;
+}
+
 export function setPreview(graph: ShaderGraph, nodeId: string, shown: boolean): ShaderGraph {
   const g = clone(graph);
   const n = g.nodes.find((m) => m.id === nodeId);

@@ -122,6 +122,8 @@ export interface UICoreLike {
   hitTest(x: number, y: number): UIComponentType | null;
   /** Editor (ADR 0077): every drawn element (canvases excepted) under a canvas CSS point, topmost first. */
   pickAll(x: number, y: number, ray?: UIPickRay | null): UIComponentType[];
+  /** Editor (ADR 0117): the canvases under a point, topmost first: world canvases by their rect, screen canvases by their frame's edge strip only. */
+  pickCanvases(x: number, y: number, ray?: UIPickRay | null, edge?: number): UICanvas[];
   /** Editor (ADR 0077): an element's box corners, in canvas CSS pixels (screen canvases) or world space (world canvases); null when not laid out. */
   cornersOf(c: UIComponentType): UICorners | null;
   /** Forget a removed component. */

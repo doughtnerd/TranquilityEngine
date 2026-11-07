@@ -18,7 +18,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { meshesIfLoaded, type BuiltinMesh } from "../../../scene/models";
-import type { GraphValue, ShaderGraph } from "../../../scene/shaderGraph";
+import type { GraphValue, NodePreviewShape, ShaderGraph } from "../../../scene/shaderGraph";
 import { Graphics } from "../../Graphics";
 import { compileShaderGraph, type CompiledShaderGraph } from "../../shaderGraph/compile";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "../graphMaterial";
@@ -246,6 +246,8 @@ export class NodePreviewRenderer {
   private engine: AbstractEngine | null = null;
   private scene: Scene | null = null;
   private mesh: Mesh | null = null;
+  /** The sphere and cube a node's preview can be drawn on, made on first use (ADR 0117). */
+  private readonly shapes = new Map<NodePreviewShape, Mesh>();
   private readonly shared: GraphShared = { time: 0, resolution: [1, 1] };
   private readonly canvas: HTMLCanvasElement;
   /** Compiled graphs and their materials by the graph's JSON; ones not drawn in a pass are freed. */
@@ -300,9 +302,28 @@ export class NodePreviewRenderer {
     for (const e of this.entries.values()) e.used = false;
   }
 
-  /** Draw `graph` (a node's preview graph) into `target`. False if its shader didn't compile. */
-  draw(graph: ShaderGraph, target: HTMLCanvasElement): boolean {
-    const scene = this.scene, engine = this.engine, mesh = this.mesh;
+  /** The mesh for a preview shape: the quad, or a sphere or cube fitted to the same square view. */
+  private meshFor(shape: NodePreviewShape): Mesh | null {
+    if (shape === "quad" || !this.scene) return this.mesh;
+    let m = this.shapes.get(shape);
+    if (!m) {
+      const src = meshesIfLoaded(`builtin:${shape}`)?.[0];
+      if (!src) return this.mesh;
+      m = meshOf(this.scene, `preview.${shape}`, src);
+      if (shape === "sphere") m.scaling.setAll(0.92);
+      else {
+        m.scaling.setAll(0.62);
+        m.rotationQuaternion = Quaternion.FromEulerAngles(0.5, 0.7, 0);
+      }
+      m.setEnabled(false);
+      this.shapes.set(shape, m);
+    }
+    return m;
+  }
+
+  /** Draw `graph` (a node's preview graph) into `target`, on `shape`. False if its shader didn't compile. */
+  draw(graph: ShaderGraph, target: HTMLCanvasElement, shape: NodePreviewShape = "quad"): boolean {
+    const scene = this.scene, engine = this.engine, mesh = this.meshFor(shape);
     if (!scene || !engine || !mesh || this.disposed) return true; // still starting: the next pass draws
     const level = Graphics.tier.shaderLevel;
     const key = `${level}|${JSON.stringify(graph)}`;
@@ -319,6 +340,8 @@ export class NodePreviewRenderer {
     if (e.failed) return false;
     const material = e.graph.material;
     if (!material.isReady(mesh)) return true; // still compiling: leave the canvas as it is
+    if (this.mesh) this.mesh.setEnabled(mesh === this.mesh);
+    for (const m of this.shapes.values()) m.setEnabled(m === mesh);
     mesh.material = material;
     renderFrame(engine, scene);
     const ctx = target.getContext("2d");

@@ -80,6 +80,7 @@ An instance (or a per-renderer override) draws apart from its mesh's instanced b
 
 - **Meshes** with the same mesh and material draw as GPU instances in one call, automatically. A material's **Instancing** setting: *Auto* (default); *Thin instances* packs all its renderers of one mesh into a single buffer, culled as a whole, for thousands of small things that rarely move; *Off* gives each renderer its own mesh.
 - **Sprites** draw in one call per run of sprites sharing a texture in draw order. Put sprites that draw together in one atlas, and avoid interleaving textures within the same sorting order.
+- 9-sliced and tiled sprites draw as a mesh each (their grid doesn't fit the batch's quads).
 - In the editor (scene view and play mode) sprites keep a mesh each and thin batches draw as instances, because picking and selection outlines need per-object meshes; game builds batch fully. Instanced meshes batch everywhere.
 
 ## Pixel-perfect 2D

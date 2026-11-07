@@ -78,6 +78,25 @@ describe("GPU instancing on the Babylon renderer (ADR 0108)", () => {
     expect(internals().batches.stats()).toMatchObject({ batches: 3, drawables: 3 });
   });
 
+  it("draws a slot's own material (ADR 0089) and its script instance, still batching renderers that match", () => {
+    const a = box("a", RED), b = box("b", RED);
+    a.materials = [THIN];
+    b.materials = [THIN];
+    sync();
+    const meshOf = (r: MeshRenderer) => internals().meshRenderers.get(r)!.meshes;
+    // The slot's own entry wins over `material` (thin draws as thin outside the editor: no meshes per renderer).
+    expect(internals().batches.stats()).toMatchObject({ batches: 1, thin: 1, drawables: 2 });
+    expect(meshOf(a)).toHaveLength(0);
+    // A script instance of slot 0 draws apart.
+    a.materials = [RED];
+    b.materials = [RED];
+    a.getMaterialInstance(0).setFloat("metalness", 1);
+    sync();
+    expect(internals().batches.stats()).toMatchObject({ batches: 2, drawables: 2 });
+    const mat = (meshOf(a)[0] as InstancedMesh).sourceMesh.material as unknown as { metallic: number };
+    expect(mat.metallic).toBe(1);
+  });
+
   it("disposes a batch with its last renderer, and hides disabled renderers", () => {
     const a = box("a"), b = box("b");
     sync();

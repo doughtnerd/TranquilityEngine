@@ -1,64 +1,34 @@
-import { signal } from "@preact/signals";
-import type { ComponentChildren, FunctionComponent } from "preact";
 import { isTauri } from "../../engine/platform/FileSystem";
 import { DockLayout } from "../layout/DockLayout";
 import { togglePlaying } from "../session";
 import { currentProject, docVersion, openScene, playState } from "../state";
 import { art, PRODUCT_NAME } from "../brand";
 import { AboutDialog, aboutOpen } from "./AboutDialog";
-import { AssetsPanel } from "./Assets";
-import { CodePanel } from "./CodePanel";
 import { AssetDragGhost } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { ExportDialog } from "./ExportDialog";
+import { exportOpen, settingsOpen } from "./dialogState";
+import { lazyDialog } from "./lazy";
 import { StatusBar } from "./StatusBar";
-import { NavDebugPanel } from "./NavDebugPanel";
-import { NetworkPanel } from "./NetworkPanel";
 import { PlayControls } from "./PlayControls";
 import { NewScriptDialog } from "./NewScriptDialog";
-import { SpriteEditorDialog } from "./SpriteEditor";
-import { HistoryPanel } from "./HistoryPanel";
 import { RefineList } from "./RefineList";
-import { SettingsDialog } from "./SettingsDialog";
-import { Hierarchy } from "./Hierarchy";
-import { Inspector } from "./Inspector";
-import { ScenePanel } from "./ScenePanel";
 import { StartScreen } from "./StartScreen";
-import { WorldsPanel } from "./WorldsPanel";
 import { NewProjectDialog } from "./NewProjectDialog";
 import { MenuBar } from "./MenuBar";
-import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
+import { PANEL_VIEWS } from "./panels";
+import { spriteEditorImage } from "../assetImport";
 
-/** A panel whose code loads the first time it shows, so the editor starts without it (the graph editors and their graph library). */
-function lazyPanel(load: () => Promise<FunctionComponent>): () => ComponentChildren {
-  const loaded = signal<FunctionComponent | null>(null);
-  let loading = false;
-  return () => {
-    if (!loading) {
-      loading = true;
-      void load().then(
-        (panel) => (loaded.value = panel),
-        (err: unknown) => {
-          loading = false;
-          console.error(err);
-        },
-      );
-    }
-    const Panel = loaded.value;
-    return Panel ? <Panel /> : <p class="empty">Loading…</p>;
-  };
-}
-const ShaderGraphPanel = lazyPanel(() => import("./ShaderGraphPanel").then((m) => m.ShaderGraphPanel));
-const ParticleGraphPanel = lazyPanel(() => import("./ParticleGraphPanel").then((m) => m.ParticleGraphPanel));
-
-const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => (<><WorldsPanel /><NavDebugPanel /></>), network: () => <NetworkPanel />, project: () => <ProjectSettingsPanel />, shadergraph: ShaderGraphPanel, particlegraph: ParticleGraphPanel };
+// Dialogs that load when first opened (ADR 0083).
+const ExportDialog = lazyDialog(() => exportOpen.value, () => import("./ExportDialog").then((m) => m.ExportDialog));
+const SettingsDialog = lazyDialog(() => settingsOpen.value, () => import("./SettingsDialog").then((m) => m.SettingsDialog));
+const SpriteEditorDialog = lazyDialog(() => spriteEditorImage.value !== null, () => import("./SpriteEditor").then((m) => m.SpriteEditorDialog));
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {
   return (
     <div class={`editor${playState.value !== "edit" ? " playing" : ""}`}>
       <Toolbar />
-      <DockLayout panels={PANELS} />
+      <DockLayout panels={PANEL_VIEWS} />
       {!currentProject.value && !isTauri() && <StartScreen /> /* the desktop editor has a Projects window instead (ADR 0059) */}
       <StatusBar />
       <AssetDragGhost />

@@ -221,6 +221,13 @@ export class MeshRenderer extends Component {
    * or the default material (white, lit) for meshes without one.
    */
   @field(AssetRef) material = "";
+  /**
+   * A material asset per material slot (ADR 0089), drawn in place of `material` for that slot.
+   * The slots are the model's own materials, in the order its meshes first use them (a built-in
+   * mesh has one); an empty entry, or none, leaves the slot to `material`, then to the model's
+   * import settings, then to the model's own material.
+   */
+  @field([AssetRef]) materials: string[] = [];
   /** Cast shadows from Lights with `castShadows` on. */
   @field(Boolean) castShadows = true;
   /** Show shadows cast onto it. */
@@ -232,32 +239,21 @@ export class MeshRenderer extends Component {
   /** Materials assigned through `setSharedMaterial` or made by `getMaterialInstance`, by slot (ADR 0107), and the slot's path they were for. */
   private readonly assigned = new Map<number, { material: Material; path: string; owned: boolean }>();
   /**
-   * Slot paths above 0 set through `setSharedMaterial` while this renderer has no `materials` list.
-   * Material slots (ADR 0089) bring `materials: string[]`; once it exists, slot paths live there.
-   */
-  private readonly extraSlotPaths = new Map<number, string>();
-
-  /**
    * The material asset a slot draws (ADR 0089, 0107): `materials[slot]` when the renderer has material
    * slots and that entry is set, else `material`, the whole renderer's.
    */
   private slotPath(slot: number): string {
-    const list = (this as { materials?: string[] }).materials;
-    if (list) return list[slot] || this.material;
-    return slot === 0 ? this.material : this.extraSlotPaths.get(slot) || this.material;
+    return this.materials[slot] || this.material;
   }
 
   /** Set the material asset a slot draws: slot 0 is `material` unless `materials[0]` is set; other slots are `materials[slot]`. */
   private setSlotPath(slot: number, path: string): void {
-    const list = (this as { materials?: string[] }).materials;
-    if (slot === 0 && !list?.[0]) {
+    if (slot === 0 && !this.materials[0]) {
       this.material = path;
       return;
     }
-    if (list) {
-      while (list.length <= slot) list.push("");
-      list[slot] = path;
-    } else this.extraSlotPaths.set(slot, path);
+    while (this.materials.length <= slot) this.materials.push("");
+    this.materials[slot] = path;
   }
 
   /**
@@ -313,8 +309,7 @@ export class MeshRenderer extends Component {
    * list draws `material`.
    */
   get sharedMaterials(): (Material | null)[] {
-    const list = (this as { materials?: string[] }).materials;
-    const n = Math.max(1, list?.length ?? 0, ...[...this.extraSlotPaths.keys(), ...this.assigned.keys()].map((k) => k + 1));
+    const n = Math.max(1, this.materials.length, ...[...this.assigned.keys()].map((k) => k + 1));
     return Array.from({ length: n }, (_, i) => this.getSharedMaterial(i));
   }
 
