@@ -43,6 +43,8 @@ export interface Drawable {
   /** The mesh Babylon draws the batch with (the instances' hidden source, or the thin-instance mesh). */
   readonly source: Mesh;
   readonly key: string;
+  /** What it was acquired for: `sameDraw` compares a frame's wanted key with it without building a string. */
+  readonly draw: DrawKey;
   /** The world matrix, column-major as Babylon keeps it; written into the batch when it changed. */
   setMatrix(m: Matrix): void;
   setEnabled(on: boolean): void;
@@ -56,6 +58,10 @@ const idOf = (o: object): number => {
   if (id === undefined) ids.set(o, (id = nextId++));
   return id;
 };
+
+/** Whether two keys name the same batch (as `drawKey` would, without allocating). */
+export const sameDraw = (a: DrawKey, b: DrawKey): boolean =>
+  a.mode === b.mode && a.src.data === b.src.data && a.material === b.material && a.receiveShadows === b.receiveShadows && a.applyFog === b.applyFog && (a.mode !== "thin" || a.castShadows === b.castShadows);
 
 /** A drawable's batch key. */
 export const drawKey = (k: DrawKey): string => `${k.mode}|${idOf(k.src.data)}|${k.material.uniqueId}|${k.receiveShadows ? 1 : 0}|${k.mode === "thin" && k.castShadows ? 1 : 0}|${k.applyFog ? 1 : 0}`;
@@ -84,6 +90,7 @@ class ThinDrawable implements Drawable {
   readonly matrix = new Float32Array(16);
   constructor(
     readonly key: string,
+    readonly draw: DrawKey,
     readonly batch: ThinBatch,
   ) {}
   get source(): Mesh {
@@ -131,6 +138,7 @@ class MeshDrawable implements Drawable {
   constructor(
     readonly mode: "auto" | "off",
     readonly key: string,
+    readonly draw: DrawKey,
     readonly mesh: AbstractMesh,
     readonly source: Mesh,
     private readonly matrix = new Matrix(),
@@ -162,7 +170,7 @@ export class MeshBatches {
     const key = drawKey(k);
     if (k.mode === "off") {
       const mesh = this.makeSource(k, `mesh:${name}`);
-      return new MeshDrawable("off", key, mesh, mesh);
+      return new MeshDrawable("off", key, { ...k }, mesh, mesh);
     }
     let batch = this.batches.get(key);
     if (!batch) {
@@ -184,12 +192,12 @@ export class MeshBatches {
     }
     batch.members++;
     if (batch.kind === "thin") {
-      const d = new ThinDrawable(key, batch);
+      const d = new ThinDrawable(key, { ...k }, batch);
       d.setEnabled(true);
       return d;
     }
     const instance = batch.source.createInstance(`mesh:${name}`);
-    return new MeshDrawable("auto", key, instance, batch.source);
+    return new MeshDrawable("auto", key, { ...k }, instance, batch.source);
   }
 
   /** Give a drawable back; its batch goes with its last drawable. */

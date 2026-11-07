@@ -80,7 +80,7 @@ import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph"
 import { BabylonLighting } from "./lighting";
 import { spriteFrame } from "../spriteFrame";
 import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelBaseMaterial, modelMaterial, pbr, tiledTexture } from "./materials";
-import { drawKey, MeshBatches, type DrawKey, type Drawable } from "./meshBatches";
+import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
 import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
 import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
 import { AsyncPipelines } from "./asyncPipelines";
@@ -179,6 +179,8 @@ const tmpMatrix = new Matrix();
 const frozenMatrices = new WeakMap<Mesh, Matrix>();
 const tmpSpriteA = new Matrix();
 const tmpColor = new Color3();
+/** The batch a renderer mesh wants this frame, refilled per mesh (ADR 0108). */
+const wantedKey: DrawKey = { src: null as unknown as ModelMesh, material: null as unknown as BabylonMaterial, receiveShadows: true, castShadows: true, mode: "auto", applyFog: true };
 const tmpSpriteB = new Matrix();
 const tmpSpriteC = new Matrix();
 const tmpScale = new Vector3();
@@ -1195,9 +1197,15 @@ export class BabylonRenderer {
       const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe.texture, probe.intensity) : base;
       if (probe) this.reflecting++;
       // The batch it draws in (ADR 0108): same geometry, material and shadow settings draw instanced.
-      const key: DrawKey = { src, material: drawn, receiveShadows: r.receiveShadows, castShadows: r.castShadows, mode, applyFog: !this.noFog.has(base) };
+      const key = wantedKey;
+      key.src = src;
+      key.material = drawn;
+      key.receiveShadows = r.receiveShadows;
+      key.castShadows = r.castShadows;
+      key.mode = mode;
+      key.applyFog = !this.noFog.has(base);
       let d = entry!.drawables[i];
-      if (!d || d.key !== drawKey(key)) {
+      if (!d || !sameDraw(d.draw, key)) {
         if (d) this.batches.release(d);
         d = this.batches.acquire(key, `${r.node.name}:${src.name}`);
         entry!.drawables[i] = d;
