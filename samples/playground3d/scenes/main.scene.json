@@ -483,8 +483,8 @@
       ]
     },
     {
-      "id": "lamp",
-      "name": "Lamp",
+      "id": "street-lamp",
+      "name": "Street Lamp",
       "components": [
         {
           "type": "engine.Transform",
