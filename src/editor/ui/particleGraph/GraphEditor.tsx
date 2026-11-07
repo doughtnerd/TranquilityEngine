@@ -64,7 +64,7 @@ let previewSize = { w: 300, h: 220 };
 
 /** What a dropped wire connects a node from the search to. */
 type Pending = { side: "output" | "input"; ref: string } | null;
-type SearchTarget = { kind: "canvas" } | { kind: "context"; system: string; context: ContextKind };
+type SearchTarget = { kind: "canvas" } | { kind: "context"; system: string; context: ContextKind; output: number };
 
 const effectName = (path: string) => fileName(path).replace(/\.particles\.json$/i, "");
 
@@ -253,8 +253,8 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   // --- search ----------------------------------------------------------------------------------------
 
   const contextTarget = (el: HTMLElement): SearchTarget => {
-    const [system, context] = el.dataset.context!.split(":") as [string, ContextKind];
-    return { kind: "context", system, context };
+    const [system, context, output] = el.dataset.context!.split(":") as [string, ContextKind, string | undefined];
+    return { kind: "context", system, context, output: Number(output ?? 0) };
   };
 
   const openSearch = (at: Point, target: SearchTarget, pending: Pending) => {
@@ -282,7 +282,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     const p = toGraph(at, canvas.viewRef.current);
     const g = live.current.graph;
     if (item.pick.kind === "block" && target.kind === "context") {
-      const made = addBlock(g, target.system, target.context, item.pick.type);
+      const made = addBlock(g, target.system, target.context, item.pick.type, undefined, target.output);
       commit(made.graph);
       if (made.id) setSelectedBlock(`${target.system}.${made.id}`);
     } else if (item.pick.kind === "system") {
@@ -438,15 +438,16 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       const el = document.elementFromPoint(m.clientX, m.clientY)?.closest<HTMLElement>("[data-context]");
       drop = null;
       if (el) {
-        const [s, k] = el.dataset.context!.split(":") as [string, ContextKind];
-        if (canMoveBlock(live.current.graph, system, block, s, k)) {
+        const [s, k, ox] = el.dataset.context!.split(":") as [string, ContextKind, string | undefined];
+        const o = Number(ox ?? 0);
+        if (canMoveBlock(live.current.graph, system, block, s, k, o)) {
           const rows = [...el.querySelectorAll<HTMLElement>("[data-block]")];
           let index = rows.findIndex((r) => {
             const b = r.getBoundingClientRect();
             return m.clientY < b.top + b.height / 2;
           });
           if (index < 0) index = rows.length;
-          drop = { system: s, kind: k, index };
+          drop = { system: s, kind: k, output: o, index };
         }
       }
       setBlockDrag({ key, drop });
@@ -456,7 +457,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       handle.removeEventListener("pointerup", up);
       handle.removeEventListener("pointercancel", up);
       setBlockDrag(null);
-      if (drop) commit(moveBlock(live.current.graph, system, block, drop.system, drop.kind, drop.index));
+      if (drop) commit(moveBlock(live.current.graph, system, block, drop.system, drop.kind, drop.index, drop.output));
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up);
@@ -600,9 +601,9 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       setSelectedWire(null);
     },
     onPortDown,
-    openBlockSearch: (system, context, client) => {
+    openBlockSearch: (system, context, output, client) => {
       const r = pane.current!.getBoundingClientRect();
-      openSearch({ x: client.x - r.left, y: client.y - r.top }, { kind: "context", system, context }, null);
+      openSearch({ x: client.x - r.left, y: client.y - r.top }, { kind: "context", system, context, output }, null);
     },
     startBlockDrag,
     draggingBlock: blockDrag?.key ?? null,

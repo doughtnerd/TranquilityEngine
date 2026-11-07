@@ -9,6 +9,8 @@ import type { ProblemIndex } from "../../particleGraph/problems";
 export interface BlockDrop {
   system: string;
   kind: ContextKind;
+  /** The output (0 = main, 1 and up = extra outputs) when `kind` is "output"; 0 otherwise. */
+  output: number;
   /** The slot in the context's list as shown (the dragged block included). */
   index: number;
 }
@@ -33,7 +35,7 @@ export interface GraphEditorApi {
   /** A pointer-down on a port: start (or pick up) a wire. `owner` is the system or node id. */
   onPortDown(e: MouseEvent, owner: string, port: string, side: "input" | "output"): void;
   /** Open the block search for a context, at a point on the screen. */
-  openBlockSearch(system: string, kind: ContextKind, client: { x: number; y: number }): void;
+  openBlockSearch(system: string, kind: ContextKind, output: number, client: { x: number; y: number }): void;
   /** Start dragging a block by its handle. */
   startBlockDrag(e: PointerEvent, system: string, block: string): void;
   /** The block being dragged (`system.block`) and where it would land. */

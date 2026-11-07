@@ -3,6 +3,7 @@ import type { ParticleGraph } from "../../engine/scene/particleGraph";
 import { defaultParticleGraph, emptyParticleGraph } from "../../engine/scene/particleGraphFormat";
 import {
   addBlock,
+  addOutput,
   addNode,
   addNote,
   addProperty,
@@ -34,6 +35,10 @@ import {
   setNodeInput,
   setNodeSetting,
   setOutputSettings,
+  setOutputSoftness,
+  setSeed,
+  setSimulation,
+  removeOutput,
   setOutputType,
   setPropertyExposed,
   setPropertyValue,
@@ -343,5 +348,79 @@ describe("collapsed systems", () => {
     expect(collapsedSystems(g).size).toBe(0);
     const a = setSystemCollapsed(g, g.systems[0].id, true);
     expect(a.editor).toEqual({ zoom: 2, collapsed: [g.systems[0].id] });
+  });
+});
+
+describe("simulation, seed, softness and several outputs", () => {
+  it("sets the simulation (auto is not written) and the seed (empty is not written)", () => {
+    let g = sample();
+    g = setSimulation(g, "s1", "gpu");
+    expect(g.systems[0].settings.simulation).toBe("gpu");
+    g = setSimulation(g, "s1", undefined);
+    expect("simulation" in g.systems[0].settings).toBe(false);
+    expect(setSimulation(g, "s1", "auto")).toBe(g);
+    g = setSeed(g, "s1", 42.7);
+    expect(g.systems[0].settings.seed).toBe(42);
+    g = setSeed(g, "s1", null);
+    expect("seed" in g.systems[0].settings).toBe(false);
+  });
+
+  it("sets softness, and 0 turns it off", () => {
+    let g = sample();
+    g = setOutputSoftness(g, "s1", 0.5);
+    expect(g.systems[0].output.settings.softness).toBe(0.5);
+    g = setOutputSoftness(g, "s1", 0);
+    expect("softness" in g.systems[0].output.settings).toBe(false);
+  });
+
+  it("adds an output copying the main one, edits it and removes it", () => {
+    let g = sample();
+    g = setOutputType(g, "s1", "stretched");
+    g = setOutputSettings(g, "s1", { texture: "asset:a.png" });
+    const added = addOutput(g, "s1");
+    g = added.graph;
+    expect(added.index).toBe(1);
+    const extra = g.systems[0].extraOutputs![0];
+    expect(extra.type).toBe("stretched");
+    expect(extra.settings.texture).toBe("asset:a.png");
+    expect(extra.blocks).toEqual([]);
+    g = setOutputType(g, "s1", "mesh", 1);
+    g = setOutputSettings(g, "s1", { texture: "asset:b.png" }, 1);
+    g = setOutputSoftness(g, "s1", 1, 1);
+    expect(g.systems[0].output.type).toBe("stretched");
+    expect(g.systems[0].output.settings).toMatchObject({ texture: "asset:a.png" });
+    expect(g.systems[0].extraOutputs![0]).toMatchObject({ type: "mesh", settings: { texture: "asset:b.png", softness: 1 } });
+    expect(addOutput(g, "nope").index).toBeNull();
+    expect(removeOutput(g, "s1", 0)).toBe(g);
+    expect(removeOutput(g, "s1", 5)).toBe(g);
+    g = removeOutput(g, "s1", 1);
+    expect(g.systems[0].extraOutputs).toBeUndefined();
+  });
+
+  it("adds, moves and removes blocks in an extra output", () => {
+    let g = addOutput(sample(), "s1").graph;
+    const mainBlocks = g.systems[0].output.blocks.length;
+    const made = addBlock(g, "s1", "output", "output.flipbook", undefined, 1);
+    expect(made.id).not.toBeNull();
+    g = made.graph;
+    expect(g.systems[0].extraOutputs![0].blocks.map((b) => b.id)).toEqual([made.id]);
+    expect(g.systems[0].output.blocks.length).toBe(mainBlocks);
+    expect(findBlock(g, "s1", made.id!)).toMatchObject({ kind: "output", output: 1, index: 0 });
+    expect(addBlock(g, "s1", "output", "output.flipbook", undefined, 2).id).toBeNull();
+    expect(canMoveBlock(g, "s1", made.id!, "s1", "output", 0)).toBe(true);
+    const moved = moveBlock(g, "s1", made.id!, "s1", "output", 0, 0);
+    expect(findBlock(moved, "s1", made.id!)).toMatchObject({ output: 0, index: 0 });
+    expect(moved.systems[0].extraOutputs![0].blocks).toEqual([]);
+    g = setBlockEnabled(g, "s1", made.id!, false);
+    expect(g.systems[0].extraOutputs![0].blocks[0].enabled).toBe(false);
+    expect(removeBlock(g, "s1", made.id!).systems[0].extraOutputs![0].blocks).toEqual([]);
+  });
+
+  it("removing an output drops its blocks", () => {
+    let g = addOutput(sample(), "s1").graph;
+    const made = addBlock(g, "s1", "output", "output.flipbook", undefined, 1);
+    g = removeOutput(made.graph, "s1", 1);
+    expect(findBlock(g, "s1", made.id!)).toBeNull();
+    expect(g.edges.some((e) => e.to.startsWith(`s1.${made.id}.`))).toBe(false);
   });
 });
