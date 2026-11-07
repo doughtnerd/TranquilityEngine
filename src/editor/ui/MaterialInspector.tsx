@@ -26,7 +26,7 @@ export function MaterialInspector(props: { path: string }) {
   if (!project) return <p class="empty">Nothing selected</p>;
   const { settings, problems } = readMaterial(project, path);
   const readOnly = !project.canSave;
-  const images = project.files.filter((f) => assetKind(f) === "image");
+  const images = project.files.filter((f) => assetKind(f) === "image" || assetKind(f) === "rendertexture");
   const graphs = project.files.filter((f) => assetKind(f) === "shadergraph");
   const physical = settings.shader === "physical";
   const lit = settings.shader === "lit" || physical;

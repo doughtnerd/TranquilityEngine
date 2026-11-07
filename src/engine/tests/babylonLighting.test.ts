@@ -252,6 +252,29 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(sun.position.y).toBeCloseTo(40); // moved back along the light by twice the half-area
   });
 
+  it("gives cascades to as many directional lights as the tier's cascadedLights (ADR 0110)", () => {
+    Graphics.quality = "High"; // 3 cascades, 2 cascaded lights
+    const caps = babylon.getCaps();
+    const minimum = caps.maxVaryingVectors;
+    caps.maxVaryingVectors = 32; // a device with room for the extra values each cascaded light passes
+    const camera = new TargetCamera("view", Vector3.Zero(), scene);
+    light({ type: "directional", castShadows: true }, [0, 10, 0], [-90, 0, 0]);
+    light({ type: "directional", castShadows: true }, [0, 10, 0], [-60, 0, 0]);
+    light({ type: "directional", castShadows: true }, [0, 10, 0], [-30, 0, 0]);
+    engine.step(1 / 60);
+    const requests = lighting.syncLights(World.require(), camera);
+    expect(requests.map((r) => r.cascaded)).toEqual([true, true, false]);
+    expect(requests[0].numCascades).toBe(Graphics.tier.shadowCascades);
+    expect(lighting.state().cascadedLights).toBe(2);
+    Graphics.quality = "Ultra"; // 4
+    engine.step(1 / 60);
+    expect(lighting.syncLights(World.require(), camera).every((r) => r.cascaded)).toBe(true);
+    caps.maxVaryingVectors = 16; // at WebGPU's minimum: one light only
+    engine.step(1 / 60);
+    expect(lighting.syncLights(World.require(), camera).filter((r) => r.cascaded)).toHaveLength(1);
+    caps.maxVaryingVectors = minimum;
+  });
+
   it("takes the shadow map away when the tier turns shadows off", () => {
     Graphics.quality = "High";
     light({ type: "directional", castShadows: true });

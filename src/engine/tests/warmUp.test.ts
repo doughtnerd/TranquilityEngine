@@ -163,6 +163,25 @@ describe("the Babylon warmer (ADR 0080)", () => {
     expect(blend.albedoTexture).toBe(shared.albedoTexture);
   });
 
+  it("draws the renderer's probe copies of a built-in material too, and keeps them (ADR 0080, 0054)", () => {
+    const probeCopy = new PBRMaterial("material:materials/splash.material.json:probe", scene);
+    (warmer as unknown as { deps: { probeVariants?: (b: PBRMaterial) => PBRMaterial[] } }).deps.probeVariants = () => [probeCopy];
+    void warmer.add([{ mesh: "builtin:sphere", material: "asset:materials/splash.material.json", castShadows: false, receiveShadows: true, blended: false }]);
+    warmer.beforeRender(camera, []);
+    expect(warmMeshes().map((m) => m.material)).toContain(probeCopy);
+    warmer.dispose();
+    expect(scene.materials).toContain(probeCopy); // the renderer's, not the batch's
+  });
+
+  it("warms everything again when asked (a new quality tier), skipping what's already queued", async () => {
+    const item = { mesh: "builtin:cube", material: "", castShadows: false, receiveShadows: true, blended: false };
+    void warmer.add([item]);
+    void warmer.rewarm(); // already queued: not twice
+    expect((warmer as unknown as { queue: unknown[] }).queue).toHaveLength(1);
+    warmer.beforeRender(camera, []);
+    expect(warmMeshes()).toHaveLength(1);
+  });
+
   it("waits for a view camera before drawing", () => {
     void warmer.add([{ mesh: "builtin:cube", material: "", castShadows: false, receiveShadows: true, blended: false }]);
     warmer.beforeRender(null, []);

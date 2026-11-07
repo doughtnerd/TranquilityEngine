@@ -9,7 +9,7 @@ import type { Component } from "../core/Component";
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import type { LocalPose } from "./gizmoMath";
-import type { Camera, SpriteRenderer } from "./components";
+import type { Camera, ReflectionProbe, SpriteRenderer } from "./components";
 import type { PostEffects, ToneMappingName } from "./postEffects";
 import type { UICoreLike } from "../ui/uiCoreTypes";
 
@@ -121,6 +121,10 @@ export interface RenderSurface {
   stackCount(): number;
   waterState(): { surfaces: number };
   probeState(): { captured: number; probes: number; reflecting: number };
+  /** Editor (ADR 0110): a reflection probe's current capture as a prefiltered `.env` file, for its `bakedMap`. */
+  bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer>;
+  /** Tests and the editor: the render texture assets made so far (ADR 0109). */
+  renderTextureState(): Record<string, { width: number; height: number; format: string }>;
   particleState(): ParticleStats | null;
   renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number };
   /** Tests and the editor: the UI core's layout and hit testing, once loaded. */

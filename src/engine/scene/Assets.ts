@@ -43,6 +43,9 @@ export function sidecarValue(path: string): object | undefined {
   return undefined;
 }
 
+/** Text assets by URL (`Assets.text`). */
+const textCache = new Map<string, Promise<string>>();
+
 export const Assets = {
   addSource(source: AssetSource): void {
     sources.unshift(source);
@@ -118,6 +121,21 @@ export const Assets = {
     const v = Assets.get(path);
     if (typeof v === "string") throw new Error(`Asset "${normalizeAssetPath(path)}" is not JSON.`);
     return v as T;
+  },
+
+  /**
+   * A text asset's contents (`.cube` LUTs, `.obj`...), fetched from its URL once and cached by URL.
+   * Concurrent calls share one fetch; a failed fetch isn't cached.
+   */
+  text(path: string): Promise<string> {
+    const url = Assets.url(path);
+    let pending = textCache.get(url);
+    if (!pending) {
+      pending = fetchAssetBytes(url).then((bytes) => new TextDecoder().decode(bytes));
+      textCache.set(url, pending);
+      pending.catch(() => textCache.delete(url));
+    }
+    return pending;
   },
 
   /**

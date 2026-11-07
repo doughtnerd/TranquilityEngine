@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Rendering checks</title>
+    <style>
+      html, body { margin: 0; background: #111; color: #ddd; font: 13px system-ui, sans-serif; }
+      #view { width: 640px; height: 360px; }
+      canvas.shot { width: 640px; height: 360px; }
+      pre { padding: 0 8px; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <canvas id="shot" class="shot"></canvas>
+    <pre id="log"></pre>
+    <div id="view"></div>
+    <script type="module" src="./rendering.ts"></script>
+  </body>
+</html>

@@ -31,6 +31,7 @@ import { installOsDrop, osDragFolder, osDragOver } from "../osDrop";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
 import { createMaterial, createShader } from "../materialAssets";
+import { createRenderTexture } from "../renderTextureAssets";
 import { createUIDocument } from "../uiDocumentEdits";
 import { createFormation } from "../formationAssets";
 import { createTileset, createTilesetFromSlices, hasSlices } from "../tilesetAssets";
@@ -51,9 +52,11 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   image: "Image",
   sprite: "Sprite",
   environment: "Environment",
+  lut: "Colour LUT",
   audio: "Audio",
   model: "Model",
   material: "Material",
+  rendertexture: "Render Texture",
   shadergraph: "Shader Graph",
   shadersubgraph: "Sub Graph",
   particles: "Particle Effect",
@@ -172,6 +175,7 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
     { label: "New Scene", disabled: readOnly, run: () => void createScene(pasteFolder(entries)) },
     { label: "New UI Document", disabled: readOnly, run: () => void createUIDocument(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Material", disabled: readOnly, run: () => void createMaterial(pasteFolder(entries)).then((made) => made && select([made])) },
+    { label: "New Render Texture", disabled: readOnly, run: () => void createRenderTexture(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Shader", disabled: readOnly, run: () => void createShader(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Shader Graph", disabled: readOnly, run: () => void createShaderGraph(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Particle Effect", disabled: readOnly, run: () => void createParticleEffect(pasteFolder(entries)).then((made) => made && select([made])) },
