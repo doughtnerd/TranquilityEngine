@@ -72,7 +72,7 @@ test("a physical shader graph with every feature compiles in WebGL", async ({ pa
   await page.locator(".asset-folder", { hasText: /^shaders$/ }).click();
   await page.locator(".asset-tile", { hasText: "pulse.shadergraph.json" }).dblclick();
   await expect.poll(() => page.evaluate(() => !!(window as unknown as Hooks).shaderGraphPreview)).toBe(true);
-  const pixel = await page.evaluate(() => {
+  await page.evaluate(() => {
     const p = (window as unknown as Hooks).shaderGraphPreview!;
     p.setGraph({
       target: "physical",
@@ -85,8 +85,9 @@ test("a physical shader graph with every feature compiles in WebGL", async ({ pa
       ],
       edges: [{ from: "t.sine", to: "output.clearcoat" }],
     });
-    return p.readCenter();
   });
-  expect(pixel).not.toBeNull();
+  // The Babylon preview loads and compiles asynchronously: poll until it has drawn.
+  const center = () => page.evaluate(() => (window as unknown as Hooks).shaderGraphPreview!.readCenter());
+  await expect.poll(center, { timeout: 20_000 }).not.toBeNull();
   expect(errors).toEqual([]);
 });

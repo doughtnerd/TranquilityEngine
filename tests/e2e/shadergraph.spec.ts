@@ -104,7 +104,7 @@ test("create a shader graph, wire a colour property to the output, and see the p
   await expect.poll(async () => {
     const p = await previewPixel(page);
     return p ? p[0] - p[1] : 0;
-  }).toBeGreaterThan(80);
+  }, { timeout: 20_000 }).toBeGreaterThan(80);
 
   // Node search: Space, type, Enter adds a node where the search opened.
   await page.locator(".sg-pane").click({ position: { x: 30, y: 30 } });

@@ -65,7 +65,7 @@ test("clicking in the viewport selects, cycles through overlaps, and clears on e
   await page.evaluate(() => window.orbit!.focus([80, 80, 0]));
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveCount(0);
-  await expect(page.locator(".inspector .panel-body")).toHaveText("Nothing selected");
+  await expect(page.locator(".inspector .panel-body")).toContainText("Nothing selected") // the Inspector also lists the scene settings now;
   expect(errors).toEqual([]);
 });
 
@@ -114,7 +114,7 @@ test("with the Move tool, clicking the gizmo on the selection keeps it selected"
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Bird");
   // The gizmo loads on first use; wait until it's showing on the selection.
-  await page.waitForFunction(() => (window as unknown as { engine: { world: { render: { gizmo?: { enabled: boolean } } } } }).engine.world.render.gizmo?.enabled === true);
+  await expect.poll(() => page.evaluate(([x, y]) => (window as unknown as { engine: { world: { render: { gizmoActiveAt(x: number, y: number): boolean } } } }).engine.world.render.gizmoActiveAt(x, y), [centre.x, centre.y]), { timeout: 20_000 }).toBe(true);
   // The gizmo now sits over the bird: pressing its handle drags instead of selecting what's below.
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Bird");
