@@ -14,6 +14,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Water](guide/water.md) | Water surfaces: waves, colours and foam, sampling the surface from scripts, buoyancy (physics and kinematic), storms, multiplayer, known limits |
 | [Game UI](guide/ui.md) | Canvases (screen and world), the UI tree, flexbox layout, panels, text, images, buttons and input fields, scripting them, how the pointer and keyboard go to UI first, headless Worlds and tests |
 | [Navigation](guide/navigation.md) | Built-in navigation: agent types and areas, marking geometry, baking (editor and `npm run nav:bake`), streaming chunks, scripting `NavAgent`, groups, surround and flow fields, the `Navigation` queries, multiplayer, debug drawing, performance, known issues |
+| [Physics](guide/physics.md) | Bodies and colliders, interpolation, collision and trigger events (Enter/Stay/Exit), raycasts, shape casts and overlaps, character controllers, joints |
 | [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
 
 ## Architecture
@@ -120,6 +121,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0088](decisions/0088-gltf-import-through-threejs-gltfloader.md) | glTF 2.0 models import through three.js's GLTFLoader, baked into model space like OBJ and FBX, with the file's node tree kept for the editor | Proposed |
 | [0089](decisions/0089-material-slots.md) | A MeshRenderer has a material slot per material of its model, filled by `materials[i]`, then `material`, then the model's import settings | Proposed |
 | [0090](decisions/0090-baked-models-in-game-builds.md) | Game builds carry each model baked into a `.mycomesh` file, which the engine loads instead of parsing the model | Proposed |
+| [0091](decisions/0091-character-controller-on-rapier.md) | CharacterController and CharacterController2D are colliders driven by Rapier's kinematic character controller | Proposed |
+| [0092](decisions/0092-joints-on-rapier-impulse-joints.md) | Joints link a node's body to another node's body, or to the world, on Rapier impulse joints | Proposed |
+| [0093](decisions/0093-physics-queries-stay-events-interpolation.md) | Shape casts and overlaps, Stay events, interpolation on by default, child colliders that follow their node | Proposed |
 | [0115](decisions/0115-sprite-editor-9-slice-undo-and-per-platform-import.md) | Sprites draw 9-sliced from a slice's border; the Sprite Editor gets border guides, undo/redo and slice search; import sidecars gain per-platform overrides, `maxSize` and `compression` (the last two advisory) | Proposed |
 | [0116](decisions/0116-editor-themes-display-scaling-layer-rename-and-history-pruning.md) | Theme import/export and per-project themes, bundled fonts and a light logo; display scaling; project-wide layer rename; persisted desktop folder access; age-based history pruning | Proposed |
 | [0117](decisions/0117-shader-graph-search-node-preview-shapes-and-scene-thumbnails.md) | Shader graph find, per-node preview shapes, and camera-view scene thumbnails | Proposed |

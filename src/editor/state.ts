@@ -157,7 +157,7 @@ export function selectedNodes(): { key: string; path: NodePath; node: GameObject
 export interface EditingCollider {
   /** Path key of the node (see `selection`). */
   key: string;
-  type: "engine.BoxCollider2D" | "engine.CircleCollider2D" | "engine.PolygonCollider2D" | "engine.EdgeCollider2D" | "engine.BoxCollider" | "engine.SphereCollider" | "engine.CapsuleCollider";
+  type: "engine.BoxCollider2D" | "engine.CircleCollider2D" | "engine.PolygonCollider2D" | "engine.EdgeCollider2D" | "engine.BoxCollider" | "engine.SphereCollider" | "engine.CapsuleCollider" | "engine.MeshCollider" | "engine.CharacterController" | "engine.CharacterController2D";
   /** Which collider of that type on the node. */
   index: number;
 }

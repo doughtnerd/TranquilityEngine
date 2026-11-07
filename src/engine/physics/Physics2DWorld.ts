@@ -10,11 +10,16 @@
  */
 import RAPIER from "@dimforge/rapier2d-compat";
 import { GameBehavior } from "../core/Component";
-import { DEG2RAD, RAD2DEG } from "../core/math";
+import { DEG2RAD, Mat4, RAD2DEG, Vector2 } from "../core/math";
 import type { World } from "../core/World";
+import { GameObject } from "../scene/GameObject";
 import { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type Collision2D } from "./Collider2D";
 import { layerGroups } from "./layers";
+import { Queries2D } from "./queries2d";
 import { cleanPoints, convexParts } from "./polygon";
+import type { CollisionFlags } from "./CharacterController";
+import { CharacterController2D, type ControllerColliderHit2D } from "./CharacterController2D";
+import { AxisJoint2D, FixedJoint2D, HingeJoint2D, Joint2D, RopeJoint2D, SliderJoint2D, SpringJoint2D } from "./Joint2D";
 import { CollisionEvents2D, TriggerEvents2D } from "./physics2dSystems";
 import { RigidBody2D } from "./RigidBody2D";
 
@@ -24,6 +29,14 @@ export interface BodyHandleState {
   signature: string;
   syncedVersion: number;
   active: boolean;
+  /** Interpolation (ADR 0093): the body's pose before and after the last step, `[x, y, radians]`. */
+  prev: number[] | null;
+  curr: number[] | null;
+  /** True while the Transform shows an interpolated pose rather than `curr`. */
+  interpolated: boolean;
+  /** The force and torque scripts applied for the coming step, for estimating joint forces (ADR 0092). */
+  lastForce: number[];
+  lastTorque: number;
 }
 
 /** @internal */
@@ -33,7 +46,32 @@ export interface ColliderHandleState {
   signature: string;
   syncedVersion: number;
   active: boolean;
+  /** A collider on a body's descendant: its pose relative to the body `[x, y, radians]`, to follow the node when it moves (ADR 0093). */
+  local?: number[] | null;
+  /** A character controller's own kinematic body, which carries its collider (ADR 0091). */
+  ownBody?: RAPIER.RigidBody;
 }
+
+/** @internal */
+export interface JointHandleState {
+  joint: RAPIER.ImpulseJoint;
+  signature: string;
+  settings: string;
+  body: RigidBody2D;
+  connected: RigidBody2D | null;
+  /** The fixed body standing in for the world, when the joint isn't connected to a body. */
+  ground: RAPIER.RigidBody | null;
+  /** A hinge's angle (radians) when it was made: its limits and targets count from there. */
+  restAngle: number;
+  /** The anchor in each body's frame: this joint's body, then the connected one (or the ground). */
+  local1: { x: number; y: number };
+  local2: { x: number; y: number };
+  /** For breakable joints: the dynamic body measured across the coming step, and its velocities before it. */
+  measure: { rb: RigidBody2D; local: { x: number; y: number }; v0: { x: number; y: number }; w0: number } | null;
+}
+
+/** How hard a joint motor drives towards its target velocity, before its `force` limit. */
+const MOTOR_GAIN = 1e4;
 
 let rapierReady: Promise<void> | null = null;
 
@@ -48,6 +86,8 @@ export function initRapier2D(): Promise<void> {
 /** @internal */
 export class Physics2DWorld {
   readonly rapier: RAPIER.World;
+  /** @internal */
+  readonly queries: Queries2D;
   private readonly events = new RAPIER.EventQueue(true);
   private readonly colliderByHandle = new Map<number, Collider2D>();
   private readonly layerGroups = new Map<string, number>();
@@ -56,6 +96,7 @@ export class Physics2DWorld {
     const [gx, gy] = world.settings.physics.gravity;
     this.rapier = new RAPIER.World({ x: gx, y: gy });
     this.buildLayerGroups();
+    this.queries = new Queries2D(this.rapier, (h) => this.colliderByHandle.get(h), (l) => this.groupsFor(l));
   }
 
   get gravity(): { x: number; y: number } {
@@ -86,6 +127,246 @@ export class Physics2DWorld {
     const world = this.world;
     for (const rb of world._componentsOfType(RigidBody2D)) this.pushBody(rb);
     for (const c of world._componentsOfType(Collider2D)) this.pushCollider(c);
+    for (const j of world._componentsOfType(Joint2D)) this.pushJoint(j);
+    this.findPlatforms();
+  }
+
+  // --- moving platforms (ADR 0091) ----------------------------------------------------------------
+
+  /** Grounded character controllers standing on a moving body, with that body's pose before the step. */
+  private platforms: { cc: CharacterController2D; body: RAPIER.RigidBody; x: number; y: number; a: number }[] = [];
+
+  /** Before the step: what each grounded controller stands on, if it's a body that can move. */
+  private findPlatforms(): void {
+    this.platforms.length = 0;
+    for (const cc of this.controllers.keys()) {
+      if (!cc.isGrounded || !cc.moveWithPlatforms || !cc.isActiveAndEnabled) continue;
+      const body = this.movingGround(cc);
+      if (!body) continue;
+      const t = body.translation();
+      this.platforms.push({ cc, body, x: t.x, y: t.y, a: body.rotation() });
+    }
+  }
+
+  /** The non-fixed body right under a character controller, if any. */
+  private movingGround(cc: CharacterController2D): RAPIER.RigidBody | null {
+    const st = cc._state;
+    if (!st?.ownBody) return null;
+    const reach = Math.max(cc.skinWidth, 1e-3) + Math.max(cc.snapToGround, 0) + 0.05;
+    const hit = this.rapier.castShape(st.collider.translation(), st.collider.rotation(), { x: 0, y: -1 }, st.collider.shape, 0, reach, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, this.groupsFor(cc.layer), st.collider, st.ownBody);
+    const body = hit?.collider.parent();
+    return body && !body.isFixed() ? body : null;
+  }
+
+  /** After the step: move each controller with the platform under it (sliding along anything in the way). */
+  private carryOnPlatforms(): void {
+    for (const { cc, body, x, y, a } of this.platforms) {
+      if (!cc._state || !this.rapier.getRigidBody(body.handle)) continue;
+      const p = this.colliderWorldPose(cc);
+      const t1 = body.translation(), turn = body.rotation() - a;
+      const dx = p.x - x, dy = p.y - y, c = Math.cos(turn), s = Math.sin(turn);
+      const delta = { x: t1.x + dx * c - dy * s - p.x, y: t1.y + dx * s + dy * c - p.y };
+      if (Math.hypot(delta.x, delta.y) < 1e-7) continue;
+      const flags = cc._flags;
+      this.moveCharacter(cc, delta);
+      cc._flags = flags; // still standing on it
+    }
+    this.platforms.length = 0;
+  }
+
+  // --- joints (ADR 0092) ---------------------------------------------------------------------------
+
+  private readonly warned = new Set<string>();
+
+  private warnOnce(key: string, message: string): void {
+    if (this.warned.has(key)) return;
+    this.warned.add(key);
+    console.warn(`[myco] ${message}`);
+  }
+
+  private pushJoint(j: Joint2D): void {
+    if (j._broken) return;
+    const active = j.isActiveAndEnabled;
+    const body = active ? j.body : null;
+    const connected = active ? j.connectedRigidbody : null;
+    if (active && !body) this.warnOnce(`jointbody:${j.node.entity}`, `${j.node.name}: ${j.constructor.name} needs a RigidBody2D on its node or above it.`);
+    if (active && j.connectedBody?.isValid && !connected) this.warnOnce(`jointother:${j.node.entity}`, `${j.node.name}: ${j.constructor.name}'s connected node "${j.connectedBody.name}" has no RigidBody2D.`);
+    const signature = [j._jointSignature(), j.anchor.x, j.anchor.y, j.autoConfigureConnectedAnchor, j.connectedAnchor.x, j.connectedAnchor.y, j.connectedBody?.isValid ? j.connectedBody.entity : -1, j.enableCollision].join("|");
+    let st = j._state;
+    if (st && (!active || st.signature !== signature || st.body !== body || st.connected !== connected || !st.body._state || (st.connected && !st.connected._state))) {
+      this.releaseJoint(j);
+      st = null;
+    }
+    if (!st) {
+      if (!active || !body?._state || (j.connectedBody?.isValid && !connected?._state)) return;
+      st = j._state = this.createJoint(j, body, connected, signature);
+    }
+    const settings = j._settingsSignature();
+    if (settings !== st.settings) {
+      st.settings = settings;
+      this.applyJointSettings(j, st);
+    }
+    // Breakable: measure whichever body is dynamic across the step (Rapier doesn't report joint forces).
+    st.measure = null;
+    if (j.breakForce > 0 || j.breakTorque > 0) {
+      const own = st.body.bodyType === "dynamic";
+      const rb = own ? st.body : st.connected?.bodyType === "dynamic" ? st.connected : null;
+      const b = rb?._state?.body;
+      if (rb && b) st.measure = { rb, local: own ? st.local1 : st.local2, v0: b.linvel(), w0: b.angvel() };
+    }
+  }
+
+  /** After a step: estimate breakable joints' forces and break them past their limits (see Physics3DWorld.checkJointBreaks). */
+  private checkJointBreaks(): void {
+    const dt = this.rapier.timestep;
+    if (!(dt > 0)) return;
+    for (const j of this.world._componentsOfType(Joint2D)) {
+      const st = j._state, m0 = st?.measure;
+      if (!st || !m0) continue;
+      st.measure = null;
+      const { rb, local, v0, w0 } = m0;
+      const b = rb._state?.body;
+      if (!b || !rb._state!.active) continue;
+      const mass = Math.max(rb.mass, 1e-4), inertia = mass / 6;
+      const v1 = b.linvel(), w1 = b.angvel(), g = this.rapier.gravity, gs = rb.useGravity ? rb.gravityScale : 0;
+      const lf = rb._state!.lastForce;
+      let fx = (mass * (v1.x - v0.x)) / dt - mass * g.x * gs - lf[0] + mass * rb.drag * v1.x;
+      let fy = (mass * (v1.y - v0.y)) / dt - mass * g.y * gs - lf[1] + mass * rb.drag * v1.y;
+      let t = (inertia * (w1 - w0)) / dt - rb._state!.lastTorque + inertia * rb.angularDrag * w1;
+      const com = b.translation();
+      for (const c of this.world._componentsOfType(Collider2D)) {
+        const col = c._state?.body === rb ? c._state.collider : null;
+        if (!col) continue;
+        this.rapier.contactPairsWith(col, (other) => {
+          this.rapier.contactPair(col, other, (manifold, flipped) => {
+            const n = manifold.normal(), sign = flipped ? 1 : -1;
+            for (let i = 0; i < manifold.numContacts(); i++) {
+              const k = (manifold.contactImpulse(i) * sign) / dt;
+              if (!k) continue;
+              fx -= n.x * k;
+              fy -= n.y * k;
+              const p = i < manifold.numSolverContacts() ? manifold.solverContactPoint(i) : null;
+              if (p) t -= (p.x - com.x) * n.y * k - (p.y - com.y) * n.x * k;
+            }
+          });
+        });
+      }
+      const a = b.rotation(), c = Math.cos(a), sn = Math.sin(a);
+      const ax = local.x * c - local.y * sn, ay = local.x * sn + local.y * c;
+      t -= ax * fy - ay * fx; // the joint's force at its anchor turns the body too
+      const force = Math.hypot(fx, fy), torque = Math.abs(t);
+      if ((j.breakForce > 0 && force > j.breakForce) || (j.breakTorque > 0 && torque > j.breakTorque)) this.breakJoint(j, force, torque);
+    }
+  }
+
+  private breakJoint(j: Joint2D, force: number, torque: number): void {
+    this.releaseJoint(j);
+    j._broken = true;
+    for (const comp of [...this.world._componentsOf(j.node.entity)]) {
+      if (!(comp instanceof GameBehavior) || !comp.isActiveAndEnabled || !comp.onJointBreak) continue;
+      try {
+        comp.onJointBreak(j, force, torque);
+      } catch (err) {
+        console.error(`[myco] ${comp.constructor.name}.onJointBreak threw:`, err);
+      }
+    }
+    GameObject.destroy(j);
+  }
+
+  /** A node's world position and angle (radians). */
+  private pose2D(node: Joint2D["node"]): { x: number; y: number; a: number } {
+    const t = node.transform;
+    if (!t) return { x: 0, y: 0, a: 0 };
+    const p = t.worldPosition;
+    return { x: p.x, y: p.y, a: t.worldRotation2D * DEG2RAD };
+  }
+
+  /** A point in a node's local space, in world space. */
+  private pointOf(node: Joint2D["node"], local: { x: number; y: number }): { x: number; y: number } {
+    if (!node.transform) return { x: local.x, y: local.y };
+    const [x, y] = Mat4.transformPoint(this.world.worldMatrix(node.entity), node.entity * 16, local.x, local.y, 0);
+    return { x, y };
+  }
+
+  private createJoint(j: Joint2D, body: RigidBody2D, connected: RigidBody2D | null, signature: string): JointHandleState {
+    const p1 = this.pose2D(body.node);
+    const pw = this.pointOf(j.node, j.anchor);
+    let rb2: RAPIER.RigidBody, ground: RAPIER.RigidBody | null = null, p2 = p1;
+    if (connected) {
+      rb2 = connected._state!.body;
+      p2 = this.pose2D(connected.node);
+    } else {
+      // The world: a fixed body where this body is now, so the two frames start out matching.
+      ground = rb2 = this.rapier.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(p1.x, p1.y).setRotation(p1.a));
+    }
+    const distanceJoint = j instanceof RopeJoint2D || j instanceof SpringJoint2D;
+    let pw2: { x: number; y: number };
+    if (!j.autoConfigureConnectedAnchor) pw2 = connected ? this.pointOf(j.connectedBody!, j.connectedAnchor) : { x: j.connectedAnchor.x, y: j.connectedAnchor.y };
+    else if (distanceJoint && connected) pw2 = { x: p2.x, y: p2.y };
+    else pw2 = pw;
+    const local = (p: { x: number; y: number; a: number }, w: { x: number; y: number }) => {
+      const dx = w.x - p.x, dy = w.y - p.y, c = Math.cos(-p.a), s = Math.sin(-p.a);
+      return { x: dx * c - dy * s, y: dx * s + dy * c };
+    };
+    const a1 = local(p1, pw), a2 = local(p2, pw2);
+    const dist = Math.hypot(pw2.x - pw.x, pw2.y - pw.y);
+    const restAngle = p1.a - p2.a;
+    // Rapier's first body is the connected one, so angles and positions read as this body's relative to it.
+    let data: RAPIER.JointData;
+    if (j instanceof FixedJoint2D) data = RAPIER.JointData.fixed(a2, 0, a1, -restAngle);
+    else if (j instanceof HingeJoint2D) data = RAPIER.JointData.revolute(a2, a1);
+    else if (j instanceof SliderJoint2D) {
+      if (Math.abs(restAngle) > 1e-4) this.warnOnce(`slider:${j.node.entity}`, `${j.node.name}: SliderJoint2D's bodies should start at the same rotation; it turns them to match.`);
+      const t = j.node.transform;
+      const turn = t ? t.worldRotation2D * DEG2RAD - p2.a : 0;
+      const len = Math.hypot(j.axis.x, j.axis.y) || 1;
+      const ax = j.axis.x / len, ay = j.axis.y / len, c = Math.cos(turn), s = Math.sin(turn);
+      data = RAPIER.JointData.prismatic(a2, a1, { x: ax * c - ay * s, y: ax * s + ay * c });
+    } else if (j instanceof RopeJoint2D) data = RAPIER.JointData.rope(j.autoConfigureDistance ? dist : Math.max(j.maxDistance, 0), a2, a1);
+    else if (j instanceof SpringJoint2D) data = RAPIER.JointData.spring(j.autoConfigureDistance ? dist : Math.max(j.restLength, 0), j.spring, j.damper, a2, a1);
+    else throw new Error(`Unsupported joint type ${j.constructor.name}.`);
+    if (j instanceof AxisJoint2D && j.useLimits) {
+      const [lo, hi] = this.limitsOf(j, restAngle);
+      data.limitsEnabled = true;
+      data.limits = [lo, hi];
+    }
+    const joint = this.rapier.createImpulseJoint(data, rb2, body._state!.body, true);
+    joint.setContactsEnabled(j.enableCollision);
+    return { joint, signature, settings: "", body, connected, ground, restAngle, local1: a1, local2: a2, measure: null };
+  }
+
+  /** A hinge's or slider's limits in Rapier's terms (hinges count from the angle they were made at). */
+  private limitsOf(j: AxisJoint2D, restAngle: number): [number, number] {
+    const lo = Math.min(j.limits.min, j.limits.max), hi = Math.max(j.limits.min, j.limits.max);
+    return j instanceof HingeJoint2D ? [lo * DEG2RAD + restAngle, hi * DEG2RAD + restAngle] : [lo, hi];
+  }
+
+  /** Limits, motor and spring on a live hinge or slider. */
+  private applyJointSettings(j: Joint2D, st: JointHandleState): void {
+    if (!(j instanceof AxisJoint2D)) return;
+    const unit = st.joint as RAPIER.UnitImpulseJoint;
+    const hinge = j instanceof HingeJoint2D, k = hinge ? DEG2RAD : 1, offset = hinge ? st.restAngle : 0;
+    if (j.useLimits) unit.setLimits(...this.limitsOf(j, st.restAngle));
+    if (j.useMotor || j.useSpring) unit.configureMotorModel(RAPIER.MotorModel.ForceBased);
+    if (j.useMotor) {
+      unit.configureMotorVelocity((j.motor?.targetVelocity ?? 0) * k, MOTOR_GAIN);
+      unit.setMotorMaxForce(Math.max(j.motor?.force ?? 0, 0));
+    } else if (j.useSpring) {
+      unit.configureMotorPosition((j.spring?.targetPosition ?? 0) * k + offset, j.spring?.spring ?? 0, j.spring?.damper ?? 0);
+      unit.setMotorMaxForce(Number.MAX_VALUE);
+    } else {
+      unit.setMotorMaxForce(0); // off (configuring an idle motor instead would lock the axis)
+    }
+    st.body._state?.body.wakeUp();
+  }
+
+  /** @internal */
+  releaseJoint(j: Joint2D): void {
+    const st = j._state;
+    if (!st) return;
+    if (this.rapier.getImpulseJoint(st.joint.handle)) this.rapier.removeImpulseJoint(st.joint, true);
+    if (st.ground) this.rapier.removeRigidBody(st.ground);
+    j._state = null;
   }
 
   private bodySignature(rb: RigidBody2D): string {
@@ -126,7 +407,9 @@ export class Physics2DWorld {
         // Static body moved, or a script teleported a dynamic body.
         body.setTranslation({ x: p.x, y: p.y }, true);
         body.setRotation(angle, true);
+        st.prev = st.curr = null; // teleported: nothing to blend from
       }
+      st.interpolated = false;
       st.syncedVersion = version;
     }
 
@@ -141,6 +424,8 @@ export class Physics2DWorld {
     // "force" mode applies for exactly one step (Unity semantics); Rapier forces persist until reset.
     body.resetForces(false);
     body.resetTorques(false);
+    st.lastForce = [rb._force[0], rb._force[1]];
+    st.lastTorque = rb._torque;
     if (rb._force[0] || rb._force[1]) body.addForce({ x: rb._force[0], y: rb._force[1] }, true);
     if (rb._torque) body.addTorque(rb._torque, true);
     rb._force[0] = rb._force[1] = 0;
@@ -156,7 +441,7 @@ export class Physics2DWorld {
     desc.setTranslation(p.x, p.y).setRotation(angle);
     const body = this.rapier.createRigidBody(desc);
     this.applyBodySettings(rb, body);
-    return { body, signature: this.bodySignature(rb), syncedVersion: this.world.tVersion[rb.node.entity], active: true };
+    return { body, signature: this.bodySignature(rb), syncedVersion: this.world.tVersion[rb.node.entity], active: true, prev: null, curr: null, interpolated: false, lastForce: [0, 0], lastTorque: 0 };
   }
 
   private applyBodySettings(rb: RigidBody2D, body: RAPIER.RigidBody): void {
@@ -197,11 +482,31 @@ export class Physics2DWorld {
       st.active = active;
       st.collider.setEnabled(active);
     }
-    if (!active || body) return;
+    if (!active) return;
+    const version = this.world.tVersion[e];
+    if (body) {
+      // A collider on a descendant of its body's node follows the node when it moves relative to the body.
+      if (body.node.entity !== e && version !== st.syncedVersion) {
+        const local = this.poseInBody(c, body);
+        const old = st.local;
+        if (!old || Math.abs(local[0] - old[0]) > 1e-5 || Math.abs(local[1] - old[1]) > 1e-5 || Math.abs(local[2] - old[2]) > 1e-6) {
+          st.collider.setTranslationWrtParent({ x: local[0], y: local[1] });
+          st.collider.setRotationWrtParent(local[2]);
+          st.local = local;
+        }
+        st.syncedVersion = version;
+      }
+      return;
+    }
 
     // Static collider without a body: follow the Transform when it changes.
-    const version = this.world.tVersion[e];
-    if (version !== st.syncedVersion) {
+    if (version !== st.syncedVersion && st.ownBody) {
+      const pose = this.colliderWorldPose(c);
+      st.ownBody.setTranslation({ x: pose.x, y: pose.y }, true);
+      st.ownBody.setNextKinematicTranslation({ x: pose.x, y: pose.y }); // or the step moves it back to a stale target
+      this.rapier.propagateModifiedBodyPositionsToColliders();
+      st.syncedVersion = version;
+    } else if (version !== st.syncedVersion) {
       const pose = this.colliderWorldPose(c);
       st.collider.setTranslation({ x: pose.x, y: pose.y });
       st.collider.setRotation(pose.angle);
@@ -215,8 +520,10 @@ export class Physics2DWorld {
     if (!t) return { x: c.center.x, y: c.center.y, angle: 0 };
     const p = t.worldPosition;
     const ws = t.worldScale;
-    const angle = t.worldRotation2D * DEG2RAD;
     const cx = c.center.x * ws.x, cy = c.center.y * ws.y;
+    // A character controller's capsule stays upright, whichever way its node turns.
+    if (c instanceof CharacterController2D) return { x: p.x + cx, y: p.y + cy, angle: 0 };
+    const angle = t.worldRotation2D * DEG2RAD;
     const cos = Math.cos(angle), sin = Math.sin(angle);
     return { x: p.x + cx * cos - cy * sin, y: p.y + cx * sin + cy * cos, angle };
   }
@@ -231,18 +538,22 @@ export class Physics2DWorld {
       desc = RAPIER.ColliderDesc.ball(Math.abs(c.radius * Math.max(Math.abs(ws.x), Math.abs(ws.y))));
     } else if (c instanceof PolygonCollider2D || c instanceof EdgeCollider2D) {
       desc = this.pointsShape(c, ws);
+    } else if (c instanceof CharacterController2D) {
+      const r = Math.max(Math.abs(c.radius * ws.x), 1e-4);
+      desc = RAPIER.ColliderDesc.capsule(Math.max(0, Math.abs(c.height * ws.y) / 2 - r), r);
     } else {
       throw new Error(`Unsupported collider type ${c.constructor.name}.`);
     }
     const pose = this.colliderWorldPose(c);
-    if (body) {
+    let local: number[] | null = null;
+    let ownBody: RAPIER.RigidBody | undefined;
+    if (c instanceof CharacterController2D) {
+      // On its own kinematic body, so it meets static triggers and level geometry (static–static pairs never do).
+      ownBody = this.rapier.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(pose.x, pose.y));
+    } else if (body) {
       // Position relative to the body, in the body's rotated frame.
-      const bt = body.node.transform;
-      const bp = bt ? bt.worldPosition : { x: 0, y: 0 };
-      const ba = bt ? bt.worldRotation2D * DEG2RAD : 0;
-      const dx = pose.x - bp.x, dy = pose.y - bp.y;
-      const cos = Math.cos(-ba), sin = Math.sin(-ba);
-      desc.setTranslation(dx * cos - dy * sin, dx * sin + dy * cos).setRotation(pose.angle - ba).setDensity(0);
+      local = this.poseInBody(c, body);
+      desc.setTranslation(local[0], local[1]).setRotation(local[2]).setDensity(0);
     } else {
       desc.setTranslation(pose.x, pose.y).setRotation(pose.angle);
     }
@@ -252,10 +563,23 @@ export class Physics2DWorld {
       .setRestitution(c.material?.bounciness ?? 0)
       .setCollisionGroups(this.groupsFor(c.layer))
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
+      // Every body pairs with a character controller's kinematic body except other kinematic ones: their
+      // contacts would let Rapier's controller drag it along with platforms on some steps, on top of carryOnPlatforms.
       .setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
-    const collider = this.rapier.createCollider(desc, body?._state?.body);
+    const collider = this.rapier.createCollider(desc, ownBody ?? body?._state?.body);
     this.colliderByHandle.set(collider.handle, c);
-    return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true };
+    return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true, local, ownBody };
+  }
+
+  /** The collider's shape pose in its body's frame, `[x, y, radians]`, from the two nodes' Transforms. */
+  private poseInBody(c: Collider2D, body: RigidBody2D): number[] {
+    const pose = this.colliderWorldPose(c);
+    const bt = body.node.transform;
+    const bp = bt ? bt.worldPosition : { x: 0, y: 0 };
+    const ba = bt ? bt.worldRotation2D * DEG2RAD : 0;
+    const dx = pose.x - bp.x, dy = pose.y - bp.y;
+    const cos = Math.cos(-ba), sin = Math.sin(-ba);
+    return [dx * cos - dy * sin, dx * sin + dy * cos, pose.angle - ba];
   }
 
   /**
@@ -294,37 +618,104 @@ export class Physics2DWorld {
 
   /** @internal */
   writeBack(): void {
+    this.carryOnPlatforms();
     const world = this.world;
     for (const rb of world._componentsOfType(RigidBody2D)) {
       const st = rb._state;
-      if (!st || !st.active || rb.bodyType !== "dynamic" || st.body.isSleeping()) continue;
+      if (!st || !st.active || rb.bodyType !== "dynamic") continue;
+      if (st.body.isSleeping()) {
+        if (st.curr) st.prev = st.curr; // at rest: nothing left to blend
+        continue;
+      }
       const t = rb.node.transform;
       if (!t) continue;
-      const p = st.body.translation();
-      t._setWorldPose2D(p.x, p.y, st.body.rotation() * RAD2DEG);
+      const p = st.body.translation(), angle = st.body.rotation();
+      if (rb.interpolate) {
+        const pose = [p.x, p.y, angle];
+        st.prev = st.curr ?? pose;
+        st.curr = pose;
+      } else {
+        st.prev = st.curr = null;
+      }
+      t._setWorldPose2D(p.x, p.y, angle * RAD2DEG);
+      st.interpolated = false;
       st.syncedVersion = world.tVersion[rb.node.entity];
     }
   }
 
+  /**
+   * @internal Interpolation (ADR 0093), in Worlds that render: show each interpolating dynamic body
+   * `alpha` of the way from its pose before the last step to its pose after it.
+   */
+  interpolate(alpha: number): void {
+    for (const rb of this.world._componentsOfType(RigidBody2D)) {
+      const st = rb._state;
+      if (!st?.prev || !st.curr || !st.active || !rb.interpolate || rb.bodyType !== "dynamic") continue;
+      const t = rb.node.transform;
+      if (!t || this.world.tVersion[rb.node.entity] !== st.syncedVersion) continue; // a script moved it: that wins
+      const a = st.prev, b = st.curr;
+      if (a === b && !st.interpolated) continue; // at rest and already showing it
+      t._setWorldPose2D(a[0] + (b[0] - a[0]) * alpha, a[1] + (b[1] - a[1]) * alpha, (a[2] + (b[2] - a[2]) * alpha) * RAD2DEG);
+      st.interpolated = true;
+      st.syncedVersion = this.world.tVersion[rb.node.entity];
+    }
+  }
+
+  /** @internal Before a fixed step's scripts: put interpolated bodies back at their simulated pose. */
+  restoreInterpolated(): void {
+    for (const rb of this.world._componentsOfType(RigidBody2D)) {
+      const st = rb._state;
+      if (!st?.interpolated || !st.curr) continue;
+      st.interpolated = false;
+      const t = rb.node.transform;
+      if (!t || this.world.tVersion[rb.node.entity] !== st.syncedVersion) continue;
+      t._setWorldPose2D(st.curr[0], st.curr[1], st.curr[2] * RAD2DEG);
+      st.syncedVersion = this.world.tVersion[rb.node.entity];
+    }
+  }
+
+  /** Pairs of colliders touching (or overlapping, for triggers) since an earlier step, for `Stay` hooks (ADR 0093). */
+  private readonly touching = new Map<string, { h1: number; h2: number; fresh: boolean }>();
+
   /** @internal */
   dispatchEvents(): void {
+    this.checkJointBreaks();
     this.events.drainCollisionEvents((h1, h2, started) => {
+      const key = h1 < h2 ? `${h1}:${h2}` : `${h2}:${h1}`;
+      if (started) this.touching.set(key, { h1, h2, fresh: true });
+      else this.touching.delete(key);
       const a = this.colliderByHandle.get(h1);
       const b = this.colliderByHandle.get(h2);
       if (!a || !b || a._destroyed || b._destroyed) return;
       const trigger = a.isTrigger || b.isTrigger;
       this.world._buffer(trigger ? TriggerEvents2D : CollisionEvents2D).push({ a, b, started }); // this World's, whichever is current
-      this.notify(a, b, trigger, started);
-      this.notify(b, a, trigger, started);
+      this.notify(a, b, trigger, started ? "Enter" : "Exit");
+      this.notify(b, a, trigger, started ? "Enter" : "Exit");
     });
+    // onCollisionStay / onTriggerStay: every step after the one that began the contact, while it lasts.
+    for (const [key, pair] of this.touching) {
+      if (pair.fresh) {
+        pair.fresh = false;
+        continue;
+      }
+      const a = this.colliderByHandle.get(pair.h1), b = this.colliderByHandle.get(pair.h2);
+      if (!a || !b || a._destroyed || b._destroyed) {
+        this.touching.delete(key);
+        continue;
+      }
+      if (!a.isActiveAndEnabled || !b.isActiveAndEnabled) continue;
+      const trigger = a.isTrigger || b.isTrigger;
+      this.notify(a, b, trigger, "Stay");
+      this.notify(b, a, trigger, "Stay");
+    }
   }
 
   /** Call the hook on active behaviors of `self`'s node, owner and body node. */
-  private notify(self: Collider2D, other: Collider2D, trigger: boolean, started: boolean): void {
+  private notify(self: Collider2D, other: Collider2D, trigger: boolean, phase: "Enter" | "Stay" | "Exit"): void {
     const nodes = new Set([self.node.entity, self.owner.entity]);
     const body = self._state?.body;
     if (body?.node.isValid) nodes.add(body.node.entity);
-    const hook = trigger ? (started ? "onTriggerEnter" : "onTriggerExit") : started ? "onCollisionEnter" : "onCollisionExit";
+    const hook = `${trigger ? "onTrigger" : "onCollision"}${phase}`;
     const collision: Collision2D | null = trigger
       ? null
       : { collider: other, otherCollider: self, gameObject: other.owner, rigidbody: other._state?.body ?? null };
@@ -340,6 +731,88 @@ export class Physics2DWorld {
         }
       }
     }
+  }
+
+  // --- character controllers (ADR 0091) -----------------------------------------------------------
+
+  private readonly controllers = new Map<CharacterController2D, { kcc: RAPIER.KinematicCharacterController; settings: string }>();
+
+  /** @internal Move a character controller by `motion`, sliding along what it hits; null before its collider exists. */
+  moveCharacter(cc: CharacterController2D, motion: { x: number; y: number }): { movement: Vector2; flags: CollisionFlags; hits: ControllerColliderHit2D[] } | null {
+    const st = cc._state;
+    const t = cc.node.transform;
+    if (!st || !st.active || !t) return null;
+    let entry = this.controllers.get(cc);
+    if (!entry) this.controllers.set(cc, (entry = { kcc: this.rapier.createCharacterController(cc.skinWidth), settings: "" }));
+    const kcc = entry.kcc;
+    const settings = cc._settingsSignature();
+    if (entry.settings !== settings) {
+      entry.settings = settings;
+      kcc.setOffset(Math.max(cc.skinWidth, 1e-4));
+      kcc.setSlideEnabled(true);
+      kcc.setMaxSlopeClimbAngle(cc.slopeLimit * DEG2RAD);
+      kcc.setMinSlopeSlideAngle(cc.slopeLimit * DEG2RAD);
+      if (cc.stepOffset > 0) kcc.enableAutostep(cc.stepOffset, Math.max(Math.abs(cc.radius * t.worldScale.x) * 0.5, 0.01), true);
+      else kcc.disableAutostep();
+      if (cc.snapToGround > 0) kcc.enableSnapToGround(cc.snapToGround);
+      else kcc.disableSnapToGround();
+      kcc.setApplyImpulsesToDynamicBodies(cc.pushBodies);
+      kcc.setCharacterMass(Math.max(cc.mass, 1e-4));
+    }
+    // Start from where the node is now (a script may have moved it since the last push).
+    const start = this.colliderWorldPose(cc);
+    const own = st.ownBody!;
+    own.setTranslation({ x: start.x, y: start.y }, true);
+    own.setNextKinematicTranslation({ x: start.x, y: start.y }); // or the step moves it back to a stale target
+    this.rapier.propagateModifiedBodyPositionsToColliders();
+    // Rapier's controller adds the ground body's motion over one timestep on every call (frame-rate
+    // dependent, and only while moving); platforms carry controllers in carryOnPlatforms instead.
+    // Pushing bodies scales its impulses by that timestep, so it runs as a second pass at the real one.
+    const groups = this.groupsFor(cc.layer), filter = RAPIER.QueryFilterFlags.EXCLUDE_SENSORS;
+    if (cc.pushBodies) {
+      kcc.computeColliderMovement(st.collider, { x: motion.x, y: motion.y }, filter, groups); // applies the impulses; its movement isn't used
+    }
+    const dt = this.rapier.timestep;
+    kcc.setApplyImpulsesToDynamicBodies(false);
+    this.rapier.timestep = 1e-6;
+    kcc.computeColliderMovement(st.collider, { x: motion.x, y: motion.y }, filter, groups);
+    this.rapier.timestep = dt;
+    kcc.setApplyImpulsesToDynamicBodies(cc.pushBodies);
+    const m = kcc.computedMovement();
+    own.setTranslation({ x: start.x + m.x, y: start.y + m.y }, true);
+    own.setNextKinematicTranslation({ x: start.x + m.x, y: start.y + m.y }); // or the step moves it back to a stale target
+    this.rapier.propagateModifiedBodyPositionsToColliders();
+    const p = t.worldPosition;
+    t.worldPosition = [p.x + m.x, p.y + m.y, p.z];
+    st.syncedVersion = this.world.tVersion[cc.node.entity];
+
+    const len = Math.hypot(motion.x, motion.y);
+    const dir = len > 0 ? new Vector2(motion.x / len, motion.y / len) : new Vector2();
+    const cosSlope = Math.cos(cc.slopeLimit * DEG2RAD);
+    let below = kcc.computedGrounded(), sides = false, above = false;
+    const hits: ControllerColliderHit2D[] = [];
+    for (let i = 0, n = kcc.numComputedCollisions(); i < n; i++) {
+      const hit = kcc.computedCollision(i);
+      if (!hit?.collider) continue;
+      const other = this.colliderByHandle.get(hit.collider.handle);
+      if (!other || other._destroyed) continue;
+      const nrm = hit.normal1;
+      if (nrm.y >= cosSlope - 1e-3) below = true;
+      else if (nrm.y <= -cosSlope) above = true;
+      else sides = true;
+      const applied = hit.translationDeltaApplied;
+      hits.push({
+        controller: cc,
+        collider: other,
+        gameObject: other.owner,
+        rigidbody: other._state?.body ?? null,
+        point: new Vector2(hit.witness1.x, hit.witness1.y),
+        normal: new Vector2(nrm.x, nrm.y),
+        moveDirection: dir,
+        moveLength: Math.hypot(applied.x, applied.y),
+      });
+    }
+    return { movement: new Vector2(m.x, m.y), flags: { below, sides, above }, hits };
   }
 
   // --- queries ---------------------------------------------------------------------------------
@@ -371,6 +844,7 @@ export class Physics2DWorld {
     for (const c of this.world._componentsOfType(Collider2D)) {
       if (c._state?.body === rb) this.releaseCollider(c);
     }
+    for (const j of this.world._componentsOfType(Joint2D)) if (j._state && (j._state.body === rb || j._state.connected === rb)) this.releaseJoint(j);
     this.rapier.removeRigidBody(st.body);
     rb._state = null;
   }
@@ -379,8 +853,16 @@ export class Physics2DWorld {
   releaseCollider(c: Collider2D): void {
     const st = c._state;
     if (!st) return;
-    this.colliderByHandle.delete(st.collider.handle);
-    if (this.rapier.getCollider(st.collider.handle)) this.rapier.removeCollider(st.collider, true);
+    const h = st.collider.handle;
+    this.colliderByHandle.delete(h);
+    if (c instanceof CharacterController2D) {
+      const entry = this.controllers.get(c);
+      if (entry) this.rapier.removeCharacterController(entry.kcc);
+      this.controllers.delete(c);
+    }
+    for (const [key, pair] of this.touching) if (pair.h1 === h || pair.h2 === h) this.touching.delete(key);
+    if (this.rapier.getCollider(h)) this.rapier.removeCollider(st.collider, true);
+    if (st.ownBody) this.rapier.removeRigidBody(st.ownBody);
     c._state = null;
   }
 }
