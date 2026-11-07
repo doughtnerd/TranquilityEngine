@@ -212,6 +212,11 @@ export class BabylonProbes {
     this.scene.activeCamera = previous;
   }
 
+  /** The probes that have captured, as unblended hits: the copies a warm-up draws (ADR 0080). */
+  textures(): ProbeHit[] {
+    return this.boxes.map((b) => ({ texture: b.texture, intensity: b.intensity, blend: null }));
+  }
+
   /** Whether any probe has captured (so `lookup` can find one). */
   get any(): boolean {
     return this.boxes.length > 0;

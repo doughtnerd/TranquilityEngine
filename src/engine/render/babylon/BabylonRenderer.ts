@@ -222,6 +222,10 @@ export class BabylonRenderer {
   private readonly effects: { ms(): number; dispose(): void };
   /** ADR 0080: editor play mode's log of shader variants compiled after loading; null when off. */
   private report: VariantReport | null = null;
+  /** The quality tier version the warm-up last ran for (-1 before the first frame). */
+  private warmedVersion = -1;
+  /** How many probes had captured when the warm-up last covered their copies. */
+  private warmedProbes = 0;
   /** When `render` last drew a frame: a warm-up only waits while frames are being drawn. */
   private lastRenderAt = -Infinity;
   private readonly lighting: BabylonLighting;
@@ -329,6 +333,7 @@ export class BabylonRenderer {
       loadingTextures: () => this.loading.size > 0,
       ...(this.asyncPipelines ? { compiling: () => this.asyncPipelines!.settled() } : {}),
       effectMs: () => this.effects.ms(),
+      probeVariants: (base) => this.probes.textures().map((hit) => this.probeMaterial(base, hit)),
     });
     this.warmer.onDrained = () => this.report?.quiet();
     if (fill) this.editorTools();
@@ -564,6 +569,10 @@ export class BabylonRenderer {
     this.probeMeshes.length = 0;
     for (const m of this.scene.meshes) if ((m.layerMask & EDITOR_LAYER_MASK) === 0) this.probeMeshes.push(m);
     this.probes.sync(world, this.probeMeshes, ready);
+    // Probes capture after the scene loads, after its warm-up: warm their material copies once they exist (ADR 0080).
+    const captured = this.probes.textures().length;
+    if (captured > this.warmedProbes) void this.warmer.rewarm();
+    this.warmedProbes = captured;
     const surfaces = world._componentsOfType(WaterSurface);
     if (surfaces.length || this.water) {
       this.water ??= new BabylonWater(this.scene, (x, y, z) => this.probes.lookup(x, y, z));
@@ -649,6 +658,11 @@ export class BabylonRenderer {
 
   render(world: World): void {
     this.claim(world);
+    // A new quality tier changes the passes (shadows, cascades, probes): warm what's been warmed again (ADR 0080).
+    if (Graphics._version !== this.warmedVersion) {
+      if (this.warmedVersion >= 0) void this.warmer.rewarm();
+      this.warmedVersion = Graphics._version;
+    }
     this.reflecting = 0;
     this.graphShared.time = world.time.time;
     this.graphShared.resolution = [this.engine.getRenderWidth(), this.engine.getRenderHeight()];
