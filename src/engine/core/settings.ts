@@ -1,7 +1,12 @@
 import { parseGraphics, type GraphicsSettings } from "./graphics";
 import { parseNavigationSettings, type NavigationSettings } from "../nav/settings";
+import { parseAudioSettings, type AudioSettings } from "../audio/settings";
 import type { BootstrapSetting } from "./worlds";
 import { lobbyOptionProblems } from "../net/lobby/protocol";
+
+/** How the game canvas scales to its container (see `ProjectSettings.display.scaleMode`). */
+export type ScaleMode = "fit" | "stretch" | "pixel-perfect";
+export const SCALE_MODES: readonly ScaleMode[] = ["fit", "stretch", "pixel-perfect"];
 
 /** Project settings, normally loaded from the game's `project.json`. */
 export interface ProjectSettings {
@@ -11,6 +16,13 @@ export interface ProjectSettings {
     width: number;
     height: number;
     backgroundColor: string;
+    /**
+     * How the canvas fits its container (ADR 0116): "fit" keeps the aspect ratio and scales to the
+     * largest size that fits (letterboxed); "stretch" fills the container, ignoring the aspect
+     * ratio; "pixel-perfect" scales by whole numbers only (falling back to "fit" when the
+     * container is smaller than the reference size).
+     */
+    scaleMode: ScaleMode;
   };
   time: {
     fixedDeltaTime: number;
@@ -38,6 +50,8 @@ export interface ProjectSettings {
   graphics: GraphicsSettings;
   /** Built-in navigation (ADR 0065): agent types, areas, voxel sizes, runtime budgets. Omitted: one person-sized walker. */
   navigation: NavigationSettings;
+  /** Audio mixer buses, snapshots, ducking and the backend (ADR 0097, 0098). Omitted: Master with Music, SFX, UI and Voice. */
+  audio: AudioSettings;
   /** Scene/prefab files instanced under the World root at startup; they persist across scene loads (ADR 0016). */
   autoload: string[];
   /** Which Worlds the Engine creates at start (ADR 0032). Omitted: the default bootstrap, one World. */
@@ -45,21 +59,25 @@ export interface ProjectSettings {
 }
 
 export type ProjectSettingsInput = {
-  [K in keyof ProjectSettings]?: ProjectSettings[K] extends object[] | string[]
+  [K in Exclude<keyof ProjectSettings, "audio">]?: ProjectSettings[K] extends object[] | string[]
     ? ProjectSettings[K]
     : ProjectSettings[K] extends object
       ? Partial<ProjectSettings[K]>
       : ProjectSettings[K];
+} & {
+  /** Read leniently by `parseAudioSettings`; bad entries are reported, not fatal. */
+  audio?: Record<string, unknown>;
 };
 
 export const defaultSettings: ProjectSettings = {
   name: "Untitled",
-  display: { width: 1280, height: 720, backgroundColor: "#000000" },
+  display: { width: 1280, height: 720, backgroundColor: "#000000", scaleMode: "fit" },
   time: { fixedDeltaTime: 1 / 60, maxSubSteps: 5, maxFrameTime: 0.25 },
   physics: { gravity: [0, -9.81], layers: ["Default"] },
   render: { sortingLayers: ["Default"], pixelsPerUnit: 100 },
   graphics: parseGraphics(undefined).graphics,
   navigation: parseNavigationSettings(undefined).settings,
+  audio: parseAudioSettings(undefined).settings,
   autoload: [],
 };
 
@@ -72,6 +90,7 @@ export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettin
     render: { ...defaultSettings.render, ...input.render },
     graphics: parseGraphics(input.graphics).graphics, // problems are reported by the Engine and the Project panel
     navigation: parseNavigationSettings(input.navigation).settings, // problems are reported by the Engine (`navigationSettingsProblems`) and the Project panel
+    audio: parseAudioSettings(input.audio).settings, // problems are reported by the Engine and the Project panel
     autoload: input.autoload ?? [],
     ...(input.bootstrap !== undefined ? { bootstrap: input.bootstrap } : {}), // checked by validateBootstrap when the bootstrap runs
   };
@@ -83,7 +102,7 @@ export function navigationSettingsProblems(input: unknown): string[] {
 }
 
 const BOOTSTRAP_KEYS = ["worlds", "links", "templates"];
-const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems", "lobby"];
+const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems", "lobby", "replication"];
 const LINK_KEYS = ["from", "to", "transport", "options"];
 
 /**
@@ -177,6 +196,7 @@ function worldProblems(world: unknown, where: string, nameRequired: boolean, kno
   }
   if (world.scenes !== undefined && !isStringList(world.scenes)) problems.push(`${where}: scenes must be a list of scene paths (got ${describe(world.scenes)}).`);
   if (world.lobby !== undefined) problems.push(...lobbyOptionProblems(world.lobby, `${where}: lobby`)); // ADR 0068
+  if (world.replication !== undefined) replicationProblems(world.replication, `${where}: replication`, problems); // ADR 0101
 
   const systems = world.systems;
   if (systems === undefined) return;
@@ -218,6 +238,22 @@ function linkProblems(link: unknown, where: string, worlds: readonly string[], p
     problems.push(`${where}: transport must be a transport name such as "loopback" (got ${describe(link.transport)}).`);
   }
   if (link.options !== undefined && !isRecord(link.options)) problems.push(`${where}: options must be an object (got ${describe(link.options)}).`);
+}
+
+/** Problems with a World config's `replication` settings (ADR 0101). */
+function replicationProblems(value: unknown, where: string, problems: string[]): void {
+  if (!isRecord(value)) {
+    problems.push(`${where} must be an object with sendRate and maxSnapshotBytes (got ${describe(value)}).`);
+    return;
+  }
+  unknownKeys(value, ["sendRate", "maxSnapshotBytes"], where, problems);
+  const { sendRate, maxSnapshotBytes } = value;
+  if (sendRate !== undefined && !(typeof sendRate === "number" && Number.isFinite(sendRate) && sendRate > 0)) {
+    problems.push(`${where}: sendRate must be a positive number of snapshots per second (got ${describe(sendRate)}).`);
+  }
+  if (maxSnapshotBytes !== undefined && !(typeof maxSnapshotBytes === "number" && Number.isInteger(maxSnapshotBytes) && maxSnapshotBytes >= 256)) {
+    problems.push(`${where}: maxSnapshotBytes must be a whole number of bytes, 256 or more (got ${describe(maxSnapshotBytes)}).`);
+  }
 }
 
 function unknownKeys(value: Record<string, unknown>, keys: readonly string[], where: string, problems: string[]): void {

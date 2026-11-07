@@ -23,6 +23,9 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import type { WarmMesh } from "../../scene/warmUp";
 import { meshOf } from "./materials";
+import type { MaterialInstancing } from "../../scene/material";
+import "@babylonjs/core/Meshes/instancedMesh.js"; // Mesh.createInstance
+import "@babylonjs/core/Meshes/thinInstanceMesh.js"; // Mesh.thinInstance*
 
 /** The most Babylon meshes a warm batch makes when pipelines compile as Babylon makes them: each new one stalls its frame. */
 const BATCH = 6;
@@ -58,6 +61,16 @@ export interface WarmDeps {
   fogless(material: BabylonMaterial): boolean;
   /** Whether textures are still loading: a material's texture changes its shader, so a batch waits for them. */
   loadingTextures(): boolean;
+  /**
+   * How renderers drawing a material asset batch (ADR 0108): warm meshes draw the same way (instanced,
+   * thin-instanced or plain), since instancing is part of the shader variant. Without it they draw plain.
+   */
+  instancing?(path: string | null): MaterialInstancing;
+  /**
+   * Extra copies of a material in the keyword combinations scripts may switch to (`"variants": "all"`,
+   * ADR 0106), drawn too so those variants compile now; each with its dispose.
+   */
+  keywordVariants?(material: BabylonMaterial): { material: BabylonMaterial; dispose(): void }[];
   /**
    * The renderer's reflection-probe copies of a built-in material, one per captured probe (ADR 0054;
    * box projection changes the shader, ADR 0110), so meshes entering a probe's box don't compile then.
@@ -99,11 +112,13 @@ export function nextBatchSize(size: number, effectMs: number, max: number): numb
 interface Batch {
   meshes: Mesh[];
   clones: BabylonMaterial[];
+  /** Keyword-variant copies (ADR 0106), disposed with the batch. */
+  disposers: (() => void)[];
   /** Blend copies and their bases: a base's textures arrive after it's made, and the copy must follow. */
   blends: [PBRMaterial, PBRMaterial][];
   /** The batch's PBR materials and the textures they had last frame: a change means a new variant to draw. */
   watched: { material: PBRMaterial; albedo: unknown; bump: unknown }[];
-  casters: Mesh[];
+  casters: AbstractMesh[];
   frames: number;
   readyFrames: number;
   /** `effectMs()` when the batch was built, and how many meshes it was meant to take. */
@@ -157,7 +172,7 @@ export class PipelineWarmer {
   }
 
   /** Before the frame graph runs: place this frame's batch in front of `camera`, its shadow casters onto `casters`. */
-  beforeRender(camera: Camera | null, casters: Mesh[]): void {
+  beforeRender(camera: Camera | null, casters: AbstractMesh[]): void {
     if (!this.batch && this.queue.length && camera) this.batch = this.build(camera);
     if (!this.batch) return;
     casters.push(...this.batch.casters);
@@ -181,7 +196,7 @@ export class PipelineWarmer {
     const b = this.batch;
     if (!b) return;
     b.frames++;
-    if (!this.deps.loadingTextures() && b.meshes.every((m) => m.isReady(true))) b.readyFrames++;
+    if (!this.deps.loadingTextures() && b.meshes.every((m) => m.isReady(true, m.hasInstances))) b.readyFrames++;
     if (b.readyFrames < 2 && b.frames < MAX_FRAMES) return;
     if (this.deps.effectMs) this.size = nextBatchSize(b.size, this.deps.effectMs() - b.effectStart, this.maxBatch);
     this.drop(b);
@@ -212,10 +227,11 @@ export class PipelineWarmer {
   private drop(b: Batch): void {
     for (const m of b.meshes) m.dispose();
     for (const c of b.clones) c.dispose();
+    for (const d of b.disposers) d();
   }
 
   private build(camera: Camera): Batch {
-    const b: Batch = { meshes: [], clones: [], blends: [], watched: [], casters: [], frames: 0, readyFrames: 0, effectStart: this.deps.effectMs?.() ?? 0, size: this.size };
+    const b: Batch = { meshes: [], clones: [], disposers: [], blends: [], watched: [], casters: [], frames: 0, readyFrames: 0, effectStart: this.deps.effectMs?.() ?? 0, size: this.size };
     const forward = camera.getDirection(Vector3.Forward(this.deps.scene.useRightHandedSystem));
     const at = camera.globalPosition.add(forward.scale(Math.max(camera.minZ, 0.01) * 4));
     Matrix.ComposeToRef(new Vector3(WARM_SCALE, WARM_SCALE, WARM_SCALE), Quaternion.Identity(), at, this.matrix);
@@ -243,7 +259,14 @@ export class PipelineWarmer {
         b.blends.push([blend, base]);
         variants.push(blend);
       }
+      if (base && this.deps.keywordVariants) {
+        for (const v of this.deps.keywordVariants(base)) {
+          variants.push(v.material);
+          b.disposers.push(v.dispose);
+        }
+      }
       if (base instanceof PBRMaterial && !this.deps.isGraph(base)) variants.push(...(this.deps.probeVariants?.(base) ?? []));
+      const mode = this.deps.instancing ? this.deps.instancing(w.material || null) : "off";
       // Counted in Babylon meshes: a model of many parts, or a blend copy, is several draws and effects.
       taken += variants.length * sources.length;
       for (const variant of variants) {
@@ -257,9 +280,22 @@ export class PipelineWarmer {
           mesh.receiveShadows = w.receiveShadows;
           mesh.applyFog = !this.deps.fogless(base ?? material);
           mesh.isPickable = false;
-          mesh.freezeWorldMatrix(this.matrix.clone());
           b.meshes.push(mesh);
-          if (w.castShadows) b.casters.push(mesh);
+          // Drawn as the scene draws it (ADR 0108): an instance of a hidden source, a thin instance, or plain.
+          if (mode === "auto") {
+            mesh.isVisible = false;
+            const instance = mesh.createInstance(`${WARM_PREFIX}${src.name}:instance`);
+            instance.isPickable = false;
+            instance.freezeWorldMatrix(this.matrix.clone());
+            if (w.castShadows) b.casters.push(instance);
+          } else if (mode === "thin") {
+            mesh.freezeWorldMatrix(Matrix.Identity());
+            mesh.thinInstanceSetBuffer("matrix", this.matrix.toArray() as Float32Array, 16, true);
+            if (w.castShadows) b.casters.push(mesh);
+          } else {
+            mesh.freezeWorldMatrix(this.matrix.clone());
+            if (w.castShadows) b.casters.push(mesh);
+          }
         }
       }
     }

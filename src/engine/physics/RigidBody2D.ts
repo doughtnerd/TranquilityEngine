@@ -28,8 +28,11 @@ export class RigidBody2D extends Component {
   @field(Number) angularDrag = 0.05;
   @field(PlainObject) constraints: RigidBody2DConstraints = { freezePosition: { x: false, y: false }, freezeRotation: false };
   @field(String, { choices: ["discrete", "continuous"] }) collisionDetection: "discrete" | "continuous" = "discrete";
-  /** Reserved: render interpolation between fixed steps is not implemented yet. */
-  @field(Boolean) interpolate = false;
+  /**
+   * Show the body between its last two fixed steps when rendering, so it moves smoothly at any frame
+   * rate (ADR 0093). It then trails the simulation by up to one step; headless Worlds never interpolate.
+   */
+  @field(Boolean) interpolate = true;
 
   /** @internal */ _state: BodyHandleState | null = null;
   /** @internal */ _pendingVelocity: [number, number] | null = null;

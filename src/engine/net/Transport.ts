@@ -57,11 +57,28 @@ export interface LinkConditions {
 
 export type TransportFactory = (options: Record<string, unknown>) => Transport;
 
+/** What a registered transport can do (ADR 0102). */
+export interface TransportCapabilities {
+  /**
+   * Whether its transports can `listen` here. Default true. The browser WebSocket transport
+   * can't (a page can't open a server socket), so links between two Worlds of one page that name
+   * it connect over loopback instead.
+   */
+  readonly listen?: boolean;
+}
+
 const factories = new Map<string, TransportFactory>();
+const capabilities = new Map<string, TransportCapabilities>();
 
 /** Make a transport available by name to bootstrap links and `WorldHandle.connect`. */
-export function registerTransport(name: string, factory: TransportFactory): void {
+export function registerTransport(name: string, factory: TransportFactory, caps: TransportCapabilities = {}): void {
   factories.set(name, factory);
+  capabilities.set(name, caps);
+}
+
+/** @internal Whether transports registered as `name` can listen in this process (unknown names: true, so creating one reports the real error). */
+export function transportCanListen(name: string): boolean {
+  return capabilities.get(name)?.listen !== false;
 }
 
 /** Create a transport by name. Throws, naming the registered ones, if there's no such transport. */

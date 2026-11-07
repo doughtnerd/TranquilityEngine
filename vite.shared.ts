@@ -53,6 +53,7 @@ export function typescriptTranspile(): Plugin {
 }
 
 const TRANSPILE_CACHE = fileURLToPath(new URL("./node_modules/.cache/myco-tsc/", import.meta.url));
+const TYPES_CACHE = fileURLToPath(new URL("./node_modules/.cache/myco-types.json", import.meta.url));
 const hash = (text: string) => createHash("sha1").update(text).digest("hex");
 
 /** The module the editor imports the engine's declarations from (ADR 0030). */
@@ -79,6 +80,17 @@ export function engineTypes(): Plugin {
         },
       });
       if (!config) throw new Error("tsconfig.engine.json: couldn't read it.");
+      for (const f of config.fileNames) this.addWatchFile(f);
+      // The emit takes several seconds and blocks the dev server meanwhile (the Code panel asks for
+      // it once a project opens), so its output is kept on disk, reused while every engine source,
+      // tsc and the options match (ADR 0082).
+      const key = hash([ts.version, JSON.stringify(config.options), ...config.fileNames.map((f) => `${f}\n${readFileSync(f, "utf8")}`)].join("\0"));
+      try {
+        const cached = JSON.parse(readFileSync(TYPES_CACHE, "utf8")) as { key: string; code: string };
+        if (cached.key === key) return cached.code;
+      } catch {
+        // not cached yet, or unreadable: emit it
+      }
       const program = ts.createProgram({ rootNames: config.fileNames, options: { ...config.options, noEmit: false, declaration: true, emitDeclarationOnly: true } });
       const outDir = config.options.outDir!.replace(/\\/g, "/");
       const files: Record<string, string> = {};
@@ -86,8 +98,14 @@ export function engineTypes(): Plugin {
         const rel = fileName.replace(/\\/g, "/");
         files[rel.startsWith(`${outDir}/`) ? rel.slice(outDir.length + 1) : rel] = text;
       });
-      for (const f of config.fileNames) this.addWatchFile(f);
-      return `export default ${JSON.stringify(files)};`;
+      const code = `export default ${JSON.stringify(files)};`;
+      try {
+        mkdirSync(join(TYPES_CACHE, ".."), { recursive: true });
+        writeFileSync(TYPES_CACHE, JSON.stringify({ key, code }));
+      } catch {
+        // a read-only checkout still works, only without the cache
+      }
+      return code;
     },
   };
 }
@@ -133,7 +151,7 @@ export function sampleManifest(): { samples: SampleInfo[] } {
   return { samples };
 }
 
-const SAMPLE_TYPES: Record<string, string> = { json: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", mp3: "audio/mpeg", ogg: "audio/ogg", wav: "audio/wav", obj: "model/obj", mtl: "model/mtl", fbx: "application/octet-stream", hdr: "application/octet-stream", exr: "application/octet-stream", cube: "text/plain", bin: "application/octet-stream", woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" };
+const SAMPLE_TYPES: Record<string, string> = { json: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", mp3: "audio/mpeg", ogg: "audio/ogg", wav: "audio/wav", obj: "model/obj", mtl: "model/mtl", fbx: "application/octet-stream", gltf: "model/gltf+json", glb: "model/gltf-binary", ktx2: "image/ktx2", hdr: "application/octet-stream", exr: "application/octet-stream", cube: "text/plain", env: "application/octet-stream", bin: "application/octet-stream", woff2: "font/woff2", woff: "font/woff", ttf: "font/ttf", otf: "font/otf" };
 
 /**
  * Ship the sample projects in samples/ beside the editor (ADR 0031), never inside it: the dev

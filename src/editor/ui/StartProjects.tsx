@@ -1,7 +1,7 @@
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { NO_FOLDERS_NOTE, canOpenFolders, projectFileSystem } from "../projectFs";
-import { recentProjects, recentVersion, type RecentProject, type RecentState } from "../recentProjects";
+import { locationOf, recentProjects, recentVersion, type RecentProject, type RecentState } from "../recentProjects";
 import { startActions } from "../startActions";
 import { openNewProjectDialog } from "./NewProjectDialog";
 import "./projects.css";
@@ -9,6 +9,8 @@ import "./projects.css";
 /** Each recent project's state, checked when the start screen shows (by entry id). */
 const states = signal<ReadonlyMap<string, RecentState>>(new Map());
 const busy = signal<string | null>(null);
+/** The recent entry whose location note is being typed (browser folders, ADR 0116). */
+const editingLabel = signal<string | null>(null);
 
 async function checkAll(list: readonly RecentProject[]): Promise<void> {
   const fs = await projectFileSystem();
@@ -81,15 +83,40 @@ export function StartProjects() {
                     onClick={() => void reopen(e)}
                   >
                     <span class="recent-name">{e.name}</span>
-                    <span class="recent-path">{e.path}</span>
+                    <span class="recent-path" title={e.kind === "handle" ? "A browser can't see a folder's real path; this is its name or your note (✎)." : e.path}>{locationOf(e)}</span>
                   </button>
                   <span class="recent-meta">
                     {note && <span class={`recent-state ${state}`}>{note}</span>}
                     <span class="recent-time">{busy.value === e.id ? "Opening…" : when(e.lastOpened)}</span>
                   </span>
+                  {e.kind === "handle" && (
+                    <button class="recent-remove" aria-label={`Edit the location note for ${e.name}`} title="Note where this folder is (browsers can't show its path)" onClick={() => (editingLabel.value = editingLabel.value === e.id ? null : e.id)}>
+                      ✎
+                    </button>
+                  )}
                   <button class="recent-remove" aria-label={`Remove ${e.name} from recent projects`} title="Remove from this list (the folder stays)" onClick={() => void forget(e)}>
                     ×
                   </button>
+                  {editingLabel.value === e.id && (
+                    <input
+                      class="recent-label-input"
+                      type="text"
+                      aria-label={`Location note for ${e.name}`}
+                      placeholder="e.g. ~/games/flappy"
+                      value={e.label ?? ""}
+                      maxLength={200}
+                      ref={(el) => el?.focus()}
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Escape") editingLabel.value = null;
+                        if (ev.key === "Enter") (ev.currentTarget as HTMLInputElement).blur();
+                      }}
+                      onBlur={(ev) => {
+                        recentProjects().setLabel(e.id, (ev.currentTarget as HTMLInputElement).value);
+                        editingLabel.value = null;
+                        recentVersion.value++;
+                      }}
+                    />
+                  )}
                 </li>
               );
             })}

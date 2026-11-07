@@ -195,3 +195,34 @@ export function resizeRect(rect: Rect, handle: Handle, dx: number, dy: number, w
 export function sliceRenames(slices: readonly { name: string; original?: string | null }[]): [string, string][] {
   return slices.filter((s) => s.original && s.original !== s.name).map((s) => [s.original!, s.name]);
 }
+
+/** A 9-slice border in pixels: `[left, bottom, right, top]`. */
+export type Border = [number, number, number, number];
+/** The border sides by index: left, bottom, right, top. */
+export const BORDER_SIDES = ["L", "B", "R", "T"] as const;
+
+/**
+ * `border` with side `index` (0 left, 1 bottom, 2 right, 3 top) set to `value` pixels: a whole
+ * number, at least 0, and at most what leaves the opposite side its own width inside `rect`
+ * (so the guide lines never cross).
+ */
+export function setBorderSide(border: readonly number[] | undefined, index: number, value: number, rect: Rect): Border {
+  const b: Border = [border?.[0] ?? 0, border?.[1] ?? 0, border?.[2] ?? 0, border?.[3] ?? 0];
+  const horizontal = index === 0 || index === 2;
+  const total = horizontal ? rect[2] : rect[3];
+  const opposite = b[(index + 2) % 4];
+  b[index] = Math.max(0, Math.min(Math.round(value), Math.max(0, total - opposite)));
+  return b;
+}
+
+/** `border` after dragging a guide: side `index` moves by `delta` pixels, positive meaning the border grows (towards the slice's middle). */
+export const dragBorderSide = (border: readonly number[] | undefined, index: number, from: number, delta: number, rect: Rect): Border => setBorderSide(border, index, from + delta, rect);
+
+/** `border` clamped inside `rect` (after the slice was resized): each side keeps as much as fits beside its opposite. */
+export function fitBorder(border: readonly number[] | undefined, rect: Rect): Border | undefined {
+  if (!border) return undefined;
+  let b = setBorderSide(border, 0, border[0], rect);
+  b = setBorderSide(b, 2, b[2], rect);
+  b = setBorderSide(b, 1, b[1], rect);
+  return setBorderSide(b, 3, b[3], rect);
+}

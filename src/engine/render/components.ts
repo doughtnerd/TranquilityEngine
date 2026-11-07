@@ -6,6 +6,8 @@ import { Component } from "../core/Component";
 import { Color, Quaternion, Ray, Vector2, Vector3 } from "../core/math";
 import { AssetRef, PlainObject, component, field } from "../core/registry";
 import { World } from "../core/World";
+import { pixelPerfectView } from "./pixelPerfect";
+import { Material } from "./Material";
 
 /** Draws a textured quad (ADR 0014). */
 @component("engine.SpriteRenderer")
@@ -52,6 +54,14 @@ export class Camera extends Component {
   /** The camera's rectangle on the canvas: its width and height as fractions of the canvas (ADR 0056). */
   @field(Vector2) viewportSize = new Vector2(1, 1);
   /**
+   * Orthographic only. Zooms the view by a whole number so each sprite texel covers an integer
+   * number of screen (device) pixels, and snaps the camera's position to that pixel grid (ADR 0014).
+   * `orthographicSize` becomes the minimum half-height wanted.
+   */
+  @field(Boolean) pixelPerfect = false;
+  /** With `pixelPerfect` on, sprites' world positions snap to the texel grid (1 / pixelsPerUnit units) when drawn. */
+  @field(Boolean) pixelSnapping = true;
+  /**
    * A render texture asset (`*.rendertexture.json`, ADR 0109) to draw into instead of the canvas.
    * Materials, sprites and UI images that name the same asset show what the camera sees (a frame
    * later: cameras drawing into textures draw after the ones on the canvas). Empty: the canvas.
@@ -90,6 +100,18 @@ export class Camera extends Component {
     return r.width / r.height;
   }
 
+  /**
+   * The half-height the camera's maths uses: with `pixelPerfect` on (orthographic) the integer-zoom
+   * size for the viewport's height in device pixels, else `orthographicSize`.
+   * @internal
+   */
+  _effectiveOrthographicSize(): number {
+    if (!this.pixelPerfect || this.projection !== "orthographic") return this.orthographicSize;
+    const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+    const heightPx = this.pixelRect().height * dpr;
+    return pixelPerfectView(heightPx, this.orthographicSize, this.world.settings.render.pixelsPerUnit).orthographicSize;
+  }
+
   /** The camera's world position and axes (right, up, forward = the node's -Z), ignoring scale. */
   private frame(): { position: Vector3; right: Vector3; up: Vector3; forward: Vector3 } {
     const t = this.node.transform!;
@@ -102,7 +124,7 @@ export class Camera extends Component {
     const { position, right, up, forward } = this.frame();
     const aspect = this.aspect;
     if (this.projection === "orthographic") {
-      const s = this.orthographicSize;
+      const s = this._effectiveOrthographicSize();
       const origin = position.clone().addScaled(right, nx * s * aspect).addScaled(up, ny * s);
       return new Ray(origin, forward);
     }
@@ -138,8 +160,9 @@ export class Camera extends Component {
     const aspect = this.aspect;
     let nx: number, ny: number;
     if (this.projection === "orthographic") {
-      nx = x / (this.orthographicSize * aspect);
-      ny = y / this.orthographicSize;
+      const s = this._effectiveOrthographicSize();
+      nx = x / (s * aspect);
+      ny = y / s;
     } else {
       const tan = Math.tan((this.fieldOfView * Math.PI) / 360);
       const w = Math.abs(depth) < 1e-9 ? 1e-9 : depth;
@@ -204,6 +227,13 @@ export class MeshRenderer extends Component {
    * or the default material (white, lit) for meshes without one.
    */
   @field(AssetRef) material = "";
+  /**
+   * A material asset per material slot (ADR 0089), drawn in place of `material` for that slot.
+   * The slots are the model's own materials, in the order its meshes first use them (a built-in
+   * mesh has one); an empty entry, or none, leaves the slot to `material`, then to the model's
+   * import settings, then to the model's own material.
+   */
+  @field([AssetRef]) materials: string[] = [];
   /** Cast shadows from Lights with `castShadows` on. */
   @field(Boolean) castShadows = true;
   /** Show shadows cast onto it. */
@@ -212,6 +242,104 @@ export class MeshRenderer extends Component {
   private readonly materialProperties = new Map<string, MaterialPropertyValue>();
   /** @internal Bumped when the property overrides change, so the render backend applies them. */
   _materialPropertiesVersion = 0;
+  /** Materials assigned through `setSharedMaterial` or made by `getMaterialInstance`, by slot (ADR 0107), and the slot's path they were for. */
+  private readonly assigned = new Map<number, { material: Material; path: string; owned: boolean }>();
+  /**
+   * The material asset a slot draws (ADR 0089, 0107): `materials[slot]` when the renderer has material
+   * slots and that entry is set, else `material`, the whole renderer's.
+   */
+  private slotPath(slot: number): string {
+    return this.materials[slot] || this.material;
+  }
+
+  /** Set the material asset a slot draws: slot 0 is `material` unless `materials[0]` is set; other slots are `materials[slot]`. */
+  private setSlotPath(slot: number, path: string): void {
+    if (slot === 0 && !this.materials[0]) {
+      this.material = path;
+      return;
+    }
+    while (this.materials.length <= slot) this.materials.push("");
+    this.materials[slot] = path;
+  }
+
+  /**
+   * The Material slot `slot` draws (ADR 0107): its material asset's shared Material (changing it
+   * changes every renderer drawing that asset), or a Material assigned to the slot. Null when the slot
+   * has no material asset (the model's own material).
+   */
+  getSharedMaterial(slot = 0): Material | null {
+    const a = this.currentAssigned(slot);
+    if (a) return a.material;
+    const path = this.slotPath(slot);
+    return path ? Material.shared(path) : null;
+  }
+
+  /** Draw `m` in slot `slot`: a shared Material sets the slot's asset path; an instance is drawn as it is (renderers may share one). Null clears the slot. */
+  setSharedMaterial(slot: number, m: Material | null): void {
+    this.assigned.delete(slot);
+    this.setSlotPath(slot, m ? m.asset : "");
+    if (m?.isInstance) this.assigned.set(slot, { material: m, path: this.slotPath(slot), owned: false });
+  }
+
+  /**
+   * Slot `slot`'s own Material (Unity's `renderer.materials[i]`, ADR 0107): made on first access as a
+   * copy of the slot's shared Material (its values at that moment), then kept. It draws apart from the
+   * instanced batch of its mesh. A slot without a material asset gets an instance of the default lit material.
+   */
+  getMaterialInstance(slot = 0): Material {
+    const a = this.currentAssigned(slot);
+    if (a?.owned) return a.material;
+    const path = this.slotPath(slot);
+    const m = (a?.material ?? (path ? Material.shared(path) : new Material(""))).clone();
+    this.assigned.set(slot, { material: m, path, owned: true });
+    return m;
+  }
+
+  /** The Material slot 0 draws (`getSharedMaterial(0)`); assigning sets slot 0 (`setSharedMaterial(0, m)`). A renderer without material slots has only slot 0, drawn by every mesh. */
+  get sharedMaterial(): Material | null {
+    return this.getSharedMaterial(0);
+  }
+
+  set sharedMaterial(m: Material | null) {
+    this.setSharedMaterial(0, m);
+  }
+
+  /** Slot 0's own Material (Unity's `renderer.material`; `getMaterialInstance(0)`). */
+  get materialInstance(): Material {
+    return this.getMaterialInstance(0);
+  }
+
+  /**
+   * Every slot's Material (Unity's `sharedMaterials`): slot 0, then the slots `materials` lists or
+   * Materials were assigned to. The model decides how many slots it has (ADR 0089); a slot past the
+   * list draws `material`.
+   */
+  get sharedMaterials(): (Material | null)[] {
+    const n = Math.max(1, this.materials.length, ...[...this.assigned.keys()].map((k) => k + 1));
+    return Array.from({ length: n }, (_, i) => this.getSharedMaterial(i));
+  }
+
+  set sharedMaterials(ms: readonly (Material | null)[]) {
+    ms.forEach((m, i) => this.setSharedMaterial(i, m));
+  }
+
+  /** @internal The Material the render backend draws in a slot: an assigned one, the slot asset's shared one if made, or null to draw the asset as it is. */
+  _drawMaterial(slot = 0): Material | null {
+    const a = this.currentAssigned(slot);
+    if (a) return a.material;
+    const path = this.slotPath(slot);
+    return path ? (Material._sharedIfAny(path) ?? null) : null;
+  }
+
+  /** A slot's assigned Material, dropped once the slot's path was changed since. */
+  private currentAssigned(slot: number): { material: Material; owned: boolean } | null {
+    const a = this.assigned.get(slot);
+    if (a && a.path !== this.slotPath(slot)) {
+      this.assigned.delete(slot);
+      return null;
+    }
+    return a ?? null;
+  }
 
   /**
    * Override one of the material's properties for this renderer only (ADR 0049), like Unity's

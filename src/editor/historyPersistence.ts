@@ -7,6 +7,8 @@ import { getFileSystem, isTauri, type FileSystem } from "../engine/platform/File
 import { MemoryStorage, type StorageBackend } from "../engine/platform/Storage";
 import type { CommandStack } from "./document";
 import { HistoryStore, projectSlots, userSlots, type SlotBackend } from "./historyStore";
+import { pruneHistoryByAge } from "./historyPrune";
+import { historyPruneDays } from "./preferences";
 import type { EditorProject } from "./projects";
 
 export type HistoryLocation = "project" | "user";
@@ -58,11 +60,19 @@ export interface AttachedHistory {
  * Load `stack`'s saved history from `slots` (if it matches the document) and keep saving it.
  * `onError` hears write failures (once per failure streak).
  */
-export async function attachHistory(stack: CommandStack, scene: string, slots: SlotBackend, onError: (err: unknown) => void = () => {}): Promise<AttachedHistory> {
+export async function attachHistory(
+  stack: CommandStack,
+  scene: string,
+  slots: SlotBackend,
+  onError: (err: unknown) => void = () => {},
+  /** "Prune history older than N days" (0: never), read on load and on each save (ADR 0116). */
+  pruneDays: () => number = () => historyPruneDays.value,
+): Promise<AttachedHistory> {
   let store = new HistoryStore(slots);
   let restorable: AttachedHistory["restorable"] = null;
   let mismatched = false;
-  const saved = await store.load();
+  const loaded = await store.load();
+  const saved = loaded ? pruneHistoryByAge(loaded, pruneDays()) : null;
   if (saved && saved.scene === scene) {
     const result = stack.load(saved);
     if (!result) mismatched = true;
@@ -84,7 +94,7 @@ export async function attachHistory(stack: CommandStack, scene: string, slots: S
       while (pending) {
         pending = false;
         try {
-          await store.save(stack.toFile(scene));
+          await store.save(pruneHistoryByAge(stack.toFile(scene), pruneDays()));
           failing = false;
         } catch (err) {
           if (!failing) onError(err);

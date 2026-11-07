@@ -1,7 +1,7 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, opensInCodePanel, searchFiles, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
+import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, opensInCodePanel, searchEntries, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
 import { inspectSelectedAsset, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { deleteAssets, entryPath, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "../assetDelete";
@@ -27,12 +27,14 @@ import {
   type Modifiers,
 } from "../assetSelection";
 import { openScript } from "../code/codeState";
+import { installOsDrop, osDragFolder, osDragOver } from "../osDrop";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
-import { createMaterial } from "../materialAssets";
+import { createMaterial, createShader } from "../materialAssets";
 import { createRenderTexture } from "../renderTextureAssets";
 import { createUIDocument } from "../uiDocumentEdits";
 import { createFormation } from "../formationAssets";
+import { createTileset, createTilesetFromSlices, hasSlices } from "../tilesetAssets";
 import { createParticleEffect, openParticleGraphAsset } from "../particleAssets";
 import { createShaderGraph, createShaderSubGraph, openShaderGraphAsset } from "../shaderGraphAssets";
 import { assetTileSize, assetView } from "../preferences";
@@ -59,11 +61,15 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   shadersubgraph: "Sub Graph",
   particles: "Particle Effect",
   formation: "Formation",
+  tileset: "Tileset",
   json: "JSON",
   script: "Script",
   javascript: "JS",
   typescript: "TS Module",
   text: "Text",
+  uidocument: "UI Document",
+  stylesheet: "Stylesheet",
+  xml: "XML",
   other: "File",
 };
 
@@ -92,6 +98,7 @@ const box = signal<{ x0: number; y0: number; x1: number; y1: number } | null>(nu
 
 /** True while a drag would drop on the folder `path`. */
 const dropTarget = (path: string) => {
+  if (osDragFolder.value === path) return true;
   const t = assetDrag.value?.target;
   return t?.kind === "folder" && t.folder === path;
 };
@@ -104,7 +111,7 @@ const toggleKey = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.
 function listedEntries(project: EditorProject, folder: string, query: string): string[] {
   // Sidecars (`*.meta.json`) travel with their files and aren't listed (ADR 0040).
   const files = [...listedFiles(project.files), ...project.scripts.keys()];
-  if (query.trim()) return searchFiles(files.sort(), query);
+  if (query.trim()) return searchEntries(files.sort(), query, (image) => slicesOf(project, image).map((s) => s.name));
   const subfolders = project.folders.filter((f) => parentFolder(f) === folder).sort((a, b) => fileName(a).localeCompare(fileName(b)));
   const here = files.filter((f) => folderOf(f) === folder).sort((a, b) => fileName(a).localeCompare(fileName(b)));
   // An expanded image's slices follow it.
@@ -169,11 +176,13 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
     { label: "New UI Document", disabled: readOnly, run: () => void createUIDocument(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Material", disabled: readOnly, run: () => void createMaterial(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Render Texture", disabled: readOnly, run: () => void createRenderTexture(pasteFolder(entries)).then((made) => made && select([made])) },
+    { label: "New Shader", disabled: readOnly, run: () => void createShader(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Shader Graph", disabled: readOnly, run: () => void createShaderGraph(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Particle Effect", disabled: readOnly, run: () => void createParticleEffect(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Shader Sub Graph", disabled: readOnly, run: () => void createShaderSubGraph(pasteFolder(entries)).then((made) => made && select([made])) },
     // Create › Navigation › Formation (Foxfire's NavFormation asset, ADR 0065).
     { label: "New Navigation Formation", disabled: readOnly, run: () => void createFormation(pasteFolder(entries)).then((made) => made && select([made])) },
+    { label: "New Tileset", disabled: readOnly, run: () => void createTileset(pasteFolder(entries)).then((made) => made && select([made])) },
     ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),
   ];
   if (entries.length === 0) {
@@ -186,13 +195,18 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
   }
   if (entries.every(isSliceEntry)) {
     const image = splitSliceEntry(entries[0]).image;
-    return [{ label: "Sprite Editor…", shortcut: "Enter", run: () => openSpriteEditor(image) }];
+    return [
+      { label: "Sprite Editor…", shortcut: "Enter", run: () => openSpriteEditor(image) },
+      { label: "Create Tileset from Slices", disabled: readOnly, run: () => void createTilesetFromSlices(folderOf(image), image).then((made) => made && select([made])) },
+    ];
   }
   entries = fileEntries(entries);
   const editable = whyNotEditable(project, entries);
   const sliceable = entries.length === 1 && assetKind(entries[0]) === "image";
+  const tileable = sliceable && hasSlices(project, entries[0]);
   return [
     ...(entries.length === 1 && opens(entries[0]) ? [{ label: sliceable ? "Sprite Editor…" : "Open", shortcut: "Enter", run: () => openEntry(entries[0]) }] : []),
+    ...(tileable ? [{ label: "Create Tileset from Slices", disabled: readOnly, run: () => void createTilesetFromSlices(folderOf(entries[0]), entries[0]).then((made) => made && select([made])) }] : []),
     { label: "Rename", shortcut: "F2", disabled: entries.length > 1 ? "rename one at a time" : editable, run: () => startRename(entries[0]) },
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: readOnly, run: () => void duplicateAssets(entries).then((made) => made.length > 0 && select(made)) },
     { label: "", separator: true },
@@ -216,6 +230,7 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
  * assets into the viewport or hierarchy adds them to the scene, and a tile's + adds one.
  */
 export function AssetsPanel() {
+  useEffect(() => installOsDrop(), []); // files dragged in from the OS (ADR 0085)
   docVersion.value; // the project's file list can change after saves
   scriptsVersion.value; // and its scripts after a reload
   historyVersion.value;
@@ -228,7 +243,7 @@ export function AssetsPanel() {
   const entries = listedEntries(project, folder, query);
   const selected = selectedAssets.value.filter((e) => entries.includes(e));
   return (
-    <div class="asset-browser">
+    <div class={`asset-browser${osDragOver.value ? " os-drop" : ""}`}>
       <nav class="asset-tree" aria-label="Folders">
         <ul role="tree">
           <FolderItem project={project} folders={project.folders} path="" label={project.name} depth={0} current={searching ? null : folder} />

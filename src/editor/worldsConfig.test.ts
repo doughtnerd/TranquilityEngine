@@ -7,7 +7,12 @@ import {
   addWorld,
   defaultModel,
   groupProblems,
+  extraOptionKeys,
   isSpawnableName,
+  linkOptionsFor,
+  optionText,
+  parseOptionText,
+  setLinkOption,
   linkableNames,
   lobbyLinks,
   mentions,
@@ -23,6 +28,7 @@ import {
   updateConfig,
   withBootstrap,
   type WorldsModel,
+  withReplicationSetting,
 } from "./worldsConfig";
 
 const CATALOG: SystemCatalogEntry[] = [
@@ -292,3 +298,71 @@ describe("lobby links (ADR 0068)", () => {
   });
 });
 
+
+describe("link options", () => {
+  const base = () => clientServer();
+
+  it("setLinkOption adds, changes and removes, dropping options when the last goes", () => {
+    let m = setLinkOption(base(), 0, "latencyMs", 80);
+    expect(m.links[0]).toEqual({ from: "Client", to: "Server", transport: "loopback", options: { latencyMs: 80 } });
+    m = setLinkOption(m, 0, "loss", 0.1);
+    m = setLinkOption(m, 0, "latencyMs", 90);
+    expect(m.links[0].options).toEqual({ latencyMs: 90, loss: 0.1 });
+    m = setLinkOption(m, 0, "latencyMs", undefined);
+    expect(m.links[0].options).toEqual({ loss: 0.1 });
+    m = setLinkOption(m, 0, "loss", "");
+    expect(m.links[0]).toEqual({ from: "Client", to: "Server", transport: "loopback" });
+    expect("options" in m.links[0]).toBe(false);
+  });
+
+  it("keeps unknown keys, other links and the original model", () => {
+    const start = base();
+    const two = addLink(start, { from: "Client", to: "Server", transport: "websocket", options: { custom: [1, 2] } });
+    const m = setLinkOption(two, 1, "url", "ws://x");
+    expect(m.links[1].options).toEqual({ custom: [1, 2], url: "ws://x" });
+    expect(m.links[0]).toBe(two.links[0]);
+    expect(setLinkOption(m, 1, "url", undefined).links[1].options).toEqual({ custom: [1, 2] });
+    expect(two.links[1].options).toEqual({ custom: [1, 2] });
+    expect(setLinkOption(start, 5, "x", 1)).toBe(start);
+  });
+
+  it("offers the options of the link's transport and lists the others as extra", () => {
+    expect(linkOptionsFor("loopback").map((o) => o.key)).toContain("latencyMs");
+    expect(linkOptionsFor("loopback").map((o) => o.key)).not.toContain("port");
+    expect(linkOptionsFor("websocket").map((o) => o.key)).toContain("port");
+    expect(linkOptionsFor("websocket").map((o) => o.key)).not.toContain("loss");
+    expect(extraOptionKeys({ from: "a", to: "b", transport: "loopback", options: { port: 1, loss: 0.5, foo: 1 } })).toEqual(["port", "foo"]);
+  });
+
+  it("parses unknown values as JSON when possible", () => {
+    expect(parseOptionText("5")).toBe(5);
+    expect(parseOptionText("true")).toBe(true);
+    expect(parseOptionText("hello")).toBe("hello");
+    expect(parseOptionText("  ")).toBeUndefined();
+    expect(optionText("hello")).toBe("hello");
+    expect(optionText([1])).toBe("[1]");
+  });
+
+  it("reports bad values against their link", () => {
+    let m = base();
+    for (const [k, v] of [["latencyMs", -1], ["loss", 2], ["interpolationMs", "fast"], ["maxConnections", 1.5], ["address", 4]] as const) m = setLinkOption(m, 0, k, v);
+    const g = groupProblems(modelProblems(m, CATALOG));
+    expect(g.links.get(0)).toHaveLength(5);
+    expect(g.links.get(0)!.some((p) => p.includes("options.latencyMs"))).toBe(true);
+    const ws = setLinkOption({ ...clientServer(), links: [{ from: "Client", to: "Server", transport: "websocket" }] }, 0, "port", 70000);
+    expect(groupProblems(modelProblems(ws, CATALOG)).links.get(0)![0]).toContain("at most 65535");
+    const ok = setLinkOption(setLinkOption(base(), 0, "latencyMs", 50), 0, "loss", 0.2);
+    expect(groupProblems(modelProblems(ok, CATALOG)).links.size).toBe(0);
+  });
+});
+
+describe("replication settings (ADR 0101)", () => {
+  it("sets and removes one setting, dropping replication when none is left", () => {
+    const one = withReplicationSetting(undefined, "sendRate", 20);
+    expect(one).toEqual({ sendRate: 20 });
+    const both = withReplicationSetting(one, "maxSnapshotBytes", 1200);
+    expect(both).toEqual({ sendRate: 20, maxSnapshotBytes: 1200 });
+    expect(withReplicationSetting(both, "sendRate", undefined)).toEqual({ maxSnapshotBytes: 1200 });
+    expect(withReplicationSetting({ sendRate: 20 }, "sendRate", undefined)).toBeUndefined();
+  });
+});

@@ -9,7 +9,7 @@
  *
  * Babylon is imported nowhere in this file (the check in `babylonImports.test.ts`).
  */
-import type { GraphValue, ShaderGraph } from "../scene/shaderGraph";
+import type { GraphValue, NodePreviewShape, ShaderGraph } from "../scene/shaderGraph";
 import { Graphics } from "./Graphics";
 import type { PreviewMesh } from "./previewTypes";
 import type { ParticleEffectPreviewApi, ThumbnailRendererApi } from "./previewTypes";
@@ -104,7 +104,7 @@ export class MaterialPreview {
 
 interface NodePreviewImpl {
   begin(): void;
-  draw(graph: ShaderGraph, target: HTMLCanvasElement): boolean;
+  draw(graph: ShaderGraph, target: HTMLCanvasElement, shape?: NodePreviewShape): boolean;
   end(): void;
   dispose(): void;
 }
@@ -126,8 +126,8 @@ export class NodePreviewRenderer {
   }
 
   /** Draw `graph` (a node's preview graph) into `target`. False if its shader didn't compile. */
-  draw(graph: ShaderGraph, target: HTMLCanvasElement): boolean {
-    return this.impl ? this.impl.draw(graph, target) : true; // still loading: the next pass draws
+  draw(graph: ShaderGraph, target: HTMLCanvasElement, shape: NodePreviewShape = "quad"): boolean {
+    return this.impl ? this.impl.draw(graph, target, shape) : true; // still loading: the next pass draws
   }
 
   /** End a pass: free the materials of previews that weren't drawn. */

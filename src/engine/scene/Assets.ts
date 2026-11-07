@@ -6,7 +6,7 @@
  * `import.meta.glob` of its asset folder (ADR 0015). Import settings sidecars (`*.meta.json`,
  * ADR 0040) are JSON assets like any other, so the same glob carries them.
  */
-import { defaultImportSettings, parseImportSettings, sidecarPath, splitSpriteRef, type ImportSettings } from "./importSettings";
+import { defaultImportSettings, parseImportSettings, resolveImportSettings, sidecarPath, splitSpriteRef, type ImportPlatform, type ImportSettings } from "./importSettings";
 
 export interface AssetSource {
   has(path: string): boolean;
@@ -21,9 +21,13 @@ export function normalizeAssetPath(path: string): string {
   return path.replace(/^asset:/, "").replace(/^\.?\//, "");
 }
 
-const defaults: ImportSettings = Object.freeze({ ...defaultImportSettings(), pivot: Object.freeze([0.5, 0.5]) as [number, number], sprites: Object.freeze([]) as unknown as [] });
+const defaults: ImportSettings = Object.freeze({ ...defaultImportSettings(), pivot: Object.freeze([0.5, 0.5]) as [number, number], sprites: Object.freeze([]) as unknown as [], platforms: Object.freeze({}) });
 /** Parsed sidecars by their raw JSON value, so a sidecar rewritten in the editor is parsed again. */
 const parsedSidecars = new WeakMap<object, ImportSettings>();
+/** The parsed sidecars resolved for each platform (ADR 0115). */
+const resolvedSidecars = new WeakMap<ImportSettings, Partial<Record<ImportPlatform, ImportSettings>>>();
+let platformOverride: ImportPlatform | null = null;
+const detectPlatform = (): ImportPlatform => (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window ? "desktop" : "web");
 
 /**
  * @internal The raw JSON of the sidecar for `path` (a slice reference reads its image's), or
@@ -76,10 +80,19 @@ export const Assets = {
     throw new Error(`Asset "${normalizeAssetPath(path)}" is not a binary asset.`);
   },
 
+  /** The platform per-platform import overrides resolve for (ADR 0115): "desktop" under Tauri, else "web"; settable (null = detect). */
+  get platform(): ImportPlatform {
+    return platformOverride ?? detectPlatform();
+  },
+  set platform(value: ImportPlatform | null) {
+    platformOverride = value;
+  },
+
   /**
    * An asset's import settings (ADR 0040), read from its sidecar `<path>.meta.json`; the defaults
    * when it has none. A slice reference (`images/a.png#walk_0`) reads its image's. Problems in
    * the sidecar are reported once each as warnings, and the defaults used for those values.
+   * Per-platform overrides are resolved for `Assets.platform` (ADR 0115).
    */
   importSettings(path: string): ImportSettings {
     const raw = sidecarValue(path);
@@ -97,7 +110,10 @@ export const Assets = {
       }
       parsedSidecars.set(raw, cached);
     }
-    return cached;
+    const platform = Assets.platform;
+    let byPlatform = resolvedSidecars.get(cached);
+    if (!byPlatform) resolvedSidecars.set(cached, (byPlatform = {}));
+    return (byPlatform[platform] ??= resolveImportSettings(cached, platform));
   },
 
   /** Parsed JSON asset (scenes, prefabs, project settings). */

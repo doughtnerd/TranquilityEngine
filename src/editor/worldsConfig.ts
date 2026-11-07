@@ -2,7 +2,7 @@
 // Spawnable Worlds (`templates`) and links, the edits the panel makes to them, why each catalog system is in or out
 // of a World, and writing the section back into the file. Pure, so it's unit-tested;
 // WorldsPanel.tsx draws it and saves the result.
-import type { BootstrapConfig, LinkConfig, SystemSelection, WorldConfig, WorldTag } from "../engine";
+import type { BootstrapConfig, LinkConfig, ReplicationSettings, SystemSelection, WorldConfig, WorldTag } from "../engine";
 import { validateBootstrap } from "../engine/core/settings";
 import type { SystemCatalogEntry } from "../engine/core/systems";
 import { DEFAULT_WORLD_NAME, DEFAULT_WORLD_TAGS, worldsMatch } from "../engine/core/worlds";
@@ -99,6 +99,7 @@ export function modelProblems(model: WorldsModel, catalog: readonly SystemCatalo
     if (seen.has(t.key)) problems.push(`bootstrap.templates["${t.key}"]: another template is already named "${t.key}"; template names must be unique.`);
     seen.add(t.key);
   }
+  model.links.forEach((l, i) => problems.push(...linkOptionProblems(l, `bootstrap.links[${i}]`)));
   return problems;
 }
 
@@ -132,7 +133,22 @@ export function groupProblems(problems: readonly string[]): GroupedProblems {
 
 // --- edits --------------------------------------------------------------------------------------
 
-const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems"];
+const WORLD_KEYS = ["name", "tags", "tickRate", "timeScale", "renders", "input", "scenes", "systems", "lobby", "replication"];
+
+/**
+ * A World config's `replication` (ADR 0101) with `key` set to `value` (undefined removes it);
+ * undefined when nothing is left, so the key goes from project.json.
+ */
+export function withReplicationSetting(
+  replication: ReplicationSettings | undefined,
+  key: keyof ReplicationSettings,
+  value: number | undefined,
+): ReplicationSettings | undefined {
+  const next: Record<string, number> = { ...(replication as Record<string, number> | undefined) };
+  if (value === undefined) delete next[key];
+  else next[key] = value;
+  return Object.keys(next).length > 0 ? (next as ReplicationSettings) : undefined;
+}
 
 /** `base`, else `base 2`, `base 3`… : the first not in `taken`. */
 export function uniqueName(base: string, taken: readonly string[]): string {
@@ -297,6 +313,104 @@ export function updateLink(model: WorldsModel, index: number, patch: Partial<Lin
 
 export function removeLink(model: WorldsModel, index: number): WorldsModel {
   return { ...model, links: model.links.filter((_, i) => i !== index) };
+}
+
+// --- link options -------------------------------------------------------------------------------
+
+/** One link option the panel knows how to edit; see `LinkConfig.options`. */
+export interface LinkOptionInfo {
+  key: string;
+  label: string;
+  kind: "number" | "string";
+  /** What it does, with its default for the placeholder. */
+  hint: string;
+  /** Default shown as the placeholder (numbers). */
+  default?: number;
+  /** Only meaningful for these transports; absent means all. */
+  transports?: readonly string[];
+  /** Numbers must be whole. */
+  integer?: boolean;
+  /** Numbers must be at most this. */
+  max?: number;
+}
+
+export const LINK_OPTIONS: readonly LinkOptionInfo[] = [
+  { key: "address", label: "Address", kind: "string", hint: "Where the server listens. Loopback makes one up per Engine and server World." },
+  { key: "port", label: "Port", kind: "number", hint: "The port a WebSocket server listens on (Node only).", transports: ["websocket"], integer: true, max: 65535 },
+  { key: "url", label: "URL", kind: "string", hint: "Where a WebSocket client connects, such as ws://localhost:8080.", transports: ["websocket"] },
+  { key: "path", label: "Path", kind: "string", hint: "The URL path the transport serves or connects to." },
+  { key: "interpolationMs", label: "Interpolation", kind: "number", default: 100, hint: "The client's interpolation buffer in milliseconds (default 100)." },
+  { key: "commandSlack", label: "Command slack", kind: "number", default: 2, hint: "Ticks a client's inputs run ahead of the server (default 2)." },
+  { key: "handshakeTimeoutMs", label: "Handshake timeout", kind: "number", default: 5000, hint: "Milliseconds to wait for the connection handshake (default 5000)." },
+  { key: "idleTimeoutMs", label: "Idle timeout", kind: "number", default: 15000, hint: "Milliseconds of silence before a connection is dropped (default 15000)." },
+  { key: "maxConnections", label: "Max connections", kind: "number", default: 64, hint: "The server's connection cap (default 64).", integer: true },
+  { key: "latencyMs", label: "Latency", kind: "number", hint: "Simulated one-way delay in milliseconds.", transports: ["loopback"] },
+  { key: "jitterMs", label: "Jitter", kind: "number", hint: "Simulated random extra delay in milliseconds.", transports: ["loopback"] },
+  { key: "loss", label: "Packet loss", kind: "number", hint: "Fraction of packets dropped, 0 to 1.", transports: ["loopback"], max: 1 },
+];
+
+/** The known options that apply to `transport`, in display order. */
+export function linkOptionsFor(transport: string): LinkOptionInfo[] {
+  return LINK_OPTIONS.filter((o) => !o.transports || o.transports.includes(transport));
+}
+
+/** Keys in a link's options that the panel has no input for on this transport (unknown keys, or ones of another transport). */
+export function extraOptionKeys(link: LinkConfig): string[] {
+  const shown = new Set(linkOptionsFor(link.transport).map((o) => o.key));
+  return Object.keys(link.options ?? {}).filter((k) => !shown.has(k));
+}
+
+/** Problems with one link's option values (`where` is its location prefix, as `validateBootstrap` writes it). */
+export function linkOptionProblems(link: LinkConfig, where: string): string[] {
+  const out: string[] = [];
+  const options = link.options;
+  if (typeof options !== "object" || options === null || Array.isArray(options)) return out;
+  for (const info of LINK_OPTIONS) {
+    const v = options[info.key];
+    if (v === undefined) continue;
+    const at = `${where}: options.${info.key}`;
+    if (info.kind === "string") {
+      if (typeof v !== "string") out.push(`${at} must be text (got ${JSON.stringify(v)}).`);
+    } else if (typeof v !== "number" || !Number.isFinite(v) || v < 0) {
+      out.push(`${at} must be a number of 0 or more (got ${JSON.stringify(v)}).`);
+    } else if (info.integer && !Number.isInteger(v)) {
+      out.push(`${at} must be a whole number (got ${v}).`);
+    } else if (info.max !== undefined && v > info.max) {
+      out.push(`${at} must be at most ${info.max} (got ${v}).`);
+    }
+  }
+  return out;
+}
+
+/**
+ * Set (or with `undefined` / `""` remove) one of a link's options. Removing the last one removes `options`.
+ * Other keys keep their values and order.
+ */
+export function setLinkOption(model: WorldsModel, index: number, key: string, value: unknown): WorldsModel {
+  const link = model.links[index];
+  if (!link) return model;
+  const next: Record<string, unknown> = { ...link.options };
+  if (value === undefined || value === "") delete next[key];
+  else next[key] = value;
+  const { options: _old, ...rest } = link;
+  const updated: LinkConfig = Object.keys(next).length > 0 ? { ...rest, options: next } : rest;
+  return { ...model, links: model.links.map((l, i) => (i === index ? updated : l)) };
+}
+
+/** Text for an unknown option's editable value: strings as-is, anything else as JSON. */
+export function optionText(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
+/** Parse an unknown option's text: JSON when it is (`5`, `true`, `[1]`), else the string itself. Empty is `undefined`. */
+export function parseOptionText(text: string): unknown {
+  const t = text.trim();
+  if (t === "") return undefined;
+  try {
+    return JSON.parse(t);
+  } catch {
+    return t;
+  }
 }
 
 /** Transports to offer: the registered ones, the known ones, and any already in use, without repeats. */

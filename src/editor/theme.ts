@@ -3,7 +3,7 @@
 // top, from which every other token is derived (hover, borders, muted text, selection, status
 // colours…, kept readable against the panels). Tokens become CSS custom properties on :root; the
 // Code panel's Monaco theme and the viewport's overlay colours are made from the same tokens.
-import { computed, effect } from "@preact/signals";
+import { computed, effect, signal } from "@preact/signals";
 import { persisted } from "./preferences";
 
 // --- Colour maths -----------------------------------------------------------------------------
@@ -190,7 +190,14 @@ export const PRESETS: readonly ThemePreset[] = [
 
 export const DEFAULT_PRESET = "myco-dark";
 
-export const presetById = (id: string): ThemePreset => PRESETS.find((p) => p.id === id) ?? PRESETS[0];
+/** Themes the user imported from files (ADR 0116), kept beside the built-in presets. */
+export const customThemes = persisted<ThemePreset[]>("myco.editor.customThemes", []);
+
+/** A built-in preset or an imported theme by id (anything unknown: Myco Dark). */
+export const presetById = (id: string): ThemePreset => PRESETS.find((p) => p.id === id) ?? (Array.isArray(customThemes.value) ? customThemes.value.find((p) => p?.id === id) : undefined) ?? PRESETS[0];
+
+/** Every theme to choose from: the built-in presets, then imported ones. */
+export const allPresets = computed<ThemePreset[]>(() => [...PRESETS, ...(Array.isArray(customThemes.value) ? customThemes.value : [])]);
 
 /** Overrides that are real colours, as lower-case `#rrggbb`. */
 export function cleanOverrides(overrides: Partial<Record<string, unknown>> | null | undefined): Partial<ThemeBase> {
@@ -300,6 +307,7 @@ export interface FontChoice {
 /** UI font families offered in Settings (anything else is typed in as Custom). */
 export const UI_FONTS: readonly FontChoice[] = [
   { label: "System default", value: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
+  { label: "Inter (bundled)", value: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif' },
   { label: "Segoe UI", value: '"Segoe UI", system-ui, sans-serif' },
   { label: "Helvetica / Arial", value: '"Helvetica Neue", Helvetica, Arial, sans-serif' },
   { label: "Verdana", value: "Verdana, Geneva, sans-serif" },
@@ -311,7 +319,7 @@ export const UI_FONTS: readonly FontChoice[] = [
 export const CODE_FONTS: readonly FontChoice[] = [
   { label: "Default", value: 'Consolas, "Courier New", monospace' },
   { label: "Cascadia Code", value: '"Cascadia Code", "Cascadia Mono", Consolas, monospace' },
-  { label: "JetBrains Mono", value: '"JetBrains Mono", Consolas, monospace' },
+  { label: "JetBrains Mono (bundled)", value: '"JetBrains Mono", Consolas, monospace' },
   { label: "Fira Code", value: '"Fira Code", Consolas, monospace' },
   { label: "Menlo / Monaco", value: 'Menlo, Monaco, "Courier New", monospace' },
   { label: "System monospace", value: "ui-monospace, monospace" },
@@ -342,15 +350,26 @@ export const uiFontSize = persisted<number>("myco.editor.uiFontSize", DEFAULT_UI
 export const codeFontFamily = persisted<string>("myco.editor.codeFontFamily", CODE_FONTS[0].value);
 export const codeFontSize = persisted<number>("myco.editor.codeFontSize", DEFAULT_CODE_FONT_SIZE);
 
-/** The preset in use. */
-export const activePreset = computed(() => presetById(themePreset.value));
-/** The user's overrides of the preset in use. */
-export const activeOverrides = computed(() => cleanOverrides(themeOverrides.value?.[activePreset.value.id]));
+/** The open project's own theme (ADR 0116, `.myco/theme.json`), set by `projectTheme.ts`; null when it has none. */
+export const projectTheme = signal<ThemePreset | null>(null);
+/** Per user: keep my own theme even while a project brings one. */
+export const ignoreProjectTheme = persisted<boolean>("myco.editor.ignoreProjectTheme", false);
+/** Whether the project's theme is the one showing. */
+export const projectThemeActive = computed(() => projectTheme.value !== null && !ignoreProjectTheme.value);
+
+/** The preset in use: the project's theme while one applies, otherwise the user's choice. */
+export const activePreset = computed(() => (projectThemeActive.value ? projectTheme.value! : presetById(themePreset.value)));
+/** The user's overrides of the preset in use (none for a project's theme, which is used as written). */
+export const activeOverrides = computed(() => (projectThemeActive.value ? {} : cleanOverrides(themeOverrides.value?.[activePreset.value.id])));
+/** Whether the light variant of the logo art reads better here: the logo is art on black, so a light theme gets the dark-ink variant (ADR 0116). */
+export const useLightLogo = computed(() => luminance(theme.value.panel) > 0.4);
+
 /** Every token of the theme in use. */
 export const theme = computed(() => resolveTheme(activePreset.value, activeOverrides.value));
 
 /** Override one key colour of the preset in use (null: back to the preset's). */
 export function setOverride(key: keyof ThemeBase, value: string | null): void {
+  if (projectThemeActive.value) return; // a project's theme is used as written
   const id = activePreset.value.id;
   const current = { ...cleanOverrides(themeOverrides.value?.[id]) };
   if (value === null || value.toLowerCase() === presetById(id).base[key].toLowerCase()) delete current[key];

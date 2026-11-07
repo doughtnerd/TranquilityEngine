@@ -119,7 +119,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     shutDown();
     throw new ServerError(`The tick rate must be a positive number (got ${tickRate}).`);
   }
-  const loop = runLoop(engine, tickRate, log, options.statsIntervalMs ?? DEFAULT_STATS_INTERVAL_MS, new Set(engine.worlds().map((w) => w.name)));
+  const spawned = spawnedListener(engine, plan.spawnLinks, options, log);
+  const loop = runLoop(engine, tickRate, log, options.statsIntervalMs ?? DEFAULT_STATS_INTERVAL_MS, new Set(engine.worlds().map((w) => w.name)), spawned);
   log(`[server] Running at ${round(tickRate)} steps/s. Press Ctrl+C to stop.`);
 
   let closing: Promise<void> | null = null;
@@ -146,6 +147,11 @@ interface ServerPlan {
   readonly bootstrap: BootstrapConfig | Bootstrap;
   /** Links from skipped (client) Worlds to server Worlds: where those listen. */
   readonly links: readonly LinkConfig[];
+  /**
+   * Links from skipped Worlds to server-tagged Spawnable Worlds (templates) the server doesn't
+   * create at start (ADR 0062): when game code creates one, it listens where its link says.
+   */
+  readonly spawnLinks: readonly LinkConfig[];
   /** Worlds left out. */
   readonly skipped: readonly string[];
 }
@@ -155,7 +161,9 @@ interface ServerPlan {
  * tagged "server", the links between them, and every template (created later by name); links from
  * other Worlds to a server World say where it listens. A bootstrap with no server Worlds whose
  * templates include server-tagged ones (Unity's frontend pattern: a Host button creates the server
- * World at runtime) runs those templates, each as a World named after its key. A code bootstrap
+ * World at runtime) runs those templates, each as a World named as `Engine.createWorld` would name
+ * it (its `name`, else its key). Links to server templates not created at start are kept for when
+ * game code creates them (ADR 0062). A code bootstrap
  * runs against an Engine whose `createWorld` skips Worlds not tagged "server", returning an inert
  * handle whose `connect` records the link instead.
  */
@@ -181,16 +189,19 @@ async function serverBootstrap(project: ServerProject): Promise<ServerPlan> {
     const templates = Object.entries(setting.templates ?? {}).filter(([, t]) => isServer(t));
     // A lobby (ADR 0068) creates its match Worlds from their templates when rooms start: run only the lobby.
     const lobbies = templates.filter(([, t]) => t.lobby);
-    worlds = (lobbies.length > 0 ? lobbies : templates).map(([key, t]) => ({ ...t, name: key }));
+    worlds = (lobbies.length > 0 ? lobbies : templates).map(([key, t]) => ({ ...t, name: t.name ?? key }));
   }
   if (worlds.length === 0) {
     throw new ServerError(`The project's bootstrap has no Worlds or templates tagged "server" (it has ${skipped.map((n) => `"${n}"`).join(", ")}); there's nothing for a dedicated server to run.`);
   }
   const kept = new Set(worlds.map((w) => w.name));
   const links = setting.links ?? [];
+  const serverTemplates = new Set(Object.entries(setting.templates ?? {}).filter(([, t]) => isServer(t)).map(([key, t]) => t.name ?? key));
   return {
-    bootstrap: { worlds, links: links.filter((l) => kept.has(l.from) && kept.has(l.to)), ...(setting.templates ? { templates: setting.templates } : {}) },
+    // Links between server Worlds (start-up or spawnable) apply in the server's Engine as they would anywhere.
+    bootstrap: { worlds, links: links.filter((l) => (kept.has(l.from) || serverTemplates.has(l.from)) && (kept.has(l.to) || serverTemplates.has(l.to))), ...(setting.templates ? { templates: setting.templates } : {}) },
     links: links.filter((l) => !kept.has(l.from) && kept.has(l.to)),
+    spawnLinks: links.filter((l) => !kept.has(l.from) && !serverTemplates.has(l.from) && !kept.has(l.to) && serverTemplates.has(l.to)),
     skipped,
   };
 }
@@ -221,7 +232,7 @@ async function codeBootstrap(path: string): Promise<ServerPlan> {
     };
     await (script as Bootstrap)(filtered);
   };
-  return { bootstrap, links, skipped };
+  return { bootstrap, links, spawnLinks: [], skipped };
 }
 
 /** The handle a code bootstrap gets for a World the server skips: inert, except that `connect` records the link. */
@@ -299,7 +310,7 @@ function linkAddress(world: string, link: LinkConfig | undefined): { host?: stri
  * Also logs connections opening and closing on the server Worlds, and stats every `statsMs`.
  * `started`: the Worlds the bootstrap made (the rest were created at runtime).
  */
-function runLoop(engine: Engine, rate: number, log: (line: string) => void, statsMs: number, started: ReadonlySet<string>): { stop(): void } {
+function runLoop(engine: Engine, rate: number, log: (line: string) => void, statsMs: number, started: ReadonlySet<string>, afterStep: () => void = () => {}): { stop(): void } {
   const intervalMs = 1000 / rate;
   let last = performance.now();
   let next = last + intervalMs;
@@ -326,6 +337,7 @@ function runLoop(engine: Engine, rate: number, log: (line: string) => void, stat
     }
     last = now;
     steps++;
+    afterStep();
     watch();
 
     if (statsMs > 0 && now - statsAt >= statsMs) {
@@ -352,6 +364,46 @@ function runLoop(engine: Engine, rate: number, log: (line: string) => void, stat
       stopped = true;
       if (timer) clearTimeout(timer);
     },
+  };
+}
+
+/**
+ * A function to call each frame that has server Worlds created at runtime from a template listen
+ * where a link to them from a skipped (client) World says (ADR 0062), unless they already listen
+ * (game code called `listen` itself). Over `--host` like the start-up Worlds; a link with no
+ * WebSocket address leaves the World to listen on the shared port by path if its code asks.
+ */
+function spawnedListener(engine: Engine, links: readonly LinkConfig[], cli: ServerOptions, log: (line: string) => void): () => void {
+  if (links.length === 0) return () => {};
+  const handled = new WeakSet<World>();
+  return () => {
+    for (const handle of engine.worlds()) {
+      const world = engine._world(handle.name)!;
+      if (handled.has(world) || !handle.hasTag("server")) continue;
+      const link = links.find((l) => l.to === handle.name);
+      if (!link) continue;
+      handled.add(world);
+      if (handle.addresses().length > 0) continue;
+      if (link.transport !== "websocket") {
+        log(`[server] World "${handle.name}" (created at runtime): its link from "${link.from}" uses "${link.transport}"; a dedicated server listens over "websocket", so it isn't listening.`);
+        continue;
+      }
+      let listen: ReturnType<typeof listenOptions>;
+      try {
+        listen = listenOptions(handle.name, link, false, cli);
+      } catch (err) {
+        log(`[server] World "${handle.name}" (created at runtime) can't listen: ${(err as Error).message}`);
+        continue;
+      }
+      if (!listen) {
+        log(`[server] World "${handle.name}" (created at runtime): its link from "${link.from}" gives no port, so it isn't listening.`);
+        continue;
+      }
+      listenWorld(world, "websocket", listen.options).catch((err: Error) => {
+        const reason = /EADDRINUSE|is already listened on/.test(err.message) ? `port ${listen!.port} is already in use` : err.message;
+        log(`[server] World "${handle.name}" (created at runtime) can't listen where its link from "${link.from}" says: ${reason}.`);
+      });
+    }
   };
 }
 

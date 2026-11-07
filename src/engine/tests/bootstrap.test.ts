@@ -142,7 +142,7 @@ describe("bootstraps (T4)", () => {
       'bootstrap.worlds[1] ("Server"): timeScale must be 0 (paused) or more (got "fast").',
       `bootstrap.worlds[1] ("Server"): systems.exclude names unknown systems: "t4.Gone", "t4.Missing". Known systems: ${known}.`,
       'bootstrap.worlds[1] ("Server"): another World is already named "Server"; World names must be unique.',
-      'bootstrap.worlds[2]: unknown key "tickrate" (expected name, tags, tickRate, timeScale, renders, input, scenes, systems, lobby).',
+      'bootstrap.worlds[2]: unknown key "tickrate" (expected name, tags, tickRate, timeScale, renders, input, scenes, systems, lobby, replication).',
       'bootstrap.worlds[2]: name must be a non-empty string (got "").',
       "bootstrap.worlds[2]: tags must be a list of strings (got [1]).",
       'bootstrap.links[0]: from names the World "Client", which neither bootstrap.worlds nor bootstrap.templates lists.',

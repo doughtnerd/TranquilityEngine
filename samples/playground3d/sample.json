@@ -1,4 +1,4 @@
 {
   "name": "3D Playground",
-  "description": "A small 3D scene: imported OBJ and FBX models, built-in shapes, materials, a campfire particle effect, a sun with shadows and 3D physics. Press Play to drop the crates."
+  "description": "A small 3D scene: imported OBJ, FBX and glTF models, built-in shapes, materials, a campfire particle effect, a sun with shadows and 3D physics. Press Play to drop the crates."
 }

@@ -51,6 +51,16 @@ test("building a client + server layout writes project.json, and Ctrl+Z undoes i
   await expect(p.locator(".worlds-link text")).toHaveText(["loopback"]);
   await expect.poll(async () => (await bootstrap(page)).links).toEqual([{ from: "Default", to: "Server", transport: "loopback" }]);
 
+  // Link options: collapsed until opened; setting latencyMs writes options.
+  await p.locator("[data-link-options] summary").click();
+  await p.getByRole("textbox", { name: "Link 1 latencyMs" }).fill("80");
+  await p.getByRole("textbox", { name: "Link 1 latencyMs" }).press("Enter");
+  await expect(p.locator("[data-link-options] summary")).toHaveText("Options (1)");
+  await expect.poll(async () => (await bootstrap(page)).links).toEqual([{ from: "Default", to: "Server", transport: "loopback", options: { latencyMs: 80 } }]);
+  await p.getByRole("textbox", { name: "Link 1 latencyMs" }).fill("");
+  await p.getByRole("textbox", { name: "Link 1 latencyMs" }).press("Enter");
+  await expect.poll(async () => (await bootstrap(page)).links).toEqual([{ from: "Default", to: "Server", transport: "loopback" }]);
+
   // The server leaves out physics stepping.
   const physics = p.locator('.worlds-system[data-system="engine.PhysicsStep"]');
   await expect(physics.locator(".worlds-system-reason")).toHaveText("every World (engine)");

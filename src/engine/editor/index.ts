@@ -20,7 +20,7 @@ import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRe
 import { Camera, MeshRenderer, SpriteRenderer } from "../render/components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import type { GameObject } from "../scene/GameObject";
-import type { UIComponentType } from "../ui/components";
+import type { UICanvas, UIComponentType } from "../ui/components";
 import { SceneInstance, _instantiatedPrefabOf, applyTransform, assignField, instantiateFile, type InstantiateHooks, type SceneFile } from "../scene/SceneLoader";
 import type { Schema } from "../core/data";
 import { _undefineInput, _writeSyntheticInput, definedInputs } from "../net/input";
@@ -275,6 +275,16 @@ export function pickUI(world: World, x: number, y: number): UIComponentType[] {
 }
 
 /**
+ * UI canvases (ADR 0117) a click at a canvas point selects, topmost first: a world canvas by its
+ * rectangle, a screen canvas only by the edge strip of its frame. Empty headless.
+ */
+export function pickUICanvases(world: World, x: number, y: number): UICanvas[] {
+  const ui = world.render?.uiRuntime();
+  if (!ui) return [];
+  return ui.pickCanvases(x, y, rayAt(world, x, y));
+}
+
+/**
  * A UI element's laid-out box on the canvas: its four corners in canvas CSS pixels (top-left,
  * top-right, bottom-right, bottom-left; a world canvas's projected through the view camera) and its
  * size in UI pixels, for outlining it and for the scene view's resize and move handles. Null when it
@@ -482,12 +492,9 @@ export function meshTriangleData(ref: string, node?: GameObject): { readonly ver
   if (cached && cached.meshes.length === meshes.length && cached.meshes.every((m, i) => m === meshes[i])) return cached.data;
   const vertices: number[] = [], indices: number[] = [];
   for (const m of meshes) {
-    const pos = m.geometry.getAttribute("position");
     const base = vertices.length / 3;
-    for (let i = 0; i < pos.count; i++) vertices.push(pos.getX(i), pos.getY(i), pos.getZ(i));
-    const index = m.geometry.getIndex();
-    const count = index ? index.count : pos.count;
-    for (let i = 0; i < count; i++) indices.push(base + (index ? index.getX(i) : i));
+    for (const v of m.data.positions) vertices.push(v);
+    for (const i of m.data.indices) indices.push(base + i);
   }
   const data = { vertices, indices };
   triangleCache.set(mesh, { meshes: [...meshes], data });
@@ -506,12 +513,12 @@ export function meshLocalBounds(node: GameObject): { min: [number, number, numbe
   if (!meshes?.length) return null;
   const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
   for (const m of meshes) {
-    if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
-    const b = m.geometry.boundingBox!;
-    const lo = b.min.toArray(), hi = b.max.toArray();
-    for (let i = 0; i < 3; i++) {
-      min[i] = Math.min(min[i], lo[i]);
-      max[i] = Math.max(max[i], hi[i]);
+    const p = m.data.positions;
+    for (let v = 0; v < p.length; v += 3) {
+      for (let i = 0; i < 3; i++) {
+        min[i] = Math.min(min[i], p[v + i]);
+        max[i] = Math.max(max[i], p[v + i]);
+      }
     }
   }
   return { min, max };

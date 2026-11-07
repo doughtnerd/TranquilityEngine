@@ -31,7 +31,8 @@
         "height": 800,
         "resizable": true,
         "fullscreen": false,
-        "visible": false
+        "visible": false,
+        "create": false
       }
     ],
     "security": {
