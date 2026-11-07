@@ -32,6 +32,7 @@ import { createScene } from "../newScene";
 import { createMaterial } from "../materialAssets";
 import { createUIDocument } from "../uiDocumentEdits";
 import { createFormation } from "../formationAssets";
+import { createTileset, createTilesetFromSlices, hasSlices } from "../tilesetAssets";
 import { createParticleEffect, openParticleGraphAsset } from "../particleAssets";
 import { createShaderGraph, createShaderSubGraph, openShaderGraphAsset } from "../shaderGraphAssets";
 import { assetTileSize, assetView } from "../preferences";
@@ -56,6 +57,7 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   shadersubgraph: "Sub Graph",
   particles: "Particle Effect",
   formation: "Formation",
+  tileset: "Tileset",
   json: "JSON",
   script: "Script",
   javascript: "JS",
@@ -170,6 +172,7 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
     { label: "New Shader Sub Graph", disabled: readOnly, run: () => void createShaderSubGraph(pasteFolder(entries)).then((made) => made && select([made])) },
     // Create › Navigation › Formation (Foxfire's NavFormation asset, ADR 0065).
     { label: "New Navigation Formation", disabled: readOnly, run: () => void createFormation(pasteFolder(entries)).then((made) => made && select([made])) },
+    { label: "New Tileset", disabled: readOnly, run: () => void createTileset(pasteFolder(entries)).then((made) => made && select([made])) },
     ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),
   ];
   if (entries.length === 0) {
@@ -182,13 +185,18 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
   }
   if (entries.every(isSliceEntry)) {
     const image = splitSliceEntry(entries[0]).image;
-    return [{ label: "Sprite Editor…", shortcut: "Enter", run: () => openSpriteEditor(image) }];
+    return [
+      { label: "Sprite Editor…", shortcut: "Enter", run: () => openSpriteEditor(image) },
+      { label: "Create Tileset from Slices", disabled: readOnly, run: () => void createTilesetFromSlices(folderOf(image), image).then((made) => made && select([made])) },
+    ];
   }
   entries = fileEntries(entries);
   const editable = whyNotEditable(project, entries);
   const sliceable = entries.length === 1 && assetKind(entries[0]) === "image";
+  const tileable = sliceable && hasSlices(project, entries[0]);
   return [
     ...(entries.length === 1 && opens(entries[0]) ? [{ label: sliceable ? "Sprite Editor…" : "Open", shortcut: "Enter", run: () => openEntry(entries[0]) }] : []),
+    ...(tileable ? [{ label: "Create Tileset from Slices", disabled: readOnly, run: () => void createTilesetFromSlices(folderOf(entries[0]), entries[0]).then((made) => made && select([made])) }] : []),
     { label: "Rename", shortcut: "F2", disabled: entries.length > 1 ? "rename one at a time" : editable, run: () => startRename(entries[0]) },
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: readOnly, run: () => void duplicateAssets(entries).then((made) => made.length > 0 && select(made)) },
     { label: "", separator: true },

@@ -134,6 +134,7 @@ const ICONS: Partial<Record<AssetKind | "folder", string>> & { other: string } =
   model: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
   material: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM6 9a7 7 0 0 1 6-4",
   formation: "M5 5h3v3H5zM10.5 5h3v3h-3zM16 5h3v3h-3zM8 11h3v3H8zM13 11h3v3h-3zM10.5 17h3v3h-3z",
+  tileset: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
   environment: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18",
   other: "M7 3h7l5 5v13H7zM14 3v5h5",
 };

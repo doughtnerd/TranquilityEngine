@@ -50,8 +50,9 @@ function lazyPanel(load: () => Promise<FunctionComponent>): () => ComponentChild
 }
 const ShaderGraphPanel = lazyPanel(() => import("./ShaderGraphPanel").then((m) => m.ShaderGraphPanel));
 const ParticleGraphPanel = lazyPanel(() => import("./ParticleGraphPanel").then((m) => m.ParticleGraphPanel));
+const TilePalettePanel = lazyPanel(() => import("./TilePalettePanel").then((m) => m.TilePalettePanel));
 
-const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => (<><WorldsPanel /><NavDebugPanel /></>), network: () => <NetworkPanel />, project: () => <ProjectSettingsPanel />, shadergraph: ShaderGraphPanel, particlegraph: ParticleGraphPanel };
+const PANELS = { scene: () => <ScenePanel />, hierarchy: () => <Hierarchy />, inspector: () => <Inspector />, assets: () => <AssetsPanel />, history: () => <HistoryPanel />, code: () => <CodePanel />, worlds: () => (<><WorldsPanel /><NavDebugPanel /></>), network: () => <NetworkPanel />, project: () => <ProjectSettingsPanel />, shadergraph: ShaderGraphPanel, particlegraph: ParticleGraphPanel, tilepalette: TilePalettePanel };
 
 /** Editor window (ADR 0025): toolbar, dockable panels around the viewport, status bar. */
 export function App() {
