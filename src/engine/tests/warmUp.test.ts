@@ -1,7 +1,10 @@
 // ADR 0080: what a scene load warms up (the warm set), the script scan that feeds it, and the
 // Babylon warmer that draws each mesh once, hidden, on Babylon's NullEngine.
+import { readFileSync } from "node:fs";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
+import type { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
+import { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
@@ -14,6 +17,8 @@ import { Assets } from "../index";
 import { effectClock, nextBatchSize, PipelineWarmer, WARM_PREFIX } from "../render/babylon/warmUp";
 import { projectScriptAssetRefs, scriptAssetRefs } from "../scene/scriptAssetRefs";
 import { _setScriptAssetRefs, warmSet } from "../scene/warmUp";
+import { clearModelCache, loadMeshes, materialSlots } from "../scene/models";
+import { modelBaseMaterial, modelSubMeshes } from "../render/babylon/materials";
 
 const renderer = (data: Record<string, unknown>) => ({ type: "engine.MeshRenderer", data });
 
@@ -77,6 +82,24 @@ describe("the warm set (ADR 0080)", () => {
     const splash = warmSet("scenes/main.scene.json").meshes.find((m) => m.material === "asset:materials/splash.material.json")!;
     expect(splash.blended).toBe(true); // Splash has a script, which may fade it
     expect(warmSet("scenes/main.scene.json").meshes.find((m) => m.mesh === "builtin:cube")!.blended).toBe(false);
+  });
+
+  it("keeps a renderer's slot materials, as a warm mesh of its own (ADR 0089)", () => {
+    Assets.addSource(
+      Assets.fromObject({
+        "prefabs/lamp.prefab.json": {
+          format: "myco.scene@1",
+          nodes: [
+            { id: "a", name: "Lamp", components: [renderer({ mesh: "asset:models/lamp.glb", materials: ["", "asset:materials/rock.material.json"] })] },
+            { id: "b", name: "Plain lamp", components: [renderer({ mesh: "asset:models/lamp.glb", materials: ["", ""] })] },
+          ],
+        },
+      }),
+    );
+    const lamps = warmSet(null, ["prefabs/lamp.prefab.json"]).meshes;
+    expect(lamps).toHaveLength(2); // the slot material makes it another mesh to warm
+    expect(lamps.find((m) => m.materials)!.materials).toEqual(["", "asset:materials/rock.material.json"]);
+    expect(lamps.filter((m) => !m.materials)).toHaveLength(1); // empty slots follow `material`
   });
 
   it("warms files given at runtime (SceneManager.preload) without a scene", () => {
@@ -275,5 +298,91 @@ describe("the warmer draws the variants the scene will (ADR 0106, 0108)", () => 
     expect(scene.meshes.filter((m) => m.name.startsWith(WARM_PREFIX)).map((m) => m.material?.name)).toEqual(["material:a", "variant1", "variant2"]);
     warmer.dispose();
     expect(disposed).toEqual(["variant1", "variant2"]);
+  });
+});
+
+describe("the warmer draws a model's material slots (ADR 0080, 0089)", () => {
+  let babylon: NullEngine;
+  let scene: Scene;
+  let camera: TargetCamera;
+  const lamp = () => `data:application/octet-stream;base64,${readFileSync(new URL("../../../samples/playground3d/models/lamp.glb", import.meta.url)).toString("base64")}`;
+  beforeEach(() => {
+    clearModelCache();
+    Assets.clearSources();
+    Assets.addSource(Assets.fromObject({ "models/lamp.glb": lamp() }));
+    babylon = new NullEngine();
+    scene = new Scene(babylon);
+    scene.useRightHandedSystem = true;
+    camera = new TargetCamera("view", new Vector3(0, 2, 10), scene);
+    camera.setTarget(Vector3.Zero());
+  });
+  afterEach(() => {
+    scene.dispose();
+    babylon.dispose();
+  });
+
+  it("draws each model mesh with its slots' materials, and varies every slot's material", async () => {
+    const meshes = await loadMeshes("asset:models/lamp.glb");
+    const slots = materialSlots(meshes);
+    expect(slots.length).toBeGreaterThan(1);
+    const rock = new PBRMaterial("material:rock", scene);
+    const cache = new WeakMap<object, BabylonMaterial>();
+    const multis = new WeakMap<object, Map<string, MultiMaterial>>();
+    const probeCopies = new Map<PBRMaterial, PBRMaterial>();
+    const keywordOf = new Map<BabylonMaterial, PBRMaterial>();
+    const warmer = new PipelineWarmer({
+      scene,
+      materialFor: () => null,
+      materialForSource: () => {
+        throw new Error("slots resolve every mesh");
+      },
+      slotMaterials: (w) => {
+        // As the renderer: slot i draws `materials[i]`, else the model's own.
+        const pick = new Map(slots.map((s, i) => [s.surface, w.materials?.[i] ? rock : null]));
+        return (src, mesh) => {
+          const m = modelBaseMaterial(scene, cache, src, (s) => pick.get(s) ?? null, multis)!;
+          if (m instanceof MultiMaterial) modelSubMeshes(src, mesh);
+          return m;
+        };
+      },
+      isGraph: () => false,
+      fogless: () => false,
+      loadingTextures: () => false,
+      keywordVariants: (m) => {
+        let v = keywordOf.get(m);
+        if (!v) keywordOf.set(m, (v = new PBRMaterial(`${m.name}:keyword`, scene)));
+        return [{ material: v, dispose: () => {} }];
+      },
+      probeVariants: (base) => {
+        let p = probeCopies.get(base);
+        if (!p) probeCopies.set(base, (p = new PBRMaterial(`${base.name}:probe`, scene)));
+        return [p];
+      },
+    });
+    const rockSlot = slots.findIndex((s) => s.name === "Metal");
+    const materials = slots.map((_, i) => (i === rockSlot ? "asset:rock.material.json" : ""));
+    void warmer.add([{ mesh: "asset:models/lamp.glb", material: "", materials, castShadows: false, receiveShadows: true, blended: false }]);
+    warmer.beforeRender(camera, []);
+    const warm = scene.meshes.filter((m) => m.name.startsWith(WARM_PREFIX));
+    const drawn = warm.map((m) => m.material!);
+    // The slot's material is drawn, alone (a one-material mesh) or as a multi-material's part.
+    const copy = (m: BabylonMaterial) => /:(keyword|probe)$/.test(m.name);
+    const all = drawn.filter((m) => !copy(m)).flatMap((m) => (m instanceof MultiMaterial ? m.subMaterials : [m]));
+    expect(all).toContain(rock);
+    // Every slot's material gets its keyword copies, drawn on a mesh of its own.
+    for (const m of new Set(all)) expect(drawn).toContain(keywordOf.get(m!));
+    // A multi-material is drawn with its submeshes, and its parts get no probe copies (the renderer makes none).
+    const multi = warm.find((m) => m.material instanceof MultiMaterial);
+    if (multi) {
+      expect(multi.subMeshes.length).toBeGreaterThan(1);
+      for (const part of (multi.material as MultiMaterial).subMaterials) {
+        const alone = warm.some((m) => m.material === part);
+        if (!alone) expect(drawn).not.toContain(probeCopies.get(part as PBRMaterial));
+      }
+    }
+    // A one-material mesh gets its probe copy.
+    const single = warm.find((m) => m.material instanceof PBRMaterial && !m.material.name.endsWith(":keyword") && !m.material.name.endsWith(":probe"))!;
+    expect(drawn).toContain(probeCopies.get(single.material as PBRMaterial));
+    warmer.dispose();
   });
 });

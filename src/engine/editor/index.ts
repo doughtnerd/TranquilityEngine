@@ -187,6 +187,15 @@ export function destroyNow(node: GameObject): void {
   node.world._flushDestroyed();
 }
 
+/**
+ * Run `world`'s deferred destroys and component removals now (step 10 of a frame), so a node or
+ * component the editor destroyed in a live World goes away while the session is paused (ADR 0124).
+ * Only call between frames.
+ */
+export function applyDestroys(world: World): void {
+  world._flushDestroyed();
+}
+
 /** Reparent without changing the local transform, then move to `index` among the new siblings. */
 export function moveNode(node: GameObject, parent: GameObject, index: number): void {
   node.world._setParent(node.entity, parent.entity, false);

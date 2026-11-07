@@ -116,7 +116,7 @@ export class BabylonUI {
   constructor(private readonly scene: Scene, private readonly options: BabylonUIOptions) {
     // A font arrived: the GUI's cached font heights and our line spacings were measured with the fallback.
     this.offFont = onFontLoaded(() => this.fontsChanged());
-    this.screen = AdvancedDynamicTexture.CreateFullscreenUI("myco.ui", true, { width: 0, height: 0, scene, useStandalone: true } as never);
+    this.screen = readableCanvas(scene.getEngine(), () => AdvancedDynamicTexture.CreateFullscreenUI("myco.ui", true, { width: 0, height: 0, scene, useStandalone: true } as never));
     quiet(this.screen);
     uploadRedrawnPart(this.screen);
     this.textRoot = new Container("myco.texts");
@@ -714,6 +714,34 @@ export function flipRows(pixels: Uint8ClampedArray | Uint8Array, rowBytes: numbe
 /** The bit of WebGPU's queue this uses (the project builds without WebGPU's type declarations). */
 interface GPUQueueLike {
   writeTexture(destination: { texture: unknown; origin: { x: number; y: number } }, data: ArrayBufferView, layout: { bytesPerRow: number; rowsPerImage: number }, size: { width: number; height: number }): void;
+}
+
+/**
+ * @internal Make `create`'s GUI texture on a canvas whose 2D context reads back cheaply
+ * (`willReadFrequently`) on WebGPU, where `uploadRedrawnPart` reads the redrawn pixels each redraw.
+ * Chrome draws a canvas on the GPU until a few readbacks, then moves it to the CPU: that move took
+ * about 440 ms of one frame when a pirates match's HUD first drew (ADR 0120). Created on the CPU,
+ * readbacks are a copy from the start. Babylon makes the canvas in `DynamicTexture` with
+ * `engine.createCanvas` and takes its context with a plain `getContext("2d")`, which returns the
+ * context already made with this setting.
+ */
+export function readableCanvas<T>(engine: AbstractEngine, create: () => T): T {
+  if (!engine.isWebGPU) return create();
+  const original = engine.createCanvas;
+  engine.createCanvas = ((width: number, height: number) => {
+    const canvas = original.call(engine, width, height);
+    try {
+      (canvas as HTMLCanvasElement).getContext("2d", { willReadFrequently: true });
+    } catch {
+      /* a canvas without 2D (none in browsers): Babylon gets its own context */
+    }
+    return canvas;
+  }) as AbstractEngine["createCanvas"];
+  try {
+    return create();
+  } finally {
+    engine.createCanvas = original;
+  }
 }
 
 function uploadRedrawnPart(adt: AdvancedDynamicTexture): void {

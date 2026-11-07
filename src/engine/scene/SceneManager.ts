@@ -128,6 +128,7 @@ async function prepareAssets(world: World, files: readonly string[], onProgress:
   for (const m of warm.meshes) {
     if (m.mesh) all.add(splitSpriteRef(m.mesh.replace(/^asset:/, "")).path);
     if (m.material) all.add(splitSpriteRef(m.material.replace(/^asset:/, "")).path);
+    for (const slot of m.materials ?? []) if (slot) all.add(splitSpriteRef(slot.replace(/^asset:/, "")).path);
   }
   const refs = [...all];
   // A model's import settings can name material assets for its materials (ADR 0089): their textures too.

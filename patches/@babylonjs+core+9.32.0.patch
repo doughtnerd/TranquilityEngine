@@ -1,3 +1,78 @@
+diff --git a/node_modules/@babylonjs/core/Engines/Processors/shaderProcessor.js b/node_modules/@babylonjs/core/Engines/Processors/shaderProcessor.js
+index 6a04f91..7d1d565 100644
+--- a/node_modules/@babylonjs/core/Engines/Processors/shaderProcessor.js
++++ b/node_modules/@babylonjs/core/Engines/Processors/shaderProcessor.js
+@@ -304,8 +304,41 @@ function ApplyPreProcessing(sourceCode, options, engine) {
+     }
+     return preparedSourceCode;
+ }
++// Myco patch (ADR 0120): remember each expansion of a shader's includes. The expansion depends only on the
++// source, the include store's contents, `supportsUniformBuffers` and `indexParameters` (light counts), not on
++// the defines, yet every effect redid it: about half of creating a PBR effect during a scene load. A hit is
++// used only while every include it read still has the same content in the same store.
++const IncludeCache = new Map();
++const IncludeCacheSize = 64;
+ /** @internal */
+ export function ProcessIncludes(sourceCode, options, callback) {
++    const store = options.includesShadersStore;
++    const key = (options.supportsUniformBuffers ? "u" : "-") + JSON.stringify(options.indexParameters ?? null) + "\u0000" + sourceCode;
++    const hit = IncludeCache.get(key);
++    if (hit && hit.store === store && hit.read.every((r) => store[r[0]] === r[1])) {
++        IncludeCache.delete(key); // most recently used last
++        IncludeCache.set(key, hit);
++        callback(hit.code);
++        return;
++    }
++    const read = { list: [], sync: true };
++    _ProcessIncludes(sourceCode, options, (code) => {
++        if (read.sync) {
++            IncludeCache.delete(key);
++            IncludeCache.set(key, { store, read: read.list, code });
++            if (IncludeCache.size > IncludeCacheSize) {
++                IncludeCache.delete(IncludeCache.keys().next().value);
++            }
++        }
++        callback(code);
++    }, read);
++}
++/** @internal Myco patch (ADR 0120): tests forget the remembered include expansions. */
++export function _ClearIncludeCache() {
++    IncludeCache.clear();
++}
++/** @internal Myco patch (ADR 0120): the expansion itself, recording the includes it read in `read`. */
++function _ProcessIncludes(sourceCode, options, callback, read) {
+     ReusableMatches.length = 0;
+     let match;
+     // stay back-compat to the old matchAll syntax
+@@ -327,6 +360,7 @@ export function ProcessIncludes(sourceCode, options, callback) {
+         if (options.includesShadersStore[includeFile]) {
+             // Substitution
+             let includeContent = options.includesShadersStore[includeFile];
++            read.list.push([includeFile, includeContent]); // Myco patch (ADR 0120)
+             if (match[2]) {
+                 const splits = match[3].split(",");
+                 for (let index = 0; index < splits.length; index += 2) {
+@@ -382,9 +416,10 @@ export function ProcessIncludes(sourceCode, options, callback) {
+         }
+         else {
+             const includeShaderUrl = options.shadersRepository + "ShadersInclude/" + includeFile + ".fx";
++            read.sync = false; // Myco patch (ADR 0120): fetched over the network, not remembered
+             _FunctionContainer.loadFile(includeShaderUrl, (fileContent) => {
+                 options.includesShadersStore[includeFile] = fileContent;
+-                ProcessIncludes(parts.join(""), options, callback);
++                _ProcessIncludes(parts.join(""), options, callback, read);
+             });
+             return;
+         }
+@@ -392,7 +427,7 @@ export function ProcessIncludes(sourceCode, options, callback) {
+     ReusableMatches.length = 0;
+     const returnValue = parts.join("");
+     if (keepProcessing) {
+-        ProcessIncludes(returnValue.toString(), options, callback);
++        _ProcessIncludes(returnValue.toString(), options, callback, read);
+     }
+     else {
+         callback(returnValue);
 diff --git a/node_modules/@babylonjs/core/FrameGraph/Tasks/Rendering/geometryRendererTask.js b/node_modules/@babylonjs/core/FrameGraph/Tasks/Rendering/geometryRendererTask.js
 index 4e54dfc..54c66d4 100644
 --- a/node_modules/@babylonjs/core/FrameGraph/Tasks/Rendering/geometryRendererTask.js

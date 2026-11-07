@@ -155,6 +155,11 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0116](decisions/0116-editor-themes-display-scaling-layer-rename-and-history-pruning.md) | Theme import/export and per-project themes, bundled fonts and a light logo; display scaling; project-wide layer rename; persisted desktop folder access; age-based history pruning | Proposed |
 | [0117](decisions/0117-shader-graph-search-node-preview-shapes-and-scene-thumbnails.md) | Shader graph find, per-node preview shapes, and camera-view scene thumbnails | Proposed |
 | [0118](decisions/0118-gltf-pivots-lights-cameras-layer-textures-and-variants.md) | Model parts keep node pivots by default (scene format 2 pins old part references with `#model`), glTF lights and cameras as nodes, layer textures and anisotropy, material assets and physical graphs gain every glTF material feature (lossless extraction), material variants on `MeshRenderer.variant` | Proposed |
+| [0120](decisions/0120-hold-a-worlds-first-frames-and-trim-load-time-main-thread-work.md) | A new World's first frames are held on the clear colour while their pipelines (content, post-process, UI) compile asynchronously; Babylon's include expansion is memoized in our patch; the screen UI's canvas is made with `willReadFrequently` | Proposed |
+| [0121](decisions/0121-interest-management-and-ghost-component-changes.md) | Snapshots carry only ghosts relevant to each connection (by distance and group), and replicate components' enabled state, sibling order and components added or removed after spawn | Proposed |
+| [0122](decisions/0122-rename-and-deactivate-inside-instances-and-open-prefab-from-an-instance.md) | Rename and deactivate nodes inside a prefab instance (overrides Apply writes), and Open Prefab from an instance in its own tab | Proposed |
+| [0123](decisions/0123-per-component-field-migrations.md) | Per-component field migrations with component versions recorded per file | Proposed (not to be built yet) |
+| [0124](decisions/0124-structural-edits-to-a-live-world.md) | The live Hierarchy and Inspector create, delete, rename and reparent nodes, add and remove components and set node references in a running World; play-only, no undo | Proposed |
 
 ## Working with decisions
 

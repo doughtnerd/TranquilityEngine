@@ -6,7 +6,7 @@
       "name": "Shot",
       "components": [
         { "type": "engine.Transform", "data": { "position": [0, 0, 0] } },
-        { "type": "net.Replicated" },
+        { "type": "net.Replicated", "data": { "relevantDistance": 20 } },
         { "type": "arena.Shot", "data": { "vx": 0, "vy": 0, "shooter": 0, "life": 1 } },
         { "type": "engine.SpriteRenderer", "data": { "sprite": "asset:images/disc.png", "size": [0.3, 0.3], "color": "#fff59d", "sortingLayer": "Shots" } }
       ]

@@ -285,7 +285,7 @@ class Scene {
   }
 
   file(settings) {
-    return { format: "myco.scene@1", ...(settings ? { settings } : {}), nodes: this.nodes };
+    return { format: "myco.scene@2", ...(settings ? { settings } : {}), nodes: this.nodes };
   }
 }
 
@@ -562,7 +562,7 @@ function terrain(scene, geometry, cx, cz) {
 /** An agent prefab: a NavAgent on a capsule (or sphere) sized like the agent. */
 function agentPrefab(id, name, agentType, mesh, scale, mat) {
   return {
-    format: "myco.scene@1",
+    format: "myco.scene@2",
     nodes: [{ id, name, components: [transform([0, 0, 0], undefined, scale), renderer(mesh, mat), { type: "engine.NavAgent", data: { agentType } }] }],
   };
 }
