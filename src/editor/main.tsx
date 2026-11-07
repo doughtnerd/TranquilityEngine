@@ -41,8 +41,11 @@ async function main(): Promise<void> {
   Object.assign(window, { openTestProject: async (extra?: Record<string, string>) => (await session()).openTestProject(extra) });
   const root = document.getElementById("app")!;
   const sample = new URLSearchParams(location.search).get("sample");
-  const app = Promise.all([import("./ui/App"), import("./shortcuts"), import("./ui/panels"), session()]);
-  if (!isTauri() && !sample) {
+  const load = () => Promise.all([import("./ui/App"), import("./shortcuts"), import("./ui/panels"), session()]);
+  const shell = !isTauri() && !sample;
+  // With the start screen showing, the rest starts after its first paint, so parsing it doesn't delay that paint.
+  const app = shell ? new Promise<void>((painted) => requestAnimationFrame(() => setTimeout(painted, 0))).then(load) : load();
+  if (shell) {
     render(
       <div class="editor editor-starting">
         <StartScreen />
