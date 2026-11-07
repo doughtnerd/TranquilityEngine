@@ -232,6 +232,17 @@ describe("WGSL output of the shader graph compiler", () => {
     expect(wgsl(vg).vertex.body).toContain("(scene.view * (finalWorld * vec4f(mycoVPos, 1.0))).xyz");
   });
 
+  it("reads the particle colour (vertex times instance colour) in either stage, as RGBA, RGB and alpha", () => {
+    const g = graph([node("pc", "particleColor")], [["pc.rgba", "output.emission"], ["pc.rgb", "output.baseColor"], ["pc.a", "output.alpha"]]);
+    const c = wgsl(g);
+    expect(c.fragment.body).toContain("mycoVColor");
+    expect(c.fragment.body).toContain("mycoVColor.rgb");
+    expect(c.fragment.body).toContain("mycoVColor.a");
+    expect(code(c)).not.toMatch(/\bvColor\b/); // the plugin defines mycoVColor from Babylon's varying
+    const vg = graph([node("pc", "particleColor")], [["pc.rgb", "output.vertexOffset"]]);
+    expect(wgsl(vg).vertex.body).toContain("mycoVColor.rgb");
+  });
+
   it("writes modulo, negate, saturate, dot and normalize in WGSL's terms", () => {
     const g = graph(
       [node("m", "modulo", { inputs: { a: [1, 2, 3], b: 2 } }), node("neg", "negate", { inputs: { in: -1 } }), node("sat", "saturate", { inputs: { in: [1, 2, 3] } }), node("d", "dot", { inputs: { a: 2, b: 3 } }), node("nm", "normalize", { inputs: { in: 2 } })],

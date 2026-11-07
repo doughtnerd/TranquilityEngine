@@ -13,9 +13,14 @@ export class ProgramRunner {
   /** Each non-live binding's value as baked into the last built effect (JSON). */
   private readonly baked = new Map<ParticleBinding, string>();
   private properties = new Map<string, GraphInputValue>();
-  private readonly ctx: EvalContext = { time: 0, deltaTime: 0, playTime: 0, properties: this.properties, random: Math.random };
+  private readonly ctx: EvalContext;
 
-  constructor(readonly program: ParticleProgram) {
+  /** `random` feeds the graph's random nodes (default `Math.random`); pass the effect's seeded generator for deterministic runs. */
+  constructor(
+    readonly program: ParticleProgram,
+    random: () => number = Math.random,
+  ) {
+    this.ctx = { time: 0, deltaTime: 0, playTime: 0, properties: this.properties, random };
     for (const b of program.bindings) if (b.live) this.boxes.set(`${b.emitter}:${b.path}`, { value: b.kind === "color" ? [1, 1, 1, 1] : 0 });
   }
 
@@ -25,6 +30,11 @@ export class ProgramRunner {
     for (const name of this.program.properties) if (overrides[name] !== undefined) next.set(name, overrides[name] as GraphInputValue);
     this.properties = next;
     this.ctx.properties = next;
+  }
+
+  /** The evaluation context of the last `update` (time, properties): kernel backends evaluate their own bindings with it (ADR 0094). */
+  get context(): EvalContext {
+    return this.ctx;
   }
 
   /** For `EffectContext.live`. */
@@ -39,20 +49,21 @@ export class ProgramRunner {
       this.baked.set(b, JSON.stringify(value));
       if (value !== undefined) setPath(effect.emitters[b.emitter], b.path, value);
     }
-    this.update(0, 0, 0);
+    this.update(0, 0, () => 0);
     return effect;
   }
 
   /**
    * Evaluate the live bindings into their boxes; with `checkBaked`, also the others, returning true
-   * when one changed since the effect was built (so it needs rebuilding).
+   * when one changed since the effect was built (so it needs rebuilding). `playTime` gives the Play
+   * Time node's value for an emitter (an index into `program.effect.emitters`): see `playTimes`.
    */
-  update(time: number, deltaTime: number, playTime: number, checkBaked = false): boolean {
+  update(time: number, deltaTime: number, playTime: (emitter: number) => number, checkBaked = false): boolean {
     this.ctx.time = time;
     this.ctx.deltaTime = deltaTime;
-    this.ctx.playTime = playTime;
     let stale = false;
     for (const b of this.program.bindings) {
+      this.ctx.playTime = playTime(b.emitter);
       if (b.live) {
         const v = this.evaluate(b);
         if (v === undefined) continue;
@@ -80,6 +91,14 @@ export class ProgramRunner {
     if (b.kind === "color" && Array.isArray(v)) return hexColor(v[0] ?? 1, v[1] ?? 1, v[2] ?? 1, v[3] ?? 1);
     return v;
   }
+}
+
+/** Each emitter's Play Time at `time`: seconds into its own cycle (`time` modulo its duration, or `time` itself when it has none). */
+export function playTimes(program: ParticleProgram, time: number): (emitter: number) => number {
+  return (emitter) => {
+    const d = program.effect.emitters[emitter]?.duration ?? 0;
+    return d > 0 ? time % d : time;
+  };
 }
 
 /** Set `path` (`shape.radius`, `behaviors.2.size`, `emission.bursts.0.count`) in `target`. */

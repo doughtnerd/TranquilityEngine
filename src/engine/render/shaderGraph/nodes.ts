@@ -13,7 +13,7 @@ export type ValueType = "float" | "vec2" | "vec3" | "vec4" | "texture";
 export type PortType = ValueType | "dynamic";
 
 /** Values an unconnected input can read instead of an inline value. */
-export type Builtin = "uv" | "objectPosition" | "worldPosition" | "viewPosition" | "objectNormal" | "worldNormal" | "viewNormal" | "viewDirection";
+export type Builtin = "uv" | "objectPosition" | "worldPosition" | "viewPosition" | "objectNormal" | "worldNormal" | "viewNormal" | "viewDirection" | "vertexColor";
 
 export interface PortDef {
   id: string;
@@ -339,6 +339,18 @@ export const NODES: readonly NodeDef[] = [
     emit: (c) => ({ out: c.in[c.shaderLevel] }),
   },
   { type: "uv", title: "UV", category: "Input", keywords: "texcoord coordinates", inputs: [], outputs: [out("vec2")], emit: (c) => ({ out: c.builtin("uv") }) },
+  {
+    type: "particleColor",
+    title: "Particle Color",
+    category: "Input",
+    keywords: "vertex color instance particle tint fade",
+    inputs: [],
+    outputs: [out("vec4", "rgba", "RGBA"), out("vec3", "rgb", "RGB"), out("float", "a", "A")],
+    emit: (c) => {
+      const v = c.builtin("vertexColor");
+      return { rgba: v, rgb: `${v}.rgb`, a: `${v}.a` };
+    },
+  },
   {
     type: "position",
     title: "Position",

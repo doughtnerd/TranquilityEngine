@@ -55,6 +55,8 @@ export interface ParticleProgram {
   bindings: ParticleBinding[];
   /** Per emitter: starts when the effect plays (no start wires, or wired from On Play). */
   autoStart: boolean[];
+  /** Per emitter: the system's own random seed (`SystemSettings.seed`), or null to use the component's. Only the GPU backend applies it; the CPU backend seeds the whole effect from the component. */
+  seeds: (number | null)[];
   onPlay: EventRoute;
   onStop: EventRoute;
   /** Custom events by name (`ParticleSystem.sendEvent`). */
@@ -62,6 +64,8 @@ export interface ParticleProgram {
   /** Property names the program reads (an override change re-evaluates bindings). */
   properties: string[];
   problems: GraphProblem[];
+  /** The (expanded) graph this was compiled from: kernel backends compile it too (ADR 0094). */
+  source?: ParticleGraph;
 }
 
 /** Settings fields the quarks backend builds as value generators, so a binding can update them live. */
@@ -92,7 +96,7 @@ export function compileParticleGraph(graph: ParticleGraph): ParticleProgram {
     try {
       evaluate = compileUniform(graph, from);
     } catch (err) {
-      problems.push({ severity: "warning", message: `${(err as Error).message} The input uses its own value.`, at: `${sys.id}.${block.id}.${name}` });
+      problems.push({ severity: "warning", message: `${(err as Error).message} The input uses its own value.`, at: `${sys.id}.${block.id}.${name}`, cpuOnly: portRate(graph, from) === "particle" || undefined });
       return inline;
     }
     const read = new Set<string>();
@@ -163,7 +167,7 @@ export function compileParticleGraph(graph: ParticleGraph): ParticleProgram {
   }
   const autoStart = systems.map((_, i) => !startWired.has(i) || onPlay.start.includes(i));
 
-  return { effect, systems: systems.map((s) => s.id), bindings, autoStart, onPlay, onStop, custom, properties: [...properties], problems };
+  return { effect, systems: systems.map((s) => s.id), bindings, autoStart, seeds: systems.map((s) => s.settings.seed ?? null), onPlay, onStop, custom, properties: [...properties], problems, source: graph };
 }
 
 type InputFn = (sys: ParticleGraphSystem, emitter: number, block: GraphBlock, name: string, path: string, kind: ParticleBinding["kind"]) => GraphInputValue;
@@ -196,6 +200,12 @@ function lowerSystem(sys: ParticleGraphSystem, i: number, input: InputFn, proble
   const unknown = (b: GraphBlock, where: string) =>
     problems.push({ severity: "warning", message: `"${b.type}" isn't a ${where} block this engine knows; it's skipped.`, at: `${sys.id}.${b.id}` });
   const on = (b: GraphBlock) => b.enabled !== false;
+  /** Set Attribute blocks (ADR 0095) run only on kernel backends. */
+  const kernelOnly = (b: GraphBlock): boolean => {
+    if (!b.type.startsWith("attribute.")) return false;
+    problems.push({ severity: "warning", message: `${blockDef(b.type)?.label ?? b.type} needs a kernel (GPU) backend; the CPU simulation skips it.`, at: `${sys.id}.${b.id}`, cpuOnly: true });
+    return true;
+  };
 
   for (const b of sys.spawn.blocks.filter(on)) {
     switch (b.type) {
@@ -224,6 +234,7 @@ function lowerSystem(sys: ParticleGraphSystem, i: number, input: InputFn, proble
   }
 
   for (const b of sys.initialize.blocks.filter(on)) {
+    if (kernelOnly(b)) continue;
     if (b.type.startsWith("init.position")) {
       const type = b.type.slice("init.position".length).toLowerCase() as ShapeType;
       const shape = { ...defaultShape(), type };
@@ -261,6 +272,11 @@ function lowerSystem(sys: ParticleGraphSystem, i: number, input: InputFn, proble
   }
 
   for (const b of sys.update.blocks.filter(on)) {
+    if (kernelOnly(b)) continue;
+    if (b.type === "update.collisionDepth") {
+      problems.push({ severity: "warning", message: "Collide with depth buffer needs a kernel (GPU) backend; the CPU simulation skips it.", at: `${sys.id}.${b.id}`, cpuOnly: true });
+      continue;
+    }
     if (b.type === "update.gravity") {
       e.gravity = num(input(sys, i, b, "strength", "gravity", "number"), 1);
       continue;
@@ -273,7 +289,7 @@ function lowerSystem(sys: ParticleGraphSystem, i: number, input: InputFn, proble
 
   lowerOutput(sys, sys.output, e, (b, name, path, kind) => input(sys, i, b, name, path, kind), problems);
   if (sys.extraOutputs?.length) {
-    problems.push({ severity: "warning", message: `${sys.name} has ${sys.extraOutputs.length + 1} outputs; the CPU backend draws only the first (more need the GPU backend).`, at: sys.id });
+    problems.push({ severity: "warning", message: `${sys.name} has ${sys.extraOutputs.length + 1} outputs; the CPU simulation draws only the first (more need a kernel (GPU) backend).`, at: sys.id, cpuOnly: true });
   }
   return e;
 }
@@ -317,6 +333,8 @@ function lowerOutput(
       r.blendTiles = input(b, "blendTiles", "renderer.blendTiles", "number") === true;
     } else if (b.type === "output.widthOverLength") {
       e.behaviors.push({ type: "widthOverLength", width: input(b, "width", `behaviors.${e.behaviors.length}.width`, "number") as ParticleNumber });
+    } else if (b.type.startsWith("attribute.")) {
+      problems.push({ severity: "warning", message: `${blockDef(b.type)?.label ?? b.type} needs a kernel (GPU) backend; the CPU simulation skips it.`, at: `${sys.id}.${b.id}`, cpuOnly: true });
     } else {
       problems.push({ severity: "warning", message: `"${b.type}" isn't an Output block this engine knows; it's skipped.`, at: `${sys.id}.${b.id}` });
     }

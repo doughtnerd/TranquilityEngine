@@ -608,6 +608,11 @@ export class ParticleSystem extends Component {
   @field(Number) emissionScale = 1;
   /** Destroy the node once a non-looping effect has finished and its last particle is gone. */
   @field(Boolean) destroyOnFinish = false;
+  /**
+   * Random seed. 0 = a new random sequence every play; any other integer = the same particles every
+   * play and restart, for replays, tests and lockstep.
+   */
+  @field(Number) seed = 0;
 
   /** @internal Commands for the render backend, in order. */
   _commands: ParticleCommand[] = [];

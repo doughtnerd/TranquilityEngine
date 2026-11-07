@@ -5,7 +5,7 @@ import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { CONTEXT_KINDS, type ParticleGraphSystem } from "../../../engine/scene/particleGraph";
 import { NO_DRAG, NO_PAN, createNodeDrag, px, type CanvasNode, type Point, type View } from "../../graph";
-import { renameSystem, setSystemEnabled } from "../../particleGraph/graphEdit";
+import { addOutput, outputCount, renameSystem, setSystemEnabled } from "../../particleGraph/graphEdit";
 import { ProblemBadge } from "./BlockView";
 import { ContextView } from "./ContextView";
 import { useGraphEditor } from "./editorContext";
@@ -106,6 +106,15 @@ export function SystemView(props: { system: ParticleGraphSystem; at: Point; sele
               <ContextView system={system} kind={kind} />
             </Fragment>
           ))}
+          {Array.from({ length: outputCount(system) - 1 }, (_, i) => (
+            <Fragment key={`output${i + 1}`}>
+              <div class="pg-flow" aria-hidden="true" />
+              <ContextView system={system} kind="output" output={i + 1} />
+            </Fragment>
+          ))}
+          <button type="button" class="pg-add-output" aria-label={`Add output to ${system.name}`} title="Add another Output context (copies the main output's type and settings; drawn by kernel (GPU) simulation)" disabled={api.readOnly} onClick={() => api.commit(addOutput(api.graph, system.id).graph)}>
+            + Output
+          </button>
         </div>
       )}
     </div>

@@ -8,7 +8,7 @@ import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
-import { Assets, Camera, Engine, GameObject, Light, SceneManager } from "../index";
+import { Assets, Camera, Engine, GameObject, Light, ParticleSystem, SceneManager } from "../index";
 import type { BabylonEditorContext, EditorMesh, EditorSprite } from "../render/babylon/editorContext";
 import { EDITOR_LAYER_MASK } from "../render/babylon/editorContext";
 import { BabylonEditorOverlays, gridDivisions, lightSegments } from "../render/babylon/editorOverlays";
@@ -322,6 +322,22 @@ describe("Babylon editor overlays (ADR 0075 stage 8)", () => {
     expect(overlays.iconsAt(world, 400, 300).map((n) => n.entity)).toEqual([cam.entity]);
     expect(overlays.iconsAt(world, 520, 305).map((n) => n.entity)).toEqual([lamp.entity]);
     expect(overlays.iconsAt(world, 100, 100)).toEqual([]);
+  });
+
+  it("shows a pickable icon for each particle system and drops it with the node", () => {
+    editNode("cam", [0, 0, 5]).addBehavior(Camera);
+    const fx = editNode("fx", [2, 0, 5]);
+    fx.addBehavior(ParticleSystem);
+    step();
+    expect(overlays.particleGizmoCount()).toBe(1);
+    expect(overlays.iconsAt(world, 100, 100)).toEqual([]);
+    expect(overlays.iconsAt(world, 520, 305).map((n) => n.entity)).toEqual([fx.entity]);
+    fx.setActive(false);
+    step();
+    expect(overlays.iconsAt(world, 520, 305)).toEqual([]);
+    GameObject.destroy(fx);
+    step();
+    expect(overlays.particleGizmoCount()).toBe(0);
   });
 
   it("keeps icons a constant size on screen", () => {

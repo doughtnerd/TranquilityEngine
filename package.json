@@ -28,7 +28,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "bench:particles": "node bench/particles/run.mjs"
   },
   "author": "",
   "license": "MIT",

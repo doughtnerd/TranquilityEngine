@@ -129,6 +129,34 @@ export function graphUsesUv(c: CompiledShaderGraph): boolean {
   return /\bmycoVUv\b/.test(`${c.vertex.body}\n${c.vertex.varyings}\n${c.vertex.offset ?? ""}`);
 }
 
+/** Whether graph code reads `mycoVColor` (the Particle Color node). */
+const usesColor = (...code: string[]): boolean => /\bmycoVColor\b/.test(code.join("\n"));
+
+/**
+ * `mycoVColor` in the vertex stage: the vertex colour times the per-instance colour (Babylon defines
+ * VERTEXCOLOR for a mesh with a colour buffer, INSTANCESCOLOR for a thin-instance "color" buffer),
+ * white when the mesh has neither.
+ */
+const VERTEX_COLOR_VERTEX = [
+  "var mycoVColor: vec4f = vec4f(1.0);",
+  "#ifdef VERTEXCOLOR",
+  "mycoVColor = mycoVColor * vertexInputs.color;",
+  "#endif",
+  "#if defined(INSTANCESCOLOR) && defined(INSTANCES)",
+  "mycoVColor = mycoVColor * vertexInputs.instanceColor;",
+  "#endif",
+];
+
+/** `mycoVColor` in the fragment stage: Babylon's `vColor` varying (vertex times instance colour), else white. */
+const FRAGMENT_COLOR = [
+  "#if defined(VERTEXCOLOR) || defined(INSTANCESCOLOR) && defined(INSTANCES)",
+  "let mycoVColor: vec4f = fragmentInputs.vColor;",
+  "#else",
+  "let mycoVColor: vec4f = vec4f(1.0);",
+  "#endif",
+  "",
+].join("\n");
+
 /**
  * @internal Where a compiled graph's WGSL goes in Babylon's PBR shaders, by injection point (keys starting
  * with "!" are regular expressions Babylon replaces; see the file's header).
@@ -152,6 +180,7 @@ export function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [
         "#else",
         "let mycoVUv: vec2f = vec2f(0.0);",
         "#endif",
+        ...(usesColor(v.body, v.varyings, v.offset ?? "") ? VERTEX_COLOR_VERTEX : []),
         v.body,
         v.offset ? `positionUpdated = positionUpdated + (${v.offset});` : "",
         "var worldPos: vec4f = finalWorld * vec4f(positionUpdated, 1.0);",
@@ -162,7 +191,7 @@ export function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [
   const f = c.fragment;
   const code: { [point: string]: string } = {
     CUSTOM_FRAGMENT_DEFINITIONS: `${f.declarations}\n${f.normal ? TANGENT_FRAME : ""}`,
-    CUSTOM_FRAGMENT_MAIN_BEGIN: f.body,
+    CUSTOM_FRAGMENT_MAIN_BEGIN: `${usesColor(f.body) ? FRAGMENT_COLOR : ""}${f.body}`,
     CUSTOM_FRAGMENT_UPDATE_ALPHA: [`surfaceAlbedo = ${f.baseColor};`, `alpha = ${f.alpha};`, f.alphaClip ? `if (alpha < ${f.alphaClip}) { discard; }` : ""].join("\n"),
   };
   if (c.target !== "unlit") {
