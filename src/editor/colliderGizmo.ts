@@ -7,7 +7,7 @@
 // the centre handle moves the offset. Each drag or click is one undo step (an override on prefab
 // instances).
 import { effect } from "@preact/signals";
-import { BoxCollider, BoxCollider2D, CapsuleCollider, CircleCollider2D, Collider, Collider2D, EdgeCollider2D, GameObject, MeshCollider, PolygonCollider2D, SphereCollider, type Engine } from "../engine";
+import { BoxCollider, BoxCollider2D, CapsuleCollider, CharacterController, CharacterController2D, CircleCollider2D, Collider, Collider2D, EdgeCollider2D, GameObject, MeshCollider, PolygonCollider2D, SphereCollider, type Engine } from "../engine";
 import { meshTriangleData, overlayHandleAt, pointOnPlane, pointOnSpritePlane, rayAt, addEditorOverlay, removeEditorOverlay, viewportCanvas, type EditorOverlay } from "../engine/editor";
 import {
   boxHandles3D,
@@ -35,6 +35,10 @@ import {
 import {
   boxCorners,
   boxHandles,
+  capsule2DHandles,
+  capsule2DPoints,
+  dragCapsule2DHeight,
+  dragCapsule2DRadius,
   circleHandles,
   circlePoints,
   dragBoxEdge,
@@ -76,8 +80,22 @@ export function pose3DOf(node: GameObject): Pose3D {
   return { position: [p.x, p.y, p.z], rotation: [q.x, q.y, q.z, q.w], scale: [s.x, s.y, s.z] };
 }
 
-type EditableCollider2D = BoxCollider2D | CircleCollider2D | PolygonCollider2D | EdgeCollider2D;
-type EditableCollider3D = BoxCollider | SphereCollider | CapsuleCollider;
+/** A character controller's capsule is always upright: it follows the node's position and scale, never its rotation. */
+export function uprightPose3D(node: GameObject): Pose3D {
+  return { ...pose3DOf(node), rotation: [0, 0, 0, 1] };
+}
+
+/** The 2D version: position and scale, no rotation. */
+export function uprightPose2D(node: GameObject): Pose2D {
+  return { ...poseOf(node), rotation: 0 };
+}
+
+/** The pose a 3D collider's shape is placed with (upright for a character controller). */
+export const colliderPose3D = (node: GameObject, c: Collider): Pose3D => (c instanceof CharacterController ? uprightPose3D(node) : pose3DOf(node));
+const colliderPose2D = (node: GameObject, c: Collider2D): Pose2D => (c instanceof CharacterController2D ? uprightPose2D(node) : poseOf(node));
+
+type EditableCollider2D = BoxCollider2D | CircleCollider2D | PolygonCollider2D | EdgeCollider2D | CharacterController2D;
+type EditableCollider3D = BoxCollider | SphereCollider | CapsuleCollider | CharacterController | MeshCollider;
 type EditableCollider = EditableCollider2D | EditableCollider3D;
 
 const CLASSES: Record<EditingCollider["type"], typeof Collider2D | typeof Collider> = {
@@ -88,6 +106,9 @@ const CLASSES: Record<EditingCollider["type"], typeof Collider2D | typeof Collid
   "engine.BoxCollider": BoxCollider,
   "engine.SphereCollider": SphereCollider,
   "engine.CapsuleCollider": CapsuleCollider,
+  "engine.MeshCollider": MeshCollider,
+  "engine.CharacterController": CharacterController,
+  "engine.CharacterController2D": CharacterController2D,
 };
 
 const is3D = (c: EditableCollider): c is EditableCollider3D => c instanceof Collider;
@@ -112,9 +133,10 @@ export function colliderShapes(engine: Engine): { node: GameObject; points: [num
   for (const c of GameObject.findObjectsOfType(Collider2D)) {
     const node = c.node;
     if (!node.transform || !engine.world.inEditMode(node.entity)) continue;
-    const pose = poseOf(node);
+    const pose = colliderPose2D(node, c);
     const center: V2 = [c.center.x, c.center.y];
-    if (c instanceof BoxCollider2D) out.push({ node, points: boxCorners(pose, center, [c.size.x, c.size.y]), closed: true });
+    if (c instanceof CharacterController2D) out.push({ node, points: capsule2DPoints(pose, center, c.radius, c.height), closed: true });
+    else if (c instanceof BoxCollider2D) out.push({ node, points: boxCorners(pose, center, [c.size.x, c.size.y]), closed: true });
     else if (c instanceof CircleCollider2D) out.push({ node, points: circlePoints(pose, center, c.radius), closed: true });
     else if (isPoints(c)) out.push({ node, points: pointsOutline(pose, center, readPoints(c.points)), closed: c instanceof PolygonCollider2D });
   }
@@ -133,12 +155,12 @@ export function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire
   for (const c of GameObject.findObjectsOfType(Collider)) {
     const node = c.node;
     if (!node.transform || !engine.world.inEditMode(node.entity)) continue;
-    const pose = pose3DOf(node);
+    const pose = colliderPose3D(node, c);
     const center: V3 = [c.center.x, c.center.y, c.center.z];
     const mesh = c instanceof MeshCollider ? meshTriangleData(c.mesh, node) : null; // the same object while the mesh is unchanged
     if (c instanceof MeshCollider && !mesh) continue;
     const shape =
-      c instanceof BoxCollider ? `b${c.size.x},${c.size.y},${c.size.z}` : c instanceof SphereCollider ? `s${c.radius}` : c instanceof CapsuleCollider ? `c${c.radius},${c.height},${c.direction}` : mesh ? "m" : null;
+      c instanceof BoxCollider ? `b${c.size.x},${c.size.y},${c.size.z}` : c instanceof SphereCollider ? `s${c.radius}` : c instanceof CapsuleCollider ? `c${c.radius},${c.height},${c.direction}` : c instanceof CharacterController ? `k${c.radius},${c.height}` : mesh ? "m" : null;
     if (shape === null) continue;
     const key = `${shape}|${pose.position}|${pose.rotation}|${pose.scale}|${center}`;
     const cached = wires.get(c);
@@ -150,6 +172,7 @@ export function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire
     if (c instanceof BoxCollider) wire = boxWire(pose, center, [c.size.x, c.size.y, c.size.z]);
     else if (c instanceof SphereCollider) wire = sphereWire(pose, center, c.radius);
     else if (c instanceof CapsuleCollider) wire = capsuleWire(pose, center, c.radius, c.height, c.direction);
+    else if (c instanceof CharacterController) wire = capsuleWire(pose, center, c.radius, c.height, "y");
     else {
       let outline = outlines.get(mesh!);
       if (!outline) outlines.set(mesh!, (outline = meshOutline(mesh!.vertices, mesh!.indices)));
@@ -163,7 +186,9 @@ export function collider3dShapes(engine: Engine): { node: GameObject; wire: Wire
 
 /** The handles of a 3D collider being edited, by id. */
 export function handles3D(node: GameObject, c: EditableCollider3D): Record<string, V3> {
-  const pose = pose3DOf(node), center: V3 = [c.center.x, c.center.y, c.center.z];
+  const pose = colliderPose3D(node, c), center: V3 = [c.center.x, c.center.y, c.center.z];
+  if (c instanceof MeshCollider) return { center: worldCenter(pose, center) };
+  if (c instanceof CharacterController) return capsuleHandles3D(pose, center, c.radius, c.height, "y");
   if (c instanceof BoxCollider) return boxHandles3D(pose, center, [c.size.x, c.size.y, c.size.z]);
   if (c instanceof SphereCollider) return sphereHandles3D(pose, center, c.radius);
   return capsuleHandles3D(pose, center, c.radius, c.height, c.direction);
@@ -187,10 +212,12 @@ export function colliderOverlay(engine: Engine): EditorOverlay {
   } else if (edited) {
     const { node } = edited;
     const collider = edited.collider as EditableCollider2D;
-    const pose = poseOf(node);
+    const pose = colliderPose2D(node, collider);
     const center: V2 = [collider.center.x, collider.center.y];
     const handles: Record<string, [number, number, number]> =
-      collider instanceof BoxCollider2D
+      collider instanceof CharacterController2D
+        ? capsule2DHandles(pose, center, collider.radius, collider.height)
+        : collider instanceof BoxCollider2D
         ? boxHandles(pose, center, [collider.size.x, collider.size.y])
         : collider instanceof CircleCollider2D
           ? circleHandles(pose, center, collider.radius)
@@ -239,7 +266,7 @@ export function installColliderGizmo(engine: Engine): () => void {
 
     const { node, editing } = edited;
     const collider = edited.collider as EditableCollider2D;
-    const pose = poseOf(node); // fixed for the drag
+    const pose = colliderPose2D(node, collider); // fixed for the drag
     const startCenter: V2 = [collider.center.x, collider.center.y];
     const startSize: V2 = collider instanceof BoxCollider2D ? [collider.size.x, collider.size.y] : [0, 0];
     const pointer = (m: PointerEvent): V2 | null => {
@@ -303,6 +330,9 @@ export function installColliderGizmo(engine: Engine): () => void {
         if (!m.altKey || r.center[0] !== startCenter[0] || r.center[1] !== startCenter[1]) write("center", r.center.map(tidy));
       } else if (collider instanceof CircleCollider2D) {
         write("radius", tidy(dragCircleRadius(pose, p, startCenter)));
+      } else if (collider instanceof CharacterController2D) {
+        if (handle.startsWith("height")) write("height", tidy(dragCapsule2DHeight(p, startCenter)));
+        else write("radius", tidy(dragCapsule2DRadius(p, startCenter)));
       }
     };
     const up = () => {
@@ -321,7 +351,7 @@ export function installColliderGizmo(engine: Engine): () => void {
    */
   const drag3D = (e: PointerEvent, handle: string, node: GameObject, collider: EditableCollider3D, editing: EditingCollider) => {
     const scene = openScene.value!;
-    const pose = pose3DOf(node); // fixed for the drag
+    const pose = colliderPose3D(node, collider); // fixed for the drag
     const startCenter: V3 = [collider.center.x, collider.center.y, collider.center.z];
     const c0 = worldCenter(pose, startCenter);
     const start = local(e);
@@ -339,8 +369,8 @@ export function installColliderGizmo(engine: Engine): () => void {
     if (!grabbed) return;
     let axis: V3 | null = null;
     if (handle !== "center") {
-      if (collider instanceof CapsuleCollider) {
-        axis = capsuleHandleAxis(handle, pose, collider.direction);
+      if (collider instanceof CapsuleCollider || collider instanceof CharacterController) {
+        axis = capsuleHandleAxis(handle, pose, collider instanceof CapsuleCollider ? collider.direction : "y");
         if (handle.endsWith("-")) axis = [-axis[0], -axis[1], -axis[2]];
       } else {
         const d = [grabbed[0] - c0[0], grabbed[1] - c0[1], grabbed[2] - c0[2]];
@@ -379,10 +409,10 @@ export function installColliderGizmo(engine: Engine): () => void {
         if (!m.altKey || r.center.some((v, i) => v !== startCenter[i])) write("center", r.center.map(tidy));
       } else if (collider instanceof SphereCollider) {
         write("radius", tidy(dragSphereRadius(reach, pose)));
-      } else if (handle.startsWith("height")) {
-        write("height", tidy(dragCapsuleHeight(reach, pose, collider.direction)));
-      } else {
-        write("radius", tidy(dragCapsuleRadius(reach, pose, collider.direction)));
+      } else if (collider instanceof CapsuleCollider || collider instanceof CharacterController) {
+        const direction = collider instanceof CapsuleCollider ? collider.direction : "y";
+        if (handle.startsWith("height")) write("height", tidy(dragCapsuleHeight(reach, pose, direction)));
+        else write("radius", tidy(dragCapsuleRadius(reach, pose, direction)));
       }
     };
     const up = () => {

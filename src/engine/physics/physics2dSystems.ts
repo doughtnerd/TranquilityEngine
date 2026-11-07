@@ -36,6 +36,13 @@ export async function ensurePhysics2D(world: World): Promise<Physics2DWorld> {
 
 // The fixed-step physics systems, in the order of ADR 0011: catalog entries for every World, doing
 // nothing in a World without a 2D physics world (ADR 0032).
+// Interpolated bodies (ADR 0093) go back to their simulated pose before fixed-step scripts read them.
+defineBuiltinSystem({
+  name: "engine.PhysicsRestoreInterpolated",
+  phase: "fixedUpdate",
+  before: ["engine.FixedUpdateScripts"],
+  run: (w) => (w.physics2D?.restoreInterpolated(), w.physics3D?.restoreInterpolated()),
+});
 defineBuiltinSystem({ name: "engine.PhysicsPush", phase: "fixedUpdate", after: ["engine.FixedUpdateScripts"], run: (w) => w.physics2D?.push() });
 defineBuiltinSystem({ name: "engine.PhysicsStep", phase: "fixedUpdate", after: ["engine.PhysicsPush"], run: (w, dt) => w.physics2D?.step(dt) });
 defineBuiltinSystem({ name: "engine.PhysicsWriteBack", phase: "fixedUpdate", after: ["engine.PhysicsStep"], run: (w) => w.physics2D?.writeBack() });

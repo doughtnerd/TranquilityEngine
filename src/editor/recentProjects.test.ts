@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { FsaDirectoryHandle } from "./fsaFileSystem";
 import { MemoryDirectoryHandle } from "./fsaMemory";
 import { joinPath } from "./projects";
-import { RecentProjects, type HandleStore, type ListStore } from "./recentProjects";
+import { cleanLabel, locationOf, RecentProjects, type HandleStore, type ListStore } from "./recentProjects";
 import { MemoryFileSystem } from "./testing";
 
 function stores() {
@@ -85,5 +85,30 @@ describe("recent projects", () => {
     await recent.add({ name: "B", path: "b", handle: new MemoryDirectoryHandle("b") }, 2);
     expect(recent.list().map((e) => e.name)).toEqual(["B"]);
     expect(s.map.size).toBe(1);
+  });
+});
+
+describe("browser folder location notes (ADR 0116)", () => {
+  it("keeps a note on a handle entry, cleans it, and shows it in place of the folder name", async () => {
+    let text: string | null = null;
+    const r = new RecentProjects({ read: () => text, write: (t) => (text = t) }, null);
+    const entry = await r.add({ name: "Flappy", path: "flappy" });
+    const handleEntry = { ...entry, kind: "handle" as const };
+    text = JSON.stringify([handleEntry]);
+    r.setLabel(entry.id, "  ~/games\n/flappy  ");
+    expect(r.list()[0].label).toBe("~/games /flappy");
+    expect(locationOf(r.list()[0])).toBe("~/games /flappy");
+    r.setLabel(entry.id, "   ");
+    expect(r.list()[0].label).toBeUndefined();
+    expect(locationOf(r.list()[0])).toBe("flappy");
+  });
+
+  it("ignores notes on path entries and rejects non-string labels", () => {
+    let text: string | null = JSON.stringify([{ id: "a", name: "A", path: "/a", lastOpened: 1, kind: "path" }, { id: "b", name: "B", path: "b", lastOpened: 2, kind: "handle", label: 5 }]);
+    const r = new RecentProjects({ read: () => text, write: (t) => (text = t) }, null);
+    r.setLabel("a", "x");
+    expect(r.list().map((e) => e.id)).toEqual(["a"]); // the malformed entry is dropped
+    expect(r.list()[0].label).toBeUndefined();
+    expect(cleanLabel(3)).toBe("");
   });
 });

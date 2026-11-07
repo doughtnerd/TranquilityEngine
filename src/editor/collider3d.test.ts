@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, BoxCollider, Engine, MeshRenderer } from "../engine";
-import { addAsset, prepareAssets, whyNotAddable } from "./assetBrowser";
+import { addAsset, assetKind, prepareAssets, whyNotAddable } from "./assetBrowser";
 import { newComponentEntry } from "./componentEdits";
 import {
   boxHandles3D,
@@ -21,7 +21,7 @@ import {
   sphereHandles3D,
   type Pose3D,
 } from "./collider3dMath";
-import { colliderOverlay } from "./colliderGizmo";
+import { EDITABLE_COLLIDERS, collider3dShapes, colliderOverlay } from "./colliderGizmo";
 import { AddComponent, SetField } from "./document";
 import { createNode, newNodeEntry } from "./nodeCreate";
 import { openSceneFile } from "./project";
@@ -123,6 +123,59 @@ describe("3D colliders in the editor", () => {
   });
 });
 
+describe("character controller and mesh collider gizmos", () => {
+  let engine: Engine;
+
+  beforeEach(async () => {
+    engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
+    openSceneFile(engine, DEMO_SCENE);
+  });
+
+  afterEach(() => {
+    editingCollider.value = null;
+    selection.value = null;
+    engine.dispose();
+  });
+
+  it("draws the controller's capsule upright even when the node is turned, and puts handles on it", () => {
+    const scene = openScene.value!;
+    const id = createNode(scene, "empty", { position: [1, 2, 3] });
+    scene.stack.execute(new SetField(id, "engine.Transform", "rotation", [0, 0, 90]));
+    scene.stack.execute(new AddComponent(id, { type: "engine.CharacterController", data: { center: [0, 0.5, 0], radius: 0.5, height: 2 } }));
+    selection.value = id;
+    const node = scene.sync.nodeFor(id)!;
+    const shapes = collider3dShapes(engine).filter((s) => s.node === node);
+    expect(shapes).toHaveLength(1);
+    const ys = shapes[0].wire.flat().map((p) => p[1]);
+    close([Math.min(...ys), Math.max(...ys)], [2.5 - 1, 2.5 + 1]); // centre y 2.5, half the 2 height each way
+    const xs = shapes[0].wire.flat().map((p) => p[0]);
+    close([Math.min(...xs), Math.max(...xs)], [0.5, 1.5]); // radius 0.5 around x = 1
+    editingCollider.value = { key: id, type: "engine.CharacterController", index: 0 };
+    const handles = Object.fromEntries(colliderOverlay(engine).handles.map((h) => [h.id, h.position]));
+    expect(Object.keys(handles).sort()).toEqual(["center", "height+", "height-", "radius:u+", "radius:u-", "radius:v+", "radius:v-"]);
+    close(handles.center, [1, 2.5, 3]);
+    close(handles["height+"], [1, 3.5, 3]);
+  });
+
+  it("matches capsuleWire with an upright pose", () => {
+    const turned: Pose3D = { position: [0, 0, 0], rotation: turnY90, scale: [1, 1, 1] };
+    const upright = capsuleWire({ ...turned, rotation: [0, 0, 0, 1] }, [0, 0, 0], 0.5, 2, "y");
+    expect(upright.flat().every((p) => Math.abs(p[1]) <= 1 + 1e-9)).toBe(true);
+  });
+
+  it("edits a mesh collider's centre only", () => {
+    const scene = openScene.value!;
+    const id = createNode(scene, "plane");
+    selection.value = id;
+    expect(EDITABLE_COLLIDERS.has("engine.MeshCollider")).toBe(true);
+    editingCollider.value = { key: id, type: "engine.MeshCollider", index: 0 };
+    scene.stack.execute(new SetField(id, "engine.MeshCollider", "center", [0, 1, 0]));
+    const handles = colliderOverlay(engine).handles;
+    expect(handles.map((h) => h.id)).toEqual(["center"]);
+    expect(EDITABLE_COLLIDERS.has("engine.CharacterController2D")).toBe(true);
+  });
+});
+
 describe("creating 3D nodes", () => {
   it("makes shapes with a mesh and matching collider, and lights aimed down", async () => {
     const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
@@ -158,6 +211,37 @@ describe("adding models from the Assets panel (ADR 0044)", () => {
       expect(scene.sync.nodeFor(crate)!.getBehavior(MeshRenderer)!.mesh).toBe("models/crate.obj");
       scene.stack.undo();
       expect(scene.doc.has(crate)).toBe(false);
+    } finally {
+      Assets.removeSource(extra);
+      engine.dispose();
+    }
+  });
+});
+
+describe("adding glTF models from the Assets panel (ADR 0088)", () => {
+  it("adds a glTF as the file's node tree, less the levels every mesh shares", async () => {
+    const engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
+    const file = (p: string) => `data:application/octet-stream;base64,${readFileSync(new URL(`../../samples/playground3d/${p}`, import.meta.url)).toString("base64")}`;
+    const extra = Assets.fromObject({ "models/lamp.glb": file("models/lamp.glb") });
+    Assets.addSource(extra);
+    try {
+      openSceneFile(engine, DEMO_SCENE);
+      const scene = openScene.value!;
+      expect(assetKind("models/lamp.glb")).toBe("model");
+      await prepareAssets(["models/lamp.glb"]);
+      const lamp = addAsset(scene, "models/lamp.glb");
+      const names = (id: string) => scene.doc.children(id).map((c) => scene.doc.node(c).name);
+      const mesh = (id: string) => scene.doc.node(id).components!.find((c) => c.type === "engine.MeshRenderer")?.data;
+      expect(names(lamp)).toEqual(["Base", "Pole"]);
+      const pole = scene.doc.children(lamp)[1];
+      expect(mesh(pole)).toEqual({ mesh: "asset:models/lamp.glb#Pole" });
+      expect(names(pole)).toEqual(["Head"]);
+      const head = scene.doc.children(pole)[0];
+      expect(mesh(head)).toBeUndefined();
+      expect(names(head)).toEqual(["Bulb", "Shade"]);
+      expect(mesh(scene.doc.children(head)[0])).toEqual({ mesh: "asset:models/lamp.glb#Bulb" });
+      scene.stack.undo();
+      expect(scene.doc.has(lamp)).toBe(false);
     } finally {
       Assets.removeSource(extra);
       engine.dispose();

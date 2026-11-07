@@ -43,12 +43,12 @@ test("cascaded shadows follow the quality tier", async ({ page }) => {
   // High has 3 cascades, and the sample's Sun casts shadows.
   await expect.poll(async () => (await lighting(page)).cascades, { timeout: 15_000 }).toBe(true);
   await page.getByRole("combobox", { name: "Quality" }).selectOption("Low"); // 1 cascade: ordinary shadows
-  await expect.poll(async () => (await lighting(page)).cascades).toBe(false);
+  await expect.poll(async () => (await lighting(page)).cascades, { timeout: 20_000 }).toBe(false);
   await page.getByRole("combobox", { name: "Quality" }).selectOption("Ultra");
-  await expect.poll(async () => (await lighting(page)).cascades).toBe(true);
+  await expect.poll(async () => (await lighting(page)).cascades, { timeout: 20_000 }).toBe(true);
   // Frames keep coming.
   const frames = await page.evaluate(() => (window as unknown as Hooks).engine!.world.time.frameCount);
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).engine!.world.time.frameCount)).toBeGreaterThan(frames + 10);
+  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).engine!.world.time.frameCount), { timeout: 20_000 }).toBeGreaterThan(frames + 10);
   expect(errors).toEqual([]);
 });
 

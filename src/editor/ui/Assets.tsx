@@ -1,7 +1,7 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, opensInCodePanel, searchFiles, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
+import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, opensInCodePanel, searchEntries, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
 import { inspectSelectedAsset, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { deleteAssets, entryPath, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "../assetDelete";
@@ -27,6 +27,7 @@ import {
   type Modifiers,
 } from "../assetSelection";
 import { openScript } from "../code/codeState";
+import { installOsDrop, osDragFolder, osDragOver } from "../osDrop";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
 import { createMaterial } from "../materialAssets";
@@ -63,6 +64,9 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   javascript: "JS",
   typescript: "TS Module",
   text: "Text",
+  uidocument: "UI Document",
+  stylesheet: "Stylesheet",
+  xml: "XML",
   other: "File",
 };
 
@@ -91,6 +95,7 @@ const box = signal<{ x0: number; y0: number; x1: number; y1: number } | null>(nu
 
 /** True while a drag would drop on the folder `path`. */
 const dropTarget = (path: string) => {
+  if (osDragFolder.value === path) return true;
   const t = assetDrag.value?.target;
   return t?.kind === "folder" && t.folder === path;
 };
@@ -103,7 +108,7 @@ const toggleKey = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.
 function listedEntries(project: EditorProject, folder: string, query: string): string[] {
   // Sidecars (`*.meta.json`) travel with their files and aren't listed (ADR 0040).
   const files = [...listedFiles(project.files), ...project.scripts.keys()];
-  if (query.trim()) return searchFiles(files.sort(), query);
+  if (query.trim()) return searchEntries(files.sort(), query, (image) => slicesOf(project, image).map((s) => s.name));
   const subfolders = project.folders.filter((f) => parentFolder(f) === folder).sort((a, b) => fileName(a).localeCompare(fileName(b)));
   const here = files.filter((f) => folderOf(f) === folder).sort((a, b) => fileName(a).localeCompare(fileName(b)));
   // An expanded image's slices follow it.
@@ -220,6 +225,7 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
  * assets into the viewport or hierarchy adds them to the scene, and a tile's + adds one.
  */
 export function AssetsPanel() {
+  useEffect(() => installOsDrop(), []); // files dragged in from the OS (ADR 0085)
   docVersion.value; // the project's file list can change after saves
   scriptsVersion.value; // and its scripts after a reload
   historyVersion.value;
@@ -232,7 +238,7 @@ export function AssetsPanel() {
   const entries = listedEntries(project, folder, query);
   const selected = selectedAssets.value.filter((e) => entries.includes(e));
   return (
-    <div class="asset-browser">
+    <div class={`asset-browser${osDragOver.value ? " os-drop" : ""}`}>
       <nav class="asset-tree" aria-label="Folders">
         <ul role="tree">
           <FolderItem project={project} folders={project.folders} path="" label={project.name} depth={0} current={searching ? null : folder} />

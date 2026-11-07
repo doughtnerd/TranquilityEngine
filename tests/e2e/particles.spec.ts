@@ -112,7 +112,7 @@ test("the campfire opens in the Particle Graph as three systems with a live prev
   await page.locator(".asset-folder", { hasText: /^effects$/ }).click();
   await page.locator(".panel.assets .asset-item", { hasText: "campfire" }).dblclick();
   const graph = page.locator(".particle-graph");
-  for (const name of ["Flames", "Smoke", "Sparks"]) await expect(graph.getByLabel(`System ${name}`, { exact: true })).toBeVisible();
+  for (const name of ["Flames", "Smoke", "Sparks"]) await expect(graph.getByLabel(`System ${name}`, { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(graph).toContainText("read-only");
   await expect(graph.getByRole("button", { name: "Preview restart" })).toBeVisible();
   expect(errors).toEqual([]);

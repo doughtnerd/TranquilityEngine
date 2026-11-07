@@ -154,3 +154,6 @@
 .asset-item:hover .asset-play, .asset-play:focus-visible, .asset-play.playing { opacity: 1; }
 .asset-play:hover { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 .asset-list .asset-play { width: 14px; height: 14px; line-height: 12px; font-size: 8px; right: 0; top: 0; }
+
+/* Files dragged in from the OS (ADR 0085): the panel is outlined, the folder under the pointer highlighted like a move target. */
+.asset-browser.os-drop { outline: 2px dashed var(--accent); outline-offset: -2px; }

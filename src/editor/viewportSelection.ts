@@ -9,7 +9,7 @@
 // outlined in the viewport, and the scene camera's F key frames it.
 import { effect } from "@preact/signals";
 import type { Engine, GameObject } from "../engine";
-import { gizmoActive, pick, pickUI, pointOnSpritePlane, screenBounds, setSelectionOutline, viewportCanvas, worldToCanvas, type ScreenRect } from "../engine/editor";
+import { gizmoActive, pick, pickUI, pickUICanvases, pointOnSpritePlane, screenBounds, setSelectionOutline, viewportCanvas, worldToCanvas, type ScreenRect } from "../engine/editor";
 import type { UIComponentType } from "../engine/ui/components";
 import { colliderShapes } from "./colliderGizmo";
 import { pointInPolygon, polygonArea } from "./colliderMath";
@@ -20,6 +20,7 @@ import { combineSelection, selectModeFor, withDescendants, type SelectMode } fro
 import { docVersion, openScene, refineList, select, selectedKeys, selectedNodes, selectedUIElement, selection } from "./state";
 import { elementOfComponent, parseUIRefKey, refOfElement, selectUIElement, uiRefKey, type NodeLookup } from "./uiDocuments";
 import { pressOnSelectedUI } from "./uiHandles";
+import { orderClickHits, partitionUIHits } from "./uiPicking";
 
 /** Pointer travel (CSS pixels) under which a press and release count as a click, not a drag. */
 export const CLICK_SLOP = 4;
@@ -281,8 +282,8 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
     const mode: SelectMode = selectModeFor(e);
     if (mode === "replace") {
       const sameSpot = lastClick !== null && Math.hypot(p.x - lastClick.x, p.y - lastClick.y) < CLICK_SLOP;
-      const ui = uiHitKeys(pickUI(world, p.x, p.y), scene.sync, pickable);
-      const all = [...ui, ...hits.filter((h) => !ui.includes(h))];
+      const { painted, bare } = partitionUIHits(pickUI(world, p.x, p.y));
+      const all = orderClickHits(uiHitKeys(painted, scene.sync, pickable), hits, uiHitKeys([...bare, ...pickUICanvases(world, p.x, p.y)], scene.sync, pickable)); // canvases last (ADR 0117)
       applyClickSelection(chooseSelection(all, selectedUIElement.peek() ?? selection.peek(), sameSpot));
     } else if (hits.length > 0) {
       select(combineSelection(selectedKeys.peek(), [hits[0]], mode));
