@@ -38,28 +38,9 @@
       "id": "rock2-nav",
       "name": "Nav Footprint",
       "components": [
-        {
-          "type": "engine.Transform",
-          "data": {
-            "scale": [
-              5.2,
-              0.75,
-              5.2
-            ]
-          }
-        },
-        {
-          "type": "engine.MeshCollider",
-          "data": {
-            "mesh": "builtin:cylinder"
-          }
-        },
-        {
-          "type": "engine.NavObstacle",
-          "data": {
-            "source": "collider"
-          }
-        }
+        { "type": "engine.Transform", "data": { "scale": [3, 0.75, 3] } },
+        { "type": "engine.MeshCollider", "data": { "mesh": "builtin:cylinder" } },
+        { "type": "engine.NavObstacle", "data": { "source": "collider" } }
       ],
       "parent": "rock2"
     }
