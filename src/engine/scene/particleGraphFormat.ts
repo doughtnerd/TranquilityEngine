@@ -525,8 +525,12 @@ function parseSystem(raw: unknown, index: number, ctx: Ctx): ParticleGraphSystem
   system.settings = {
     space: choiceSetting(ss, "space", ["local", "world"] as const, sd.space, `${at}.settings`, ctx),
     capacity: Math.round(numberSetting(ss, "capacity", sd.capacity, `${at}.settings`, ctx, 1)),
-    ...extraSettings(ss, ["space", "capacity"], `${at}.settings`, ctx),
+    ...extraSettings(ss, ["space", "capacity", "simulation"], `${at}.settings`, ctx),
   };
+  if (ss.simulation !== undefined) {
+    const simulation = choiceSetting(ss, "simulation", ["auto", "cpu", "gpu"] as const, "auto", `${at}.settings`, ctx);
+    if (simulation !== "auto") system.settings.simulation = simulation; // "auto" is the default and isn't written
+  }
 
   const sp = isObj(raw.spawn) ? raw.spawn : {};
   const spd = defaultSpawnSettings();

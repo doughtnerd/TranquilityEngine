@@ -81,7 +81,16 @@ export interface SystemSettings {
   space: "local" | "world";
   /** The most particles alive at once. */
   capacity: number;
+  /**
+   * Which simulation runs the system (ADR 0094). "auto" (the default, not written): a kernel backend
+   * when the system needs one (per-particle operators, Set Attribute, several outputs, GPU events,
+   * depth collision) or holds 4096 particles or more, else the CPU. "cpu": always the CPU simulation.
+   * "gpu": a kernel backend (WebGPU compute, else WebGL2 textures, else JavaScript).
+   */
+  simulation?: SimulationChoice;
 }
+
+export type SimulationChoice = "auto" | "cpu" | "gpu";
 
 export interface ParticleGraphSystem {
   /** Unique within the document (systems, blocks and nodes share one id space). */
@@ -96,7 +105,7 @@ export interface ParticleGraphSystem {
   initialize: BlockContext;
   update: BlockContext;
   output: OutputContext;
-  /** More outputs: kept in the format, flagged "needs GPU backend" by the quarks backend (one renderer per emitter). */
+  /** More outputs: kept in the format, drawn by kernel backends (ADR 0094); the CPU simulation draws only the first output. */
   extraOutputs?: OutputContext[];
 }
 
@@ -175,4 +184,6 @@ export interface GraphProblem {
   message: string;
   severity: "error" | "warning";
   at?: string;
+  /** A limit of the CPU simulation only (a per-particle chain, Set Attribute, extra outputs): not shown for systems a kernel backend runs (ADR 0094). */
+  cpuOnly?: boolean;
 }

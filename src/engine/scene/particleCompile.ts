@@ -92,7 +92,7 @@ export function compileParticleGraph(graph: ParticleGraph): ParticleProgram {
     try {
       evaluate = compileUniform(graph, from);
     } catch (err) {
-      problems.push({ severity: "warning", message: `${(err as Error).message} The input uses its own value.`, at: `${sys.id}.${block.id}.${name}` });
+      problems.push({ severity: "warning", message: `${(err as Error).message} The input uses its own value.`, at: `${sys.id}.${block.id}.${name}`, cpuOnly: portRate(graph, from) === "particle" || undefined });
       return inline;
     }
     const read = new Set<string>();
@@ -196,6 +196,12 @@ function lowerSystem(sys: ParticleGraphSystem, i: number, input: InputFn, proble
   const unknown = (b: GraphBlock, where: string) =>
     problems.push({ severity: "warning", message: `"${b.type}" isn't a ${where} block this engine knows; it's skipped.`, at: `${sys.id}.${b.id}` });
   const on = (b: GraphBlock) => b.enabled !== false;
+  /** Set Attribute blocks (ADR 0095) run only on kernel backends. */
+  const kernelOnly = (b: GraphBlock): boolean => {
+    if (!b.type.startsWith("attribute.")) return false;
+    problems.push({ severity: "warning", message: `${blockDef(b.type)?.label ?? b.type} needs a kernel (GPU) backend; the CPU simulation skips it.`, at: `${sys.id}.${b.id}`, cpuOnly: true });
+    return true;
+  };
 
   for (const b of sys.spawn.blocks.filter(on)) {
     switch (b.type) {
@@ -224,6 +230,7 @@ function lowerSystem(sys: ParticleGraphSystem, i: number, input: InputFn, proble
   }
 
   for (const b of sys.initialize.blocks.filter(on)) {
+    if (kernelOnly(b)) continue;
     if (b.type.startsWith("init.position")) {
       const type = b.type.slice("init.position".length).toLowerCase() as ShapeType;
       const shape = { ...defaultShape(), type };
@@ -261,6 +268,7 @@ function lowerSystem(sys: ParticleGraphSystem, i: number, input: InputFn, proble
   }
 
   for (const b of sys.update.blocks.filter(on)) {
+    if (kernelOnly(b)) continue;
     if (b.type === "update.gravity") {
       e.gravity = num(input(sys, i, b, "strength", "gravity", "number"), 1);
       continue;
@@ -273,7 +281,7 @@ function lowerSystem(sys: ParticleGraphSystem, i: number, input: InputFn, proble
 
   lowerOutput(sys, sys.output, e, (b, name, path, kind) => input(sys, i, b, name, path, kind), problems);
   if (sys.extraOutputs?.length) {
-    problems.push({ severity: "warning", message: `${sys.name} has ${sys.extraOutputs.length + 1} outputs; the CPU backend draws only the first (more need the GPU backend).`, at: sys.id });
+    problems.push({ severity: "warning", message: `${sys.name} has ${sys.extraOutputs.length + 1} outputs; the CPU simulation draws only the first (more need a kernel (GPU) backend).`, at: sys.id, cpuOnly: true });
   }
   return e;
 }
@@ -317,6 +325,8 @@ function lowerOutput(
       r.blendTiles = input(b, "blendTiles", "renderer.blendTiles", "number") === true;
     } else if (b.type === "output.widthOverLength") {
       e.behaviors.push({ type: "widthOverLength", width: input(b, "width", `behaviors.${e.behaviors.length}.width`, "number") as ParticleNumber });
+    } else if (b.type.startsWith("attribute.")) {
+      problems.push({ severity: "warning", message: `${blockDef(b.type)?.label ?? b.type} needs a kernel (GPU) backend; the CPU simulation skips it.`, at: `${sys.id}.${b.id}`, cpuOnly: true });
     } else {
       problems.push({ severity: "warning", message: `"${b.type}" isn't an Output block this engine knows; it's skipped.`, at: `${sys.id}.${b.id}` });
     }

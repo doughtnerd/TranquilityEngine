@@ -72,6 +72,8 @@ const IN_SPAWN: readonly ContextKind[] = ["spawn"];
 const IN_INIT: readonly ContextKind[] = ["initialize"];
 const IN_UPDATE: readonly ContextKind[] = ["update"];
 const IN_OUTPUT: readonly ContextKind[] = ["output"];
+const IN_INIT_UPDATE: readonly ContextKind[] = ["initialize", "update"];
+const ATTR_ALL: readonly ContextKind[] = ["initialize", "update", "output"];
 
 const position = (shapeName: string, description: string, fields: BlockInputDef[]): BlockDef => ({
   type: `init.position${shapeName}`,
@@ -212,6 +214,34 @@ export const BLOCKS: readonly BlockDef[] = [
   },
 
   // --- output ---
+  // Set Attribute (ADR 0095): write a per-particle value into an attribute. Kernel backends only (ADR 0094).
+  ...(
+    [
+      ["Position", "position", "vector3", "m"],
+      ["Velocity", "velocity", "vector3", "m/s"],
+      ["Colour", "color", "color", ""],
+      ["Alpha", "alpha", "number", ""],
+      ["Size", "size", "number", "m"],
+      ["Rotation", "rotation", "number", "°"],
+      ["Lifetime", "lifetime", "number", "s"],
+    ] as const
+  ).map(
+    ([label, attr, kind, unit]): BlockDef => ({
+      type: `attribute.${attr}`,
+      label: `Set ${label}`,
+      description: `Sets, adds to or multiplies each particle's ${label.toLowerCase()} with a value that can differ per particle (wire Particle nodes and operators into it). Runs on kernel (GPU) backends only.`,
+      contexts: attr === "lifetime" ? IN_INIT : attr === "color" || attr === "alpha" || attr === "size" ? ATTR_ALL : IN_INIT_UPDATE,
+      inputs: [
+        enumInput("mode", "Mode", ["set", "add", "multiply"], "set"),
+        kind === "vector3"
+          ? vector3("value", "Value", [0, 0, 0], unit ? { unit } : {})
+          : kind === "color"
+            ? { name: "value", label: "Value", type: "color", forms: ["constant"], default: "#ffffffff" }
+            : number("value", "Value", attr === "alpha" || attr === "size" ? 1 : 0, { forms: CONSTANT, ...(unit ? { unit } : {}) }),
+      ],
+    }),
+  ),
+
   {
     type: "output.flipbook",
     label: "Flipbook",
