@@ -1,8 +1,8 @@
 /**
  * Baked models (ADR 0090): a model's meshes as the engine uses them, already baked into model space
  * with its import settings, in one binary file the exporter writes beside the model in game builds
- * (`models/robot.fbx` → `models/robot.fbx.mycomesh`). Loading one needs no model loader and no
- * parsing: typed arrays are views of the file's bytes. Internal: nothing here is public API.
+ * (`models/robot.fbx` → `models/robot.fbx.mycomesh`). Loading one needs no model loader, no parsing
+ * and no three.js: typed arrays are views of the file's bytes. Internal: nothing here is public API.
  *
  * Layout (little-endian): the magic `MYCOMESH`, a u32 version (1), a u32 JSON length, the JSON
  * (UTF-8, padded with spaces to 4 bytes), then the binary data every offset in the JSON points into
@@ -18,7 +18,6 @@
  * }
  * ```
  */
-import { Box3, BufferAttribute, BufferGeometry, Sphere, Vector3 } from "three";
 import type { ImportSettings } from "./importSettings";
 import type { MeshData, ModelData, ModelMesh, SurfaceInfo, TextureInfo } from "./models";
 
@@ -195,22 +194,8 @@ export function decodeBakedModel(bytes: ArrayBuffer, settings: BakeSettings, url
       indices: new Uint32Array(bytes, base + m.indices[0], m.indices[1]),
       groups: m.groups,
     };
-    return { name: m.name, path: m.path, geometry: geometryOf(data), materials: [], data, surfaces: m.surfaces.map((i) => surfaces[i]) };
+    // No three.js geometry: everything reads `data`, so a baked game never loads three.js (ADR 0082, 0090).
+    return { name: m.name, path: m.path, materials: [], data, surfaces: m.surfaces.map((i) => surfaces[i]) };
   });
   return { meshes };
-}
-
-/** A three.js geometry over a baked mesh's arrays (the editor's picking and bounds read it). */
-function geometryOf(d: MeshData): BufferGeometry {
-  const g = new BufferGeometry();
-  g.setAttribute("position", new BufferAttribute(d.positions, 3));
-  if (d.normals) g.setAttribute("normal", new BufferAttribute(d.normals, 3));
-  if (d.uvs) g.setAttribute("uv", new BufferAttribute(d.uvs, 2));
-  if (d.uvs2) g.setAttribute("uv1", new BufferAttribute(d.uvs2, 2));
-  if (d.colors) g.setAttribute("color", new BufferAttribute(d.colors, 4));
-  g.setIndex(new BufferAttribute(d.indices, 1));
-  for (const gr of d.groups) g.addGroup(gr.start, gr.count, gr.materialIndex);
-  g.boundingBox = new Box3().setFromBufferAttribute(g.getAttribute("position") as BufferAttribute);
-  g.boundingSphere = g.boundingBox.getBoundingSphere(new Sphere(new Vector3()));
-  return g;
 }

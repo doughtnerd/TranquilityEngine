@@ -169,9 +169,9 @@ describe("glTF models (ADR 0088)", () => {
       const [box] = await loadMeshes(`asset:${path}`);
       expect(box.name, path).toBe("Box");
       expect(meshTriangles(box).indices.length, path).toBe(36);
-      box.geometry.computeBoundingBox();
-      const b = box.geometry.boundingBox!;
-      expect(round([b.min.x, b.min.y, b.max.x, b.max.y]).map((n) => +n.toFixed(2)), path).toEqual([-0.5, 0, 0.5, 2]);
+      const p = Array.from(box.data.positions);
+      const xs = p.filter((_, i) => i % 3 === 0), ys = p.filter((_, i) => i % 3 === 1);
+      expect([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)].map((n) => +n.toFixed(2)), path).toEqual([-0.5, 0, 0.5, 2]);
       expect(box.surfaces[0].color, path).toEqual([1, 0, 0]);
     }
   });

@@ -38,6 +38,15 @@ import { Assets, normalizeAssetPath, sidecarValue } from "./Assets";
 import { BAKED_SUFFIX, decodeBakedModel, encodeBakedModel } from "./bakedModel";
 import { splitSpriteRef, type ImportSettings } from "./importSettings";
 
+let three: typeof import("three") | null = null;
+/** three.js, once `parseModel` has loaded it. */
+function lib(): typeof import("three") {
+  if (!three) throw new Error("three.js isn't loaded: models are baked through parseModel.");
+  return three;
+}
+/** three.js's `DoubleSide`, without loading three.js. */
+const DOUBLE_SIDE = 2;
+
 /** @internal True for a model file the engine imports. */
 export const isModelPath = (path: string): boolean => MODEL_EXTENSIONS.test(splitSpriteRef(path).path);
 /** @internal The model file extensions. */
@@ -138,7 +147,8 @@ export interface SurfaceInfo {
 export interface ModelMesh {
   /** Unique within its model; what `#name` refers to. */
   readonly name: string;
-  readonly geometry: BufferGeometry;
+  /** three.js's geometry, for models loaded from files; the built-in meshes have only `data`. */
+  readonly geometry?: BufferGeometry;
   /** The model's own materials for this mesh, as the engine's default lit material (one per geometry group). */
   readonly materials: readonly Material[];
   /** The same vertices as plain arrays (renderer-neutral). */
@@ -210,7 +220,7 @@ function surfaceOf(source: Material): SurfaceInfo {
     transparent: source.transparent,
     metalness: m.metalness ?? 0,
     roughness: m.roughness ?? 0.6,
-    doubleSided: source.side === DoubleSide,
+    doubleSided: source.side === DOUBLE_SIDE,
     map: textureInfo(m.map),
   };
   if (m.emissive && (m.emissive.r || m.emissive.g || m.emissive.b)) surface.emissive = rgb(m.emissive, m.emissiveIntensity ?? 1);
@@ -523,7 +533,7 @@ function manager(modelPath: string): ModelLoadingManager {
   if (typeof document === "undefined") {
     // Headless: no image is decoded, but the texture keeps its URL and project path (a baked model refers to it, ADR 0090).
     const load = (url: string) => {
-      const t = new Texture();
+      const t = new (lib().Texture)();
       const src = textureUrl(modelPath, url);
       const path = texturePaths.get(src);
       t.userData.mycoSource = !path && src === WHITE_PIXEL ? null : { src, mimeType: null, path };
@@ -564,6 +574,7 @@ async function parseModel(path: string, url: string, settings: ImportSettings, u
       warnOnce(`Couldn't read ${path}${BAKED_SUFFIX} (${(err as Error).message}); loading ${path} instead.`);
     }
   }
+  three ??= await import("three");
   const bytes = await fetchBytes(url);
   if (/\.(gltf|glb)$/i.test(path)) {
     const { parseGltf, projectFiles } = await import("./gltf");
@@ -636,7 +647,7 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
   const used = new Set<string>();
   const converted = new Map<Material, Material>();
   const matrix = new Matrix4();
-  const instance = new Matrix4();
+  const instance = new (lib().Matrix4)();
   root.traverse((o) => {
     const mesh = o as Mesh & { isInstancedMesh?: boolean; count?: number; getMatrixAt?(i: number, m: Matrix4): void };
     if (!mesh.isMesh || !mesh.geometry?.getAttribute("position")) return;
@@ -686,6 +697,7 @@ function ancestry(o: Object3D, root: Object3D): string[] {
 
 /** A copy of a geometry with float attributes (quantized glTF meshes would lose precision when transformed in place). */
 function floatCopy(source: BufferGeometry): BufferGeometry {
+  const { BufferAttribute } = lib();
   const g = source.clone();
   for (const name of Object.keys(g.attributes)) {
     const attr = g.getAttribute(name) as BufferAttribute & { isInterleavedBufferAttribute?: boolean };
@@ -700,6 +712,7 @@ function floatCopy(source: BufferGeometry): BufferGeometry {
 
 /** Instances of one geometry as one geometry (null if it can't be merged). */
 function concatInstances(parts: BufferGeometry[]): BufferGeometry | null {
+  const { BufferAttribute, BufferGeometry } = lib();
   const first = parts[0];
   const names = Object.keys(first.attributes);
   const vertices = first.getAttribute("position").count;
@@ -823,7 +836,7 @@ function standardMaterial(source: Material): Material {
 
 function disposeModel(data: ModelData): void {
   for (const mesh of data.meshes) {
-    mesh.geometry.dispose();
+    mesh.geometry?.dispose();
     for (const m of mesh.materials) m.dispose();
   }
 }

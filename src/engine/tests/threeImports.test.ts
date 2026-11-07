@@ -24,8 +24,8 @@ const imports = sources(root).flatMap((file) => {
   return [...text.matchAll(/(?:from|import)\s*\(?\s*["'](three(?:\/[^"']*)?)["']/g)].map((m) => ({ file: rel, specifier: m[1] }));
 });
 
-/** The model loader modules (ADR 0081, 0088), and baked models (0090), which make three.js geometry over their arrays. */
-const LOADER_FILES = ["engine/scene/models.ts", "engine/scene/gltf.ts", "engine/scene/bakedModel.ts"];
+/** The model loader modules (ADR 0081, 0088). */
+const LOADER_FILES = ["engine/scene/models.ts", "engine/scene/gltf.ts"];
 
 /** The libraries that went with the three.js backend (ADR 0081). */
 const REMOVED = ["postprocessing", "n8ao", "three.quarks", "@pmndrs/uikit"];
@@ -40,6 +40,14 @@ describe("three.js imports (ADR 0081)", () => {
     const loaders = imports.filter((i) => LOADER_FILES.includes(i.file) && i.specifier !== "three");
     expect(loaders.length).toBeGreaterThan(0); // the scan works
     for (const i of loaders) expect(i.specifier).toMatch(/^three\/examples\/jsm\/(loaders\/(OBJ|MTL|FBX|GLTF)Loader|libs\/meshopt_decoder\.module)\.js$/);
+  });
+
+  it("loads three.js for glTF only when a glTF file is parsed, and never for baked models (ADR 0082, 0088, 0090)", () => {
+    const text = readFileSync(join(root, "engine/scene/gltf.ts"), "utf8");
+    const staticImports = [...text.matchAll(/^import\s+(type\s+)?[^;]*?from\s*["']three(?:\/[^"']*)?["']/gm)];
+    expect(staticImports.length).toBeGreaterThan(0); // the scan works
+    for (const m of staticImports) expect(m[1], m[0]).toBe("type ");
+    expect(readFileSync(join(root, "engine/scene/bakedModel.ts"), "utf8")).not.toMatch(/from\s*["']three/);
   });
 
   it("leaves the three.js backend's libraries out of the sources and the package", () => {

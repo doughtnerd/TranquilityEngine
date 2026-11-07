@@ -19,20 +19,9 @@
  * pose), animations, morph targets (the base shape is used), cameras, lights, and scenes other than
  * the default one.
  */
-import {
-  BufferAttribute,
-  BufferGeometry,
-  Group,
-  Mesh,
-  MeshBasicMaterial,
-  Texture,
-  RepeatWrapping,
-  ClampToEdgeWrapping,
-  MirroredRepeatWrapping,
-  type Material,
-  type Object3D,
-  type Wrapping,
-} from "three";
+// Types only: three.js is imported with the first glTF parse (`parseGltf`), never at start-up
+// (ADR 0082, 0088). The helpers below take three's classes from `lib()`.
+import type { BufferGeometry, Group, Material, Mesh, Object3D, Texture, Wrapping } from "three";
 import { Assets } from "./Assets";
 
 /** What a texture's image is, kept on its three.js texture (`userData.mycoSource`) for the bake. */
@@ -64,7 +53,16 @@ export interface GltfFiles {
   warn(message: string): void;
 }
 
-const WRAPS: Record<number, Wrapping> = { 33071: ClampToEdgeWrapping, 33648: MirroredRepeatWrapping, 10497: RepeatWrapping };
+let three: typeof import("three") | null = null;
+/** three.js, once `parseGltf` has loaded it. */
+function lib(): typeof import("three") {
+  if (!three) throw new Error("three.js isn't loaded: glTF files are parsed through parseGltf.");
+  return three;
+}
+
+/** glTF sampler wrap modes as three.js's (same numbers: three uses WebGL's), without loading three.js. */
+const WRAPS: Record<number, Wrapping> = { 33071: 1001 as Wrapping, 33648: 1002 as Wrapping, 10497: 1000 as Wrapping };
+const REPEAT = 1000 as Wrapping;
 
 interface GltfJson {
   textures?: { source?: number; sampler?: number; name?: string; extensions?: Record<string, { source?: number }> }[];
@@ -113,6 +111,7 @@ const SUPPORTED_EXTENSIONS = new Set([
 
 /** Parse a `.gltf` (JSON) or `.glb` file's bytes into three.js objects (internal to the model bake). */
 export async function parseGltf(bytes: ArrayBuffer, files: GltfFiles): Promise<GltfResult> {
+  three ??= await import("three");
   const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
   const loader = new GLTFLoader();
   const json = readJson(bytes);
@@ -194,12 +193,12 @@ function sourcePlugin(parser: Parser, files: GltfFiles): { name: string; loadTex
       let promise = cache.get(key);
       if (!promise) {
         promise = imageSource(parser, image, files).then((src) => {
-          const texture = new Texture();
+          const texture = new (lib().Texture)();
           texture.name = def.name || image.name || "";
           texture.flipY = false;
           const sampler = json.samplers?.[def.sampler ?? -1] ?? {};
-          texture.wrapS = WRAPS[sampler.wrapS ?? 10497] ?? RepeatWrapping;
-          texture.wrapT = WRAPS[sampler.wrapT ?? 10497] ?? RepeatWrapping;
+          texture.wrapS = WRAPS[sampler.wrapS ?? 10497] ?? REPEAT;
+          texture.wrapT = WRAPS[sampler.wrapT ?? 10497] ?? REPEAT;
           texture.userData.mycoSource = src satisfies GltfImageSource | null;
           parser.associations.set(texture, { textures: index });
           return texture;
@@ -242,7 +241,7 @@ function mergePrimitives(root: Object3D, parser: Parser): void {
     if (parts.length < 2) continue;
     const merged = mergeGeometries(parts.map((p) => p.geometry));
     if (!merged) continue; // primitives with different attributes stay separate meshes
-    const mesh = new Mesh(merged, parts.map((p) => p.material as Material));
+    const mesh = new (lib().Mesh)(merged, parts.map((p) => p.material as Material));
     mesh.name = group.name || parts[0].name;
     for (const p of parts) {
       group.remove(p);
@@ -274,6 +273,7 @@ export function mergeGeometries(geometries: readonly BufferGeometry[]): BufferGe
     if (own.length !== names.length || own.some((n, i) => n !== names[i])) return null;
     for (const n of names) if (g.getAttribute(n).itemSize !== geometries[0].getAttribute(n).itemSize) return null;
   }
+  const { BufferAttribute, BufferGeometry } = lib();
   const out = new BufferGeometry();
   let vertexCount = 0;
   let indexCount = 0;
@@ -316,7 +316,7 @@ function markMaterials(root: Object3D): void {
     if (!mesh.isMesh) return;
     for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
       m.userData.mycoGltf = true;
-      if (m instanceof MeshBasicMaterial) m.userData.mycoUnlit = true;
+      if ((m as Material & { isMeshBasicMaterial?: boolean }).isMeshBasicMaterial) m.userData.mycoUnlit = true;
     }
   });
 }
@@ -375,6 +375,7 @@ function decodeDraco(d: DracoModule, array: Int8Array, attributeIds: Record<stri
     if (decoder.GetEncodedGeometryType(array) !== d.TRIANGULAR_MESH) throw new Error("a Draco primitive isn't a triangle mesh");
     const status = decoder.DecodeArrayToMesh(array, array.byteLength, mesh);
     if (!status.ok() || mesh.ptr === 0) throw new Error(`Draco decoding failed: ${status.error_msg()}`);
+    const { BufferAttribute, BufferGeometry } = lib();
     const geometry = new BufferGeometry();
     const count = mesh.num_points();
     for (const [name, id] of Object.entries(attributeIds)) {
