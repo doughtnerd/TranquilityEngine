@@ -21,7 +21,7 @@ import type { ParticleSystem } from "../components";
 import type { ParticlePreviewSettings, ParticleStats } from "../RenderSurface";
 import { ProgramRunner, playTimes } from "../particles/programRunner";
 import { randomForSeed } from "../particles/random";
-import { EffectSimulation, linearRGB, type SimEmitter } from "../particles/simulation";
+import { EffectSimulation, linearRGB, type ParticleRaycast, type SimEmitter } from "../particles/simulation";
 import { createDotTexture, makeDraw as makeBabylonDraw, usesSheet, type Draw } from "./particleDraw";
 import { chooseBackend, compileParticleKernels, type KernelProgram, type KernelSystem, type SystemBackend } from "../../scene/particleKernel";
 import type { ParticleGraph } from "../../scene/particleGraph";
@@ -62,6 +62,11 @@ export interface BabylonParticleHost {
   material?(path: string): Material | null;
   /** Force the kernel executors (tests, benchmarks); default: what the engine supports (ADR 0094). */
   readonly kernelExecutors?: readonly import("../../scene/particleKernel").KernelExecutor[];
+  /**
+   * A world-space ray cast against the World's physics colliders, for the `collisionColliders`
+   * behaviour. Optional: without it that behaviour does nothing.
+   */
+  raycast?: ParticleRaycast;
 }
 
 type PlayState = "playing" | "paused" | "stopped";
@@ -209,7 +214,7 @@ export class BabylonParticles {
       const plan = this.plans.get(inst.program);
       // Systems a kernel runs are left out of the CPU simulation (disabled, so emitter indices stay).
       const cpuEffect = plan?.running.length ? { ...effect, emitters: effect.emitters.map((e, i) => (plan.backends[i] === "cpu" ? e : { ...e, enabled: false })) } : effect;
-      inst.sim = new EffectSimulation(cpuEffect, { live: inst.runner.live, random: inst.rnd });
+      inst.sim = new EffectSimulation(cpuEffect, { live: inst.runner.live, random: inst.rnd, raycast: this.host.raycast });
       for (const e of inst.sim.emitters) this.warnRenderer(c, e);
       inst.draws = inst.sim.emitters.map((e) => this.makeDraw(`particles:${c.node.name}:${e.name}`, e, inst!.scale));
       if (plan?.running.length) {
