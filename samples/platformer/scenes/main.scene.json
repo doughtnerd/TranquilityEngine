@@ -1,39 +1,22 @@
 {
   "format": "myco.scene@1",
-  "settings": {
-    "physics": "2d"
-  },
+  "settings": { "physics": "2d" },
   "nodes": [
     {
       "id": "camera",
       "name": "Camera",
       "components": [
-        {
-          "type": "engine.Transform",
-          "data": {
-            "position": [
-              2.5,
-              6,
-              10
-            ]
-          }
-        },
+        { "type": "engine.Transform", "data": { "position": [2.5, 6, 10] } },
         {
           "type": "engine.Camera",
           "data": {
             "projection": "orthographic",
             "orthographicSize": 7,
-            "backgroundColor": "#87c5ea"
+            "backgroundColor": "#87c5ea",
+            "pixelPerfect": true
           }
         },
-        {
-          "type": "game.CameraFollow",
-          "data": {
-            "target": {
-              "$node": "player"
-            }
-          }
-        }
+        { "type": "game.CameraFollow", "data": { "target": { "$node": "player" } } }
       ]
     },
     {

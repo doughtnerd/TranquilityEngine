@@ -220,3 +220,46 @@ describe("MeshRenderer material properties", () => {
     expect(r._materialProperties.size).toBe(0);
   });
 });
+
+// ADR 0106's sub-graph keywords: a sub-graph declares its own keywords; used, its Keyword nodes add the
+// declaration to the shader's keywords (once, however many uses), and the outer graph's keyword of
+// the same name wins.
+describe("keywords in sub-graphs", () => {
+  const keyed = () =>
+    subgraph({
+      keywords: [{ name: "RIM" }],
+      nodes: [
+        { id: "output", type: "output", position: [0, 0] },
+        { id: "k", type: "keyword", position: [0, 0], settings: { keyword: "RIM" }, inputs: { on: 1, off: 0 } },
+      ],
+      edges: [{ from: "k.out", to: "output.Out" }],
+    });
+  const user = (extra: Partial<ShaderGraph> = {}) =>
+    graph(
+      [node("s1", "subgraph", { settings: { subgraph: "asset:shaders/rim.shadersubgraph.json" } }), node("s2", "subgraph", { settings: { subgraph: "asset:shaders/rim.shadersubgraph.json" } }), node("a", "add")],
+      [["s1.Out", "a.a"], ["s2.Out", "a.b"], ["a.out", "output.baseColor"]],
+      extra,
+    );
+
+  it("adds a sub-graph's own keyword to the shader that uses it, once", () => {
+    useAssets({ "shaders/rim.shadersubgraph.json": keyed() });
+    const c = compileShaderGraph(user());
+    expect(c.problems).toEqual([]);
+    expect(c.keywords).toEqual([{ name: "RIM" }]);
+    expect(c.fragment.declarations).toContain("KW_RIM");
+  });
+
+  it("lets the outer graph's keyword of the same name win", () => {
+    useAssets({ "shaders/rim.shadersubgraph.json": keyed() });
+    const c = compileShaderGraph(user({ keywords: [{ name: "RIM", variants: "all" }] }));
+    expect(c.problems).toEqual([]);
+    expect(c.keywords).toEqual([{ name: "RIM", variants: "all" }]);
+  });
+
+  it("compiles a sub-graph with keywords on its own (its preview)", () => {
+    const { graph: sub } = parseShaderGraph(keyed());
+    const c = compileShaderGraph(sub);
+    expect(c.problems).toEqual([]);
+    expect(c.keywords.map((k) => k.name)).toEqual(["RIM"]);
+  });
+});

@@ -48,7 +48,7 @@ export interface GraphProperty {
 /** An unconnected input's value: a number, or 2–4 numbers. */
 export type InputValue = number | number[];
 
-/** A port of a custom function or a sub-graph output: a GLSL name and a value type. */
+/** A port of a custom function or a sub-graph output: a shader identifier and a value type. */
 export interface FunctionPort {
   name: string;
   type: "float" | "vec2" | "vec3" | "vec4" | "texture";
@@ -99,7 +99,7 @@ export interface GraphNode {
   inputs?: Record<string, InputValue>;
   /** The node's options (property name, swizzle mask, space, texture, colour…). */
   settings?: Record<string, string>;
-  /** Custom Function nodes: their ports and GLSL. */
+  /** Custom Function nodes: their ports and code (WGSL; older files' GLSL `body` is kept but not compiled). */
   function?: CustomFunction;
   /** False: the node's preview is collapsed in the editor. */
   preview?: false;
@@ -111,6 +111,12 @@ export interface GraphNode {
 export type NodePreviewShape = "quad" | "sphere" | "cube";
 export const NODE_PREVIEW_SHAPES: readonly NodePreviewShape[] = ["quad", "sphere", "cube"];
 const isPreviewShape = (v: unknown): v is NodePreviewShape => typeof v === "string" && (NODE_PREVIEW_SHAPES as readonly string[]).includes(v);
+
+/** The meshes the main preview can draw (ADR 0117). */
+export type GraphPreviewMesh = "sphere" | "cube" | "capsule" | "plane";
+export const GRAPH_PREVIEW_MESHES: readonly GraphPreviewMesh[] = ["sphere", "cube", "capsule", "plane"];
+const isPreviewMesh = (v: unknown): v is GraphPreviewMesh => typeof v === "string" && (GRAPH_PREVIEW_MESHES as readonly string[]).includes(v);
+
 
 /** The shape a node's preview is drawn on: its own, else the graph's default, else a quad. */
 export const nodePreviewShape = (graph: ShaderGraph, node: GraphNode): NodePreviewShape => node.previewShape ?? graph.previewShape ?? "quad";
@@ -136,6 +142,8 @@ export interface ShaderGraph {
   notes?: GraphNote[];
   /** Editor metadata: the default shape for node previews (absent: quads). */
   previewShape?: NodePreviewShape;
+  /** Editor metadata: the mesh the main preview draws (absent: sphere), ADR 0117. */
+  previewMesh?: GraphPreviewMesh;
 }
 
 export const OUTPUT_NODE_TYPE = "output";
@@ -156,7 +164,7 @@ export const defaultShaderSubGraph = (): ShaderGraph => ({ ...defaultShaderGraph
 const FUNCTION_TYPES = ["float", "vec2", "vec3", "vec4", "texture"] as const;
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** True for a name usable as a port of a custom function or sub-graph output (a GLSL identifier, `__`-free). */
+/** True for a name usable as a port of a custom function or sub-graph output (a shader identifier, `__`-free). */
 export const isPortName = (name: string): boolean => IDENT.test(name) && !name.includes("__") && !name.startsWith("gl_");
 
 function parsePorts(raw: unknown, where: string, problems: string[], allowTexture: boolean): FunctionPort[] {
@@ -164,7 +172,7 @@ function parsePorts(raw: unknown, where: string, problems: string[], allowTextur
   if (!Array.isArray(raw)) return out;
   for (const p of raw) {
     if (!isObject(p) || typeof p.name !== "string" || !isPortName(p.name) || !FUNCTION_TYPES.includes(p.type as FunctionPort["type"]) || (!allowTexture && p.type === "texture")) {
-      problems.push(`${where}: skipped a port without a GLSL name and a type.`);
+      problems.push(`${where}: skipped a port without a shader name and a type.`);
       continue;
     }
     if (out.some((q) => q.name === p.name)) {
@@ -258,7 +266,7 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
   if (raw.format !== SHADER_GRAPH_FORMAT && raw.format !== SHADER_SUBGRAPH_FORMAT) throw new Error(`${where}: unknown format ${JSON.stringify(raw.format)}; expected "${SHADER_GRAPH_FORMAT}".`);
   const problems: string[] = [];
   const graph: ShaderGraph = { ...defaultShaderGraph(), nodes: [] };
-  // Sub-graph outputs may be textures: the compiler passes the texture's uniform through (GLSL can't hold one in a variable).
+  // Sub-graph outputs may be textures: the compiler passes the texture's uniform through (WGSL can't hold one in a variable).
   if (raw.format === SHADER_SUBGRAPH_FORMAT) graph.subgraph = { outputs: parsePorts(raw.outputs, `${where} outputs`, problems, true) };
   if (raw.target !== undefined) {
     if (raw.target === "lit" || raw.target === "unlit" || raw.target === "physical") graph.target = raw.target;
@@ -373,6 +381,7 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
     if (notes.length) graph.notes = notes;
   }
   if (isPreviewShape(raw.previewShape)) graph.previewShape = raw.previewShape;
+  if (isPreviewMesh(raw.previewMesh)) graph.previewMesh = raw.previewMesh;
   return { graph, problems };
 }
 
@@ -400,6 +409,7 @@ export function shaderGraphJSON(graph: ShaderGraph): Record<string, unknown> {
   if (graph.groups?.length) out.groups = graph.groups.map((g) => ({ id: g.id, title: g.title, nodes: [...g.nodes] }));
   if (graph.notes?.length) out.notes = graph.notes.map((n) => ({ id: n.id, position: [Math.round(n.position[0]), Math.round(n.position[1])], size: [Math.round(n.size[0]), Math.round(n.size[1])], text: n.text }));
   if (graph.previewShape && graph.previewShape !== "quad") out.previewShape = graph.previewShape;
+  if (graph.previewMesh && graph.previewMesh !== "sphere") out.previewMesh = graph.previewMesh;
   return out;
 }
 

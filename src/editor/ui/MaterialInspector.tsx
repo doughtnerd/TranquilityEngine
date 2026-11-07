@@ -36,11 +36,12 @@ export function MaterialInspector(props: { path: string }) {
   const isShaderAsset = !!graphFile && isShaderAssetPath(graphFile);
   const shaderFile = graphFile && isShaderAsset && project.files.includes(graphFile) ? readShaderAsset(project, graphFile).shader : null;
   const graph = graphFile && !isShaderAsset && project.files.includes(graphFile) ? readShaderGraph(project, graphFile).graph : null;
-  // The properties and keywords the material sets: the graph's, or the shader asset's.
+  // The properties and keywords the material sets: the graph's (with the keywords its sub-graphs add), or the shader asset's.
+  const graphKeywords = graph ? compileShaderGraph(graph).keywords : [];
   const source: { properties: GraphProperty[]; keywords: ShaderKeyword[]; what: string } | null = shaderFile
     ? { properties: shaderFile.properties, keywords: shaderFile.keywords, what: "shader" }
     : graph
-      ? { properties: graph.properties, keywords: graph.keywords ?? [], what: "graph" }
+      ? { properties: graph.properties, keywords: graphKeywords, what: "graph" }
       : null;
   const sourceExists = !!graphFile && (isShaderAsset ? shaders : graphs).includes(graphFile);
 
