@@ -983,6 +983,13 @@ FN(void, k_outputStage) {
 export interface DrawShaderOptions {
   /** Read the depth texture in the fragment shader to fade particles near surfaces. */
   soft: boolean;
+  /** Draw instance i as the slot in the sorted pairs' i-th entry (ADR 0126: `kidx`, texture width `kidxW` on GLSL). */
+  sorted?: boolean;
+  /**
+   * Height fog (ADR 0126): the renderer's fragment declarations providing `mycoHeightFogFactor(p, eye)`
+   * and `mycoApplyHeightFog(rgb, p, eye)` (Babylon's `heightFogShader`). Absent: no fog.
+   */
+  fog?: string;
 }
 
 /**
@@ -1008,16 +1015,20 @@ uniform highp sampler2D ks1;
 uniform highp sampler2D ks2;
 uniform highp sampler2D ks3;
 uniform highp sampler2D kl;
+${opts.sorted ? "uniform highp sampler2D kidx;\nuniform float kidxW;" : ""}
 varying vec2 vUV;
 varying vec2 vUV2;
 varying float vBlend;
 varying vec4 vColor;
 varying float vDepth;
+varying vec3 vWorld;
+varying vec3 vEye;
 vec4 k_lutAt(int row, int i) { return texelFetch(kl, ivec2(i, row), 0); }
 ${ksl(GLOBALS + PRELUDE + outputKsl(out, "glsl"), "glsl")}
 ${ksl(ORIENT, "glsl")}
 void main() {
   int i = gl_InstanceID;
+  ${opts.sorted ? "int sw = int(kidxW);\n  i = int(texelFetch(kidx, ivec2(gl_InstanceID % sw, gl_InstanceID / sw), 0).g);" : ""}
   int w = int(kw);
   ivec2 c = ivec2(i % w, i / w);
   a0 = texelFetch(ks0, c, 0);
@@ -1036,6 +1047,8 @@ void main() {
   vBlend = k_tileBlend(kdraw);
   vec4 clip = viewProjection * vec4(placed.xyz, 1.0);
   vDepth = clip.w;
+  vWorld = placed.xyz;
+  vEye = kcam;
   gl_Position = placed.w > 0.5 ? clip : vec4(0.0, 0.0, -2.0, 1.0);
 }
 `;
@@ -1045,9 +1058,12 @@ varying vec2 vUV2;
 varying float vBlend;
 varying vec4 vColor;
 varying float vDepth;
+varying vec3 vWorld;
+varying vec3 vEye;
 uniform sampler2D ktex;
 uniform vec4 kdraw2;
 ${opts.soft ? "uniform sampler2D kdepthTex;\nuniform vec4 ksoft;" : ""}
+${opts.fog ?? ""}
 void main() {
   vec4 t = texture2D(ktex, vUV);
   if (kdraw2.x > 0.5) { t = mix(t, texture2D(ktex, vUV2), vBlend); }
@@ -1060,6 +1076,7 @@ void main() {
   col.a *= clamp((scene - vDepth) / max(kdraw2.y, 0.0001), 0.0, 1.0);`
       : ""
   }
+  ${opts.fog ? FOG_GLSL : ""}
   if (kdraw2.z > 0.5) { col.rgb *= col.a; }
   gl_FragColor = col;
 }
@@ -1148,17 +1165,20 @@ uniform kdraw3 : vec4<f32>;
 var<storage, read> ku : array<vec4<f32>>;
 var<storage, read> ks : array<vec4<f32>>;
 var<storage, read> kl : array<vec4<f32>>;
+${opts.sorted ? "var<storage, read> kidx : array<vec2<f32>>;" : ""}
 varying vUV : vec2<f32>;
 varying vUV2 : vec2<f32>;
 varying vBlend : f32;
 varying vColor : vec4<f32>;
 varying vDepth : f32;
+varying vWorld : vec3<f32>;
+varying vEye : vec3<f32>;
 fn k_lutAt(row: i32, i: i32) -> vec4f { return kl[row * ${LUT_SAMPLES} + i]; }
 ${ksl(GLOBALS + PRELUDE + outputKsl(out, "wgsl"), "wgsl")}
 ${ksl(ORIENT, "wgsl")}
 @vertex
 fn main(input : VertexInputs) -> FragmentInputs {
-  let i = vertexInputs.instanceIndex;
+  let i = ${opts.sorted ? "u32(kidx[vertexInputs.instanceIndex].y)" : "vertexInputs.instanceIndex"};
   let b = i * 4u;
   a0 = ks[b];
   a1 = ks[b + 1u];
@@ -1177,6 +1197,8 @@ fn main(input : VertexInputs) -> FragmentInputs {
   vertexOutputs.vBlend = k_tileBlend(uniforms.kdraw);
   let clip = uniforms.viewProjection * vec4f(placed.xyz, 1.0);
   vertexOutputs.vDepth = clip.w;
+  vertexOutputs.vWorld = placed.xyz;
+  vertexOutputs.vEye = uniforms.kcam;
   vertexOutputs.position = select(vec4f(0.0, 0.0, -2.0, 1.0), clip, placed.w > 0.5);
 }
 `;
@@ -1186,10 +1208,13 @@ varying vUV2 : vec2<f32>;
 varying vBlend : f32;
 varying vColor : vec4<f32>;
 varying vDepth : f32;
+varying vWorld : vec3<f32>;
+varying vEye : vec3<f32>;
 var ktex : texture_2d<f32>;
 var ktexSampler : sampler;
 uniform kdraw2 : vec4<f32>;
 ${opts.soft ? "var kdepthTex : texture_2d<f32>;\nuniform ksoft : vec4<f32>;" : ""}
+${opts.fog ?? ""}
 @fragment
 fn main(input : FragmentInputs) -> FragmentOutputs {
   var t = textureSample(ktex, ktexSampler, fragmentInputs.vUV);
@@ -1205,12 +1230,17 @@ fn main(input : FragmentInputs) -> FragmentOutputs {
   col.a = col.a * clamp((scene - fragmentInputs.vDepth) / max(uniforms.kdraw2.y, 0.0001), 0.0, 1.0);`
       : ""
   }
+  ${opts.fog ? FOG_WGSL : ""}
   if (uniforms.kdraw2.z > 0.5) { col = vec4f(col.rgb * col.a, col.a); }
   fragmentOutputs.color = col;
 }
 `;
   return { vertex, fragment };
 }
+
+/** Height fog in the draws' fragment shaders: additive particles fade out (`kdraw2.w` 1), the rest mix towards the fog colour. */
+const FOG_GLSL = `if (kdraw2.w > 0.5) { col.rgb *= 1.0 - mycoHeightFogFactor(vWorld, vEye); } else { col.rgb = mycoApplyHeightFog(col.rgb, vWorld, vEye); }`;
+const FOG_WGSL = `if (uniforms.kdraw2.w > 0.5) { col = vec4f(col.rgb * (1.0 - mycoHeightFogFactor(fragmentInputs.vWorld, fragmentInputs.vEye)), col.a); } else { col = vec4f(mycoApplyHeightFog(col.rgb, fragmentInputs.vWorld, fragmentInputs.vEye), col.a); }`;
 
 /** Draw mode numbers (`kdraw.x`). */
 export const DRAW_MODE: Record<string, number> = { quad: 0, stretched: 1, horizontal: 2, vertical: 3, mesh: 4 };

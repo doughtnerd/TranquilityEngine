@@ -24,6 +24,9 @@ import { KERNEL_FLOATS, LUT_SAMPLES, type KernelExecutor, type KernelSystem } fr
 import { JsRun, type KernelDepth, type KernelHost, type KernelRun } from "../particles/gpu/kernelEffect";
 import { DRAW_MODE, glslDraw, wgslDraw } from "../particles/gpu/kernelShader";
 import { STATE_WIDTH, WebGl2Run, supportsTextureKernels } from "../particles/gpu/webgl2Run";
+import { WebGl2Sorter, WebGpuSorter, depthRow, sortLayout, sortPairsJs } from "../particles/gpu/sort";
+import { outputSorts } from "../../scene/particleGraph";
+import { heightFogShader, useHeightFog } from "./heightFog";
 import { BUFFER, WebGpuRun, type GpuBuffer, type GpuDevice } from "../particles/gpu/webgpuRun";
 import { hasSceneFrame, requestSceneDepth, sceneDepth } from "./frameGraph";
 import { particleAlphaIndex } from "./particleMeshes";
@@ -31,6 +34,12 @@ import { particleAlphaIndex } from "./particleMeshes";
 /** What a draw binds each frame: the run's latest state, uniforms and look-up table. */
 interface DrawSource {
   bind(mat: ShaderMaterial): void;
+  /** Sort the latest state back to front by `row` (ADR 0126; `depthRow`), once per frame. */
+  sort(row: readonly number[]): void;
+  /** Bind the sorted pairs (`kidx`) for a sorted draw. */
+  bindSort(mat: ShaderMaterial): void;
+  /** The uniforms of the last step (the node's matrix and space, for `depthRow`). */
+  readonly lastUniforms: Float32Array<ArrayBufferLike>;
 }
 
 type BabylonRun = KernelRun & DrawSource;
@@ -150,8 +159,15 @@ class WebGpuBabylonRun implements BabylonRun {
   readonly kind = "webgpu" as const;
   readonly run: WebGpuRun;
   private readonly wrappers = new Map<GpuBuffer, StorageBuffer>();
+  lastUniforms: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private sorter: WebGpuSorter | null = null;
 
-  constructor(engine: AbstractEngine, device: GpuDevice, kernel: KernelSystem, depth: SceneDepth) {
+  constructor(
+    private readonly engine: AbstractEngine,
+    private readonly device: GpuDevice,
+    kernel: KernelSystem,
+    depth: SceneDepth,
+  ) {
     this.run = new WebGpuRun(
       device,
       kernel,
@@ -175,16 +191,31 @@ class WebGpuBabylonRun implements BabylonRun {
   }
   step(u: Float32Array, lut: Float32Array | null, parent: KernelRun | null): void {
     this.run.step(u, lut, parent instanceof WebGpuBabylonRun ? parent.run : null);
+    this.lastUniforms = u;
   }
   bind(mat: ShaderMaterial): void {
     mat.setStorageBuffer("ks", this.wrappers.get(this.run.current())!);
     mat.setStorageBuffer("ku", this.wrappers.get(this.run.uniforms)!);
     mat.setStorageBuffer("kl", this.wrappers.get(this.run.lut)!);
   }
+  sort(row: readonly number[]): void {
+    this.sorter ??= new WebGpuSorter(this.device, this.run.kernel.capacity, (size, label) => {
+      const sb = new StorageBuffer(this.engine as never, size, Constants.BUFFER_CREATIONFLAG_READWRITE, label);
+      const gpu = (sb.getBuffer().underlyingResource ?? null) as GpuBuffer;
+      this.wrappers.set(gpu, sb);
+      return gpu;
+    });
+    this.sorter.sort(this.run.current(), row);
+  }
+  bindSort(mat: ShaderMaterial): void {
+    const pairs = this.sorter && this.wrappers.get(this.sorter.pairs);
+    if (pairs) mat.setStorageBuffer("kidx", pairs);
+  }
   clear(): void {
     this.run.clear();
   }
   dispose(): void {
+    this.sorter?.dispose();
     for (const sb of this.wrappers.values()) sb.dispose();
     this.wrappers.clear();
   }
@@ -195,10 +226,12 @@ class WebGl2BabylonRun implements BabylonRun {
   readonly run: WebGl2Run;
   private readonly textures = new Map<WebGLTexture, BaseTexture>();
   private uniforms: number[] = [];
+  lastUniforms: Float32Array<ArrayBufferLike> = new Float32Array(0);
+  private sorter: WebGl2Sorter | null = null;
 
   constructor(
     private readonly engine: AbstractEngine,
-    gl: WebGL2RenderingContext,
+    private readonly gl: WebGL2RenderingContext,
     kernel: KernelSystem,
     depth: SceneDepth,
   ) {
@@ -212,7 +245,23 @@ class WebGl2BabylonRun implements BabylonRun {
   step(u: Float32Array, lut: Float32Array | null, parent: KernelRun | null): void {
     this.run.step(u, lut, parent instanceof WebGl2BabylonRun ? parent.run : null);
     this.uniforms = Array.from(u.subarray(0, this.run.kernel.uniformVec4 * 4));
+    this.lastUniforms = u;
     this.engine.wipeCaches(true); // we changed GL state behind Babylon's back
+  }
+  sort(row: readonly number[]): void {
+    if (!this.sorter) {
+      this.sorter = new WebGl2Sorter(this.gl, this.run.kernel.capacity);
+      if (this.sorter.errors.length) console.error(`[myco] particle sort didn't compile for WebGL2:\n${this.sorter.errors.join("\n")}`);
+    }
+    const cur = this.run.current();
+    this.sorter.sort(cur[0], cur[1], this.run.width, row);
+    this.engine.wipeCaches(true);
+  }
+  bindSort(mat: ShaderMaterial): void {
+    const s = this.sorter;
+    if (!s) return;
+    mat.setTexture("kidx", this.wrap(s.current, s.layout.width, s.layout.height));
+    mat.setFloat("kidxW", s.layout.width);
   }
   private wrap(t: WebGLTexture, w: number, h: number): BaseTexture {
     let b = this.textures.get(t);
@@ -237,6 +286,7 @@ class WebGl2BabylonRun implements BabylonRun {
   dispose(): void {
     for (const b of this.textures.values()) b.dispose();
     this.textures.clear();
+    this.sorter?.dispose();
     this.run.dispose();
   }
 }
@@ -254,6 +304,13 @@ class JsBabylonRun implements BabylonRun {
   private readonly width: number;
   private readonly height: number;
   private lutDirty = true;
+  private sortPairs: Float32Array | null = null;
+  private sortBuffer: StorageBuffer | null = null;
+  private sortTexture: RawTexture | null = null;
+  private sortTexels: Float32Array | null = null;
+  get lastUniforms(): Float32Array {
+    return this.run.js.uniforms;
+  }
 
   constructor(
     private readonly scene: Scene,
@@ -319,10 +376,36 @@ class JsBabylonRun implements BabylonRun {
     mat.setFloat("kw", this.width);
     if (this.uniforms.length) mat.setArray4("ku", this.uniforms);
   }
+  sort(row: readonly number[]): void {
+    const layout = sortLayout(this.kernel.capacity);
+    this.sortPairs ??= new Float32Array(layout.n * 2);
+    sortPairsJs(this.run.js.state, this.kernel.capacity, row, this.sortPairs, layout);
+    if (this.webgpu) {
+      this.sortBuffer ??= new StorageBuffer(this.scene.getEngine() as never, layout.n * 8, Constants.BUFFER_CREATIONFLAG_READWRITE, "particles js sort");
+      this.sortBuffer.update(this.sortPairs);
+      return;
+    }
+    const texels = (this.sortTexels ??= new Float32Array(layout.n * 4));
+    for (let i = 0; i < layout.n; i++) {
+      texels[i * 4] = this.sortPairs[i * 2];
+      texels[i * 4 + 1] = this.sortPairs[i * 2 + 1];
+    }
+    if (!this.sortTexture) this.sortTexture = RawTexture.CreateRGBATexture(texels, layout.width, layout.height, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+    else this.sortTexture.update(texels);
+  }
+  bindSort(mat: ShaderMaterial): void {
+    if (this.sortBuffer) mat.setStorageBuffer("kidx", this.sortBuffer);
+    if (this.sortTexture) {
+      mat.setTexture("kidx", this.sortTexture);
+      mat.setFloat("kidxW", sortLayout(this.kernel.capacity).width);
+    }
+  }
   clear(): void {
     this.run.clear();
   }
   dispose(): void {
+    this.sortBuffer?.dispose();
+    this.sortTexture?.dispose();
     if (this.buffers) for (const b of Object.values(this.buffers)) b.dispose();
     for (const t of this.textures) t.dispose();
     this.lutTexture?.dispose();
@@ -339,11 +422,22 @@ export interface KernelDrawOptions {
   softness: number;
 }
 
+/** The frame each run was last sorted in (several sorted outputs of one system share the sort). */
+const sortedAt = new WeakMap<object, number>();
+
+/** The camera view matrix's z row: a point's view depth is `dot(row.xyz, p) + row.w`. */
+function viewZRow(cam: Camera): [number, number, number, number] {
+  const m = cam.getViewMatrix().m;
+  return [m[2], m[6], m[10], m[14]];
+}
+
 /** One output of a kernel system: an instanced quad (or model) per particle slot. */
 export class KernelDraw {
   readonly mesh: Mesh;
   readonly material: ShaderMaterial;
   private readonly soft: boolean;
+  /** Drawn back to front (ADR 0126: `sort`, auto for alpha blending). */
+  readonly sorted: boolean;
 
   constructor(
     private readonly scene: Scene,
@@ -358,6 +452,7 @@ export class KernelDraw {
     const out = kernel.outputs[output];
     const webgpu = scene.getEngine().isWebGPU;
     this.soft = opts.softness > 0;
+    this.sorted = outputSorts(out.settings);
     this.mesh = new Mesh(name, scene);
     const vd = new VertexData();
     if (out.type === "mesh") {
@@ -379,8 +474,10 @@ export class KernelDraw {
       vd.indices = [0, 1, 2, 0, 2, 3];
     }
     vd.applyToMesh(this.mesh);
-    const shaders = webgpu ? wgslDraw(kernel, output, { soft: this.soft }) : glslDraw(kernel, output, { soft: this.soft });
-    const uniforms = ["viewProjection", "view", "kcam", "kdraw", "kdraw2", "kdraw3", ...(this.soft ? ["ksoft"] : []), ...(webgpu ? [] : ["ku", "kw"])];
+    const fog = heightFogShader(webgpu ? "wgsl" : "glsl");
+    const shaderOpts = { soft: this.soft, sorted: this.sorted, fog: fog.decl };
+    const shaders = webgpu ? wgslDraw(kernel, output, shaderOpts) : glslDraw(kernel, output, shaderOpts);
+    const uniforms = ["viewProjection", "view", "kcam", "kdraw", "kdraw2", "kdraw3", ...fog.uniforms, ...(this.soft ? ["ksoft"] : []), ...(webgpu ? [] : ["ku", "kw", ...(this.sorted ? ["kidxW"] : [])])];
     this.material = new ShaderMaterial(
       `${name} material`,
       scene,
@@ -388,8 +485,9 @@ export class KernelDraw {
       {
         attributes: ["position", "uv"],
         uniforms,
-        samplers: webgpu ? ["ktex", ...(this.soft ? ["kdepthTex"] : [])] : ["ktex", "ks0", "ks1", "ks2", "ks3", "kl", ...(this.soft ? ["kdepthTex"] : [])],
-        ...(webgpu ? { storageBuffers: ["ks", "ku", "kl"], shaderLanguage: ShaderLanguage.WGSL } : {}),
+        samplers: webgpu ? ["ktex", ...(this.soft ? ["kdepthTex"] : [])] : ["ktex", "ks0", "ks1", "ks2", "ks3", "kl", ...(this.sorted ? ["kidx"] : []), ...(this.soft ? ["kdepthTex"] : [])],
+        ...(webgpu ? { storageBuffers: ["ks", "ku", "kl", ...(this.sorted ? ["kidx"] : [])], shaderLanguage: ShaderLanguage.WGSL } : {}),
+        defines: [],
         needAlphaBlending: true,
       },
     );
@@ -399,7 +497,8 @@ export class KernelDraw {
     m.alphaMode = out.settings.blending === "additive" ? Constants.ALPHA_ADD : out.settings.blending === "premultiplied" ? Constants.ALPHA_PREMULTIPLIED : Constants.ALPHA_COMBINE;
     m.setTexture("ktex", texture);
     m.setVector4("kdraw", new Vector4(DRAW_MODE[out.type] ?? 0, out.settings.speedScale, out.settings.lengthScale, out.tiles[0]));
-    m.setVector4("kdraw2", new Vector4(out.blendTiles ? 1 : 0, opts.softness, out.settings.blending === "premultiplied" ? 1 : 0, 0));
+    m.setVector4("kdraw2", new Vector4(out.blendTiles ? 1 : 0, opts.softness, out.settings.blending === "premultiplied" ? 1 : 0, out.settings.blending === "additive" ? 1 : 0));
+    useHeightFog(m, scene);
     m.setVector4("kdraw3", new Vector4(out.tiles[1], 0, 0, 0));
     m.onBindObservable.add(() => {
       const cam = scene.activeCamera;
@@ -426,8 +525,18 @@ export class KernelDraw {
 
   /** Bind this frame's state (ping-pong buffers change every frame). */
   update(): void {
-    (this.source as BabylonRun).bind(this.material);
+    const src = this.source as BabylonRun;
+    src.bind(this.material);
     const cam = this.scene.activeCamera;
+    if (this.sorted && cam) {
+      // Once a frame per system, for the active camera (split-screen views share its order).
+      const frame = this.scene.getFrameId();
+      if (sortedAt.get(src) !== frame) {
+        sortedAt.set(src, frame);
+        src.sort(depthRow(viewZRow(cam), src.lastUniforms, this.scene.useRightHandedSystem));
+      }
+      src.bindSort(this.material);
+    }
     if (cam) this.material.setVector3("kcam", cam.globalPosition ?? Vector3.Zero());
     if (this.soft) {
       // Bound per camera while drawing (onBind); set here too so the material has a texture to compile with.

@@ -7,6 +7,50 @@ import { KernelEffect, JsRun, type KernelRun } from "../../src/engine/render/par
 import { WebGpuRun, type GpuDevice } from "../../src/engine/render/particles/gpu/webgpuRun";
 import { WebGl2Run, supportsTextureKernels } from "../../src/engine/render/particles/gpu/webgl2Run";
 import { parityGraph } from "./graphs";
+import { BUFFER } from "../../src/engine/render/particles/gpu/webgpuRun";
+import { WebGl2Sorter, WebGpuSorter, sortLayout, sortPairsJs } from "../../src/engine/render/particles/gpu/sort";
+
+/** Sort parity (ADR 0126): the GPU sorts must give the same key order as the JavaScript sort. */
+async function sortParity(k: KernelSystem, js: Float32Array, gpu: WebGpuRun | null, glr: WebGl2Run | null, device: GpuDevice | null, gl: WebGL2RenderingContext | null): Promise<Result[]> {
+  const row = [0.3, -0.2, 0.9, 1.5];
+  const layout = sortLayout(k.capacity);
+  const ref = new Float32Array(layout.n * 2);
+  sortPairsJs(js, k.capacity, row, ref, layout);
+  const check = (pairs: Float32Array, backend: string): Result => {
+    let mismatched = 0;
+    let maxError = 0;
+    let alive = 0;
+    for (let i = 0; i < layout.n; i++) {
+      const a = ref[i * 2];
+      if (a < 1e38) alive++;
+      const e = Math.abs(a - pairs[i * 2]) / Math.max(1, Math.abs(a));
+      if (e > 1e-3) mismatched++;
+      maxError = Math.max(maxError, Math.min(e, 1));
+    }
+    return { backend, system: k.name, available: true, errors: [], alive: [alive, alive], maxError, mismatched };
+  };
+  const out: Result[] = [];
+  if (gpu && device) {
+    const sorter = new WebGpuSorter(device, k.capacity);
+    sorter.sort(gpu.current(), row);
+    const staging = device.createBuffer({ size: layout.n * 8, usage: BUFFER.MAP_READ | BUFFER.COPY_DST });
+    const enc = device.createCommandEncoder();
+    enc.copyBufferToBuffer(sorter.pairs, 0, staging, 0, layout.n * 8);
+    device.queue.submit([enc.finish()]);
+    await staging.mapAsync!(1);
+    out.push(check(new Float32Array(staging.getMappedRange!().slice(0)), "webgpu sort"));
+    staging.unmap!();
+  }
+  if (glr && gl) {
+    const sorter = new WebGl2Sorter(gl, k.capacity);
+    const cur = glr.current();
+    sorter.sort(cur[0], cur[1], glr.width, row);
+    const r = check(sorter.read(), "webgl2 sort");
+    r.errors = sorter.errors;
+    out.push(r);
+  }
+  return out;
+}
 
 interface Result {
   backend: string;
@@ -133,9 +177,11 @@ async function runMode(deadList: boolean): Promise<Result[]> {
   if (deadList) {
     // Frames a game's pace apart, so the dead list's count read-backs land (the loop above outruns them).
     for (let f = 90; f < 93; f++) {
+      await device?.queue.onSubmittedWorkDone?.();
       await new Promise((res) => setTimeout(res, 50));
       frame(f);
     }
+    await device?.queue.onSubmittedWorkDone?.();
   }
 
   for (const [k, r] of runs) {
@@ -151,6 +197,7 @@ async function runMode(deadList: boolean): Promise<Result[]> {
       out.push({ backend: deadList ? "webgpu (dead list)" : "webgpu", system: k.name, available: true, errors, ...(deadList ? childCounts(compareBySeed(js, s, k), k) : compare(js, s, k)) });
     } else out.push({ backend: "webgpu", system: k.name, available: false, errors: [], alive: [0, 0], maxError: 0, mismatched: 0 });
     if (deadList) continue;
+    out.push(...(await sortParity(k, js, r.gpu, r.gl, device, gl)));
     if (r.gl) {
       const s = r.gl.read();
       out.push({ backend: "webgl2", system: k.name, available: true, errors: r.gl.errors, ...compare(js, s, k) });
