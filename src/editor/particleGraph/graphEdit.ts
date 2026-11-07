@@ -37,6 +37,31 @@ const round = (p: Vec2 | readonly number[]): Vec2 => [Math.round(p[0]), Math.rou
 
 export type TemplateKind = Parameters<typeof systemTemplate>[1];
 
+// --- view state ---------------------------------------------------------------------------------------
+
+/** The ids of the systems whose frames are collapsed (`graph.editor.collapsed`), skipping systems that are gone. */
+export function collapsedSystems(graph: ParticleGraph): Set<string> {
+  const raw = graph.editor?.collapsed;
+  const ids = new Set(graph.systems.map((s) => s.id));
+  return new Set(Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string" && ids.has(id)) : []);
+}
+
+/** Collapses or expands a system's frame; stored in the graph's editor-only data so it saves with the asset. */
+export function setSystemCollapsed(graph: ParticleGraph, systemId: string, collapsed: boolean): ParticleGraph {
+  if (!graph.systems.some((s) => s.id === systemId)) return graph;
+  const before = collapsedSystems(graph);
+  if (before.has(systemId) === collapsed) return graph;
+  if (collapsed) before.add(systemId);
+  else before.delete(systemId);
+  const next = clone(graph);
+  const editor = { ...next.editor };
+  if (before.size) editor.collapsed = [...before];
+  else delete editor.collapsed;
+  if (Object.keys(editor).length) next.editor = editor;
+  else delete next.editor;
+  return next;
+}
+
 // --- references --------------------------------------------------------------------------------------
 
 /** Splits `"<id>.<port>"` at the last dot. */

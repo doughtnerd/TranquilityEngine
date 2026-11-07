@@ -30,7 +30,9 @@ import {
   removeBlock,
   removeItems,
   removeNote,
+  collapsedSystems,
   setGroupTitle,
+  setSystemCollapsed,
   sourceOf,
   splitRef,
   ungroup,
@@ -84,7 +86,6 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   const [search, setSearch] = useState<{ at: Point; target: SearchTarget; pending: Pending } | null>(null);
   const [box, setBox] = useState<{ a: Point; b: Point } | null>(null);
   const [blockDrag, setBlockDrag] = useState<{ key: string; drop: BlockDrop | null } | null>(null);
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [maximized, setMaximized] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
   const [showPreview, setShowPreview] = useState(true);
@@ -115,6 +116,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     });
   }
 
+  const collapsed = useMemo(() => collapsedSystems(graph), [graph]);
   const compiled = useMemo(() => compileParticleGraph(graph), [graph]);
   const problems = useMemo(() => {
     const seen = new Set<string>();
@@ -221,16 +223,30 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     show(next);
   };
 
+  /** Collapse or expand a system's frame: a view change, so it marks the asset dirty (saves) but stays out of undo. */
+  const setCollapsed = (id: string, c: boolean) => {
+    if (readOnly) return;
+    const next = setSystemCollapsed(live.current.graph, id, c);
+    if (next !== live.current.graph) show(next);
+  };
+
+  // Undo and redo restore the graph as it was edited, but keep the frames as they are now.
+  const keepView = (restored: ParticleGraph): ParticleGraph => {
+    const now = collapsedSystems(live.current.graph);
+    let g = restored;
+    for (const s of restored.systems) g = setSystemCollapsed(g, s.id, now.has(s.id));
+    return g;
+  };
   const history = effectHistory(path);
   const undo = () => {
     if (readOnly) return;
     const prev = undoEffectEdit(path, live.current.graph);
-    if (prev) show(prev);
+    if (prev) show(keepView(prev));
   };
   const redo = () => {
     if (readOnly) return;
     const next = redoEffectEdit(path, live.current.graph);
-    if (next) show(next);
+    if (next) show(keepView(next));
   };
 
   // --- search ----------------------------------------------------------------------------------------
@@ -511,7 +527,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     setSelection(new Set([id]));
     setSelectedBlock(place.block ? `${place.system}.${place.block}` : null);
     setSelectedWire(null);
-    if (collapsed.has(id)) setCollapsed(new Set([...collapsed].filter((c) => c !== id)));
+    if (collapsed.has(id)) setCollapsed(id, false);
     const n = live.current.nodes.find((c) => c.id === id);
     if (n) frameAll([n]);
   };
@@ -721,7 +737,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
                   at={position(s)}
                   selected={selection.has(s.id)}
                   collapsed={collapsed.has(s.id)}
-                  onCollapse={(c) => setCollapsed(c ? new Set([...collapsed, s.id]) : new Set([...collapsed].filter((x) => x !== s.id)))}
+                  onCollapse={(c) => setCollapsed(s.id, c)}
                   onDown={onItemDown}
                   drag={dragHooks}
                 />

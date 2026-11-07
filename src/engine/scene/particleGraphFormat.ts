@@ -737,7 +737,17 @@ export function particleGraphJSON(graph: ParticleGraph): Record<string, unknown>
     notes: graph.notes,
     groups: graph.groups,
   };
-  if (graph.editor) out.editor = graph.editor;
+  if (graph.editor) {
+    const editor = { ...graph.editor };
+    // Editor-only view state names systems; drop the ones that are gone.
+    if (Array.isArray(editor.collapsed)) {
+      const ids = new Set(graph.systems.map((s) => s.id));
+      const kept = editor.collapsed.filter((id): id is string => typeof id === "string" && ids.has(id));
+      if (kept.length) editor.collapsed = kept;
+      else delete editor.collapsed;
+    }
+    if (Object.keys(editor).length) out.editor = editor;
+  }
   return out;
 }
 
