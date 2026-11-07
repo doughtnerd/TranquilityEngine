@@ -4,6 +4,8 @@
 // like the samples, ADR 0031), and the project's files come from what the editor already holds.
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { ENGINE_FILE, MANIFEST_FILE, PLAYER_FILE_LIST, PLAYER_PAGE } from "../export/format";
+import { processImages } from "../export/images";
+import { browserTranscoder } from "../export/imagesBrowser";
 import { bakeModelFile } from "../engine/scene/models";
 import { ExportError, copiedPath, isOutputInsideProject, planWebBuild, withBakedModels, type WebBuildPlan } from "../export/webBuild";
 import { joinPath, jsonFiles, type EditorProject } from "./projects";
@@ -16,7 +18,21 @@ export async function planProjectBuild(project: EditorProject, bake = true): Pro
   const files = [...new Set([...project.files, ...project.scripts.keys()])];
   const plan = await planWebBuild({ name: project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name, settings: project.settings, files, scripts: project.scripts, json: jsonFiles(project) });
   // Models baked for the build (ADR 0090), through the project's assets the editor already serves.
-  return bake ? withBakedModels(plan, bakeModelFile, (line) => console.warn(`[myco] ${line}`)) : plan;
+  if (!bake) return plan;
+  const log = (line: string) => console.warn(`[myco] ${line}`);
+  const baked = await withBakedModels(plan, bakeModelFile, log);
+  // Images resized and re-encoded per their sidecars (ADR 0119); the editor builds web games.
+  return processImages(baked, {
+    platform: "web",
+    readText: (path) => project.textOf(path),
+    readBytes: async (path) => {
+      const url = project.assets.get(path);
+      if (typeof url !== "string") throw new Error("not in the project");
+      return new Uint8Array(await (await fetchOk(url)).arrayBuffer());
+    },
+    transcode: browserTranscoder,
+    log,
+  });
 }
 
 async function fetchOk(url: string): Promise<Response> {

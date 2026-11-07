@@ -77,7 +77,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0037](decisions/0037-rename-to-myco-engine.md) | The engine is renamed Myco Engine, by Foxfire Studios | Accepted |
 | [0038](decisions/0038-browser-editor-opens-folders.md) | The browser editor opens project folders through the File System Access API | Accepted, amended by 0063 (the menu bar replaces the toolbar Project menu) |
 | [0039](decisions/0039-polygon-edge-colliders.md) | Polygon and edge colliders for 2D physics | Accepted |
-| [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted, extended by 0115 (proposed) |
+| [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted, extended by 0115 and 0119 (proposed) |
 | [0041](decisions/0041-game-builds.md) | Games build to a static web player, packaged for desktop through Tauri | Accepted |
 | [0042](decisions/0042-inspector-field-types.md) | List fields, field choices, and per-instance Worlds and tags overrides | Accepted |
 | [0043](decisions/0043-meshes-lights-materials.md) | Meshes, lights and material assets: a default lit material and default lighting | Proposed |
@@ -154,6 +154,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0115](decisions/0115-sprite-editor-9-slice-undo-and-per-platform-import.md) | Sprites draw 9-sliced from a slice's border; the Sprite Editor gets border guides, undo/redo and slice search; import sidecars gain per-platform overrides, `maxSize` and `compression` (the last two advisory) | Proposed |
 | [0116](decisions/0116-editor-themes-display-scaling-layer-rename-and-history-pruning.md) | Theme import/export and per-project themes, bundled fonts and a light logo; display scaling; project-wide layer rename; persisted desktop folder access; age-based history pruning | Proposed |
 | [0117](decisions/0117-shader-graph-search-node-preview-shapes-and-scene-thumbnails.md) | Shader graph find, per-node preview shapes, and camera-view scene thumbnails | Proposed |
+| [0119](decisions/0119-export-image-processing-and-tile-anchors.md) | Game exports resize (`maxSize`) and WebP re-encode (`compression`) images per platform, keeping paths and world size; tiles get an `anchor` | Proposed |
 
 ## Working with decisions
 

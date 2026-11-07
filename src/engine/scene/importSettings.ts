@@ -84,6 +84,8 @@ export interface ImportSettings {
   /** Largest side in pixels; 0 = no limit (ADR 0115). */
   maxSize: number;
   compression: TextureCompression;
+  /** Images in a game build (ADR 0119): the authored size `[width, height]` of an image the export shrank, so sprites, tiles and slices keep their authored size. Never written by the editor. */
+  sourceSize: [number, number] | null;
   /** Per-platform overrides of the image settings above; applied by `resolveImportSettings`. */
   platforms: Partial<Record<ImportPlatform, PlatformOverrides>>;
   pivot: [number, number];
@@ -105,6 +107,7 @@ export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<I
   mipmaps: true,
   maxSize: 0,
   compression: "none",
+  sourceSize: null,
   platforms: {},
   pivot: [0.5, 0.5],
   sprites: [],
@@ -187,6 +190,11 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
   if (raw.compression !== undefined) {
     if (isCompression(raw.compression)) settings.compression = raw.compression;
     else bad("compression", '"none", "low", "normal" or "high"');
+  }
+  if (raw.sourceSize !== undefined) {
+    const v = raw.sourceSize;
+    if (Array.isArray(v) && v.length === 2 && v.every((n) => Number.isInteger(n) && n > 0)) settings.sourceSize = [v[0], v[1]];
+    else bad("sourceSize", "[width, height] in whole pixels");
   }
   if (raw.platforms !== undefined) {
     if (!isObject(raw.platforms)) bad("platforms", "an object keyed by platform");
@@ -327,14 +335,18 @@ export function resolveImportSettings(settings: ImportSettings, platform: Import
 
 /**
  * A texture's size after `maxSize` (the longest side is clamped, aspect kept, never below 1 px).
- * `compression` is advisory: Babylon can't GPU-compress a PNG at load, so it's recorded for
- * export tooling and doesn't change the size (ADR 0115).
+ * Game exports apply it (ADR 0119; `compression` changes the encoding, not the size).
  */
 export function clampTextureSize(width: number, height: number, maxSize: number): [number, number] {
   const longest = Math.max(width, height);
   if (maxSize <= 0 || longest <= maxSize) return [width, height];
   const k = maxSize / longest;
   return [Math.max(1, Math.round(width * k)), Math.max(1, Math.round(height * k))];
+}
+
+/** An image's authored size: the sidecar's `sourceSize` when the build shrank it (ADR 0119), else the texture's own. */
+export function authoredSize(settings: ImportSettings, width: number, height: number): [number, number] {
+  return settings.sourceSize ? [settings.sourceSize[0], settings.sourceSize[1]] : [width, height];
 }
 
 /** The sidecar JSON for `settings`: the format, then only what differs from the defaults. */
@@ -347,6 +359,7 @@ export function importSettingsJSON(settings: ImportSettings): Record<string, unk
   if (settings.mipmaps !== d.mipmaps) out.mipmaps = settings.mipmaps;
   if (settings.maxSize !== d.maxSize) out.maxSize = settings.maxSize;
   if (settings.compression !== d.compression) out.compression = settings.compression;
+  if (settings.sourceSize) out.sourceSize = [...settings.sourceSize];
   const platforms = platformsJSON(settings);
   if (platforms) out.platforms = platforms;
   if (!samePair(settings.pivot, d.pivot)) out.pivot = [...settings.pivot];

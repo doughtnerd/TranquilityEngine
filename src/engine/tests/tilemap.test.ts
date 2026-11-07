@@ -4,8 +4,8 @@ import { blobMasks, canonicalBlob, maskToPattern, missingBlobMasks, neighbourMas
 import { floodCells, lineCells, rectCells, stampCells } from "../tilemap/brushes";
 import { buildTileShapes, flipPoint, greedyRectangles, rowRuns, traceOutlines } from "../tilemap/collision";
 import { CHUNK_CELLS, cellToChunk, cellValue, decodeChunk, encodeChunk, migrateLayer, newLayer, registerTilemapLayerMigration, rotateFlagsClockwise, FLIP_Y } from "../tilemap/format";
-import { buildChunkMeshes, sourceCorner } from "../tilemap/mesh";
-import { Tileset, parseTileset, pickWeighted, type TileDef } from "../tilemap/tileset";
+import { buildChunkMeshes, sourceCorner, type TileFrame } from "../tilemap/mesh";
+import { Tileset, newTileset, parseTileset, pickWeighted, tileAnchor, type TileDef } from "../tilemap/tileset";
 
 const TILESET = {
   format: "myco.tileset@1",
@@ -315,5 +315,27 @@ describe("TilemapCollider2D on Rapier (ADR 0105)", () => {
     }
     expect(maxY).toBeGreaterThan(3.4);
     expect(b.transform!.worldPosition.y).toBeCloseTo(3.4, 1); // landed on top
+  });
+});
+
+describe("tile anchors (ADR 0119)", () => {
+  const tall: TileFrame = { texture: "t.png", uv: [0, 0, 1, 1], size: [1, 2] };
+  const xs = (anchor?: [number, number]) => {
+    const m = buildChunkMeshes(Array.from({ length: 256 }, (_, i) => (i === 0 ? 1 : 0)), 0, 0, { x: 1, y: 1 }, () => ({ ...tall, ...(anchor ? { anchor } : {}) }))[0];
+    const p = Array.from(m.positions);
+    return { x: [Math.min(p[0], p[3], p[6], p[9]), Math.max(p[0], p[3], p[6], p[9])], y: [Math.min(p[1], p[4], p[7], p[10]), Math.max(p[1], p[4], p[7], p[10])] };
+  };
+  it("defaults to bottom-left corners together, and aligns the anchor point with the cell's", () => {
+    expect(xs()).toEqual({ x: [0, 1], y: [0, 2] });
+    expect(xs([0.5, 0])).toEqual({ x: [0, 1], y: [0, 2] }); // width 1: no x offset; bottoms aligned
+    expect(xs([0.5, 0.5])).toEqual({ x: [0, 1], y: [-0.5, 1.5] });
+    expect(xs([1, 1])).toEqual({ x: [0, 1], y: [-1, 1] });
+  });
+  it("parses tile and tileset anchors, and the tile's wins", () => {
+    const { tileset, problems } = parseTileset({ format: "myco.tileset@1", anchor: [0.5, 0], tiles: [{ id: 1, sprite: "a", anchor: [0, 1] }, { id: 2, sprite: "a" }, { id: 3, sprite: "a", anchor: [2, 0] }] });
+    expect(problems.join()).toMatch(/tile 3 "anchor"/);
+    expect(tileAnchor(tileset, tileset.tiles[0])).toEqual([0, 1]);
+    expect(tileAnchor(tileset, tileset.tiles[1])).toEqual([0.5, 0]);
+    expect(tileAnchor(newTileset(), { id: 1, sprite: "", collision: "none" })).toEqual([0, 0]);
   });
 });

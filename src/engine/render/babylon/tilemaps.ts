@@ -13,10 +13,10 @@ import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { World } from "../../core/World";
 import { Assets, sidecarValue } from "../../scene/Assets";
-import { findSlice, splitSpriteRef } from "../../scene/importSettings";
+import { authoredSize, findSlice, splitSpriteRef } from "../../scene/importSettings";
 import { buildChunkMeshes, type TileFrame } from "../../tilemap/mesh";
 import { Tilemap } from "../../tilemap/Tilemap";
-import type { Tileset } from "../../tilemap/tileset";
+import { tileAnchor, type Tileset } from "../../tilemap/tileset";
 import { pbr } from "./materials";
 
 /** What the tilemap drawing borrows from the renderer. */
@@ -165,7 +165,8 @@ export class BabylonTilemaps {
     entry.sidecars.set(path, sidecarValue(path));
     const tex = this.host.texture(path, () => this.invalidateFrames(entry));
     if (!tex) return null; // loading; frames are resolved again once it has
-    const { width, height } = tex.getBaseSize();
+    const base = tex.getBaseSize();
+    const [width, height] = authoredSize(Assets.importSettings(path), base.width, base.height); // a build may have shrunk the image (ADR 0119)
     const [tw, th] = entry.tileset!.tileSize;
     let rect: [number, number, number, number] = [0, 0, width, height];
     if (slice !== null) {
@@ -177,6 +178,8 @@ export class BabylonTilemaps {
     // Pull the UVs in by a hundredth of a texel so neighbouring tiles in the atlas don't bleed in.
     const ix = 0.01 / width, iy = 0.01 / height;
     const frame: TileFrame = { texture: path, uv: [x / width + ix, 1 - (y + h) / height + iy, (x + w) / width - ix, 1 - y / height - iy], size: [w / tw, h / th] };
+    const anchor = tileAnchor(entry.tileset!.data, def); // ADR 0119
+    if (anchor[0] !== 0 || anchor[1] !== 0) frame.anchor = anchor;
     entry.frames.set(id, frame);
     return frame;
   }

@@ -1,6 +1,6 @@
 # 0040. Per-asset import settings live in sidecar files beside each asset
 
-- **Status:** Accepted, extended by 0115 (proposed: 9-slice fill, sprite editor undo, per-platform import settings)
+- **Status:** Accepted, extended by 0115 (proposed: 9-slice fill, sprite editor undo, per-platform import settings) and 0119 (proposed: exports apply `maxSize`/`compression`)
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -80,7 +80,7 @@ Nothing.
 ## Open questions
 
 - Drawing 9-slice borders (a SpriteRenderer draw mode).
-- Per-platform overrides and compression (with a game build step, O14).
+- Per-platform overrides and compression (with a game build step, O14): answered by 0115 and 0119.
 - Sprite animation clips over slices.
 - Stable asset ids, which would also stop slice references breaking on slice renames made outside the editor.
 

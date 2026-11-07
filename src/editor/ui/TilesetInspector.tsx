@@ -135,6 +135,7 @@ export function TilesetInspector(props: { path: string }) {
             ))}
           </span>
         </div>
+        <AnchorRow label="Default Anchor" title="Where tile sprites sit in their cells: the sprite's point lands on the same point of the cell. 0, 0 overhangs up and right; 0.5, 0 centres a tall tile on its cell." value={data.anchor ?? [0, 0]} readOnly={readOnly} onChange={(a) => set({ anchor: a[0] === 0 && a[1] === 0 ? undefined : a })} />
         <div class="tileset-history">
           <button disabled={readOnly || history.undo.length === 0} onClick={undo} title="Undo the last edit to this tileset (Ctrl+Z)">
             Undo
@@ -369,6 +370,7 @@ function TileEditor(props: { data: TilesetData; tile: TileDef; readOnly: boolean
           }}
         />
       </label>
+      <AnchorRow label="Anchor" title="Where this tile's sprite sits in its cell (blank = the tileset's default anchor)" value={tile.anchor ?? data.anchor ?? [0, 0]} readOnly={readOnly} onChange={(a) => setTile({ anchor: a[0] === (data.anchor?.[0] ?? 0) && a[1] === (data.anchor?.[1] ?? 0) ? undefined : a })} />
       <div class="tileset-data">
         <span class="hint">Custom data (JSON object, read with getTileData)</span>
         <textarea
@@ -383,6 +385,33 @@ function TileEditor(props: { data: TilesetData; tile: TileDef; readOnly: boolean
         />
         {jsonError && <p class="tileset-error">{jsonError}</p>}
       </div>
+    </div>
+  );
+}
+
+/** Two 0..1 number fields for a tile anchor (ADR 0119). */
+function AnchorRow({ label, title, value, readOnly, onChange }: { label: string; title: string; value: [number, number]; readOnly: boolean; onChange: (anchor: [number, number]) => void }) {
+  return (
+    <div class="import-row" title={title}>
+      <span>{label}</span>
+      <span class="import-pivot tileset-size">
+        {([0, 1] as const).map((i) => (
+          <input
+            key={i}
+            type="number"
+            min={0}
+            max={1}
+            step={0.5}
+            aria-label={`${label} ${i === 0 ? "X" : "Y"}`}
+            disabled={readOnly}
+            value={value[i]}
+            onChange={(e) => {
+              const v = Number((e.currentTarget as HTMLInputElement).value);
+              if (Number.isFinite(v) && v >= 0 && v <= 1) onChange(i === 0 ? [v, value[1]] : [value[0], v]);
+            }}
+          />
+        ))}
+      </span>
     </div>
   );
 }

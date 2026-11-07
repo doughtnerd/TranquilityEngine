@@ -230,7 +230,7 @@ function ImportInspector() {
                 min={0}
                 step={1}
                 aria-label="Max Size"
-                title="Largest side in pixels (0 = no limit). Advisory for now: recorded for game builds, not applied while drawing."
+                title="Largest side in pixels (0 = no limit). Applied by game exports (ADR 0119): the build ships the image resized; the editor and play mode use the original."
                 placeholder="No limit"
                 value={draft.maxSize > 0 ? draft.maxSize : ""}
                 onChange={(e) => set({ maxSize: parseMaxSize((e.currentTarget as HTMLInputElement).value) })}
@@ -240,7 +240,7 @@ function ImportInspector() {
               <span>Compression</span>
               <select
                 aria-label="Compression"
-                title="Texture compression quality. Advisory for now: recorded for game builds; the browser can't GPU-compress an image while loading it."
+                title="Applied by game exports (ADR 0119): low, normal and high re-encode the image as WebP (quality 90, 75, 50; lossless for point-filtered images). It shrinks the download, not GPU memory."
                 value={draft.compression}
                 onChange={(e) => set({ compression: (e.currentTarget as HTMLSelectElement).value as ImportSettings["compression"] })}
               >
