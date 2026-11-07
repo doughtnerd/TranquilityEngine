@@ -6,7 +6,7 @@ import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "shadergraph" | "shadersubgraph" | "particles" | "formation" | "tileset" | "environment" | "sky" | "cubemap" | "json" | "script" | "javascript" | "typescript" | "text" | "uidocument" | "stylesheet" | "xml" | "other";
+export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "rendertexture" | "shadergraph" | "shadersubgraph" | "particles" | "formation" | "tileset" | "environment" | "sky" | "cubemap" | "lut" | "json" | "script" | "javascript" | "typescript" | "text" | "uidocument" | "stylesheet" | "xml" | "other";
 
 /** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
 export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
@@ -27,10 +27,12 @@ export function assetKind(path: string): AssetKind {
   if (p.endsWith(".scene.json")) return "scene";
   if (p.endsWith(".prefab.json")) return "prefab";
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(p)) return "image";
-  if (/\.(hdr|exr|env|dds)$/.test(p)) return "environment";
+  if (/\.(hdr|exr|dds)$/.test(p) || /[^/]\.env$/.test(p)) return "environment";
+  if (p.endsWith(".cube")) return "lut";
   if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";
   if (MODEL_EXTENSIONS.test(p)) return "model";
   if (p.endsWith(".material.json")) return "material";
+  if (p.endsWith(".rendertexture.json")) return "rendertexture";
   if (p.endsWith(".shadergraph.json")) return "shadergraph";
   if (p.endsWith(".shadersubgraph.json")) return "shadersubgraph";
   if (p.endsWith(".particles.json")) return "particles";

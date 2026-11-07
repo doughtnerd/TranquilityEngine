@@ -157,6 +157,8 @@ export class BabylonLighting {
   private readonly warned = new Set<string>();
   /** Whether the last sync asked for cascaded shadows, for tests. */
   private cascading = false;
+  /** How many lights the last sync gave cascades (ADR 0110), for tests. */
+  private cascadedCount = 0;
   /**
    * The main light shader graphs read (Main Light Direction / Color nodes), chosen as three.js's
    * `directionalLights[0]` is: the first shadow-casting directional light, else the first directional
@@ -184,18 +186,22 @@ export class BabylonLighting {
 
   /**
    * Step 8: mirror the World's Lights, and return the shadow maps this frame needs: one per enabled
-   * shadow-casting light, cascaded for the first directional one on tiers with cascades when a camera
-   * draws the view (cascades follow it).
+   * shadow-casting light, cascaded for the first `cascadedLights` directional ones (ADR 0110) on tiers
+   * with cascades when a camera draws the view (cascades follow it).
    */
   syncLights(world: World, camera: BabylonCamera | null): ShadowRequest[] {
     const tier = Graphics.tier;
     const mapSize = SHADOW_MAP_SIZE[tier.shadows];
-    let cascadeLight: Light | null = null;
+    const cascadeLights = new Set<Light>();
     if (camera && mapSize && tier.shadowCascades > 1) {
-      cascadeLight = world._componentsOfType(Light).find((l) => l.type === "directional" && l.castShadows && l.isActiveAndEnabled) ?? null;
+      for (const l of world._componentsOfType(Light)) {
+        if (cascadeLights.size >= this.cascadeLimit(tier.cascadedLights ?? 1)) break;
+        if (l.type === "directional" && l.castShadows && l.isActiveAndEnabled) cascadeLights.add(l);
+      }
     }
     let any = false;
     this.cascading = false;
+    this.cascadedCount = 0;
     const shadows: ShadowRequest[] = [];
     let main: BabylonLight | null = null;
     let mainCasts = false;
@@ -214,8 +220,11 @@ export class BabylonLighting {
       }
       if (!casts) continue;
       const light = entry.light as BabylonLight & IShadowLight;
-      const cascaded = l === cascadeLight;
-      if (cascaded) this.cascading = true;
+      const cascaded = cascadeLights.has(l);
+      if (cascaded) {
+        this.cascading = true;
+        this.cascadedCount++;
+      }
       else if (light instanceof DirectionalLight) this.fitShadowArea(light, l.shadowArea);
       shadows.push({ light, cascaded, mapSize, numCascades: tier.shadowCascades, shadowMaxZ: tier.shadowDistance });
     }
@@ -263,6 +272,17 @@ export class BabylonLighting {
     sun.diffuse.set(1, 1, 1);
     sun.specular.set(1, 1, 1);
     sun.intensity = 1;
+  }
+
+  /**
+   * How many lights may have cascades: the tier's `cascadedLights`, but one on devices at WebGPU's
+   * minimum of 16 values between shader stages. Each cascaded light passes two more (its position from
+   * the camera and depth metric), and a material past the device's limit fails to compile and draws
+   * black (see `clusterContainer`).
+   */
+  private cascadeLimit(wanted: number): number {
+    const max = this.scene.getEngine().getCaps().maxVaryingVectors;
+    return max <= MIN_STAGE_VARIABLES ? 1 : Math.max(1, Math.min(4, wanted));
   }
 
   private syncMainLight(light: BabylonLight | null): void {
@@ -555,9 +575,10 @@ export class BabylonLighting {
   }
 
   /** Tests: whether cascaded shadows are on, and the environment map's state. */
-  state(): { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean } {
+  state(): { cascades: boolean; cascadedLights: number; environment: string; environmentLoaded: boolean; skybox: boolean } {
     return {
       cascades: this.cascading,
+      cascadedLights: this.cascadedCount,
       environment: this.envMap?.path ?? "",
       environmentLoaded: !!this.envMap?.texture && cubemapReady(this.envMap.texture),
       skybox: !!this.skybox?.isEnabled(),

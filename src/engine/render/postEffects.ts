@@ -16,6 +16,8 @@ export interface PostEffects {
   bloom: { intensity: number; threshold: number; radius: number } | null;
   ambientOcclusion: { intensity: number; radius: number; quality: AOQuality } | null;
   colorGrading: { brightness: number; contrast: number; saturation: number; hue: number } | null; // hue in degrees
+  /** A colour lookup table asset (`.cube`) and how much of it to apply (ADR 0111). */
+  lut: { path: string; intensity: number } | null;
   vignette: { darkness: number; offset: number } | null;
   depthOfField: { focusDistance: number; focusRange: number; bokehScale: number } | null;
   chromaticAberration: { amount: number } | null;
@@ -56,6 +58,9 @@ export interface PostSettings {
   contrast: number;
   saturation: number;
   hue: number;
+  /** Optional: a `.cube` colour lookup table (ADR 0111). */
+  lut?: string;
+  lutIntensity?: number;
   vignette: boolean;
   vignetteDarkness: number;
   vignetteOffset: number;
@@ -93,11 +98,12 @@ export function resolvePostEffects(s: PostSettings | null, tier: QualityTier): R
     bloom: post && tier.bloom && s!.bloom ? { intensity: s!.bloomIntensity, threshold: s!.bloomThreshold, radius: s!.bloomRadius } : null,
     ambientOcclusion: post && tier.ambientOcclusion !== "off" && s!.ambientOcclusion ? { intensity: s!.aoIntensity, radius: s!.aoRadius, quality: tier.ambientOcclusion } : null,
     colorGrading: grading ? { brightness: s!.brightness, contrast: s!.contrast, saturation: s!.saturation, hue: s!.hue } : null,
+    lut: post && s!.lut && (s!.lutIntensity ?? 1) > 0 ? { path: s!.lut, intensity: Math.min(1, s!.lutIntensity ?? 1) } : null,
     vignette: post && s!.vignette ? { darkness: s!.vignetteDarkness, offset: s!.vignetteOffset } : null,
     depthOfField: post && tier.depthOfField && s!.depthOfField ? { focusDistance: s!.focusDistance, focusRange: s!.focusRange, bokehScale: s!.bokehScale } : null,
     chromaticAberration: post && s!.chromaticAberration ? { amount: s!.chromaticAberrationAmount } : null,
   };
-  const anyEffect = !!(effects.bloom || effects.ambientOcclusion || effects.colorGrading || effects.vignette || effects.depthOfField || effects.chromaticAberration);
+  const anyEffect = !!(effects.bloom || effects.ambientOcclusion || effects.colorGrading || effects.lut || effects.vignette || effects.depthOfField || effects.chromaticAberration);
   const needsComposer = (post && anyEffect) || tier.antialias === "smaa" || tier.antialias === "fxaa";
   return { composer: needsComposer ? effects : null, toneMapping, exposure };
 }

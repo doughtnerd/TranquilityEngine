@@ -1,7 +1,7 @@
 import { signal } from "@preact/signals";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { ANTIALIAS_MODES, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
+import { ANTIALIAS_MODES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
 import { reloadGraphics } from "../graphicsPreview";
 import { errorStatus } from "../messages";
@@ -32,6 +32,7 @@ import {
   setCollides,
   setAutoDetect,
   setDefaultTier,
+  setPlatformDefault,
   setTargetFrameRate,
   setGravity,
   setName,
@@ -691,6 +692,7 @@ function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: Editor
 
 const LEVEL_LABELS: Record<string, string> = { off: "Off", low: "Low", medium: "Medium", high: "High", ultra: "Ultra", msaa: "MSAA", smaa: "SMAA", fxaa: "FXAA" };
 const ANISOTROPY_LEVELS = [1, 2, 4, 8, 16];
+const PLATFORM_LABELS = { desktop: "Desktop", web: "Web", mobile: "Mobile" } as const;
 const CASCADE_COUNTS = [1, 2, 3, 4];
 const CASCADE_LABELS: Record<string, string> = { 1: "1 (off)" };
 const AO_OPTIONS = ["off", "low", "medium", "high", "ultra"] as const;
@@ -741,6 +743,22 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
           ))}
         </select>
       </Row>
+      {PLATFORMS.map((p) => (
+        <Row key={p} label={`${PLATFORM_LABELS[p]} default`} problems={[]}>
+          <select
+            aria-label={`${PLATFORM_LABELS[p]} default`}
+            value={g.platformDefaults?.[p] ?? ""}
+            onChange={(e) => set(`Set ${p} default tier`, setPlatformDefault(draft, p, (e.currentTarget as HTMLSelectElement).value || undefined))}
+          >
+            <option value="">(project default)</option>
+            {g.tiers.map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </Row>
+      ))}
       <Row label="Detect the tier on first run" problems={[]}>
         <input
           type="checkbox"
@@ -808,6 +826,10 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
             <label class={t.shadows === "off" ? "disabled" : ""}>
               <span class="tier-label">Shadow cascades</span>
               {choice(i, "shadowCascades", "shadow cascades", CASCADE_COUNTS, t.shadows === "off", CASCADE_LABELS)}
+            </label>
+            <label class={t.shadows === "off" || t.shadowCascades <= 1 ? "disabled" : ""}>
+              <span class="tier-label">Cascaded lights</span>
+              {choice(i, "cascadedLights", "cascaded lights", CASCADE_COUNTS, t.shadows === "off" || t.shadowCascades <= 1)}
             </label>
             <label class={t.shadows === "off" ? "disabled" : ""}>
               <span class="tier-label">Shadow distance</span>

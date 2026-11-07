@@ -142,6 +142,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0106](decisions/0106-hand-written-shaders-keywords-and-variants.md) | Hand-written shader assets are surface functions in WGSL and GLSL; shaders and graphs share keywords that select variants | Proposed |
 | [0107](decisions/0107-script-material-api-shared-and-instance.md) | Scripts change materials through engine `Material` objects, shared per asset or instanced per renderer | Proposed |
 | [0108](decisions/0108-gpu-instancing-sprite-batching-pixel-perfect-camera.md) | MeshRenderers draw GPU-instanced by mesh and material; sprites batch per atlas; cameras can be pixel-perfect | Proposed |
+| [0109](decisions/0109-render-textures-and-the-scene-depth-texture.md) | Cameras draw into render texture assets that materials, sprites and UI sample; each camera's scene depth is available to render code | Proposed |
+| [0110](decisions/0110-several-cascaded-lights-probe-blending-and-height-fog.md) | Cascades for several directional lights, box-projected, blended and baked reflection probes, and height fog | Proposed |
+| [0111](decisions/0111-post-processing-on-babylon-luts-and-per-platform-tiers.md) | Post-processing on Babylon: LUT colour grading, half-resolution ambient occlusion, an untoned editor background, and per-platform default tiers | Proposed |
 | [0112](decisions/0112-procedural-sky-assets.md) | Procedural skies are `*.sky.json` assets drawn live and baked to a prefiltered cubemap for lighting | Proposed |
 | [0113](decisions/0113-cubemap-environments.md) | Environments take prefiltered `.env`/`.dds` cubes and six-image `*.cubemap.json` assets | Proposed |
 | [0114](decisions/0114-sky-component-and-sun-light.md) | A `Sky` component scripts the procedural sky, and the sky can drive the main directional light | Proposed |

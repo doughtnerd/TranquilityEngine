@@ -4,6 +4,7 @@ import { IMPORT_PLATFORMS, TEXTURE_COMPRESSIONS, withPlatformOverride, type Impo
 import { assetKind, fileName } from "../assetBrowser";
 import { extractModelMaterials } from "../materialExtract";
 import { AudioPreview, LargePreview } from "./AssetPreview";
+import { RenderTextureInspector } from "./RenderTextureInspector";
 import { MaterialInspector, ShaderGraphInspector } from "./MaterialInspector";
 import { ParticleEffectInspector } from "./ParticleInspector";
 import { NavFormationInspector } from "./NavFormationInspector";
@@ -23,6 +24,7 @@ export function AssetInspector() {
   const path = inspectedAsset.value;
   const kind = path ? assetKind(path) : null;
   if (path && kind === "particles") return <ParticleEffectInspector path={path} />;
+  if (path && kind === "rendertexture") return <RenderTextureInspector path={path} />;
   if (path && kind === "formation") return <NavFormationInspector path={path} />;
   if (path && kind === "tileset") return <TilesetInspector path={path} />;
   if (path && (kind === "environment" || kind === "cubemap" || kind === "prefab")) return <PreviewInspector path={path} kind={kind} />;
