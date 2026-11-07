@@ -36,6 +36,7 @@ import {
   setNodeSetting,
   setOutputSettings,
   setOutputSoftness,
+  setOutputSort,
   setSeed,
   setSimulation,
   removeOutput,
@@ -373,6 +374,17 @@ describe("simulation, seed, softness and several outputs", () => {
     expect("softness" in g.systems[0].output.settings).toBe(false);
   });
 
+  it("sets the sort, and auto goes back to not being written", () => {
+    let g = sample();
+    g = setOutputSort(g, "s1", "on");
+    expect(g.systems[0].output.settings.sort).toBe("on");
+    g = setOutputSort(g, "s1", "off");
+    expect(g.systems[0].output.settings.sort).toBe("off");
+    g = setOutputSort(g, "s1", "auto");
+    expect("sort" in g.systems[0].output.settings).toBe(false);
+    expect(setOutputSort(g, "s1", "auto")).toBe(g);
+  });
+
   it("adds an output copying the main one, edits it and removes it", () => {
     let g = sample();
     g = setOutputType(g, "s1", "stretched");
@@ -387,6 +399,9 @@ describe("simulation, seed, softness and several outputs", () => {
     g = setOutputType(g, "s1", "mesh", 1);
     g = setOutputSettings(g, "s1", { texture: "asset:b.png" }, 1);
     g = setOutputSoftness(g, "s1", 1, 1);
+    g = setOutputSort(g, "s1", "off", 1);
+    expect(g.systems[0].extraOutputs![0].settings.sort).toBe("off");
+    expect("sort" in g.systems[0].output.settings).toBe(false);
     expect(g.systems[0].output.type).toBe("stretched");
     expect(g.systems[0].output.settings).toMatchObject({ texture: "asset:a.png" });
     expect(g.systems[0].extraOutputs![0]).toMatchObject({ type: "mesh", settings: { texture: "asset:b.png", softness: 1 } });

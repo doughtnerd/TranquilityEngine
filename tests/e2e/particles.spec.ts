@@ -151,3 +151,65 @@ test("an embedded effect in an old scene moves into an asset file when the scene
   await expect(page.getByRole("button", { name: "Open in Particle Graph" })).toBeEnabled();
   expect(errors).toEqual([]);
 });
+
+test("a particle sub-graph is created from the Assets menu, opens as a graph, shows its ports on a Sub-graph node; Sort sets on an output", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
+  const errors = trackErrors(page);
+  await openWritablePlayground(page);
+
+  // New Particle Sub-graph from the Assets panel's menu: a file with one number input wired to one number output.
+  await page.locator(".asset-folder", { hasText: /^effects$/ }).click();
+  const items = (await page.locator(".panel.assets .asset-items").boundingBox())!;
+  await page.mouse.click(items.x + items.width - 10, items.y + items.height - 10, { button: "right" });
+  await page.getByRole("menuitem", { name: "New Particle Sub-graph" }).click();
+  const tile = page.locator(".asset-tile", { hasText: "New Particle Sub-graph.particlesubgraph.json" });
+  await expect(tile).toBeVisible();
+  await expect(tile.locator(".asset-kind")).toHaveText("Particle Sub-graph");
+  const subPath = "effects/New Particle Sub-graph.particlesubgraph.json";
+  await expect.poll(async () => (await effectFile(page, subPath)).format).toBe("myco.particlesubgraph@1");
+  expect(await effectFile(page, subPath)).toMatchObject({ inputs: [{ name: "In", type: "number" }], outputs: [{ name: "Out", type: "number" }], edges: [{ from: "input.In", to: "output.Out" }] });
+
+  // Double-clicking opens it as a document of its own: Input and Output nodes, operator nodes editable.
+  await tile.dblclick();
+  const graph = page.locator(".particle-graph");
+  await expect(graph.getByLabel("Node Input", { exact: true })).toBeVisible();
+  await expect(graph.getByLabel("Node Output", { exact: true })).toBeVisible();
+  await graph.getByRole("button", { name: "Add", exact: true }).click();
+  await page.keyboard.type("Sine");
+  await page.keyboard.press("Enter");
+  await expect(graph.getByLabel("Node Sine", { exact: true })).toBeVisible();
+  await expect.poll(async () => (await effectFile(page, subPath)).nodes.map((n: { type: string }) => n.type)).toEqual(["sine"]);
+  await graph.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect.poll(async () => (await effectFile(page, subPath)).nodes).toEqual([]);
+
+  // A Sub-graph node in an effect: no asset yet, then the picked asset's ports.
+  await page.locator(".panel.assets .asset-tile", { hasText: "campfire" }).dblclick();
+  const system = graph.getByLabel("System Flames", { exact: true });
+  await expect(system).toBeVisible({ timeout: 20_000 });
+  await graph.getByRole("button", { name: "Preview", exact: true }).click(); // the card floats over the canvas
+  await graph.getByRole("button", { name: "Add", exact: true }).click();
+  await page.keyboard.type("Sub-graph");
+  await page.keyboard.press("Enter");
+  const subNode = graph.getByLabel("Node Sub-graph", { exact: true });
+  await expect(subNode).toContainText("No asset");
+  await subNode.getByRole("combobox", { name: "Asset" }).selectOption({ label: "New Particle Sub-graph.particlesubgraph.json" });
+  await expect(subNode).not.toContainText("No asset");
+  await expect(subNode.getByLabel("In input", { exact: true })).toBeVisible();
+  await expect(subNode.getByLabel("Out output", { exact: true })).toBeVisible();
+  await expect.poll(async () => (await effectFile(page, "effects/campfire.particles.json")).nodes.map((n: { type: string; settings?: { asset?: string } }) => `${n.type}:${n.settings?.asset ?? ""}`)).toContain(`subgraph:asset:${subPath}`);
+
+  // A Sub-graph node whose asset is gone says so.
+  await subNode.getByRole("combobox", { name: "Asset" }).selectOption({ label: "(pick a sub-graph)" });
+  await expect(subNode).toContainText("No asset");
+
+  // The Output's Sort: auto isn't written, on and off are.
+  const sort = system.getByRole("combobox", { name: "Sort", exact: true });
+  await expect(sort).toHaveValue("auto");
+  await sort.selectOption("on");
+  await expect.poll(async () => (await effectFile(page, "effects/campfire.particles.json")).systems[0].output.settings.sort).toBe("on");
+  await sort.selectOption("off");
+  await expect.poll(async () => (await effectFile(page, "effects/campfire.particles.json")).systems[0].output.settings.sort).toBe("off");
+  await sort.selectOption("auto");
+  await expect.poll(async () => "sort" in (await effectFile(page, "effects/campfire.particles.json")).systems[0].output.settings).toBe(false);
+  expect(errors).toEqual([]);
+});

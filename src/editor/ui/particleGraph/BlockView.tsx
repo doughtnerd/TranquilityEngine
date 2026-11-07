@@ -4,7 +4,9 @@
 // output on the right. A block of an unknown type is kept and shown as a red row.
 import type { ContextKind, GraphBlock, GraphProblem, ParticleGraphSystem } from "../../../engine/scene/particleGraph";
 import { blockDef, type BlockInputDef } from "../../../engine/scene/particleBlocks";
+import { customBlockPorts } from "../../../engine/scene/particleSubgraphs";
 import { NO_DRAG, handleProps } from "../../graph";
+import { blockInputs } from "../../particleGraph/assetDocs";
 import { isWireableInput, removeBlock, setBlockEnabled, setBlockInput } from "../../particleGraph/graphEdit";
 import { useGraphEditor } from "./editorContext";
 import { portTypeClass } from "./layout";
@@ -45,7 +47,7 @@ function InputRow(props: { system: ParticleGraphSystem; block: GraphBlock; input
   const port = `${block.id}.${input.name}`;
   const from = api.wired.get(`${system.id}.${port}`);
   const gpu = api.problems.gpuWires.has(`${system.id}.${port}`);
-  const assets = input.type === "asset" ? api.assets.images : undefined;
+  const assets = input.type === "asset" ? (block.type === "custom" ? api.assets.blocks : api.assets.images) : undefined;
   return (
     <div class={`pg-input${from ? " wired" : ""}`}>
       {isWireableInput(input) && <Port owner={system.id} port={port} side="input" type={input.type} label={input.label} filled={!!from} />}
@@ -83,6 +85,7 @@ export function BlockView(props: { system: ParticleGraphSystem; kind: ContextKin
   const def = blockDef(block.type);
   const key = `${system.id}.${block.id}`;
   const off = block.enabled === false;
+  const customMissing = block.type === "custom" && customBlockPorts(block, api.resolve).missing;
   const label = def ? def.label : `Unknown block ${block.type}`;
   const remove = (
     <button type="button" class={`pg-x ${NO_DRAG}`} aria-label="Remove block" title="Remove the block" disabled={api.readOnly} onClick={() => api.commit(removeBlock(api.graph, system.id, block.id))}>
@@ -110,7 +113,14 @@ export function BlockView(props: { system: ParticleGraphSystem; kind: ContextKin
         {remove}
         {def?.event && <Port owner={system.id} port={block.id} side="output" type="event" label="Event" filled={api.eventSources.has(key)} title="Event: wire it to another system's Start to spawn from these particles" />}
       </div>
-      {def?.inputs.map((input) => <InputRow key={input.name} system={system} block={block} input={input} />)}
+      {blockInputs(block, api.resolve).map((input) => (
+        <InputRow key={input.name} system={system} block={block} input={input} />
+      ))}
+      {block.type === "custom" && block.inputs.asset && customMissing && (
+        <p class="pg-missing" role="status" title="The block asset isn't in the project, or isn't a particle block.">
+          Missing asset
+        </p>
+      )}
     </div>
   );
 }

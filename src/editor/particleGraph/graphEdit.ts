@@ -22,6 +22,7 @@ import type {
   GraphPropertyType,
   OutputContext,
   OutputSettings,
+  OutputSort,
   OutputType,
   ParticleGraph,
   ParticleGraphSystem,
@@ -31,7 +32,9 @@ import type {
   Vec2,
 } from "../../engine/scene/particleGraph";
 import { newGraphId, systemTemplate } from "../../engine/scene/particleGraphFormat";
-import { nodeDef, outputType, whyNotConnect, type PortType } from "../../engine/scene/particleNodes";
+import { nodeDef, type PortType } from "../../engine/scene/particleNodes";
+import { outputTypeResolved, whyNotConnectResolved, type AssetResolver } from "../../engine/scene/particleSubgraphs";
+import { blockInputs, editorNodeDef, wireRulesGraph } from "./assetDocs";
 import { parseGraphClipboard } from "../graph/clipboard";
 
 const clone = <T>(v: T): T => structuredClone(v);
@@ -135,10 +138,10 @@ export const isWireableInput = (input: BlockInputDef) => input.type === "number"
  * The port type a value from `from` needs to match to wire into a block input: a curve or gradient
  * feeds an input that takes curves (numbers) or gradients (colours); otherwise the input's type.
  */
-export function blockInputType(graph: ParticleGraph, from: string, input: BlockInputDef): PortType {
+export function blockInputType(graph: ParticleGraph, from: string, input: BlockInputDef, resolve?: AssetResolver): PortType {
   const [id, port] = splitRef(from);
   const node = graph.nodes.find((n) => n.id === id);
-  const src = node ? outputType(graph, node, port) : null;
+  const src = node ? outputTypeResolved(graph, node, port, resolve) : null;
   const forms = (input.forms ?? []) as readonly string[];
   if (src === "curve" && input.type === "number" && (forms.includes("curve") || forms.includes("randomCurves"))) return "curve";
   if (src === "gradient" && input.type === "color" && (forms.includes("gradient") || forms.includes("randomGradients"))) return "gradient";
@@ -162,7 +165,7 @@ function eventSource(graph: ParticleGraph, from: string): string | null {
  * made, or null. Value wires follow the node rules (`whyNotConnect`); events go only to a system's
  * Start or Stop, and a system can't trigger its own spawn.
  */
-export function whyNotWire(graph: ParticleGraph, from: string, to: string): string | null {
+export function whyNotWire(graph: ParticleGraph, from: string, to: string, resolve?: AssetResolver): string | null {
   const target = wireTarget(graph, to);
   const [fromId, fromPort] = splitRef(from);
   const fromSystem = graph.systems.find((s) => s.id === fromId);
@@ -181,21 +184,24 @@ export function whyNotWire(graph: ParticleGraph, from: string, to: string): stri
     if (!at) return "That block isn't there.";
     const def = blockDef(at.block.type);
     if (!def) return `Unknown block type "${at.block.type}".`;
-    const input = def.inputs.find((i) => i.name === target.input);
+    const input = blockInputs(at.block, resolve).find((i) => i.name === target.input);
     if (!input) return `${def.label} has no input "${target.input}".`;
     if (!isWireableInput(input)) return `${input.label} can't be wired; set it on the block.`;
-    return whyNotConnect(graph, from, to, blockInputType(graph, from, input));
+    const rules = wireRulesGraph(graph);
+    return whyNotConnectResolved(rules, from, to, blockInputType(rules, from, input, resolve), resolve);
   }
   const node = graph.nodes.find((n) => n.id === target.node);
-  const def = node && nodeDef(node.type);
+  const def = node && editorNodeDef(node, resolve);
+  if (def?.missing) return "That Sub-graph's asset is missing.";
   const port = def?.inputs.find((i) => i.name === target.input);
   if (!port) return `There's no input "${to}".`;
-  return whyNotConnect(graph, from, to, port.type);
+  if (port.noPort) return `${port.label} can't be wired; set it on the node.`;
+  return whyNotConnectResolved(wireRulesGraph(graph), from, to, port.type, resolve);
 }
 
 /** Make a wire (replacing the one into a value input). Returns the graph unchanged if it can't be made. */
-export function connectWire(graph: ParticleGraph, from: string, to: string): ParticleGraph {
-  if (whyNotWire(graph, from, to)) return graph;
+export function connectWire(graph: ParticleGraph, from: string, to: string, resolve?: AssetResolver): ParticleGraph {
+  if (whyNotWire(graph, from, to, resolve)) return graph;
   const target = wireTarget(graph, to);
   const g = clone(graph);
   if (target.kind === "event") {
@@ -286,6 +292,15 @@ export const setOutputSoftness = (graph: ParticleGraph, id: string, softness: nu
     if (!o) return;
     if (softness > 0 && Number.isFinite(softness)) o.settings.softness = softness;
     else delete o.settings.softness;
+  });
+
+/** Set the output's sort: "auto" (the default) is not written. */
+export const setOutputSort = (graph: ParticleGraph, id: string, sort: OutputSort, output = 0): ParticleGraph =>
+  editSystem(graph, id, (s) => {
+    const o = outputContext(s, output);
+    if (!o) return;
+    if (sort === "on" || sort === "off") o.settings.sort = sort;
+    else delete o.settings.sort;
   });
 
 /** Add another output to a system: the main output's type and settings, no blocks. `index` is the new output's index (null if the system isn't found). */

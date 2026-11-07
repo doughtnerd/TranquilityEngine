@@ -10,6 +10,8 @@ import { assetKind, fileName, listedFiles } from "../assetBrowser";
 import { SetField, type NodePath } from "../document";
 import { createParticleEffect, openParticleGraphAsset, readEffect } from "../particleAssets";
 import { showAsset } from "../assetImport";
+import { parseBlockAsset, parseSubgraphAsset, type AssetPort } from "../../engine/scene/particleSubgraphs";
+import { assetDocKind } from "../particleGraph/assetDocs";
 import { currentProject, docVersion, type OpenScene } from "../state";
 import { CurveEditor } from "./particles/CurveEditor";
 import { GradientEditor } from "./particles/GradientEditor";
@@ -70,6 +72,64 @@ export function ParticleEffectInspector(props: { path: string }) {
             <li key={p}>{p}</li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+const portList = (ports: readonly AssetPort[]) => (ports.length === 0 ? "none" : ports.map((p) => `${p.name} (${p.type})`).join(", "));
+
+/** A particle sub-graph or custom block asset selected in the Assets panel (ADR 0095, 0126): its ports, and a way into the graph. */
+export function ParticleAssetInspector(props: { path: string }) {
+  docVersion.value;
+  const project = currentProject.value;
+  if (!project) return null;
+  const kind = assetDocKind(props.path);
+  const raw = project.assets.get(props.path);
+  const sub = kind === "subgraph" ? parseSubgraphAsset(raw) : null;
+  const block = kind === "block" ? parseBlockAsset(raw) : null;
+  const asset = sub ?? block;
+  return (
+    <div class="asset-inspector particle-inspector" aria-label={kind === "block" ? "Particle block asset" : "Particle sub-graph asset"}>
+      <h3>{fileName(props.path)}</h3>
+      <p class="hint">
+        {kind === "block"
+          ? "Particle block: a stack of blocks and nodes that a Custom block runs in the contexts below. Edit it in the Particle Graph."
+          : "Particle sub-graph: a group of nodes used as one Sub-graph node. Edit it in the Particle Graph."}
+      </p>
+      <button onClick={() => openParticleGraphAsset(props.path)}>Open in Particle Graph</button>
+      {!project.canSave && <p class="hint">Read-only: open a project folder (or copy the sample) to edit.</p>}
+      {!asset ? (
+        <ul class="material-problems">
+          <li>This file isn't a {kind === "block" ? "particle block" : "particle sub-graph"} (wrong or missing format).</li>
+        </ul>
+      ) : (
+        <dl class="particle-summary">
+          {block && (
+            <>
+              <dt>Label</dt>
+              <dd>{block.label}</dd>
+              <dt>Contexts</dt>
+              <dd>{block.contexts.join(", ") || "none"}</dd>
+            </>
+          )}
+          <dt>Inputs</dt>
+          <dd>{portList(asset.inputs)}</dd>
+          {sub && (
+            <>
+              <dt>Outputs</dt>
+              <dd>{portList(sub.outputs)}</dd>
+            </>
+          )}
+          <dt>Nodes</dt>
+          <dd>{asset.nodes.length}</dd>
+          {block && (
+            <>
+              <dt>Blocks</dt>
+              <dd>{block.blocks.length}</dd>
+            </>
+          )}
+        </dl>
       )}
     </div>
   );

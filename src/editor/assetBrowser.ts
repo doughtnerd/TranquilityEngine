@@ -6,7 +6,7 @@ import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "rendertexture" | "shadergraph" | "shadersubgraph" | "particles" | "formation" | "tileset" | "environment" | "sky" | "cubemap" | "lut" | "json" | "script" | "javascript" | "typescript" | "text" | "uidocument" | "stylesheet" | "xml" | "other";
+export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "rendertexture" | "shadergraph" | "shadersubgraph" | "particles" | "particlesubgraph" | "particleblock" | "formation" | "tileset" | "environment" | "sky" | "cubemap" | "lut" | "json" | "script" | "javascript" | "typescript" | "text" | "uidocument" | "stylesheet" | "xml" | "other";
 
 /** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
 export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
@@ -36,6 +36,8 @@ export function assetKind(path: string): AssetKind {
   if (p.endsWith(".shadergraph.json")) return "shadergraph";
   if (p.endsWith(".shadersubgraph.json")) return "shadersubgraph";
   if (p.endsWith(".particles.json")) return "particles";
+  if (p.endsWith(".particlesubgraph.json")) return "particlesubgraph";
+  if (p.endsWith(".particleblock.json")) return "particleblock";
   if (p.endsWith(".formation.json")) return "formation";
   if (p.endsWith(".tileset.json")) return "tileset";
   if (p.endsWith(".sky.json")) return "sky";

@@ -7,6 +7,7 @@ import type { ParticleGraph, GraphProblem } from "../engine/scene/particleGraph"
 import { defaultParticleGraph, formatParticleGraph, parseParticleGraph } from "../engine/scene/particleGraphFormat";
 import { fileName } from "./assetBrowser";
 import { freePath } from "./assetOps";
+import { assetDocKind, assetToDoc, blockTemplate, docToAsset, formatAsset, subgraphTemplate } from "./particleGraph/assetDocs";
 import { createGraphHistory, type GraphHistory } from "./graph/history";
 import { showPanel } from "./layout/store";
 import { errorStatus } from "./messages";
@@ -30,21 +31,29 @@ export interface ReadEffect {
   migrated: boolean;
 }
 
-/** A particle effect asset as the file holds it now. */
+/**
+ * A particle effect asset as the file holds it now. A sub-graph or custom block asset (`*.particlesubgraph.json`,
+ * `*.particleblock.json`) reads as a document with Input, Output and block pseudo-nodes (see `particleGraph/assetDocs.ts`).
+ */
 export function readEffect(project: EditorProject, path: string): ReadEffect {
+  const kind = assetDocKind(path);
   try {
+    if (kind) return { ...assetToDoc(project.assets.get(path), kind), migrated: false };
     return parseParticleGraph(project.assets.get(path), path);
   } catch (err) {
     return { graph: defaultParticleGraph(), problems: [{ severity: "error", message: (err as Error).message }], migrated: false };
   }
 }
 
+/** The file text for an open document: the graph, or the asset the document stands for. */
+export const formatEffect = (graph: ParticleGraph, path: string): string => (assetDocKind(path) ? formatAsset(docToAsset(graph)) : formatParticleGraph(graph));
+
 /** Each effect's writes in progress, so quick edits apply one after another. */
 const writing = new Map<string, Promise<unknown>>();
 
 /** Write a particle effect asset after the writes before it. Throws for a read-only project. */
 export function writeEffect(project: EditorProject, path: string, graph: ParticleGraph): Promise<void> {
-  const text = formatParticleGraph(graph);
+  const text = formatEffect(graph, path);
   const run = () => project.writeText(path, text);
   const result = (writing.get(path) ?? Promise.resolve()).then(run, run);
   const settled = result.catch(() => undefined);
@@ -89,3 +98,30 @@ export async function createParticleEffect(folder: string, graph: ParticleGraph 
   status.value = { kind: "info", text: `Created ${fileName(path)}.` };
   return path;
 }
+
+/** Create a file of `name` in `folder` holding `text`, with the same read-only and error handling as New Particle Effect. */
+async function createAssetFile(folder: string, name: string, text: string, what: string): Promise<string | null> {
+  const project = currentProject.value;
+  if (!project) return null;
+  if (!project.canSave) {
+    status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to add ${what}.` };
+    return null;
+  }
+  const path = freePath(project, effectFolder(folder), name);
+  try {
+    await project.writeText(path, text);
+  } catch (err) {
+    status.value = errorStatus(`Couldn't create ${path}`, err);
+    return null;
+  }
+  docVersion.value++;
+  status.value = { kind: "info", text: `Created ${fileName(path)}.` };
+  return path;
+}
+
+/** Create `New Particle Sub-graph.particlesubgraph.json` (one number input wired to one number output), or one holding `asset`. Returns its path, or null. */
+export const createParticleSubgraph = (folder: string, asset: Record<string, unknown> = subgraphTemplate(), name = "New Particle Sub-graph") =>
+  createAssetFile(folder, `${name}.particlesubgraph.json`, formatAsset(asset), "particle sub-graphs");
+
+/** Create `New Particle Block.particleblock.json` (one input driving a Set Size block). Returns its path, or null. */
+export const createParticleBlock = (folder: string) => createAssetFile(folder, "New Particle Block.particleblock.json", formatAsset(blockTemplate()), "particle blocks");

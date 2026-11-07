@@ -4,18 +4,20 @@
 // Blackboard property in a dropdown).
 import { useRef } from "preact/hooks";
 import type { GraphNode } from "../../../engine/scene/particleGraph";
-import { nodeDef, outputType, portRate, type NodeSettingDef } from "../../../engine/scene/particleNodes";
+import type { NodeSettingDef } from "../../../engine/scene/particleNodes";
 import { NO_DRAG, NO_PAN, NO_WHEEL, px, type Point } from "../../graph";
+import { ASSET_INPUT, ASSET_OUTPUT, editorNodeDef, whyNotPortName } from "../../particleGraph/assetDocs";
 import { setNodeInput, setNodeSetting } from "../../particleGraph/graphEdit";
+import { status } from "../../state";
 import { NumField } from "../particles/valueInputs";
 import { Port, ProblemBadge } from "./BlockView";
 import { useGraphEditor } from "./editorContext";
 import { NODE_WIDTH } from "./layout";
 import { useCanvasDrag, type DragHooks } from "./SystemView";
-import { ChoiceValue, ColorSwatch, CurveValue, GradientValue, InlineValue, VectorValue, asGradient, asKeys } from "./valueFields";
+import { AssetValue, ChoiceValue, ColorSwatch, CurveValue, GradientValue, InlineValue, VectorValue, asGradient, asKeys } from "./valueFields";
 
 function SettingField(props: { node: GraphNode; setting: NodeSettingDef }) {
-  const { graph, readOnly, commit } = useGraphEditor();
+  const { graph, readOnly, commit, assets } = useGraphEditor();
   const { node, setting } = props;
   const raw = node.settings?.[setting.name];
   const value = raw !== undefined ? raw : setting.default;
@@ -40,6 +42,29 @@ function SettingField(props: { node: GraphNode; setting: NodeSettingDef }) {
       return <VectorValue label={label} value={value} size={size} readOnly={readOnly} onChange={set} />;
     }
     default:
+      if (node.type === "subgraph" && setting.name === "asset") {
+        return <AssetValue label={label} value={String(value ?? "")} assets={assets.subgraphs} none="(pick a sub-graph)" readOnly={readOnly} onChange={set} />;
+      }
+      if ((node.type === ASSET_INPUT || node.type === ASSET_OUTPUT) && setting.name === "name") {
+        return (
+          <input
+            type="text"
+            class={`pg-text ${NO_DRAG}`}
+            aria-label={label}
+            disabled={readOnly}
+            value={String(value ?? "")}
+            onKeyDown={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              const el = e.currentTarget as HTMLInputElement;
+              const why = whyNotPortName(graph, node.id, el.value);
+              if (why) {
+                status.value = { kind: "info", text: why };
+                el.value = String(value ?? "");
+              } else set(el.value.trim());
+            }}
+          />
+        );
+      }
       if (node.type === "property" && setting.name === "name") {
         const names = graph.properties.map((p) => p.name);
         return (
@@ -64,7 +89,7 @@ export function NodeView(props: { node: GraphNode; at: Point; selected: boolean;
   const { graph } = api;
   const el = useRef<HTMLDivElement>(null);
   useCanvasDrag(el, node.id, api.readOnly, props.drag);
-  const def = nodeDef(node.type);
+  const def = editorNodeDef(node, api.resolve);
   const label = def?.label ?? `Unknown node ${node.type}`;
   const title = node.type === "property" && node.settings?.name ? String(node.settings.name) : label;
   const problems = api.problems.byItem.get(node.id);
@@ -82,10 +107,15 @@ export function NodeView(props: { node: GraphNode; at: Point; selected: boolean;
         <span class="pg-node-title">{title}</span>
         <ProblemBadge problems={problems} />
       </div>
+      {def?.missing && (
+        <p class="pg-missing" role="status" title="The sub-graph asset isn't in the project, or isn't a particle sub-graph. Pick one below.">
+          {node.settings?.asset ? "Missing asset" : "No asset: pick one below"}
+        </p>
+      )}
       {def?.outputs.map((o) => {
         const ref = `${node.id}.${o.name}`;
-        const type = outputType(graph, node, o.name) ?? o.type;
-        const perParticle = type !== "event" && portRate(graph, ref) === "particle";
+        const type = api.typeOf(node, o.name) ?? o.type;
+        const perParticle = type !== "event" && api.rateOf(ref) === "particle";
         const filled = type === "event" ? api.eventSources.has(node.id) : [...api.wired.values()].includes(ref);
         return (
           <div key={`o-${o.name}`} class="pg-row out">
@@ -104,12 +134,25 @@ export function NodeView(props: { node: GraphNode; at: Point; selected: boolean;
         const from = api.wired.get(ref);
         return (
           <div key={`i-${i.name}`} class={`pg-row in${from ? " wired" : ""}`}>
-            <Port owner={node.id} port={i.name} side="input" type={i.type} label={i.label} filled={!!from} />
+            {!i.noPort && <Port owner={node.id} port={i.name} side="input" type={i.type} label={i.label} filled={!!from} />}
             <span class="pg-row-label">{i.label}</span>
             {from ? (
               <span class="pg-wired-from">← {api.sourceLabel(from)}</span>
             ) : (
-              <InlineValue type={i.type} value={node.inputs?.[i.name]} fallback={i.default} label={i.label} readOnly={api.readOnly} onChange={(v) => api.commit(setNodeInput(graph, node.id, i.name, v))} />
+              <InlineValue
+                type={i.block?.type ?? i.type}
+                value={node.inputs?.[i.name]}
+                fallback={i.default}
+                forms={i.block?.forms}
+                choices={i.block?.choices}
+                min={i.block?.min}
+                max={i.block?.max}
+                step={i.block?.step}
+                unit={i.block?.unit}
+                label={i.label}
+                readOnly={api.readOnly}
+                onChange={(v) => api.commit(setNodeInput(graph, node.id, i.name, v))}
+              />
             )}
           </div>
         );

@@ -36,7 +36,7 @@ export function whyNotValidName(name: string): string | null {
 
 /** Split a file name at its extension; `.scene.json` and `.prefab.json` count as one. */
 export function splitExtension(name: string): [string, string] {
-  const m = /^(.+?)((?:\.(?:scene|prefab|material|sky|cubemap|particles|formation|shadergraph|shadersubgraph))?\.[^.]+)$/i.exec(name);
+  const m = /^(.+?)((?:\.(?:scene|prefab|material|sky|cubemap|particles|particlesubgraph|particleblock|formation|shadergraph|shadersubgraph))?\.[^.]+)$/i.exec(name);
   return m ? [m[1], m[2]] : [name, ""];
 }
 
