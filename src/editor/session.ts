@@ -19,6 +19,7 @@ import { confirmInEditor } from "./ui/ConfirmDialog";
 import { installSceneView } from "./cameraPreview";
 import { installThumbnails } from "./thumbnails";
 import { installColliderGizmo } from "./colliderGizmo";
+import { installJointGizmo } from "./jointGizmo";
 import { installNavGizmo } from "./navGizmo";
 import { installNavPreviews } from "./navPreviews";
 import { installPlayGizmos } from "./playGizmos";
@@ -124,7 +125,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   orbit.mode = viewMode.value;
   sceneCamera.value = orbit;
-  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine), installUIElementOutline(engine), installUIHandles(engine)];
+  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installJointGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine), installUIElementOutline(engine), installUIHandles(engine)];
   session = {
     engine,
     dispose() {

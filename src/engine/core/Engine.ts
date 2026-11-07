@@ -714,6 +714,12 @@ export class Engine implements BootstrapEngine {
         if (steps === settings.maxSubSteps) world._accumulator = Math.min(world._accumulator, fdt);
       }
       time.fixedAlpha = fdt > 0 ? world._accumulator / fdt : 0;
+      const surface = world === this.viewWorld ? this.render : this.extraViews.get(world);
+      if (surface) {
+        // Rendered Worlds show interpolating bodies between their last two fixed steps (ADR 0093).
+        world.physics2D?.interpolate(time.fixedAlpha);
+        world.physics3D?.interpolate(time.fixedAlpha);
+      }
       if (timing) [fixedMs, mark] = [performance.now() - mark, performance.now()];
 
       // 5–6. update and lateUpdate
@@ -726,7 +732,6 @@ export class Engine implements BootstrapEngine {
       if (timing) [updateMs, mark] = [performance.now() - mark, performance.now()];
 
       // 8–9. Render sync and render: to the main view, or to the World's own surface (editor tiles)
-      const surface = world === this.viewWorld ? this.render : this.extraViews.get(world);
       if (surface) {
         surface.sync(world);
         surface.render(world);
