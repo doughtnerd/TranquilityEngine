@@ -22,7 +22,7 @@ const glow = Material.shared("asset:materials/glow.material.json");
 glow.setColor("emission", Color.from("#ff8800"));
 
 // Per renderer.
-renderer.sharedMaterial;          // Material | null — the asset's shared Material (or the instance assigned)
+renderer.sharedMaterial;          // Material | null — slot 0's: the asset's shared Material (or the instance assigned)
 renderer.materialInstance;        // Material — this renderer's own copy, made on first access (Unity's renderer.material)
 renderer.sharedMaterial = other;  // draw another Material (shared or an instance)
 
@@ -43,6 +43,21 @@ Rules:
 - 0049's `setMaterialProperty` stays: it layers on top of whichever Material the renderer draws, per renderer, without making a Material object.
 - Setting `renderer.material` (the path) drops an assigned instance; assigning a shared Material sets `renderer.material` to its asset.
 - Material changes are runtime state: not saved, not replicated (as 0049).
+
+### Material slots (composes with 0089)
+
+0089 (branch `claude/gltf-import`) gives a renderer a material slot per material its model uses, with `MeshRenderer.materials: string[]` (a material asset per slot, falling back to `material`, then the model's import settings, then the model's own material). The Material API is slot-indexed to match, Unity-style:
+
+```ts
+renderer.getSharedMaterial(slot = 0); renderer.setSharedMaterial(slot, m);
+renderer.getMaterialInstance(slot = 0);       // Unity's renderer.materials[i] (a copy on first access)
+renderer.sharedMaterials;                     // every slot's Material (get and set)
+renderer.sharedMaterial / materialInstance;   // slot 0 (Unity's sharedMaterial / material)
+```
+
+- A slot's path is `materials[slot]` when the renderer has that list and the entry is set, else `material`. Setting slot 0 writes `materials[0]` when that entry is set, else `material` (the renderer-wide asset, which is what single-slot renderers have always used); setting another slot writes `materials[slot]`.
+- Before 0089 is merged, a renderer has one slot that every mesh draws; slots above 0 set from scripts are held in the component until a `materials` list exists. The component reads `materials` through an optional cast, so it compiles on either branch.
+- **Expected merge resolution with 0089:** keep both. In `components.ts`, `slotPath`/`setSlotPath` read the typed `materials` field directly (drop the cast and `extraSlotPaths`). In `BabylonRenderer.syncMesh`, resolve each slot's Babylon material through `drawnMaterial(r, slot)` (a slot's script Material: its instance's copy, or the slot asset's material with shared values applied) instead of `materialAsset(r.materials[i])`, keep 0089's fallbacks (renderer `material`, sidecar, model's own) for slots without one, then hand the per-group result to 0108's batches: a single material keys the batch as now; several (a `MultiMaterial`) should be cached by the tuple of slot materials per model mesh, so identical renderers still share a batch and draw instanced. 0049 overrides stay on `material` (0089 already says so).
 
 ## Alternatives considered
 

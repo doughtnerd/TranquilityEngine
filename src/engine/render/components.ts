@@ -229,54 +229,115 @@ export class MeshRenderer extends Component {
   private readonly materialProperties = new Map<string, MaterialPropertyValue>();
   /** @internal Bumped when the property overrides change, so the render backend applies them. */
   _materialPropertiesVersion = 0;
-  /** A Material assigned through `sharedMaterial` or made by `materialInstance` (ADR 0107), and the `material` path it was for. */
-  private assigned: { material: Material; path: string; owned: boolean } | null = null;
+  /** Materials assigned through `setSharedMaterial` or made by `getMaterialInstance`, by slot (ADR 0107), and the slot's path they were for. */
+  private readonly assigned = new Map<number, { material: Material; path: string; owned: boolean }>();
+  /**
+   * Slot paths above 0 set through `setSharedMaterial` while this renderer has no `materials` list.
+   * Material slots (ADR 0089) bring `materials: string[]`; once it exists, slot paths live there.
+   */
+  private readonly extraSlotPaths = new Map<number, string>();
 
   /**
-   * The Material this renderer draws (ADR 0107): its material asset's shared Material (changing it
-   * changes every renderer drawing that asset), or a Material assigned here. Null with no material
-   * asset (the model's own materials). Assigning a shared Material sets `material` to its asset;
-   * assigning an instance draws that instance (renderers may share one instance).
+   * The material asset a slot draws (ADR 0089, 0107): `materials[slot]` when the renderer has material
+   * slots and that entry is set, else `material`, the whole renderer's.
    */
-  get sharedMaterial(): Material | null {
-    const a = this.currentAssigned();
-    if (a) return a.material;
-    return this.material ? Material.shared(this.material) : null;
+  private slotPath(slot: number): string {
+    const list = (this as { materials?: string[] }).materials;
+    if (list) return list[slot] || this.material;
+    return slot === 0 ? this.material : this.extraSlotPaths.get(slot) || this.material;
   }
 
-  set sharedMaterial(m: Material | null) {
-    this.assigned = null;
-    if (!m) {
-      this.material = "";
+  /** Set the material asset a slot draws: slot 0 is `material` unless `materials[0]` is set; other slots are `materials[slot]`. */
+  private setSlotPath(slot: number, path: string): void {
+    const list = (this as { materials?: string[] }).materials;
+    if (slot === 0 && !list?.[0]) {
+      this.material = path;
       return;
     }
-    this.material = m.asset;
-    if (m.isInstance) this.assigned = { material: m, path: m.asset, owned: false };
+    if (list) {
+      while (list.length <= slot) list.push("");
+      list[slot] = path;
+    } else this.extraSlotPaths.set(slot, path);
   }
 
   /**
-   * This renderer's own Material (Unity's `renderer.material`, ADR 0107): made on first access as a copy
-   * of `sharedMaterial` (its values at that moment), then kept. Changing it changes this renderer only,
-   * and it draws apart from the instanced batch of its mesh. A renderer without a material asset gets an
-   * instance of the default lit material.
+   * The Material slot `slot` draws (ADR 0107): its material asset's shared Material (changing it
+   * changes every renderer drawing that asset), or a Material assigned to the slot. Null when the slot
+   * has no material asset (the model's own material).
    */
-  get materialInstance(): Material {
-    const a = this.currentAssigned();
+  getSharedMaterial(slot = 0): Material | null {
+    const a = this.currentAssigned(slot);
+    if (a) return a.material;
+    const path = this.slotPath(slot);
+    return path ? Material.shared(path) : null;
+  }
+
+  /** Draw `m` in slot `slot`: a shared Material sets the slot's asset path; an instance is drawn as it is (renderers may share one). Null clears the slot. */
+  setSharedMaterial(slot: number, m: Material | null): void {
+    this.assigned.delete(slot);
+    this.setSlotPath(slot, m ? m.asset : "");
+    if (m?.isInstance) this.assigned.set(slot, { material: m, path: this.slotPath(slot), owned: false });
+  }
+
+  /**
+   * Slot `slot`'s own Material (Unity's `renderer.materials[i]`, ADR 0107): made on first access as a
+   * copy of the slot's shared Material (its values at that moment), then kept. It draws apart from the
+   * instanced batch of its mesh. A slot without a material asset gets an instance of the default lit material.
+   */
+  getMaterialInstance(slot = 0): Material {
+    const a = this.currentAssigned(slot);
     if (a?.owned) return a.material;
-    const m = (a?.material ?? (this.material ? Material.shared(this.material) : new Material(""))).clone();
-    this.assigned = { material: m, path: this.material, owned: true };
+    const path = this.slotPath(slot);
+    const m = (a?.material ?? (path ? Material.shared(path) : new Material(""))).clone();
+    this.assigned.set(slot, { material: m, path, owned: true });
     return m;
   }
 
-  /** @internal The Material the render backend draws: an assigned one, the asset's shared one if made, or null to draw the asset as it is. */
-  _drawMaterial(): Material | null {
-    return this.currentAssigned()?.material ?? (this.material ? (Material._sharedIfAny(this.material) ?? null) : null);
+  /** The Material slot 0 draws (`getSharedMaterial(0)`); assigning sets slot 0 (`setSharedMaterial(0, m)`). A renderer without material slots has only slot 0, drawn by every mesh. */
+  get sharedMaterial(): Material | null {
+    return this.getSharedMaterial(0);
   }
 
-  /** An assigned Material, dropped once `material` (the path) was changed since. */
-  private currentAssigned(): { material: Material; owned: boolean } | null {
-    if (this.assigned && this.assigned.path !== this.material) this.assigned = null;
-    return this.assigned;
+  set sharedMaterial(m: Material | null) {
+    this.setSharedMaterial(0, m);
+  }
+
+  /** Slot 0's own Material (Unity's `renderer.material`; `getMaterialInstance(0)`). */
+  get materialInstance(): Material {
+    return this.getMaterialInstance(0);
+  }
+
+  /**
+   * Every slot's Material (Unity's `sharedMaterials`): slot 0, then the slots `materials` lists or
+   * Materials were assigned to. The model decides how many slots it has (ADR 0089); a slot past the
+   * list draws `material`.
+   */
+  get sharedMaterials(): (Material | null)[] {
+    const list = (this as { materials?: string[] }).materials;
+    const n = Math.max(1, list?.length ?? 0, ...[...this.extraSlotPaths.keys(), ...this.assigned.keys()].map((k) => k + 1));
+    return Array.from({ length: n }, (_, i) => this.getSharedMaterial(i));
+  }
+
+  set sharedMaterials(ms: readonly (Material | null)[]) {
+    ms.forEach((m, i) => this.setSharedMaterial(i, m));
+  }
+
+  /** @internal The Material the render backend draws in a slot: an assigned one, the slot asset's shared one if made, or null to draw the asset as it is. */
+  _drawMaterial(slot = 0): Material | null {
+    const a = this.currentAssigned(slot);
+    if (a) return a.material;
+    const path = this.slotPath(slot);
+    return path ? (Material._sharedIfAny(path) ?? null) : null;
+  }
+
+  /** A slot's assigned Material, dropped once the slot's path was changed since. */
+  private currentAssigned(slot: number): { material: Material; owned: boolean } | null {
+    const a = this.assigned.get(slot);
+    if (a && a.path !== this.slotPath(slot)) {
+      this.assigned.delete(slot);
+      return null;
+    }
+    return a ?? null;
   }
 
   /**

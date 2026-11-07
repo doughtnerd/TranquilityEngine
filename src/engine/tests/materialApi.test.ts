@@ -112,6 +112,40 @@ describe("MeshRenderer.sharedMaterial / materialInstance (ADR 0107)", () => {
     expect(renderer.sharedMaterial).toBeNull();
   });
 
+  it("treats sharedMaterial and materialInstance as slot 0, with other slots by index", () => {
+    expect(renderer.getSharedMaterial(0)).toBe(renderer.sharedMaterial);
+    expect(renderer.getMaterialInstance(0)).toBe(renderer.materialInstance);
+    // Without material slots (ADR 0089), a slot past 0 draws `material` until it's given its own.
+    expect(renderer.getSharedMaterial(1)).toBe(Material.shared(RED));
+    renderer.setSharedMaterial(1, Material.shared(BLUE));
+    expect(renderer.getSharedMaterial(1)).toBe(Material.shared(BLUE));
+    expect(renderer.material).toBe(RED); // slot 0 untouched
+    const one = renderer.getMaterialInstance(1);
+    expect(one.asset).toBe(BLUE);
+    expect(renderer._drawMaterial(1)).toBe(one);
+    expect(renderer._drawMaterial(0)).not.toBe(one);
+    expect(renderer.sharedMaterials).toEqual([renderer.getSharedMaterial(0), one]);
+  });
+
+  it("reads and writes `materials` slots once the renderer has them (ADR 0089's field)", () => {
+    // ADR 0089 adds `materials: string[]`; simulated here, as the branches merge separately.
+    const slotted = renderer as MeshRenderer & { materials: string[] };
+    slotted.materials = ["", BLUE];
+    expect(renderer.getSharedMaterial(0)).toBe(Material.shared(RED)); // empty entry: `material`
+    expect(renderer.getSharedMaterial(1)).toBe(Material.shared(BLUE));
+    renderer.setSharedMaterial(2, Material.shared(RED));
+    expect(slotted.materials).toEqual(["", BLUE, RED]);
+    renderer.sharedMaterial = Material.shared(BLUE); // slot 0 with no entry of its own: the renderer-wide `material`
+    expect(renderer.material).toBe(BLUE);
+    slotted.materials[0] = RED;
+    renderer.setSharedMaterial(0, Material.shared(BLUE)); // slot 0 with its own entry: that entry
+    expect(slotted.materials[0]).toBe(BLUE);
+    const inst = renderer.getMaterialInstance(1);
+    slotted.materials[1] = RED; // the slot's asset changed: its instance goes
+    expect(renderer.getSharedMaterial(1)).not.toBe(inst);
+    expect(renderer.sharedMaterials).toHaveLength(3);
+  });
+
   it("gives a renderer without a material asset an instance of the default material", () => {
     renderer.material = "";
     expect(renderer.materialInstance.asset).toBe("");

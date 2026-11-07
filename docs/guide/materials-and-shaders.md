@@ -70,6 +70,8 @@ mine.setKeyword("RIM", true);
 renderer.sharedMaterial = Material.shared("asset:materials/damaged.material.json");
 ```
 
+`sharedMaterial` and `materialInstance` are a renderer's first material slot; `getSharedMaterial(slot)`, `setSharedMaterial(slot, m)` and `getMaterialInstance(slot)` reach the others (a model with several materials has a slot each).
+
 Names are the shader's property names, or for the built-in materials `color`, `emission`, `metalness`, `roughness`, `texture` and the physical fields. For a value that changes every frame on one object, `renderer.setMaterialProperty(name, value)` (ADR 0049) also works without making a Material.
 
 An instance (or a per-renderer override) draws apart from its mesh's instanced batch, so prefer shared Materials for many objects.
