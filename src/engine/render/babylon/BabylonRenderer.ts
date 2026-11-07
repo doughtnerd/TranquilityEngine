@@ -1626,7 +1626,8 @@ export class BabylonRenderer {
   // --- Diagnostics ------------------------------------------------------------------------------
 
   renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number } {
-    return { drawCalls: 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: 0 };
+    // Babylon counts the draw calls of the frame being drawn and resets at the next frame's start, so between frames this is the last frame's (0 on NullEngine).
+    return { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: 0 };
   }
 
   private warnOnce(key: string, message: string): void {
