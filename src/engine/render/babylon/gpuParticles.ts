@@ -27,6 +27,7 @@ import { STATE_WIDTH, WebGl2Run, supportsTextureKernels } from "../particles/gpu
 import { WebGl2Sorter, WebGpuSorter, depthRow, sortLayout, sortPairsJs } from "../particles/gpu/sort";
 import { outputSorts } from "../../scene/particleGraph";
 import { heightFogShader, useHeightFog } from "./heightFog";
+import type { KernelTextures } from "./kernelMaterial";
 import { BUFFER, WebGpuRun, type GpuBuffer, type GpuDevice } from "../particles/gpu/webgpuRun";
 import { hasSceneFrame, requestSceneDepth, sceneDepth } from "./frameGraph";
 import { particleAlphaIndex } from "./particleMeshes";
@@ -42,9 +43,63 @@ interface DrawSource {
   bindTrail(mat: ShaderMaterial): void;
   /** The uniforms of the last step (the node's matrix and space, for `depthRow`). */
   readonly lastUniforms: Float32Array<ArrayBufferLike>;
+  /** The state, uniforms, look-up table and sorted pairs as textures, for material-asset draws (ADR 0126). */
+  textures(sorted: boolean): KernelTextures | null;
 }
 
-type BabylonRun = KernelRun & DrawSource;
+/** The GPUTexture behind a Babylon texture on WebGPU. */
+function gpuTexture(t: BaseTexture): unknown | null {
+  return (t.getInternalTexture()?._hardwareTexture?.underlyingResource as unknown) ?? null;
+}
+
+/** Uniforms and the look-up table as float textures, from their CPU copies (material-asset draws). */
+class CpuTextures {
+  private uniforms: RawTexture | null = null;
+  private lut: RawTexture | null = null;
+  private lutData: Float32Array | null = null;
+  private lutDirty = false;
+  constructor(
+    private readonly scene: Scene,
+    private readonly kernel: KernelSystem,
+  ) {}
+  /** The run was given a new look-up table. */
+  setLut(lut: Float32Array): void {
+    this.lutData = lut;
+    this.lutDirty = true;
+  }
+  textures(u: Float32Array): { uniforms: RawTexture; lut: RawTexture } {
+    const n = Math.max(1, this.kernel.uniformVec4);
+    const data = new Float32Array(n * 4);
+    data.set(u.subarray(0, n * 4));
+    if (!this.uniforms) this.uniforms = RawTexture.CreateRGBATexture(data, n, 1, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+    else this.uniforms.update(data);
+    const rows = Math.max(1, this.kernel.luts.length);
+    if (!this.lut) {
+      this.lut = RawTexture.CreateRGBATexture(this.lutData ?? new Float32Array(rows * LUT_SAMPLES * 4), LUT_SAMPLES, rows, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+      this.lutDirty = false;
+    } else if (this.lutDirty && this.lutData) {
+      this.lut.update(this.lutData);
+      this.lutDirty = false;
+    }
+    return { uniforms: this.uniforms, lut: this.lut };
+  }
+  dispose(): void {
+    this.uniforms?.dispose();
+    this.lut?.dispose();
+  }
+}
+
+/** Sort a run once a frame for the active camera (several sorted outputs of a system share it). */
+export function sortRunOnce(scene: Scene, src: BabylonRun): void {
+  const cam = scene.activeCamera;
+  if (!cam) return;
+  const frame = scene.getFrameId();
+  if (sortedAt.get(src) === frame) return;
+  sortedAt.set(src, frame);
+  src.sort(depthRow(viewZRow(cam), src.lastUniforms, scene.useRightHandedSystem));
+}
+
+export type BabylonRun = KernelRun & DrawSource;
 
 const deviceOf = (engine: AbstractEngine): GpuDevice | null => (engine.isWebGPU ? ((engine as unknown as { _device?: GpuDevice })._device ?? null) : null);
 const glOf = (engine: AbstractEngine): WebGL2RenderingContext | null => {
@@ -149,8 +204,8 @@ export class BabylonKernelHost implements KernelHost {
   createRun(kernel: KernelSystem, kind: KernelExecutor): BabylonRun {
     const device = deviceOf(this.engine);
     const gl = glOf(this.engine);
-    if (kind === "webgpu" && device) return new WebGpuBabylonRun(this.engine, device, kernel, this.sceneDepth);
-    if (kind === "webgl2" && gl) return new WebGl2BabylonRun(this.engine, gl, kernel, this.sceneDepth);
+    if (kind === "webgpu" && device) return new WebGpuBabylonRun(this.scene, device, kernel, this.sceneDepth);
+    if (kind === "webgl2" && gl) return new WebGl2BabylonRun(this.scene, gl, kernel, this.sceneDepth);
     return new JsBabylonRun(this.scene, kernel);
   }
 }
@@ -163,13 +218,21 @@ class WebGpuBabylonRun implements BabylonRun {
   private readonly wrappers = new Map<GpuBuffer, StorageBuffer>();
   lastUniforms: Float32Array<ArrayBufferLike> = new Float32Array(0);
   private sorter: WebGpuSorter | null = null;
+  private readonly engine: AbstractEngine;
+  private readonly cpu: CpuTextures;
+  /** Material-asset draws: the state copied into one texture (four texels a particle), and the sorted pairs. */
+  private stateTexture: RawTexture | null = null;
+  private pairsTexture: RawTexture | null = null;
 
   constructor(
-    private readonly engine: AbstractEngine,
+    private readonly scene: Scene,
     private readonly device: GpuDevice,
     kernel: KernelSystem,
     depth: SceneDepth,
   ) {
+    this.engine = scene.getEngine();
+    this.cpu = new CpuTextures(scene, kernel);
+    const engine = this.engine;
     this.run = new WebGpuRun(
       device,
       kernel,
@@ -194,6 +257,34 @@ class WebGpuBabylonRun implements BabylonRun {
   step(u: Float32Array, lut: Float32Array | null, parent: KernelRun | null): void {
     this.run.step(u, lut, parent instanceof WebGpuBabylonRun ? parent.run : null);
     this.lastUniforms = u;
+    if (lut) this.cpu.setLut(lut);
+  }
+  textures(sorted: boolean): KernelTextures | null {
+    const cap = this.run.kernel.capacity;
+    const w = Math.min(STATE_WIDTH, cap);
+    const rows = Math.ceil(cap / w);
+    this.stateTexture ??= RawTexture.CreateRGBATexture(new Float32Array(w * 4 * rows * 4), w * 4, rows, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+    const target = gpuTexture(this.stateTexture);
+    if (!target) return null;
+    const enc = this.device.createCommandEncoder();
+    // Full rows in one copy (rows of 1024 particles × 64 bytes, a multiple of 256), the last part-row in another.
+    const full = Math.floor(cap / w);
+    if (full > 0) enc.copyBufferToTexture({ buffer: this.run.current(), offset: 0, bytesPerRow: w * 64, rowsPerImage: full }, { texture: target }, [w * 4, full, 1]);
+    const rest = cap - full * w;
+    if (rest > 0) enc.copyBufferToTexture({ buffer: this.run.current(), offset: full * w * 64, bytesPerRow: Math.ceil((rest * 64) / 256) * 256, rowsPerImage: 1 }, { texture: target, origin: [0, full, 0] }, [rest * 4, 1, 1]);
+    let pairs: RawTexture | null = null;
+    let pairsWidth = 1;
+    if (sorted && this.sorter) {
+      const l = this.sorter.layout;
+      this.pairsTexture ??= new RawTexture(new Float32Array(l.n * 2), l.width, l.height, Constants.TEXTUREFORMAT_RG, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+      const pt = gpuTexture(this.pairsTexture);
+      if (pt) enc.copyBufferToTexture({ buffer: this.sorter.pairs, offset: 0, bytesPerRow: l.width * 8, rowsPerImage: l.height }, { texture: pt }, [l.width, l.height, 1]);
+      pairs = this.pairsTexture;
+      pairsWidth = l.width;
+    }
+    this.device.queue.submit([enc.finish()]);
+    const c = this.cpu.textures(this.lastUniforms);
+    return { interleaved: true, state: [this.stateTexture], width: w, uniforms: c.uniforms, lut: c.lut, pairs, pairsWidth };
   }
   bind(mat: ShaderMaterial): void {
     mat.setStorageBuffer("ks", this.wrappers.get(this.run.current())!);
@@ -222,6 +313,9 @@ class WebGpuBabylonRun implements BabylonRun {
   }
   dispose(): void {
     this.sorter?.dispose();
+    this.cpu.dispose();
+    this.stateTexture?.dispose();
+    this.pairsTexture?.dispose();
     for (const sb of this.wrappers.values()) sb.dispose();
     this.wrappers.clear();
   }
@@ -230,17 +324,22 @@ class WebGpuBabylonRun implements BabylonRun {
 class WebGl2BabylonRun implements BabylonRun {
   readonly kind = "webgl2" as const;
   readonly run: WebGl2Run;
-  private readonly textures = new Map<WebGLTexture, BaseTexture>();
+  private readonly wrapped = new Map<WebGLTexture, BaseTexture>();
   private uniforms: number[] = [];
   lastUniforms: Float32Array<ArrayBufferLike> = new Float32Array(0);
   private sorter: WebGl2Sorter | null = null;
+  private readonly engine: AbstractEngine;
+  private readonly cpu: CpuTextures;
 
   constructor(
-    private readonly engine: AbstractEngine,
+    scene: Scene,
     private readonly gl: WebGL2RenderingContext,
     kernel: KernelSystem,
     depth: SceneDepth,
   ) {
+    this.engine = scene.getEngine();
+    this.cpu = new CpuTextures(scene, kernel);
+    const engine = this.engine;
     this.run = new WebGl2Run(gl, kernel, () => {
       const t = kernel.depth ? depth.internal() : null;
       return ((t?._hardwareTexture?.underlyingResource ?? null) as WebGLTexture | null) ?? null;
@@ -252,6 +351,7 @@ class WebGl2BabylonRun implements BabylonRun {
     this.run.step(u, lut, parent instanceof WebGl2BabylonRun ? parent.run : null);
     this.uniforms = Array.from(u.subarray(0, this.run.kernel.uniformVec4 * 4));
     this.lastUniforms = u;
+    if (lut) this.cpu.setLut(lut);
     this.engine.wipeCaches(true); // we changed GL state behind Babylon's back
   }
   sort(row: readonly number[]): void {
@@ -269,16 +369,30 @@ class WebGl2BabylonRun implements BabylonRun {
     mat.setTexture("kidx", this.wrap(s.current, s.layout.width, s.layout.height));
     mat.setFloat("kidxW", s.layout.width);
   }
+  textures(sorted: boolean): KernelTextures | null {
+    const r = this.run;
+    const c = this.cpu.textures(this.lastUniforms);
+    const s = sorted ? this.sorter : null;
+    return {
+      interleaved: false,
+      state: r.current().map((t) => this.wrap(t, r.width, r.height)),
+      width: r.width,
+      uniforms: c.uniforms,
+      lut: c.lut,
+      pairs: s ? this.wrap(s.current, s.layout.width, s.layout.height) : null,
+      pairsWidth: s ? s.layout.width : 1,
+    };
+  }
   bindTrail(mat: ShaderMaterial): void {
     const h = this.run.history;
     if (h) mat.setTexture("khist", this.wrap(h.texture, this.run.width, this.run.height * (this.run.kernel.trail ?? 1)));
   }
   private wrap(t: WebGLTexture, w: number, h: number): BaseTexture {
-    let b = this.textures.get(t);
+    let b = this.wrapped.get(t);
     if (!b) {
       const internal = (this.engine as unknown as { wrapWebGLTexture(t: WebGLTexture, mip: boolean, s: number, w: number, h: number): never }).wrapWebGLTexture(t, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, w, h);
       b = new BaseTexture(this.engine, internal);
-      this.textures.set(t, b);
+      this.wrapped.set(t, b);
     }
     return b;
   }
@@ -294,9 +408,10 @@ class WebGl2BabylonRun implements BabylonRun {
     this.engine.wipeCaches(true);
   }
   dispose(): void {
-    for (const b of this.textures.values()) b.dispose();
-    this.textures.clear();
+    for (const b of this.wrapped.values()) b.dispose();
+    this.wrapped.clear();
     this.sorter?.dispose();
+    this.cpu.dispose();
     this.run.dispose();
   }
 }
@@ -307,7 +422,7 @@ class JsBabylonRun implements BabylonRun {
   readonly run: JsRun;
   private readonly webgpu: boolean;
   private buffers: { ks: StorageBuffer; ku: StorageBuffer; kl: StorageBuffer } | null = null;
-  private textures: RawTexture[] = [];
+  private planeTextures: RawTexture[] = [];
   private lutTexture: RawTexture | null = null;
   private planes: Float32Array[] = [];
   private uniforms: number[] = [];
@@ -342,12 +457,46 @@ class JsBabylonRun implements BabylonRun {
         ku: new StorageBuffer(e, kernel.uniformVec4 * 16, Constants.BUFFER_CREATIONFLAG_READWRITE, "particles js uniforms"),
         kl: new StorageBuffer(e, Math.max(1, kernel.luts.length) * LUT_SAMPLES * 16, Constants.BUFFER_CREATIONFLAG_READWRITE, "particles js lut"),
       };
-    } else {
-      const n = this.width * this.height * 4;
-      this.planes = [0, 1, 2, 3].map(() => new Float32Array(n));
-      this.textures = this.planes.map((p) => RawTexture.CreateRGBATexture(p, this.width, this.height, scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT));
-      this.lutTexture = RawTexture.CreateRGBATexture(this.run.js.lut, LUT_SAMPLES, Math.max(1, kernel.luts.length), scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+    } else this.makePlanes();
+  }
+  /** The state as four float textures (always on WebGL2; on WebGPU once a material-asset draw asks). */
+  private makePlanes(): void {
+    if (this.planeTextures.length) return;
+    const n = this.width * this.height * 4;
+    this.planes = [0, 1, 2, 3].map(() => new Float32Array(n));
+    this.planeTextures = this.planes.map((p) => RawTexture.CreateRGBATexture(p, this.width, this.height, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT));
+    this.lutTexture = RawTexture.CreateRGBATexture(this.run.js.lut, LUT_SAMPLES, Math.max(1, this.kernel.luts.length), this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+    this.writePlanes(true);
+  }
+  private writePlanes(lutDirty: boolean): void {
+    const s = this.run.js.state;
+    const cap = this.kernel.capacity;
+    for (let a = 0; a < 4; a++) {
+      const p = this.planes[a];
+      for (let i = 0; i < cap; i++) {
+        const o = i * KERNEL_FLOATS + a * 4;
+        p[i * 4] = s[o];
+        p[i * 4 + 1] = s[o + 1];
+        p[i * 4 + 2] = s[o + 2];
+        p[i * 4 + 3] = s[o + 3];
+      }
+      this.planeTextures[a].update(p);
     }
+    if (lutDirty) this.lutTexture?.update(this.run.js.lut);
+  }
+  private uniformTexture: RawTexture | null = null;
+  textures(sorted: boolean): KernelTextures | null {
+    this.makePlanes();
+    const u = this.run.js.uniforms;
+    if (!this.uniformTexture) this.uniformTexture = RawTexture.CreateRGBATexture(new Float32Array(u), Math.max(1, u.length / 4), 1, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+    else this.uniformTexture.update(new Float32Array(u));
+    let pairs: RawTexture | null = null;
+    if (sorted && this.sortPairs) {
+      // The WebGPU path keeps its pairs in a storage buffer only: make the texture here.
+      if (!this.sortTexture) this.sortInTexture();
+      pairs = this.sortTexture;
+    }
+    return { interleaved: false, state: this.planeTextures, width: this.width, uniforms: this.uniformTexture, lut: this.lutTexture!, pairs, pairsWidth: sortLayout(this.kernel.capacity).width };
   }
   get alive(): number {
     return this.run.alive;
@@ -360,20 +509,9 @@ class JsBabylonRun implements BabylonRun {
       this.buffers.ks.update(s);
       this.buffers.ku.update(this.run.js.uniforms);
       if (this.lutDirty) this.buffers.kl.update(this.run.js.lut);
-    } else {
-      const cap = this.kernel.capacity;
-      for (let a = 0; a < 4; a++) {
-        const p = this.planes[a];
-        for (let i = 0; i < cap; i++) {
-          const o = i * KERNEL_FLOATS + a * 4;
-          p[i * 4] = s[o];
-          p[i * 4 + 1] = s[o + 1];
-          p[i * 4 + 2] = s[o + 2];
-          p[i * 4 + 3] = s[o + 3];
-        }
-        this.textures[a].update(p);
-      }
-      if (this.lutDirty) this.lutTexture?.update(this.run.js.lut);
+    }
+    if (this.planeTextures.length) {
+      this.writePlanes(this.lutDirty);
       this.uniforms = Array.from(this.run.js.uniforms);
     }
     this.lutDirty = false;
@@ -385,7 +523,7 @@ class JsBabylonRun implements BabylonRun {
       mat.setStorageBuffer("kl", this.buffers.kl);
       return;
     }
-    this.textures.forEach((t, i) => mat.setTexture(`ks${i}`, t));
+    this.planeTextures.forEach((t, i) => mat.setTexture(`ks${i}`, t));
     if (this.lutTexture) mat.setTexture("kl", this.lutTexture);
     mat.setFloat("kw", this.width);
     if (this.uniforms.length) mat.setArray4("ku", this.uniforms);
@@ -397,8 +535,14 @@ class JsBabylonRun implements BabylonRun {
     if (this.webgpu) {
       this.sortBuffer ??= new StorageBuffer(this.scene.getEngine() as never, layout.n * 8, Constants.BUFFER_CREATIONFLAG_READWRITE, "particles js sort");
       this.sortBuffer.update(this.sortPairs);
-      return;
+      if (!this.sortTexture) return;
     }
+    this.sortInTexture();
+  }
+  /** The sorted pairs into a float texture (r key, g slot). */
+  private sortInTexture(): void {
+    const layout = sortLayout(this.kernel.capacity);
+    if (!this.sortPairs) return;
     const texels = (this.sortTexels ??= new Float32Array(layout.n * 4));
     for (let i = 0; i < layout.n; i++) {
       texels[i * 4] = this.sortPairs[i * 2];
@@ -434,7 +578,7 @@ class JsBabylonRun implements BabylonRun {
   }
   bindSort(mat: ShaderMaterial): void {
     if (this.sortBuffer) mat.setStorageBuffer("kidx", this.sortBuffer);
-    if (this.sortTexture) {
+    else if (this.sortTexture) {
       mat.setTexture("kidx", this.sortTexture);
       mat.setFloat("kidxW", sortLayout(this.kernel.capacity).width);
     }
@@ -448,7 +592,8 @@ class JsBabylonRun implements BabylonRun {
     this.sortBuffer?.dispose();
     this.sortTexture?.dispose();
     if (this.buffers) for (const b of Object.values(this.buffers)) b.dispose();
-    for (const t of this.textures) t.dispose();
+    for (const t of this.planeTextures) t.dispose();
+    this.uniformTexture?.dispose();
     this.lutTexture?.dispose();
     void this.scene;
   }

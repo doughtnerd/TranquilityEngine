@@ -110,11 +110,16 @@ class HeightFogDefines extends MaterialDefines {
 
 /** @internal Height fog on one PBR or standard material. */
 export class MycoHeightFogPlugin extends MaterialPluginBase {
-  /** Standard materials fog `color` before Babylon's own fog; PBR ones `finalColor` at the end. */
-  private readonly standard: boolean;
   constructor(material: PBRMaterial | StandardMaterial) {
     super(material, "MycoHeightFog", 220, new HeightFogDefines(), true, true);
-    this.standard = material instanceof StandardMaterial;
+  }
+
+  /**
+   * Standard materials fog `color` before Babylon's own fog; PBR ones `finalColor` at the end. Read from the
+   * material, not a field: Babylon asks for the code's injection points inside the base constructor.
+   */
+  private get standard(): boolean {
+    return this._material instanceof StandardMaterial;
   }
 
   override getClassName(): string {

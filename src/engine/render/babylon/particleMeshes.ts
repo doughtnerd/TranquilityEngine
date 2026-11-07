@@ -36,6 +36,8 @@ import { MycoSoftParticlePlugin, type DepthSource } from "./softParticles";
 export interface SoftOptions {
   softness: number;
   depth: DepthSource;
+  /** An unshared copy of the material asset (a graph's is a new graph material); default: a clone. */
+  copy?: (name: string) => { material: Material; dispose(): void } | null;
 }
 
 /**
@@ -43,16 +45,20 @@ export interface SoftOptions {
  * asset is shared, so the draw takes a copy of it with the fade (disposed with the draw). Materials
  * that aren't standard or PBR (none today) draw hard. Returns the material and the copy to dispose.
  */
-function softened(material: Material, own: boolean, soft: SoftOptions | null): { material: Material; copy: Material | null } {
+function softened(material: Material, own: boolean, soft: SoftOptions | null): { material: Material; copy: { dispose(): void } | null } {
   if (!soft) return { material, copy: null };
   if (own && material instanceof StandardMaterial) {
     new MycoSoftParticlePlugin(material, soft.softness, soft.depth);
     return { material, copy: null };
   }
   if (material instanceof PBRMaterial || material instanceof StandardMaterial) {
-    const copy = material.clone(`${material.name} (soft)`);
-    new MycoSoftParticlePlugin(copy, soft.softness, soft.depth);
-    return { material: copy, copy };
+    const name = `${material.name} (soft)`;
+    const made = soft.copy?.(name) ?? ((c) => (c ? { material: c, dispose: () => c.dispose(false, false) } : null))(material.clone(name));
+    if (made && (made.material instanceof PBRMaterial || made.material instanceof StandardMaterial)) {
+      new MycoSoftParticlePlugin(made.material, soft.softness, soft.depth);
+      return { material: made.material, copy: made };
+    }
+    made?.dispose();
   }
   return { material, copy: null };
 }
@@ -134,7 +140,7 @@ export class InstanceDraw implements Draw {
   colors = new Float32Array(0);
   private readonly own: StandardMaterial | null;
   /** A soft copy of a material asset, owned by the draw. */
-  private readonly copy: Material | null;
+  private readonly copy: { dispose(): void } | null;
 
   constructor(
     scene: Scene,
@@ -220,7 +226,7 @@ export class InstanceDraw implements Draw {
   dispose(): void {
     this.mesh.dispose(false, false); // a material asset is shared: not disposed
     this.own?.dispose(false, false); // the texture is shared too
-    this.copy?.dispose(false, false);
+    this.copy?.dispose();
   }
 }
 
@@ -278,7 +284,7 @@ export class QuadDraw implements Draw {
   private readonly lo = new Vector3();
   private readonly hi = new Vector3();
   private readonly own: StandardMaterial | null;
-  private readonly copy: Material | null;
+  private readonly copy: { dispose(): void } | null;
   private readonly pts = new Float32Array(MAX_TRAIL * 3);
   private readonly sides = new Float32Array(MAX_TRAIL * 3);
 
@@ -593,6 +599,6 @@ export class QuadDraw implements Draw {
   dispose(): void {
     this.mesh.dispose(false, false);
     this.own?.dispose(false, false);
-    this.copy?.dispose(false, false);
+    this.copy?.dispose();
   }
 }

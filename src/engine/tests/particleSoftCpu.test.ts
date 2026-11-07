@@ -5,6 +5,7 @@ import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Scene } from "@babylonjs/core/scene.js";
@@ -95,6 +96,16 @@ describe("soft CPU particles and particle height fog (ADR 0126)", () => {
     const mat = (draws[0] as QuadDraw).mesh.material!;
     expect(mat.pluginManager?.getPlugin("MycoHeightFog")).toBeTruthy();
     draws[0].dispose();
+  });
+
+  it("splices height fog into standard materials before Babylon's own fog", () => {
+    // Babylon collects a plugin's injection points inside its base constructor, before fields are set.
+    const m = new StandardMaterial("s", scene);
+    const points = (m.pluginManager as unknown as { _codeInjectionPoints: { fragment?: Record<string, unknown> } })._codeInjectionPoints;
+    expect(points.fragment?.CUSTOM_FRAGMENT_BEFORE_FOG).toBeTruthy();
+    const pbr = new PBRMaterial("p2", scene);
+    const pp = (pbr.pluginManager as unknown as { _codeInjectionPoints: { fragment?: Record<string, unknown> } })._codeInjectionPoints;
+    expect(pp.fragment?.CUSTOM_FRAGMENT_BEFORE_FRAGCOLOR).toBeTruthy();
   });
 
   it("emits the fade code in both shading languages", () => {

@@ -847,9 +847,10 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
       unsupported.push(`${o.type} output`);
       report(`Kernel backends don't draw ${o.type} outputs yet; this one draws as quads.`, at);
     }
-    if (o.settings.material) {
-      unsupported.push("material asset output");
-      report(`Kernel backends don't draw material assets yet; this output draws with its texture.`, at);
+    if (o.settings.material && o.type === "trail") {
+      // Other outputs draw material assets (PBR materials and shader graphs, ADR 0126); trails don't yet.
+      unsupported.push("material asset on a trail output");
+      report(`Kernel trails don't draw material assets yet; this trail draws with its texture.`, at);
     }
     const stmts: KStmt[] = [...speedMods, ...appearance];
     let tiles: [number, number] = [1, 1];

@@ -1153,6 +1153,11 @@ FN(KV4, k_orient, KV3 corner, KV3 right0, KV3 up0, KV3 cam, KV4 draw) {
   }
   return KV4(p + (right * q.x + up * q.y) * size, alive);
 }
+FN(KV3, k_orientCentre) {
+  VAR(KV3, p) = a0.xyz;
+  if (ku[${U.flags}].z < 0.5) { p = k_xform(p); }
+  return p;
+}
 FN(KV4, k_tileUV, KV2 uv, KV4 draw, KF rows0) {
   VAR(KF, cols) = max(1.0, draw.w);
   VAR(KF, rows) = max(1.0, rows0);
@@ -1429,6 +1434,161 @@ fn main(input : VertexInputs) -> FragmentInputs {
   vertexOutputs.position = select(vec4f(0.0, 0.0, -2.0, 1.0), clip, placed.w > 0.5);
 }
 `;
+}
+
+/**
+ * Kernel particles drawn with a material asset (ADR 0126): code spliced into the material's own vertex
+ * shader (Babylon's PBR shader, by a material plugin) that reads the particle from textures and places
+ * the mesh's vertex. `definitions` goes at module scope; `update` where the shader has `positionUpdated`
+ * (and `normalUpdated`, `uvUpdated`, `colorUpdated` under their defines), mesh world matrix identity.
+ *
+ * Textures: the state as four (kps0..kps3, `kpdraw3.y` wide) or, `interleaved`, one texture of four
+ * texels per particle (kpst); the uniforms one row (kpu); the look-up table (kpl); the sorted pairs
+ * (kpidx, `kpdraw3.z` wide) when `sorted`. Uniforms: `kpdraw` (mode, speed scale, length scale, tile
+ * columns), `kpdraw3` (tile rows, state width, pairs width, unused), `kpcam` (camera position).
+ */
+export function materialVertexCode(kernel: KernelSystem, k: number, dialect: ShaderDialect, opts: { sorted: boolean; interleaved: boolean }): { definitions: string; update: string; worldPos: string } {
+  const out = kernel.outputs[k];
+  const wgsl = dialect === "wgsl";
+  const u = (name: string) => (wgsl ? `uniforms.${name}` : name);
+  // The KSL helpers read uniforms as `ku[i]`; here they come from a texture row.
+  const body = ksl(GLOBALS + PRELUDE + outputKsl(out, dialect) + ORIENT, dialect).replace(/\bku\[([^\]]+)\]/g, "k_u($1)");
+  const fetch = (tex: string, x: string, y: string) => (wgsl ? `textureLoad(${tex}, vec2i(${x}, ${y}), 0)` : `texelFetch(${tex}, ivec2(${x}, ${y}), 0)`);
+  const state = opts.interleaved
+    ? wgsl
+      ? `fn k_kpState(i: i32, a: i32) -> vec4f { let w = i32(${u("kpdraw3")}.y); return ${fetch("kpst", "(i % w) * 4 + a", "i / w")}; }`
+      : `vec4 k_kpState(int i, int a) { int w = int(kpdraw3.y); return ${fetch("kpst", "(i % w) * 4 + a", "i / w")}; }`
+    : wgsl
+      ? `fn k_kpState(i: i32, a: i32) -> vec4f {
+  let w = i32(${u("kpdraw3")}.y);
+  let c = vec2i(i % w, i / w);
+  if (a == 0) { return textureLoad(kps0, c, 0); }
+  if (a == 1) { return textureLoad(kps1, c, 0); }
+  if (a == 2) { return textureLoad(kps2, c, 0); }
+  return textureLoad(kps3, c, 0);
+}`
+      : `vec4 k_kpState(int i, int a) {
+  int w = int(kpdraw3.y);
+  ivec2 c = ivec2(i % w, i / w);
+  if (a == 0) { return texelFetch(kps0, c, 0); }
+  if (a == 1) { return texelFetch(kps1, c, 0); }
+  if (a == 2) { return texelFetch(kps2, c, 0); }
+  return texelFetch(kps3, c, 0);
+}`;
+  const textures = wgsl
+    ? [...(opts.interleaved ? ["kpst"] : ["kps0", "kps1", "kps2", "kps3"]), "kpu", "kpl", ...(opts.sorted ? ["kpidx"] : [])].map((t) => `var ${t}: texture_2d<f32>;`).join("\n")
+    : [...(opts.interleaved ? ["kpst"] : ["kps0", "kps1", "kps2", "kps3"]), "kpu", "kpl", ...(opts.sorted ? ["kpidx"] : [])].map((t) => `uniform highp sampler2D ${t};`).join("\n");
+  const definitions = wgsl
+    ? `${textures}
+fn k_u(i: i32) -> vec4f { return textureLoad(kpu, vec2i(i, 0), 0); }
+fn k_lutAt(row: i32, i: i32) -> vec4f { return textureLoad(kpl, vec2i(i, row), 0); }
+${state}
+${body}
+var<private> k_kpPos: vec3f;
+var<private> k_kpNormal: vec3f;
+var<private> k_kpUV: vec2f;
+fn k_kpPlace(corner: vec3f, cornerNormal: vec3f, instance: u32) {
+  var i = i32(instance);
+  ${opts.sorted ? `let sw = i32(${u("kpdraw3")}.z);\n  i = i32(textureLoad(kpidx, vec2i(i % sw, i / sw), 0).y);` : ""}
+  a0 = k_kpState(i, 0);
+  a1 = k_kpState(i, 1);
+  a2 = k_kpState(i, 2);
+  a3 = k_kpState(i, 3);
+  k_idx = f32(i);
+  k_outputStage();
+  let vw = scene.view;
+  let right = vec3f(vw[0][0], vw[1][0], vw[2][0]);
+  let up = vec3f(vw[0][1], vw[1][1], vw[2][1]);
+  let placed = k_orient(corner, right, up, ${u("kpcam")}.xyz, ${u("kpdraw")});
+  let p = k_orientCentre();
+  k_kpPos = select(p, placed.xyz, placed.w > 0.5);
+  let co = cos(a3.y);
+  let sn = sin(a3.y);
+  if (${u("kpdraw")}.x > 3.5) {
+    k_kpNormal = vec3f(cornerNormal.x * co + cornerNormal.z * sn, cornerNormal.y, -cornerNormal.x * sn + cornerNormal.z * co);
+  } else {
+    k_kpNormal = normalize(${u("kpcam")}.xyz - p + vec3f(0.0, 0.000001, 0.0));
+  }
+  k_kpUV = k_tileUV(corner.xy + vec2f(0.5), ${u("kpdraw")}, ${u("kpdraw3")}.x).xy;
+}
+`
+    : `${textures}
+vec4 k_u(int i) { return texelFetch(kpu, ivec2(i, 0), 0); }
+vec4 k_lutAt(int row, int i) { return texelFetch(kpl, ivec2(i, row), 0); }
+${state}
+${body}
+vec3 k_kpPos;
+vec3 k_kpNormal;
+vec2 k_kpUV;
+void k_kpPlace(vec3 corner, vec3 cornerNormal, int instance) {
+  int i = instance;
+  ${opts.sorted ? "int sw = int(kpdraw3.z);\n  i = int(texelFetch(kpidx, ivec2(i % sw, i / sw), 0).g);" : ""}
+  a0 = k_kpState(i, 0);
+  a1 = k_kpState(i, 1);
+  a2 = k_kpState(i, 2);
+  a3 = k_kpState(i, 3);
+  k_idx = float(i);
+  k_outputStage();
+  vec3 right = vec3(view[0][0], view[1][0], view[2][0]);
+  vec3 up = vec3(view[0][1], view[1][1], view[2][1]);
+  vec4 placed = k_orient(corner, right, up, kpcam.xyz, kpdraw);
+  vec3 p = k_orientCentre();
+  k_kpPos = placed.w > 0.5 ? placed.xyz : p;
+  float co = cos(a3.y);
+  float sn = sin(a3.y);
+  if (kpdraw.x > 3.5) {
+    k_kpNormal = vec3(cornerNormal.x * co + cornerNormal.z * sn, cornerNormal.y, -cornerNormal.x * sn + cornerNormal.z * co);
+  } else {
+    k_kpNormal = normalize(kpcam.xyz - p + vec3(0.0, 0.000001, 0.0));
+  }
+  k_kpUV = k_tileUV(corner.xy + vec2(0.5), kpdraw, kpdraw3.x).xy;
+}
+`;
+  const update = wgsl
+    ? `#ifdef NORMAL
+k_kpPlace(positionUpdated, normalUpdated, vertexInputs.instanceIndex);
+normalUpdated = k_kpNormal;
+#else
+k_kpPlace(positionUpdated, vec3f(0.0, 1.0, 0.0), vertexInputs.instanceIndex);
+#endif
+positionUpdated = k_kpPos;
+#ifdef UV1
+uvUpdated = k_kpUV;
+#endif
+#ifdef VERTEXCOLOR
+colorUpdated = k_oColor;
+#endif
+`
+    : `#ifdef NORMAL
+k_kpPlace(positionUpdated, normalUpdated, gl_InstanceID);
+normalUpdated = k_kpNormal;
+#else
+k_kpPlace(positionUpdated, vec3(0.0, 1.0, 0.0), gl_InstanceID);
+#endif
+positionUpdated = k_kpPos;
+#ifdef UV1
+uvUpdated = k_kpUV;
+#endif
+#ifdef VERTEXCOLOR
+colorUpdated = k_oColor;
+#endif
+`;
+  // The draw is instanced (forcedInstanceCount), so Babylon multiplies by per-instance world matrices it
+  // has no buffer for: the plugin's positions are world positions already, so take them as they are.
+  const worldPos = wgsl
+    ? `worldPos = vec4f(positionUpdated, 1.0);
+vertexOutputs.vPositionW = positionUpdated;
+#ifdef NORMAL
+vertexOutputs.vNormalW = normalize(normalUpdated);
+#endif
+`
+    : `worldPos = vec4(positionUpdated, 1.0);
+vPositionW = positionUpdated;
+#ifdef NORMAL
+vNormalW = normalize(normalUpdated);
+#endif
+`;
+  return { definitions, update, worldPos };
 }
 
 /** Draw mode numbers (`kdraw.x`). */

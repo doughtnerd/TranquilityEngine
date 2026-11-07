@@ -72,6 +72,8 @@ export interface DrawOptions {
   camera?: () => Camera | null;
   /** The scene's depth, for soft emitters (`softness`, ADR 0126). Without it they draw hard. */
   depth?: DepthSource | null;
+  /** An unshared copy of the material asset, for soft emitters with one (default: a clone). */
+  copyMaterial?: (name: string) => { material: Material; dispose(): void } | null;
   /**
    * The scene has height fog (ADR 0110): billboards draw as mesh quads, whose material fogs (Babylon's
    * particle shader can't). The player rebuilds draws when this changes.
@@ -103,7 +105,7 @@ export function makeDraw(scene: Scene, name: string, e: SimEmitter, capacity: nu
   const r = e.renderer;
   const material = options.material ?? null;
   const camera = options.camera ?? (() => scene.activeCamera ?? scene.cameraToUseForPointers);
-  const soft = (r.softness ?? 0) > 0 && options.depth ? { softness: r.softness!, depth: options.depth } : null;
+  const soft = (r.softness ?? 0) > 0 && options.depth ? { softness: r.softness!, depth: options.depth, copy: options.copyMaterial } : null;
   if (r.mode === "mesh") {
     const source = options.mesh ?? meshesIfLoaded(r.mesh)?.[0] ?? meshesIfLoaded(FALLBACK_MESH)![0];
     return new InstanceDraw(scene, name, e, capacity, source, material, texture, soft);

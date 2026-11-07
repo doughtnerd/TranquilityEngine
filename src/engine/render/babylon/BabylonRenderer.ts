@@ -915,6 +915,7 @@ export class BabylonRenderer {
             texture: (path, sheet) => this.texture(path, sheet),
             tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
             material: (path) => this.materialAsset(path), // shared with MeshRenderers; null while missing
+            materialCopy: (path, name) => this.particleMaterialCopy(path, name), // soft and kernel particles (ADR 0126)
             // 3D physics only; null while the World has none (loaded later by a scene)
             raycast: (ox, oy, oz, dx, dy, dz, maxDistance) => {
               const hit = this.owner?.physics3D?.raycast({ x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, maxDistance);
@@ -1531,6 +1532,24 @@ export class BabylonRenderer {
    * The Babylon material for a material asset, or null for none (empty, missing, or not a material:
    * warned once). Rebuilt when the asset's JSON changes (the editor's Material inspector).
    */
+  /**
+   * An unshared copy of a material asset for particle draws that change it (ADR 0126: a soft fade, kernel
+   * placement): a shader graph's is a new graph material with the asset's properties and keywords (Babylon
+   * can't clone graph plugins), others a clone. Null when the asset isn't there.
+   */
+  private particleMaterialCopy(path: string, name: string): { material: BabylonMaterial; dispose(): void } | null {
+    const base = this.materialAsset(path);
+    if (!base) return null;
+    const g = this.graphs.get(base);
+    if (g) {
+      const made = createGraphMaterial(this.scene, name, g.compiled, { ...g.properties }, this.graphShared, (p, linear) => this.graphTexture(p, linear));
+      made.setKeywords(g.keywords);
+      return { material: made.material, dispose: () => made.dispose() };
+    }
+    const copy = base.clone(name);
+    return copy ? { material: copy, dispose: () => copy.dispose(false, false) } : null;
+  }
+
   private materialAsset(path: string): BabylonMaterial | null {
     const m = this.materialAssetBase(path);
     // The asset's shared script Material (ADR 0107), applied in place: every user of the asset follows.

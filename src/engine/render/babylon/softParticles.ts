@@ -31,7 +31,10 @@ class SoftDefines extends MaterialDefines {
 
 /** @internal Soft particles on one (unshared) standard or PBR material. */
 export class MycoSoftParticlePlugin extends MaterialPluginBase {
-  private readonly pbr: boolean;
+  /** Read from the material: Babylon asks for the code's injection points inside the base constructor. */
+  private get pbr(): boolean {
+    return this._material instanceof PBRMaterial;
+  }
   constructor(
     material: StandardMaterial | PBRMaterial,
     /** Metres over which particles fade in front of surfaces. */
@@ -39,7 +42,6 @@ export class MycoSoftParticlePlugin extends MaterialPluginBase {
     private readonly depth: DepthSource,
   ) {
     super(material, "MycoSoftParticles", 230, new SoftDefines(), true, true);
-    this.pbr = material instanceof PBRMaterial;
   }
 
   override getClassName(): string {
