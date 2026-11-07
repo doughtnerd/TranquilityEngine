@@ -17,7 +17,7 @@ describe("node registry", () => {
     const types = NODES.map((n) => n.type);
     expect(new Set(types).size).toBe(types.length);
     for (const n of NODES) {
-      expect(n.outputs.length, n.type).toBeGreaterThan(0);
+      if (n.type !== "subgraph") expect(n.outputs.length, n.type).toBeGreaterThan(0); // a sub-graph's ports come from its asset (ADR 0095)
       expect(nodeDef(n.type)).toBe(n);
       expect(new Set(n.inputs.map((p) => p.name)).size).toBe(n.inputs.length);
       for (const p of n.inputs) {

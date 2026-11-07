@@ -9,6 +9,7 @@
  * Reached through `src/engine/editor`, which loads this file only when the Babylon renderer is chosen.
  */
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
+import { expandParticleGraph, projectAssets } from "../../../scene/particleSubgraphs";
 import { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
@@ -533,7 +534,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   }
 
   private async prepareParticles(path: string, live: boolean): Promise<Prepared> {
-    const program = compileParticleGraph(parseParticleGraph(Assets.json(path), path).graph);
+    const program = compileParticleGraph(expandParticleGraph(parseParticleGraph(Assets.json(path), path).graph, projectAssets).graph);
     const scene = createPreviewScene(this.engine);
     try {
       addPreviewLights(scene, LIGHT_AMBIENT, LIGHT_SUN);

@@ -12,7 +12,7 @@ describe("particle block registry (ADR 0060)", () => {
       expect(b.contexts.length).toBeGreaterThan(0);
       for (const c of b.contexts) expect(CONTEXT_KINDS).toContain(c);
       // Set Attribute blocks (ADR 0095) fit several contexts and share the "attribute." prefix.
-      expect(b.type.startsWith("attribute.") || b.type.startsWith({ spawn: "spawn.", initialize: "init.", update: "update.", output: "output." }[b.contexts[0]])).toBe(true);
+      expect(b.type === "custom" || b.type.startsWith("attribute.") || b.type.startsWith({ spawn: "spawn.", initialize: "init.", update: "update.", output: "output." }[b.contexts[0]])).toBe(true);
       expect(b.label).not.toBe("");
       expect(b.description).not.toBe("");
     }
@@ -61,9 +61,9 @@ describe("particle block registry (ADR 0060)", () => {
 
   it("looks blocks up and filters them by context", () => {
     expect(blockDef("nope")).toBeUndefined();
-    expect(blocksFor("spawn").map((b) => b.type)).toEqual(["spawn.rate", "spawn.rateOverDistance", "spawn.burst", "spawn.periodicBurst"]);
-    expect(blocksFor("output").map((b) => b.type)).toEqual(["attribute.color", "attribute.alpha", "attribute.size", "output.flipbook", "output.widthOverLength"]);
-    expect(blocksFor("initialize").length).toBe(20);
+    expect(blocksFor("spawn").map((b) => b.type)).toEqual(["spawn.rate", "spawn.rateOverDistance", "spawn.burst", "spawn.periodicBurst", "custom"]);
+    expect(blocksFor("output").map((b) => b.type)).toEqual(["attribute.color", "attribute.alpha", "attribute.size", "custom", "output.flipbook", "output.widthOverLength"]);
+    expect(blocksFor("initialize").length).toBe(21);
     expect(blocksFor("update").map((b) => b.type)).toContain("update.collisionDepth");
     expect(blocksFor("update").filter((b) => b.type.startsWith("attribute.")).map((b) => b.type)).toEqual([
       "attribute.position",

@@ -413,7 +413,8 @@ function parseBlocks(raw: unknown, kind: ContextKind, systemId: string, ctx: Ctx
       }
       for (const [key, value] of Object.entries(rawInputs)) {
         if (known.has(key)) continue;
-        warn(ctx, `${def.label} has no input "${key}"; it's kept as it is.`, `${at}.${key}`);
+        // A custom block's other inputs are its asset's (ADR 0095).
+        if (def.type !== "custom") warn(ctx, `${def.label} has no input "${key}"; it's kept as it is.`, `${at}.${key}`);
         block.inputs[key] = clone(value) as GraphInputValue;
       }
     }

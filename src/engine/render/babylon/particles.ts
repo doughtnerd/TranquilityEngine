@@ -16,6 +16,7 @@ import { GameObject } from "../../scene/GameObject";
 import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import { compileParticleGraph, type ParticleProgram } from "../../scene/particleCompile";
 import { parseParticleGraph } from "../../scene/particleGraphFormat";
+import { expandParticleGraph, expansionDependencies, projectAssets } from "../../scene/particleSubgraphs";
 import type { ParticleSystem } from "../components";
 import type { ParticlePreviewSettings, ParticleStats } from "../RenderSurface";
 import { ProgramRunner, playTimes } from "../particles/programRunner";
@@ -185,6 +186,11 @@ export class BabylonParticles {
     // unbuilt and a few times a second after.
     inst.keyAge += unscaledDeltaTime;
     const checking = !inst.key || inst.keyAge >= KEY_CHECK_INTERVAL;
+    if (checking && this.depsChanged(c)) {
+      inst.raw = undefined; // re-parse next frame with the changed sub-graph or block
+      inst.keyAge = KEY_CHECK_INTERVAL;
+      return;
+    }
     const key = checking ? this.buildKey(inst.program) : inst.key;
     // Bindings that aren't live (a shape's radius from a property, say) rebuild when their value changes.
     const stale = checking && !!inst.key && inst.runner.update(inst.time, 0, playTimes(inst.program, inst.time), true);
@@ -364,7 +370,12 @@ export class BabylonParticles {
       return null;
     }
     try {
-      const { graph, problems } = parseParticleGraph(raw, where);
+      const parsed = parseParticleGraph(raw, where);
+      // Sub-graphs and custom blocks are inlined first (ADR 0095).
+      const expanded = expandParticleGraph(parsed.graph, projectAssets);
+      const graph = expanded.graph;
+      const problems = [...parsed.problems, ...expanded.problems];
+      this.deps.set(c, expansionDependencies(parsed.graph, projectAssets));
       const program = compileParticleGraph(graph);
       const plan = this.plan(graph, program, where);
       const onKernel = (at: string | undefined) => !!at && plan.running.some((k) => at === k.id || at.startsWith(`${k.id}.`));
@@ -401,6 +412,19 @@ export class BabylonParticles {
   private kernels: BabylonKernelHost | null = null;
   private depth: SceneDepth | null = null;
   private readonly plans = new WeakMap<ParticleProgram, KernelPlan>();
+  /** Sub-graph and custom block assets each effect was expanded with, and their JSON when it was (ADR 0095). */
+  private readonly deps = new WeakMap<ParticleSystem, string[]>();
+  private readonly depJson = new WeakMap<ParticleSystem, unknown[]>();
+
+  /** True when a sub-graph or custom block asset the effect uses changed since it was built. */
+  private depsChanged(c: ParticleSystem): boolean {
+    const refs = this.deps.get(c);
+    if (!refs?.length) return false;
+    const now = refs.map(projectAssets);
+    const before = this.depJson.get(c);
+    this.depJson.set(c, now);
+    return !!before && now.some((v, i) => v !== before[i]);
+  }
 
   private sceneDepth(): SceneDepth {
     return (this.depth ??= new SceneDepth(this.host.scene));

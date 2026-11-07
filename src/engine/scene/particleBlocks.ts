@@ -266,6 +266,13 @@ export const BLOCKS: readonly BlockDef[] = [
   ),
 
   {
+    type: "custom",
+    label: "Custom block",
+    description: "A reusable stack of blocks and nodes from a particle block asset (*.particleblock.json, ADR 0095). Its other inputs are the asset's.",
+    contexts: ["spawn", "initialize", "update", "output"],
+    inputs: [{ name: "asset", label: "Asset", type: "asset", default: "" }],
+  },
+  {
     type: "output.flipbook",
     label: "Flipbook",
     description: "Reads the texture as a grid of tiles.",

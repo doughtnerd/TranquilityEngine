@@ -4,6 +4,7 @@
 // following the Shader Graph panel's conventions: every edit is a pure function on the graph,
 // recorded for undo, shown, and saved; a change to the file from elsewhere replaces the graph.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
+import { expandParticleGraph, projectAssets } from "../../../engine/scene/particleSubgraphs";
 import { compileParticleGraph } from "../../../engine/scene/particleCompile";
 import type { ContextKind, GraphGroup, GraphProblem, ParticleGraph, Vec2 } from "../../../engine/scene/particleGraph";
 import { formatParticleGraph } from "../../../engine/scene/particleGraphFormat";
@@ -117,7 +118,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   }
 
   const collapsed = useMemo(() => collapsedSystems(graph), [graph]);
-  const compiled = useMemo(() => compileParticleGraph(graph), [graph]);
+  const compiled = useMemo(() => compileParticleGraph(expandParticleGraph(graph, projectAssets).graph), [graph]);
   const problems = useMemo(() => {
     const seen = new Set<string>();
     return [...parseProblems, ...compiled.problems].filter((p) => {

@@ -32,7 +32,7 @@ export interface NodeSettingDef {
   choices?: readonly string[];
 }
 
-export type NodeCategory = "Value" | "Particle" | "Time" | "Math" | "Trigonometry" | "Sampling" | "Vector" | "Colour" | "Property" | "Event";
+export type NodeCategory = "Value" | "Particle" | "Sub-graph" | "Time" | "Math" | "Trigonometry" | "Sampling" | "Vector" | "Colour" | "Property" | "Event";
 
 export interface NodeDef {
   type: string;
@@ -114,6 +114,12 @@ add("Particle", "particle.color", "Particle Colour", "The particle's start colou
 add("Particle", "particle.index", "Particle Index", "The particle's slot in the system, 0 to capacity - 1.", "particle", [], [outPort("number")]);
 add("Particle", "particle.random", "Particle Random", "A random number in 0-1 that stays the same for the particle's whole life. Different Seeds give different numbers.", "particle", [], [outPort("number")], [
   { name: "seed", label: "Seed", kind: "number", default: 0 },
+]);
+
+// Sub-graph (ADR 0095): a particle sub-graph asset used as one node. Its ports come from the asset;
+// it's inlined before compiling (particleSubgraphs.ts), so it has no evaluator of its own.
+add("Sub-graph", "subgraph", "Sub-graph", "A reusable group of nodes from a particle sub-graph asset (*.particlesubgraph.json).", "uniform", [], [], [
+  { name: "asset", label: "Asset", kind: "string", default: "" },
 ]);
 
 // Time
