@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { Color, GameObject } from "../../engine";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
 import { editorFor, parseNumber, toSceneJSON } from "../fieldValues";
+import { addLiveComponent, liveNodeChoices, removeLiveComponent, setLiveNodeRef, whyNotRemoveLive } from "../liveEdits";
 import { docPathFor, forgetKept, inspectedWorld, keepComponent, keepNode, kept, keptKey, liveSelection, writeLive } from "../runtimeInspect";
 import { playing } from "../session";
 import { openScene, status } from "../state";
+import { AddComponentMenu } from "./AddComponentMenu";
 import "./playdebug.css";
 
 /** Live values refresh this often (not every frame); a field being typed in keeps its draft. */
@@ -14,9 +16,11 @@ const REFRESH_MS = 250;
  * The selected node of a live World (ADR 0022): its components with live values, editable. Edits
  * change the running World only. "Keep values" remembers a component's values to write into the
  * edited scene on Stop (as overrides on prefab instances), for nodes that came from that scene.
+ * Components can be added and removed and node references set (ADR 0124); those changes aren't
+ * kept.
  */
 export function RuntimeInspector() {
-  const [, setTick] = useState(0);
+  const [, setTick] = useState(0); // also re-renders after an add or remove
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), REFRESH_MS);
     return () => clearInterval(t);
@@ -72,6 +76,21 @@ export function RuntimeInspector() {
       {components.map((info) => (
         <LiveComponent key={`${info.type}#${info.index}`} node={node} info={info} keepable={keepable} isKept={keepable && kept.value.has(keptKey(mapping.path, info.type, info.index))} onEdit={afterEdit} />
       ))}
+      <AddComponentMenu
+        targets={[{ node }]}
+        onAdd={(type) => {
+          const r = addLiveComponent(node, type);
+          afterEdit();
+          setTick((n) => n + 1);
+          if (typeof r === "string") {
+            status.value = { kind: "error", text: `Can't add ${titleOf(type)}: ${r}.` };
+            return 0;
+          }
+          status.value = { kind: "info", text: `Added ${titleOf(type)} to ${node.name} in the running game; it isn't kept when you stop.` };
+          return 1;
+        }}
+      />
+      <p class="structure-note">Added or removed components and nodes made or deleted here aren't kept when you stop playing.</p>
     </div>
   );
 }
@@ -138,6 +157,19 @@ function LiveComponent(props: { node: GameObject; info: ComponentInfo; keepable:
         {title}
         {info.kind === "data" && <span class="badge">data</span>}
         {isKept && <span class="badge kept-badge">kept</span>}
+        <button
+          class="remove-live"
+          aria-label={`Remove ${title}`}
+          disabled={!!whyNotRemoveLive(info)}
+          title={whyNotRemoveLive(info) ? `Can't remove: ${whyNotRemoveLive(info)}` : `Remove ${title} from the running game (not kept on Stop)`}
+          onClick={() => {
+            const reason = removeLiveComponent(node, info);
+            status.value = reason ? { kind: "error", text: `Can't remove ${title}: ${reason}.` } : { kind: "info", text: `Removed ${title} from ${node.name} in the running game; it isn't kept when you stop.` };
+            onEdit();
+          }}
+        >
+          Remove
+        </button>
         <button
           class="keep-values"
           aria-label={`Keep ${title} values`}
@@ -225,7 +257,18 @@ function LiveField(props: { node: GameObject; info: ComponentInfo; field: FieldV
       break;
     }
     case "node":
-      control = <span class="none">{v instanceof GameObject ? (v.isValid ? v.name : "(destroyed)") : "None"}</span>;
+      control = (
+        <LiveNodeRef
+          node={node}
+          value={v instanceof GameObject ? v : null}
+          label={field.name}
+          onCommit={(target) => {
+            const reason = setLiveNodeRef(node, info, field.name, target);
+            if (reason) status.value = { kind: "error", text: `Can't set ${field.name}: ${reason}.` };
+            onEdit();
+          }}
+        />
+      );
       break;
     default:
       control = <span class="none live-json">{safeJSON(v)}</span>;
@@ -237,6 +280,37 @@ function LiveField(props: { node: GameObject; info: ComponentInfo; field: FieldV
       </div>
       <div class="value">{control}</div>
     </>
+  );
+}
+
+/** A node reference: None or any node of the same World (ADR 0032 keeps other Worlds out), indented by depth. */
+function LiveNodeRef(props: { node: GameObject; value: GameObject | null; label: string; onCommit: (target: GameObject | null) => void }) {
+  const choices = liveNodeChoices(props.node.world);
+  const v = props.value;
+  const current = v && v.isValid ? String(v.entity) : v ? "destroyed" : "";
+  return (
+    <select
+      aria-label={props.label}
+      value={current}
+      onChange={(e) => {
+        const key = (e.currentTarget as HTMLSelectElement).value;
+        if (key === "destroyed") return;
+        props.onCommit(key === "" ? null : (choices.find((c) => String(c.node.entity) === key)?.node ?? null));
+      }}
+    >
+      <option value="">None</option>
+      {v && !v.isValid && (
+        <option value="destroyed" disabled>
+          (destroyed)
+        </option>
+      )}
+      {choices.map((c) => (
+        <option key={c.node.entity} value={String(c.node.entity)}>
+          {"  ".repeat(c.depth)}
+          {c.name}
+        </option>
+      ))}
+    </select>
   );
 }
 

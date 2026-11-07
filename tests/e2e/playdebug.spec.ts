@@ -117,6 +117,89 @@ test("the World picker shows the running game; live edits; Keep values writes th
   expect(errors).toEqual([]);
 });
 
+/** The name of the live node `name`'s parent in the running game's default World, or null if there's no such node. */
+const liveParent = (page: Page, name: string) =>
+  page.evaluate((n) => {
+    const engine = (window as unknown as Hooks).playEngine!;
+    const find = (node: LiveNode, parent: LiveNode | null): LiveNode | null | undefined =>
+      node.name === n ? parent : node.children.reduce<LiveNode | null | undefined>((hit, c) => (hit !== undefined ? hit : find(c, node)), undefined);
+    const parent = find(engine._world(engine.world.name)!.root, null);
+    return parent === undefined ? null : (parent?.name ?? "(root)");
+  }, name);
+
+test("the live Hierarchy creates, renames, reparents and deletes nodes; the live Inspector adds and removes components and sets node references (ADR 0124)", async ({ page }) => {
+  const errors = trackErrors(page);
+  await open(page, FLAPPY);
+  const hierarchy = page.locator(".panel.hierarchy");
+  const inspector = page.locator(".panel.inspector");
+  await page.getByRole("button", { name: "▶ Play" }).click();
+  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  const worldName = await page.evaluate(() => (window as unknown as Hooks).playEngine!.world.name);
+  await hierarchy.getByRole("combobox", { name: "Inspect World" }).selectOption(worldName);
+  await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click(); // edits apply while paused too
+  const tree = hierarchy.getByRole("tree", { name: "Live nodes" });
+  const row = (name: string) => tree.locator(`.row[data-name="${name}"]`);
+
+  // Create at the top level (under the loaded scene) and name it in place.
+  await hierarchy.getByRole("button", { name: "Create live node" }).click();
+  await page.getByRole("menuitem", { name: "Create Empty", exact: true }).click();
+  const rename = tree.getByRole("textbox", { name: "Node name" });
+  await expect(rename).toBeFocused();
+  await rename.fill("Marker");
+  await rename.press("Enter");
+  await expect(row("Marker")).toHaveCount(1);
+  expect(await liveParent(page, "Marker")).toBe("main");
+
+  // A child from the right-click menu.
+  await row("Marker").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Create Empty Child" }).click();
+  await rename.fill("Inner");
+  await rename.press("Enter");
+  await expect(row("Inner")).toHaveCount(1);
+  expect(await liveParent(page, "Inner")).toBe("Marker");
+
+  // Drag onto another node reparents; onto the World header moves it to the top level.
+  await row("Inner").dragTo(row("Bird"));
+  await expect.poll(() => liveParent(page, "Inner")).toBe("Bird");
+  await row("Inner").dragTo(hierarchy.locator(".live-name"));
+  await expect.poll(() => liveParent(page, "Inner")).toBe("main");
+  // A loaded scene can't be moved.
+  await expect(tree.locator(".row.live-scene")).toHaveAttribute("draggable", "false");
+
+  // Add a component with a node reference, point it at the bird, then remove it.
+  await row("Marker").click();
+  await expect(inspector.locator(".node-name")).toHaveText("Marker");
+  await inspector.getByRole("button", { name: "Add Component" }).click();
+  await page.getByRole("searchbox", { name: "Search components" }).fill("FixedJoint2D");
+  await page.getByRole("searchbox", { name: "Search components" }).press("Enter");
+  const joint = inspector.locator('.component[data-type="engine.FixedJoint2D"]');
+  await expect(joint).toHaveCount(1);
+  const birdEntity = await row("Bird").getAttribute("data-entity");
+  const ref = joint.getByRole("combobox", { name: "connectedBody" });
+  await expect(ref).toHaveValue("");
+  await ref.selectOption(birdEntity!);
+  await expect(ref).toHaveValue(birdEntity!);
+  await page.waitForTimeout(400); // a refresh later it still reads the live value
+  await expect(ref).toHaveValue(birdEntity!);
+  await expect(inspector.getByRole("button", { name: "Remove Transform" })).toBeDisabled();
+  await joint.getByRole("button", { name: "Remove FixedJoint2D" }).click();
+  await expect(joint).toHaveCount(0);
+
+  // Delete from the keyboard.
+  await row("Marker").click();
+  await page.keyboard.press("Delete");
+  await expect(row("Marker")).toHaveCount(0);
+  expect(await liveParent(page, "Marker")).toBeNull();
+  await expect(page.locator(".status-text")).toContainText("Deleted Marker from the running game");
+
+  // None of it reached the scene.
+  await page.getByRole("button", { name: /Stop/ }).click();
+  const sceneTree = hierarchy.getByRole("tree", { name: "Scene nodes" });
+  await expect(sceneTree).toBeVisible();
+  await expect(sceneTree.locator(".row .name", { hasText: /^(Marker|Inner)$/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("Pause, Step and the shortcuts hold and advance the whole game; a World steps alone from the strip", async ({ page }) => {
   const errors = trackErrors(page);
   await open(page, FLAPPY);
