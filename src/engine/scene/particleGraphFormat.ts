@@ -115,12 +115,12 @@ function emptySystem(id: string, name: string, position: Vec2): ParticleGraphSys
   };
 }
 
-type TemplateKind = "empty" | "simpleLoop" | "burst" | "trail";
+type TemplateKind = "empty" | "simpleLoop" | "burst" | "trail" | "gpuFountain";
 
 /** A new system from a template, with ids unused in `graph` (the caller adds it). */
 export function systemTemplate(graph: ParticleGraph, kind: TemplateKind, position: Vec2, name?: string): ParticleGraphSystem {
   const ids = new IdAllocator(collectIds(graph));
-  const sys = emptySystem(ids.take("s"), name ?? { empty: "System", simpleLoop: "Simple Loop", burst: "Burst", trail: "Trail" }[kind], [position[0], position[1]]);
+  const sys = emptySystem(ids.take("s"), name ?? { empty: "System", simpleLoop: "Simple Loop", burst: "Burst", trail: "Trail", gpuFountain: "GPU Fountain" }[kind], [position[0], position[1]]);
   const add = (ctx: BlockContext, type: string, inputs: Record<string, GraphInputValue> = {}) => {
     const b = defaultBlock(type, ids.take("b"));
     Object.assign(b.inputs, inputs);
@@ -146,6 +146,45 @@ export function systemTemplate(graph: ParticleGraph, kind: TemplateKind, positio
       add(sys.initialize, "init.size", { size: 0.2 });
       add(sys.update, "update.sizeOverLife", { size: { curve: [[0, 1], [1, 0]] } });
       break;
+    case "gpuFountain": {
+      // ADR 0094/0095: a big system on a kernel backend, with a per-particle operator chain
+      // (velocity += (sin(age × 6) × 0.1, 0, 0) each frame) and a second, additive output.
+      sys.settings = { ...sys.settings, capacity: 50000, simulation: "gpu" };
+      add(sys.spawn, "spawn.rate", { rate: 20000 });
+      add(sys.initialize, "init.lifetime", { lifetime: { random: [1.5, 2.5] } });
+      add(sys.initialize, "init.positionCone", { radius: 0.2, angle: 15 });
+      add(sys.initialize, "init.velocity", { speed: { random: [4, 6] } });
+      add(sys.initialize, "init.size", { size: 0.03 });
+      add(sys.initialize, "init.color", { color: { random: ["#66ccff", "#ffffff"] } });
+      add(sys.update, "update.gravity", { strength: 0.8 });
+      add(sys.update, "update.turbulence", { scale: [2, 2, 2], octaves: 2, velocity: [1, 1, 1], timeScale: [1, 1, 1] });
+      add(sys.update, "update.colorOverLife", { color: { gradient: { colors: [[0, "#ffffff"], [1, "#3366ff"]], alphas: [[0, 1], [1, 0]] } } });
+      const set = defaultBlock("attribute.velocity", ids.take("b"));
+      set.inputs.mode = "add";
+      sys.update.blocks.push(set);
+      const [age, mul, sin, amp, vec] = ["n", "n", "n", "n", "n"].map((p) => ids.take(p));
+      graph.nodes.push(
+        { id: age, type: "particle.age", position: [position[0] - 520, position[1] + 260] },
+        { id: mul, type: "multiply", position: [position[0] - 400, position[1] + 260], inputs: { b: 6 } },
+        { id: sin, type: "sine", position: [position[0] - 280, position[1] + 260] },
+        { id: amp, type: "multiply", position: [position[0] - 160, position[1] + 260], inputs: { b: 0.1 } },
+        { id: vec, type: "compose3", position: [position[0] - 40, position[1] + 260], inputs: { y: 0, z: 0 } },
+      );
+      graph.edges.push(
+        { from: `${age}.out`, to: `${mul}.a` },
+        { from: `${mul}.out`, to: `${sin}.x` },
+        { from: `${sin}.out`, to: `${amp}.a` },
+        { from: `${amp}.out`, to: `${vec}.x` },
+        { from: `${vec}.out`, to: `${sys.id}.${set.id}.value` },
+      );
+      sys.output.settings.blending = "additive";
+      sys.extraOutputs = [{ type: "stretched", settings: { ...sys.output.settings, blending: "additive", speedScale: 0.05, lengthScale: 1 }, blocks: [] }];
+      const glow = defaultBlock("attribute.alpha", ids.take("b"));
+      glow.inputs.mode = "multiply";
+      glow.inputs.value = 0.3;
+      sys.extraOutputs[0].blocks.push(glow);
+      break;
+    }
     case "trail":
       sys.output.type = "trail";
       add(sys.spawn, "spawn.rate", { rate: 10 });

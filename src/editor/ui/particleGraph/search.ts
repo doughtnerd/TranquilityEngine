@@ -32,6 +32,7 @@ const TEMPLATES: [TemplateKind, string, string][] = [
   ["simpleLoop", "System: Simple Loop", "simple loop new system continuous"],
   ["burst", "System: Burst", "burst explosion new system one shot"],
   ["trail", "System: Trail", "trail ribbon new system"],
+  ["gpuFountain", "System: GPU Fountain", "gpu kernel webgpu compute fountain many particles operators outputs new system"],
 ];
 
 /** Systems, nodes, properties and events for the empty canvas. */

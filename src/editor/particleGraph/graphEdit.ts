@@ -229,8 +229,8 @@ export const sourceOf = (graph: ParticleGraph, to: string): string | undefined =
 
 /** Add a system from a template at `position`. */
 export function addSystem(graph: ParticleGraph, kind: TemplateKind, position: Vec2, name?: string): { graph: ParticleGraph; id: string } {
-  const sys = systemTemplate(graph, kind, round(position), name);
   const g = clone(graph);
+  const sys = systemTemplate(g, kind, round(position), name); // some templates add nodes and wires to the graph
   g.systems.push(sys);
   return { graph: g, id: sys.id };
 }

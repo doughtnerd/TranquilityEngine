@@ -91,6 +91,19 @@ describe("kernel compiler (ADR 0094)", () => {
   });
 });
 
+describe("the GPU Fountain template", () => {
+  it("compiles cleanly and runs on a kernel with two outputs", () => {
+    const g: ParticleGraph = { properties: [], systems: [], nodes: [], edges: [], events: [], notes: [], groups: [] };
+    g.systems.push(systemTemplate(g, "gpuFountain", [0, 0]));
+    const program = compileParticleGraph(g);
+    const kp = compileParticleKernels(g, program);
+    expect(kp.problems).toEqual([]);
+    expect(kp.systems[0].outputs).toHaveLength(2);
+    expect(kp.systems[0].needs).toContain("a per-particle operator chain");
+    expect(chooseBackend(g.systems[0].settings.simulation, kp.systems[0], ["webgpu"])).toBe("webgpu");
+  });
+});
+
 describe("JavaScript kernel executor", () => {
   it("spawns a burst into the ring and moves the particles", () => {
     const { g } = burstGraph(5, 2, 3);
