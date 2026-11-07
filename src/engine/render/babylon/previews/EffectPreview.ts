@@ -22,7 +22,7 @@ import type { LinesMesh } from "@babylonjs/core/Meshes/linesMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { meshesIfLoaded } from "../../../scene/models";
 import type { ParticleProgram } from "../../../scene/particleCompile";
-import { ProgramRunner } from "../../particles/programRunner";
+import { ProgramRunner, playTimes } from "../../particles/programRunner";
 import { EffectSimulation } from "../../particles/simulation";
 import type { ParticleEffectPreviewApi, PreviewBackground } from "../../previewTypes";
 import type { GraphShared } from "../graphMaterial";
@@ -349,8 +349,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
     const dt = this._playing ? realDt * Math.max(0, this.speed) : 0;
     if (dt > 0) {
       this.time += dt;
-      const d = this.runner?.program.effect.emitters[0]?.duration ?? 0;
-      this.runner?.update(this.time, dt, d > 0 ? this.time % d : this.time);
+      if (this.runner) this.runner.update(this.time, dt, playTimes(this.runner.program, this.time));
       sim.step(dt, IDENTITY, 1, WHITE);
     }
     this.shared.time += realDt; // graph materials' Time node

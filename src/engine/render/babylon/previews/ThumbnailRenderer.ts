@@ -29,7 +29,7 @@ import { materialGraph } from "../../../scene/material";
 import { compileParticleGraph } from "../../../scene/particleCompile";
 import { parseParticleGraph } from "../../../scene/particleGraphFormat";
 import { loadMeshes, meshesIfLoaded, type ModelMesh } from "../../../scene/models";
-import { ProgramRunner } from "../../particles/programRunner";
+import { ProgramRunner, playTimes } from "../../particles/programRunner";
 import { EffectSimulation } from "../../particles/simulation";
 import { colorFromHex, frameView, moveOrbit, orbitOf, orbitPosition, previewPixels, seededRandom, type Bounds, type Orbit } from "../../thumbnailMath";
 import type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi } from "../../previewTypes";
@@ -539,22 +539,28 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       addPreviewLights(scene, LIGHT_AMBIENT, LIGHT_SUN);
       // Everything the emitters draw with, loaded first, so the build doesn't wait on a texture.
       const textures = new Map<string, Texture | null>();
+      const materials = new Map<string, PreviewMaterial | null>();
+      const shared: GraphShared = { time: 0, resolution: [this.size, this.size] };
       for (const e of program.effect.emitters) {
         const r = e.renderer;
         if (r.texture && !textures.has(r.texture)) textures.set(r.texture, await loadTexture(scene, r.texture, "color").catch(() => null));
         if (r.mode === "mesh" && r.mesh) await loadMeshes(r.mesh).catch(() => undefined);
+        // A material asset draws instead of the texture (as in a World); one that can't be built falls back to the texture.
+        if (r.material && !materials.has(r.material)) materials.set(r.material, await buildPreviewMaterial(scene, r.material.replace(/^asset:/, ""), shared).catch(() => null));
       }
       const dot = createDotTexture(scene);
       const random = seededRandom(1);
-      const runner = withRandom(random, () => new ProgramRunner(program));
+      const runner = withRandom(random, () => new ProgramRunner(program, random));
       const sim = new EffectSimulation(withRandom(random, () => runner.effect()), { live: runner.live, random });
       const draws: Draw[] = sim.emitters.map((e) => {
-        const tex = e.renderer.texture ? textures.get(e.renderer.texture) : null;
-        return makeDraw(scene, `particles:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles)), tex ?? dot, !tex);
+        const r = e.renderer;
+        const material = (r.material ? materials.get(r.material) : null)?.material ?? null;
+        const tex = r.texture && !material ? textures.get(r.texture) : null;
+        const mesh = r.mode === "mesh" ? meshesIfLoaded(r.mesh)?.[0] : undefined;
+        return makeDraw(scene, `particles:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles)), tex ?? dot, !tex, { material, mesh });
       });
       const autoStart = program.autoStart;
       let time = 0;
-      const duration = program.effect.emitters[0]?.duration ?? 0;
       const restart = () => {
         time = 0;
         sim.restart();
@@ -567,7 +573,8 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       const mirror = () => draws.forEach(copyParticles);
       const step = (dt: number) => {
         time += dt;
-        runner.update(time, dt, duration > 0 ? time % duration : time);
+        shared.time += dt; // graph materials' Time node
+        runner.update(time, dt, playTimes(program, time));
         sim.step(dt, IDENTITY, 1, WHITE);
         // A finished one-shot effect starts again, so a hovered tile keeps showing something.
         if (live && sim.count === 0 && !sim.emitting && time > 0.5) restart();
@@ -591,6 +598,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
         matte: true,
         dispose: () => {
           for (const d of draws) d.dispose();
+          for (const m of materials.values()) m?.dispose();
           scene.dispose();
         },
       };

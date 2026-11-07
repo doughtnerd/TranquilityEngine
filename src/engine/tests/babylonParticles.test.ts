@@ -27,6 +27,7 @@ function fakeSystem(effect: ParticleEffect, over: Partial<ParticleSystem> = {}) 
     tint: EngineColor.white,
     emissionScale: 1,
     destroyOnFinish: false,
+    seed: 0,
     _commands: [] as ParticleCommand[],
     _state: { playing: false, paused: false, time: 0, count: 0, alive: false },
     node: { name: "Fx" },
@@ -95,6 +96,34 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     expect(b.size).toBe(1);
     expect(b.scale.x).toBeGreaterThan(0);
     expect(b.color.a).toBeGreaterThan(0);
+  });
+
+  describe("seed", () => {
+    const randomFx = (): ParticleEffect => ({ emitters: [{ ...defaultEmitter("E"), startLife: 10, startSpeed: 3, shape: { ...defaultShape(), type: "sphere", radius: 1 }, emission: { rateOverTime: 50, rateOverDistance: 0, bursts: [] } }] });
+    const snapshot = (p: BabylonParticles, c: ParticleSystem) => {
+      const sim = p.drawsOf(c)[0].emitter;
+      return sim.pool.slice(0, sim.count).map((q) => [q.wx, q.wy, q.wz].map((v) => v.toFixed(5)).join(","));
+    };
+    const play = (seed: number) => {
+      const p = make();
+      const c = fakeSystem(randomFx(), { seed } as Partial<ParticleSystem>);
+      frames(p, c, 30);
+      return { p, c, at: snapshot(p, c) };
+    };
+
+    it("plays the same particles for the same seed, and a restart repeats them", () => {
+      const a = play(12);
+      expect(a.at.length).toBeGreaterThan(10);
+      expect(play(12).at).toEqual(a.at);
+      expect(play(13).at).not.toEqual(a.at);
+      a.c._commands.push({ op: "restart" } as ParticleCommand);
+      frames(a.p, a.c, 30);
+      expect(snapshot(a.p, a.c)).toEqual(a.at);
+    });
+
+    it("plays differently every time with seed 0", () => {
+      expect(play(0).at).not.toEqual(play(0).at);
+    });
   });
 
   it("clamps bursts to the particle limit", () => {

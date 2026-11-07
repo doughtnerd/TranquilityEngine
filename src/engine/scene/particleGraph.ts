@@ -81,6 +81,13 @@ export interface SystemSettings {
   space: "local" | "world";
   /** The most particles alive at once. */
   capacity: number;
+  /**
+   * Optional random seed for this system alone (an integer). Absent or null: the system uses the
+   * ParticleSystem component's `seed`. The compiler carries it as `ParticleProgram.seeds`. The CPU
+   * (Babylon particle) backend draws every emitter from one generator seeded by the component's
+   * seed and ignores per-system seeds, so they only take effect on the GPU backend.
+   */
+  seed?: number | null;
 }
 
 export interface ParticleGraphSystem {
