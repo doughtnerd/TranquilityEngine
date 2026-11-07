@@ -21,15 +21,19 @@
  *   "specularIntensity": 1, "specularColor": "#ffffff", // physical only: 0 … 1
  *   "doubleSided": false,               // draw back faces too (default false)
  *   "fog": true,                        // take the World's Fog (default true; false for glows, ADR 0071)
- *   "properties": { "Tint": "#ff0000" } // shader graph materials: values for the graph's properties
+ *   "properties": { "Tint": "#ff0000" }, // shader graph and shader asset materials: values for the shader's properties
+ *   "keywords": { "RIM": true },         // shader graph and shader asset materials: keyword values (ADR 0106)
+ *   "instancing": "auto"                 // "auto" (default) | "thin" | "off": how renderers batch (ADR 0108)
  * }
  * ```
  *
- * A material whose shader is a shader graph draws with the graph; the fixed fields (colour,
+ * A material whose shader is a shader graph or a hand-written shader asset (`*.shader.json`, ADR 0106) draws with it; the fixed fields (colour,
  * texture, metalness…) don't apply to it, and `properties` override the graph's defaults by name.
  */
 import { Color } from "../core/math";
+import { isShaderAssetPath } from "./shaderAsset";
 import { isShaderGraphPath, type GraphValue } from "./shaderGraph";
+import { parseKeywordValues, type KeywordValue } from "./shaderKeywords";
 
 export const MATERIAL_FORMAT = "myco.material@1";
 export const MATERIAL_SUFFIX = ".material.json";
@@ -37,10 +41,10 @@ export const MATERIAL_SUFFIX = ".material.json";
 /** True for a material asset path. */
 export const isMaterialPath = (path: string): boolean => path.toLowerCase().endsWith(MATERIAL_SUFFIX);
 
-/** `lit`, `unlit`, or the path of a shader graph asset (`asset:shaders/water.shadergraph.json`). */
+/** `lit`, `unlit`, `physical`, or the path of a shader graph or shader asset (`asset:shaders/water.shadergraph.json`, `asset:shaders/rim.shader.json`). */
 export type MaterialShader = "lit" | "unlit" | "physical" | (string & {});
 
-/** The shader graph a material draws with, or null for the built-in shaders. */
+/** The shader graph or shader asset a material draws with, or null for the built-in shaders. */
 export const materialGraph = (settings: Pick<MaterialSettings, "shader">): string | null => (settings.shader !== "lit" && settings.shader !== "unlit" && settings.shader !== "physical" ? settings.shader : null);
 
 const graphOfRaw = new WeakMap<object, string | null>();
@@ -104,7 +108,13 @@ export interface MaterialSettings {
   fog: boolean;
   /** Shader graph materials: values for the graph's properties, by name (the rest use the graph's defaults). */
   properties: Record<string, GraphValue>;
+  /** Shader graph and shader asset materials: keyword values by name (the rest use their defaults, ADR 0106). */
+  keywords: Record<string, KeywordValue>;
+  /** How renderers drawing this material batch (ADR 0108): instanced (default), one thin-instance buffer, or one mesh each. */
+  instancing: MaterialInstancing;
 }
+
+export type MaterialInstancing = "auto" | "thin" | "off";
 
 export const defaultMaterialSettings = (): MaterialSettings => ({
   shader: "lit",
@@ -132,6 +142,8 @@ export const defaultMaterialSettings = (): MaterialSettings => ({
   doubleSided: false,
   fog: true,
   properties: {},
+  keywords: {},
+  instancing: "auto",
 });
 
 type PhysicalNumberKey = "clearcoat" | "clearcoatRoughness" | "sheen" | "sheenRoughness" | "transmission" | "thickness" | "ior" | "iridescence" | "iridescenceIOR" | "anisotropy" | "specularIntensity";
@@ -178,8 +190,8 @@ export function parseMaterial(raw: unknown, where = "material"): { settings: Mat
     else bad(key, "an asset path");
   };
   if (raw.shader !== undefined) {
-    if (raw.shader === "lit" || raw.shader === "unlit" || raw.shader === "physical" || (typeof raw.shader === "string" && isShaderGraphPath(raw.shader))) settings.shader = raw.shader;
-    else bad("shader", '"lit", "unlit", "physical" or a shader graph (*.shadergraph.json)');
+    if (raw.shader === "lit" || raw.shader === "unlit" || raw.shader === "physical" || (typeof raw.shader === "string" && (isShaderGraphPath(raw.shader) || isShaderAssetPath(raw.shader)))) settings.shader = raw.shader;
+    else bad("shader", '"lit", "unlit", "physical", a shader graph (*.shadergraph.json) or a shader asset (*.shader.json)');
   }
   if (raw.properties !== undefined) {
     if (isObject(raw.properties)) {
@@ -220,6 +232,11 @@ export function parseMaterial(raw: unknown, where = "material"): { settings: Mat
     if (typeof raw.doubleSided === "boolean") settings.doubleSided = raw.doubleSided;
     else bad("doubleSided", "true or false");
   }
+  settings.keywords = parseKeywordValues(raw.keywords, where, problems);
+  if (raw.instancing !== undefined) {
+    if (raw.instancing === "auto" || raw.instancing === "thin" || raw.instancing === "off") settings.instancing = raw.instancing;
+    else bad("instancing", '"auto", "thin" or "off"');
+  }
   return { settings, problems };
 }
 
@@ -246,6 +263,8 @@ export function materialJSON(settings: MaterialSettings): Record<string, unknown
   if (colorHex(settings.specularColor) !== colorHex(d.specularColor)) out.specularColor = colorHex(settings.specularColor);
   if (settings.doubleSided) out.doubleSided = true;
   if (!settings.fog) out.fog = false;
+  if (Object.keys(settings.keywords).length) out.keywords = { ...settings.keywords };
+  if (settings.instancing !== "auto") out.instancing = settings.instancing;
   if (Object.keys(settings.properties).length) out.properties = Object.fromEntries(Object.entries(settings.properties).map(([k, v]) => [k, Array.isArray(v) ? [...v] : v]));
   return out;
 }

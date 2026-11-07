@@ -8,7 +8,12 @@
  *
  * Reached through `src/engine/editor`, which loads this file only when the Babylon renderer is chosen.
  */
+import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
+import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
+import { PointLight } from "@babylonjs/core/Lights/pointLight.js";
+import { SpotLight } from "@babylonjs/core/Lights/spotLight.js";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
+import { expandParticleGraph, projectAssets } from "../../../scene/particleSubgraphs";
 import { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
@@ -28,13 +33,17 @@ import { Assets } from "../../../scene/Assets";
 import { materialGraph } from "../../../scene/material";
 import { compileParticleGraph } from "../../../scene/particleCompile";
 import { parseParticleGraph } from "../../../scene/particleGraphFormat";
-import { loadMeshes, meshesIfLoaded, type ModelMesh } from "../../../scene/models";
-import { ProgramRunner } from "../../particles/programRunner";
+import { loadMeshes, materialSlots, meshesIfLoaded, type ModelMesh, type SurfaceInfo } from "../../../scene/models";
+import { flattenSceneNodes } from "../../sceneFlatten";
+import { ProgramRunner, playTimes } from "../../particles/programRunner";
 import { EffectSimulation } from "../../particles/simulation";
 import { colorFromHex, frameView, moveOrbit, orbitOf, orbitPosition, previewPixels, seededRandom, type Bounds, type Orbit } from "../../thumbnailMath";
 import type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi } from "../../previewTypes";
 import type { GraphShared } from "../graphMaterial";
 import { environmentKind, ENV_SIZE } from "../lighting";
+import { SkyBaker, SkyDrawable } from "../sky/BabylonSky";
+import { cubemapReady, loadCubemap } from "../sky/cubemaps";
+import { parseSky } from "../../../sky/skyFormat";
 import { copyParticles, createDotTexture, makeDraw, type Draw } from "../particleDraw";
 import { meshOf, modelMaterial, pbr } from "../materials";
 import {
@@ -61,6 +70,35 @@ import {
 
 export { frameView, seededRandom } from "../../thumbnailMath";
 export type { ThumbnailKind, ThumbnailPreview } from "../../previewTypes";
+
+/**
+ * What draws each material slot (ADR 0089) of `sources` in a preview: the renderer's `materials[i]`,
+ * then its `material`, then the model's import settings, as the World renderer does; null leaves a
+ * slot to the model's own material.
+ */
+async function slotPicker(scene: Scene, shared: GraphShared, ref: string, sources: readonly ModelMesh[], materials: readonly string[], all: string): Promise<(surface: SurfaceInfo) => Material | null> {
+  const built = new Map<string, Promise<PreviewMaterial | null>>();
+  const build = (path: string) => {
+    const key = path.replace(/^asset:/, "");
+    let p = built.get(key);
+    if (!p) built.set(key, (p = buildPreviewMaterial(scene, key, shared).catch(() => null)));
+    return p;
+  };
+  let remap: Record<string, string> = {};
+  if (!ref.startsWith("builtin:")) {
+    try {
+      remap = Assets.importSettings(ref.replace(/^asset:/, "").split("#")[0]).materials;
+    } catch {
+      // no sidecar
+    }
+  }
+  const bySurface = new Map<SurfaceInfo, Material | null>();
+  for (const [i, slot] of materialSlots(sources).entries()) {
+    const path = materials[i] || all || remap[slot.surface.name] || "";
+    bySurface.set(slot.surface, path ? ((await build(path))?.material ?? null) : null);
+  }
+  return (surface) => bySurface.get(surface) ?? null;
+}
 
 /** Thumbnails are this many pixels square: about twice the Assets panel's largest tile. */
 export const THUMBNAIL_SIZE = 256;
@@ -240,6 +278,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   /** Whether the asset animates on hover: particle effects, and shader graphs (or their materials) that use Time. */
   canAnimate(kind: ThumbnailKind, path: string): boolean {
     if (kind === "particles") return true;
+    if (kind === "sky") return true; // clouds drift and stars twinkle
     if (kind === "shadergraph") return usesTime(readGraph(path));
     if (kind === "material") {
       const settings = readMaterial(path);
@@ -408,10 +447,14 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
           return await this.prepareMaterial(kind, path);
         case "environment":
           return await this.prepareEnvironment(path, live);
+        case "sky":
+          return await this.prepareSky(path, live);
         case "particles":
           return await this.prepareParticles(path, live);
         case "prefab":
           return await this.preparePrefab(path);
+        case "scene":
+          return await this.prepareScene(path);
       }
     } catch (err) {
       console.warn(`[myco] thumbnail: couldn't draw ${path}:`, err);
@@ -453,9 +496,10 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     const cache = new WeakMap<object, Material>();
     const fallback = defaultPreviewMaterial(scene);
     const box = new BoundsBox();
+    const pick = await slotPicker(scene, { time: 0, resolution: [this.size, this.size] }, path, sources, [], "");
     for (const src of sources) {
       const mesh = meshOf(scene, `model:${src.name}`, src);
-      mesh.material = modelMaterial(scene, cache, src, mesh) ?? fallback;
+      mesh.material = modelMaterial(scene, cache, src, mesh, pick) ?? fallback;
       box.add(src.data.positions, null);
     }
     await this.ready(scene, 3000); // the models' textures load on their own
@@ -494,15 +538,17 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     try {
       const url = Assets.url(path);
       const kind = environmentKind(path);
-      if (!kind) throw new Error(`"${path}" isn't an .hdr, .exr, .png or .jpg file.`);
+      if (!kind || kind === "sky") throw new Error(`"${path}" isn't an .hdr, .exr, .png, .jpg, .env, .dds or .cubemap.json file.`);
       const fail = (message?: string) => console.warn(`[myco] thumbnail: couldn't load environment "${path}": ${message ?? "unknown error"}`);
       const map: BaseTexture =
-        kind === "hdr"
+        kind === "cube" || kind === "faces"
+          ? loadCubemap(path, kind, scene, fail)
+          : kind === "hdr"
           ? new HDRCubeTexture(url, scene, ENV_SIZE, false, true, false, true, null, fail)
           : kind === "exr"
             ? new EXRCubeTexture(url, scene, ENV_SIZE, false, true, false, true, null, fail)
             : new EquiRectangularCubeTexture(url, scene, ENV_SIZE, false, true, null, fail);
-      if (!(await useWhenReady(scene, map, 1, 8000))) throw new Error("the map didn't load.");
+      if (!(await waitFor(() => cubemapReady(map), 8000)) || !(await useWhenReady(scene, map, 1, 8000))) throw new Error("the map didn't load.");
       const chrome = pbr("preview.chrome", scene);
       chrome.albedoColor = new Color3(1, 1, 1);
       chrome.metallic = 1;
@@ -532,29 +578,89 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     }
   }
 
+  /**
+   * A procedural sky (ADR 0112). Stills (tiles) draw the sky alone, quickly; live previews add a
+   * chrome sphere reflecting the sky's bake, and animate the clouds and stars.
+   */
+  private async prepareSky(path: string, live: boolean): Promise<Prepared> {
+    const scene = createPreviewScene(this.engine);
+    const sky = new SkyDrawable(scene);
+    const baker = new SkyBaker(scene);
+    const dispose = () => {
+      baker.dispose();
+      sky.dispose();
+      scene.dispose();
+    };
+    try {
+      const { settings } = parseSky(Assets.json(path), path);
+      const frame = { settings, time: settings.sun.timeOfDay, seconds: 0, rotation: 0, intensity: 1, fog: null, baking: false };
+      sky.update({ ...frame, baking: true });
+      const uniforms = sky.uniforms.slice();
+      sky.update(frame);
+      if (live) {
+        if (await waitFor(() => baker.ready(), 3000)) {
+          const bake = baker.bake(64, uniforms, (set) => sky.bindTextures(set));
+          if (bake && (await waitFor(() => bake.filtered, 3000))) {
+            scene.environmentTexture = bake.texture;
+            scene.environmentIntensity = 1;
+          }
+        }
+        const chrome = pbr("preview.chrome", scene);
+        chrome.albedoColor = new Color3(1, 1, 1);
+        chrome.metallic = 1;
+        chrome.roughness = 0.1;
+        meshOf(scene, "preview.sphere", meshesIfLoaded("builtin:sphere")![0]).material = chrome;
+      }
+      const view = this.camera(scene, UNIT, DIRECTION_FRONT, UNIT);
+      scene.onBeforeRenderObservable.add(() => sky.fit(scene.activeCamera as TargetCamera)); // the sky stays centred as the view orbits
+      await this.ready(scene, 5000);
+      let seconds = 0;
+      return {
+        scene,
+        ...view,
+        step: live
+          ? (dt) => {
+              seconds += dt;
+              sky.update({ ...frame, seconds });
+            }
+          : undefined,
+        dispose,
+      };
+    } catch (err) {
+      dispose();
+      throw err;
+    }
+  }
+
   private async prepareParticles(path: string, live: boolean): Promise<Prepared> {
-    const program = compileParticleGraph(parseParticleGraph(Assets.json(path), path).graph);
+    const program = compileParticleGraph(expandParticleGraph(parseParticleGraph(Assets.json(path), path).graph, projectAssets).graph);
     const scene = createPreviewScene(this.engine);
     try {
       addPreviewLights(scene, LIGHT_AMBIENT, LIGHT_SUN);
       // Everything the emitters draw with, loaded first, so the build doesn't wait on a texture.
       const textures = new Map<string, Texture | null>();
+      const materials = new Map<string, PreviewMaterial | null>();
+      const shared: GraphShared = { time: 0, resolution: [this.size, this.size] };
       for (const e of program.effect.emitters) {
         const r = e.renderer;
         if (r.texture && !textures.has(r.texture)) textures.set(r.texture, await loadTexture(scene, r.texture, "color").catch(() => null));
         if (r.mode === "mesh" && r.mesh) await loadMeshes(r.mesh).catch(() => undefined);
+        // A material asset draws instead of the texture (as in a World); one that can't be built falls back to the texture.
+        if (r.material && !materials.has(r.material)) materials.set(r.material, await buildPreviewMaterial(scene, r.material.replace(/^asset:/, ""), shared).catch(() => null));
       }
       const dot = createDotTexture(scene);
       const random = seededRandom(1);
-      const runner = withRandom(random, () => new ProgramRunner(program));
+      const runner = withRandom(random, () => new ProgramRunner(program, random));
       const sim = new EffectSimulation(withRandom(random, () => runner.effect()), { live: runner.live, random });
       const draws: Draw[] = sim.emitters.map((e) => {
-        const tex = e.renderer.texture ? textures.get(e.renderer.texture) : null;
-        return makeDraw(scene, `particles:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles)), tex ?? dot, !tex);
+        const r = e.renderer;
+        const material = (r.material ? materials.get(r.material) : null)?.material ?? null;
+        const tex = r.texture && !material ? textures.get(r.texture) : null;
+        const mesh = r.mode === "mesh" ? meshesIfLoaded(r.mesh)?.[0] : undefined;
+        return makeDraw(scene, `particles:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles)), tex ?? dot, !tex, { material, mesh });
       });
       const autoStart = program.autoStart;
       let time = 0;
-      const duration = program.effect.emitters[0]?.duration ?? 0;
       const restart = () => {
         time = 0;
         sim.restart();
@@ -567,7 +673,8 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       const mirror = () => draws.forEach(copyParticles);
       const step = (dt: number) => {
         time += dt;
-        runner.update(time, dt, duration > 0 ? time % duration : time);
+        shared.time += dt; // graph materials' Time node
+        runner.update(time, dt, playTimes(program, time));
         sim.step(dt, IDENTITY, 1, WHITE);
         // A finished one-shot effect starts again, so a hovered tile keeps showing something.
         if (live && sim.count === 0 && !sim.emitting && time > 0.5) restart();
@@ -591,6 +698,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
         matte: true,
         dispose: () => {
           for (const d of draws) d.dispose();
+          for (const m of materials.values()) m?.dispose();
           scene.dispose();
         },
       };
@@ -601,8 +709,23 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   }
 
   private async preparePrefab(path: string): Promise<Prepared> {
-    const raw = Assets.json(path) as { nodes?: PrefabNode[] };
-    const nodes = Array.isArray(raw?.nodes) ? raw.nodes : [];
+    return this.prepareNodes(path, false);
+  }
+
+  /** A scene seen from its main camera, with its own lights; framed like a prefab when it has no camera (ADR 0117). */
+  private async prepareScene(path: string): Promise<Prepared> {
+    return this.prepareNodes(path, true);
+  }
+
+  /** The meshes and sprites of a prefab's or scene's nodes (instances expanded), drawn as a prefab or from the scene's camera. */
+  private async prepareNodes(path: string, asScene: boolean): Promise<Prepared> {
+    const nodes: PrefabNode[] = flattenSceneNodes(path, (p) => {
+      try {
+        return Assets.json(p.replace(/^asset:/, ""));
+      } catch {
+        return undefined;
+      }
+    });
     const byId = new Map(nodes.map((n) => [n.id, n]));
     const worlds = new Map<string, number[]>();
     const worldOf = (n: PrefabNode, depth = 0): number[] => {
@@ -627,11 +750,11 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
           if (c.type === "engine.MeshRenderer") {
             const ref = typeof data.mesh === "string" ? data.mesh : "builtin:cube";
             const parts: readonly ModelMesh[] = await loadMeshes(ref).catch(() => []);
-            let built: PreviewMaterial | null = null;
-            if (typeof data.material === "string" && data.material) built = await buildPreviewMaterial(scene, data.material.replace(/^asset:/, ""), shared).catch(() => null);
+            const list = Array.isArray(data.materials) ? data.materials.map((m) => (typeof m === "string" ? m : "")) : [];
+            const pick = await slotPicker(scene, shared, ref, parts, list, typeof data.material === "string" ? data.material : "");
             for (const part of parts) {
               const mesh = meshOf(scene, `prefab:${n.id}:${part.name}`, part);
-              mesh.material = built?.material ?? modelMaterial(scene, cache, part, mesh) ?? defaultPreviewMaterial(scene);
+              mesh.material = modelMaterial(scene, cache, part, mesh, pick) ?? defaultPreviewMaterial(scene);
               const world = worldOf(n);
               mesh.freezeWorldMatrix(Matrix.FromArray(world));
               box.add(part.data.positions, world);
@@ -651,13 +774,90 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
         }
       }
       if (!meshes && !sprites) throw new Error("it has nothing to draw.");
+      const view = asScene ? this.sceneView(scene, nodes, worldOf) : null;
       await this.ready(scene, 3000);
-      // Sprites only: a 2D prefab, seen from the front.
-      return { scene, ...this.camera(scene, box.bounds(), meshes ? DIRECTION_3D : DIRECTION_FRONT, UNIT), dispose: () => scene.dispose() };
+      // A scene is seen from its camera; otherwise (and for prefabs) from three-quarters above, or the front for sprites only.
+      return { scene, ...(view ?? this.camera(scene, box.bounds(), meshes ? DIRECTION_3D : DIRECTION_FRONT, UNIT)), dispose: () => scene.dispose() };
     } catch (err) {
       scene.dispose();
       throw err;
     }
+  }
+
+  /**
+   * Put the scene's own lights in `scene` (replacing the default ones, if it has any) and aim a camera
+   * like its main one: the lowest depth, the first in the file on a tie. Null when it has no camera.
+   */
+  private sceneView(scene: Scene, nodes: readonly PrefabNode[], worldOf: (n: PrefabNode) => number[]): { camera: TargetCamera; target: [number, number, number] } | null {
+    const lights = nodes.flatMap((n) => (n.components ?? []).filter((c) => c.type === "engine.Light").map((c) => ({ n, data: (c.data ?? {}) as Record<string, unknown> })));
+    if (lights.length) {
+      for (const l of [...scene.lights]) l.dispose();
+      for (const { n, data } of lights) {
+        const m = worldOf(n);
+        const type = typeof data.type === "string" ? data.type : "directional";
+        const rgb = colorOfData(data.color) ?? [1, 1, 1];
+        const intensity = typeof data.intensity === "number" ? Math.max(0, data.intensity) : 1;
+        const range = typeof data.range === "number" && data.range > 0 ? data.range : Number.MAX_VALUE;
+        const color = new Color3(rgb[0], rgb[1], rgb[2]).toLinearSpace();
+        const position = new Vector3(m[12], m[13], m[14]);
+        const direction = new Vector3(-m[8], -m[9], -m[10]).normalize(); // -Z, where cameras look too
+        let light;
+        if (type === "ambient") {
+          const h = new HemisphericLight("scene.ambient", new Vector3(0, 1, 0), scene);
+          h.groundColor = color.clone();
+          h.specular = Color3.Black();
+          light = h;
+        } else if (type === "point") {
+          const pl = new PointLight("scene.point", position, scene);
+          pl.range = range;
+          light = pl;
+        } else if (type === "spot") {
+          const angle = (Math.min(Math.max(typeof data.spotAngle === "number" ? data.spotAngle : 30, 1), 179) * Math.PI) / 180;
+          const sl = new SpotLight("scene.spot", position, direction, angle, 2, scene);
+          sl.range = range;
+          light = sl;
+        } else light = new DirectionalLight("scene.sun", direction, scene);
+        light.diffuse = color;
+        if (!(light instanceof HemisphericLight)) light.specular = color;
+        light.intensity = intensity;
+      }
+    }
+    let best: { n: PrefabNode; data: Record<string, unknown>; depth: number } | null = null;
+    for (const n of nodes) {
+      for (const c of n.components ?? []) {
+        if (c.type !== "engine.Camera") continue;
+        const data = (c.data ?? {}) as Record<string, unknown>;
+        const depth = typeof data.depth === "number" ? data.depth : 0;
+        if (!best || depth < best.depth) best = { n, data, depth };
+      }
+    }
+    if (!best) return null;
+    const { n, data } = best;
+    const m = worldOf(n);
+    const eye: [number, number, number] = [m[12], m[13], m[14]];
+    const target: [number, number, number] = [eye[0] - m[8] * 10, eye[1] - m[9] * 10, eye[2] - m[10] * 10];
+    const camera = new TargetCamera("scene.camera", Vector3.Zero(), scene, false);
+    const near = typeof data.near === "number" && data.near > 0 ? data.near : 0.1;
+    const far = typeof data.far === "number" && data.far > near ? data.far : 1000;
+    camera.minZ = near;
+    camera.maxZ = far;
+    if (data.projection === "perspective") {
+      camera.fov = (((typeof data.fieldOfView === "number" ? data.fieldOfView : 60) as number) * Math.PI) / 180;
+      camera.fovMode = Camera.FOVMODE_VERTICAL_FIXED;
+    } else {
+      // The thumbnail is square: show the camera's full height, as wide.
+      const half = typeof data.orthographicSize === "number" && data.orthographicSize > 0 ? data.orthographicSize : 5;
+      camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+      camera.orthoLeft = -half;
+      camera.orthoRight = half;
+      camera.orthoTop = half;
+      camera.orthoBottom = -half;
+    }
+    aimCamera(camera, eye, target);
+    scene.activeCamera = camera;
+    const bg = colorOfData(data.backgroundColor);
+    if (bg) scene.clearColor = new Color4(bg[0], bg[1], bg[2], 1).toLinearSpace();
+    return { camera, target };
   }
 
   /** The studio room, once per renderer: ready for every scene, or not at all (thumbnails then have no reflections). */
@@ -682,6 +882,16 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
 }
 
 // --- helpers ------------------------------------------------------------------------------------------
+
+/** A colour field's `[r, g, b(, a)]` (0 to 1) or `#rrggbb`, as 0 to 1 sRGB components; null when it is neither. */
+function colorOfData(v: unknown): [number, number, number] | null {
+  if (Array.isArray(v) && v.length >= 3 && v.every((x) => typeof x === "number")) return [v[0], v[1], v[2]];
+  if (typeof v === "string") {
+    const hex = colorFromHex(v);
+    return [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+  }
+  return null;
+}
 
 interface PrefabNode {
   id: string;
@@ -788,4 +998,17 @@ function multiply(a: number[], b: number[]): number[] {
   const out = new Array<number>(16).fill(0);
   for (let col = 0; col < 4; col++) for (let row = 0; row < 4; row++) for (let k = 0; k < 4; k++) out[col * 4 + row] += a[k * 4 + row] * b[col * 4 + k];
   return out;
+}
+
+/** Resolve true once `done()` holds (polled each frame), false after `ms`. */
+function waitFor(done: () => boolean, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const poll = () => {
+      if (done()) return resolve(true);
+      if (Date.now() - started > ms) return resolve(false);
+      setTimeout(poll, 16);
+    };
+    poll();
+  });
 }

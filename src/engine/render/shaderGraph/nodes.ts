@@ -1,5 +1,5 @@
 /**
- * The shader graph node library (ADR 0047): each node type's ports, settings and the GLSL or WGSL it
+ * The shader graph node library (ADR 0047): each node type's ports, settings and the WGSL it
  * emits. Shared by the compiler and the editor's Shader Graph panel, so both agree on every port.
  */
 import { Assets, normalizeAssetPath } from "../../scene/Assets";
@@ -7,13 +7,13 @@ import type { GraphNode, GraphProperty, GraphPropertyType, InputValue, ShaderGra
 import { OUTPUT_NODE_TYPE, parseShaderGraph } from "../../scene/shaderGraph";
 import type { ShaderLevel } from "../../core/graphics";
 
-/** A value's GLSL type; `texture` is a `sampler2D` uniform. */
+/** A value's type in the shader (`vec3` is WGSL's `vec3f`); `texture` is a texture and its sampler. */
 export type ValueType = "float" | "vec2" | "vec3" | "vec4" | "texture";
 /** `dynamic` ports take the widest vector connected to the node's dynamic inputs (Unity's "Dynamic Vector"). */
 export type PortType = ValueType | "dynamic";
 
 /** Values an unconnected input can read instead of an inline value. */
-export type Builtin = "uv" | "objectPosition" | "worldPosition" | "viewPosition" | "objectNormal" | "worldNormal" | "viewNormal" | "viewDirection";
+export type Builtin = "uv" | "objectPosition" | "worldPosition" | "viewPosition" | "objectNormal" | "worldNormal" | "viewNormal" | "viewDirection" | "vertexColor";
 
 export interface PortDef {
   id: string;
@@ -40,7 +40,7 @@ export interface PortDef {
 export interface SettingDef {
   id: string;
   label: string;
-  kind: "select" | "text" | "color" | "texture" | "property" | "subgraph";
+  kind: "select" | "text" | "color" | "texture" | "property" | "subgraph" | "keyword";
   options?: readonly string[];
   default: string;
 }
@@ -68,6 +68,8 @@ export interface EmitContext {
   texture(path: string): string;
   /** The uniform of a graph property, or null if there's none of that name. */
   property(name: string): { uniform: string; type: ValueType } | null;
+  /** A keyword's constant (`bool`, or a `u32` value index for an enum) and its values (null: on/off), or null if the graph has none of that name (ADR 0106). */
+  keyword(name: string): { constant: string; values: string[] | null } | null;
   /** A `#rrggbb[aa]` colour (sRGB) as a linear `vec4` literal. */
   color(hex: string): string;
   /** Record how a texture uniform is sampled: as a colour (sRGB-decoded) or linear data (normal maps). */
@@ -338,6 +340,18 @@ export const NODES: readonly NodeDef[] = [
   },
   { type: "uv", title: "UV", category: "Input", keywords: "texcoord coordinates", inputs: [], outputs: [out("vec2")], emit: (c) => ({ out: c.builtin("uv") }) },
   {
+    type: "particleColor",
+    title: "Particle Color",
+    category: "Input",
+    keywords: "vertex color instance particle tint fade",
+    inputs: [],
+    outputs: [out("vec4", "rgba", "RGBA"), out("vec3", "rgb", "RGB"), out("float", "a", "A")],
+    emit: (c) => {
+      const v = c.builtin("vertexColor");
+      return { rgba: v, rgb: `${v}.rgb`, a: `${v}.a` };
+    },
+  },
+  {
     type: "position",
     title: "Position",
     category: "Input",
@@ -425,6 +439,32 @@ export const NODES: readonly NodeDef[] = [
         return { out: "0.0" };
       }
       return { out: p.uniform };
+    },
+  },
+  {
+    type: "keyword",
+    title: "Keyword",
+    category: "Input",
+    keywords: "variant define switch feature toggle multi_compile shader_feature ifdef",
+    inputs: [dyn("on", "On", 1), dyn("off", "Off", 0)],
+    outputs: [out("dynamic")],
+    settings: [{ id: "keyword", label: "Keyword", kind: "keyword", default: "" }],
+    // An enum keyword has an input per value; a boolean one On and Off (ADR 0106).
+    ports: (node, graph) => {
+      const k = graph.keywords?.find((q) => q.name === node.settings?.keyword);
+      return { inputs: k?.values ? k.values.map((v, i) => dyn(v, v, i)) : [dyn("on", "On", 1), dyn("off", "Off", 0)], outputs: [out("dynamic")] };
+    },
+    emit: (c) => {
+      const k = c.keyword(c.settings.keyword ?? "");
+      if (!k) {
+        c.problem(c.settings.keyword ? `there's no keyword "${c.settings.keyword}"` : "pick a keyword");
+        return { out: c.in.off ?? Object.values(c.in)[0] ?? "0.0" };
+      }
+      // The constant is fixed per variant, so the shader compiler keeps only the branch taken.
+      if (!k.values) return { out: `select(${c.in.off}, ${c.in.on}, ${k.constant})` };
+      let e = c.in[k.values[0]];
+      k.values.slice(1).forEach((v, i) => (e = `select(${e}, ${c.in[v]}, ${k.constant} == ${i + 1}u)`));
+      return { out: e };
     },
   },
   {

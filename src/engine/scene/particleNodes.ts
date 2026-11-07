@@ -32,7 +32,7 @@ export interface NodeSettingDef {
   choices?: readonly string[];
 }
 
-export type NodeCategory = "Value" | "Time" | "Math" | "Trigonometry" | "Sampling" | "Vector" | "Colour" | "Property" | "Event";
+export type NodeCategory = "Value" | "Particle" | "Sub-graph" | "Time" | "Math" | "Trigonometry" | "Sampling" | "Vector" | "Colour" | "Property" | "Event";
 
 export interface NodeDef {
   type: string;
@@ -100,6 +100,26 @@ add("Value", "gradient", "Gradient", "A colour gradient over 0-1. Feeds an over-
 add("Value", "randomGradients", "Random Between Gradients", "A colour between two gradients, chosen per particle.", "particle", [], [outPort("gradient")], [
   { name: "gradientA", label: "Gradient A", kind: "gradient", default: DEFAULT_GRADIENT },
   { name: "gradientB", label: "Gradient B", kind: "gradient", default: DEFAULT_GRADIENT },
+]);
+
+// Particle (ADR 0095): a particle's own attributes, per-particle sources only kernel backends run (ADR 0094).
+add("Particle", "particle.age", "Age", "Seconds since the particle was born.", "particle", [], [outPort("number")]);
+add("Particle", "particle.lifetime", "Lifetime", "How many seconds the particle lives.", "particle", [], [outPort("number")]);
+add("Particle", "particle.ageFraction", "Age over Lifetime", "The particle's age as a fraction of its lifetime: 0 at birth, 1 when it dies.", "particle", [], [outPort("number")]);
+add("Particle", "particle.position", "Particle Position", "The particle's position, in the system's space.", "particle", [], [outPort("vector3")]);
+add("Particle", "particle.velocity", "Particle Velocity", "The particle's velocity, in the system's space (m/s).", "particle", [], [outPort("vector3")]);
+add("Particle", "particle.speed", "Particle Speed", "How fast the particle moves (m/s).", "particle", [], [outPort("number")]);
+add("Particle", "particle.size", "Particle Size", "The particle's start size (m).", "particle", [], [outPort("number")]);
+add("Particle", "particle.color", "Particle Colour", "The particle's start colour.", "particle", [], [outPort("color")]);
+add("Particle", "particle.index", "Particle Index", "The particle's slot in the system, 0 to capacity - 1.", "particle", [], [outPort("number")]);
+add("Particle", "particle.random", "Particle Random", "A random number in 0-1 that stays the same for the particle's whole life. Different Seeds give different numbers.", "particle", [], [outPort("number")], [
+  { name: "seed", label: "Seed", kind: "number", default: 0 },
+]);
+
+// Sub-graph (ADR 0095): a particle sub-graph asset used as one node. Its ports come from the asset;
+// it's inlined before compiling (particleSubgraphs.ts), so it has no evaluator of its own.
+add("Sub-graph", "subgraph", "Sub-graph", "A reusable group of nodes from a particle sub-graph asset (*.particlesubgraph.json).", "uniform", [], [], [
+  { name: "asset", label: "Asset", kind: "string", default: "" },
 ]);
 
 // Time
@@ -182,14 +202,16 @@ const VECTOR_GENERIC = new Set(["length", "normalize"]);
 
 // --- graph index -----------------------------------------------------------------------------------
 
-interface Index {
+/** @internal */
+export interface Index {
   graph: ParticleGraph;
   nodes: Map<string, GraphNode>;
   /** Wire target ("node.input") to its source ("node.port"). */
   wires: Map<string, string>;
 }
 
-function indexOf(graph: ParticleGraph): Index {
+/** @internal The kernel compiler (ADR 0094) shares the graph index. */
+export function indexOf(graph: ParticleGraph): Index {
   const nodes = new Map<string, GraphNode>();
   for (const n of graph.nodes) nodes.set(n.id, n);
   const wires = new Map<string, string>();
@@ -198,25 +220,25 @@ function indexOf(graph: ParticleGraph): Index {
 }
 
 /** Splits `"<id>.<port>"` at the last dot. */
-function splitRef(ref: string): [string, string] {
+export function splitRef(ref: string): [string, string] {
   const i = ref.lastIndexOf(".");
   return i < 0 ? [ref, ""] : [ref.slice(0, i), ref.slice(i + 1)];
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
 
-function setting(node: GraphNode, def: NodeDef, name: string): unknown {
+export function setting(node: GraphNode, def: NodeDef, name: string): unknown {
   const v = node.settings?.[name];
   return v !== undefined ? v : def.settings?.find((s) => s.name === name)?.default;
 }
 
-function curveSetting(node: GraphNode, def: NodeDef, name: string): CurveKey[] {
+export function curveSetting(node: GraphNode, def: NodeDef, name: string): CurveKey[] {
   const v = setting(node, def, name);
   const ok = Array.isArray(v) && v.every((k) => Array.isArray(k) && typeof k[0] === "number" && typeof k[1] === "number");
   return ok ? (v as CurveKey[]) : DEFAULT_KEYS;
 }
 
-function gradientSetting(node: GraphNode, def: NodeDef, name: string): ParticleGradient {
+export function gradientSetting(node: GraphNode, def: NodeDef, name: string): ParticleGradient {
   const v = setting(node, def, name);
   if (isObject(v) && Array.isArray(v.colors)) return { colors: v.colors as ParticleGradient["colors"], alphas: Array.isArray(v.alphas) ? (v.alphas as ParticleGradient["alphas"]) : [] };
   // The ADR's example keeps a gradient's keys flat in the settings.
@@ -330,7 +352,7 @@ export function whyNotConnect(graph: ParticleGraph, from: string, to: string, to
 // --- rates -----------------------------------------------------------------------------------------
 
 /** A curve or gradient definition used as an operator's input is uniform: it's the shape, not a per-particle draw. */
-const isDefinitionNode = (type: string) => type === "curve" || type === "gradient";
+export const isDefinitionNode = (type: string) => type === "curve" || type === "gradient";
 
 function inputRate(ix: Index, node: GraphNode, def: NodeDef, input: PortDef, memo: Map<string, Rate>, visiting: Set<string>): Rate {
   const wired = ix.wires.get(`${node.id}.${input.name}`);
@@ -526,6 +548,14 @@ const FACTORIES: Record<string, Factory> = {
     return [x[0] * y[0], x[1] * y[1], x[2] * y[2], x[3] * y[3]];
   }),
 
+  ...Object.fromEntries(
+    ["age", "lifetime", "ageFraction", "position", "velocity", "speed", "size", "color", "index", "random"].map((a): [string, Factory] => [
+      `particle.${a}`,
+      (n, d) => {
+        throw new Error(`${d.label} node "${n.id}" reads each particle; that needs a kernel (GPU) backend, so the system must use simulation "auto" or "gpu".`);
+      },
+    ]),
+  ),
   property: (n, d, graph) => {
     const name = String(setting(n, d, "name") ?? "");
     const prop = graph.properties.find((p) => p.name === name);
@@ -550,7 +580,7 @@ function propertyValue(raw: GraphInputValue, type: string): NodeValue {
 }
 
 /** The constant a node's unwired input takes: its inline value, else the port default. */
-function inlineValue(node: GraphNode, input: PortDef): NodeValue {
+export function inlineValue(node: GraphNode, input: PortDef): NodeValue {
   const raw = node.inputs?.[input.name] ?? input.default;
   if (raw === undefined) throw new Error(`Node "${node.id}" has no value for input "${input.name}".`);
   if (typeof raw === "string") {

@@ -18,6 +18,7 @@
  * the same shape without `target`, `surface` and `doubleSided`, plus `"outputs"` (the output node's
  * ports). Optional `groups` and `notes` only organise the editor's canvas.
  */
+import { keywordsJSON, parseKeywords, type ShaderKeyword } from "./shaderKeywords";
 
 export const SHADER_GRAPH_FORMAT = "myco.shadergraph@1";
 export const SHADER_GRAPH_SUFFIX = ".shadergraph.json";
@@ -47,7 +48,7 @@ export interface GraphProperty {
 /** An unconnected input's value: a number, or 2–4 numbers. */
 export type InputValue = number | number[];
 
-/** A port of a custom function or a sub-graph output: a GLSL name and a value type. */
+/** A port of a custom function or a sub-graph output: a shader identifier and a value type. */
 export interface FunctionPort {
   name: string;
   type: "float" | "vec2" | "vec3" | "vec4" | "texture";
@@ -60,6 +61,12 @@ export interface CustomFunction {
   outputs: FunctionPort[];
   /** The function in WGSL: the statements of `fn name(inputs) -> outputs`, where each output is a `var` already declared. Without it the node's outputs read their defaults. */
   wgsl?: string;
+  /**
+   * An `asset:` path to a `.wgsl` file holding the body (the same contract as `wgsl`: the statements
+   * of the function, outputs already declared). It wins over `wgsl`, and the renderer rebuilds the
+   * material when the file changes.
+   */
+  file?: string;
   /**
    * The GLSL body older files have (`void name(inputs, out outputs) { body }`). Nothing compiles it
    * since the three.js backend went (ADR 0081); it's kept, so the code isn't lost, until someone
@@ -92,11 +99,27 @@ export interface GraphNode {
   inputs?: Record<string, InputValue>;
   /** The node's options (property name, swizzle mask, space, texture, colour…). */
   settings?: Record<string, string>;
-  /** Custom Function nodes: their ports and GLSL. */
+  /** Custom Function nodes: their ports and code (WGSL; older files' GLSL `body` is kept but not compiled). */
   function?: CustomFunction;
   /** False: the node's preview is collapsed in the editor. */
   preview?: false;
+  /** The shape this node's preview is drawn on; the graph's `previewShape` when unset (ADR 0117). */
+  previewShape?: NodePreviewShape;
 }
+
+/** The shapes a node's preview can be drawn on: a flat quad (the default), a sphere or a cube (ADR 0117). */
+export type NodePreviewShape = "quad" | "sphere" | "cube";
+export const NODE_PREVIEW_SHAPES: readonly NodePreviewShape[] = ["quad", "sphere", "cube"];
+const isPreviewShape = (v: unknown): v is NodePreviewShape => typeof v === "string" && (NODE_PREVIEW_SHAPES as readonly string[]).includes(v);
+
+/** The meshes the main preview can draw (ADR 0117). */
+export type GraphPreviewMesh = "sphere" | "cube" | "capsule" | "plane";
+export const GRAPH_PREVIEW_MESHES: readonly GraphPreviewMesh[] = ["sphere", "cube", "capsule", "plane"];
+const isPreviewMesh = (v: unknown): v is GraphPreviewMesh => typeof v === "string" && (GRAPH_PREVIEW_MESHES as readonly string[]).includes(v);
+
+
+/** The shape a node's preview is drawn on: its own, else the graph's default, else a quad. */
+export const nodePreviewShape = (graph: ShaderGraph, node: GraphNode): NodePreviewShape => node.previewShape ?? graph.previewShape ?? "quad";
 
 /** A connection from an output port to an input port, each written `nodeId.portId`. */
 export interface GraphEdge {
@@ -109,12 +132,18 @@ export interface ShaderGraph {
   surface: ShaderGraphSurface;
   doubleSided: boolean;
   properties: GraphProperty[];
+  /** Keywords Keyword nodes switch on; a material picks their values, each combination its own variant (ADR 0106). */
+  keywords?: ShaderKeyword[];
   nodes: GraphNode[];
   edges: GraphEdge[];
   /** Set for a sub-graph: its outputs (the output node's ports). */
   subgraph?: { outputs: FunctionPort[] };
   groups?: GraphGroup[];
   notes?: GraphNote[];
+  /** Editor metadata: the default shape for node previews (absent: quads). */
+  previewShape?: NodePreviewShape;
+  /** Editor metadata: the mesh the main preview draws (absent: sphere), ADR 0117. */
+  previewMesh?: GraphPreviewMesh;
 }
 
 export const OUTPUT_NODE_TYPE = "output";
@@ -135,7 +164,7 @@ export const defaultShaderSubGraph = (): ShaderGraph => ({ ...defaultShaderGraph
 const FUNCTION_TYPES = ["float", "vec2", "vec3", "vec4", "texture"] as const;
 const IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** True for a name usable as a port of a custom function or sub-graph output (a GLSL identifier, `__`-free). */
+/** True for a name usable as a port of a custom function or sub-graph output (a shader identifier, `__`-free). */
 export const isPortName = (name: string): boolean => IDENT.test(name) && !name.includes("__") && !name.startsWith("gl_");
 
 function parsePorts(raw: unknown, where: string, problems: string[], allowTexture: boolean): FunctionPort[] {
@@ -143,7 +172,7 @@ function parsePorts(raw: unknown, where: string, problems: string[], allowTextur
   if (!Array.isArray(raw)) return out;
   for (const p of raw) {
     if (!isObject(p) || typeof p.name !== "string" || !isPortName(p.name) || !FUNCTION_TYPES.includes(p.type as FunctionPort["type"]) || (!allowTexture && p.type === "texture")) {
-      problems.push(`${where}: skipped a port without a GLSL name and a type.`);
+      problems.push(`${where}: skipped a port without a shader name and a type.`);
       continue;
     }
     if (out.some((q) => q.name === p.name)) {
@@ -198,6 +227,35 @@ export function checkPropertyValue(type: GraphPropertyType, value: unknown): Gra
   return Array.isArray(value) && value.length === n && value.every(isNum) ? [...value] : null;
 }
 
+
+/** A `properties` list (graphs, sub-graphs and shader assets, ADR 0047 and 0106), leniently: bad entries are skipped and listed in `problems`. */
+export function parseGraphProperties(raw: unknown, where: string, problems: string[]): GraphProperty[] {
+  const out: GraphProperty[] = [];
+  if (raw === undefined) return out;
+  if (!Array.isArray(raw)) {
+    problems.push(`${where}: "properties" should be a list.`);
+    return out;
+  }
+  for (const p of raw) {
+    if (!isObject(p) || typeof p.name !== "string" || !p.name.trim() || !GRAPH_PROPERTY_TYPES.includes(p.type as GraphPropertyType)) {
+      problems.push(`${where}: skipped a property without a name and a type (${GRAPH_PROPERTY_TYPES.join(", ")}).`);
+      continue;
+    }
+    if (out.some((q) => q.name === p.name)) {
+      problems.push(`${where}: skipped a second property named "${p.name}".`);
+      continue;
+    }
+    const type = p.type as GraphPropertyType;
+    let value = p.value === undefined ? defaultPropertyValue(type) : checkPropertyValue(type, p.value);
+    if (value === null) {
+      problems.push(`${where}: property "${p.name}" has a bad value for a ${type}; using the default.`);
+      value = defaultPropertyValue(type);
+    }
+    out.push({ name: p.name, type, value });
+  }
+  return out;
+}
+
 /**
  * Read a shader graph file's parsed JSON. Anything malformed is skipped and listed in `problems`;
  * throws only for something that isn't a shader graph of this format. A graph without an output
@@ -208,7 +266,7 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
   if (raw.format !== SHADER_GRAPH_FORMAT && raw.format !== SHADER_SUBGRAPH_FORMAT) throw new Error(`${where}: unknown format ${JSON.stringify(raw.format)}; expected "${SHADER_GRAPH_FORMAT}".`);
   const problems: string[] = [];
   const graph: ShaderGraph = { ...defaultShaderGraph(), nodes: [] };
-  // Sub-graph outputs may be textures: the compiler passes the texture's uniform through (GLSL can't hold one in a variable).
+  // Sub-graph outputs may be textures: the compiler passes the texture's uniform through (WGSL can't hold one in a variable).
   if (raw.format === SHADER_SUBGRAPH_FORMAT) graph.subgraph = { outputs: parsePorts(raw.outputs, `${where} outputs`, problems, true) };
   if (raw.target !== undefined) {
     if (raw.target === "lit" || raw.target === "unlit" || raw.target === "physical") graph.target = raw.target;
@@ -222,25 +280,9 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
     if (typeof raw.doubleSided === "boolean") graph.doubleSided = raw.doubleSided;
     else problems.push(`${where}: "doubleSided" should be true or false.`);
   }
-  if (Array.isArray(raw.properties)) {
-    for (const p of raw.properties) {
-      if (!isObject(p) || typeof p.name !== "string" || !p.name.trim() || !GRAPH_PROPERTY_TYPES.includes(p.type as GraphPropertyType)) {
-        problems.push(`${where}: skipped a property without a name and a type (${GRAPH_PROPERTY_TYPES.join(", ")}).`);
-        continue;
-      }
-      if (graph.properties.some((q) => q.name === p.name)) {
-        problems.push(`${where}: skipped a second property named "${p.name}".`);
-        continue;
-      }
-      const type = p.type as GraphPropertyType;
-      let value = p.value === undefined ? defaultPropertyValue(type) : checkPropertyValue(type, p.value);
-      if (value === null) {
-        problems.push(`${where}: property "${p.name}" has a bad value for a ${type}; using the default.`);
-        value = defaultPropertyValue(type);
-      }
-      graph.properties.push({ name: p.name, type, value });
-    }
-  } else if (raw.properties !== undefined) problems.push(`${where}: "properties" should be a list.`);
+  graph.properties = parseGraphProperties(raw.properties, where, problems);
+  const keywords = parseKeywords(raw.keywords, where, problems);
+  if (keywords.length) graph.keywords = keywords;
   if (Array.isArray(raw.nodes)) {
     for (const n of raw.nodes) {
       if (!isObject(n) || typeof n.id !== "string" || !NODE_ID.test(n.id) || typeof n.type !== "string") {
@@ -278,11 +320,14 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
             inputs: parsePorts(f.inputs, `${where}: node "${n.id}" inputs`, problems, true),
             outputs: parsePorts(f.outputs, `${where}: node "${n.id}" outputs`, problems, false),
             ...(typeof f.wgsl === "string" && f.wgsl ? { wgsl: f.wgsl } : {}),
+            ...(typeof f.file === "string" && f.file ? { file: f.file } : {}),
             ...(typeof f.body === "string" && f.body ? { body: f.body } : {}),
           };
+          if (f.file !== undefined && typeof f.file !== "string") problems.push(`${where}: node "${n.id}" function file isn't a string; ignored.`);
         } else problems.push(`${where}: node "${n.id}" has a function without a valid name.`);
       }
       if (n.preview === false) node.preview = false;
+      if (isPreviewShape(n.previewShape)) node.previewShape = n.previewShape;
       graph.nodes.push(node);
     }
   } else if (raw.nodes !== undefined) problems.push(`${where}: "nodes" should be a list.`);
@@ -335,6 +380,8 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
     }
     if (notes.length) graph.notes = notes;
   }
+  if (isPreviewShape(raw.previewShape)) graph.previewShape = raw.previewShape;
+  if (isPreviewMesh(raw.previewMesh)) graph.previewMesh = raw.previewMesh;
   return { graph, problems };
 }
 
@@ -348,17 +395,21 @@ export function shaderGraphJSON(graph: ShaderGraph): Record<string, unknown> {
     if (graph.doubleSided) out.doubleSided = true;
   }
   out.properties = graph.properties.map((p) => ({ name: p.name, type: p.type, value: Array.isArray(p.value) ? [...p.value] : p.value }));
+  if (graph.keywords?.length) out.keywords = keywordsJSON(graph.keywords);
   out.nodes = graph.nodes.map((n) => {
     const node: Record<string, unknown> = { id: n.id, type: n.type, position: [Math.round(n.position[0]), Math.round(n.position[1])] };
     if (n.inputs && Object.keys(n.inputs).length) node.inputs = { ...n.inputs };
     if (n.settings && Object.keys(n.settings).length) node.settings = { ...n.settings };
-    if (n.function) node.function = { name: n.function.name, inputs: n.function.inputs.map((p) => ({ ...p })), outputs: n.function.outputs.map((p) => ({ ...p })), ...(n.function.wgsl ? { wgsl: n.function.wgsl } : {}), ...(n.function.body ? { body: n.function.body } : {}) };
+    if (n.function) node.function = { name: n.function.name, inputs: n.function.inputs.map((p) => ({ ...p })), outputs: n.function.outputs.map((p) => ({ ...p })), ...(n.function.wgsl ? { wgsl: n.function.wgsl } : {}), ...(n.function.file ? { file: n.function.file } : {}), ...(n.function.body ? { body: n.function.body } : {}) };
     if (n.preview === false) node.preview = false;
+    if (n.previewShape) node.previewShape = n.previewShape;
     return node;
   });
   out.edges = graph.edges.map((e) => ({ from: e.from, to: e.to }));
   if (graph.groups?.length) out.groups = graph.groups.map((g) => ({ id: g.id, title: g.title, nodes: [...g.nodes] }));
   if (graph.notes?.length) out.notes = graph.notes.map((n) => ({ id: n.id, position: [Math.round(n.position[0]), Math.round(n.position[1])], size: [Math.round(n.size[0]), Math.round(n.size[1])], text: n.text }));
+  if (graph.previewShape && graph.previewShape !== "quad") out.previewShape = graph.previewShape;
+  if (graph.previewMesh && graph.previewMesh !== "sphere") out.previewMesh = graph.previewMesh;
   return out;
 }
 

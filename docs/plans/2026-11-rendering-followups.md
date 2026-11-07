@@ -35,15 +35,15 @@ What's left after the frame-drop work of 2026-11-06 (commit `e60c9af`, branch `c
        - warm behind a loading screen.
      - **Instantiating the scene:** about 90 ms, some 1,000 vertex buffers.
      - Whether the few internal pipelines Babylon still compiles blocking (clear quad, post-process, UI) are worth warming.
-5. **Variants not warmed yet (0080):**
-   - particle systems;
-   - world-space UI;
-   - reflection-probe copies (`probeMaterial`);
-   - warming again when the quality tier changes (the passes change).
+5. ~~**Variants not warmed yet (0080).**~~ Built 2026-11-06/07 (see 0080's row): particle effects (each emitter's CPU draw with one invisible particle: billboards, sheets, blending, mesh and trail modes, material assets), world-space UI planes, the renderer's probe copies (`probeVariants`), and warming again when the tier changes a pipeline setting (`pipelineTierKey`) or new probes capture (`PipelineWarmer.rewarm`). Async compiles skip only the warmer's own draws. Tests: `warmUp.test.ts`, `warmUpVariants.test.ts`.
+   - **Not checked in the editor yet:** the pirates match (rain and fog clouds), the Playground (campfire), a scene with a probe (no sample has one), and a tier change in play mode, watching the variant report and frames over 50/100 ms against the numbers above.
+   - Still to do: emitters a GPU kernel runs (ADR 0094's `KernelDraw`; the warm-up builds only their CPU draw); probe blend copies (0110); the probe capture pass's own pipelines (a scratch probe drawing warm meshes into its capture was built on a branch, then left out when merging with `probeVariants`).
+   - Left as they are: graph-material copies of probed meshes (graph materials keep the scene's environment, so there's no copy to warm); particle draws a script's `setProperty` turns into another emitter layout at runtime (the effect is warmed as authored); a tier change still recompiles what's on screen in its first frame (those draws aren't skipped, so nothing vanishes); the screen UI layer's pipeline (one Babylon internal, compiled once per World).
 6. **Unverified for clustering (0079):**
    - GPU time against the stop-gap; needs timestamp queries or a visible window, since Babylon's GPU timer reads 0 under a frame graph;
    - a camera that draws to part of the target (split screen): Babylon sizes the tile mask from `engine.getRenderWidth()`, not the viewport;
    - re-check `reclusterForNextCamera` (it resets Babylon's private `_lightDataRenderId`) on each Babylon upgrade, or get the cache keyed on the camera upstream.
+   - render textures (0109) share the caveat: clustering tiles follow the canvas size, not the target's.
 7. **Tests that would need a harness.** The variant report and the override-copy texture fix (`rendererMaterial`) were checked by hand in the browser. There's no harness yet for driving `BabylonRenderer` itself on NullEngine.
 
 ## Not part of 0079/0080, noted on the way

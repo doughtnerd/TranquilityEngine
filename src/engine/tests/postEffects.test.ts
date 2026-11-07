@@ -141,3 +141,20 @@ describe("resolvePostEffects exposure", () => {
     expect(direct.exposure).toBe(2);
   });
 });
+
+describe("colour lookup tables (ADR 0111)", () => {
+  const tiers = defaultGraphics().tiers;
+  const [low, , high] = tiers;
+  const base = (over: Partial<PostSettings>): PostSettings => ({
+    enabled: true, toneMapping: "agx", exposure: 1, bloom: false, bloomIntensity: 1, bloomThreshold: 0.9, bloomRadius: 0.85, ambientOcclusion: false, aoIntensity: 2, aoRadius: 1,
+    brightness: 0, contrast: 0, saturation: 0, hue: 0, vignette: false, vignetteDarkness: 0.5, vignetteOffset: 0.5, depthOfField: false, focusDistance: 10, focusRange: 5, bokehScale: 2,
+    chromaticAberration: false, chromaticAberrationAmount: 0.002, ...over,
+  });
+
+  it("run when the camera names one and the tier allows post-processing, capped at full strength", () => {
+    expect(resolvePostEffects(base({ lut: "grades/warm.cube", lutIntensity: 2 }), high).composer?.lut).toEqual({ path: "grades/warm.cube", intensity: 1 });
+    expect(resolvePostEffects(base({ lut: "grades/warm.cube" }), low).composer).toBeNull();
+    expect(resolvePostEffects(base({ lut: "grades/warm.cube", lutIntensity: 0 }), high).composer?.lut ?? null).toBeNull();
+    expect(resolvePostEffects(base({}), high).composer?.lut ?? null).toBeNull();
+  });
+});

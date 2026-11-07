@@ -9,7 +9,7 @@ type Render = {
   probeState(): { captured: number; probes: number; reflecting: number };
   stackCount(): number;
   postState(): { composed: boolean };
-  cameraPreviewComposed: boolean;
+  cameraPreviewDrawn: boolean;
   cameras: Map<unknown, unknown>;
 };
 type Hooks = {
@@ -59,7 +59,7 @@ test("the selected camera's inset shows its effects", async ({ page }) => {
   await row(page, "Camera").click();
   const preview = page.getByRole("button", { name: "Preview", exact: true });
   if ((await preview.getAttribute("aria-pressed")) !== "true") await preview.click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.cameraPreviewComposed), { timeout: 15_000 }).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.cameraPreviewDrawn), { timeout: 15_000 }).toBe(true);
   expect(errors).toEqual([]);
 });
 

@@ -26,11 +26,22 @@ const project = {
   "g.shadergraph.json": readFileSync(new URL("../../../samples/playground3d/shaders/pulse.shadergraph.json", import.meta.url), "utf8"),
   "gm.material.json": { format: "myco.material@1", shader: "asset:g.shadergraph.json" },
   "c.particles.json": campfire,
+  // The campfire with its first emitter drawing a material asset.
+  "cm.particles.json": { ...campfire, systems: campfire.systems.map((s: { output: { settings: object } }, i: number) => (i === 0 ? { ...s, output: { ...s.output, settings: { ...s.output.settings, material: "asset:m.material.json" } } } : s)) },
   "p.prefab.json": {
     format: "myco.scene@1",
     nodes: [
       { id: "a", name: "A", components: [{ type: "engine.Transform", data: { position: [4, 0, 0], rotation: [0, 90, 0] } }, { type: "engine.MeshRenderer", data: { mesh: "builtin:cube", material: "asset:m.material.json" } }] },
       { id: "b", name: "B", parent: "a", components: [{ type: "engine.Transform", data: { position: [0, 2, 0], scale: [0.5, 0.5, 0.5] } }, { type: "engine.MeshRenderer", data: { mesh: "builtin:sphere" } }] },
+    ],
+  },
+  "s.scene.json": {
+    format: "myco.scene@1",
+    nodes: [
+      { id: "cam", components: [{ type: "engine.Transform", data: { position: [0, 2, 10] } }, { type: "engine.Camera", data: { projection: "perspective", fieldOfView: 40, depth: 1 } }] },
+      { id: "main", components: [{ type: "engine.Transform", data: { position: [3, 0, 0] } }, { type: "engine.Camera", data: { projection: "orthographic", orthographicSize: 4, backgroundColor: "#ff0000", depth: 0 } }] },
+      { id: "sun", components: [{ type: "engine.Transform", data: {} }, { type: "engine.Light", data: { type: "directional", intensity: 2 } }] },
+      { id: "inst", prefab: "p.prefab.json" },
     ],
   },
   "empty.prefab.json": { format: "myco.scene@1", nodes: [{ id: "a", name: "A", components: [] }] },
@@ -125,6 +136,16 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       live.dispose();
     });
 
+    it("draws an emitter that has a material asset with that material, not a Babylon particle system", async () => {
+      const plain = (await renderer.prepare("particles", "c.particles.json", false))!;
+      const withMaterial = (await renderer.prepare("particles", "cm.particles.json", false))!;
+      expect(systems(withMaterial.scene)).toHaveLength(systems(plain.scene).length - 1);
+      expect(withMaterial.scene.meshes.some((m) => m.material?.name === "preview:m.material.json")).toBe(true);
+      expect(plain.scene.meshes.some((m) => m.material?.name === "preview:m.material.json")).toBe(false);
+      plain.dispose();
+      withMaterial.dispose();
+    });
+
     it("simulates the same particles every time", async () => {
       const count = async () => {
         const p = (await renderer.prepare("particles", "c.particles.json", false))!;
@@ -147,6 +168,18 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       expect((cube.material as PBRMaterial).metallic).toBeCloseTo(0.2); // its material asset
       // The camera looks at the middle of both, which is off the origin.
       expect(p.target[0]).toBeGreaterThan(3);
+      p.dispose();
+    });
+
+    it("draws a scene from its main camera, with its own lights and its prefab instances (ADR 0117)", async () => {
+      const p = (await renderer.prepare("scene", "s.scene.json", false))!;
+      expect(p.scene.meshes).toHaveLength(2); // the instance's two meshes
+      expect(p.scene.lights).toHaveLength(1); // the scene's sun replaced the defaults
+      expect(p.scene.lights[0]!.intensity).toBeCloseTo(2);
+      // The lowest-depth camera: orthographic, at x = 3, looking down -Z.
+      expect(p.camera.mode).toBe(1);
+      expect(p.camera.position.x).toBeCloseTo(3);
+      expect(p.scene.clearColor.r).toBeGreaterThan(0.9);
       p.dispose();
     });
 

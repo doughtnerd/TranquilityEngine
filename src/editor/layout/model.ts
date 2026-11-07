@@ -11,11 +11,11 @@
 // to) but draws as a strip one header thick, its tabs along it. Tabs that don't fit a header go
 // behind an overflow button (`fitTabs`).
 
-export type PanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "shadergraph" | "particlegraph";
+export type PanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "shadergraph" | "particlegraph" | "tilepalette" | "sky";
 export type Side = "left" | "right" | "bottom";
 
-export const PANELS: readonly PanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "shadergraph", "particlegraph"];
-export const PANEL_TITLES: Record<PanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", shadergraph: "Shader Graph", particlegraph: "Particle Graph" };
+export const PANELS: readonly PanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "shadergraph", "particlegraph", "tilepalette", "sky"];
+export const PANEL_TITLES: Record<PanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", shadergraph: "Shader Graph", particlegraph: "Particle Graph", tilepalette: "Tile Palette", sky: "Sky" };
 
 export interface TabGroup {
   id: string;
@@ -68,11 +68,27 @@ export const MIN_FRACTION = 0.1;
 let nextId = 1;
 const newId = (prefix: string) => `${prefix}${Date.now().toString(36)}-${nextId++}`;
 
+/**
+ * Panels left out of the default layout and opened on demand (the Window menu, or an action such as
+ * double-clicking a sky asset), so the editor starts without them; once opened they stay in the
+ * layout like any other. Saved layouts without them don't get them added back.
+ */
+export const ON_DEMAND_PANELS: readonly PanelId[] = ["sky"];
+
+/** Where a panel missing from a layout goes: beside its usual neighbour, else with the Inspector, else the first group. */
+const BESIDE: Partial<Record<PanelId, PanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", shadergraph: "scene", particlegraph: "shadergraph", tilepalette: "assets", sky: "particlegraph" };
+function groupFor(layout: Layout, panel: PanelId): TabGroup {
+  const groups = layout.docks.flatMap((d) => d.groups);
+  const holding = (p: PanelId) => groups.find((g) => g.panels.includes(p));
+  const near = BESIDE[panel];
+  return ((near && (holding(near) ?? (near === "particlegraph" ? holding("scene") : undefined))) || holding("inspector")) ?? groups[0]!;
+}
+
 export function defaultLayout(): Layout {
   return {
     version: 1,
     docks: [
-      { id: "bottom", side: "bottom", size: DEFAULT_SIZE.bottom, groups: [{ id: "assets", panels: ["assets", "code"], active: "assets" }], fractions: [1] },
+      { id: "bottom", side: "bottom", size: DEFAULT_SIZE.bottom, groups: [{ id: "assets", panels: ["assets", "code", "tilepalette"], active: "assets" }], fractions: [1] },
       { id: "left", side: "left", size: DEFAULT_SIZE.left, groups: [{ id: "hierarchy", panels: ["hierarchy"], active: "hierarchy" }], fractions: [1] },
       { id: "right", side: "right", size: DEFAULT_SIZE.right, groups: [{ id: "inspector", panels: ["inspector", "history", "worlds", "network", "project"], active: "inspector" }], fractions: [1] },
       // Innermost: fills the middle.
@@ -156,6 +172,15 @@ export function movePanel(layout: Layout, panel: PanelId, target: DropTarget): L
 /** Make `panel` the visible tab of its group, expanding its dock if it's collapsed. */
 export function activatePanel(layout: Layout, panel: PanelId): Layout {
   const from = locate(layout, panel);
+  if (!from && ON_DEMAND_PANELS.includes(panel)) {
+    // First asked for: it joins the group its neighbour is in (the Sky panel beside the graph editors).
+    const next = structuredClone(layout);
+    const group = groupFor(next, panel);
+    group.panels.push(panel);
+    group.active = panel;
+    for (const d of next.docks) if (d.groups.includes(group)) delete d.collapsed;
+    return next;
+  }
   if (!from || (from.group.active === panel && !from.dock.collapsed)) return layout;
   const next = structuredClone(layout);
   const to = locate(next, panel)!;
@@ -234,13 +259,8 @@ export function parseLayout(value: unknown): Layout | null {
     }
     const result = normalize(structuredClone(l));
     if (!seen.includes("scene")) result.docks.push({ id: newId("d"), side: "left", size: 0, groups: [{ id: newId("g"), panels: ["scene"], active: "scene" }], fractions: [1] });
-    const missing = PANELS.filter((p) => !seen.includes(p) && p !== "scene");
-    if (missing.length) {
-      const groups = result.docks.flatMap((d) => d.groups);
-      const holding = (p: PanelId) => groups.find((g) => g.panels.includes(p));
-      const beside: Partial<Record<PanelId, PanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", shadergraph: "scene", particlegraph: "shadergraph" };
-      for (const p of missing) (((beside[p] && holding(beside[p])) || holding("inspector")) ?? groups[0]).panels.push(p);
-    }
+    const missing = PANELS.filter((p) => !seen.includes(p) && p !== "scene" && !ON_DEMAND_PANELS.includes(p));
+    for (const p of missing) groupFor(result, p).panels.push(p);
     return result;
   } catch {
     return null;

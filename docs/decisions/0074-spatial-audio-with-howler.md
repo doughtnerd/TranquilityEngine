@@ -1,6 +1,6 @@
 # 0074. Spatial audio through Howler's spatial API, with an AudioListener component
 
-- **Status:** Accepted
+- **Status:** Accepted, extended by 0097 (proposed: mixer buses, answering its open question)
 - **Date:** 2026-11-04
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

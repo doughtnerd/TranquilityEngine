@@ -134,6 +134,8 @@ export type ParticleBehavior = { enabled?: boolean } & (
   | { type: "widthOverLength"; width: ParticleNumber }
   /** Bounces off (or dies at) a horizontal plane `height` metres up, in the simulation space. */
   | { type: "collision"; height: number; bounce: number; kill: boolean }
+  /** Bounces off (or dies at) the physics colliders of the world (CPU simulation; needs a physics raycast). `radius` is the particle's collision radius in metres. */
+  | { type: "collisionColliders"; bounce: number; friction: number; kill: boolean; radius: number }
 );
 export type ParticleBehaviorType = ParticleBehavior["type"];
 
@@ -297,6 +299,8 @@ export function defaultBehavior(type: ParticleBehaviorType): ParticleBehavior {
       return { type, width: { curve: [[0, 1], [1, 0]] } };
     case "collision":
       return { type, height: 0, bounce: 0.5, kill: false };
+    case "collisionColliders":
+      return { type, bounce: 0.5, friction: 0, kill: false, radius: 0 };
   }
 }
 
@@ -316,6 +320,7 @@ export const BEHAVIOR_TYPES: readonly ParticleBehaviorType[] = [
   "sizeBySpeed",
   "widthOverLength",
   "collision",
+  "collisionColliders",
 ];
 
 /** A behaviour's name for menus and headings. */
@@ -335,6 +340,7 @@ export const BEHAVIOR_LABELS: Record<ParticleBehaviorType, string> = {
   sizeBySpeed: "Size by Speed",
   widthOverLength: "Trail Width",
   collision: "Plane Collision",
+  collisionColliders: "Collider Collision",
 };
 
 // --- evaluation (editor previews, tests) --------------------------------------------------------

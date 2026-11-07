@@ -1,7 +1,7 @@
 import { signal } from "@preact/signals";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { ANTIALIAS_MODES, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
+import { ANTIALIAS_MODES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
 import { reloadGraphics } from "../graphicsPreview";
 import { errorStatus } from "../messages";
@@ -32,6 +32,7 @@ import {
   setCollides,
   setAutoDetect,
   setDefaultTier,
+  setPlatformDefault,
   setTargetFrameRate,
   setGravity,
   setName,
@@ -47,7 +48,10 @@ import {
 } from "../projectSettingsModel";
 import type { EditorProject } from "../projects";
 import { currentProject, docVersion, status } from "../state";
+import { confirmInEditor } from "./ConfirmDialog";
+import { layerRenamesBetween, layerUsers, renameLayerReferences, type LayerKind, type LayerRename } from "../layerRename";
 import { EditHistory } from "../worldsConfig";
+import { AudioSettingsSection } from "./AudioSettingsSection";
 import { NavSettingsSection } from "./NavSettingsSection";
 import { NumberField, TextField } from "./WorldsPanel";
 import "./projectSettings.css";
@@ -121,10 +125,55 @@ function edit(s: PanelState, label: string, draft: SettingsDraft): void {
 }
 
 function jump(s: PanelState, redo: boolean): void {
+  const before = s.history.current;
   if (redo ? s.history.redo() : s.history.undo()) {
     version.value++;
     persist(s);
+    // Undoing or redoing a layer rename moves the scenes' references with it.
+    const renames = layerRenamesBetween(before, s.history.current);
+    if (renames.length > 0) void updateLayerReferences(s.project, renames);
   }
+}
+
+async function updateLayerReferences(project: EditorProject, renames: readonly LayerRename[]): Promise<void> {
+  try {
+    const done = await renameLayerReferences(project, renames);
+    if (done.length > 0) {
+      docVersion.value++;
+      status.value = { kind: "info", text: `Updated layer references in ${done.length} file${done.length === 1 ? "" : "s"}.` };
+    }
+  } catch (err) {
+    status.value = errorStatus("Couldn't update the scenes that use the renamed layer", err);
+  }
+}
+
+/**
+ * Rename a physics or sorting layer, and the colliders or sprites that name it (ADR 0116). With
+ * references to update, ask first. The rename is one undo step of the panel; undoing it also
+ * restores the old name in the scenes (see `jump`).
+ */
+async function renameLayerEdit(s: PanelState, kind: LayerKind, draft: SettingsDraft, index: number, name: string): Promise<void> {
+  const names = kind === "physics" ? layersOf(draft) : sortingLayersOf(draft);
+  const from = names[index];
+  const next = kind === "physics" ? renameLayer(draft, index, name) : renameSortingLayer(draft, index, name);
+  const label = kind === "physics" ? `Rename physics layer to ${name}` : `Rename sorting layer to ${name}`;
+  const valid = from !== undefined && name !== "" && name !== from && !names.includes(name);
+  const users = valid && s.project.canSave ? layerUsers(s.project, kind, from) : [];
+  if (users.length > 0) {
+    const answer = await confirmInEditor({
+      title: `Rename ${kind} layer`,
+      message: `Rename the ${kind} layer "${from}" to "${name}"? ${users.length === 1 ? "A scene or prefab names it" : `${users.length} scenes and prefabs name it`}; they will be updated.`,
+      items: users.slice(0, 8).map((u) => u.replace(/ \(unsaved\)$/, "")).concat(users.length > 8 ? [`and ${users.length - 8} more`] : []),
+      confirmLabel: "Rename and update",
+      danger: false,
+    });
+    if (!answer.ok) {
+      version.value++; // put the field back to the old name
+      return;
+    }
+  }
+  edit(s, label, next);
+  if (users.length > 0) await updateLayerReferences(s.project, [{ kind, from, to: name }]);
 }
 
 const isTextField = (el: EventTarget | null) =>
@@ -195,7 +244,21 @@ export function ProjectSettingsPanel() {
             <Row label="Background" problems={problemsAt("display.backgroundColor")}>
               <ColorField value={display.backgroundColor} fallback={defaultSettings.display.backgroundColor} onCommit={(v) => set("Set background colour", setValue(draft, "display", "backgroundColor", v))} />
             </Row>
-            <p class="project-settings-hint">The canvas keeps this aspect ratio and scales to fit its window.</p>
+            <Row label="Scaling" problems={problemsAt("display.scaleMode")}>
+              <select
+                aria-label="Display scaling"
+                value={display.scaleMode ?? defaultSettings.display.scaleMode}
+                onChange={(e) => {
+                  const v = (e.currentTarget as HTMLSelectElement).value;
+                  set("Set display scaling", setValue(draft, "display", "scaleMode", v === defaultSettings.display.scaleMode ? undefined : v));
+                }}
+              >
+                <option value="fit">Fit (keep aspect ratio)</option>
+                <option value="stretch">Stretch (fill the window)</option>
+                <option value="pixel-perfect">Pixel-perfect (whole multiples)</option>
+              </select>
+            </Row>
+            <p class="project-settings-hint">The reference size above sets the aspect ratio; the scaling says how the game canvas fills its window.</p>
           </Section>
 
           <Section title="Time">
@@ -233,7 +296,7 @@ export function ProjectSettingsPanel() {
               problems={problems}
               item="sorting layer"
               onAdd={() => set("Add sorting layer", addSortingLayer(draft))}
-              onRename={(i, v) => set(`Rename sorting layer to ${v}`, renameSortingLayer(draft, i, v))}
+              onRename={(i, v) => void renameLayerEdit(s, "sorting", draft, i, v)}
               onRemove={(i) => set("Remove sorting layer", removeSortingLayer(draft, i))}
               onMove={(i, by) => set("Reorder sorting layers", moveSortingLayer(draft, i, by))}
             />
@@ -245,6 +308,10 @@ export function ProjectSettingsPanel() {
 
           <Section title="Navigation">
             <NavSettingsSection draft={draft} problems={problemsAt("navigation").map((p) => p.message)} set={set} project={project} />
+          </Section>
+
+          <Section title="Audio">
+            <AudioSettingsSection draft={draft} problems={problemsAt("audio").map((p) => p.message)} set={set} />
           </Section>
 
           <Section title="Autoloads">
@@ -304,7 +371,7 @@ function ProblemList(props: { list: readonly string[]; label: string; warning?: 
 }
 
 /** The settings categories, in order (Unity-style list). A category's title is its id. */
-const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Autoloads", "Build"] as const;
+const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Audio", "Autoloads", "Build"] as const;
 const NARROW_WIDTH = 250;
 
 /** The category a problem's field belongs to (`"render.pixelsPerUnit"` is Rendering's). */
@@ -518,7 +585,7 @@ function Layers(props: { s: PanelState; draft: SettingsDraft; problems: Settings
     <>
       <NameList
         title="Layers"
-        hint="colliders name their layer; renaming doesn't update them"
+        hint="renaming updates the colliders that use a layer"
         names={layers}
         field="physics.layers"
         problems={problems}
@@ -526,7 +593,7 @@ function Layers(props: { s: PanelState; draft: SettingsDraft; problems: Settings
         fixed={(i) => i === 0}
         addDisabled={layers.length >= MAX_LAYERS}
         onAdd={() => set("Add physics layer", addLayer(draft))}
-        onRename={(i, v) => set(`Rename physics layer to ${v}`, renameLayer(draft, i, v))}
+        onRename={(i, v) => void renameLayerEdit(s, "physics", draft, i, v)}
         onRemove={(i) => set(`Remove physics layer ${layers[i]}`, removeLayer(draft, i))}
       />
       <div class="project-settings-list" role="group" aria-label="Collisions">
@@ -625,6 +692,7 @@ function Autoloads(props: { s: PanelState; draft: SettingsDraft; project: Editor
 
 const LEVEL_LABELS: Record<string, string> = { off: "Off", low: "Low", medium: "Medium", high: "High", ultra: "Ultra", msaa: "MSAA", smaa: "SMAA", fxaa: "FXAA" };
 const ANISOTROPY_LEVELS = [1, 2, 4, 8, 16];
+const PLATFORM_LABELS = { desktop: "Desktop", web: "Web", mobile: "Mobile" } as const;
 const CASCADE_COUNTS = [1, 2, 3, 4];
 const CASCADE_LABELS: Record<string, string> = { 1: "1 (off)" };
 const AO_OPTIONS = ["off", "low", "medium", "high", "ultra"] as const;
@@ -675,6 +743,22 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
           ))}
         </select>
       </Row>
+      {PLATFORMS.map((p) => (
+        <Row key={p} label={`${PLATFORM_LABELS[p]} default`} problems={[]}>
+          <select
+            aria-label={`${PLATFORM_LABELS[p]} default`}
+            value={g.platformDefaults?.[p] ?? ""}
+            onChange={(e) => set(`Set ${p} default tier`, setPlatformDefault(draft, p, (e.currentTarget as HTMLSelectElement).value || undefined))}
+          >
+            <option value="">(project default)</option>
+            {g.tiers.map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </Row>
+      ))}
       <Row label="Detect the tier on first run" problems={[]}>
         <input
           type="checkbox"
@@ -742,6 +826,10 @@ function Tiers(props: { draft: SettingsDraft; problems: SettingsProblem[]; set: 
             <label class={t.shadows === "off" ? "disabled" : ""}>
               <span class="tier-label">Shadow cascades</span>
               {choice(i, "shadowCascades", "shadow cascades", CASCADE_COUNTS, t.shadows === "off", CASCADE_LABELS)}
+            </label>
+            <label class={t.shadows === "off" || t.shadowCascades <= 1 ? "disabled" : ""}>
+              <span class="tier-label">Cascaded lights</span>
+              {choice(i, "cascadedLights", "cascaded lights", CASCADE_COUNTS, t.shadows === "off" || t.shadowCascades <= 1)}
             </label>
             <label class={t.shadows === "off" ? "disabled" : ""}>
               <span class="tier-label">Shadow distance</span>

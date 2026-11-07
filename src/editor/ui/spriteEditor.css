@@ -44,6 +44,13 @@
 .sprite-slice-name { position: absolute; left: 2px; top: 1px; max-width: calc(100% - 4px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; pointer-events: none; }
 .sprite-drawing { position: absolute; box-sizing: border-box; border: 1px dashed var(--accent); background: var(--accent-soft); pointer-events: none; }
 .sprite-pivot { position: absolute; width: 8px; height: 8px; margin: -5px 0 0 -5px; border: 1px solid #fff; border-radius: 50%; background: var(--accent); pointer-events: none; }
+.sprite-guide { position: absolute; background: var(--accent); opacity: 0.55; }
+.sprite-guide.set { opacity: 1; }
+.sprite-guide::after { content: ""; position: absolute; }
+.guide-L, .guide-R { top: 0; bottom: 0; width: 1px; margin-left: -1px; cursor: ew-resize; border-left: 1px dashed var(--accent); background: none; }
+.guide-T, .guide-B { left: 0; right: 0; height: 1px; margin-top: -1px; cursor: ns-resize; border-top: 1px dashed var(--accent); background: none; }
+.guide-L::after, .guide-R::after { top: 0; bottom: 0; left: -3px; width: 7px; }
+.guide-T::after, .guide-B::after { left: 0; right: 0; top: -3px; height: 7px; }
 .sprite-handle { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; background: #fff; border: 1px solid var(--accent); box-sizing: border-box; }
 .handle-nw { left: 0; top: 0; cursor: nwse-resize; }
 .handle-n { left: 50%; top: 0; cursor: ns-resize; }
@@ -84,3 +91,8 @@
 .sprite-list button { width: 100%; text-align: left; background: none; border: none; border-radius: 3px; padding: 1px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sprite-list button:hover { background: var(--button-hover); }
 .sprite-list button.active { background: var(--accent); color: var(--accent-text); }
+/* An unset border guide sits on the slice's edge: only a short grip near one end is grabbable, so the edge still moves the slice. */
+.sprite-guide:not(.set) { pointer-events: none; }
+.sprite-guide:not(.set)::after { pointer-events: auto; }
+.guide-L:not(.set)::after, .guide-R:not(.set)::after { top: 10%; bottom: 70%; }
+.guide-T:not(.set)::after, .guide-B:not(.set)::after { left: 10%; right: 70%; }

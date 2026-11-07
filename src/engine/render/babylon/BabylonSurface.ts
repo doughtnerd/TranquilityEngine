@@ -8,15 +8,16 @@
  * before they load (grid, colours, selection, overlay, gizmo) is kept here and handed over once they
  * have. Until then queries answer "nothing".
  */
-import type { WarmMesh } from "../../scene/warmUp";
+import type { WarmContent } from "../../scene/warmUp";
 import type { Component } from "../../core/Component";
 import { Graphics } from "../Graphics";
 import { SHADOW_MAP_SIZE } from "../../core/graphics";
 import type { ProjectSettings } from "../../core/settings";
 import type { World, WorldKind } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
-import type { Camera, SpriteRenderer } from "../components";
+import type { Camera, ReflectionProbe, SpriteRenderer } from "../components";
 import type { UICoreLike } from "../../ui/uiCoreTypes";
+import { fitCanvas } from "../canvasFit";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import type {
   EditorColors,
@@ -58,6 +59,8 @@ export class BabylonSurface implements RenderSurface {
   private toolsSeen: BabylonEditorTools | null = null;
   /** Something asked for an editor helper (games never do, so they never load the gizmos). */
   private toolsWanted = false;
+  /** Resolves once the renderer has loaded and started (true), or couldn't (false). */
+  readonly started: Promise<boolean>;
 
   constructor(
     private readonly container: HTMLElement,
@@ -76,10 +79,13 @@ export class BabylonSurface implements RenderSurface {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
-    void import("./BabylonRenderer")
+    this.started = import("./BabylonRenderer")
       .then((m) => m.BabylonRenderer.create(this.canvas, settings, this.fill))
       .then((r) => {
-        if (this.disposed) return r.dispose();
+        if (this.disposed) {
+          r.dispose();
+          return false;
+        }
         this.renderer = r;
         // Dev builds: every live Babylon scene, for inspecting the migration from the console.
         if (import.meta.env?.DEV) {
@@ -93,27 +99,22 @@ export class BabylonSurface implements RenderSurface {
         r.setSelected(this.selection);
         if (this.cameraPreview) r.setCameraPreview(this.cameraPreview.camera, this.cameraPreview.frame);
         this.applyQuality();
+        return true;
       })
-      .catch((err) => console.error("[myco] the Babylon.js renderer couldn't start:", err));
+      .catch((err) => {
+        console.error("[myco] the Babylon.js renderer couldn't start:", err);
+        return false;
+      });
   }
 
   /** Fit the canvas to the container: fill it (editor) or keep the reference aspect ratio. */
   private resize(): void {
-    const { width, height } = this.settings.display;
+    const { width, height, scaleMode } = this.settings.display;
     const cw = this.container.clientWidth || width;
     const ch = this.container.clientHeight || height;
-    let w = cw, h = ch;
-    if (!this.fill) {
-      const aspect = width / height;
-      w = cw;
-      h = cw / aspect;
-      if (h > ch) {
-        h = ch;
-        w = ch * aspect;
-      }
-    }
-    this.canvas.style.width = `${Math.floor(w)}px`;
-    this.canvas.style.height = `${Math.floor(h)}px`;
+    const size = this.fill ? { width: Math.floor(cw), height: Math.floor(ch) } : fitCanvas(scaleMode ?? "fit", width, height, cw, ch);
+    this.canvas.style.width = `${size.width}px`;
+    this.canvas.style.height = `${size.height}px`;
     this.renderer?.resize(this.pixelRatio);
   }
 
@@ -178,9 +179,9 @@ export class BabylonSurface implements RenderSurface {
     this.canvas.remove();
   }
 
-  async warmUp(meshes: readonly WarmMesh[]): Promise<void> {
+  async warmUp(set: WarmContent): Promise<void> {
     while (!this.renderer && !this.disposed) await new Promise((r) => setTimeout(r, 16));
-    await this.renderer?.warmUp(meshes);
+    await this.renderer?.warmUp(set);
   }
 
   _setVariantReport(on: boolean): void {
@@ -221,6 +222,10 @@ export class BabylonSurface implements RenderSurface {
   lightingState(): { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean } {
     return this.renderer?.lightingState() ?? { cascades: false, environment: "", environmentLoaded: false, skybox: false };
   }
+
+  skyState(): { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number } {
+    return this.renderer?.skyState() ?? { active: false, drawn: false, bakes: 0, baked: false, time: 0, lastBakeMs: 0 };
+  }
   postState(): { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null } {
     return this.renderer?.postState() ?? { composed: false, loaded: false, toneMapping: "none", effects: null };
   }
@@ -233,10 +238,16 @@ export class BabylonSurface implements RenderSurface {
   probeState(): { captured: number; probes: number; reflecting: number } {
     return this.renderer?.probeState() ?? { captured: 0, probes: 0, reflecting: 0 };
   }
+  bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer> {
+    return this.renderer ? this.renderer.bakeReflectionProbe(probe) : Promise.reject(new Error("the renderer hasn't started yet"));
+  }
+  renderTextureState(): Record<string, { width: number; height: number; format: string }> {
+    return this.renderer?.renderTextureState() ?? {};
+  }
   particleState(): ParticleStats | null {
     return this.renderer?.particleState() ?? null;
   }
-  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "cornersOf"> | null {
+  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "pickCanvases" | "cornersOf"> | null {
     return this.renderer?.uiState() ?? null;
   }
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {

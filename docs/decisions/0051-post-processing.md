@@ -1,6 +1,6 @@
 # 0051. Post-processing on pmndrs `postprocessing` and N8AO, set by a PostProcessing component and gated by quality tier
 
-- **Status:** Accepted, amended by 0056 (effects on every camera)
+- **Status:** Accepted, amended by 0056 (effects on every camera) and 0111 (proposed: the library choices restated for Babylon.js, LUTs)
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

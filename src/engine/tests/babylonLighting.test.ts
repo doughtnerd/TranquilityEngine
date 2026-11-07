@@ -79,6 +79,34 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(byName("myco.default.sun")!.isEnabled()).toBe(true);
   });
 
+  it("lets the sky drive the main directional light, and the default sun, then lets go (ADR 0114)", () => {
+    const sunOver = { direction: [0, 1, 0], color: [1, 0.5, 0.25], intensity: 4 };
+    lighting.setSunOverride(sunOver);
+    sync();
+    const def = byName("myco.default.sun") as DirectionalLight;
+    expect(def.direction.y).toBeCloseTo(-1);
+    expect(def.intensity).toBe(4);
+    lighting.setSunOverride(null);
+    sync();
+    expect(def.intensity).toBe(1);
+    expect(def.direction.y).toBeLessThan(-0.5);
+    expect(def.direction.x).toBeLessThan(0);
+
+    light({ type: "directional", intensity: 2 }, [0, 5, 0], [-45, 0, 0]);
+    light({ type: "directional", intensity: 1, castShadows: true }, [0, 5, 0], [-45, 0, 0]);
+    lighting.setSunOverride(sunOver);
+    sync();
+    const lights = scene.lights.filter((l) => l.name.startsWith("light:")) as DirectionalLight[];
+    const driven = lights.filter((l) => l.intensity === 4);
+    expect(driven).toHaveLength(1); // the shadow-casting one
+    expect(driven[0].diffuse.asArray()).toEqual([1, 0.5, 0.25]);
+    expect(driven[0].direction.y).toBeCloseTo(-1);
+    expect(lighting.mainLight.direction[1]).toBeCloseTo(1); // shader graphs' Main Light follows
+    lighting.setSunOverride(null);
+    sync();
+    expect(lights.map((l) => l.intensity).sort()).toEqual([1, 2]);
+  });
+
   it("mirrors each Light's type, colour, intensity and pose, and drops the defaults", () => {
     light({ type: "directional", intensity: 2 }, [0, 5, 0], [-90, 0, 0]); // looking straight down
     light({ type: "point", range: 7, color: new Color(1, 0, 0, 1) }, [1, 2, 3]);
@@ -250,6 +278,29 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(sun.shadowMinZ).toBe(0);
     expect(sun.shadowMaxZ).toBe(60);
     expect(sun.position.y).toBeCloseTo(40); // moved back along the light by twice the half-area
+  });
+
+  it("gives cascades to as many directional lights as the tier's cascadedLights (ADR 0110)", () => {
+    Graphics.quality = "High"; // 3 cascades, 2 cascaded lights
+    const caps = babylon.getCaps();
+    const minimum = caps.maxVaryingVectors;
+    caps.maxVaryingVectors = 32; // a device with room for the extra values each cascaded light passes
+    const camera = new TargetCamera("view", Vector3.Zero(), scene);
+    light({ type: "directional", castShadows: true }, [0, 10, 0], [-90, 0, 0]);
+    light({ type: "directional", castShadows: true }, [0, 10, 0], [-60, 0, 0]);
+    light({ type: "directional", castShadows: true }, [0, 10, 0], [-30, 0, 0]);
+    engine.step(1 / 60);
+    const requests = lighting.syncLights(World.require(), camera);
+    expect(requests.map((r) => r.cascaded)).toEqual([true, true, false]);
+    expect(requests[0].numCascades).toBe(Graphics.tier.shadowCascades);
+    expect(lighting.state().cascadedLights).toBe(2);
+    Graphics.quality = "Ultra"; // 4
+    engine.step(1 / 60);
+    expect(lighting.syncLights(World.require(), camera).every((r) => r.cascaded)).toBe(true);
+    caps.maxVaryingVectors = 16; // at WebGPU's minimum: one light only
+    engine.step(1 / 60);
+    expect(lighting.syncLights(World.require(), camera).filter((r) => r.cascaded)).toHaveLength(1);
+    caps.maxVaryingVectors = minimum;
   });
 
   it("takes the shadow map away when the tier turns shadows off", () => {

@@ -7,8 +7,10 @@ import {
   findFolder,
   idBase,
   nodeForAsset,
+  opensInCodePanel,
   parentForAdd,
   prefabInstanceEntry,
+  searchEntries,
   searchFiles,
   spriteNodeEntry,
   uniqueId,
@@ -51,7 +53,20 @@ describe("asset browser: folders and search", () => {
     expect(assetKind("prefabs/pipe-pair.prefab.json")).toBe("prefab");
     expect(assetKind("images/bird.PNG")).toBe("image");
     expect(assetKind("music/town.mp3")).toBe("audio");
+    expect(assetKind("ui/menu.ui.xml")).toBe("uidocument");
+    expect(assetKind("ui/menu.ui.css")).toBe("stylesheet");
+    expect(opensInCodePanel(assetKind("ui/menu.ui.xml"))).toBe(true);
+    expect(opensInCodePanel(assetKind("ui/menu.ui.css"))).toBe(true);
     expect(assetKind("project.json")).toBe("json");
+  });
+
+  it("knows skies, cubemaps and cube environments, none of which open in the Code panel", () => {
+    expect(assetKind("skies/day.sky.json")).toBe("sky");
+    expect(assetKind("skies/Day.SKY.json")).toBe("sky");
+    expect(assetKind("skies/box.cubemap.json")).toBe("cubemap");
+    for (const p of ["env/studio.hdr", "env/studio.exr", "env/room.env", "env/room.DDS"]) expect(assetKind(p), p).toBe("environment");
+    for (const k of ["sky", "cubemap", "environment"] as const) expect(opensInCodePanel(k), k).toBe(false);
+    expect(opensInCodePanel("json")).toBe(true);
   });
 });
 
@@ -143,5 +158,21 @@ describe("asset browser: adding to the scene (ADR 0026)", () => {
     expect(nodeForAsset(doc, "prefabs/pipe-pair.prefab.json", { position: [3, 4, 0] })!.overrides).toBeUndefined();
     expect(whyNotAddable(doc, "scenes/main.scene.json")).toMatch(/inside itself/); // the open scene
     expect(whyNotAddable(doc, "prefabs/pipe-pair.prefab.json")).toBeNull();
+  });
+});
+
+describe("searching slices (ADR 0115)", () => {
+  const slices: Record<string, string[]> = { "images/hero.png": ["hero_walk_0", "hero_walk_1", "hero_jump"], "images/tiles.png": ["grass", "walk_path"] };
+  const files = ["images/hero.png", "images/tiles.png", "sounds/walk.mp3"];
+  const names = (image: string) => slices[image] ?? [];
+
+  it("finds slices by name beside matching files", () => {
+    expect(searchEntries(files, "walk", names)).toEqual(["images/hero.png#hero_walk_0", "images/hero.png#hero_walk_1", "images/tiles.png#walk_path", "sounds/walk.mp3"]);
+  });
+
+  it("needs every word and ignores case", () => {
+    expect(searchEntries(files, "HERO jump", names)).toEqual(["images/hero.png#hero_jump"]);
+    expect(searchEntries(files, "hero", names)).toEqual(["images/hero.png#hero_jump", "images/hero.png#hero_walk_0", "images/hero.png#hero_walk_1", "images/hero.png"]);
+    expect(searchEntries(files, "  ", names)).toEqual([]);
   });
 });

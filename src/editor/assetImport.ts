@@ -51,7 +51,7 @@ export async function writeImportSettings(project: EditorProject, path: string, 
 export const sameSettings = (a: ImportSettings, b: ImportSettings) => formatImportSettings(a) === formatImportSettings(b);
 
 /** Asset kinds the Inspector has an editor or preview for, besides files with import settings. */
-const INSPECTED_KINDS: readonly string[] = ["material", "shadergraph", "shadersubgraph", "particles", "formation", "environment", "prefab"];
+const INSPECTED_KINDS: readonly string[] = ["material", "shadergraph", "shadersubgraph", "particles", "formation", "tileset", "environment", "sky", "cubemap", "prefab"];
 
 /** The file the Asset Inspector shows for an Assets panel entry (a slice shows its image), or null if it has no inspector. */
 export function inspectableAsset(entry: string): string | null {

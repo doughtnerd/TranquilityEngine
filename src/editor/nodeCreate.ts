@@ -3,10 +3,11 @@
 // the scene, beside a node or under it. Each is one undo step.
 import { uniqueId } from "./assetBrowser";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
+import { addInnerNode } from "./prefabs";
 import type { OpenScene } from "./state";
 import { WATER_PRESET } from "../engine/render/water/gerstner";
 
-export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "particle-system" | "water" | `ui-${UIKind}` | "ui-document";
+export type NewNodeKind = "empty" | "sprite" | "tilemap" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "particle-system" | "water" | `ui-${UIKind}` | "ui-document";
 type Shape3D = "cube" | "sphere" | "capsule" | "cylinder" | "plane";
 type LightKind = "directional" | "point" | "spot" | "ambient";
 type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input-field";
@@ -27,6 +28,7 @@ type Vec3 = readonly [number, number, number];
 export const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: string }[] = [
   { kind: "empty", label: "Empty", name: "Node" },
   { kind: "sprite", label: "Sprite", name: "Sprite" },
+  { kind: "tilemap", label: "Tilemap", name: "Tilemap" },
   { kind: "camera", label: "Camera", name: "Camera" },
   { kind: "text", label: "Text", name: "Text" },
   { kind: "cube", label: "Cube", name: "Cube" },
@@ -85,6 +87,17 @@ export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: stri
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }] };
     case "sprite":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.SpriteRenderer", data: {} }] };
+    case "tilemap":
+      // A Tilemap with one layer and its collider (ADR 0103, 0105); `effect` is a tileset to paint with, or empty.
+      return {
+        id,
+        name,
+        components: [
+          { type: "engine.Transform", data: { position: at } },
+          { type: "engine.Tilemap", data: effect ? { tileset: effect } : {} },
+          { type: "engine.TilemapCollider2D", data: {} },
+        ],
+      };
     case "camera":
       // In front of the sprite plane, looking down -z like the sample scenes' cameras.
       return {
@@ -158,8 +171,7 @@ export interface CreateOptions {
 /** Why a node can't be created under `parent`, or null if it can. */
 export function whyNotCreatable(doc: SceneDocument, parent: string | null): string | null {
   if (parent === null) return null;
-  if (parent.includes("/")) return "nodes inside a prefab get children in the prefab";
-  if (!doc.has(parent)) return "that node is gone";
+  if (!doc.has(parent.split("/")[0])) return "that node is gone"; // a node inside a prefab instance gets an `addNodes` override (ADR 0086)
   return null;
 }
 
@@ -168,6 +180,13 @@ export function createNode(scene: OpenScene, kind: NewNodeKind, options: CreateO
   const parent = options.parent ?? null;
   const reason = whyNotCreatable(scene.doc, parent);
   if (reason) throw new Error(reason);
+  if (parent?.includes("/")) {
+    // Inside a prefab instance: the node is added as an override of the instance (ADR 0086).
+    const { id: base, ...rest } = newNodeEntry(scene.doc, kind, null, options.position, options.effect);
+    const [instance, ...target] = parent.split("/");
+    const path = addInnerNode(scene, instance, target, { ...rest, id: base });
+    return path.join("/");
+  }
   const entry = newNodeEntry(scene.doc, kind, parent, options.position, options.effect);
   scene.stack.beginGroup(`Create ${entry.name}`);
   try {

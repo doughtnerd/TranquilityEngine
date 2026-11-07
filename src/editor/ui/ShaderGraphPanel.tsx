@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { MaterialPreview, NodePreviewRenderer, type PreviewMesh } from "../../engine/editor";
+import { MaterialPreview, NodePreviewRenderer } from "../../engine/editor";
 import { compileShaderGraph, nodePreviewGraph, shaderGraphListing, type CompiledShaderGraph } from "../../engine/render/shaderGraph/compile";
 import { NODES, nodeDef, type PortDef, type SettingDef, type ValueType } from "../../engine/render/shaderGraph/nodes";
-import { formatShaderGraph, GRAPH_PROPERTY_TYPES, isPortName, portRef, propertySize, splitPortRef, type CustomFunction, type FunctionPort, type GraphGroup, type GraphNode, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../engine/scene/shaderGraph";
+import { formatShaderGraph, GRAPH_PREVIEW_MESHES, GRAPH_PROPERTY_TYPES, NODE_PREVIEW_SHAPES, nodePreviewShape, type NodePreviewShape, isPortName, portRef, propertySize, splitPortRef, type CustomFunction, type FunctionPort, type GraphGroup, type GraphNode, type GraphPreviewMesh, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../engine/scene/shaderGraph";
 import { assetKind, fileName } from "../assetBrowser";
 import { errorStatus } from "../messages";
 import type { EditorProject } from "../projects";
 import {
   addNode,
   addNote,
+  addKeyword,
   addProperty,
   addSubGraphOutput,
   copyNodes,
@@ -22,6 +23,9 @@ import {
   setFunction,
   setGroupTitle,
   setPreview,
+  setGraphPreviewMesh,
+  setGraphPreviewShape,
+  setNodePreviewShape,
   setSubGraphOutputType,
   ungroup,
   updateNote,
@@ -36,7 +40,11 @@ import {
   moveNodes,
   moveProperty,
   removeNodes,
+  removeKeyword,
   removeProperty,
+  renameKeyword,
+  setKeyword,
+  whyNotKeywordName,
   renameProperty,
   setGraphOptions,
   setInput,
@@ -51,6 +59,7 @@ import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, set
 import { NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, wirePath, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type SearchItem, type View } from "../graph";
 import { createMaterialForGraph, graphHistory, openShaderGraph, readShaderGraph, recordEdit, redoEdit, undoEdit, writeShaderGraph, createShaderGraph, openShaderGraphAsset } from "../shaderGraphAssets";
 import { currentProject, docVersion, status } from "../state";
+import { searchGraph, cycleIndex } from "../shaderGraph/graphSearch";
 import { PropertyValue, numberValue, toHex2 } from "./ShaderPropertyValue";
 import "../graph/graph.css";
 import "./shaderGraph.css";
@@ -95,6 +104,9 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   const [detached, setDetached] = useState<string | null>(null);
   const [search, setSearch] = useState<{ at: Point; pending: Pending } | null>(null);
   const [box, setBox] = useState<{ a: Point; b: Point } | null>(null);
+  /** The Ctrl+F find box (ADR 0117): the query and the result shown. */
+  const [find, setFind] = useState<{ query: string; index: number } | null>(null);
+  const findInput = useRef<HTMLInputElement>(null);
   const [showCode, setShowCode] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [shaderError, setShaderError] = useState<string | null>(null);
@@ -267,7 +279,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   };
 
   const onPaneDown = (e: PointerEvent) => {
-    if (e.button !== 0 || (e.target as Element).closest(".sg-node, .sg-search, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap")) return;
+    if (e.button !== 0 || (e.target as Element).closest(".sg-node, .sg-search, .sg-find, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap")) return;
     root.current?.focus({ preventScroll: true });
     setSearch(null);
     setSelectedEdge(null);
@@ -317,10 +329,47 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     });
   };
 
+  // --- find ------------------------------------------------------------------------------------------
+
+  const matches = useMemo(() => (find ? searchGraph(graph, find.query) : []), [graph, find?.query]);
+
+  /** Select a match and pan to it (a group's members, or a note's rectangle). */
+  const goToMatch = (index: number) => {
+    const m = matches[index];
+    if (!m) return;
+    setFind((f) => f && { ...f, index });
+    if (m.kind === "note") {
+      const note = graph.notes?.find((n) => n.id === m.id);
+      if (!note) return;
+      setSelection(new Set());
+      frameAll([{ id: note.id, x: note.position[0], y: note.position[1], width: note.size[0], height: note.size[1], selected: false, inputs: [], outputs: [] }]);
+      return;
+    }
+    const ids = new Set(m.frame);
+    setSelection(ids);
+    setSelectedEdge(null);
+    frameAll(canvasNodes.filter((n) => ids.has(n.id)));
+  };
+  const openFind = () => {
+    setSearch(null);
+    setFind((f) => f ?? { query: "", index: -1 });
+    queueMicrotask(() => findInput.current?.select());
+  };
+  const closeFind = () => {
+    setFind(null);
+    root.current?.focus({ preventScroll: true });
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
-    if (isFieldTarget(e.target)) return;
     const key = (e.key ?? "").toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
+    if (mod && key === "f" && !e.altKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      openFind();
+      return;
+    }
+    if (isFieldTarget(e.target)) return;
     let handled = true;
     if (mod && key === "z" && !e.altKey) e.shiftKey ? redo() : undo();
     else if (mod && key === "y") redo();
@@ -386,7 +435,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
 
   const previewHost = useRef<HTMLDivElement>(null);
   const preview = useRef<MaterialPreview | null>(null);
-  const [mesh, setMesh] = useState<PreviewMesh>("sphere");
+  const mesh = graph.previewMesh ?? "sphere";
   useEffect(() => {
     const p = new MaterialPreview(previewHost.current!);
     p.onShaderError = setShaderError;
@@ -398,7 +447,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     };
   }, []);
   // Rebuild the preview's material when anything but node positions changes.
-  const codeKey = JSON.stringify({ ...graph, nodes: graph.nodes.map((n) => ({ ...n, position: 0 })) });
+  const codeKey = JSON.stringify({ ...graph, previewMesh: 0, nodes: graph.nodes.map((n) => ({ ...n, position: 0 })) });
   useEffect(() => {
     preview.current?.setGraph(graph);
   }, [codeKey]);
@@ -415,6 +464,10 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   }, [codeKey]);
   const previewGraphsRef = useRef(previewGraphs);
   previewGraphsRef.current = previewGraphs;
+  /** Each node's preview shape (ADR 0117); not part of `codeKey`, as it doesn't change the shader. */
+  const previewShapes = new Map(graph.nodes.map((n) => [n.id, nodePreviewShape(graph, n)]));
+  const previewShapesRef = useRef(previewShapes);
+  previewShapesRef.current = previewShapes;
   useEffect(() => {
     const renderer = new NodePreviewRenderer(PREVIEW - 8);
     const draw = () => {
@@ -422,7 +475,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
       renderer.begin();
       for (const canvas of pane.current.querySelectorAll<HTMLCanvasElement>("canvas[data-preview]")) {
         const g = previewGraphsRef.current.get(canvas.dataset.preview!);
-        if (g) canvas.classList.toggle("failed", !renderer.draw(g, canvas));
+        if (g) canvas.classList.toggle("failed", !renderer.draw(g, canvas, previewShapesRef.current.get(canvas.dataset.preview!)));
       }
       renderer.end();
     };
@@ -487,7 +540,33 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
         </label>
           </>
         )}
+        <label>
+          Previews{" "}
+          <select aria-label="Node preview shape" title="The shape node previews are drawn on" disabled={readOnly} value={graph.previewShape ?? "quad"} onChange={(e) => commit(setGraphPreviewShape(graph, (e.currentTarget as HTMLSelectElement).value as NodePreviewShape))}>
+            {NODE_PREVIEW_SHAPES.map((m) => (
+              <option key={m} value={m}>
+                {m[0]!.toUpperCase() + m.slice(1)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {selectedNode && selectedNode.type !== "output" && selectedNode.type !== "property" && (
+          <label>
+            Selected{" "}
+            <select aria-label="Selected node preview shape" title="The shape this node's preview is drawn on" disabled={readOnly} value={selectedNode.previewShape ?? ""} onChange={(e) => commit(setNodePreviewShape(graph, selectedNode.id, ((e.currentTarget as HTMLSelectElement).value || null) as NodePreviewShape | null))}>
+              <option value="">Graph default</option>
+              {NODE_PREVIEW_SHAPES.map((m) => (
+                <option key={m} value={m}>
+                  {m[0]!.toUpperCase() + m.slice(1)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <span class="sg-spacer" />
+        <button title="Find in this graph (Ctrl+F)" aria-pressed={!!find} onClick={() => (find ? closeFind() : openFind())}>
+          Find
+        </button>
         <button title="Undo (Ctrl+Z)" disabled={readOnly || history.undo.length === 0} onClick={undo}>
           Undo
         </button>
@@ -532,13 +611,14 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
               setSelection(new Set([made.id]));
             }}
           />
+          <KeywordList graph={graph} readOnly={readOnly} commit={commit} />
           {sub && <SubGraphOutputs graph={graph} readOnly={readOnly} commit={commit} />}
-          {selectedNode?.type === "customFunction" && <FunctionEditor key={selectedNode.id} node={selectedNode} graph={graph} readOnly={readOnly} commit={commit} />}
+          {selectedNode?.type === "customFunction" && <FunctionEditor key={selectedNode.id} node={selectedNode} graph={graph} wgslFiles={project.files.filter((x) => x.toLowerCase().endsWith(".wgsl"))} readOnly={readOnly} commit={commit} />}
           <div class="sg-preview-card">
             <div class="sg-preview-head">
               <span>Preview</span>
-              <select aria-label="Preview mesh" value={mesh} onChange={(e) => setMesh((e.currentTarget as HTMLSelectElement).value as PreviewMesh)}>
-                {(["sphere", "cube", "capsule", "plane"] as const).map((m) => (
+              <select aria-label="Preview mesh" title="The mesh the preview draws (saved with the graph)" disabled={readOnly} value={mesh} onChange={(e) => commit(setGraphPreviewMesh(graph, (e.currentTarget as HTMLSelectElement).value as GraphPreviewMesh))}>
+                {GRAPH_PREVIEW_MESHES.map((m) => (
                   <option key={m} value={m}>
                     {m[0].toUpperCase() + m.slice(1)}
                   </option>
@@ -624,6 +704,47 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
           </div>
           {box && <SelectionBox box={box} />}
           <Minimap nodes={canvasNodes} view={view} size={paneSize} pane={paneApi} />
+          {find && (
+            <div class={`sg-find ${NO_PAN} ${NO_WHEEL}`} role="search" aria-label="Find in graph">
+              <div class="sg-find-row">
+                <input
+                  ref={findInput}
+                  type="text"
+                  autofocus
+                  placeholder="Find nodes, properties, notes…"
+                  aria-label="Find in graph"
+                  value={find.query}
+                  onInput={(e) => setFind({ query: (e.currentTarget as HTMLInputElement).value, index: -1 })}
+                  onKeyDown={(e) => {
+                    const k = e.key;
+                    if (k === "Escape") closeFind();
+                    else if (k === "Enter" || k === "ArrowDown" || k === "ArrowUp") {
+                      const step = k === "ArrowUp" || (k === "Enter" && e.shiftKey) ? -1 : 1;
+                      goToMatch(cycleIndex(find.index, matches.length, step));
+                    } else return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                />
+                <span class="sg-find-count" aria-live="polite">
+                  {find.query.trim() ? (matches.length ? `${find.index >= 0 ? find.index + 1 : "–"} of ${matches.length}` : "No matches") : ""}
+                </span>
+                <button title="Close (Escape)" aria-label="Close find" onClick={closeFind}>
+                  ✕
+                </button>
+              </div>
+              {matches.length > 0 && (
+                <ul>
+                  {matches.map((m, i) => (
+                    <li key={`${m.kind}-${m.id}`} class={i === find.index ? "active" : ""} onClick={() => goToMatch(i)}>
+                      <span class="sg-find-label">{m.label}</span>
+                      <span class="sg-find-kind">{m.kind === "node" ? m.field : m.kind}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           {search && <NodeSearch graph={graph} subgraphs={subgraphs} at={search.at} pending={search.pending} onPick={(type, settings) => addFromSearch(type, settings, search.at, search.pending)} onClose={closeSearch} />}
           {(problems.length > 0 || shaderError) && (
             <ul class="sg-problems" aria-label="Shader graph problems">
@@ -798,6 +919,7 @@ function SettingField(props: { node: GraphNode; setting: SettingDef; graph: Shad
   else if (setting.kind === "subgraph")
     field = select([{ value: "", label: "(pick a sub-graph)" }, ...props.subgraphs.map((f) => ({ value: `asset:${f}`, label: fileName(f) })), ...(value && !props.subgraphs.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
   else if (setting.kind === "property") field = select([{ value: "", label: "(pick a property)" }, ...graph.properties.map((p) => ({ value: p.name, label: p.name }))]);
+  else if (setting.kind === "keyword") field = select([{ value: "", label: "(pick a keyword)" }, ...(graph.keywords ?? []).map((k) => ({ value: k.name, label: k.name }))]);
   else if (setting.kind === "texture")
     field = select([{ value: "", label: "White" }, ...props.images.map((f) => ({ value: `asset:${f}`, label: fileName(f) })), ...(value && !props.images.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
   else if (setting.kind === "color") field = <input type="color" class={NO_DRAG} aria-label={label} disabled={props.readOnly} value={value.slice(0, 7)} onChange={(e) => props.onValue((e.currentTarget as HTMLInputElement).value)} />;
@@ -917,6 +1039,81 @@ function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[];
   );
 }
 
+/** The graph's keywords (ADR 0106; a sub-graph's too): on/off or enum switches materials set, each compiling its own variant. */
+function KeywordList(props: { graph: ShaderGraph; readOnly: boolean; commit(g: ShaderGraph): void }) {
+  const { graph, readOnly, commit } = props;
+  const keywords = graph.keywords ?? [];
+  const sub = !!graph.subgraph;
+  return (
+    <div class="sg-blackboard sg-keywords" aria-label="Keywords">
+      <div class="sg-blackboard-head">
+        <span>Keywords</span>
+        <button aria-label="Add keyword" disabled={readOnly} onClick={() => commit(addKeyword(graph).graph)}>
+          + Add
+        </button>
+      </div>
+      {keywords.length === 0 && <p class="sg-hint">Keywords are switches a material sets; each combination compiles its own shader. Add one, then use it in a Keyword node.{sub ? " A sub-graph's keywords become the using graph's when it's used (a keyword of the same name the graph declares itself wins)." : ""}</p>}
+      {keywords.map((k) => (
+        <div key={k.name} class="sg-property" aria-label={`Keyword ${k.name}`}>
+          <div class="sg-property-row">
+            <input
+              type="text"
+              aria-label="Keyword name"
+              disabled={readOnly}
+              value={k.name}
+              onChange={(e) => {
+                const input = e.currentTarget as HTMLInputElement;
+                const name = input.value.trim().toUpperCase().replace(/\s+/g, "_");
+                const why = whyNotKeywordName(graph, k.name, name);
+                if (why) {
+                  status.value = { kind: "error", text: `Can't rename the keyword: ${why}.` };
+                  input.value = k.name;
+                } else commit(renameKeyword(graph, k.name, name));
+              }}
+            />
+            <select
+              aria-label={`${k.name} kind`}
+              disabled={readOnly}
+              value={k.values ? "enum" : "bool"}
+              onChange={(e) => commit(setKeyword(graph, k.name, { values: (e.currentTarget as HTMLSelectElement).value === "enum" ? ["LOW", "HIGH"] : null }))}
+            >
+              <option value="bool">On / off</option>
+              <option value="enum">Enum</option>
+            </select>
+            <button class="danger" title="Remove the keyword and its nodes" aria-label={`Remove ${k.name}`} disabled={readOnly} onClick={() => commit(removeKeyword(graph, k.name))}>
+              Remove
+            </button>
+          </div>
+          {k.values && (
+            <div class="sg-property-row">
+              <input
+                type="text"
+                aria-label={`${k.name} values`}
+                title="Comma-separated, two or more, upper case; the first is the default"
+                disabled={readOnly}
+                value={k.values.join(", ")}
+                onChange={(e) => {
+                  const input = e.currentTarget as HTMLInputElement;
+                  const values = input.value.split(",").map((v) => v.trim().toUpperCase()).filter((v) => v);
+                  const next = setKeyword(graph, k.name, { values });
+                  if (next === graph) {
+                    status.value = { kind: "error", text: "An enum keyword needs two or more distinct upper-case values (letters, digits, _)." };
+                    input.value = k.values!.join(", ");
+                  } else commit(next);
+                }}
+              />
+            </div>
+          )}
+          <label class="sg-property-row" title="Warm-up compiles every combination, so scripts can switch it at run time">
+            <input type="checkbox" aria-label={`${k.name} compile all variants`} disabled={readOnly} checked={k.variants === "all"} onChange={(e) => commit(setKeyword(graph, k.name, { variants: (e.currentTarget as HTMLInputElement).checked ? "all" : "used" }))} />
+            <span>Compile all variants (switched by scripts)</span>
+          </label>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** A property value editor, shared by the Blackboard and the Material inspector. */
 // --- sub-graph outputs and custom functions (ADR 0048) -------------------------------------------------
 
@@ -993,7 +1190,7 @@ function SubGraphOutputs(props: { graph: ShaderGraph; readOnly: boolean; commit(
 }
 
 /** The selected Custom Function node's name, ports and WGSL body. */
-function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; readOnly: boolean; commit(g: ShaderGraph): void }) {
+function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; wgslFiles: string[]; readOnly: boolean; commit(g: ShaderGraph): void }) {
   const { node, graph, commit } = props;
   const f: CustomFunction = node.function ?? defaultFunction();
   const set = (next: CustomFunction, renamed?: Record<string, string>) => commit(setFunction(graph, node.id, next, renamed));
@@ -1033,19 +1230,61 @@ function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; readOnly: 
       </label>
       {side("inputs", "Inputs")}
       {side("outputs", "Outputs")}
-      <label class="sg-property-row sg-wgsl-label">
-        <span>WGSL body</span>
+      <label class="sg-property-row">
+        <span>Source</span>
+        <select
+          aria-label="Body source"
+          disabled={props.readOnly}
+          value={f.file !== undefined ? "file" : "inline"}
+          onChange={(e) => {
+            const file = (e.currentTarget as HTMLSelectElement).value === "file";
+            const { file: _drop, ...rest } = f;
+            set(file ? { ...rest, file: "" } : rest);
+          }}
+        >
+          <option value="inline">Inline</option>
+          <option value="file">File</option>
+        </select>
       </label>
-      <textarea
-        class="sg-function-body sg-function-wgsl"
-        aria-label="WGSL body"
-        spellcheck={false}
-        disabled={props.readOnly}
-        placeholder="Out = In;"
-        value={f.wgsl ?? ""}
-        onChange={(e) => set({ ...f, wgsl: (e.currentTarget as HTMLTextAreaElement).value })}
-      />
-      <p class="sg-hint">Assign every output (each is a var already declared); inputs and outputs are named as above.{!f.wgsl?.trim() && " Without a body the node outputs its defaults."}</p>
+      {f.file !== undefined ? (
+        <>
+          <label class="sg-property-row">
+            <span>WGSL file</span>
+            <input
+              type="text"
+              list="sg-wgsl-files"
+              aria-label="WGSL file"
+              spellcheck={false}
+              disabled={props.readOnly}
+              placeholder="asset:shaders/body.wgsl"
+              value={f.file}
+              onChange={(e) => set({ ...f, file: (e.currentTarget as HTMLInputElement).value.trim() })}
+            />
+            <datalist id="sg-wgsl-files">
+              {props.wgslFiles.map((x) => (
+                <option key={x} value={`asset:${x}`} />
+              ))}
+            </datalist>
+          </label>
+          <p class="sg-hint">The file holds just the function body (same as the inline WGSL body). It wins over any inline body, and the material rebuilds when the file changes.{!f.file && " Without a file the node outputs its defaults."}</p>
+        </>
+      ) : (
+        <>
+          <label class="sg-property-row sg-wgsl-label">
+            <span>WGSL body</span>
+          </label>
+          <textarea
+            class="sg-function-body sg-function-wgsl"
+            aria-label="WGSL body"
+            spellcheck={false}
+            disabled={props.readOnly}
+            placeholder="Out = In;"
+            value={f.wgsl ?? ""}
+            onChange={(e) => set({ ...f, wgsl: (e.currentTarget as HTMLTextAreaElement).value })}
+          />
+          <p class="sg-hint">Assign every output (each is a var already declared); inputs and outputs are named as above.{!f.wgsl?.trim() && " Without a body the node outputs its defaults."}</p>
+        </>
+      )}
       {f.body?.trim() && (
         <>
           <label class="sg-property-row">

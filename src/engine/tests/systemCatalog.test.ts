@@ -118,7 +118,7 @@ describe("the system catalog (T2)", () => {
     // Buoyancy (ADR 0072) runs before the 3D push and does nothing without Buoyancy components.
     // The 3D physics systems (ADR 0045) do nothing in a World without 3D physics.
     // The UI document systems (ADR 0077) do nothing in a World without UIDocuments.
-    expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.NetReceiveTick", "engine.NetInputTick", "engine.PredictionTick", "engine.FixedUpdateScripts", "engine.NavSync", "engine.NavStep", "engine.NavWriteBack", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents", "engine.Buoyancy", "engine.Physics3DPush", "engine.Physics3DStep", "engine.Physics3DWriteBack", "engine.Physics3DEvents"]);
+    expect(engine.world.scheduler.order("fixedUpdate")).toEqual(["engine.PhysicsRestoreInterpolated", "engine.NetReceiveTick", "engine.NetInputTick", "engine.PredictionTick", "engine.FixedUpdateScripts", "engine.NavSync", "engine.NavStep", "engine.NavWriteBack", "engine.PhysicsPush", "engine.PhysicsStep", "engine.PhysicsWriteBack", "engine.PhysicsEvents", "engine.Buoyancy", "engine.Physics3DPush", "engine.Physics3DStep", "engine.Physics3DWriteBack", "engine.Physics3DEvents"]);
     expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "engine.UpdateScripts", "test.cat.Default"]);
     expect(engine.world.scheduler.order("lateUpdate")).toEqual(["engine.LateUpdateScripts", "engine.UIDocumentSync", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.Audio"]);
     engine.dispose();

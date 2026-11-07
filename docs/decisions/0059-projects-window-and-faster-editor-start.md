@@ -1,6 +1,6 @@
 # 0059. The desktop editor opens on a Projects window while the editor loads hidden
 
-- **Status:** Proposed
+- **Status:** Proposed, amended by 0082 (the Projects window creates the editor window once it shows)
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

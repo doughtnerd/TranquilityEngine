@@ -20,10 +20,12 @@ import type {
   GraphNote,
   GraphProperty,
   GraphPropertyType,
+  OutputContext,
   OutputSettings,
   OutputType,
   ParticleGraph,
   ParticleGraphSystem,
+  SimulationChoice,
   SpawnSettings,
   SystemSettings,
   Vec2,
@@ -37,6 +39,31 @@ const round = (p: Vec2 | readonly number[]): Vec2 => [Math.round(p[0]), Math.rou
 
 export type TemplateKind = Parameters<typeof systemTemplate>[1];
 
+// --- view state ---------------------------------------------------------------------------------------
+
+/** The ids of the systems whose frames are collapsed (`graph.editor.collapsed`), skipping systems that are gone. */
+export function collapsedSystems(graph: ParticleGraph): Set<string> {
+  const raw = graph.editor?.collapsed;
+  const ids = new Set(graph.systems.map((s) => s.id));
+  return new Set(Array.isArray(raw) ? raw.filter((id): id is string => typeof id === "string" && ids.has(id)) : []);
+}
+
+/** Collapses or expands a system's frame; stored in the graph's editor-only data so it saves with the asset. */
+export function setSystemCollapsed(graph: ParticleGraph, systemId: string, collapsed: boolean): ParticleGraph {
+  if (!graph.systems.some((s) => s.id === systemId)) return graph;
+  const before = collapsedSystems(graph);
+  if (before.has(systemId) === collapsed) return graph;
+  if (collapsed) before.add(systemId);
+  else before.delete(systemId);
+  const next = clone(graph);
+  const editor = { ...next.editor };
+  if (before.size) editor.collapsed = [...before];
+  else delete editor.collapsed;
+  if (Object.keys(editor).length) next.editor = editor;
+  else delete next.editor;
+  return next;
+}
+
 // --- references --------------------------------------------------------------------------------------
 
 /** Splits `"<id>.<port>"` at the last dot. */
@@ -45,12 +72,25 @@ export function splitRef(ref: string): [string, string] {
   return i < 0 ? [ref, ""] : [ref.slice(0, i), ref.slice(i + 1)];
 }
 
-/** A system's context by kind. */
-export const contextOf = (sys: ParticleGraphSystem, kind: ContextKind): BlockContext => sys[kind];
+/**
+ * A system's context by kind. A system can have several outputs: `output` picks one (0 is the main
+ * `output`, 1 and up are `extraOutputs[output - 1]`); it only matters for the "output" kind.
+ */
+export const contextOf = (sys: ParticleGraphSystem, kind: ContextKind, output = 0): BlockContext | null =>
+  kind === "output" ? (output === 0 ? sys.output : (sys.extraOutputs?.[output - 1] ?? null)) : sys[kind];
+
+/** How many outputs a system has (the main one and the extra ones). */
+export const outputCount = (sys: ParticleGraphSystem): number => 1 + (sys.extraOutputs?.length ?? 0);
+
+function outputContext(sys: ParticleGraphSystem, output: number): OutputContext | null {
+  return (contextOf(sys, "output", output) as OutputContext | null) ?? null;
+}
 
 export interface BlockAt {
   system: ParticleGraphSystem;
   kind: ContextKind;
+  /** The output the block is in (0 = the main one; always 0 outside the Output context). */
+  output: number;
   index: number;
   block: GraphBlock;
 }
@@ -62,8 +102,11 @@ export function findBlock(graph: ParticleGraph, systemId: string, blockId: strin
   const system = graph.systems.find((s) => s.id === systemId);
   if (!system) return null;
   for (const kind of KINDS) {
-    const index = system[kind].blocks.findIndex((b) => b.id === blockId);
-    if (index >= 0) return { system, kind, index, block: system[kind].blocks[index] };
+    for (let output = 0; output < (kind === "output" ? outputCount(system) : 1); output++) {
+      const blocks = contextOf(system, kind, output)!.blocks;
+      const index = blocks.findIndex((b) => b.id === blockId);
+      if (index >= 0) return { system, kind, output, index, block: blocks[index] };
+    }
   }
   return null;
 }
@@ -186,8 +229,8 @@ export const sourceOf = (graph: ParticleGraph, to: string): string | undefined =
 
 /** Add a system from a template at `position`. */
 export function addSystem(graph: ParticleGraph, kind: TemplateKind, position: Vec2, name?: string): { graph: ParticleGraph; id: string } {
-  const sys = systemTemplate(graph, kind, round(position), name);
   const g = clone(graph);
+  const sys = systemTemplate(g, kind, round(position), name); // some templates add nodes and wires to the graph
   g.systems.push(sys);
   return { graph: g, id: sys.id };
 }
@@ -210,18 +253,78 @@ export const setSystemEnabled = (graph: ParticleGraph, id: string, enabled: bool
 
 export const setSystemSettings = (graph: ParticleGraph, id: string, patch: Partial<SystemSettings>): ParticleGraph => editSystem(graph, id, (s) => Object.assign(s.settings, patch));
 export const setSpawnSettings = (graph: ParticleGraph, id: string, patch: Partial<SpawnSettings>): ParticleGraph => editSystem(graph, id, (s) => Object.assign(s.spawn.settings, patch));
-export const setOutputType = (graph: ParticleGraph, id: string, type: OutputType): ParticleGraph => editSystem(graph, id, (s) => (s.output.type = type));
-export const setOutputSettings = (graph: ParticleGraph, id: string, patch: Partial<OutputSettings>): ParticleGraph => editSystem(graph, id, (s) => Object.assign(s.output.settings, patch));
+/** The output index (0 = main, 1 and up = extra outputs) is optional on every output edit. */
+export const setOutputType = (graph: ParticleGraph, id: string, type: OutputType, output = 0): ParticleGraph =>
+  editSystem(graph, id, (s) => {
+    const o = outputContext(s, output);
+    if (o) o.type = type;
+  });
+export const setOutputSettings = (graph: ParticleGraph, id: string, patch: Partial<OutputSettings>, output = 0): ParticleGraph =>
+  editSystem(graph, id, (s) => {
+    const o = outputContext(s, output);
+    if (o) Object.assign(o.settings, patch);
+  });
+
+/** Set the simulation choice: undefined (auto) is not written. */
+export const setSimulation = (graph: ParticleGraph, id: string, simulation: SimulationChoice | undefined): ParticleGraph =>
+  editSystem(graph, id, (s) => {
+    if (simulation === undefined || simulation === "auto") delete s.settings.simulation;
+    else s.settings.simulation = simulation;
+  });
+
+/** Set the system's own seed: null or undefined uses the component's (not written); otherwise an integer. */
+export const setSeed = (graph: ParticleGraph, id: string, seed: number | null | undefined): ParticleGraph =>
+  editSystem(graph, id, (s) => {
+    if (seed === null || seed === undefined || !Number.isFinite(seed)) delete s.settings.seed;
+    else s.settings.seed = Math.trunc(seed);
+  });
+
+/** Set the output's soft-particle distance in metres (0 or less turns it off: not written). */
+export const setOutputSoftness = (graph: ParticleGraph, id: string, softness: number, output = 0): ParticleGraph =>
+  editSystem(graph, id, (s) => {
+    const o = outputContext(s, output);
+    if (!o) return;
+    if (softness > 0 && Number.isFinite(softness)) o.settings.softness = softness;
+    else delete o.settings.softness;
+  });
+
+/** Add another output to a system: the main output's type and settings, no blocks. `index` is the new output's index (null if the system isn't found). */
+export function addOutput(graph: ParticleGraph, id: string): { graph: ParticleGraph; index: number | null } {
+  const sys = graph.systems.find((s) => s.id === id);
+  if (!sys) return { graph, index: null };
+  const g = editSystem(graph, id, (s) => {
+    (s.extraOutputs ??= []).push({ type: s.output.type, settings: clone(s.output.settings), blocks: [] });
+  });
+  return { graph: g, index: outputCount(sys) };
+}
+
+/** Remove an extra output (index 1 and up) with its blocks, the wires into them and the events from them. */
+export function removeOutput(graph: ParticleGraph, id: string, output: number): ParticleGraph {
+  const sys = graph.systems.find((s) => s.id === id);
+  const doomed = sys?.extraOutputs?.[output - 1];
+  if (!sys || !doomed || output < 1) return graph;
+  const g = clone(graph);
+  const s = g.systems.find((x) => x.id === id)!;
+  s.extraOutputs!.splice(output - 1, 1);
+  if (s.extraOutputs!.length === 0) delete s.extraOutputs;
+  for (const b of doomed.blocks) {
+    const prefix = `${id}.${b.id}`;
+    g.edges = g.edges.filter((e) => !e.to.startsWith(`${prefix}.`));
+    g.events = g.events.filter((e) => e.from !== prefix);
+  }
+  return g;
+}
 
 // --- blocks ------------------------------------------------------------------------------------------
 
 /** Add a block of `type` to a context, at `index` (the end by default). Null id if it doesn't fit there. */
-export function addBlock(graph: ParticleGraph, systemId: string, kind: ContextKind, type: string, index?: number): { graph: ParticleGraph; id: string | null } {
+export function addBlock(graph: ParticleGraph, systemId: string, kind: ContextKind, type: string, index?: number, output = 0): { graph: ParticleGraph; id: string | null } {
   const def = blockDef(type);
-  if (!def || !def.contexts.includes(kind) || !graph.systems.some((s) => s.id === systemId)) return { graph, id: null };
+  const system = graph.systems.find((s) => s.id === systemId);
+  if (!def || !def.contexts.includes(kind) || !system || !contextOf(system, kind, output)) return { graph, id: null };
   const id = newGraphId(graph, "b");
   const g = editSystem(graph, systemId, (s) => {
-    const blocks = s[kind].blocks;
+    const blocks = contextOf(s, kind, output)!.blocks;
     blocks.splice(index === undefined ? blocks.length : Math.max(0, Math.min(blocks.length, index)), 0, defaultBlock(type, id));
   });
   return { graph: g, id };
@@ -233,7 +336,7 @@ export function removeBlock(graph: ParticleGraph, systemId: string, blockId: str
   if (!at) return graph;
   const g = clone(graph);
   const sys = g.systems.find((s) => s.id === systemId)!;
-  sys[at.kind].blocks.splice(at.index, 1);
+  contextOf(sys, at.kind, at.output)!.blocks.splice(at.index, 1);
   const prefix = `${systemId}.${blockId}`;
   g.edges = g.edges.filter((e) => !e.to.startsWith(`${prefix}.`));
   g.events = g.events.filter((e) => e.from !== prefix);
@@ -241,11 +344,12 @@ export function removeBlock(graph: ParticleGraph, systemId: string, blockId: str
 }
 
 /** Can a block go into a context of `kind` (in `systemId`)? Unknown blocks stay in their own context. */
-export function canMoveBlock(graph: ParticleGraph, systemId: string, blockId: string, toSystem: string, toKind: ContextKind): boolean {
+export function canMoveBlock(graph: ParticleGraph, systemId: string, blockId: string, toSystem: string, toKind: ContextKind, toOutput = 0): boolean {
   const at = findBlock(graph, systemId, blockId);
-  if (!at || !graph.systems.some((s) => s.id === toSystem)) return false;
+  const target = graph.systems.find((s) => s.id === toSystem);
+  if (!at || !target || !contextOf(target, toKind, toOutput)) return false;
   const def = blockDef(at.block.type);
-  return def ? def.contexts.includes(toKind) : systemId === toSystem && at.kind === toKind;
+  return def ? def.contexts.includes(toKind) : systemId === toSystem && at.kind === toKind && at.output === toOutput;
 }
 
 /**
@@ -253,19 +357,19 @@ export function canMoveBlock(graph: ParticleGraph, systemId: string, blockId: st
  * included), in the same system or another. Wires into it and events from it move with it; an
  * event that would now trigger its own system is dropped.
  */
-export function moveBlock(graph: ParticleGraph, systemId: string, blockId: string, toSystem: string, toKind: ContextKind, index: number): ParticleGraph {
-  if (!canMoveBlock(graph, systemId, blockId, toSystem, toKind)) return graph;
+export function moveBlock(graph: ParticleGraph, systemId: string, blockId: string, toSystem: string, toKind: ContextKind, index: number, toOutput = 0): ParticleGraph {
+  if (!canMoveBlock(graph, systemId, blockId, toSystem, toKind, toOutput)) return graph;
   const at = findBlock(graph, systemId, blockId)!;
   let slot = index;
-  if (systemId === toSystem && at.kind === toKind) {
+  if (systemId === toSystem && at.kind === toKind && at.output === toOutput) {
     if (slot > at.index) slot--;
     if (slot === at.index) return graph;
   }
   const g = clone(graph);
   const from = g.systems.find((s) => s.id === systemId)!;
   const to = g.systems.find((s) => s.id === toSystem)!;
-  const [block] = from[at.kind].blocks.splice(at.index, 1);
-  const list = to[toKind].blocks;
+  const [block] = contextOf(from, at.kind, at.output)!.blocks.splice(at.index, 1);
+  const list = contextOf(to, toKind, toOutput)!.blocks;
   list.splice(Math.max(0, Math.min(list.length, slot)), 0, block);
   if (systemId !== toSystem) {
     const oldRef = `${systemId}.${blockId}`, newRef = `${toSystem}.${blockId}`;
@@ -279,7 +383,7 @@ export function moveBlock(graph: ParticleGraph, systemId: string, blockId: strin
 function editBlock(graph: ParticleGraph, systemId: string, blockId: string, edit: (b: GraphBlock) => void): ParticleGraph {
   const at = findBlock(graph, systemId, blockId);
   if (!at) return graph;
-  return editSystem(graph, systemId, (s) => edit(s[at.kind].blocks[at.index]));
+  return editSystem(graph, systemId, (s) => edit(contextOf(s, at.kind, at.output)!.blocks[at.index]));
 }
 
 export const setBlockEnabled = (graph: ParticleGraph, systemId: string, blockId: string, enabled: boolean): ParticleGraph =>
@@ -504,7 +608,13 @@ export function pasteItems(graph: ParticleGraph, clip: ParticleClipboard, at: Ve
         b.id = nb;
       }
     }
-    for (const o of s.extraOutputs ?? []) for (const b of o.blocks) b.id = take("b");
+    for (const o of s.extraOutputs ?? []) {
+      for (const b of o.blocks) {
+        const nb = take("b");
+        blockIds.set(`${s.id}.${b.id}`, nb);
+        b.id = nb;
+      }
+    }
     g.systems.push({ ...s, id, position: round([s.position[0] + dx, s.position[1] + dy]) });
     out.push(id);
   }

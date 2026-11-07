@@ -1,0 +1,151 @@
+{
+  "format": "myco.scene@1",
+  "settings": { "physics": "2d" },
+  "nodes": [
+    {
+      "id": "camera",
+      "name": "Camera",
+      "components": [
+        { "type": "engine.Transform", "data": { "position": [2.5, 6, 10] } },
+        {
+          "type": "engine.Camera",
+          "data": {
+            "projection": "orthographic",
+            "orthographicSize": 7,
+            "backgroundColor": "#87c5ea",
+            "pixelPerfect": true
+          }
+        },
+        { "type": "game.CameraFollow", "data": { "target": { "$node": "player" } } }
+      ]
+    },
+    {
+      "id": "level",
+      "name": "Level",
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.Tilemap",
+          "data": {
+            "tileset": "asset:tiles/platformer.tileset.json",
+            "cellSize": [
+              1,
+              1
+            ],
+            "layers": [
+              {
+                "v": 1,
+                "name": "Decoration",
+                "sortingLayer": "Background",
+                "orderInLayer": 0,
+                "visible": true,
+                "collision": false,
+                "tint": "#ffffff",
+                "opacity": 1,
+                "chunks": {
+                  "1,0": "0*50,20,0*9,20,0*195",
+                  "2,0": "0*63,20,0*192"
+                }
+              },
+              {
+                "v": 1,
+                "name": "Ground",
+                "sortingLayer": "Default",
+                "orderInLayer": 0,
+                "visible": true,
+                "collision": true,
+                "tint": "#ffffff",
+                "opacity": 1,
+                "chunks": {
+                  "0,0": "8,16*7,14,19*3,8,16*3,8,16*7,14,0*3,8,16*3,7,15*7,13,0*3,7,15*3,0*29,17*3,0*14,18,0*161",
+                  "1,0": "16*32,15*16,0*5,22,0*2,19*2,0*11,22,0*35,17*5,0*12,18,0,18,0*131",
+                  "2,0": "16*3,14,19*3,8,16*11,14,0*3,8,16*8,15*3,13,0*3,7,16*4,15*4,17*6,0*2,8,16*2,13,0*9,18,0,4,16*2,14,0*12,7,16*2,13,0*13,7,13,0*35,17*3,0*14,18,0*97",
+                  "3,0": "16*11,14,19*3,8,16*11,14,0*3,8,15*7,16*4,14,0*3,8,0*7,7,15*4,9,0*2,8,0,17*3,0*5,19*2,0*4,8,0*2,18,0*12,8,0*15,7,0*16,17*4,0*12,18,0,18,0*109",
+                  "4,0": "16*6,14,0*9,16*6,14,0*9,16*3,15*3,13,0*9,16*2,14,0*13,16*2,14,0*13,16*2,14,0*13,15*2,13,0*14,21,0*142"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "engine.TilemapCollider2D",
+          "data": {
+            "layer": "World"
+          }
+        }
+      ]
+    },
+    {
+      "id": "player",
+      "name": "Player",
+      "tags": [
+        "Player"
+      ],
+      "components": [
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [
+              2.5,
+              3.5,
+              0
+            ]
+          }
+        },
+        {
+          "type": "engine.SpriteRenderer",
+          "data": {
+            "sprite": "asset:images/player.png",
+            "sortingLayer": "Player"
+          }
+        },
+        {
+          "type": "engine.RigidBody2D",
+          "data": {
+            "bodyType": "dynamic",
+            "mass": 1,
+            "collisionDetection": "continuous",
+            "constraints": {
+              "freezePosition": {
+                "x": false,
+                "y": false
+              },
+              "freezeRotation": true
+            }
+          }
+        },
+        {
+          "type": "engine.BoxCollider2D",
+          "data": {
+            "size": [
+              0.7,
+              0.85
+            ],
+            "layer": "Player",
+            "material": {
+              "friction": 0,
+              "bounciness": 0
+            }
+          }
+        },
+        {
+          "type": "game.Player",
+          "data": {
+            "level": {
+              "$node": "level"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

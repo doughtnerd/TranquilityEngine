@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compileParticleGraph } from "../scene/particleCompile";
-import { ProgramRunner } from "../render/particles/programRunner";
+import { ProgramRunner, playTimes } from "../render/particles/programRunner";
 import { defaultBlock } from "../scene/particleBlocks";
 import { OUTPUT_TYPES, type ContextKind, type GraphEdge, type GraphEvent, type GraphInputValue, type GraphNode, type GraphProperty, type ParticleGraph, type ParticleGraphSystem } from "../scene/particleGraph";
 import { defaultParticleGraph, migrateParticleEffect, newGraphId, systemTemplate } from "../scene/particleGraphFormat";
@@ -115,7 +115,7 @@ describe("lowering", () => {
     const { g, sys } = emptyGraph();
     const types = [
       "colorOverLife", "sizeOverLife", "rotationOverLife", "speedOverLife", "forceOverLife", "gravityPoint", "noise",
-      "turbulence", "orbit", "frameOverLife", "limitSpeed", "colorBySpeed", "sizeBySpeed", "collision",
+      "turbulence", "orbit", "frameOverLife", "limitSpeed", "colorBySpeed", "sizeBySpeed", "collision", "collisionColliders",
     ];
     for (const t of types) addBlock(g, sys, "update", `update.${t}`);
     const p = compileParticleGraph(g);
@@ -509,9 +509,9 @@ describe("ProgramRunner", () => {
     const box = runner.live(0, "emission.rateOverTime")!;
     expect(box).toBeDefined();
     expect(box.value).toBe(0);
-    expect(runner.update(2, 0.016, 0)).toBe(false);
+    expect(runner.update(2, 0.016, () => 0)).toBe(false);
     expect(box.value).toBe(6);
-    runner.update(5, 0.016, 0);
+    runner.update(5, 0.016, () => 0);
     expect(box.value).toBe(15);
     expect(runner.live(0, "startSpeed")).toBeUndefined();
     expect(runner.live(1, "emission.rateOverTime")).toBeUndefined();
@@ -523,8 +523,36 @@ describe("ProgramRunner", () => {
     g.nodes.push(node("n1", "playTime"));
     g.edges.push(edge("n1.out", `${sys.id}.${b.id}.rate`));
     const runner = new ProgramRunner(compileParticleGraph(g));
-    runner.update(10, 0.016, 1.25);
+    runner.update(10, 0.016, () => 1.25);
     expect(runner.live(0, "emission.rateOverTime")!.value).toBe(1.25);
+  });
+
+  it("gives each emitter its own play time, by its own duration", () => {
+    const { g, sys } = emptyGraph();
+    const sys2 = addSystem(g);
+    sys.spawn.settings.duration = 2;
+    sys2.spawn.settings.duration = 5;
+    for (const s of [sys, sys2]) {
+      const b = addBlock(g, s, "spawn", "spawn.rate");
+      const n = `n${s.id}`;
+      g.nodes.push(node(n, "playTime"));
+      g.edges.push(edge(`${n}.out`, `${s.id}.${b.id}.rate`));
+    }
+    const p = compileParticleGraph(g);
+    const runner = new ProgramRunner(p);
+    runner.update(7, 0.016, playTimes(p, 7));
+    expect(runner.live(0, "emission.rateOverTime")!.value).toBeCloseTo(1); // 7 mod 2
+    expect(runner.live(1, "emission.rateOverTime")!.value).toBeCloseTo(2); // 7 mod 5
+    sys2.spawn.settings.duration = 0;
+    const q = compileParticleGraph(g);
+    expect(playTimes(q, 7)(1)).toBe(7); // no duration: the whole time
+  });
+
+  it("carries a system's own seed into the program", () => {
+    const { g, sys } = emptyGraph();
+    addSystem(g);
+    sys.settings.seed = 9;
+    expect(compileParticleGraph(g).seeds).toEqual([9, null]);
   });
 
   it("writes colour bindings as linear RGBA", () => {
@@ -535,7 +563,7 @@ describe("ProgramRunner", () => {
     const p = compileParticleGraph(g);
     expect(p.bindings[0]).toMatchObject({ kind: "color", live: true, path: "startColor" });
     const runner = new ProgramRunner(p);
-    runner.update(0, 0, 0);
+    runner.update(0, 0, () => 0);
     const v = runner.live(0, "startColor")!.value as number[];
     expect(v).toHaveLength(4);
     expect(v[0]).toBeCloseTo(0.214, 2);
@@ -555,14 +583,14 @@ describe("ProgramRunner", () => {
   it("applies property overrides on the next update", () => {
     const runner = new ProgramRunner(compileParticleGraph(propGraph()));
     const box = runner.live(0, "startSpeed")!;
-    runner.update(0, 0, 0);
+    runner.update(0, 0, () => 0);
     expect(box.value).toBe(1);
     runner.setOverrides({ Speed: 7, Unrelated: 3 });
     expect(box.value).toBe(1); // not until update
-    runner.update(0, 0, 0);
+    runner.update(0, 0, () => 0);
     expect(box.value).toBe(7);
     runner.setOverrides({});
-    runner.update(0, 0, 0);
+    runner.update(0, 0, () => 0);
     expect(box.value).toBe(1);
   });
 
@@ -570,9 +598,9 @@ describe("ProgramRunner", () => {
     const runner = new ProgramRunner(compileParticleGraph(propGraph()));
     const box = runner.live(0, "startSpeed")!;
     runner.setOverrides({ Speed: 5 });
-    runner.update(0, 0, 0);
+    runner.update(0, 0, () => 0);
     runner.setOverrides({ Speed: "oops" });
-    expect(() => runner.update(0, 0, 0)).not.toThrow();
+    expect(() => runner.update(0, 0, () => 0)).not.toThrow();
     expect(box.value).toBe(5);
   });
 
@@ -590,17 +618,17 @@ describe("ProgramRunner", () => {
     const runner = new ProgramRunner(p);
     runner.setOverrides({ R: 2 });
     runner.effect();
-    expect(runner.update(1, 0.016, 0, true)).toBe(false);
-    expect(runner.update(2, 0.016, 0, true)).toBe(false);
+    expect(runner.update(1, 0.016, () => 0, true)).toBe(false);
+    expect(runner.update(2, 0.016, () => 0, true)).toBe(false);
     runner.setOverrides({ R: 5 });
-    expect(runner.update(3, 0.016, 0, true)).toBe(true);
+    expect(runner.update(3, 0.016, () => 0, true)).toBe(true);
     // Still stale until the effect is rebuilt.
-    expect(runner.update(4, 0.016, 0, true)).toBe(true);
+    expect(runner.update(4, 0.016, () => 0, true)).toBe(true);
     runner.effect();
-    expect(runner.update(5, 0.016, 0, true)).toBe(false);
+    expect(runner.update(5, 0.016, () => 0, true)).toBe(false);
     // Without checkBaked it never reports.
     runner.setOverrides({ R: 9 });
-    expect(runner.update(6, 0.016, 0)).toBe(false);
+    expect(runner.update(6, 0.016, () => 0)).toBe(false);
   });
 
   it("effect() bakes non-live bindings into a clone", () => {

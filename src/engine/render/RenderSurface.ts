@@ -4,12 +4,12 @@
  * implement it while the renderer migrates; `createRenderSurface` picks one. Internal: game code
  * never sees it, and no renderer type appears here (ADR 0010).
  */
-import type { WarmMesh } from "../scene/warmUp";
+import type { WarmContent } from "../scene/warmUp";
 import type { Component } from "../core/Component";
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import type { LocalPose } from "./gizmoMath";
-import type { Camera, SpriteRenderer } from "./components";
+import type { Camera, ReflectionProbe, SpriteRenderer } from "./components";
 import type { PostEffects, ToneMappingName } from "./postEffects";
 import type { UICoreLike } from "../ui/uiCoreTypes";
 
@@ -98,28 +98,39 @@ export interface RenderSurface {
   /** Forget the World this surface draws, so another may claim it. */
   releaseWorld(): void;
   dispose(): void;
+  /**
+   * Resolves once the renderer has started (true) or failed to (false); frames before then draw
+   * nothing. The desktop editor shows its window after this, so the scene view opens drawn (ADR 0082).
+   */
+  readonly started?: Promise<boolean>;
   /** Load textures ahead of time so sprites don't pop in. */
   preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void>;
   /**
-   * Draw each mesh once, hidden, in every pass the frame would put it in, so its shader pipelines exist
-   * before it's shown (ADR 0080). Resolves once they're drawn, or at once while the surface isn't
-   * drawing frames (they're drawn when it starts).
+   * Draw a warm set's meshes, particle effects and world-space UI once, hidden, in every pass the frame
+   * would put them in, so their shader pipelines exist before they're shown (ADR 0080). Resolves once
+   * they're drawn, or at once while the surface isn't drawing frames (they're drawn when it starts).
    */
-  warmUp(meshes: readonly WarmMesh[]): Promise<void>;
+  warmUp(set: WarmContent): Promise<void>;
   /** @internal Editor play mode: log shader variants compiled after loading, naming their prefab (ADR 0080). */
   _setVariantReport?(on: boolean): void;
 
   // Tests and diagnostics.
   qualityState(): { tier: string; pixelRatio: number; shadows: boolean; shadowMapSize: number; anisotropy: number; msaa: boolean };
   lightingState(): { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean };
+  /** The procedural sky (ADR 0112): drawn, bakes made, whether a bake lights the scene, its time of day, the last bake's CPU time. */
+  skyState(): { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number };
   postState(): { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null };
   stackCount(): number;
   waterState(): { surfaces: number };
   probeState(): { captured: number; probes: number; reflecting: number };
+  /** Editor (ADR 0110): a reflection probe's current capture as a prefiltered `.env` file, for its `bakedMap`. */
+  bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer>;
+  /** Tests and the editor: the render texture assets made so far (ADR 0109). */
+  renderTextureState(): Record<string, { width: number; height: number; format: string }>;
   particleState(): ParticleStats | null;
   renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number };
   /** Tests and the editor: the UI core's layout and hit testing, once loaded. */
-  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "cornersOf"> | null;
+  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "pickCanvases" | "cornersOf"> | null;
 
   // Editor (ADR 0022 and later).
   setEditorColors(colors: EditorColors): void;

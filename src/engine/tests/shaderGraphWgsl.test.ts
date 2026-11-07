@@ -83,8 +83,8 @@ describe("WGSL output of the shader graph compiler", () => {
   it("compiles every node type, in the fragment and (where allowed) the vertex stage", () => {
     for (const def of NODES) {
       if (def.type === "output" || def.type === "subgraph" || def.type === "customFunction") continue;
-      const n = node("n", def.type, def.type === "property" ? { settings: { property: "P" } } : {});
-      const g = graph([n], [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }] });
+      const n = node("n", def.type, def.type === "property" ? { settings: { property: "P" } } : def.type === "keyword" ? { settings: { keyword: "K" } } : {});
+      const g = graph([n], [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }], keywords: [{ name: "K" }] });
       const out = nodePorts(n, g).outputs.find((p) => p.type !== "texture");
       if (!out) continue;
       for (const to of ["baseColor", "normal", ...(def.fragmentOnly ? [] : ["vertexOffset"])]) {
@@ -100,9 +100,9 @@ describe("WGSL output of the shader graph compiler", () => {
     const nodes: GraphNode[] = [];
     for (const def of NODES) {
       if (def.type === "output" || def.type === "subgraph" || def.type === "customFunction") continue;
-      nodes.push(node(`n_${def.type}`, def.type, def.type === "property" ? { settings: { property: "P" } } : {}));
+      nodes.push(node(`n_${def.type}`, def.type, def.type === "property" ? { settings: { property: "P" } } : def.type === "keyword" ? { settings: { keyword: "K" } } : {}));
     }
-    const g = graph(nodes, [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }] });
+    const g = graph(nodes, [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }], keywords: [{ name: "K" }] });
     const used = nodes.flatMap((n) => nodePorts(n, g).outputs.filter((o) => o.type !== "texture").map((o) => `${n.id}.${o.id}`));
     g.nodes[0].inputs = { alphaClip: 0.5, clearcoat: 1 };
     // Chain every output through Add nodes, so each is reached.
@@ -230,6 +230,17 @@ describe("WGSL output of the shader graph compiler", () => {
     expect(c.fragment.body).toContain("(scene.view * vec4f(fragmentInputs.vPositionW, 1.0)).xyz");
     const vg = graph([node("w", "position", { settings: { space: "view" } })], [["w.out", "output.vertexOffset"]]);
     expect(wgsl(vg).vertex.body).toContain("(scene.view * (finalWorld * vec4f(mycoVPos, 1.0))).xyz");
+  });
+
+  it("reads the particle colour (vertex times instance colour) in either stage, as RGBA, RGB and alpha", () => {
+    const g = graph([node("pc", "particleColor")], [["pc.rgba", "output.emission"], ["pc.rgb", "output.baseColor"], ["pc.a", "output.alpha"]]);
+    const c = wgsl(g);
+    expect(c.fragment.body).toContain("mycoVColor");
+    expect(c.fragment.body).toContain("mycoVColor.rgb");
+    expect(c.fragment.body).toContain("mycoVColor.a");
+    expect(code(c)).not.toMatch(/\bvColor\b/); // the plugin defines mycoVColor from Babylon's varying
+    const vg = graph([node("pc", "particleColor")], [["pc.rgb", "output.vertexOffset"]]);
+    expect(wgsl(vg).vertex.body).toContain("mycoVColor.rgb");
   });
 
   it("writes modulo, negate, saturate, dot and normalize in WGSL's terms", () => {

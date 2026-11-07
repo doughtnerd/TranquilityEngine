@@ -9,7 +9,7 @@ import type { GameObject } from "./GameObject";
 import { splitSpriteRef } from "./importSettings";
 import { SceneInstance, collectAssetRefs, instantiateFile, loadSceneFile } from "./SceneLoader";
 import { loadUIDocumentSupport } from "../ui/UIDocument";
-import { warmSet, type WarmSet } from "./warmUp";
+import { warmSet, warmSetEmpty, type WarmSet } from "./warmUp";
 
 export interface LoadSceneOptions {
   /** Keep already-loaded scene nodes instead of replacing them (ADR 0016). */
@@ -19,7 +19,7 @@ export interface LoadSceneOptions {
 }
 
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
-const NOTHING_TO_WARM: WarmSet = { meshes: [], prefabs: [] };
+const NOTHING_TO_WARM: WarmSet = { meshes: [], prefabs: [], effects: [], worldUI: false };
 
 /**
  * Loads scene files as scene nodes under the World root (ADR 0016). Acts on the current World
@@ -130,6 +130,14 @@ async function prepareAssets(world: World, files: readonly string[], onProgress:
     if (m.material) all.add(splitSpriteRef(m.material.replace(/^asset:/, "")).path);
   }
   const refs = [...all];
+  // A model's import settings can name material assets for its materials (ADR 0089): their textures too.
+  for (const m of refs.filter((p) => isModelPath(p) && Assets.has(p))) {
+    try {
+      for (const material of Object.values(Assets.importSettings(m).materials)) refs.push(splitSpriteRef(material.replace(/^asset:/, "")).path);
+    } catch {
+      // reported when the model loads
+    }
+  }
   for (const m of refs.filter(isMaterialPath)) {
     try {
       const raw = Assets.has(m) ? Assets.json<Record<string, unknown>>(m) : null;
@@ -144,6 +152,6 @@ async function prepareAssets(world: World, files: readonly string[], onProgress:
   const models = [...new Set(refs.filter((p) => isModelPath(p) && Assets.has(p)))];
   await Promise.all(models.map((m) => loadModel(m).catch((err) => console.error(`[myco] failed to load the model "${m}":`, err))));
   if (world.render && images.length) await world.render.preloadTextures(images, onProgress);
-  if (world.render && warm.meshes.length) await world.render.warmUp(warm.meshes);
+  if (world.render && !warmSetEmpty(warm)) await world.render.warmUp(warm);
   onProgress?.(1);
 }

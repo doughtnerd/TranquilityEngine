@@ -1,6 +1,6 @@
 # 0057. Particle effects are assets in our own format, played by a ParticleSystem component on three.quarks
 
-- **Status:** Accepted, amended by [0081](0081-remove-the-threejs-render-backend.md) (effects play on the engine's renderer-neutral simulation and Babylon.js, ADR 0075, not three.quarks)
+- **Status:** Accepted, amended by [0081](0081-remove-the-threejs-render-backend.md) (effects play on the engine's renderer-neutral simulation and Babylon.js, ADR 0075, not three.quarks); partly superseded by [0060](0060-vfx-graph-particle-authoring.md) (the effect format, embedded effects, the effect editor in the Inspector)
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
