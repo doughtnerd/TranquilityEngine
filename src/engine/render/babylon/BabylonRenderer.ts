@@ -81,14 +81,19 @@ import { BabylonLighting } from "./lighting";
 import { spriteFrame } from "../spriteFrame";
 import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelBaseMaterial, modelMaterial, pbr, tiledTexture } from "./materials";
 import { drawKey, MeshBatches, type DrawKey, type Drawable } from "./meshBatches";
+import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
+import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
 import { AsyncPipelines } from "./asyncPipelines";
 import { effectClock, PipelineWarmer, VariantReport, WARM_PREFIX } from "./warmUp";
 import type { WarmMesh } from "../../scene/warmUp";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 
 interface SpriteEntry {
-  mesh: Mesh;
-  material: PBRMaterial;
+  /** Its own quad and material: the editor's scene view only (picking and outlines); other Worlds batch (ADR 0108). */
+  mesh: Mesh | null;
+  material: PBRMaterial | null;
+  /** What the batcher draws for it (ADR 0108), null while hidden. */
+  item: SpriteItem | null;
   spritePath: string | null;
   texture: Texture | null;
   /** The UVs the quad has, as a key ("" for the whole texture). */
@@ -173,6 +178,7 @@ const tmpMatrix = new Matrix();
 /** Each renderer mesh's frozen world matrix (Babylon keeps the one it's given), refilled when its node moves. */
 const frozenMatrices = new WeakMap<Mesh, Matrix>();
 const tmpSpriteA = new Matrix();
+const tmpColor = new Color3();
 const tmpSpriteB = new Matrix();
 const tmpSpriteC = new Matrix();
 const tmpScale = new Vector3();
@@ -215,6 +221,10 @@ export class BabylonRenderer {
   private readonly meshRenderers = new Map<MeshRenderer, MeshEntry>();
   /** MeshRenderer meshes batched for GPU instancing (ADR 0108). */
   private readonly batches: MeshBatches;
+  /** Sprites batched per texture run (ADR 0108); the editor's scene view keeps a mesh per sprite. */
+  private readonly spriteBatcher: SpriteBatcher;
+  /** A sprite changed since the batcher was last given them. */
+  private spritesDirty = true;
   private readonly cameras = new Map<Camera, CameraEntry>();
   private readonly textures = new Map<string, Texture>();
   private readonly loading = new Map<string, Promise<Texture>>();
@@ -336,6 +346,7 @@ export class BabylonRenderer {
     this.frame.beforeView = (camera) => this.lighting.fitSky(camera);
     this.probes = new BabylonProbes(scene);
     this.batches = new MeshBatches(scene);
+    this.spriteBatcher = new SpriteBatcher(scene);
 
     this.defaultMaterial = pbr("myco.default", scene);
     this.defaultMaterial.albedoColor = new Color3(1, 1, 1);
@@ -425,7 +436,7 @@ export class BabylonRenderer {
       viewCameras: () => (this.owner ? this.viewCameras(this.owner) : []),
       babylonCamera: (c) => this.cameras.get(c)?.camera ?? null,
       *sprites(): Iterable<EditorSprite> {
-        for (const [component, e] of self.sprites) yield { component, mesh: e.mesh, size: e.size, order: self.sortOrder(component.sortingLayer, component.orderInLayer) };
+        for (const [component, e] of self.sprites) if (e.mesh) yield { component, mesh: e.mesh, size: e.size, order: self.sortOrder(component.sortingLayer, component.orderInLayer) };
       },
       *meshes(): Iterable<EditorMesh> {
         for (const [component, e] of self.meshRenderers) yield { component, meshes: e.meshes };
@@ -567,7 +578,9 @@ export class BabylonRenderer {
   /** Step 8: mirror the World's cameras, meshes and sprites into Babylon. */
   sync(world: World): void {
     this.claim(world);
-    for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s);
+    const snap = this.spriteSnap(world);
+    for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s, snap);
+    this.flushSprites();
     this.syncMeshes(world);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     const view = this.viewCameras(world)[0];
@@ -848,9 +861,10 @@ export class BabylonRenderer {
     if (c instanceof SpriteRenderer) {
       const e = this.sprites.get(c);
       if (e) {
-        e.mesh.dispose();
-        e.material.dispose();
+        e.mesh?.dispose();
+        e.material?.dispose();
         this.sprites.delete(c);
+        this.spritesDirty = true;
       }
     } else if (c instanceof MeshRenderer) {
       const e = this.meshRenderers.get(c);
@@ -883,6 +897,7 @@ export class BabylonRenderer {
     this.disposed = true;
     this.warmer.dispose();
     this.batches.dispose();
+    this.spriteBatcher.dispose();
     this.asyncPipelines?.dispose();
     this.effects.dispose();
     this.report?.dispose();
@@ -938,7 +953,7 @@ export class BabylonRenderer {
     const aspect = (cw * w) / (ch * h);
     if (c.projection === "orthographic") {
       camera.mode = BabylonCamera.ORTHOGRAPHIC_CAMERA;
-      const s = c.orthographicSize;
+      const s = c._effectiveOrthographicSize(); // a pixel-perfect camera's whole-number zoom (ADR 0108)
       camera.orthoLeft = -s * aspect;
       camera.orthoRight = s * aspect;
       camera.orthoTop = s;
@@ -953,6 +968,14 @@ export class BabylonRenderer {
     const e = c.node.entity;
     Matrix.FromArrayToRef(world.worldMatrix(e) as unknown as ArrayLike<number> as number[], e * 16, tmpMatrix);
     tmpMatrix.decompose(tmpScale, tmpQuat, tmpPos);
+    if (c.pixelPerfect && c.projection === "orthographic") {
+      // On the screen-pixel grid (half a pixel off for an odd number of pixels, so pixel centres line up).
+      const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+      const wPx = Math.round(cw * w * dpr), hPx = Math.round(ch * h * dpr);
+      const unit = (2 * c._effectiveOrthographicSize()) / Math.max(1, hPx);
+      tmpPos.x = snapToGrid(tmpPos.x, unit) + pixelCenterOffset(wPx, unit);
+      tmpPos.y = snapToGrid(tmpPos.y, unit) + pixelCenterOffset(hPx, unit);
+    }
     camera.position.copyFrom(tmpPos);
     camera.rotationQuaternion!.copyFrom(tmpQuat);
   }
@@ -968,27 +991,32 @@ export class BabylonRenderer {
     return index * 10000 + order;
   }
 
-  private syncSprite(world: World, s: SpriteRenderer): void {
+  private syncSprite(world: World, s: SpriteRenderer, snap: number): void {
     let entry = this.sprites.get(s);
     if (!entry) {
-      const mesh = new Mesh(`sprite:${s.node.name}`, this.scene);
-      const data = new VertexData();
-      data.positions = QUAD_POSITIONS;
-      data.normals = QUAD_NORMALS;
-      data.uvs = QUAD_UVS;
-      data.indices = QUAD_INDICES;
-      data.applyToMesh(mesh, true);
-      const material = pbr(`sprite:${s.node.name}`, this.scene);
-      material.unlit = true;
-      material.backFaceCulling = false; // flipped sprites mirror their quad
-      material.disableDepthWrite = true;
-      material.depthFunction = Constants.ALWAYS; // sprites draw in layer order, not by depth (ADR 0014)
-      material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-      material.useAlphaFromAlbedoTexture = true;
-      mesh.material = material;
-      mesh.alwaysSelectAsActiveMesh = true;
-      entry = { mesh, material, spritePath: null, texture: null, uvKey: "", size: null, matrix: null };
+      let mesh: Mesh | null = null, material: PBRMaterial | null = null;
+      if (this.fill) {
+        // The editor's scene view: a quad and material per sprite, which picking and outlines use.
+        mesh = new Mesh(`sprite:${s.node.name}`, this.scene);
+        const data = new VertexData();
+        data.positions = QUAD_POSITIONS;
+        data.normals = QUAD_NORMALS;
+        data.uvs = QUAD_UVS;
+        data.indices = QUAD_INDICES;
+        data.applyToMesh(mesh, true);
+        material = pbr(`sprite:${s.node.name}`, this.scene);
+        material.unlit = true;
+        material.backFaceCulling = false; // flipped sprites mirror their quad
+        material.disableDepthWrite = true;
+        material.depthFunction = Constants.ALWAYS; // sprites draw in layer order, not by depth (ADR 0014)
+        material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+        material.useAlphaFromAlbedoTexture = true;
+        mesh.material = material;
+        mesh.alwaysSelectAsActiveMesh = true;
+      }
+      entry = { mesh, material, item: null, spritePath: null, texture: null, uvKey: "", size: null, matrix: null };
       this.sprites.set(s, entry);
+      this.spritesDirty = true;
     }
     const { mesh, material } = entry;
     const { path: image, slice } = splitSpriteRef(s.sprite);
@@ -997,7 +1025,8 @@ export class BabylonRenderer {
       const tex = image ? (this.textures.get(image) ?? null) : null;
       entry.texture = tex;
       if (tex) tex.hasAlpha = true; // Babylon reads a texture's alpha only when told it has one
-      material.albedoTexture = tex;
+      if (material) material.albedoTexture = tex;
+      this.spritesDirty = true;
       if (image && !tex) {
         const requested = s.sprite;
         this.texture(image)
@@ -1012,24 +1041,57 @@ export class BabylonRenderer {
 
     const ready = !s.sprite || !!entry.texture;
     const visible = s.isActiveAndEnabled && ready;
-    mesh.setEnabled(visible);
-    if (!visible) return;
-
-    material.albedoColor.set(s.color.r, s.color.g, s.color.b).toLinearSpaceToRef(material.albedoColor);
-    material.alpha = s.color.a;
-    mesh.alphaIndex = this.sortOrder(s.sortingLayer, s.orderInLayer);
+    mesh?.setEnabled(visible);
+    if (!visible) {
+      if (entry.item) this.spritesDirty = true;
+      entry.item = null;
+      return;
+    }
+    const order = this.sortOrder(s.sortingLayer, s.orderInLayer);
+    const c = s.color;
+    const item = (entry.item ??= { texture: null, order, matrix: new Float32Array(16), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
+    if (material) {
+      material.albedoColor.set(c.r, c.g, c.b).toLinearSpaceToRef(material.albedoColor);
+      material.alpha = c.a;
+      mesh!.alphaIndex = order;
+    } else {
+      // The batch's instance colour multiplies the (white) albedo: linear, like the albedo colour.
+      tmpColor.set(c.r, c.g, c.b).toLinearSpaceToRef(tmpColor);
+      if (item.color[0] !== tmpColor.r || item.color[1] !== tmpColor.g || item.color[2] !== tmpColor.b || item.color[3] !== c.a || item.order !== order || item.texture !== entry.texture) {
+        item.color[0] = tmpColor.r;
+        item.color[1] = tmpColor.g;
+        item.color[2] = tmpColor.b;
+        item.color[3] = c.a;
+        item.order = order;
+        item.texture = entry.texture;
+        this.spritesDirty = true;
+      }
+    }
 
     let w = 1, h = 1, px = 0.5, py = 0.5;
+    let uv: [number, number, number, number] | null = null;
     if (entry.texture) {
       const size = entry.texture.getBaseSize();
       const frame = spriteFrame(Assets.importSettings(image), slice, size.width, size.height, { component: s.pixelsPerUnit, project: this.settings.render.pixelsPerUnit }, s.size);
       [w, h] = frame.size;
       [px, py] = frame.pivot;
       if (frame.missingSlice) this.warnOnce(`slice|${s.sprite}`, `${image} has no slice named "${slice}" (in ${image}.meta.json); drawing the whole image.`);
-      this.setSpriteUVs(entry, frame.uv);
+      uv = frame.uv;
     } else if (s.size) {
       w = s.size.x;
       h = s.size.y;
+    }
+    if (mesh) this.setSpriteUVs(entry, uv);
+    else {
+      const [u0, v0, u1, v1] = uv ?? [0, 0, 1, 1];
+      const r = item.uvRect;
+      if (r[0] !== u0 || r[1] !== v0 || r[2] !== u1 - u0 || r[3] !== v1 - v0) {
+        r[0] = u0;
+        r[1] = v0;
+        r[2] = u1 - u0;
+        r[3] = v1 - v0;
+        this.spritesDirty = true;
+      }
     }
     entry.size = entry.texture || s.size ? [w, h] : null;
     // Scale the unit quad to size with the pivot at the node's origin (flips mirror about it).
@@ -1039,11 +1101,38 @@ export class BabylonRenderer {
     Matrix.ScalingToRef(s.flipX ? -w : w, s.flipY ? -h : h, 1, tmpSpriteB);
     tmpSpriteA.multiplyToRef(tmpSpriteB, tmpSpriteC);
     Matrix.FromArrayToRef(world.worldMatrix(e) as unknown as number[], e * 16, tmpMatrix);
+    if (snap > 0) {
+      // A pixel-perfect camera's pixel snapping (ADR 0108): the node's position on the texel grid.
+      const m = tmpMatrix.m as unknown as number[];
+      tmpMatrix.setTranslationFromFloats(snapToGrid(m[12], snap), snapToGrid(m[13], snap), m[14]);
+    }
     tmpSpriteC.multiplyToRef(tmpMatrix, tmpSpriteA);
     if (entry.matrix?.equals(tmpSpriteA)) return;
     entry.matrix ??= new Matrix();
     entry.matrix.copyFrom(tmpSpriteA);
-    mesh.freezeWorldMatrix(entry.matrix);
+    if (mesh) mesh.freezeWorldMatrix(entry.matrix);
+    else {
+      entry.matrix.copyToArray(item.matrix);
+      this.spritesDirty = true;
+    }
+  }
+
+  /** After syncing sprites: hand the batcher this frame's sprites when any changed (ADR 0108). */
+  private flushSprites(): void {
+    if (!this.spritesDirty || this.fill) return;
+    this.spritesDirty = false;
+    const items: SpriteItem[] = [];
+    for (const e of this.sprites.values()) if (e.item) items.push(e.item);
+    this.spriteBatcher.update(items);
+  }
+
+  /** The texel step sprites snap to this frame: a pixel-perfect view camera with pixel snapping, else 0. */
+  private spriteSnap(world: World): number {
+    // As `viewCameras` picks, without needing the camera synced yet (sprites sync first).
+    const view = world._componentsOfType(Camera).filter((c) => c.isActiveAndEnabled && !world.inEditMode(c.node.entity)).sort((a, b) => a.depth - b.depth)[0];
+    if (!view || !view.pixelPerfect || !view.pixelSnapping || view.projection !== "orthographic") return 0;
+    const ppu = this.settings.render.pixelsPerUnit;
+    return ppu > 0 ? 1 / ppu : 0;
   }
 
   /** Draw a slice's part of the texture, or the whole texture. */
@@ -1052,11 +1141,11 @@ export class BabylonRenderer {
     if (key === entry.uvKey) return;
     entry.uvKey = key;
     if (!uv) {
-      entry.mesh.updateVerticesData(VertexBuffer.UVKind, QUAD_UVS);
+      entry.mesh?.updateVerticesData(VertexBuffer.UVKind, QUAD_UVS);
       return;
     }
     const [u0, v0, u1, v1] = uv;
-    entry.mesh.updateVerticesData(VertexBuffer.UVKind, [u0, v0, u1, v0, u1, v1, u0, v1]);
+    entry.mesh?.updateVerticesData(VertexBuffer.UVKind, [u0, v0, u1, v0, u1, v1, u0, v1]);
   }
 
   /** @internal The sprite's size in node units once its texture has loaded. */
