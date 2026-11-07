@@ -10,17 +10,23 @@
 
 The owner asked whether FMOD (Core and Studio) could back the engine's audio. The SDK needs a logged-in fmod.com download, and fmod.com wasn't reachable from the overnight session, so this record rests on web-search summaries and on recall of FMOD's documented HTML5 usage. **Nothing here was verified against the SDK or its docs pages.** Confidence is marked per item.
 
-What was found or recalled:
+Second research pass (WebSearch only; fmod.com still can't be fetched from the session, so every row is a search-result paraphrase of the cited page, not the page read in full):
 
 | Topic | Finding | Confidence |
 | --- | --- | --- |
-| Licence | A free indie licence exists for small budgets. Sources disagree on the limit ($500k budget and $200k yearly revenue on fmod.com/licensing as summarised; $600k in a summary of the EULA). The EULA reportedly requires an in-game credit naming FMOD and Firelight Technologies; a logo waiver is a paid option. Licences are per shipped title, so each game author needs their own; the engine can't bundle FMOD under one licence. HTML5 is a listed platform; no separate web licence or `.wasm` redistribution rule was found, and that is unconfirmed. | Low: read the EULA before relying on any of it |
-| SDK files | HTML5 SDK ships `fmodstudio.js` + `fmodstudio.wasm`, and `fmodstudioP.*` (pthread build). The standard build has no threads. The reduced Core in the Studio libs lacks some codecs (e.g. ogg/mp3 reported unsupported through that path). | Medium (docs summary) |
-| Audio output | Browsers with `AudioWorkletNode` use FMOD's AudioWorklet output (async mixing); older ones fall back to the deprecated ScriptProcessorNode. | Medium |
-| Threads | The pthread build needs `SharedArrayBuffer`, so cross-origin isolation (COOP/COEP headers). The standard build avoids that. | Medium |
-| Loading | Recalled, unconfirmed: an Emscripten `FMODModule(obj)` factory with `preRun`/`onRuntimeInitialized`, banks preloaded into the virtual FS with `FS_createPreloadedFile`, then `Studio_System_Create`, `initialize`, `loadBankFile`, results via `{val}` out-parameters; event instances, parameters, buses, VCAs and 3D attributes mirror the C API. | Low |
-| Size | Not found. Expect a few MB of wasm; measure with the SDK. | Unknown |
+| Licence tiers | Free **Indie** licence for non-commercial and small commercial use, with registration and self-certification of budget and revenue. Newer sources (Wikipedia, a Grokipedia summary): Indie for development budget under **$600k**, Basic $600k–$1.8m (about $6,000 per title), Premium over $1.8m (about $18,000 per title). An older EULA excerpt gave **$500k** budget and **$200k** yearly revenue, with Basic about $5k and Premium about $15k. The $500k/$600k split and the revenue cap are unresolved. | Low–medium: prices from third-party sites; confirm on fmod.com/licensing |
+| Licence, web and engines | Nothing found on HTML5-specific or web-specific terms. The EULA excerpt says the FMOD engine is "integrated and redistributed in a game application (Product) only": licensing is per shipped title, so each game author needs their own, and the engine can't ship FMOD as part of itself. A logo/credit requirement exists (logo waiver is paid). | Low: read the EULA |
+| HTML5 SDK files | `fmodstudio.js`+`.wasm` (release), `fmodstudioP.js`+`.wasm` (SharedArrayBuffer/pthread); all include the reduced Core library by default, which cuts size but drops some Core features (e.g. ogg/mp3 access). No file sizes found. | Medium (official docs page, via search) |
+| Cross-origin isolation | The `P` build needs `SharedArrayBuffer`, so cross-origin isolation (COOP/COEP); it enables background streaming and non-blocking file loading. The standard build has no threads and avoids this. | Medium (official docs page) |
+| Memory | `ALLOW_MEMORY_GROWTH`: grows from `INITIAL_MEMORY` up to 2 GB; FMOD's own default pool is 16 MB. | Medium (docs) |
+| Latency | Official guidance: if the browser's sample rate isn't FMOD's default 48 kHz, a resampler adds CPU and one DSP block of latency, so query the hardware rate and match it with `setSoftwareFormat` before init. On devices that stutter, use 2 blocks of 2048. No measured latency figures found. | Medium (docs) |
+| AudioWorklet | Recalled from the earlier pass: browsers with `AudioWorkletNode` use FMOD's AudioWorklet output (async mixing), older ones fall back to ScriptProcessorNode. This pass found no source. | Low–medium |
+| Live Update and plugins | **Live Update and profiling can't connect from the web build to FMOD Studio** (the docs say alternatives need proxy servers); third-party reports say plugins don't work on web either. So designers can't audition a running web game in Studio. | Medium (docs + a Godot integration issue) |
+| Bank loading | Banks are files in FMOD's virtual filesystem: the docs list `FMOD.FS_createPreloadedFile`; typical use is preloading before `loadBankFile`. Whether banks can be fetched lazily from a URL at runtime without preloading (e.g. fetch + `FS_createDataFile`, or `loadBankMemory`) is **unconfirmed**; a Godot extension reports its custom bank loader broke on web and the stock path worked. | Low |
+| Known web shipping | Found only integrations/experiments (Godot GDExtension PR, Defold extension, a GameMaker FMOD extension, Unity WebGL with a silent-audio-until-second-scene bug tied to sample-rate mismatch). No shipped commercial web title was confirmed. | Low |
 | Tauri | Nothing found. WebView2 (Chromium) should behave like Chrome; WKWebView and WebKitGTK AudioWorklet and `SharedArrayBuffer` support must be tested. The non-pthread build avoids COOP/COEP. | Unknown |
+
+Implications: use the standard (non-`P`) build so web export and Tauri need no cross-origin isolation; expect no Studio Live Update on web; budget for a 48 kHz vs hardware-rate check; and treat banks as preloaded assets, which means a large bank delays startup.
 
 How FMOD maps to the engine model:
 
@@ -59,13 +65,16 @@ Nothing.
 
 ## Open questions
 
-- Licence terms for web and for engine-bundled use; whether a logo waiver is needed.
-- The real wasm size, AudioWorklet and SharedArrayBuffer behaviour in WebView2, WKWebView and WebKitGTK.
+- Licence terms for web and for engine-bundled use; the $500k vs $600k Indie limit; whether a logo waiver is needed.
+- The real wasm size, AudioWorklet behaviour, and bank loading from URLs (preload only, or lazy) in WebView2, WKWebView and WebKitGTK.
 - Event API design (0099 follow-up).
 
 ## References
 
-- https://fmod.com/docs/2.03/api/platforms-html5.html (via search summary only)
+- https://www.fmod.com/docs/2.03/api/platforms-html5.html (files, P build, cross-origin isolation, memory, sample rate and buffers, Live Update limit; via search results only)
 - https://fmod.com/licensing, https://fmod.com/legal (via search summaries only)
+- https://en.wikipedia.org/wiki/FMOD (tier thresholds), https://www.gamedeveloper.com/audio/small-developers-and-creators-can-now-use-fmod-studio-for-free, https://gamefromscratch.com/fmod-studio-now-free-for-indie-game-developers/ (indie licence history), https://www.techjockey.com/detail/fmod (prices, third party)
+- https://github.com/utopia-rise/fmod-gdextension/pull/210 and https://github.com/luc4s/FMOD-GODOT/issues/1 (Godot web: bank loading, no Live Update or plugins)
 - https://github.com/defold/extension-fmod/pull/18/files (pthread build needs COOP/COEP)
+- https://gamineai.com/help/fmod-unity-webgl-bank-loads-audio-silent-first-scene-bus-init-fix (Unity WebGL sample-rate issue; unverified guide)
 - `src/engine/audio/fmodBackend.ts`, `docs/guide/fmod.md`
