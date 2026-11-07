@@ -236,16 +236,44 @@ export function activateScene(scene: OpenScene): void {
  * Returns true if it closed.
  */
 export async function closeScene(scene: OpenScene): Promise<boolean> {
-  if (!openScenes.peek().includes(scene)) return false;
-  if (scene.stack.dirty) {
-    const answer = await confirmInEditor({
-      title: `Close ${scene.path.split("/").pop()}?`,
-      message: `${scene.path} has unsaved changes. Closing it without saving discards them; they stay in its edit history and are offered back when you open it again.`,
-      confirmLabel: "Close without saving",
-      cancelLabel: "Cancel",
-    });
-    if (!answer.ok || !openScenes.peek().includes(scene)) return false;
+  return (await closeScenes([scene])) > 0;
+}
+
+/**
+ * Close several scene tabs, asking once about all of the ones with unsaved changes (listed in one
+ * dialog; cancelling closes none). Returns how many it closed.
+ */
+export async function closeScenes(scenes: readonly OpenScene[]): Promise<number> {
+  const open = scenes.filter((s) => openScenes.peek().includes(s));
+  const dirty = open.filter((s) => s.stack.dirty);
+  if (dirty.length > 0) {
+    const names = dirty.map((s) => s.path);
+    const answer = await confirmInEditor(
+      dirty.length === 1
+        ? {
+            title: `Close ${names[0].split("/").pop()}?`,
+            message: `${names[0]} has unsaved changes. Closing it without saving discards them; they stay in its edit history and are offered back when you open it again.`,
+            confirmLabel: "Close without saving",
+            cancelLabel: "Cancel",
+          }
+        : {
+            title: `Close ${open.length} scenes?`,
+            message: `${dirty.length} scenes have unsaved changes. Closing them without saving discards the changes; they stay in each scene's edit history and are offered back when it opens again.`,
+            items: names,
+            confirmLabel: "Close without saving",
+            cancelLabel: "Cancel",
+          },
+    );
+    if (!answer.ok) return 0;
   }
+  let closed = 0;
+  for (const scene of open) if (closeSceneNow(scene)) closed++;
+  return closed;
+}
+
+/** Close one tab with no questions. */
+function closeSceneNow(scene: OpenScene): boolean {
+  if (!openScenes.peek().includes(scene)) return false;
   const list = openScenes.peek();
   const at = list.indexOf(scene);
   const rest = list.filter((s) => s !== scene);
