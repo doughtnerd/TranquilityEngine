@@ -6,7 +6,7 @@ import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import type { OpenScene } from "./state";
 import { WATER_PRESET } from "../engine/render/water/gerstner";
 
-export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "particle-system" | "water" | `ui-${UIKind}` | "ui-document";
+export type NewNodeKind = "empty" | "sprite" | "tilemap" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "particle-system" | "water" | `ui-${UIKind}` | "ui-document";
 type Shape3D = "cube" | "sphere" | "capsule" | "cylinder" | "plane";
 type LightKind = "directional" | "point" | "spot" | "ambient";
 type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input-field";
@@ -27,6 +27,7 @@ type Vec3 = readonly [number, number, number];
 export const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: string }[] = [
   { kind: "empty", label: "Empty", name: "Node" },
   { kind: "sprite", label: "Sprite", name: "Sprite" },
+  { kind: "tilemap", label: "Tilemap", name: "Tilemap" },
   { kind: "camera", label: "Camera", name: "Camera" },
   { kind: "text", label: "Text", name: "Text" },
   { kind: "cube", label: "Cube", name: "Cube" },
@@ -85,6 +86,17 @@ export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: stri
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }] };
     case "sprite":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.SpriteRenderer", data: {} }] };
+    case "tilemap":
+      // A Tilemap with one layer and its collider (ADR 0103, 0105); `effect` is a tileset to paint with, or empty.
+      return {
+        id,
+        name,
+        components: [
+          { type: "engine.Transform", data: { position: at } },
+          { type: "engine.Tilemap", data: effect ? { tileset: effect } : {} },
+          { type: "engine.TilemapCollider2D", data: {} },
+        ],
+      };
     case "camera":
       // In front of the sprite plane, looking down -z like the sample scenes' cameras.
       return {
