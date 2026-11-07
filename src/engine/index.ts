@@ -4,7 +4,7 @@
  */
 export { Engine, type EngineOptions } from "./core/Engine";
 export type { WorldKind, TimeState } from "./core/World";
-export type { Bootstrap, BootstrapConfig, BootstrapEngine, BootstrapSetting, LinkConfig, SystemSelection, WorldConfig, WorldHandle, WorldTag } from "./core/worlds";
+export type { Bootstrap, BootstrapConfig, BootstrapEngine, BootstrapSetting, LinkConfig, ReplicationSettings, SystemSelection, WorldConfig, WorldHandle, WorldTag } from "./core/worlds";
 export type { NetworkTime } from "./net/time";
 export { Connection, ConnectionState, defineInput, defineRpc, str, MAX_STR_BYTES, type ConnectionNode, type ConnectionStateValue, type InputDef, type InputOptions, type InputStats, type RpcDef, type RpcRow, type RpcSchema, type RpcTarget, type RpcValues, type StringType } from "./net/messages";
 export { Lobby, type LobbyConnectOptions, type LobbyProfile } from "./net/lobby/client";
@@ -41,12 +41,22 @@ export type { WaterWave } from "./render/water/gerstner";
 
 export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
 export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D, type PhysicsMaterial, type PhysicsMaterial2D } from "./physics/Collider2D";
-export { Physics2D, type RaycastHit2D } from "./physics/Physics2D";
+export { Physics2D, type RaycastHit2D, type ShapeCastHit2D } from "./physics/Physics2D";
+export { CharacterController2D, type ControllerColliderHit2D } from "./physics/CharacterController2D";
+export { AxisJoint2D, FixedJoint2D, HingeJoint2D, Joint2D, RopeJoint2D, SliderJoint2D, SpringJoint2D } from "./physics/Joint2D";
 export { CollisionEvents2D, TriggerEvents2D, type PhysicsEvent2D } from "./physics/physics2dSystems";
+
+export { Tilemap, TilemapChanges, type TileChange } from "./tilemap/Tilemap";
+export { TilemapCollider2D } from "./tilemap/TilemapCollider2D";
+export { FLIP_DIAGONAL, FLIP_X, FLIP_Y, type TilemapLayerData } from "./tilemap/format";
+export type { TerrainDef, TileCollision, TileDef, TilePattern, TilePolygon, TilesetData } from "./tilemap/tileset";
+export type { TileCollisionMode } from "./tilemap/collision";
 
 export { RigidBody, type RigidBodyConstraints } from "./physics/RigidBody";
 export { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type CapsuleDirection, type Collision } from "./physics/Collider";
-export { Physics, type RaycastHit } from "./physics/Physics";
+export { Physics, type RaycastHit, type ShapeCastHit } from "./physics/Physics";
+export { CharacterController, type CollisionFlags, type ControllerColliderHit } from "./physics/CharacterController";
+export { AxisJoint, BallJoint, FixedJoint, HingeJoint, Joint, RopeJoint, SliderJoint, SpringJoint, type JointLimits, type JointMotor, type JointSpring } from "./physics/Joint";
 export { CollisionEvents, TriggerEvents, type PhysicsEvent } from "./physics/physics3d";
 export { Buoyancy, type BuoyancyMode } from "./physics/Buoyancy";
 
@@ -59,6 +69,7 @@ export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlig
 export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "./ui/UIDocument";
 
 export { Audio, AudioSource, type OneShotOptions, type Rolloff } from "./audio/AudioSource";
+export type { Bus } from "./audio/mixer";
 export { AudioListener } from "./audio/AudioListener";
 export { Input } from "./input/Input";
 export { Storage, MemoryStorage, type StorageBackend } from "./platform/Storage";

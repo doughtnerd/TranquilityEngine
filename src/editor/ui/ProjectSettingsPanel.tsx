@@ -50,6 +50,7 @@ import { currentProject, docVersion, status } from "../state";
 import { confirmInEditor } from "./ConfirmDialog";
 import { layerRenamesBetween, layerUsers, renameLayerReferences, type LayerKind, type LayerRename } from "../layerRename";
 import { EditHistory } from "../worldsConfig";
+import { AudioSettingsSection } from "./AudioSettingsSection";
 import { NavSettingsSection } from "./NavSettingsSection";
 import { NumberField, TextField } from "./WorldsPanel";
 import "./projectSettings.css";
@@ -308,6 +309,10 @@ export function ProjectSettingsPanel() {
             <NavSettingsSection draft={draft} problems={problemsAt("navigation").map((p) => p.message)} set={set} project={project} />
           </Section>
 
+          <Section title="Audio">
+            <AudioSettingsSection draft={draft} problems={problemsAt("audio").map((p) => p.message)} set={set} />
+          </Section>
+
           <Section title="Autoloads">
             <Autoloads s={s} draft={draft} project={project} problems={problems} />
           </Section>
@@ -365,7 +370,7 @@ function ProblemList(props: { list: readonly string[]; label: string; warning?: 
 }
 
 /** The settings categories, in order (Unity-style list). A category's title is its id. */
-const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Autoloads", "Build"] as const;
+const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Audio", "Autoloads", "Build"] as const;
 const NARROW_WIDTH = 250;
 
 /** The category a problem's field belongs to (`"render.pixelsPerUnit"` is Rendering's). */

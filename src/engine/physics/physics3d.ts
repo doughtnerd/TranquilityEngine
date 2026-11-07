@@ -20,7 +20,7 @@ export const TriggerEvents = defineBuffer<PhysicsEvent>("engine.TriggerEvents");
 export const CollisionEvents = defineBuffer<PhysicsEvent>("engine.CollisionEvents");
 
 /** Component types that need a 3D physics world. */
-export const PHYSICS_3D_TYPES: ReadonlySet<string> = new Set(["engine.RigidBody", "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider", "engine.MeshCollider"]);
+export const PHYSICS_3D_TYPES: ReadonlySet<string> = new Set(["engine.RigidBody", "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider", "engine.MeshCollider", "engine.CharacterController", "engine.FixedJoint", "engine.HingeJoint", "engine.SliderJoint", "engine.BallJoint", "engine.RopeJoint", "engine.SpringJoint"]);
 
 /** @internal True if a scene file (or a prefab it instances) has a 3D body or collider. */
 export function usesPhysics3D(path: string, seen = new Set<string>()): boolean {

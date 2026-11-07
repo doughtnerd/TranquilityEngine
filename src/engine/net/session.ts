@@ -91,7 +91,7 @@ import { defineBuiltinSystem } from "../core/systems";
 import type { GameObject } from "../scene/GameObject";
 import { createBitReader, createBitWriter, type BitReader, type BitWriter } from "./codec";
 import { Connection, ConnectionState } from "./connection";
-import { createWorldTransport, type Channel, type Transport, type TransportConnection, type TransportEvent } from "./Transport";
+import { createWorldTransport, transportCanListen, type Channel, type Transport, type TransportConnection, type TransportEvent } from "./Transport";
 import type { NetworkTime } from "./time";
 // The built-in transports register themselves; links and `WorldHandle.connect` find them by name.
 import "./transport/loopback";
@@ -100,9 +100,10 @@ import "./transport/websocket";
 /**
  * Bumped whenever the wire format or handshake changes; both ends must match. (2: field shapes in
  * replication spawns. 3: a join ticket at the end of `hello`, `str` RPC fields and replicated
- * string behavior fields, ADR 0067/0068.)
+ * string behavior fields, ADR 0067/0068. 4: a string table, active flags and parents in
+ * replication, ADR 0100.)
  */
-export const NET_PROTOCOL_VERSION = 3;
+export const NET_PROTOCOL_VERSION = 4;
 
 /** How often a client pings its server, for RTT and the server-tick estimate. */
 export const PING_INTERVAL_MS = 100;
@@ -957,6 +958,17 @@ export function connectWorlds(client: World, server: World, transportName: strin
   if (clientSession?.isServer) throw new Error(`World "${client.name}" is already a network server; a World can't be both a server and a client yet.`);
   if (clientSession?.serverPeer) throw new Error(`World "${client.name}" is already connected to a server; a client World has one connection.`);
   if (sessions.get(server)?.isClient) throw new Error(`World "${server.name}" is already a network client; a World can't be both a server and a client yet.`);
+  // ADR 0102: both Worlds are in this process, and this transport can't listen here (the browser
+  // WebSocket transport): connect them over loopback, which is what the link would mean in a page.
+  if (!transportCanListen(transportName)) {
+    const { address: _a, port: _p, host: _h, url: _u, ...rest } = options;
+    console.info(
+      `[myco] Worlds "${client.name}" → "${server.name}": "${transportName}" can't listen here (a browser page can't open a server socket), ` +
+        `so these two Worlds of one page connect over "loopback" instead. A dedicated server (npm run server) still listens over "${transportName}".`,
+    );
+    transportName = "loopback";
+    options = rest;
+  }
   const listener = ensureSession(server).listen(transportName, options);
   if (listener.address !== null) {
     ensureSession(client).connect(transportName, listener.address, options);

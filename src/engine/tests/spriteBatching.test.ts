@@ -42,7 +42,15 @@ describe("the sprite batcher (ADR 0108)", () => {
     expect(batcher.stats()).toEqual({ batches: 3, sprites: 5 });
     const meshes = batcher.meshes();
     expect(meshes.map((m) => m.thinInstanceCount)).toEqual([2, 1, 2]);
+    // Each run's alphaIndex is its draw order, as a lone sprite's or a tilemap layer's is.
     expect(meshes.map((m) => m.alphaIndex)).toEqual([0, 1, 2]);
+    // Two textures in one order: the second run sits just after the first, still before the next order.
+    batcher.update([item(atlas, 5), item(other, 5), item(atlas, 6)]);
+    const [x, y, z] = batcher.meshes().map((m) => m.alphaIndex);
+    expect(x).toBe(5);
+    expect(y).toBeGreaterThan(5);
+    expect(y).toBeLessThan(6);
+    expect(z).toBe(6);
     expect((meshes[0].material as unknown as { albedoTexture: Texture }).albedoTexture).toBe(atlas);
     expect(meshes[0].material).toBe(meshes[2].material); // one material per texture
     // A whole tile map from one atlas is one draw.

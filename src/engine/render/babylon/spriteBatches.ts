@@ -1,9 +1,9 @@
 /**
  * Sprite batching (ADR 0108): sprites draw as thin instances of one quad per run of sprites sharing a
- * texture (an atlas) in draw order. Sprites are sorted by sorting layer and order (ADR 0014), sprites
- * of equal order grouped by texture, and each run of one texture is one mesh and one draw. Runs take
- * consecutive `alphaIndex` values, so layer order is exactly as before; within a run, instances draw in
- * sort order.
+ * texture (an atlas) and a draw order. Sprites are sorted by sorting layer and order (ADR 0014) and,
+ * within one order, grouped by texture; each run is one mesh and one draw. A run's `alphaIndex` is its
+ * order (plus a small step per run within that order), the same `alphaIndex` a lone sprite or a
+ * tilemap layer of that order has, so batches sort among the other ordered meshes exactly as before.
  *
  * Per instance: the world matrix (size, pivot, flips and the node), the tint (Babylon's instance colour,
  * which multiplies the PBR albedo and alpha) and the slice's UV rectangle (`SpriteUvPlugin`, GLSL and WGSL).
@@ -93,6 +93,8 @@ const QUAD = (() => {
 })();
 
 const IDENTITY = Matrix.Identity();
+/** How far apart runs of one draw order sit in `alphaIndex`. */
+const RUN_STEP = 1e-4;
 
 /** Draws sprites batched per texture run (see the file comment). */
 export class SpriteBatcher {
@@ -120,7 +122,7 @@ export class SpriteBatcher {
       this.fill(run, sorted, start, end);
     };
     for (let i = 0; i < sorted.length; i++) {
-      if (i === 0 || sorted[i].texture !== sorted[i - 1].texture) {
+      if (i === 0 || sorted[i].texture !== sorted[i - 1].texture || sorted[i].order !== sorted[i - 1].order) {
         flushRun(i);
         run++;
         start = i;
@@ -195,7 +197,10 @@ export class SpriteBatcher {
     const texture = sorted[start].texture;
     const material = this.material(texture);
     if (run.mesh.material !== material) run.mesh.material = material;
-    run.mesh.alphaIndex = index; // runs draw in order
+    // Its order, a step past the previous run of the same order (orders are whole numbers: steps stay below the next).
+    const order = sorted[start].order;
+    const previous = index > 0 ? this.runs[index - 1].mesh : null;
+    run.mesh.alphaIndex = previous && Math.floor(previous.alphaIndex) === order ? previous.alphaIndex + RUN_STEP : order;
     run.mesh.thinInstanceCount = n;
     run.mesh.thinInstanceBufferUpdated("matrix");
     run.mesh.thinInstanceBufferUpdated("instanceColor");

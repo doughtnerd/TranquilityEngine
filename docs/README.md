@@ -14,7 +14,11 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Water](guide/water.md) | Water surfaces: waves, colours and foam, sampling the surface from scripts, buoyancy (physics and kinematic), storms, multiplayer, known limits |
 | [Game UI](guide/ui.md) | Canvases (screen and world), the UI tree, flexbox layout, panels, text, images, buttons and input fields, scripting them, how the pointer and keyboard go to UI first, headless Worlds and tests |
 | [Navigation](guide/navigation.md) | Built-in navigation: agent types and areas, marking geometry, baking (editor and `npm run nav:bake`), streaming chunks, scripting `NavAgent`, groups, surround and flow fields, the `Navigation` queries, multiplayer, debug drawing, performance, known issues |
+| [Physics](guide/physics.md) | Bodies and colliders, interpolation, collision and trigger events (Enter/Stay/Exit), raycasts, shape casts and overlaps, character controllers, joints |
+| [Tilemaps](guide/tilemaps.md) | Tilesets from sliced sheets, painting with the Tile Palette, layers, auto-tiling, tile collision and one-way platforms, the scripting API |
 | [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
+| [Audio mixer](guide/audio-mixer.md) | Buses, effects, snapshots, ducking, `AudioSource.output`, `Audio.bus(...)` |
+| [FMOD backend](guide/fmod.md) | Experimental, untested: dropping the FMOD HTML5 SDK in and wiring it up |
 | [Materials, shaders and batching](guide/materials-and-shaders.md) | Hand-written shader assets (WGSL/GLSL), keywords and variants, changing materials from scripts, GPU instancing and sprite batching, pixel-perfect cameras |
 
 ## Architecture
@@ -25,6 +29,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Open questions](architecture/open-questions.md) | Design decisions not yet made, with leanings |
 | [Implementation status](architecture/implementation-status.md) | What `src/engine/` implements today versus each decision record |
 | [Worlds and netcode plan](architecture/worlds-and-netcode-plan.md) | Task breakdown, waves and agent roles for 0032 and 0033 |
+| [Tilemap research](architecture/tilemap-research.md) | Tiled, LDtk, Unity and Godot tilemaps compared; what Myco borrows (0103) |
 | [Legacy codebase](architecture/legacy-codebase.md) | The 2021 prototype (removed 2026-10-31), its known problems, and what replaced each part |
 | [Decision records](decisions/) | Short-form RFC/ADR records, one decision per file |
 
@@ -121,6 +126,18 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0088](decisions/0088-gltf-import-through-threejs-gltfloader.md) | glTF 2.0 models import through three.js's GLTFLoader, baked into model space like OBJ and FBX, with the file's node tree kept for the editor | Proposed |
 | [0089](decisions/0089-material-slots.md) | A MeshRenderer has a material slot per material of its model, filled by `materials[i]`, then `material`, then the model's import settings | Proposed |
 | [0090](decisions/0090-baked-models-in-game-builds.md) | Game builds carry each model baked into a `.mycomesh` file, which the engine loads instead of parsing the model | Proposed |
+| [0091](decisions/0091-character-controller-on-rapier.md) | CharacterController and CharacterController2D are colliders driven by Rapier's kinematic character controller | Proposed |
+| [0092](decisions/0092-joints-on-rapier-impulse-joints.md) | Joints link a node's body to another node's body, or to the world, on Rapier impulse joints | Proposed |
+| [0093](decisions/0093-physics-queries-stay-events-interpolation.md) | Shape casts and overlaps, Stay events, interpolation on by default, child colliders that follow their node | Proposed |
+| [0097](decisions/0097-audio-mixer-buses.md) | Audio mixer buses, snapshots and ducking over one shared AudioContext | Proposed |
+| [0098](decisions/0098-audio-backend-interface.md) | An internal audio backend interface, with Howler as the default implementation | Proposed |
+| [0099](decisions/0099-fmod-spike.md) | FMOD as an optional audio backend: spike, recommendation and stub adapter | Proposed |
+| [0100](decisions/0100-replicate-node-structure-and-a-string-table.md) | Replication sends each ghost's active flag and parent as a versioned structure, and spawn strings through a per-connection string table | Proposed |
+| [0101](decisions/0101-replication-settings-on-world-configs.md) | A server World's snapshot rate and budget are set by `replication` on its World config | Proposed |
+| [0102](decisions/0102-in-page-websocket-links-use-loopback.md) | A link between two Worlds of one page over a transport that can't listen there connects them over loopback | Proposed |
+| [0103](decisions/0103-tilemaps.md) | Tilemaps: tileset assets, a layered Tilemap component in chunks, and native editor painting | Proposed |
+| [0104](decisions/0104-2d-physics-backend-review.md) | Keep Rapier 2D as the 2D physics backend after reviewing Box2D v3 and Planck.js | Proposed |
+| [0105](decisions/0105-tile-colliders-and-one-way-platforms.md) | Tile colliders merge into seam-free Rapier shapes; one-way platforms use contact-pair hooks | Proposed |
 | [0106](decisions/0106-hand-written-shaders-keywords-and-variants.md) | Hand-written shader assets are surface functions in WGSL and GLSL; shaders and graphs share keywords that select variants | Proposed |
 | [0107](decisions/0107-script-material-api-shared-and-instance.md) | Scripts change materials through engine `Material` objects, shared per asset or instanced per renderer | Proposed |
 | [0108](decisions/0108-gpu-instancing-sprite-batching-pixel-perfect-camera.md) | MeshRenderers draw GPU-instanced by mesh and material; sprites batch per atlas; cameras can be pixel-perfect | Proposed |

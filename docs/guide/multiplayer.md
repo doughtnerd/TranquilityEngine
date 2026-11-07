@@ -49,7 +49,7 @@ Settings any link takes:
 - `maxConnections`: clients a server World accepts at once. Default 64.
 - `address`: where the server listens. Loopback makes one up per Engine and server World.
 
-Because browsers can't listen, a link between two Worlds in a browser page must use `loopback`. The dedicated server listens over WebSocket whatever the link says (see [below](#the-dedicated-server)).
+Browsers can't listen, so a `websocket` link between two Worlds of one page connects them over `loopback` instead, and says so in the console (ADR 0102): the same `project.json` plays in the editor and runs on a dedicated server, which listens over WebSocket whatever the link says (see [below](#the-dedicated-server)). The Worlds panel edits a link's options (expand **Options** under the link).
 
 ### Connecting at runtime
 
@@ -335,7 +335,8 @@ What it runs:
 
 - It reads `project.json`, the JSON assets (scenes, prefabs) and every script under `scripts/`, so your components, systems, RPCs and inputs are registered. Images and audio aren't loaded.
 - From a declarative bootstrap it creates only the Worlds tagged `server`, and the links between them. Other Worlds are skipped and logged. Templates stay available to `Engine.createWorld`.
-- If the bootstrap has no server Worlds but has server-tagged templates (a game whose **Host** button creates the server World at runtime), it creates those templates at start instead, each named after its key. When one of them has `"lobby"`, it creates only that one: the lobby makes its match Worlds from their templates.
+- If the bootstrap has no server Worlds but has server-tagged templates (a game whose **Host** button creates the server World at runtime), it creates those templates at start instead, each named as `Engine.createWorld` would name it (its `name`, else its key). When one of them has `"lobby"`, it creates only that one: the lobby makes its match Worlds from their templates.
+- A server template that game code creates at runtime listens where a `websocket` link to it says (its `port` or `address`), unless its code calls `listen` itself (ADR 0062).
 - A code bootstrap runs with Worlds not tagged `server` skipped; `connect` calls from skipped Worlds tell the server where to listen.
 - Each server World listens on the port of a `websocket` link that connects to it (its `port`, `address` or `url`). The first server World falls back to `--port` or 7777. Others with no such link don't listen, and the server logs that.
 - Server Worlds created at runtime (a lobby's matches) run too. One listens when code calls `listen`; without a port it shares the first server World's port, by path. The server logs when such a World starts listening and when it's destroyed.
@@ -467,8 +468,9 @@ From [implementation status](../architecture/implementation-status.md) and [open
 
 - **Bootstrap links to a server elsewhere.** A link names two Worlds of the project (start-up or Spawnable, ADR 0062); a server in another process is joined at runtime with `connect(address, transport)`.
 - **Lobbies:** one lobby process; no skill rating, regions, parties, spectators, joining a match in progress, or reconnecting to a match after a disconnect (the player goes back to the room). Tickets stop casual joins; they aren't authentication. In a page with a canvas the match World is drawn over the paused menu on a surface of its own; that hand-over is checked by hand in a browser, not by headless or end-to-end tests.
-- **WebSocket in the browser.** A link between two Worlds in a browser page must use `loopback`; a `websocket` link there fails to start, because browsers can't listen.
-- **Not replicated:** node active state, reparenting, and components added to a ghost after the server first saw it.
+- **WebSocket in the browser.** A `websocket` link between two Worlds of a page runs over loopback there (no WebSocket framing or limits).
+- **Not replicated:** components' enabled state, sibling order, and components added to a ghost after the server first saw it. A ghost's own active flag and its parent are (ADR 0100): clients see `setActive` and `setParent` at the interpolation tick. A parent must be the World root, a ghost or a node with ids inside one, or a scene-placed node; anything else (a node from `GameObject.create`) lands under the client's active scene, with a warning on the server.
+- **Snapshot rate and size.** Set them per server World: `"replication": { "sendRate": 20, "maxSnapshotBytes": 1200 }` on its World config or template (ADR 0101). At a lower send rate, raise clients' `interpolationMs` so they always have two snapshots to blend.
 - **Prediction** covers data components, behavior fields and the transform moved by `predicted` systems. Behaviors aren't re-simulated, and physics isn't predicted.
 - WebSocket carries unreliable messages over TCP, so packet loss delays them instead of dropping them. WebRTC, which would fix that, needs a signalling server and is deferred.
 - Not built: lag compensation, relevancy and interest management, host migration, a single-World host, client-authoritative modes.
