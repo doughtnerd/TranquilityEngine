@@ -21,7 +21,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
 }
 
 type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { meshRenderers: Map<{ node: { name: string } }, { meshes: { material: { getClassName(): string; clearCoat: { isEnabled: boolean; intensity: number }; subSurface: { refractionIntensity: number } } | null }[] }> } } };
+  engine?: { world: { time: { frameCount: number }; render: { renderer: { meshRenderers: Map<{ node: { name: string } }, { meshes: { material: { getClassName(): string; clearCoat: { isEnabled: boolean; intensity: number }; subSurface: { refractionIntensity: number } } | null }[] }> } | null } } };
   shaderGraphPreview?: { setGraph(g: unknown): unknown; readCenter(): number[] | null };
 };
 
@@ -34,7 +34,7 @@ function trackErrors(page: Page): string[] {
 
 const meshMaterial = (page: Page, name: string) =>
   page.evaluate((n) => {
-    for (const [r, e] of (window as unknown as Hooks).engine!.world.render.meshRenderers) {
+    for (const [r, e] of (window as unknown as Hooks).engine!.world.render.renderer?.meshRenderers ?? []) {
       const m = r.node.name === n ? e.meshes[0]?.material : undefined;
       if (m) return { type: m.getClassName(), clearcoat: m.clearCoat.isEnabled ? m.clearCoat.intensity : 0, transmission: m.subSurface.refractionIntensity }; // getters: read them here
     }
