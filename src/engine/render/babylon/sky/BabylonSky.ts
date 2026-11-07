@@ -321,7 +321,8 @@ export class BabylonSky {
 
     this.drawable ??= new SkyDrawable(this.scene);
     this.drawable.mesh.setEnabled(env.skybox);
-    this.drawable.update({ settings, time, seconds: world.time.realtimeSinceStartup, rotation: env.rotation, intensity: Math.max(0, env.skyboxIntensity), fog: fogFrame, baking: false });
+    this.drawn = { settings, time, seconds: world.time.realtimeSinceStartup, rotation: env.rotation, intensity: Math.max(0, env.skyboxIntensity), fog: fogFrame, baking: false };
+    this.drawable.update(this.drawn);
 
     if (settings.lighting.driveSunLight) {
       const rotated = env.rotation ? { ...settings, sun: { ...settings.sun, northOffset: settings.sun.northOffset + env.rotation } } : settings;
@@ -347,16 +348,18 @@ export class BabylonSky {
 
   private envRotation = 0;
   private fogFrame: SkyFrame["fog"] = null;
+  /** This frame's drawn sky, put back after a bake packs its own uniforms. */
+  private drawn: Omit<SkyFrame, "moonTexture" | "milkyWayTexture"> | null = null;
 
   /** Render a requested bake. Call before the frame graph runs. */
   bake(): void {
     if (!this.wantBake || this.pending || !this.settings || !this.drawable) return;
     this.baker ??= new SkyBaker(this.scene);
     const start = performance.now();
-    const frame = this.drawable.update({ settings: this.settings, time: this.time, seconds: 0, rotation: this.envRotation, intensity: 1, fog: this.fogFrame, baking: true });
+    this.drawable.update({ settings: this.settings, time: this.time, seconds: 0, rotation: this.envRotation, intensity: 1, fog: this.fogFrame, baking: true });
     const uniforms = this.drawable.uniforms.slice();
     // Put the drawn sky's uniforms back (the bake's differ: no discs, mirrored Z).
-    this.drawable.update({ ...frame, baking: false, intensity: frame.intensity });
+    if (this.drawn) this.drawable.update(this.drawn);
     const pending = this.baker.bake(this.settings.lighting.bakeSize, uniforms, (set) => this.drawable!.bindTextures(set));
     if (!pending) return; // the bake shader is still compiling
     this.lastBakeMs = performance.now() - start;

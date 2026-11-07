@@ -79,6 +79,34 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(byName("myco.default.sun")!.isEnabled()).toBe(true);
   });
 
+  it("lets the sky drive the main directional light, and the default sun, then lets go (ADR 0114)", () => {
+    const sunOver = { direction: [0, 1, 0], color: [1, 0.5, 0.25], intensity: 4 };
+    lighting.setSunOverride(sunOver);
+    sync();
+    const def = byName("myco.default.sun") as DirectionalLight;
+    expect(def.direction.y).toBeCloseTo(-1);
+    expect(def.intensity).toBe(4);
+    lighting.setSunOverride(null);
+    sync();
+    expect(def.intensity).toBe(1);
+    expect(def.direction.y).toBeLessThan(-0.5);
+    expect(def.direction.x).toBeLessThan(0);
+
+    light({ type: "directional", intensity: 2 }, [0, 5, 0], [-45, 0, 0]);
+    light({ type: "directional", intensity: 1, castShadows: true }, [0, 5, 0], [-45, 0, 0]);
+    lighting.setSunOverride(sunOver);
+    sync();
+    const lights = scene.lights.filter((l) => l.name.startsWith("light:")) as DirectionalLight[];
+    const driven = lights.filter((l) => l.intensity === 4);
+    expect(driven).toHaveLength(1); // the shadow-casting one
+    expect(driven[0].diffuse.asArray()).toEqual([1, 0.5, 0.25]);
+    expect(driven[0].direction.y).toBeCloseTo(-1);
+    expect(lighting.mainLight.direction[1]).toBeCloseTo(1); // shader graphs' Main Light follows
+    lighting.setSunOverride(null);
+    sync();
+    expect(lights.map((l) => l.intensity).sort()).toEqual([1, 2]);
+  });
+
   it("mirrors each Light's type, colour, intensity and pose, and drops the defaults", () => {
     light({ type: "directional", intensity: 2 }, [0, 5, 0], [-90, 0, 0]); // looking straight down
     light({ type: "point", range: 7, color: new Color(1, 0, 0, 1) }, [1, 2, 3]);
