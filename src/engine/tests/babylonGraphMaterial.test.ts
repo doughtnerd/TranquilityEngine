@@ -127,6 +127,34 @@ describe("shader graph materials on Babylon (ADR 0075 stage 4)", () => {
     expect(uv1(ignores)).toBe(false);
   });
 
+  it("defines mycoVColor from the vertex and instance colours (white without) only when the graph reads it", () => {
+    const reads = compiled({ vertex: { ...compiled().vertex, body: "var c: vec4f = mycoVColor;" }, fragment: { ...compiled().fragment, body: "var n2: vec4f = mycoVColor;" } });
+    const f = graphCustomCode(reads, "fragment").CUSTOM_FRAGMENT_MAIN_BEGIN;
+    expect(f).toContain("let mycoVColor: vec4f = fragmentInputs.vColor;");
+    expect(f).toContain("#else\nlet mycoVColor: vec4f = vec4f(1.0);");
+    expect(f.indexOf("mycoVColor: vec4f")).toBeLessThan(f.indexOf("var n2"));
+    const v = Object.values(graphCustomCode(reads, "vertex")).join("\n");
+    expect(v).toContain("mycoVColor = mycoVColor * vertexInputs.color;");
+    expect(v).toContain("mycoVColor = mycoVColor * vertexInputs.instanceColor;");
+    expect(v.indexOf("var mycoVColor")).toBeLessThan(v.indexOf("var c: vec4f"));
+    expect(graphCustomCode(compiled(), "fragment").CUSTOM_FRAGMENT_MAIN_BEGIN).not.toContain("mycoVColor");
+    expect(Object.values(graphCustomCode(compiled(), "vertex")).join("\n")).not.toContain("mycoVColor");
+  });
+
+  it("is given vertex colours by meshes that have them (instance colours: see babylonParticles), with the graph material", () => {
+    (engine as unknown as { _isWebGPU: boolean })._isWebGPU = true;
+    const m = createGraphMaterial(scene, "g", compiled(), {}, shared, noTextures).material;
+    const defines = (mesh: ReturnType<typeof CreatePlane>) => {
+      mesh.material = m;
+      m.isReadyForSubMesh(mesh, mesh.subMeshes[0]);
+      return mesh.subMeshes[0].materialDefines as unknown as Record<string, unknown>;
+    };
+    const quads = CreatePlane("q", { size: 1 }, scene);
+    quads.setVerticesData("color", new Float32Array(16).fill(1), false, 4);
+    expect(defines(quads).VERTEXCOLOR).toBe(true);
+    expect(defines(CreatePlane("plain", { size: 1 }, scene)).VERTEXCOLOR).toBeFalsy();
+  });
+
   describe("shadows follow the vertex offset", () => {
     /** Materials made after this are WGSL (NullEngine materials are otherwise GLSL); nothing compiles. */
     const asWebGPU = () => ((engine as unknown as { _isWebGPU: boolean })._isWebGPU = true);

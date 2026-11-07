@@ -92,6 +92,7 @@ const BUILTIN_TYPES: Record<Builtin, ValueType> = {
   worldNormal: "vec3",
   viewNormal: "vec3",
   viewDirection: "vec3",
+  vertexColor: "vec4",
 };
 
 /** A float literal: `1` → `1.0`. */
