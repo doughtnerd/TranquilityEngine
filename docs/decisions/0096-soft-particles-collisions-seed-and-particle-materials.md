@@ -12,7 +12,7 @@ ADR 0057 and 0060 listed particle features still missing: soft particles (they n
 
 ## Decision
 
-**Soft particles.** Outputs gain `settings.softness` (metres; 0 or absent is off). A soft output fades a particle's alpha by `(sceneDepth − particleDepth) / softness`, clamped to 0–1, so quads don't cut hard lines into geometry. The depth comes from a self-contained `SceneDepth` (`render/babylon/gpuParticles.ts`): Babylon's depth renderer for the active camera with camera-space Z (linear, metres), enabled only when a soft output or a depth-colliding kernel exists. Kernel outputs only for now; CPU systems draw through Babylon's particle system, which has no depth fade. When the engine gets a shared scene depth texture, `SceneDepth` should switch to it.
+**Soft particles.** Outputs gain `settings.softness` (metres; 0 or absent is off). A soft output fades a particle's alpha by `(sceneDepth − particleDepth) / softness`, clamped to 0–1, so quads don't cut hard lines into geometry. The depth is the engine's shared scene depth (ADR 0109: the frame graph's geometry pass writes linear view depth for every camera while something asks for it with `requestSceneDepth`): `SceneDepth` (`render/babylon/gpuParticles.ts`) asks for it on first use and binds each camera's own depth while that camera draws. Scenes no frame graph draws (the Particle Graph preview, the benchmark page) fall back to Babylon's depth renderer storing camera-space Z, the same quantity. Kernel outputs only for now; CPU systems draw through Babylon's particle system, which has no depth fade.
 
 **Collisions.**
 - `update.collisionDepth` (*Collide with depth buffer*, kernel backends): each frame a particle is projected into the camera; when it is behind the depth texture's surface by less than `thickness`, it steps back and its velocity reflects (scaled by `bounce`), or it dies (`kill`). Only what the camera sees collides.
@@ -41,7 +41,7 @@ The plane collision stays on both.
 - Seeded effects repeat exactly, for replays, tests and lockstep play.
 
 **Negative / costs**
-- Soft particles and depth collision enable Babylon's depth renderer: one more pass over the scene's meshes each frame while they're in use.
+- Soft particles and depth collision keep the frame graph's depth pass on every camera while they're in use (shared with AO and depth of field when those are on).
 - Collider collisions cost a physics ray per particle per frame.
 - Depth collisions only see what the camera sees.
 
@@ -51,7 +51,8 @@ The plane collision stays on both.
 
 ## Open questions
 
-- Use the engine's own scene depth texture once one exists.
+- Height fog (ADR 0110) on kernel particles: `heightFog.ts` keeps its state private and offers no hook for custom shaders yet.
+- Particle pipelines in the scene warm-up (ADR 0080): `warmUp.ts` has no hook for particle materials yet.
 - Soft particles for CPU systems.
 
 ## References

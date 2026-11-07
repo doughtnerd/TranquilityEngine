@@ -148,6 +148,20 @@ describe("kernel particle systems in the World player (ADR 0094)", () => {
     warn.mockRestore();
   });
 
+  it("soft outputs read a scene depth: the depth renderer on scenes no frame graph draws (ADR 0096)", () => {
+    const p = make();
+    const g = graph("gpu");
+    g.systems[0].output.settings.softness = 0.5;
+    const c = fakeSystem(g);
+    frames(p, c, 2);
+    const d = p.kernelDrawsOf(c)[0];
+    expect(d.material.getActiveTextures().length).toBeGreaterThan(0);
+    const renderers = (scene as unknown as { _depthRenderer?: Record<string, unknown> })._depthRenderer ?? {};
+    expect(Object.keys(renderers).length).toBe(1);
+    p.dispose();
+    expect(Object.keys((scene as unknown as { _depthRenderer?: Record<string, unknown> })._depthRenderer ?? {}).length).toBe(0);
+  });
+
   it("disposes kernel draws with the system", () => {
     const p = make();
     const c = fakeSystem(graph("gpu"));

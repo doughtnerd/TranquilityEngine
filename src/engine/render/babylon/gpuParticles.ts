@@ -3,6 +3,8 @@
 // draws each output as one instanced mesh whose vertex shader reads the particle state: no copy back
 // to the CPU. Babylon types stay in this folder (ADR 0010).
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
+import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
+import type { InternalTexture } from "@babylonjs/core/Materials/Textures/internalTexture.js";
 import { StorageBuffer } from "@babylonjs/core/Buffers/storageBuffer.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
@@ -23,6 +25,7 @@ import { JsRun, type KernelDepth, type KernelHost, type KernelRun } from "../par
 import { DRAW_MODE, glslDraw, wgslDraw } from "../particles/gpu/kernelShader";
 import { STATE_WIDTH, WebGl2Run, supportsTextureKernels } from "../particles/gpu/webgl2Run";
 import { BUFFER, WebGpuRun, type GpuBuffer, type GpuDevice } from "../particles/gpu/webgpuRun";
+import { hasSceneFrame, requestSceneDepth, sceneDepth } from "./frameGraph";
 import { particleAlphaIndex } from "./particleMeshes";
 
 /** What a draw binds each frame: the run's latest state, uniforms and look-up table. */
@@ -46,43 +49,68 @@ export function kernelExecutors(engine: AbstractEngine): KernelExecutor[] {
   return ["js"];
 }
 
-/** The scene's camera-space depth (soft particles, depth collision), made on first use. */
+/**
+ * The scene's depth for soft particles and depth collision (ADR 0096). In a World it is the frame
+ * graph's shared scene depth (ADR 0109: the geometry pass's linear view depth, requested once and
+ * fetched each frame); scenes no frame graph draws (the Particle Graph preview, benchmarks) fall back
+ * to Babylon's depth renderer storing camera-space Z. Both hold linear view depth, which the shaders
+ * compare with as |z| (0 is "nothing drawn").
+ */
 export class SceneDepth {
+  private release: (() => void) | null = null;
   private renderer: DepthRenderer | null = null;
   private camera: Camera | null = null;
+  private readonly wrapped = new WeakMap<InternalTexture, BaseTexture>();
   constructor(private readonly scene: Scene) {}
 
-  /** The depth renderer for the active camera, enabled on first use. */
-  map(): BaseTexture | null {
-    const cam = this.scene.activeCamera;
-    if (!cam) return null;
-    if (!this.renderer || this.camera !== cam) {
-      // storeCameraSpaceZ: the texture holds camera-space z, which both soft particles and collisions compare with.
-      this.renderer = this.scene.enableDepthRenderer(cam, false, true, Constants.TEXTURE_NEAREST_SAMPLINGMODE, true);
-      this.renderer.clearColor = new Color4(0, 0, 0, 0);
-      this.camera = cam;
+  /** The depth texture's internal texture for `camera` (default: the active one), asking for it on first use. */
+  internal(camera: Camera | null = this.scene.activeCamera): InternalTexture | null {
+    if (!camera) return null;
+    if (hasSceneFrame(this.scene)) {
+      this.release ??= requestSceneDepth(this.scene, this);
+      return camera instanceof TargetCamera ? (sceneDepth(this.scene, camera)?.internal ?? null) : null;
     }
-    return this.renderer.getDepthMap();
+    if (!this.renderer || this.camera !== camera) {
+      if (this.renderer) this.scene.disableDepthRenderer(this.camera ?? undefined);
+      // storeCameraSpaceZ: the texture holds camera-space z, as the shared scene depth does.
+      this.renderer = this.scene.enableDepthRenderer(camera, false, true, Constants.TEXTURE_NEAREST_SAMPLINGMODE, true);
+      this.renderer.clearColor = new Color4(0, 0, 0, 0);
+      this.camera = camera;
+    }
+    return this.renderer.getDepthMap().getInternalTexture();
+  }
+
+  /** The depth as a texture a material can bind (cached per internal texture). */
+  map(camera: Camera | null = this.scene.activeCamera): BaseTexture | null {
+    const internal = this.internal(camera);
+    if (!internal) return null;
+    let t = this.wrapped.get(internal);
+    if (!t) {
+      t = new BaseTexture(this.scene.getEngine(), internal);
+      this.wrapped.set(internal, t);
+    }
+    return t;
   }
 
   /** Camera data for the kernels' depth collision. */
   info(): KernelDepth | null {
-    const map = this.map();
     const cam = this.scene.activeCamera;
-    if (!map || !cam) return null;
+    const internal = this.internal(cam);
+    if (!internal || !cam) return null;
     const view = cam.getViewMatrix().m;
-    const size = map.getSize();
     return {
       viewProj: cam.getTransformationMatrix().m,
       viewZ: [view[2], view[6], view[10], view[14]],
-      width: size.width,
-      height: size.height,
+      width: internal.width,
+      height: internal.height,
       near: cam.minZ,
       far: cam.maxZ,
     };
   }
 
   dispose(): void {
+    this.release?.();
+    this.release = null;
     if (this.renderer) this.scene.disableDepthRenderer(this.camera ?? undefined);
     this.renderer = null;
   }
@@ -135,7 +163,7 @@ class WebGpuBabylonRun implements BabylonRun {
       },
       {
         view: () => {
-          const t = kernel.depth ? depth.map()?.getInternalTexture() : null;
+          const t = kernel.depth ? depth.internal() : null;
           return (t?._hardwareTexture as { view?: unknown } | null | undefined)?.view ?? null;
         },
       },
@@ -171,7 +199,7 @@ class WebGl2BabylonRun implements BabylonRun {
     depth: SceneDepth,
   ) {
     this.run = new WebGl2Run(gl, kernel, () => {
-      const t = kernel.depth ? depth.map()?.getInternalTexture() : null;
+      const t = kernel.depth ? depth.internal() : null;
       return ((t?._hardwareTexture?.underlyingResource ?? null) as WebGLTexture | null) ?? null;
     });
     if (this.run.errors.length) console.error(`[myco] particle kernel "${kernel.name}" didn't compile for WebGL2:\n${this.run.errors.join("\n")}`);
@@ -368,7 +396,18 @@ export class KernelDraw {
     m.setVector4("kdraw3", new Vector4(out.tiles[1], 0, 0, 0));
     m.onBindObservable.add(() => {
       const cam = scene.activeCamera;
-      if (cam) m.getEffect()?.setVector3("kcam", cam.globalPosition);
+      const effect = m.getEffect();
+      if (!cam || !effect) return;
+      effect.setVector3("kcam", cam.globalPosition);
+      if (this.soft) {
+        // The camera drawing now: each camera has its own depth (ADR 0109).
+        const map = this.sceneDepth.map(cam);
+        if (map) {
+          effect.setTexture("kdepthTex", map);
+          const s = map.getSize();
+          effect.setFloat4("ksoft", s.width, s.height, 0, 0);
+        }
+      }
     });
     this.mesh.material = m;
     this.mesh.alwaysSelectAsActiveMesh = true;
@@ -384,12 +423,9 @@ export class KernelDraw {
     const cam = this.scene.activeCamera;
     if (cam) this.material.setVector3("kcam", cam.globalPosition ?? Vector3.Zero());
     if (this.soft) {
+      // Bound per camera while drawing (onBind); set here too so the material has a texture to compile with.
       const map = this.sceneDepth.map();
-      if (map) {
-        this.material.setTexture("kdepthTex", map);
-        const s = map.getSize();
-        this.material.setVector4("ksoft", new Vector4(s.width, s.height, 0, 0));
-      }
+      if (map) this.material.setTexture("kdepthTex", map);
     }
   }
 

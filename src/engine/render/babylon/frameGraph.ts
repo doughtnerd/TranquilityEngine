@@ -288,6 +288,11 @@ export function sceneDepth(scene: Scene, camera: TargetCamera): SceneDepth | nul
   return frames.get(scene)?.sceneDepth(camera) ?? null;
 }
 
+/** @internal Whether `scene` is drawn by a frame graph (a World's renderer), so `sceneDepth` can serve it; previews and tools draw their own scenes. */
+export function hasSceneFrame(scene: Scene): boolean {
+  return frames.has(scene);
+}
+
 /** @internal The frame graph of one Babylon scene (ADR 0075 stage 3). */
 export class BabylonFrame {
   private graph: FrameGraph | null = null;
