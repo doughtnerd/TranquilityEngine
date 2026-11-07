@@ -27,7 +27,7 @@ export function assetKind(path: string): AssetKind {
   if (p.endsWith(".scene.json")) return "scene";
   if (p.endsWith(".prefab.json")) return "prefab";
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(p)) return "image";
-  if (/\.(hdr|exr)$/.test(p)) return "environment";
+  if (/\.(hdr|exr)$/.test(p) || /[^/]\.env$/.test(p)) return "environment";
   if (p.endsWith(".cube")) return "lut";
   if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";
   if (/\.(obj|fbx)$/.test(p)) return "model";
