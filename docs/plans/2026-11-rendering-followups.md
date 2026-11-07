@@ -25,7 +25,11 @@ What's left after the frame-drop work of 2026-11-06 (commit `e60c9af`, branch `c
 2. ~~**Pixel compare of clustered against regular lighting (0079).**~~ Done 2026-11-06 with `spikes/babylon/lights.html`: the two match exactly. It found that `spotSoftness` and `range` did nothing on Babylon (physical light falloff); lit materials now use glTF falloff. See the 0079 and 0075 rows.
 3. ~~**Warm-up on three.js (0080).**~~ Dropped: the three.js backend was removed (0081).
 4. ~~**Load-time budget (0080 open question).**~~ Done 2026-11-06 by compiling the warm-up's pipelines asynchronously on WebGPU (`render/babylon/asyncPipelines.ts`): no compile stalls a frame now, and batches went from 6 to 24 meshes. The pirates load's worst frame went from 600 to about 250 ms; what's left is the load's own JavaScript (main-thread long tasks of 64–275 ms), not pipelines. See 0080's row.
-   - **Next:** find what those long tasks are (building the match World and scene, texture uploads, the network World's setup) and spread or move them; and whether the few internal pipelines Babylon still compiles blocking (clear quad, post-process, UI) are worth warming.
+   - **Found (2026-11-06):** the long tasks are mostly Babylon creating effects (about 10 ms each, shader preprocessing in JavaScript). Warm batches are now sized to about 12 ms of effect creation, which helped a little (worst frame about 210 ms). Still to do, each a question of its own:
+     - **The swap lump:** 150–190 ms of effects created when the match scene first draws, which the warm-up should have made. Find which defines differ between the warm meshes and the real ones (instances, the scene's lights and shadows, fog), for example by logging every effect created in the first frames after a warm-up, which the variant report skips.
+     - **A new World's own effects:** each World has its own Babylon engine, so the match World makes its clear, post-process, shadow and UI effects again (about 50 ms in each of several frames). Whether Worlds could share one engine, or warm those passes too.
+     - **Instantiating the scene:** about 90 ms, some 1,000 vertex buffers.
+     - Whether the few internal pipelines Babylon still compiles blocking (clear quad, post-process, UI) are worth warming.
 5. **Variants not warmed yet (0080):**
    - particle systems;
    - world-space UI;

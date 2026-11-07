@@ -76,7 +76,7 @@ import { BabylonLighting } from "./lighting";
 import { spriteFrame } from "../spriteFrame";
 import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
 import { AsyncPipelines } from "./asyncPipelines";
-import { PipelineWarmer, VariantReport } from "./warmUp";
+import { effectClock, PipelineWarmer, VariantReport } from "./warmUp";
 import type { WarmMesh } from "../../scene/warmUp";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 
@@ -212,6 +212,8 @@ export class BabylonRenderer {
   private readonly warmer: PipelineWarmer;
   /** WebGPU: the warm-up's pipelines compile asynchronously while the warmer is busy (no frame waits for them); null elsewhere. */
   private readonly asyncPipelines: AsyncPipelines | null;
+  /** Time spent creating effects, which sizes the warm-up's batches. */
+  private readonly effects: { ms(): number; dispose(): void };
   /** ADR 0080: editor play mode's log of shader variants compiled after loading; null when off. */
   private report: VariantReport | null = null;
   /** When `render` last drew a frame: a warm-up only waits while frames are being drawn. */
@@ -308,6 +310,7 @@ export class BabylonRenderer {
     // Before the warmer, which asks whether compiles are async. Only while it's busy: everywhere else a
     // missing pipeline is made as Babylon makes it, so what's drawn never skips a frame.
     this.asyncPipelines = AsyncPipelines.install(this.engine, () => this.warmer?.busy ?? false);
+    this.effects = effectClock(this.engine);
     this.warmer = new PipelineWarmer({
       scene,
       materialFor: (path) => this.materialAsset(path),
@@ -316,6 +319,7 @@ export class BabylonRenderer {
       fogless: (m) => this.noFog.has(m),
       loadingTextures: () => this.loading.size > 0,
       ...(this.asyncPipelines ? { compiling: () => this.asyncPipelines!.settled() } : {}),
+      effectMs: () => this.effects.ms(),
     });
     this.warmer.onDrained = () => this.report?.quiet();
     if (fill) this.editorTools();
@@ -842,6 +846,7 @@ export class BabylonRenderer {
     this.disposed = true;
     this.warmer.dispose();
     this.asyncPipelines?.dispose();
+    this.effects.dispose();
     this.report?.dispose();
     this.particles?.dispose();
     this.tools?.dispose();

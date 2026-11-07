@@ -24,10 +24,18 @@ import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import type { WarmMesh } from "../../scene/warmUp";
 import { meshOf } from "./materials";
 
-/** Warm meshes drawn per frame when pipelines compile as Babylon makes them: each new one stalls its frame, so they're spread out. */
+/** The most Babylon meshes a warm batch makes when pipelines compile as Babylon makes them: each new one stalls its frame. */
 const BATCH = 6;
-/** Warm meshes drawn per frame when pipelines compile asynchronously (`asyncPipelines.ts`): no stall, so more at once. */
+/** The most a batch takes when pipelines compile asynchronously (`asyncPipelines.ts`): no stall. */
 const ASYNC_BATCH = 24;
+/** A first batch's size; later ones follow the time their effects took (`EFFECT_BUDGET_MS`). */
+const START_BATCH = 4;
+/**
+ * Milliseconds a batch may spend creating Babylon effects. Each new effect preprocesses Babylon's PBR
+ * shader in JavaScript, about 10 ms in the pirates sample: 24 meshes at once made 220 ms frames. Batches
+ * grow while their meshes share effects that already exist, and shrink when they don't.
+ */
+const EFFECT_BUDGET_MS = 12;
 /** Frames a batch waits for its materials (textures, shader imports) before it's given up. */
 const MAX_FRAMES = 240;
 /** Frames a warm mesh whose model is still loading is put back before it's dropped. */
@@ -52,6 +60,34 @@ export interface WarmDeps {
   loadingTextures(): boolean;
   /** With async pipeline compiles (WebGPU): resolves once the compiles started so far finish. Without, warm draws compile (and stall) as they go. */
   compiling?(): Promise<void>;
+  /** Milliseconds spent creating effects so far (`effectClock`), to size the batches; without it batches keep their largest size. */
+  effectMs?(): number;
+}
+
+/** @internal A running total of the time `engine` spends in `createEffect` (shader preprocessing runs there). */
+export function effectClock(engine: AbstractEngine): { ms(): number; dispose(): void } {
+  let total = 0;
+  const create = engine.createEffect;
+  engine.createEffect = ((...args: Parameters<AbstractEngine["createEffect"]>) => {
+    const t = performance.now();
+    try {
+      return create.apply(engine, args);
+    } finally {
+      total += performance.now() - t;
+    }
+  }) as AbstractEngine["createEffect"];
+  return {
+    ms: () => total,
+    dispose: () => {
+      if (engine.createEffect !== create) engine.createEffect = create;
+    },
+  };
+}
+
+/** @internal The next batch's size from the last one's: double while its effects took under half the budget, else scale to the budget. */
+export function nextBatchSize(size: number, effectMs: number, max: number): number {
+  if (effectMs < EFFECT_BUDGET_MS / 2) return Math.min(max, size * 2);
+  return Math.max(1, Math.min(max, Math.round((size * EFFECT_BUDGET_MS) / effectMs)));
 }
 
 interface Batch {
@@ -64,6 +100,9 @@ interface Batch {
   casters: Mesh[];
   frames: number;
   readyFrames: number;
+  /** `effectMs()` when the batch was built, and how many meshes it was meant to take. */
+  effectStart: number;
+  size: number;
 }
 
 /** @internal Queues meshes to warm and draws a batch of them each frame (ADR 0080). */
@@ -75,8 +114,16 @@ export class PipelineWarmer {
   private readonly matrix = new Matrix();
   /** Called when the queue drains (the report keeps quiet for a moment after). */
   onDrained: (() => void) | null = null;
+  /** The next batch's size (`nextBatchSize`). */
+  private size: number;
 
-  constructor(private readonly deps: WarmDeps) {}
+  constructor(private readonly deps: WarmDeps) {
+    this.size = deps.effectMs ? START_BATCH : this.maxBatch;
+  }
+
+  private get maxBatch(): number {
+    return this.deps.compiling ? ASYNC_BATCH : BATCH;
+  }
 
   /** Whether meshes are queued or being drawn. */
   get busy(): boolean {
@@ -117,6 +164,7 @@ export class PipelineWarmer {
     b.frames++;
     if (!this.deps.loadingTextures() && b.meshes.every((m) => m.isReady(true))) b.readyFrames++;
     if (b.readyFrames < 2 && b.frames < MAX_FRAMES) return;
+    if (this.deps.effectMs) this.size = nextBatchSize(b.size, this.deps.effectMs() - b.effectStart, this.maxBatch);
     this.drop(b);
     this.batch = null;
     if (!this.queue.length) this.drained();
@@ -148,14 +196,13 @@ export class PipelineWarmer {
   }
 
   private build(camera: Camera): Batch {
-    const b: Batch = { meshes: [], clones: [], blends: [], watched: [], casters: [], frames: 0, readyFrames: 0 };
+    const b: Batch = { meshes: [], clones: [], blends: [], watched: [], casters: [], frames: 0, readyFrames: 0, effectStart: this.deps.effectMs?.() ?? 0, size: this.size };
     const forward = camera.getDirection(Vector3.Forward(this.deps.scene.useRightHandedSystem));
     const at = camera.globalPosition.add(forward.scale(Math.max(camera.minZ, 0.01) * 4));
     Matrix.ComposeToRef(new Vector3(WARM_SCALE, WARM_SCALE, WARM_SCALE), Quaternion.Identity(), at, this.matrix);
     const later: WarmMesh[] = [];
     let taken = 0;
-    const batchSize = this.deps.compiling ? ASYNC_BATCH : BATCH;
-    while (this.queue.length && taken < batchSize) {
+    while (this.queue.length && taken < b.size) {
       const w = this.queue.shift()!;
       const sources = meshesIfLoaded(w.mesh);
       if (sources === null) {
@@ -166,7 +213,6 @@ export class PipelineWarmer {
         continue;
       }
       this.retries.delete(w);
-      taken++;
       const base = w.material ? this.deps.materialFor(w.material) : null;
       const variants: (BabylonMaterial | null)[] = [base];
       if (w.blended && base instanceof PBRMaterial && !this.deps.isGraph(base)) {
@@ -178,6 +224,8 @@ export class PipelineWarmer {
         b.blends.push([blend, base]);
         variants.push(blend);
       }
+      // Counted in Babylon meshes: a model of many parts, or a blend copy, is several draws and effects.
+      taken += variants.length * sources.length;
       for (const variant of variants) {
         for (const src of sources) {
           const mesh = meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}`, src);
