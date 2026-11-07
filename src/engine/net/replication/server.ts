@@ -137,6 +137,10 @@ export class ServerReplication {
     readonly session: NetSession,
   ) {
     this.sendRate = session.tickRate;
+    // ADR 0101: the World config's `replication` settings.
+    const engine = world._engine as { _worldConfig?(name: string): { replication?: ReplicationOptions } | null } | null;
+    const settings = engine?._worldConfig?.(world.name)?.replication;
+    if (settings) applyReplicationOptions(this, settings);
   }
 
   /** @internal The per-connection state, for tests and tools. */
@@ -437,6 +441,10 @@ export function serverReplication(world: World): ServerReplication | null {
 export function configureReplication(world: World, options: ReplicationOptions): void {
   const r = serverReplication(world);
   if (!r) throw new Error(`World "${world.name}" isn't a network server.`);
+  applyReplicationOptions(r, options);
+}
+
+function applyReplicationOptions(r: ServerReplication, options: ReplicationOptions): void {
   if (options.sendRate !== undefined) r.sendRate = Math.max(1e-6, options.sendRate);
   if (options.maxSnapshotBytes !== undefined) r.maxSnapshotBytes = Math.max(64, options.maxSnapshotBytes);
 }

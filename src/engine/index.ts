@@ -4,7 +4,7 @@
  */
 export { Engine, type EngineOptions } from "./core/Engine";
 export type { WorldKind, TimeState } from "./core/World";
-export type { Bootstrap, BootstrapConfig, BootstrapEngine, BootstrapSetting, LinkConfig, SystemSelection, WorldConfig, WorldHandle, WorldTag } from "./core/worlds";
+export type { Bootstrap, BootstrapConfig, BootstrapEngine, BootstrapSetting, LinkConfig, ReplicationSettings, SystemSelection, WorldConfig, WorldHandle, WorldTag } from "./core/worlds";
 export type { NetworkTime } from "./net/time";
 export { Connection, ConnectionState, defineInput, defineRpc, str, MAX_STR_BYTES, type ConnectionNode, type ConnectionStateValue, type InputDef, type InputOptions, type InputStats, type RpcDef, type RpcRow, type RpcSchema, type RpcTarget, type RpcValues, type StringType } from "./net/messages";
 export { Lobby, type LobbyConnectOptions, type LobbyProfile } from "./net/lobby/client";

@@ -52,6 +52,23 @@ export interface WorldConfig {
   systems?: SystemSelection;
   /** Turn on the lobby service in this server World (ADR 0068): see `LobbyOptions` and the multiplayer guide. */
   lobby?: import("../net/lobby/protocol").LobbyOptions;
+  /** How this World sends snapshots when it's a network server (ADR 0101). Ignored otherwise. */
+  replication?: ReplicationSettings;
+}
+
+/** A server World's snapshot settings (ADR 0033 §3, ADR 0101). */
+export interface ReplicationSettings {
+  /**
+   * Snapshots per second to each connection, at most the tick rate (a snapshot goes every
+   * `round(tickRate / sendRate)` ticks). Default: the tick rate. Lower it to save bandwidth;
+   * clients interpolate across the gaps (raise their `interpolationMs` to match).
+   */
+  sendRate?: number;
+  /**
+   * The most bytes one snapshot may carry (default 65536, at least 256). Ghosts that don't fit go
+   * in a later snapshot, most important and longest unsent first.
+   */
+  maxSnapshotBytes?: number;
 }
 
 /** A transport link between two Worlds (ADR 0033). */
