@@ -15,7 +15,7 @@ import { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Color as EngineColor, type Color } from "../../core/math";
 import type { MaterialSettings } from "../../scene/material";
-import type { ModelMesh } from "../../scene/models";
+import type { ModelMesh, SurfaceInfo, TextureInfo } from "../../scene/models";
 import type { GraphValue } from "../../scene/shaderGraph";
 
 /**
@@ -58,6 +58,8 @@ export function vertexDataOf(src: ModelMesh): VertexData {
   data.positions = d.positions;
   data.indices = d.indices;
   if (d.uvs) data.uvs = d.uvs;
+  if (d.uvs2) data.uvs2 = d.uvs2;
+  if (d.colors) data.colors = d.colors;
   if (d.normals) data.normals = d.normals;
   else {
     const normals: number[] = [];
@@ -68,8 +70,34 @@ export function vertexDataOf(src: ModelMesh): VertexData {
   return data;
 }
 
+/** A model texture (decoded image or URL) as a Babylon texture, or null. */
+function surfaceTexture(scene: Scene, info: TextureInfo | null | undefined, linearData = false): Texture | null {
+  if (!info) return null;
+  const options = { invertY: true, gammaSpace: !linearData };
+  let tex: Texture;
+  if (info.src) {
+    const ktx2 = info.mimeType === "image/ktx2";
+    if (ktx2) ensureKtx2Loader();
+    tex = new Texture(info.src, scene, { ...options, forcedExtension: ktx2 ? ".ktx2" : undefined });
+    // Compressed images can't be flipped on upload: flip them in the texture matrix instead.
+    if (ktx2) {
+      tex.vScale = -1; // v → 1 - v
+      tex.vOffset = 1;
+    }
+  } else if (info.image) tex = new Texture("data:model-texture", scene, { ...options, buffer: info.image as HTMLImageElement });
+  else return null;
+  if (info.uvSet) tex.coordinatesIndex = info.uvSet;
+  return tex;
+}
+
+let ktx2Registered: Promise<unknown> | null = null;
+/** Babylon's KTX2 texture loader, registered on the first KTX2 texture (glTF KHR_texture_basisu, ADR 0088). */
+function ensureKtx2Loader(): void {
+  ktx2Registered ??= import("@babylonjs/core/Materials/Textures/Loaders/ktxTextureLoader.js");
+}
+
 /** One model surface as a PBR material, shared by every mesh using it (`cache` is the owner's, per scene). */
-export function surfaceMaterial(scene: Scene, cache: WeakMap<object, BabylonMaterial>, surface: ModelMesh["surfaces"][number], meshName: string): BabylonMaterial {
+export function surfaceMaterial(scene: Scene, cache: WeakMap<object, BabylonMaterial>, surface: SurfaceInfo, meshName: string): BabylonMaterial {
   let m = cache.get(surface);
   if (m) return m;
   const made = pbr(`model:${meshName}:${surface.name}`, scene);
@@ -77,13 +105,64 @@ export function surfaceMaterial(scene: Scene, cache: WeakMap<object, BabylonMate
   made.metallic = surface.metalness;
   made.roughness = surface.roughness;
   made.backFaceCulling = !surface.doubleSided;
-  if (surface.transparent && surface.opacity < 1) {
+  if (surface.doubleSided) made.twoSidedLighting = true;
+  made.albedoTexture = surfaceTexture(scene, surface.map);
+  if (surface.alphaMode === undefined) {
+    if (surface.transparent && surface.opacity < 1) {
+      made.alpha = surface.opacity;
+      made.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+    }
+  } else if (surface.alphaMode === "blend") {
     made.alpha = surface.opacity;
     made.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+    made.useAlphaFromAlbedoTexture = !!made.albedoTexture;
+  } else if (surface.alphaMode === "mask") {
+    made.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHATEST;
+    made.alphaCutOff = surface.alphaCutoff ?? 0.5;
+    made.useAlphaFromAlbedoTexture = !!made.albedoTexture;
+  } else {
+    made.transparencyMode = PBRMaterial.PBRMATERIAL_OPAQUE;
   }
-  const map = surface.map;
-  if (map?.src) made.albedoTexture = new Texture(map.src, scene, { invertY: true });
-  else if (map?.image) made.albedoTexture = new Texture("data:model-texture", scene, { invertY: true, buffer: map.image as HTMLImageElement });
+  if (surface.unlit) made.unlit = true;
+  if (surface.emissive) made.emissiveColor = new Color3(surface.emissive[0], surface.emissive[1], surface.emissive[2]);
+  made.emissiveTexture = surfaceTexture(scene, surface.emissiveMap);
+  const normal = surfaceTexture(scene, surface.normalMap, true);
+  if (normal) {
+    made.bumpTexture = normal;
+    normal.level = surface.normalScale ?? 1;
+  }
+  const metalRough = surfaceTexture(scene, surface.metalRoughMap, true);
+  if (metalRough) {
+    made.metallicTexture = metalRough;
+    made.useRoughnessFromMetallicTextureAlpha = false;
+    made.useRoughnessFromMetallicTextureGreen = true;
+    made.useMetallnessFromMetallicTextureBlue = true;
+  }
+  const occlusion = surfaceTexture(scene, surface.occlusionMap, true);
+  if (occlusion) {
+    made.ambientTexture = occlusion;
+    made.useAmbientInGrayScale = true;
+    made.ambientTextureStrength = surface.occlusionStrength ?? 1;
+  }
+  const p = surface.physical;
+  if (p) {
+    made.clearCoat.isEnabled = p.clearcoat > 0;
+    made.clearCoat.intensity = p.clearcoat;
+    made.clearCoat.roughness = p.clearcoatRoughness;
+    made.sheen.isEnabled = p.sheen > 0;
+    made.sheen.intensity = p.sheen;
+    made.sheen.color = new Color3(p.sheenColor[0], p.sheenColor[1], p.sheenColor[2]);
+    made.sheen.roughness = p.sheenRoughness;
+    made.subSurface.isRefractionEnabled = p.transmission > 0;
+    made.subSurface.refractionIntensity = p.transmission;
+    made.subSurface.maximumThickness = Math.max(p.thickness, 0.001);
+    made.indexOfRefraction = p.ior;
+    made.metallicF0Factor = p.specularIntensity;
+    made.metallicReflectanceColor = new Color3(p.specularColor[0], p.specularColor[1], p.specularColor[2]);
+    made.iridescence.isEnabled = p.iridescence > 0;
+    made.iridescence.intensity = p.iridescence;
+    made.iridescence.indexOfRefraction = p.iridescenceIOR;
+  }
   m = made;
   cache.set(surface, m);
   return m;
