@@ -157,6 +157,10 @@ export class WebSocketConnection implements TransportConnection {
 
   handleError(message: string): void {
     this.error ||= message;
+    // A connect that fails (refused, or an upgrade rejected) is final: browsers fire "close" right
+    // after "error", but Node's global WebSocket (undici) can leave it out, which hung the connection
+    // in "connecting". Closing here is harmless where "close" does follow (handleClose ignores it).
+    if (this.state === "connecting") this.closed(this.error || "connection failed");
   }
 
   /** The socket closed: by the peer, the network, or a failed connect. */
