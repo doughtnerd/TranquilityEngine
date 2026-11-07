@@ -584,7 +584,7 @@ export class Physics3DWorld {
     const a1 = Quat.rotate(inv1, pw.clone().sub(pose1.p)), a2 = Quat.rotate(inv2, pw2.clone().sub(pose2.p));
     // The joint's frame in world space: its x axis along the hinge or slider axis. Each body holds it in its own frame.
     const nodeQ = j.node.transform ? worldPose(this.world, j.node.entity).q : new Quaternion();
-    const ax = j instanceof AxisJoint ? j.axis : { x: 1, y: 0, z: 0 };
+    const ax = j instanceof AxisJoint || j instanceof BallJoint ? j.axis : { x: 1, y: 0, z: 0 };
     const len = Math.hypot(ax.x, ax.y, ax.z) || 1;
     const frame = fromXTo(Quat.rotate(nodeQ, new Vector3(ax.x / len, ax.y / len, ax.z / len)));
     const f1 = rapierRotation(Quat.conjugate(pose1.q).multiply(frame)), f2 = rapierRotation(Quat.conjugate(pose2.q).multiply(frame));
@@ -614,6 +614,17 @@ export class Physics3DWorld {
 
   /** Limits, motor and spring on a live hinge or slider. */
   private applyJointSettings(j: Joint, st: JointHandleState3D): void {
+    if (j instanceof BallJoint) {
+      if (!j.useLimits) return;
+      // Per-axis angular limits through the raw joint set (the JS class only exposes them on hinges and sliders).
+      const raw = (st.joint as unknown as { rawSet: { jointSetLimits(h: number, axis: number, min: number, max: number): void } }).rawSet;
+      const t = j.twistLimits ?? { min: 0, max: 0 }, swing = Math.abs(j.swingLimit) * DEG2RAD;
+      raw.jointSetLimits(st.joint.handle, RAPIER.JointAxis.AngX, Math.min(t.min, t.max) * DEG2RAD, Math.max(t.min, t.max) * DEG2RAD);
+      raw.jointSetLimits(st.joint.handle, RAPIER.JointAxis.AngY, -swing, swing);
+      raw.jointSetLimits(st.joint.handle, RAPIER.JointAxis.AngZ, -swing, swing);
+      st.body._state?.body.wakeUp();
+      return;
+    }
     if (!(j instanceof AxisJoint)) return;
     const unit = st.joint as RAPIER.UnitImpulseJoint;
     const k = j instanceof HingeJoint ? DEG2RAD : 1;

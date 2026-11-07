@@ -115,11 +115,25 @@ export class SliderJoint extends AxisJoint {
   }
 }
 
-/** Keeps the anchors together but lets the body turn freely around them, like a shoulder. */
+/**
+ * Keeps the anchors together but lets the body turn around them, like a shoulder. With `useLimits`,
+ * it twists around `axis` only between `twistLimits` (degrees) and swings off it at most
+ * `swingLimit` degrees around each of the two axes across it (a four-sided limit, not a round cone).
+ */
 @component("engine.BallJoint")
 export class BallJoint extends Joint {
+  /** The twist axis, in this node's local space. */
+  @field(Vector3) axis = new Vector3(1, 0, 0);
+  @field(Boolean) useLimits = false;
+  @field(PlainObject) twistLimits: JointLimits = { min: -45, max: 45 };
+  @field(Number) swingLimit = 45;
+
   override _jointSignature(): string {
-    return "ball";
+    return `ball:${this.axis.x},${this.axis.y},${this.axis.z}|${this.useLimits}`;
+  }
+
+  override _settingsSignature(): string {
+    return [this.twistLimits?.min, this.twistLimits?.max, this.swingLimit].join("|");
   }
 }
 
