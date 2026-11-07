@@ -9,6 +9,7 @@
  * the graph leaves its state wrong (see the stage 3 notes in ADR 0075).
  */
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { RenderTargetTexture } from "@babylonjs/core/Materials/Textures/renderTargetTexture.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
@@ -31,6 +32,8 @@ interface ProbeEntry {
   box: ProbeBox;
 }
 
+/** The warm-up's scratch probe's face size: its formats are what matter, not its size. */
+const WARM_PROBE_RESOLUTION = 16;
 /** Frames a capture renders for, so meshes whose materials compile on the first are in it. */
 const CAPTURE_FRAMES = 3;
 
@@ -43,8 +46,47 @@ export class BabylonProbes {
   private boxes: { box: ProbeBox; texture: BaseTexture; intensity: number }[] = [];
   /** Probes to render this frame (see `capture`). */
   private toRender: BabylonReflectionProbe[] = [];
+  /** ADR 0080: a probe made as real ones are (same formats), for the warm-up; made on first use. */
+  private scratch: BabylonReflectionProbe | null = null;
 
   constructor(private readonly scene: Scene) {}
+
+  /**
+   * @internal ADR 0080: the scratch probe's cube map, for the warm-up's copies of materials reflecting
+   * a probe (its formats are a real probe's, so the copies compile the same shaders); null while the
+   * tier turns probes off.
+   */
+  scratchTexture(): BaseTexture | null {
+    if (!PROBE_RESOLUTION[Graphics.tier.reflectionProbes]) return null;
+    return this.scratchProbe().cubeTexture;
+  }
+
+  /**
+   * @internal ADR 0080: render the scratch probe with `meshes` (the warm-up's, at `at`), placed behind
+   * them as seen from `camera` so they're in one of its faces: their pipelines for the probe's capture
+   * pass. Before the frame graph runs, like `capture`.
+   */
+  warmCapture(meshes: Mesh[], at: Vector3, camera: Camera): void {
+    if (!PROBE_RESOLUTION[Graphics.tier.reflectionProbes]) return;
+    const probe = this.scratchProbe();
+    const back = at.subtract(camera.globalPosition).normalize().scale(Math.max(camera.minZ, 0.01) * 2);
+    probe.position = at.subtract(back);
+    probe.renderList = meshes;
+    const previous = this.scene.activeCamera;
+    this.scene.activeCamera = camera;
+    probe.cubeTexture.render();
+    this.scene.activeCamera = previous;
+    probe.renderList = [];
+  }
+
+  private scratchProbe(): BabylonReflectionProbe {
+    if (!this.scratch) {
+      this.scratch = new BabylonReflectionProbe("myco.warm:probe", WARM_PROBE_RESOLUTION, this.scene, true, true, true);
+      this.scratch.refreshRate = RenderTargetTexture.REFRESHRATE_RENDER_ONCE;
+      this.scratch.renderList = [];
+    }
+    return this.scratch;
+  }
 
   /**
    * Step 8: mirror the World's ReflectionProbes. `renderList` is what probes capture; `ready` says the
@@ -141,6 +183,8 @@ export class BabylonProbes {
   }
 
   dispose(): void {
+    this.scratch?.dispose();
+    this.scratch = null;
     for (const e of this.entries.values()) e.probe?.dispose();
     this.entries.clear();
   }

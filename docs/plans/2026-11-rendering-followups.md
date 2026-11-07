@@ -35,11 +35,9 @@ What's left after the frame-drop work of 2026-11-06 (commit `e60c9af`, branch `c
        - warm behind a loading screen.
      - **Instantiating the scene:** about 90 ms, some 1,000 vertex buffers.
      - Whether the few internal pipelines Babylon still compiles blocking (clear quad, post-process, UI) are worth warming.
-5. **Variants not warmed yet (0080):**
-   - particle systems;
-   - world-space UI;
-   - reflection-probe copies (`probeMaterial`);
-   - warming again when the quality tier changes (the passes change).
+5. ~~**Variants not warmed yet (0080).**~~ Built 2026-11-06 (see 0080's row): particle effects (each emitter's real draw with one invisible particle: billboards, sheets, blending, mesh and trail modes, material assets), world-space UI planes, probe copies of every mesh in a scene with a ReflectionProbe plus the probe's own capture pass (a scratch probe), and warming again when the tier changes a pipeline setting. Async compiles now skip only the warmer's own draws. Tests: `warmUpVariants.test.ts`.
+   - **Not checked in the editor yet:** the browser pane was hidden, so frames didn't run; to do: the pirates match (rain and fog clouds), the Playground (campfire), a scene with a probe (no sample has one), and a tier change in play mode, watching the variant report and frames over 50/100 ms against the numbers above.
+   - Left as they are: graph-material copies of probed meshes (graph materials keep the scene's environment, so there's no copy to warm); particle draws a script's `setProperty` turns into another emitter layout at runtime (the effect is warmed as authored); a tier change still recompiles what's on screen in its first frame (those draws aren't skipped, so nothing vanishes); the screen UI layer's pipeline (one Babylon internal, compiled once per World).
 6. **Unverified for clustering (0079):**
    - GPU time against the stop-gap; needs timestamp queries or a visible window, since Babylon's GPU timer reads 0 under a frame graph;
    - a camera that draws to part of the target (split screen): Babylon sizes the tile mask from `engine.getRenderWidth()`, not the viewport;

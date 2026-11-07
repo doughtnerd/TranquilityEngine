@@ -8,7 +8,7 @@
  * before they load (grid, colours, selection, overlay, gizmo) is kept here and handed over once they
  * have. Until then queries answer "nothing".
  */
-import type { WarmMesh } from "../../scene/warmUp";
+import type { WarmContent } from "../../scene/warmUp";
 import type { Component } from "../../core/Component";
 import { Graphics } from "../Graphics";
 import { SHADOW_MAP_SIZE } from "../../core/graphics";
@@ -178,9 +178,9 @@ export class BabylonSurface implements RenderSurface {
     this.canvas.remove();
   }
 
-  async warmUp(meshes: readonly WarmMesh[]): Promise<void> {
+  async warmUp(set: WarmContent): Promise<void> {
     while (!this.renderer && !this.disposed) await new Promise((r) => setTimeout(r, 16));
-    await this.renderer?.warmUp(meshes);
+    await this.renderer?.warmUp(set);
   }
 
   _setVariantReport(on: boolean): void {

@@ -108,8 +108,8 @@ What changed from the decision while building, and what's left:
   - ~~the three.js backend~~ (removed by 0081);
   - ~~the Inspector field for `settings.preload`, and whether the editor keeps it on save~~ (built 2026-11-06: Scene settings in the Inspector; saving keeps the field);
   - ~~the message log's offer to add a path to it~~ (built 2026-11-06: the warning names the file, and the log offers to add it);
-  - particles, world-space UI and reflection-probe variants;
-  - warming again on a tier change.
+  - ~~particles, world-space UI and reflection-probe variants~~ (built 2026-11-06; see the implementation status);
+  - ~~warming again on a tier change~~ (built 2026-11-06: the renderer queues what its World warmed again when the tier changes a pipeline setting).
 - **Measured** (pirates Practice match, about 70 s from the click, same procedure as 0075's notes):
   - after the first 3 s (the load), frames over 100 ms: 0, against 3–6 with clustering alone and 20 on master;
   - frames over 50 ms after the load: 3, the worst 80 ms;

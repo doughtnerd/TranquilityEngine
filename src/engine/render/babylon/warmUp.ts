@@ -9,8 +9,14 @@
  * effect alone (`forceCompilationAsync`) doesn't make the pipeline. So each warm mesh is drawn for real,
  * in the frame graph's own passes (main, geometry, shadows when it casts them), scaled to nothing just in
  * front of the view camera: it passes culling and is drawn, but covers no pixel.
+ *
+ * Besides MeshRenderers' meshes it draws what the renderer builds for other content (`WarmCustom`):
+ * a particle effect's draws holding one particle each, a world-space UI canvas's plane. A mesh in a
+ * scene with reflection probes is also drawn with a copy of its material reflecting a scratch probe,
+ * and into that probe, which captures like a real one (the probe pass's own pipelines).
  */
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
+import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { Effect } from "@babylonjs/core/Materials/effect.js";
 import type { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
@@ -45,6 +51,32 @@ const WARM_SCALE = 1e-5;
 /** Names of warm meshes start with this; the report and editor overlays skip them. */
 export const WARM_PREFIX = "myco.warm:";
 
+/** What a custom warm item built: meshes and particle systems to draw this batch, and how to free them. */
+export interface WarmParts {
+  meshes: Mesh[];
+  /** Babylon particle systems (anything with `render()`), drawn by the scene as usual. */
+  systems: { render(): number }[];
+  /** Whether everything is ready to draw (effects compiled, textures loaded). */
+  ready(): boolean;
+  dispose(): void;
+}
+
+/**
+ * Content the renderer builds itself to warm (particle effects, world-space UI): `build` makes it
+ * hidden at `at` (the warm meshes' world matrix: a point just past the camera's near plane, scaled to
+ * nothing), or returns null while something it needs is still loading (it's asked again later).
+ */
+export interface WarmCustom {
+  /** What it is, for the tier re-warm's bookkeeping and logs. */
+  key: string;
+  build(at: Matrix, position: Vector3, camera: Camera): WarmParts | null;
+}
+
+/** A queued warm item. */
+export type WarmItem = WarmMesh | WarmCustom;
+
+const isCustom = (w: WarmItem): w is WarmCustom => typeof (w as WarmCustom).build === "function";
+
 /** What the warmer needs from the renderer. */
 export interface WarmDeps {
   scene: Scene;
@@ -62,6 +94,13 @@ export interface WarmDeps {
   compiling?(): Promise<void>;
   /** Milliseconds spent creating effects so far (`effectClock`), to size the batches; without it batches keep their largest size. */
   effectMs?(): number;
+  /**
+   * A scratch reflection probe's cube map, made as real probes' are (same formats), for the copies of
+   * materials that reflect one; null while the tier turns probes off. Without it nothing is warmed reflecting a probe.
+   */
+  probeTexture?(): BaseTexture | null;
+  /** Render the scratch probe with `meshes`, placed so they're in one of its faces (`at`, seen from `camera`). Before the frame graph runs. */
+  captureProbe?(meshes: Mesh[], at: Vector3, camera: Camera): void;
 }
 
 /** @internal A running total of the time `engine` spends in `createEffect` (shader preprocessing runs there). */
@@ -92,6 +131,10 @@ export function nextBatchSize(size: number, effectMs: number, max: number): numb
 
 interface Batch {
   meshes: Mesh[];
+  /** Custom items' parts (particle draws, world canvases). */
+  parts: WarmParts[];
+  /** Meshes drawn into the scratch probe as it captures. */
+  probed: Mesh[];
   clones: BabylonMaterial[];
   /** Blend copies and their bases: a base's textures arrive after it's made, and the copy must follow. */
   blends: [PBRMaterial, PBRMaterial][];
@@ -107,11 +150,15 @@ interface Batch {
 
 /** @internal Queues meshes to warm and draws a batch of them each frame (ADR 0080). */
 export class PipelineWarmer {
-  private queue: WarmMesh[] = [];
+  private queue: WarmItem[] = [];
   private batch: Batch | null = null;
   private waiters: (() => void)[] = [];
-  private readonly retries = new Map<WarmMesh, number>();
+  private readonly retries = new Map<WarmItem, number>();
+  /** True while one of the warmer's own meshes or particle systems is drawing (`AsyncPipelines` skips only those draws). */
+  drawing = false;
   private readonly matrix = new Matrix();
+  /** Where this batch is drawn. */
+  private readonly position = new Vector3();
   /** Called when the queue drains (the report keeps quiet for a moment after). */
   onDrained: (() => void) | null = null;
   /** The next batch's size (`nextBatchSize`). */
@@ -130,18 +177,23 @@ export class PipelineWarmer {
     return this.queue.length > 0 || this.batch !== null;
   }
 
-  /** Queue `meshes`; resolves when everything queued so far has been drawn. */
-  add(meshes: readonly WarmMesh[]): Promise<void> {
-    this.queue.push(...meshes);
+  /** Queue `items` (those already queued aren't queued twice); resolves when everything queued so far has been drawn. */
+  add(items: readonly WarmItem[]): Promise<void> {
+    for (const w of items) if (!this.queue.includes(w)) this.queue.push(w);
     if (!this.busy) return Promise.resolve();
     return new Promise((resolve) => this.waiters.push(resolve));
   }
 
   /** Before the frame graph runs: place this frame's batch in front of `camera`, its shadow casters onto `casters`. */
   beforeRender(camera: Camera | null, casters: Mesh[]): void {
-    if (!this.batch && this.queue.length && camera) this.batch = this.build(camera);
+    if (!this.batch && this.queue.length && camera) {
+      const b = this.build(camera);
+      // Everything taken is still loading (put back): nothing to draw this frame.
+      if (b.meshes.length || b.parts.length) this.batch = b;
+    }
     if (!this.batch) return;
     casters.push(...this.batch.casters);
+    if (this.batch.probed.length && camera) this.deps.captureProbe?.(this.batch.probed, this.position, camera);
     // A material asset's textures load after it's made (and after the copy was taken): keep the
     // copies in step, and count the batch as drawn only once nothing changes.
     for (const [blend, base] of this.batch.blends) {
@@ -162,7 +214,7 @@ export class PipelineWarmer {
     const b = this.batch;
     if (!b) return;
     b.frames++;
-    if (!this.deps.loadingTextures() && b.meshes.every((m) => m.isReady(true))) b.readyFrames++;
+    if (!this.deps.loadingTextures() && b.meshes.every((m) => m.isReady(true)) && b.parts.every((p) => p.ready())) b.readyFrames++;
     if (b.readyFrames < 2 && b.frames < MAX_FRAMES) return;
     if (this.deps.effectMs) this.size = nextBatchSize(b.size, this.deps.effectMs() - b.effectStart, this.maxBatch);
     this.drop(b);
@@ -193,23 +245,58 @@ export class PipelineWarmer {
   private drop(b: Batch): void {
     for (const m of b.meshes) m.dispose();
     for (const c of b.clones) c.dispose();
+    for (const p of b.parts) p.dispose();
+  }
+
+  /** Mark draws of `target` (a warm mesh's `_draw`, a particle system's `render`) as the warmer's, on the instance. */
+  private own<T extends object>(target: T, method: "_draw" | "render"): void {
+    const t = target as unknown as Record<string, (...args: unknown[]) => unknown>;
+    const original = t[method];
+    if (typeof original !== "function") return;
+    t[method] = (...args: unknown[]) => {
+      const was = this.drawing;
+      this.drawing = true;
+      try {
+        return original.apply(target, args);
+      } finally {
+        this.drawing = was;
+      }
+    };
   }
 
   private build(camera: Camera): Batch {
-    const b: Batch = { meshes: [], clones: [], blends: [], watched: [], casters: [], frames: 0, readyFrames: 0, effectStart: this.deps.effectMs?.() ?? 0, size: this.size };
+    const b: Batch = { meshes: [], parts: [], probed: [], clones: [], blends: [], watched: [], casters: [], frames: 0, readyFrames: 0, effectStart: this.deps.effectMs?.() ?? 0, size: this.size };
     const forward = camera.getDirection(Vector3.Forward(this.deps.scene.useRightHandedSystem));
     const at = camera.globalPosition.add(forward.scale(Math.max(camera.minZ, 0.01) * 4));
+    this.position.copyFrom(at);
     Matrix.ComposeToRef(new Vector3(WARM_SCALE, WARM_SCALE, WARM_SCALE), Quaternion.Identity(), at, this.matrix);
-    const later: WarmMesh[] = [];
+    const probeTexture = this.deps.probeTexture?.() ?? null;
+    const later: WarmItem[] = [];
     let taken = 0;
     while (this.queue.length && taken < b.size) {
       const w = this.queue.shift()!;
-      const sources = meshesIfLoaded(w.mesh);
-      if (sources === null) {
-        // Its model is still loading: try again later, for a while.
+      const retry = () => {
+        // Something it needs is still loading: try again later, for a while.
         const n = (this.retries.get(w) ?? 0) + 1;
         this.retries.set(w, n);
         if (n < MAX_RETRIES) later.push(w);
+      };
+      if (isCustom(w)) {
+        const parts = w.build(this.matrix.clone(), at.clone(), camera);
+        if (!parts) {
+          retry();
+          continue;
+        }
+        this.retries.delete(w);
+        for (const m of parts.meshes) this.own(m, "_draw");
+        for (const ps of parts.systems) this.own(ps, "render");
+        b.parts.push(parts);
+        taken += Math.max(1, parts.meshes.length + parts.systems.length);
+        continue;
+      }
+      const sources = meshesIfLoaded(w.mesh);
+      if (sources === null) {
+        retry();
         continue;
       }
       this.retries.delete(w);
@@ -224,22 +311,36 @@ export class PipelineWarmer {
         b.blends.push([blend, base]);
         variants.push(blend);
       }
-      // Counted in Babylon meshes: a model of many parts, or a blend copy, is several draws and effects.
-      taken += variants.length * sources.length;
+      const probed = !!(w.probe && probeTexture);
+      // Counted in Babylon meshes: a model of many parts, or a blend or probe copy, is several draws and effects.
+      taken += variants.length * sources.length * (probed ? 2 : 1);
+      const place = (mesh: Mesh, material: BabylonMaterial) => {
+        mesh.material = material;
+        if (material instanceof PBRMaterial && !b.watched.some((x) => x.material === material)) {
+          b.watched.push({ material, albedo: material.albedoTexture, bump: material.bumpTexture });
+        }
+        mesh.receiveShadows = w.receiveShadows;
+        mesh.applyFog = !this.deps.fogless(base ?? material);
+        mesh.isPickable = false;
+        mesh.freezeWorldMatrix(this.matrix.clone());
+        this.own(mesh, "_draw");
+        b.meshes.push(mesh);
+        if (w.castShadows) b.casters.push(mesh);
+        if (probed) b.probed.push(mesh);
+      };
       for (const variant of variants) {
         for (const src of sources) {
           const mesh = meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}`, src);
           const material = variant ?? this.deps.materialForSource(src, mesh);
-          mesh.material = material;
-          if (material instanceof PBRMaterial && !b.watched.some((w) => w.material === material)) {
-            b.watched.push({ material, albedo: material.albedoTexture, bump: material.bumpTexture });
+          place(mesh, material);
+          // What a renderer inside a probe's box draws (`probeMaterial`): a copy sampling the probe's cube map.
+          if (probed && material instanceof PBRMaterial && !this.deps.isGraph(material)) {
+            const copy = material.clone(`${WARM_PREFIX}${material.name}:probe`);
+            copy.reflectionTexture = probeTexture;
+            b.clones.push(copy);
+            b.blends.push([copy, material]);
+            place(meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}`, src), copy);
           }
-          mesh.receiveShadows = w.receiveShadows;
-          mesh.applyFog = !this.deps.fogless(base ?? material);
-          mesh.isPickable = false;
-          mesh.freezeWorldMatrix(this.matrix.clone());
-          b.meshes.push(mesh);
-          if (w.castShadows) b.casters.push(mesh);
         }
       }
     }
@@ -266,8 +367,12 @@ export class VariantReport {
   constructor(
     engine: AbstractEngine,
     private readonly scene: Scene,
-    /** The node a renderer's mesh belongs to (and the prefab it came from), or null for other meshes. */
-    private readonly describe: (mesh: AbstractMesh) => { what: string; prefab?: string } | null,
+    /**
+     * The node a mesh or particle system draws for (and the prefab it came from), or null for what
+     * isn't content (editor helpers). Given a renderer's mesh, a particle draw's mesh or Babylon
+     * particle system, or a world canvas's plane.
+     */
+    private readonly describe: (drawn: AbstractMesh | ParticleSystemLike) => { what: string; prefab?: string } | null,
   ) {
     const effects = (engine as unknown as { _compiledEffects: Record<string, Effect> })._compiledEffects;
     const count = () => Object.keys(effects).length;
@@ -303,23 +408,30 @@ export class VariantReport {
 
   private scan(silent: boolean): void {
     for (const mesh of this.scene.meshes) {
-      const warm = mesh.name.startsWith(WARM_PREFIX);
-      for (const sub of mesh.subMeshes ?? []) for (const effect of passEffects(sub)) {
-        if (this.known.has(effect)) continue;
-        this.known.add(effect);
-        const material = sub.getMaterial()?.name.replace(WARM_PREFIX, "").replace(/:blend$/, "") ?? "(no material)";
-        const prev = this.byMaterial.get(material);
-        this.byMaterial.set(material, effect.defines);
-        if (silent || warm) continue;
-        const described = this.describe(mesh);
-        if (!described) continue; // not a renderer's mesh (editor helpers, particles)
-        const change = prev === undefined ? "not warmed up" : definesChange(prev, effect.defines);
-        const key = `${material}|${change}`;
-        if (this.logged.has(key)) continue;
-        this.logged.add(key);
-        console.warn(variantWarning(described.what, material, change, described.prefab));
+      for (const sub of mesh.subMeshes ?? []) {
+        const material = sub.getMaterial()?.name.replaceAll(WARM_PREFIX, "").replace(/:blend(?=:probe$|$)/, "") ?? "(no material)";
+        for (const effect of passEffects(sub)) this.check(effect, material, mesh, silent);
       }
     }
+    // Babylon particle systems (particle effects' billboards): one effect per pass and blend mode.
+    for (const ps of this.scene.particleSystems as unknown as ParticleSystemLike[]) {
+      for (const pass of ps._drawWrappers ?? []) for (const wrapper of pass ?? []) if (wrapper?.effect) this.check(wrapper.effect, "(particle system)", ps, silent);
+    }
+  }
+
+  private check(effect: Effect, material: string, drawn: AbstractMesh | ParticleSystemLike, silent: boolean): void {
+    if (this.known.has(effect)) return;
+    this.known.add(effect);
+    const prev = this.byMaterial.get(material);
+    this.byMaterial.set(material, effect.defines);
+    if (silent || drawn.name.startsWith(WARM_PREFIX)) return;
+    const described = this.describe(drawn);
+    if (!described) return; // not content (editor helpers)
+    const change = prev === undefined ? "not warmed up" : definesChange(prev, effect.defines);
+    const key = `${material}|${change}`;
+    if (this.logged.has(key)) return;
+    this.logged.add(key);
+    console.warn(variantWarning(described.what, material, change, described.prefab));
   }
 }
 
@@ -333,6 +445,12 @@ export function variantWarning(what: string, material: string, change: string, p
   const asset = prefab ?? (/^(?:asset:)?([^#]+\.material\.json)/.exec(name)?.[1] ?? null);
   const fix = asset ? `Add ${asset.replace(/^asset:/, "")} to the scene's settings.preload list` : "Add its prefab to the scene's settings.preload list";
   return `[myco] ${what} drew a shader variant that wasn't warmed up (${name}: ${change}), so its frame waited for the shader to compile. ${fix}, or SceneManager.preload it, or report the rule the warm-up is missing (ADR 0080).`;
+}
+
+/** A Babylon particle system as the report reads it: its effects per render pass and blend mode. */
+export interface ParticleSystemLike {
+  name: string;
+  _drawWrappers?: ({ effect: Effect | null } | undefined)[][];
 }
 
 /**
