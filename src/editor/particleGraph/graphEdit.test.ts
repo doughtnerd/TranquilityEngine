@@ -26,6 +26,8 @@ import {
   removeProperty,
   renameProperty,
   renameSystem,
+  collapsedSystems,
+  setSystemCollapsed,
   setBlockEnabled,
   setBlockInput,
   setGroupTitle,
@@ -318,5 +320,28 @@ describe("particle graph problems", () => {
     expect([...ix.gpuWires]).toEqual([`s1.${rate}.rate`]);
     expect(ix.byItem.get(`s1.${rate}`)).toHaveLength(1);
     expect(ix.byItem.get("n1")).toHaveLength(1);
+  });
+});
+
+describe("collapsed systems", () => {
+  it("stores collapsed system ids in editor.collapsed without changing the input", () => {
+    const g = defaultParticleGraph();
+    const id = g.systems[0].id;
+    const a = setSystemCollapsed(g, id, true);
+    expect(g.editor?.collapsed).toBeUndefined();
+    expect(a.editor?.collapsed).toEqual([id]);
+    expect([...collapsedSystems(a)]).toEqual([id]);
+    expect(setSystemCollapsed(a, id, true)).toBe(a);
+    const b = setSystemCollapsed(a, id, false);
+    expect(b.editor).toBeUndefined();
+    expect(setSystemCollapsed(g, "nope", true)).toBe(g);
+  });
+
+  it("keeps other editor data and ignores ids of missing systems", () => {
+    const g = defaultParticleGraph();
+    g.editor = { zoom: 2, collapsed: ["gone"] };
+    expect(collapsedSystems(g).size).toBe(0);
+    const a = setSystemCollapsed(g, g.systems[0].id, true);
+    expect(a.editor).toEqual({ zoom: 2, collapsed: [g.systems[0].id] });
   });
 });

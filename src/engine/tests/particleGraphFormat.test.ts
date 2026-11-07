@@ -192,6 +192,16 @@ describe("particle graph parsing and writing", () => {
     expect(formatParticleGraph(r.graph)).toBe(formatParticleGraph(g));
   });
 
+  it("round-trips editor.collapsed and drops systems that no longer exist when saving", () => {
+    const g = defaultParticleGraph();
+    const id = g.systems[0].id;
+    g.editor = { zoom: 2, collapsed: [id, "gone"] };
+    const back = parseParticleGraph(JSON.parse(formatParticleGraph(g))).graph;
+    expect(back.editor).toEqual({ zoom: 2, collapsed: [id] });
+    g.editor = { collapsed: ["gone"] };
+    expect(JSON.parse(formatParticleGraph(g)).editor).toBeUndefined();
+  });
+
   it("keeps unknown block types, inputs, settings and nodes with warnings", () => {
     const g = defaultParticleGraph();
     const json = JSON.parse(formatParticleGraph(g));
