@@ -48,7 +48,7 @@ import type { Color } from "../../core/math";
 import { Assets, sidecarValue } from "../../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
 import { parseMaterial, materialGraphOfJson, type MaterialSettings } from "../../scene/material";
-import { materialSlots, meshesIfLoaded, type ModelMesh } from "../../scene/models";
+import { materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../../scene/shaderGraph";
 import { colorHex } from "../../scene/material";
 import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector3 } from "../../core/math";
@@ -97,7 +97,8 @@ interface MeshEntry {
   meshes: Mesh[];
   sources: readonly ModelMesh[] | null;
   material: BabylonMaterial | null;
-  /** The material asset drawn in each slot (ADR 0089), or null for the model's own. */
+  /** Its meshes' material slots (ADR 0089), and the material asset drawn in each, or null for the model's own. */
+  slotList: MaterialSlot[];
   slots: (BabylonMaterial | null)[];
   /** Multi-materials made for its meshes, disposed with them. */
   owned: BabylonMaterial[];
@@ -1037,16 +1038,16 @@ export class BabylonRenderer {
   private syncMesh(world: World, r: MeshRenderer): void {
     let entry = this.meshRenderers.get(r);
     if (!entry) {
-      entry = { meshes: [], sources: null, material: null, slots: [], owned: [], matrix: null };
+      entry = { meshes: [], sources: null, material: null, slotList: [], slots: [], owned: [], matrix: null };
       this.meshRenderers.set(r, entry);
     }
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
     const material = this.rendererMaterial(r, this.materialAsset(r.material));
     // Material slots (ADR 0089): the renderer's `materials[i]`, then `material`, then the model's import settings.
-    const slots = sources ? materialSlots(sources) : [];
+    const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
+    const slots = same ? entry.slotList : sources ? materialSlots(sources) : [];
     const remap = sources && slots.length ? this.sidecarMaterials(r.mesh) : null;
     const slotMaterials = slots.map((slot, i) => this.materialAsset(r.materials[i] ?? "") ?? material ?? (remap?.[slot.surface.name] ? this.materialAsset(remap[slot.surface.name]) : null));
-    const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
     const sameSlots = entry.slots.length === slotMaterials.length && entry.slots.every((m, i) => m === slotMaterials[i]);
     if (!same || entry.material !== material || !sameSlots) {
       for (const m of entry.meshes) m.dispose();
@@ -1062,6 +1063,7 @@ export class BabylonRenderer {
       entry.sources = sources;
       entry.material = material;
       entry.slots = slotMaterials;
+      entry.slotList = slots;
       entry.matrix = null;
     }
     const visible = r.isActiveAndEnabled;
