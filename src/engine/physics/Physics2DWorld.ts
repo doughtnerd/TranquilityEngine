@@ -10,12 +10,14 @@
  */
 import RAPIER from "@dimforge/rapier2d-compat";
 import { GameBehavior } from "../core/Component";
-import { DEG2RAD, RAD2DEG } from "../core/math";
+import { DEG2RAD, RAD2DEG, Vector2 } from "../core/math";
 import type { World } from "../core/World";
 import { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type Collision2D } from "./Collider2D";
 import { layerGroups } from "./layers";
 import { Queries2D } from "./queries2d";
 import { cleanPoints, convexParts } from "./polygon";
+import type { CollisionFlags } from "./CharacterController";
+import { CharacterController2D, type ControllerColliderHit2D } from "./CharacterController2D";
 import { CollisionEvents2D, TriggerEvents2D } from "./physics2dSystems";
 import { RigidBody2D } from "./RigidBody2D";
 
@@ -41,6 +43,8 @@ export interface ColliderHandleState {
   active: boolean;
   /** A collider on a body's descendant: its pose relative to the body `[x, y, radians]`, to follow the node when it moves (ADR 0093). */
   local?: number[] | null;
+  /** A character controller's own kinematic body, which carries its collider (ADR 0091). */
+  ownBody?: RAPIER.RigidBody;
 }
 
 let rapierReady: Promise<void> | null = null;
@@ -228,7 +232,12 @@ export class Physics2DWorld {
     }
 
     // Static collider without a body: follow the Transform when it changes.
-    if (version !== st.syncedVersion) {
+    if (version !== st.syncedVersion && st.ownBody) {
+      const pose = this.colliderWorldPose(c);
+      st.ownBody.setTranslation({ x: pose.x, y: pose.y }, true);
+      this.rapier.propagateModifiedBodyPositionsToColliders();
+      st.syncedVersion = version;
+    } else if (version !== st.syncedVersion) {
       const pose = this.colliderWorldPose(c);
       st.collider.setTranslation({ x: pose.x, y: pose.y });
       st.collider.setRotation(pose.angle);
@@ -242,8 +251,10 @@ export class Physics2DWorld {
     if (!t) return { x: c.center.x, y: c.center.y, angle: 0 };
     const p = t.worldPosition;
     const ws = t.worldScale;
-    const angle = t.worldRotation2D * DEG2RAD;
     const cx = c.center.x * ws.x, cy = c.center.y * ws.y;
+    // A character controller's capsule stays upright, whichever way its node turns.
+    if (c instanceof CharacterController2D) return { x: p.x + cx, y: p.y + cy, angle: 0 };
+    const angle = t.worldRotation2D * DEG2RAD;
     const cos = Math.cos(angle), sin = Math.sin(angle);
     return { x: p.x + cx * cos - cy * sin, y: p.y + cx * sin + cy * cos, angle };
   }
@@ -258,12 +269,19 @@ export class Physics2DWorld {
       desc = RAPIER.ColliderDesc.ball(Math.abs(c.radius * Math.max(Math.abs(ws.x), Math.abs(ws.y))));
     } else if (c instanceof PolygonCollider2D || c instanceof EdgeCollider2D) {
       desc = this.pointsShape(c, ws);
+    } else if (c instanceof CharacterController2D) {
+      const r = Math.max(Math.abs(c.radius * ws.x), 1e-4);
+      desc = RAPIER.ColliderDesc.capsule(Math.max(0, Math.abs(c.height * ws.y) / 2 - r), r);
     } else {
       throw new Error(`Unsupported collider type ${c.constructor.name}.`);
     }
     const pose = this.colliderWorldPose(c);
     let local: number[] | null = null;
-    if (body) {
+    let ownBody: RAPIER.RigidBody | undefined;
+    if (c instanceof CharacterController2D) {
+      // On its own kinematic body, so it meets static triggers and level geometry (static–static pairs never do).
+      ownBody = this.rapier.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(pose.x, pose.y));
+    } else if (body) {
       // Position relative to the body, in the body's rotated frame.
       local = this.poseInBody(c, body);
       desc.setTranslation(local[0], local[1]).setRotation(local[2]).setDensity(0);
@@ -276,10 +294,11 @@ export class Physics2DWorld {
       .setRestitution(c.material?.bounciness ?? 0)
       .setCollisionGroups(this.groupsFor(c.layer))
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
-      .setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
-    const collider = this.rapier.createCollider(desc, body?._state?.body);
+      // A character controller is a parentless collider that moves: it must meet static triggers too.
+      .setActiveCollisionTypes(c instanceof CharacterController2D ? RAPIER.ActiveCollisionTypes.ALL : RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
+    const collider = this.rapier.createCollider(desc, ownBody ?? body?._state?.body);
     this.colliderByHandle.set(collider.handle, c);
-    return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true, local };
+    return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true, local, ownBody };
   }
 
   /** The collider's shape pose in its body's frame, `[x, y, radians]`, from the two nodes' Transforms. */
@@ -442,6 +461,74 @@ export class Physics2DWorld {
     }
   }
 
+  // --- character controllers (ADR 0091) -----------------------------------------------------------
+
+  private readonly controllers = new Map<CharacterController2D, { kcc: RAPIER.KinematicCharacterController; settings: string }>();
+
+  /** @internal Move a character controller by `motion`, sliding along what it hits; null before its collider exists. */
+  moveCharacter(cc: CharacterController2D, motion: { x: number; y: number }): { movement: Vector2; flags: CollisionFlags; hits: ControllerColliderHit2D[] } | null {
+    const st = cc._state;
+    const t = cc.node.transform;
+    if (!st || !st.active || !t) return null;
+    let entry = this.controllers.get(cc);
+    if (!entry) this.controllers.set(cc, (entry = { kcc: this.rapier.createCharacterController(cc.skinWidth), settings: "" }));
+    const kcc = entry.kcc;
+    const settings = cc._settingsSignature();
+    if (entry.settings !== settings) {
+      entry.settings = settings;
+      kcc.setOffset(Math.max(cc.skinWidth, 1e-4));
+      kcc.setSlideEnabled(true);
+      kcc.setMaxSlopeClimbAngle(cc.slopeLimit * DEG2RAD);
+      kcc.setMinSlopeSlideAngle(cc.slopeLimit * DEG2RAD);
+      if (cc.stepOffset > 0) kcc.enableAutostep(cc.stepOffset, Math.max(Math.abs(cc.radius * t.worldScale.x) * 0.5, 0.01), true);
+      else kcc.disableAutostep();
+      if (cc.snapToGround > 0) kcc.enableSnapToGround(cc.snapToGround);
+      else kcc.disableSnapToGround();
+      kcc.setApplyImpulsesToDynamicBodies(cc.pushBodies);
+      kcc.setCharacterMass(Math.max(cc.mass, 1e-4));
+    }
+    // Start from where the node is now (a script may have moved it since the last push).
+    const start = this.colliderWorldPose(cc);
+    const own = st.ownBody!;
+    own.setTranslation({ x: start.x, y: start.y }, true);
+    this.rapier.propagateModifiedBodyPositionsToColliders();
+    kcc.computeColliderMovement(st.collider, { x: motion.x, y: motion.y }, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, this.groupsFor(cc.layer));
+    const m = kcc.computedMovement();
+    own.setTranslation({ x: start.x + m.x, y: start.y + m.y }, true);
+    this.rapier.propagateModifiedBodyPositionsToColliders();
+    const p = t.worldPosition;
+    t.worldPosition = [p.x + m.x, p.y + m.y, p.z];
+    st.syncedVersion = this.world.tVersion[cc.node.entity];
+
+    const len = Math.hypot(motion.x, motion.y);
+    const dir = len > 0 ? new Vector2(motion.x / len, motion.y / len) : new Vector2();
+    const cosSlope = Math.cos(cc.slopeLimit * DEG2RAD);
+    let below = kcc.computedGrounded(), sides = false, above = false;
+    const hits: ControllerColliderHit2D[] = [];
+    for (let i = 0, n = kcc.numComputedCollisions(); i < n; i++) {
+      const hit = kcc.computedCollision(i);
+      if (!hit?.collider) continue;
+      const other = this.colliderByHandle.get(hit.collider.handle);
+      if (!other || other._destroyed) continue;
+      const nrm = hit.normal1;
+      if (nrm.y >= cosSlope - 1e-3) below = true;
+      else if (nrm.y <= -cosSlope) above = true;
+      else sides = true;
+      const applied = hit.translationDeltaApplied;
+      hits.push({
+        controller: cc,
+        collider: other,
+        gameObject: other.owner,
+        rigidbody: other._state?.body ?? null,
+        point: new Vector2(hit.witness1.x, hit.witness1.y),
+        normal: new Vector2(nrm.x, nrm.y),
+        moveDirection: dir,
+        moveLength: Math.hypot(applied.x, applied.y),
+      });
+    }
+    return { movement: new Vector2(m.x, m.y), flags: { below, sides, above }, hits };
+  }
+
   // --- queries ---------------------------------------------------------------------------------
 
   /** @internal */
@@ -481,8 +568,14 @@ export class Physics2DWorld {
     if (!st) return;
     const h = st.collider.handle;
     this.colliderByHandle.delete(h);
+    if (c instanceof CharacterController2D) {
+      const entry = this.controllers.get(c);
+      if (entry) this.rapier.removeCharacterController(entry.kcc);
+      this.controllers.delete(c);
+    }
     for (const [key, pair] of this.touching) if (pair.h1 === h || pair.h2 === h) this.touching.delete(key);
     if (this.rapier.getCollider(h)) this.rapier.removeCollider(st.collider, true);
+    if (st.ownBody) this.rapier.removeRigidBody(st.ownBody);
     c._state = null;
   }
 }

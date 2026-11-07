@@ -17,6 +17,7 @@ import { meshesIfLoaded, meshTriangles, type ModelMesh } from "../scene/models";
 import { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type Collision } from "./Collider";
 import { layerGroups } from "./layers";
 import { Queries3D } from "./queries3d";
+import { CharacterController, type CollisionFlags, type ControllerColliderHit } from "./CharacterController";
 import { CollisionEvents, TriggerEvents } from "./physics3d";
 import { RigidBody } from "./RigidBody";
 import { AXIS_INDEX, boxHalfExtents, capsuleSize, scaledCenter, sphereRadius } from "./shape3d";
@@ -45,6 +46,8 @@ export interface ColliderHandleState3D {
   meshes: readonly ModelMesh[] | null;
   /** A collider on a body's descendant: its pose relative to the body, to follow the node when it moves (ADR 0093). */
   local: number[] | null;
+  /** A character controller's own kinematic body, which carries its collider (ADR 0091). */
+  ownBody?: RAPIER.RigidBody;
 }
 
 let rapierReady: Promise<void> | null = null;
@@ -279,7 +282,11 @@ export class Physics3DWorld {
       }
       return;
     }
-    if (version !== st.syncedVersion) {
+    if (version !== st.syncedVersion && st.ownBody) {
+      st.ownBody.setTranslation(this.colliderWorldPose(c, ws).p, true);
+      this.rapier.propagateModifiedBodyPositionsToColliders();
+      st.syncedVersion = version;
+    } else if (version !== st.syncedVersion) {
       const pose = this.colliderWorldPose(c, ws);
       st.collider.setTranslation(pose.p);
       st.collider.setRotation(pose.q);
@@ -291,6 +298,8 @@ export class Physics3DWorld {
   private colliderWorldPose(c: Collider, ws: readonly number[]): { p: Vector3; q: Quaternion } {
     if (!c.node.transform) return { p: new Vector3(c.center.x, c.center.y, c.center.z), q: new Quaternion() };
     const { p, q } = worldPose(this.world, c.node.entity);
+    // A character controller's capsule stays upright, whichever way its node turns.
+    if (c instanceof CharacterController) return { p: p.add(new Vector3(...scaledCenter([c.center.x, c.center.y, c.center.z], ws))), q: new Quaternion() };
     const offset = Quat.rotate(q, new Vector3(...scaledCenter([c.center.x, c.center.y, c.center.z], ws)));
     const turn = c instanceof CapsuleCollider ? CAPSULE_TURN[c.direction] ?? CAPSULE_TURN.y : null;
     return { p: p.add(offset), q: turn ? q.clone().multiply(turn) : q };
@@ -306,13 +315,21 @@ export class Physics3DWorld {
     } else if (c instanceof CapsuleCollider) {
       const { radius, halfHeight } = capsuleSize(c.radius, c.height, AXIS_INDEX[c.direction] ?? 1, ws);
       desc = RAPIER.ColliderDesc.capsule(halfHeight, Math.max(radius, 1e-4));
+    } else if (c instanceof CharacterController) {
+      const { radius, halfHeight } = capsuleSize(c.radius, c.height, 1, ws);
+      desc = RAPIER.ColliderDesc.capsule(halfHeight, Math.max(radius, 1e-4));
     } else if (c instanceof MeshCollider) {
       desc = this.meshShape(c, meshes ?? [], ws, body);
     } else {
       throw new Error(`Unsupported collider type ${c.constructor.name}.`);
     }
     let local: number[] | null = null;
-    if (body?._state) {
+    let ownBody: RAPIER.RigidBody | undefined;
+    if (c instanceof CharacterController) {
+      // On its own kinematic body, so it meets static triggers and level geometry (static–static pairs never do).
+      const pose = this.colliderWorldPose(c, ws);
+      ownBody = this.rapier.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(pose.p.x, pose.p.y, pose.p.z));
+    } else if (body?._state) {
       // Placed relative to the body, in the body's turned frame.
       const rel = this.poseInBody(c, body, ws);
       desc.setTranslation(rel.p.x, rel.p.y, rel.p.z).setRotation(rapierRotation(rel.q)).setDensity(0);
@@ -327,10 +344,11 @@ export class Physics3DWorld {
       .setRestitution(c.material?.bounciness ?? 0)
       .setCollisionGroups(this.groupsFor(c.layer))
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
-      .setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
-    const collider = this.rapier.createCollider(desc, body?._state?.body);
+      // A character controller is a parentless collider that moves: it must meet static triggers too.
+      .setActiveCollisionTypes(c instanceof CharacterController ? RAPIER.ActiveCollisionTypes.ALL : RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
+    const collider = this.rapier.createCollider(desc, ownBody ?? body?._state?.body);
     this.colliderByHandle.set(collider.handle, c);
-    return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true, meshes, local };
+    return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true, meshes, local, ownBody };
   }
 
   /**
@@ -486,6 +504,78 @@ export class Physics3DWorld {
     }
   }
 
+  // --- character controllers (ADR 0091) -----------------------------------------------------------
+
+  private readonly controllers = new Map<CharacterController, { kcc: RAPIER.KinematicCharacterController; settings: string }>();
+
+  /** @internal Move a character controller by `motion`, sliding along what it hits; null before its collider exists. */
+  moveCharacter(cc: CharacterController, motion: { x: number; y: number; z: number }): { movement: Vector3; flags: CollisionFlags; hits: ControllerColliderHit[] } | null {
+    const st = cc._state;
+    if (!st || !st.active || !cc.node.transform) return null;
+    let entry = this.controllers.get(cc);
+    if (!entry) this.controllers.set(cc, (entry = { kcc: this.rapier.createCharacterController(cc.skinWidth), settings: "" }));
+    const kcc = entry.kcc;
+    const settings = cc._settingsSignature();
+    const radius = capsuleSize(cc.radius, cc.height, 1, this.worldScale(cc, cc.node.entity)).radius;
+    if (entry.settings !== settings) {
+      entry.settings = settings;
+      kcc.setOffset(Math.max(cc.skinWidth, 1e-4));
+      kcc.setSlideEnabled(true);
+      kcc.setMaxSlopeClimbAngle(cc.slopeLimit * DEG2RAD);
+      kcc.setMinSlopeSlideAngle(cc.slopeLimit * DEG2RAD);
+      if (cc.stepOffset > 0) kcc.enableAutostep(cc.stepOffset, Math.max(radius * 0.5, 0.01), true);
+      else kcc.disableAutostep();
+      if (cc.snapToGround > 0) kcc.enableSnapToGround(cc.snapToGround);
+      else kcc.disableSnapToGround();
+      kcc.setApplyImpulsesToDynamicBodies(cc.pushBodies);
+      kcc.setCharacterMass(Math.max(cc.mass, 1e-4));
+    }
+    // Start from where the node is now (a script may have moved it since the last push).
+    const ws = this.worldScale(cc, cc.node.entity);
+    const start = this.colliderWorldPose(cc, ws).p;
+    const own = st.ownBody!;
+    own.setTranslation(start, true);
+    this.rapier.propagateModifiedBodyPositionsToColliders();
+    kcc.computeColliderMovement(st.collider, { x: motion.x, y: motion.y, z: motion.z }, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, this.groupsFor(cc.layer));
+    const m = kcc.computedMovement();
+    const movement = new Vector3(m.x, m.y, m.z);
+    const end = start.clone().add(movement);
+    own.setTranslation(end, true);
+    this.rapier.propagateModifiedBodyPositionsToColliders();
+    const t = cc.node.transform;
+    const offset = scaledCenter([cc.center.x, cc.center.y, cc.center.z], ws);
+    t.worldPosition = [end.x - offset[0], end.y - offset[1], end.z - offset[2]];
+    st.syncedVersion = this.world.tVersion[cc.node.entity];
+
+    const len = Math.hypot(motion.x, motion.y, motion.z);
+    const dir = len > 0 ? new Vector3(motion.x / len, motion.y / len, motion.z / len) : new Vector3();
+    const cosSlope = Math.cos(cc.slopeLimit * DEG2RAD);
+    let below = kcc.computedGrounded(), sides = false, above = false;
+    const hits: ControllerColliderHit[] = [];
+    for (let i = 0, n = kcc.numComputedCollisions(); i < n; i++) {
+      const hit = kcc.computedCollision(i);
+      if (!hit?.collider) continue;
+      const other = this.colliderByHandle.get(hit.collider.handle);
+      if (!other || other._destroyed) continue;
+      const nrm = hit.normal1, ny = nrm.y;
+      if (ny >= cosSlope - 1e-3) below = true;
+      else if (ny <= -cosSlope) above = true;
+      else sides = true;
+      const applied = hit.translationDeltaApplied;
+      hits.push({
+        controller: cc,
+        collider: other,
+        gameObject: other.owner,
+        rigidbody: other._state?.body ?? null,
+        point: new Vector3(hit.witness1.x, hit.witness1.y, hit.witness1.z),
+        normal: new Vector3(nrm.x, nrm.y, nrm.z),
+        moveDirection: dir,
+        moveLength: Math.hypot(applied.x, applied.y, applied.z),
+      });
+    }
+    return { movement, flags: { below, sides, above }, hits };
+  }
+
   // --- queries -----------------------------------------------------------------------------------
 
   /** @internal */
@@ -519,8 +609,14 @@ export class Physics3DWorld {
     if (!st) return;
     const h = st.collider.handle;
     this.colliderByHandle.delete(h);
+    if (c instanceof CharacterController) {
+      const entry = this.controllers.get(c);
+      if (entry) this.rapier.removeCharacterController(entry.kcc);
+      this.controllers.delete(c);
+    }
     for (const [key, pair] of this.touching) if (pair.h1 === h || pair.h2 === h) this.touching.delete(key);
     if (this.rapier.getCollider(h)) this.rapier.removeCollider(st.collider, true);
+    if (st.ownBody) this.rapier.removeRigidBody(st.ownBody);
     c._state = null;
   }
 }

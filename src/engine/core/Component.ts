@@ -120,6 +120,8 @@ export interface LifecycleHooks {
   /** Every fixed step after onCollisionEnter while the two still touch (ADR 0093). */
   onCollisionStay?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
   onCollisionExit?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
+  /** A CharacterController or CharacterController2D on this node ran into a collider during `move` (ADR 0091). */
+  onControllerColliderHit?(hit: import("../physics/CharacterController").ControllerColliderHit | import("../physics/CharacterController2D").ControllerColliderHit2D): void;
 }
 
 export type FrameHook = "fixedUpdate" | "update" | "lateUpdate";
