@@ -138,7 +138,7 @@ describe("spriteFrame", () => {
   }).settings;
 
   it("draws the whole image at the sidecar's pixels per unit and pivot", () => {
-    expect(spriteFrame(settings, null, 40, 20, { component: 0, project: 100 })).toEqual({ uv: null, size: [4, 2], pivot: [0.5, 0], border: null, pixelsPerUnit: 10, pixelSize: [40, 20], missingSlice: false });
+    expect(spriteFrame(settings, null, 40, 20, { component: 0, project: 100 })).toEqual({ uv: null, size: [4, 2], pivot: [0.5, 0], border: null, fill: "stretch", pixelsPerUnit: 10, pixelSize: [40, 20], missingSlice: false });
   });
 
   it("draws a slice's rectangle (UVs with v up) at its size and pivot", () => {
