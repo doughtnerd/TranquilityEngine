@@ -98,4 +98,4 @@ A kernel system with a block the kernel doesn't support (below) skips the block 
 - `src/engine/scene/particleKernel.ts`, `src/engine/render/particles/gpu/`, `src/engine/render/babylon/gpuParticles.ts`
 - ADR 0060 (the graph format), 0057 (effects and ParticleSystem), 0075 (Babylon backend)
 - Unity VFX Graph (GPU events, output contexts); Babylon.js `ComputeShader`, `EffectRenderer`, `Mesh.forcedInstanceCount`
-- Benchmarks: `bench/particles/` (frame time against particle count per backend)
+- Parity check and benchmarks: `npm run bench:particles` (`bench/particles/`, results in its README)
