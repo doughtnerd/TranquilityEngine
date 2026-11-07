@@ -61,6 +61,12 @@ export interface CustomFunction {
   /** The function in WGSL: the statements of `fn name(inputs) -> outputs`, where each output is a `var` already declared. Without it the node's outputs read their defaults. */
   wgsl?: string;
   /**
+   * An `asset:` path to a `.wgsl` file holding the body (the same contract as `wgsl`: the statements
+   * of the function, outputs already declared). It wins over `wgsl`, and the renderer rebuilds the
+   * material when the file changes.
+   */
+  file?: string;
+  /**
    * The GLSL body older files have (`void name(inputs, out outputs) { body }`). Nothing compiles it
    * since the three.js backend went (ADR 0081); it's kept, so the code isn't lost, until someone
    * ports it to `wgsl`.
@@ -278,8 +284,10 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
             inputs: parsePorts(f.inputs, `${where}: node "${n.id}" inputs`, problems, true),
             outputs: parsePorts(f.outputs, `${where}: node "${n.id}" outputs`, problems, false),
             ...(typeof f.wgsl === "string" && f.wgsl ? { wgsl: f.wgsl } : {}),
+            ...(typeof f.file === "string" && f.file ? { file: f.file } : {}),
             ...(typeof f.body === "string" && f.body ? { body: f.body } : {}),
           };
+          if (f.file !== undefined && typeof f.file !== "string") problems.push(`${where}: node "${n.id}" function file isn't a string; ignored.`);
         } else problems.push(`${where}: node "${n.id}" has a function without a valid name.`);
       }
       if (n.preview === false) node.preview = false;
@@ -352,7 +360,7 @@ export function shaderGraphJSON(graph: ShaderGraph): Record<string, unknown> {
     const node: Record<string, unknown> = { id: n.id, type: n.type, position: [Math.round(n.position[0]), Math.round(n.position[1])] };
     if (n.inputs && Object.keys(n.inputs).length) node.inputs = { ...n.inputs };
     if (n.settings && Object.keys(n.settings).length) node.settings = { ...n.settings };
-    if (n.function) node.function = { name: n.function.name, inputs: n.function.inputs.map((p) => ({ ...p })), outputs: n.function.outputs.map((p) => ({ ...p })), ...(n.function.wgsl ? { wgsl: n.function.wgsl } : {}), ...(n.function.body ? { body: n.function.body } : {}) };
+    if (n.function) node.function = { name: n.function.name, inputs: n.function.inputs.map((p) => ({ ...p })), outputs: n.function.outputs.map((p) => ({ ...p })), ...(n.function.wgsl ? { wgsl: n.function.wgsl } : {}), ...(n.function.file ? { file: n.function.file } : {}), ...(n.function.body ? { body: n.function.body } : {}) };
     if (n.preview === false) node.preview = false;
     return node;
   });

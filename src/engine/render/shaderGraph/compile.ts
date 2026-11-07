@@ -10,7 +10,7 @@
  */
 import type { ShaderLevel } from "../../core/graphics";
 import { Color } from "../../core/math";
-import { normalizeAssetPath } from "../../scene/Assets";
+import { Assets, normalizeAssetPath } from "../../scene/Assets";
 import { OUTPUT_NODE_TYPE, portRef, splitPortRef, type GraphNode, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../scene/shaderGraph";
 import { HELPER_DEPS, HELPERS_WGSL, OUTPUT_INPUTS, PORT_SIZE, canConnectTypes, nodeDef, nodePorts, resolveSubGraph, type Builtin, type EmitContext, type HelperName, type PortDef, type ShaderStage, type ValueType } from "./nodes";
 import { BUILTINS_WGSL, FACE_NORMAL_WGSL, SHARED_UNIFORM_EXPR, sampleWgsl, textureDeclarationsWgsl, usedVaryings, varyingDeclarationsWgsl, varyingsWgsl, wgslType } from "./wgsl";
@@ -475,9 +475,19 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
      * sampler), starts a `var` per output, runs the body, and returns them in a struct.
      */
     customFunctionWgsl(scope: Scope, node: GraphNode, f: NonNullable<GraphNode["function"]>, fn: string): Record<string, Value> {
-      if (!f.wgsl) {
+      let body = f.wgsl;
+      let fileProblem: string | null = null;
+      if (f.file) {
+        const path = normalizeAssetPath(f.file);
+        dependencies.add(path);
+        const r = path && Assets.has(path) ? Assets.get(path) : undefined;
+        const text = typeof r === "string" ? r : typeof (r as { default?: unknown } | undefined)?.default === "string" ? (r as { default: string }).default : undefined;
+        if (text === undefined) fileProblem = r === undefined ? `the WGSL file "${path}" isn't in the project; its outputs read their defaults` : `${path} isn't a text file; its outputs read their defaults`;
+        else body = text;
+      }
+      if (fileProblem || !body) {
         // Report it and let every output read its default.
-        scope.problem(node.id, f.body?.trim() ? "this Custom Function has only GLSL code, which nothing compiles since the three.js backend went (ADR 0081): write it in WGSL; its outputs read their defaults" : "this Custom Function has no WGSL code; its outputs read their defaults");
+        scope.problem(node.id, fileProblem ?? (f.body?.trim() ? "this Custom Function has only GLSL code, which nothing compiles since the three.js backend went (ADR 0081): write it in WGSL; its outputs read their defaults" : "this Custom Function has no WGSL code; its outputs read their defaults"));
         const missing: Record<string, Value> = {};
         for (const o of nodePorts(node, scope.graph).outputs) {
           const type = o.type as ValueType;
@@ -498,7 +508,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
         ...(outs.length ? [`struct ${fn}_Out { ${outs.map((p) => `${p.name}: ${wgslType(p.type)}`).join(", ")} }`] : []),
         `fn ${fn}(${params.join(", ")})${outs.length ? ` -> ${fn}_Out` : ""} {`,
         ...decls,
-        f.wgsl,
+        body,
         ...(outs.length ? [`  return ${fn}_Out(${outs.map((p) => p.name).join(", ")});`] : []),
         "}",
       ].join("\n");

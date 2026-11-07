@@ -1084,7 +1084,9 @@ export class BabylonRenderer {
     if (!path) return null;
     const read = (p: string): unknown => {
       try {
-        return Assets.has(p) ? Assets.json(p) : undefined;
+        if (!Assets.has(p)) return undefined;
+        const v = Assets.get(p); // text files (a Custom Function's .wgsl) read as strings, compared by value
+        return typeof v === "string" ? v : Assets.json(p);
       } catch {
         return undefined;
       }

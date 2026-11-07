@@ -533,7 +533,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
             }}
           />
           {sub && <SubGraphOutputs graph={graph} readOnly={readOnly} commit={commit} />}
-          {selectedNode?.type === "customFunction" && <FunctionEditor key={selectedNode.id} node={selectedNode} graph={graph} readOnly={readOnly} commit={commit} />}
+          {selectedNode?.type === "customFunction" && <FunctionEditor key={selectedNode.id} node={selectedNode} graph={graph} wgslFiles={project.files.filter((x) => x.toLowerCase().endsWith(".wgsl"))} readOnly={readOnly} commit={commit} />}
           <div class="sg-preview-card">
             <div class="sg-preview-head">
               <span>Preview</span>
@@ -993,7 +993,7 @@ function SubGraphOutputs(props: { graph: ShaderGraph; readOnly: boolean; commit(
 }
 
 /** The selected Custom Function node's name, ports and WGSL body. */
-function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; readOnly: boolean; commit(g: ShaderGraph): void }) {
+function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; wgslFiles: string[]; readOnly: boolean; commit(g: ShaderGraph): void }) {
   const { node, graph, commit } = props;
   const f: CustomFunction = node.function ?? defaultFunction();
   const set = (next: CustomFunction, renamed?: Record<string, string>) => commit(setFunction(graph, node.id, next, renamed));
@@ -1033,19 +1033,61 @@ function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; readOnly: 
       </label>
       {side("inputs", "Inputs")}
       {side("outputs", "Outputs")}
-      <label class="sg-property-row sg-wgsl-label">
-        <span>WGSL body</span>
+      <label class="sg-property-row">
+        <span>Source</span>
+        <select
+          aria-label="Body source"
+          disabled={props.readOnly}
+          value={f.file !== undefined ? "file" : "inline"}
+          onChange={(e) => {
+            const file = (e.currentTarget as HTMLSelectElement).value === "file";
+            const { file: _drop, ...rest } = f;
+            set(file ? { ...rest, file: "" } : rest);
+          }}
+        >
+          <option value="inline">Inline</option>
+          <option value="file">File</option>
+        </select>
       </label>
-      <textarea
-        class="sg-function-body sg-function-wgsl"
-        aria-label="WGSL body"
-        spellcheck={false}
-        disabled={props.readOnly}
-        placeholder="Out = In;"
-        value={f.wgsl ?? ""}
-        onChange={(e) => set({ ...f, wgsl: (e.currentTarget as HTMLTextAreaElement).value })}
-      />
-      <p class="sg-hint">Assign every output (each is a var already declared); inputs and outputs are named as above.{!f.wgsl?.trim() && " Without a body the node outputs its defaults."}</p>
+      {f.file !== undefined ? (
+        <>
+          <label class="sg-property-row">
+            <span>WGSL file</span>
+            <input
+              type="text"
+              list="sg-wgsl-files"
+              aria-label="WGSL file"
+              spellcheck={false}
+              disabled={props.readOnly}
+              placeholder="asset:shaders/body.wgsl"
+              value={f.file}
+              onChange={(e) => set({ ...f, file: (e.currentTarget as HTMLInputElement).value.trim() })}
+            />
+            <datalist id="sg-wgsl-files">
+              {props.wgslFiles.map((x) => (
+                <option key={x} value={`asset:${x}`} />
+              ))}
+            </datalist>
+          </label>
+          <p class="sg-hint">The file holds just the function body (same as the inline WGSL body). It wins over any inline body, and the material rebuilds when the file changes.{!f.file && " Without a file the node outputs its defaults."}</p>
+        </>
+      ) : (
+        <>
+          <label class="sg-property-row sg-wgsl-label">
+            <span>WGSL body</span>
+          </label>
+          <textarea
+            class="sg-function-body sg-function-wgsl"
+            aria-label="WGSL body"
+            spellcheck={false}
+            disabled={props.readOnly}
+            placeholder="Out = In;"
+            value={f.wgsl ?? ""}
+            onChange={(e) => set({ ...f, wgsl: (e.currentTarget as HTMLTextAreaElement).value })}
+          />
+          <p class="sg-hint">Assign every output (each is a var already declared); inputs and outputs are named as above.{!f.wgsl?.trim() && " Without a body the node outputs its defaults."}</p>
+        </>
+      )}
       {f.body?.trim() && (
         <>
           <label class="sg-property-row">
