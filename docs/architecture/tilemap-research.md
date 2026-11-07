@@ -143,6 +143,8 @@ All **[known]** unless marked.
 
 ## Recommendation: what Myco borrows
 
+> **Outcome.** [ADR 0103](../decisions/0103-tilemaps.md) and [0105](../decisions/0105-tile-colliders-and-one-way-platforms.md) record what was built, which differs from this recommendation in places: one tileset per Tilemap (tiles may still come from several images) instead of a per-map tileset table; tile ids are tileset-defined integers rather than slice keys; terrains and rule tiles share one neighbour-pattern mechanism with wildcards; custom data is untyped JSON per tile in v1; colliders merge per tilemap (one compound with Rapier's internal-edge fix, or oriented outlines) rather than per chunk; and the selection/copy tool, saved patterns and layer lock are not in v1.
+
 ### Decisions for v1
 
 **Data model.**
