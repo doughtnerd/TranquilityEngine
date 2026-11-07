@@ -12,8 +12,9 @@
 .link-button { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0 4px; font: inherit; }
 
 .runtime-inspector .keep-actions { padding: 4px 0; display: flex; gap: 6px; }
-.runtime-inspector .keep-note { margin: 2px 0 6px; color: var(--muted); font-size: 11px; }
-.runtime-inspector .component h3 .keep-values { margin-left: auto; font-size: 10px; padding: 0 6px; }
+.runtime-inspector .keep-note, .runtime-inspector .structure-note { margin: 2px 0 6px; color: var(--muted); font-size: 11px; }
+.runtime-inspector .component h3 .keep-values { margin-left: 4px; font-size: 10px; padding: 0 6px; }
+.runtime-inspector .component h3 .remove-live { margin-left: auto; font-size: 10px; padding: 0 6px; }
 .runtime-inspector .component.kept { border-color: var(--accent); }
 .runtime-inspector .kept-badge { color: var(--accent); }
 .runtime-inspector .live-json { font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; }
