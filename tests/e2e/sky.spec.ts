@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { installFakeFolders, nextFolder } from "./fakeFolders";
+import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // Procedural skies (ADR 0112–0114): an Environment with a *.sky.json map draws the sky live, bakes
 // it to a cubemap for lighting, and drives the sun; the Sky component sets the time of day.
@@ -51,36 +51,38 @@ test("a sky asset draws the sky, bakes lighting and rebakes when it changes", as
   await openPlayground(page);
   expect((await sky(page)).active).toBe(false);
   await openScene(page, "scenes", "skies.scene.json");
-  await page.waitForTimeout(4000);
-  console.log("ERRS", errors.slice(0, 6).join("\n---\n").slice(0, 4000));
   await expect.poll(async () => await sky(page), { timeout: 20_000 }).toMatchObject({ active: true, drawn: true, baked: true });
   const first = (await sky(page)).bakes;
   expect(first).toBeGreaterThanOrEqual(1);
-  await page.waitForTimeout(500);
-  await page.screenshot({ path: "/tmp/claude-0/scratch/clear-day.png" });
-  console.log("STATE", JSON.stringify(await sky(page)));
+
+  // Sky assets are listed as such and open in the Sky panel.
+  await assets(page).locator(".asset-folder", { hasText: /^skies$/ }).first().click();
+  const tile = assets(page).locator(".asset-tile").filter({ hasText: "clear-day.sky.json" });
+  await expect(tile.locator(".asset-kind")).toHaveText("Sky");
+  await tile.dblclick();
+  const panel = page.getByLabel("Sky", { exact: true }).locator("xpath=self::*[contains(@class,'sky-panel')]");
+  await expect(panel).toBeVisible();
+
+  // Moving the sun writes the file and rebakes the scene's lighting.
+  const time = panel.getByRole("spinbutton", { name: "Time of day value" });
+  await time.fill("17.5");
+  await time.press("Enter");
+  await expect.poll(async () => JSON.parse((await readFile(page, "Playground/skies/clear-day.sky.json")) ?? "{}").sun?.timeOfDay).toBe(17.5);
+  await expect.poll(async () => (await sky(page)).time, { timeout: 10_000 }).toBe(17.5);
+  await expect.poll(async () => (await sky(page)).bakes, { timeout: 15_000 }).toBeGreaterThan(first);
+  await page.screenshot({ path: test.info().outputPath("sky-panel.png") });
   expect(errors).toEqual([]);
 });
 
-test("DEV presets screenshots", async ({ page }) => {
+test("New Sky creates a sky asset from the Clear Day preset", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
+  const errors = trackErrors(page);
   await openPlayground(page);
-  await openScene(page, "scenes", "skies.scene.json");
-  await expect.poll(async () => (await sky(page)).baked, { timeout: 20_000 }).toBe(true);
-  await page.getByRole("button", { name: "▶ Play" }).click();
-  await page.waitForTimeout(3000);
-  for (const p of ["clear-day", "sunset", "overcast", "night", "gradient"]) {
-    await page.evaluate((p) => {
-      const w = (window as any).playEngine.world;
-      // Find the Environment through the scene nodes.
-      const visit = (n: any): any => { for (const c of w._componentsOf(n.entity)) if ("skyboxBlur" in c) return c; for (const k of n.children) { const r = visit(k); if (r) return r; } return null; };
-      const env = visit(w.root);
-      env.map = `asset:skies/${p}.sky.json`;
-    }, p);
-    await page.evaluate(() => { const w = (window as any).playEngine.world; const find = (n: any): any => n.name === "Camera" ? n : n.children.map(find).find(Boolean); const cam = find(w.root); cam.transform.eulerAngles = [-18, 0, 0]; });
-    await page.waitForTimeout(4000);
-    await page.screenshot({ path: `/tmp/claude-0/scratch/${p}.png` });
-    await page.evaluate(() => { const w = (window as any).playEngine.world; const find = (n: any): any => n.name === "Camera" ? n : n.children.map(find).find(Boolean); const cam = find(w.root); cam.transform.eulerAngles = [25, 0, 0]; });
-    await page.waitForTimeout(1500);
-    await page.screenshot({ path: `/tmp/claude-0/scratch/${p}-up.png` });
-  }
+  await assets(page).locator(".asset-folder", { hasText: /^skies$/ }).first().click();
+  const list = (await assets(page).locator(".asset-items").boundingBox())!;
+  await page.mouse.click(list.x + list.width - 10, list.y + list.height - 10, { button: "right" });
+  await page.getByRole("menuitem", { name: "New Sky" }).click();
+  await expect.poll(async () => (await readFile(page, "Playground/skies/New Sky.sky.json")) ?? "").toContain('"format": "myco.sky@1"');
+  await expect(assets(page).locator(".asset-tile").filter({ hasText: "New Sky.sky.json" })).toBeVisible();
+  expect(errors).toEqual([]);
 });
