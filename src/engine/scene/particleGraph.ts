@@ -60,6 +60,12 @@ export interface OutputSettings {
   lengthScale: number;
   /** Trail: length in points. */
   trailLength: number;
+  /**
+   * Soft particles (ADR 0096): fade out over this many metres in front of the scene's surfaces, so
+   * quads don't cut hard lines where they cross geometry. 0 or absent: off. Needs the scene's depth
+   * texture (made on first use).
+   */
+  softness?: number;
 }
 
 export interface BlockContext {

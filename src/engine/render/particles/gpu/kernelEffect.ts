@@ -145,7 +145,7 @@ export class KernelEffect {
    * evaluation context (time, properties), `overrides` the instance's property overrides (identity
    * compared: curves and gradients from properties re-bake when it changes).
    */
-  step(dt: number, world: ArrayLike<number>, scale: number, tint: readonly number[], ctx: EvalContext, overrides: unknown): void {
+  step(dt: number, world: ArrayLike<number>, scale: number, tint: readonly number[], ctx: EvalContext, overrides: unknown, playTime?: (emitter: number) => number): void {
     if (overrides !== this.lastOverrides) {
       this.lastOverrides = overrides;
       for (const s of this.systems) {
@@ -159,6 +159,7 @@ export class KernelEffect {
     const inv = invert(world);
     const depthInfo = this.host.depth?.() ?? null;
     for (const s of this.systems) {
+      if (playTime) ctx.playTime = playTime(s.kernel.emitter);
       if (s.spawner.prewarmPending && !s.parent) {
         s.spawner.prewarmPending = false;
         const step = 1 / 30;

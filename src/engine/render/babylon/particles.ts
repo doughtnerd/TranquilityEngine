@@ -22,6 +22,18 @@ import { ProgramRunner, playTimes } from "../particles/programRunner";
 import { randomForSeed } from "../particles/random";
 import { EffectSimulation, linearRGB, type SimEmitter } from "../particles/simulation";
 import { createDotTexture, makeDraw as makeBabylonDraw, usesSheet, type Draw } from "./particleDraw";
+import { chooseBackend, compileParticleKernels, type KernelProgram, type KernelSystem, type SystemBackend } from "../../scene/particleKernel";
+import type { ParticleGraph } from "../../scene/particleGraph";
+import { KernelEffect } from "../particles/gpu/kernelEffect";
+import { BabylonKernelHost, KernelDraw, SceneDepth } from "./gpuParticles";
+
+/** How an effect's systems run (ADR 0094): per emitter, the CPU or a kernel executor. */
+interface KernelPlan {
+  kernels: KernelProgram;
+  backends: SystemBackend[];
+  /** The kernel systems that run (backend isn't "cpu"). */
+  running: KernelSystem[];
+}
 
 /** What the particle player needs from the render backend. */
 export interface BabylonParticleHost {
@@ -47,6 +59,8 @@ export interface BabylonParticleHost {
    * without it material assets are never used.
    */
   material?(path: string): Material | null;
+  /** Force the kernel executors (tests, benchmarks); default: what the engine supports (ADR 0094). */
+  readonly kernelExecutors?: readonly import("../../scene/particleKernel").KernelExecutor[];
 }
 
 type PlayState = "playing" | "paused" | "stopped";
@@ -68,6 +82,9 @@ interface Instance {
   overrides: unknown;
   sim: EffectSimulation | null;
   draws: Draw[];
+  /** Kernel systems (ADR 0094) and their draws, one per output. */
+  kfx: KernelEffect | null;
+  kdraws: KernelDraw[];
   /** Quality tier × the component's emission scale. */
   scale: number;
   /** The component's tint (linear). */
@@ -138,6 +155,8 @@ export class BabylonParticles {
         overrides: undefined,
         sim: null,
         draws: [],
+        kfx: null,
+        kdraws: [],
         scale: 1,
         tint: [1, 1, 1, 1],
         keyAge: 0,
@@ -181,9 +200,23 @@ export class BabylonParticles {
       }
       inst.key = key;
       const effect = inst.runner.effect();
-      inst.sim = new EffectSimulation(effect, { live: inst.runner.live, random: inst.rnd });
+      const plan = this.plans.get(inst.program);
+      // Systems a kernel runs are left out of the CPU simulation (disabled, so emitter indices stay).
+      const cpuEffect = plan?.running.length ? { ...effect, emitters: effect.emitters.map((e, i) => (plan.backends[i] === "cpu" ? e : { ...e, enabled: false })) } : effect;
+      inst.sim = new EffectSimulation(cpuEffect, { live: inst.runner.live, random: inst.rnd });
       for (const e of inst.sim.emitters) this.warnRenderer(c, e);
       inst.draws = inst.sim.emitters.map((e) => this.makeDraw(`particles:${c.node.name}:${e.name}`, e, inst!.scale));
+      if (plan?.running.length) {
+        inst.kfx = new KernelEffect(plan.running, effect.emitters, this.kernelHost(), { live: inst.runner.live, random: inst.rnd, seeds: inst.program.seeds, seed: inst.seed });
+        for (const s of inst.kfx.systems) {
+          s.kernel.outputs.forEach((o, k) => {
+            const found = o.settings.texture ? this.textureFor(o.settings.texture, false) : null;
+            const texture = found && found !== "failed" ? found : this.dotTexture();
+            const mesh = o.type === "mesh" ? (this.meshFor(o.settings.mesh) ?? undefined) : undefined;
+            inst!.kdraws.push(new KernelDraw(this.host.scene, `particles:${c.node.name}:${s.kernel.id}:${k}`, s.kernel, k, s.run, texture, this.sceneDepth(), { mesh, softness: o.settings.softness ?? 0 }));
+          });
+        }
+      }
       const was = inst.state;
       this.applyState(inst, was === "stopped" ? "stopped" : "restart");
       if (was === "paused") this.applyState(inst, "pause");
@@ -216,12 +249,14 @@ export class BabylonParticles {
       inst.time += dt;
       inst.runner.update(inst.time, dt, playTimes(inst.program, inst.time));
       sim.step(dt, this.host.worldMatrix(c), inst.scale, inst.tint);
+      inst.kfx?.step(dt, this.host.worldMatrix(c), inst.scale, inst.tint, inst.runner.context, inst.overrides, playTimes(inst.program, inst.time));
     }
 
     for (const d of inst.draws) this.mirror(inst, d);
+    for (const d of inst.kdraws) d.update();
 
-    const count = sim.count;
-    const emitting = inst.state === "playing" && sim.emitting;
+    const count = sim.count + (inst.kfx?.count ?? 0);
+    const emitting = inst.state === "playing" && (sim.emitting || !!inst.kfx?.emitting);
     if (inst.state === "playing" && !emitting) inst.state = "stopped"; // a one-shot effect finished emitting
     const alive = emitting || count > 0;
     if (inst.state === "playing") inst.started = true;
@@ -252,8 +287,10 @@ export class BabylonParticles {
       case "restart":
         inst.random = randomForSeed(inst.seed); // a seeded effect repeats exactly on every restart
         sim?.restart();
+        inst.kfx?.restart();
         // Systems started by events (not On Play) wait for them.
         for (const e of sim?.emitters ?? []) if (!this.autoStarts(inst, e)) sim!.endEmit(e);
+        for (const s of inst.kfx?.systems ?? []) if (!s.parent && inst.program && !(inst.program.autoStart[s.kernel.emitter] ?? true)) inst.kfx!.endEmit(s.kernel.emitter);
         this.route(inst, inst.program ? { start: [], stop: inst.program.onPlay.stop } : undefined);
         inst.time = 0;
         inst.idle = 0;
@@ -261,11 +298,16 @@ export class BabylonParticles {
         return;
       case "clear":
         sim?.clear();
+        inst.kfx?.clear();
         return;
       case "stopped":
       case "stopClear":
         sim?.endEmit();
-        if (op === "stopClear") sim?.clear();
+        inst.kfx?.endEmit();
+        if (op === "stopClear") {
+          sim?.clear();
+          inst.kfx?.clear();
+        }
         inst.state = "stopped";
         return;
     }
@@ -279,6 +321,13 @@ export class BabylonParticles {
   /** Start and stop the systems an event is wired to. */
   private route(inst: Instance, route: { start: number[]; stop: number[] } | undefined): void {
     if (!route || !inst.sim || !inst.program) return;
+    for (const s of inst.kfx?.systems ?? []) {
+      const i = s.kernel.emitter;
+      if (route.start.includes(i)) {
+        inst.kfx!.startEmitter(i);
+        if (inst.state !== "playing") inst.state = "playing";
+      } else if (route.stop.includes(i)) inst.kfx!.endEmit(i);
+    }
     for (const e of inst.sim.emitters) {
       const i = inst.program.systems.indexOf(e.name);
       if (route.start.includes(i)) {
@@ -291,7 +340,9 @@ export class BabylonParticles {
   }
 
   private emit(inst: Instance, count: number): void {
-    if (inst.sim && count > 0) inst.sim.emit(count);
+    if (count <= 0) return;
+    if (inst.sim?.emitters.length) inst.sim.emit(count);
+    else inst.kfx?.emit(count);
   }
 
   /** The effect's JSON: the asset's (identity changes when the file does), or the embedded object. */
@@ -315,15 +366,64 @@ export class BabylonParticles {
     try {
       const { graph, problems } = parseParticleGraph(raw, where);
       const program = compileParticleGraph(graph);
-      for (const p of [...problems, ...program.problems]) {
+      const plan = this.plan(graph, program, where);
+      const onKernel = (at: string | undefined) => !!at && plan.running.some((k) => at === k.id || at.startsWith(`${k.id}.`));
+      const kernelProblems = plan.kernels.problems.filter((p) => onKernel(p.at));
+      for (const p of [...problems, ...program.problems.filter((q) => !(q.cpuOnly && onKernel(q.at))), ...kernelProblems]) {
         const text = `${where}: ${p.message}${p.at ? ` (${p.at})` : ""}`;
         this.warnOnce(`${where}|${text}`, text);
       }
+      this.plans.set(program, plan);
       return program;
     } catch (err) {
       this.warnOnce(`${where}|${(err as Error).message}`, (err as Error).message);
       return null;
     }
+  }
+
+  /** Which systems run on a kernel (ADR 0094): each system's choice, then events keep a parent and its child on the same side. */
+  private plan(graph: ParticleGraph, program: ParticleProgram, where: string): KernelPlan {
+    const kernels = compileParticleKernels(graph, program);
+    const executors = this.kernelHost().executors;
+    const systems = graph.systems.filter((s) => s.enabled !== false);
+    const backends = kernels.systems.map((k, i) => chooseBackend(systems[i]?.settings.simulation, k, executors));
+    for (const [i, k] of kernels.systems.entries()) {
+      if (!k.event) continue;
+      const p = k.event.parent;
+      if (backends[p] === "cpu" && backends[i] !== "cpu") {
+        this.warnOnce(`${where}|event|${k.id}`, `${where}: "${k.name}" is started by an event from a system on the CPU, so it runs on the CPU too.`);
+        backends[i] = "cpu";
+      } else if (backends[p] !== "cpu" && backends[i] === "cpu") backends[i] = backends[p];
+    }
+    return { kernels, backends, running: kernels.systems.filter((_, i) => backends[i] !== "cpu") };
+  }
+
+  private kernels: BabylonKernelHost | null = null;
+  private depth: SceneDepth | null = null;
+  private readonly plans = new WeakMap<ParticleProgram, KernelPlan>();
+
+  private sceneDepth(): SceneDepth {
+    return (this.depth ??= new SceneDepth(this.host.scene));
+  }
+
+  private kernelHost(): BabylonKernelHost {
+    return (this.kernels ??= new BabylonKernelHost(this.host.scene, this.sceneDepth(), this.host.kernelExecutors));
+  }
+
+  /** @internal Tests and the editor: the backend each system of `c`'s effect runs on. */
+  backendsOf(c: ParticleSystem): SystemBackend[] {
+    const program = this.instances.get(c)?.program;
+    return (program && this.plans.get(program)?.backends) ?? [];
+  }
+
+  /** @internal Tests: a system's kernel draws. */
+  kernelDrawsOf(c: ParticleSystem): readonly KernelDraw[] {
+    return this.instances.get(c)?.kdraws ?? [];
+  }
+
+  /** @internal Tests: the kernel effect playing `c`. */
+  kernelEffectOf(c: ParticleSystem): KernelEffect | null {
+    return this.instances.get(c)?.kfx ?? null;
   }
 
   // --- textures -----------------------------------------------------------------------------------------
@@ -424,6 +524,10 @@ export class BabylonParticles {
   private disposeDraws(inst: Instance): void {
     for (const d of inst.draws) d.dispose();
     inst.draws = [];
+    for (const d of inst.kdraws) d.dispose();
+    inst.kdraws = [];
+    inst.kfx?.dispose();
+    inst.kfx = null;
   }
 
   /** @internal Tests: a system's draws. */
@@ -456,9 +560,9 @@ export class BabylonParticles {
     let batches = 0;
     let previewed: { time: number; count: number } | null = null;
     for (const inst of this.instances.values()) {
-      const count = inst.sim?.count ?? 0;
-      emitters += inst.sim?.emitters.length ?? 0;
-      batches += inst.draws.length;
+      const count = (inst.sim?.count ?? 0) + (inst.kfx?.count ?? 0);
+      emitters += (inst.sim?.emitters.length ?? 0) + (inst.kfx?.systems.length ?? 0);
+      batches += inst.draws.length + inst.kdraws.length;
       particles += count;
       if (inst.shown && !previewed) previewed = { time: inst.time, count };
     }
@@ -469,5 +573,7 @@ export class BabylonParticles {
     for (const c of [...this.instances.keys()]) this.release(c);
     this.dot?.dispose();
     this.dot = null;
+    this.depth?.dispose();
+    this.depth = null;
   }
 }

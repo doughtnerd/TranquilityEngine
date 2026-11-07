@@ -489,8 +489,11 @@ function parseOutput(raw: unknown, systemId: string, ctx: Ctx): OutputContext {
     speedScale: numberSetting(s, "speedScale", d.speedScale, `${at}.settings`, ctx),
     lengthScale: numberSetting(s, "lengthScale", d.lengthScale, `${at}.settings`, ctx),
     trailLength: numberSetting(s, "trailLength", d.trailLength, `${at}.settings`, ctx, 1),
-    ...extraSettings(s, known, `${at}.settings`, ctx),
+    ...extraSettings(s, [...known, "softness"], `${at}.settings`, ctx),
   };
+  // Soft particles (ADR 0096): optional, 0 (off) isn't written.
+  const softness = numberSetting(s, "softness", 0, `${at}.settings`, ctx, 0);
+  if (softness > 0) settings.softness = softness;
   return {
     type: choiceSetting(o, "type", OUTPUT_TYPES as readonly OutputType[], "quad", at, ctx),
     settings,

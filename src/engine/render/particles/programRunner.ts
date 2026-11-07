@@ -32,6 +32,11 @@ export class ProgramRunner {
     this.ctx.properties = next;
   }
 
+  /** The evaluation context of the last `update` (time, properties): kernel backends evaluate their own bindings with it (ADR 0094). */
+  get context(): EvalContext {
+    return this.ctx;
+  }
+
   /** For `EffectContext.live`. */
   live = (emitter: number, path: string): LiveBox | undefined => this.boxes.get(`${emitter}:${path}`);
 

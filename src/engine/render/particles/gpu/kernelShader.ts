@@ -679,10 +679,10 @@ FN(void, k_depthCollide, KF bounce, KF kill, KF thickness) {
   VAR(KF, px) = floor((ndc.x * 0.5 + 0.5) * ku[${U.depth}].x);
   VAR(KF, py) = floor((0.5 - ndc.y * 0.5) * ku[${U.depth}].y);
   VAR(KF, scene) = k_depthAt(KI(min(px, ku[${U.depth}].x - 1.0)), KI(min(py, ku[${U.depth}].y - 1.0)));
-  VAR(KF, near) = ku[${U.depth}].w;
-  VAR(KF, far) = ku[${U.depth2}].x;
+  // The depth texture holds camera-space z (Babylon's depth renderer with storeCameraSpaceZ); 0 is "nothing drawn".
   VAR(KF, viewDepth) = abs(dot(ku[${U.viewZ}].xyz, p) + ku[${U.viewZ}].w);
-  VAR(KF, sceneDepth) = near + scene * (far - near);
+  VAR(KF, sceneDepth) = abs(scene);
+  if (sceneDepth == 0.0) { return; }
   if (viewDepth < sceneDepth || viewDepth > sceneDepth + thickness) { return; }
   if (kill > 0.5) {
     k_dies = 1.0;
@@ -999,7 +999,8 @@ void main() {
   ${
     opts.soft
       ? `vec2 suv = gl_FragCoord.xy / ksoft.xy;
-  float scene = ksoft.z + texture2D(kdepthTex, suv).r * (ksoft.w - ksoft.z);
+  float scene = abs(texture2D(kdepthTex, suv).r);
+  if (scene == 0.0) { scene = 1e9; }
   col.a *= clamp((scene - vDepth) / max(kdraw2.y, 0.0001), 0.0, 1.0);`
       : ""
   }
@@ -1143,7 +1144,8 @@ fn main(input : FragmentInputs) -> FragmentOutputs {
     opts.soft
       ? `let dims = vec2f(textureDimensions(kdepthTex));
   let pc = vec2i(clamp(fragmentInputs.position.xy, vec2f(0.0), dims - 1.0));
-  let scene = uniforms.ksoft.z + textureLoad(kdepthTex, pc, 0).r * (uniforms.ksoft.w - uniforms.ksoft.z);
+  var scene = abs(textureLoad(kdepthTex, pc, 0).r);
+  if (scene == 0.0) { scene = 1e9; }
   col.a = col.a * clamp((scene - fragmentInputs.vDepth) / max(uniforms.kdraw2.y, 0.0001), 0.0, 1.0);`
       : ""
   }
