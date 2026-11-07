@@ -3,11 +3,12 @@
 // written back into the file's text one top-level key at a time so the rest keeps its layout.
 import { defaultSettings, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import { defaultTier, parseGraphics, type GraphicsSettings, type QualityTier } from "../engine/core/graphics";
+import { parseAudioSettings } from "../engine/audio/settings";
 import { parseNavigationSettings } from "../engine/nav/settings";
 import { uniqueName, withMember } from "./worldsConfig";
 
 /** The top-level keys the Project panel edits (the Worlds panel edits `bootstrap`). */
-export const SETTINGS_SECTIONS = ["name", "display", "time", "physics", "render", "autoload", "graphics", "navigation", "build"] as const;
+export const SETTINGS_SECTIONS = ["name", "display", "time", "physics", "render", "autoload", "graphics", "navigation", "audio", "build"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** The panel's sections of `project.json`, as written (missing values fall back to the engine's defaults). */
@@ -22,6 +23,8 @@ export interface SettingsDraft {
   graphics?: Record<string, unknown>;
   /** Navigation (ADR 0065): agent types, areas and bake settings, as written; read leniently by `parseNavigationSettings`. */
   navigation?: Record<string, unknown>;
+  /** Audio mixer buses, snapshots, ducking and backend (ADR 0097): as written; read leniently by `parseAudioSettings`. */
+  audio?: Record<string, unknown>;
   /** Game export settings (ADR 0041), read by the exporter; other keys in it are kept. */
   build?: { icon?: string; identifier?: string; version?: string } & Record<string, unknown>;
 }
@@ -355,6 +358,7 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
 
   for (const message of parseGraphics(draft.graphics).problems) p("graphics", message);
   for (const message of parseNavigationSettings(draft.navigation).problems) p("navigation", message);
+  for (const message of parseAudioSettings(draft.audio).problems) p("audio", message);
 
   // The export's own checks (src/export/desktop.ts), so a bad value shows here rather than at export.
   const build = draft.build ?? {};

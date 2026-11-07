@@ -17,6 +17,8 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Physics](guide/physics.md) | Bodies and colliders, interpolation, collision and trigger events (Enter/Stay/Exit), raycasts, shape casts and overlaps, character controllers, joints |
 | [Tilemaps](guide/tilemaps.md) | Tilesets from sliced sheets, painting with the Tile Palette, layers, auto-tiling, tile collision and one-way platforms, the scripting API |
 | [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
+| [Audio mixer](guide/audio-mixer.md) | Buses, effects, snapshots, ducking, `AudioSource.output`, `Audio.bus(...)` |
+| [FMOD backend](guide/fmod.md) | Experimental, untested: dropping the FMOD HTML5 SDK in and wiring it up |
 
 ## Architecture
 
@@ -126,6 +128,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0091](decisions/0091-character-controller-on-rapier.md) | CharacterController and CharacterController2D are colliders driven by Rapier's kinematic character controller | Proposed |
 | [0092](decisions/0092-joints-on-rapier-impulse-joints.md) | Joints link a node's body to another node's body, or to the world, on Rapier impulse joints | Proposed |
 | [0093](decisions/0093-physics-queries-stay-events-interpolation.md) | Shape casts and overlaps, Stay events, interpolation on by default, child colliders that follow their node | Proposed |
+| [0097](decisions/0097-audio-mixer-buses.md) | Audio mixer buses, snapshots and ducking over one shared AudioContext | Proposed |
+| [0098](decisions/0098-audio-backend-interface.md) | An internal audio backend interface, with Howler as the default implementation | Proposed |
+| [0099](decisions/0099-fmod-spike.md) | FMOD as an optional audio backend: spike, recommendation and stub adapter | Proposed |
 | [0103](decisions/0103-tilemaps.md) | Tilemaps: tileset assets, a layered Tilemap component in chunks, and native editor painting | Proposed |
 | [0104](decisions/0104-2d-physics-backend-review.md) | Keep Rapier 2D as the 2D physics backend after reviewing Box2D v3 and Planck.js | Proposed |
 | [0105](decisions/0105-tile-colliders-and-one-way-platforms.md) | Tile colliders merge into seam-free Rapier shapes; one-way platforms use contact-pair hooks | Proposed |

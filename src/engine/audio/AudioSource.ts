@@ -1,9 +1,8 @@
 /**
- * Audio (ADR 0006, 0074). Playback through Howler, which also handles format fallback and unlocking
- * audio after the first user gesture; spatial sound uses Howler's spatial API (Web Audio panners).
- * Game code never sees Howler. Only the World that has the view plays sound.
+ * Audio (ADR 0006, 0074, 0097, 0098). Playback goes through an audio backend (Howler by default, which
+ * handles format fallback and unlocking audio after the first user gesture) and the project's mixer buses.
+ * Game code never sees the backend library. Only the World that has the view plays sound.
  */
-import { Howl, Howler } from "howler";
 import { Component } from "../core/Component";
 import type { Vec3Like } from "../core/math";
 import { AssetRef, component, field } from "../core/registry";
@@ -13,45 +12,19 @@ import { Assets } from "../scene/Assets";
 import { Camera } from "../render/components";
 import type { GameObject } from "../scene/GameObject";
 import { AudioListener, listenerPose } from "./AudioListener";
+import { audioBackend, mixer, type AudioVoice, type Rolloff } from "./backend";
+import { Bus } from "./mixer";
+import "./howlerBackend"; // registers the default backend (ADR 0098)
 
-const howls = new Map<string, Howl>();
+export type { Rolloff } from "./backend";
 
-/** A clip's Howl. Its import settings (ADR 0040) can ask to stream it (HTML5 audio) rather than decode it up front. */
-function howlFor(path: string, loop: boolean): Howl {
-  const stream = Assets.importSettings(path).stream;
-  const key = `${path}|${loop}|${stream}`;
-  let h = howls.get(key);
-  if (!h) {
-    h = new Howl({ src: [Assets.url(path)], loop, preload: true, html5: stream });
-    howls.set(key, h);
-  }
-  return h;
+/** Start a clip on the active backend, on `output` (a mixer bus name; empty or unknown: Master). */
+function startClip(path: string, loop: boolean, output: string | undefined): AudioVoice | null {
+  return audioBackend().play({ path, url: Assets.url(path), loop, stream: Assets.importSettings(path).stream, bus: mixer.resolveOutput(output) });
 }
 
 /** The clip's import volume (ADR 0040), which scales every playback of it. */
 const clipVolume = (path: string) => Assets.importSettings(path).volume;
-
-export type Rolloff = "linear" | "inverse" | "exponential";
-
-/** How a spatial sound fades with distance (ADR 0074). */
-interface Attenuation {
-  minDistance: number;
-  maxDistance: number;
-  rolloff: Rolloff;
-}
-
-/** Put one playing sound at `at`, with its distance falloff. Howler's spatial API needs Web Audio. */
-function placeSound(howl: Howl, id: number, at: Vec3Like): void {
-  howl.pos(at.x, at.y, at.z, id);
-}
-
-function attenuateSound(howl: Howl, id: number, a: Attenuation): void {
-  const min = Math.max(0, a.minDistance);
-  howl.pannerAttr(
-    { distanceModel: a.rolloff as "linear" | "inverse", refDistance: min, maxDistance: Math.max(min, a.maxDistance), rolloffFactor: 1, panningModel: "HRTF" },
-    id,
-  );
-}
 
 const warnedStream = new Set<string>();
 function warnStream(path: string): void {
@@ -84,61 +57,63 @@ export class AudioSource extends Component {
   /** Spatial: how volume falls between `minDistance` and `maxDistance`. */
   @field(String, { choices: ["linear", "inverse", "exponential"] }) rolloff: Rolloff = "inverse";
 
-  private soundId: number | null = null;
-  private howl: Howl | null = null;
-  /** What was last applied to the playing sound, so a frame only touches Howler for changes. */
+  /** The mixer bus this sound plays on (ADR 0097): a bus name from the project's Audio settings. Empty is Master. */
+  @field(String, { choices: (s) => s.audio.buses.map((b) => b.name) }) output = "";
+
+  private voice: AudioVoice | null = null;
+  /** What was last applied to the playing sound, so a frame only touches the backend for changes. */
   private applied = "";
 
   get isPlaying(): boolean {
-    return this.howl !== null && this.soundId !== null && this.howl.playing(this.soundId);
+    return this.voice !== null && this.voice.playing;
   }
 
   play(): void {
     if (!this.clip || !worldPlays(this.world)) return;
     this.stop();
     const path = this.clip.replace(/^asset:/, "");
-    this.howl = howlFor(path, this.loop);
-    this.soundId = this.howl.play();
+    this.voice = startClip(path, this.loop, this.output);
     this.applied = "";
-    this.apply(path);
+    if (this.voice) this.apply(path);
   }
 
   pause(): void {
-    if (this.howl && this.soundId !== null) this.howl.pause(this.soundId);
+    this.voice?.pause();
   }
 
   resume(): void {
-    if (this.howl && this.soundId !== null) this.howl.play(this.soundId);
+    this.voice?.resume();
   }
 
   stop(): void {
-    if (this.howl && this.soundId !== null) this.howl.stop(this.soundId);
-    this.soundId = null;
+    this.voice?.stop();
+    this.voice = null;
   }
 
   /** @internal Each frame (the audio system): volume, pitch and, for spatial sources, position and falloff. */
   _sync(): void {
-    if (this.soundId === null || !this.howl) return;
+    if (!this.voice) return;
     this.apply(this.clip.replace(/^asset:/, ""));
   }
 
   private apply(path: string): void {
-    const howl = this.howl!, id = this.soundId!;
+    const voice = this.voice!;
     const stream = Assets.importSettings(path).stream;
     const spatial = this.spatial && !stream;
     if (this.spatial && stream) warnStream(path);
-    const signature = `${this.volume}|${this.pitch}|${spatial}|${this.minDistance}|${this.maxDistance}|${this.rolloff}`;
+    const signature = `${this.volume}|${this.pitch}|${spatial}|${this.minDistance}|${this.maxDistance}|${this.rolloff}|${this.output}`;
     if (signature !== this.applied) {
       this.applied = signature;
-      howl.volume(this.volume * clipVolume(path), id);
-      howl.rate(this.pitch, id);
-      if (spatial) attenuateSound(howl, id, this);
+      voice.setBus(mixer.resolveOutput(this.output));
+      voice.setVolume(this.volume * clipVolume(path));
+      voice.setPitch(this.pitch);
+      if (spatial) voice.setAttenuation(this);
     }
-    if (spatial) placeSound(howl, id, this.node.transform!.worldPosition);
+    if (spatial) voice.setPosition(this.node.transform!.worldPosition);
   }
 
   override _onActivate(): void {
-    if (this.playOnAwake && this.soundId === null) this.play();
+    if (this.playOnAwake && this.voice === null) this.play();
     else this.resume();
   }
 
@@ -162,6 +137,8 @@ export interface OneShotOptions {
   minDistance?: number;
   /** With a position: the distance where the falloff stops (default 100). */
   maxDistance?: number;
+  /** The mixer bus to play on (ADR 0097); default Master. */
+  bus?: string;
 }
 
 /** One-shot and global audio helpers. */
@@ -171,41 +148,61 @@ export const Audio = {
     if (!worldPlays(World.active)) return;
     const o = typeof options === "number" ? { volume: options } : options;
     const path = clip.replace(/^asset:/, "");
-    const h = howlFor(path, false);
-    const id = h.play();
-    h.volume((o.volume ?? 1) * clipVolume(path), id);
-    if (o.pitch !== undefined) h.rate(o.pitch, id);
+    const v = startClip(path, false, o.bus);
+    if (!v) return;
+    v.setVolume((o.volume ?? 1) * clipVolume(path));
+    if (o.pitch !== undefined) v.setPitch(o.pitch);
     if (o.position) {
       if (Assets.importSettings(path).stream) {
         warnStream(path);
         return;
       }
-      attenuateSound(h, id, { minDistance: o.minDistance ?? 1, maxDistance: o.maxDistance ?? 100, rolloff: "inverse" });
-      placeSound(h, id, o.position);
+      v.setAttenuation({ minDistance: o.minDistance ?? 1, maxDistance: o.maxDistance ?? 100, rolloff: "inverse" });
+      v.setPosition(o.position);
     }
+  },
+
+  /** A mixer bus by name (ADR 0097): `Audio.bus("Music").volume = 0.5`. */
+  bus(name: string): Bus {
+    return mixer.bus(name);
+  },
+
+  /** Names of the project's buses. */
+  get buses(): readonly string[] {
+    return mixer.busNames;
+  },
+
+  /** Fade to a named mix from the project's audio snapshots (e.g. a muffled pause menu). */
+  snapshot(name: string, fadeSeconds = 0.5): void {
+    mixer.snapshot(name, fadeSeconds);
+  },
+
+  /** Fade back to the plain mix. */
+  clearSnapshot(fadeSeconds = 0.5): void {
+    mixer.clearSnapshot(fadeSeconds);
   },
 
   /** Master volume, 0..1. */
   get masterVolume(): number {
-    return Howler.volume();
+    return audioBackend().masterVolume;
   },
   set masterVolume(v: number) {
-    Howler.volume(v);
+    audioBackend().masterVolume = v;
   },
 
   set muted(m: boolean) {
-    Howler.mute(m);
+    audioBackend().muted = m;
   },
 };
 
 /**
- * Per frame, in the World that has the view: place Howler's listener at the first enabled
+ * Per frame, in the World that has the view: place the backend's listener at the first enabled
  * AudioListener (else the main camera) and move the spatial sources to their nodes (ADR 0074).
  */
 defineBuiltinSystem({
   name: "engine.Audio",
   phase: "lateUpdate",
-  run(world: World): void {
+  run(world: World, dt: number): void {
     if (!worldPlays(world)) return;
     let listener: GameObject | null = null;
     for (const l of world._componentsOfType(AudioListener)) {
@@ -221,9 +218,10 @@ defineBuiltinSystem({
     }
     if (listener) {
       const { position: p, forward: f, up: u } = listenerPose(listener);
-      Howler.pos(p.x, p.y, p.z);
-      Howler.orientation(f.x, f.y, f.z, u.x, u.y, u.z);
+      audioBackend().setListener({ position: p, forward: f, up: u });
     }
+    mixer.update(dt);
+    audioBackend().update?.(dt);
     for (const s of world._componentsOfType(AudioSource)) s._sync();
   },
 });

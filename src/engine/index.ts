@@ -68,6 +68,7 @@ export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlig
 export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "./ui/UIDocument";
 
 export { Audio, AudioSource, type OneShotOptions, type Rolloff } from "./audio/AudioSource";
+export type { Bus } from "./audio/mixer";
 export { AudioListener } from "./audio/AudioListener";
 export { Input } from "./input/Input";
 export { Storage, MemoryStorage, type StorageBackend } from "./platform/Storage";
