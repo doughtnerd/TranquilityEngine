@@ -8,7 +8,7 @@
  * exercised against a fake module in `engine/tests/fmodBackend.test.ts`. Names, argument order and the
  * `{val}` out-parameter convention need checking with the SDK in hand; see docs/guide/fmod.md.
  */
-import type { AudioBackend, AudioVoice, Attenuation, ListenerPose, PlayRequest } from "./backend";
+import { setAudioBackend, type AudioBackend, type AudioVoice, type Attenuation, type ListenerPose, type PlayRequest } from "./backend";
 import type { Mixer, ResolvedBus } from "./mixer";
 import type { Vec3Like } from "../core/math";
 
@@ -201,7 +201,6 @@ export class FmodBackend implements AudioBackend {
 export async function useFmodBackendIfConfigured(audio: { backend: string; fmod?: { sdkPath: string; banks: string[] } }): Promise<boolean> {
   if (audio.backend !== "fmod" || !audio.fmod) return false;
   try {
-    const { setAudioBackend } = await import("./backend");
     setAudioBackend(await FmodBackend.load(audio.fmod));
     return true;
   } catch (e) {
