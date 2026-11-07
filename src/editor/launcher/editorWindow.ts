@@ -2,7 +2,7 @@
 // project the Projects window hands it and shows itself, and when its project closes it hides and
 // shows the Projects window again.
 import { effect } from "@preact/signals";
-import { openPickedProject } from "../session";
+import { openPickedProject, sceneViewStarted } from "../session";
 import { currentProject, status } from "../state";
 import { serveProjectsWindow, showProjectsWindow, tauriBus } from "./handoff";
 
@@ -18,6 +18,7 @@ export async function serveDesktopProjectsWindow(): Promise<void> {
   serveProjectsWindow(bus, async (request) => {
     await openPickedProject(request);
     if (!currentProject.peek()) throw new Error(status.peek()?.text ?? "The project didn't open.");
+    await sceneViewStarted(); // show the scene view drawn (ADR 0082)
     await window.show();
     await window.setFocus();
   });

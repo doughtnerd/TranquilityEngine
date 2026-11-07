@@ -58,6 +58,8 @@ export class BabylonSurface implements RenderSurface {
   private toolsSeen: BabylonEditorTools | null = null;
   /** Something asked for an editor helper (games never do, so they never load the gizmos). */
   private toolsWanted = false;
+  /** Resolves once the renderer has loaded and started (true), or couldn't (false). */
+  readonly started: Promise<boolean>;
 
   constructor(
     private readonly container: HTMLElement,
@@ -76,10 +78,13 @@ export class BabylonSurface implements RenderSurface {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
-    void import("./BabylonRenderer")
+    this.started = import("./BabylonRenderer")
       .then((m) => m.BabylonRenderer.create(this.canvas, settings, this.fill))
       .then((r) => {
-        if (this.disposed) return r.dispose();
+        if (this.disposed) {
+          r.dispose();
+          return false;
+        }
         this.renderer = r;
         // Dev builds: every live Babylon scene, for inspecting the migration from the console.
         if (import.meta.env?.DEV) {
@@ -93,8 +98,12 @@ export class BabylonSurface implements RenderSurface {
         r.setSelected(this.selection);
         if (this.cameraPreview) r.setCameraPreview(this.cameraPreview.camera, this.cameraPreview.frame);
         this.applyQuality();
+        return true;
       })
-      .catch((err) => console.error("[myco] the Babylon.js renderer couldn't start:", err));
+      .catch((err) => {
+        console.error("[myco] the Babylon.js renderer couldn't start:", err);
+        return false;
+      });
   }
 
   /** Fit the canvas to the container: fill it (editor) or keep the reference aspect ratio. */
