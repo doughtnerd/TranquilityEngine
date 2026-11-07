@@ -7,7 +7,7 @@ import { Quat } from "../../engine/core/math";
 import { addEditorOverlay, pointOnPlane, removeEditorOverlay, viewportCanvas } from "../../engine/editor";
 import type { EditorOverlay } from "../../engine/render/RenderSurface";
 import type { Cell } from "../../engine/tilemap/brushes";
-import { isEditable } from "../shortcuts";
+import { isEditable } from "../editable";
 import { openScene, playState, selectedPath, selectedWorldNode, selection, tool } from "../state";
 import { activeLayer, brushStamp, brushTerrain, brushTool, commitTilemap, fillAt, flipBrush, paintCells, pickBrushTool, pickFromMap, strokeCells, tilemapOf, type BrushTool } from "./brush";
 

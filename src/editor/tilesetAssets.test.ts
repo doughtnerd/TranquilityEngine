@@ -1,4 +1,3 @@
-import "./project"; // loads the editor modules in an order their import cycles allow
 import { describe, expect, it } from "vitest";
 import { defaultImportSettings, formatImportSettings, sidecarPath } from "../engine/scene/importSettings";
 import { assetKind } from "./assetBrowser";
@@ -72,7 +71,7 @@ describe("tileset assets (ADR 0103)", () => {
   it("lays a dragged block out with the bottom row first", () => {
     const ids = [1, 2, 3, 4, 5, 6, 7];
     // 3 columns: rows [1 2 3] [4 5 6] [7]; the block from tile 2 to tile 7's row.
-    expect(blockStamp(ids, 3, 1, 4)).toEqual({ width: 2, height: 2, values: [5, 6, 2, 3] });
+    expect(blockStamp(ids, 3, 1, 5)).toEqual({ width: 2, height: 2, values: [5, 6, 2, 3] });
     // Positions past the last tile are empty cells.
     expect(blockStamp(ids, 3, 6, 5)).toEqual({ width: 3, height: 2, values: [7, 0, 0, 4, 5, 6] });
     expect(blockStamp(ids, 3, 0, 0)).toEqual({ width: 1, height: 1, values: [1] });
