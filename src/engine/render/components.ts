@@ -77,12 +77,15 @@ export class Camera extends Component {
   /**
    * The canvas size the camera's maths uses: the render backend's canvas (CSS pixels, like
    * `Input.mousePosition`), or without one (headless) the project's reference resolution (ADR 0073).
+   * The surface keeps the size up to date, so this doesn't force a layout each call.
    */
-  private canvasSize(): { width: number; height: number } {
-    const canvas = this.world.render?.canvas;
-    if (canvas && canvas.clientWidth > 0 && canvas.clientHeight > 0) return { width: canvas.clientWidth, height: canvas.clientHeight };
-    const { width, height } = this.world.settings.display;
-    return { width, height };
+  private canvasSize(): { readonly width: number; readonly height: number } {
+    const render = this.world.render;
+    if (render) {
+      const size = render.canvasCssSize ? render.canvasCssSize() : render.canvas ? { width: render.canvas.clientWidth, height: render.canvas.clientHeight } : null;
+      if (size && size.width > 0 && size.height > 0) return size;
+    }
+    return this.world.settings.display;
   }
 
   /** The camera's rectangle in canvas pixels, origin top-left (ADR 0056). */
