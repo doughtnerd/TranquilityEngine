@@ -61,6 +61,9 @@ const KIND_LABELS: Record<AssetKind | "folder", string> = {
   javascript: "JS",
   typescript: "TS Module",
   text: "Text",
+  uidocument: "UI Document",
+  stylesheet: "Stylesheet",
+  xml: "XML",
   other: "File",
 };
 
