@@ -3,7 +3,7 @@ import { MemoryFileSystem } from "../memoryFs";
 import { computePeaks, decodeSummary, encodeSummary } from "./audio";
 import { contentKey, keyOfFile, previewDependencies, previewKind } from "./keys";
 import { FrameQueue } from "./queue";
-import { ThumbnailService, type ThumbnailMaker, type ThumbnailProject } from "./service";
+import { ThumbnailService, type Thumbnail, type ThumbnailMaker, type ThumbnailProject } from "./service";
 import { memoryStore, projectStore } from "./store";
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -348,6 +348,43 @@ describe("thumbnail service", () => {
       await runAll(tick, service.thumbnailFor("b.material.json"));
       expect(revoked).not.toContain(shared!.url);
       expect(service.imageCount).toBe(2);
+    } finally {
+      URL.revokeObjectURL = original;
+    }
+  });
+
+  it("keeps a superseded image's URL alive while something still shows it, revoking it when let go", async () => {
+    const files = project({ "a.material.json": '{"color":"#ff0000"}' });
+    const { queue, tick } = manualQueue();
+    const service = new ThumbnailService(files, memoryStore(), maker(), queue);
+    const revoked: string[] = [];
+    const original = URL.revokeObjectURL;
+    URL.revokeObjectURL = (u: string) => (revoked.push(u), original(u));
+    try {
+      // A tile shows the first image, then the asset is edited twice quickly (Sort on, off): the
+      // tile still shows the first while the newer images are made, and its <img> may refetch it.
+      const first = (await runAll(tick, service.thumbnailFor("a.material.json"))) as Thumbnail;
+      const release = service.hold(first.url);
+      files.set("a.material.json", '{"color":"#00ff00"}');
+      const second = service.thumbnailFor("a.material.json");
+      await new Promise((r) => setTimeout(r, 0)); // its key is worked out (its render waits for a frame)
+      files.set("a.material.json", '{"color":"#0000ff"}');
+      const both = (await runAll(tick, Promise.all([second, service.thumbnailFor("a.material.json")]))) as (Thumbnail | null)[];
+      const third = both[1]!;
+      expect(service.imageCount).toBe(1);
+      expect(revoked).not.toContain(first.url); // held: the tile's <img> can still load it
+      expect(revoked.length).toBe(1); // the second image, which nothing showed
+
+      // The tile shows the third image (held first), then lets the first go: now it's revoked.
+      const releaseThird = service.hold(third.url);
+      release();
+      release(); // a second call does nothing
+      expect(revoked).toContain(first.url);
+      expect(revoked.length).toBe(2);
+
+      // A held image that's still current isn't revoked when let go.
+      releaseThird();
+      expect(revoked).not.toContain(third.url);
     } finally {
       URL.revokeObjectURL = original;
     }

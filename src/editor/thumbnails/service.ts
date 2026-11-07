@@ -25,7 +25,10 @@ export interface ThumbnailMaker {
 }
 
 export interface Thumbnail {
-  /** An object URL for the image (revoked when the service is disposed). */
+  /**
+   * An object URL for the image. It's revoked when the service is disposed, or when the asset is
+   * edited and no asset uses the old image any more, but never while something holds it (`hold`).
+   */
   url: string;
 }
 
@@ -56,6 +59,9 @@ export class ThumbnailService {
   private readonly urls = new Set<string>();
   /** The key each asset's thumbnail was last asked for under, so an edited asset lets its old image go. */
   private readonly pathKeys = new Map<string, string>();
+  /** How many holders show each URL (see `hold`), and the let-go URLs waiting for their last holder. */
+  private readonly holds = new Map<string, number>();
+  private readonly retired = new Set<string>();
   private disposed = false;
 
   constructor(
@@ -148,10 +154,35 @@ export class ThumbnailService {
     const entry = this.images.get(key);
     if (!entry?.settled) return; // still being made for someone
     this.images.delete(key);
-    if (entry.url) {
-      URL.revokeObjectURL(entry.url);
-      this.urls.delete(entry.url);
-    }
+    if (!entry.url) return;
+    // An <img> may still show (or be loading) it: revoking now would fail its fetch.
+    if (this.holds.has(entry.url)) this.retired.add(entry.url);
+    else this.revoke(entry.url);
+  }
+
+  private revoke(url: string): void {
+    URL.revokeObjectURL(url);
+    this.urls.delete(url);
+    this.retired.delete(url);
+  }
+
+  /**
+   * Keep `url` alive while it's shown: an edited asset's old image is revoked only once every
+   * holder has let go. Hold it before showing it and let go after the replacement is shown.
+   * Returns the release (calling it again does nothing).
+   */
+  hold(url: string): () => void {
+    if (this.disposed || !this.urls.has(url)) return () => undefined;
+    this.holds.set(url, (this.holds.get(url) ?? 0) + 1);
+    let held = true;
+    return () => {
+      if (!held) return;
+      held = false;
+      const n = (this.holds.get(url) ?? 1) - 1;
+      if (n > 0) return void this.holds.set(url, n);
+      this.holds.delete(url);
+      if (this.retired.has(url) && !this.disposed) this.revoke(url);
+    };
   }
 
   /** How many images the service holds (tests: edited assets don't pile up). */
@@ -259,6 +290,8 @@ export class ThumbnailService {
     this.disposed = true;
     for (const url of this.urls) URL.revokeObjectURL(url);
     this.urls.clear();
+    this.holds.clear();
+    this.retired.clear();
     this.images.clear();
     this.summaries.clear();
     this.keys.clear();
