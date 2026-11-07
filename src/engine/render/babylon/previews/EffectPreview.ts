@@ -27,6 +27,9 @@ import { EffectSimulation } from "../../particles/simulation";
 import type { ParticleEffectPreviewApi, PreviewBackground } from "../../previewTypes";
 import type { GraphShared } from "../graphMaterial";
 import { copyParticles, createDotTexture, makeDraw, type Draw } from "../particleDraw";
+import { chooseBackend, compileParticleKernels } from "../../../scene/particleKernel";
+import { KernelEffect } from "../../particles/gpu/kernelEffect";
+import { BabylonKernelHost, KernelDraw, SceneDepth } from "../gpuParticles";
 import { addPreviewLights, aimCamera, buildPreviewMaterial, createPreviewEngine, createPreviewScene, loadTexture, renderFrame, type PreviewMaterial } from "./common";
 
 export type { PreviewBackground } from "../../previewTypes";
@@ -89,6 +92,11 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
   private runner: ProgramRunner | null = null;
   private sim: EffectSimulation | null = null;
   private draws: Draw[] = [];
+  /** Kernel systems (ADR 0094), as the World player runs them. */
+  private kfx: KernelEffect | null = null;
+  private kdraws: KernelDraw[] = [];
+  private depth: SceneDepth | null = null;
+  private kernelHost: BabylonKernelHost | null = null;
   private retry = 0;
   private _playing = true;
   private time = 0;
@@ -185,6 +193,10 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
       if (route.start.includes(i)) this.sim.startEmitter(e);
       else if (route.stop.includes(i)) this.sim.endEmit(e);
     }
+    for (const s of this.kfx?.systems ?? []) {
+      if (route.start.includes(s.kernel.emitter)) this.kfx!.startEmitter(s.kernel.emitter);
+      else if (route.stop.includes(s.kernel.emitter)) this.kfx!.endEmit(s.kernel.emitter);
+    }
   }
 
   play(): void {
@@ -218,6 +230,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
     this.canvas.removeEventListener("pointerdown", this.onPointerDown);
     this.canvas.removeEventListener("wheel", this.onWheel);
     this.clearEmitters();
+    this.depth?.dispose();
     this.textures.clear();
     for (const m of this.materials.values()) if (typeof m === "object" && !(m instanceof Promise)) m.dispose();
     this.materials.clear();
@@ -231,6 +244,10 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
   private clearEmitters(): void {
     for (const d of this.draws) d.dispose();
     this.draws = [];
+    for (const d of this.kdraws) d.dispose();
+    this.kdraws = [];
+    this.kfx?.dispose();
+    this.kfx = null;
     this.sim = null;
     this.count = 0;
     this.time = 0;
@@ -297,7 +314,26 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
       this.retry = RETRY_INTERVAL; // still loading something
       return;
     }
-    const sim = new EffectSimulation(effect, { live: this.runner.live });
+    // Kernel systems (ADR 0094) run as in the World; the rest on the CPU simulation.
+    const program = this.runner.program;
+    this.depth ??= new SceneDepth(scene);
+    this.kernelHost ??= new BabylonKernelHost(scene, this.depth);
+    const kernels = program.source ? compileParticleKernels(program.source, program).systems : [];
+    const systems = program.source?.systems.filter((x) => x.enabled !== false) ?? [];
+    const backends = kernels.map((k, i) => chooseBackend(systems[i]?.settings.simulation, k, this.kernelHost!.executors));
+    for (const [i, k] of kernels.entries()) if (k.event) backends[i] = backends[k.event.parent] === "cpu" ? "cpu" : backends[i] === "cpu" ? backends[k.event.parent] : backends[i];
+    const running = kernels.filter((_, i) => backends[i] !== "cpu");
+    const cpuEffect = running.length ? { ...effect, emitters: effect.emitters.map((e, i) => (backends[i] === "cpu" ? e : { ...e, enabled: false })) } : effect;
+    if (running.length) {
+      this.kfx = new KernelEffect(running, effect.emitters, this.kernelHost, { live: this.runner.live, seeds: program.seeds });
+      for (const sys of this.kfx.systems)
+        sys.kernel.outputs.forEach((o, k) => {
+          const tex = o.settings.texture ? this.texture(o.settings.texture) : null;
+          const mesh = o.type === "mesh" ? meshesIfLoaded(o.settings.mesh)?.[0] : undefined;
+          this.kdraws.push(new KernelDraw(scene, `particles:${sys.kernel.id}:${k}`, sys.kernel, k, sys.run, tex ?? (this.dot ??= createDotTexture(scene)), this.depth!, { mesh, softness: o.settings.softness ?? 0 }));
+        });
+    }
+    const sim = new EffectSimulation(cpuEffect, { live: this.runner.live });
     this.sim = sim;
     this.draws = sim.emitters.map((e) => {
       const r = e.renderer;
@@ -319,6 +355,10 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
         const i = program?.systems.indexOf(e.name) ?? -1;
         if (program && i >= 0 && !program.autoStart[i]) sim.endEmit(e);
       }
+    }
+    if (this.kfx) {
+      this.kfx.restart();
+      for (const s of this.kfx.systems) if (!s.parent && program && !(program.autoStart[s.kernel.emitter] ?? true)) this.kfx.endEmit(s.kernel.emitter);
     }
     this.time = 0;
     this.idle = 0;
@@ -351,12 +391,14 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
       this.time += dt;
       if (this.runner) this.runner.update(this.time, dt, playTimes(this.runner.program, this.time));
       sim.step(dt, IDENTITY, 1, WHITE);
+      if (this.kfx && this.runner) this.kfx.step(dt, IDENTITY, 1, WHITE, this.runner.context, null, playTimes(this.runner.program, this.time));
     }
     this.shared.time += realDt; // graph materials' Time node
     for (const d of this.draws) copyParticles(d);
-    this.count = sim.count;
+    for (const d of this.kdraws) d.update();
+    this.count = sim.count + (this.kfx?.count ?? 0);
     if (this._playing && this.looping) {
-      if (!sim.emitting && this.count === 0) {
+      if (!sim.emitting && !this.kfx?.emitting && this.count === 0) {
         this.idle += dt;
         if (this.idle >= REPEAT_GAP) this.restartEmitters();
       } else this.idle = 0;

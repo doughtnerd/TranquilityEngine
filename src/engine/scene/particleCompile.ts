@@ -64,6 +64,8 @@ export interface ParticleProgram {
   /** Property names the program reads (an override change re-evaluates bindings). */
   properties: string[];
   problems: GraphProblem[];
+  /** The (expanded) graph this was compiled from: kernel backends compile it too (ADR 0094). */
+  source?: ParticleGraph;
 }
 
 /** Settings fields the quarks backend builds as value generators, so a binding can update them live. */
@@ -165,7 +167,7 @@ export function compileParticleGraph(graph: ParticleGraph): ParticleProgram {
   }
   const autoStart = systems.map((_, i) => !startWired.has(i) || onPlay.start.includes(i));
 
-  return { effect, systems: systems.map((s) => s.id), bindings, autoStart, seeds: systems.map((s) => s.settings.seed ?? null), onPlay, onStop, custom, properties: [...properties], problems };
+  return { effect, systems: systems.map((s) => s.id), bindings, autoStart, seeds: systems.map((s) => s.settings.seed ?? null), onPlay, onStop, custom, properties: [...properties], problems, source: graph };
 }
 
 type InputFn = (sys: ParticleGraphSystem, emitter: number, block: GraphBlock, name: string, path: string, kind: ParticleBinding["kind"]) => GraphInputValue;
