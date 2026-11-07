@@ -230,3 +230,14 @@ describe("multi-node prefabs (ADR 0087)", () => {
     await expect(createPrefabFromNodes(openScene.value!, project, [doc.roots()[0], child.id])).rejects.toThrow(/share a parent/);
   });
 });
+
+describe("creating a child inside an instance (ADR 0086)", () => {
+  it("createNode under an inner row adds an override", async () => {
+    const { createNode } = await import("./nodeCreate");
+    addPipe();
+    const key = createNode(openScene.value!, "empty", { parent: "pipe/top" });
+    expect(key.startsWith("pipe/")).toBe(true);
+    expect(openScene.value!.doc.node("pipe").overrides?.[0]).toMatchObject({ target: ["top"] });
+    expect(openScene.value!.sync.nodeFor(key.split("/"))!.parent!.name).toBe("Top");
+  });
+});
