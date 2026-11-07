@@ -51,6 +51,7 @@ const files: Record<string, unknown> = {
       { id: "ref", name: "Ref", components: [{ type: "test.Holder", data: { target: { $node: "a" } } }] },
     ],
   },
+  "scenes/pathref.json": { format: "myco.scene@1", nodes: [{ id: "h", name: "H", components: [{ type: "test.Holder", data: { target: { $node: "/Persistent" } } }] }] },
   "scenes/other.json": { format: "myco.scene@1", nodes: [{ id: "x", name: "X" }] },
   "scenes/old.json": { format: "myco.scene@0", nodes: [{ id: "y", title: "Old" }] },
   "scenes/future.json": { format: "myco.scene@99", nodes: [] },
@@ -133,6 +134,14 @@ describe("scene format (ADR 0013, 0016)", () => {
     expect(hud.isValid).toBe(false);
     expect(engine.world.sceneNodes).toEqual([replacement]);
     expect(engine.world.root.children.map((c) => c.name)).toEqual(["Persistent", "other"]);
+  });
+
+  it("resolves a $node reference to a persistent node by path from the World root (ADR 0013)", async () => {
+    await engineWith({ project: { autoload: ["prefabs/persistent.json"] } });
+    const scene = await SceneManager.load("scenes/pathref.json");
+    const holder = scene.find("H")!.getBehavior(Holder)!;
+    expect(holder.target!.name).toBe("Persistent");
+    expect(holder.seenTargetInAwake).toBe("Persistent");
   });
 
   it("migrates old formats and rejects newer ones", async () => {

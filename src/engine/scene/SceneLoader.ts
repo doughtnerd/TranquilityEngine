@@ -126,6 +126,16 @@ export function sceneName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1).replace(/\.(scene\.)?json$/i, "");
 }
 
+/** The node at `/Name/Child` below `root` (each step the first child with that name), or null. */
+export function nodeAtPath(root: GameObject, path: string): GameObject | null {
+  let node: GameObject | null = root;
+  for (const name of path.split("/").filter((p) => p !== "")) {
+    node = node.children.find((c) => c.name === name) ?? null;
+    if (!node) return null;
+  }
+  return node;
+}
+
 /**
  * Marks a scene node: a node created from a scene file, holding that file's top-level nodes.
  * Loaded scenes sit under the World root; sub-scenes sit inside other scenes (ADR 0016).
@@ -449,7 +459,8 @@ class Instantiation {
 
   resolveFixups(): void {
     const resolve = (scope: Map<string, Instance>, id: string) => {
-      const found = scope.get(id)?.node ?? (scope === this.top ? this.hooks.resolveExternal?.(id) : undefined);
+      // `/Name/Child`: a node outside the file (a persistent node, ADR 0016) by names from the World root (ADR 0013).
+      const found = id.startsWith("/") ? nodeAtPath(this.world.root, id) : (scope.get(id)?.node ?? (scope === this.top ? this.hooks.resolveExternal?.(id) : undefined));
       if (!found) console.warn(`[myco] node reference "${id}" not found.`);
       else this.world._assertOwns(found, `node reference "${id}"`); // never across Worlds (ADR 0032)
       return found ?? null;
