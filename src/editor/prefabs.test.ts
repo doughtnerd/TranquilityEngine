@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, SpriteRenderer } from "../engine";
 import { AddNode, RevertOverrides, SetField, SetOverrides, type SceneFile } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
-import { applyOverrides, createPrefab, findInner, innerNodes, isOverridden, newPrefabPath, prefabFileName } from "./prefabs";
+import { addInnerNode, removeInnerNode, applyOverrides, createPrefab, findInner, innerNodes, isOverridden, newPrefabPath, prefabFileName } from "./prefabs";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, openScene, sceneCamera } from "./state";
@@ -167,5 +167,45 @@ describe("Create Prefab (ADR 0022)", () => {
     const scene = openScene.value!;
     scene.stack.execute(new SetField("game", "game.GameManager", "bird", { $node: "bird-sprite" }));
     await expect(createPrefab(scene, project, "bird")).rejects.toThrow(/references "bird-sprite"/);
+  });
+});
+
+describe("child node overrides (ADR 0086)", () => {
+  it("adds a node under an inner node, edits it, undoes, and applies it into the prefab", async () => {
+    addPipe();
+    const { doc, stack, sync } = openScene.value!;
+    const path = addInnerNode(openScene.value!, "pipe", ["top"], { name: "Spike", components: [{ type: "engine.Transform", data: { position: [0, 1, 0] } }] });
+    expect(path).toEqual(["pipe", "node"]);
+    const added = sync.nodeFor(path)!;
+    expect(added.name).toBe("Spike");
+    expect(added.parent!.name).toBe("Top");
+    stack.execute(new SetField("pipe", "engine.Transform", "position", [0, 5, 0], { target: ["node"] }));
+    expect(sync.nodeFor(path)!.transform!.position.y).toBe(5);
+    stack.undo();
+    stack.undo();
+    expect(doc.node("pipe").overrides).toBeUndefined();
+    stack.redo();
+    const { project: _p } = { project };
+    await applyOverrides(openScene.value!, project, "pipe");
+    const file = fileOf("prefabs/pipe-pair.prefab.json");
+    expect(file.nodes.find((n) => n.id === "node")).toMatchObject({ name: "Spike", parent: "top" });
+    expect(doc.node("pipe").overrides).toBeUndefined();
+  });
+
+  it("removes a prefab node as an override and writes the removal on Apply", async () => {
+    addPipe();
+    const { doc, sync } = openScene.value!;
+    removeInnerNode(openScene.value!, ["pipe", "bottom"]);
+    expect(doc.node("pipe").overrides).toEqual([{ target: ["bottom"], removeNode: true }]);
+    expect(sync.nodeFor(["pipe", "bottom"])?.isValid ?? false).toBe(false);
+    await applyOverrides(openScene.value!, project, "pipe");
+    expect(fileOf("prefabs/pipe-pair.prefab.json").nodes.some((n) => n.id === "bottom")).toBe(false);
+  });
+
+  it("removing an added node drops its override", () => {
+    addPipe();
+    const path = addInnerNode(openScene.value!, "pipe", [], { name: "X" });
+    removeInnerNode(openScene.value!, path);
+    expect(openScene.value!.doc.node("pipe").overrides).toBeUndefined();
   });
 });

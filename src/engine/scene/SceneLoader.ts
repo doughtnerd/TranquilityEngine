@@ -52,6 +52,15 @@ export interface OverrideEntry {
   order?: string[];
   addComponent?: ComponentEntry;
   removeComponent?: string;
+  /**
+   * Child nodes the instance adds (ADR 0086): a flat subtree in the file's own node shape. Nodes
+   * with no `parent` become children of the node `target` names (the instance root when empty);
+   * the others name a parent in this list. Their ids are scoped like the prefab's own, so later
+   * overrides can target them, and they mustn't repeat an id of the prefab.
+   */
+  addNodes?: NodeEntry[];
+  /** True: remove the node (and its subtree) that `target` names; `target` mustn't be empty (ADR 0086). */
+  removeNode?: boolean;
 }
 
 export interface NodeEntry {
@@ -336,21 +345,57 @@ class Instantiation {
 
   private override(inst: Instance, o: OverrideEntry, scope: Map<string, Instance>, path: string): void {
     let current = inst;
-    for (const id of o.target ?? []) {
-      const next = current.nested?.get(id);
+    // The instance whose id map the target's node belongs to (a nested prefab instance has its own), and its path.
+    let container = inst;
+    let containerAt = this.at;
+    const target = o.target ?? [];
+    for (let i = 0; i < target.length; i++) {
+      const next = current.nested?.get(target[i]);
       if (!next) {
-        this.problem(`${path}: override target "${(o.target ?? []).join("/")}" not found in prefab instance.`);
+        this.problem(`${path}: override target "${target.join("/")}" not found in prefab instance.`);
         return;
       }
       current = next;
+      if (current.nested) {
+        container = current;
+        containerAt = [...this.at, ...target.slice(0, i + 1)];
+      }
     }
     const node = current.node;
     const previous = this.at;
-    this.at = [...this.at, ...(o.target ?? [])];
+    this.at = [...this.at, ...target];
     try {
+      if (o.removeNode) {
+        if (target.length === 0) this.problem(`${path}: a removeNode override needs a target (the instance itself can't be removed this way).`);
+        else {
+          this.world._destroyNode(node.entity);
+          this.world._flushDestroyed();
+          container.nested?.delete(target[target.length - 1]);
+        }
+        return;
+      }
+      if (o.addNodes) this.addNodes(o.addNodes, current, container, containerAt, scope, path);
       this.applyOverride(node, o, scope, path);
     } finally {
       this.at = previous;
+    }
+  }
+
+  /** An `addNodes` override: create the nodes under `parent`, and register their ids in `container` so later overrides can target them. */
+  private addNodes(nodes: NodeEntry[], parent: Instance, container: Instance, containerAt: readonly string[], scope: Map<string, Instance>, path: string): void {
+    container.nested ??= new Map();
+    const taken = nodes.find((n) => container.nested!.has(n.id));
+    if (taken) {
+      this.problem(`${path}: added node id "${taken.id}" is already used in prefab instance.`);
+      return;
+    }
+    const previous = this.prefix;
+    this.prefix = [...containerAt];
+    try {
+      const { ids } = this.file({ format: "", nodes }, parent.node, path);
+      for (const [id, inst] of ids) container.nested.set(id, inst);
+    } finally {
+      this.prefix = previous;
     }
   }
 
