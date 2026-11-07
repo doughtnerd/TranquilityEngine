@@ -1,0 +1,11 @@
+{
+  "format": "myco.shader@1",
+  "properties": [
+    { "name": "Tint", "type": "color", "value": "#4a90e2" },
+    { "name": "RimColor", "type": "color", "value": "#ffd166" },
+    { "name": "RimPower", "type": "float", "value": 3 }
+  ],
+  "keywords": [{ "name": "RIM" }],
+  "wgsl": "asset:shaders/rim.wgsl",
+  "glsl": "asset:shaders/rim.glsl"
+}

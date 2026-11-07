@@ -7,6 +7,7 @@ import { Color, Quaternion, Ray, Vector2, Vector3 } from "../core/math";
 import { AssetRef, PlainObject, component, field } from "../core/registry";
 import { World } from "../core/World";
 import { pixelPerfectView } from "./pixelPerfect";
+import { Material } from "./Material";
 
 /** Draws a textured quad (ADR 0014). */
 @component("engine.SpriteRenderer")
@@ -228,6 +229,55 @@ export class MeshRenderer extends Component {
   private readonly materialProperties = new Map<string, MaterialPropertyValue>();
   /** @internal Bumped when the property overrides change, so the render backend applies them. */
   _materialPropertiesVersion = 0;
+  /** A Material assigned through `sharedMaterial` or made by `materialInstance` (ADR 0107), and the `material` path it was for. */
+  private assigned: { material: Material; path: string; owned: boolean } | null = null;
+
+  /**
+   * The Material this renderer draws (ADR 0107): its material asset's shared Material (changing it
+   * changes every renderer drawing that asset), or a Material assigned here. Null with no material
+   * asset (the model's own materials). Assigning a shared Material sets `material` to its asset;
+   * assigning an instance draws that instance (renderers may share one instance).
+   */
+  get sharedMaterial(): Material | null {
+    const a = this.currentAssigned();
+    if (a) return a.material;
+    return this.material ? Material.shared(this.material) : null;
+  }
+
+  set sharedMaterial(m: Material | null) {
+    this.assigned = null;
+    if (!m) {
+      this.material = "";
+      return;
+    }
+    this.material = m.asset;
+    if (m.isInstance) this.assigned = { material: m, path: m.asset, owned: false };
+  }
+
+  /**
+   * This renderer's own Material (Unity's `renderer.material`, ADR 0107): made on first access as a copy
+   * of `sharedMaterial` (its values at that moment), then kept. Changing it changes this renderer only,
+   * and it draws apart from the instanced batch of its mesh. A renderer without a material asset gets an
+   * instance of the default lit material.
+   */
+  get materialInstance(): Material {
+    const a = this.currentAssigned();
+    if (a?.owned) return a.material;
+    const m = (a?.material ?? (this.material ? Material.shared(this.material) : new Material(""))).clone();
+    this.assigned = { material: m, path: this.material, owned: true };
+    return m;
+  }
+
+  /** @internal The Material the render backend draws: an assigned one, the asset's shared one if made, or null to draw the asset as it is. */
+  _drawMaterial(): Material | null {
+    return this.currentAssigned()?.material ?? (this.material ? (Material._sharedIfAny(this.material) ?? null) : null);
+  }
+
+  /** An assigned Material, dropped once `material` (the path) was changed since. */
+  private currentAssigned(): { material: Material; owned: boolean } | null {
+    if (this.assigned && this.assigned.path !== this.material) this.assigned = null;
+    return this.assigned;
+  }
 
   /**
    * Override one of the material's properties for this renderer only (ADR 0049), like Unity's

@@ -9,6 +9,7 @@ import type { EditorProject } from "../projects";
 import {
   addNode,
   addNote,
+  addKeyword,
   addProperty,
   addSubGraphOutput,
   copyNodes,
@@ -36,7 +37,11 @@ import {
   moveNodes,
   moveProperty,
   removeNodes,
+  removeKeyword,
   removeProperty,
+  renameKeyword,
+  setKeyword,
+  whyNotKeywordName,
   renameProperty,
   setGraphOptions,
   setInput,
@@ -532,6 +537,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
               setSelection(new Set([made.id]));
             }}
           />
+          {!sub && <KeywordList graph={graph} readOnly={readOnly} commit={commit} />}
           {sub && <SubGraphOutputs graph={graph} readOnly={readOnly} commit={commit} />}
           {selectedNode?.type === "customFunction" && <FunctionEditor key={selectedNode.id} node={selectedNode} graph={graph} wgslFiles={project.files.filter((x) => x.toLowerCase().endsWith(".wgsl"))} readOnly={readOnly} commit={commit} />}
           <div class="sg-preview-card">
@@ -798,6 +804,7 @@ function SettingField(props: { node: GraphNode; setting: SettingDef; graph: Shad
   else if (setting.kind === "subgraph")
     field = select([{ value: "", label: "(pick a sub-graph)" }, ...props.subgraphs.map((f) => ({ value: `asset:${f}`, label: fileName(f) })), ...(value && !props.subgraphs.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
   else if (setting.kind === "property") field = select([{ value: "", label: "(pick a property)" }, ...graph.properties.map((p) => ({ value: p.name, label: p.name }))]);
+  else if (setting.kind === "keyword") field = select([{ value: "", label: "(pick a keyword)" }, ...(graph.keywords ?? []).map((k) => ({ value: k.name, label: k.name }))]);
   else if (setting.kind === "texture")
     field = select([{ value: "", label: "White" }, ...props.images.map((f) => ({ value: `asset:${f}`, label: fileName(f) })), ...(value && !props.images.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
   else if (setting.kind === "color") field = <input type="color" class={NO_DRAG} aria-label={label} disabled={props.readOnly} value={value.slice(0, 7)} onChange={(e) => props.onValue((e.currentTarget as HTMLInputElement).value)} />;
@@ -911,6 +918,80 @@ function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[];
               ✕
             </button>
           </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The graph's keywords (ADR 0106): on/off or enum switches materials set, each compiling its own variant. */
+function KeywordList(props: { graph: ShaderGraph; readOnly: boolean; commit(g: ShaderGraph): void }) {
+  const { graph, readOnly, commit } = props;
+  const keywords = graph.keywords ?? [];
+  return (
+    <div class="sg-blackboard sg-keywords" aria-label="Keywords">
+      <div class="sg-blackboard-head">
+        <span>Keywords</span>
+        <button aria-label="Add keyword" disabled={readOnly} onClick={() => commit(addKeyword(graph).graph)}>
+          + Add
+        </button>
+      </div>
+      {keywords.length === 0 && <p class="sg-hint">Keywords are switches a material sets; each combination compiles its own shader. Add one, then use it in a Keyword node.</p>}
+      {keywords.map((k) => (
+        <div key={k.name} class="sg-property" aria-label={`Keyword ${k.name}`}>
+          <div class="sg-property-row">
+            <input
+              type="text"
+              aria-label="Keyword name"
+              disabled={readOnly}
+              value={k.name}
+              onChange={(e) => {
+                const input = e.currentTarget as HTMLInputElement;
+                const name = input.value.trim().toUpperCase().replace(/\s+/g, "_");
+                const why = whyNotKeywordName(graph, k.name, name);
+                if (why) {
+                  status.value = { kind: "error", text: `Can't rename the keyword: ${why}.` };
+                  input.value = k.name;
+                } else commit(renameKeyword(graph, k.name, name));
+              }}
+            />
+            <select
+              aria-label={`${k.name} kind`}
+              disabled={readOnly}
+              value={k.values ? "enum" : "bool"}
+              onChange={(e) => commit(setKeyword(graph, k.name, { values: (e.currentTarget as HTMLSelectElement).value === "enum" ? ["LOW", "HIGH"] : null }))}
+            >
+              <option value="bool">On / off</option>
+              <option value="enum">Enum</option>
+            </select>
+            <button class="danger" title="Remove the keyword and its nodes" aria-label={`Remove ${k.name}`} disabled={readOnly} onClick={() => commit(removeKeyword(graph, k.name))}>
+              Remove
+            </button>
+          </div>
+          {k.values && (
+            <div class="sg-property-row">
+              <input
+                type="text"
+                aria-label={`${k.name} values`}
+                title="Comma-separated, two or more, upper case; the first is the default"
+                disabled={readOnly}
+                value={k.values.join(", ")}
+                onChange={(e) => {
+                  const input = e.currentTarget as HTMLInputElement;
+                  const values = input.value.split(",").map((v) => v.trim().toUpperCase()).filter((v) => v);
+                  const next = setKeyword(graph, k.name, { values });
+                  if (next === graph) {
+                    status.value = { kind: "error", text: "An enum keyword needs two or more distinct upper-case values (letters, digits, _)." };
+                    input.value = k.values!.join(", ");
+                  } else commit(next);
+                }}
+              />
+            </div>
+          )}
+          <label class="sg-property-row" title="Warm-up compiles every combination, so scripts can switch it at run time">
+            <input type="checkbox" aria-label={`${k.name} compile all variants`} disabled={readOnly} checked={k.variants === "all"} onChange={(e) => commit(setKeyword(graph, k.name, { variants: (e.currentTarget as HTMLInputElement).checked ? "all" : "used" }))} />
+            <span>Compile all variants (switched by scripts)</span>
+          </label>
         </div>
       ))}
     </div>

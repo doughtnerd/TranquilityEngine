@@ -1,0 +1,200 @@
+// ADR 0107: scripts change materials through engine `Material` objects — the shared one per asset, or
+// instances per renderer — with no Babylon types. Engine semantics, then the Babylon renderer on a
+// NullEngine applying them (shared values in place; instances on their own copies).
+import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
+import type { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
+import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { World } from "../core/World";
+import { Assets, Color, Engine, GameObject, Material, MeshRenderer, SceneManager, Vector2 } from "../index";
+import { BabylonRenderer } from "../render/babylon/BabylonRenderer";
+
+const RED = "asset:materials/red.material.json";
+const BLUE = "asset:materials/blue.material.json";
+
+describe("Material (ADR 0107)", () => {
+  afterEach(() => Material._resetShared());
+
+  it("is one shared Material per asset, whatever the spelling", () => {
+    const a = Material.shared(RED);
+    expect(Material.shared("materials/red.material.json")).toBe(a);
+    expect(a.isInstance).toBe(false);
+    expect(new Material(RED).isInstance).toBe(true);
+  });
+
+  it("sets, reads and clears values and keywords, bumping its version", () => {
+    const m = new Material(RED);
+    const v0 = m._version;
+    m.setColor("color", Color.from("#00ff00"));
+    m.setFloat("roughness", 0.2);
+    m.setVector("Offset", new Vector2(1, 2));
+    m.setTexture("texture", "asset:images/a.png");
+    m.setKeyword("RIM", true);
+    m.setKeyword("QUALITY", "HIGH");
+    expect(m._version).toBeGreaterThan(v0);
+    expect(m.getColor("color")?.toHex()).toBe("#00ff00");
+    expect(m.getFloat("roughness")).toBe(0.2);
+    expect(m.getVector("Offset")).toEqual(new Vector2(1, 2));
+    expect(m.getTexture("texture")).toBe("asset:images/a.png");
+    expect(m.isKeywordEnabled("RIM")).toBe(true);
+    expect(m.getKeyword("QUALITY")).toBe("HIGH");
+    expect(m.getFloat("color")).toBeUndefined(); // wrong type reads as unset
+    m.clear("roughness");
+    expect(m.hasOverride("roughness")).toBe(false);
+    const v = m._version;
+    m.setKeyword("RIM", true); // unchanged: no new version
+    expect(m._version).toBe(v);
+    m.clearAll();
+    expect(m._empty).toBe(true);
+  });
+
+  it("copies values on clone, and copies stay independent", () => {
+    const a = Material.shared(RED);
+    const c = Color.from("#123456");
+    a.setColor("color", c);
+    c.r = 1; // the Material keeps its own copy
+    const b = a.clone();
+    expect(b.isInstance).toBe(true);
+    expect(b.getColor("color")?.toHex()).toBe("#123456");
+    a.setFloat("metalness", 1);
+    expect(b.hasOverride("metalness")).toBe(false);
+  });
+
+  it("forgets shared values on reset (leaving play mode)", () => {
+    const a = Material.shared(RED);
+    a.setFloat("metalness", 1);
+    Material._resetShared();
+    expect(Material.shared(RED)._empty).toBe(true);
+  });
+});
+
+describe("MeshRenderer.sharedMaterial / materialInstance (ADR 0107)", () => {
+  let renderer: MeshRenderer;
+  beforeEach(async () => {
+    Assets.clearSources();
+    Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
+    await Engine.create({ headless: true });
+    await SceneManager.load("s.json");
+    renderer = GameObject.create("box").addBehavior(MeshRenderer, { material: RED });
+  });
+  afterEach(() => Material._resetShared());
+
+  it("reads the asset's shared Material, and draws it only once one exists", () => {
+    expect(renderer._drawMaterial()?._empty ?? true).toBe(true); // nothing set: the asset draws as it is
+    const shared = renderer.sharedMaterial!;
+    expect(shared).toBe(Material.shared(RED));
+    expect(renderer._drawMaterial()).toBe(shared);
+  });
+
+  it("makes its own instance once, from the shared values", () => {
+    Material.shared(RED).setFloat("roughness", 0.1);
+    const mine = renderer.materialInstance;
+    expect(mine.isInstance).toBe(true);
+    expect(mine.getFloat("roughness")).toBe(0.1);
+    expect(renderer.materialInstance).toBe(mine);
+    expect(renderer.sharedMaterial).toBe(mine);
+    expect(renderer._drawMaterial()).toBe(mine);
+  });
+
+  it("assigns shared Materials by path and instances directly; changing the path drops an instance", () => {
+    renderer.sharedMaterial = Material.shared(BLUE);
+    expect(renderer.material).toBe(BLUE);
+    const inst = new Material(RED);
+    renderer.sharedMaterial = inst;
+    expect(renderer.material).toBe(RED);
+    expect(renderer.sharedMaterial).toBe(inst);
+    // An assigned (not owned) instance is copied by materialInstance, as Unity copies a shared one.
+    expect(renderer.materialInstance).not.toBe(inst);
+    renderer.material = BLUE;
+    expect(renderer.sharedMaterial).toBe(Material.shared(BLUE));
+    renderer.sharedMaterial = null;
+    expect(renderer.material).toBe("");
+    expect(renderer.sharedMaterial).toBeNull();
+  });
+
+  it("gives a renderer without a material asset an instance of the default material", () => {
+    renderer.material = "";
+    expect(renderer.materialInstance.asset).toBe("");
+  });
+});
+
+describe("script Materials on the Babylon renderer (ADR 0107)", () => {
+  let nullEngine: NullEngine;
+  let babylon: BabylonRenderer;
+  let world: World;
+  type Internals = { meshRenderers: Map<MeshRenderer, { meshes: { material: BabylonMaterial | null }[] }>; instanceMaterials: Map<Material, unknown> };
+
+  beforeEach(async () => {
+    Assets.clearSources();
+    Assets.addSource(
+      Assets.fromObject({
+        "s.json": { format: "myco.scene@1", nodes: [] },
+        "materials/red.material.json": { format: "myco.material@1", color: "#ff0000", roughness: 0.8 },
+      }),
+    );
+    await Engine.create({ headless: true });
+    await SceneManager.load("s.json");
+    world = World.require();
+    nullEngine = new NullEngine();
+    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown, fill: boolean) => BabylonRenderer;
+    babylon = new Ctor(nullEngine, world.settings, false);
+  });
+  afterEach(() => {
+    Material._resetShared();
+    babylon.dispose();
+    nullEngine.dispose();
+  });
+
+  const internals = () => babylon as unknown as Internals;
+  const drawn = (r: MeshRenderer) => internals().meshRenderers.get(r)!.meshes[0].material as PBRMaterial;
+  const box = (name: string) => GameObject.create(name).addBehavior(MeshRenderer, { material: RED });
+
+  it("applies the shared Material to the asset's material in place, for every renderer", () => {
+    const a = box("a"), b = box("b");
+    babylon.syncMeshes(world);
+    const asset = drawn(a);
+    expect(drawn(b)).toBe(asset);
+    expect(asset.roughness).toBeCloseTo(0.8);
+    Material.shared(RED).setFloat("roughness", 0.3);
+    babylon.syncMeshes(world);
+    expect(drawn(a)).toBe(asset); // same material, changed in place
+    expect(asset.roughness).toBeCloseTo(0.3);
+    Material._resetShared();
+    babylon.syncMeshes(world);
+    expect(asset.roughness).toBeCloseTo(0.8); // back to the asset's value
+  });
+
+  it("draws an instance with its own copy, leaving the others on the asset's material", () => {
+    const a = box("a"), b = box("b");
+    babylon.syncMeshes(world);
+    const asset = drawn(b);
+    a.materialInstance.setColor("color", Color.from("#0000ff"));
+    a.materialInstance.setFloat("metalness", 1);
+    babylon.syncMeshes(world);
+    const mine = drawn(a);
+    expect(mine).not.toBe(asset);
+    expect(mine.metallic).toBe(1);
+    expect(mine.albedoColor.b).toBeCloseTo(1);
+    expect(mine.roughness).toBeCloseTo(0.8); // the asset's own value where the instance sets none
+    expect(asset.metallic).toBe(0);
+    expect(drawn(b)).toBe(asset);
+    // Back to the shared Material: the copy is disposed after the next sync.
+    a.sharedMaterial = Material.shared(RED);
+    babylon.syncMeshes(world);
+    expect(drawn(a)).toBe(asset);
+    expect(internals().instanceMaterials.size).toBe(0);
+  });
+
+  it("layers per-renderer overrides (ADR 0049) over a shared Material, following its changes", () => {
+    const a = box("a");
+    a.setMaterialProperty("metalness", 0.5);
+    babylon.syncMeshes(world);
+    const copy = drawn(a);
+    expect(copy.metallic).toBe(0.5);
+    Material.shared(RED).setFloat("roughness", 0.1);
+    babylon.syncMeshes(world);
+    expect(drawn(a)).toBe(copy);
+    expect(copy.roughness).toBeCloseTo(0.1);
+    expect(copy.metallic).toBe(0.5);
+  });
+});

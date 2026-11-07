@@ -47,7 +47,8 @@ import type { World } from "../../core/World";
 import type { Color } from "../../core/math";
 import { Assets, sidecarValue } from "../../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
-import { parseMaterial, materialGraphOfJson, type MaterialSettings } from "../../scene/material";
+import { defaultMaterialSettings, parseMaterial, materialGraphOfJson, type MaterialSettings } from "../../scene/material";
+import { Material as EngineMaterial } from "../Material";
 import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../../scene/shaderGraph";
 import { isShaderAssetPath, parseShaderAsset } from "../../scene/shaderAsset";
@@ -122,6 +123,18 @@ interface MaterialEntry {
   deps?: [string, unknown][];
   /** The shader level a graph with Quality Branch nodes was compiled for (ADR 0050). */
   level?: string;
+  /** The asset's parsed settings (null: a renderer naming a graph or shader directly), to reset to under script values (ADR 0107). */
+  settings: MaterialSettings | null;
+}
+
+/** A script Material instance's own Babylon material (ADR 0107). */
+interface InstanceMaterial {
+  base: BabylonMaterial;
+  material: BabylonMaterial;
+  graph?: BabylonGraphMaterial;
+  version: number;
+  /** Drawn this sync; instances no renderer drew are disposed after it. */
+  seen: boolean;
 }
 
 /** A renderer's own material holding its property overrides (ADR 0049). */
@@ -130,6 +143,8 @@ interface RendererMaterial {
   material: BabylonMaterial;
   graph?: BabylonGraphMaterial;
   version: number;
+  /** The base's `stamp` when the overrides were applied: script Material values changed it since (ADR 0107). */
+  stamp: number;
 }
 
 /** The built-in materials' property names a renderer may override (ADR 0049). */
@@ -202,6 +217,12 @@ export class BabylonRenderer {
   private readonly graphs = new WeakMap<BabylonMaterial, BabylonGraphMaterial>();
   /** Renderers with property overrides, and their own materials (ADR 0049). */
   private readonly rendererMaterials = new Map<MeshRenderer, RendererMaterial>();
+  /** The shared script Material version applied to each asset's Babylon material (ADR 0107). */
+  private readonly sharedApplied = new WeakMap<BabylonMaterial, number>();
+  /** Script Material instances' Babylon materials (ADR 0107). */
+  private readonly instanceMaterials = new Map<EngineMaterial, InstanceMaterial>();
+  /** Bumped when script values change a Babylon material in place, so renderer copies follow (ADR 0107). */
+  private readonly stamps = new WeakMap<BabylonMaterial, number>();
   /** The image each built-in material copy's `texture` override asks for (null: the base's texture). */
   private readonly wantedTextures = new WeakMap<PBRMaterial, string | null>();
   /** Time and drawing-buffer size, read by every graph material. */
@@ -536,7 +557,7 @@ export class BabylonRenderer {
   sync(world: World): void {
     this.claim(world);
     for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s);
-    for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
+    this.syncMeshes(world);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     const view = this.viewCameras(world)[0];
     const camera = view ? this.cameras.get(view)!.camera : null;
@@ -1033,6 +1054,13 @@ export class BabylonRenderer {
 
   // --- Meshes and materials (ADR 0043, 0044) ----------------------------------------------------
 
+  /** @internal Every MeshRenderer, then the script Material instances no renderer drew any more (ADR 0107). */
+  syncMeshes(world: World): void {
+    for (const e of this.instanceMaterials.values()) e.seen = false;
+    for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
+    for (const [m, e] of this.instanceMaterials) if (!e.seen) this.disposeInstance(m);
+  }
+
   private syncMesh(world: World, r: MeshRenderer): void {
     let entry = this.meshRenderers.get(r);
     if (!entry) {
@@ -1040,7 +1068,7 @@ export class BabylonRenderer {
       this.meshRenderers.set(r, entry);
     }
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
-    const material = this.rendererMaterial(r, this.materialAsset(r.material));
+    const material = this.rendererMaterial(r, this.drawnMaterial(r));
     const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
     if (!same || entry.material !== material) {
       for (const m of entry.meshes) m.dispose();
@@ -1085,6 +1113,14 @@ export class BabylonRenderer {
    * warned once). Rebuilt when the asset's JSON changes (the editor's Material inspector).
    */
   private materialAsset(path: string): BabylonMaterial | null {
+    const m = this.materialAssetBase(path);
+    // The asset's shared script Material (ADR 0107), applied in place: every user of the asset follows.
+    const shared = m && path ? EngineMaterial._sharedIfAny(path) : undefined;
+    if (m && shared) this.applyShared(path, m, shared);
+    return m;
+  }
+
+  private materialAssetBase(path: string): BabylonMaterial | null {
     if (!path) return null;
     const read = (p: string): unknown => {
       try {
@@ -1108,6 +1144,7 @@ export class BabylonRenderer {
     for (const t of cached?.textures ?? []) t.dispose();
     let material: BabylonMaterial | null = null;
     let graph: BabylonGraphMaterial | undefined;
+    let assetSettings: MaterialSettings | null = null;
     const owned: Texture[] = [];
     const where = path.replace(/^asset:/, "");
     if (raw === undefined) {
@@ -1115,6 +1152,7 @@ export class BabylonRenderer {
     } else if (graphPath) {
       try {
         const settings = graphPath === path ? null : parseMaterial(raw, where).settings;
+        assetSettings = settings;
         if (graphRaw === undefined) throw new Error(`${isShaderAssetPath(graphPath) ? "shader" : "shader graph"} "${graphPath.replace(/^asset:/, "")}" isn't in the project.`);
         graph = this.graphMaterial(graphRaw, graphPath.replace(/^asset:/, ""), settings?.properties ?? {}, isShaderAssetPath(graphPath) ? read : undefined);
         // Keyword values (ADR 0106): unknown names and values are warned once.
@@ -1130,6 +1168,7 @@ export class BabylonRenderer {
       try {
         const { settings, problems } = parseMaterial(raw, where);
         for (const p of problems) this.warnOnce(`${path}|${p}`, p);
+        assetSettings = settings;
         material = this.builtinMaterial(path, settings, owned);
       } catch (err) {
         this.warnOnce(`bad|${path}`, `${(err as Error).message} Using the default material.`);
@@ -1144,8 +1183,114 @@ export class BabylonRenderer {
         /* warned above */
       }
     }
-    this.materialAssets.set(path, { raw, graphRaw, material, textures: owned, graph, deps, level });
+    this.materialAssets.set(path, { raw, graphRaw, material, textures: owned, graph, deps, level, settings: assetSettings });
     return material;
+  }
+
+  // --- Script materials (ADR 0107) ----------------------------------------------------------------
+
+  /** A script Material's values as material-file data. */
+  private static scriptValues(m: EngineMaterial): Record<string, GraphValue> {
+    const values: Record<string, GraphValue> = {};
+    for (const [k, v] of m._values) values[k] = toGraphValue(v);
+    return values;
+  }
+
+  private bump(m: BabylonMaterial): void {
+    this.stamps.set(m, (this.stamps.get(m) ?? 0) + 1);
+  }
+
+  /**
+   * Apply a script Material's values and keywords to a Babylon material built from `path`, in place:
+   * graph and shader-asset materials take them over the asset's properties and keywords (uniforms, or a
+   * keyword variant); built-in materials reset to the asset's settings, then take the values.
+   */
+  private applyValues(path: string, target: BabylonMaterial, m: EngineMaterial, graph: BabylonGraphMaterial | undefined): void {
+    const entry = path ? this.materialAssets.get(path) : undefined;
+    const settings = entry?.settings ?? (path ? null : defaultMaterialSettings());
+    const values = BabylonRenderer.scriptValues(m);
+    const keywords = Object.fromEntries(m._keywords);
+    const what = path ? path.replace(/^asset:/, "") : "the default material";
+    if (graph) {
+      graph.setProperties({ ...(settings?.properties ?? {}), ...values });
+      resolveKeywords(graph.compiled.keywords, keywords, (msg) => this.warnOnce(`${path}|script-kw|${msg}`, `${what}: ${msg}`));
+      graph.setKeywords({ ...(settings?.keywords ?? {}), ...keywords });
+      const known = new Set(graph.compiled.uniforms.flatMap((u) => (u.property ? [u.property] : [])));
+      for (const k of Object.keys(values)) if (!known.has(k)) this.warnOnce(`${path}|script-prop|${k}`, `${what} has no property "${k}"; the Material's value is ignored.`);
+    } else if (target instanceof PBRMaterial && settings) {
+      target.alpha = 1; // applyBuiltinSettings only sets these for see-through colours
+      target.transparencyMode = null;
+      applyBuiltinSettings(target, settings);
+      applyBuiltinOverrides(target, target, values);
+      if (typeof values.texture === "string") this.overrideTexture(target, target, values);
+      for (const k of Object.keys(values)) if (!BUILTIN_PROPERTIES.has(k)) this.warnOnce(`${path}|script-prop|${k}`, `${what} has no property "${k}"; the Material's value is ignored.`);
+      if (m._keywords.size) this.warnOnce(`${path}|script-kw`, `${what} is a built-in material; it has no keywords (shader graphs and shader assets do, ADR 0106).`);
+    }
+    this.bump(target);
+  }
+
+  /** The asset's shared Material on its Babylon material, when its version changed. */
+  private applyShared(path: string, material: BabylonMaterial, shared: EngineMaterial): void {
+    const applied = this.sharedApplied.get(material);
+    if (applied === shared._version || (applied === undefined && shared._empty)) return;
+    this.sharedApplied.set(material, shared._version);
+    // A texture override taken back: rebuild the asset, so its own texture loads onto it again.
+    const entry = this.materialAssets.get(path);
+    if (applied !== undefined && !shared._values.has("texture") && material instanceof PBRMaterial && this.wantedTextures.get(material) && entry) {
+      entry.raw = Symbol("rebuild");
+      return;
+    }
+    this.applyValues(path, material, shared, this.graphs.get(material));
+  }
+
+  /** A script Material instance's own Babylon material: a copy of its asset's (a graph copy shares the compiled program). */
+  private instanceMaterial(m: EngineMaterial): BabylonMaterial | null {
+    const asset = m.asset ? this.materialAssetBase(m.asset) : this.defaultMaterial;
+    if (!asset) return null;
+    let e = this.instanceMaterials.get(m);
+    if (e && e.base !== asset) {
+      this.disposeInstance(m);
+      e = undefined;
+    }
+    if (!e) {
+      const g = this.graphs.get(asset);
+      if (g) {
+        const made = createGraphMaterial(this.scene, `${asset.name}:instance`, g.compiled, { ...g.properties }, this.graphShared, (p, linear) => this.graphTexture(p, linear));
+        made.setKeywords(g.keywords);
+        this.graphs.set(made.material, made);
+        e = { base: asset, material: made.material, graph: made, version: -1, seen: true };
+      } else if (asset instanceof PBRMaterial) {
+        e = { base: asset, material: asset.clone(`${asset.name}:instance`), version: -1, seen: true };
+      } else e = { base: asset, material: asset, version: m._version, seen: true };
+      if (this.noFog.has(asset)) this.noFog.add(e.material);
+      this.instanceMaterials.set(m, e);
+    }
+    e.seen = true;
+    if (e.version !== m._version) {
+      e.version = m._version;
+      if (e.material !== e.base) this.applyValues(m.asset, e.material, m, e.graph);
+    }
+    // A copy taken before its asset's textures loaded follows them, unless it overrides its own.
+    if (e.material instanceof PBRMaterial && e.base instanceof PBRMaterial && !this.wantedTextures.get(e.material)) {
+      if (e.material.albedoTexture !== e.base.albedoTexture) e.material.albedoTexture = e.base.albedoTexture;
+      if (e.material.bumpTexture !== e.base.bumpTexture) e.material.bumpTexture = e.base.bumpTexture;
+    }
+    return e.material;
+  }
+
+  private disposeInstance(m: EngineMaterial): void {
+    const e = this.instanceMaterials.get(m);
+    if (!e) return;
+    if (e.graph) e.graph.dispose();
+    else if (e.material !== e.base) e.material.dispose();
+    this.instanceMaterials.delete(m);
+  }
+
+  /** The Babylon material a renderer draws before its own overrides (ADR 0049): its script Material's, or its asset's. */
+  private drawnMaterial(r: MeshRenderer): BabylonMaterial | null {
+    const m = r._drawMaterial();
+    if (m?.isInstance) return this.instanceMaterial(m);
+    return this.materialAsset(r.material);
   }
 
   /**
@@ -1235,7 +1380,8 @@ export class BabylonRenderer {
       this.releaseRendererMaterial(r);
       entry = undefined;
     }
-    if (entry && entry.version === r._materialPropertiesVersion) {
+    const stamp = this.stamps.get(base) ?? 0;
+    if (entry && entry.version === r._materialPropertiesVersion && entry.stamp === stamp) {
       // A copy taken before its base's textures loaded (they arrive after the material is made) follows them.
       const m = entry.material;
       if (m !== base && m instanceof PBRMaterial && base instanceof PBRMaterial) {
@@ -1250,17 +1396,22 @@ export class BabylonRenderer {
     if (!entry) {
       if (baseGraph) {
         const g = createGraphMaterial(this.scene, `${base.name}:${r.node.name}`, baseGraph.compiled, { ...baseGraph.properties, ...values }, this.graphShared, (p, linear) => this.graphTexture(p, linear));
-        entry = { base, material: g.material, graph: g, version: r._materialPropertiesVersion };
+        g.setKeywords(baseGraph.keywords); // a variant of the base's (ADR 0106)
+        entry = { base, material: g.material, graph: g, version: r._materialPropertiesVersion, stamp };
       } else {
-        entry = { base, material: base, version: -1 };
+        entry = { base, material: base, version: -1, stamp };
       }
       this.rendererMaterials.set(r, entry);
       const known = baseGraph ? new Set(baseGraph.compiled.uniforms.flatMap((u) => (u.property ? [u.property] : []))) : BUILTIN_PROPERTIES;
       for (const k of overrides.keys()) if (!known.has(k)) this.warnOnce(`${r.material}|prop|${k}`, `${r.node.name}: its material has no property "${k}"; setMaterialProperty ignores it.`);
     }
-    if (entry.version !== r._materialPropertiesVersion) {
+    if (entry.version !== r._materialPropertiesVersion || entry.stamp !== stamp) {
       entry.version = r._materialPropertiesVersion;
-      if (entry.graph && baseGraph) entry.graph.setProperties({ ...baseGraph.properties, ...values });
+      entry.stamp = stamp;
+      if (entry.graph && baseGraph) {
+        entry.graph.setProperties({ ...baseGraph.properties, ...values });
+        entry.graph.setKeywords(baseGraph.keywords);
+      }
       else if (base instanceof PBRMaterial) {
         // One copy per renderer, updated in place: the base's values, then the overrides. A new copy
         // per change rebuilt the renderer's meshes and, once the old copy's effect was released,
@@ -1283,8 +1434,8 @@ export class BabylonRenderer {
     else
       this.texture(image)
         .then((tex) => {
-          // Still this renderer's copy, and still wanting this image.
-          if (this.wantedTextures.get(m) === image && [...this.rendererMaterials.values()].some((e) => e.material === m)) m.albedoTexture = tex;
+          // Still wanting this image, and not disposed meanwhile.
+          if (this.wantedTextures.get(m) === image && this.scene.materials.includes(m)) m.albedoTexture = tex;
         })
         .catch((err) => console.error(`[myco] failed to load texture "${image}":`, err));
   }

@@ -28,9 +28,9 @@ We will add **shader assets**, `*.shader.json` (`myco.shader@1`), that describe 
   "surface": "opaque",          // "opaque" (default) | "transparent"
   "doubleSided": false,
   "properties": [                // the graph property format (0047): float, vector2–4, color, texture
-    { "name": "Tint", "type": "color", "default": "#ffffff" },
-    { "name": "Rim", "type": "float", "default": 2 },
-    { "name": "Albedo", "type": "texture", "default": "" }
+    { "name": "Tint", "type": "color", "value": "#ffffff" },
+    { "name": "Rim", "type": "float", "value": 2 },
+    { "name": "Albedo", "type": "texture", "value": "" }
   ],
   "keywords": [ { "name": "RIM" }, { "name": "QUALITY", "values": ["LOW", "HIGH"], "variants": "all" } ],
   "wgsl": "asset:shaders/rim.wgsl",   // or { "code": "…" } inline; used on WebGPU
@@ -42,7 +42,7 @@ The code defines functions the engine calls; only `surface` is required:
 
 ```wgsl
 // WGSL. Properties are uniforms.Tint, uniforms.Rim; a texture is Albedo with AlbedoSampler.
-fn vertex(v: MycoVertex) -> vec3f { return vec3f(0.0); }              // optional: object-space offset
+fn vertexOffset(v: MycoVertex) -> vec3f { return vec3f(0.0); }        // optional: object-space offset
 fn surface(s: MycoSurfaceInput, out: ptr<function, MycoSurface>) {
   (*out).baseColor = uniforms.Tint.rgb;
 #ifdef KW_RIM
@@ -53,11 +53,11 @@ fn surface(s: MycoSurfaceInput, out: ptr<function, MycoSurface>) {
 
 ```glsl
 // GLSL ES 3.0. Properties are bare names (Tint, Rim); a texture is a sampler2D Albedo.
-vec3 vertex(MycoVertex v) { return vec3(0.0); }
+vec3 vertexOffset(MycoVertex v) { return vec3(0.0); }
 void surface(MycoSurfaceInput s, inout MycoSurface o) { o.baseColor = Tint.rgb; }
 ```
 
-`MycoVertex` has `position`, `normal`, `uv` (object space); `MycoSurfaceInput` has `uv`, `position` (world), `normal` (world), `viewDir` (world, towards the camera), `time`; `MycoSurface` has `baseColor`, `alpha`, `metalness`, `roughness`, `emission`, `normal` (tangent space, `(0, 0, 1)` = unchanged), starting from neutral values (white, opaque, 0, 0.5, black). Colour properties arrive linear, as in graphs.
+`MycoVertex` has `position`, `normal`, `uv` (object space) and `time`; `MycoSurfaceInput` has `uv`, `position` (world), `normal` (world), `viewDir` (world, towards the camera), `time`; `MycoSurface` has `baseColor`, `alpha`, `metalness`, `roughness`, `emission`, `normal` (tangent space, `(0, 0, 1)` = unchanged), starting from neutral values (white, opaque, 0, 0.5, black). Colour properties arrive linear, as in graphs.
 
 A shader asset **compiles to the same compiled form a graph does** (`CompiledShaderGraph`, with an extra `glsl` block): property uniforms, the vertex offset, base colour, alpha and the other surface outputs as expressions that read the `MycoSurface` the user's function filled. So the existing graph material plugin draws it, and per-renderer overrides, warm-up, the Material inspector's property editor and shadows of displaced meshes come for free. The plugin gains a GLSL path used only by shader assets that ship `glsl`; graphs stay WGSL-only. A shader asset with no code for the running engine's language draws plain PBR with one warning, as graphs do on WebGL2.
 
