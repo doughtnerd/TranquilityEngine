@@ -5,7 +5,7 @@ import { effect, signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AssetKind } from "../assetBrowser";
 import { autoPlayAudio } from "../preferences";
-import { animateThumbnail, audioSummaryFor, canAnimate, contentKeyFor, previewAsset, previewKind, thumbnailFor, type AssetPreviewHandle, type AudioSummary } from "../thumbnails";
+import { animateThumbnail, audioSummaryFor, canAnimate, contentKeyFor, previewAsset, previewKind, thumbnailFor, holdThumbnail, type AssetPreviewHandle, type AudioSummary } from "../thumbnails";
 import { currentProject, docVersion } from "../state";
 
 // --- tiles ----------------------------------------------------------------------------------------
@@ -30,7 +30,10 @@ function useVisible(ref: { current: Element | null }): boolean {
  */
 function useThumbnail(path: string, active: boolean): string | null {
   const version = docVersion.value;
-  const [shown, setShown] = useState<{ path: string; url: string | null }>({ path, url: null });
+  // The shown URL is held (so an edit's cleanup can't revoke it while the <img> loads or shows it)
+  // and let go only after the next one is on screen.
+  const [shown, setShown] = useState<{ path: string; url: string | null; release?: () => void }>({ path, url: null });
+  useEffect(() => () => shown.release?.(), [shown]);
   const request = useRef<{ path: string; abort: AbortController; seq: number } | null>(null);
   const wanted = active && !!previewKind(path) && previewKind(path) !== "audio";
   // One signal per asset and visibility: aborted on unmount, on leaving view, or for another asset.
@@ -48,7 +51,11 @@ function useThumbnail(path: string, active: boolean): string | null {
     if (!wanted || !r || r.path !== path) return;
     const seq = ++r.seq;
     thumbnailFor(path, r.abort.signal).then(
-      (t) => !r.abort.signal.aborted && seq === r.seq && setShown({ path, url: t?.url ?? null }),
+      (t) => {
+        if (r.abort.signal.aborted || seq !== r.seq) return;
+        const url = t?.url ?? null;
+        setShown({ path, url, release: url ? holdThumbnail(url) : undefined });
+      },
       () => undefined,
     );
   }, [path, wanted, version]);
