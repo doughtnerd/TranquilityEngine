@@ -38,6 +38,8 @@ interface DrawSource {
   sort(row: readonly number[]): void;
   /** Bind the sorted pairs (`kidx`) for a sorted draw. */
   bindSort(mat: ShaderMaterial): void;
+  /** Bind the trail history (`khist`) for a trail draw (ADR 0126). */
+  bindTrail(mat: ShaderMaterial): void;
   /** The uniforms of the last step (the node's matrix and space, for `depthRow`). */
   readonly lastUniforms: Float32Array<ArrayBufferLike>;
 }
@@ -211,6 +213,10 @@ class WebGpuBabylonRun implements BabylonRun {
     const pairs = this.sorter && this.wrappers.get(this.sorter.pairs);
     if (pairs) mat.setStorageBuffer("kidx", pairs);
   }
+  bindTrail(mat: ShaderMaterial): void {
+    const h = this.run.history && this.wrappers.get(this.run.history);
+    if (h) mat.setStorageBuffer("khist", h);
+  }
   clear(): void {
     this.run.clear();
   }
@@ -263,6 +269,10 @@ class WebGl2BabylonRun implements BabylonRun {
     mat.setTexture("kidx", this.wrap(s.current, s.layout.width, s.layout.height));
     mat.setFloat("kidxW", s.layout.width);
   }
+  bindTrail(mat: ShaderMaterial): void {
+    const h = this.run.history;
+    if (h) mat.setTexture("khist", this.wrap(h.texture, this.run.width, this.run.height * (this.run.kernel.trail ?? 1)));
+  }
   private wrap(t: WebGLTexture, w: number, h: number): BaseTexture {
     let b = this.textures.get(t);
     if (!b) {
@@ -308,6 +318,10 @@ class JsBabylonRun implements BabylonRun {
   private sortBuffer: StorageBuffer | null = null;
   private sortTexture: RawTexture | null = null;
   private sortTexels: Float32Array | null = null;
+  private histBuffer: StorageBuffer | null = null;
+  private histTexture: RawTexture | null = null;
+  private histTexels: Float32Array | null = null;
+  private histFrame = -1;
   get lastUniforms(): Float32Array {
     return this.run.js.uniforms;
   }
@@ -393,6 +407,31 @@ class JsBabylonRun implements BabylonRun {
     if (!this.sortTexture) this.sortTexture = RawTexture.CreateRGBATexture(texels, layout.width, layout.height, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
     else this.sortTexture.update(texels);
   }
+  bindTrail(mat: ShaderMaterial): void {
+    const h = this.run.js.history;
+    if (!h) return;
+    const frame = this.run.js.uniforms[1 * 4 + 3];
+    if (this.webgpu) {
+      this.histBuffer ??= new StorageBuffer(this.scene.getEngine() as never, h.byteLength, Constants.BUFFER_CREATIONFLAG_READWRITE, "particles js trail");
+      if (this.histFrame !== frame) this.histBuffer.update(h);
+      this.histFrame = frame;
+      mat.setStorageBuffer("khist", this.histBuffer);
+      return;
+    }
+    // The GLSL draw reads the history as blocks of the state texture's layout.
+    const cap = this.kernel.capacity;
+    const points = this.kernel.trail ?? 1;
+    const w = this.width;
+    const rows = this.height;
+    const texels = (this.histTexels ??= new Float32Array(w * rows * points * 4));
+    if (this.histFrame !== frame) {
+      for (let b = 0; b < points; b++) for (let i = 0; i < cap; i++) texels.set(h.subarray((b * cap + i) * 4, (b * cap + i) * 4 + 4), ((b * rows + Math.floor(i / w)) * w + (i % w)) * 4);
+      if (!this.histTexture) this.histTexture = RawTexture.CreateRGBATexture(texels, w, rows * points, this.scene, false, false, Constants.TEXTURE_NEAREST_SAMPLINGMODE, Constants.TEXTURETYPE_FLOAT);
+      else this.histTexture.update(texels);
+    }
+    this.histFrame = frame;
+    if (this.histTexture) mat.setTexture("khist", this.histTexture);
+  }
   bindSort(mat: ShaderMaterial): void {
     if (this.sortBuffer) mat.setStorageBuffer("kidx", this.sortBuffer);
     if (this.sortTexture) {
@@ -404,6 +443,8 @@ class JsBabylonRun implements BabylonRun {
     this.run.clear();
   }
   dispose(): void {
+    this.histBuffer?.dispose();
+    this.histTexture?.dispose();
     this.sortBuffer?.dispose();
     this.sortTexture?.dispose();
     if (this.buffers) for (const b of Object.values(this.buffers)) b.dispose();
@@ -438,6 +479,8 @@ export class KernelDraw {
   private readonly soft: boolean;
   /** Drawn back to front (ADR 0126: `sort`, auto for alpha blending). */
   readonly sorted: boolean;
+  /** A trail output (ADR 0126): a ribbon through each particle's history. */
+  readonly trail: boolean;
 
   constructor(
     private readonly scene: Scene,
@@ -453,9 +496,27 @@ export class KernelDraw {
     const webgpu = scene.getEngine().isWebGPU;
     this.soft = opts.softness > 0;
     this.sorted = outputSorts(out.settings);
+    this.trail = out.type === "trail" && !!kernel.trail && !!out.trail;
     this.mesh = new Mesh(name, scene);
     const vd = new VertexData();
-    if (out.type === "mesh") {
+    if (this.trail) {
+      // A strip of `points` pairs: position (side ±0.5, point index), V across.
+      const points = kernel.trail!;
+      const positions: number[] = [];
+      const uvs: number[] = [];
+      const indices: number[] = [];
+      for (let k = 0; k < points; k++) {
+        positions.push(-0.5, k, 0, 0.5, k, 0);
+        uvs.push(0, 0, 0, 1);
+        if (k + 1 < points) {
+          const a = k * 2;
+          indices.push(a, a + 1, a + 3, a, a + 3, a + 2);
+        }
+      }
+      vd.positions = positions;
+      vd.uvs = uvs;
+      vd.indices = indices;
+    } else if (out.type === "mesh") {
       const m = opts.mesh?.data;
       if (m) {
         vd.positions = Array.from(m.positions);
@@ -477,7 +538,7 @@ export class KernelDraw {
     const fog = heightFogShader(webgpu ? "wgsl" : "glsl");
     const shaderOpts = { soft: this.soft, sorted: this.sorted, fog: fog.decl };
     const shaders = webgpu ? wgslDraw(kernel, output, shaderOpts) : glslDraw(kernel, output, shaderOpts);
-    const uniforms = ["viewProjection", "view", "kcam", "kdraw", "kdraw2", "kdraw3", ...fog.uniforms, ...(this.soft ? ["ksoft"] : []), ...(webgpu ? [] : ["ku", "kw", ...(this.sorted ? ["kidxW"] : [])])];
+    const uniforms = ["viewProjection", "view", "kcam", "kdraw", "kdraw2", "kdraw3", ...(this.trail ? ["ktrail"] : []), ...fog.uniforms, ...(this.soft ? ["ksoft"] : []), ...(webgpu ? [] : ["ku", "kw", ...(this.sorted ? ["kidxW"] : [])])];
     this.material = new ShaderMaterial(
       `${name} material`,
       scene,
@@ -485,8 +546,8 @@ export class KernelDraw {
       {
         attributes: ["position", "uv"],
         uniforms,
-        samplers: webgpu ? ["ktex", ...(this.soft ? ["kdepthTex"] : [])] : ["ktex", "ks0", "ks1", "ks2", "ks3", "kl", ...(this.sorted ? ["kidx"] : []), ...(this.soft ? ["kdepthTex"] : [])],
-        ...(webgpu ? { storageBuffers: ["ks", "ku", "kl", ...(this.sorted ? ["kidx"] : [])], shaderLanguage: ShaderLanguage.WGSL } : {}),
+        samplers: webgpu ? ["ktex", ...(this.soft ? ["kdepthTex"] : [])] : ["ktex", "ks0", "ks1", "ks2", "ks3", "kl", ...(this.sorted ? ["kidx"] : []), ...(this.trail ? ["khist"] : []), ...(this.soft ? ["kdepthTex"] : [])],
+        ...(webgpu ? { storageBuffers: ["ks", "ku", "kl", ...(this.sorted ? ["kidx"] : []), ...(this.trail ? ["khist"] : [])], shaderLanguage: ShaderLanguage.WGSL } : {}),
         defines: [],
         needAlphaBlending: true,
       },
@@ -536,6 +597,11 @@ export class KernelDraw {
         src.sort(depthRow(viewZRow(cam), src.lastUniforms, this.scene.useRightHandedSystem));
       }
       src.bindSort(this.material);
+    }
+    if (this.trail) {
+      src.bindTrail(this.material);
+      const out = this.kernel.outputs[this.output];
+      this.material.setVector4("ktrail", new Vector4(src.lastUniforms[1 * 4 + 3] ?? 0, this.kernel.trail!, 0, out.trail!.widthRow));
     }
     if (cam) this.material.setVector3("kcam", cam.globalPosition ?? Vector3.Zero());
     if (this.soft) {

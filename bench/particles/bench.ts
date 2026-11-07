@@ -60,6 +60,19 @@ async function sync(engine: Engine | WebGPUEngine): Promise<void> {
   }
 }
 
+/**
+ * ADR 0126's looks, from the query: `&trail=N` adds a trail output of N points, `&blend=alpha` draws
+ * alpha-blended (sorted by default), `&soft=M` makes the output soft over M metres.
+ */
+function looks(g: ReturnType<typeof benchGraph>): ReturnType<typeof benchGraph> {
+  const sys = g.systems[0];
+  const blend = q.get("blend");
+  if (blend === "alpha" || blend === "premultiplied" || blend === "additive") sys.output.settings.blending = blend;
+  if (q.get("soft")) sys.output.settings.softness = Number(q.get("soft"));
+  if (q.get("trail")) sys.extraOutputs = [{ type: "trail", settings: { ...sys.output.settings, trailLength: Number(q.get("trail")) }, blocks: [] }];
+  return g;
+}
+
 async function runOne(engine: Engine | WebGPUEngine, count: number): Promise<Row> {
   const scene = new Scene(engine);
   scene.useRightHandedSystem = true;
@@ -80,7 +93,7 @@ async function runOne(engine: Engine | WebGPUEngine, count: number): Promise<Row
   const c = {
     isActiveAndEnabled: true,
     effect: "",
-    embeddedEffect: particleGraphJSON(benchGraph(count, backend === "cpu" ? "cpu" : "gpu")),
+    embeddedEffect: particleGraphJSON(looks(benchGraph(count, backend === "cpu" ? "cpu" : "gpu"))),
     overrides: {},
     playOnAwake: true,
     timeScale: 1,
@@ -112,6 +125,8 @@ async function runOne(engine: Engine | WebGPUEngine, count: number): Promise<Row
   const ms = (performance.now() - t0) / frames;
   const row: Row = { engine: engineKind, backend, executor: player.backendsOf(c)[0] ?? "?", particles: count, alive: c._state.count, msPerFrame: Math.round(ms * 100) / 100, errors: errors.splice(0) };
   if (q.get("shot")) {
+    // Each kernel draw's shader state, for checking new draw variants compile (ADR 0126).
+    (window as unknown as { __draws: unknown }).__draws = player.kernelDrawsOf(c).map((d) => ({ name: d.mesh.name, ready: d.mesh.isReady(true), error: d.material.getEffect()?.getCompilationError() ?? null }));
     // Render into a texture and read it back (WebGPU canvases don't always reach headless screenshots).
     const rtt = new RenderTargetTexture("shot", { width: 640, height: 360 }, scene, false);
     camera.outputRenderTarget = rtt;

@@ -54,6 +54,8 @@ export class WebGpuRun implements KernelRun {
   private lastDepth: unknown = null;
   /** Dead list (ADR 0126): free slots and counters [free, alive], when the system keeps one. */
   private readonly dead: { list: GpuBuffer; count: GpuBuffer; spawn: unknown; staging: GpuBuffer[]; busy: boolean[] } | null = null;
+  /** Trail history (ADR 0126), when the kernel has trail outputs. */
+  readonly history: GpuBuffer | null = null;
   /** The last alive count read back (a frame or two old), or null before the first read. */
   alive: number | null = null;
   private disposed = false;
@@ -88,6 +90,10 @@ export class WebGpuRun implements KernelRun {
     if (deadList) {
       entries.push({ binding: 6, visibility: COMPUTE, buffer: { type: "storage" } });
       entries.push({ binding: 7, visibility: COMPUTE, buffer: { type: "storage" } });
+    }
+    if (kernel.trail) {
+      entries.push({ binding: 8, visibility: COMPUTE, buffer: { type: "storage" } });
+      this.history = factory(kernel.trail * kernel.capacity * 16, `particles ${kernel.name} trail history`);
     }
     this.layout = device.createBindGroupLayout!({ entries });
     const layout = device.createPipelineLayout!({ bindGroupLayouts: [this.layout] });
@@ -128,6 +134,7 @@ export class WebGpuRun implements KernelRun {
       // Without a depth texture a 1×1 stand-in is bound; the kernel skips collision (ku[depth].z is 0).
       if (this.kernel.depth) entries.push({ binding: 5, resource: depthView ?? this.dummyDepth() });
       if (this.dead) entries.push({ binding: 6, resource: { buffer: this.dead.list } }, { binding: 7, resource: { buffer: this.dead.count } });
+      if (this.history) entries.push({ binding: 8, resource: { buffer: this.history } });
       group = this.device.createBindGroup({ layout: this.layout, entries });
       this.groups.set(key, group);
     }
@@ -215,6 +222,21 @@ export class WebGpuRun implements KernelRun {
     return out;
   }
 
+  /** Read the trail history back, block by block like the JavaScript executor's (tests; slow). */
+  async readHistory(): Promise<Float32Array | null> {
+    if (!this.history) return null;
+    const bytes = (this.kernel.trail ?? 0) * this.kernel.capacity * 16;
+    const staging = this.device.createBuffer({ size: bytes, usage: BUFFER.MAP_READ | BUFFER.COPY_DST, label: "particles history readback" });
+    const enc = this.device.createCommandEncoder();
+    enc.copyBufferToBuffer(this.history, 0, staging, 0, bytes);
+    this.device.queue.submit([enc.finish()]);
+    await staging.mapAsync!(1);
+    const out = new Float32Array(staging.getMappedRange!().slice(0));
+    staging.unmap!();
+    staging.destroy();
+    return out;
+  }
+
   dispose(): void {
     this.disposed = true;
     if (this.dead) {
@@ -223,6 +245,7 @@ export class WebGpuRun implements KernelRun {
       for (const b of this.dead.staging) b.destroy();
     }
     for (const b of this.state) b.destroy();
+    this.history?.destroy();
     this.uniforms.destroy();
     this.lut.destroy();
     this.groups.clear();

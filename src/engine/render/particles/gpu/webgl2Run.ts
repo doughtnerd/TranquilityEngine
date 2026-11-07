@@ -3,9 +3,9 @@
 // the four state vec4s to four RGBA32F render targets; two sets of textures swap every frame.
 // Renderer-neutral: it takes a raw WebGL2 context. The caller restores its own GL state after `step`
 // (the Babylon backend calls `engine.wipeCaches(true)`).
-import { KERNEL_FLOATS, LUT_SAMPLES, type KernelSystem } from "../../../scene/particleKernel";
+import { KERNEL_FLOATS, LUT_SAMPLES, U, type KernelSystem } from "../../../scene/particleKernel";
 import type { KernelRun } from "./kernelEffect";
-import { GLSL_SIM_VERTEX, glslSimulation } from "./kernelShader";
+import { GLSL_SIM_VERTEX, GLSL_TRAIL_HISTORY, glslSimulation } from "./kernelShader";
 
 /** Width of the state textures (slots run row by row). */
 export const STATE_WIDTH = 1024;
@@ -33,6 +33,11 @@ export class WebGl2Run implements KernelRun {
   private readonly loc: Record<string, WebGLUniformLocation | null> = {};
   private readonly lutRows: number;
   private readonly dummy: WebGLTexture;
+  /**
+   * Trail history (ADR 0126): `kernel.trail` blocks of `height` rows, block `frame % points` written after
+   * each step by a second pass. Null without trail outputs.
+   */
+  readonly history: { texture: WebGLTexture; fbo: WebGLFramebuffer; program: WebGLProgram; loc: Record<string, WebGLUniformLocation | null> } | null = null;
   /** Shader compile or link errors (empty when it built). */
   readonly errors: string[] = [];
 
@@ -51,6 +56,15 @@ export class WebGl2Run implements KernelRun {
     this.program = this.link(GLSL_SIM_VERTEX, glslSimulation(kernel));
     this.vao = gl.createVertexArray()!;
     for (const name of ["ku", "kw", "ks0", "ks1", "ks2", "ks3", "kl", "kp0", "kp1", "kp2", "kp3", "kpw", "kdepth"]) this.loc[name] = gl.getUniformLocation(this.program, name);
+    if (kernel.trail) {
+      const texture = this.makeTexture(this.width, this.height * kernel.trail);
+      const fbo = gl.createFramebuffer()!;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      const program = this.link(GLSL_SIM_VERTEX, GLSL_TRAIL_HISTORY);
+      this.history = { texture, fbo, program, loc: { ks0: gl.getUniformLocation(program, "ks0"), ks3: gl.getUniformLocation(program, "ks3"), yoff: gl.getUniformLocation(program, "yoff") } };
+    }
     this.clear();
   }
 
@@ -132,6 +146,22 @@ export class WebGl2Run implements KernelRun {
     gl.uniform4fv(this.loc.ku, uniforms.subarray(0, this.kernel.uniformVec4 * 4));
     gl.uniform1i(this.loc.kw, this.width);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    const h = this.history;
+    if (h) {
+      // This frame's (position, seed) into its block of the history.
+      const yoff = (uniforms[U.spawn * 4 + 3] % this.kernel.trail!) * this.height;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, h.fbo);
+      gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+      gl.viewport(0, yoff, this.width, this.height);
+      gl.useProgram(h.program);
+      unit(0, dst.textures[0], "ks0");
+      gl.uniform1i(h.loc.ks0, 0);
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, dst.textures[3]);
+      gl.uniform1i(h.loc.ks3, 1);
+      gl.uniform1i(h.loc.yoff, yoff);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     for (let i = 0; i < 10; i++) {
@@ -172,6 +202,22 @@ export class WebGl2Run implements KernelRun {
     return out;
   }
 
+  /** Read the trail history back, block by block like the JavaScript executor's (tests; slow). */
+  readHistory(): Float32Array | null {
+    const h = this.history;
+    if (!h) return null;
+    const gl = this.gl;
+    const points = this.kernel.trail ?? 0;
+    const cap = this.kernel.capacity;
+    const px = new Float32Array(this.width * this.height * points * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, h.fbo);
+    gl.readPixels(0, 0, this.width, this.height * points, gl.RGBA, gl.FLOAT, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const out = new Float32Array(points * cap * 4);
+    for (let b = 0; b < points; b++) for (let i = 0; i < cap; i++) out.set(px.subarray(((b * this.height + Math.floor(i / this.width)) * this.width + (i % this.width)) * 4, ((b * this.height + Math.floor(i / this.width)) * this.width + (i % this.width)) * 4 + 4), (b * cap + i) * 4);
+    return out;
+  }
+
   dispose(): void {
     const gl = this.gl;
     for (const set of this.sets) {
@@ -180,6 +226,11 @@ export class WebGl2Run implements KernelRun {
     }
     gl.deleteTexture(this.lutTexture);
     gl.deleteTexture(this.dummy);
+    if (this.history) {
+      gl.deleteTexture(this.history.texture);
+      gl.deleteFramebuffer(this.history.fbo);
+      gl.deleteProgram(this.history.program);
+    }
     gl.deleteProgram(this.program);
     gl.deleteVertexArray(this.vao);
   }

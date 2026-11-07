@@ -60,6 +60,11 @@ export class JsKernel {
    */
   private readonly free: Int32Array | null;
   private freeCount = 0;
+  /**
+   * Trail history (ADR 0126): `kernel.trail` blocks of the capacity, each slot's (position, seed) written
+   * into block `frame % points` every step. Null without trail outputs.
+   */
+  readonly history: Float32Array | null;
   /** Particles alive after the last step (counted while stepping). */
   private aliveAfter = 0;
 
@@ -78,6 +83,7 @@ export class JsKernel {
     this.outputs = kernel.outputs.map((o) => o.stmts.map((s) => this.stmt(s)));
     this.spawnMask = new Uint8Array(kernel.event ? kernel.capacity : 0);
     this.free = opts.deadList && !kernel.event ? new Int32Array(kernel.capacity) : null;
+    this.history = kernel.trail ? new Float32Array(kernel.trail * kernel.capacity * 4) : null;
     this.clear();
   }
 
@@ -115,6 +121,7 @@ export class JsKernel {
     const ev = this.kernel.event && parent ? this.eventMask(parent) : null;
     if (this.free) {
       this.stepDeadList(count, frame, seed, dt);
+      this.writeHistory(frame);
       return;
     }
     let alive = 0;
@@ -150,6 +157,24 @@ export class JsKernel {
       if (s[o + 7] > 0) alive++;
     }
     this.aliveAfter = alive;
+    this.writeHistory(frame);
+  }
+
+  /** Trails: this frame's (position, seed) of every slot into the history. */
+  private writeHistory(frame: number): void {
+    const h = this.history;
+    if (!h) return;
+    const cap = this.kernel.capacity;
+    const s = this.state;
+    const base = (frame % this.kernel.trail!) * cap * 4;
+    for (let i = 0; i < cap; i++) {
+      const o = i * KERNEL_FLOATS;
+      const d = base + i * 4;
+      h[d] = s[o];
+      h[d + 1] = s[o + 1];
+      h[d + 2] = s[o + 2];
+      h[d + 3] = s[o + 15];
+    }
   }
 
   /** A step with the dead list: update every slot (finished ones go back on the list), then spawn into free slots. */

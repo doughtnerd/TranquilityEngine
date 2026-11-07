@@ -145,6 +145,9 @@ async function run(): Promise<Result[]> {
 /** One parity run: 0094's ring on every executor, or the dead list on JavaScript and WebGPU (WebGL2 has none). */
 async function runMode(deadList: boolean): Promise<Result[]> {
   const g = parityGraph(2048);
+  // Trails (ADR 0126): a trail output on the first system, so the executors keep a history to compare.
+  const first = g.systems[0];
+  first.extraOutputs = [...(first.extraOutputs ?? []), { type: "trail", settings: { ...first.output.settings, trailLength: 8 }, blocks: [] }];
   const program = compileParticleGraph(g);
   const kp = compileParticleKernels(g, program);
   const out: Result[] = [];
@@ -198,6 +201,28 @@ async function runMode(deadList: boolean): Promise<Result[]> {
     } else out.push({ backend: "webgpu", system: k.name, available: false, errors: [], alive: [0, 0], maxError: 0, mismatched: 0 });
     if (deadList) continue;
     out.push(...(await sortParity(k, js, r.gpu, r.gl, device, gl)));
+    if (k.trail) {
+      const ref = r.js.js.history!;
+      const histOf = (h: Float32Array | null, backend: string): Result => {
+        // Points of live particles only (dead slots' histories are never drawn).
+        let mismatched = 0;
+        let maxError = 0;
+        let alive = 0;
+        for (let i = 0; i < ref.length / 4; i++) {
+          const slot = i % k.capacity;
+          if (!(js[slot * KERNEL_FLOATS + 7] > 0)) continue;
+          alive++;
+          if (!h || h[i * 4 + 3] !== ref[i * 4 + 3]) {
+            mismatched++;
+            continue;
+          }
+          for (let c = 0; c < 3; c++) maxError = Math.max(maxError, Math.abs(h[i * 4 + c] - ref[i * 4 + c]) / Math.max(1, Math.abs(ref[i * 4 + c])));
+        }
+        return { backend, system: k.name, available: true, errors: [], alive: [alive, alive], maxError, mismatched };
+      };
+      if (r.gpu) out.push(histOf(await r.gpu.readHistory(), "webgpu trail"));
+      if (r.gl) out.push(histOf(r.gl.readHistory(), "webgl2 trail"));
+    }
     if (r.gl) {
       const s = r.gl.read();
       out.push({ backend: "webgl2", system: k.name, available: true, errors: r.gl.errors, ...compare(js, s, k) });

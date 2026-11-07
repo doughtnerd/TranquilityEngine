@@ -213,6 +213,8 @@ export interface KernelOutput {
   /** Flipbook. */
   tiles: [number, number];
   blendTiles: boolean;
+  /** Trail outputs (ADR 0126): the look-up row of the width along the trail (0 at the head). */
+  trail?: { widthRow: number };
 }
 
 export interface KernelEvent {
@@ -241,6 +243,8 @@ export interface KernelSystem {
   event: KernelEvent | null;
   /** Uses depth-buffer collision. */
   depth: boolean;
+  /** Trail history points kept per slot (ADR 0126: the most any trail output asks for), 0 or absent: none. */
+  trail?: number;
   /** Why this system needs a kernel ("auto" picks one), empty when it doesn't. */
   needs: string[];
   /** Blocks the kernel doesn't run (the CPU does): reasons, for "auto". */
@@ -326,7 +330,11 @@ export function eulerMatrix(deg: readonly number[]): number[] {
   return [cc * e, -cc * f, d, a * f + b * e * d, a * e - b * f * d, -b * cc, b * f - a * e * d, b * e + a * f * d, a * cc];
 }
 
-const RENDER_TYPES: readonly OutputType[] = ["quad", "stretched", "horizontal", "vertical", "mesh"];
+const RENDER_TYPES: readonly OutputType[] = ["quad", "stretched", "horizontal", "vertical", "mesh", "trail"];
+
+/** Trail history points per slot at most, and in all (ADR 0126). */
+export const MAX_TRAIL_POINTS = 64;
+export const MAX_TRAIL_HISTORY = 4 * 1024 * 1024;
 const num = (v: unknown, fallback: number): number => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
 
 /** Block types the kernel runs (others are reported and skipped; the CPU runs them). */
@@ -830,6 +838,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
 
   // --- outputs ----------------------------------------------------------------------------------------
   const outputs: KernelOutput[] = [];
+  let trailPoints = 0;
   const contexts: OutputContext[] = [sys.output, ...(sys.extraOutputs ?? [])];
   if (contexts.length > 1) needs.push("several outputs");
   contexts.forEach((o, k) => {
@@ -845,7 +854,20 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
     const stmts: KStmt[] = [...speedMods, ...appearance];
     let tiles: [number, number] = [1, 1];
     let blendTiles = false;
+    let widthRow: number | null = null;
+    if (o.type === "trail") trailPoints = Math.max(trailPoints, Math.min(MAX_TRAIL_POINTS, Math.max(2, Math.round(num(o.settings.trailLength, 20)))));
     for (const b of o.blocks.filter(on)) {
+      if (b.type === "output.widthOverLength") {
+        // Baked to a look-up row (the width varies along the ribbon, per vertex); a wired value isn't per-vertex.
+        if (ix.wires.has(`${sys.id}.${b.id}.width`)) report("Kernel trails take Width over Length's own value (a constant or curve), not a wire.", `${sys.id}.${b.id}`);
+        const v = lowerValue(b.inputs.width ?? 1, "number");
+        if (v && "curve" in v) widthRow = v.curve[0];
+        else {
+          const w = v && "e" in v && v.e.k === "const" ? v.e.v[0] : 1;
+          widthRow = lutRow({ kind: "curve", linear: false, value: [[0, w], [1, w]] });
+        }
+        continue;
+      }
       if (b.type === "output.flipbook") {
         const t = b.inputs.tiles;
         if (Array.isArray(t)) tiles = [Math.max(1, Math.round(num(t[0], 1))), Math.max(1, Math.round(num(t[1], 1)))];
@@ -858,8 +880,15 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
         report(`"${b.type}" isn't an Output block kernel backends know; it's skipped.`, `${sys.id}.${b.id}`);
       }
     }
-    outputs.push({ type: RENDER_TYPES.includes(o.type) ? o.type : "quad", settings: o.settings, stmts, tiles, blendTiles });
+    const trail = o.type === "trail" ? { widthRow: widthRow ?? lutRow({ kind: "curve", linear: false, value: [[0, 1], [1, 1]] }) } : undefined;
+    outputs.push({ type: RENDER_TYPES.includes(o.type) ? o.type : "quad", settings: o.settings, stmts, tiles, blendTiles, ...(trail ? { trail } : {}) });
   });
+  const capacity = Math.max(1, Math.round(sys.settings.capacity));
+  if (trailPoints * capacity > MAX_TRAIL_HISTORY) {
+    const fit = Math.max(2, Math.floor(MAX_TRAIL_HISTORY / capacity));
+    report(`Kernel trails keep at most ${MAX_TRAIL_HISTORY} points in all: ${capacity} particles get ${fit} points each, not ${trailPoints}.`, `${sys.id}.output`);
+    trailPoints = fit;
+  }
 
   function setAttribute(b: GraphBlock, t: KExpr, output = false): KStmt[] {
     needs.push("a Set Attribute block");
@@ -907,6 +936,7 @@ function compileSystem(graph: ParticleGraph, ix: Index, sys: ParticleGraphSystem
     luts,
     event: null,
     depth,
+    ...(trailPoints ? { trail: trailPoints } : {}),
     needs: [...new Set(needs)],
     unsupported,
   };
