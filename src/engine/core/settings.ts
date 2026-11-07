@@ -1,5 +1,6 @@
 import { parseGraphics, type GraphicsSettings } from "./graphics";
 import { parseNavigationSettings, type NavigationSettings } from "../nav/settings";
+import { parseAudioSettings, type AudioSettings } from "../audio/settings";
 import type { BootstrapSetting } from "./worlds";
 import { lobbyOptionProblems } from "../net/lobby/protocol";
 
@@ -38,6 +39,8 @@ export interface ProjectSettings {
   graphics: GraphicsSettings;
   /** Built-in navigation (ADR 0065): agent types, areas, voxel sizes, runtime budgets. Omitted: one person-sized walker. */
   navigation: NavigationSettings;
+  /** Audio mixer buses, snapshots, ducking and the backend (ADR 0097, 0098). Omitted: Master with Music, SFX, UI and Voice. */
+  audio: AudioSettings;
   /** Scene/prefab files instanced under the World root at startup; they persist across scene loads (ADR 0016). */
   autoload: string[];
   /** Which Worlds the Engine creates at start (ADR 0032). Omitted: the default bootstrap, one World. */
@@ -45,11 +48,14 @@ export interface ProjectSettings {
 }
 
 export type ProjectSettingsInput = {
-  [K in keyof ProjectSettings]?: ProjectSettings[K] extends object[] | string[]
+  [K in Exclude<keyof ProjectSettings, "audio">]?: ProjectSettings[K] extends object[] | string[]
     ? ProjectSettings[K]
     : ProjectSettings[K] extends object
       ? Partial<ProjectSettings[K]>
       : ProjectSettings[K];
+} & {
+  /** Read leniently by `parseAudioSettings`; bad entries are reported, not fatal. */
+  audio?: Record<string, unknown>;
 };
 
 export const defaultSettings: ProjectSettings = {
@@ -60,6 +66,7 @@ export const defaultSettings: ProjectSettings = {
   render: { sortingLayers: ["Default"], pixelsPerUnit: 100 },
   graphics: parseGraphics(undefined).graphics,
   navigation: parseNavigationSettings(undefined).settings,
+  audio: parseAudioSettings(undefined).settings,
   autoload: [],
 };
 
@@ -72,6 +79,7 @@ export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettin
     render: { ...defaultSettings.render, ...input.render },
     graphics: parseGraphics(input.graphics).graphics, // problems are reported by the Engine and the Project panel
     navigation: parseNavigationSettings(input.navigation).settings, // problems are reported by the Engine (`navigationSettingsProblems`) and the Project panel
+    audio: parseAudioSettings(input.audio).settings, // problems are reported by the Engine and the Project panel
     autoload: input.autoload ?? [],
     ...(input.bootstrap !== undefined ? { bootstrap: input.bootstrap } : {}), // checked by validateBootstrap when the bootstrap runs
   };
