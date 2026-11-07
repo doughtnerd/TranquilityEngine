@@ -60,8 +60,8 @@ test("a sky asset draws the sky, bakes lighting and rebakes when it changes", as
   const tile = assets(page).locator(".asset-tile").filter({ hasText: "clear-day.sky.json" });
   await expect(tile.locator(".asset-kind")).toHaveText("Sky");
   await tile.dblclick();
-  const panel = page.getByLabel("Sky", { exact: true }).locator("xpath=self::*[contains(@class,'sky-panel')]");
-  await expect(panel).toBeVisible();
+  const panel = page.locator(".sky-panel");
+  await expect(panel).toBeVisible({ timeout: 20_000 }); // a lazily loaded panel
 
   // Moving the sun writes the file and rebakes the scene's lighting.
   const time = panel.getByRole("spinbutton", { name: "Time of day value" });

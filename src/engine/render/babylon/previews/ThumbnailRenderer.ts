@@ -541,8 +541,8 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   }
 
   /**
-   * A procedural sky (ADR 0112): the sky itself behind a chrome sphere that reflects its bake. Live
-   * previews animate the clouds and stars.
+   * A procedural sky (ADR 0112). Stills (tiles) draw the sky alone, quickly; live previews add a
+   * chrome sphere reflecting the sky's bake, and animate the clouds and stars.
    */
   private async prepareSky(path: string, live: boolean): Promise<Prepared> {
     const scene = createPreviewScene(this.engine);
@@ -559,18 +559,20 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       sky.update({ ...frame, baking: true });
       const uniforms = sky.uniforms.slice();
       sky.update(frame);
-      if (settings.lighting.bake && (await waitFor(() => baker.ready(), 5000))) {
-        const bake = baker.bake(64, uniforms, (set) => sky.bindTextures(set));
-        if (bake && (await waitFor(() => bake.filtered, 5000))) {
-          scene.environmentTexture = bake.texture;
-          scene.environmentIntensity = 1;
+      if (live) {
+        if (await waitFor(() => baker.ready(), 3000)) {
+          const bake = baker.bake(64, uniforms, (set) => sky.bindTextures(set));
+          if (bake && (await waitFor(() => bake.filtered, 3000))) {
+            scene.environmentTexture = bake.texture;
+            scene.environmentIntensity = 1;
+          }
         }
+        const chrome = pbr("preview.chrome", scene);
+        chrome.albedoColor = new Color3(1, 1, 1);
+        chrome.metallic = 1;
+        chrome.roughness = 0.1;
+        meshOf(scene, "preview.sphere", meshesIfLoaded("builtin:sphere")![0]).material = chrome;
       }
-      const chrome = pbr("preview.chrome", scene);
-      chrome.albedoColor = new Color3(1, 1, 1);
-      chrome.metallic = 1;
-      chrome.roughness = 0.1;
-      meshOf(scene, "preview.sphere", meshesIfLoaded("builtin:sphere")![0]).material = chrome;
       const view = this.camera(scene, UNIT, DIRECTION_FRONT, UNIT);
       scene.onBeforeRenderObservable.add(() => sky.fit(scene.activeCamera as TargetCamera)); // the sky stays centred as the view orbits
       await this.ready(scene, 5000);

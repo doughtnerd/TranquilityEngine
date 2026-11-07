@@ -69,6 +69,8 @@ test("the scene view is a panel: it moves like the others and keeps its canvas",
   assets = await box(tab(page, "Assets"));
   await dragTab(page, "Particle Graph", assets.x + assets.width / 2, assets.y + assets.height / 2);
   assets = await box(tab(page, "Assets"));
+  await dragTab(page, "Sky", assets.x + assets.width / 2, assets.y + assets.height / 2);
+  assets = await box(tab(page, "Assets"));
   await dragTab(page, "Scene", assets.x + assets.width / 2, assets.y + assets.height / 2);
   await expect(tab(page, "Scene")).toHaveAttribute("aria-selected", "true");
   const scene = await box(group(page, "Scene"));
