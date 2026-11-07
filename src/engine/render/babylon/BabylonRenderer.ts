@@ -996,17 +996,22 @@ export class BabylonRenderer {
   private syncSprite(world: World, s: SpriteRenderer, snap: number): void {
     let entry = this.sprites.get(s);
     if (!entry) {
-      let mesh: Mesh | null = null, material: PBRMaterial | null = null;
-      if (this.fill) {
-        // The editor's scene view: a quad and material per sprite, which picking and outlines use.
-        mesh = new Mesh(`sprite:${s.node.name}`, this.scene);
+      entry = { mesh: null, material: null, item: null, spritePath: null, texture: null, uvKey: "", size: null, matrix: null };
+      this.sprites.set(s, entry);
+      this.spritesDirty = true;
+    }
+    const own = this.spriteMeshes;
+    if (own && !entry.mesh) {
+      {
+        // With editor tools (the scene view, editor play mode): a quad and material per sprite, which picking and outlines use.
+        const mesh = new Mesh(`sprite:${s.node.name}`, this.scene);
         const data = new VertexData();
         data.positions = QUAD_POSITIONS;
         data.normals = QUAD_NORMALS;
         data.uvs = QUAD_UVS;
         data.indices = QUAD_INDICES;
         data.applyToMesh(mesh, true);
-        material = pbr(`sprite:${s.node.name}`, this.scene);
+        const material = pbr(`sprite:${s.node.name}`, this.scene);
         material.unlit = true;
         material.backFaceCulling = false; // flipped sprites mirror their quad
         material.disableDepthWrite = true;
@@ -1015,10 +1020,19 @@ export class BabylonRenderer {
         material.useAlphaFromAlbedoTexture = true;
         mesh.material = material;
         mesh.alwaysSelectAsActiveMesh = true;
+        material.albedoTexture = entry.texture;
+        entry.mesh = mesh;
+        entry.material = material;
+        entry.item = null; // drawn by its own mesh now
+        entry.uvKey = "";
+        entry.matrix = null;
+        this.spritesDirty = true;
       }
-      entry = { mesh, material, item: null, spritePath: null, texture: null, uvKey: "", size: null, matrix: null };
-      this.sprites.set(s, entry);
-      this.spritesDirty = true;
+    } else if (!own && entry.mesh) {
+      entry.mesh.dispose();
+      entry.material?.dispose();
+      entry.mesh = entry.material = null;
+      entry.matrix = null;
     }
     const { mesh, material } = entry;
     const { path: image, slice } = splitSpriteRef(s.sprite);
@@ -1121,11 +1135,19 @@ export class BabylonRenderer {
 
   /** After syncing sprites: hand the batcher this frame's sprites when any changed (ADR 0108). */
   private flushSprites(): void {
-    if (!this.spritesDirty || this.fill) return;
+    if (!this.spritesDirty) return;
     this.spritesDirty = false;
     const items: SpriteItem[] = [];
-    for (const e of this.sprites.values()) if (e.item) items.push(e.item);
+    for (const e of this.sprites.values()) if (e.item && !e.mesh) items.push(e.item); // sprites with a mesh of their own draw with it
     this.spriteBatcher.update(items);
+  }
+
+  /**
+   * Whether sprites draw as a mesh each: with editor tools (the scene view, editor play mode), whose
+   * picking and outlines use them. Games batch them (ADR 0108).
+   */
+  private get spriteMeshes(): boolean {
+    return this.fill || this.tools !== null || this.toolsLoading;
   }
 
   /** The texel step sprites snap to this frame: a pixel-perfect view camera with pixel snapping, else 0. */
@@ -1227,10 +1249,10 @@ export class BabylonRenderer {
     return this.instancingOf(r.material);
   }
 
-  /** A material asset's `instancing` ("auto" without one); the editor's scene view keeps per-object meshes for picking. */
+  /** A material asset's `instancing` ("auto" without one); with editor tools (scene view, play mode) thin batches draw as instances, for picking. */
   private instancingOf(path: string | null): MaterialInstancing {
     const mode = (path && this.materialAssets.get(path)?.settings?.instancing) || "auto";
-    return mode === "thin" && this.fill ? "auto" : mode;
+    return mode === "thin" && this.spriteMeshes ? "auto" : mode; // with editor tools, picking needs per-object instances
   }
 
   /**
