@@ -14,38 +14,29 @@
  * Models load once per path and are shared by every World, and by rendering and physics alike; a
  * changed file or sidecar loads again. Works headless (Node), where textures are left blank.
  */
-import {
-  BoxGeometry,
-  BufferAttribute,
-  BufferGeometry,
-  CapsuleGeometry,
-  Color as ThreeColor,
-  CylinderGeometry,
-  DoubleSide,
-  FrontSide,
-  LoadingManager,
-  Material,
-  Matrix4,
-  Mesh,
-  MeshStandardMaterial,
-  Object3D,
-  PlaneGeometry,
-  SphereGeometry,
-  Texture,
-  type Side,
-} from "three";
+// Types only: three.js loads with the first model file parsed (`parseModel`), so it stays out of the
+// start-up bundle of the editor and of games (ADR 0082); the built-in meshes need none of it.
+import type { BufferAttribute, BufferGeometry, Color as ThreeColor, LoadingManager, Material, Mesh, Object3D, Side, Texture } from "three";
 import { Assets, normalizeAssetPath, sidecarValue } from "./Assets";
+import { BUILTIN_MESHES, builtinMeshData, type BuiltinMesh } from "./builtinMeshes";
 import { splitSpriteRef, type ImportSettings } from "./importSettings";
+
+let three: typeof import("three") | null = null;
+/** three.js, once `parseModel` has loaded it. */
+function lib(): typeof import("three") {
+  if (!three) throw new Error("three.js isn't loaded: models are baked through parseModel.");
+  return three;
+}
+/** three.js's `DoubleSide`, without loading three.js. */
+const DOUBLE_SIDE = 2;
 
 /** @internal True for a model file the engine imports. */
 export const isModelPath = (path: string): boolean => /\.(obj|fbx)$/i.test(splitSpriteRef(path).path);
 
 /** @internal */
 export const BUILTIN_PREFIX = "builtin:";
-/** @internal The engine's own meshes, by the name after `builtin:`. */
-export const BUILTIN_MESHES = ["cube", "sphere", "capsule", "cylinder", "plane", "quad"] as const;
-/** @internal */
-export type BuiltinMesh = (typeof BUILTIN_MESHES)[number];
+/** @internal The engine's own meshes (by the name after `builtin:`), generated without three.js (ADR 0082). */
+export { BUILTIN_MESHES, type BuiltinMesh } from "./builtinMeshes";
 
 /** @internal A mesh's vertices without renderer types (ADR 0075): what the Babylon backend and physics read. */
 export interface MeshData {
@@ -78,7 +69,8 @@ export interface SurfaceInfo {
 export interface ModelMesh {
   /** Unique within its model; what `#name` refers to. */
   readonly name: string;
-  readonly geometry: BufferGeometry;
+  /** three.js's geometry, for models loaded from files; the built-in meshes have only `data`. */
+  readonly geometry?: BufferGeometry;
   /** The model's own materials for this mesh, as the engine's default lit material (one per geometry group). */
   readonly materials: readonly Material[];
   /** The same vertices as plain arrays (renderer-neutral). */
@@ -120,7 +112,7 @@ export function neutralMesh(geometry: BufferGeometry, materials: readonly Materi
       transparent: source.transparent,
       metalness: m.metalness ?? 0,
       roughness: m.roughness ?? 0.6,
-      doubleSided: source.side === DoubleSide,
+      doubleSided: source.side === DOUBLE_SIDE,
       map: image ? { image, src: image.currentSrc || image.src || null } : null,
     };
   });
@@ -241,27 +233,10 @@ function builtinMeshes(ref: string): readonly ModelMesh[] {
   }
   let data = builtins.get(name);
   if (!data) {
-    const geometry = builtinGeometry(name);
-    data = { meshes: [{ name, geometry, materials: [], ...neutralMesh(geometry, []) }] };
+    data = { meshes: [{ name, materials: [], data: builtinMeshData(name), surfaces: [] }] };
     builtins.set(name, data);
   }
   return data.meshes;
-}
-
-/** Built-in meshes, Unity's sizes: a 1 m cube and sphere, a 2 m tall capsule and cylinder, a 10 m ground plane, a 1 m quad facing +Z. */
-function builtinGeometry(name: BuiltinMesh): BufferGeometry {
-  let g: BufferGeometry;
-  switch (name) {
-    case "cube": g = new BoxGeometry(1, 1, 1); break;
-    case "sphere": g = new SphereGeometry(0.5, 32, 16); break;
-    case "capsule": g = new CapsuleGeometry(0.5, 1, 8, 24); break;
-    case "cylinder": g = new CylinderGeometry(0.5, 0.5, 2, 32); break;
-    case "plane": g = new PlaneGeometry(10, 10).rotateX(-Math.PI / 2); break;
-    case "quad": g = new PlaneGeometry(1, 1); break;
-  }
-  g.computeBoundingBox();
-  g.computeBoundingSphere();
-  return g;
 }
 
 // --- loading -------------------------------------------------------------------------------------
@@ -310,6 +285,7 @@ type ModelLoadingManager = LoadingManager & { settled(): Promise<void> };
 
 /** A loading manager that finds a model's textures in the project, and (headless) leaves them blank. */
 function manager(modelPath: string): ModelLoadingManager {
+  const { LoadingManager, Texture } = lib();
   const m = new LoadingManager() as ModelLoadingManager;
   m.setURLModifier((url) => textureUrl(modelPath, url));
   if (typeof document === "undefined") {
@@ -338,6 +314,7 @@ function manager(modelPath: string): ModelLoadingManager {
 }
 
 async function parseModel(path: string, url: string, settings: ImportSettings): Promise<ModelData> {
+  three ??= await import("three");
   const bytes = await fetchBytes(url);
   const loading = manager(path);
   let root: Object3D;
@@ -371,6 +348,7 @@ async function parseModel(path: string, url: string, settings: ImportSettings): 
 
 /** @internal The model's meshes with their place in the file and the import settings baked into copies of their geometry. */
 export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale" | "upAxis" | "normals">): ModelData {
+  const { Matrix4 } = lib();
   root.updateMatrixWorld(true);
   const importMatrix = new Matrix4().makeScale(settings.scale, settings.scale, settings.scale);
   if (settings.upAxis === "z") importMatrix.multiply(new Matrix4().makeRotationX(-Math.PI / 2));
@@ -441,6 +419,7 @@ function standardMaterial(source: Material): Material {
     shininess?: number;
     vertexColors?: boolean;
   };
+  const { MeshStandardMaterial, DoubleSide, FrontSide } = lib();
   if (source instanceof MeshStandardMaterial) return source;
   const out = new MeshStandardMaterial({
     name: source.name,
@@ -464,7 +443,7 @@ function standardMaterial(source: Material): Material {
 
 function disposeModel(data: ModelData): void {
   for (const mesh of data.meshes) {
-    mesh.geometry.dispose();
+    mesh.geometry?.dispose();
     for (const m of mesh.materials) m.dispose();
   }
 }

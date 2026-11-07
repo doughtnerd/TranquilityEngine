@@ -32,7 +32,7 @@ describe("model assets (ADR 0044)", () => {
   it("loads an OBJ with its MTL as one mesh with the library's material", async () => {
     const [crate] = await loadMeshes("asset:models/crate.obj");
     expect(crate.name).toBe("Crate");
-    expect(bounds(crate.geometry)).toEqual({ min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5] });
+    expect(bounds(crate.geometry!)).toEqual({ min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5] });
     expect(crate.materials).toHaveLength(1);
     const m = crate.materials[0] as unknown as { type: string; color: { r: number } };
     expect(m.type).toBe("MeshStandardMaterial"); // converted to the default lit material
@@ -43,7 +43,7 @@ describe("model assets (ADR 0044)", () => {
   it("loads an FBX's meshes in model space with unique names, and picks one with #name", async () => {
     expect(await modelMeshNames("models/robot.fbx")).toEqual(["Body", "Head"]);
     const [head] = await loadMeshes("asset:models/robot.fbx#Head");
-    expect(bounds(head.geometry)).toEqual({ min: [-0.25, 1.25, -0.25], max: [0.25, 1.75, 0.25] }); // its place in the file is baked in
+    expect(bounds(head.geometry!)).toEqual({ min: [-0.25, 1.25, -0.25], max: [0.25, 1.75, 0.25] }); // its place in the file is baked in
     expect(meshesIfLoaded("asset:models/robot.fbx")?.map((m) => m.name)).toEqual(["Body", "Head"]);
   });
 
@@ -51,7 +51,7 @@ describe("model assets (ADR 0044)", () => {
     useAssets({ "models/robot.fbx.meta.json": { format: "myco.import@1", scale: 2, upAxis: "z" } });
     const [head] = await loadMeshes("asset:models/robot.fbx#Head");
     // Z up: the file's +Y becomes the engine's -Z; scale 2.
-    expect(bounds(head.geometry)).toEqual({ min: [-0.5, -0.5, -3.5], max: [0.5, 0.5, -2.5] });
+    expect(bounds(head.geometry!)).toEqual({ min: [-0.5, -0.5, -3.5], max: [0.5, 0.5, -2.5] });
   });
 
   it("reports meshes still loading as null and missing ones as empty", async () => {
