@@ -45,7 +45,7 @@ import { addToPreload, preloadCandidates, removeFromPreload } from "../scenePrel
 import { RuntimeInspector } from "./RuntimeInspector";
 import { UIElementInspector } from "./UIElementInspector";
 import { openScript, scriptFor } from "../code/codeState";
-import { applyOverrides, createPrefab, findInner, isOverridden } from "../prefabs";
+import { applyOverrides, applyOverridesTo, createPrefabFromNodes, createPrefab, findInner, isOverridden } from "../prefabs";
 import { currentProject, docVersion, editingCollider, openScene, scriptsVersion, selectedKeys, selectedUIElement, selection, status, type OpenScene } from "../state";
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -209,6 +209,7 @@ function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
   return (
     <div class="inspector-body">
       <AssetLists />
+      <MultiPrefabActions scene={scene} paths={paths} />
       <div class="node-header">
         <input
           type="checkbox"
@@ -339,6 +340,54 @@ function PrefabActions(props: { scene: OpenScene; id: string }) {
       >
         Revert All
       </button>
+    </div>
+  );
+}
+
+/** Create Prefab for several sibling nodes, and Apply for several instances (ADR 0087). */
+function MultiPrefabActions(props: { scene: OpenScene; paths: NodePath[] }) {
+  docVersion.value;
+  const { scene, paths } = props;
+  const project = currentProject.value;
+  if (paths.some((p) => p.length > 1)) return null;
+  const ids = paths.map((p) => p[0]);
+  const plain = ids.filter((id) => !scene.doc.node(id).prefab);
+  const withOverrides = ids.filter((id) => scene.doc.node(id).prefab && (scene.doc.node(id).overrides?.length ?? 0) > 0);
+  const canSave = !!project?.canSave;
+  return (
+    <div class="prefab-actions">
+      {plain.length === ids.length && (
+        <button
+          disabled={!canSave}
+          title={canSave ? "Save these nodes as one prefab (under a new Group root) and replace them with an instance" : "This project is read-only. Open a project folder to create prefabs."}
+          onClick={async () => {
+            try {
+              const path = await createPrefabFromNodes(scene, project!, ids);
+              status.value = { kind: "info", text: `Created ${path}. Undo turns the nodes back; the file stays on disk.` };
+            } catch (err) {
+              status.value = errorStatus(null, err);
+            }
+          }}
+        >
+          Create Prefab
+        </button>
+      )}
+      {withOverrides.length > 0 && (
+        <button
+          disabled={!canSave}
+          title="Write the selected instances' overrides into their prefab files"
+          onClick={async () => {
+            try {
+              const n = await applyOverridesTo(scene, project!, withOverrides);
+              status.value = { kind: "info", text: `Applied ${n} override${n === 1 ? "" : "s"} from ${withOverrides.length} instances.` };
+            } catch (err) {
+              status.value = errorStatus(null, err);
+            }
+          }}
+        >
+          Apply
+        </button>
+      )}
     </div>
   );
 }
@@ -762,7 +811,7 @@ function axesOf(values: unknown[]): (number | null)[] {
  */
 function assetListFor(type: string, field: string): string {
   if (field === "mesh" && (type === "engine.MeshRenderer" || type === "engine.MeshCollider")) return "asset-list-mesh";
-  if (field === "material" && type === "engine.MeshRenderer") return "asset-list-material";
+  if ((field === "material" || /^materials\[\d+\]$/.test(field)) && type === "engine.MeshRenderer") return "asset-list-material";
   if (field === "effect" && type === "engine.ParticleSystem") return "asset-list-particles";
   if (field === "formationAsset" && type === "engine.NavGroup") return "asset-list-formation";
   return "asset-list-all";
