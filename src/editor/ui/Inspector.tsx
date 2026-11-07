@@ -1,4 +1,6 @@
 import { errorStatus } from "../messages";
+import { isSkyPath } from "../../engine/sky/skyFormat";
+import { openSkyAsset } from "../skyAssets";
 import { signal } from "@preact/signals";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
@@ -603,6 +605,8 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
         />
       )}
       {tilemap && paths.length === 1 && <TilemapSummary scene={scene} path={paths[0]} />}
+      {/* An Environment using a procedural sky opens it in the Sky panel (ADR 0112). */}
+      {info.type === "engine.Environment" && <EditSkyButton map={String(info.fields.find((f) => f.name === "map")?.value ?? "")} />}
       {/* A NavChunk bakes from here (ADR 0065). */}
       {info.type === "engine.NavChunk" && paths.length === 1 && paths[0].length === 1 && <NavChunkPlanSummary scene={scene} nodeId={paths[0][0]} />}
       {info.type === "engine.NavChunk" && paths.length === 1 && paths[0].length === 1 && <NavChunkBake scene={scene} nodeId={paths[0][0]} />}
@@ -824,6 +828,7 @@ function assetListFor(type: string, field: string): string {
   if (field === "formationAsset" && type === "engine.NavGroup") return "asset-list-formation";
   if (field === "lut" && type === "engine.PostProcessing") return "asset-list-lut";
   if (field === "bakedMap" && type === "engine.ReflectionProbe") return "asset-list-env";
+  if (field === "map" && type === "engine.Environment") return "asset-list-environment";
   return "asset-list-all";
 }
 
@@ -847,6 +852,9 @@ function AssetLists() {
         <datalist id="asset-list-formation">{options(files.filter((f) => assetKind(f) === "formation"))}</datalist>
         <datalist id="asset-list-lut">{options(files.filter((f) => assetKind(f) === "lut"))}</datalist>
         <datalist id="asset-list-env">{options(files.filter((f) => /\.env$/i.test(f) && assetKind(f) === "environment"))}</datalist>
+        <datalist id="asset-list-environment">
+          {options(files.filter((f) => ["environment", "sky", "cubemap"].includes(assetKind(f)) || /\.(png|jpe?g)$/i.test(f)))}
+        </datalist>
         <datalist id="asset-list-all">{options(files)}</datalist>
       </>
     );
@@ -1350,6 +1358,19 @@ function TilemapSummary(props: { scene: OpenScene; path: NodePath }) {
         {map.layerCount} layer{map.layerCount === 1 ? "" : "s"} · {tiles} tile{tiles === 1 ? "" : "s"}
       </span>
       <button onClick={() => showPanel("tilepalette")}>Open Tile Palette</button>
+    </div>
+  );
+}
+
+/** "Edit sky" under an Environment whose map is a sky asset in the project. */
+function EditSkyButton({ map }: { map: string }) {
+  const path = map.replace(/^asset:/, "");
+  if (!isSkyPath(path) || !currentProject.value?.files.includes(path)) return null;
+  return (
+    <div class="prefab-actions">
+      <button type="button" onClick={() => openSkyAsset(path)} title={`Open ${path} in the Sky panel`}>
+        Edit sky
+      </button>
     </div>
   );
 }

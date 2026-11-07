@@ -3,11 +3,11 @@ import { Engine, GameObject, Input, SpriteRenderer } from "../engine";
 import {
   addAssetToScene,
   assetKind,
-  opensInCodePanel,
   buildFolderTree,
   findFolder,
   idBase,
   nodeForAsset,
+  opensInCodePanel,
   parentForAdd,
   prefabInstanceEntry,
   searchEntries,
@@ -58,6 +58,15 @@ describe("asset browser: folders and search", () => {
     expect(opensInCodePanel(assetKind("ui/menu.ui.xml"))).toBe(true);
     expect(opensInCodePanel(assetKind("ui/menu.ui.css"))).toBe(true);
     expect(assetKind("project.json")).toBe("json");
+  });
+
+  it("knows skies, cubemaps and cube environments, none of which open in the Code panel", () => {
+    expect(assetKind("skies/day.sky.json")).toBe("sky");
+    expect(assetKind("skies/Day.SKY.json")).toBe("sky");
+    expect(assetKind("skies/box.cubemap.json")).toBe("cubemap");
+    for (const p of ["env/studio.hdr", "env/studio.exr", "env/room.env", "env/room.DDS"]) expect(assetKind(p), p).toBe("environment");
+    for (const k of ["sky", "cubemap", "environment"] as const) expect(opensInCodePanel(k), k).toBe(false);
+    expect(opensInCodePanel("json")).toBe(true);
   });
 });
 

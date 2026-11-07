@@ -20,6 +20,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Audio mixer](guide/audio-mixer.md) | Buses, effects, snapshots, ducking, `AudioSource.output`, `Audio.bus(...)` |
 | [FMOD backend](guide/fmod.md) | Experimental, untested: dropping the FMOD HTML5 SDK in and wiring it up |
 | [Materials, shaders and batching](guide/materials-and-shaders.md) | Hand-written shader assets (WGSL/GLSL), keywords and variants, changing materials from scripts, GPU instancing and sprite batching, pixel-perfect cameras |
+| [Skies](guide/skies.md) | Procedural sky assets and the Sky panel, presets, time of day and the sun-driven light, the `Sky` component, cubemap environments (`.env`, `.dds`, six images), cost |
 
 ## Architecture
 
@@ -144,6 +145,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0109](decisions/0109-render-textures-and-the-scene-depth-texture.md) | Cameras draw into render texture assets that materials, sprites and UI sample; each camera's scene depth is available to render code | Proposed |
 | [0110](decisions/0110-several-cascaded-lights-probe-blending-and-height-fog.md) | Cascades for several directional lights, box-projected, blended and baked reflection probes, and height fog | Proposed |
 | [0111](decisions/0111-post-processing-on-babylon-luts-and-per-platform-tiers.md) | Post-processing on Babylon: LUT colour grading, half-resolution ambient occlusion, an untoned editor background, and per-platform default tiers | Proposed |
+| [0112](decisions/0112-procedural-sky-assets.md) | Procedural skies are `*.sky.json` assets drawn live and baked to a prefiltered cubemap for lighting | Proposed |
+| [0113](decisions/0113-cubemap-environments.md) | Environments take prefiltered `.env`/`.dds` cubes and six-image `*.cubemap.json` assets | Proposed |
+| [0114](decisions/0114-sky-component-and-sun-light.md) | A `Sky` component scripts the procedural sky, and the sky can drive the main directional light | Proposed |
 | [0115](decisions/0115-sprite-editor-9-slice-undo-and-per-platform-import.md) | Sprites draw 9-sliced from a slice's border; the Sprite Editor gets border guides, undo/redo and slice search; import sidecars gain per-platform overrides, `maxSize` and `compression` (the last two advisory) | Proposed |
 | [0116](decisions/0116-editor-themes-display-scaling-layer-rename-and-history-pruning.md) | Theme import/export and per-project themes, bundled fonts and a light logo; display scaling; project-wide layer rename; persisted desktop folder access; age-based history pruning | Proposed |
 | [0117](decisions/0117-shader-graph-search-node-preview-shapes-and-scene-thumbnails.md) | Shader graph find, per-node preview shapes, and camera-view scene thumbnails | Proposed |

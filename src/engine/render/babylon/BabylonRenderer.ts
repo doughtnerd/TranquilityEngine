@@ -82,6 +82,7 @@ import { Graphics } from "../Graphics";
 import { resolvePostEffects, type PostSettings } from "../postEffects";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
+import { BabylonSky } from "./sky/BabylonSky";
 import { BabylonLighting } from "./lighting";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import { BabylonTilemaps } from "./tilemaps";
@@ -287,6 +288,8 @@ export class BabylonRenderer {
   private readonly probes: BabylonProbes;
   /** Render texture assets cameras draw into (ADR 0109). */
   private readonly renderTextures: BabylonRenderTextures;
+  /** The procedural sky (ADR 0112): drawn, baked and driving the sun when the Environment uses a sky asset. */
+  private readonly sky: BabylonSky;
   /** Water surfaces (ADR 0072; stage 6), made the first time a World has one. */
   private water: BabylonWater | null = null;
   /** Each material's copies reflecting a probe's map (ADR 0054), by the probe's texture and any blend (ADR 0110). */
@@ -366,7 +369,11 @@ export class BabylonRenderer {
     this.lighting = new BabylonLighting(scene);
     this.graphShared.mainLight = this.lighting.mainLight;
     this.frame = new BabylonFrame(scene);
-    this.frame.beforeView = (camera) => this.lighting.fitSky(camera);
+    this.sky = new BabylonSky(scene, this.lighting);
+    this.frame.beforeView = (camera) => {
+      this.lighting.fitSky(camera);
+      this.sky.fit(camera);
+    };
     this.probes = new BabylonProbes(scene);
     this.renderTextures = new BabylonRenderTextures(scene);
     this.batches = new MeshBatches(scene);
@@ -635,6 +642,7 @@ export class BabylonRenderer {
     this.casters.length = 0;
     for (const [r, e] of this.meshRenderers) if (r.castShadows && r.isActiveAndEnabled) this.casters.push(...e.meshes);
     for (const m of this.batches.thinCasters()) this.casters.push(m);
+    this.sky.sync(world); // before the lights: the sky may drive the sun
     this.shadows = this.lighting.syncLights(world, camera);
     this.syncParticles(world);
     this.syncFog(world);
@@ -772,6 +780,7 @@ export class BabylonRenderer {
     const preview = views.length ? this.previewView(views) : null;
     if (preview) views.push(preview);
     this.cameraPreviewDrawn = !!preview && this.frame.ready;
+    this.sky.bake(); // before the frame graph runs, like probe captures
     if (views.length) this.probes.capture(views[0].camera); // before the frame graph runs
     this.warmer.beforeRender(views[0]?.camera ?? null, this.casters);
     if (views.length) this.frame.render(views, this.shadows, this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
@@ -1015,6 +1024,7 @@ export class BabylonRenderer {
     this.probes.dispose();
     this.renderTextures.dispose();
     this.tilemaps.dispose();
+    this.sky.dispose();
     this.water?.dispose();
     this.frame.dispose();
     this.scene.dispose();
@@ -1802,6 +1812,11 @@ export class BabylonRenderer {
   /** Tests: cascaded shadows and the environment map's state. */
   lightingState(): ReturnType<BabylonLighting["state"]> {
     return this.lighting.state();
+  }
+
+  /** Tests and the editor: the procedural sky's state (ADR 0112). */
+  skyState(): ReturnType<BabylonSky["state"]> {
+    return this.sky.state();
   }
 
   // --- Diagnostics ------------------------------------------------------------------------------

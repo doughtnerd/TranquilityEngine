@@ -6,9 +6,10 @@
 // needs its viewport to start the engine.
 //
 // Adding a panel: add its id to `PanelId`/`PANELS`/`PANEL_TITLES` (and the default layout) in
-// layout/model.ts, and an entry here: `lazyComponent(() => import("./MyPanel").then((m) => m.MyPanel))`.
+// layout/model.ts (or list it in `ON_DEMAND_PANELS` there to keep it out of the default layout and the idle
+// preload), and an entry here: `lazyComponent(() => import("./MyPanel").then((m) => m.MyPanel))`.
 import type { ComponentChildren } from "preact";
-import type { Layout, PanelId } from "../layout/model";
+import { ON_DEMAND_PANELS, type Layout, type PanelId } from "../layout/model";
 import { lazyComponent, whenIdle, type LazyComponent } from "./lazy";
 import { ScenePanel } from "./ScenePanel";
 
@@ -31,6 +32,7 @@ const LAZY: Record<Exclude<PanelId, "scene">, LazyComponent> = {
   shadergraph: lazyComponent(() => import("./ShaderGraphPanel").then((m) => m.ShaderGraphPanel)),
   particlegraph: lazyComponent(() => import("./ParticleGraphPanel").then((m) => m.ParticleGraphPanel)),
   tilepalette: lazyComponent(() => import("./TilePalettePanel").then((m) => m.TilePalettePanel)),
+  sky: lazyComponent(() => import("./SkyPanel").then((m) => m.SkyPanel)), // on demand (ON_DEMAND_PANELS): not in the default layout
 };
 
 /** What `DockLayout` renders for each panel. */
@@ -46,7 +48,8 @@ export function preloadPanels(layout: Layout): Promise<void> {
   const shown = visiblePanels(layout).filter((p): p is Exclude<PanelId, "scene"> => p !== "scene");
   const now = Promise.all(shown.map((p) => LAZY[p].preload())).then(() => {});
   void now.then(() => whenIdle(() => {
-    for (const lazy of Object.values(LAZY)) void lazy.preload();
+    // On-demand panels (the Sky panel) load only when opened, not when idle.
+    for (const [id, lazy] of Object.entries(LAZY)) if (!ON_DEMAND_PANELS.includes(id as PanelId)) void lazy.preload();
   }));
   return now;
 }

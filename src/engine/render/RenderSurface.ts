@@ -117,6 +117,8 @@ export interface RenderSurface {
   // Tests and diagnostics.
   qualityState(): { tier: string; pixelRatio: number; shadows: boolean; shadowMapSize: number; anisotropy: number; msaa: boolean };
   lightingState(): { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean };
+  /** The procedural sky (ADR 0112): drawn, bakes made, whether a bake lights the scene, its time of day, the last bake's CPU time. */
+  skyState(): { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number };
   postState(): { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null };
   stackCount(): number;
   waterState(): { surfaces: number };

@@ -141,6 +141,8 @@ const ICONS: Partial<Record<AssetKind | "folder", string>> & { other: string } =
   tileset: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
   environment: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18",
   lut: "M4 4h16v16H4zM4 12h16M12 4v16M8 4v16M16 4v16",
+  sky: "M12 3v2M4.2 7.2l1.4 1.4M19.8 7.2l-1.4 1.4M3 13h2M19 13h2M8 13a4 4 0 0 1 8 0M6 20a3 3 0 0 1 .5-6h11a3 3 0 0 1 0 6z",
+  cubemap: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
   other: "M7 3h7l5 5v13H7zM14 3v5h5",
 };
 

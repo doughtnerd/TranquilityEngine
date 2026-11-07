@@ -69,6 +69,10 @@ describe("thumbnail kinds and dependencies (ADR 0061)", () => {
     expect(previewKind("materials/wood.material.json")).toBe("material");
     expect(previewKind("shaders/water.shadergraph.json")).toBe("shadergraph");
     expect(previewKind("sky/studio.hdr")).toBe("environment");
+    expect(previewKind("sky/room.env")).toBe("environment");
+    expect(previewKind("sky/room.DDS")).toBe("environment");
+    expect(previewKind("sky/box.cubemap.json")).toBe("environment");
+    expect(previewKind("skies/day.sky.json")).toBe("sky");
     expect(previewKind("effects/fire.particles.json")).toBe("particles");
     expect(previewKind("prefabs/pipe.prefab.json")).toBe("prefab");
     expect(previewKind("scenes/main.scene.json")).toBe("scene");

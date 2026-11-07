@@ -222,6 +222,10 @@ export class BabylonSurface implements RenderSurface {
   lightingState(): { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean } {
     return this.renderer?.lightingState() ?? { cascades: false, environment: "", environmentLoaded: false, skybox: false };
   }
+
+  skyState(): { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number } {
+    return this.renderer?.skyState() ?? { active: false, drawn: false, bakes: 0, baked: false, time: 0, lastBakeMs: 0 };
+  }
   postState(): { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null } {
     return this.renderer?.postState() ?? { composed: false, loaded: false, toneMapping: "none", effects: null };
   }

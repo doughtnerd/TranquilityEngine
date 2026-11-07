@@ -38,6 +38,10 @@ export { Camera, Environment, Fog, Light, MeshRenderer, ParticleSystem, PostProc
 export { Material, type MaterialValue } from "./render/Material";
 export { Water, WaterSurface, type WaterSample } from "./render/water/WaterSurface";
 export type { WaterWave } from "./render/water/gerstner";
+export { Sky } from "./sky/Sky";
+export { SKY_FORMAT, MAX_CLOUD_LAYERS, defaultSky, defaultCloudLayer, parseSky, formatSky, type SkySettings, type SkyMode, type SunPlacement, type SkySun, type SkyAtmosphere, type SkyGradient, type SkySunDisc, type SkyMoon, type SkyCloudLayer, type SkyStars, type SkyHorizon, type SkyLighting, type SkyProblem } from "./sky/skyFormat";
+export { SKY_PRESETS, skyPreset, type SkyPresetId } from "./sky/presets";
+export { CUBEMAP_FORMAT, parseCubemap, formatCubemap, type CubemapFaces, type CubeFace } from "./sky/cubemapFormat";
 
 export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
 export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D, type PhysicsMaterial, type PhysicsMaterial2D } from "./physics/Collider2D";

@@ -16,6 +16,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   Light: "Rendering",
   Environment: "Rendering",
   Fog: "Rendering",
+  Sky: "Rendering",
   PostProcessing: "Rendering",
   ReflectionProbe: "Rendering",
   ParticleSystem: "Rendering",
