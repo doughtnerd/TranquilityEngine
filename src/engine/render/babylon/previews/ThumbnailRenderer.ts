@@ -35,6 +35,9 @@ import { colorFromHex, frameView, moveOrbit, orbitOf, orbitPosition, previewPixe
 import type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi } from "../../previewTypes";
 import type { GraphShared } from "../graphMaterial";
 import { environmentKind, ENV_SIZE } from "../lighting";
+import { SkyBaker, SkyDrawable } from "../sky/BabylonSky";
+import { cubemapReady, loadCubemap } from "../sky/cubemaps";
+import { parseSky } from "../../../sky/skyFormat";
 import { copyParticles, createDotTexture, makeDraw, type Draw } from "../particleDraw";
 import { meshOf, modelMaterial, pbr } from "../materials";
 import {
@@ -240,6 +243,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   /** Whether the asset animates on hover: particle effects, and shader graphs (or their materials) that use Time. */
   canAnimate(kind: ThumbnailKind, path: string): boolean {
     if (kind === "particles") return true;
+    if (kind === "sky") return true; // clouds drift and stars twinkle
     if (kind === "shadergraph") return usesTime(readGraph(path));
     if (kind === "material") {
       const settings = readMaterial(path);
@@ -408,6 +412,8 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
           return await this.prepareMaterial(kind, path);
         case "environment":
           return await this.prepareEnvironment(path, live);
+        case "sky":
+          return await this.prepareSky(path, live);
         case "particles":
           return await this.prepareParticles(path, live);
         case "prefab":
@@ -494,15 +500,17 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     try {
       const url = Assets.url(path);
       const kind = environmentKind(path);
-      if (!kind) throw new Error(`"${path}" isn't an .hdr, .exr, .png or .jpg file.`);
+      if (!kind || kind === "sky") throw new Error(`"${path}" isn't an .hdr, .exr, .png, .jpg, .env, .dds or .cubemap.json file.`);
       const fail = (message?: string) => console.warn(`[myco] thumbnail: couldn't load environment "${path}": ${message ?? "unknown error"}`);
       const map: BaseTexture =
-        kind === "hdr"
+        kind === "cube" || kind === "faces"
+          ? loadCubemap(path, kind, scene, fail)
+          : kind === "hdr"
           ? new HDRCubeTexture(url, scene, ENV_SIZE, false, true, false, true, null, fail)
           : kind === "exr"
             ? new EXRCubeTexture(url, scene, ENV_SIZE, false, true, false, true, null, fail)
             : new EquiRectangularCubeTexture(url, scene, ENV_SIZE, false, true, null, fail);
-      if (!(await useWhenReady(scene, map, 1, 8000))) throw new Error("the map didn't load.");
+      if (!(await waitFor(() => cubemapReady(map), 8000)) || !(await useWhenReady(scene, map, 1, 8000))) throw new Error("the map didn't load.");
       const chrome = pbr("preview.chrome", scene);
       chrome.albedoColor = new Color3(1, 1, 1);
       chrome.metallic = 1;
@@ -528,6 +536,58 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       return { scene, ...this.camera(scene, UNIT, DIRECTION_FRONT, UNIT), dispose: () => scene.dispose() };
     } catch (err) {
       scene.dispose();
+      throw err;
+    }
+  }
+
+  /**
+   * A procedural sky (ADR 0112): the sky itself behind a chrome sphere that reflects its bake. Live
+   * previews animate the clouds and stars.
+   */
+  private async prepareSky(path: string, live: boolean): Promise<Prepared> {
+    const scene = createPreviewScene(this.engine);
+    const sky = new SkyDrawable(scene);
+    const baker = new SkyBaker(scene);
+    const dispose = () => {
+      baker.dispose();
+      sky.dispose();
+      scene.dispose();
+    };
+    try {
+      const { settings } = parseSky(Assets.json(path), path);
+      const frame = { settings, time: settings.sun.timeOfDay, seconds: 0, rotation: 0, intensity: 1, fog: null, baking: false };
+      sky.update({ ...frame, baking: true });
+      const uniforms = sky.uniforms.slice();
+      sky.update(frame);
+      if (settings.lighting.bake && (await waitFor(() => baker.ready(), 5000))) {
+        const bake = baker.bake(64, uniforms, (set) => sky.bindTextures(set));
+        if (bake && (await waitFor(() => bake.filtered, 5000))) {
+          scene.environmentTexture = bake.texture;
+          scene.environmentIntensity = 1;
+        }
+      }
+      const chrome = pbr("preview.chrome", scene);
+      chrome.albedoColor = new Color3(1, 1, 1);
+      chrome.metallic = 1;
+      chrome.roughness = 0.1;
+      meshOf(scene, "preview.sphere", meshesIfLoaded("builtin:sphere")![0]).material = chrome;
+      const view = this.camera(scene, UNIT, DIRECTION_FRONT, UNIT);
+      scene.onBeforeRenderObservable.add(() => sky.fit(scene.activeCamera as TargetCamera)); // the sky stays centred as the view orbits
+      await this.ready(scene, 5000);
+      let seconds = 0;
+      return {
+        scene,
+        ...view,
+        step: live
+          ? (dt) => {
+              seconds += dt;
+              sky.update({ ...frame, seconds });
+            }
+          : undefined,
+        dispose,
+      };
+    } catch (err) {
+      dispose();
       throw err;
     }
   }
@@ -788,4 +848,17 @@ function multiply(a: number[], b: number[]): number[] {
   const out = new Array<number>(16).fill(0);
   for (let col = 0; col < 4; col++) for (let row = 0; row < 4; row++) for (let k = 0; k < 4; k++) out[col * 4 + row] += a[k * 4 + row] * b[col * 4 + k];
   return out;
+}
+
+/** Resolve true once `done()` holds (polled each frame), false after `ms`. */
+function waitFor(done: () => boolean, ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const poll = () => {
+      if (done()) return resolve(true);
+      if (Date.now() - started > ms) return resolve(false);
+      setTimeout(poll, 16);
+    };
+    poll();
+  });
 }

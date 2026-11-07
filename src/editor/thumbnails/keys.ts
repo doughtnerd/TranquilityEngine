@@ -7,7 +7,7 @@ import { isSidecarPath, sidecarPath } from "../../engine/scene/importSettings";
 export const THUMBNAIL_FORMAT = 1;
 
 /** Assets with a rendered preview (images and sprite slices are shown as they are). */
-export type PreviewKind = "model" | "material" | "shadergraph" | "environment" | "particles" | "prefab" | "audio";
+export type PreviewKind = "model" | "material" | "shadergraph" | "environment" | "sky" | "particles" | "prefab" | "audio";
 
 /** The preview an asset gets, or null for none. */
 export function previewKind(path: string): PreviewKind | null {
@@ -16,7 +16,8 @@ export function previewKind(path: string): PreviewKind | null {
   if (/\.(obj|fbx)$/.test(p)) return "model";
   if (p.endsWith(".material.json")) return "material";
   if (p.endsWith(".shadergraph.json")) return "shadergraph";
-  if (/\.(hdr|exr)$/.test(p)) return "environment";
+  if (/\.(hdr|exr|env|dds)$/.test(p) || p.endsWith(".cubemap.json")) return "environment";
+  if (p.endsWith(".sky.json")) return "sky";
   if (p.endsWith(".particles.json")) return "particles";
   if (p.endsWith(".prefab.json")) return "prefab";
   if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";

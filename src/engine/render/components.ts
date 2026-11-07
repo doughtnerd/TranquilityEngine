@@ -346,7 +346,7 @@ export class PostProcessing extends Component {
  */
 @component("engine.Environment")
 export class Environment extends Component {
-  /** An .hdr, .exr, .png or .jpg equirectangular image. Empty: the built-in studio room. */
+  /** An .hdr, .exr, .png or .jpg equirectangular image, an .env/.dds cube or a .cubemap.json (ADR 0113), or a .sky.json procedural sky (ADR 0112). Empty: the built-in studio room. */
   @field(AssetRef) map = "";
   /** Strength of the environment lighting (1 = unchanged). */
   @field(Number) intensity = 1;

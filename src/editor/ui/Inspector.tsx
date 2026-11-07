@@ -765,6 +765,7 @@ function assetListFor(type: string, field: string): string {
   if (field === "material" && type === "engine.MeshRenderer") return "asset-list-material";
   if (field === "effect" && type === "engine.ParticleSystem") return "asset-list-particles";
   if (field === "formationAsset" && type === "engine.NavGroup") return "asset-list-formation";
+  if (field === "map" && type === "engine.Environment") return "asset-list-environment";
   return "asset-list-all";
 }
 
@@ -785,6 +786,9 @@ function AssetLists() {
         <datalist id="asset-list-material">{options(files.filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph"))}</datalist>
         <datalist id="asset-list-particles">{options(files.filter((f) => assetKind(f) === "particles"))}</datalist>
         <datalist id="asset-list-formation">{options(files.filter((f) => assetKind(f) === "formation"))}</datalist>
+        <datalist id="asset-list-environment">
+          {options(files.filter((f) => ["environment", "sky", "cubemap"].includes(assetKind(f)) || /\.(png|jpe?g)$/i.test(f)))}
+        </datalist>
         <datalist id="asset-list-all">{options(files)}</datalist>
       </>
     );

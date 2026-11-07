@@ -144,7 +144,7 @@ export function contentKeyFor(path: string): Promise<string | null> {
 export async function canAnimate(path: string): Promise<boolean> {
   const kind = previewKind(path);
   if (!kind || kind === "audio") return false;
-  if (kind !== "particles" && kind !== "shadergraph" && kind !== "material") return false;
+  if (kind !== "particles" && kind !== "shadergraph" && kind !== "material" && kind !== "sky") return false;
   return (await getRenderer()).canAnimate(kind as ThumbnailKind, path);
 }
 

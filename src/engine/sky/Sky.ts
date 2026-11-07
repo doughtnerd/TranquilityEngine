@@ -64,6 +64,7 @@ export class Sky extends Component {
   /** @internal */ _settings: SkySettings | null = null;
   /** @internal */ _settingsPath = "";
   /** @internal */ _rebakes = 0;
+  private _source: SkySettings | null = null;
   private seenTime = Number.NaN;
   private seenSpeed = Number.NaN;
   private seenAssetTime = Number.NaN;
@@ -77,9 +78,12 @@ export class Sky extends Component {
    */
   get settings(): SkySettings {
     const path = this._node ? worldSkyPath(this.world) : "";
-    if (!this._settings || path !== this._settingsPath) {
-      this._settings = cloneSky(readSkyAsset(path));
+    // A new sky, or the asset itself changed (edited in the editor's Sky panel): copy it again.
+    const source = path ? readSkyAsset(path) : null;
+    if (!this._settings || path !== this._settingsPath || (source && this._source && source !== this._source)) {
+      this._settings = cloneSky(source ?? readSkyAsset(""));
       this._settingsPath = path;
+      this._source = source;
     }
     return this._settings;
   }
@@ -87,6 +91,7 @@ export class Sky extends Component {
   set settings(value: SkySettings) {
     this._settings = value;
     this._settingsPath = this._node ? worldSkyPath(this.world) : "";
+    this._source = this._settingsPath ? readSkyAsset(this._settingsPath) : null;
   }
 
   /** Throw away script changes to `settings`: the next read takes the asset as saved. */
