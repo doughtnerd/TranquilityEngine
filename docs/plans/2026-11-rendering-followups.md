@@ -24,7 +24,8 @@ What's left after the frame-drop work of 2026-11-06 (commit `e60c9af`, branch `c
 1. ~~**Editor support for `settings.preload` (0080).**~~ Done 2026-11-06: Scene settings in the Inspector (click the scene's name in the Hierarchy, or select nothing) edit the list, saving keeps it, and the message log's **Add to preload list** button takes the file a warm-up warning names. See 0080's row in the implementation status.
 2. ~~**Pixel compare of clustered against regular lighting (0079).**~~ Done 2026-11-06 with `spikes/babylon/lights.html`: the two match exactly. It found that `spotSoftness` and `range` did nothing on Babylon (physical light falloff); lit materials now use glTF falloff. See the 0079 and 0075 rows.
 3. ~~**Warm-up on three.js (0080).**~~ Dropped: the three.js backend was removed (0081).
-4. **Load-time budget (0080 open question).** 6 warm meshes a frame (`BATCH` in `render/babylon/warmUp.ts`) makes the load's frames 260–520 ms. Decide whether to spread them thinner or warm behind a loading screen.
+4. ~~**Load-time budget (0080 open question).**~~ Done 2026-11-06 by compiling the warm-up's pipelines asynchronously on WebGPU (`render/babylon/asyncPipelines.ts`): no compile stalls a frame now, and batches went from 6 to 24 meshes. The pirates load's worst frame went from 600 to about 250 ms; what's left is the load's own JavaScript (main-thread long tasks of 64–275 ms), not pipelines. See 0080's row.
+   - **Next:** find what those long tasks are (building the match World and scene, texture uploads, the network World's setup) and spread or move them; and whether the few internal pipelines Babylon still compiles blocking (clear quad, post-process, UI) are worth warming.
 5. **Variants not warmed yet (0080):**
    - particle systems;
    - world-space UI;

@@ -24,8 +24,10 @@ import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import type { WarmMesh } from "../../scene/warmUp";
 import { meshOf } from "./materials";
 
-/** Warm meshes drawn per frame: each new pipeline stalls its frame, so they're spread out. */
+/** Warm meshes drawn per frame when pipelines compile as Babylon makes them: each new one stalls its frame, so they're spread out. */
 const BATCH = 6;
+/** Warm meshes drawn per frame when pipelines compile asynchronously (`asyncPipelines.ts`): no stall, so more at once. */
+const ASYNC_BATCH = 24;
 /** Frames a batch waits for its materials (textures, shader imports) before it's given up. */
 const MAX_FRAMES = 240;
 /** Frames a warm mesh whose model is still loading is put back before it's dropped. */
@@ -48,6 +50,8 @@ export interface WarmDeps {
   fogless(material: BabylonMaterial): boolean;
   /** Whether textures are still loading: a material's texture changes its shader, so a batch waits for them. */
   loadingTextures(): boolean;
+  /** With async pipeline compiles (WebGPU): resolves once the compiles started so far finish. Without, warm draws compile (and stall) as they go. */
+  compiling?(): Promise<void>;
 }
 
 interface Batch {
@@ -128,8 +132,14 @@ export class PipelineWarmer {
   private drained(): void {
     const waiters = this.waiters;
     this.waiters = [];
-    for (const w of waiters) w();
-    this.onDrained?.();
+    const finish = () => {
+      for (const w of waiters) w();
+      this.onDrained?.();
+    };
+    // With async compiles, the warm draws only started them: done once the pipelines are in the cache.
+    const compiling = this.deps.compiling?.();
+    if (compiling) void compiling.then(finish);
+    else finish();
   }
 
   private drop(b: Batch): void {
@@ -144,7 +154,8 @@ export class PipelineWarmer {
     Matrix.ComposeToRef(new Vector3(WARM_SCALE, WARM_SCALE, WARM_SCALE), Quaternion.Identity(), at, this.matrix);
     const later: WarmMesh[] = [];
     let taken = 0;
-    while (this.queue.length && taken < BATCH) {
+    const batchSize = this.deps.compiling ? ASYNC_BATCH : BATCH;
+    while (this.queue.length && taken < batchSize) {
       const w = this.queue.shift()!;
       const sources = meshesIfLoaded(w.mesh);
       if (sources === null) {
