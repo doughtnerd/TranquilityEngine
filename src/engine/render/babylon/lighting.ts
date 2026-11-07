@@ -47,6 +47,25 @@ interface LightEntry {
 /** WebGPU's guaranteed number of values between shader stages (`maxInterStageShaderVariables`). */
 const MIN_STAGE_VARIABLES = 16;
 
+/**
+ * A Light's `range` as Babylon's: metres, with 0 meaning no limit (Babylon's default, which the
+ * clustered container bounds at its `maxRange`, 16 km). Materials use glTF falloff (`useEngineLightFalloff`),
+ * so a point or spot light fades with the square of distance and reaches nothing past its range.
+ */
+function lightRange(range: number): number {
+  return range > 0 ? range : Number.MAX_VALUE;
+}
+
+let clustering = true;
+
+/**
+ * @internal Check pages only (`spikes/babylon/lights.ts`): turn clustering off for Worlds made after
+ * this, so point and spot lights are the scene's own, to compare a frame against the clustered one.
+ */
+export function _setClustering(on: boolean): void {
+  clustering = on;
+}
+
 /** The range a parked clustered light gets, so it falls in almost no cluster and costs almost nothing. */
 const PARKED_RANGE = 0.001;
 
@@ -273,6 +292,7 @@ export class BabylonLighting {
   /** The scene's clustered light container, made on first use; null where the engine can't cluster (WebGL2 without float blending, NullEngine). */
   private clusterContainer(): ClusteredLightContainer | null {
     if (this.cluster || this.clusterless) return this.cluster;
+    if (!clustering) return null; // the comparison page's regular-lights run (`_setClustering`)
     // Clustering adds a value passed from the vertex to the fragment stage; a material with cascaded
     // shadows and two-sided lighting then needs 17, past WebGPU's minimum of 16, and its pipeline fails
     // (the pass drew black). Devices at the minimum keep regular lights.
@@ -338,12 +358,12 @@ export class BabylonLighting {
     shadowLight.position = shadowLight.position.set(m[o + 12], m[o + 13], m[o + 14]);
     if (light instanceof DirectionalLight || light instanceof SpotLight) light.direction = light.direction.set(-m[o + 8], -m[o + 9], -m[o + 10]).normalize(); // -Z, where cameras look too
     if (light instanceof SpotLight) {
-      light.range = Math.max(0.001, l.range);
+      light.range = lightRange(l.range);
       const angle = (Math.min(Math.max(l.spotAngle, 1), 179) * Math.PI) / 180;
       light.angle = angle;
       light.innerAngle = angle * (1 - Math.min(Math.max(l.spotSoftness, 0), 1));
     } else if (light instanceof PointLight) {
-      light.range = Math.max(0.001, l.range);
+      light.range = lightRange(l.range);
     }
     return true;
   }

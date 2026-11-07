@@ -39,6 +39,7 @@ import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import { checkPropertyValue, type GraphValue } from "../../scene/shaderGraph";
+import { useEngineLightFalloff } from "./materials";
 import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, type CompiledUniform } from "../shaderGraph/compile";
 
 /** Values every graph material reads, owned by the renderer and updated each frame. */
@@ -304,6 +305,7 @@ export function createGraphMaterial(scene: Scene, name: string, c: CompiledShade
   const material = new PBRMaterial(name, scene);
   material.sideOrientation = Material.CounterClockWiseSideOrientation;
   material.maxSimultaneousLights = 8;
+  useEngineLightFalloff(material);
   material.albedoColor.set(1, 1, 1);
   material.metallic = 0;
   material.roughness = 1;

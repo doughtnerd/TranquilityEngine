@@ -1,6 +1,6 @@
 # Myco Engine
 
-A 2D & 3D TypeScript game engine: Unity-style scripting over a hidden ECS core, Godot-style node graph, three.js rendering, shipped through Tauri.
+A 2D & 3D TypeScript game engine: Unity-style scripting over a hidden ECS core, Godot-style node graph, Babylon.js rendering, shipped through Tauri.
 
 **Read [docs/README.md](docs/README.md) before making structural changes.** It indexes the architecture overview, open questions, implementation status, and the decision records (`docs/decisions/`).
 

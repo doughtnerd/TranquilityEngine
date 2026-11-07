@@ -17,6 +17,7 @@ import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
 import type { ShadowRequest } from "../render/babylon/frameGraph";
 import { BabylonLighting, reclusterForNextCamera } from "../render/babylon/lighting";
 import { studioHdr } from "../render/babylon/studioEnvironment";
+import { pbr } from "../render/babylon/materials";
 
 describe("the studio environment (ADR 0075)", () => {
   it("is a Radiance .hdr image Babylon reads, brighter overhead than below", () => {
@@ -98,6 +99,18 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(spot.angle).toBeCloseTo(Math.PI / 3);
     expect(spot.innerAngle).toBeCloseTo(Math.PI / 6);
     expect(byName("light:light ambient")!.getClassName()).toBe("HemisphericLight");
+  });
+
+  it("fades point and spot lights to nothing at their range, with the spot's edge from spotSoftness (glTF falloff)", () => {
+    // Babylon's default physical falloff ignores both the range and the inner angle (every spot drew alike).
+    expect(pbr("m", scene).useGLTFLightFalloff).toBe(true);
+    light({ type: "point", range: 0 }, [0, 1, 0]); // 0: no limit
+    light({ type: "spot", range: 5, spotAngle: 40, spotSoftness: 0 });
+    sync();
+    expect((byName("light:light point") as PointLight).range).toBe(Number.MAX_VALUE);
+    const spot = byName("light:light spot") as SpotLight;
+    expect(spot.range).toBe(5);
+    expect(spot.innerAngle).toBeCloseTo(spot.angle); // softness 0: a hard edge
   });
 
   it("picks the main light for Main Light nodes as three.js does: shadow-casting directional first, toward the light, linear × intensity", () => {
