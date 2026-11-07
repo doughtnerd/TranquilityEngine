@@ -1,5 +1,5 @@
 /**
- * The shader graph node library (ADR 0047): each node type's ports, settings and the GLSL or WGSL it
+ * The shader graph node library (ADR 0047): each node type's ports, settings and the WGSL it
  * emits. Shared by the compiler and the editor's Shader Graph panel, so both agree on every port.
  */
 import { Assets, normalizeAssetPath } from "../../scene/Assets";
@@ -7,7 +7,7 @@ import type { GraphNode, GraphProperty, GraphPropertyType, InputValue, ShaderGra
 import { OUTPUT_NODE_TYPE, parseShaderGraph } from "../../scene/shaderGraph";
 import type { ShaderLevel } from "../../core/graphics";
 
-/** A value's GLSL type; `texture` is a `sampler2D` uniform. */
+/** A value's type in the shader (`vec3` is WGSL's `vec3f`); `texture` is a texture and its sampler. */
 export type ValueType = "float" | "vec2" | "vec3" | "vec4" | "texture";
 /** `dynamic` ports take the widest vector connected to the node's dynamic inputs (Unity's "Dynamic Vector"). */
 export type PortType = ValueType | "dynamic";

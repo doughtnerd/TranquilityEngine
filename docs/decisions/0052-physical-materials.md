@@ -1,6 +1,6 @@
 # 0052. A physical material and graph target for clearcoat, sheen, transmission, iridescence and anisotropy
 
-- **Status:** Accepted
+- **Status:** Accepted; how the backend draws physical graphs restated for Babylon.js on 2026-11-07 (see the note under Decision)
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -15,6 +15,8 @@ The default lit material (0043) is three.js's `MeshStandardMaterial`: metalness 
 - **Material assets** get a third built-in shader, `"physical"`: everything `lit` has, plus `clearcoat`, `clearcoatRoughness`, `sheen` (0–1), `sheenColor`, `sheenRoughness`, `transmission`, `thickness`, `ior` (1–2.333, default 1.5), `iridescence`, `iridescenceIOR`, `anisotropy`, `anisotropyRotation` (degrees), `specularIntensity` and `specularColor`. Only values that differ from the defaults are written; all default to off. The Material inspector shows them for physical materials, grouped (Clearcoat, Sheen, Transmission, Iridescence, Anisotropy, Specular).
 - **Shader graphs** get a third target, `"physical"`. Its output node adds Clearcoat, Clearcoat Roughness, Sheen Color, Sheen Roughness, Transmission, Thickness, IOR, Iridescence and Specular Intensity inputs. A feature is compiled in only when its input is connected or set above zero, so the graph pays only for what it uses. The compiler marks which features are on; the backend turns them on in the `MeshPhysicalMaterial` (setting the matching value above zero, which three needs to emit the define) and overrides three's values after `lights_physical_fragment` (and inside `transmission_fragment` for transmission and thickness).
 - `setMaterialProperty` (0049) accepts the physical field names for built-in physical materials.
+
+**Note (2026-11-07), on Babylon.js (0075, 0081).** The three.js mechanics above are gone; the decision holds with Babylon's PBR material in place of `MeshPhysicalMaterial`. The graph material switches on the PBR layers a physical graph uses (clear coat, sheen with its roughness, sub-surface refraction for transmission, iridescence), and the graph plugin replaces those layers' uniform reads in the fragment shader with the graph's values: clear coat and its roughness, sheen colour and roughness, transmission (refraction intensity) and thickness, IOR (the base layer's F0 and the refraction's IOR), iridescence (intensity; its IOR and thickness range keep Babylon's defaults), and specular intensity (the metallic workflow's F0 factor). As with built-in physical materials, transmission refracts the scene's environment, so it shows only where there is one. Physical graphs need WebGPU, as all graphs do (0081).
 
 ## Alternatives considered
 
@@ -38,6 +40,7 @@ Nothing.
 
 - Texture maps for the physical fields (clearcoat maps, sheen maps, transmission maps).
 - Dispersion and diffuse roughness (new in three r17x+).
+- Graph inputs for anisotropy, iridescence IOR and specular colour (built-in physical materials have them; graphs don't yet).
 
 ## References
 

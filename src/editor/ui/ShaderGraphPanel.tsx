@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { MaterialPreview, NodePreviewRenderer, type PreviewMesh } from "../../engine/editor";
+import { MaterialPreview, NodePreviewRenderer } from "../../engine/editor";
 import { compileShaderGraph, nodePreviewGraph, shaderGraphListing, type CompiledShaderGraph } from "../../engine/render/shaderGraph/compile";
 import { NODES, nodeDef, type PortDef, type SettingDef, type ValueType } from "../../engine/render/shaderGraph/nodes";
-import { formatShaderGraph, GRAPH_PROPERTY_TYPES, NODE_PREVIEW_SHAPES, nodePreviewShape, type NodePreviewShape, isPortName, portRef, propertySize, splitPortRef, type CustomFunction, type FunctionPort, type GraphGroup, type GraphNode, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../engine/scene/shaderGraph";
+import { formatShaderGraph, GRAPH_PREVIEW_MESHES, GRAPH_PROPERTY_TYPES, NODE_PREVIEW_SHAPES, nodePreviewShape, type NodePreviewShape, isPortName, portRef, propertySize, splitPortRef, type CustomFunction, type FunctionPort, type GraphGroup, type GraphNode, type GraphPreviewMesh, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../engine/scene/shaderGraph";
 import { assetKind, fileName } from "../assetBrowser";
 import { errorStatus } from "../messages";
 import type { EditorProject } from "../projects";
@@ -23,6 +23,7 @@ import {
   setFunction,
   setGroupTitle,
   setPreview,
+  setGraphPreviewMesh,
   setGraphPreviewShape,
   setNodePreviewShape,
   setSubGraphOutputType,
@@ -434,7 +435,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
 
   const previewHost = useRef<HTMLDivElement>(null);
   const preview = useRef<MaterialPreview | null>(null);
-  const [mesh, setMesh] = useState<PreviewMesh>("sphere");
+  const mesh = graph.previewMesh ?? "sphere";
   useEffect(() => {
     const p = new MaterialPreview(previewHost.current!);
     p.onShaderError = setShaderError;
@@ -446,7 +447,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     };
   }, []);
   // Rebuild the preview's material when anything but node positions changes.
-  const codeKey = JSON.stringify({ ...graph, nodes: graph.nodes.map((n) => ({ ...n, position: 0 })) });
+  const codeKey = JSON.stringify({ ...graph, previewMesh: 0, nodes: graph.nodes.map((n) => ({ ...n, position: 0 })) });
   useEffect(() => {
     preview.current?.setGraph(graph);
   }, [codeKey]);
@@ -610,14 +611,14 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
               setSelection(new Set([made.id]));
             }}
           />
-          {!sub && <KeywordList graph={graph} readOnly={readOnly} commit={commit} />}
+          <KeywordList graph={graph} readOnly={readOnly} commit={commit} />
           {sub && <SubGraphOutputs graph={graph} readOnly={readOnly} commit={commit} />}
           {selectedNode?.type === "customFunction" && <FunctionEditor key={selectedNode.id} node={selectedNode} graph={graph} wgslFiles={project.files.filter((x) => x.toLowerCase().endsWith(".wgsl"))} readOnly={readOnly} commit={commit} />}
           <div class="sg-preview-card">
             <div class="sg-preview-head">
               <span>Preview</span>
-              <select aria-label="Preview mesh" value={mesh} onChange={(e) => setMesh((e.currentTarget as HTMLSelectElement).value as PreviewMesh)}>
-                {(["sphere", "cube", "capsule", "plane"] as const).map((m) => (
+              <select aria-label="Preview mesh" title="The mesh the preview draws (saved with the graph)" disabled={readOnly} value={mesh} onChange={(e) => commit(setGraphPreviewMesh(graph, (e.currentTarget as HTMLSelectElement).value as GraphPreviewMesh))}>
+                {GRAPH_PREVIEW_MESHES.map((m) => (
                   <option key={m} value={m}>
                     {m[0].toUpperCase() + m.slice(1)}
                   </option>
@@ -1038,10 +1039,11 @@ function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[];
   );
 }
 
-/** The graph's keywords (ADR 0106): on/off or enum switches materials set, each compiling its own variant. */
+/** The graph's keywords (ADR 0106; a sub-graph's too): on/off or enum switches materials set, each compiling its own variant. */
 function KeywordList(props: { graph: ShaderGraph; readOnly: boolean; commit(g: ShaderGraph): void }) {
   const { graph, readOnly, commit } = props;
   const keywords = graph.keywords ?? [];
+  const sub = !!graph.subgraph;
   return (
     <div class="sg-blackboard sg-keywords" aria-label="Keywords">
       <div class="sg-blackboard-head">
@@ -1050,7 +1052,7 @@ function KeywordList(props: { graph: ShaderGraph; readOnly: boolean; commit(g: S
           + Add
         </button>
       </div>
-      {keywords.length === 0 && <p class="sg-hint">Keywords are switches a material sets; each combination compiles its own shader. Add one, then use it in a Keyword node.</p>}
+      {keywords.length === 0 && <p class="sg-hint">Keywords are switches a material sets; each combination compiles its own shader. Add one, then use it in a Keyword node.{sub ? " A sub-graph's keywords become the using graph's when it's used (a keyword of the same name the graph declares itself wins)." : ""}</p>}
       {keywords.map((k) => (
         <div key={k.name} class="sg-property" aria-label={`Keyword ${k.name}`}>
           <div class="sg-property-row">

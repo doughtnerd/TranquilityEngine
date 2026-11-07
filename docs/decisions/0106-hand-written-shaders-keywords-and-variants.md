@@ -74,7 +74,7 @@ Names are upper-case identifiers; the `KW_` prefix keeps them clear of Babylon's
 
 Materials pick values in `keywords`: `"keywords": { "RIM": true, "QUALITY": "HIGH" }`. Scripts change them on a material (0107: `material.setKeyword("RIM", true)`).
 
-Keywords are **Babylon material defines** set by the plugin, so every combination is a distinct Babylon effect (and WebGPU pipeline), cached by the engine and shared by every material with the same combination; switching back to a combination already used costs nothing. In hand-written code they are plain `#ifdef KW_RIM … #endif` blocks. In graphs a **Keyword** node (Input category) has one input per value (On/Off for a boolean) and outputs the selected one; it compiles to a module constant chosen under `#ifdef` and a `select`, so the shader compiler drops the unused branch.
+Keywords are **Babylon material defines** set by the plugin, so every combination is a distinct Babylon effect (and WebGPU pipeline), cached by the engine and shared by every material with the same combination; switching back to a combination already used costs nothing. In hand-written code they are plain `#ifdef KW_RIM … #endif` blocks. In graphs a **Keyword** node (Input category) has one input per value (On/Off for a boolean) and outputs the selected one; it compiles to a module constant chosen under `#ifdef` and a `select`, so the shader compiler drops the unused branch. **Sub-graphs** (decided 2026-11-07) declare keywords of their own, edited in the panel as a graph's are; a used sub-graph's Keyword nodes add its declaration to the shader's keywords (once, however many uses), and a keyword of the same name the outer graph declares wins, so the outer graph can switch a sub-graph's keyword to `"variants": "all"` or share one keyword across sub-graphs. The Material inspector lists the shader's keywords, sub-graphs' included.
 
 ### Custom function bodies from files
 
@@ -105,7 +105,7 @@ Nothing.
 ## Open questions
 
 - A raw (unlit, full-control) shader target.
-- Keyword support in sub-graphs (a sub-graph's Keyword nodes currently read the outer material's keywords by name).
+- ~~Keyword support in sub-graphs~~: decided above (2026-11-07).
 - Editor: a code editor tab for `.wgsl`/`.glsl` files with compile errors inline.
 
 ## References
