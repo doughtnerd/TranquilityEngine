@@ -217,6 +217,23 @@ export class BabylonProbes {
     return this.boxes.map((b) => ({ texture: b.texture, intensity: b.intensity, blend: null }));
   }
 
+  /**
+   * The hits a warm-up draws each built-in material's probe copy with (ADR 0080): every captured probe
+   * unblended, and each one that can blend (a `blendDistance`, and a bigger box overlapping it) blended halfway
+   * towards a neighbour (ADR 0110). The blend's shader is the same whichever neighbour and weight
+   * (`MYCO_PROBE_BLEND`; the rest are uniforms), so one blended copy per probe covers it.
+   */
+  warmHits(): ProbeHit[] {
+    const hits = this.textures();
+    for (const b of this.boxes) {
+      if (b.box.blendDistance <= 0) continue;
+      const other = this.boxes.find((o) => o !== b && canBlendTowards(b.box, o.box));
+      if (!other) continue;
+      hits.push({ texture: b.texture, intensity: b.intensity, blend: { texture: other.texture, intensity: other.intensity, weight: 0.5, box: other.projected ? other.box : null } });
+    }
+    return hits;
+  }
+
   /** Whether any probe has captured (so `lookup` can find one). */
   get any(): boolean {
     return this.boxes.length > 0;
@@ -251,4 +268,14 @@ export class BabylonProbes {
     }
     this.entries.clear();
   }
+}
+
+/**
+ * Whether a point can reflect `a` and blend towards `b` (`blendProbes`): the boxes overlap and `a` wins
+ * where they do (the smaller box, ties to the lower id, as `pickProbe`).
+ */
+function canBlendTowards(a: BlendBox, b: BlendBox): boolean {
+  const overlap = (["x", "y", "z"] as const).every((k) => Math.abs(a.center[k] - b.center[k]) * 2 < a.size[k] + b.size[k]);
+  const va = a.size.x * a.size.y * a.size.z, vb = b.size.x * b.size.y * b.size.z;
+  return overlap && (va < vb || (va === vb && a.id < b.id));
 }

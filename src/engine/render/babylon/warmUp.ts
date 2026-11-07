@@ -18,6 +18,7 @@ import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { Effect } from "@babylonjs/core/Materials/effect.js";
 import type { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
+import { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
@@ -79,7 +80,7 @@ export type WarmItem = WarmMesh | WarmCustom;
 const isCustom = (w: WarmItem): w is WarmCustom => typeof (w as WarmCustom).build === "function";
 
 /** What a warm item draws, so warming it again (another load, `rewarm`) is recognised: a custom item's key, a mesh's layout. */
-const warmKey = (w: WarmItem): string => (isCustom(w) ? w.key : `mesh|${w.mesh}|${w.material}|${w.castShadows}|${w.receiveShadows}`);
+const warmKey = (w: WarmItem): string => (isCustom(w) ? w.key : `mesh|${w.mesh}|${w.material}|${w.materials?.join(",") ?? ""}|${w.castShadows}|${w.receiveShadows}`);
 
 /** What the warmer needs from the renderer. */
 export interface WarmDeps {
@@ -88,6 +89,13 @@ export interface WarmDeps {
   materialFor(path: string): BabylonMaterial | null;
   /** The material a renderer without a material asset gets for a model mesh (its own surfaces, else the default). */
   materialForSource(src: ModelMesh, mesh: Mesh): BabylonMaterial;
+  /**
+   * What each of a warm mesh's model meshes draws with, resolved as the renderer resolves a MeshRenderer's
+   * material slots (ADR 0089: `materials[i]`, then `material`, then the model's import settings, then its
+   * own): one material, or a multi-material (its submeshes set on `mesh`). Without it, `material` or
+   * `materialForSource`.
+   */
+  slotMaterials?(w: WarmMesh, sources: readonly ModelMesh[]): (src: ModelMesh, mesh: Mesh) => BabylonMaterial;
   /** Whether the material is a shader graph's (graph copies share the compiled program; no blend copy). */
   isGraph(material: BabylonMaterial): boolean;
   /** Whether the material opts out of fog (ADR 0071), which changes its shader. */
@@ -303,6 +311,9 @@ export class PipelineWarmer {
     Matrix.ComposeToRef(new Vector3(WARM_SCALE, WARM_SCALE, WARM_SCALE), Quaternion.Identity(), at, this.matrix);
     const later: WarmItem[] = [];
     let taken = 0;
+    // Each material's extra copies (`extrasOf`), shared by the batch's meshes: alone, and as a multi-material's part.
+    const extras = new Map<BabylonMaterial, BabylonMaterial[]>();
+    const multiExtras = new Map<BabylonMaterial, BabylonMaterial[]>();
     while (this.queue.length && taken < b.size) {
       const w = this.queue.shift()!;
       const retry = () => {
@@ -331,37 +342,23 @@ export class PipelineWarmer {
       }
       this.retries.delete(w);
       const base = w.material ? this.deps.materialFor(w.material) : null;
-      const variants: (BabylonMaterial | null)[] = [base];
-      if (w.blended && base instanceof PBRMaterial && !this.deps.isGraph(base)) {
-        // What a renderer fading its colour draws (`applyBuiltinOverrides`: alpha below 1 blends).
-        const blend = base.clone(`${WARM_PREFIX}${base.name}:blend`);
-        blend.alpha = 0.5;
-        blend.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-        b.clones.push(blend);
-        b.blends.push([blend, base]);
-        variants.push(blend);
-      }
-      if (base && this.deps.keywordVariants) {
-        for (const v of this.deps.keywordVariants(base)) {
-          variants.push(v.material);
-          b.disposers.push(v.dispose);
-        }
-      }
-      if (base instanceof PBRMaterial && !this.deps.isGraph(base)) variants.push(...(this.deps.probeVariants?.(base) ?? []));
-      const mode = this.deps.instancing ? this.deps.instancing(w.material || null) : "off";
-      // Counted in Babylon meshes: a model of many parts, or a blend copy, is several draws and effects.
-      taken += variants.length * sources.length;
-      const place = (mesh: Mesh, material: BabylonMaterial) => {
+      // What each model mesh draws with: its slots' materials (ADR 0089), one material or a multi-material.
+      const drawnOf = this.deps.slotMaterials?.(w, sources) ?? ((src: ModelMesh, mesh: Mesh) => base ?? this.deps.materialForSource(src, mesh));
+      // As `instancingFor`: slot 0's material asset says how the renderer batches.
+      const mode = this.deps.instancing ? this.deps.instancing(w.materials?.[0] || w.material || null) : "off";
+      const place = (mesh: Mesh, material: BabylonMaterial, fogOf: BabylonMaterial) => {
         mesh.material = material;
-        if (material instanceof PBRMaterial && !b.watched.some((x) => x.material === material)) {
-          b.watched.push({ material, albedo: material.albedoTexture, bump: material.bumpTexture });
+        const pbrs = material instanceof MultiMaterial ? material.subMaterials : [material];
+        for (const m of pbrs) {
+          if (m instanceof PBRMaterial && !b.watched.some((x) => x.material === m)) b.watched.push({ material: m, albedo: m.albedoTexture, bump: m.bumpTexture });
         }
         mesh.receiveShadows = w.receiveShadows;
-        mesh.applyFog = !this.deps.fogless(base ?? material);
+        mesh.applyFog = !this.deps.fogless(fogOf);
         mesh.isPickable = false;
         // Instances and thin instances draw through their source's `_draw` too.
         this.own(mesh, "_draw");
         b.meshes.push(mesh);
+        taken++; // counted in Babylon meshes: a model of many parts, or a blend copy, is several draws and effects
         // Drawn as the scene draws it (ADR 0108): an instance of a hidden source, a thin instance, or plain.
         if (mode === "auto") {
           mesh.isVisible = false;
@@ -378,11 +375,40 @@ export class PipelineWarmer {
           if (w.castShadows) b.casters.push(mesh);
         }
       };
-      for (const variant of variants) {
-        for (const src of sources) {
-          const mesh = meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}`, src);
-          const material = variant ?? this.deps.materialForSource(src, mesh);
-          place(mesh, material);
+      // The copies a material is also drawn in, once per batch: blended (a script fading the renderer), keyword combinations, probe copies.
+      const extrasOf = (m: BabylonMaterial, inMulti: boolean): BabylonMaterial[] => {
+        const key = inMulti ? multiExtras : extras;
+        let out = key.get(m);
+        if (out) return out;
+        out = [];
+        const builtin = m instanceof PBRMaterial && !this.deps.isGraph(m);
+        if (w.blended && m === base && builtin) {
+          // What a renderer fading its colour draws (`applyBuiltinOverrides`: alpha below 1 blends).
+          const blend = m.clone(`${WARM_PREFIX}${m.name}:blend`);
+          blend.alpha = 0.5;
+          blend.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+          b.clones.push(blend);
+          b.blends.push([blend, m]);
+          out.push(blend);
+        }
+        for (const v of this.deps.keywordVariants?.(m) ?? []) {
+          out.push(v.material);
+          b.disposers.push(v.dispose);
+        }
+        // Probe copies are made of a mesh's one built-in material only, not of a multi-material's parts (`syncMesh`).
+        if (builtin && !inMulti) out.push(...(this.deps.probeVariants?.(m) ?? []));
+        key.set(m, out);
+        return out;
+      };
+      for (const src of sources) {
+        const plain = meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}`, src);
+        const drawn = drawnOf(src, plain);
+        place(plain, drawn, drawn);
+        // A multi-material's parts are varied on the whole mesh: a pipeline doesn't depend on which indices draw.
+        const multi = drawn instanceof MultiMaterial;
+        const parts = multi ? [...new Set(drawn.subMaterials.filter((m): m is BabylonMaterial => !!m))] : [drawn];
+        for (const part of parts) {
+          for (const variant of extrasOf(part, multi)) place(meshOf(this.deps.scene, `${WARM_PREFIX}${src.name}`, src), variant, part);
         }
       }
     }

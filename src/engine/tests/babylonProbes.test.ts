@@ -91,6 +91,21 @@ describe("reflection probes on the Babylon backend (ADR 0075 stage 6)", () => {
     expect(hit.blend).toMatchObject({ weight: 0.5, intensity: 1, box: null });
   });
 
+  it("gives the warm-up every probe, plus a blended hit for each probe that can blend (ADR 0080, 0110)", () => {
+    probe([0, 0, 0], [20, 20, 20], { blendDistance: 1 }); // the biggest: nothing bigger to blend towards
+    probe([0, 0, 0], [4, 4, 4], { blendDistance: 1 }); // inside the big one: blends towards it
+    probe([50, 0, 0], [4, 4, 4], { blendDistance: 1 }); // alone: nothing to blend towards
+    sync();
+    const hits = probes.warmHits();
+    expect(hits.filter((h) => !h.blend)).toHaveLength(3);
+    const blended = hits.filter((h) => h.blend);
+    expect(blended).toHaveLength(1);
+    expect(blended[0]!.texture).toBe(probes.lookup(1.5, 0, 0)!.texture);
+    expect(blended[0]!.blend!.texture).toBe(probes.lookup(1.5, 0, 0)!.blend!.texture); // the neighbour a mesh there blends towards
+    expect(blended[0]!.blend!.weight).toBeGreaterThan(0);
+    expect(blended[0]!.blend!.weight).toBeLessThan(1); // so the copy defines MYCO_PROBE_BLEND
+  });
+
   it("uses a baked map instead of capturing, and captures when it isn't in the project (ADR 0110)", () => {
     const warn = console.warn;
     const warnings: string[] = [];

@@ -28,7 +28,7 @@ import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
-import type { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
+import { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
@@ -87,13 +87,13 @@ import { BabylonLighting } from "./lighting";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import { BabylonTilemaps } from "./tilemaps";
 import { Tilemap } from "../../tilemap/Tilemap";
-import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelBaseMaterial, modelMaterial, pbr, tiledTexture } from "./materials";
+import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelBaseMaterial, modelMaterial, modelSubMeshes, pbr, tiledTexture } from "./materials";
 import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
 import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
 import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
 import { AsyncPipelines } from "./asyncPipelines";
 import { effectClock, PipelineWarmer, VariantReport, WARM_PREFIX, type ParticleSystemLike, type WarmCustom, type WarmItem, type WarmParts } from "./warmUp";
-import type { WarmContent, WarmEffect } from "../../scene/warmUp";
+import type { WarmContent, WarmEffect, WarmMesh } from "../../scene/warmUp";
 import type { QualityTier } from "../../core/graphics";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 
@@ -420,6 +420,7 @@ export class BabylonRenderer {
       scene,
       materialFor: (path) => this.materialAsset(path),
       materialForSource: (src, mesh) => modelMaterial(this.scene, this.modelMaterials, src, mesh) ?? this.defaultMaterial,
+      slotMaterials: (w, sources) => this.warmSlotMaterials(w, sources),
       isGraph: (m) => this.graphs.has(m),
       fogless: (m) => this.noFog.has(m),
       instancing: (path) => this.instancingOf(path),
@@ -427,7 +428,7 @@ export class BabylonRenderer {
       loadingTextures: () => this.loading.size > 0,
       ...(this.asyncPipelines ? { compiling: () => this.asyncPipelines!.settled() } : {}),
       effectMs: () => this.effects.ms(),
-      probeVariants: (base) => this.probes.textures().map((hit) => this.probeMaterial(base, hit)),
+      probeVariants: (base) => this.probes.warmHits().map((hit) => this.probeMaterial(base, hit)),
     });
     this.warmer.onDrained = () => this.report?.quiet();
     if (fill) this.editorTools();
@@ -446,6 +447,23 @@ export class BabylonRenderer {
     if (set.worldUI) items.push(this.warmWorldCanvas());
     const done = this.warmer.add(items);
     return performance.now() - this.lastRenderAt < 500 ? done : Promise.resolve();
+  }
+
+  /**
+   * What a warm mesh's model meshes draw with: its slots resolved as `syncMesh` resolves a MeshRenderer's
+   * (ADR 0089), from material assets only (script Material instances come later, from scripts), sharing
+   * `syncMesh`'s multi-materials, so the warmed draws are the ones the scene makes.
+   */
+  private warmSlotMaterials(w: WarmMesh, sources: readonly ModelMesh[]): (src: ModelMesh, mesh: Mesh) => BabylonMaterial {
+    const slots = materialSlots(sources);
+    const material = w.material ? this.materialAsset(w.material) : null;
+    const remap = slots.length ? this.sidecarMaterials(w.mesh) : null;
+    const bySurface = new Map(slots.map((slot, i) => [slot.surface, (w.materials?.[i] ? this.materialAsset(w.materials[i]!) : null) ?? material ?? (remap?.[slot.surface.name] ? this.materialAsset(remap[slot.surface.name]!) : null)]));
+    return (src, mesh) => {
+      const m = modelBaseMaterial(this.scene, this.modelMaterials, src, (surface) => bySurface.get(surface) ?? null, this.slotMultis) ?? this.defaultMaterial;
+      if (m instanceof MultiMaterial) modelSubMeshes(src, mesh);
+      return m;
+    };
   }
 
   /** A particle effect to warm: its draws, built by the particle player (loaded now if it isn't). */
