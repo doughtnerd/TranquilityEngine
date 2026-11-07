@@ -66,6 +66,19 @@ export interface OutputSettings {
    * texture (made on first use).
    */
   softness?: number;
+  /**
+   * Kernel outputs (ADR 0126): draw back to front by view depth. "auto" (the default, not written)
+   * sorts alpha-blended outputs and leaves additive and premultiplied ones unsorted.
+   */
+  sort?: OutputSort;
+}
+
+export type OutputSort = "auto" | "on" | "off";
+
+/** Whether a kernel output sorts its particles (ADR 0126). */
+export function outputSorts(settings: Pick<OutputSettings, "sort" | "blending">): boolean {
+  const s = settings.sort ?? "auto";
+  return s === "on" || (s === "auto" && settings.blending === "alpha");
 }
 
 export interface BlockContext {
