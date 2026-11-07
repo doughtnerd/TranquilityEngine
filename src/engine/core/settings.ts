@@ -48,11 +48,14 @@ export interface ProjectSettings {
 }
 
 export type ProjectSettingsInput = {
-  [K in keyof ProjectSettings]?: ProjectSettings[K] extends object[] | string[]
+  [K in Exclude<keyof ProjectSettings, "audio">]?: ProjectSettings[K] extends object[] | string[]
     ? ProjectSettings[K]
     : ProjectSettings[K] extends object
       ? Partial<ProjectSettings[K]>
       : ProjectSettings[K];
+} & {
+  /** Read leniently by `parseAudioSettings`; bad entries are reported, not fatal. */
+  audio?: Record<string, unknown>;
 };
 
 export const defaultSettings: ProjectSettings = {
