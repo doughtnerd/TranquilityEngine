@@ -140,9 +140,10 @@ describe("the Babylon warmer (ADR 0080)", () => {
       scene.render(); // as the frame graph does: the draw readies the materials
       warmer.afterRender();
       frames++;
-      await Promise.resolve();
+      // Babylon finishes a compile on a timer, not a microtask: yield to it, so the frame count doesn't depend on CPU speed.
+      await new Promise((r) => setTimeout(r, 2));
     }
-    expect(frames).toBeLessThan(20); // done once drawn ready, not by giving up
+    expect(frames).toBeLessThan(100); // done once drawn ready (240 frames is giving up)
     await done;
     expect(warmMeshes()).toHaveLength(0);
     expect(scene.materials.some((m) => m.name.endsWith(":blend"))).toBe(false); // the copy went too
