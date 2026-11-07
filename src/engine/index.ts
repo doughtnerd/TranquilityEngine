@@ -29,6 +29,7 @@ export { GameObject, type InstantiateOptions } from "./scene/GameObject";
 export { Transform } from "./scene/Transform";
 export { SceneManager, type LoadSceneOptions } from "./scene/SceneManager";
 export { SceneInstance, registerSceneMigration, type SceneFile } from "./scene/SceneLoader";
+export { scene, prefab, ref, asset, setField, SceneBuilder, PrefabBuilder, NodeBuilder, type InstanceOptions, type NodeComponentOptions, type ComponentEntry, type NodeEntry, type OverrideEntry } from "./scene/sceneBuilder";
 export { Assets, type AssetSource } from "./scene/Assets";
 export type { ImportPlatform, ImportSettings, PlatformOverrides, TextureCompression, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
 export type { MaterialSettings, MaterialShader } from "./scene/material";
