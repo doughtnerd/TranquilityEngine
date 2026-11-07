@@ -27,6 +27,13 @@ export class Replicated extends Component implements ReplicatedSettings {
   @field(Number) importance = 1;
   /** Replicate the local position, rotation and scale (default true). */
   @field(Boolean) replicateTransform = true;
+  /**
+   * Interest management (ADR 0121): sent only to connections with a viewpoint within this many
+   * world units (`Interest.setViewer`, else the ghosts they own). 0: any distance.
+   */
+  @field(Number) relevantDistance = 0;
+  /** Interest group (ADR 0121): sent only to connections in it (`Interest.join`). "": no group. */
+  @field(String) group = "";
 
   /** @internal The ghost id: assigned by the server, received by clients. 0 until then. */
   _ghostId = 0;

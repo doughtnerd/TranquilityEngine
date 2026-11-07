@@ -1,5 +1,5 @@
 import type { Change, Command } from "./commands";
-import type { OverrideEntry, SceneDocument } from "./SceneDocument";
+import { sameTarget, type OverrideEntry, type SceneDocument } from "./SceneDocument";
 
 /**
  * Remove overrides from a prefab instance, putting the prefab's own values back (ADR 0013, 0026).
@@ -89,5 +89,60 @@ export class SetOverrides implements Command {
     if (this.previous) entry.overrides = this.previous;
     else delete entry.overrides;
     return [{ kind: "rebuild", node: this.instance }];
+  }
+}
+
+/** True if `o` is the editor's name (or active) override for `target`: just a target and that key. */
+export function isInnerPropertyOverride(o: OverrideEntry, target: readonly string[], key: "name" | "active"): boolean {
+  return o[key] !== undefined && sameTarget(o.target, target) && Object.keys(o).every((k) => k === "target" || k === key);
+}
+
+/**
+ * Rename or (de)activate a node inside a prefab instance (ADR 0122): writes the instance's
+ * `{ target, name }` or `{ target, active }` override, replacing an earlier one, or with `value`
+ * undefined removes it (the node goes back to the prefab's value). `target` mustn't be empty: the
+ * instance root's name and active flag are on its own entry (`RenameNode`, `SetActive`).
+ */
+export class SetInnerNodeProperty implements Command {
+  readonly label: string;
+  private previous: OverrideEntry[] | undefined;
+
+  constructor(
+    readonly instance: string,
+    readonly target: readonly string[],
+    readonly key: "name" | "active",
+    readonly value: string | boolean | undefined,
+  ) {
+    if (target.length === 0) throw new Error("SetInnerNodeProperty needs a target inside the instance.");
+    this.label = key === "name" ? "Rename" : value === false ? "Deactivate" : "Activate";
+  }
+
+  apply(doc: SceneDocument): Change[] {
+    const entry = doc.node(this.instance);
+    if (!entry.prefab) throw new Error(`"${this.instance}" is not a prefab instance.`);
+    this.previous = entry.overrides;
+    const list = structuredClone(entry.overrides ?? []);
+    const at = list.findIndex((o) => isInnerPropertyOverride(o, this.target, this.key));
+    if (this.value === undefined) {
+      if (at >= 0) list.splice(at, 1);
+    } else {
+      const o: OverrideEntry = { target: [...this.target], [this.key]: this.value };
+      if (at >= 0) list[at] = o;
+      else list.push(o);
+    }
+    if (list.length > 0) entry.overrides = list;
+    else delete entry.overrides;
+    return [this.change()];
+  }
+
+  undo(doc: SceneDocument): Change[] {
+    const entry = doc.node(this.instance);
+    if (this.previous) entry.overrides = this.previous;
+    else delete entry.overrides;
+    return [this.change()];
+  }
+
+  private change(): Change {
+    return { kind: this.key, node: this.instance, path: [this.instance, ...this.target] };
   }
 }
