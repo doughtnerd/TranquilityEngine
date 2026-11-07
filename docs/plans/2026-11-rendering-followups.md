@@ -50,6 +50,7 @@ What's left after the frame-drop work of 2026-11-06 (commit `e60c9af`, branch `c
 
 - **Allocation during play:** about 60–80 MB/s from the client World's scripts and spawning, with a 370–640 MB heap and a major GC every 5–10 s. It doesn't drop frames today.
 - **A failing test:** `src/engine/tests/lobby.test.ts` "players in other Engines join a lobby by URL, and their match shares the lobby's port by path" fails, on master's code too.
+- **Possible improvement: geometry held twice on clients** (noted 2026-11-06). The engine's renderer-neutral model data (`ModelMesh.data` / `surfaces`, ADR 0075 stage 7) is the source of truth for physics, raycasts and dedicated servers, and the Babylon backend uploads its own copy only to draw. For meshes that only render (no collider, nothing in gameplay reads them), the CPU copy could be released after upload to save memory. Not needed today. Keep in mind: geometry the GPU moves (graph vertex offsets, water waves, GPU skinning) needs a CPU version of the same math if gameplay depends on it, as `WaterSurface.sample` does for water.
 - **Later records:** baked lighting (lightmaps) and light probes, deferred by the owner on 2026-11-06.
 
 ## How to measure
