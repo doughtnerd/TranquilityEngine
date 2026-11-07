@@ -1,0 +1,4 @@
+{
+  "name": "Platformer",
+  "description": "A tiny tilemap platformer: a painted level with auto-tiled ground, merged tile colliders, one-way planks, coins and spikes read from tile data, and a camera that follows the player."
+}

@@ -7,6 +7,7 @@
  * it) and the overlay scene, a utility layer drawn after the frame graph, on top of everything and
  * never post-processed (outlines, overlays, icons, frustums, the transform gizmo).
  */
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRenderer.js";
@@ -30,7 +31,7 @@ export interface EditorSprite {
 export interface EditorMesh {
   readonly component: MeshRenderer;
   /** One Babylon mesh per model mesh (world matrices frozen to the node's). */
-  readonly meshes: readonly Mesh[];
+  readonly meshes: readonly AbstractMesh[];
 }
 
 /** @internal The renderer state the editor helpers read. */

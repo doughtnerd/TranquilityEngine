@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultShaderGraph, type ShaderGraph } from "../../engine/scene/shaderGraph";
 import {
+  addKeyword,
   addNode,
   addProperty,
   connect,
@@ -10,9 +11,15 @@ import {
   firstOutputFor,
   moveNodes,
   moveProperty,
+  removeKeyword,
   removeNodes,
   removeProperty,
+  renameKeyword,
   renameProperty,
+  setKeyword,
+  whyNotKeywordName,
+  copyNodes,
+  pasteNodes,
   setGraphOptions,
   setInput,
   setPropertyType,
@@ -148,5 +155,50 @@ describe("node layout", () => {
     expect(inlineFields(port, false, "vec3")).toBe(3);
     expect(inlineFields(port, true, "vec3")).toBe(0);
     expect(inlineFields({ ...port, bind: "uv" }, false, "vec2")).toBe(0);
+  });
+});
+
+describe("shader graph keywords (ADR 0106)", () => {
+  it("adds keywords with free upper-case names", () => {
+    let g = addKeyword(defaultShaderGraph()).graph;
+    g = addKeyword(g).graph;
+    expect(g.keywords?.map((k) => k.name)).toEqual(["KEYWORD", "KEYWORD_2"]);
+  });
+
+  it("renames a keyword and the Keyword nodes reading it, refusing bad or taken names", () => {
+    let g = addKeyword(defaultShaderGraph()).graph;
+    g = addKeyword(g).graph;
+    g = addNode(g, "keyword", [0, 0], { keyword: "KEYWORD" }).graph;
+    expect(whyNotKeywordName(g, "KEYWORD", "rim")).toMatch(/upper case/);
+    expect(whyNotKeywordName(g, "KEYWORD", "KEYWORD_2")).toMatch(/already/);
+    expect(renameKeyword(g, "KEYWORD", "rim")).toBe(g);
+    const r = renameKeyword(g, "KEYWORD", "RIM");
+    expect(r.keywords?.[0].name).toBe("RIM");
+    expect(r.nodes.find((n) => n.type === "keyword")?.settings?.keyword).toBe("RIM");
+  });
+
+  it("switches between on/off and enum, sets variants, and drops connections to ports that go", () => {
+    let g = addKeyword(defaultShaderGraph()).graph;
+    g = addNode(g, "keyword", [0, 0], { keyword: "KEYWORD" }).graph;
+    g = setKeyword(g, "KEYWORD", { values: ["LOW", "HIGH"] });
+    g = connect(g, "keyword1.out", "output.baseColor");
+    expect(g.keywords?.[0].values).toEqual(["LOW", "HIGH"]);
+    expect(setKeyword(g, "KEYWORD", { values: ["LOW"] })).toBe(g);
+    expect(setKeyword(g, "KEYWORD", { values: ["LOW", "low"] })).toBe(g);
+    g = setKeyword(g, "KEYWORD", { variants: "all" });
+    expect(g.keywords?.[0].variants).toBe("all");
+    g = setKeyword(g, "KEYWORD", { values: null, variants: "used" });
+    expect(g.keywords).toEqual([{ name: "KEYWORD" }]);
+  });
+
+  it("removes a keyword with its nodes, and copies the keywords pasted nodes read", () => {
+    let g = addKeyword(defaultShaderGraph()).graph;
+    g = addNode(g, "keyword", [0, 0], { keyword: "KEYWORD" }).graph;
+    const clip = copyNodes(g, ["keyword1"])!;
+    expect(clip.keywords?.map((k) => k.name)).toEqual(["KEYWORD"]);
+    expect(pasteNodes(defaultShaderGraph(), clip, [0, 0]).graph.keywords?.map((k) => k.name)).toEqual(["KEYWORD"]);
+    const removed = removeKeyword(g, "KEYWORD");
+    expect(removed.keywords).toBeUndefined();
+    expect(removed.nodes.some((n) => n.type === "keyword")).toBe(false);
   });
 });

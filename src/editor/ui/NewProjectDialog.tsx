@@ -1,5 +1,5 @@
 import { signal } from "@preact/signals";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { FileSystem } from "../../engine/platform/FileSystem";
 import { describeError } from "../messages";
 import { PROJECT_TEMPLATES, whyNotProjectName, type ProjectTemplate } from "../newProject";
@@ -24,7 +24,8 @@ export function NewProjectDialog() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  useEffect(() => {
+  // A layout effect, so the reset lands before paint: a name typed right after the dialog appears isn't wiped.
+  useLayoutEffect(() => {
     if (!open.value) return;
     setName("");
     setTemplate("2d");

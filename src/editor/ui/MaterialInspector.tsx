@@ -1,9 +1,11 @@
 import { Color } from "../../engine";
 import { compileShaderGraph } from "../../engine/render/shaderGraph/compile";
-import { colorHex, materialGraph, type MaterialSettings } from "../../engine/scene/material";
-import type { GraphValue } from "../../engine/scene/shaderGraph";
+import { colorHex, materialGraph, type MaterialInstancing, type MaterialSettings } from "../../engine/scene/material";
+import { isShaderAssetPath } from "../../engine/scene/shaderAsset";
+import type { GraphProperty, GraphValue } from "../../engine/scene/shaderGraph";
+import type { ShaderKeyword } from "../../engine/scene/shaderKeywords";
 import { assetKind, fileName } from "../assetBrowser";
-import { editMaterial, readMaterial } from "../materialAssets";
+import { editMaterial, readMaterial, readShaderAsset, withKeywordValue } from "../materialAssets";
 import { errorStatus } from "../messages";
 import { createMaterialForGraph, openShaderGraphAsset, readShaderGraph } from "../shaderGraphAssets";
 import { currentProject, docVersion, status } from "../state";
@@ -30,7 +32,17 @@ export function MaterialInspector(props: { path: string }) {
   const lit = settings.shader === "lit" || physical;
   const graphPath = materialGraph(settings);
   const graphFile = graphPath?.replace(/^asset:/, "") ?? null;
-  const graph = graphFile && project.files.includes(graphFile) ? readShaderGraph(project, graphFile).graph : null;
+  const shaders = project.files.filter(isShaderAssetPath);
+  const isShaderAsset = !!graphFile && isShaderAssetPath(graphFile);
+  const shaderFile = graphFile && isShaderAsset && project.files.includes(graphFile) ? readShaderAsset(project, graphFile).shader : null;
+  const graph = graphFile && !isShaderAsset && project.files.includes(graphFile) ? readShaderGraph(project, graphFile).graph : null;
+  // The properties and keywords the material sets: the graph's, or the shader asset's.
+  const source: { properties: GraphProperty[]; keywords: ShaderKeyword[]; what: string } | null = shaderFile
+    ? { properties: shaderFile.properties, keywords: shaderFile.keywords, what: "shader" }
+    : graph
+      ? { properties: graph.properties, keywords: graph.keywords ?? [], what: "graph" }
+      : null;
+  const sourceExists = !!graphFile && (isShaderAsset ? shaders : graphs).includes(graphFile);
 
   // Edits queue up and each applies to the file as the one before left it (`editMaterial`).
   const set = async (patch: Partial<MaterialSettings> | ((current: MaterialSettings) => Partial<MaterialSettings>)) => {
@@ -145,17 +157,22 @@ export function MaterialInspector(props: { path: string }) {
                 Shader Graph: {fileName(f)}
               </option>
             ))}
-            {graphFile && !graphs.includes(graphFile) && <option value={settings.shader}>{graphFile} (missing)</option>}
+            {shaders.map((f) => (
+              <option key={f} value={`asset:${f}`}>
+                Shader: {fileName(f)}
+              </option>
+            ))}
+            {graphFile && !graphs.includes(graphFile) && !shaders.includes(graphFile) && <option value={settings.shader}>{graphFile} (missing)</option>}
           </select>
         </label>
         {graphPath && (
           <>
-            {graph?.properties.map((p) => {
+            {source?.properties.map((p) => {
               const own = settings.properties[p.name];
               const reset = () => void set((now) => ({ properties: Object.fromEntries(Object.entries(now.properties).filter(([k]) => k !== p.name)) }));
               return (
                 <div key={p.name} class="import-row">
-                  <span title={own === undefined ? "The graph's default" : "Set by this material"}>
+                  <span title={own === undefined ? `The ${source?.what}'s default` : "Set by this material"}>
                     {p.name}
                     {own !== undefined && "*"}
                   </span>
@@ -169,7 +186,7 @@ export function MaterialInspector(props: { path: string }) {
                       onValue={(v: GraphValue) => void set((now) => ({ properties: { ...now.properties, [p.name]: v } }))}
                     />
                     {own !== undefined && (
-                      <button title="Use the graph's default" aria-label={`Reset ${p.name}`} disabled={readOnly} onClick={reset}>
+                      <button title={`Use the ${source?.what}'s default`} aria-label={`Reset ${p.name}`} disabled={readOnly} onClick={reset}>
                         Reset
                       </button>
                     )}
@@ -177,10 +194,42 @@ export function MaterialInspector(props: { path: string }) {
                 </div>
               );
             })}
-            {graph && graph.properties.length === 0 && <p class="asset-inspector-note">The graph has no properties to set.</p>}
-            {graphFile && graphs.includes(graphFile) && (
-              <button onClick={() => openShaderGraphAsset(graphFile)}>Edit Shader Graph</button>
+            {source && source.properties.length === 0 && <p class="asset-inspector-note">The {source.what} has no properties to set.</p>}
+            {shaderFile && (
+              <p class="asset-inspector-note">
+                {shaderFile.target === "lit" ? "Lit" : "Unlit"}, {shaderFile.surface}
+                {shaderFile.doubleSided ? ", double-sided" : ""}; {shaderFile.properties.length} properties, {shaderFile.keywords.length} keywords.
+              </p>
             )}
+            {source && source.keywords.length > 0 && (
+              <>
+                <h4 class="material-group">Keywords</h4>
+                {source.keywords.map((k) => {
+                  const value = settings.keywords[k.name];
+                  return k.values ? (
+                    <label key={k.name} class="import-row" title={`Each value compiles its own shader variant (the first, ${k.values[0]}, is the default)`}>
+                      <span>
+                        {k.name}
+                        {value !== undefined && "*"}
+                      </span>
+                      <select aria-label={`Keyword ${k.name}`} disabled={readOnly} value={typeof value === "string" && k.values.includes(value) ? value : k.values[0]} onChange={(e) => void set((now) => ({ keywords: withKeywordValue(now.keywords, k, (e.currentTarget as HTMLSelectElement).value) }))}>
+                        {k.values.map((v) => (
+                          <option key={v} value={v}>
+                            {v}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <label key={k.name} class="import-row" title="On compiles the variant with this keyword defined">
+                      <span>{k.name}</span>
+                      <input type="checkbox" aria-label={`Keyword ${k.name}`} disabled={readOnly} checked={value === true} onChange={(e) => void set((now) => ({ keywords: withKeywordValue(now.keywords, k, (e.currentTarget as HTMLInputElement).checked) }))} />
+                    </label>
+                  );
+                })}
+              </>
+            )}
+            {sourceExists && graphFile && !isShaderAsset && <button onClick={() => openShaderGraphAsset(graphFile)}>Edit Shader Graph</button>}
           </>
         )}
         {!graphPath && (
@@ -245,6 +294,18 @@ export function MaterialInspector(props: { path: string }) {
         </label>
           </>
         )}
+        <label class="import-row" title="Auto: renderers with the same mesh and material draw in one instanced call. Thin: one buffer per mesh, culled as a whole — for many small things that rarely move. Off: one mesh per renderer.">
+          <span>Instancing</span>
+          <select aria-label="Instancing" disabled={readOnly} value={settings.instancing} onChange={(e) => void set({ instancing: (e.currentTarget as HTMLSelectElement).value as MaterialInstancing })}>
+            <option value="auto">Auto</option>
+            <option value="thin">Thin instances</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <label class="import-row" title="Take the World's Fog (off for glows and UI-like surfaces)">
+          <span>Fog</span>
+          <input type="checkbox" aria-label="Fog" disabled={readOnly} checked={settings.fog} onChange={(e) => void set({ fog: (e.currentTarget as HTMLInputElement).checked })} />
+        </label>
       </div>
       <p class="asset-inspector-note">{readOnly ? "This project is read-only." : "Changes save to the file as you make them."}</p>
     </div>

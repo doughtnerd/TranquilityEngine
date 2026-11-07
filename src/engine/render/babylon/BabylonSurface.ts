@@ -17,6 +17,7 @@ import type { World, WorldKind } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import type { Camera, SpriteRenderer } from "../components";
 import type { UICoreLike } from "../../ui/uiCoreTypes";
+import { fitCanvas } from "../canvasFit";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import type {
   EditorColors,
@@ -58,6 +59,8 @@ export class BabylonSurface implements RenderSurface {
   private toolsSeen: BabylonEditorTools | null = null;
   /** Something asked for an editor helper (games never do, so they never load the gizmos). */
   private toolsWanted = false;
+  /** Resolves once the renderer has loaded and started (true), or couldn't (false). */
+  readonly started: Promise<boolean>;
 
   constructor(
     private readonly container: HTMLElement,
@@ -76,10 +79,13 @@ export class BabylonSurface implements RenderSurface {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
-    void import("./BabylonRenderer")
+    this.started = import("./BabylonRenderer")
       .then((m) => m.BabylonRenderer.create(this.canvas, settings, this.fill))
       .then((r) => {
-        if (this.disposed) return r.dispose();
+        if (this.disposed) {
+          r.dispose();
+          return false;
+        }
         this.renderer = r;
         // Dev builds: every live Babylon scene, for inspecting the migration from the console.
         if (import.meta.env?.DEV) {
@@ -93,27 +99,22 @@ export class BabylonSurface implements RenderSurface {
         r.setSelected(this.selection);
         if (this.cameraPreview) r.setCameraPreview(this.cameraPreview.camera, this.cameraPreview.frame);
         this.applyQuality();
+        return true;
       })
-      .catch((err) => console.error("[myco] the Babylon.js renderer couldn't start:", err));
+      .catch((err) => {
+        console.error("[myco] the Babylon.js renderer couldn't start:", err);
+        return false;
+      });
   }
 
   /** Fit the canvas to the container: fill it (editor) or keep the reference aspect ratio. */
   private resize(): void {
-    const { width, height } = this.settings.display;
+    const { width, height, scaleMode } = this.settings.display;
     const cw = this.container.clientWidth || width;
     const ch = this.container.clientHeight || height;
-    let w = cw, h = ch;
-    if (!this.fill) {
-      const aspect = width / height;
-      w = cw;
-      h = cw / aspect;
-      if (h > ch) {
-        h = ch;
-        w = ch * aspect;
-      }
-    }
-    this.canvas.style.width = `${Math.floor(w)}px`;
-    this.canvas.style.height = `${Math.floor(h)}px`;
+    const size = this.fill ? { width: Math.floor(cw), height: Math.floor(ch) } : fitCanvas(scaleMode ?? "fit", width, height, cw, ch);
+    this.canvas.style.width = `${size.width}px`;
+    this.canvas.style.height = `${size.height}px`;
     this.renderer?.resize(this.pixelRatio);
   }
 
@@ -236,7 +237,7 @@ export class BabylonSurface implements RenderSurface {
   particleState(): ParticleStats | null {
     return this.renderer?.particleState() ?? null;
   }
-  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "cornersOf"> | null {
+  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "pickCanvases" | "cornersOf"> | null {
     return this.renderer?.uiState() ?? null;
   }
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {

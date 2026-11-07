@@ -40,7 +40,7 @@ export interface PortDef {
 export interface SettingDef {
   id: string;
   label: string;
-  kind: "select" | "text" | "color" | "texture" | "property" | "subgraph";
+  kind: "select" | "text" | "color" | "texture" | "property" | "subgraph" | "keyword";
   options?: readonly string[];
   default: string;
 }
@@ -68,6 +68,8 @@ export interface EmitContext {
   texture(path: string): string;
   /** The uniform of a graph property, or null if there's none of that name. */
   property(name: string): { uniform: string; type: ValueType } | null;
+  /** A keyword's constant (`bool`, or a `u32` value index for an enum) and its values (null: on/off), or null if the graph has none of that name (ADR 0106). */
+  keyword(name: string): { constant: string; values: string[] | null } | null;
   /** A `#rrggbb[aa]` colour (sRGB) as a linear `vec4` literal. */
   color(hex: string): string;
   /** Record how a texture uniform is sampled: as a colour (sRGB-decoded) or linear data (normal maps). */
@@ -437,6 +439,32 @@ export const NODES: readonly NodeDef[] = [
         return { out: "0.0" };
       }
       return { out: p.uniform };
+    },
+  },
+  {
+    type: "keyword",
+    title: "Keyword",
+    category: "Input",
+    keywords: "variant define switch feature toggle multi_compile shader_feature ifdef",
+    inputs: [dyn("on", "On", 1), dyn("off", "Off", 0)],
+    outputs: [out("dynamic")],
+    settings: [{ id: "keyword", label: "Keyword", kind: "keyword", default: "" }],
+    // An enum keyword has an input per value; a boolean one On and Off (ADR 0106).
+    ports: (node, graph) => {
+      const k = graph.keywords?.find((q) => q.name === node.settings?.keyword);
+      return { inputs: k?.values ? k.values.map((v, i) => dyn(v, v, i)) : [dyn("on", "On", 1), dyn("off", "Off", 0)], outputs: [out("dynamic")] };
+    },
+    emit: (c) => {
+      const k = c.keyword(c.settings.keyword ?? "");
+      if (!k) {
+        c.problem(c.settings.keyword ? `there's no keyword "${c.settings.keyword}"` : "pick a keyword");
+        return { out: c.in.off ?? Object.values(c.in)[0] ?? "0.0" };
+      }
+      // The constant is fixed per variant, so the shader compiler keeps only the branch taken.
+      if (!k.values) return { out: `select(${c.in.off}, ${c.in.on}, ${k.constant})` };
+      let e = c.in[k.values[0]];
+      k.values.slice(1).forEach((v, i) => (e = `select(${e}, ${c.in[v]}, ${k.constant} == ${i + 1}u)`));
+      return { out: e };
     },
   },
   {

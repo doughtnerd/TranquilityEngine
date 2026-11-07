@@ -28,6 +28,7 @@ import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
+import type { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
@@ -47,13 +48,18 @@ import type { World } from "../../core/World";
 import type { Color } from "../../core/math";
 import { Assets, sidecarValue } from "../../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
-import { parseMaterial, materialGraphOfJson, type MaterialSettings } from "../../scene/material";
-import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
+import { defaultMaterialSettings, parseMaterial, materialGraphOfJson, type MaterialInstancing, type MaterialSettings } from "../../scene/material";
+import { Material as EngineMaterial } from "../Material";
+import { materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../../scene/shaderGraph";
+import { isShaderAssetPath, parseShaderAsset } from "../../scene/shaderAsset";
+import { compileShaderAsset, type ShaderAssetSources } from "../shaderGraph/shaderAsset";
+import { normalizeAssetPath } from "../../scene/Assets";
 import { colorHex } from "../../scene/material";
 import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector3 } from "../../core/math";
 import type { MaterialPropertyValue } from "../components";
-import { compileShaderGraph } from "../shaderGraph/compile";
+import { compileShaderGraph, type CompiledShaderGraph } from "../shaderGraph/compile";
+import { MAX_WARM_VARIANTS, resolveKeywords, warmKeywordVariants } from "../../scene/shaderKeywords";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "./graphMaterial";
 import { Camera, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, SpriteRenderer, Text } from "../components";
 import { UICanvas, isUIComponent } from "../../ui/components";
@@ -73,20 +79,30 @@ import { resolvePostEffects, type PostSettings } from "../postEffects";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
-import { spriteFrame } from "../spriteFrame";
-import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
+import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
+import { BabylonTilemaps } from "./tilemaps";
+import { Tilemap } from "../../tilemap/Tilemap";
+import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelBaseMaterial, modelMaterial, pbr, tiledTexture } from "./materials";
+import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
+import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
+import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
 import { AsyncPipelines } from "./asyncPipelines";
-import { effectClock, PipelineWarmer, VariantReport } from "./warmUp";
+import { effectClock, PipelineWarmer, VariantReport, WARM_PREFIX } from "./warmUp";
 import type { WarmMesh } from "../../scene/warmUp";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 
 interface SpriteEntry {
-  mesh: Mesh;
-  material: PBRMaterial;
+  /** Its own quad and material: the editor's scene view only (picking and outlines); other Worlds batch (ADR 0108). */
+  mesh: Mesh | null;
+  material: PBRMaterial | null;
+  /** What the batcher draws for it (ADR 0108), null while hidden. */
+  item: SpriteItem | null;
   spritePath: string | null;
   texture: Texture | null;
   /** The UVs the quad has, as a key ("" for the whole texture). */
   uvKey: string;
+  /** The mesh's vertex count (16 for the 9-slice grid; more when tiled). */
+  vertexCount: number;
   /** Size in node units (before the node's scale), once the texture has loaded. */
   size: [number, number] | null;
   /** The world matrix the quad is frozen at (Babylon keeps it), or null before the first sync. */
@@ -94,9 +110,16 @@ interface SpriteEntry {
 }
 
 interface MeshEntry {
-  meshes: Mesh[];
+  /** The renderer's own Babylon meshes (instances, or whole meshes with instancing off); none in a thin batch. */
+  meshes: AbstractMesh[];
+  /** One per model mesh: where it draws (ADR 0108). */
+  drawables: Drawable[];
+  /** Drawables that haven't had a matrix yet. */
+  pending: boolean[];
   sources: readonly ModelMesh[] | null;
   material: BabylonMaterial | null;
+  /** Its meshes' material slots (ADR 0089). */
+  slotList: MaterialSlot[];
   /** The world matrix its meshes were last frozen with (null: freeze next sync). */
   matrix: Float32Array | null;
 }
@@ -118,6 +141,18 @@ interface MaterialEntry {
   deps?: [string, unknown][];
   /** The shader level a graph with Quality Branch nodes was compiled for (ADR 0050). */
   level?: string;
+  /** The asset's parsed settings (null: a renderer naming a graph or shader directly), to reset to under script values (ADR 0107). */
+  settings: MaterialSettings | null;
+}
+
+/** A script Material instance's own Babylon material (ADR 0107). */
+interface InstanceMaterial {
+  base: BabylonMaterial;
+  material: BabylonMaterial;
+  graph?: BabylonGraphMaterial;
+  version: number;
+  /** Drawn this sync; instances no renderer drew are disposed after it. */
+  seen: boolean;
 }
 
 /** A renderer's own material holding its property overrides (ADR 0049). */
@@ -126,6 +161,8 @@ interface RendererMaterial {
   material: BabylonMaterial;
   graph?: BabylonGraphMaterial;
   version: number;
+  /** The base's `stamp` when the overrides were applied: script Material values changed it since (ADR 0107). */
+  stamp: number;
 }
 
 /** The built-in materials' property names a renderer may override (ADR 0049). */
@@ -148,16 +185,17 @@ const tmpMatrix = new Matrix();
 /** Each renderer mesh's frozen world matrix (Babylon keeps the one it's given), refilled when its node moves. */
 const frozenMatrices = new WeakMap<Mesh, Matrix>();
 const tmpSpriteA = new Matrix();
+const tmpColor = new Color3();
+/** The batch a renderer mesh wants this frame, refilled per mesh (ADR 0108). */
+const wantedKey: DrawKey = { src: null as unknown as ModelMesh, material: null as unknown as BabylonMaterial, receiveShadows: true, castShadows: true, mode: "auto", applyFog: true };
 const tmpSpriteB = new Matrix();
 const tmpSpriteC = new Matrix();
 const tmpScale = new Vector3();
 const tmpQuat = new Quaternion();
 const tmpPos = new Vector3();
 /** Unit quad facing +Z, centred on the origin: bottom-left, bottom-right, top-right, top-left. */
-const QUAD_POSITIONS = [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0];
-const QUAD_NORMALS = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1];
-const QUAD_UVS = [0, 0, 1, 0, 1, 1, 0, 1];
-const QUAD_INDICES = [0, 1, 2, 0, 2, 3];
+const SPRITE_GRID_NORMALS = Array.from({ length: 16 }, () => [0, 0, 1]).flat();
+const WHOLE_FRAME: SpriteFrame = { uv: null, size: [1, 1], pivot: [0.5, 0.5], border: null, fill: "stretch", pixelsPerUnit: 1, pixelSize: [1, 1], missingSlice: false };
 
 /**
  * @internal Whether a world matrix (16 floats of `source` from `offset`) differs from the one an
@@ -188,6 +226,14 @@ export class BabylonRenderer {
   readonly scene: Scene;
   private readonly sprites = new Map<SpriteRenderer, SpriteEntry>();
   private readonly meshRenderers = new Map<MeshRenderer, MeshEntry>();
+  /** MeshRenderer meshes batched for GPU instancing (ADR 0108). */
+  private readonly batches: MeshBatches;
+  /** Multi-slot materials by model mesh and slot materials (ADR 0089), shared by renderers that match so they batch. */
+  private readonly slotMultis = new WeakMap<object, Map<string, MultiMaterial>>();
+  /** Sprites batched per texture run (ADR 0108); the editor's scene view keeps a mesh per sprite. */
+  private readonly spriteBatcher: SpriteBatcher;
+  /** A sprite changed since the batcher was last given them. */
+  private spritesDirty = true;
   private readonly cameras = new Map<Camera, CameraEntry>();
   private readonly textures = new Map<string, Texture>();
   private readonly loading = new Map<string, Promise<Texture>>();
@@ -198,6 +244,12 @@ export class BabylonRenderer {
   private readonly graphs = new WeakMap<BabylonMaterial, BabylonGraphMaterial>();
   /** Renderers with property overrides, and their own materials (ADR 0049). */
   private readonly rendererMaterials = new Map<MeshRenderer, RendererMaterial>();
+  /** The shared script Material version applied to each asset's Babylon material (ADR 0107). */
+  private readonly sharedApplied = new WeakMap<BabylonMaterial, number>();
+  /** Script Material instances' Babylon materials (ADR 0107). */
+  private readonly instanceMaterials = new Map<EngineMaterial, InstanceMaterial>();
+  /** Bumped when script values change a Babylon material in place, so renderer copies follow (ADR 0107). */
+  private readonly stamps = new WeakMap<BabylonMaterial, number>();
   /** The image each built-in material copy's `texture` override asks for (null: the base's texture). */
   private readonly wantedTextures = new WeakMap<PBRMaterial, string | null>();
   /** Time and drawing-buffer size, read by every graph material. */
@@ -219,6 +271,8 @@ export class BabylonRenderer {
   /** When `render` last drew a frame: a warm-up only waits while frames are being drawn. */
   private lastRenderAt = -Infinity;
   private readonly lighting: BabylonLighting;
+  /** Tilemap chunks (ADR 0103). */
+  private readonly tilemaps: BabylonTilemaps;
   /** Reflection probes (stage 6). */
   private readonly probes: BabylonProbes;
   /** Water surfaces (ADR 0072; stage 6), made the first time a World has one. */
@@ -240,7 +294,7 @@ export class BabylonRenderer {
   private readonly selectedNodes = new Set<GameObject>();
   private readonly frame: BabylonFrame;
   private shadows: ShadowRequest[] = [];
-  private readonly casters: Mesh[] = [];
+  private readonly casters: AbstractMesh[] = [];
   /** What the last frame's first camera ran, for tests and the editor. */
   private lastPost: { composed: boolean; toneMapping: ToneMappingName; effects: PostEffects | null } | null = null;
   private clearColor: Color4;
@@ -302,6 +356,21 @@ export class BabylonRenderer {
     this.frame = new BabylonFrame(scene);
     this.frame.beforeView = (camera) => this.lighting.fitSky(camera);
     this.probes = new BabylonProbes(scene);
+    this.batches = new MeshBatches(scene);
+    this.spriteBatcher = new SpriteBatcher(scene);
+    this.tilemaps = new BabylonTilemaps({
+      scene,
+      texture: (path, onLoad) => {
+        const t = this.textures.get(path);
+        if (t) {
+          if (this.textureMeta.get(path) !== sidecarValue(path)) this.applySampling(path, t);
+          return t;
+        }
+        this.texture(path).then(onLoad, (err) => this.warnOnce(`tile|${path}`, `failed to load tile texture "${path}": ${(err as Error).message}`));
+        return null;
+      },
+      sortOrder: (layer, order) => this.sortOrder(layer, order),
+    });
 
     this.defaultMaterial = pbr("myco.default", scene);
     this.defaultMaterial.albedoColor = new Color3(1, 1, 1);
@@ -317,6 +386,8 @@ export class BabylonRenderer {
       materialForSource: (src, mesh) => modelMaterial(this.scene, this.modelMaterials, src, mesh) ?? this.defaultMaterial,
       isGraph: (m) => this.graphs.has(m),
       fogless: (m) => this.noFog.has(m),
+      instancing: (path) => this.instancingOf(path),
+      keywordVariants: (m) => this.keywordVariants(m),
       loadingTextures: () => this.loading.size > 0,
       ...(this.asyncPipelines ? { compiling: () => this.asyncPipelines!.settled() } : {}),
       effectMs: () => this.effects.ms(),
@@ -347,7 +418,7 @@ export class BabylonRenderer {
   /** The node (and prefab) a renderer's mesh belongs to, for the variant report; null for other meshes. */
   private describeMesh(mesh: AbstractMesh): { what: string; prefab?: string } | null {
     for (const [r, e] of this.meshRenderers) {
-      if (!e.meshes.includes(mesh as Mesh)) continue;
+      if (!e.meshes.includes(mesh) && !e.drawables.some((d) => d.source === mesh)) continue;
       let prefab: string | undefined;
       for (let n: GameObject | null = r.node; n && !prefab; n = n.parent) prefab = _instantiatedPrefabOf(n);
       return prefab ? { what: `"${r.node.name}" (from ${prefab})`, prefab } : { what: `"${r.node.name}"` };
@@ -389,7 +460,7 @@ export class BabylonRenderer {
       viewCameras: () => (this.owner ? this.viewCameras(this.owner) : []),
       babylonCamera: (c) => this.cameras.get(c)?.camera ?? null,
       *sprites(): Iterable<EditorSprite> {
-        for (const [component, e] of self.sprites) yield { component, mesh: e.mesh, size: e.size, order: self.sortOrder(component.sortingLayer, component.orderInLayer) };
+        for (const [component, e] of self.sprites) if (e.mesh) yield { component, mesh: e.mesh, size: e.size, order: self.sortOrder(component.sortingLayer, component.orderInLayer) };
       },
       *meshes(): Iterable<EditorMesh> {
         for (const [component, e] of self.meshRenderers) yield { component, meshes: e.meshes };
@@ -531,13 +602,17 @@ export class BabylonRenderer {
   /** Step 8: mirror the World's cameras, meshes and sprites into Babylon. */
   sync(world: World): void {
     this.claim(world);
-    for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s);
-    for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
+    const snap = this.spriteSnap(world);
+    for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s, snap);
+    this.flushSprites();
+    this.tilemaps.sync(world);
+    this.syncMeshes(world);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     const view = this.viewCameras(world)[0];
     const camera = view ? this.cameras.get(view)!.camera : null;
     this.casters.length = 0;
     for (const [r, e] of this.meshRenderers) if (r.castShadows && r.isActiveAndEnabled) this.casters.push(...e.meshes);
+    for (const m of this.batches.thinCasters()) this.casters.push(m);
     this.shadows = this.lighting.syncLights(world, camera);
     this.syncParticles(world);
     this.syncFog(world);
@@ -816,17 +891,20 @@ export class BabylonRenderer {
     if (c instanceof SpriteRenderer) {
       const e = this.sprites.get(c);
       if (e) {
-        e.mesh.dispose();
-        e.material.dispose();
+        e.mesh?.dispose();
+        e.material?.dispose();
         this.sprites.delete(c);
+        this.spritesDirty = true;
       }
     } else if (c instanceof MeshRenderer) {
       const e = this.meshRenderers.get(c);
       if (e) {
-        for (const m of e.meshes) m.dispose();
+        for (const d of e.drawables) this.batches.release(d);
         this.meshRenderers.delete(c);
       }
       this.releaseRendererMaterial(c);
+    } else if (c instanceof Tilemap) {
+      this.tilemaps.release(c);
     } else if (c instanceof WaterSurface) {
       this.water?.release(c);
     } else if (c instanceof ParticleSystem) {
@@ -850,6 +928,8 @@ export class BabylonRenderer {
     if (this.disposed) return;
     this.disposed = true;
     this.warmer.dispose();
+    this.batches.dispose();
+    this.spriteBatcher.dispose();
     this.asyncPipelines?.dispose();
     this.effects.dispose();
     this.report?.dispose();
@@ -864,6 +944,7 @@ export class BabylonRenderer {
     this.frame.overlay = null;
     this.overlayLayer?.dispose();
     this.probes.dispose();
+    this.tilemaps.dispose();
     this.water?.dispose();
     this.frame.dispose();
     this.scene.dispose();
@@ -905,7 +986,7 @@ export class BabylonRenderer {
     const aspect = (cw * w) / (ch * h);
     if (c.projection === "orthographic") {
       camera.mode = BabylonCamera.ORTHOGRAPHIC_CAMERA;
-      const s = c.orthographicSize;
+      const s = c._effectiveOrthographicSize(); // a pixel-perfect camera's whole-number zoom (ADR 0108)
       camera.orthoLeft = -s * aspect;
       camera.orthoRight = s * aspect;
       camera.orthoTop = s;
@@ -920,6 +1001,14 @@ export class BabylonRenderer {
     const e = c.node.entity;
     Matrix.FromArrayToRef(world.worldMatrix(e) as unknown as ArrayLike<number> as number[], e * 16, tmpMatrix);
     tmpMatrix.decompose(tmpScale, tmpQuat, tmpPos);
+    if (c.pixelPerfect && c.projection === "orthographic") {
+      // On the screen-pixel grid (half a pixel off for an odd number of pixels, so pixel centres line up).
+      const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+      const wPx = Math.round(cw * w * dpr), hPx = Math.round(ch * h * dpr);
+      const unit = (2 * c._effectiveOrthographicSize()) / Math.max(1, hPx);
+      tmpPos.x = snapToGrid(tmpPos.x, unit) + pixelCenterOffset(wPx, unit);
+      tmpPos.y = snapToGrid(tmpPos.y, unit) + pixelCenterOffset(hPx, unit);
+    }
     camera.position.copyFrom(tmpPos);
     camera.rotationQuaternion!.copyFrom(tmpQuat);
   }
@@ -935,36 +1024,21 @@ export class BabylonRenderer {
     return index * 10000 + order;
   }
 
-  private syncSprite(world: World, s: SpriteRenderer): void {
+  private syncSprite(world: World, s: SpriteRenderer, snap: number): void {
     let entry = this.sprites.get(s);
     if (!entry) {
-      const mesh = new Mesh(`sprite:${s.node.name}`, this.scene);
-      const data = new VertexData();
-      data.positions = QUAD_POSITIONS;
-      data.normals = QUAD_NORMALS;
-      data.uvs = QUAD_UVS;
-      data.indices = QUAD_INDICES;
-      data.applyToMesh(mesh, true);
-      const material = pbr(`sprite:${s.node.name}`, this.scene);
-      material.unlit = true;
-      material.backFaceCulling = false; // flipped sprites mirror their quad
-      material.disableDepthWrite = true;
-      material.depthFunction = Constants.ALWAYS; // sprites draw in layer order, not by depth (ADR 0014)
-      material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-      material.useAlphaFromAlbedoTexture = true;
-      mesh.material = material;
-      mesh.alwaysSelectAsActiveMesh = true;
-      entry = { mesh, material, spritePath: null, texture: null, uvKey: "", size: null, matrix: null };
+      entry = { mesh: null, material: null, item: null, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null };
       this.sprites.set(s, entry);
+      this.spritesDirty = true;
     }
-    const { mesh, material } = entry;
     const { path: image, slice } = splitSpriteRef(s.sprite);
     if (entry.spritePath !== s.sprite) {
       entry.spritePath = s.sprite;
       const tex = image ? (this.textures.get(image) ?? null) : null;
       entry.texture = tex;
       if (tex) tex.hasAlpha = true; // Babylon reads a texture's alpha only when told it has one
-      material.albedoTexture = tex;
+      if (entry.material) entry.material.albedoTexture = tex;
+      this.spritesDirty = true;
       if (image && !tex) {
         const requested = s.sprite;
         this.texture(image)
@@ -979,26 +1053,76 @@ export class BabylonRenderer {
 
     const ready = !s.sprite || !!entry.texture;
     const visible = s.isActiveAndEnabled && ready;
-    mesh.setEnabled(visible);
-    if (!visible) return;
-
-    material.albedoColor.set(s.color.r, s.color.g, s.color.b).toLinearSpaceToRef(material.albedoColor);
-    material.alpha = s.color.a;
-    mesh.alphaIndex = this.sortOrder(s.sortingLayer, s.orderInLayer);
+    if (!visible) {
+      entry.mesh?.setEnabled(false);
+      if (entry.item) this.spritesDirty = true;
+      entry.item = null;
+      return;
+    }
 
     let w = 1, h = 1, px = 0.5, py = 0.5;
+    let frame: SpriteFrame | null = null;
+    let texSize: { width: number; height: number } | null = null;
     if (entry.texture) {
-      const size = entry.texture.getBaseSize();
-      const frame = spriteFrame(Assets.importSettings(image), slice, size.width, size.height, { component: s.pixelsPerUnit, project: this.settings.render.pixelsPerUnit }, s.size);
+      texSize = entry.texture.getBaseSize();
+      frame = spriteFrame(Assets.importSettings(image), slice, texSize.width, texSize.height, { component: s.pixelsPerUnit, project: this.settings.render.pixelsPerUnit }, s.size);
       [w, h] = frame.size;
       [px, py] = frame.pivot;
       if (frame.missingSlice) this.warnOnce(`slice|${s.sprite}`, `${image} has no slice named "${slice}" (in ${image}.meta.json); drawing the whole image.`);
-      this.setSpriteUVs(entry, frame.uv);
     } else if (s.size) {
       w = s.size.x;
       h = s.size.y;
     }
     entry.size = entry.texture || s.size ? [w, h] : null;
+
+    // A mesh of its own with editor tools (picking and outlines), or for a 9-sliced or tiled slice
+    // (ADR 0115), whose grid the batcher's quads can't draw; plain sprites batch (ADR 0108).
+    const own = this.spriteMeshes || !!(frame && (frame.border || frame.fill === "tile"));
+    if (own && !entry.mesh) this.makeSpriteMesh(s, entry);
+    else if (!own && entry.mesh) {
+      entry.mesh.dispose();
+      entry.material?.dispose();
+      entry.mesh = entry.material = null;
+      entry.matrix = null;
+    }
+    const { mesh, material } = entry;
+    if (mesh) {
+      mesh.setEnabled(true);
+      if (entry.item) this.spritesDirty = true; // drawn by its own mesh now
+      entry.item = null;
+    }
+
+    const order = this.sortOrder(s.sortingLayer, s.orderInLayer);
+    const c = s.color;
+    if (material) {
+      material.albedoColor.set(c.r, c.g, c.b).toLinearSpaceToRef(material.albedoColor);
+      material.alpha = c.a;
+      mesh!.alphaIndex = order;
+      if (frame && texSize) this.setSpriteGeometry(entry, frame, texSize.width, texSize.height);
+    } else {
+      const item = (entry.item ??= { texture: null, order, matrix: new Float32Array(16), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
+      // The batch's instance colour multiplies the (white) albedo: linear, like the albedo colour.
+      tmpColor.set(c.r, c.g, c.b).toLinearSpaceToRef(tmpColor);
+      if (item.color[0] !== tmpColor.r || item.color[1] !== tmpColor.g || item.color[2] !== tmpColor.b || item.color[3] !== c.a || item.order !== order || item.texture !== entry.texture) {
+        item.color[0] = tmpColor.r;
+        item.color[1] = tmpColor.g;
+        item.color[2] = tmpColor.b;
+        item.color[3] = c.a;
+        item.order = order;
+        item.texture = entry.texture;
+        this.spritesDirty = true;
+      }
+      const [u0, v0, u1, v1] = frame?.uv ?? [0, 0, 1, 1];
+      const r = item.uvRect;
+      if (r[0] !== u0 || r[1] !== v0 || r[2] !== u1 - u0 || r[3] !== v1 - v0) {
+        r[0] = u0;
+        r[1] = v0;
+        r[2] = u1 - u0;
+        r[3] = v1 - v0;
+        this.spritesDirty = true;
+      }
+    }
+
     // Scale the unit quad to size with the pivot at the node's origin (flips mirror about it).
     const e = s.node.entity;
     // Without allocating, and frozen again only when it changed: freezing recomputes the bounds.
@@ -1006,24 +1130,96 @@ export class BabylonRenderer {
     Matrix.ScalingToRef(s.flipX ? -w : w, s.flipY ? -h : h, 1, tmpSpriteB);
     tmpSpriteA.multiplyToRef(tmpSpriteB, tmpSpriteC);
     Matrix.FromArrayToRef(world.worldMatrix(e) as unknown as number[], e * 16, tmpMatrix);
+    if (snap > 0) {
+      // A pixel-perfect camera's pixel snapping (ADR 0108): the node's position on the texel grid.
+      const m = tmpMatrix.m as unknown as number[];
+      tmpMatrix.setTranslationFromFloats(snapToGrid(m[12], snap), snapToGrid(m[13], snap), m[14]);
+    }
     tmpSpriteC.multiplyToRef(tmpMatrix, tmpSpriteA);
     if (entry.matrix?.equals(tmpSpriteA)) return;
     entry.matrix ??= new Matrix();
     entry.matrix.copyFrom(tmpSpriteA);
-    mesh.freezeWorldMatrix(entry.matrix);
+    if (mesh) mesh.freezeWorldMatrix(entry.matrix);
+    else {
+      entry.matrix.copyToArray(entry.item!.matrix);
+      this.spritesDirty = true;
+    }
   }
 
-  /** Draw a slice's part of the texture, or the whole texture. */
-  private setSpriteUVs(entry: SpriteEntry, uv: [number, number, number, number] | null): void {
-    const key = uv ? uv.join(",") : "";
+  /** A sprite's own quad and material: a 4 × 4 vertex grid, so a slice's 9-slice border can move the inner lines (ADR 0115). */
+  private makeSpriteMesh(s: SpriteRenderer, entry: SpriteEntry): void {
+    const mesh = new Mesh(`sprite:${s.node.name}`, this.scene);
+    const data = new VertexData();
+    const grid = spriteMeshData(WHOLE_FRAME, 1, 1);
+    data.positions = grid.positions;
+    data.normals = SPRITE_GRID_NORMALS;
+    data.uvs = grid.uvs;
+    data.indices = SPRITE_GRID_INDICES as number[];
+    data.applyToMesh(mesh, true);
+    const material = pbr(`sprite:${s.node.name}`, this.scene);
+    material.unlit = true;
+    material.backFaceCulling = false; // flipped sprites mirror their quad
+    material.disableDepthWrite = true;
+    material.depthFunction = Constants.ALWAYS; // sprites draw in layer order, not by depth (ADR 0014)
+    material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+    material.useAlphaFromAlbedoTexture = true;
+    material.albedoTexture = entry.texture;
+    mesh.material = material;
+    mesh.alwaysSelectAsActiveMesh = true;
+    entry.mesh = mesh;
+    entry.material = material;
+    entry.uvKey = "";
+    entry.vertexCount = 16;
+    entry.matrix = null;
+  }
+
+  /** Draw a slice's part of the texture (9-sliced when it has a border), or the whole texture, on the sprite's own mesh. */
+  private setSpriteGeometry(entry: SpriteEntry, frame: SpriteFrame, texWidth: number, texHeight: number): void {
+    const mesh = entry.mesh;
+    if (!mesh) return;
+    const key = frame.uv || frame.border || frame.fill === "tile" ? `${frame.uv?.join(",") ?? ""}|${frame.border?.join(",") ?? ""}|${frame.fill}|${frame.size.join(",")}|${frame.pixelsPerUnit}|${texWidth}x${texHeight}` : "";
     if (key === entry.uvKey) return;
     entry.uvKey = key;
-    if (!uv) {
-      entry.mesh.updateVerticesData(VertexBuffer.UVKind, QUAD_UVS);
+    const grid = spriteMeshData(frame, texWidth, texHeight);
+    if (grid.tileCapped) this.warnOnce(`tiles|${entry.spritePath}`, `sprite "${entry.spritePath}" would need more than ${MAX_TILE_QUADS} tiles; drawing it stretched. Use a bigger tile or a smaller sprite.`);
+    if (grid.indices === SPRITE_GRID_INDICES && entry.vertexCount === 16) {
+      mesh.updateVerticesData(VertexBuffer.PositionKind, grid.positions);
+      mesh.updateVerticesData(VertexBuffer.UVKind, grid.uvs);
       return;
     }
-    const [u0, v0, u1, v1] = uv;
-    entry.mesh.updateVerticesData(VertexBuffer.UVKind, [u0, v0, u1, v0, u1, v1, u0, v1]);
+    // A different vertex count (tiling): replace the buffers and indices.
+    const count = grid.positions.length / 3;
+    entry.vertexCount = count;
+    mesh.setVerticesData(VertexBuffer.PositionKind, grid.positions, true);
+    mesh.setVerticesData(VertexBuffer.NormalKind, Array.from({ length: count }, () => [0, 0, 1]).flat());
+    mesh.setVerticesData(VertexBuffer.UVKind, grid.uvs, true);
+    mesh.setIndices(grid.indices);
+  }
+
+  /** After syncing sprites: hand the batcher this frame's sprites when any changed (ADR 0108). */
+  private flushSprites(): void {
+    if (!this.spritesDirty) return;
+    this.spritesDirty = false;
+    const items: SpriteItem[] = [];
+    for (const e of this.sprites.values()) if (e.item && !e.mesh) items.push(e.item); // sprites with a mesh of their own draw with it
+    this.spriteBatcher.update(items);
+  }
+
+  /**
+   * Whether sprites draw as a mesh each: with editor tools (the scene view, editor play mode), whose
+   * picking and outlines use them. Games batch plain sprites (ADR 0108).
+   */
+  private get spriteMeshes(): boolean {
+    return this.fill || this.tools !== null || this.toolsLoading;
+  }
+
+  /** The texel step sprites snap to this frame: a pixel-perfect view camera with pixel snapping, else 0. */
+  private spriteSnap(world: World): number {
+    // As `viewCameras` picks, without needing the camera synced yet (sprites sync first).
+    const view = world._componentsOfType(Camera).filter((c) => c.isActiveAndEnabled && !world.inEditMode(c.node.entity)).sort((a, b) => a.depth - b.depth)[0];
+    if (!view || !view.pixelPerfect || !view.pixelSnapping || view.projection !== "orthographic") return 0;
+    const ppu = this.settings.render.pixelsPerUnit;
+    return ppu > 0 ? 1 / ppu : 0;
   }
 
   /** @internal The sprite's size in node units once its texture has loaded. */
@@ -1034,50 +1230,118 @@ export class BabylonRenderer {
 
   // --- Meshes and materials (ADR 0043, 0044) ----------------------------------------------------
 
+  /** @internal Every MeshRenderer, then the script Material instances no renderer drew any more (ADR 0107). */
+  syncMeshes(world: World): void {
+    for (const e of this.instanceMaterials.values()) e.seen = false;
+    for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
+    for (const [m, e] of this.instanceMaterials) if (!e.seen) this.disposeInstance(m);
+    this.batches.flush();
+  }
+
   private syncMesh(world: World, r: MeshRenderer): void {
     let entry = this.meshRenderers.get(r);
     if (!entry) {
-      entry = { meshes: [], sources: null, material: null, matrix: null };
+      entry = { meshes: [], drawables: [], pending: [], sources: null, material: null, slotList: [], matrix: null };
       this.meshRenderers.set(r, entry);
     }
     const sources = meshesIfLoaded(r.mesh); // null while the model loads
-    const material = this.rendererMaterial(r, this.materialAsset(r.material));
+    // Material slots (ADR 0089, 0107): a slot with its own `materials[i]` draws it (its script Material's
+    // copy, or the asset with shared values); the others draw the renderer-wide `material` (slot 0's
+    // script instance when slot 0 has no entry of its own, with 0049's overrides), then the model's
+    // import settings, then the model's own material.
+    const slot0 = r.materials[0] ? null : r._drawMaterial(0);
+    const material = this.rendererMaterial(r, slot0?.isInstance ? this.instanceMaterial(slot0) : this.materialAsset(r.material));
     const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
-    if (!same || entry.material !== material) {
-      for (const m of entry.meshes) m.dispose();
-      entry.meshes = (sources ?? []).map((src) => {
-        const mesh = meshOf(this.scene, `mesh:${r.node.name}:${src.name}`, src);
-        mesh.material = material ?? modelMaterial(this.scene, this.modelMaterials, src, mesh) ?? this.defaultMaterial;
-        mesh.metadata = { mycoBase: mesh.material };
-        return mesh;
-      });
+    const slots = same ? entry.slotList : sources ? materialSlots(sources) : [];
+    const remap = sources && slots.length ? this.sidecarMaterials(r.mesh) : null;
+    const bySurface = new Map(slots.map((slot, i) => [slot.surface, (r.materials[i] ? this.drawnMaterial(r, i) : null) ?? material ?? (remap?.[slot.surface.name] ? this.materialAsset(remap[slot.surface.name]) : null)]));
+    if (!same) {
+      for (const d of entry.drawables) this.batches.release(d);
+      entry.drawables = [];
+      entry.pending = [];
       entry.sources = sources;
-      entry.material = material;
+      entry.slotList = slots;
       entry.matrix = null;
     }
+    entry.material = material;
     const visible = r.isActiveAndEnabled;
     const e = r.node.entity;
-    // Freeze the meshes again only when the node moved: freezing recomputes their bounds.
-    const moved = visible && entry.meshes.length > 0 && matrixChanged(entry, world.worldMatrix(e), e * 16);
-    for (const m of entry.meshes) {
-      m.setEnabled(visible);
-      m.receiveShadows = r.receiveShadows;
-      if (!visible) continue;
-      if (moved) {
-        // Babylon keeps the matrix it's given: each mesh keeps one, refilled when the node moves.
-        let matrix = frozenMatrices.get(m);
-        if (!matrix) frozenMatrices.set(m, (matrix = new Matrix()));
-        Matrix.FromArrayToRef(entry.matrix! as unknown as number[], 0, matrix);
-        m.freezeWorldMatrix(matrix);
-      }
-      const base = (m.metadata as { mycoBase?: BabylonMaterial } | null)?.mycoBase ?? m.material;
-      if (!base) continue;
-      m.applyFog = !this.noFog.has(base);
+    const world16 = world.worldMatrix(e);
+    // Refill the drawables' matrices only when the node moved: freezing recomputes their bounds.
+    const moved = visible && (sources?.length ?? 0) > 0 && matrixChanged(entry, world16, e * 16);
+    const mode = this.instancingFor(r);
+    let changed = !same;
+    (sources ?? []).forEach((src, i) => {
+      // One material, or a multi-material shared by every renderer with the same slot materials, so they batch (ADR 0108).
+      const base = modelBaseMaterial(this.scene, this.modelMaterials, src, (surface) => bySurface.get(surface) ?? null, this.slotMultis) ?? this.defaultMaterial;
       // A reflection probe (ADR 0054) for built-in materials; graph materials keep the scene's environment.
-      const probe = this.probes.any && base instanceof PBRMaterial && !this.graphs.has(base) ? this.probeAt(m) : null;
+      const probe = visible && this.probes.any && base instanceof PBRMaterial && !this.graphs.has(base) ? this.probes.lookup(world16[e * 16 + 12], world16[e * 16 + 13], world16[e * 16 + 14]) : null;
       const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe.texture, probe.intensity) : base;
       if (probe) this.reflecting++;
-      if (m.material !== drawn) m.material = drawn;
+      // The batch it draws in (ADR 0108): same geometry, material and shadow settings draw instanced.
+      const key = wantedKey;
+      key.src = src;
+      key.material = drawn;
+      key.receiveShadows = r.receiveShadows;
+      key.castShadows = r.castShadows;
+      key.mode = mode;
+      key.applyFog = !this.noFog.has(base);
+      let d = entry!.drawables[i];
+      if (!d || !sameDraw(d.draw, key)) {
+        if (d) this.batches.release(d);
+        d = this.batches.acquire(key, `${r.node.name}:${src.name}`);
+        entry!.drawables[i] = d;
+        entry!.pending[i] = true;
+        changed = true;
+      }
+      d.setEnabled(visible);
+      if (visible && (moved || entry!.pending[i]) && entry!.matrix) {
+        Matrix.FromArrayToRef(entry!.matrix as unknown as number[], 0, tmpMatrix);
+        d.setMatrix(tmpMatrix);
+        entry!.pending[i] = false;
+      }
+    });
+    if (changed) entry.meshes = entry.drawables.flatMap((d) => (d.mesh ? [d.mesh] : []));
+  }
+
+  /** How a renderer's meshes batch (ADR 0108): its slot 0 material asset's `instancing`. */
+  private instancingFor(r: MeshRenderer): MaterialInstancing {
+    return this.instancingOf(r.materials[0] || r.material);
+  }
+
+  /** A material asset's `instancing` ("auto" without one); with editor tools (scene view, play mode) thin batches draw as instances, for picking. */
+  private instancingOf(path: string | null): MaterialInstancing {
+    const mode = (path && this.materialAssets.get(path)?.settings?.instancing) || "auto";
+    return mode === "thin" && this.spriteMeshes ? "auto" : mode; // with editor tools, picking needs per-object instances
+  }
+
+  /**
+   * Warm-up's extra copies of a graph or shader-asset material (ADR 0106): one per combination of its
+   * `"variants": "all"` keywords beyond the one it draws, sharing its compiled program, so a script's
+   * keyword switch finds its variant compiled. At most 16 per material.
+   */
+  private keywordVariants(m: BabylonMaterial): { material: BabylonMaterial; dispose(): void }[] {
+    const g = this.graphs.get(m);
+    if (!g || !g.compiled.keywords?.some((k) => k.variants === "all")) return [];
+    const { variants, capped } = warmKeywordVariants(g.compiled.keywords, g.keywords);
+    if (capped) this.warnOnce(`warm-cap|${m.name}`, `${m.name}: its "variants": "all" keywords make more than ${MAX_WARM_VARIANTS} combinations; warm-up compiles the first ${MAX_WARM_VARIANTS}.`);
+    return variants.slice(1).map((kw) => {
+      const copy = createGraphMaterial(this.scene, `${WARM_PREFIX}${m.name}:variant`, g.compiled, { ...g.properties }, this.graphShared, (p, linear) => this.graphTexture(p, linear));
+      copy.setKeywords(kw);
+      if (this.noFog.has(m)) this.noFog.add(copy.material);
+      return { material: copy.material, dispose: () => copy.dispose() };
+    });
+  }
+
+  /** A model's import settings' material assets by material name (ADR 0089), or null for a built-in mesh or none. */
+  private sidecarMaterials(ref: string): Readonly<Record<string, string>> | null {
+    if (!ref || ref.startsWith("builtin:")) return null;
+    try {
+      const path = splitSpriteRef(ref.replace(/^asset:/, "")).path;
+      const materials = Assets.importSettings(path).materials;
+      return Object.keys(materials).length ? materials : null;
+    } catch {
+      return null;
     }
   }
 
@@ -1086,17 +1350,27 @@ export class BabylonRenderer {
    * warned once). Rebuilt when the asset's JSON changes (the editor's Material inspector).
    */
   private materialAsset(path: string): BabylonMaterial | null {
+    const m = this.materialAssetBase(path);
+    // The asset's shared script Material (ADR 0107), applied in place: every user of the asset follows.
+    const shared = m && path ? EngineMaterial._sharedIfAny(path) : undefined;
+    if (m && shared) this.applyShared(path, m, shared);
+    return m;
+  }
+
+  private materialAssetBase(path: string): BabylonMaterial | null {
     if (!path) return null;
     const read = (p: string): unknown => {
       try {
-        return Assets.has(p) ? Assets.json(p) : undefined;
+        if (!Assets.has(p)) return undefined;
+        const v = Assets.get(p); // text files (a Custom Function's .wgsl) read as strings, compared by value
+        return typeof v === "string" ? v : Assets.json(p);
       } catch {
         return undefined;
       }
     };
     const raw = read(path);
     // A material naming a shader graph, or a renderer naming the graph itself, depends on the graph's JSON too.
-    let graphPath: string | null = isShaderGraphPath(path) ? path : null;
+    let graphPath: string | null = isShaderGraphPath(path) || isShaderAssetPath(path) ? path : null;
     if (!graphPath && raw !== undefined) graphPath = materialGraphOfJson(raw);
     const graphRaw = graphPath ? read(graphPath) : undefined;
     const cached = this.materialAssets.get(path);
@@ -1107,15 +1381,21 @@ export class BabylonRenderer {
     for (const t of cached?.textures ?? []) t.dispose();
     let material: BabylonMaterial | null = null;
     let graph: BabylonGraphMaterial | undefined;
+    let assetSettings: MaterialSettings | null = null;
     const owned: Texture[] = [];
     const where = path.replace(/^asset:/, "");
     if (raw === undefined) {
       this.warnOnce(`missing|${path}`, `material "${where}" isn't in the project; using the default material.`);
     } else if (graphPath) {
       try {
-        const properties: Record<string, GraphValue> = graphPath === path ? {} : parseMaterial(raw, where).settings.properties;
-        if (graphRaw === undefined) throw new Error(`shader graph "${graphPath.replace(/^asset:/, "")}" isn't in the project.`);
-        graph = this.graphMaterial(graphRaw, graphPath.replace(/^asset:/, ""), properties);
+        const settings = graphPath === path ? null : parseMaterial(raw, where).settings;
+        assetSettings = settings;
+        if (graphRaw === undefined) throw new Error(`${isShaderAssetPath(graphPath) ? "shader" : "shader graph"} "${graphPath.replace(/^asset:/, "")}" isn't in the project.`);
+        graph = this.graphMaterial(graphRaw, graphPath.replace(/^asset:/, ""), settings?.properties ?? {}, isShaderAssetPath(graphPath) ? read : undefined);
+        // Keyword values (ADR 0106): unknown names and values are warned once.
+        const kw = settings?.keywords ?? {};
+        resolveKeywords(graph.compiled.keywords, kw, (m) => this.warnOnce(`${path}|kw|${m}`, `${where}: ${m}`));
+        graph.setKeywords(kw);
         material = graph.material;
       } catch (err) {
         const message = `${where}: ${(err as Error).message} Using the default material.`;
@@ -1125,6 +1405,7 @@ export class BabylonRenderer {
       try {
         const { settings, problems } = parseMaterial(raw, where);
         for (const p of problems) this.warnOnce(`${path}|${p}`, p);
+        assetSettings = settings;
         material = this.builtinMaterial(path, settings, owned);
       } catch (err) {
         this.warnOnce(`bad|${path}`, `${(err as Error).message} Using the default material.`);
@@ -1139,16 +1420,150 @@ export class BabylonRenderer {
         /* warned above */
       }
     }
-    this.materialAssets.set(path, { raw, graphRaw, material, textures: owned, graph, deps, level });
+    this.materialAssets.set(path, { raw, graphRaw, material, textures: owned, graph, deps, level, settings: assetSettings });
     return material;
   }
 
-  /** A graph compiled to WGSL as a Babylon material (ADR 0047, `graphMaterial.ts`). */
-  private graphMaterial(graphRaw: unknown, where: string, properties: Record<string, GraphValue>): BabylonGraphMaterial {
-    const { graph, problems } = parseShaderGraph(graphRaw, where);
-    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
+  // --- Script materials (ADR 0107) ----------------------------------------------------------------
+
+  /** A script Material's values as material-file data. */
+  private static scriptValues(m: EngineMaterial): Record<string, GraphValue> {
+    const values: Record<string, GraphValue> = {};
+    for (const [k, v] of m._values) values[k] = toGraphValue(v);
+    return values;
+  }
+
+  private bump(m: BabylonMaterial): void {
+    this.stamps.set(m, (this.stamps.get(m) ?? 0) + 1);
+  }
+
+  /**
+   * Apply a script Material's values and keywords to a Babylon material built from `path`, in place:
+   * graph and shader-asset materials take them over the asset's properties and keywords (uniforms, or a
+   * keyword variant); built-in materials reset to the asset's settings, then take the values.
+   */
+  private applyValues(path: string, target: BabylonMaterial, m: EngineMaterial, graph: BabylonGraphMaterial | undefined): void {
+    const entry = path ? this.materialAssets.get(path) : undefined;
+    const settings = entry?.settings ?? (path ? null : defaultMaterialSettings());
+    const values = BabylonRenderer.scriptValues(m);
+    const keywords = Object.fromEntries(m._keywords);
+    const what = path ? path.replace(/^asset:/, "") : "the default material";
+    if (graph) {
+      graph.setProperties({ ...(settings?.properties ?? {}), ...values });
+      resolveKeywords(graph.compiled.keywords, keywords, (msg) => this.warnOnce(`${path}|script-kw|${msg}`, `${what}: ${msg}`));
+      graph.setKeywords({ ...(settings?.keywords ?? {}), ...keywords });
+      const known = new Set(graph.compiled.uniforms.flatMap((u) => (u.property ? [u.property] : [])));
+      for (const k of Object.keys(values)) if (!known.has(k)) this.warnOnce(`${path}|script-prop|${k}`, `${what} has no property "${k}"; the Material's value is ignored.`);
+    } else if (target instanceof PBRMaterial && settings) {
+      target.alpha = 1; // applyBuiltinSettings only sets these for see-through colours
+      target.transparencyMode = null;
+      applyBuiltinSettings(target, settings);
+      applyBuiltinOverrides(target, target, values);
+      if (typeof values.texture === "string") this.overrideTexture(target, target, values);
+      for (const k of Object.keys(values)) if (!BUILTIN_PROPERTIES.has(k)) this.warnOnce(`${path}|script-prop|${k}`, `${what} has no property "${k}"; the Material's value is ignored.`);
+      if (m._keywords.size) this.warnOnce(`${path}|script-kw`, `${what} is a built-in material; it has no keywords (shader graphs and shader assets do, ADR 0106).`);
+    }
+    this.bump(target);
+  }
+
+  /** The asset's shared Material on its Babylon material, when its version changed. */
+  private applyShared(path: string, material: BabylonMaterial, shared: EngineMaterial): void {
+    const applied = this.sharedApplied.get(material);
+    if (applied === shared._version || (applied === undefined && shared._empty)) return;
+    this.sharedApplied.set(material, shared._version);
+    // A texture override taken back: rebuild the asset, so its own texture loads onto it again.
+    const entry = this.materialAssets.get(path);
+    if (applied !== undefined && !shared._values.has("texture") && material instanceof PBRMaterial && this.wantedTextures.get(material) && entry) {
+      entry.raw = Symbol("rebuild");
+      return;
+    }
+    this.applyValues(path, material, shared, this.graphs.get(material));
+  }
+
+  /** A script Material instance's own Babylon material: a copy of its asset's (a graph copy shares the compiled program). */
+  private instanceMaterial(m: EngineMaterial): BabylonMaterial | null {
+    const asset = m.asset ? this.materialAssetBase(m.asset) : this.defaultMaterial;
+    if (!asset) return null;
+    let e = this.instanceMaterials.get(m);
+    if (e && e.base !== asset) {
+      this.disposeInstance(m);
+      e = undefined;
+    }
+    if (!e) {
+      const g = this.graphs.get(asset);
+      if (g) {
+        const made = createGraphMaterial(this.scene, `${asset.name}:instance`, g.compiled, { ...g.properties }, this.graphShared, (p, linear) => this.graphTexture(p, linear));
+        made.setKeywords(g.keywords);
+        this.graphs.set(made.material, made);
+        e = { base: asset, material: made.material, graph: made, version: -1, seen: true };
+      } else if (asset instanceof PBRMaterial) {
+        e = { base: asset, material: asset.clone(`${asset.name}:instance`), version: -1, seen: true };
+      } else e = { base: asset, material: asset, version: m._version, seen: true };
+      if (this.noFog.has(asset)) this.noFog.add(e.material);
+      this.instanceMaterials.set(m, e);
+    }
+    e.seen = true;
+    if (e.version !== m._version) {
+      e.version = m._version;
+      if (e.material !== e.base) this.applyValues(m.asset, e.material, m, e.graph);
+    }
+    // A copy taken before its asset's textures loaded follows them, unless it overrides its own.
+    if (e.material instanceof PBRMaterial && e.base instanceof PBRMaterial && !this.wantedTextures.get(e.material)) {
+      if (e.material.albedoTexture !== e.base.albedoTexture) e.material.albedoTexture = e.base.albedoTexture;
+      if (e.material.bumpTexture !== e.base.bumpTexture) e.material.bumpTexture = e.base.bumpTexture;
+    }
+    return e.material;
+  }
+
+  private disposeInstance(m: EngineMaterial): void {
+    const e = this.instanceMaterials.get(m);
+    if (!e) return;
+    if (e.graph) e.graph.dispose();
+    else if (e.material !== e.base) e.material.dispose();
+    this.instanceMaterials.delete(m);
+  }
+
+  /** The Babylon material a renderer's slot draws (ADR 0089, 0107): its script Material instance's copy, or its asset's (with shared values). */
+  private drawnMaterial(r: MeshRenderer, slot = 0): BabylonMaterial | null {
+    const m = r._drawMaterial(slot);
+    if (m?.isInstance) return this.instanceMaterial(m);
+    return this.materialAsset(r.materials[slot] || r.material);
+  }
+
+  /**
+   * A graph compiled to WGSL as a Babylon material (ADR 0047, `graphMaterial.ts`), or a hand-written shader
+   * asset (ADR 0106) when `readCode` is given: it reads the asset's code files, which become dependencies.
+   */
+  private graphMaterial(graphRaw: unknown, where: string, properties: Record<string, GraphValue>, readCode?: (path: string) => unknown): BabylonGraphMaterial {
+    let compiled: CompiledShaderGraph;
+    let problems: string[];
+    if (readCode) {
+      const parsed = parseShaderAsset(graphRaw, where);
+      problems = parsed.problems;
+      const sources: ShaderAssetSources = {};
+      const deps: string[] = [];
+      for (const lang of ["wgsl", "glsl"] as const) {
+        const code = parsed.shader[lang];
+        if (!code) continue;
+        if ("code" in code) sources[lang] = code.code;
+        else {
+          const file = normalizeAssetPath(code.file);
+          deps.push(file);
+          const text = readCode(file);
+          if (typeof text === "string") sources[lang] = text;
+          else problems.push(`${where}: its ${lang.toUpperCase()} file "${file}" isn't in the project.`);
+        }
+      }
+      compiled = compileShaderAsset(parsed.shader, sources, deps);
+      const language = this.engine.isWebGPU ? "WGSL" : "GLSL";
+      if (this.engine.isWebGPU ? compiled.noWgsl : !compiled.glsl) this.warnOnce(`shader|lang|${where}`, `${where}: has no ${language} code for this ${this.engine.isWebGPU ? "WebGPU" : "WebGL2"} engine; it draws as plain PBR.`);
+    } else {
+      const parsed = parseShaderGraph(graphRaw, where);
+      problems = parsed.problems;
+      compiled = compileShaderGraph(parsed.graph, { shaderLevel: Graphics.tier.shaderLevel });
+      if (!this.engine.isWebGPU) this.warnOnce("graph|webgl", "shader graph materials need WebGPU on the Babylon backend; on the WebGL2 fallback they draw as plain PBR.");
+    }
     for (const p of [...problems, ...compiled.problems.map((q) => `${where}: ${q}`)]) this.warnOnce(p, p);
-    if (!this.engine.isWebGPU) this.warnOnce("graph|webgl", "shader graph materials need WebGPU on the Babylon backend; on the WebGL2 fallback they draw as plain PBR.");
     const made = createGraphMaterial(this.scene, `graph:${where}`, compiled, properties, this.graphShared, (p, linear) => this.graphTexture(p, linear));
     this.graphs.set(made.material, made);
     return made;
@@ -1202,7 +1617,8 @@ export class BabylonRenderer {
       this.releaseRendererMaterial(r);
       entry = undefined;
     }
-    if (entry && entry.version === r._materialPropertiesVersion) {
+    const stamp = this.stamps.get(base) ?? 0;
+    if (entry && entry.version === r._materialPropertiesVersion && entry.stamp === stamp) {
       // A copy taken before its base's textures loaded (they arrive after the material is made) follows them.
       const m = entry.material;
       if (m !== base && m instanceof PBRMaterial && base instanceof PBRMaterial) {
@@ -1217,17 +1633,22 @@ export class BabylonRenderer {
     if (!entry) {
       if (baseGraph) {
         const g = createGraphMaterial(this.scene, `${base.name}:${r.node.name}`, baseGraph.compiled, { ...baseGraph.properties, ...values }, this.graphShared, (p, linear) => this.graphTexture(p, linear));
-        entry = { base, material: g.material, graph: g, version: r._materialPropertiesVersion };
+        g.setKeywords(baseGraph.keywords); // a variant of the base's (ADR 0106)
+        entry = { base, material: g.material, graph: g, version: r._materialPropertiesVersion, stamp };
       } else {
-        entry = { base, material: base, version: -1 };
+        entry = { base, material: base, version: -1, stamp };
       }
       this.rendererMaterials.set(r, entry);
       const known = baseGraph ? new Set(baseGraph.compiled.uniforms.flatMap((u) => (u.property ? [u.property] : []))) : BUILTIN_PROPERTIES;
       for (const k of overrides.keys()) if (!known.has(k)) this.warnOnce(`${r.material}|prop|${k}`, `${r.node.name}: its material has no property "${k}"; setMaterialProperty ignores it.`);
     }
-    if (entry.version !== r._materialPropertiesVersion) {
+    if (entry.version !== r._materialPropertiesVersion || entry.stamp !== stamp) {
       entry.version = r._materialPropertiesVersion;
-      if (entry.graph && baseGraph) entry.graph.setProperties({ ...baseGraph.properties, ...values });
+      entry.stamp = stamp;
+      if (entry.graph && baseGraph) {
+        entry.graph.setProperties({ ...baseGraph.properties, ...values });
+        entry.graph.setKeywords(baseGraph.keywords);
+      }
       else if (base instanceof PBRMaterial) {
         // One copy per renderer, updated in place: the base's values, then the overrides. A new copy
         // per change rebuilt the renderer's meshes and, once the old copy's effect was released,
@@ -1250,8 +1671,8 @@ export class BabylonRenderer {
     else
       this.texture(image)
         .then((tex) => {
-          // Still this renderer's copy, and still wanting this image.
-          if (this.wantedTextures.get(m) === image && [...this.rendererMaterials.values()].some((e) => e.material === m)) m.albedoTexture = tex;
+          // Still wanting this image, and not disposed meanwhile.
+          if (this.wantedTextures.get(m) === image && this.scene.materials.includes(m)) m.albedoTexture = tex;
         })
         .catch((err) => console.error(`[myco] failed to load texture "${image}":`, err));
   }
@@ -1293,7 +1714,8 @@ export class BabylonRenderer {
   // --- Diagnostics ------------------------------------------------------------------------------
 
   renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number } {
-    return { drawCalls: 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: 0 };
+    // Babylon counts the draw calls of the frame being drawn and resets at the next frame's start, so between frames this is the last frame's (0 on NullEngine).
+    return { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: 0 };
   }
 
   private warnOnce(key: string, message: string): void {

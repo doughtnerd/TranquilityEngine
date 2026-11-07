@@ -130,6 +130,14 @@ async function prepareAssets(world: World, files: readonly string[], onProgress:
     if (m.material) all.add(splitSpriteRef(m.material.replace(/^asset:/, "")).path);
   }
   const refs = [...all];
+  // A model's import settings can name material assets for its materials (ADR 0089): their textures too.
+  for (const m of refs.filter((p) => isModelPath(p) && Assets.has(p))) {
+    try {
+      for (const material of Object.values(Assets.importSettings(m).materials)) refs.push(splitSpriteRef(material.replace(/^asset:/, "")).path);
+    } catch {
+      // reported when the model loads
+    }
+  }
   for (const m of refs.filter(isMaterialPath)) {
     try {
       const raw = Assets.has(m) ? Assets.json<Record<string, unknown>>(m) : null;

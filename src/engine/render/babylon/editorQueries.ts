@@ -7,6 +7,7 @@
  */
 import { Ray as BabylonRay } from "@babylonjs/core/Culling/ray.js";
 import { Matrix, Vector3 as BabylonVector3 } from "@babylonjs/core/Maths/math.vector.js";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Vector2, Vector3 } from "../../core/math";
 import type { World } from "../../core/World";
@@ -21,7 +22,7 @@ const MESH_ORDER = -1e12;
 
 type Ray3 = { origin: [number, number, number]; direction: [number, number, number] };
 
-const visible = (m: Mesh): boolean => m.isEnabled() && m.isVisible;
+const visible = (m: AbstractMesh): boolean => m.isEnabled() && m.isVisible;
 
 export class BabylonEditorQueries {
   /** `iconsAt` returns the camera and light icons within the pick radius of a canvas point. */
@@ -108,7 +109,7 @@ export class BabylonEditorQueries {
   screenBounds(world: World, root: GameObject): { node: GameObject; rect: ScreenRect }[] {
     const view = this.view();
     if (!view || !this.hasSize()) return [];
-    const sprites = new Map<GameObject, Mesh>(), texts = new Map<GameObject, ScreenRect>(), meshes = new Map<GameObject, Mesh[]>();
+    const sprites = new Map<GameObject, Mesh>(), texts = new Map<GameObject, ScreenRect>(), meshes = new Map<GameObject, AbstractMesh[]>();
     for (const s of this.ctx.sprites()) if (visible(s.mesh)) sprites.set(s.component.node, s.mesh);
     for (const m of this.ctx.meshes()) {
       const shown = m.meshes.filter(visible);

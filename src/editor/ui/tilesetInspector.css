@@ -1,0 +1,27 @@
+/* Tileset assets in the Inspector (ADR 0103). Theme tokens only. */
+.tileset-inspector:focus { outline: none; }
+.tileset-inspector .hint { color: var(--muted); font-size: 11px; margin: 2px 0; }
+.tileset-size { grid-template-columns: 1fr 1fr; }
+.tileset-history { display: flex; gap: 4px; margin: 6px 0; }
+.tileset-terrain { margin: 4px 0 8px; }
+.tileset-terrain-row { display: flex; align-items: center; gap: 4px; }
+.tileset-terrain-row input[type="text"] { flex: 1; min-width: 0; }
+.tileset-terrain-row input[type="color"] { width: 28px; height: 20px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); flex: none; }
+.tileset-grid { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0; max-height: 240px; overflow: auto; }
+.tileset-cell { padding: 2px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); line-height: 0; cursor: pointer; }
+.tileset-cell:hover { border-color: var(--border-strong); }
+.tileset-cell.selected { border-color: var(--accent); background: var(--accent-soft); }
+.tileset-add { display: flex; gap: 4px; align-items: center; margin-top: 6px; }
+.tileset-add select { flex: 1; min-width: 0; }
+.tileset-tile h3 { display: flex; align-items: center; justify-content: space-between; }
+.tileset-tile-preview { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; min-width: 0; }
+.tileset-tile-preview code { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tileset-tile input[type="text"], .tileset-tile textarea { width: 100%; min-width: 0; box-sizing: border-box; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 5px; font: inherit; }
+.tileset-tile textarea { font-family: var(--font-code); font-size: 11px; resize: vertical; }
+.tileset-tile input:focus, .tileset-tile textarea:focus { outline: none; border-color: var(--accent); }
+.tileset-tile .invalid { border-color: var(--danger); }
+.tileset-error { margin: 2px 0; font-size: 11px; color: var(--danger); }
+.tileset-pattern { display: grid; grid-template-columns: repeat(3, 28px); grid-auto-rows: 28px; gap: 2px; }
+.tileset-pattern button { padding: 0; font-size: 14px; line-height: 1; }
+.tileset-pattern-centre { display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--muted); border: 1px dashed var(--border); border-radius: 3px; }
+.tileset-data { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }

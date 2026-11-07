@@ -40,6 +40,8 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import { checkPropertyValue, type GraphValue } from "../../scene/shaderGraph";
 import { useEngineLightFalloff } from "./materials";
+import { allKeywordDefines, keywordDefines, type KeywordValue } from "../../scene/shaderKeywords";
+import { TANGENT_FRAME_GLSL } from "../shaderGraph/shaderAsset";
 import { linearColor, SHARED_UNIFORMS, srgbToLinear, type CompiledShaderGraph, type CompiledUniform } from "../shaderGraph/compile";
 
 /** Values every graph material reads, owned by the renderer and updated each frame. */
@@ -66,6 +68,9 @@ export interface BabylonGraphMaterial {
   /** The property values it was made with (a material's, over the graph's defaults). */
   properties: Record<string, GraphValue>;
   setProperties(values: Record<string, GraphValue>): void;
+  /** Keyword values (ADR 0106): each combination is its own variant (Babylon defines), compiled once and shared. */
+  keywords: Record<string, KeywordValue>;
+  setKeywords(values: Record<string, KeywordValue>): void;
   dispose(): void;
 }
 
@@ -210,6 +215,54 @@ export function graphShadowCustomCode(c: CompiledShaderGraph, shaderType: string
 }
 
 /**
+ * @internal Where a shader asset's GLSL (ADR 0106, WebGL2) goes in Babylon's GLSL PBR shaders: the same
+ * points as `graphCustomCode`'s, spelled as the GLSL shaders spell them.
+ */
+export function glslCustomCode(c: CompiledShaderGraph, shaderType: string, depth = false): { [point: string]: string } {
+  const g = c.glsl;
+  if (!g) return {};
+  if (shaderType === "vertex") {
+    const v = g.vertex;
+    return {
+      CUSTOM_VERTEX_DEFINITIONS: v.declarations,
+      "!vec4\\s+worldPos\\s*=\\s*finalWorld\\s*\\*\\s*vec4\\(\\s*positionUpdated\\s*,\\s*1\\.0\\s*\\)\\s*;": [
+        "vec3 mycoVPos = positionUpdated;",
+        "#ifdef NORMAL",
+        "vec3 mycoVNormal = normalUpdated;",
+        "#else",
+        "vec3 mycoVNormal = vec3(0.0, 1.0, 0.0);",
+        "#endif",
+        "#ifdef UV1",
+        "vec2 mycoVUv = uvUpdated;",
+        "#else",
+        "vec2 mycoVUv = vec2(0.0);",
+        "#endif",
+        v.body,
+        v.offset ? `positionUpdated = positionUpdated + (${v.offset});` : "",
+        "vec4 worldPos = finalWorld * vec4(positionUpdated, 1.0);",
+        v.varyings,
+      ].join("\n"),
+    };
+  }
+  const f = g.fragment;
+  if (depth) return { CUSTOM_FRAGMENT_DEFINITIONS: f.declarations };
+  const code: { [point: string]: string } = {
+    CUSTOM_FRAGMENT_DEFINITIONS: f.declarations,
+    CUSTOM_FRAGMENT_MAIN_BEGIN: f.body,
+    CUSTOM_FRAGMENT_UPDATE_ALPHA: [`surfaceAlbedo = ${f.baseColor};`, `alpha = ${f.alpha};`].join("\n"),
+  };
+  if (c.target !== "unlit") {
+    if (f.metalness || f.roughness) code["!reflectivityBlock\\(\\s*vReflectivityColor"] = `reflectivityBlock(vec4(${f.metalness ?? "vReflectivityColor.x"}, ${f.roughness ?? "vReflectivityColor.y"}, vReflectivityColor.zw)`;
+    if (f.emission) code.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION = `finalEmissive = ${f.emission};`;
+    if (f.normal) code[GLSL_ALBEDO_ANCHOR] = `normalW = normalize(mycoBabylonTangentFrame(normalW, vPositionW, vMycoUv) * (${f.normal}));\nalbedoOpacityOutParams albedoOpacityOut;`;
+  }
+  return code;
+}
+
+/** `ALBEDO_ANCHOR` in Babylon's GLSL PBR fragment shader. */
+export const GLSL_ALBEDO_ANCHOR = "!albedoOpacityOutParams\\s+albedoOpacityOut\\s*;";
+
+/**
  * @internal Names Babylon's injected shadow-map vertex code reads, remapped to the PBR vertex shader's:
  * its world normal is the varying (`worldPos` is already a `var` of that name).
  */
@@ -219,6 +272,8 @@ export const SHADOW_REMAPPED_VARIABLES = ["vNormalW", "vertexOutputs.vNormalW"];
 export interface GraphState {
   numbers: Map<string, number[]>;
   textures: Map<string, BaseTexture>;
+  /** The keyword defines that are on (ADR 0106). */
+  defines: Set<string>;
 }
 
 /** @internal The plugin's uniform buffer entries: the shared time and resolution, then the graph's non-texture uniforms. */
@@ -233,7 +288,12 @@ export function graphUniformBuffer(c: CompiledShaderGraph): { name: string; size
   return ubo;
 }
 
-/** The material plugin carrying one compiled graph (WGSL materials only). */
+/** Whether the plugin can draw a compiled graph in a shading language: graphs in WGSL; shader assets in what they ship (ADR 0106). */
+export function graphSupports(c: CompiledShaderGraph, language: ShaderLanguage): boolean {
+  return language === ShaderLanguage.WGSL ? !c.noWgsl : language === ShaderLanguage.GLSL && !!c.glsl;
+}
+
+/** The material plugin carrying one compiled graph or shader asset (WGSL, and GLSL for shader assets that ship it). */
 class MycoGraphPlugin extends MaterialPluginBase {
   constructor(
     material: PBRMaterial,
@@ -246,7 +306,7 @@ class MycoGraphPlugin extends MaterialPluginBase {
     // A define per graph, so materials with different graphs never share a compiled program (Babylon
     // caches effects by defines, not by plugin code: the depth variant needs a define of its own too).
     // Registered after the fields are set: registering reads the plugin's code, which needs `compiled`.
-    super(material, "MycoGraph", 200, { [`MYCO_GRAPH_${depth ? "DEPTH_" : ""}${compiled.key.replace(/[^A-Za-z0-9_]/g, "_")}`]: true }, false);
+    super(material, "MycoGraph", 200, { [`MYCO_GRAPH_${depth ? "DEPTH_" : ""}${compiled.key.replace(/[^A-Za-z0-9_]/g, "_")}`]: true, ...Object.fromEntries(allKeywordDefines(compiled.keywords ?? []).map((d) => [d, false])) }, false);
     (this._pluginManager as unknown as { _addPlugin(p: MaterialPluginBase): boolean })._addPlugin(this);
     this._enable(true);
   }
@@ -256,7 +316,17 @@ class MycoGraphPlugin extends MaterialPluginBase {
   }
 
   override isCompatible(shaderLanguage: ShaderLanguage): boolean {
-    return shaderLanguage === ShaderLanguage.WGSL;
+    return graphSupports(this.compiled, shaderLanguage);
+  }
+
+  /** Keyword defines (ADR 0106): each combination is a distinct effect, cached by Babylon's engine. */
+  override prepareDefines(defines: MaterialDefines): void {
+    for (const d of allKeywordDefines(this.compiled.keywords ?? [])) defines[d] = this.state.defines.has(d);
+  }
+
+  /** After a keyword change: Babylon re-evaluates the defines (and picks or compiles that variant) on the next draw. */
+  keywordsChanged(): void {
+    this.markAllDefinesAsDirty();
   }
 
   /** Ask for the mesh's UVs when the graph reads them (`graphUsesUv`); Babylon then defines UV1. */
@@ -304,6 +374,7 @@ class MycoGraphPlugin extends MaterialPluginBase {
   }
 
   override getCustomCode(shaderType: string, shaderLanguage?: ShaderLanguage): { [point: string]: string } | null {
+    if (shaderLanguage === ShaderLanguage.GLSL) return this.compiled.glsl ? glslCustomCode(this.compiled, shaderType, this.depth) : null;
     if (shaderLanguage !== ShaderLanguage.WGSL) return null;
     return this.depth ? graphShadowCustomCode(this.compiled, shaderType) : graphCustomCode(this.compiled, shaderType);
   }
@@ -347,11 +418,13 @@ export function createGraphMaterial(scene: Scene, name: string, c: CompiledShade
     material.clearCoat.isEnabled = !!c.fragment.physical?.clearcoat;
     material.sheen.isEnabled = !!c.fragment.physical?.sheenColor;
   }
-  const state: GraphState = { numbers: new Map(), textures: new Map() };
-  // Babylon refuses a WGSL-only plugin on a GLSL material: the WebGL2 fallback draws plain PBR.
-  const wgsl = material.shaderLanguage === ShaderLanguage.WGSL;
-  if (wgsl) new MycoGraphPlugin(material, c, shared, state);
-  const shadow = wgsl && c.vertex.offset ? graphShadowDepth(scene, name, c, shared, state, material) : null;
+  const state: GraphState = { numbers: new Map(), textures: new Map(), defines: new Set() };
+  // Babylon refuses a plugin for a language it can't draw: graphs on the WebGL2 fallback (and shader
+  // assets without GLSL there, or without WGSL on WebGPU) draw plain PBR.
+  const supported = graphSupports(c, material.shaderLanguage);
+  const plugin = supported ? new MycoGraphPlugin(material, c, shared, state) : null;
+  const offset = material.shaderLanguage === ShaderLanguage.GLSL ? c.glsl?.vertex.offset : c.vertex.offset;
+  const shadow = supported && offset ? graphShadowDepth(scene, name, c, shared, state, material) : null;
   let disposed = false;
   const slotPaths = new Map<string, string>();
   const apply = (values: Record<string, GraphValue>) => {
@@ -383,6 +456,16 @@ export function createGraphMaterial(scene: Scene, name: string, c: CompiledShade
       result.properties = { ...values };
       apply(values);
     },
+    keywords: {},
+    setKeywords(values) {
+      result.keywords = { ...values };
+      const on = keywordDefines(c.keywords ?? [], values);
+      if (on.length === state.defines.size && on.every((d) => state.defines.has(d))) return;
+      state.defines.clear();
+      for (const d of on) state.defines.add(d);
+      plugin?.keywordsChanged();
+      shadow?.plugin.keywordsChanged();
+    },
     dispose() {
       disposed = true;
       shadow?.wrapper.dispose();
@@ -399,16 +482,16 @@ export function createGraphMaterial(scene: Scene, name: string, c: CompiledShade
  * shadow generator draws with the wrapper's effect and binds this material, so its uniforms follow
  * the graph material's property changes and the shared time with no extra per-frame work.
  */
-function graphShadowDepth(scene: Scene, name: string, c: CompiledShaderGraph, shared: GraphShared, state: GraphState, material: PBRMaterial): { depth: PBRMaterial; wrapper: ShadowDepthWrapper } {
+function graphShadowDepth(scene: Scene, name: string, c: CompiledShaderGraph, shared: GraphShared, state: GraphState, material: PBRMaterial): { depth: PBRMaterial; wrapper: ShadowDepthWrapper; plugin: MycoGraphPlugin } {
   const depth = new PBRMaterial(`${name}:shadow`, scene);
   depth.doNotSerialize = true;
   depth.unlit = true;
   depth.disableLighting = true;
-  new MycoGraphPlugin(depth, c, shared, state, true);
+  const plugin = new MycoGraphPlugin(depth, c, shared, state, true);
   const wrapper = new ShadowDepthWrapper(depth, scene, { standalone: true, remappedVariables: SHADOW_REMAPPED_VARIABLES });
   shareShadowEffects(wrapper);
   material.shadowDepthWrapper = wrapper;
-  return { depth, wrapper };
+  return { depth, wrapper, plugin };
 }
 
 /** The parts of Babylon 9's `ShadowDepthWrapper` that `shareShadowEffects` works with. */

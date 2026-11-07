@@ -28,7 +28,10 @@ import type { ImportSettings } from "../../../scene/importSettings";
 import { materialGraph, parseMaterial, type MaterialSettings } from "../../../scene/material";
 import { parseShaderGraph, type GraphValue, type ShaderGraph } from "../../../scene/shaderGraph";
 import { Graphics } from "../../Graphics";
-import { compileShaderGraph } from "../../shaderGraph/compile";
+import { compileShaderGraph, type CompiledShaderGraph } from "../../shaderGraph/compile";
+import { compileShaderAsset, type ShaderAssetSources } from "../../shaderGraph/shaderAsset";
+import { isShaderAssetPath, parseShaderAsset } from "../../../scene/shaderAsset";
+import type { KeywordValue } from "../../../scene/shaderKeywords";
 import { createGraphMaterial, type GraphShared } from "../graphMaterial";
 import { applyBuiltinSettings, pbr, tiledTexture } from "../materials";
 import { studioHdrUrl } from "../studioEnvironment";
@@ -216,6 +219,25 @@ export function readMaterial(path: string): MaterialSettings | null {
 }
 
 /** A shader graph asset, or null if it can't be read. */
+/** A shader asset (ADR 0106) compiled for previews, its code files read through `Assets`. Throws if it isn't one. */
+export function readShaderAsset(path: string): CompiledShaderGraph {
+  const { shader } = parseShaderAsset(Assets.json(path), path);
+  const sources: ShaderAssetSources = {};
+  const deps: string[] = [];
+  for (const lang of ["wgsl", "glsl"] as const) {
+    const code = shader[lang];
+    if (!code) continue;
+    if ("code" in code) sources[lang] = code.code;
+    else {
+      const file = code.file.replace(/^asset:/, "");
+      deps.push(file);
+      const text = Assets.has(file) ? Assets.get(file) : undefined;
+      if (typeof text === "string") sources[lang] = text;
+    }
+  }
+  return compileShaderAsset(shader, sources, deps);
+}
+
 export function readGraph(path: string): ShaderGraph | null {
   try {
     return parseShaderGraph(Assets.json(path), path).graph;
@@ -246,31 +268,40 @@ let warnedWebGL = false;
 export async function buildPreviewMaterial(scene: Scene, source: MaterialSource, shared: GraphShared): Promise<PreviewMaterial> {
   let graphPath: string | null;
   let properties: Record<string, GraphValue>;
+  let keywords: Record<string, KeywordValue> = {};
   let settings: MaterialSettings | null = null;
   if (typeof source === "string") {
     settings = readMaterial(source);
     if (!settings) throw new Error(`"${source}" isn't a material.`);
     graphPath = materialGraph(settings);
     properties = settings.properties;
+    keywords = settings.keywords;
   } else {
     graphPath = source.graph;
     properties = source.properties;
   }
   if (graphPath) {
     const where = graphPath.replace(/^asset:/, "");
-    const graph = readGraph(where);
-    if (!graph) throw new Error(`shader graph "${graphPath}" can't be read.`);
-    if (!scene.getEngine().isWebGPU && !warnedWebGL) {
-      warnedWebGL = true;
-      console.warn("[myco] shader graph previews need WebGPU on the Babylon backend; on the WebGL2 fallback they draw as plain PBR.");
+    let compiled: CompiledShaderGraph;
+    if (isShaderAssetPath(where)) {
+      // A hand-written shader asset (ADR 0106): its code files read as text.
+      compiled = readShaderAsset(where);
+    } else {
+      const graph = readGraph(where);
+      if (!graph) throw new Error(`shader graph "${graphPath}" can't be read.`);
+      if (!scene.getEngine().isWebGPU && !warnedWebGL) {
+        warnedWebGL = true;
+        console.warn("[myco] shader graph previews need WebGPU on the Babylon backend; on the WebGL2 fallback they draw as plain PBR.");
+      }
+      compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
     }
-    const compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
     const pending: Promise<unknown>[] = [];
     const made = createGraphMaterial(scene, `preview:${where}`, compiled, properties, shared, (p, linear) => {
       const t = loadTexture(scene, p, linear ? "graphData" : "graphColor");
       pending.push(t.catch(() => undefined));
       return t;
     });
+    made.setKeywords(keywords);
     await Promise.all(pending);
     await Promise.resolve(); // the slots are set as their promises settle: give them a turn
     return { material: made.material, dispose: () => made.dispose() };
