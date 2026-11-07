@@ -8,8 +8,7 @@
  * sees it, and from then on sends it to every open connection. Clients find or make its node by
  * its spawn (`wire.ts`):
  * - **Prefab** (`kind 0`): the root of a prefab instantiated at runtime (`GameObject.instantiate`)
- *   spawns on clients by prefab path, under the client's active scene, its World root, or the
- *   node of the ghost that is its parent on the server.
+ *   spawns on clients by prefab path, under the parent its structure names (below).
  * - **Nested** (`kind 2`): a replicated node inside such an instance (not its root) matches the
  *   node at the same id path inside the client's instance of the root ghost. The root must be
  *   replicated too.
@@ -23,6 +22,24 @@
  * A ghost's layout (what's sent, `layout.ts`) is fixed when it's first seen: components added
  * later aren't sent. When its node or `Replicated` component is destroyed, it despawns.
  *
+ * ## Structure (ADR 0100)
+ *
+ * A ghost's node's own active flag and its parent, versioned: the version goes up (with the tick)
+ * on each sent tick that finds either changed. The parent is the World root, a ghost's node or a
+ * node with ids below one (a weapon under a player's "Hand"), a scene-placed node, or, for a
+ * parent clients can't find (a node made with `GameObject.create`; warned once), their active
+ * scene. A scene or nested ghost has no parent in its structure until it's moved (clients find it
+ * where it is). Spawns carry the current structure (so a late joiner's ghost spawns under its
+ * current parent); later changes go in a structure section, repeated until a snapshot carrying
+ * them is acked. Clients show a change when their interpolation tick reaches its tick (owned
+ * predicted ghosts at once) and don't interpolate across a move.
+ *
+ * ## The string table (ADR 0100)
+ *
+ * Strings in spawns and structures (prefab paths, scene files, node ids, component ids) go through
+ * a per-connection table (`StringTableOut` in `wire.ts`): inline with an index until the client
+ * acks a snapshot that carried it, then the index alone (a byte or two).
+ *
  * ## Snapshots (unreliable, `net.snapshot`, tagged with the server tick)
  *
  * Once per tick that advanced since the last one (or at `sendRate`), each open connection gets
@@ -31,7 +48,8 @@
  * ```
  * varuint  baseline: server tick − the connection's newest acked tick (0: none, or too old)
  * varuint  despawn count, then ghost ids (ascending, each as the gap from the previous)
- * varuint  spawn count,   then per spawn: id gap, the spawn and layout spec (wire.ts)
+ * varuint  spawn count,   then per spawn: id gap, the spawn and layout spec, its structure (wire.ts)
+ * varuint  structure change count, then per ghost: id gap, its structure
  * varuint  state count,   then per ghost: id gap,
  *            1 bit   uses the snapshot's baseline; if not, 1 bit has a baseline, and if it
  *                    does, varuint server tick − its baseline tick
@@ -60,7 +78,26 @@ import { Replicated } from "../Replicated";
 import { netSession, type NetPeer, type NetSession } from "../session";
 import { layoutOf, readState, sameState, specOf, type GhostState, type Layout } from "./layout";
 import { ServerStrings } from "./strings";
-import { ACK, BASELINE_WINDOW, DEFAULT_MAX_SNAPSHOT_BYTES, SNAPSHOT, SPAWN_NESTED, SPAWN_PREFAB, SPAWN_SCENE, writeSpawn, type SpawnInfo } from "./wire";
+import {
+  ACK,
+  BASELINE_WINDOW,
+  DEFAULT_MAX_SNAPSHOT_BYTES,
+  PARENT_GHOST,
+  PARENT_NODE,
+  PARENT_ROOT,
+  PARENT_SCENE,
+  SNAPSHOT,
+  SPAWN_NESTED,
+  SPAWN_PREFAB,
+  SPAWN_SCENE,
+  StringTableOut,
+  sameParent,
+  writeSpawn,
+  writeStructure,
+  type ParentRef,
+  type SpawnInfo,
+  type Structure,
+} from "./wire";
 
 interface ServerGhost {
   readonly id: number;
@@ -72,6 +109,12 @@ interface ServerGhost {
   readonly type: string;
   /** This tick's values (read once per sent tick, shared by every connection). */
   state: GhostState;
+  /** Its active flag and parent as last sent (ADR 0100). */
+  structure: Structure;
+  /** The parent node `structure` was worked out from. */
+  parentNode: GameObject | null;
+  /** Warned that clients can't find a parent it was moved under. */
+  warnedParent: boolean;
 }
 
 /** What one connection has been told about one ghost. */
@@ -82,6 +125,8 @@ interface PeerGhost {
   baselineTick: number;
   /** The last tick it was included in (for priority). */
   lastSentTick: number;
+  /** The newest structure version the connection acked (ADR 0100); -1: none. */
+  structureAcked: number;
 }
 
 /** What one snapshot carried, kept until acked or too old. */
@@ -89,6 +134,10 @@ interface Sent {
   readonly spawns: number[];
   readonly despawns: number[];
   readonly states: Map<number, GhostState>;
+  /** Structures carried (in spawns or changes): ghost id and version. */
+  readonly structures: [number, number][];
+  /** String table indexes it defined. */
+  readonly strings: number[];
 }
 
 interface PeerState {
@@ -108,6 +157,8 @@ interface PeerState {
    * spawn and state in the snapshots actually sent (tools: bandwidth per ghost type).
    */
   readonly typeBits: Map<string, number>;
+  /** Strings in spawns and structures, by index once the client has them (ADR 0100). */
+  readonly table: StringTableOut;
 }
 
 /** @internal Replication settings of a server World. */
@@ -164,16 +215,16 @@ export class ServerReplication {
     if (this.lastSentTick >= 0 && tick - this.lastSentTick < interval) return;
     this.lastSentTick = tick;
 
-    const despawned = this.updateGhosts();
+    const despawned = this.updateGhosts(tick);
     for (const g of this.ghosts.values()) g.state = readState(g.layout, g.node, g.rep);
     for (const peer of session.openPeers()) {
       let ps = this.peers.get(peer);
-      if (!ps) this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), history: new Map(), lastBytes: 0, lastCosts: new Map(), lastFullBits: 0, typeBits: new Map() }));
+      if (!ps) this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), history: new Map(), lastBytes: 0, lastCosts: new Map(), lastFullBits: 0, typeBits: new Map(), table: new StringTableOut() }));
       for (const id of despawned) {
         if (ps.known.delete(id)) ps.despawns.add(id);
       }
       for (const g of this.ghosts.values()) {
-        if (!ps.known.has(g.id)) ps.known.set(g.id, { spawnAcked: false, baseline: null, baselineTick: 0, lastSentTick: -1 });
+        if (!ps.known.has(g.id)) ps.known.set(g.id, { spawnAcked: false, baseline: null, baselineTick: 0, lastSentTick: -1, structureAcked: -1 });
       }
       const bytes = this.snapshot(peer, ps, tick);
       ps.lastBytes = bytes.byteLength;
@@ -182,8 +233,8 @@ export class ServerReplication {
     this.strings.send(session, this.ghosts.values(), despawned);
   }
 
-  /** Find new ghosts and gone ones. Returns the ids that despawned. */
-  private updateGhosts(): number[] {
+  /** Find new ghosts and gone ones, and structure changes (ADR 0100). Returns the ids that despawned. */
+  private updateGhosts(tick: number): number[] {
     const world = this.world;
     const despawned: number[] = [];
     for (const [rep, g] of this.ghosts) {
@@ -199,7 +250,10 @@ export class ServerReplication {
       if (world.inEditMode(rep.node.entity)) continue;
       fresh.push(rep);
     }
-    if (fresh.length === 0) return despawned;
+    if (fresh.length === 0) {
+      this.updateStructures(tick, (node) => this.ghostIdOf(node));
+      return despawned;
+    }
     // Ids first, so spawns can name their parent or root ghost whatever order they were found in.
     const ids = new Map<Replicated, number>();
     for (const rep of fresh) ids.set(rep, this.nextId++);
@@ -208,6 +262,7 @@ export class ServerReplication {
       if (!rep) return 0;
       return this.ghosts.get(rep)?.id ?? ids.get(rep) ?? 0;
     };
+    this.updateStructures(tick, ghostOf);
     for (const rep of fresh) {
       const node = rep.node;
       const spawn = spawnOf(world, node, ghostOf);
@@ -219,12 +274,45 @@ export class ServerReplication {
       const id = ids.get(rep)!;
       rep._ghostId = id;
       const layout = layoutOf(specOf(world, node, rep));
-      const ghost: ServerGhost = { id, rep, node, layout, spawn, type: "", state: [] };
+      const parent = node.parent;
+      // A prefab ghost spawns under its parent; a scene or nested one is found where it is until it moves.
+      const ref: ParentRef | null = spawn.kind === SPAWN_PREFAB ? (parentRefOf(world, parent, ghostOf) ?? { kind: PARENT_SCENE }) : null;
+      const structure: Structure = { version: 0, tick, active: node.active, parent: ref };
+      const ghost: ServerGhost = { id, rep, node, layout, spawn, type: "", state: [], structure, parentNode: parent, warnedParent: false };
       (ghost as { type: string }).type = this.typeOf(ghost);
       this.ghosts.set(rep, ghost);
       this.byId.set(id, ghost);
     }
     return despawned;
+  }
+
+  /** The ghost id of a node's `Replicated` component, or 0. */
+  private ghostIdOf(node: GameObject): number {
+    const rep = node.getBehavior(Replicated);
+    return rep ? (this.ghosts.get(rep)?.id ?? 0) : 0;
+  }
+
+  /** Bump the structure of every ghost whose node was activated, deactivated or reparented since the last sent tick. */
+  private updateStructures(tick: number, ghostOf: (node: GameObject) => number): void {
+    for (const g of this.ghosts.values()) {
+      const node = g.node;
+      const parent = node.parent;
+      const active = node.active;
+      const old = g.structure;
+      if (parent === g.parentNode && active === old.active) continue;
+      let ref = old.parent;
+      if (parent !== g.parentNode) {
+        g.parentNode = parent;
+        const found = parentRefOf(this.world, parent, ghostOf);
+        if (!found && !g.warnedParent) {
+          g.warnedParent = true;
+          console.warn(`[myco] World "${this.world.name}": ${node} (a ghost) was moved under ${parent}, which clients can't find (it isn't the World root, a ghost or inside one, or a scene-placed node); clients put it under their active scene.`);
+        }
+        ref = found ?? { kind: PARENT_SCENE };
+      }
+      if (sameParent(ref, old.parent) && active === old.active) continue;
+      g.structure = { version: old.version + 1, tick, active, parent: ref };
+    }
   }
 
   /** A ghost's type (see `ServerGhost.type`); a nested ghost is named after its instance's prefab and its id path in it. */
@@ -249,6 +337,11 @@ export class ServerReplication {
         if (pg) pg.spawnAcked = true;
       }
       for (const id of sent.despawns) ps.despawns.delete(id);
+      for (const [id, version] of sent.structures) {
+        const pg = ps.known.get(id);
+        if (pg && version > pg.structureAcked) pg.structureAcked = version;
+      }
+      ps.table.acked(sent.strings);
       for (const [id, state] of sent.states) {
         const pg = ps.known.get(id);
         if (pg && tick > pg.baselineTick) {
@@ -318,7 +411,8 @@ export class ServerReplication {
 
   private write(ps: PeerState, tick: number, base: number, ghosts: readonly ServerGhost[]) {
     const w = new BitWriterImpl(256);
-    const sent: Sent = { spawns: [], despawns: [...ps.despawns].sort((a, b) => a - b), states: new Map() };
+    const sent: Sent = { spawns: [], despawns: [...ps.despawns].sort((a, b) => a - b), states: new Map(), structures: [], strings: [] };
+    const str = ps.table.writer(sent.strings);
     const costs = new Map<number, number>();
     w.writeVarUint(base ? tick - base : 0);
     writeIds(w, sent.despawns);
@@ -329,9 +423,25 @@ export class ServerReplication {
       const start = w.length;
       w.writeVarUint(g.id - previous);
       previous = g.id;
-      writeSpawn(w, g.spawn, g.layout.spec);
+      writeSpawn(w, g.spawn, g.layout.spec, str);
+      writeStructure(w, g.structure, tick, str);
       costs.set(g.id, w.length - start);
       sent.spawns.push(g.id);
+      sent.structures.push([g.id, g.structure.version]);
+    }
+    // Structure changes (ADR 0100) of spawned ghosts, repeated until acked, whether or not their state fits.
+    const changed: ServerGhost[] = [];
+    for (const [id, pg] of ps.known) {
+      const g = this.byId.get(id);
+      if (g && pg.spawnAcked && pg.structureAcked < g.structure.version) changed.push(g);
+    }
+    w.writeVarUint(changed.length);
+    previous = 0;
+    for (const g of changed) {
+      w.writeVarUint(g.id - previous);
+      previous = g.id;
+      writeStructure(w, g.structure, tick, str);
+      sent.structures.push([g.id, g.structure.version]);
     }
     w.writeVarUint(ghosts.length);
     const headerBits = w.length - [...costs.values()].reduce((n, c) => n + c, 0);
@@ -384,15 +494,8 @@ function spawnOf(world: World, node: GameObject, ghostOf: (node: GameObject) => 
   for (let n: GameObject | null = node; n && n !== world.root; n = n.parent) {
     const path = _instantiatedPrefabOf(n);
     if (path !== undefined) {
-      if (n === node) {
-        const parent = node.parent;
-        const parentGhost = parent ? ghostOf(parent) : 0;
-        const code = parent === world.root ? 1 : parentGhost ? parentGhost + 2 : 0;
-        // A plain scene node as parent (a "Projectiles" container): clients find it by its scene
-        // path, so local transforms mean the same there.
-        const parentNode = code === 0 && parent ? scenePathOf(world, parent) : null;
-        return parentNode ? { kind: SPAWN_PREFAB, path, parent: code, parentNode } : { kind: SPAWN_PREFAB, path, parent: code };
-      }
+      if (n === node) return { kind: SPAWN_PREFAB, path }; // its parent goes in its structure
+
       const owner = ghostOf(n);
       if (!owner) return `it's inside an instance of "${path}" whose root isn't replicated (give the root a Replicated component too).`;
       if (ids.includes("")) return `a node between it and its prefab instance's root has no id.`;
@@ -409,6 +512,26 @@ function spawnOf(world: World, node: GameObject, ghostOf: (node: GameObject) => 
     ids.push(world.ids[n.entity]);
   }
   return "it isn't from a prefab instantiated with GameObject.instantiate or from a scene, so clients can't make or find it.";
+}
+
+/**
+ * Where clients find `parent` (ADR 0100), or null if they can't: the World root, a ghost's node
+ * or a node with ids below one (a weapon under a player's "Hand"), or a scene-placed node (a
+ * "Projectiles" container), so local transforms mean the same there.
+ */
+function parentRefOf(world: World, parent: GameObject | null, ghostOf: (node: GameObject) => number): ParentRef | null {
+  if (!parent || parent === world.root) return { kind: PARENT_ROOT };
+  const ids: string[] = [];
+  for (let n: GameObject | null = parent; n && n !== world.root; n = n.parent) {
+    const id = ghostOf(n);
+    if (id) {
+      if (!ids.includes("")) return { kind: PARENT_GHOST, id, ids: ids.reverse() };
+      break;
+    }
+    ids.push(world.ids[n.entity]);
+  }
+  const path = scenePathOf(world, parent);
+  return path ? { kind: PARENT_NODE, ...path } : null;
 }
 
 /** Where a node sits in a loaded scene (its scene's source and occurrence, and node ids below it), or null if it isn't in one. */

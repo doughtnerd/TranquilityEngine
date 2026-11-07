@@ -29,7 +29,24 @@ import { Replicated } from "../Replicated";
 import { netSession, type NetPeer, type NetSession } from "../session";
 import { applyState, bind, interpolate, layoutOf, type Binding, type GhostState, type Layout } from "./layout";
 import { ClientStrings, GHOST_STRINGS } from "./strings";
-import { ACK, BASELINE_WINDOW, SNAPSHOT, SPAWN_NESTED, SPAWN_PREFAB, SPAWN_SCENE, readSpawn, type SpawnInfo } from "./wire";
+import {
+  ACK,
+  BASELINE_WINDOW,
+  PARENT_GHOST,
+  PARENT_NODE,
+  PARENT_ROOT,
+  SNAPSHOT,
+  SPAWN_NESTED,
+  SPAWN_PREFAB,
+  SPAWN_SCENE,
+  StringTableIn,
+  readSpawn,
+  readStructure,
+  sameParent,
+  type ParentRef,
+  type SpawnInfo,
+  type Structure,
+} from "./wire";
 
 /** How far past the newest state a late ghost is extrapolated before it holds. */
 export const MAX_EXTRAPOLATION_MS = 250;
@@ -58,6 +75,10 @@ export interface ClientGhost {
   instantiated: boolean;
   /** Why it can't be made (logged once); it isn't retried. */
   failed: string | null;
+  /** The newest structure received (ADR 0100): active flag and parent. */
+  structure: Structure;
+  /** The structure its node shows (applied when the interpolation tick reaches a change's tick). */
+  applied: Structure | null;
 }
 
 /** @internal A client World's replication state. */
@@ -71,6 +92,8 @@ export class ClientReplication {
   private errorLogged = false;
   /** String behavior fields (ADR 0068). */
   private readonly strings = new ClientStrings();
+  /** Strings in spawns and structures (ADR 0100). */
+  private readonly table = new StringTableIn();
 
   constructor(
     readonly world: World,
@@ -124,6 +147,8 @@ export class ClientReplication {
     for (const g of this.ghosts.values()) {
       const states = g.states;
       if (states.length === 0) continue;
+      // A structure change (ADR 0100) shows when the interpolation tick reaches it; owned predicted ghosts are shown now.
+      if (g.binding?.node.isValid && g.applied !== g.structure && (at >= g.structure.tick || g.binding.rep.isPredictedLocally)) this.applyStructure(g);
       const binding = g.binding;
       // Destroyed on this side (its scene unloaded, say): find or make it again.
       if (binding && !binding.node.isValid) g.node = g.binding = null;
@@ -137,7 +162,12 @@ export class ClientReplication {
 
   /** A ghost's values at tick `at` (see the top of this file). */
   private sample(g: ClientGhost, at: number, maxAhead: number): ArrayLike<number> {
-    const s = g.states;
+    let s = g.states;
+    // A move not shown yet: states from its tick on are local to the new parent, so hold the last one before it.
+    if (g.applied && g.applied !== g.structure && !sameParent(g.applied.parent, g.structure.parent)) {
+      const before = s.filter((e) => e.tick < g.structure.tick);
+      if (before.length > 0) s = before;
+    }
     const n = s.length;
     if (n === 1 || at <= s[0].tick) return s[0].values;
     let i = n - 1;
@@ -180,9 +210,21 @@ export class ClientReplication {
     id = 0;
     for (let i = 0; i < count; i++) {
       id += r.readVarUint();
-      const { spawn, spec } = readSpawn(r);
-      if (this.ghosts.has(id) || this.despawned.has(id)) continue; // a repeat
-      this.ghosts.set(id, { id, layout: layoutOf(spec), spawn, node: null, binding: null, states: [], baselineTick: 0, instantiated: false, failed: null });
+      const { spawn, spec } = readSpawn(r, this.table.read);
+      const structure = readStructure(r, tick, this.table.read);
+      const known = this.ghosts.get(id);
+      if (known) this.restructure(known, structure); // a repeat, maybe with a newer structure
+      if (known || this.despawned.has(id)) continue;
+      this.ghosts.set(id, { id, layout: layoutOf(spec), spawn, node: null, binding: null, states: [], baselineTick: 0, instantiated: false, failed: null, structure, applied: null });
+    }
+
+    count = r.readVarUint();
+    id = 0;
+    for (let i = 0; i < count; i++) {
+      id += r.readVarUint();
+      const structure = readStructure(r, tick, this.table.read);
+      const g = this.ghosts.get(id);
+      if (g) this.restructure(g, structure);
     }
 
     count = r.readVarUint();
@@ -207,6 +249,49 @@ export class ClientReplication {
       const last = g.states[g.states.length - 1];
       if (!last || last.tick < tick) g.states.push({ tick, values });
     }
+  }
+
+  /** Take a received structure if it's newer than the ghost's. */
+  private restructure(g: ClientGhost, structure: Structure): void {
+    if (structure.version > g.structure.version) g.structure = structure;
+  }
+
+  /**
+   * Show a ghost's newest structure (ADR 0100): its active flag, and its parent if that changed
+   * and can be found (else it waits, keeping the old parent). States from before a move are dropped,
+   * so it isn't interpolated across parents.
+   */
+  private applyStructure(g: ClientGhost): void {
+    const node = g.binding!.node;
+    const s = g.structure;
+    if (!g.applied || !sameParent(g.applied.parent, s.parent)) {
+      if (s.parent) {
+        const parent = this.findParent(s.parent);
+        if (parent === undefined) return; // not there yet
+        if (parent !== node.parent) this.world._setParent(node.entity, parent.entity, !g.layout.spec.transform);
+      }
+      if (g.applied) {
+        const from = g.states.findIndex((e) => e.tick >= s.tick);
+        if (from > 0) g.states.splice(0, from);
+      }
+    }
+    if (node.active !== s.active) node.setActive(s.active);
+    g.applied = s;
+  }
+
+  /** The node a parent ref names, or undefined if it isn't there (yet). */
+  private findParent(ref: ParentRef): GameObject | undefined {
+    const world = this.world;
+    if (ref.kind === PARENT_ROOT) return world.root;
+    if (ref.kind === PARENT_GHOST) {
+      const owner = this.ghosts.get(ref.id)?.node;
+      return (owner?.isValid && descend(world, owner, ref.ids)) || undefined;
+    }
+    if (ref.kind === PARENT_NODE) {
+      const scene = world.sceneNodes.filter((s) => s.getBehavior(SceneInstance)?.source === ref.source)[ref.occurrence];
+      return (scene && descend(world, scene, ref.ids)) || undefined;
+    }
+    return world.activeScene ?? world.root;
   }
 
   private despawn(id: number): void {
@@ -237,19 +322,10 @@ export class ClientReplication {
     const spawn = g.spawn;
     let node: GameObject | null = null;
     if (spawn.kind === SPAWN_PREFAB) {
-      let parent: GameObject | undefined;
-      if (spawn.parentNode) {
-        const p = spawn.parentNode;
-        const scene = world.sceneNodes.filter((s) => s.getBehavior(SceneInstance)?.source === p.source)[p.occurrence];
-        const found = scene ? descend(world, scene, p.ids) : null;
-        if (!found) return false; // its scene isn't loaded yet
-        parent = found;
-      } else if (spawn.parent === 1) parent = world.root;
-      else if (spawn.parent >= 2) {
-        const owner = this.ghosts.get(spawn.parent - 2)?.node;
-        if (!owner) return false;
-        parent = owner;
-      }
+      // Under the parent its newest structure names: a ghost or scene node not there yet, wait.
+      const ref = g.structure.parent;
+      const parent = ref ? this.findParent(ref) : undefined;
+      if (ref && ref.kind !== 0 && !parent) return false;
       try {
         node = world._instantiatePrefab(spawn.path, { parent });
       } catch (err) {
@@ -281,6 +357,17 @@ export class ClientReplication {
     g.binding = bind(g.layout, node, rep);
     const newest = g.states[g.states.length - 1];
     if (newest) applyState(g.layout, g.binding, newest.values);
+    // Its newest structure at once (a scene or nested ghost moved before this client found it, say).
+    const s = g.structure;
+    let placedUnder = true;
+    if (s.parent) {
+      const parent = this.findParent(s.parent);
+      if (parent && parent !== node.parent) world._setParent(node.entity, parent.entity, !g.layout.spec.transform);
+      placedUnder = !!parent;
+    }
+    if (node.active !== s.active) node.setActive(s.active);
+    // A parent not there yet: `interpolate` keeps trying.
+    g.applied = placedUnder ? s : { ...s, parent: null };
     this.strings.placed(g.id);
     return true;
   }
@@ -298,6 +385,7 @@ export class ClientReplication {
     this.ghosts.clear();
     this.despawned.clear();
     this.strings.clear();
+    this.table.clear();
     this.newestTick = -1;
     this.errorLogged = false;
   }
