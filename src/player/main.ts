@@ -36,7 +36,7 @@ async function boot(): Promise<void> {
     manifest.files.map(async (path) => {
       const at = `${PROJECT_DIR}/${path}`;
       if (/\.json$/i.test(path)) values.set(path, await (await fetchOk(at)).json());
-      else if (/\.(js|xml|css)$/i.test(path)) values.set(path, await (await fetchOk(at)).text()); // text assets (scripts, UI documents and stylesheets), as the editor serves them
+      else if (/\.(js|xml|css|wgsl|glsl)$/i.test(path)) values.set(path, await (await fetchOk(at)).text()); // text assets (scripts, UI documents and stylesheets, shader code), as the editor serves them
       else values.set(path, urlOf(at));
     }),
   );

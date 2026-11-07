@@ -15,6 +15,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Game UI](guide/ui.md) | Canvases (screen and world), the UI tree, flexbox layout, panels, text, images, buttons and input fields, scripting them, how the pointer and keyboard go to UI first, headless Worlds and tests |
 | [Navigation](guide/navigation.md) | Built-in navigation: agent types and areas, marking geometry, baking (editor and `npm run nav:bake`), streaming chunks, scripting `NavAgent`, groups, surround and flow fields, the `Navigation` queries, multiplayer, debug drawing, performance, known issues |
 | [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
+| [Materials, shaders and batching](guide/materials-and-shaders.md) | Hand-written shader assets (WGSL/GLSL), keywords and variants, changing materials from scripts, GPU instancing and sprite batching, pixel-perfect cameras |
 
 ## Architecture
 
@@ -112,6 +113,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
 | [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
 | [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
+| [0106](decisions/0106-hand-written-shaders-keywords-and-variants.md) | Hand-written shader assets are surface functions in WGSL and GLSL; shaders and graphs share keywords that select variants | Proposed |
+| [0107](decisions/0107-script-material-api-shared-and-instance.md) | Scripts change materials through engine `Material` objects, shared per asset or instanced per renderer | Proposed |
+| [0108](decisions/0108-gpu-instancing-sprite-batching-pixel-perfect-camera.md) | MeshRenderers draw GPU-instanced by mesh and material; sprites batch per atlas; cameras can be pixel-perfect | Proposed |
 
 ## Working with decisions
 

@@ -83,8 +83,8 @@ describe("WGSL output of the shader graph compiler", () => {
   it("compiles every node type, in the fragment and (where allowed) the vertex stage", () => {
     for (const def of NODES) {
       if (def.type === "output" || def.type === "subgraph" || def.type === "customFunction") continue;
-      const n = node("n", def.type, def.type === "property" ? { settings: { property: "P" } } : {});
-      const g = graph([n], [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }] });
+      const n = node("n", def.type, def.type === "property" ? { settings: { property: "P" } } : def.type === "keyword" ? { settings: { keyword: "K" } } : {});
+      const g = graph([n], [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }], keywords: [{ name: "K" }] });
       const out = nodePorts(n, g).outputs.find((p) => p.type !== "texture");
       if (!out) continue;
       for (const to of ["baseColor", "normal", ...(def.fragmentOnly ? [] : ["vertexOffset"])]) {
@@ -100,9 +100,9 @@ describe("WGSL output of the shader graph compiler", () => {
     const nodes: GraphNode[] = [];
     for (const def of NODES) {
       if (def.type === "output" || def.type === "subgraph" || def.type === "customFunction") continue;
-      nodes.push(node(`n_${def.type}`, def.type, def.type === "property" ? { settings: { property: "P" } } : {}));
+      nodes.push(node(`n_${def.type}`, def.type, def.type === "property" ? { settings: { property: "P" } } : def.type === "keyword" ? { settings: { keyword: "K" } } : {}));
     }
-    const g = graph(nodes, [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }] });
+    const g = graph(nodes, [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }], keywords: [{ name: "K" }] });
     const used = nodes.flatMap((n) => nodePorts(n, g).outputs.filter((o) => o.type !== "texture").map((o) => `${n.id}.${o.id}`));
     g.nodes[0].inputs = { alphaClip: 0.5, clearcoat: 1 };
     // Chain every output through Add nodes, so each is reached.

@@ -10,7 +10,8 @@
  */
 import type { ShaderLevel } from "../../core/graphics";
 import { Color } from "../../core/math";
-import { normalizeAssetPath } from "../../scene/Assets";
+import { Assets, normalizeAssetPath } from "../../scene/Assets";
+import { keywordConstant, keywordConstantsWgsl, type ShaderKeyword } from "../../scene/shaderKeywords";
 import { OUTPUT_NODE_TYPE, portRef, splitPortRef, type GraphNode, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../scene/shaderGraph";
 import { HELPER_DEPS, HELPERS_WGSL, OUTPUT_INPUTS, PORT_SIZE, canConnectTypes, nodeDef, nodePorts, resolveSubGraph, type Builtin, type EmitContext, type HelperName, type PortDef, type ShaderStage, type ValueType } from "./nodes";
 import { BUILTINS_WGSL, FACE_NORMAL_WGSL, SHARED_UNIFORM_EXPR, sampleWgsl, textureDeclarationsWgsl, usedVaryings, varyingDeclarationsWgsl, varyingsWgsl, wgslType } from "./wgsl";
@@ -78,6 +79,15 @@ export interface CompiledShaderGraph {
   usesShaderLevel: boolean;
   /** A hash of the generated code: equal keys mean the same shader program. */
   key: string;
+  /** The keywords the shader declares (ADR 0106): each sets defines the material plugin registers. */
+  keywords: ShaderKeyword[];
+  /**
+   * Hand-written shader assets (ADR 0106) that ship GLSL: the same pieces as `vertex`/`fragment`, in
+   * GLSL ES for the WebGL2 engine. Graphs never have it (WGSL only, ADR 0081).
+   */
+  glsl?: { vertex: CompiledShaderGraph["vertex"]; fragment: CompiledShaderGraph["fragment"] };
+  /** A shader asset with GLSL only: nothing to draw on WebGPU (the plugin stays off there). */
+  noWgsl?: boolean;
 }
 
 /** The physical target's output inputs (ADR 0052). */
@@ -145,10 +155,10 @@ const inlineType = (v: InputValue | undefined): ValueType => (Array.isArray(v) ?
 const ident = (s: string) => s.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "x";
 
 /** A graph property's uniform type. */
-const PROPERTY_UNIFORM: Record<GraphPropertyType, CompiledUniform["type"]> = { float: "float", vector2: "vec2", vector3: "vec3", vector4: "vec4", color: "vec4", texture: "sampler2D" };
+export const PROPERTY_UNIFORM: Record<GraphPropertyType, CompiledUniform["type"]> = { float: "float", vector2: "vec2", vector3: "vec3", vector4: "vec4", color: "vec4", texture: "sampler2D" };
 const valueTypeOf = (t: CompiledUniform["type"]): ValueType => (t === "sampler2D" ? "texture" : t);
 
-function hash(text: string): string {
+export function hash(text: string): string {
   let h1 = 0x811c9dc5, h2 = 0x01000193;
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i);
@@ -255,6 +265,8 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
   const problems: string[] = [];
   const nodeProblems: Record<string, string[]> = {};
   const dependencies = new Set<string>();
+  /** The graph's keywords, then those only sub-graphs declare that Keyword nodes use (ADR 0106). */
+  const keywords: ShaderKeyword[] = [...(graph.keywords ?? [])];
   const root = makeScope(
     graph,
     "",
@@ -396,6 +408,13 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
           const v = scope.bindings ? (scope.bindings.get(name) ?? null) : propertyUniform(name);
           return v && { uniform: v.expr, type: v.type };
         },
+        keyword: (name) => {
+          // The outer graph's keyword of that name wins; a sub-graph's own declaration is added to the shader's.
+          const k = graph.keywords?.find((q) => q.name === name) ?? scope.graph.keywords?.find((q) => q.name === name);
+          if (!k) return null;
+          if (!keywords.some((q) => q.name === k.name)) keywords.push(k);
+          return { constant: keywordConstant(k.name), values: k.values ? [...k.values] : null };
+        },
         color: (hex) => literalOf(linearColor(hex), "vec4", false),
         sampleMode: (u, linear) => sampleMode(u, linear, problem),
         problem,
@@ -475,9 +494,19 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
      * sampler), starts a `var` per output, runs the body, and returns them in a struct.
      */
     customFunctionWgsl(scope: Scope, node: GraphNode, f: NonNullable<GraphNode["function"]>, fn: string): Record<string, Value> {
-      if (!f.wgsl) {
+      let body = f.wgsl;
+      let fileProblem: string | null = null;
+      if (f.file) {
+        const path = normalizeAssetPath(f.file);
+        dependencies.add(path);
+        const r = path && Assets.has(path) ? Assets.get(path) : undefined;
+        const text = typeof r === "string" ? r : typeof (r as { default?: unknown } | undefined)?.default === "string" ? (r as { default: string }).default : undefined;
+        if (text === undefined) fileProblem = r === undefined ? `the WGSL file "${path}" isn't in the project; its outputs read their defaults` : `${path} isn't a text file; its outputs read their defaults`;
+        else body = text;
+      }
+      if (fileProblem || !body) {
         // Report it and let every output read its default.
-        scope.problem(node.id, f.body?.trim() ? "this Custom Function has only GLSL code, which nothing compiles since the three.js backend went (ADR 0081): write it in WGSL; its outputs read their defaults" : "this Custom Function has no WGSL code; its outputs read their defaults");
+        scope.problem(node.id, fileProblem ?? (f.body?.trim() ? "this Custom Function has only GLSL code, which nothing compiles since the three.js backend went (ADR 0081): write it in WGSL; its outputs read their defaults" : "this Custom Function has no WGSL code; its outputs read their defaults"));
         const missing: Record<string, Value> = {};
         for (const o of nodePorts(node, scope.graph).outputs) {
           const type = o.type as ValueType;
@@ -498,7 +527,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
         ...(outs.length ? [`struct ${fn}_Out { ${outs.map((p) => `${p.name}: ${wgslType(p.type)}`).join(", ")} }`] : []),
         `fn ${fn}(${params.join(", ")})${outs.length ? ` -> ${fn}_Out` : ""} {`,
         ...decls,
-        f.wgsl,
+        body,
         ...(outs.length ? [`  return ${fn}_Out(${outs.map((p) => p.name).join(", ")});`] : []),
         "}",
       ].join("\n");
@@ -612,9 +641,11 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
   // Uniforms are the plugin's (read as `uniforms.<name>`); textures are declared here: all in the fragment stage, and those a vertex node samples in the vertex stage too.
   const usedV = usedVaryings([...fragment.lines, ...fragment.functions.values()].join("\n"), normal !== null);
   const textureLines = (names: string[]) => names.flatMap(textureDeclarationsWgsl);
-  const vertexDeclarations = ["// Myco shader graph", ...textureLines(uniforms.filter((u) => u.type === "sampler2D" && vertex.textures.has(u.name)).map((u) => u.name)), ...varyingDeclarationsWgsl(usedV), ...helperText(vertex)].join("\n");
+  const keywordLines = keywords.length ? [keywordConstantsWgsl(keywords)] : [];
+  const vertexDeclarations = ["// Myco shader graph", ...keywordLines, ...textureLines(uniforms.filter((u) => u.type === "sampler2D" && vertex.textures.has(u.name)).map((u) => u.name)), ...varyingDeclarationsWgsl(usedV), ...helperText(vertex)].join("\n");
   const fragmentDeclarations = [
     "// Myco shader graph",
+    ...keywordLines,
     ...textureLines(uniforms.filter((u) => u.type === "sampler2D").map((u) => u.name)),
     ...varyingDeclarationsWgsl(usedV),
     FACE_NORMAL_WGSL,
@@ -643,6 +674,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
     dependencies: [...dependencies],
     usesShaderLevel,
     key,
+    keywords,
   };
 }
 
