@@ -119,6 +119,50 @@ export class Physics2DWorld {
     for (const rb of world._componentsOfType(RigidBody2D)) this.pushBody(rb);
     for (const c of world._componentsOfType(Collider2D)) this.pushCollider(c);
     for (const j of world._componentsOfType(Joint2D)) this.pushJoint(j);
+    this.findPlatforms();
+  }
+
+  // --- moving platforms (ADR 0091) ----------------------------------------------------------------
+
+  /** Grounded character controllers standing on a moving body, with that body's pose before the step. */
+  private platforms: { cc: CharacterController2D; body: RAPIER.RigidBody; x: number; y: number; a: number }[] = [];
+
+  /** Before the step: what each grounded controller stands on, if it's a body that can move. */
+  private findPlatforms(): void {
+    this.platforms.length = 0;
+    for (const cc of this.controllers.keys()) {
+      if (!cc.isGrounded || !cc.moveWithPlatforms || !cc.isActiveAndEnabled) continue;
+      const body = this.movingGround(cc);
+      if (!body) continue;
+      const t = body.translation();
+      this.platforms.push({ cc, body, x: t.x, y: t.y, a: body.rotation() });
+    }
+  }
+
+  /** The non-fixed body right under a character controller, if any. */
+  private movingGround(cc: CharacterController2D): RAPIER.RigidBody | null {
+    const st = cc._state;
+    if (!st?.ownBody) return null;
+    const reach = Math.max(cc.skinWidth, 1e-3) + Math.max(cc.snapToGround, 0) + 0.05;
+    const hit = this.rapier.castShape(st.collider.translation(), st.collider.rotation(), { x: 0, y: -1 }, st.collider.shape, 0, reach, true, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, this.groupsFor(cc.layer), st.collider, st.ownBody);
+    const body = hit?.collider.parent();
+    return body && !body.isFixed() ? body : null;
+  }
+
+  /** After the step: move each controller with the platform under it (sliding along anything in the way). */
+  private carryOnPlatforms(): void {
+    for (const { cc, body, x, y, a } of this.platforms) {
+      if (!cc._state || !this.rapier.getRigidBody(body.handle)) continue;
+      const p = this.colliderWorldPose(cc);
+      const t1 = body.translation(), turn = body.rotation() - a;
+      const dx = p.x - x, dy = p.y - y, c = Math.cos(turn), s = Math.sin(turn);
+      const delta = { x: t1.x + dx * c - dy * s - p.x, y: t1.y + dx * s + dy * c - p.y };
+      if (Math.hypot(delta.x, delta.y) < 1e-7) continue;
+      const flags = cc._flags;
+      this.moveCharacter(cc, delta);
+      cc._flags = flags; // still standing on it
+    }
+    this.platforms.length = 0;
   }
 
   // --- joints (ADR 0092) ---------------------------------------------------------------------------
@@ -382,6 +426,7 @@ export class Physics2DWorld {
     if (version !== st.syncedVersion && st.ownBody) {
       const pose = this.colliderWorldPose(c);
       st.ownBody.setTranslation({ x: pose.x, y: pose.y }, true);
+      st.ownBody.setNextKinematicTranslation({ x: pose.x, y: pose.y }); // or the step moves it back to a stale target
       this.rapier.propagateModifiedBodyPositionsToColliders();
       st.syncedVersion = version;
     } else if (version !== st.syncedVersion) {
@@ -441,8 +486,9 @@ export class Physics2DWorld {
       .setRestitution(c.material?.bounciness ?? 0)
       .setCollisionGroups(this.groupsFor(c.layer))
       .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
-      // A character controller is a parentless collider that moves: it must meet static triggers too.
-      .setActiveCollisionTypes(c instanceof CharacterController2D ? RAPIER.ActiveCollisionTypes.ALL : RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
+      // Every body pairs with a character controller's kinematic body except other kinematic ones: their
+      // contacts would let Rapier's controller drag it along with platforms on some steps, on top of carryOnPlatforms.
+      .setActiveCollisionTypes(RAPIER.ActiveCollisionTypes.DEFAULT | RAPIER.ActiveCollisionTypes.KINEMATIC_FIXED);
     const collider = this.rapier.createCollider(desc, ownBody ?? body?._state?.body);
     this.colliderByHandle.set(collider.handle, c);
     return { collider, body, signature, syncedVersion: this.world.tVersion[c.node.entity], active: true, local, ownBody };
@@ -495,6 +541,7 @@ export class Physics2DWorld {
 
   /** @internal */
   writeBack(): void {
+    this.carryOnPlatforms();
     const world = this.world;
     for (const rb of world._componentsOfType(RigidBody2D)) {
       const st = rb._state;
@@ -638,10 +685,24 @@ export class Physics2DWorld {
     const start = this.colliderWorldPose(cc);
     const own = st.ownBody!;
     own.setTranslation({ x: start.x, y: start.y }, true);
+    own.setNextKinematicTranslation({ x: start.x, y: start.y }); // or the step moves it back to a stale target
     this.rapier.propagateModifiedBodyPositionsToColliders();
-    kcc.computeColliderMovement(st.collider, { x: motion.x, y: motion.y }, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, this.groupsFor(cc.layer));
+    // Rapier's controller adds the ground body's motion over one timestep on every call (frame-rate
+    // dependent, and only while moving); platforms carry controllers in carryOnPlatforms instead.
+    // Pushing bodies scales its impulses by that timestep, so it runs as a second pass at the real one.
+    const groups = this.groupsFor(cc.layer), filter = RAPIER.QueryFilterFlags.EXCLUDE_SENSORS;
+    if (cc.pushBodies) {
+      kcc.computeColliderMovement(st.collider, { x: motion.x, y: motion.y }, filter, groups); // applies the impulses; its movement isn't used
+    }
+    const dt = this.rapier.timestep;
+    kcc.setApplyImpulsesToDynamicBodies(false);
+    this.rapier.timestep = 1e-6;
+    kcc.computeColliderMovement(st.collider, { x: motion.x, y: motion.y }, filter, groups);
+    this.rapier.timestep = dt;
+    kcc.setApplyImpulsesToDynamicBodies(cc.pushBodies);
     const m = kcc.computedMovement();
     own.setTranslation({ x: start.x + m.x, y: start.y + m.y }, true);
+    own.setNextKinematicTranslation({ x: start.x + m.x, y: start.y + m.y }); // or the step moves it back to a stale target
     this.rapier.propagateModifiedBodyPositionsToColliders();
     const p = t.worldPosition;
     t.worldPosition = [p.x + m.x, p.y + m.y, p.z];

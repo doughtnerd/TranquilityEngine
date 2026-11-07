@@ -59,6 +59,8 @@ export class CharacterController extends Collider {
   @field(Boolean) pushBodies = true;
   /** How heavy it is when pushing bodies. */
   @field(Number) mass = 1;
+  /** Ride kinematic and dynamic bodies it stands on (moving platforms), moving with them each fixed step. */
+  @field(Boolean) moveWithPlatforms = true;
 
   /** @internal */ _flags: CollisionFlags = NO_FLAGS;
   /** @internal */ _velocity = new Vector3();

@@ -11,6 +11,7 @@ import {
   GameObject,
   Physics,
   RigidBody,
+  RigidBody2D,
   SceneManager,
   type ControllerColliderHit,
 } from "../index";
@@ -129,6 +130,8 @@ describe("CharacterController (ADR 0091)", () => {
       steps(engine, 1);
     }
     expect(crate.transform!.position.x).toBeGreaterThan(2.5);
+    expect(crate.transform!.position.x).toBeLessThan(8); // pushed along, not flung
+    expect(Math.abs(crate.transform!.position.y - 0.5)).toBeLessThan(0.3);
   });
 
   it("is hit by raycasts and enters triggers", async () => {
@@ -175,5 +178,59 @@ describe("CharacterController2D (ADR 0091)", () => {
     expect(player.transform!.position.x).toBeLessThan(2.05);
     expect(player.transform!.position.x).toBeGreaterThan(1.8);
     expect(cc.collisionFlags.sides).toBe(true);
+  });
+});
+
+describe("moving platforms (ADR 0091)", () => {
+  it("3D: a controller standing on a kinematic platform rides it sideways and up", async () => {
+    const engine = await setup("3d");
+    const platform = box3("platform", [0, -0.5, 0], [4, 1, 4]);
+    platform.addBehavior(RigidBody, { bodyType: "kinematic" });
+    const player = GameObject.create("player");
+    player.transform!.position.y = 1.05;
+    const cc = player.addBehavior(CharacterController);
+    const stay = GameObject.create("still");
+    stay.transform!.position.set(20, 1.05, 0);
+    const still = stay.addBehavior(CharacterController, { moveWithPlatforms: false });
+    box3("ground", [20, -0.5, 0], [4, 1, 4]);
+    steps(engine, 1);
+    for (let i = 0; i < 30; i++) {
+      cc.simpleMove({ x: 0, y: 0, z: 0 });
+      still.simpleMove({ x: 0, y: 0, z: 0 });
+      steps(engine, 1);
+    }
+    expect(cc.isGrounded).toBe(true);
+    for (let i = 0; i < 60; i++) {
+      platform.transform!.position.x += 1 / 60; // 1 unit/s sideways
+      platform.transform!.position.y += 0.5 / 60; // and 0.5 up
+      cc.simpleMove({ x: 0, y: 0, z: 0 });
+      steps(engine, 1);
+    }
+    expect(player.transform!.position.x).toBeCloseTo(platform.transform!.position.x, 1);
+    expect(player.transform!.position.y).toBeCloseTo(platform.transform!.position.y + 1.5, 1);
+    expect(stay.transform!.position.x).toBeCloseTo(20, 3);
+  });
+
+  it("2D: a controller rides a kinematic platform", async () => {
+    const engine = await setup("2d");
+    const platform = GameObject.create("platform");
+    platform.transform!.position.y = -0.5;
+    platform.addBehavior(RigidBody2D, { bodyType: "kinematic" });
+    platform.addBehavior(BoxCollider2D).size.set(4, 1);
+    const player = GameObject.create("player");
+    player.transform!.position.y = 1.05;
+    const cc = player.addBehavior(CharacterController2D);
+    steps(engine, 1);
+    for (let i = 0; i < 30; i++) {
+      cc.simpleMove({ x: 0, y: 0 });
+      steps(engine, 1);
+    }
+    for (let i = 0; i < 60; i++) {
+      platform.transform!.position.x -= 1 / 60;
+      cc.simpleMove({ x: 0, y: 0 });
+      steps(engine, 1);
+    }
+    expect(player.transform!.position.x).toBeCloseTo(-1, 1);
+    expect(cc.isGrounded).toBe(true);
   });
 });
