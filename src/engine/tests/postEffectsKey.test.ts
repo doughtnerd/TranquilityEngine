@@ -7,6 +7,7 @@ function fx(over: Partial<PostEffects> = {}): PostEffects {
     bloom: { intensity: 1, threshold: 0.9, radius: 0.85 },
     ambientOcclusion: null,
     colorGrading: null,
+    lut: null,
     vignette: null,
     depthOfField: null,
     chromaticAberration: null,

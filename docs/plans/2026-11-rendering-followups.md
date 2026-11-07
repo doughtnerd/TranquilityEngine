@@ -36,14 +36,15 @@ What's left after the frame-drop work of 2026-11-06 (commit `e60c9af`, branch `c
      - **Instantiating the scene:** about 90 ms, some 1,000 vertex buffers.
      - Whether the few internal pipelines Babylon still compiles blocking (clear quad, post-process, UI) are worth warming.
 5. **Variants not warmed yet (0080):**
-   - particle systems;
+   - particle systems (left to the GPU particles work, which replaces them);
    - world-space UI;
-   - reflection-probe copies (`probeMaterial`);
-   - warming again when the quality tier changes (the passes change).
+   - ~~reflection-probe copies (`probeMaterial`)~~ done 2026-11-07 (`probeVariants`; 0110's blend copies aren't warmed);
+   - ~~warming again when the quality tier changes (the passes change)~~ done 2026-11-07 (`PipelineWarmer.rewarm`, also when new probes capture).
 6. **Unverified for clustering (0079):**
    - GPU time against the stop-gap; needs timestamp queries or a visible window, since Babylon's GPU timer reads 0 under a frame graph;
    - a camera that draws to part of the target (split screen): Babylon sizes the tile mask from `engine.getRenderWidth()`, not the viewport;
    - re-check `reclusterForNextCamera` (it resets Babylon's private `_lightDataRenderId`) on each Babylon upgrade, or get the cache keyed on the camera upstream.
+   - render textures (0109) share the caveat: clustering tiles follow the canvas size, not the target's.
 7. **Tests that would need a harness.** The variant report and the override-copy texture fix (`rendererMaterial`) were checked by hand in the browser. There's no harness yet for driving `BabylonRenderer` itself on NullEngine.
 
 ## Not part of 0079/0080, noted on the way

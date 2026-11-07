@@ -55,13 +55,17 @@ import { Color as EngineColor, Vector2 as EngineVector2, Vector3 as EngineVector
 import type { MaterialPropertyValue } from "../components";
 import { compileShaderGraph } from "../shaderGraph/compile";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "./graphMaterial";
-import { Camera, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, SpriteRenderer, Text } from "../components";
+import { Camera, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text } from "../components";
 import { UICanvas, isUIComponent } from "../../ui/components";
 import type { UICore } from "../../ui/UICore";
 import type { BabylonUI } from "./ui";
 import { Scene as BabylonScene } from "@babylonjs/core/scene.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
-import { BabylonProbes } from "./probes";
+import { BabylonProbes, type ProbeHit } from "./probes";
+import { MycoProbeBlendPlugin } from "./probeBlend";
+import { setHeightFog } from "./heightFog";
+import { BabylonRenderTextures } from "./renderTextures";
+import { isRenderTexturePath } from "../renderTexture";
 import { BabylonWater } from "./water";
 import { WaterSurface } from "../water/WaterSurface";
 import type { GameObject } from "../../scene/GameObject";
@@ -145,6 +149,8 @@ function toGraphValue(v: MaterialPropertyValue): GraphValue {
 
 
 const tmpMatrix = new Matrix();
+const HEIGHT_FOG_OFF = { on: false, density: 0, base: 0, falloff: 1, color: [1, 1, 1] as [number, number, number] };
+const HEIGHT_FOG_SCRATCH = { on: false, density: 0, base: 0, falloff: 1, color: [1, 1, 1] as [number, number, number] };
 /** Each renderer mesh's frozen world matrix (Babylon keeps the one it's given), refilled when its node moves. */
 const frozenMatrices = new WeakMap<Mesh, Matrix>();
 const tmpSpriteA = new Matrix();
@@ -216,15 +222,21 @@ export class BabylonRenderer {
   private readonly effects: { ms(): number; dispose(): void };
   /** ADR 0080: editor play mode's log of shader variants compiled after loading; null when off. */
   private report: VariantReport | null = null;
+  /** The quality tier version the warm-up last ran for (-1 before the first frame). */
+  private warmedVersion = -1;
+  /** How many probes had captured when the warm-up last covered their copies. */
+  private warmedProbes = 0;
   /** When `render` last drew a frame: a warm-up only waits while frames are being drawn. */
   private lastRenderAt = -Infinity;
   private readonly lighting: BabylonLighting;
   /** Reflection probes (stage 6). */
   private readonly probes: BabylonProbes;
+  /** Render texture assets cameras draw into (ADR 0109). */
+  private readonly renderTextures: BabylonRenderTextures;
   /** Water surfaces (ADR 0072; stage 6), made the first time a World has one. */
   private water: BabylonWater | null = null;
-  /** Each material's copies reflecting a probe's map (ADR 0054), by the probe's texture. */
-  private readonly probeMaterials = new WeakMap<BabylonMaterial, Map<BaseTexture, PBRMaterial>>();
+  /** Each material's copies reflecting a probe's map (ADR 0054), by the probe's texture and any blend (ADR 0110). */
+  private readonly probeMaterials = new WeakMap<BabylonMaterial, Map<string, PBRMaterial>>();
   /** Meshes drawn with a probe's map last frame, for tests. */
   private reflecting = 0;
   /** Materials whose asset opts out of the World's fog (ADR 0071). */
@@ -302,6 +314,7 @@ export class BabylonRenderer {
     this.frame = new BabylonFrame(scene);
     this.frame.beforeView = (camera) => this.lighting.fitSky(camera);
     this.probes = new BabylonProbes(scene);
+    this.renderTextures = new BabylonRenderTextures(scene);
 
     this.defaultMaterial = pbr("myco.default", scene);
     this.defaultMaterial.albedoColor = new Color3(1, 1, 1);
@@ -320,6 +333,7 @@ export class BabylonRenderer {
       loadingTextures: () => this.loading.size > 0,
       ...(this.asyncPipelines ? { compiling: () => this.asyncPipelines!.settled() } : {}),
       effectMs: () => this.effects.ms(),
+      probeVariants: (base) => this.probes.textures().map((hit) => this.probeMaterial(base, hit)),
     });
     this.warmer.onDrained = () => this.report?.quiet();
     if (fill) this.editorTools();
@@ -478,6 +492,14 @@ export class BabylonRenderer {
     const key = sheet ? `${path}#sheet` : path;
     const cached = this.textures.get(key);
     if (cached) return Promise.resolve(cached);
+    if (isRenderTexturePath(path)) {
+      // A render texture asset (ADR 0109): the texture a camera draws into, shared by everything naming it.
+      const rt = this.renderTextures.texture(path);
+      if (!rt) return Promise.reject(new Error(`render texture "${path}" isn't in the project`));
+      this.textures.set(key, rt);
+      this.textureMeta.set(path, sidecarValue(path)); // sampled from the asset's own settings, not a sidecar
+      return Promise.resolve(rt);
+    }
     let p = this.loading.get(key);
     if (!p) {
       p = new Promise<Texture>((resolve, reject) => {
@@ -547,6 +569,10 @@ export class BabylonRenderer {
     this.probeMeshes.length = 0;
     for (const m of this.scene.meshes) if ((m.layerMask & EDITOR_LAYER_MASK) === 0) this.probeMeshes.push(m);
     this.probes.sync(world, this.probeMeshes, ready);
+    // Probes capture after the scene loads, after its warm-up: warm their material copies once they exist (ADR 0080).
+    const captured = this.probes.textures().length;
+    if (captured > this.warmedProbes) void this.warmer.rewarm();
+    this.warmedProbes = captured;
     const surfaces = world._componentsOfType(WaterSurface);
     if (surfaces.length || this.water) {
       this.water ??= new BabylonWater(this.scene, (x, y, z) => this.probes.lookup(x, y, z));
@@ -632,6 +658,11 @@ export class BabylonRenderer {
 
   render(world: World): void {
     this.claim(world);
+    // A new quality tier changes the passes (shadows, cascades, probes): warm what's been warmed again (ADR 0080).
+    if (Graphics._version !== this.warmedVersion) {
+      if (this.warmedVersion >= 0) void this.warmer.rewarm();
+      this.warmedVersion = Graphics._version;
+    }
     this.reflecting = 0;
     this.graphShared.time = world.time.time;
     this.graphShared.resolution = [this.engine.getRenderWidth(), this.engine.getRenderHeight()];
@@ -646,9 +677,23 @@ export class BabylonRenderer {
       const entry = this.cameras.get(c)!;
       entry.camera.layerMask = this.fill ? 0xffffffff : 0x0fffffff; // an editor World's view sees the grid
       // The game's screen UI goes over the editor's view (and its overlay), else over the last camera.
-      return { ui: this.tools ? i === 0 : i === cams.length - 1, overlay: i === 0 && !!this.tools, camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure };
+      // The editor's own view (it previews the scene camera's effects, having none of its own) shows the
+      // editor background as set, not tone mapped with the scene (ADR 0111).
+      const backdrop = this.fill && i === 0 && !c.backgroundColor && !this.postSettings(c) ? background : undefined;
+      return { ui: this.tools ? i === 0 : i === cams.length - 1, overlay: i === 0 && !!this.tools, camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure, backdrop };
     });
     this.lastPost = views[0] ? { composed: !!views[0].effects, toneMapping: views[0].toneMapping, effects: views[0].effects } : null;
+    // Cameras drawing into render textures (ADR 0109), after the canvas's: what samples their texture shows the last frame.
+    for (const c of this.targetCameras(world)) {
+      const target = this.renderTextures.target(c.targetTexture);
+      if (!target) continue;
+      const resolved = resolvePostEffects(this.postSettings(c), Graphics.tier);
+      let background = c.backgroundColor ? clearColorOf(c.backgroundColor.toHex().slice(0, 7)) : this.clearColor;
+      if (this.skyFog) background = Color4.Lerp(background, this.skyFog.color, this.skyFog.amount);
+      const entry = this.cameras.get(c)!;
+      entry.camera.layerMask = 0x0fffffff; // no editor-only meshes
+      views.push({ camera: entry.camera, viewport: { x: 0, y: 0, width: 1, height: 1 }, clear: background, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure, target });
+    }
     const preview = views.length ? this.previewView(views) : null;
     if (preview) views.push(preview);
     this.cameraPreviewDrawn = !!preview && this.frame.ready;
@@ -732,32 +777,50 @@ export class BabylonRenderer {
   // --- Reflection probes and fog (ADR 0054, 0071; stage 6) ----------------------------------------
 
   /** The probe a mesh's bounds centre lies in, if any. */
-  private probeAt(m: Mesh): { texture: BaseTexture; intensity: number } | null {
+  private probeAt(m: Mesh): ProbeHit | null {
     const centre = m.getBoundingInfo().boundingBox.centerWorld;
     return this.probes.lookup(centre.x, centre.y, centre.z);
   }
 
-  /** A copy of a material reflecting a probe's map, made once per material and probe. */
-  private probeMaterial(base: PBRMaterial, texture: BaseTexture, intensity: number): PBRMaterial {
+  /**
+   * A copy of a material reflecting a probe's map, made once per material, probe, and blend (a
+   * neighbour's map and the primary's share, rounded to `BLEND_STEPS`; ADR 0110).
+   */
+  private probeMaterial(base: PBRMaterial, hit: ProbeHit): PBRMaterial {
     let byProbe = this.probeMaterials.get(base);
     if (!byProbe) {
       byProbe = new Map();
       this.probeMaterials.set(base, byProbe);
     }
-    let m = byProbe.get(texture);
+    const b = hit.blend;
+    const key = b ? `${hit.texture.uniqueId}|${b.texture.uniqueId}|${b.weight}` : `${hit.texture.uniqueId}`;
+    let m = byProbe.get(key);
     if (!m) {
       m = base.clone(`${base.name}:probe`);
-      m.reflectionTexture = texture;
-      byProbe.set(texture, m);
+      m.reflectionTexture = hit.texture;
+      if (b) new MycoProbeBlendPlugin(m, { texture: b.texture, weight: b.weight, intensityRatio: 1, box: null });
+      byProbe.set(key, m);
       if (this.noFog.has(base)) this.noFog.add(m);
     }
-    m.environmentIntensity = intensity;
+    m.environmentIntensity = hit.intensity;
+    if (b) {
+      const plugin = m.pluginManager?.getPlugin<MycoProbeBlendPlugin>("MycoProbeBlend");
+      if (plugin) {
+        plugin.state.intensityRatio = hit.intensity > 0 ? b.intensity / hit.intensity : 0;
+        plugin.state.box = b.box;
+      }
+    }
     return m;
   }
 
   /** Tests: how many water surfaces are drawn. */
   waterState(): { surfaces: number } {
     return this.water?.state() ?? { surfaces: 0 };
+  }
+
+  /** Editor (ADR 0110): a probe's current capture as a prefiltered `.env` file. */
+  bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer> {
+    return this.probes.bake(probe);
   }
 
   /** Tests: probes captured, probes, and meshes reflecting one. */
@@ -777,10 +840,11 @@ export class BabylonRenderer {
       s.fogMode = BabylonScene.FOGMODE_NONE;
       this.skyFog = null;
       this.lighting.setSkyFog(0);
+      setHeightFog(s, HEIGHT_FOG_OFF);
       return;
     }
     const exp = fog.mode === "exponential";
-    s.fogMode = exp ? BabylonScene.FOGMODE_EXP2 : BabylonScene.FOGMODE_LINEAR;
+    s.fogMode = fog.mode === "none" ? BabylonScene.FOGMODE_NONE : exp ? BabylonScene.FOGMODE_EXP2 : BabylonScene.FOGMODE_LINEAR;
     s.fogColor.set(fog.color.r, fog.color.g, fog.color.b).toLinearSpaceToRef(s.fogColor); // in place: no colour per frame
     s.fogDensity = Math.max(0, fog.density);
     s.fogStart = Math.max(0, fog.near);
@@ -793,6 +857,16 @@ export class BabylonRenderer {
       this.skyFog.color.set(fog.color.r, fog.color.g, fog.color.b, 1);
     }
     this.lighting.setSkyFog(amount);
+    // Height fog (ADR 0110): in the same linear colour as distance fog.
+    const hf = HEIGHT_FOG_SCRATCH;
+    hf.on = fog.heightFog;
+    hf.density = Math.max(0, fog.heightFogDensity);
+    hf.base = fog.heightFogBase;
+    hf.falloff = Math.max(1e-4, fog.heightFogFalloff);
+    hf.color[0] = s.fogColor.r;
+    hf.color[1] = s.fogColor.g;
+    hf.color[2] = s.fogColor.b;
+    setHeightFog(s, hf);
   }
 
   /** Tests and the editor: what the last frame's first camera ran. */
@@ -859,6 +933,7 @@ export class BabylonRenderer {
     this.frame.overlay = null;
     this.overlayLayer?.dispose();
     this.probes.dispose();
+    this.renderTextures.dispose();
     this.water?.dispose();
     this.frame.dispose();
     this.scene.dispose();
@@ -874,7 +949,18 @@ export class BabylonRenderer {
   private viewCameras(world: World): Camera[] {
     return world
       ._componentsOfType(Camera)
-      .filter((c) => c.isActiveAndEnabled && this.cameras.has(c) && !world.inEditMode(c.node.entity))
+      .filter((c) => c.isActiveAndEnabled && !c.targetTexture && this.cameras.has(c) && !world.inEditMode(c.node.entity))
+      .sort((a, b) => a.depth - b.depth);
+  }
+
+  /**
+   * Enabled cameras drawing into render textures (ADR 0109), in depth order. Drawn in the editor's edit
+   * mode too, so materials showing their texture look in the scene view as they will in the game.
+   */
+  private targetCameras(world: World): Camera[] {
+    return world
+      ._componentsOfType(Camera)
+      .filter((c) => c.isActiveAndEnabled && !!c.targetTexture && this.cameras.has(c))
       .sort((a, b) => a.depth - b.depth);
   }
 
@@ -897,7 +983,8 @@ export class BabylonRenderer {
     entry.rect = { x, y, width: w, height: h };
     const canvas = this.engine.getRenderingCanvas();
     const cw = canvas?.clientWidth || this.settings.display.width, ch = canvas?.clientHeight || this.settings.display.height;
-    const aspect = (cw * w) / (ch * h);
+    const target = c.targetTexture ? this.renderTextures.target(c.targetTexture) : null;
+    const aspect = target ? target.width / target.height : (cw * w) / (ch * h); // a render texture's own shape (ADR 0109)
     if (c.projection === "orthographic") {
       camera.mode = BabylonCamera.ORTHOGRAPHIC_CAMERA;
       const s = c.orthographicSize;
@@ -1070,7 +1157,7 @@ export class BabylonRenderer {
       m.applyFog = !this.noFog.has(base);
       // A reflection probe (ADR 0054) for built-in materials; graph materials keep the scene's environment.
       const probe = this.probes.any && base instanceof PBRMaterial && !this.graphs.has(base) ? this.probeAt(m) : null;
-      const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe.texture, probe.intensity) : base;
+      const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe) : base;
       if (probe) this.reflecting++;
       if (m.material !== drawn) m.material = drawn;
     }
@@ -1153,6 +1240,12 @@ export class BabylonRenderer {
   private graphTexture(path: string, linear: boolean): Promise<Texture> {
     const key = `${linear ? "linear" : "srgb"}|${path}`;
     let p = this.graphTextures.get(key);
+    if (!p && isRenderTexturePath(path)) {
+      // Graph code samples raw: a render texture's colour is what the camera wrote (ADR 0109).
+      const rt = this.renderTextures.texture(path);
+      p = rt ? Promise.resolve(rt) : Promise.reject(new Error(`render texture "${path}" isn't in the project`));
+      this.graphTextures.set(key, p);
+    }
     if (!p) {
       p = new Promise<Texture>((resolve, reject) => {
         const settings: ImportSettings = Assets.importSettings(path);
@@ -1278,6 +1371,11 @@ export class BabylonRenderer {
     load(settings.texture, (tex) => (m.albedoTexture = tex));
     if (settings.shader !== "unlit") load(settings.normalMap, (tex) => (m.bumpTexture = tex));
     return m;
+  }
+
+  /** Tests and the editor: the render texture assets made so far (ADR 0109). */
+  renderTextureState(): ReturnType<BabylonRenderTextures["state"]> {
+    return this.renderTextures.state();
   }
 
   /** Tests: cascaded shadows and the environment map's state. */

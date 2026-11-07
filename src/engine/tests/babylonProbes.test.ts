@@ -70,6 +70,41 @@ describe("reflection probes on the Babylon backend (ADR 0075 stage 6)", () => {
     expect(probes.lookup(0, 0, 0)).toBeNull();
   });
 
+  it("box-projects a probe's map when asked, and stops when not (ADR 0110)", () => {
+    const p = probe([1, 2, 3], [4, 5, 6], { boxProjection: true });
+    sync();
+    const tex = probes.lookup(1, 2, 3)!.texture as unknown as { boundingBoxSize: { x: number; y: number; z: number } | null; boundingBoxPosition: { x: number; y: number; z: number } };
+    expect(tex.boundingBoxSize).toMatchObject({ x: 4, y: 5, z: 6 });
+    expect(tex.boundingBoxPosition).toMatchObject({ x: 1, y: 2, z: 3 });
+    p.boxProjection = false;
+    sync();
+    expect(tex.boundingBoxSize).toBeFalsy();
+  });
+
+  it("names a neighbour to blend towards near a box's faces (ADR 0110)", () => {
+    probe([0, 0, 0], [20, 20, 20]);
+    probe([0, 0, 0], [4, 4, 4], { blendDistance: 1, intensity: 2 });
+    sync();
+    expect(probes.lookup(0, 0, 0)!.blend).toBeNull();
+    const hit = probes.lookup(1.5, 0, 0)!;
+    expect(hit.intensity).toBe(2);
+    expect(hit.blend).toMatchObject({ weight: 0.5, intensity: 1, box: null });
+  });
+
+  it("uses a baked map instead of capturing, and captures when it isn't in the project (ADR 0110)", () => {
+    const warn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (m: string) => warnings.push(m);
+    try {
+      probe([0, 0, 0], [10, 10, 10], { refresh: "baked", bakedMap: "probes/missing.env" });
+      sync();
+      expect(warnings.some((w) => w.includes("missing.env"))).toBe(true);
+      expect(probes.state(0).captured).toBe(1); // captured instead
+    } finally {
+      console.warn = warn;
+    }
+  });
+
   it("forgets a probe whose component is gone", () => {
     const p = probe([0, 0, 0], [10, 10, 10]);
     sync();

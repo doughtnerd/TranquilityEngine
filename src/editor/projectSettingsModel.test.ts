@@ -10,6 +10,7 @@ import {
   moveTier,
   removeTier,
   renameTier,
+  setPlatformDefault,
   setAutoDetect,
   setDefaultTier,
   setTargetFrameRate,
@@ -216,6 +217,26 @@ describe("the Project panel's settings", () => {
       expect(removeTier(d, 0)).toBe(d);
     });
 
+    it("sets platform defaults, omitting the key when none is set", () => {
+      let d = setPlatformDefault(readDraft({}), "mobile", "Low");
+      d = setPlatformDefault(d, "web", "Medium");
+      expect(d.graphics?.platformDefaults).toEqual({ mobile: "Low", web: "Medium" });
+      expect(graphicsOf(d).platformDefaults).toEqual({ mobile: "Low", web: "Medium" });
+      expect(setPlatformDefault(d, "web", "Nope").graphics?.platformDefaults).toEqual({ mobile: "Low" });
+      d = setPlatformDefault(setPlatformDefault(d, "web", undefined), "mobile", undefined);
+      expect("platformDefaults" in (d.graphics ?? {})).toBe(false);
+    });
+
+    it("renames platform default tiers along and drops removed ones", () => {
+      let d = setPlatformDefault(setPlatformDefault(readDraft({}), "mobile", "Low"), "desktop", "Ultra");
+      d = renameTier(d, 0, "Potato");
+      expect(d.graphics?.platformDefaults).toEqual({ mobile: "Potato", desktop: "Ultra" });
+      d = removeTier(d, 0);
+      expect(d.graphics?.platformDefaults).toEqual({ desktop: "Ultra" });
+      d = removeTier(d, 2);
+      expect("platformDefaults" in (d.graphics ?? {})).toBe(false);
+    });
+
     it("renames tiers, keeping the default, and refuses empty or duplicate names", () => {
       const d = renameTier(readDraft({}), 2, "Best");
       expect(names(d)).toEqual(["Low", "Medium", "Best", "Ultra"]);
@@ -267,7 +288,7 @@ describe("the Project panel's settings", () => {
       d = setTierValue(d, 0, "antialias", "msaa");
       d = setTierValue(d, 0, "anisotropy", 2);
       d = setTierValue(d, 0, "shaderLevel", "medium");
-      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" });
+      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, cascadedLights: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" });
       expect(settingsProblems(d)).toEqual([]);
       expect(graphicsOf(setDefaultTier(d, "Low")).defaultTier).toBe("Low");
       expect(setDefaultTier(d, "Nope")).toBe(d);

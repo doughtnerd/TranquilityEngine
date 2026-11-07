@@ -112,6 +112,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
 | [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
 | [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
+| [0109](decisions/0109-render-textures-and-the-scene-depth-texture.md) | Cameras draw into render texture assets that materials, sprites and UI sample; each camera's scene depth is available to render code | Proposed |
+| [0110](decisions/0110-several-cascaded-lights-probe-blending-and-height-fog.md) | Cascades for several directional lights, box-projected, blended and baked reflection probes, and height fog | Proposed |
+| [0111](decisions/0111-post-processing-on-babylon-luts-and-per-platform-tiers.md) | Post-processing on Babylon: LUT colour grading, half-resolution ambient occlusion, an untoned editor background, and per-platform default tiers | Proposed |
 
 ## Working with decisions
 
