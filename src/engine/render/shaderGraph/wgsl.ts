@@ -9,7 +9,7 @@
  *  - textures are declared by the compiler as `var <name>: texture_2d<f32>;` and
  *    `var <name>Sampler: sampler;` (all of them in the fragment stage, those a vertex node samples in
  *    the vertex stage too);
- *  - the vertex stage defines `mycoVUv`, `mycoVPos` and `mycoVNormal` before the graph's body runs.
+ *  - the vertex stage defines `mycoVUv`, `mycoVPos`, `mycoVNormal` and `mycoVColor` (white without vertex or instance colours) before the graph's body runs.
  */
 import type { Builtin, ShaderStage, ValueType } from "./nodes";
 
@@ -39,6 +39,7 @@ export const BUILTINS_WGSL: Record<ShaderStage, Record<Builtin, string>> = {
     worldNormal: "normalize((finalWorld * vec4f(mycoVNormal, 0.0)).xyz)",
     viewNormal: "normalize((scene.view * (finalWorld * vec4f(mycoVNormal, 0.0))).xyz)",
     viewDirection: "normalize(scene.vEyePosition.xyz - (finalWorld * vec4f(mycoVPos, 1.0)).xyz)",
+    vertexColor: "mycoVColor",
   },
   fragment: {
     uv: "fragmentInputs.vMycoUv",
@@ -49,6 +50,7 @@ export const BUILTINS_WGSL: Record<ShaderStage, Record<Builtin, string>> = {
     worldNormal: "mycoFaceNormal(fragmentInputs.vNormalW)",
     viewNormal: "normalize((scene.view * vec4f(mycoFaceNormal(fragmentInputs.vNormalW), 0.0)).xyz)",
     viewDirection: "normalize(scene.vEyePosition.xyz - fragmentInputs.vPositionW)",
+    vertexColor: "mycoVColor",
   },
 };
 
