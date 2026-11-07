@@ -49,7 +49,7 @@ export class Player extends GameBehavior {
 }
 ```
 
-`CharacterController` is an upright capsule collider (`radius`, `height`, `center`) that doesn't turn with its node. `move(motion)` moves it at once, sliding along walls, climbing slopes up to `slopeLimit` degrees and steps up to `stepOffset`, sticking to the ground within `snapToGround`, and pushing dynamic bodies (`pushBodies`, `mass`). It returns `collisionFlags` (`below`, `sides`, `above`); `isGrounded` and `velocity` describe the last move, and `onControllerColliderHit(hit)` runs for each collider it hit. Add gravity yourself with `move`, or use `simpleMove`. It needs no RigidBody. Known limits: moving platforms don't carry it; `velocity` assumes one `move` per frame.
+`CharacterController` is an upright capsule collider (`radius`, `height`, `center`) that doesn't turn with its node. `move(motion)` moves it at once, sliding along walls, climbing slopes up to `slopeLimit` degrees and steps up to `stepOffset`, sticking to the ground within `snapToGround`, and pushing dynamic bodies (`pushBodies`, `mass`). It returns `collisionFlags` (`below`, `sides`, `above`); `isGrounded` and `velocity` describe the last move, and `onControllerColliderHit(hit)` runs for each collider it hit. Add gravity yourself with `move`, or use `simpleMove`. It needs no RigidBody. It rides kinematic and dynamic bodies it stands on (`moveWithPlatforms`, on by default), moving with them each fixed step without turning. Known limit: `velocity` assumes one `move` per frame.
 
 ## Joints (ADR 0092)
 
@@ -60,11 +60,13 @@ Put a joint on a node with a RigidBody. `connectedBody` names another node with 
 | `FixedJoint` | `FixedJoint2D` | Welds the bodies |
 | `HingeJoint` (`axis`) | `HingeJoint2D` | Turns around the anchor; limits and targets in degrees |
 | `SliderJoint` (`axis`) | `SliderJoint2D` (`axis`) | Slides along the axis; limits and targets in units |
-| `BallJoint` | — | Turns freely around the anchor |
+| `BallJoint` (`axis`) | — | Turns around the anchor; optional twist and swing limits |
 | `RopeJoint` | `RopeJoint2D` | At most `maxDistance` apart |
 | `SpringJoint` | `SpringJoint2D` | Pulled towards `restLength` (`spring`, `damper`) |
 
-Hinges and sliders have `useLimits`/`limits`, `useMotor`/`motor {targetVelocity, force}` and `useSpring`/`spring {spring, damper, targetPosition}`; positive turns counterclockwise around the axis (right-hand rule), relative to the connected body. Ropes and springs with `autoConfigureDistance` keep the distance they start at; with auto anchors they attach at the connected body's origin. Not yet: breakable joints, ball-joint limits, reading a hinge's current angle.
+Hinges and sliders have `useLimits`/`limits`, `useMotor`/`motor {targetVelocity, force}` and `useSpring`/`spring {spring, damper, targetPosition}`; positive turns counterclockwise around the axis (right-hand rule), relative to the connected body. Ropes and springs with `autoConfigureDistance` keep the distance they start at; with auto anchors they attach at the connected body's origin. Ball joints limit twist around `axis` (`twistLimits`) and swing off it (`swingLimit`, a four-sided limit rather than a round cone).
+
+**Breaking:** set `breakForce` (newtons) or `breakTorque` (newton-metres); 0 never breaks. Past either, the joint goes, `onJointBreak(joint, force, torque)` runs on the node's behaviors, and the component is destroyed. Forces are estimated from the body's motion (Rapier doesn't report them): contact friction isn't subtracted, and several joints on one body each see their total. Not yet: reading a hinge's current angle.
 
 ## Editor
 

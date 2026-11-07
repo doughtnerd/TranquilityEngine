@@ -8,6 +8,7 @@ import {
   Engine,
   FixedJoint,
   FixedJoint2D,
+  GameBehavior,
   GameObject,
   HingeJoint,
   HingeJoint2D,
@@ -233,5 +234,72 @@ describe("ball joint limits (ADR 0092)", () => {
     const drop = -pos(limited).y; // below the pivot at y 0
     expect(drop).toBeLessThan(Math.sin((25 * Math.PI) / 180));
     expect(drop).toBeGreaterThan(Math.sin((12 * Math.PI) / 180));
+  });
+});
+
+describe("breakable joints (ADR 0092)", () => {
+  class BreakLog extends GameBehavior {
+    broke: number[] = [];
+    onJointBreak(_j: unknown, force: number) { this.broke.push(force); }
+  }
+
+  it("3D: breaks past breakForce, not before; calls onJointBreak and destroys the joint", async () => {
+    const engine = await setup("3d");
+    const strong = body3("strong", 0, 5);
+    strong.addBehavior(FixedJoint, { breakForce: 15 }); // holds 10 N of weight
+    const weak = body3("weak", 3, 5);
+    weak.addBehavior(FixedJoint, { breakForce: 5 });
+    const log = weak.addBehavior(BreakLog);
+    steps(engine, 30);
+    expect(strong.getBehavior(FixedJoint)).not.toBeNull();
+    expect(pos(strong).y).toBeCloseTo(5, 1);
+    expect(log.broke.length).toBe(1);
+    expect(log.broke[0]).toBeGreaterThan(5);
+    expect(weak.getBehavior(FixedJoint)).toBeNull();
+    expect(pos(weak).y).toBeLessThan(4);
+  });
+
+  it("3D: the floor holding a body up doesn't count against its joint; a script's pull does", async () => {
+    const engine = await setup("3d");
+    const floor = GameObject.create("floor");
+    floor.transform!.position.y = -0.5;
+    floor.addBehavior(BoxCollider).size.set(20, 1, 20);
+    const resting = body3("resting", 0, 0.25);
+    resting.addBehavior(RopeJoint, { breakForce: 5, autoConfigureDistance: false, maxDistance: 2 }); // slack: the floor holds it
+    const pulled = body3("pulled", 5, 3);
+    pulled.getBehavior(RigidBody)!.useGravity = false;
+    pulled.addBehavior(FixedJoint, { breakForce: 20 });
+    pulled.addBehavior(class extends GameBehavior { fixedUpdate() { this.node.getBehavior(RigidBody)?.addForce({ x: 0, y: 30, z: 0 }); } });
+    steps(engine, 30);
+    expect(resting.getBehavior(RopeJoint)).not.toBeNull();
+    expect(pulled.getBehavior(FixedJoint)).toBeNull();
+  });
+
+  it("3D: breakTorque counts the turning force at an anchor away from the body", async () => {
+    const engine = await setup("3d");
+    const holds = body3("holds", 1, 5);
+    holds.addBehavior(FixedJoint, { breakTorque: 15 }).anchor.set(-1, 0, 0); // weight 10 N, 1 m out: 10 N·m
+    const snaps = body3("snaps", 6, 5);
+    snaps.addBehavior(FixedJoint, { breakTorque: 5 }).anchor.set(-1, 0, 0);
+    steps(engine, 30);
+    expect(holds.getBehavior(FixedJoint)).not.toBeNull();
+    expect(snaps.getBehavior(FixedJoint)).toBeNull();
+  });
+
+  it("2D: breaks past breakForce and breakTorque", async () => {
+    const engine = await setup("2d");
+    const strong = body2("strong", 0, 5);
+    strong.addBehavior(FixedJoint2D, { breakForce: 15 });
+    const weak = body2("weak", 3, 5);
+    weak.addBehavior(FixedJoint2D, { breakForce: 5 });
+    const holds = body2("holds", 8, 5);
+    holds.addBehavior(FixedJoint2D, { breakTorque: 15 }).anchor.set(-1, 0);
+    const snaps = body2("snaps", 12, 5);
+    snaps.addBehavior(FixedJoint2D, { breakTorque: 5 }).anchor.set(-1, 0);
+    steps(engine, 30);
+    expect(strong.getBehavior(FixedJoint2D)).not.toBeNull();
+    expect(weak.getBehavior(FixedJoint2D)).toBeNull();
+    expect(holds.getBehavior(FixedJoint2D)).not.toBeNull();
+    expect(snaps.getBehavior(FixedJoint2D)).toBeNull();
   });
 });

@@ -12,6 +12,7 @@ import RAPIER from "@dimforge/rapier2d-compat";
 import { GameBehavior } from "../core/Component";
 import { DEG2RAD, Mat4, RAD2DEG, Vector2 } from "../core/math";
 import type { World } from "../core/World";
+import { GameObject } from "../scene/GameObject";
 import { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type Collision2D } from "./Collider2D";
 import { layerGroups } from "./layers";
 import { Queries2D } from "./queries2d";
@@ -33,6 +34,9 @@ export interface BodyHandleState {
   curr: number[] | null;
   /** True while the Transform shows an interpolated pose rather than `curr`. */
   interpolated: boolean;
+  /** The force and torque scripts applied for the coming step, for estimating joint forces (ADR 0092). */
+  lastForce: number[];
+  lastTorque: number;
 }
 
 /** @internal */
@@ -59,6 +63,11 @@ export interface JointHandleState {
   ground: RAPIER.RigidBody | null;
   /** A hinge's angle (radians) when it was made: its limits and targets count from there. */
   restAngle: number;
+  /** The anchor in each body's frame: this joint's body, then the connected one (or the ground). */
+  local1: { x: number; y: number };
+  local2: { x: number; y: number };
+  /** For breakable joints: the dynamic body measured across the coming step, and its velocities before it. */
+  measure: { rb: RigidBody2D; local: { x: number; y: number }; v0: { x: number; y: number }; w0: number } | null;
 }
 
 /** How hard a joint motor drives towards its target velocity, before its `force` limit. */
@@ -176,6 +185,7 @@ export class Physics2DWorld {
   }
 
   private pushJoint(j: Joint2D): void {
+    if (j._broken) return;
     const active = j.isActiveAndEnabled;
     const body = active ? j.body : null;
     const connected = active ? j.connectedRigidbody : null;
@@ -196,6 +206,71 @@ export class Physics2DWorld {
       st.settings = settings;
       this.applyJointSettings(j, st);
     }
+    // Breakable: measure whichever body is dynamic across the step (Rapier doesn't report joint forces).
+    st.measure = null;
+    if (j.breakForce > 0 || j.breakTorque > 0) {
+      const own = st.body.bodyType === "dynamic";
+      const rb = own ? st.body : st.connected?.bodyType === "dynamic" ? st.connected : null;
+      const b = rb?._state?.body;
+      if (rb && b) st.measure = { rb, local: own ? st.local1 : st.local2, v0: b.linvel(), w0: b.angvel() };
+    }
+  }
+
+  /** After a step: estimate breakable joints' forces and break them past their limits (see Physics3DWorld.checkJointBreaks). */
+  private checkJointBreaks(): void {
+    const dt = this.rapier.timestep;
+    if (!(dt > 0)) return;
+    for (const j of this.world._componentsOfType(Joint2D)) {
+      const st = j._state, m0 = st?.measure;
+      if (!st || !m0) continue;
+      st.measure = null;
+      const { rb, local, v0, w0 } = m0;
+      const b = rb._state?.body;
+      if (!b || !rb._state!.active) continue;
+      const mass = Math.max(rb.mass, 1e-4), inertia = mass / 6;
+      const v1 = b.linvel(), w1 = b.angvel(), g = this.rapier.gravity, gs = rb.useGravity ? rb.gravityScale : 0;
+      const lf = rb._state!.lastForce;
+      let fx = (mass * (v1.x - v0.x)) / dt - mass * g.x * gs - lf[0] + mass * rb.drag * v1.x;
+      let fy = (mass * (v1.y - v0.y)) / dt - mass * g.y * gs - lf[1] + mass * rb.drag * v1.y;
+      let t = (inertia * (w1 - w0)) / dt - rb._state!.lastTorque + inertia * rb.angularDrag * w1;
+      const com = b.translation();
+      for (const c of this.world._componentsOfType(Collider2D)) {
+        const col = c._state?.body === rb ? c._state.collider : null;
+        if (!col) continue;
+        this.rapier.contactPairsWith(col, (other) => {
+          this.rapier.contactPair(col, other, (manifold, flipped) => {
+            const n = manifold.normal(), sign = flipped ? 1 : -1;
+            for (let i = 0; i < manifold.numContacts(); i++) {
+              const k = (manifold.contactImpulse(i) * sign) / dt;
+              if (!k) continue;
+              fx -= n.x * k;
+              fy -= n.y * k;
+              const p = i < manifold.numSolverContacts() ? manifold.solverContactPoint(i) : null;
+              if (p) t -= (p.x - com.x) * n.y * k - (p.y - com.y) * n.x * k;
+            }
+          });
+        });
+      }
+      const a = b.rotation(), c = Math.cos(a), sn = Math.sin(a);
+      const ax = local.x * c - local.y * sn, ay = local.x * sn + local.y * c;
+      t -= ax * fy - ay * fx; // the joint's force at its anchor turns the body too
+      const force = Math.hypot(fx, fy), torque = Math.abs(t);
+      if ((j.breakForce > 0 && force > j.breakForce) || (j.breakTorque > 0 && torque > j.breakTorque)) this.breakJoint(j, force, torque);
+    }
+  }
+
+  private breakJoint(j: Joint2D, force: number, torque: number): void {
+    this.releaseJoint(j);
+    j._broken = true;
+    for (const comp of [...this.world._componentsOf(j.node.entity)]) {
+      if (!(comp instanceof GameBehavior) || !comp.isActiveAndEnabled || !comp.onJointBreak) continue;
+      try {
+        comp.onJointBreak(j, force, torque);
+      } catch (err) {
+        console.error(`[myco] ${comp.constructor.name}.onJointBreak threw:`, err);
+      }
+    }
+    GameObject.destroy(j);
   }
 
   /** A node's world position and angle (radians). */
@@ -257,7 +332,7 @@ export class Physics2DWorld {
     }
     const joint = this.rapier.createImpulseJoint(data, rb2, body._state!.body, true);
     joint.setContactsEnabled(j.enableCollision);
-    return { joint, signature, settings: "", body, connected, ground, restAngle };
+    return { joint, signature, settings: "", body, connected, ground, restAngle, local1: a1, local2: a2, measure: null };
   }
 
   /** A hinge's or slider's limits in Rapier's terms (hinges count from the angle they were made at). */
@@ -349,6 +424,8 @@ export class Physics2DWorld {
     // "force" mode applies for exactly one step (Unity semantics); Rapier forces persist until reset.
     body.resetForces(false);
     body.resetTorques(false);
+    st.lastForce = [rb._force[0], rb._force[1]];
+    st.lastTorque = rb._torque;
     if (rb._force[0] || rb._force[1]) body.addForce({ x: rb._force[0], y: rb._force[1] }, true);
     if (rb._torque) body.addTorque(rb._torque, true);
     rb._force[0] = rb._force[1] = 0;
@@ -364,7 +441,7 @@ export class Physics2DWorld {
     desc.setTranslation(p.x, p.y).setRotation(angle);
     const body = this.rapier.createRigidBody(desc);
     this.applyBodySettings(rb, body);
-    return { body, signature: this.bodySignature(rb), syncedVersion: this.world.tVersion[rb.node.entity], active: true, prev: null, curr: null, interpolated: false };
+    return { body, signature: this.bodySignature(rb), syncedVersion: this.world.tVersion[rb.node.entity], active: true, prev: null, curr: null, interpolated: false, lastForce: [0, 0], lastTorque: 0 };
   }
 
   private applyBodySettings(rb: RigidBody2D, body: RAPIER.RigidBody): void {
@@ -602,6 +679,7 @@ export class Physics2DWorld {
 
   /** @internal */
   dispatchEvents(): void {
+    this.checkJointBreaks();
     this.events.drainCollisionEvents((h1, h2, started) => {
       const key = h1 < h2 ? `${h1}:${h2}` : `${h2}:${h1}`;
       if (started) this.touching.set(key, { h1, h2, fresh: true });

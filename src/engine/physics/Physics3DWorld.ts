@@ -13,6 +13,7 @@ import { GameBehavior } from "../core/Component";
 import { DEG2RAD, Mat4, Quat, Quaternion, Vector3, type QuatLike } from "../core/math";
 import type { World } from "../core/World";
 import { MeshRenderer } from "../render/components";
+import { GameObject } from "../scene/GameObject";
 import { meshesIfLoaded, meshTriangles, type ModelMesh } from "../scene/models";
 import { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type Collision } from "./Collider";
 import { layerGroups } from "./layers";
@@ -34,6 +35,9 @@ export interface BodyHandleState3D {
   curr: number[] | null;
   /** True while the Transform shows an interpolated pose rather than `curr`. */
   interpolated: boolean;
+  /** The force and torque scripts applied for the coming step, for estimating joint forces (ADR 0092). */
+  lastForce: number[];
+  lastTorque: number[];
 }
 
 /** @internal */
@@ -60,6 +64,11 @@ export interface JointHandleState3D {
   connected: RigidBody | null;
   /** The fixed body standing in for the world, when the joint isn't connected to a body. */
   ground: RAPIER.RigidBody | null;
+  /** The anchor in each body's frame: this joint's body, then the connected one (or the ground). */
+  local1: Vector3;
+  local2: Vector3;
+  /** For breakable joints: the dynamic body measured across the coming step, and its velocities before it. */
+  measure: { rb: RigidBody; local: Vector3; v0: RAPIER.Vector; w0: RAPIER.Vector } | null;
 }
 
 let rapierReady: Promise<void> | null = null;
@@ -214,6 +223,8 @@ export class Physics3DWorld {
     body.resetForces(false);
     body.resetTorques(false);
     const [fx, fy, fz] = rb._force, [tx, ty, tz] = rb._torque;
+    st.lastForce = [fx, fy, fz];
+    st.lastTorque = [tx, ty, tz];
     if (fx || fy || fz) body.addForce({ x: fx, y: fy, z: fz }, true);
     if (tx || ty || tz) body.addTorque({ x: tx, y: ty, z: tz }, true);
     rb._force.fill(0);
@@ -226,7 +237,7 @@ export class Physics3DWorld {
     desc.setTranslation(p.x, p.y, p.z).setRotation(rapierRotation(q));
     const body = this.rapier.createRigidBody(desc);
     this.applyBodySettings(rb, body);
-    return { body, signature: this.bodySignature(rb), syncedVersion: this.world.tVersion[rb.node.entity], active: true, prev: null, curr: null, interpolated: false };
+    return { body, signature: this.bodySignature(rb), syncedVersion: this.world.tVersion[rb.node.entity], active: true, prev: null, curr: null, interpolated: false, lastForce: [0, 0, 0], lastTorque: [0, 0, 0] };
   }
 
   private applyBodySettings(rb: RigidBody, body: RAPIER.RigidBody): void {
@@ -528,6 +539,7 @@ export class Physics3DWorld {
 
   /** @internal */
   dispatchEvents(): void {
+    this.checkJointBreaks();
     this.events.drainCollisionEvents((h1, h2, started) => {
       const key = h1 < h2 ? `${h1}:${h2}` : `${h2}:${h1}`;
       if (started) this.touching.set(key, { h1, h2, fresh: true });
@@ -581,6 +593,7 @@ export class Physics3DWorld {
   // --- joints (ADR 0092) ---------------------------------------------------------------------------
 
   private pushJoint(j: Joint): void {
+    if (j._broken) return;
     const active = j.isActiveAndEnabled;
     const body = active ? j.body : null;
     const connected = active ? j.connectedRigidbody : null;
@@ -602,6 +615,84 @@ export class Physics3DWorld {
       st.settings = settings;
       this.applyJointSettings(j, st);
     }
+    // Breakable: measure whichever body is dynamic across the step (Rapier doesn't report joint forces).
+    st.measure = null;
+    if (j.breakForce > 0 || j.breakTorque > 0) {
+      const own = st.body.bodyType === "dynamic";
+      const rb = own ? st.body : st.connected?.bodyType === "dynamic" ? st.connected : null;
+      const b = rb?._state?.body;
+      if (rb && b) st.measure = { rb, local: own ? st.local1 : st.local2, v0: b.linvel(), w0: b.angvel() };
+    }
+  }
+
+  /**
+   * After a step: estimate each breakable joint's force and torque from its body's change in momentum,
+   * less gravity, damping, scripted forces and contact impulses, and break it past its limits.
+   * With several joints on one body, each sees their total. Contact friction isn't subtracted.
+   */
+  private checkJointBreaks(): void {
+    const dt = this.rapier.timestep;
+    if (!(dt > 0)) return;
+    for (const j of this.world._componentsOfType(Joint)) {
+      const st = j._state, m0 = st?.measure;
+      if (!st || !m0) continue;
+      st.measure = null;
+      const { rb, local, v0, w0 } = m0;
+      const b = rb._state?.body;
+      if (!b || !rb._state!.active) continue;
+      const mass = Math.max(rb.mass, 1e-4), inertia = mass / 6;
+      const v1 = b.linvel(), w1 = b.angvel(), g = this.rapier.gravity, gs = rb.useGravity ? rb.gravityScale : 0;
+      const lf = rb._state!.lastForce, lt = rb._state!.lastTorque;
+      const F = new Vector3(
+        (mass * (v1.x - v0.x)) / dt - mass * g.x * gs - lf[0] + mass * rb.drag * v1.x,
+        (mass * (v1.y - v0.y)) / dt - mass * g.y * gs - lf[1] + mass * rb.drag * v1.y,
+        (mass * (v1.z - v0.z)) / dt - mass * g.z * gs - lf[2] + mass * rb.drag * v1.z,
+      );
+      const T = new Vector3(
+        (inertia * (w1.x - w0.x)) / dt - lt[0] + inertia * rb.angularDrag * w1.x,
+        (inertia * (w1.y - w0.y)) / dt - lt[1] + inertia * rb.angularDrag * w1.y,
+        (inertia * (w1.z - w0.z)) / dt - lt[2] + inertia * rb.angularDrag * w1.z,
+      );
+      const com = b.translation(), cv = new Vector3(com.x, com.y, com.z);
+      // Contacts on the body's colliders push it too.
+      for (const c of this.world._componentsOfType(Collider)) {
+        const col = c._state?.body === rb ? c._state.collider : null;
+        if (!col) continue;
+        this.rapier.contactPairsWith(col, (other) => {
+          this.rapier.contactPair(col, other, (manifold, flipped) => {
+            const n = manifold.normal(), sign = flipped ? 1 : -1;
+            for (let i = 0; i < manifold.numContacts(); i++) {
+              const k = (manifold.contactImpulse(i) * sign) / dt;
+              if (!k) continue;
+              const f = new Vector3(n.x * k, n.y * k, n.z * k);
+              F.sub(f);
+              const p = i < manifold.numSolverContacts() ? manifold.solverContactPoint(i) : null;
+              if (p) T.sub(Vector3.cross(new Vector3(p.x, p.y, p.z).sub(cv), f));
+            }
+          });
+        });
+      }
+      // The joint's own force, applied at the anchor, turns the body too: what's left is the joint's torque.
+      const r = b.rotation();
+      const arm = Quat.rotate(new Quaternion(r.x, r.y, r.z, r.w), local.clone());
+      T.sub(Vector3.cross(arm, F));
+      const force = F.length, torque = T.length;
+      if ((j.breakForce > 0 && force > j.breakForce) || (j.breakTorque > 0 && torque > j.breakTorque)) this.breakJoint(j, force, torque);
+    }
+  }
+
+  private breakJoint(j: Joint, force: number, torque: number): void {
+    this.releaseJoint(j);
+    j._broken = true;
+    for (const comp of [...this.world._componentsOf(j.node.entity)]) {
+      if (!(comp instanceof GameBehavior) || !comp.isActiveAndEnabled || !comp.onJointBreak) continue;
+      try {
+        comp.onJointBreak(j, force, torque);
+      } catch (err) {
+        console.error(`[myco] ${comp.constructor.name}.onJointBreak threw:`, err);
+      }
+    }
+    GameObject.destroy(j);
   }
 
   /** A point in a node's local space, in world space. */
@@ -658,7 +749,7 @@ export class Physics3DWorld {
       joint.setLocalFrame2(a1, f1);
     }
     joint.setContactsEnabled(j.enableCollision);
-    return { joint, signature, settings: "", body, connected, ground };
+    return { joint, signature, settings: "", body, connected, ground, local1: a1, local2: a2, measure: null };
   }
 
   /** Limits, motor and spring on a live hinge or slider. */

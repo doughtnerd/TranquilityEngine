@@ -40,8 +40,16 @@ export abstract class Joint extends Component {
   @field(Vector3) connectedAnchor = new Vector3(0, 0, 0);
   /** Let the two bodies' colliders collide with each other. */
   @field(Boolean) enableCollision = false;
+  /**
+   * The force (newtons) that breaks the joint; 0, the default, never breaks it. When it breaks,
+   * `onJointBreak(joint, force, torque)` runs on the node's behaviors and the joint is destroyed.
+   */
+  @field(Number) breakForce = 0;
+  /** The torque (newton-metres) that breaks the joint; 0 never breaks it. */
+  @field(Number) breakTorque = 0;
 
   /** @internal */ _state: JointHandleState3D | null = null;
+  /** @internal Broken: never rebuilt. */ _broken = false;
 
   /** The body this joint moves: the nearest active RigidBody on this node or above it. */
   get body(): RigidBody | null {

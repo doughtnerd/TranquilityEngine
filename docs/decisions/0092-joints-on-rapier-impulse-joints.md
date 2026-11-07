@@ -15,6 +15,8 @@ ADR 0005's backend interface lists joints; neither physics world had any. Rapier
 - **Components** (public; 3D in `physics/Joint.ts`, 2D in `physics/Joint2D.ts`): `FixedJoint`, `HingeJoint`, `SliderJoint`, `BallJoint`, `RopeJoint`, `SpringJoint`, and `FixedJoint2D`, `HingeJoint2D`, `SliderJoint2D`, `RopeJoint2D`, `SpringJoint2D`. Godot-style names (hinge, slider, ball) rather than Unity's `ConfigurableJoint`/`CharacterJoint`.
 - **Common fields** (`Joint` / `Joint2D` base): `connectedBody` (a node reference; empty = the world), `anchor` (joint node's local space), `autoConfigureConnectedAnchor` (default on) and `connectedAnchor` (connected node's local space, world space when connected to the world), `enableCollision` (default off). The joint moves the RigidBody on its node or the nearest one above it (`body`); the connected node's body likewise (`connectedRigidbody`).
 - **Single-axis joints** (`AxisJoint`, `AxisJoint2D`: hinges and sliders): `axis` (3D hinges and both sliders; node local space), `useLimits` + `limits {min, max}` (degrees for hinges, units for sliders), `useMotor` + `motor {targetVelocity, force}`, `useSpring` + `spring {spring, damper, targetPosition}` (ignored while the motor is on). Positive values turn this body counterclockwise around the axis (right-hand rule) or move it along the axis, relative to the connected body.
+- **Ball joints:** `axis` (the twist axis), `useLimits` with `twistLimits {min, max}` and `swingLimit` (degrees). Rapier limits each angular axis separately, so the swing limit is four-sided (±`swingLimit` around each axis across the twist axis), not a round cone; the JS API only exposes limits on hinges and sliders, so these go through the raw joint set (`jointSetLimits` per `JointAxis`). No ball-joint motors.
+- **Breaking:** `breakForce` and `breakTorque` (0, the default, never breaks). Rapier's JS API doesn't report joint forces, so each step the backend estimates them from the dynamic body's change in momentum, less gravity, damping, forces scripts applied, and contact normal impulses on its colliders (and, for torque, less the turning effect of the joint's own force at its anchor). Past either limit the joint is removed, `onJointBreak(joint, force, torque)` runs on its node's behaviors and the component is destroyed, as in Unity.
 - **Rope and spring:** `autoConfigureDistance` (default on: the anchors' distance when the joint is made) with `maxDistance` / `restLength`; springs have `spring` and `damper`. With auto anchors their connected anchor is the connected body's origin, since a coinciding anchor would mean length 0.
 - **Rest pose:** a joint rests in the pose its bodies have when it is made: hinge angles, slider positions and limits count from there, and bodies turned relative to each other are not snapped together. In 3D each body holds the joint frame (x along the axis) in its own frame (`setLocalFrame1/2`). In 2D the hinge's starting angle offsets its limits and spring target; fixed joints store the relative angle; 2D sliders whose two bodies start at different rotations are turned to match (warned), because Rapier 2D's prismatic joint takes no frames.
 - **The world:** a joint without `connectedBody` links to a fixed body the backend makes at the body's pose (one per joint), so frames start out matching.
@@ -33,7 +35,7 @@ ADR 0005's backend interface lists joints; neither physics world had any. Rapier
 - Doors, wheels, pendulums, ropes, chains and springs in 2D and 3D, authored in the editor with node references.
 
 **Negative / costs**
-- No breakable joints (Rapier's JS API doesn't report joint forces cheaply), no ball-joint cone limits or motors, no reading the current hinge angle or slider position yet.
+- Break forces are estimates: contact friction isn't subtracted, several joints on one body each see their total, and a body whose joint is fixed while it rests on the ground shares its weight between the two in whatever way the solver chose. No ball-joint motors or round cone limits; no reading the current hinge angle or slider position yet.
 - A world-anchored joint costs one hidden fixed body.
 - Rebuilding a joint (say, after moving its anchor at runtime) resets its rest pose to the current one.
 
@@ -43,7 +45,7 @@ Nothing.
 
 ## Open questions
 
-- Breaking force/torque, ball-joint limits, `angle`/`position` readouts.
+- Hinge `angle` and slider `position` readouts; ball-joint motors.
 - Multibody joints for articulated chains.
 
 ## References
