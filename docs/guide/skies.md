@@ -11,8 +11,10 @@ Myco draws the sky and lights the scene from the World's `Environment` component
 
 ## Procedural skies
 
-Create one with **Create > Sky** in the Assets panel (pick a preset: Clear Day, Sunset, Overcast, Night or Simple
-Gradient), then double-click it to open the **Sky** panel. Every change previews live and is saved to the file.
+Create one with **New Sky** in the Assets panel's right-click menu (it starts as Clear Day; `skies/` if the
+project has that folder), then double-click it to open the **Sky** panel. **Start from a preset…** switches to Clear
+Day, Sunset, Overcast, Night or Simple Gradient. Every change previews live and is saved to the file a moment later;
+Undo and Redo (Ctrl+Z, Ctrl+Shift+Z) step through this session's edits.
 Set an Environment's `map` to the asset to use it in a scene; `samples/playground3d/scenes/skies.scene.json` is a
 ready example, with all five presets in `skies/`.
 
