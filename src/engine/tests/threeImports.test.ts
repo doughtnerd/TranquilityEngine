@@ -24,8 +24,8 @@ const imports = sources(root).flatMap((file) => {
   return [...text.matchAll(/(?:from|import)\s*\(?\s*["'](three(?:\/[^"']*)?)["']/g)].map((m) => ({ file: rel, specifier: m[1] }));
 });
 
-/** The model loader modules (ADR 0081, 0088). */
-const LOADER_FILES = ["engine/scene/models.ts", "engine/scene/gltf.ts"];
+/** The model loader modules (ADR 0081, 0088), and baked models (0090), which make three.js geometry over their arrays. */
+const LOADER_FILES = ["engine/scene/models.ts", "engine/scene/gltf.ts", "engine/scene/bakedModel.ts"];
 
 /** The libraries that went with the three.js backend (ADR 0081). */
 const REMOVED = ["postprocessing", "n8ao", "three.quarks", "@pmndrs/uikit"];
