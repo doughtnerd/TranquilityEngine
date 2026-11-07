@@ -103,7 +103,7 @@ describe("glTF models (ADR 0088)", () => {
     const { json } = triangleGltf("embedded");
     useAssets({ "models/tri.gltf": dataUrl(new TextEncoder().encode(JSON.stringify(json))) });
     expect(await modelMeshNames("models/tri.gltf")).toEqual(["Wing", "Decal"]);
-    const [wing] = await loadMeshes("asset:models/tri.gltf#Wing");
+    const [wing] = await loadMeshes("asset:models/tri.gltf#Wing#model");
     expect(wing.path).toEqual(["Root"]);
     expect(wing.surfaces.map((s) => s.name)).toEqual(["Paint", "Glass"]);
     expect(wing.data.groups).toEqual([
@@ -158,7 +158,7 @@ describe("glTF models (ADR 0088)", () => {
   it("applies the sidecar's scale and up axis", async () => {
     const { json } = triangleGltf("embedded");
     useAssets({ "models/tri.gltf": dataUrl(new TextEncoder().encode(JSON.stringify(json))), "models/tri.gltf.meta.json": { format: "myco.import@1", scale: 2, upAxis: "z" } });
-    const [wing] = await loadMeshes("asset:models/tri.gltf#Wing");
+    const [wing] = await loadMeshes("asset:models/tri.gltf#Wing#model");
     // (0, 2, 0) in the file: scale 2, then Z up turns +Y into -Z.
     expect(round(wing.data.positions.slice(0, 3))).toEqual([0, 0, -4]);
   });

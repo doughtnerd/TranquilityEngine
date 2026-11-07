@@ -33,7 +33,7 @@ import { compileShaderAsset, type ShaderAssetSources } from "../../shaderGraph/s
 import { isShaderAssetPath, parseShaderAsset } from "../../../scene/shaderAsset";
 import type { KeywordValue } from "../../../scene/shaderKeywords";
 import { createGraphMaterial, type GraphShared } from "../graphMaterial";
-import { applyBuiltinSettings, pbr, tiledTexture } from "../materials";
+import { applyBuiltinSettings, builtinTextureSlots, pbr, tiledTexture } from "../materials";
 import { studioHdrUrl } from "../studioEnvironment";
 
 /** What a thumbnail's lights are (the editor's default scene: soft ambient, a sun, the studio room). */
@@ -321,8 +321,7 @@ export async function buildPreviewMaterial(scene: Scene, source: MaterialSource,
       console.warn(`[myco] preview: couldn't load "${image}":`, (err as Error).message);
     }
   };
-  await load(s.texture, (t) => (m.albedoTexture = t));
-  if (s.shader !== "unlit") await load(s.normalMap, (t) => (m.bumpTexture = t));
+  await Promise.all(builtinTextureSlots(m, s).map((slot) => load(slot.image, slot.apply)));
   return {
     material: m,
     dispose: () => {

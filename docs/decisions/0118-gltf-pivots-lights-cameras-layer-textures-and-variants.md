@@ -1,10 +1,10 @@
-# 0118. glTF imports keep node pivots (opt-in), lights and cameras as engine nodes, the physical layers' textures and anisotropy, and material variants picked on the MeshRenderer
+# 0118. Model parts keep their node pivots, glTF lights and cameras become engine nodes, material assets and physical graphs gain every glTF material feature, and material variants are picked on the MeshRenderer
 
 - **Status:** Proposed
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0010, 0043, 0044, 0052, 0081, 0088, 0089, 0090
+- **Related:** 0010, 0013, 0043, 0044, 0047, 0052, 0081, 0088, 0089, 0090
 
 ## Context
 
@@ -16,15 +16,19 @@
 - **`KHR_materials_anisotropy`** is not read; `GLTFLoader` reads strength, rotation and texture.
 - **`KHR_materials_variants`** (one file, several looks: a shoe in three colours) is listed as supported but only the default materials load; `GLTFLoader` doesn't implement it.
 
+- **Material assets can't hold what a glTF material has.** Extracting a model's materials (0089) keeps the base texture, normal map and the layers' strengths, but drops the emission, metallic-roughness and occlusion maps, alpha cut-out, HDR emission and every layer texture: the extracted material looks different, with only a status line saying so. Godot avoids this by importing into its own standard material (whatever it imports, extraction keeps); Unity picks a shader per material that can hold it. Physical shader graphs (0052) have outputs for clearcoat, sheen, transmission, IOR, iridescence and specular intensity, but none for the clear coat's normal, specular colour, iridescence thickness or anisotropy.
+
 Animation and skinning stay out (the user deferred everything that needs an animation system).
 
 ## Decision
 
-**Pivots are an import setting: sidecar `pivots: "model" | "node"`, default `"model"`.** Existing scenes that reference `model.glb#Part` from nodes at the origin keep working; the Asset Inspector's model settings show it as **Pivots** (Model origin / Node). It applies to every model format (`bakeMeshes` is shared; OBJ has no nodes, so it changes nothing there).
+**Parts keep their node pivots by default: sidecar `pivots: "node" | "model"`, default `"node"`**, as in Unity and Godot. The Asset Inspector's model settings show it as **Pivots** (Node / Model origin). It applies to every model format (`bakeMeshes` is shared; OBJ has no node transforms, so it changes nothing there).
 
 - Geometry stays baked in model space in both modes, so a whole-model reference, thumbnails and baked models are unchanged. Each `ModelMesh` records `pose`, its node's model-space pose (position, quaternion, scale, with the sidecar's scale and up axis applied), and `ModelData.nodes` records the group nodes on mesh paths, the lights and the cameras with their poses.
-- With `pivots: "node"`, a reference to one mesh (`asset:car.glb#Wheel`) resolves to that mesh in its node's space: a copy of its vertices through the inverse of its pose, made once per mesh on first use (`models.ts` `selectMeshes`). Rendering, physics, navigation and editor bounds all read meshes through it, so they agree. A whole-model reference still draws model space.
-- The editor's drop (`modelNodeEntries`) gives each node its local pose (its pose relative to the nearest node kept above it; the levels every mesh shares are still left out, their transforms folded into the nodes below). In `"model"` mode meshes and groups keep identity transforms as before.
+- With `pivots: "node"` (the default), a reference to one mesh (`asset:car.glb#Wheel`) resolves to that mesh in its node's space: a copy of its vertices through the inverse of its pose, made once per mesh on first use (`models.ts` `selectMeshes`). Rendering, physics, navigation and editor bounds all read meshes through it, so they agree. A whole-model reference still draws model space.
+- **`#model` pins one reference to model space**: `asset:car.glb#Wheel#model` is the mesh as `"model"` mode gives it, whatever the sidecar says (`#` can't appear in mesh names, so the suffix is unambiguous).
+- The editor's drop (`modelNodeEntries`) gives each node its local pose (its pose relative to the nearest node kept above it; the levels every mesh shares are still left out, their transforms folded into the nodes below). In `"model"` mode meshes and groups keep identity transforms, as before this record.
+- **Scene format 2, with a migration from 1** (`scene/pivotMigration.ts`, registered in `SceneLoader`): every part reference a version 1 scene or prefab makes from a MeshRenderer or MeshCollider (component data or prefab override) to an FBX or glTF model is pinned with `#model`, unless that model's sidecar already said `pivots: "node"`. Old scenes draw and collide exactly as before, everywhere scene files are read (editor, games, dedicated server, `npm run rewrite`), with no model loaded. OBJ references are left alone. The bundled samples are rewritten to version 2 (only `robot.fbx#Body` and `#Head` in the playground needed pinning). Scripts that set `mesh = "asset:x.fbx#Part"` at runtime get node space now; that is the one behaviour change the migration can't reach.
 - Poses are decomposed TRS: a node tree with non-uniform scale under a rotation loses its shear (as in any TRS engine); the node-space copy is made from the decomposed pose, so the mesh still lands where the file puts it.
 
 **Lights and cameras become nodes when a model is dropped.**
@@ -35,6 +39,14 @@ Animation and skinning stay out (the user deferred everything that needs an anim
 
 **The physical layers' textures and anisotropy are read into the model's own surfaces.** `SurfaceInfo.physical` gains attenuation colour and distance, the iridescence thickness range and anisotropy (strength, rotation in radians); `SurfaceInfo.layerMaps` holds the layer textures (each a `TextureInfo`, UV set and `KHR_texture_transform` handled as the base maps are). `render/babylon/materials.ts` maps them as Babylon's own glTF loader does: `clearCoat.texture` / `textureRoughness` / `bumpTexture`, `sheen.texture` / `textureRoughness`, `subSurface.refractionIntensityTexture` and `thicknessTexture` with glTF-style channels and `tintColor` / `tintColorAtDistance`, `metallicReflectanceTexture` (specular, alpha) and `reflectanceTexture` (specular colour), `iridescence.texture` / `thicknessTexture` with the thickness range, `anisotropy.intensity` / `angle` / `texture`. Colour maps (sheen colour, specular colour) are sRGB, the rest linear. Baked models (0090) carry them. `KHR_materials_anisotropy` joins the supported extensions.
 
+**Material assets hold everything a glTF material has** (`scene/material.ts`), so extraction (0089) is lossless but for vertex colours (a mesh attribute, still drawn) and textures on the second UV set (material textures read the first; listed in the status line):
+
+- Built-in lit (and physical) materials gain `normalScale`, `emissionMap`, `emissionIntensity` (HDR emission: glTF's emissive strength), `metalRoughMap` (glTF's layout: roughness in G, metalness in B), `occlusionMap` and `occlusionStrength`, and `alphaMode` (`"auto"`, the old rule of blending when the colour's alpha is below 1, the default; `"opaque"`, `"blend"`, `"mask"` with `alphaCutoff`).
+- Physical materials gain a texture per layer, with glTF's channels: `clearcoatMap`, `clearcoatRoughnessMap`, `clearcoatNormalMap` (+ `clearcoatNormalScale`), `sheenColorMap`, `sheenRoughnessMap`, `transmissionMap`, `thicknessMap`, `iridescenceMap`, `iridescenceThicknessMap`, `anisotropyMap`, `specularIntensityMap`, `specularColorMap`; and `attenuationColor`/`attenuationDistance` (volume tint) and `iridescenceThicknessMin`/`Max`.
+- One table, `MATERIAL_MAPS`, drives parsing, saving, preloading, the renderer (`builtinTextureSlots`, `setMaterialMap` in `render/babylon/materials.ts`, shared with glTF surfaces so both put a texture in the same Babylon slot), the previews and the Material Inspector (rows under each layer's heading; scales only when their map is set). All new keys are optional, so `myco.material@1` files are unchanged and old ones read as before.
+
+**Physical shader graphs gain the layers' remaining inputs** (`render/shaderGraph/nodes.ts`, `compile.ts`, `render/babylon/graphMaterial.ts`): **Clearcoat Normal (Tangent)** (handed to Babylon's clear coat block in place of the geometric normal, through the same derivative tangent frame as Normal), **Specular Color** (the reflectance factors' tint), **Iridescence Thickness (nm)** (both ends of Babylon's thickness range), **Anisotropy** and **Anisotropy Direction** (tangent-space, `(1, 0)` by default; the material's anisotropy is switched on). Each compiles in only when connected or away from its default, as the other physical inputs do; the injection points are checked against Babylon's own PBR shader in tests. A graph samples its own textures, so these inputs are what layer maps are to a material asset.
+
 **Material variants are picked on the MeshRenderer.**
 
 - The parse reads `KHR_materials_variants`: the variant names (`ModelData.variants`) and, per mesh, the surfaces each variant puts on its slots (`ModelMesh.variantSurfaces[name]`, a full surface list where unmapped slots keep the default). Variant materials go through the same conversion as default ones (`GLTFLoader`'s `getDependency("material", i)`).
@@ -44,11 +56,13 @@ Animation and skinning stay out (the user deferred everything that needs an anim
 
 ## Alternatives considered
 
-- **Node mode as the default.** Real pivots for every new drop, but every saved scene referencing `#Part` from origin nodes would draw parts in the wrong place until re-dropped. The user chose the setting with the old default.
+- **Model space as the default** (the first draft of this record). No migration, but every project keeps parts that turn about the model's origin unless someone flips a setting per model, unlike Unity and Godot. The user chose node pivots plus a migration.
+- **Migrating old scenes by giving part nodes their file poses** (rewrite each part node's Transform so it sits at its pivot). Gives old scenes real pivots too, but needs every model loaded when a scene file is read, can't fix prefab overrides that set a part's position alone, and changes transforms users authored. Pinning with `#model` is exact, synchronous and touches only the mesh reference; re-dropping a model gives real pivots.
+- **A project-level legacy setting instead of a format bump.** No file changes, but every old project silently keeps the old default and a project-wide switch would break its scenes.
+- **A warning at extraction instead of material asset fields.** Cheaper, but extraction would still lose the look; Godot's single standard material shows the lossless route.
 - **Baking meshes in node space and giving whole-model references per-mesh transforms.** One geometry per mesh, but the renderer, physics, navigation, thumbnails and baked models would all need the per-mesh transform. The lazy node-space copy is confined to `selectMeshes`; it costs a second copy of the vertices only for meshes referenced one by one in node mode.
 - **Importing cameras enabled** (or with a high depth). The first dropped camera would take over the game view; the user chose disabled plus a message.
 - **A variant replacing every slot**, material assets included. It would make a renderer's assigned material assets silently stop applying; the user chose slot assets win.
-- **Layer textures on material assets too** (so extracted glTF materials keep their maps). A larger change to the material format, editor and shader graph inputs; left open for discussion (below).
 - **Babylon's glTF loader for these extensions.** Rejected in 0088 (new dependency, Babylon scene per load, headless needs); nothing here changes that.
 
 ## Consequences
@@ -58,20 +72,26 @@ Animation and skinning stay out (the user deferred everything that needs an anim
 - Scenes authored in Blender keep their lights and cameras, ready to use, without a dropped model stealing the view.
 - glTF's physical materials look as authored: textured clearcoat, sheen, transmission, specular, iridescence and brushed-metal anisotropy.
 - One file can ship several looks, switched from scripts or the Inspector, without extra assets.
+- Extracted materials look like the model's own; material assets and physical graphs can author every glTF material feature by hand.
+- Old scenes keep working unchanged through the migration, in games as well as the editor.
 
 **Negative / costs**
 - `ModelData` grows (poses, nodes, variants) and the baked model format moves to version 2 (older baked files fall back to loading the source model, as for changed import settings).
+- Scene format 2: every saved scene and prefab is rewritten with the new version line when next saved (or by `npm run rewrite`); part references in old files gain a visible `#model` suffix, which users may remove to opt into pivots after re-placing the part.
+- Scripts that build part references at runtime change behaviour (node space) without a migration.
+- The material format has about 25 more optional keys and the Material Inspector more rows; the World renderer decodes data maps through the same texture cache as colour maps (Babylon only converts colour slots, as with the normal map before).
 - In node mode, each mesh referenced on its own holds a second copy of its vertices.
 - Variant surfaces each make their own Babylon material when first drawn; a variant switch can compile new shader variants mid-game (warm-up, 0120, doesn't cover variants).
 - How glTF materials look on screen is still checked by eye, not by a test.
 
 ## Deprecates
 
-Nothing. Answers 0088's open questions "node-space meshes with real pivots, as a sidecar option" and "importing glTF lights and cameras as engine nodes", and its "not read" list except `KHR_materials_dispersion`.
+Scene format 1 (migrated on read). Answers 0088's open questions "node-space meshes with real pivots, as a sidecar option" and "importing glTF lights and cameras as engine nodes", and its "not read" list except `KHR_materials_dispersion`.
 
 ## Open questions
 
-- **Layer textures on material assets** (raised with the user, to discuss): extracting a glTF material to a material asset (0089) keeps the layer factors but drops their maps, because the 0052 physical shader takes only a base texture and a normal map. Adding the maps means new fields, Inspector rows and shader graph physical inputs.
+- A per-texture UV set on material assets (occlusion maps often use glTF's second UV set).
+- An editor command that converts a pinned (`#model`) part to node pivots by giving its node the file pose.
 - `KHR_materials_dispersion` (Babylon has `subSurface.dispersion` in newer versions).
 - Warming up variant materials (0120) before a switch.
 - Light intensity units if the engine's Light ever stops using Babylon's glTF falloff.
@@ -79,5 +99,6 @@ Nothing. Answers 0088's open questions "node-space meshes with real pivots, as a
 ## References
 
 - Khronos glTF extensions: `KHR_lights_punctual`, `KHR_materials_anisotropy`, `KHR_materials_variants`, the physical layer extensions.
-- `src/engine/scene/gltf.ts`, `src/engine/scene/models.ts`, `src/engine/scene/bakedModel.ts`, `src/engine/render/babylon/materials.ts`, `src/engine/render/components.ts` (`MeshRenderer.variant`), `src/editor/assetBrowser.ts` (`modelNodeEntries`).
+- `src/engine/scene/gltf.ts`, `src/engine/scene/models.ts`, `src/engine/scene/bakedModel.ts`, `src/engine/scene/pivotMigration.ts`, `src/engine/scene/material.ts` (`MATERIAL_MAPS`), `src/engine/render/babylon/materials.ts`, `src/engine/render/babylon/graphMaterial.ts`, `src/engine/render/shaderGraph/nodes.ts`, `src/engine/render/components.ts` (`MeshRenderer.variant`), `src/editor/assetBrowser.ts` (`modelNodeEntries`), `src/editor/materialExtract.ts`, `src/editor/ui/MaterialInspector.tsx`.
+- Godot's `StandardMaterial3D` and glTF import; Unity's glTFast (material per extension, variants control).
 - Babylon.js glTF loader extensions (`KHR_materials_*`), for the channel conventions.

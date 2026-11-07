@@ -87,7 +87,7 @@ import { BabylonLighting } from "./lighting";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import { BabylonTilemaps } from "./tilemaps";
 import { Tilemap } from "../../tilemap/Tilemap";
-import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelBaseMaterial, modelMaterial, pbr, tiledTexture } from "./materials";
+import { applyBuiltinOverrides, applyBuiltinSettings, builtinTextureSlots, linear, meshOf, modelBaseMaterial, modelMaterial, pbr, tiledTexture } from "./materials";
 import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
 import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
 import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
@@ -1890,8 +1890,7 @@ export class BabylonRenderer {
         })
         .catch((err) => console.error(`[myco] failed to load texture "${image}" for ${path}:`, err));
     };
-    load(settings.texture, (tex) => (m.albedoTexture = tex));
-    if (settings.shader !== "unlit") load(settings.normalMap, (tex) => (m.bumpTexture = tex));
+    for (const slot of builtinTextureSlots(m, settings)) load(slot.image, slot.apply);
     return m;
   }
 

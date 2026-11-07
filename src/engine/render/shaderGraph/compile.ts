@@ -91,7 +91,21 @@ export interface CompiledShaderGraph {
 }
 
 /** The physical target's output inputs (ADR 0052). */
-export type PhysicalInput = "clearcoat" | "clearcoatRoughness" | "sheenColor" | "sheenRoughness" | "transmission" | "thickness" | "ior" | "iridescence" | "specularIntensity";
+export type PhysicalInput =
+  | "clearcoat"
+  | "clearcoatRoughness"
+  | "clearcoatNormal"
+  | "sheenColor"
+  | "sheenRoughness"
+  | "transmission"
+  | "thickness"
+  | "ior"
+  | "iridescence"
+  | "iridescenceThickness"
+  | "anisotropy"
+  | "anisotropyDirection"
+  | "specularIntensity"
+  | "specularColor";
 
 const BUILTIN_TYPES: Record<Builtin, ValueType> = {
   uv: "vec2",
@@ -615,6 +629,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
       if (used("clearcoat")) {
         add("clearcoat");
         add("clearcoatRoughness");
+        if (connected("clearcoatNormal")) add("clearcoatNormal"); // ADR 0118
       }
       if (used("sheenColor")) {
         add("sheenColor");
@@ -624,10 +639,17 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
         add("transmission");
         add("thickness");
       }
-      for (const id of ["iridescence", "ior", "specularIntensity"] as const) if (used(id)) add(id);
+      for (const id of ["iridescence", "ior", "specularIntensity", "specularColor"] as const) if (used(id)) add(id);
+      // ADR 0118: the iridescence film's thickness (with iridescence), anisotropy and its direction.
+      if (physical.iridescence && used("iridescenceThickness")) add("iridescenceThickness");
+      if (used("anisotropy")) {
+        add("anisotropy");
+        add("anisotropyDirection");
+      }
     }
   }
-  if (normal) fragment.helper("tangentFrame");
+  const tangentFrame = normal !== null || !!physical?.clearcoatNormal;
+  if (tangentFrame) fragment.helper("tangentFrame");
 
   // Types for every node, reached or not (the editor colours all wires).
   const portTypes: Record<string, ValueType> = {};
@@ -640,7 +662,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
 
   const helperText = (s: Stage) => [...(Object.keys(HELPERS_WGSL) as HelperName[]).filter((h) => s.helpers.has(h)).map((h) => HELPERS_WGSL[h]), ...s.functions.values()];
   // Uniforms are the plugin's (read as `uniforms.<name>`); textures are declared here: all in the fragment stage, and those a vertex node samples in the vertex stage too.
-  const usedV = usedVaryings([...fragment.lines, ...fragment.functions.values()].join("\n"), normal !== null);
+  const usedV = usedVaryings([...fragment.lines, ...fragment.functions.values()].join("\n"), tangentFrame);
   const textureLines = (names: string[]) => names.flatMap(textureDeclarationsWgsl);
   const keywordLines = keywords.length ? [keywordConstantsWgsl(keywords)] : [];
   const vertexDeclarations = ["// Myco shader graph", ...keywordLines, ...textureLines(uniforms.filter((u) => u.type === "sampler2D" && vertex.textures.has(u.name)).map((u) => u.name)), ...varyingDeclarationsWgsl(usedV), ...helperText(vertex)].join("\n");

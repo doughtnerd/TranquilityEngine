@@ -1,5 +1,5 @@
 {
-  "format": "myco.scene@1",
+  "format": "myco.scene@2",
   "nodes": [
     {
       "id": "player",

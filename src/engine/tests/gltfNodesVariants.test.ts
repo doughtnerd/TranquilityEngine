@@ -9,6 +9,8 @@ import { Assets, MeshRenderer } from "../index";
 import { decodeBakedModel, encodeBakedModel } from "../scene/bakedModel";
 import { engineCamera, engineLight } from "../scene/gltf";
 import { parseImportSettings } from "../scene/importSettings";
+import { pinPartToModelSpace } from "../scene/pivotMigration";
+import { migrateSceneFile } from "../scene/SceneLoader";
 import { clearModelCache, drawnVariant, loadMeshes, loadModel, materialSlots } from "../scene/models";
 import { modelBaseMaterial, surfaceMaterial } from "../render/babylon/materials";
 import { carGltf, dataUrl } from "./fixtures/gltf/carGltf";
@@ -37,23 +39,54 @@ describe("glTF node pivots (ADR 0118)", () => {
     expect(data.nodes?.find((n) => n.name === "Car")).toMatchObject({ path: [], pose: { position: [0, 0, 0] } });
   });
 
-  it("keeps one mesh in model space by default, and in its node's space with pivots: node", async () => {
+  it("puts one mesh in its node's space by default, in model space with pivots: model or #model", async () => {
     useCar();
-    const [model] = await loadMeshes("asset:models/car.gltf#Wheel");
-    expect(round(model.data.positions)).toEqual([1, 0.5, 0, 1, 0.5, -1, 1, 1.5, 0]);
-    useCar({ pivots: "node" });
     const [node] = await loadMeshes("asset:models/car.gltf#Wheel");
     expect(round(node.data.positions)).toEqual([0, 0, 0, 1, 0, 0, 0, 1, 0]);
     expect(round(node.data.normals!.slice(0, 3))).toEqual([0, 0, 1]);
+    const [pinned] = await loadMeshes("asset:models/car.gltf#Wheel#model");
+    expect(round(pinned.data.positions)).toEqual([1, 0.5, 0, 1, 0.5, -1, 1, 1.5, 0]);
     // A whole-model reference stays in model space.
     const whole = await loadMeshes("asset:models/car.gltf");
     expect(round(whole.find((m) => m.name === "Wheel")!.data.positions.slice(0, 3))).toEqual([1, 0.5, 0]);
+    useCar({ pivots: "model" });
+    const [model] = await loadMeshes("asset:models/car.gltf#Wheel");
+    expect(round(model.data.positions)).toEqual([1, 0.5, 0, 1, 0.5, -1, 1, 1.5, 0]);
   });
 
   it("reads and writes the pivots import setting", () => {
-    expect(parseImportSettings({ format: "myco.import@1" }).settings.pivots).toBe("model");
-    expect(parseImportSettings({ format: "myco.import@1", pivots: "node" }).settings.pivots).toBe("node");
+    expect(parseImportSettings({ format: "myco.import@1" }).settings.pivots).toBe("node");
+    expect(parseImportSettings({ format: "myco.import@1", pivots: "model" }).settings.pivots).toBe("model");
     expect(parseImportSettings({ format: "myco.import@1", pivots: "wheel" }, "a.glb.meta.json").problems).toEqual(['a.glb.meta.json: "pivots" should be "model" or "node"; using the default.']);
+  });
+});
+
+describe("scene format 1 → 2: part references keep model space (ADR 0118)", () => {
+  it("pins FBX and glTF part references of version 1 files to model space, on nodes and in overrides", () => {
+    useCar();
+    const file = migrateSceneFile({
+      format: "myco.scene@1",
+      nodes: [
+        { id: "a", components: [{ type: "engine.MeshRenderer", data: { mesh: "asset:models/car.gltf#Wheel" } }, { type: "engine.MeshCollider", data: { mesh: "asset:models/car.gltf#Body" } }] },
+        { id: "b", components: [{ type: "engine.MeshRenderer", data: { mesh: "asset:models/car.gltf" } }] },
+        { id: "c", components: [{ type: "engine.MeshRenderer", data: { mesh: "asset:models/crate.obj#Box" } }] },
+        { id: "d", prefab: "prefabs/p.prefab.json", overrides: [{ component: "engine.MeshRenderer", field: "mesh", value: "asset:models/car.glb#Door" }] },
+      ],
+    });
+    expect(file.format).toBe("myco.scene@2");
+    const mesh = (i: number, c = 0) => file.nodes[i].components![c].data!.mesh;
+    expect(mesh(0)).toBe("asset:models/car.gltf#Wheel#model");
+    expect(mesh(0, 1)).toBe("asset:models/car.gltf#Body#model");
+    expect(mesh(1)).toBe("asset:models/car.gltf"); // a whole model: model space anyway
+    expect(mesh(2)).toBe("asset:models/crate.obj#Box"); // OBJ parts are the same in both spaces
+    expect(file.nodes[3].overrides![0].value).toBe("asset:models/car.glb#Door#model");
+    // Version 2 files are left alone.
+    expect(migrateSceneFile({ format: "myco.scene@2", nodes: [{ id: "a", components: [{ type: "engine.MeshRenderer", data: { mesh: "asset:models/car.gltf#Wheel" } }] }] }).nodes[0].components![0].data!.mesh).toBe("asset:models/car.gltf#Wheel");
+  });
+
+  it("leaves models that opted into node pivots under version 1", () => {
+    useCar({ pivots: "node" });
+    expect(pinPartToModelSpace("asset:models/car.gltf#Wheel")).toBe("asset:models/car.gltf#Wheel");
   });
 });
 

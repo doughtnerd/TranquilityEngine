@@ -64,7 +64,7 @@ describe("baked models (ADR 0090)", () => {
     expect((await loadMeshes("asset:models/lamp.glb")).map((m) => m.name)).toEqual(["Base", "Pole", "Bulb", "Shade"]);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     use({ "models/lamp.glb": dataUrl(sample("models/lamp.glb")), [`models/lamp.glb${BAKED_SUFFIX}`]: dataUrl(bytes), "models/lamp.glb.meta.json": { format: "myco.import@1", scale: 2 } });
-    const [base] = await loadMeshes("asset:models/lamp.glb#Base");
+    const [base] = await loadMeshes("asset:models/lamp.glb#Base#model");
     expect(Math.max(...Array.from(base.data.positions).filter((_, i) => i % 3 === 1))).toBeCloseTo(0.6); // 0.3 × 2: loaded from the .glb with the new scale
     expect(warn.mock.calls.flat().join("\n")).toMatch(/baked with other import settings/);
   });

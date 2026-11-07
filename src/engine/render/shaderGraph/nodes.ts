@@ -291,13 +291,18 @@ export const OUTPUT_INPUTS: readonly PortDef[] = [
   vec("vec3", "normal", "Normal (Tangent)", [0, 0, 1], { litOnly: true, optional: true }),
   { ...float("clearcoat", "Clearcoat", 0), physicalOnly: true },
   { ...float("clearcoatRoughness", "Clearcoat Roughness", 0), physicalOnly: true },
+  vec("vec3", "clearcoatNormal", "Clearcoat Normal (Tangent)", [0, 0, 1], { physicalOnly: true, optional: true }),
   vec("vec3", "sheenColor", "Sheen Color", [0, 0, 0], { color: true, physicalOnly: true }),
   { ...float("sheenRoughness", "Sheen Roughness", 1), physicalOnly: true },
   { ...float("transmission", "Transmission", 0), physicalOnly: true },
   { ...float("thickness", "Thickness", 0), physicalOnly: true },
   { ...float("ior", "IOR", 1.5), physicalOnly: true },
   { ...float("iridescence", "Iridescence", 0), physicalOnly: true },
+  { ...float("iridescenceThickness", "Iridescence Thickness (nm)", 400), physicalOnly: true },
+  { ...float("anisotropy", "Anisotropy", 0), physicalOnly: true },
+  vec("vec2", "anisotropyDirection", "Anisotropy Direction", [1, 0], { physicalOnly: true }),
   { ...float("specularIntensity", "Specular Intensity", 1), physicalOnly: true },
+  vec("vec3", "specularColor", "Specular Color", [1, 1, 1], { color: true, physicalOnly: true }),
   { ...float("alphaClip", "Alpha Clip", 0), optional: true },
 ];
 

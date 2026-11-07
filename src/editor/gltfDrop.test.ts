@@ -36,9 +36,9 @@ afterEach(() => {
 });
 
 describe("dropping a glTF with lights, cameras and pivots (ADR 0118)", () => {
-  it("adds lights and a turned-off camera at their poses, with parts at the origin by default", async () => {
+  it("adds lights and a turned-off camera at their poses, and parts at the origin with pivots: model", async () => {
     const before = messageLog.value.length;
-    const { scene, root, child, component } = await dropCar();
+    const { scene, root, child, component } = await dropCar({ pivots: "model" });
     // "Car", shared by every node, is left out.
     expect(scene.doc.children(root).map((id) => scene.doc.node(id).name)).toEqual(["Body", "Wheel", "Lamp", "Spot", "Cam"]);
     expect(component("Wheel", "engine.Transform")!.data).toEqual({});
@@ -53,8 +53,8 @@ describe("dropping a glTF with lights, cameras and pivots (ADR 0118)", () => {
     expect(messageLog.value.slice(before).map((m) => m.text).join("\n")).toMatch(/models\/car\.gltf: its camera was added with the Camera component turned off/);
   });
 
-  it("gives every node its own pose from the file with pivots: node", async () => {
-    const { component } = await dropCar({ pivots: "node" });
+  it("gives every node its own pose from the file by default (node pivots)", async () => {
+    const { component } = await dropCar();
     expect(component("Wheel", "engine.Transform")!.data).toEqual({ position: [1, 0.5, 0], rotation: [0, 90, 0] });
     expect(component("Body", "engine.Transform")!.data).toEqual({ position: [0, 1, 0] });
   });

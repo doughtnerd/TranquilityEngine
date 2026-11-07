@@ -196,7 +196,7 @@ export function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [
   }
   const f = c.fragment;
   const code: { [point: string]: string } = {
-    CUSTOM_FRAGMENT_DEFINITIONS: `${f.declarations}\n${f.normal ? TANGENT_FRAME : ""}`,
+    CUSTOM_FRAGMENT_DEFINITIONS: `${f.declarations}\n${f.normal || f.physical?.clearcoatNormal ? TANGENT_FRAME : ""}`,
     CUSTOM_FRAGMENT_MAIN_BEGIN: `${usesColor(f.body) ? FRAGMENT_COLOR : ""}${f.body}`,
     CUSTOM_FRAGMENT_UPDATE_ALPHA: [`surfaceAlbedo = ${f.baseColor};`, `alpha = ${f.alpha};`, f.alphaClip ? `if (alpha < ${f.alphaClip}) { discard; }` : ""].join("\n"),
   };
@@ -228,6 +228,8 @@ export function physicalCustomCode(p: Partial<Record<PhysicalInput, string>>): {
   const code: { [point: string]: string } = {};
   // Clear coat: (intensity, roughness); the iridescence block reads it too.
   if (p.clearcoat) code["!uniforms\\.vClearCoatParams\\b"] = `vec2f(${p.clearcoat}, ${p.clearcoatRoughness ?? "0.0"})`;
+  // The clear coat's own normal (ADR 0118): the block starts from the normal it's handed (no clear coat bump map on graphs).
+  if (p.clearcoatNormal) code[CLEARCOAT_NORMAL_ANCHOR] = `clearcoatOut = clearcoatBlock(fragmentInputs.vPositionW, normalize(mycoBabylonTangentFrame(geometricNormalW, fragmentInputs.vPositionW, fragmentInputs.vMycoUv) * (${p.clearcoatNormal}))`;
   // Sheen: (linear colour, intensity) and its roughness (SHEEN_ROUGHNESS: the material's roughness is set).
   if (p.sheenColor) {
     code["!uniforms\\.vSheenColor\\b"] = `vec4f(${p.sheenColor}, 1.0)`;
@@ -242,11 +244,21 @@ export function physicalCustomCode(p: Partial<Record<PhysicalInput, string>>): {
   // The refraction's IOR (y holds 1 / IOR); the surface's F0 is set at the reflectivity block.
   if (p.ior) code["!uniforms\\.vRefractionInfos\\b"] = `vec4f(uniforms.vRefractionInfos.x, 1.0 / ${p.ior}, uniforms.vRefractionInfos.zw)`;
   // Iridescence: (intensity, IOR, minimum and maximum thickness); the graph sets the intensity.
-  if (p.iridescence) code["!uniforms\\.vIridescenceParams\\b"] = `vec4f(${p.iridescence}, uniforms.vIridescenceParams.yzw)`;
-  // Specular intensity is the metallic workflow's F0 factor (alpha of the reflectance factors).
-  if (p.specularIntensity) code[SPECULAR_ANCHOR] = `var metallicReflectanceFactors: vec4f = vec4f(uniforms.vMetallicReflectanceFactors.rgb, ${p.specularIntensity});`;
+  // The film's thickness (ADR 0118) as both ends of the range: with no thickness map Babylon uses the maximum.
+  if (p.iridescence) {
+    const t = p.iridescenceThickness;
+    code["!uniforms\\.vIridescenceParams\\b"] = t ? `vec4f(${p.iridescence}, uniforms.vIridescenceParams.y, ${t}, ${t})` : `vec4f(${p.iridescence}, uniforms.vIridescenceParams.yzw)`;
+  }
+  // Anisotropy (ADR 0118): (direction in tangent space, strength).
+  if (p.anisotropy) code["!uniforms\\.vAnisotropy\\b"] = `vec3f(${p.anisotropyDirection ?? "vec2f(1.0, 0.0)"}, ${p.anisotropy})`;
+  // Specular colour and intensity are the metallic workflow's reflectance factors (F0 tint, and its factor in alpha).
+  if (p.specularIntensity || p.specularColor)
+    code[SPECULAR_ANCHOR] = `var metallicReflectanceFactors: vec4f = vec4f(${p.specularColor ?? "uniforms.vMetallicReflectanceFactors.rgb"}, ${p.specularIntensity ?? "uniforms.vMetallicReflectanceFactors.a"});`;
   return code;
 }
+
+/** Where Babylon's PBR fragment shader calls the clear coat block with the geometric normal (ADR 0118: a graph's clear coat normal replaces it). */
+export const CLEARCOAT_NORMAL_ANCHOR = "!clearcoatOut\\s*=\\s*clearcoatBlock\\(\\s*fragmentInputs\\.vPositionW\\s*,\\s*geometricNormalW";
 
 /** Babylon's reflectance factors (metallic workflow), where a physical graph's specular intensity goes. */
 export const SPECULAR_ANCHOR = "!var\\s+metallicReflectanceFactors\\s*:\\s*vec4f\\s*=\\s*uniforms\\.vMetallicReflectanceFactors\\s*;";
@@ -543,6 +555,11 @@ export function enablePhysicalLayers(material: PBRMaterial, p: Partial<Record<Ph
   }
   material.iridescence.isEnabled = !!p.iridescence;
   if (p.iridescence) material.iridescence.intensity = 1;
+  material.anisotropy.isEnabled = !!p.anisotropy;
+  if (p.anisotropy) {
+    material.anisotropy.intensity = 1;
+    material.anisotropy.legacy = false;
+  }
 }
 
 /**

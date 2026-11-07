@@ -541,16 +541,22 @@ export async function loadMeshes(ref: string): Promise<readonly ModelMesh[]> {
   return selectMeshes(await loadModel(path), path, slice);
 }
 
-function selectMeshes(data: ModelData, path: string, slice: string | null): readonly ModelMesh[] {
-  if (slice === null) return data.meshes;
+function selectMeshes(data: ModelData, path: string, ref: string | null): readonly ModelMesh[] {
+  if (ref === null) return data.meshes;
+  const modelSpace = ref.endsWith(MODEL_SPACE_SUFFIX);
+  const slice = modelSpace ? ref.slice(0, -MODEL_SPACE_SUFFIX.length) : ref;
   const mesh = data.meshes.find((m) => m.name === slice);
   if (!mesh) {
     warnOnce(`${path} has no mesh named "${slice}".`);
     return [];
   }
-  // ADR 0118: with node pivots, one mesh on its own is in its node's space (a whole model stays in model space).
-  return [Assets.importSettings(path).pivots === "node" ? nodeSpaceMesh(mesh) : mesh];
+  // ADR 0118: with node pivots, one mesh on its own is in its node's space (a whole model stays in model
+  // space); `#Part#model` (what scene format 1 files migrate to) pins it to model space.
+  return [!modelSpace && Assets.importSettings(path).pivots === "node" ? nodeSpaceMesh(mesh) : mesh];
 }
+
+/** @internal The suffix pinning one mesh of a model to model space (`asset:car.glb#Wheel#model`, ADR 0118). */
+export const MODEL_SPACE_SUFFIX = "#model";
 
 const nodeSpace = new WeakMap<ModelMesh, ModelMesh>();
 

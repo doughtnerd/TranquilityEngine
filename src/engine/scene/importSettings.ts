@@ -25,7 +25,7 @@
  *   "scale": 0.01,                // models: multiplies the model's size (default 1)
  *   "upAxis": "z",                // models: the axis that is up in the file, "y" (default) or "z" (ADR 0044)
  *   "normals": "calculate",       // models: "import" (default; calculated when the file has none) or "calculate"
- *   "pivots": "node",             // models: parts turn about the "model" origin (default) or their own "node" (ADR 0118)
+ *   "pivots": "model",            // models: parts turn about their own "node" (default) or the "model" origin (ADR 0118)
  *   "materials": {                // models: a material asset for each of the model's own materials, by name (ADR 0089)
  *     "Paint": "asset:materials/car-paint.material.json"
  *   }
@@ -118,7 +118,7 @@ export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<I
   scale: 1,
   upAxis: "y",
   normals: "import",
-  pivots: "model",
+  pivots: "node",
   materials: Object.freeze({}) as Record<string, string>,
 });
 
