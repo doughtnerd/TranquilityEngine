@@ -118,20 +118,20 @@ export async function extractModelMaterials(project: EditorProject, modelPath: s
     // Textures: kept as the project file they are, or written out once from the model's bytes.
     const pending: Promise<void>[] = [];
     const textureFor = (role: string) => (info: TextureInfo): string => {
-      const src = info.src;
+      if (info.path && project.files.includes(info.path)) return `asset:${info.path}`;
+      const src = info.src ?? (info.bytes ? `bytes:${slot.name}:${role}` : null);
       if (!src) return "";
       const own = byUrl.get(src);
       if (own) return `asset:${own}`;
       const done = written.get(src);
       if (done) return `asset:${done}`;
-      if (!/^(data|blob):/.test(src)) return "";
+      if (!info.bytes && !/^(data|blob):/.test(src)) return "";
       const ext = EXTENSIONS[info.mimeType ?? ""] ?? "png";
       const path = `${folder}/${name} ${role}.${ext}`;
       written.set(src, path);
       pending.push(
-        fetch(src)
-          .then((r) => r.arrayBuffer())
-          .then((b) => project.writeBinary(path, new Uint8Array(b)))
+        (info.bytes ? Promise.resolve(info.bytes) : fetch(src).then(async (r) => new Uint8Array(await r.arrayBuffer())))
+          .then((b) => project.writeBinary(path, b))
           .then(() => void images.push(path)),
       );
       return `asset:${path}`;

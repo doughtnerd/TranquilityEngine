@@ -7,9 +7,8 @@
  * - **Files come from the project.** External buffers and images are found among the project's
  *   assets relative to the `.gltf` (the editor serves assets as blob URLs, which relative URLs can't
  *   resolve against), and `file:` URLs are read from disk headless.
- * - **Images aren't decoded here.** Each texture keeps its image's URL (a project asset, a `data:`
- *   URI, or a blob URL made from the image's bytes in a buffer) and its MIME type; the renderer
- *   decodes it. So parsing works headless and costs no image decode before the first frame.
+ * - **Images aren't decoded here.** Each texture keeps its image's URL (a project asset or a `data:`
+ *   URI) or, for an image stored in a buffer, its bytes, and its MIME type; the renderer decodes it. So parsing works headless and costs no image decode before the first frame.
  * - **Draco** (`KHR_draco_mesh_compression`) decodes in-thread with Google's pure-JavaScript decoder
  *   (`vendor/draco_decoder.js`, loaded only for a Draco file), so it also works headless where workers
  *   and wasm paths don't. **meshopt** (`EXT_meshopt_compression`) uses three's bundled decoder.
@@ -38,8 +37,12 @@ import { Assets } from "./Assets";
 
 /** What a texture's image is, kept on its three.js texture (`userData.mycoSource`) for the bake. */
 export interface GltfImageSource {
-  /** A URL the renderer can load: a project asset's URL, a `data:` URI or a blob URL. */
-  readonly src: string;
+  /** A URL the renderer can load (a project asset's URL or a `data:` URI), or null for `bytes`. */
+  readonly src: string | null;
+  /** The image's bytes, for an image stored in a buffer (GLB). */
+  readonly bytes?: Uint8Array;
+  /** The project path of an image that's a project file. */
+  readonly path?: string;
   /** `image/png`, `image/jpeg`, `image/webp`, `image/ktx2`… when known. */
   readonly mimeType: string | null;
 }
@@ -47,16 +50,16 @@ export interface GltfImageSource {
 /** The parse's result: the default scene and what it couldn't keep. */
 export interface GltfResult {
   readonly root: Object3D;
-  /** Blob URLs made for images stored in buffers; revoked when the model is unloaded. */
-  readonly objectUrls: string[];
   /** One line per kind of data that was ignored (skins, animations…), for one warning. */
   readonly ignored: string[];
 }
 
 /** How the parse finds files: a project path's URL, or null when the project lacks it. */
 export interface GltfFiles {
-  /** The URL of a file the glTF names (relative to it), or null. */
+  /** The project path of a file the glTF names (relative to it), or null when the project lacks it. */
   resolve(uri: string): string | null;
+  /** A project path's URL. */
+  url(path: string): string;
   fetch(url: string): Promise<ArrayBuffer>;
   warn(message: string): void;
 }
@@ -112,7 +115,6 @@ const SUPPORTED_EXTENSIONS = new Set([
 export async function parseGltf(bytes: ArrayBuffer, files: GltfFiles): Promise<GltfResult> {
   const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader.js");
   const loader = new GLTFLoader();
-  const objectUrls: string[] = [];
   const json = readJson(bytes);
   const used = new Set([...(json.extensionsUsed ?? []), ...(json.extensionsRequired ?? [])]);
   for (const ext of json.extensionsRequired ?? []) {
@@ -125,14 +127,14 @@ export async function parseGltf(bytes: ArrayBuffer, files: GltfFiles): Promise<G
   if (used.has("KHR_draco_mesh_compression")) loader.setDRACOLoader(dracoDecoder() as never);
   // Ahead of three's own plugins, so no image is decoded (and KTX2, WebP and AVIF go to the renderer as they are).
   const pluginCallbacks = (loader as unknown as { pluginCallbacks: ((parser: Parser) => { name: string })[] }).pluginCallbacks;
-  pluginCallbacks.unshift((parser) => sourcePlugin(parser, files, objectUrls));
+  pluginCallbacks.unshift((parser) => sourcePlugin(parser, files));
 
   const gltf = await new Promise<{ scene: Object3D; parser: Parser }>((resolve, reject) => {
     loader.parse(bytes, "", (g) => resolve(g as never), (err) => reject(err instanceof Error ? err : new Error(String(err))));
   });
   mergePrimitives(gltf.scene, gltf.parser);
   markMaterials(gltf.scene);
-  return { root: gltf.scene, objectUrls, ignored: ignoredData(json) };
+  return { root: gltf.scene, ignored: ignoredData(json) };
 }
 
 /** The glTF JSON of a `.gltf` or `.glb` file (for the checks made before three parses it). */
@@ -167,12 +169,13 @@ function ignoredData(json: GltfJson): string[] {
  * A GLTFLoader plugin (and patches on its parser) that reads external buffers through the project
  * and turns every texture into a blank three.js texture carrying its image's URL, never decoding it.
  */
-function sourcePlugin(parser: Parser, files: GltfFiles, objectUrls: string[]): { name: string; loadTexture(index: number): Promise<Texture> | null } {
+function sourcePlugin(parser: Parser, files: GltfFiles): { name: string; loadTexture(index: number): Promise<Texture> | null } {
   const loadBuffer = parser.loadBuffer.bind(parser);
   parser.loadBuffer = async (index) => {
     const def = parser.json.buffers?.[index];
     if (!def || def.uri === undefined) return loadBuffer(index); // the GLB's own binary chunk
-    const url = def.uri.startsWith("data:") ? def.uri : files.resolve(def.uri);
+    const path = def.uri.startsWith("data:") ? null : files.resolve(def.uri);
+    const url = def.uri.startsWith("data:") ? def.uri : path && files.url(path);
     if (!url) throw new Error(`its buffer "${def.uri}" isn't in the project`);
     return files.fetch(url);
   };
@@ -190,7 +193,7 @@ function sourcePlugin(parser: Parser, files: GltfFiles, objectUrls: string[]): {
       const key = `${source}:${def.sampler}`;
       let promise = cache.get(key);
       if (!promise) {
-        promise = imageSource(parser, image, files, objectUrls).then((src) => {
+        promise = imageSource(parser, image, files).then((src) => {
           const texture = new Texture();
           texture.name = def.name || image.name || "";
           texture.flipY = false;
@@ -210,25 +213,21 @@ function sourcePlugin(parser: Parser, files: GltfFiles, objectUrls: string[]): {
 
 const EXTENSION_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", ktx2: "image/ktx2", avif: "image/avif", gif: "image/gif" };
 
-async function imageSource(parser: Parser, image: NonNullable<GltfJson["images"]>[number], files: GltfFiles, objectUrls: string[]): Promise<GltfImageSource | null> {
+async function imageSource(parser: Parser, image: NonNullable<GltfJson["images"]>[number], files: GltfFiles): Promise<GltfImageSource | null> {
   if (image.bufferView !== undefined) {
-    const bytes = await parser.getDependency("bufferView", image.bufferView);
-    const mimeType = image.mimeType ?? null;
-    if (typeof URL.createObjectURL !== "function" || typeof Blob === "undefined") return { src: "", mimeType }; // headless: never drawn
-    const src = URL.createObjectURL(new Blob([bytes], mimeType ? { type: mimeType } : {}));
-    objectUrls.push(src);
-    return { src, mimeType };
+    const bytes = new Uint8Array(await parser.getDependency("bufferView", image.bufferView));
+    return { src: null, bytes, mimeType: image.mimeType ?? null };
   }
   const uri = image.uri;
   if (!uri) return null;
   if (uri.startsWith("data:")) return { src: uri, mimeType: image.mimeType ?? /^data:([^;,]+)/.exec(uri)?.[1] ?? null };
-  const src = files.resolve(uri);
+  const path = files.resolve(uri);
   const ext = /\.([a-z0-9]+)(?:[?#].*)?$/i.exec(uri)?.[1]?.toLowerCase() ?? "";
-  if (!src) {
+  if (!path) {
     files.warn(`its texture "${uri}" isn't in the project; it draws white.`);
     return null;
   }
-  return { src, mimeType: image.mimeType ?? EXTENSION_TYPES[ext] ?? null };
+  return { src: files.url(path), path, mimeType: image.mimeType ?? EXTENSION_TYPES[ext] ?? null };
 }
 
 /** Each multi-primitive glTF mesh (a Group of Meshes in three) as one Mesh with a geometry group per primitive. */
@@ -421,8 +420,9 @@ export function projectFiles(modelPath: string, fetchBytes: (url: string) => Pro
         else if (p !== "." && p !== "") out.push(p);
       }
       const candidate = out.join("/");
-      return Assets.has(candidate) ? Assets.url(candidate) : null;
+      return Assets.has(candidate) ? candidate : null;
     },
+    url: (path) => Assets.url(path),
     fetch: fetchBytes,
     warn: (m) => warn(`${modelPath}: ${m}`),
   };

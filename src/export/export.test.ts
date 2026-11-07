@@ -176,6 +176,20 @@ describe("exportProject (Node)", () => {
     expect(readFileSync(join(other, "notes.txt"), "utf8")).toBe("mine");
   });
 
+  it("bakes the models of the 3D Playground beside them and lists them in the manifest (ADR 0090)", async () => {
+    const out = join(temp(), "web");
+    const lines: string[] = [];
+    const result = await exportProject({ projectDir: join(SAMPLES, "playground3d"), out, playerDir: fakePlayer(), log: (l) => lines.push(l) });
+    for (const model of ["models/crate.obj", "models/robot.fbx", "models/lamp.glb"]) {
+      const baked = `${model}.mycomesh`;
+      expect(result.plan.manifest.files, baked).toContain(baked);
+      const bytes = readFileSync(join(out, "project", baked));
+      expect(bytes.subarray(0, 8).toString("latin1"), baked).toBe("MYCOMESH");
+      expect(existsSync(join(out, "project", model)), model).toBe(true); // the model file stays, for anything that reads it
+    }
+    expect(lines.filter((l) => /couldn't be baked/.test(l))).toEqual([]);
+  });
+
   it("refuses to write into the project", async () => {
     await expect(exportProject({ projectDir: join(SAMPLES, "flappy"), out: join(SAMPLES, "flappy", "build"), playerDir: fakePlayer() })).rejects.toThrow(/inside the project/);
   });

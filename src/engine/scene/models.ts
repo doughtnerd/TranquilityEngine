@@ -35,6 +35,7 @@ import {
   type Side,
 } from "three";
 import { Assets, normalizeAssetPath, sidecarValue } from "./Assets";
+import { BAKED_SUFFIX, decodeBakedModel, encodeBakedModel } from "./bakedModel";
 import { splitSpriteRef, type ImportSettings } from "./importSettings";
 
 /** @internal True for a model file the engine imports. */
@@ -72,6 +73,10 @@ export interface TextureInfo {
   readonly image: unknown;
   /** A URL to load the image from, or null. */
   readonly src: string | null;
+  /** The encoded image's bytes (an image stored inside the model file), or absent. */
+  readonly bytes?: Uint8Array;
+  /** The image's project path, when it's a project file (what a baked model refers to, ADR 0090). */
+  readonly path?: string;
   /** The image's MIME type when known (`image/ktx2` needs a transcoder). */
   readonly mimeType?: string | null;
   /** Which UV set it reads: 0 (`uvs`) or 1 (`uvs2`). */
@@ -157,16 +162,24 @@ function packed(attr: BufferAttribute | undefined): Float32Array | null {
   return out;
 }
 
-type AnyTexture = Texture & { image?: { src?: string; currentSrc?: string } | null; channel?: number; userData: { mycoSource?: { src: string; mimeType: string | null } | null } };
+type AnyTexture = Texture & { image?: { src?: string; currentSrc?: string } | null; channel?: number; userData: { mycoSource?: { src: string | null; bytes?: Uint8Array; path?: string; mimeType: string | null } | null } };
+
+/** Project paths of the texture URLs models have used (ADR 0090: baked models refer to textures by path). */
+const texturePaths = new Map<string, string>();
 
 /** A three.js texture as a renderer-neutral texture, or null. */
 function textureInfo(t: AnyTexture | null | undefined): TextureInfo | null {
   if (!t) return null;
   const uvSet = t.channel ?? 0;
   const source = t.userData?.mycoSource;
-  if (source !== undefined) return source && source.src ? { image: null, src: source.src, mimeType: source.mimeType, uvSet } : null;
+  if (source !== undefined) {
+    if (!source || (!source.src && !source.bytes)) return null;
+    return { image: null, src: source.src, mimeType: source.mimeType, uvSet, ...(source.bytes ? { bytes: source.bytes } : {}), ...(source.path ? { path: source.path } : {}) };
+  }
   const image = t.image ?? null;
-  return image ? { image, src: image.currentSrc || image.src || null, uvSet } : null;
+  const src = image ? image.currentSrc || image.src || null : null;
+  const path = src ? texturePaths.get(src) : undefined;
+  return image ? { image, src, uvSet, ...(path ? { path } : {}) } : null;
 }
 
 const rgb = (c: ThreeColor, k = 1): [number, number, number] => [c.r * k, c.g * k, c.b * k];
@@ -321,8 +334,6 @@ export function neutralMesh(geometry: BufferGeometry, materials: readonly Materi
 /** @internal A loaded model. */
 export interface ModelData {
   readonly meshes: readonly ModelMesh[];
-  /** Blob URLs made for the model's images (glTF buffers), revoked when it's unloaded. */
-  readonly objectUrls?: readonly string[];
 }
 
 interface CacheEntry {
@@ -478,7 +489,11 @@ function textureUrl(modelPath: string, url: string): string {
   const folder = modelPath.includes("/") ? modelPath.slice(0, modelPath.lastIndexOf("/") + 1) : "";
   const base = name.slice(name.lastIndexOf("/") + 1);
   for (const candidate of [resolveRelative(folder, name), folder + base, `${folder}textures/${base}`, base]) {
-    if (candidate && Assets.has(candidate)) return Assets.url(candidate);
+    if (candidate && Assets.has(candidate)) {
+      const resolved = Assets.url(candidate);
+      texturePaths.set(resolved, candidate);
+      return resolved;
+    }
   }
   warnOnce(`${modelPath} uses the texture "${url}", which isn't in the project; it draws white.`);
   return WHITE_PIXEL;
@@ -506,7 +521,15 @@ function manager(modelPath: string): ModelLoadingManager {
   const m = new LoadingManager() as ModelLoadingManager;
   m.setURLModifier((url) => textureUrl(modelPath, url));
   if (typeof document === "undefined") {
-    const blank = { path: "", setPath() { return blank; }, setCrossOrigin() { return blank; }, load: () => new Texture() };
+    // Headless: no image is decoded, but the texture keeps its URL and project path (a baked model refers to it, ADR 0090).
+    const load = (url: string) => {
+      const t = new Texture();
+      const src = textureUrl(modelPath, url);
+      const path = texturePaths.get(src);
+      t.userData.mycoSource = !path && src === WHITE_PIXEL ? null : { src, mimeType: null, path };
+      return t;
+    };
+    const blank = { path: "", setPath() { return blank; }, setCrossOrigin() { return blank; }, load };
     m.addHandler(/\.(png|jpe?g|gif|webp|bmp|tga|tiff?|dds)$/i, blank as never);
   }
   // The loaders hand textures back at once and fill their images in later. The renderer-neutral
@@ -530,7 +553,17 @@ function manager(modelPath: string): ModelLoadingManager {
   return m;
 }
 
-async function parseModel(path: string, url: string, settings: ImportSettings): Promise<ModelData> {
+async function parseModel(path: string, url: string, settings: ImportSettings, useBaked = true): Promise<ModelData> {
+  // A game build's baked copy (ADR 0090), when it was baked with these import settings.
+  if (useBaked && Assets.has(path + BAKED_SUFFIX)) {
+    try {
+      const baked = decodeBakedModel(await fetchBytes(Assets.url(path + BAKED_SUFFIX)), settings, (p) => Assets.url(p));
+      if (baked) return baked;
+      warnOnce(`${path}${BAKED_SUFFIX} was baked with other import settings; loading ${path} instead.`);
+    } catch (err) {
+      warnOnce(`Couldn't read ${path}${BAKED_SUFFIX} (${(err as Error).message}); loading ${path} instead.`);
+    }
+  }
   const bytes = await fetchBytes(url);
   if (/\.(gltf|glb)$/i.test(path)) {
     const { parseGltf, projectFiles } = await import("./gltf");
@@ -540,7 +573,7 @@ async function parseModel(path: string, url: string, settings: ImportSettings): 
     if (gltf.ignored.length) warnOnce(`${path}: not imported yet: ${gltf.ignored.join(", ")}.`);
     const data = bakeMeshes(gltf.root, settings, { flipV: true });
     if (!data.meshes.length) warnOnce(`${path} has no meshes.`);
-    return { ...data, objectUrls: gltf.objectUrls };
+    return data;
   }
   const loading = manager(path);
   let root: Object3D;
@@ -570,6 +603,22 @@ async function parseModel(path: string, url: string, settings: ImportSettings): 
   const data = bakeMeshes(root, settings);
   if (!data.meshes.length) warnOnce(`${path} has no meshes.`);
   return data;
+}
+
+/**
+ * @internal A model file baked for a game build (ADR 0090): loaded from the file itself (never an
+ * earlier baked copy) with its import settings, then encoded. `dropped` lists textures that
+ * couldn't be kept (neither a project file nor stored in the model).
+ */
+export async function bakeModelFile(ref: string): Promise<{ bytes: Uint8Array; dropped: string[] }> {
+  const path = splitSpriteRef(normalizeAssetPath(ref)).path;
+  const settings = Assets.importSettings(path);
+  const data = await parseModel(path, Assets.url(path), settings, false);
+  try {
+    return encodeBakedModel(data, settings);
+  } finally {
+    disposeModel(data);
+  }
 }
 
 /** @internal How a format's meshes bake, beyond the import settings. */
@@ -773,7 +822,6 @@ function standardMaterial(source: Material): Material {
 }
 
 function disposeModel(data: ModelData): void {
-  for (const url of data.objectUrls ?? []) URL.revokeObjectURL(url);
   for (const mesh of data.meshes) {
     mesh.geometry.dispose();
     for (const m of mesh.materials) m.dispose();

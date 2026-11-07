@@ -70,7 +70,9 @@ export function vertexDataOf(src: ModelMesh): VertexData {
   return data;
 }
 
-/** A model texture (decoded image or URL) as a Babylon texture, or null. */
+let bufferTextures = 0;
+
+/** A model texture (decoded image, bytes or URL) as a Babylon texture, or null. */
 function surfaceTexture(scene: Scene, info: TextureInfo | null | undefined, linearData = false): Texture | null {
   if (!info) return null;
   const options = { invertY: true, gammaSpace: !linearData };
@@ -84,7 +86,16 @@ function surfaceTexture(scene: Scene, info: TextureInfo | null | undefined, line
       tex.vScale = -1; // v → 1 - v
       tex.vOffset = 1;
     }
-  } else if (info.image) tex = new Texture("data:model-texture", scene, { ...options, buffer: info.image as HTMLImageElement });
+  } else if (info.bytes) {
+    const ktx2 = info.mimeType === "image/ktx2";
+    if (ktx2) ensureKtx2Loader();
+    // A unique name: Babylon caches textures by URL, and every buffer would share one.
+    tex = new Texture(`data:myco-model-texture-${++bufferTextures}`, scene, { ...options, buffer: info.bytes, forcedExtension: ktx2 ? ".ktx2" : undefined });
+    if (ktx2) {
+      tex.vScale = -1;
+      tex.vOffset = 1;
+    }
+  } else if (info.image) tex = new Texture(`data:myco-model-texture-${++bufferTextures}`, scene, { ...options, buffer: info.image as HTMLImageElement });
   else return null;
   if (info.uvSet) tex.coordinatesIndex = info.uvSet;
   return tex;

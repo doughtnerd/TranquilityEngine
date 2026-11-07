@@ -40,6 +40,8 @@ export interface WebBuildPlan {
   readonly copies: readonly string[];
   /** Files written from text, by build path: compiled scripts, JSON modules, the manifest, serve.mjs and README.txt. */
   readonly generated: ReadonlyMap<string, string>;
+  /** Binary files written, by build path: models baked for the build (ADR 0090). */
+  readonly binaries?: ReadonlyMap<string, Uint8Array>;
 }
 
 /** A project that can't be built: scripts that don't compile, a missing bootstrap script or scene. */
@@ -138,6 +140,40 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   generated.set("serve.mjs", SERVE_SCRIPT);
   generated.set("README.txt", webReadme(name));
   return { manifest, copies, generated };
+}
+
+/** Model files the build bakes (ADR 0090; the same extensions as `scene/models.ts`, which isn't imported here). */
+const MODEL_FILE = /\.(obj|fbx|gltf|glb)$/i;
+/** The suffix of a baked model beside its model file (`scene/bakedModel.ts`). */
+const BAKED_SUFFIX = ".mycomesh";
+
+/** Baking one model: its baked file, and textures that couldn't be kept. */
+export type BakeModel = (path: string) => Promise<{ bytes: Uint8Array; dropped: readonly string[] }>;
+
+/**
+ * Add baked copies of the plan's models (ADR 0090): `<model>.mycomesh` beside each model in
+ * `project/`, listed in the manifest, which the player loads instead of parsing the model. A model
+ * that fails to bake is left to load from its file (said through `log`).
+ */
+export async function withBakedModels(plan: WebBuildPlan, bake: BakeModel, log: (line: string) => void = () => {}): Promise<WebBuildPlan> {
+  const binaries = new Map(plan.binaries ?? []);
+  const baked: string[] = [];
+  for (const path of plan.copies) {
+    if (!MODEL_FILE.test(path) || plan.copies.includes(path + BAKED_SUFFIX)) continue;
+    try {
+      const { bytes, dropped } = await bake(path);
+      binaries.set(copiedPath(path + BAKED_SUFFIX), bytes);
+      baked.push(path + BAKED_SUFFIX);
+      if (dropped.length) log(`${path}: baked without ${dropped.join(", ")} (not project files).`);
+    } catch (err) {
+      log(`${path} couldn't be baked (${(err as Error)?.message ?? err}); the game loads it from the file.`);
+    }
+  }
+  if (!baked.length) return plan;
+  const manifest: GameManifest = { ...plan.manifest, files: [...plan.manifest.files, ...baked].sort() };
+  const generated = new Map(plan.generated);
+  generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
+  return { ...plan, manifest, generated, binaries };
 }
 
 /** A project file's path in the build. */
