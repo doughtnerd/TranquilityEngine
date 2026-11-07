@@ -111,7 +111,7 @@ export function rowMenuItems(scene: OpenScene, key: string | null): MenuItem[] {
     pasteItem(false),
     pasteItem(true),
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: editing ?? inner, run: () => void duplicateSelection() },
-    { label: "Delete", shortcut: "Del", disabled: editing ?? (keys.some(isInsidePrefab) ? "nodes inside a prefab are removed in the prefab" : null), run: () => void deleteSelected() },
+    { label: "Delete", shortcut: "Del", disabled: editing ?? (keys.some(isInsidePrefab) && !keys.every(isInsidePrefab) ? "can't delete nodes inside a prefab together with others" : null), run: () => void deleteSelected() },
     SEPARATOR,
     {
       label: hiddenOwn ? "Show in Scene View" : "Hide in Scene View",

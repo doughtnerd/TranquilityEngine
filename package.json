@@ -17,6 +17,7 @@
     "server": "node src/server/cli.mjs",
     "export": "node src/export/cli.mjs",
     "nav:bake": "node src/nav-cli/cli.mjs",
+    "rewrite": "node src/rewrite-cli/cli.mjs",
     "test": "vitest run",
     "bench": "vitest bench --run",
     "bench:memory": "node --expose-gc bench/memory.mjs",

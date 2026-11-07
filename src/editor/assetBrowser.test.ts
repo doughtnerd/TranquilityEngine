@@ -3,6 +3,7 @@ import { Engine, GameObject, Input, SpriteRenderer } from "../engine";
 import {
   addAssetToScene,
   assetKind,
+  opensInCodePanel,
   buildFolderTree,
   findFolder,
   idBase,
@@ -51,6 +52,10 @@ describe("asset browser: folders and search", () => {
     expect(assetKind("prefabs/pipe-pair.prefab.json")).toBe("prefab");
     expect(assetKind("images/bird.PNG")).toBe("image");
     expect(assetKind("music/town.mp3")).toBe("audio");
+    expect(assetKind("ui/menu.ui.xml")).toBe("uidocument");
+    expect(assetKind("ui/menu.ui.css")).toBe("stylesheet");
+    expect(opensInCodePanel(assetKind("ui/menu.ui.xml"))).toBe(true);
+    expect(opensInCodePanel(assetKind("ui/menu.ui.css"))).toBe(true);
     expect(assetKind("project.json")).toBe("json");
   });
 });

@@ -112,6 +112,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
 | [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
 | [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
+| [0085](decisions/0085-import-files-dragged-in-from-the-os.md) | Files dragged from the OS into the Assets panel are copied into the project | Proposed |
+| [0086](decisions/0086-prefab-instances-add-and-remove-child-nodes.md) | Prefab instances can add and remove child nodes as overrides | Proposed |
+| [0087](decisions/0087-multi-node-create-prefab-and-apply.md) | Create Prefab works on several sibling nodes, and Apply on several instances | Proposed |
 
 ## Working with decisions
 

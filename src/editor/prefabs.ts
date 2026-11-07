@@ -98,6 +98,8 @@ const applicable = (o: OverrideEntry) =>
   (o.component !== undefined && o.field === undefined && (o.enabled !== undefined || o.worlds !== undefined)) ||
   o.addComponent !== undefined ||
   o.removeComponent !== undefined ||
+  o.addNodes !== undefined ||
+  o.removeNode === true ||
   o.order !== undefined;
 
 /**
@@ -105,6 +107,15 @@ const applicable = (o: OverrideEntry) =>
  * inside that node when it's itself a nested instance, where the override stays an override).
  */
 function applyOverride(prefab: SceneDocument, nodeId: string, inner: readonly string[], o: OverrideEntry): void {
+  if (o.addNodes || o.removeNode) {
+    if (prefab.isPrefabInstance(nodeId)) {
+      const { target: _, ...rest } = o;
+      new SetOverrides(nodeId, "", [...(prefab.node(nodeId).overrides ?? []), { ...(inner.length > 0 ? { target: [...inner] } : {}), ...rest }]).apply(prefab);
+    } else if (o.addNodes) {
+      for (const n of o.addNodes) new AddNode(structuredClone(n), { parent: n.parent ?? nodeId }).apply(prefab);
+    } else if (prefab.has(nodeId)) new RemoveNode(nodeId).apply(prefab);
+    return;
+  }
   if (o.field !== undefined) {
     new SetField(nodeId, o.component!, o.field, o.value, { index: o.index, target: inner }).apply(prefab);
     return;
@@ -143,6 +154,68 @@ function applyOverride(prefab: SceneDocument, nodeId: string, inner: readonly st
     [...ordered, ...pool].forEach((c, k) => (next[slots[k]] = c));
     new SetComponents(nodeId, next).apply(prefab);
   }
+}
+
+/** An id for a node added to an instance, not used by the prefab's nodes or the instance's other added ones. */
+function freeInnerId(doc: SceneDocument, instance: string, base: string): string {
+  const entry = doc.node(instance);
+  const used = new Set<string>();
+  const walk = (prefab: string, seen: Set<string>) => {
+    const file = prefabFile(prefab);
+    if (!file || seen.has(prefab)) return;
+    seen.add(prefab);
+    for (const n of file.nodes) {
+      used.add(n.id);
+      if (n.prefab) walk(n.prefab, seen);
+    }
+  };
+  if (entry.prefab) walk(entry.prefab, new Set());
+  for (const o of entry.overrides ?? []) for (const n of o.addNodes ?? []) used.add(n.id);
+  let id = base, k = 2;
+  while (used.has(id)) id = `${base}-${k++}`;
+  return id;
+}
+
+/**
+ * Add a child node to a prefab instance as an `addNodes` override (ADR 0086), under the node at
+ * `parentTarget` inside it (empty: the instance root). Returns the new node's path.
+ */
+export function addInnerNode(open: OpenScene, instance: string, parentTarget: readonly string[], entry: Omit<NodeEntry, "id"> & { id?: string }): NodePath {
+  const id = freeInnerId(open.doc, instance, entry.id ?? "node");
+  const node: NodeEntry = { ...entry, id };
+  const o: OverrideEntry = { ...(parentTarget.length > 0 ? { target: [...parentTarget] } : {}), addNodes: [node] };
+  open.stack.execute(new SetOverrides(instance, `Add ${entry.name ?? id}`, [...(open.doc.node(instance).overrides ?? []), o]));
+  return [instance, id];
+}
+
+/**
+ * Remove a node inside a prefab instance: one the instance added is dropped from its `addNodes`
+ * override (with overrides aimed at it); one from the prefab gets a `removeNode` override, and
+ * overrides aimed at it or under it go.
+ */
+export function removeInnerNode(open: OpenScene, path: NodePath): void {
+  const [instance, ...target] = path;
+  if (target.length === 0) throw new Error("Remove the instance itself, not a node inside it.");
+  const id = target[target.length - 1];
+  const list = open.doc.node(instance).overrides ?? [];
+  const addedHere = list.findIndex((o) => o.addNodes?.some((n) => n.id === id));
+  const doomed = new Set<string>([id]);
+  if (addedHere >= 0) {
+    const nodes = list[addedHere].addNodes!;
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const n of nodes) if (n.parent && doomed.has(n.parent) && !doomed.has(n.id)) (doomed.add(n.id), (grew = true));
+    }
+  }
+  const next: OverrideEntry[] = [];
+  list.forEach((o, i) => {
+    if (i === addedHere) {
+      const keep = o.addNodes!.filter((n) => !doomed.has(n.id));
+      if (keep.length > 0) next.push({ ...o, addNodes: keep });
+    } else if (!(o.target ?? []).some((t) => doomed.has(t))) next.push(o);
+  });
+  if (addedHere < 0) next.push({ target: [...target], removeNode: true });
+  open.stack.execute(new SetOverrides(instance, "Remove node", next));
 }
 
 /** Ids of every instance of `prefab` in the document. */
@@ -231,6 +304,61 @@ export async function createPrefab(scene: OpenScene, project: EditorProject, id:
     stack.endGroup();
   }
   return path;
+}
+
+/**
+ * Turn several sibling nodes into one prefab (ADR 0087): the file's root is a new "Group" node
+ * (just a Transform) holding copies of them, and one instance of it replaces them where the
+ * first stood. The nodes must share a parent, and none may be a prefab instance's inner node.
+ * With one id this is `createPrefab`. One undo step. Returns the prefab path.
+ */
+export async function createPrefabFromNodes(scene: OpenScene, project: EditorProject, ids: readonly string[], name = "Group"): Promise<string> {
+  if (ids.length === 1) return createPrefab(scene, project, ids[0]);
+  const { doc, stack } = scene;
+  if (ids.length === 0) throw new Error("Select the nodes to turn into a prefab.");
+  if (!project.canSave) throw new Error(`${project.name} is read-only. Open a project folder to create prefabs.`);
+  const parent = doc.parentOf(ids[0]);
+  if (ids.some((id) => doc.parentOf(id) !== parent)) throw new Error("The nodes must share a parent to become one prefab.");
+  // Siblings in hierarchy order; a selected node's ancestor can't also be selected (same parent).
+  const order = doc.children(parent);
+  const sorted = [...ids].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  const inside = new Set(sorted.flatMap((id) => doc.subtree(id)));
+  const broken = doc.references().filter((r) => !inside.has(r.path[0]) && inside.has(r.to));
+  if (broken.length) throw new Error(`"${broken[0].path[0]}" references "${broken[0].to}", which would move into the prefab; only the prefab's root can be referenced from outside.`);
+
+  const used = new Set(doc.nodes.map((n) => n.id));
+  const fresh = (base: string) => {
+    let id = base, k = 2;
+    while (used.has(id)) id = `${base}-${k++}`;
+    used.add(id);
+    return id;
+  };
+  const rootId = fresh(prefabFileName(name));
+  const root: NodeEntry = { id: rootId, name, components: [{ type: "engine.Transform" }] };
+  const nodes: NodeEntry[] = [root];
+  for (const id of sorted) {
+    const sub = doc.subtree(id).map((n) => structuredClone(doc.node(n)));
+    sub[0].parent = rootId;
+    nodes.push(...sub);
+  }
+  const path = newPrefabPath(project, name);
+  await writeSceneFile(project, path, { format: doc.format, nodes });
+  const index = order.indexOf(sorted[0]);
+  stack.beginGroup(`Create prefab ${path.split("/").pop()}`);
+  try {
+    for (const id of sorted) stack.execute(new RemoveNode(id));
+    stack.execute(new AddNode({ id: rootId, name, prefab: path }, { parent, index }));
+  } finally {
+    stack.endGroup();
+  }
+  return path;
+}
+
+/** Apply the overrides of several instances (one undo step each); returns how many overrides were applied in all. */
+export async function applyOverridesTo(open: OpenScene, project: EditorProject, instances: readonly string[]): Promise<number> {
+  let total = 0;
+  for (const id of instances) total += await applyOverrides(open, project, id);
+  return total;
 }
 
 export { RebuildInstances };
