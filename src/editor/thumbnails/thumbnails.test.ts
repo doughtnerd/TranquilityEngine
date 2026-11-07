@@ -64,6 +64,8 @@ describe("thumbnail kinds and dependencies (ADR 0061)", () => {
   it("previews models, materials, graphs, environments, effects, prefabs and audio, not images or scenes", () => {
     expect(previewKind("models/robot.fbx")).toBe("model");
     expect(previewKind("models/crate.OBJ")).toBe("model");
+    expect(previewKind("models/lamp.glb")).toBe("model");
+    expect(previewKind("models/car.gltf")).toBe("model");
     expect(previewKind("materials/wood.material.json")).toBe("material");
     expect(previewKind("shaders/water.shadergraph.json")).toBe("shadergraph");
     expect(previewKind("sky/studio.hdr")).toBe("environment");
@@ -71,6 +73,15 @@ describe("thumbnail kinds and dependencies (ADR 0061)", () => {
     expect(previewKind("prefabs/pipe.prefab.json")).toBe("prefab");
     expect(previewKind("music/town.mp3")).toBe("audio");
     for (const p of ["images/bird.png", "images/sheet.png#walk", "scenes/main.scene.json", "data.json", "models/robot.fbx.meta.json"]) expect(previewKind(p), p).toBeNull();
+  });
+
+  it("follows a .gltf's external buffers and images (ADR 0088)", () => {
+    const src = project({
+      "models/car/car.gltf": JSON.stringify({ buffers: [{ uri: "car.bin" }, { uri: "data:application/octet-stream;base64,AA==" }], images: [{ uri: "./tex/paint%20red.png" }, { uri: "missing.png" }] }),
+      "models/car/car.bin": new Uint8Array([1]),
+      "models/car/tex/paint red.png": new Uint8Array([1]),
+    });
+    expect(previewDependencies("models/car/car.gltf", src)).toEqual(["models/car/car.bin", "models/car/tex/paint red.png"]);
   });
 
   it("follows JSON references transitively, with or without asset:, and ignores strings that aren't files", () => {

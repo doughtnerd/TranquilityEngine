@@ -1,7 +1,7 @@
 // Asset browser logic (ADR 0022): the project's files as a folder tree, search, and the scene
 // nodes that adding an asset creates. No UI here; `ui/Assets.tsx` renders it.
 import { isSidecarPath } from "../engine/scene/importSettings";
-import { loadModel, meshNamesIfLoaded } from "../engine/scene/models";
+import { MODEL_EXTENSIONS, loadModel, meshTreeIfLoaded } from "../engine/scene/models";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
@@ -29,7 +29,7 @@ export function assetKind(path: string): AssetKind {
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(p)) return "image";
   if (/\.(hdr|exr)$/.test(p)) return "environment";
   if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";
-  if (/\.(obj|fbx)$/.test(p)) return "model";
+  if (MODEL_EXTENSIONS.test(p)) return "model";
   if (p.endsWith(".material.json")) return "material";
   if (p.endsWith(".shadergraph.json")) return "shadergraph";
   if (p.endsWith(".shadersubgraph.json")) return "shadersubgraph";
@@ -201,18 +201,55 @@ export function modelNodeEntries(doc: SceneDocument, modelPath: string, position
   const name = fileName(modelPath).replace(/\.[^.]+$/, "");
   const id = uniqueId(doc, idBase(modelPath));
   const title = name.charAt(0).toUpperCase() + name.slice(1);
-  const meshes = meshNamesIfLoaded(modelPath) ?? [];
+  const meshes = meshTreeIfLoaded(modelPath) ?? [];
   if (meshes.length <= 1) {
     return [{ id, name: title, components: [{ type: "engine.Transform", data: { position: [...position] } }, { type: "engine.MeshRenderer", data: { mesh: `asset:${modelPath}` } }] }];
   }
+  // The file's node tree (ADR 0088), less the levels every mesh shares. Meshes stay in model space,
+  // so every node sits at its parent's origin; a mesh's node is the parent of the nodes under it.
+  let shared = meshes[0].path.length;
+  for (const m of meshes) {
+    let i = 0;
+    while (i < shared && i < m.path.length && m.path[i] === meshes[0].path[i]) i++;
+    shared = i;
+  }
   const taken = new Set([id]);
-  const children: NodeEntry[] = meshes.map((mesh) => {
-    let child = uniqueId(doc, `${id}-${idBase(`${mesh}.x`)}`);
-    for (let n = 2; taken.has(child); n++) child = uniqueId(doc, `${id}-${idBase(`${mesh}.x`)}-${n}`);
+  const childId = (label: string) => {
+    let child = uniqueId(doc, `${id}-${idBase(`${label}.x`)}`);
+    for (let n = 2; taken.has(child); n++) child = uniqueId(doc, `${id}-${idBase(`${label}.x`)}-${n}`);
     taken.add(child);
-    return { id: child, name: mesh, parent: id, components: [{ type: "engine.Transform", data: {} }, { type: "engine.MeshRenderer", data: { mesh: `asset:${modelPath}#${mesh}` } }] };
-  });
-  return [{ id, name: title, components: [{ type: "engine.Transform", data: { position: [...position] } }] }, ...children];
+    return child;
+  };
+  const entries: NodeEntry[] = [{ id, name: title, components: [{ type: "engine.Transform", data: { position: [...position] } }] }];
+  const byKey = new Map<string, NodeEntry>();
+  const keyOf = (segments: readonly string[]) => segments.join("/");
+  const group = (segments: readonly string[]): string => {
+    if (!segments.length) return id;
+    const key = keyOf(segments);
+    const have = byKey.get(key);
+    if (have) return have.id;
+    const parent = group(segments.slice(0, -1));
+    const label = segments[segments.length - 1];
+    // A mesh's own node may be made here, before its mesh comes (it's the parent of the nodes under it); the mesh fills it in.
+    const entry: NodeEntry = { id: childId(label), name: label, parent, components: [{ type: "engine.Transform", data: {} }] };
+    byKey.set(key, entry);
+    entries.push(entry);
+    return entry.id;
+  };
+  for (const mesh of meshes) {
+    const segments = [...mesh.path.slice(shared), mesh.name];
+    const renderer = { type: "engine.MeshRenderer", data: { mesh: `asset:${modelPath}#${mesh.name}` } };
+    const existing = byKey.get(keyOf(segments));
+    if (existing && !existing.components!.some((c) => c.type === "engine.MeshRenderer")) {
+      existing.components!.push(renderer);
+      continue;
+    }
+    const parent = group(segments.slice(0, -1));
+    const entry: NodeEntry = { id: childId(mesh.name), name: mesh.name, parent, components: [{ type: "engine.Transform", data: {} }, renderer] };
+    if (!existing) byKey.set(keyOf(segments), entry);
+    entries.push(entry);
+  }
+  return entries;
 }
 
 /** Load what adding these assets needs to know first: models' meshes. Never rejects (a model that fails adds as one node). */

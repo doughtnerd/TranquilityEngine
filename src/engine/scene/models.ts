@@ -754,3 +754,8 @@ export function clearModelCache(): void {
 export function meshNamesIfLoaded(path: string): string[] | null {
   return meshesIfLoaded(splitSpriteRef(normalizeAssetPath(path)).path)?.map((m) => m.name) ?? null;
 }
+
+/** @internal Each mesh's name and the names of the nodes above it in the file (ADR 0088), if the model has loaded (starting the load if not), else null. */
+export function meshTreeIfLoaded(path: string): { name: string; path: readonly string[] }[] | null {
+  return meshesIfLoaded(splitSpriteRef(normalizeAssetPath(path)).path)?.map((m) => ({ name: m.name, path: m.path ?? [] })) ?? null;
+}
