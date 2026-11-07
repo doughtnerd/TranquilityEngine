@@ -89,7 +89,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0056](decisions/0056-camera-viewports-and-per-camera-effects.md) | Camera viewports, and post-processing on every camera | Accepted |
 | [0057](decisions/0057-particle-effects-and-the-particlesystem-component.md) | Particle effects are assets in our own format, played by a ParticleSystem component on three.quarks | Accepted, amended by 0081 (no three.quarks) |
 | [0058](decisions/0058-particle-graph-editor.md) | A particle graph editor: a node view of particle effect assets, on the shader graph's canvas | Superseded by 0060 |
-| [0059](decisions/0059-projects-window-and-faster-editor-start.md) | The desktop editor opens on a Projects window while the editor loads hidden; faster start-up | Proposed |
+| [0059](decisions/0059-projects-window-and-faster-editor-start.md) | The desktop editor opens on a Projects window while the editor loads hidden; faster start-up | Proposed, amended by 0082 (the Projects window creates the editor window once it shows) |
 | [0060](decisions/0060-vfx-graph-particle-authoring.md) | Particle effects are VFX-Graph-style graph assets, authored only in the Particle Graph | Accepted |
 | [0061](decisions/0061-asset-previews-and-the-thumbnail-cache.md) | Asset previews are rendered in the editor and cached by content in the project's `.myco/thumbnails/` | Accepted |
 | [0062](decisions/0062-links-to-spawnable-worlds.md) | Bootstrap links apply whenever both Worlds exist, so they can name Spawnable Worlds (templates) | Accepted |
@@ -112,6 +112,8 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
 | [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
 | [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
+| [0082](decisions/0082-editor-start-up-loading-order.md) | The editor loads in order: the Projects window (desktop) or start screen (browser) first, the editor window created once it shows, the engine prefetched behind it | Proposed |
+| [0083](decisions/0083-lazy-editor-panels-and-dialogs.md) | Editor panels and dialogs load on first show, through one small lazy-component helper and a panel registry | Proposed |
 
 ## Working with decisions
 

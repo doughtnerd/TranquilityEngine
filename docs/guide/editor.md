@@ -4,7 +4,7 @@ The scene editor is in `src/editor/` (page: `editor.html`). It runs in a browser
 
 ## The Projects window
 
-**Desktop.** The editor opens on the **Projects window**: New Project…, Open Project…, recent projects and the samples. It's a separate small window with no system title bar, and the editor loads hidden behind it. Picking a project hands it to the editor window, which shows itself while the Projects window hides.
+**Desktop.** The editor opens on the **Projects window**: New Project…, Open Project…, recent projects and the samples. It's a separate small window with no system title bar, and once it has appeared the editor starts loading, hidden, behind it (ADR 0082). Picking a project hands it to the editor window, which shows itself once the project and its scene view are ready, while the Projects window hides.
 
 - **Move it** by dragging the black banner at the top.
 - **Minimise and close** are the two small buttons in the card's top-right corner.
@@ -44,6 +44,8 @@ Disabled items say why in their tooltip ("nothing selected", "stop playing to ed
 ## Docks and panels
 
 The editor is a set of **docks** (strips along the left, right and bottom edges) around the Scene view, which fills what's left. A dock holds one or more **tab groups**; each group shows one panel and has the others as tabs.
+
+Panels load the first time they show (ADR 0083): the ones your layout shows load at start-up, the rest shortly after, so a tab picked in the first moments may say "Loading…" briefly. Adding a panel in code: an id in `layout/model.ts` and a `lazyComponent` entry in `ui/panels.tsx`.
 
 - **Move a panel** by dragging its tab or header. A highlight shows where it will land; drop elsewhere or press Escape to leave everything as it was.
 - **Resize** by dragging the handles between panels and docks.
