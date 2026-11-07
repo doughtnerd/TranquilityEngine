@@ -50,7 +50,7 @@ import { Assets, sidecarValue } from "../../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
 import { defaultMaterialSettings, parseMaterial, materialGraphOfJson, type MaterialInstancing, type MaterialSettings } from "../../scene/material";
 import { Material as EngineMaterial } from "../Material";
-import { materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
+import { drawnVariant, materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../../scene/shaderGraph";
 import { isShaderAssetPath, parseShaderAsset } from "../../scene/shaderAsset";
 import { compileShaderAsset, type ShaderAssetSources } from "../shaderGraph/shaderAsset";
@@ -1453,9 +1453,10 @@ export class BabylonRenderer {
     const moved = visible && (sources?.length ?? 0) > 0 && matrixChanged(entry, world16, e * 16);
     const mode = this.instancingFor(r);
     let changed = !same;
+    const variant = sources?.length ? drawnVariant(r.mesh, r.variant) : undefined; // ADR 0118
     (sources ?? []).forEach((src, i) => {
       // One material, or a multi-material shared by every renderer with the same slot materials, so they batch (ADR 0108).
-      const base = modelBaseMaterial(this.scene, this.modelMaterials, src, (surface) => bySurface.get(surface) ?? null, this.slotMultis) ?? this.defaultMaterial;
+      const base = modelBaseMaterial(this.scene, this.modelMaterials, src, (surface) => bySurface.get(surface) ?? null, this.slotMultis, variant) ?? this.defaultMaterial;
       // A reflection probe (ADR 0054) for built-in materials; graph materials keep the scene's environment.
       const probe = visible && this.probes.any && base instanceof PBRMaterial && !this.graphs.has(base) ? this.probes.lookup(world16[e * 16 + 12], world16[e * 16 + 13], world16[e * 16 + 14]) : null;
       const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe) : base;

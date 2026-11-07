@@ -25,6 +25,7 @@
  *   "scale": 0.01,                // models: multiplies the model's size (default 1)
  *   "upAxis": "z",                // models: the axis that is up in the file, "y" (default) or "z" (ADR 0044)
  *   "normals": "calculate",       // models: "import" (default; calculated when the file has none) or "calculate"
+ *   "pivots": "node",             // models: parts turn about the "model" origin (default) or their own "node" (ADR 0118)
  *   "materials": {                // models: a material asset for each of the model's own materials, by name (ADR 0089)
  *     "Paint": "asset:materials/car-paint.material.json"
  *   }
@@ -58,6 +59,8 @@ export const PLATFORM_OVERRIDE_KEYS = ["filter", "wrap", "mipmaps", "maxSize", "
 export type ModelUpAxis = "y" | "z";
 /** A model's normals: the file's (calculated when it has none), or always calculated smooth. */
 export type ModelNormals = "import" | "calculate";
+/** Where a model's parts turn (ADR 0118): about the model's origin, or about their own node in the file. */
+export type ModelPivots = "model" | "node";
 
 /** A named rectangle of an image, drawn as its own sprite. */
 export type SpriteFill = "stretch" | "tile";
@@ -94,6 +97,8 @@ export interface ImportSettings {
   scale: number;
   upAxis: ModelUpAxis;
   normals: ModelNormals;
+  /** Models (ADR 0118): one mesh referenced on its own (`m.glb#Wheel`) is in its node's space ("node") or the model's ("model"). */
+  pivots: ModelPivots;
   /** Models (ADR 0089): a material asset (`asset:` path) drawn in place of each of the model's own materials, by the material's name. */
   materials: Record<string, string>;
 }
@@ -113,6 +118,7 @@ export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<I
   scale: 1,
   upAxis: "y",
   normals: "import",
+  pivots: "model",
   materials: Object.freeze({}) as Record<string, string>,
 });
 
@@ -238,6 +244,10 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
     if (raw.normals === "import" || raw.normals === "calculate") settings.normals = raw.normals;
     else bad("normals", '"import" or "calculate"');
   }
+  if (raw.pivots !== undefined) {
+    if (raw.pivots === "model" || raw.pivots === "node") settings.pivots = raw.pivots;
+    else bad("pivots", '"model" or "node"');
+  }
   if (raw.materials !== undefined) {
     if (!isObject(raw.materials)) bad("materials", "an object of material asset paths by material name");
     else {
@@ -355,6 +365,7 @@ export function importSettingsJSON(settings: ImportSettings): Record<string, unk
   if (settings.scale !== d.scale) out.scale = settings.scale;
   if (settings.upAxis !== d.upAxis) out.upAxis = settings.upAxis;
   if (settings.normals !== d.normals) out.normals = settings.normals;
+  if (settings.pivots !== d.pivots) out.pivots = settings.pivots;
   const materials = Object.entries(settings.materials ?? {}).filter(([, v]) => v);
   if (materials.length) out.materials = Object.fromEntries(materials);
   if (settings.sprites.length > 0) {

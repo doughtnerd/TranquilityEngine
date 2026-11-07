@@ -298,6 +298,13 @@ function ImportInspector() {
                 <option value="calculate">Calculate</option>
               </select>
             </label>
+            <label class="import-row" title="Where a dropped model's parts turn: about the model's origin, or about their own node in the file (ADR 0118)">
+              <span>Pivots</span>
+              <select aria-label="Pivots" value={draft.pivots} onChange={(e) => set({ pivots: (e.currentTarget as HTMLSelectElement).value as ImportSettings["pivots"] })}>
+                <option value="model">Model origin</option>
+                <option value="node">Node</option>
+              </select>
+            </label>
             <ModelMaterialRows path={path} materials={draft.materials} dirty={dirty} readOnly={readOnly} onChange={(materials) => set({ materials })} />
           </>
         ) : (

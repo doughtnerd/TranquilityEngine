@@ -5,6 +5,7 @@ import { signal } from "@preact/signals";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
 import type { FieldChoice } from "../../engine/core/registry";
+import { loadModel } from "../../engine/scene/models";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
 import { RenameNode, RevertOverrides, SetActive, SetField, isFieldOverride, pathKey, type NodePath } from "../document";
 import { choicesFor, defaultItem, editorFor, itemEditorFor, itemField, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
@@ -655,6 +656,7 @@ function navNote(scene: OpenScene, path: NodePath, info: ComponentInfo) {
 function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentInfo; field: FieldValue; values: unknown[] }) {
   const { scene, paths, info, field, values } = props;
   const editor = editorFor(field);
+  const variants = useModelVariants(info.type === "engine.MeshRenderer" && field.name === "variant" ? String(info.fields.find((f) => f.name === "mesh")?.value ?? "") : null);
   const overridden = paths.some((p) => isOverridden(scene.doc, p, info.type, field.name, info.index));
   const mixed = new Set(values.map((v) => valueKey(v, scene))).size > 1;
 
@@ -691,6 +693,8 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
       }
     });
 
+  // MeshRenderer.variant (ADR 0118): a dropdown of the model's material variants, hidden when it has none.
+  if (variants !== undefined && !variants.length && !field.value && !mixed) return null;
   return (
     <>
       <div class={`label-cell${overridden ? " overridden" : ""}`}>
@@ -702,11 +706,36 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
         )}
       </div>
       <div class="value">
-        <FieldEditorView editor={editor} field={field} values={values} mixed={mixed} scene={scene} componentType={props.info.type} onCommit={commit} onCommitAxis={commitAxis} />
+        {variants !== undefined ? (
+          <ChoiceInput choices={variantChoices(variants)} value={field.value} mixed={mixed} label={field.name} onCommit={commit} />
+        ) : (
+          <FieldEditorView editor={editor} field={field} values={values} mixed={mixed} scene={scene} componentType={props.info.type} onCommit={commit} onCommitAxis={commitAxis} />
+        )}
       </div>
     </>
   );
 }
+
+/** The material variant names of the model a mesh reference draws (ADR 0118); undefined when `meshRef` is null (not a variant field). */
+function useModelVariants(meshRef: string | null): readonly string[] | undefined {
+  const [variants, setVariants] = useState<readonly string[]>([]);
+  useEffect(() => {
+    if (meshRef === null) return;
+    setVariants([]);
+    if (!meshRef || meshRef.startsWith("builtin:")) return;
+    let live = true;
+    loadModel(meshRef)
+      .then((data) => live && setVariants(data.variants ?? []))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [meshRef]);
+  return meshRef === null ? undefined : variants;
+}
+
+/** The variant field's choices: the file's default materials, then each variant. */
+const variantChoices = (names: readonly string[]): FieldChoice[] => [{ label: "Default", value: "" }, ...names.map((n) => ({ label: n, value: n }))];
 
 const isNumeric = (e: FieldEditor) => e === "number" || e === "integer";
 

@@ -173,10 +173,83 @@ export function surfaceMaterial(scene: Scene, cache: WeakMap<object, BabylonMate
     made.iridescence.isEnabled = p.iridescence > 0;
     made.iridescence.intensity = p.iridescence;
     made.iridescence.indexOfRefraction = p.iridescenceIOR;
+    applyLayerExtras(scene, made, surface);
   }
   m = made;
   cache.set(surface, m);
   return m;
+}
+
+/**
+ * The physical layers' textures, volume attenuation, iridescence thickness and anisotropy of a glTF
+ * surface (ADR 0118), with glTF's channels, as Babylon's own glTF loader sets them.
+ */
+function applyLayerExtras(scene: Scene, made: PBRMaterial, surface: SurfaceInfo): void {
+  const p = surface.physical!;
+  const maps = surface.layerMaps ?? {};
+  const tex = (key: keyof typeof maps, srgb = false) => surfaceTexture(scene, maps[key], !srgb);
+  // Clearcoat: intensity in R of its texture, roughness in G of its own.
+  if (maps.clearcoat || maps.clearcoatRoughness || maps.clearcoatNormal) {
+    made.clearCoat.remapF0OnInterfaceChange = false;
+    made.clearCoat.texture = tex("clearcoat");
+    made.clearCoat.textureRoughness = tex("clearcoatRoughness");
+    made.clearCoat.useRoughnessFromMainTexture = false;
+    const normal = tex("clearcoatNormal");
+    if (normal) {
+      normal.level = surface.clearcoatNormalScale ?? 1;
+      made.clearCoat.bumpTexture = normal;
+    }
+  }
+  // Sheen: colour in RGB (sRGB), roughness in A of its own texture.
+  if (maps.sheenColor || maps.sheenRoughness) {
+    made.sheen.albedoScaling = true;
+    made.sheen.texture = tex("sheenColor", true);
+    made.sheen.textureRoughness = tex("sheenRoughness");
+    made.sheen.useRoughnessFromMainTexture = false;
+  }
+  // Transmission in R, thickness in G (glTF-style channels).
+  if (maps.transmission || maps.thickness) {
+    made.subSurface.useGltfStyleTextures = true;
+    made.subSurface.refractionIntensityTexture = tex("transmission");
+    made.subSurface.thicknessTexture = tex("thickness");
+  }
+  if (p.attenuationDistance !== undefined && p.attenuationColor) {
+    made.subSurface.tintColor = new Color3(p.attenuationColor[0], p.attenuationColor[1], p.attenuationColor[2]);
+    made.subSurface.tintColorAtDistance = p.attenuationDistance;
+  }
+  // Specular: strength in A, colour in RGB (sRGB).
+  const specular = tex("specularIntensity");
+  if (specular) {
+    made.metallicReflectanceTexture = specular;
+    made.useOnlyMetallicFromMetallicReflectanceTexture = true;
+  }
+  const specularColor = tex("specularColor", true);
+  if (specularColor) made.reflectanceTexture = specularColor;
+  // Iridescence in R, film thickness in G between the thickness range.
+  if (maps.iridescence) made.iridescence.texture = tex("iridescence");
+  if (maps.iridescenceThickness) made.iridescence.thicknessTexture = tex("iridescenceThickness");
+  if (p.iridescenceThickness) {
+    made.iridescence.minimumThickness = p.iridescenceThickness[0];
+    made.iridescence.maximumThickness = p.iridescenceThickness[1];
+  }
+  // Anisotropy (KHR_materials_anisotropy): direction in RG, strength in B.
+  if (p.anisotropy !== undefined) {
+    made.anisotropy.isEnabled = true;
+    made.anisotropy.legacy = false;
+    made.anisotropy.intensity = p.anisotropy;
+    made.anisotropy.angle = p.anisotropyRotation ?? 0;
+    const anisotropy = tex("anisotropy");
+    if (anisotropy) made.anisotropy.texture = anisotropy;
+  }
+}
+
+/**
+ * The surface slot `i` of a model mesh draws with `variant` picked (ADR 0118): the variant's surface
+ * where it maps that slot, else the default. `pick` is still asked with the default surface, so slot
+ * material assets (keyed by the default slots, ADR 0089) win over the variant.
+ */
+function variantSurface(src: ModelMesh, i: number, variant: string | undefined): SurfaceInfo {
+  return (variant && src.variantSurfaces?.[variant]?.[i]) || src.surfaces[i] || src.surfaces[0];
 }
 
 /**
@@ -193,11 +266,12 @@ export function modelMaterial(
   mesh: Mesh,
   pick: (surface: SurfaceInfo) => BabylonMaterial | null = () => null,
   made?: BabylonMaterial[],
+  variant?: string,
 ): BabylonMaterial | null {
   if (!src.surfaces.length) return pick(DEFAULT_SLOT);
   const one = (i: number) => {
     const surface = src.surfaces[i] ?? src.surfaces[0];
-    return pick(surface) ?? surfaceMaterial(scene, cache, surface, src.name);
+    return pick(surface) ?? surfaceMaterial(scene, cache, variantSurface(src, i, variant), src.name);
   };
   const groups = src.data.groups;
   if (src.surfaces.length < 2 || groups.length < 2) return one(0);
@@ -224,11 +298,12 @@ export function modelBaseMaterial(
   src: ModelMesh,
   pick: (surface: SurfaceInfo) => BabylonMaterial | null = () => null,
   multis: WeakMap<object, Map<string, MultiMaterial>> = new WeakMap(),
+  variant?: string,
 ): BabylonMaterial | null {
   if (!src.surfaces.length) return pick(DEFAULT_SLOT);
   const one = (i: number) => {
     const surface = src.surfaces[i] ?? src.surfaces[0];
-    return pick(surface) ?? surfaceMaterial(scene, cache, surface, src.name);
+    return pick(surface) ?? surfaceMaterial(scene, cache, variantSurface(src, i, variant), src.name);
   };
   if (src.surfaces.length < 2 || src.data.groups.length < 2) return one(0);
   const subs = src.surfaces.map((_, i) => one(i));
