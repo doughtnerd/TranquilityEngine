@@ -5,9 +5,14 @@ import { readImportSettings, spriteEditorImage, writeImportSettings } from "../a
 import { renameSliceReferences } from "../assetOps";
 import { errorStatus } from "../messages";
 import type { EditorProject } from "../projects";
+import { canRedo, canUndo, createHistory, pushHistory, redo, undo, type History } from "../spriteHistory";
 import {
+  BORDER_SIDES,
   HANDLES,
   autoSlice,
+  dragBorderSide,
+  fitBorder,
+  setBorderSide,
   gridByCellSize,
   gridByCount,
   isEmptyRect,
@@ -75,8 +80,14 @@ export function SpriteEditorDialog() {
 function SpriteEditor(props: { project: EditorProject; image: string }) {
   const { project, image } = props;
   const url = project.assets.get(image);
-  const [slices, setSlices] = useState<EditSlice[]>(() => readImportSettings(project, image).settings.sprites.map(fromSaved));
+  const [history, setHistory] = useState<History<EditSlice[]>>(() => createHistory(readImportSettings(project, image).settings.sprites.map(fromSaved)));
+  const slices = history.present;
   const [baseline, setBaseline] = useState(() => sliceKey(slices));
+  /** Edit the slices as one undo step; edits sharing a `key` in a row (one drag, one field) are one step. */
+  const setSlices = (next: EditSlice[] | ((all: EditSlice[]) => EditSlice[]), key?: string) =>
+    setHistory((h) => pushHistory(h, typeof next === "function" ? next(h.present) : next, { key, equal: (a, b) => sliceKey(a) === sliceKey(b) }));
+  const gesture = useRef(0);
+  const newGesture = () => `gesture:${++gesture.current}`;
   const [selected, setSelected] = useState<number | null>(null);
   const [size, setSize] = useState<[number, number] | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -107,7 +118,19 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
   if (typeof url !== "string") return null;
   const getPixels = () => (pixels.current ??= loadPixels(url));
 
-  const update = (key: number, patch: Partial<EditSlice>) => setSlices((all) => all.map((s) => (s.key === key ? { ...s, ...patch } : s)));
+  const update = (key: number, patch: Partial<EditSlice>, gestureKey?: string) => setSlices((all) => all.map((s) => (s.key === key ? { ...s, ...patch } : s)), gestureKey);
+  /** The selection after the slices changed under it (undo, redo): dropped when its slice is gone. */
+  const keepSelection = (h: History<EditSlice[]>) => setSelected((k) => (k !== null && h.present.some((s) => s.key === k) ? k : null));
+  const stepBack = () => {
+    const h = undo(history);
+    setHistory(h);
+    keepSelection(h);
+  };
+  const stepForward = () => {
+    const h = redo(history);
+    setHistory(h);
+    keepSelection(h);
+  };
   const remove = (key: number) => {
     setSlices((all) => all.filter((s) => s.key !== key));
     if (selected === key) setSelected(null);
@@ -168,7 +191,8 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
       await writeImportSettings(project, image, settings);
       const cleaned = await renameSliceReferences(project, image, sliceRenames(slices));
       const next = slices.map((s) => ({ ...s, original: s.name }));
-      setSlices(next);
+      // Renames were applied to references, so earlier steps (with their old `original` names) can't be replayed.
+      setHistory(createHistory(next));
       setBaseline(sliceKey(next));
       docVersion.value++;
       status.value = {
@@ -184,7 +208,7 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
 
   const revert = () => {
     const saved = readImportSettings(project, image).settings.sprites.map(fromSaved);
-    setSlices(saved);
+    setSlices(saved); // an undoable step
     setBaseline(sliceKey(saved));
     setSelected(null);
   };
@@ -213,9 +237,20 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
       if (!s) return;
       setSelected(key);
       const from = s.rect;
+      const guide = target.closest<HTMLElement>("[data-guide]")?.dataset.guide;
+      const gestureKey = newGesture();
+      const border0 = s.border;
       onMove = (m) => {
         const dx = Math.round((m.clientX - x0) / zoom), dy = Math.round((m.clientY - y0) / zoom);
-        update(key, { rect: handle ? resizeRect(from, handle, dx, dy, W, H) : moveRect(from, dx, dy, W, H) });
+        if (guide) {
+          // A border guide: left/top grow as the pointer moves right/down, bottom/right as it moves left/up.
+          const index = BORDER_SIDES.indexOf(guide as (typeof BORDER_SIDES)[number]);
+          const delta = index === 0 ? dx : index === 2 ? -dx : index === 3 ? dy : -dy;
+          update(key, { border: dragBorderSide(border0, index, border0?.[index] ?? 0, delta, from) }, gestureKey);
+          return;
+        }
+        const rect = handle ? resizeRect(from, handle, dx, dy, W, H) : moveRect(from, dx, dy, W, H);
+        update(key, { rect, border: fitBorder(border0, rect) }, gestureKey);
       };
     } else {
       setSelected(null);
@@ -250,6 +285,18 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
     }
     e.stopPropagation(); // keep the editor's shortcuts (Delete, Ctrl+Z…) away from the scene
     if (inField) return;
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (e.shiftKey) stepForward();
+      else stepBack();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === "y") {
+      e.preventDefault();
+      stepForward();
+      return;
+    }
     if ((e.key === "Delete" || e.key === "Backspace") && current) {
       e.preventDefault();
       remove(current.key);
@@ -289,6 +336,14 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
             {size && ` · ${W} × ${H} px`}
           </span>
           <span class="sprite-editor-spacer" />
+          <div class="sprite-zoom" role="group" aria-label="History">
+            <button aria-label="Undo" title="Undo (Ctrl+Z)" disabled={!canUndo(history)} onClick={stepBack}>
+              ↶
+            </button>
+            <button aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={!canRedo(history)} onClick={stepForward}>
+              ↷
+            </button>
+          </div>
           <div class="sprite-zoom" role="group" aria-label="Zoom">
             <button aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(0.05, z / 1.5))}>
               −
@@ -321,6 +376,11 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
                   {s.key === selected && (
                     <>
                       <span class="sprite-pivot" style={{ left: `${s.pivot[0] * 100}%`, top: `${(1 - s.pivot[1]) * 100}%` }} />
+                      {BORDER_SIDES.map((side, i) => {
+                        const b = s.border?.[i] ?? 0;
+                        const style = side === "L" ? { left: `${b * zoom}px` } : side === "R" ? { right: `${b * zoom}px` } : side === "T" ? { top: `${b * zoom}px` } : { bottom: `${b * zoom}px` };
+                        return <span key={side} class={`sprite-guide guide-${side}${b > 0 ? " set" : ""}`} data-guide={side} aria-label={`Border ${side} guide`} style={style} />;
+                      })}
                       {HANDLES.map((h) => (
                         <span key={h} class={`sprite-handle handle-${h}`} data-handle={h} aria-label={`Resize ${h}`} />
                       ))}
@@ -412,12 +472,8 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
                 </div>
                 <div class="sprite-border" aria-label="Border">
                   <span class="sprite-border-label">Border (9-slice)</span>
-                  {(["L", "B", "R", "T"] as const).map((side, i) =>
-                    num(`Border ${side}`, current.border?.[i] ?? 0, (v) => {
-                      const b: [number, number, number, number] = [...(current.border ?? [0, 0, 0, 0])];
-                      b[i] = Math.max(0, Math.round(v));
-                      update(current.key, { border: b });
-                    }, 0),
+                  {BORDER_SIDES.map((side, i) =>
+                    num(`Border ${side}`, current.border?.[i] ?? 0, (v) => update(current.key, { border: setBorderSide(current.border, i, v, current.rect) }), 0),
                   )}
                 </div>
                 <div class="sprite-buttons">

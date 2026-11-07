@@ -274,6 +274,17 @@ function platformsJSON(settings: ImportSettings): Record<string, Record<string, 
   return Object.keys(out).length > 0 ? out : null;
 }
 
+/** `settings` with one platform override set (`value` undefined clears it, dropping an emptied platform). Doesn't change `settings`. */
+export function withPlatformOverride<K extends keyof PlatformOverrides>(settings: ImportSettings, platform: ImportPlatform, key: K, value: PlatformOverrides[K] | undefined): ImportSettings {
+  const next: PlatformOverrides = { ...settings.platforms[platform] };
+  if (value === undefined) delete next[key];
+  else next[key] = value;
+  const platforms = { ...settings.platforms };
+  if (Object.keys(next).length > 0) platforms[platform] = next;
+  else delete platforms[platform];
+  return { ...settings, platforms };
+}
+
 /**
  * The settings as one platform sees them: its overrides applied over the base, with `platforms`
  * emptied. Returns `settings` itself when the platform overrides nothing (ADR 0115).

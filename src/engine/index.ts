@@ -21,7 +21,7 @@ export { AssetRef, PlainObject, behavior, component, field, getComponentClass, g
 export { defineBuffer, defineComponent, f32, i32, u8, type BufferDef, type ColumnArray, type Columns, type DataComponentDef, type DataView, type ScalarType, type Schema } from "./core/data";
 export { defineSystem, type Phase, type Row, type SystemContext, type SystemDef } from "./core/systems";
 export type { Rows } from "./core/rows";
-export type { ProjectSettings, ProjectSettingsInput } from "./core/settings";
+export type { ProjectSettings, ProjectSettingsInput, ScaleMode } from "./core/settings";
 export type { AntialiasMode, GraphicsSettings, ParticleQuality, QualityTier, ShaderLevel, ShadowQuality } from "./core/graphics";
 export { Graphics } from "./render/Graphics";
 

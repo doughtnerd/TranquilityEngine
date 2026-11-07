@@ -114,6 +114,8 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
 | [0082](decisions/0082-editor-start-up-loading-order.md) | The editor loads in order: the Projects window (desktop) or start screen (browser) first, the editor window created once it shows, the engine prefetched behind it | Proposed |
 | [0083](decisions/0083-lazy-editor-panels-and-dialogs.md) | Editor panels and dialogs load on first show, through one small lazy-component helper and a panel registry | Proposed |
+| [0115](decisions/0115-sprite-editor-9-slice-undo-and-per-platform-import.md) | Sprites draw 9-sliced from a slice's border; the Sprite Editor gets border guides, undo/redo and slice search; import sidecars gain per-platform overrides, `maxSize` and `compression` (the last two advisory) | Proposed |
+| [0117](decisions/0117-shader-graph-search-node-preview-shapes-and-scene-thumbnails.md) | Shader graph find, per-node preview shapes, and camera-view scene thumbnails | Proposed |
 
 ## Working with decisions
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets } from "../index";
-import { clampTextureSize, defaultImportSettings, formatImportSettings, importSettingsJSON, parseImportSettings, resolveImportSettings } from "../scene/importSettings";
+import { clampTextureSize, defaultImportSettings, formatImportSettings, importSettingsJSON, parseImportSettings, resolveImportSettings, withPlatformOverride } from "../scene/importSettings";
 
 afterEach(() => {
   Assets.clearSources();
@@ -60,6 +60,15 @@ describe("platform overrides and compression (ADR 0115)", () => {
     expect(Assets.importSettings("a.png").maxSize).toBe(64);
     Assets.platform = null;
     expect(Assets.platform).toBe("web"); // no Tauri in tests
+  });
+
+  it("sets and clears single overrides without mutating", () => {
+    const base = defaultImportSettings();
+    const a = withPlatformOverride(base, "web", "maxSize", 256);
+    expect(a.platforms).toEqual({ web: { maxSize: 256 } });
+    expect(base.platforms).toEqual({});
+    const b = withPlatformOverride(a, "web", "maxSize", undefined);
+    expect(b.platforms).toEqual({});
   });
 
   it("clamps texture sizes to maxSize keeping the aspect ratio", () => {

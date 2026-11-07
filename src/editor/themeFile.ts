@@ -42,7 +42,7 @@ const hexOf = (v: unknown): string | null => {
 
 /** A name as stored: trimmed, single-line, at most 60 characters. */
 export const cleanThemeName = (v: unknown, fallback = "Imported theme") => {
-  const n = typeof v === "string" ? v.replace(/[\r\n\t]+/g, " ").replace(/[<>]/g, "").trim().slice(0, 60) : "";
+  const n = typeof v === "string" ? v.replace(/[<>]/g, "").replace(/\s+/g, " ").trim().slice(0, 60) : "";
   return n || fallback;
 };
 

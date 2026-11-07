@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   autoSlice,
   clampRect,
+  dragBorderSide,
+  fitBorder,
+  setBorderSide,
   gridByCellSize,
   gridByCount,
   isEmptyRect,
@@ -114,5 +117,27 @@ describe("names and pivots", () => {
     expect(pivotLabel([0.5, 0.5])).toBe("Center");
     expect(pivotLabel([0.5, 0])).toBe("Bottom");
     expect(pivotLabel([0.3, 0])).toBe("Custom");
+  });
+});
+
+describe("9-slice borders", () => {
+  const rect: [number, number, number, number] = [0, 0, 20, 10];
+  it("sets a side as a whole number inside the slice", () => {
+    expect(setBorderSide(undefined, 0, 4.4, rect)).toEqual([4, 0, 0, 0]);
+    expect(setBorderSide([2, 1, 3, 1], 3, -5, rect)).toEqual([2, 1, 3, 0]);
+  });
+  it("keeps opposite sides from crossing", () => {
+    expect(setBorderSide([0, 0, 15, 0], 0, 12, rect)).toEqual([5, 0, 15, 0]);
+    expect(setBorderSide([0, 4, 0, 0], 3, 99, rect)).toEqual([0, 4, 0, 6]);
+  });
+  it("drags a guide from where it started", () => {
+    expect(dragBorderSide([3, 0, 0, 0], 0, 3, 5, rect)).toEqual([8, 0, 0, 0]);
+    expect(dragBorderSide([3, 0, 0, 0], 0, 3, -9, rect)).toEqual([0, 0, 0, 0]);
+  });
+  it("fits a border into a smaller rect", () => {
+    expect(fitBorder(undefined, rect)).toBeUndefined();
+    const b = fitBorder([10, 6, 10, 6], [0, 0, 12, 8])!;
+    expect(b[0] + b[2]).toBeLessThanOrEqual(12);
+    expect(b[1] + b[3]).toBeLessThanOrEqual(8);
   });
 });
