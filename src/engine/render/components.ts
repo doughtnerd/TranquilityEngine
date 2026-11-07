@@ -198,6 +198,13 @@ export class MeshRenderer extends Component {
    * or the default material (white, lit) for meshes without one.
    */
   @field(AssetRef) material = "";
+  /**
+   * A material asset per material slot (ADR 0089), drawn in place of `material` for that slot.
+   * The slots are the model's own materials, in the order its meshes first use them (a built-in
+   * mesh has one); an empty entry, or none, leaves the slot to `material`, then to the model's
+   * import settings, then to the model's own material.
+   */
+  @field([AssetRef]) materials: string[] = [];
   /** Cast shadows from Lights with `castShadows` on. */
   @field(Boolean) castShadows = true;
   /** Show shadows cast onto it. */

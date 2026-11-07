@@ -15,7 +15,7 @@ import { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Color as EngineColor, type Color } from "../../core/math";
 import type { MaterialSettings } from "../../scene/material";
-import type { ModelMesh, SurfaceInfo, TextureInfo } from "../../scene/models";
+import { DEFAULT_SLOT, type ModelMesh, type SurfaceInfo, type TextureInfo } from "../../scene/models";
 import type { GraphValue } from "../../scene/shaderGraph";
 
 /**
@@ -169,16 +169,32 @@ export function surfaceMaterial(scene: Scene, cache: WeakMap<object, BabylonMate
 }
 
 /**
- * A model's own materials (colour, texture, metalness, roughness) as Babylon PBR materials. A mesh
- * with several, one per index group, gets a submesh per group under a `MultiMaterial`.
+ * A model mesh's materials as Babylon materials: for each of its surfaces, `pick`'s material (a
+ * renderer's or the import settings' material asset for that slot, ADR 0089) or the surface's own
+ * as a PBR material. A mesh drawing several, one per index group, gets a submesh per group under a
+ * `MultiMaterial` (returned in `made` too, for its owner to dispose). A mesh without surfaces asks
+ * `pick` for the default slot. Null when nothing applies (the caller draws the default material).
  */
-export function modelMaterial(scene: Scene, cache: WeakMap<object, BabylonMaterial>, src: ModelMesh, mesh: Mesh): BabylonMaterial | null {
-  if (!src.surfaces.length) return null;
-  const one = (i: number) => surfaceMaterial(scene, cache, src.surfaces[i] ?? src.surfaces[0], src.name);
+export function modelMaterial(
+  scene: Scene,
+  cache: WeakMap<object, BabylonMaterial>,
+  src: ModelMesh,
+  mesh: Mesh,
+  pick: (surface: SurfaceInfo) => BabylonMaterial | null = () => null,
+  made?: BabylonMaterial[],
+): BabylonMaterial | null {
+  if (!src.surfaces.length) return pick(DEFAULT_SLOT);
+  const one = (i: number) => {
+    const surface = src.surfaces[i] ?? src.surfaces[0];
+    return pick(surface) ?? surfaceMaterial(scene, cache, surface, src.name);
+  };
   const groups = src.data.groups;
   if (src.surfaces.length < 2 || groups.length < 2) return one(0);
+  const subs = src.surfaces.map((_, i) => one(i));
+  if (subs.every((m) => m === subs[0])) return subs[0]; // one material for every group: the mesh's one submesh does
   const multi = new MultiMaterial(`model:${src.name}`, scene);
-  multi.subMaterials = src.surfaces.map((_, i) => one(i));
+  multi.subMaterials = subs;
+  made?.push(multi);
   mesh.subMeshes = [];
   const vertices = src.data.positions.length / 3;
   for (const g of groups) new SubMesh(Math.min(g.materialIndex, src.surfaces.length - 1), 0, vertices, g.start, g.count, mesh);

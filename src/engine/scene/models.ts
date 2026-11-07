@@ -244,6 +244,48 @@ function surfaceOf(source: Material): SurfaceInfo {
   return surface;
 }
 
+/** One surface per source material, so meshes sharing a material share its slot (ADR 0089) and its renderer material. */
+const surfaces = new WeakMap<Material, SurfaceInfo>();
+function sharedSurface(material: Material): SurfaceInfo {
+  let s = surfaces.get(material);
+  if (!s) surfaces.set(material, (s = surfaceOf(material)));
+  return s;
+}
+
+/**
+ * @internal The material slot of meshes that have no material of their own (built-in meshes,
+ * models without materials): one slot drawn with the renderer's material or the default.
+ */
+export const DEFAULT_SLOT: SurfaceInfo = Object.freeze<SurfaceInfo>({ name: "Default", color: [1, 1, 1], opacity: 1, transparent: false, metalness: 0, roughness: 0.5, doubleSided: false, map: null });
+
+/** @internal A material slot of what a MeshRenderer draws (ADR 0089). */
+export interface MaterialSlot {
+  /** The model's material's name (what the sidecar's `materials` keys), or `Slot N` for an unnamed one. */
+  readonly name: string;
+  /** The model's own material, or `DEFAULT_SLOT`. */
+  readonly surface: SurfaceInfo;
+}
+
+/**
+ * @internal The material slots of a set of meshes (what one MeshRenderer draws): each distinct
+ * material of theirs, in order of first use, so `MeshRenderer.materials[i]` replaces slot i. A
+ * mesh without materials adds the one default slot.
+ */
+export function materialSlots(meshes: readonly ModelMesh[]): MaterialSlot[] {
+  const seen = new Set<SurfaceInfo>();
+  const out: MaterialSlot[] = [];
+  const add = (surface: SurfaceInfo) => {
+    if (seen.has(surface)) return;
+    seen.add(surface);
+    out.push({ name: surface.name || `Slot ${out.length}`, surface });
+  };
+  for (const m of meshes) {
+    if (!m.surfaces.length) add(DEFAULT_SLOT);
+    else for (const s of m.surfaces) add(s);
+  }
+  return out;
+}
+
 /** Vertex colours as r, g, b, a floats (three gives 3 or 4 components, maybe normalized integers). */
 function packedColors(attr: BufferAttribute | undefined): Float32Array | null {
   if (!attr) return null;
@@ -263,7 +305,7 @@ export function neutralMesh(geometry: BufferGeometry, materials: readonly Materi
   const count = positions.length / 3;
   const index = geometry.getIndex();
   const indices = index ? Uint32Array.from(index.array as ArrayLike<number>) : Uint32Array.from({ length: count - (count % 3) }, (_, i) => i);
-  const surfaces = materials.map(surfaceOf);
+  const surfaces = materials.map(sharedSurface);
   const data: MeshData = {
     positions,
     normals: packed(geometry.getAttribute("normal") as BufferAttribute | undefined),
@@ -575,7 +617,10 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
     geometry.computeBoundingSphere();
     const materials = sources.map((m) => {
       let c = converted.get(m);
-      if (!c) converted.set(m, (c = standardMaterial(m)));
+      if (!c) {
+        converted.set(m, (c = standardMaterial(m)));
+        if (!c.name) c.name = `Material ${converted.size}`; // a name to key material slots by (ADR 0089)
+      }
       return c;
     });
     meshes.push({ name: uniqueName(mesh.name || mesh.parent?.name || "mesh", used), geometry, materials, ...neutralMesh(geometry, materials), path: ancestry(mesh, root) });
@@ -748,6 +793,12 @@ export function clearModelCache(): void {
   for (const e of cache.values()) if (e.data) disposeModel(e.data);
   cache.clear();
   warned.clear();
+}
+
+/** @internal The material slots (ADR 0089) of what a mesh reference draws, if loaded (starting the load if not), else null. */
+export function materialSlotsIfLoaded(ref: string): MaterialSlot[] | null {
+  const meshes = meshesIfLoaded(ref);
+  return meshes ? materialSlots(meshes) : null;
 }
 
 /** @internal The names of a model's meshes if it has loaded (starting the load if not), else null. */
