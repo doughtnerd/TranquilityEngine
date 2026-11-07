@@ -11,6 +11,7 @@ import { recentVersion } from "../recentProjects";
 import { setStartActions } from "../startActions";
 import { status } from "../state";
 import { installTheme } from "../theme";
+import "../ui/fonts";
 import { AboutDialog } from "../ui/AboutDialog";
 import { NewProjectDialog } from "../ui/NewProjectDialog";
 import { StartScreen } from "../ui/StartScreen";

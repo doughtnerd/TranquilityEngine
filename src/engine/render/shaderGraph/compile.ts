@@ -657,7 +657,11 @@ export function nodePreviewGraph(graph: ShaderGraph, nodeId: string): ShaderGrap
   if (!out) return null;
   const output = graph.nodes.find((n) => n.type === OUTPUT_NODE_TYPE);
   const outputId = output?.id ?? "output";
-  const nodes = graph.nodes.map((n) => (n.type === OUTPUT_NODE_TYPE ? { id: n.id, type: n.type, position: n.position } : n));
+  const nodes = graph.nodes.map((n) => {
+    if (n.type === OUTPUT_NODE_TYPE) return { id: n.id, type: n.type, position: n.position };
+    const { previewShape: _shape, ...rest } = n; // the shape isn't part of the shader (ADR 0117)
+    return rest;
+  });
   if (!output) nodes.push({ id: outputId, type: OUTPUT_NODE_TYPE, position: [0, 0] });
   return {
     target: "unlit",

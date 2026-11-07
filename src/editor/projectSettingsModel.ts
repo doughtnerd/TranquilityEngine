@@ -1,7 +1,7 @@
 // The Project panel's model (ADR 0038): the parts of `project.json` beyond the bootstrap (name,
 // display, time, physics, render, autoloads) as a draft, edited by pure functions, checked, and
 // written back into the file's text one top-level key at a time so the rest keeps its layout.
-import { defaultSettings, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
+import { defaultSettings, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import { defaultTier, parseGraphics, type GraphicsSettings, type QualityTier } from "../engine/core/graphics";
 import { parseNavigationSettings } from "../engine/nav/settings";
 import { uniqueName, withMember } from "./worldsConfig";
@@ -147,7 +147,7 @@ export function addLayer(draft: SettingsDraft): SettingsDraft {
   return withLayers(draft, [...layers, name], pairs);
 }
 
-/** Rename a layer, in the matrix too. (Colliders name their layer; they aren't updated.) */
+/** Rename a layer, in the matrix too. (The scenes that name it are updated by `layerRename.ts`.) */
 export function renameLayer(draft: SettingsDraft, index: number, name: string): SettingsDraft {
   const layers = [...layersOf(draft)];
   const old = layers[index];
@@ -304,6 +304,8 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
   if (display.backgroundColor !== undefined && (typeof display.backgroundColor !== "string" || !COLOR.test(display.backgroundColor))) {
     p("display.backgroundColor", "Background colour must be a hex colour such as #1d1f24.");
   }
+
+  if (display.scaleMode !== undefined && !(SCALE_MODES as readonly unknown[]).includes(display.scaleMode)) p("display.scaleMode", `Scale mode must be one of ${SCALE_MODES.join(", ")}.`);
 
   const time = draft.time ?? {};
   if (time.fixedDeltaTime !== undefined && !isPositive(time.fixedDeltaTime)) p("time.fixedDeltaTime", "The fixed timestep must be above 0 seconds.");

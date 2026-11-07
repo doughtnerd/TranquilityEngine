@@ -5,6 +5,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        // Remembers the folders the user granted (project folders picked in the dialog) across
+        // restarts (ADR 0116). Registered after the fs plugin, whose scope it restores.
+        .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             if cfg!(debug_assertions) {

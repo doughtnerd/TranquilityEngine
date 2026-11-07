@@ -124,7 +124,7 @@ export interface RenderSurface {
   particleState(): ParticleStats | null;
   renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number };
   /** Tests and the editor: the UI core's layout and hit testing, once loaded. */
-  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "cornersOf"> | null;
+  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "pickCanvases" | "cornersOf"> | null;
 
   // Editor (ADR 0022 and later).
   setEditorColors(colors: EditorColors): void;
