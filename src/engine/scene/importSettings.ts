@@ -10,6 +10,12 @@
  *   "filter": "point",            // "linear" (default) | "point"
  *   "wrap": "clamp",              // "clamp" (default) | "repeat" | "mirror"
  *   "mipmaps": false,             // default true
+ *   "maxSize": 1024,              // images: largest side in pixels, 0 or absent = no limit (ADR 0115)
+ *   "compression": "normal",      // images: "none" (default) | "low" | "normal" | "high" quality (ADR 0115)
+ *   "platforms": {                // images: per-platform overrides of filter, wrap, mipmaps, maxSize, compression
+ *     "web": { "maxSize": 512, "compression": "high" },
+ *     "desktop": { "mipmaps": false }
+ *   },
  *   "pivot": [0.5, 0],            // the whole image's pivot, 0..1 from the bottom-left (default centre)
  *   "sprites": [                  // named slices: rect in pixels from the top-left, pivot as above
  *     { "name": "walk_0", "rect": [0, 0, 16, 16], "pivot": [0.5, 0], "border": [2, 2, 2, 2] }
@@ -30,6 +36,21 @@ export const SIDECAR_SUFFIX = ".meta.json";
 
 export type TextureFilter = "linear" | "point";
 export type TextureWrap = "clamp" | "repeat" | "mirror";
+/** How hard a texture is compressed on its way to the GPU: `none` keeps it as authored; `high` is smallest and lowest quality (ADR 0115). */
+export type TextureCompression = "none" | "low" | "normal" | "high";
+export const TEXTURE_COMPRESSIONS: readonly TextureCompression[] = ["none", "low", "normal", "high"];
+/** A build target an import setting can differ on (ADR 0115). */
+export type ImportPlatform = "web" | "desktop";
+export const IMPORT_PLATFORMS: readonly ImportPlatform[] = ["web", "desktop"];
+/** The image settings a platform can override. */
+export interface PlatformOverrides {
+  filter?: TextureFilter;
+  wrap?: TextureWrap;
+  mipmaps?: boolean;
+  maxSize?: number;
+  compression?: TextureCompression;
+}
+export const PLATFORM_OVERRIDE_KEYS = ["filter", "wrap", "mipmaps", "maxSize", "compression"] as const;
 /** The axis that points up in a model file (ADR 0044); the engine's up is +Y. */
 export type ModelUpAxis = "y" | "z";
 /** A model's normals: the file's (calculated when it has none), or always calculated smooth. */
@@ -43,7 +64,7 @@ export interface SpriteSlice {
   rect: [number, number, number, number];
   /** The point the sprite is placed and turned about, 0..1 across the rect from its bottom-left. */
   pivot: [number, number];
-  /** 9-slice borders in pixels, `[left, bottom, right, top]` (stored for later; not drawn yet). */
+  /** 9-slice borders in pixels, `[left, bottom, right, top]` (drawn 9-sliced by SpriteRenderer, ADR 0115). */
   border?: [number, number, number, number];
 }
 
@@ -52,6 +73,11 @@ export interface ImportSettings {
   filter: TextureFilter;
   wrap: TextureWrap;
   mipmaps: boolean;
+  /** Largest side in pixels; 0 = no limit (ADR 0115). */
+  maxSize: number;
+  compression: TextureCompression;
+  /** Per-platform overrides of the image settings above; applied by `resolveImportSettings`. */
+  platforms: Partial<Record<ImportPlatform, PlatformOverrides>>;
   pivot: [number, number];
   sprites: SpriteSlice[];
   volume: number;
@@ -67,6 +93,9 @@ export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<I
   filter: "linear",
   wrap: "clamp",
   mipmaps: true,
+  maxSize: 0,
+  compression: "none",
+  platforms: {},
   pivot: [0.5, 0.5],
   sprites: [],
   volume: 1,
@@ -77,7 +106,7 @@ export const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<I
 });
 
 /** A copy of the defaults (safe to change). */
-export const defaultImportSettings = (): ImportSettings => ({ ...DEFAULT_IMPORT_SETTINGS, pivot: [0.5, 0.5], sprites: [] });
+export const defaultImportSettings = (): ImportSettings => ({ ...DEFAULT_IMPORT_SETTINGS, pivot: [0.5, 0.5], sprites: [], platforms: {} });
 
 /** `images/a.png` → `images/a.png.meta.json`. */
 export const sidecarPath = (assetPath: string): string => `${assetPath}${SIDECAR_SUFFIX}`;
@@ -108,6 +137,9 @@ export function whyNotSliceName(name: string, others: readonly string[] = []): s
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isNumberArray = (v: unknown, n: number): v is number[] => Array.isArray(v) && v.length === n && v.every((x) => typeof x === "number" && Number.isFinite(x));
 
+const isMaxSize = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+const isCompression = (v: unknown): v is TextureCompression => (TEXTURE_COMPRESSIONS as readonly unknown[]).includes(v);
+
 /**
  * Read a sidecar's parsed JSON into settings, with defaults for anything missing. Values of the
  * wrong type are skipped and listed in `problems` (a bad sidecar never stops an asset loading).
@@ -136,6 +168,40 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
   if (raw.mipmaps !== undefined) {
     if (typeof raw.mipmaps === "boolean") settings.mipmaps = raw.mipmaps;
     else bad("mipmaps", "true or false");
+  }
+  if (raw.maxSize !== undefined) {
+    if (isMaxSize(raw.maxSize)) settings.maxSize = raw.maxSize;
+    else bad("maxSize", "a whole number ≥ 0");
+  }
+  if (raw.compression !== undefined) {
+    if (isCompression(raw.compression)) settings.compression = raw.compression;
+    else bad("compression", '"none", "low", "normal" or "high"');
+  }
+  if (raw.platforms !== undefined) {
+    if (!isObject(raw.platforms)) bad("platforms", "an object keyed by platform");
+    else {
+      for (const [name, value] of Object.entries(raw.platforms)) {
+        if (!(IMPORT_PLATFORMS as readonly string[]).includes(name)) {
+          problems.push(`${where}: unknown platform "${name}" in "platforms" (expected ${IMPORT_PLATFORMS.join(" or ")}); skipped.`);
+          continue;
+        }
+        if (!isObject(value)) {
+          problems.push(`${where}: platforms.${name} should be an object; skipped.`);
+          continue;
+        }
+        const o: PlatformOverrides = {};
+        const badOverride = (key: string, expected: string) => problems.push(`${where}: platforms.${name}.${key} should be ${expected}; ignored.`);
+        for (const [key, v] of Object.entries(value)) {
+          if (key === "filter") (v === "linear" || v === "point" ? (o.filter = v) : badOverride(key, '"linear" or "point"'));
+          else if (key === "wrap") (v === "clamp" || v === "repeat" || v === "mirror" ? (o.wrap = v) : badOverride(key, '"clamp", "repeat" or "mirror"'));
+          else if (key === "mipmaps") (typeof v === "boolean" ? (o.mipmaps = v) : badOverride(key, "true or false"));
+          else if (key === "maxSize") (isMaxSize(v) ? (o.maxSize = v) : badOverride(key, "a whole number ≥ 0"));
+          else if (key === "compression") (isCompression(v) ? (o.compression = v) : badOverride(key, '"none", "low", "normal" or "high"'));
+          else problems.push(`${where}: platforms.${name}.${key} can't differ per platform (expected ${PLATFORM_OVERRIDE_KEYS.join(", ")}); ignored.`);
+        }
+        if (Object.keys(o).length > 0) settings.platforms[name as ImportPlatform] = o;
+      }
+    }
   }
   if (raw.pivot !== undefined) {
     if (isNumberArray(raw.pivot, 2)) settings.pivot = [raw.pivot[0], raw.pivot[1]];
@@ -195,6 +261,46 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
 
 const samePair = (a: readonly number[], b: readonly number[]) => a[0] === b[0] && a[1] === b[1];
 
+/** The `platforms` object to write: only overrides that differ from the base settings, or null for none. */
+function platformsJSON(settings: ImportSettings): Record<string, Record<string, unknown>> | null {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const platform of IMPORT_PLATFORMS) {
+    const o = settings.platforms[platform];
+    if (!o) continue;
+    const kept: Record<string, unknown> = {};
+    for (const key of PLATFORM_OVERRIDE_KEYS) if (o[key] !== undefined && o[key] !== settings[key]) kept[key] = o[key];
+    if (Object.keys(kept).length > 0) out[platform] = kept;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * The settings as one platform sees them: its overrides applied over the base, with `platforms`
+ * emptied. Returns `settings` itself when the platform overrides nothing (ADR 0115).
+ */
+export function resolveImportSettings(settings: ImportSettings, platform: ImportPlatform): ImportSettings {
+  const o = settings.platforms[platform];
+  if (!o || Object.keys(o).length === 0) return settings;
+  const out: ImportSettings = { ...settings, platforms: {} };
+  for (const key of PLATFORM_OVERRIDE_KEYS) {
+    const v = o[key];
+    if (v !== undefined) (out as unknown as Record<string, unknown>)[key] = v;
+  }
+  return out;
+}
+
+/**
+ * A texture's size after `maxSize` (the longest side is clamped, aspect kept, never below 1 px).
+ * `compression` is advisory: Babylon can't GPU-compress a PNG at load, so it's recorded for
+ * export tooling and doesn't change the size (ADR 0115).
+ */
+export function clampTextureSize(width: number, height: number, maxSize: number): [number, number] {
+  const longest = Math.max(width, height);
+  if (maxSize <= 0 || longest <= maxSize) return [width, height];
+  const k = maxSize / longest;
+  return [Math.max(1, Math.round(width * k)), Math.max(1, Math.round(height * k))];
+}
+
 /** The sidecar JSON for `settings`: the format, then only what differs from the defaults. */
 export function importSettingsJSON(settings: ImportSettings): Record<string, unknown> {
   const d = DEFAULT_IMPORT_SETTINGS;
@@ -203,6 +309,10 @@ export function importSettingsJSON(settings: ImportSettings): Record<string, unk
   if (settings.filter !== d.filter) out.filter = settings.filter;
   if (settings.wrap !== d.wrap) out.wrap = settings.wrap;
   if (settings.mipmaps !== d.mipmaps) out.mipmaps = settings.mipmaps;
+  if (settings.maxSize !== d.maxSize) out.maxSize = settings.maxSize;
+  if (settings.compression !== d.compression) out.compression = settings.compression;
+  const platforms = platformsJSON(settings);
+  if (platforms) out.platforms = platforms;
   if (!samePair(settings.pivot, d.pivot)) out.pivot = [...settings.pivot];
   if (settings.volume !== d.volume) out.volume = settings.volume;
   if (settings.stream !== d.stream) out.stream = settings.stream;

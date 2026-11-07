@@ -73,7 +73,7 @@ import { resolvePostEffects, type PostSettings } from "../postEffects";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
-import { spriteFrame } from "../spriteFrame";
+import { SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
 import { AsyncPipelines } from "./asyncPipelines";
 import { effectClock, PipelineWarmer, VariantReport } from "./warmUp";
@@ -154,10 +154,8 @@ const tmpScale = new Vector3();
 const tmpQuat = new Quaternion();
 const tmpPos = new Vector3();
 /** Unit quad facing +Z, centred on the origin: bottom-left, bottom-right, top-right, top-left. */
-const QUAD_POSITIONS = [-0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0];
-const QUAD_NORMALS = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1];
-const QUAD_UVS = [0, 0, 1, 0, 1, 1, 0, 1];
-const QUAD_INDICES = [0, 1, 2, 0, 2, 3];
+const SPRITE_GRID_NORMALS = Array.from({ length: 16 }, () => [0, 0, 1]).flat();
+const WHOLE_FRAME: SpriteFrame = { uv: null, size: [1, 1], pivot: [0.5, 0.5], border: null, pixelsPerUnit: 1, pixelSize: [1, 1], missingSlice: false };
 
 /**
  * @internal Whether a world matrix (16 floats of `source` from `offset`) differs from the one an
@@ -935,10 +933,11 @@ export class BabylonRenderer {
     if (!entry) {
       const mesh = new Mesh(`sprite:${s.node.name}`, this.scene);
       const data = new VertexData();
-      data.positions = QUAD_POSITIONS;
-      data.normals = QUAD_NORMALS;
-      data.uvs = QUAD_UVS;
-      data.indices = QUAD_INDICES;
+      const grid = spriteMeshData(WHOLE_FRAME, 1, 1); // a 4 × 4 vertex grid, so a slice's 9-slice border can move the inner lines (ADR 0115)
+      data.positions = grid.positions;
+      data.normals = SPRITE_GRID_NORMALS;
+      data.uvs = grid.uvs;
+      data.indices = SPRITE_GRID_INDICES as number[];
       data.applyToMesh(mesh, true);
       const material = pbr(`sprite:${s.node.name}`, this.scene);
       material.unlit = true;
@@ -988,7 +987,7 @@ export class BabylonRenderer {
       [w, h] = frame.size;
       [px, py] = frame.pivot;
       if (frame.missingSlice) this.warnOnce(`slice|${s.sprite}`, `${image} has no slice named "${slice}" (in ${image}.meta.json); drawing the whole image.`);
-      this.setSpriteUVs(entry, frame.uv);
+      this.setSpriteGeometry(entry, frame, size.width, size.height);
     } else if (s.size) {
       w = s.size.x;
       h = s.size.y;
@@ -1008,17 +1007,14 @@ export class BabylonRenderer {
     mesh.freezeWorldMatrix(entry.matrix);
   }
 
-  /** Draw a slice's part of the texture, or the whole texture. */
-  private setSpriteUVs(entry: SpriteEntry, uv: [number, number, number, number] | null): void {
-    const key = uv ? uv.join(",") : "";
+  /** Draw a slice's part of the texture (9-sliced when it has a border), or the whole texture. */
+  private setSpriteGeometry(entry: SpriteEntry, frame: SpriteFrame, texWidth: number, texHeight: number): void {
+    const key = frame.uv || frame.border ? `${frame.uv?.join(",") ?? ""}|${frame.border?.join(",") ?? ""}|${frame.size.join(",")}|${frame.pixelsPerUnit}|${texWidth}x${texHeight}` : "";
     if (key === entry.uvKey) return;
     entry.uvKey = key;
-    if (!uv) {
-      entry.mesh.updateVerticesData(VertexBuffer.UVKind, QUAD_UVS);
-      return;
-    }
-    const [u0, v0, u1, v1] = uv;
-    entry.mesh.updateVerticesData(VertexBuffer.UVKind, [u0, v0, u1, v0, u1, v1, u0, v1]);
+    const grid = spriteMeshData(frame, texWidth, texHeight);
+    entry.mesh.updateVerticesData(VertexBuffer.PositionKind, grid.positions);
+    entry.mesh.updateVerticesData(VertexBuffer.UVKind, grid.uvs);
   }
 
   /** @internal The sprite's size in node units once its texture has loaded. */

@@ -30,7 +30,7 @@ export { Transform } from "./scene/Transform";
 export { SceneManager, type LoadSceneOptions } from "./scene/SceneManager";
 export { SceneInstance, registerSceneMigration, type SceneFile } from "./scene/SceneLoader";
 export { Assets, type AssetSource } from "./scene/Assets";
-export type { ImportSettings, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
+export type { ImportPlatform, ImportSettings, PlatformOverrides, TextureCompression, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
 export { Camera, Environment, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type FogMode, type LightType, type MaterialPropertyValue, type ParticlePropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";

@@ -1,6 +1,7 @@
 import { signal } from "@preact/signals";
 import { useLayoutEffect, useRef } from "preact/hooks";
 import { art, PRODUCT_NAME, STUDIO_NAME, VERSION } from "../brand";
+import { useLightLogo } from "../theme";
 import "./brand.css";
 
 /** Whether the About dialog is open. */
@@ -27,8 +28,8 @@ export function AboutDialog() {
   return (
     <div class="dialog-backdrop about-backdrop" onPointerDown={(e) => e.target === e.currentTarget && (aboutOpen.value = false)}>
       <div class="dialog about-dialog" role="dialog" aria-modal="true" aria-labelledby="about-title">
-        <div class="about-hero">
-          <img src={art.mycoLogo} alt="" width={320} height={268} />
+        <div class={`about-hero${useLightLogo.value ? " light-logo" : ""}`}>
+          <img src={useLightLogo.value ? art.mycoLogoLight : art.mycoLogo} alt="" width={320} height={268} />
         </div>
         <h2 id="about-title">About {PRODUCT_NAME}</h2>
         <p class="about-version">Version {VERSION}</p>

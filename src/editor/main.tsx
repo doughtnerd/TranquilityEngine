@@ -18,6 +18,7 @@ import { setStartActions, type StartActions } from "./startActions";
 import { installTheme } from "./theme";
 import { AboutDialog } from "./ui/AboutDialog";
 import "./ui/editor.css";
+import "./ui/fonts";
 import { NewProjectDialog } from "./ui/NewProjectDialog";
 import { StartScreen } from "./ui/StartScreen";
 
