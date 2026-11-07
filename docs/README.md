@@ -114,6 +114,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
 | [0088](decisions/0088-gltf-import-through-threejs-gltfloader.md) | glTF 2.0 models import through three.js's GLTFLoader, baked into model space like OBJ and FBX, with the file's node tree kept for the editor | Proposed |
 | [0089](decisions/0089-material-slots.md) | A MeshRenderer has a material slot per material of its model, filled by `materials[i]`, then `material`, then the model's import settings | Proposed |
+| [0090](decisions/0090-baked-models-in-game-builds.md) | Game builds carry each model baked into a `.mycomesh` file, which the engine loads instead of parsing the model | Proposed |
 
 ## Working with decisions
 
