@@ -5,14 +5,8 @@ import { save, togglePlaying } from "./session";
 import { stepFrame, togglePause } from "./playDebug";
 import { openScene, pickTool, snapping, type Tool } from "./state";
 
-/** A text field (or other control) that keeps its own keys. */
-export function isEditable(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  if (!el) return false;
-  if (el.isContentEditable) return true;
-  if (el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return true;
-  return el instanceof HTMLInputElement && !["checkbox", "radio", "button", "color", "range"].includes(el.type);
-}
+import { isEditable } from "./editable";
+export { isEditable };
 
 export type Shortcut = "undo" | "redo" | "back" | "forward" | "save" | "play" | "pause" | "step" | "delete" | "copy" | "cut" | "paste" | "paste-child" | "duplicate" | `tool:${Tool}`;
 

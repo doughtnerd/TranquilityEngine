@@ -1,5 +1,6 @@
 // The editor session: one Editor World per open project (ADR 0016, 0026). Opening another
 // project tears the World down and boots a new one with that project's settings and assets.
+import { installTilemapPainting } from "./tilemap/paintTool";
 import { errorStatus } from "./messages";
 import { Engine, GameObject } from "../engine";
 import { overlayHandlesOnCanvas, screenBounds } from "../engine/editor";
@@ -124,7 +125,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   orbit.mode = viewMode.value;
   sceneCamera.value = orbit;
-  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine), installUIElementOutline(engine), installUIHandles(engine)];
+  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine), installUIElementOutline(engine), installUIHandles(engine), installTilemapPainting(engine)];
   session = {
     engine,
     dispose() {

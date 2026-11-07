@@ -1,0 +1,22 @@
+{
+  "name": "platformer",
+  "display": {
+    "width": 960,
+    "height": 540,
+    "backgroundColor": "#1d1f24"
+  },
+  "time": {
+    "fixedDeltaTime": 0.016666666666666666
+  },
+  "physics": {
+    "gravity": [0, -30],
+    "layers": ["Default", "Player", "World"],
+    "collisionMatrix": {
+      "Player": ["World"]
+    }
+  },
+  "render": {
+    "sortingLayers": ["Background", "Default", "Player", "Foreground"],
+    "pixelsPerUnit": 16
+  }
+}
