@@ -237,7 +237,7 @@ export class BabylonSurface implements RenderSurface {
   particleState(): ParticleStats | null {
     return this.renderer?.particleState() ?? null;
   }
-  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "cornersOf"> | null {
+  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "pickCanvases" | "cornersOf"> | null {
     return this.renderer?.uiState() ?? null;
   }
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {

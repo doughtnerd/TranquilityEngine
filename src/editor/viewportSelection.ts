@@ -9,7 +9,7 @@
 // outlined in the viewport, and the scene camera's F key frames it.
 import { effect } from "@preact/signals";
 import type { Engine, GameObject } from "../engine";
-import { gizmoActive, pick, pickUI, pointOnSpritePlane, screenBounds, setSelectionOutline, viewportCanvas, worldToCanvas, type ScreenRect } from "../engine/editor";
+import { gizmoActive, pick, pickUI, pickUICanvases, pointOnSpritePlane, screenBounds, setSelectionOutline, viewportCanvas, worldToCanvas, type ScreenRect } from "../engine/editor";
 import type { UIComponentType } from "../engine/ui/components";
 import { colliderShapes } from "./colliderGizmo";
 import { pointInPolygon, polygonArea } from "./colliderMath";
@@ -283,7 +283,7 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
     if (mode === "replace") {
       const sameSpot = lastClick !== null && Math.hypot(p.x - lastClick.x, p.y - lastClick.y) < CLICK_SLOP;
       const { painted, bare } = partitionUIHits(pickUI(world, p.x, p.y));
-      const all = orderClickHits(uiHitKeys(painted, scene.sync, pickable), hits, uiHitKeys(bare, scene.sync, pickable));
+      const all = orderClickHits(uiHitKeys(painted, scene.sync, pickable), hits, uiHitKeys([...bare, ...pickUICanvases(world, p.x, p.y)], scene.sync, pickable)); // canvases last (ADR 0117)
       applyClickSelection(chooseSelection(all, selectedUIElement.peek() ?? selection.peek(), sameSpot));
     } else if (hits.length > 0) {
       select(combineSelection(selectedKeys.peek(), [hits[0]], mode));

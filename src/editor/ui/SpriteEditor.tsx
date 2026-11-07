@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
-import { whyNotSliceName, type SpriteSlice } from "../../engine/scene/importSettings";
+import { whyNotSliceName, type SpriteFill, type SpriteSlice } from "../../engine/scene/importSettings";
 import { fileName } from "../assetBrowser";
 import { readImportSettings, spriteEditorImage, writeImportSettings } from "../assetImport";
 import { renameSliceReferences } from "../assetOps";
@@ -38,15 +38,16 @@ interface EditSlice {
   rect: Rect;
   pivot: [number, number];
   border?: [number, number, number, number];
+  fill?: SpriteFill;
   original: string | null;
 }
 
 type SliceMode = "count" | "size" | "auto";
 
 let nextKey = 1;
-const fromSaved = (s: SpriteSlice): EditSlice => ({ key: nextKey++, name: s.name, rect: [...s.rect], pivot: [...s.pivot], border: s.border ? [...s.border] : undefined, original: s.name });
+const fromSaved = (s: SpriteSlice): EditSlice => ({ key: nextKey++, name: s.name, rect: [...s.rect], pivot: [...s.pivot], border: s.border ? [...s.border] : undefined, fill: s.fill, original: s.name });
 const asSaved = (slices: readonly EditSlice[]): SpriteSlice[] =>
-  slices.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}) }));
+  slices.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" as const } : {}) }));
 const sliceKey = (slices: readonly EditSlice[]) => JSON.stringify(asSaved(slices));
 
 /** The image's pixels (for automatic slicing and skipping empty cells). */
@@ -476,6 +477,13 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
                     num(`Border ${side}`, current.border?.[i] ?? 0, (v) => update(current.key, { border: setBorderSide(current.border, i, v, current.rect) }), 0),
                   )}
                 </div>
+                <label class="sprite-field">
+                  <span>Fill</span>
+                  <select aria-label="Slice fill" title="How the edges and centre fill the sprite: stretched, or repeated at the slice's pixel size" value={current.fill ?? "stretch"} onChange={(e) => update(current.key, { fill: (e.currentTarget as HTMLSelectElement).value === "tile" ? "tile" : undefined })}>
+                    <option value="stretch">Stretch</option>
+                    <option value="tile">Tile</option>
+                  </select>
+                </label>
                 <div class="sprite-buttons">
                   <button class="danger" onClick={() => remove(current.key)}>
                     Delete Slice

@@ -73,7 +73,7 @@ import { resolvePostEffects, type PostSettings } from "../postEffects";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
-import { SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
+import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
 import { AsyncPipelines } from "./asyncPipelines";
 import { effectClock, PipelineWarmer, VariantReport } from "./warmUp";
@@ -87,6 +87,8 @@ interface SpriteEntry {
   texture: Texture | null;
   /** The UVs the quad has, as a key ("" for the whole texture). */
   uvKey: string;
+  /** The mesh's vertex count (16 for the 9-slice grid; more when tiled). */
+  vertexCount: number;
   /** Size in node units (before the node's scale), once the texture has loaded. */
   size: [number, number] | null;
   /** The world matrix the quad is frozen at (Babylon keeps it), or null before the first sync. */
@@ -155,7 +157,7 @@ const tmpQuat = new Quaternion();
 const tmpPos = new Vector3();
 /** Unit quad facing +Z, centred on the origin: bottom-left, bottom-right, top-right, top-left. */
 const SPRITE_GRID_NORMALS = Array.from({ length: 16 }, () => [0, 0, 1]).flat();
-const WHOLE_FRAME: SpriteFrame = { uv: null, size: [1, 1], pivot: [0.5, 0.5], border: null, pixelsPerUnit: 1, pixelSize: [1, 1], missingSlice: false };
+const WHOLE_FRAME: SpriteFrame = { uv: null, size: [1, 1], pivot: [0.5, 0.5], border: null, fill: "stretch", pixelsPerUnit: 1, pixelSize: [1, 1], missingSlice: false };
 
 /**
  * @internal Whether a world matrix (16 floats of `source` from `offset`) differs from the one an
@@ -948,7 +950,7 @@ export class BabylonRenderer {
       material.useAlphaFromAlbedoTexture = true;
       mesh.material = material;
       mesh.alwaysSelectAsActiveMesh = true;
-      entry = { mesh, material, spritePath: null, texture: null, uvKey: "", size: null, matrix: null };
+      entry = { mesh, material, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null };
       this.sprites.set(s, entry);
     }
     const { mesh, material } = entry;
@@ -1009,12 +1011,23 @@ export class BabylonRenderer {
 
   /** Draw a slice's part of the texture (9-sliced when it has a border), or the whole texture. */
   private setSpriteGeometry(entry: SpriteEntry, frame: SpriteFrame, texWidth: number, texHeight: number): void {
-    const key = frame.uv || frame.border ? `${frame.uv?.join(",") ?? ""}|${frame.border?.join(",") ?? ""}|${frame.size.join(",")}|${frame.pixelsPerUnit}|${texWidth}x${texHeight}` : "";
+    const key = frame.uv || frame.border || frame.fill === "tile" ? `${frame.uv?.join(",") ?? ""}|${frame.border?.join(",") ?? ""}|${frame.fill}|${frame.size.join(",")}|${frame.pixelsPerUnit}|${texWidth}x${texHeight}` : "";
     if (key === entry.uvKey) return;
     entry.uvKey = key;
     const grid = spriteMeshData(frame, texWidth, texHeight);
-    entry.mesh.updateVerticesData(VertexBuffer.PositionKind, grid.positions);
-    entry.mesh.updateVerticesData(VertexBuffer.UVKind, grid.uvs);
+    if (grid.tileCapped) this.warnOnce(`tiles|${entry.spritePath}`, `sprite "${entry.spritePath}" would need more than ${MAX_TILE_QUADS} tiles; drawing it stretched. Use a bigger tile or a smaller sprite.`);
+    if (grid.indices === SPRITE_GRID_INDICES && entry.vertexCount === 16) {
+      entry.mesh.updateVerticesData(VertexBuffer.PositionKind, grid.positions);
+      entry.mesh.updateVerticesData(VertexBuffer.UVKind, grid.uvs);
+      return;
+    }
+    // A different vertex count (tiling): replace the buffers and indices.
+    const count = grid.positions.length / 3;
+    entry.vertexCount = count;
+    entry.mesh.setVerticesData(VertexBuffer.PositionKind, grid.positions, true);
+    entry.mesh.setVerticesData(VertexBuffer.NormalKind, Array.from({ length: count }, () => [0, 0, 1]).flat());
+    entry.mesh.setVerticesData(VertexBuffer.UVKind, grid.uvs, true);
+    entry.mesh.setIndices(grid.indices);
   }
 
   /** @internal The sprite's size in node units once its texture has loaded. */

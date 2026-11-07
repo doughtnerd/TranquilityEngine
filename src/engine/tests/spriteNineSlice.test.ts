@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clampBorder, spriteFrame, spriteMeshData, SPRITE_GRID_INDICES } from "../render/spriteFrame";
-import { defaultImportSettings } from "../scene/importSettings";
+import { defaultImportSettings, importSettingsJSON, parseImportSettings } from "../scene/importSettings";
 
 const frameOf = (border: [number, number, number, number] | undefined, size?: { x: number; y: number }) => {
   const settings = defaultImportSettings();
@@ -59,5 +59,50 @@ describe("9-slice sprite meshes", () => {
     expect(SPRITE_GRID_INDICES).toHaveLength(54);
     expect(Math.max(...SPRITE_GRID_INDICES)).toBe(15);
     expect(SPRITE_GRID_INDICES.slice(0, 6)).toEqual([0, 1, 5, 0, 5, 4]);
+  });
+});
+
+describe("tiled 9-slice meshes", () => {
+  const tiled = (border: [number, number, number, number] | undefined, size: { x: number; y: number }) => {
+    const settings = defaultImportSettings();
+    settings.sprites.push({ name: "panel", rect: [0, 0, 32, 16], pivot: [0.5, 0.5], fill: "tile", ...(border ? { border } : {}) });
+    return spriteFrame(settings, "panel", 32, 16, { component: 0, project: 16 }, size);
+  };
+  const quads = (m: ReturnType<typeof spriteMeshData>) => m.positions.length / 12;
+
+  it("defaults to stretch and parses fill leniently", () => {
+    expect(frameOf(undefined).fill).toBe("stretch");
+    expect(tiled(undefined, { x: 2, y: 1 }).fill).toBe("tile");
+    const parsed = parseImportSettings({ format: "myco.import@1", sprites: [{ name: "a", rect: [0, 0, 4, 4], fill: "tile" }, { name: "b", rect: [0, 0, 4, 4], fill: "weird" }] }, "x.png");
+    expect(parsed.settings.sprites.map((s) => s.fill)).toEqual(["tile", undefined]);
+    expect(parsed.problems).toHaveLength(1);
+    const out = importSettingsJSON(parsed.settings) as { sprites: { fill?: string }[] };
+    expect(out.sprites.map((s) => s.fill)).toEqual(["tile", undefined]);
+  });
+
+  it("repeats the centre at its pixel size and crops the last tile", () => {
+    // 32x16 px at 16 ppu: tile is 2 x 1 units (no border). Draw 5 x 1: two full tiles and a half.
+    const m = spriteMeshData(tiled(undefined, { x: 5, y: 1 }), 32, 16);
+    expect(quads(m)).toBe(3);
+    expect(m.indices).toHaveLength(18);
+    // Third quad spans x 0.8..1 of the unit quad and half the texture's u range.
+    expect(m.positions[2 * 12]).toBeCloseTo(0.8 - 0.5);
+    expect(m.uvs[2 * 8 + 2]).toBeCloseTo(0.5);
+    expect(m.uvs[2 * 8]).toBe(0);
+  });
+
+  it("keeps corners and tiles only the middle", () => {
+    // border 4 px = .25 unit; middle 24 px = 1.5 units; draw 4 wide: middle 3.5 -> 3 tiles (last cropped); 1 tall with no vertical border.
+    const m = spriteMeshData(tiled([4, 0, 4, 0], { x: 4, y: 1 }), 32, 16);
+    expect(quads(m)).toBe(2 + 3);
+    // left corner quad is 0.25/4 wide and uses u 0..4/32
+    expect(m.positions[3] - m.positions[0]).toBeCloseTo(0.25 / 4);
+    expect(m.uvs[2]).toBeCloseTo(4 / 32);
+  });
+
+  it("falls back to stretch and flags it past the tile cap", () => {
+    const m = spriteMeshData(tiled(undefined, { x: 2000, y: 1000 }), 32, 16);
+    expect(m.tileCapped).toBe(true);
+    expect(m.positions).toHaveLength(48);
   });
 });

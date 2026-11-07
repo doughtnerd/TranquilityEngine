@@ -57,6 +57,9 @@ export type ModelUpAxis = "y" | "z";
 export type ModelNormals = "import" | "calculate";
 
 /** A named rectangle of an image, drawn as its own sprite. */
+export type SpriteFill = "stretch" | "tile";
+export const SPRITE_FILLS: readonly SpriteFill[] = ["stretch", "tile"];
+
 export interface SpriteSlice {
   /** Unique within the image; no `#`, `/` or quotes. */
   name: string;
@@ -66,6 +69,8 @@ export interface SpriteSlice {
   pivot: [number, number];
   /** 9-slice borders in pixels, `[left, bottom, right, top]` (drawn 9-sliced by SpriteRenderer, ADR 0115). */
   border?: [number, number, number, number];
+  /** How the edges and centre fill their area: `stretch` (default) or `tile` (repeat at pixel size; ADR 0115). Written only when `tile`. */
+  fill?: SpriteFill;
 }
 
 export interface ImportSettings {
@@ -252,6 +257,10 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
           if (isNumberArray(s.border, 4)) slice.border = [s.border[0], s.border[1], s.border[2], s.border[3]];
           else problems.push(`${where}: ${at}.border should be [left, bottom, right, top]; ignored.`);
         }
+        if (s.fill !== undefined) {
+          if (s.fill === "stretch" || s.fill === "tile") slice.fill = s.fill;
+          else problems.push(`${where}: ${at}.fill should be "stretch" or "tile"; ignored.`);
+        }
         settings.sprites.push(slice);
       });
     }
@@ -331,7 +340,7 @@ export function importSettingsJSON(settings: ImportSettings): Record<string, unk
   if (settings.upAxis !== d.upAxis) out.upAxis = settings.upAxis;
   if (settings.normals !== d.normals) out.normals = settings.normals;
   if (settings.sprites.length > 0) {
-    out.sprites = settings.sprites.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}) }));
+    out.sprites = settings.sprites.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" } : {}) }));
   }
   return out;
 }

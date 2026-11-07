@@ -3,7 +3,9 @@
 // nearest first; `display: none` and `visible: false` elements aren't drawn, so aren't listed).
 // An element with nothing to draw (a transparent layout container) mustn't swallow a click meant for
 // the scene behind it, so hits split into painted ones, which win over meshes and sprites, and bare
-// ones, which only count when nothing else is under the pointer. Pure: no engine state is read.
+// ones, which only count when nothing else is under the pointer. Canvases (`pickCanvases`, ADR 0117)
+// join the bare tier last: a world canvas by its rectangle, a screen canvas only by its frame's edge strip,
+// so a click on bare empty view still deselects. Pure: no engine state is read.
 import type { Color } from "../engine";
 import { UIImage, UIInputField, UIPanel, UIText } from "../engine";
 import type { UIComponentType } from "../engine/ui/components";

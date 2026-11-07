@@ -62,10 +62,20 @@
 
 Nothing. 0040's "stored but not drawn yet" note on `border` and its first open question are answered here.
 
+## Export-time compression investigation
+
+Checked 2026-11-07 whether the exporter can honour `compression` and `maxSize` by encoding to KTX2. Result: **an encoder exists and works, but the load side doesn't, so both settings stay advisory.**
+
+- **Encoder.** `ktx2-encoder` 0.6.0 (MIT, wraps BinomialLLC `basis_universal`, depends on `ktx-parse`, about 3.5 MB unpacked, maintained: last release July 2026) runs offline in Node and browsers on a bundled `basis_encoder.wasm`. Tried in Node: a 16 x 16 PNG encoded to a valid KTX2 (ETC1S, mipmaps, 600 bytes, about 300 ms) once given an `imageDecoder` (we'd add a PNG decoder such as `pngjs` or `sharp`, since the encoder takes raw RGBA). `basis_universal` (MIT, 1.16.x) is the raw encoder. Licences are compatible. **Verified:** encode in Node, KTX2 magic bytes. **Not verified:** decoding the file back (no Babylon transcode ran, no pixel compare).
+- **Loader.** Nothing in `src/` loads KTX2 today. Babylon's `KhronosTextureContainer2` fetches its decoder and transcoder WASM from `cdn.babylonjs.com` by default, so a game would need network access, and the `@babylonjs/core` package ships only the older Basis transcoder in `assets/Basis/`, not the KTX2 decoder modules. The player would have to bundle and point `URLConfig` at them, and add the Babylon KTX2 loader plugin import (module by module, ADR 0010).
+- **Path resolution.** Every texture is created by URL from `Assets` in several places (sprites, UI, particles, materials, previews); each would need `x.png` mapped to `x.ktx2`, or the manifest would have to remap it. The engine also decodes PNGs itself for slice and size work.
+- **Quality and sizes.** ETC1S/UASTC artifacts hurt point-filtered pixel art, the engine's main sprite use, and `getBaseSize()` of a KTX2 pads to block sizes only for the GPU format, while 0040 defines slice rectangles in source pixels. A `maxSize` downscale changes that size, so it would need `pixelsPerUnit` and every slice rect rewritten at export (and sprite world size kept by scaling `pixelsPerUnit`), which is doable in the exporter but pointless without the loader.
+- **Decision.** Keep `maxSize` and `compression` advisory. A future record (new dependency, so it needs its own) should: add `ktx2-encoder` plus a PNG decoder to the exporter; apply `maxSize` by downscaling and scaling `pixelsPerUnit` and slice rects by the same factor, so world size is unchanged; encode with `compression` (the quality-to-ETC1S/UASTC mapping is that record's to define); bundle the KTX2 transcoder into the player; and resolve `x.png` to `x.ktx2` in `Assets`, with point-filtered sprites left as PNG or UASTC. Until the loader exists no export step is added, so nothing silently diverges between editor and build.
+
 ## Open questions
 
 - Tiled (repeating) edges and centre instead of stretched; per-slice fill mode.
-- Applying `maxSize` and `compression` in the game export (downscaling with slice rectangles rewritten, KTX2/Basis transcoding), with 0040's O14.
+- Applying `maxSize` and `compression` in the game export: investigated, deferred (see "Export-time compression investigation"); revisit when the conditions listed there hold.
 - More platforms (mobile, console) and a way to preview another platform's settings in the editor.
 
 ## References

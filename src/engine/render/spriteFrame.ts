@@ -2,7 +2,7 @@
  * What part of a texture a sprite draws, how big, and about which point (ADR 0040). Pure math, so
  * it's testable without WebGL; the render backend turns the result into UVs and a mesh matrix.
  */
-import { findSlice, type ImportSettings } from "../scene/importSettings";
+import { findSlice, type ImportSettings, type SpriteFill } from "../scene/importSettings";
 
 /** A border `[left, bottom, right, top]` with negatives zeroed and each opposite pair shrunk to fit `w` × `h`. */
 export function clampBorder(border: readonly number[], w: number, h: number): [number, number, number, number] {
@@ -26,6 +26,8 @@ export interface SpriteFrame {
   pixelsPerUnit: number;
   /** The drawn rectangle's size in source pixels. */
   pixelSize: [number, number];
+  /** How the edges and centre fill their area (the slice's `fill`, ADR 0115). */
+  fill: SpriteFill;
   /** True when the reference named a slice the sidecar doesn't have (the whole image is drawn). */
   missingSlice: boolean;
 }
@@ -56,6 +58,7 @@ export function spriteFrame(
   return {
     uv,
     border: s && s.border && s.border.some((b) => b > 0) ? clampBorder(s.border, w, h) : null,
+    fill: s?.fill === "tile" ? "tile" : "stretch",
     pixelsPerUnit: pixelsPerUnit,
     pixelSize: [w, h],
     size: size ? [size.x, size.y] : [w / pixelsPerUnit, h / pixelsPerUnit],
@@ -68,7 +71,14 @@ export function spriteFrame(
 export interface SpriteMeshData {
   positions: number[];
   uvs: number[];
+  /** Triangle indices into the vertices (the 4 × 4 grid's for stretched sprites). */
+  indices: number[];
+  /** True when tiling would need more than `MAX_TILE_QUADS` quads, so the sprite is stretched instead. */
+  tileCapped?: boolean;
 }
+
+/** The most quads a tiled sprite may use (a tiny tile over a huge area would otherwise make a huge mesh). */
+export const MAX_TILE_QUADS = 1024;
 
 /**
  * @internal The vertex grid for `frame` drawn at `textureWidth` × `textureHeight` pixels. Without
@@ -78,6 +88,12 @@ export interface SpriteMeshData {
  * edges and centre stretch to fill the rest.
  */
 export function spriteMeshData(frame: SpriteFrame, textureWidth: number, textureHeight: number): SpriteMeshData {
+  let capped = false;
+  if (frame.fill === "tile" && frame.size[0] !== 0 && frame.size[1] !== 0 && textureWidth > 0 && textureHeight > 0) {
+    const tiled = tiledMeshData(frame, textureWidth, textureHeight);
+    if (tiled) return tiled;
+    capped = true;
+  }
   const [u0, v0, u1, v1] = frame.uv ?? [0, 0, 1, 1];
   const [w, h] = frame.size;
   let xs = [0, 1 / 3, 2 / 3, 1], ys = xs;
@@ -99,7 +115,59 @@ export function spriteMeshData(frame: SpriteFrame, textureWidth: number, texture
       uvs.push(us[col], vs[row]);
     }
   }
-  return { positions, uvs };
+  return { positions, uvs, indices: SPRITE_GRID_INDICES as number[], ...(capped ? { tileCapped: true } : {}) };
+}
+
+/** One run along an axis: its span in the unit quad (0..1) and its texture coordinate range. */
+interface Segment {
+  a: number;
+  b: number;
+  t0: number;
+  t1: number;
+}
+
+/**
+ * The runs along one axis: low corner, then the middle (repeated at `midPx / pixelsPerUnit` world
+ * units each, the last one cropped rather than squeezed; or one stretched run), then the high corner.
+ */
+function axisSegments(total: number, lowPx: number, highPx: number, px: number, ppu: number, texSize: number, tLow: number, tHigh: number, tile: boolean): Segment[] {
+  const [lo, hi] = shrinkPair(lowPx / ppu, highPx / ppu, total);
+  const out: Segment[] = [];
+  const midT0 = tLow + lowPx / texSize, midT1 = tHigh - highPx / texSize;
+  if (lo > 0) out.push({ a: 0, b: lo / total, t0: tLow, t1: midT0 });
+  const mid = total - lo - hi, midPx = px - lowPx - highPx;
+  if (mid > 1e-9) {
+    const tileLen = midPx / ppu;
+    if (tile && tileLen > 1e-9) {
+      const n = Math.ceil(mid / tileLen - 1e-6);
+      for (let i = 0; i < n; i++) {
+        const start = i * tileLen, end = Math.min(start + tileLen, mid);
+        out.push({ a: (lo + start) / total, b: (lo + end) / total, t0: midT0, t1: midT0 + ((midT1 - midT0) * (end - start)) / tileLen });
+      }
+    } else out.push({ a: lo / total, b: (lo + mid) / total, t0: midT0, t1: midT1 });
+  }
+  if (hi > 0) out.push({ a: 1 - hi / total, b: 1, t0: midT1, t1: tHigh });
+  return out;
+}
+
+/** The mesh of a tiled sprite: independent quads, or null when there'd be more than `MAX_TILE_QUADS`. */
+function tiledMeshData(frame: SpriteFrame, textureWidth: number, textureHeight: number): SpriteMeshData | null {
+  const [u0, v0, u1, v1] = frame.uv ?? [0, 0, 1, 1];
+  const [l, b, r, t] = frame.border ?? [0, 0, 0, 0];
+  const [pw, ph] = frame.pixelSize;
+  const xs = axisSegments(Math.abs(frame.size[0]), l, r, pw, frame.pixelsPerUnit, textureWidth, u0, u1, true);
+  const ys = axisSegments(Math.abs(frame.size[1]), b, t, ph, frame.pixelsPerUnit, textureHeight, v0, v1, true);
+  if (xs.length * ys.length > MAX_TILE_QUADS) return null;
+  const positions: number[] = [], uvs: number[] = [], indices: number[] = [];
+  for (const y of ys) {
+    for (const x of xs) {
+      const base = positions.length / 3;
+      positions.push(x.a - 0.5, y.a - 0.5, 0, x.b - 0.5, y.a - 0.5, 0, x.b - 0.5, y.b - 0.5, 0, x.a - 0.5, y.b - 0.5, 0);
+      uvs.push(x.t0, y.t0, x.t1, y.t0, x.t1, y.t1, x.t0, y.t1);
+      indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+  }
+  return { positions, uvs, indices };
 }
 
 const shrinkPair = (a: number, b: number, total: number): [number, number] => (a + b > total && a + b > 0 ? [(a * total) / (a + b), (b * total) / (a + b)] : [a, b]);
