@@ -9,7 +9,7 @@ type Render = {
   probeState(): { captured: number; probes: number; reflecting: number };
   stackCount(): number;
   postState(): { composed: boolean };
-  cameraPreviewComposed: boolean;
+  cameraPreviewDrawn: boolean;
   cameras: Map<unknown, unknown>;
 };
 type Hooks = {
