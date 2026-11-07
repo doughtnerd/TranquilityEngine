@@ -74,6 +74,8 @@ import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
+import { BabylonTilemaps } from "./tilemaps";
+import { Tilemap } from "../../tilemap/Tilemap";
 import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelMaterial, pbr, tiledTexture } from "./materials";
 import { AsyncPipelines } from "./asyncPipelines";
 import { effectClock, PipelineWarmer, VariantReport } from "./warmUp";
@@ -224,6 +226,8 @@ export class BabylonRenderer {
   /** When `render` last drew a frame: a warm-up only waits while frames are being drawn. */
   private lastRenderAt = -Infinity;
   private readonly lighting: BabylonLighting;
+  /** Tilemap chunks (ADR 0103). */
+  private readonly tilemaps: BabylonTilemaps;
   /** Reflection probes (stage 6). */
   private readonly probes: BabylonProbes;
   /** Water surfaces (ADR 0072; stage 6), made the first time a World has one. */
@@ -307,6 +311,19 @@ export class BabylonRenderer {
     this.frame = new BabylonFrame(scene);
     this.frame.beforeView = (camera) => this.lighting.fitSky(camera);
     this.probes = new BabylonProbes(scene);
+    this.tilemaps = new BabylonTilemaps({
+      scene,
+      texture: (path, onLoad) => {
+        const t = this.textures.get(path);
+        if (t) {
+          if (this.textureMeta.get(path) !== sidecarValue(path)) this.applySampling(path, t);
+          return t;
+        }
+        this.texture(path).then(onLoad, (err) => this.warnOnce(`tile|${path}`, `failed to load tile texture "${path}": ${(err as Error).message}`));
+        return null;
+      },
+      sortOrder: (layer, order) => this.sortOrder(layer, order),
+    });
 
     this.defaultMaterial = pbr("myco.default", scene);
     this.defaultMaterial.albedoColor = new Color3(1, 1, 1);
@@ -537,6 +554,7 @@ export class BabylonRenderer {
   sync(world: World): void {
     this.claim(world);
     for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s);
+    this.tilemaps.sync(world);
     for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
     for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
     const view = this.viewCameras(world)[0];
@@ -828,6 +846,8 @@ export class BabylonRenderer {
         this.meshRenderers.delete(c);
       }
       this.releaseRendererMaterial(c);
+    } else if (c instanceof Tilemap) {
+      this.tilemaps.release(c);
     } else if (c instanceof WaterSurface) {
       this.water?.release(c);
     } else if (c instanceof ParticleSystem) {
@@ -865,6 +885,7 @@ export class BabylonRenderer {
     this.frame.overlay = null;
     this.overlayLayer?.dispose();
     this.probes.dispose();
+    this.tilemaps.dispose();
     this.water?.dispose();
     this.frame.dispose();
     this.scene.dispose();

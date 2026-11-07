@@ -45,6 +45,12 @@ export { CharacterController2D, type ControllerColliderHit2D } from "./physics/C
 export { AxisJoint2D, FixedJoint2D, HingeJoint2D, Joint2D, RopeJoint2D, SliderJoint2D, SpringJoint2D } from "./physics/Joint2D";
 export { CollisionEvents2D, TriggerEvents2D, type PhysicsEvent2D } from "./physics/physics2dSystems";
 
+export { Tilemap, TilemapChanges, type TileChange } from "./tilemap/Tilemap";
+export { TilemapCollider2D } from "./tilemap/TilemapCollider2D";
+export { FLIP_DIAGONAL, FLIP_X, FLIP_Y, type TilemapLayerData } from "./tilemap/format";
+export type { TerrainDef, TileCollision, TileDef, TilePattern, TilePolygon, TilesetData } from "./tilemap/tileset";
+export type { TileCollisionMode } from "./tilemap/collision";
+
 export { RigidBody, type RigidBodyConstraints } from "./physics/RigidBody";
 export { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type CapsuleDirection, type Collision } from "./physics/Collider";
 export { Physics, type RaycastHit, type ShapeCastHit } from "./physics/Physics";

@@ -1,0 +1,191 @@
+{
+  "format": "myco.tileset@1",
+  "tileSize": [
+    16,
+    16
+  ],
+  "terrains": [
+    {
+      "name": "Ground",
+      "color": "#7cb342"
+    }
+  ],
+  "tiles": [
+    {
+      "id": 1,
+      "name": "Ground 0",
+      "sprite": "asset:images/tiles.png#ground_0",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "0*0*0*0*"
+    },
+    {
+      "id": 2,
+      "name": "Ground 1",
+      "sprite": "asset:images/tiles.png#ground_1",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "1*0*0*0*"
+    },
+    {
+      "id": 3,
+      "name": "Ground 2",
+      "sprite": "asset:images/tiles.png#ground_2",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "0*1*0*0*"
+    },
+    {
+      "id": 4,
+      "name": "Ground 3",
+      "sprite": "asset:images/tiles.png#ground_3",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "1*1*0*0*"
+    },
+    {
+      "id": 5,
+      "name": "Ground 4",
+      "sprite": "asset:images/tiles.png#ground_4",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "0*0*1*0*"
+    },
+    {
+      "id": 6,
+      "name": "Ground 5",
+      "sprite": "asset:images/tiles.png#ground_5",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "1*0*1*0*"
+    },
+    {
+      "id": 7,
+      "name": "Ground 6",
+      "sprite": "asset:images/tiles.png#ground_6",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "0*1*1*0*"
+    },
+    {
+      "id": 8,
+      "name": "Ground 7",
+      "sprite": "asset:images/tiles.png#ground_7",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "1*1*1*0*"
+    },
+    {
+      "id": 9,
+      "name": "Ground 8",
+      "sprite": "asset:images/tiles.png#ground_8",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "0*0*0*1*"
+    },
+    {
+      "id": 10,
+      "name": "Ground 9",
+      "sprite": "asset:images/tiles.png#ground_9",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "1*0*0*1*"
+    },
+    {
+      "id": 11,
+      "name": "Ground 10",
+      "sprite": "asset:images/tiles.png#ground_10",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "0*1*0*1*"
+    },
+    {
+      "id": 12,
+      "name": "Ground 11",
+      "sprite": "asset:images/tiles.png#ground_11",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "1*1*0*1*"
+    },
+    {
+      "id": 13,
+      "name": "Ground 12",
+      "sprite": "asset:images/tiles.png#ground_12",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "0*0*1*1*"
+    },
+    {
+      "id": 14,
+      "name": "Ground 13",
+      "sprite": "asset:images/tiles.png#ground_13",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "1*0*1*1*"
+    },
+    {
+      "id": 15,
+      "name": "Ground 14",
+      "sprite": "asset:images/tiles.png#ground_14",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "0*1*1*1*"
+    },
+    {
+      "id": 16,
+      "name": "Ground 15",
+      "sprite": "asset:images/tiles.png#ground_15",
+      "collision": "full",
+      "terrain": "Ground",
+      "pattern": "1*1*1*1*"
+    },
+    {
+      "id": 17,
+      "name": "Plank",
+      "sprite": "asset:images/tiles.png#plank",
+      "collision": "oneWay"
+    },
+    {
+      "id": 18,
+      "name": "Coin",
+      "sprite": "asset:images/tiles.png#coin",
+      "collision": "none",
+      "data": {
+        "coin": true
+      }
+    },
+    {
+      "id": 19,
+      "name": "Spikes",
+      "sprite": "asset:images/tiles.png#spike",
+      "collision": "none",
+      "data": {
+        "hazard": true
+      }
+    },
+    {
+      "id": 20,
+      "name": "Bush",
+      "sprite": "asset:images/tiles.png#bush",
+      "collision": "none"
+    },
+    {
+      "id": 21,
+      "name": "Flag",
+      "sprite": "asset:images/tiles.png#flag",
+      "collision": "none",
+      "data": {
+        "goal": true
+      }
+    },
+    {
+      "id": 22,
+      "name": "Crate",
+      "sprite": "asset:images/tiles.png#crate",
+      "collision": "full",
+      "data": {
+        "surface": "wood"
+      }
+    }
+  ]
+}

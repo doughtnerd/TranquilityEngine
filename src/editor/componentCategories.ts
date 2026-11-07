@@ -21,6 +21,8 @@ const BY_NAME: Readonly<Record<string, string>> = {
   ParticleSystem: "Rendering",
   Text: "Rendering",
   WaterSurface: "Rendering",
+  Tilemap: "Rendering",
+  TilemapCollider2D: "Physics 2D",
   BoxCollider2D: "Physics 2D",
   CircleCollider2D: "Physics 2D",
   EdgeCollider2D: "Physics 2D",

@@ -130,6 +130,7 @@
 }
 .kind-model .asset-kind { color: var(--accent); }
 .kind-material .asset-kind { color: var(--success); }
+.kind-tileset .asset-kind { color: var(--link); }
 
 /* Previews (ADR 0061): rendered thumbnails, icons, hover animation, audio waveforms. */
 .asset-preview { position: relative; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
@@ -139,7 +140,7 @@
 .asset-icon { width: 46%; height: 46%; max-width: 30px; max-height: 30px; fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .kind-folder .asset-icon { stroke: var(--warning); }
 .kind-scene .asset-icon, .kind-material .asset-icon { stroke: var(--success); }
-.kind-prefab .asset-icon { stroke: var(--link); }
+.kind-prefab .asset-icon, .kind-tileset .asset-icon { stroke: var(--link); }
 .kind-model .asset-icon { stroke: var(--accent); }
 .kind-audio .asset-icon { stroke: var(--warning); }
 /* The kind stays on a tile as a small badge; with a picture behind it, in the corner. */
