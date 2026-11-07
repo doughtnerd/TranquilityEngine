@@ -6,7 +6,7 @@ import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "shadergraph" | "shadersubgraph" | "particles" | "formation" | "environment" | "json" | "script" | "javascript" | "typescript" | "text" | "other";
+export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "shadergraph" | "shadersubgraph" | "particles" | "formation" | "environment" | "sky" | "cubemap" | "json" | "script" | "javascript" | "typescript" | "text" | "other";
 
 /** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
 export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
@@ -27,7 +27,7 @@ export function assetKind(path: string): AssetKind {
   if (p.endsWith(".scene.json")) return "scene";
   if (p.endsWith(".prefab.json")) return "prefab";
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(p)) return "image";
-  if (/\.(hdr|exr)$/.test(p)) return "environment";
+  if (/\.(hdr|exr|env|dds)$/.test(p)) return "environment";
   if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";
   if (/\.(obj|fbx)$/.test(p)) return "model";
   if (p.endsWith(".material.json")) return "material";
@@ -35,6 +35,8 @@ export function assetKind(path: string): AssetKind {
   if (p.endsWith(".shadersubgraph.json")) return "shadersubgraph";
   if (p.endsWith(".particles.json")) return "particles";
   if (p.endsWith(".formation.json")) return "formation";
+  if (p.endsWith(".sky.json")) return "sky";
+  if (p.endsWith(".cubemap.json")) return "cubemap";
   if (p.endsWith(".json")) return "json";
   if (p.endsWith(".ts") && !p.endsWith(".d.ts")) return "script";
   if (/\.(js|mjs|cjs)$/.test(p)) return "javascript";

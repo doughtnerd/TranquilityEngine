@@ -329,3 +329,25 @@ describe("tab fitting and header height edge cases", () => {
   });
 });
 
+
+describe("on-demand panels", () => {
+  it("leaves the Sky panel out of the default layout and adds it beside the graph editors when shown", async () => {
+    const { ON_DEMAND_PANELS, activatePanel } = await import("./model");
+    expect(ON_DEMAND_PANELS).toContain("sky");
+    const l = defaultLayout();
+    expect(l.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))).not.toContain("sky");
+    const shown = activatePanel(l, "sky");
+    const group = shown.docks.flatMap((d) => d.groups).find((g) => g.panels.includes("sky"))!;
+    expect(group.panels).toEqual(["scene", "shadergraph", "particlegraph", "sky"]);
+    expect(group.active).toBe("sky");
+    expect(activatePanel(shown, "sky")).toBe(shown); // already showing
+  });
+
+  it("doesn't add an on-demand panel back to a saved layout, but keeps one that was opened", async () => {
+    const { activatePanel, parseLayout } = await import("./model");
+    const saved = parseLayout(JSON.parse(JSON.stringify(defaultLayout())));
+    expect(saved!.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))).not.toContain("sky");
+    const opened = parseLayout(JSON.parse(JSON.stringify(activatePanel(defaultLayout(), "sky"))));
+    expect(opened!.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))).toContain("sky");
+  });
+});

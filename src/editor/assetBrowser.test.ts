@@ -7,6 +7,7 @@ import {
   findFolder,
   idBase,
   nodeForAsset,
+  opensInCodePanel,
   parentForAdd,
   prefabInstanceEntry,
   searchFiles,
@@ -52,6 +53,15 @@ describe("asset browser: folders and search", () => {
     expect(assetKind("images/bird.PNG")).toBe("image");
     expect(assetKind("music/town.mp3")).toBe("audio");
     expect(assetKind("project.json")).toBe("json");
+  });
+
+  it("knows skies, cubemaps and cube environments, none of which open in the Code panel", () => {
+    expect(assetKind("skies/day.sky.json")).toBe("sky");
+    expect(assetKind("skies/Day.SKY.json")).toBe("sky");
+    expect(assetKind("skies/box.cubemap.json")).toBe("cubemap");
+    for (const p of ["env/studio.hdr", "env/studio.exr", "env/room.env", "env/room.DDS"]) expect(assetKind(p), p).toBe("environment");
+    for (const k of ["sky", "cubemap", "environment"] as const) expect(opensInCodePanel(k), k).toBe(false);
+    expect(opensInCodePanel("json")).toBe(true);
   });
 });
 
