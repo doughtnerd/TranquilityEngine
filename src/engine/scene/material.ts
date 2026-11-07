@@ -10,6 +10,11 @@
  *   "texture": "asset:textures/a.png",  // base colour texture, multiplied by color (default none)
  *   "tiling": [1, 1],                   // how often the textures repeat across the mesh (default once)
  *   "normalMap": "",                    // lit: tangent-space normal map (default none)
+ *   "normalScale": 1,                   // lit: the normal map's strength
+ *   "emissionMap": "", "emissionIntensity": 1,     // lit: emission texture (times emission) and a multiplier (HDR glow)
+ *   "metalRoughMap": "",                // lit: roughness in green, metalness in blue (glTF's layout), times the factors
+ *   "occlusionMap": "", "occlusionStrength": 1,    // lit: ambient occlusion in red
+ *   "alphaMode": "auto", "alphaCutoff": 0.5,       // "auto" (blend when color alpha < 1) | "opaque" | "blend" | "mask" (cut out below alphaCutoff)
  *   "metalness": 0,                     // lit: 0 (default) … 1
  *   "roughness": 0.5,                   // lit: 0 (mirror) … 1 (default 0.5)
  *   "emission": "#000000",              // lit: light the surface gives off (default none)
@@ -19,6 +24,9 @@
  *   "iridescence": 0, "iridescenceIOR": 1.3,        // physical only: 0 … 1, 1 … 2.333
  *   "anisotropy": 0, "anisotropyRotation": 0,       // physical only: 0 … 1, degrees
  *   "specularIntensity": 1, "specularColor": "#ffffff", // physical only: 0 … 1
+ *   "attenuationColor": "#ffffff", "attenuationDistance": 0, // physical only: glass tint reached after that many metres (0: none)
+ *   "iridescenceThicknessMin": 100, "iridescenceThicknessMax": 400, // physical only: film thickness range, nanometres
+ *   "clearcoatMap": "", "clearcoatNormalMap": "", "clearcoatNormalScale": 1, … // physical only: each layer's texture (ADR 0118, MATERIAL_MAPS)
  *   "doubleSided": false,               // draw back faces too (default false)
  *   "fog": true,                        // take the World's Fog (default true; false for glows, ADR 0071)
  *   "properties": { "Tint": "#ff0000" }, // shader graph and shader asset materials: values for the shader's properties
@@ -68,8 +76,34 @@ export function materialGraphOfJson(raw: unknown): string | null {
   return graph;
 }
 
+/**
+ * The texture slots of the built-in shaders beyond `texture` and `normalMap` (ADR 0118), with glTF's
+ * channel layout so a model's materials extract without loss. `srgb`: a colour texture (the rest are data).
+ */
+export const MATERIAL_MAPS = [
+  { key: "emissionMap", label: "Emission Map", shader: "lit", srgb: true },
+  { key: "metalRoughMap", label: "Metal/Rough Map", shader: "lit", srgb: false },
+  { key: "occlusionMap", label: "Occlusion Map", shader: "lit", srgb: false },
+  { key: "clearcoatMap", label: "Clearcoat Map", shader: "physical", group: "Clearcoat", srgb: false },
+  { key: "clearcoatRoughnessMap", label: "Clearcoat Roughness Map", shader: "physical", group: "Clearcoat", srgb: false },
+  { key: "clearcoatNormalMap", label: "Clearcoat Normal Map", shader: "physical", group: "Clearcoat", srgb: false },
+  { key: "sheenColorMap", label: "Sheen Color Map", shader: "physical", group: "Sheen", srgb: true },
+  { key: "sheenRoughnessMap", label: "Sheen Roughness Map", shader: "physical", group: "Sheen", srgb: false },
+  { key: "transmissionMap", label: "Transmission Map", shader: "physical", group: "Transmission", srgb: false },
+  { key: "thicknessMap", label: "Thickness Map", shader: "physical", group: "Transmission", srgb: false },
+  { key: "iridescenceMap", label: "Iridescence Map", shader: "physical", group: "Iridescence", srgb: false },
+  { key: "iridescenceThicknessMap", label: "Iridescence Thickness Map", shader: "physical", group: "Iridescence", srgb: false },
+  { key: "anisotropyMap", label: "Anisotropy Map", shader: "physical", group: "Anisotropy", srgb: false },
+  { key: "specularIntensityMap", label: "Specular Intensity Map", shader: "physical", group: "Specular", srgb: false },
+  { key: "specularColorMap", label: "Specular Color Map", shader: "physical", group: "Specular", srgb: true },
+] as const satisfies readonly { key: string; label: string; shader: "lit" | "physical"; group?: string; srgb: boolean }[];
+export type MaterialMapKey = (typeof MATERIAL_MAPS)[number]["key"];
+
+/** How a material's alpha is used: `auto` blends when the colour's alpha is below 1 (ADR 0043); `mask` cuts out below `alphaCutoff`. */
+export type MaterialAlphaMode = "auto" | "opaque" | "blend" | "mask";
+
 /** A material asset's settings. */
-export interface MaterialSettings {
+export interface MaterialSettings extends Record<MaterialMapKey, string> {
   shader: MaterialShader;
   /** Base colour; its alpha below 1 makes the material see-through. */
   color: Color;
@@ -83,6 +117,23 @@ export interface MaterialSettings {
   roughness: number;
   /** Emitted colour (black: none). Lit only. */
   emission: Color;
+  /** Multiplies the emission (above 1 for HDR glow, as glTF's emissive strength). Lit only. */
+  emissionIntensity: number;
+  /** The normal map's strength. */
+  normalScale: number;
+  /** The occlusion map's strength, 0–1. */
+  occlusionStrength: number;
+  alphaMode: MaterialAlphaMode;
+  /** `mask`: alpha below this is cut out. */
+  alphaCutoff: number;
+  /** The clearcoat normal map's strength. Physical only. */
+  clearcoatNormalScale: number;
+  /** Physical only: the colour light inside a transmissive volume turns after `attenuationDistance` metres (0: no tint). */
+  attenuationColor: Color;
+  attenuationDistance: number;
+  /** Physical only: iridescence film thickness range in nanometres (the thickness map picks between them). */
+  iridescenceThicknessMin: number;
+  iridescenceThicknessMax: number;
   /** Physical only: clear lacquer layer strength, 0–1, and its roughness. */
   clearcoat: number;
   clearcoatRoughness: number;
@@ -117,6 +168,17 @@ export interface MaterialSettings {
 export type MaterialInstancing = "auto" | "thin" | "off";
 
 export const defaultMaterialSettings = (): MaterialSettings => ({
+  ...(Object.fromEntries(MATERIAL_MAPS.map((m) => [m.key, ""])) as Record<MaterialMapKey, string>),
+  emissionIntensity: 1,
+  normalScale: 1,
+  occlusionStrength: 1,
+  alphaMode: "auto",
+  alphaCutoff: 0.5,
+  clearcoatNormalScale: 1,
+  attenuationColor: Color.white,
+  attenuationDistance: 0,
+  iridescenceThicknessMin: 100,
+  iridescenceThicknessMax: 400,
   shader: "lit",
   color: Color.white,
   texture: "",
@@ -147,6 +209,17 @@ export const defaultMaterialSettings = (): MaterialSettings => ({
 });
 
 type PhysicalNumberKey = "clearcoat" | "clearcoatRoughness" | "sheen" | "sheenRoughness" | "transmission" | "thickness" | "ior" | "iridescence" | "iridescenceIOR" | "anisotropy" | "specularIntensity";
+/** Numbers of ADR 0118 with their allowed range. */
+const EXTRA_NUMBERS: readonly { key: "emissionIntensity" | "normalScale" | "occlusionStrength" | "alphaCutoff" | "clearcoatNormalScale" | "attenuationDistance" | "iridescenceThicknessMin" | "iridescenceThicknessMax"; min: number; max: number; expected: string }[] = [
+  { key: "emissionIntensity", min: 0, max: Infinity, expected: "a number of 0 or more" },
+  { key: "normalScale", min: -Infinity, max: Infinity, expected: "a number" },
+  { key: "occlusionStrength", min: 0, max: 1, expected: "a number from 0 to 1" },
+  { key: "alphaCutoff", min: 0, max: 1, expected: "a number from 0 to 1" },
+  { key: "clearcoatNormalScale", min: -Infinity, max: Infinity, expected: "a number" },
+  { key: "attenuationDistance", min: 0, max: Infinity, expected: "a number of 0 or more (0: no tint)" },
+  { key: "iridescenceThicknessMin", min: 0, max: Infinity, expected: "a number of nanometres" },
+  { key: "iridescenceThicknessMax", min: 0, max: Infinity, expected: "a number of nanometres" },
+];
 const PHYSICAL_UNIT_KEYS: PhysicalNumberKey[] = ["clearcoat", "clearcoatRoughness", "sheen", "sheenRoughness", "transmission", "iridescence", "anisotropy", "specularIntensity"];
 const PHYSICAL_NUMBER_KEYS: (PhysicalNumberKey | "anisotropyRotation")[] = [...PHYSICAL_UNIT_KEYS, "thickness", "ior", "iridescenceIOR", "anisotropyRotation"];
 
@@ -206,6 +279,23 @@ export function parseMaterial(raw: unknown, where = "material"): { settings: Mat
   settings.emission = color("emission", settings.emission);
   path("texture");
   path("normalMap");
+  for (const { key } of MATERIAL_MAPS) {
+    const v = raw[key];
+    if (v === undefined) continue;
+    if (typeof v === "string") settings[key] = v;
+    else bad(key, "an asset path");
+  }
+  for (const { key, min, max, expected } of EXTRA_NUMBERS) {
+    const v = raw[key];
+    if (v === undefined) continue;
+    if (typeof v === "number" && Number.isFinite(v) && v >= min && v <= max) settings[key] = v;
+    else bad(key, expected);
+  }
+  if (raw.alphaMode !== undefined) {
+    if (raw.alphaMode === "auto" || raw.alphaMode === "opaque" || raw.alphaMode === "blend" || raw.alphaMode === "mask") settings.alphaMode = raw.alphaMode;
+    else bad("alphaMode", '"auto", "opaque", "blend" or "mask"');
+  }
+  settings.attenuationColor = color("attenuationColor", settings.attenuationColor);
   unit("metalness");
   unit("roughness");
   for (const key of PHYSICAL_UNIT_KEYS) ranged(key, 0, 1, "a number from 0 to 1");
@@ -261,6 +351,10 @@ export function materialJSON(settings: MaterialSettings): Record<string, unknown
   for (const key of PHYSICAL_NUMBER_KEYS) if (settings[key] !== d[key]) out[key] = settings[key];
   if (colorHex(settings.sheenColor) !== colorHex(d.sheenColor)) out.sheenColor = colorHex(settings.sheenColor);
   if (colorHex(settings.specularColor) !== colorHex(d.specularColor)) out.specularColor = colorHex(settings.specularColor);
+  for (const { key } of MATERIAL_MAPS) if (settings[key]) out[key] = settings[key];
+  for (const { key } of EXTRA_NUMBERS) if (settings[key] !== d[key]) out[key] = settings[key];
+  if (settings.alphaMode !== d.alphaMode) out.alphaMode = settings.alphaMode;
+  if (colorHex(settings.attenuationColor) !== colorHex(d.attenuationColor)) out.attenuationColor = colorHex(settings.attenuationColor);
   if (settings.doubleSided) out.doubleSided = true;
   if (!settings.fog) out.fog = false;
   if (Object.keys(settings.keywords).length) out.keywords = { ...settings.keywords };

@@ -2,6 +2,7 @@
  * Scene and prefab files (ADR 0013, 0016). Scenes and prefabs share one JSON format; a prefab
  * is a scene file with a single root node, instanced inside another scene or at runtime.
  */
+import { migratePartPivots } from "./pivotMigration";
 import { Component } from "../core/Component";
 import { getDataComponentDef } from "../core/data";
 import { Color, Quaternion, Vector2, Vector3 } from "../core/math";
@@ -11,7 +12,8 @@ import { Assets } from "./Assets";
 import { GameObject, _componentAllowedIn, type InstantiateOptions } from "./GameObject";
 
 export const SCENE_FORMAT = "myco.scene";
-export const CURRENT_FORMAT_VERSION = 1;
+/** 2: model part references are node-pivoted by default; version 1 ones are pinned to model space (ADR 0118, `pivotMigration.ts`). */
+export const CURRENT_FORMAT_VERSION = 2;
 
 export interface ComponentEntry {
   type: string;
@@ -85,7 +87,7 @@ export interface SceneFile {
 }
 
 type Migration = (file: SceneFile) => SceneFile;
-const migrations = new Map<number, Migration>();
+const migrations = new Map<number, Migration>([[1, migratePartPivots]]);
 
 /** Register an upgrade from format version `from` to `from + 1`. */
 export function registerSceneMigration(from: number, migrate: Migration): void {

@@ -14,7 +14,9 @@ import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Color as EngineColor, type Color } from "../../core/math";
-import type { MaterialSettings } from "../../scene/material";
+import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
+import type { MaterialMapKey, MaterialSettings } from "../../scene/material";
+import { MATERIAL_MAPS as MATERIAL_MAPS_LIST } from "../../scene/material";
 import { DEFAULT_SLOT, type ModelMesh, type SurfaceInfo, type TextureInfo } from "../../scene/models";
 import type { GraphValue } from "../../scene/shaderGraph";
 
@@ -173,10 +175,137 @@ export function surfaceMaterial(scene: Scene, cache: WeakMap<object, BabylonMate
     made.iridescence.isEnabled = p.iridescence > 0;
     made.iridescence.intensity = p.iridescence;
     made.iridescence.indexOfRefraction = p.iridescenceIOR;
+    applyLayerExtras(scene, made, surface);
   }
   m = made;
   cache.set(surface, m);
   return m;
+}
+
+/**
+ * The physical layers' textures, volume attenuation, iridescence thickness and anisotropy of a glTF
+ * surface (ADR 0118), with glTF's channels, as Babylon's own glTF loader sets them.
+ */
+function applyLayerExtras(scene: Scene, made: PBRMaterial, surface: SurfaceInfo): void {
+  const p = surface.physical!;
+  const maps = surface.layerMaps ?? {};
+  const scales = { clearcoatNormalScale: surface.clearcoatNormalScale ?? 1 };
+  for (const [key, info] of Object.entries(maps) as [keyof typeof maps, TextureInfo][]) {
+    const mapKey = `${key}Map` as MaterialMapKey;
+    setMaterialMap(made, mapKey, surfaceTexture(scene, info, !SRGB_MAPS.has(mapKey)), scales);
+  }
+  setPhysicalExtras(made, {
+    attenuationColor: p.attenuationColor && p.attenuationDistance !== undefined ? new Color3(p.attenuationColor[0], p.attenuationColor[1], p.attenuationColor[2]) : null,
+    attenuationDistance: p.attenuationDistance ?? 0,
+    iridescenceThickness: p.iridescenceThickness ?? null,
+  });
+  // Anisotropy (KHR_materials_anisotropy): direction in RG, strength in B of its texture.
+  if (p.anisotropy !== undefined) {
+    made.anisotropy.isEnabled = true;
+    made.anisotropy.legacy = false;
+    made.anisotropy.intensity = p.anisotropy;
+    made.anisotropy.angle = p.anisotropyRotation ?? 0;
+  }
+}
+
+/** The colour (sRGB) texture slots; the others are data. */
+const SRGB_MAPS = new Set<MaterialMapKey>(["emissionMap", "sheenColorMap", "specularColorMap"]);
+
+/**
+ * A built-in texture slot (ADR 0118) on Babylon's PBR material, with glTF's channel layout, as Babylon's
+ * own glTF loader sets them: emission (RGB), metal/rough (G roughness, B metalness), occlusion (R),
+ * clearcoat (R) and its roughness (G) and normal, sheen colour (RGB) and roughness (A), transmission (R)
+ * and thickness (G), iridescence (R) and its thickness (G), anisotropy (RG direction, B strength),
+ * specular strength (A) and colour (RGB). Shared by material assets and model surfaces.
+ */
+export function setMaterialMap(m: PBRMaterial, key: MaterialMapKey, tex: BaseTexture | null, scales: { occlusionStrength?: number; clearcoatNormalScale?: number } = {}): void {
+  if (!tex) return;
+  switch (key) {
+    case "emissionMap":
+      m.emissiveTexture = tex;
+      break;
+    case "metalRoughMap":
+      m.metallicTexture = tex;
+      m.useRoughnessFromMetallicTextureAlpha = false;
+      m.useRoughnessFromMetallicTextureGreen = true;
+      m.useMetallnessFromMetallicTextureBlue = true;
+      break;
+    case "occlusionMap":
+      m.ambientTexture = tex;
+      m.useAmbientInGrayScale = true;
+      m.ambientTextureStrength = scales.occlusionStrength ?? 1;
+      break;
+    case "clearcoatMap":
+      m.clearCoat.remapF0OnInterfaceChange = false;
+      m.clearCoat.texture = tex;
+      break;
+    case "clearcoatRoughnessMap":
+      m.clearCoat.textureRoughness = tex;
+      m.clearCoat.useRoughnessFromMainTexture = false;
+      break;
+    case "clearcoatNormalMap":
+      tex.level = scales.clearcoatNormalScale ?? 1;
+      m.clearCoat.bumpTexture = tex;
+      break;
+    case "sheenColorMap":
+      m.sheen.albedoScaling = true;
+      m.sheen.texture = tex;
+      break;
+    case "sheenRoughnessMap":
+      m.sheen.albedoScaling = true;
+      m.sheen.textureRoughness = tex;
+      m.sheen.useRoughnessFromMainTexture = false;
+      break;
+    case "transmissionMap":
+      m.subSurface.useGltfStyleTextures = true;
+      m.subSurface.refractionIntensityTexture = tex;
+      break;
+    case "thicknessMap":
+      m.subSurface.useGltfStyleTextures = true;
+      m.subSurface.thicknessTexture = tex;
+      break;
+    case "iridescenceMap":
+      m.iridescence.texture = tex;
+      break;
+    case "iridescenceThicknessMap":
+      m.iridescence.thicknessTexture = tex;
+      break;
+    case "anisotropyMap":
+      m.anisotropy.legacy = false;
+      m.anisotropy.texture = tex;
+      break;
+    case "specularIntensityMap":
+      m.metallicReflectanceTexture = tex;
+      m.useOnlyMetallicFromMetallicReflectanceTexture = true;
+      break;
+    case "specularColorMap":
+      m.reflectanceTexture = tex;
+      break;
+  }
+}
+
+/** True for a texture slot holding colours (sRGB) rather than data. */
+export const isSrgbMap = (key: MaterialMapKey): boolean => SRGB_MAPS.has(key);
+
+/** Volume tint and iridescence thickness range (ADR 0118), shared by material assets and model surfaces. */
+function setPhysicalExtras(m: PBRMaterial, x: { attenuationColor: Color3 | null; attenuationDistance: number; iridescenceThickness: readonly [number, number] | null }): void {
+  if (x.attenuationColor && x.attenuationDistance > 0) {
+    m.subSurface.tintColor = x.attenuationColor;
+    m.subSurface.tintColorAtDistance = x.attenuationDistance;
+  }
+  if (x.iridescenceThickness) {
+    m.iridescence.minimumThickness = x.iridescenceThickness[0];
+    m.iridescence.maximumThickness = x.iridescenceThickness[1];
+  }
+}
+
+/**
+ * The surface slot `i` of a model mesh draws with `variant` picked (ADR 0118): the variant's surface
+ * where it maps that slot, else the default. `pick` is still asked with the default surface, so slot
+ * material assets (keyed by the default slots, ADR 0089) win over the variant.
+ */
+function variantSurface(src: ModelMesh, i: number, variant: string | undefined): SurfaceInfo {
+  return (variant && src.variantSurfaces?.[variant]?.[i]) || src.surfaces[i] || src.surfaces[0];
 }
 
 /**
@@ -193,11 +322,12 @@ export function modelMaterial(
   mesh: Mesh,
   pick: (surface: SurfaceInfo) => BabylonMaterial | null = () => null,
   made?: BabylonMaterial[],
+  variant?: string,
 ): BabylonMaterial | null {
   if (!src.surfaces.length) return pick(DEFAULT_SLOT);
   const one = (i: number) => {
     const surface = src.surfaces[i] ?? src.surfaces[0];
-    return pick(surface) ?? surfaceMaterial(scene, cache, surface, src.name);
+    return pick(surface) ?? surfaceMaterial(scene, cache, variantSurface(src, i, variant), src.name);
   };
   const groups = src.data.groups;
   if (src.surfaces.length < 2 || groups.length < 2) return one(0);
@@ -224,11 +354,12 @@ export function modelBaseMaterial(
   src: ModelMesh,
   pick: (surface: SurfaceInfo) => BabylonMaterial | null = () => null,
   multis: WeakMap<object, Map<string, MultiMaterial>> = new WeakMap(),
+  variant?: string,
 ): BabylonMaterial | null {
   if (!src.surfaces.length) return pick(DEFAULT_SLOT);
   const one = (i: number) => {
     const surface = src.surfaces[i] ?? src.surfaces[0];
-    return pick(surface) ?? surfaceMaterial(scene, cache, surface, src.name);
+    return pick(surface) ?? surfaceMaterial(scene, cache, variantSurface(src, i, variant), src.name);
   };
   if (src.surfaces.length < 2 || src.data.groups.length < 2) return one(0);
   const subs = src.surfaces.map((_, i) => one(i));
@@ -266,16 +397,23 @@ export function applyBuiltinSettings(m: PBRMaterial, settings: MaterialSettings)
   m.albedoColor = linear(settings.color);
   m.backFaceCulling = !settings.doubleSided;
   m.twoSidedLighting = settings.doubleSided;
-  if (settings.color.a < 1) {
+  // Alpha (ADR 0118): "auto" blends when the colour's alpha is below 1 (ADR 0043).
+  const mode = settings.alphaMode === "auto" ? (settings.color.a < 1 ? "blend" : null) : settings.alphaMode;
+  if (mode === "blend") {
     m.alpha = settings.color.a;
     m.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-  }
+    m.useAlphaFromAlbedoTexture = settings.alphaMode === "blend";
+  } else if (mode === "mask") {
+    m.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHATEST;
+    m.alphaCutOff = settings.alphaCutoff;
+    m.useAlphaFromAlbedoTexture = true;
+  } else if (mode === "opaque") m.transparencyMode = PBRMaterial.PBRMATERIAL_OPAQUE;
   if (settings.shader === "unlit") {
     m.unlit = true;
   } else {
     m.metallic = settings.metalness;
     m.roughness = settings.roughness;
-    m.emissiveColor = linear(settings.emission);
+    m.emissiveColor = linear(settings.emission).scale(settings.emissionIntensity);
   }
   if (settings.shader === "physical") {
     m.clearCoat.isEnabled = settings.clearcoat > 0;
@@ -297,7 +435,36 @@ export function applyBuiltinSettings(m: PBRMaterial, settings: MaterialSettings)
     m.anisotropy.angle = (settings.anisotropyRotation * Math.PI) / 180;
     m.metallicF0Factor = settings.specularIntensity;
     m.metallicReflectanceColor = linear(settings.specularColor);
+    setPhysicalExtras(m, {
+      attenuationColor: linear(settings.attenuationColor),
+      attenuationDistance: settings.attenuationDistance,
+      iridescenceThickness: settings.iridescenceThicknessMin !== 100 || settings.iridescenceThicknessMax !== 400 ? [settings.iridescenceThicknessMin, settings.iridescenceThicknessMax] : null,
+    });
   }
+}
+
+/**
+ * Every texture slot of a built-in material asset (ADR 0043, 0118) that its shader uses, with its
+ * image path (no `asset:`): the base texture, the normal map, then `MATERIAL_MAPS`. `apply` puts a
+ * loaded texture in its slot. Shared by the World renderer and the previews.
+ */
+export function builtinTextureSlots(m: PBRMaterial, settings: MaterialSettings): { image: string; srgb: boolean; apply: (tex: Texture) => void }[] {
+  const out: { image: string; srgb: boolean; apply: (tex: Texture) => void }[] = [];
+  const add = (ref: string, srgb: boolean, apply: (tex: Texture) => void) => {
+    const image = ref.replace(/^asset:/, "");
+    if (image) out.push({ image, srgb, apply });
+  };
+  add(settings.texture, true, (tex) => (m.albedoTexture = tex));
+  if (settings.shader === "unlit") return out;
+  add(settings.normalMap, false, (tex) => {
+    tex.level = settings.normalScale;
+    m.bumpTexture = tex;
+  });
+  for (const slot of MATERIAL_MAPS_LIST) {
+    if (slot.shader === "physical" && settings.shader !== "physical") continue;
+    add(settings[slot.key], slot.srgb, (tex) => setMaterialMap(m, slot.key, tex, settings));
+  }
+  return out;
 }
 
 /** A texture sharing `shared`'s image with its own tiling (a material's `tiling`); `shared` itself when it's 1×1. */

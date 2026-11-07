@@ -1,5 +1,5 @@
 {
-  "format": "myco.scene@1",
+  "format": "myco.scene@2",
   "settings": {
     "physics": "3d"
   },
@@ -170,7 +170,7 @@
         {
           "type": "engine.MeshRenderer",
           "data": {
-            "mesh": "asset:models/robot.fbx#Body",
+            "mesh": "asset:models/robot.fbx#Body#model",
             "material": "asset:materials/metal.material.json"
           }
         }
@@ -188,7 +188,7 @@
         {
           "type": "engine.MeshRenderer",
           "data": {
-            "mesh": "asset:models/robot.fbx#Head"
+            "mesh": "asset:models/robot.fbx#Head#model"
           }
         }
       ]

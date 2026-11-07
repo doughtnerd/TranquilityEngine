@@ -1,7 +1,8 @@
+import { backFromPrefab, prefabOrigin } from "../prefabTabs";
 import { effect } from "@preact/signals";
 import { useLayoutEffect, useRef } from "preact/hooks";
 import { cleanSnap, snapSettings } from "../sceneTools";
-import { pickTool, playState, sceneCamera, setViewMode, snapping, tool, viewMode, type Tool } from "../state";
+import { openScene, pickTool, playState, sceneCamera, setViewMode, snapping, tool, viewMode, type Tool } from "../state";
 import { ViewportDropHighlight } from "./AssetDragOverlay";
 import { CameraPreviewFrame, SceneToolButtons } from "./SceneTools";
 import { ParticlePreviewOverlay } from "./ParticlePreviewOverlay";
@@ -27,6 +28,24 @@ export function viewportElements(): { viewport: HTMLDivElement; gameView: HTMLDi
   return elements;
 }
 
+/** While editing a prefab opened from an instance (ADR 0122): which prefab, from where, and Back. */
+function PrefabBar() {
+  const from = prefabOrigin();
+  const scene = openScene.value;
+  if (!from || !scene) return null;
+  const name = from.split("/").pop()!.replace(/\.(scene|prefab)\.json$/i, "");
+  return (
+    <div class="prefab-bar" role="status">
+      <button class="prefab-back" onClick={() => void backFromPrefab()} title={`Back to ${from}`}>
+        ← Back to {name}
+      </button>
+      <span>
+        Editing prefab <code>{scene.path}</code> from {name}
+      </span>
+    </div>
+  );
+}
+
 /**
  * The Scene panel: a toolbar (tools, 3D/2D, Focus) over the scene view (and the game, while
  * playing), a movable panel like any other.
@@ -46,6 +65,7 @@ export function ScenePanel() {
   return (
     <div class="scene-panel">
       <SceneTabs />
+      <PrefabBar />
       <SceneToolbar />
       <div class="viewport-panel">
         <div ref={host} class="viewport-host" />

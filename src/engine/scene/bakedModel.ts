@@ -4,7 +4,7 @@
  * (`models/robot.fbx` → `models/robot.fbx.mycomesh`). Loading one needs no model loader, no parsing
  * and no three.js: typed arrays are views of the file's bytes. Internal: nothing here is public API.
  *
- * Layout (little-endian): the magic `MYCOMESH`, a u32 version (1), a u32 JSON length, the JSON
+ * Layout (little-endian): the magic `MYCOMESH`, a u32 version (2), a u32 JSON length, the JSON
  * (UTF-8, padded with spaces to 4 bytes), then the binary data every offset in the JSON points into
  * (each 4-byte aligned).
  *
@@ -12,19 +12,21 @@
  * {
  *   "settings": { "scale": 1, "upAxis": "y", "normals": "import" },  // what it was baked with
  *   "meshes": [{ "name": "Body", "path": ["Robot"], "positions": [offset, count], "normals": …,
- *                "uvs": …, "uvs2": …, "colors": …, "indices": [offset, count], "groups": […], "surfaces": [0, 1] }],
+ *                "uvs": …, "uvs2": …, "colors": …, "indices": [offset, count], "groups": […], "surfaces": [0, 1],
+ *                "pose": { … }, "variantSurfaces": { "Red": [2, 1] } }],          // pose, variants: ADR 0118
  *   "surfaces": [{ …SurfaceInfo, textures as { "path": "textures/a.png" } or { "image": 0 } }],
+ *   "nodes": [{ …ModelNode }], "variants": ["Red", "Blue"],                     // ADR 0118
  *   "images": [{ "offset": 0, "length": 1234, "mimeType": "image/png" }]
  * }
  * ```
  */
 import type { ImportSettings } from "./importSettings";
-import type { MeshData, ModelData, ModelMesh, SurfaceInfo, TextureInfo } from "./models";
+import { LAYER_MAP_KEYS, type MeshData, type ModelData, type ModelMesh, type ModelNode, type NodePose, type SurfaceInfo, type TextureInfo } from "./models";
 
 /** @internal The suffix of a baked model beside its model file. */
 export const BAKED_SUFFIX = ".mycomesh";
 const MAGIC = "MYCOMESH";
-const VERSION = 1;
+const VERSION = 2; // 2: node poses, lights and cameras, layer textures, variants (ADR 0118)
 
 type BakeSettings = Pick<ImportSettings, "scale" | "upAxis" | "normals">;
 type Range = [offset: number, count: number];
@@ -43,9 +45,13 @@ interface BakedJson {
     indices: Range;
     groups: MeshData["groups"];
     surfaces: number[];
+    pose?: NodePose;
+    variantSurfaces?: Record<string, number[]>;
   }[];
   surfaces: Record<string, unknown>[];
   images: { offset: number; length: number; mimeType: string | null }[];
+  nodes?: ModelNode[];
+  variants?: string[];
 }
 
 const TEXTURE_KEYS = ["map", "emissiveMap", "normalMap", "metalRoughMap", "occlusionMap"] as const;
@@ -97,6 +103,11 @@ export function encodeBakedModel(data: ModelData, settings: BakeSettings): { byt
     if (i !== undefined) return i;
     const out: Record<string, unknown> = { ...s };
     for (const key of TEXTURE_KEYS) if (key in s) out[key] = texture(s[key], `${s.name} ${key}`);
+    if (s.layerMaps) {
+      const maps: Record<string, BakedTexture | null> = {};
+      for (const key of LAYER_MAP_KEYS) if (s.layerMaps[key]) maps[key] = texture(s.layerMaps[key], `${s.name} ${key} map`);
+      out.layerMaps = maps;
+    }
     surfaceIndex.set(s, (i = surfaces.length));
     surfaces.push(out);
     return i;
@@ -112,8 +123,17 @@ export function encodeBakedModel(data: ModelData, settings: BakeSettings): { byt
     indices: array(m.data.indices)!,
     groups: m.data.groups.map((g) => ({ ...g })),
     surfaces: m.surfaces.map(surfaceOf),
+    ...(m.pose ? { pose: m.pose } : {}),
+    ...(m.variantSurfaces ? { variantSurfaces: Object.fromEntries(Object.entries(m.variantSurfaces).map(([k, list]) => [k, list.map(surfaceOf)])) } : {}),
   }));
-  const json: BakedJson = { settings: { scale: settings.scale, upAxis: settings.upAxis, normals: settings.normals }, meshes, surfaces, images };
+  const json: BakedJson = {
+    settings: { scale: settings.scale, upAxis: settings.upAxis, normals: settings.normals },
+    meshes,
+    surfaces,
+    images,
+    ...(data.nodes?.length ? { nodes: [...data.nodes] } : {}),
+    ...(data.variants?.length ? { variants: [...data.variants] } : {}),
+  };
   let text = new TextEncoder().encode(JSON.stringify(json));
   if (text.length % 4) {
     const padded = new Uint8Array(text.length + ((4 - (text.length % 4)) % 4)).fill(0x20);
@@ -182,6 +202,14 @@ export function decodeBakedModel(bytes: ArrayBuffer, settings: BakeSettings, url
   const surfaces = json.surfaces.map((raw): SurfaceInfo => {
     const s = { ...raw } as Record<string, unknown>;
     for (const key of TEXTURE_KEYS) if (key in s) s[key] = texture(s[key] as BakedTexture | null);
+    if (s.layerMaps) {
+      const maps: Record<string, TextureInfo> = {};
+      for (const [key, t] of Object.entries(s.layerMaps as Record<string, BakedTexture | null>)) {
+        const info = texture(t);
+        if (info) maps[key] = info;
+      }
+      s.layerMaps = maps;
+    }
     return s as unknown as SurfaceInfo;
   });
   const meshes = json.meshes.map((m): ModelMesh => {
@@ -195,7 +223,15 @@ export function decodeBakedModel(bytes: ArrayBuffer, settings: BakeSettings, url
       groups: m.groups,
     };
     // No three.js geometry: everything reads `data`, so a baked game never loads three.js (ADR 0082, 0090).
-    return { name: m.name, path: m.path, materials: [], data, surfaces: m.surfaces.map((i) => surfaces[i]) };
+    return {
+      name: m.name,
+      path: m.path,
+      materials: [],
+      data,
+      surfaces: m.surfaces.map((i) => surfaces[i]),
+      ...(m.pose ? { pose: m.pose } : {}),
+      ...(m.variantSurfaces ? { variantSurfaces: Object.fromEntries(Object.entries(m.variantSurfaces).map(([k, list]) => [k, list.map((i) => surfaces[i])])) } : {}),
+    };
   });
-  return { meshes };
+  return { meshes, ...(json.nodes ? { nodes: json.nodes } : {}), ...(json.variants ? { variants: json.variants } : {}) };
 }

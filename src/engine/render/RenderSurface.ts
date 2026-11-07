@@ -89,6 +89,12 @@ export interface ParticleStats {
 export interface RenderSurface {
   /** The canvas the World draws to; input listens to it. */
   readonly canvas: HTMLCanvasElement;
+  /**
+   * The canvas's CSS size (`clientWidth` x `clientHeight`) without forcing a layout per call: the
+   * surface keeps it up to date (`CanvasCssSize`). The camera's maths reads it many times a frame.
+   * Surfaces without it are read through `canvas` directly.
+   */
+  canvasCssSize?(): { readonly width: number; readonly height: number };
   /** Step 8 of the frame: mirror the World's render components into the renderer. */
   sync(world: World): void;
   /** Draw the World's cameras, then its UI. */

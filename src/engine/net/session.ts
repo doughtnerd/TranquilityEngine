@@ -101,9 +101,10 @@ import "./transport/websocket";
  * Bumped whenever the wire format or handshake changes; both ends must match. (2: field shapes in
  * replication spawns. 3: a join ticket at the end of `hello`, `str` RPC fields and replicated
  * string behavior fields, ADR 0067/0068. 4: a string table, active flags and parents in
- * replication, ADR 0100.)
+ * replication, ADR 0100. 5: relevancy leaves, relayouts, sibling order and disabled components,
+ * ADR 0121.)
  */
-export const NET_PROTOCOL_VERSION = 4;
+export const NET_PROTOCOL_VERSION = 5;
 
 /** How often a client pings its server, for RTT and the server-tick estimate. */
 export const PING_INTERVAL_MS = 100;

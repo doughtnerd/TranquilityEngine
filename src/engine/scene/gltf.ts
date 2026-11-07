@@ -15,14 +15,19 @@
  * - **Primitives of one mesh merge** into one geometry with a group per primitive, so a glTF mesh
  *   is one engine mesh with a material slot per primitive (ADR 0089).
  *
+ * - **Lights, cameras and variants** (ADR 0118): `KHR_lights_punctual` lights and cameras are tagged
+ *   with their engine values (`userData.mycoLight`, `mycoCamera`) for the bake to record as nodes;
+ *   `KHR_materials_variants` materials are loaded beside the defaults (`userData.mycoVariantMaterials`
+ *   per mesh, by variant name, one entry per material slot; the root's `userData.mycoVariants` lists the names).
+ *
  * Ignored (for the animation design to pick up, ADR 0088): skins (skinned meshes bake in their bind
- * pose), animations, morph targets (the base shape is used), cameras, lights, and scenes other than
- * the default one.
+ * pose), animations, morph targets (the base shape is used), and scenes other than the default one.
  */
 // Types only: three.js is imported with the first glTF parse (`parseGltf`), never at start-up
 // (ADR 0082, 0088). The helpers below take three's classes from `lib()`.
 import type { BufferGeometry, Group, Material, Mesh, Object3D, Texture, Wrapping } from "three";
 import { Assets } from "./Assets";
+import type { ModelCamera, ModelLight } from "./models";
 
 /** What a texture's image is, kept on its three.js texture (`userData.mycoSource`) for the bake. */
 export interface GltfImageSource {
@@ -71,18 +76,35 @@ interface GltfJson {
   buffers?: { uri?: string; byteLength: number }[];
   skins?: unknown[];
   animations?: unknown[];
-  cameras?: unknown[];
+  cameras?: GltfCamera[];
   scenes?: unknown[];
-  meshes?: { primitives: { targets?: unknown[] }[] }[];
+  nodes?: { camera?: number; extensions?: { KHR_lights_punctual?: { light?: number } } }[];
+  meshes?: { primitives: { targets?: unknown[]; material?: number; extensions?: { KHR_materials_variants?: { mappings?: { material: number; variants: number[] }[] } } }[] }[];
+  extensions?: { KHR_lights_punctual?: { lights?: GltfLight[] }; KHR_materials_variants?: { variants?: { name?: string }[] } };
   extensionsUsed?: string[];
   extensionsRequired?: string[];
+}
+
+interface GltfCamera {
+  type: "perspective" | "orthographic";
+  perspective?: { yfov: number; znear: number; zfar?: number };
+  orthographic?: { xmag: number; ymag: number; znear: number; zfar: number };
+}
+
+interface GltfLight {
+  type: "directional" | "point" | "spot";
+  color?: [number, number, number];
+  intensity?: number;
+  range?: number;
+  spot?: { innerConeAngle?: number; outerConeAngle?: number };
 }
 
 /** The minimum of three's GLTFParser this module reaches into. */
 interface Parser {
   json: GltfJson;
-  associations: Map<object, { meshes?: number; primitives?: number; textures?: number }>;
+  associations: Map<object, { meshes?: number; primitives?: number; textures?: number; nodes?: number }>;
   getDependency(type: "bufferView", index: number): Promise<ArrayBuffer>;
+  getDependency(type: "material", index: number): Promise<Material>;
   loadBuffer(index: number): Promise<ArrayBuffer>;
 }
 
@@ -96,6 +118,7 @@ const SUPPORTED_EXTENSIONS = new Set([
   "KHR_materials_ior",
   "KHR_materials_specular",
   "KHR_materials_iridescence",
+  "KHR_materials_anisotropy",
   "KHR_materials_unlit",
   "KHR_texture_transform",
   "KHR_mesh_quantization",
@@ -131,7 +154,10 @@ export async function parseGltf(bytes: ArrayBuffer, files: GltfFiles): Promise<G
   const gltf = await new Promise<{ scene: Object3D; parser: Parser }>((resolve, reject) => {
     loader.parse(bytes, "", (g) => resolve(g as never), (err) => reject(err instanceof Error ? err : new Error(String(err))));
   });
+  notePrimitives(gltf.scene, gltf.parser);
   mergePrimitives(gltf.scene, gltf.parser);
+  tagLightsAndCameras(gltf.scene, gltf.parser);
+  await loadVariants(gltf.scene, gltf.parser);
   markMaterials(gltf.scene);
   return { root: gltf.scene, ignored: ignoredData(json) };
 }
@@ -158,8 +184,6 @@ function ignoredData(json: GltfJson): string[] {
   if (n(json.skins)) out.push(`${n(json.skins)} skin(s) (skinned meshes show their bind pose)`);
   if (n(json.animations)) out.push(`${n(json.animations)} animation(s)`);
   if (json.meshes?.some((m) => m.primitives.some((p) => p.targets?.length))) out.push("morph targets (the base shape is used)");
-  if (n(json.cameras)) out.push(`${n(json.cameras)} camera(s)`);
-  if (json.extensionsUsed?.includes("KHR_lights_punctual")) out.push("lights");
   if (n(json.scenes) > 1) out.push(`${n(json.scenes) - 1} scene(s) besides the default one`);
   return out;
 }
@@ -243,6 +267,7 @@ function mergePrimitives(root: Object3D, parser: Parser): void {
     if (!merged) continue; // primitives with different attributes stay separate meshes
     const mesh = new (lib().Mesh)(merged, parts.map((p) => p.material as Material));
     mesh.name = group.name || parts[0].name;
+    mesh.userData.mycoPrimitives = parts.flatMap((p) => (p.userData.mycoPrimitives as PrimitiveRef[] | undefined) ?? []);
     for (const p of parts) {
       group.remove(p);
       p.geometry.dispose();
@@ -259,6 +284,117 @@ function mergePrimitives(root: Object3D, parser: Parser): void {
       parent.children.splice(at, 0, mesh);
       mesh.parent = parent;
     }
+  }
+}
+
+/** Which glTF primitive each material slot of a three.js mesh came from (for variants). */
+interface PrimitiveRef {
+  mesh: number;
+  primitive: number;
+}
+
+/** Record on each primitive's three.js mesh which glTF primitive it is (`userData.mycoPrimitives`). */
+function notePrimitives(root: Object3D, parser: Parser): void {
+  root.traverse((o) => {
+    const a = parser.associations.get(o);
+    if ((o as Mesh).isMesh && a?.meshes !== undefined && a.primitives !== undefined) o.userData.mycoPrimitives = [{ mesh: a.meshes, primitive: a.primitives }];
+  });
+}
+
+/** The glTF node an object stands for: its own association, or (a light or camera under a mesh node's group) its parent's. */
+function nodeIndex(o: Object3D, parser: Parser): number | undefined {
+  return parser.associations.get(o)?.nodes ?? (o.parent ? parser.associations.get(o.parent)?.nodes : undefined);
+}
+
+/** Tag three's lights and cameras with the engine's values for them, read from the file (ADR 0118). */
+function tagLightsAndCameras(root: Object3D, parser: Parser): void {
+  const json = parser.json;
+  const lights = json.extensions?.KHR_lights_punctual?.lights ?? [];
+  root.traverse((o) => {
+    const flags = o as Object3D & { isLight?: boolean; isCamera?: boolean };
+    if (!flags.isLight && !flags.isCamera) return;
+    const index = nodeIndex(o, parser);
+    const node = index === undefined ? undefined : json.nodes?.[index];
+    if (flags.isLight) {
+      const def = lights[node?.extensions?.KHR_lights_punctual?.light ?? -1];
+      if (def) o.userData.mycoLight = engineLight(def) satisfies ModelLight;
+    } else {
+      const def = json.cameras?.[node?.camera ?? -1];
+      const camera = def && engineCamera(def);
+      if (camera) o.userData.mycoCamera = camera satisfies ModelCamera;
+    }
+  });
+}
+
+/** A linear colour channel as sRGB (the Light component's colour is sRGB). */
+const toSrgb = (c: number) => Math.round((c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055) * 1e6) / 1e6;
+
+/** A KHR_lights_punctual light as the engine Light's values (ADR 0118). */
+export function engineLight(def: GltfLight): ModelLight {
+  const [r, g, b] = def.color ?? [1, 1, 1];
+  const outer = def.spot?.outerConeAngle ?? Math.PI / 4;
+  const inner = def.spot?.innerConeAngle ?? 0;
+  return {
+    type: def.type === "spot" || def.type === "point" ? def.type : "directional",
+    color: [toSrgb(r), toSrgb(g), toSrgb(b)],
+    intensity: def.intensity ?? 1,
+    range: def.range !== undefined && def.range > 0 ? def.range : 0,
+    spotAngle: (2 * outer * 180) / Math.PI,
+    spotSoftness: outer > 0 ? Math.min(1, Math.max(0, 1 - inner / outer)) : 0,
+  };
+}
+
+/** A glTF camera as the engine Camera's values (ADR 0118), or null when it has no parameters. */
+export function engineCamera(def: GltfCamera): ModelCamera | null {
+  if (def.type === "perspective" && def.perspective) {
+    const p = def.perspective;
+    return { projection: "perspective", fieldOfView: (p.yfov * 180) / Math.PI, orthographicSize: 5, near: p.znear > 0 ? p.znear : 0.1, far: p.zfar ?? 1000 };
+  }
+  if (def.type === "orthographic" && def.orthographic) {
+    const o = def.orthographic;
+    return { projection: "orthographic", fieldOfView: 60, orthographicSize: o.ymag, near: o.znear, far: o.zfar };
+  }
+  return null;
+}
+
+/**
+ * KHR_materials_variants (ADR 0118): the variant names on the root (`userData.mycoVariants`) and, on
+ * each mesh a variant changes, its material per slot (`userData.mycoVariantMaterials[name]`, null
+ * where the slot keeps its default).
+ */
+async function loadVariants(root: Object3D, parser: Parser): Promise<void> {
+  const json = parser.json;
+  const names = (json.extensions?.KHR_materials_variants?.variants ?? []).map((v, i) => v.name || `Variant ${i + 1}`);
+  if (!names.length) return;
+  root.userData.mycoVariants = names;
+  const meshes: Mesh[] = [];
+  root.traverse((o) => {
+    if ((o as Mesh).isMesh && o.userData.mycoPrimitives) meshes.push(o as Mesh);
+  });
+  for (const mesh of meshes) {
+    const prims = mesh.userData.mycoPrimitives as PrimitiveRef[];
+    const defaults = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    const byVariant: Record<string, (Material | null)[]> = {};
+    for (const [v, name] of names.entries()) {
+      let any = false;
+      const list = await Promise.all(
+        prims.map(async (ref, slot) => {
+          const mappings = json.meshes?.[ref.mesh]?.primitives[ref.primitive]?.extensions?.KHR_materials_variants?.mappings ?? [];
+          const mapping = mappings.find((m) => m.variants.includes(v));
+          if (!mapping) return null;
+          any = true;
+          let material = await parser.getDependency("material", mapping.material);
+          // As GLTFLoader does for the default material: a mesh with vertex colours draws them.
+          if ((defaults[slot] as Material & { vertexColors?: boolean })?.vertexColors && !(material as Material & { vertexColors?: boolean }).vertexColors) {
+            material = material.clone();
+            (material as Material & { vertexColors?: boolean }).vertexColors = true;
+          }
+          return material;
+        }),
+      );
+      if (any) byVariant[name] = list;
+    }
+    if (Object.keys(byVariant).length) mesh.userData.mycoVariantMaterials = byVariant;
   }
 }
 
@@ -314,7 +450,8 @@ function markMaterials(root: Object3D): void {
   root.traverse((o) => {
     const mesh = o as Mesh;
     if (!mesh.isMesh) return;
-    for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+    const variants = Object.values((mesh.userData.mycoVariantMaterials as Record<string, (Material | null)[]> | undefined) ?? {}).flatMap((l) => l.filter((m): m is Material => !!m));
+    for (const m of [...(Array.isArray(mesh.material) ? mesh.material : [mesh.material]), ...variants]) {
       m.userData.mycoGltf = true;
       if ((m as Material & { isMeshBasicMaterial?: boolean }).isMeshBasicMaterial) m.userData.mycoUnlit = true;
     }

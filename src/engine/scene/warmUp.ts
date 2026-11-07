@@ -13,6 +13,12 @@ export { scriptAssetRefs } from "./scriptAssetRefs";
 export interface WarmMesh {
   mesh: string;
   material: string;
+  /**
+   * The renderer's per-slot material assets (`MeshRenderer.materials`, ADR 0089): slot i draws
+   * `materials[i]` when set, else `material`, else the model's import settings, else its own. Absent or
+   * empty: every slot follows `material`.
+   */
+  materials?: string[];
   castShadows: boolean;
   receiveShadows: boolean;
   /**
@@ -72,7 +78,7 @@ export function warmSet(path: string | null, extra: readonly string[] = []): War
   let worldUI = false;
   const seen = new Set<string>();
   const addMesh = (m: WarmMesh) => {
-    const key = `${m.mesh}|${m.material}|${m.castShadows}|${m.receiveShadows}`;
+    const key = `${m.mesh}|${m.material}|${m.materials?.join(",") ?? ""}|${m.castShadows}|${m.receiveShadows}`;
     const had = meshes.get(key);
     if (!had || (m.blended && !had.blended)) meshes.set(key, m);
   };
@@ -110,9 +116,11 @@ export function warmSet(path: string | null, extra: readonly string[] = []): War
       for (const c of components) {
         const data = (c.data ?? {}) as Record<string, unknown>;
         if (c.type === "engine.MeshRenderer") {
+          const slots = Array.isArray(data.materials) ? data.materials.map((x) => (typeof x === "string" ? x : "")) : [];
           addMesh({
             mesh: typeof data.mesh === "string" ? data.mesh : "builtin:cube",
             material: typeof data.material === "string" ? data.material : "",
+            ...(slots.some(Boolean) ? { materials: slots } : {}),
             castShadows: data.castShadows !== false,
             receiveShadows: data.receiveShadows !== false,
             blended: scripted,

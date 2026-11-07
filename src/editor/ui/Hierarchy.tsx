@@ -5,7 +5,8 @@ import { assetDrag } from "../assetDrag";
 import { filterHierarchy } from "../hierarchyFilter";
 import { nodeDrag, startNodeDrag } from "../nodeDrag";
 import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisibility";
-import { innerNodes, type InnerNode } from "../prefabs";
+import { instanceInnerNodes, type InnerNode } from "../prefabs";
+import { openPrefabFrom } from "../prefabTabs";
 import { ancestorKeys, combineSelection, rangeBetween } from "../selectionModel";
 import { selectedAssets } from "../assetSelection";
 import { docVersion, isSelected, openScene, select, selectedKeys, selectedUIElement } from "../state";
@@ -48,7 +49,8 @@ function toggle(set: typeof collapsed, key: string): void {
 }
 
 /** True if a selected node is strictly inside the node at `key` (so its ancestors open up). */
-const selectionInside = (key: string) => selectedKeys.value.some((k) => k.startsWith(`${key}/`)) || uiSelectionUnder(key);
+const selectionInside = (key: string) =>
+  selectedKeys.value.some((k) => k.startsWith(`${key}/`) || (k.includes("/") && !!openScene.value && ancestorKeys(openScene.value.doc, k).includes(key))) || uiSelectionUnder(key);
 
 /** True if the selected UI element (ADR 0077) is in a document on the node at `key` or below it. */
 function uiSelectionUnder(key: string): boolean {
@@ -207,7 +209,7 @@ function InstanceNode(props: { doc: SceneDocument; id: string; depth: number }) 
   const { doc, id, depth } = props;
   docVersion.value;
   const node = doc.node(id);
-  const inner = innerNodes(node.prefab!, [id]);
+  const inner = instanceInnerNodes(doc, id);
   const ui = uiDocumentsAt(id);
   const open = expanded.value.has(id) || selectionInside(id) || (!!activeFilter.value && inner.some((n) => shown(pathKey(n.path))));
   const overrides = node.overrides?.length ?? 0;
@@ -247,6 +249,7 @@ function InnerTreeNode(props: { doc: SceneDocument; node: InnerNode; depth: numb
       name={node.name}
       depth={depth}
       inner
+      inactive={!node.active}
       expandable={node.children.length > 0 || ui.length > 0}
       open={open}
       onToggle={() => toggle(set, key)}
@@ -494,7 +497,14 @@ function Row(props: {
         </span>
         <span class="name">{props.name}</span>
         {badge && (
-          <span class={`badge${badge.modified ? " modified" : ""}`} title={badge.title}>
+          <span
+            class={`badge${badge.modified ? " modified" : ""}`}
+            title={`${badge.title} · double-click to open the prefab`}
+            onDblClick={(e) => {
+              e.stopPropagation();
+              void openPrefabFrom(rowKey.split("/"));
+            }}
+          >
             {badge.text}
             {badge.modified && " •"}
           </span>

@@ -253,13 +253,14 @@ The editor's **Worlds** tab (beside History) edits `project.json`'s `bootstrap` 
 - A strip lists every World, headless ones too, with **Pause** / **Resume** buttons and **Step**, which advances just that World one frame, paused or not.
 - **Pause** and **Step** in the menu bar (beside Play/Stop, in the middle) hold and advance the whole game: Step runs one 60 Hz frame in every World that isn't paused on its own, with a fixed step where one is due. Shortcuts: **Ctrl+Shift+P** pauses or resumes, **F10** or **Ctrl+Alt+P** steps (Cmd on macOS).
 - While playing, the **Show** picker at the top of the Hierarchy switches the Hierarchy and Inspector between the edited scene and any live World, Worlds created at runtime included. The live tree shows scenes, nodes made at runtime, ghosts and connections, and refreshes as the World changes. Selecting a node outlines it in that World's view and shows its live values in the Inspector. Edits there change the running game only.
+- In a live World you can also change its structure: the Hierarchy's **+** and right-click menu create empty nodes (named in place), **F2** or a double-click renames, **Del** deletes, and dragging a row onto another node reparents it (onto the World's name: back to the top level). The Inspector's **Add Component** and **Remove** work on the live node, and node fields pick from that World's nodes. These changes aren't undoable and are gone when you stop; **Keep values** only keeps field values.
 - **Keep values** on a live component header (or **Keep all changes to this node**) writes those values into the edited scene when you stop, as one undoable step: plain values on scene nodes, overrides on prefab instances. Only nodes loaded from the scene you're editing can keep values; for others (made or instantiated at runtime, from another scene) the Inspector says why.
 
 For client/server projects, the **Network** tab adds multiplayer play with several clients and simulated network conditions. See [Multiplayer](multiplayer.md#the-editor).
 
 ## Limits
 
-- The live Hierarchy can't create, delete, rename or reparent nodes, and the live Inspector can't add or remove components or change node references.
+- Structural live edits (new, deleted or moved nodes, added or removed components) aren't kept on Stop; redo them in the scene.
 - A bare `GameObject.instantiate(path)` or `Time.*` after an `await` acts on the default World (above).
 - Plain field assignment across Worlds isn't caught.
 - The Inspector has no per-instance `worlds` setting yet; edit the scene file.

@@ -4,7 +4,7 @@
 // they can be edited like any other material. ui/AssetInspector.tsx offers it for models.
 import { Color } from "../engine/core/math";
 import { Assets } from "../engine/scene/Assets";
-import { defaultMaterialSettings, type MaterialSettings } from "../engine/scene/material";
+import { MATERIAL_MAPS, defaultMaterialSettings, type MaterialMapKey, type MaterialSettings } from "../engine/scene/material";
 import { loadMeshes, materialSlots, DEFAULT_SLOT, type SurfaceInfo, type TextureInfo } from "../engine/scene/models";
 import { fileName, folderOf } from "./assetBrowser";
 import { readImportSettings, writeImportSettings } from "./assetImport";
@@ -26,33 +26,44 @@ export interface ExtractedMaterial {
 }
 
 /**
- * A model surface as material asset settings. `texture` gives each texture's asset path (empty
- * when it can't be kept). Emission above 1 is clipped, and the metallic-roughness and occlusion
- * maps and alpha cut-out have no material asset field yet; those are listed in `lost`.
+ * A model surface as material asset settings (ADR 0089, 0118). `texture` gives each texture's asset
+ * path for its role (empty when it can't be kept). Material assets hold everything a glTF surface
+ * has but vertex colours (a mesh attribute, still drawn) and textures on the second UV set (material
+ * textures read the first); those are listed in `lost`.
  */
-export function materialFromSurface(surface: SurfaceInfo, texture: (info: TextureInfo) => string): ExtractedMaterial {
+export function materialFromSurface(surface: SurfaceInfo, texture: (info: TextureInfo, role: string) => string): ExtractedMaterial {
   const s = defaultMaterialSettings();
   const lost: string[] = [];
+  const map = (info: TextureInfo | null | undefined, role: string, label: string): string => {
+    if (!info) return "";
+    if (info.uvSet) lost.push(`${label} (on the second UV set)`);
+    return texture(info, role);
+  };
   const blended = surface.alphaMode ? surface.alphaMode === "blend" : surface.transparent && surface.opacity < 1;
   s.color = srgb(surface.color, blended ? surface.opacity : 1);
   s.metalness = Math.min(1, Math.max(0, surface.metalness));
   s.roughness = Math.min(1, Math.max(0, surface.roughness));
   s.doubleSided = surface.doubleSided;
-  if (surface.map) s.texture = texture(surface.map);
-  if (surface.normalMap) s.normalMap = texture(surface.normalMap);
+  s.texture = map(surface.map, "Color", "base colour map");
+  s.normalMap = map(surface.normalMap, "Normal", "normal map");
+  if (surface.normalScale !== undefined) s.normalScale = surface.normalScale;
   if (surface.emissive) {
-    s.emission = srgb(surface.emissive);
-    if (surface.emissive.some((c) => c > 1)) lost.push("emission brighter than 1");
+    // HDR emission (glTF's emissive strength) as a colour within 0–1 times an intensity.
+    const k = Math.max(1, ...surface.emissive);
+    s.emission = srgb(surface.emissive.map((c) => c / k));
+    s.emissionIntensity = k;
   }
-  if (surface.emissiveMap) lost.push("emission map");
-  if (surface.metalRoughMap) lost.push("metallic-roughness map");
-  if (surface.occlusionMap) lost.push("occlusion map");
-  if (surface.alphaMode === "mask") lost.push("alpha cut-out");
-  if (surface.vertexColors) lost.push("vertex colours");
+  s.emissionMap = map(surface.emissiveMap, "Emission", "emission map");
+  s.metalRoughMap = map(surface.metalRoughMap, "MetalRough", "metallic-roughness map");
+  s.occlusionMap = map(surface.occlusionMap, "Occlusion", "occlusion map");
+  if (surface.occlusionStrength !== undefined) s.occlusionStrength = Math.min(1, Math.max(0, surface.occlusionStrength));
+  if (surface.alphaMode) s.alphaMode = surface.alphaMode;
+  if (surface.alphaMode === "mask") s.alphaCutoff = surface.alphaCutoff ?? 0.5;
   if (surface.unlit) s.shader = "unlit";
   else if (surface.physical) {
     const p = surface.physical;
-    const layered = p.clearcoat > 0 || p.sheen > 0 || p.transmission > 0 || p.iridescence > 0 || p.specularIntensity !== 1 || p.ior !== 1.5;
+    const layered =
+      p.clearcoat > 0 || p.sheen > 0 || p.transmission > 0 || p.iridescence > 0 || p.specularIntensity !== 1 || p.ior !== 1.5 || p.specularColor.some((c) => c !== 1) || p.anisotropy !== undefined || p.attenuationDistance !== undefined || Object.keys(surface.layerMaps ?? {}).length > 0;
     if (layered) {
       s.shader = "physical";
       s.clearcoat = p.clearcoat;
@@ -67,6 +78,21 @@ export function materialFromSurface(surface: SurfaceInfo, texture: (info: Textur
       s.specularColor = srgb(p.specularColor);
       s.iridescence = p.iridescence;
       s.iridescenceIOR = Math.min(2.333, Math.max(1, p.iridescenceIOR));
+      if (p.iridescenceThickness) [s.iridescenceThicknessMin, s.iridescenceThicknessMax] = p.iridescenceThickness;
+      if (p.attenuationDistance !== undefined && p.attenuationColor) {
+        s.attenuationDistance = p.attenuationDistance;
+        s.attenuationColor = srgb(p.attenuationColor);
+      }
+      if (p.anisotropy !== undefined) {
+        s.anisotropy = Math.min(1, Math.max(0, p.anisotropy));
+        s.anisotropyRotation = ((p.anisotropyRotation ?? 0) * 180) / Math.PI;
+      }
+      if (surface.clearcoatNormalScale !== undefined) s.clearcoatNormalScale = surface.clearcoatNormalScale;
+      for (const [key, info] of Object.entries(surface.layerMaps ?? {}) as [string, TextureInfo][]) {
+        const slot = `${key}Map` as MaterialMapKey;
+        const label = MATERIAL_MAPS.find((m) => m.key === slot)?.label ?? slot;
+        s[slot] = map(info, label.replace(/ Map$/, "").replace(/ /g, ""), label.toLowerCase());
+      }
     }
   }
   return { settings: s, lost };
@@ -137,8 +163,7 @@ export async function extractModelMaterials(project: EditorProject, modelPath: s
       return `asset:${path}`;
     };
     const surface = slot.surface;
-    const { settings: color, lost } = materialFromSurface({ ...surface, normalMap: null }, textureFor("Color"));
-    if (surface.normalMap) color.normalMap = textureFor("Normal")(surface.normalMap);
+    const { settings: color, lost } = materialFromSurface(surface, (info, role) => textureFor(role)(info));
     await Promise.all(pending);
     const path = `${folder}/${name}.material.json`;
     await writeMaterial(project, path, color);

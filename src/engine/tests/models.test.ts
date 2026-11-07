@@ -42,14 +42,14 @@ describe("model assets (ADR 0044)", () => {
 
   it("loads an FBX's meshes in model space with unique names, and picks one with #name", async () => {
     expect(await modelMeshNames("models/robot.fbx")).toEqual(["Body", "Head"]);
-    const [head] = await loadMeshes("asset:models/robot.fbx#Head");
+    const [head] = await loadMeshes("asset:models/robot.fbx#Head#model");
     expect(bounds(head.geometry!)).toEqual({ min: [-0.25, 1.25, -0.25], max: [0.25, 1.75, 0.25] }); // its place in the file is baked in
     expect(meshesIfLoaded("asset:models/robot.fbx")?.map((m) => m.name)).toEqual(["Body", "Head"]);
   });
 
   it("applies the sidecar's scale and up axis, and loads again when the sidecar changes", async () => {
     useAssets({ "models/robot.fbx.meta.json": { format: "myco.import@1", scale: 2, upAxis: "z" } });
-    const [head] = await loadMeshes("asset:models/robot.fbx#Head");
+    const [head] = await loadMeshes("asset:models/robot.fbx#Head#model");
     // Z up: the file's +Y becomes the engine's -Z; scale 2.
     expect(bounds(head.geometry!)).toEqual({ min: [-0.5, -0.5, -3.5], max: [0.5, 0.5, -2.5] });
   });

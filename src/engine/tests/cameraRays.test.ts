@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { CanvasCssSize } from "../render/canvasCssSize";
 import { Assets, Camera, Engine, GameObject, Physics, Plane, Ray, SceneManager, SphereCollider, Vector2, Vector3 } from "../index";
 
 describe("Ray and Plane (ADR 0073)", () => {
@@ -113,5 +114,84 @@ describe("Camera screen points (ADR 0073)", () => {
     expect(Physics.raycast(cam.screenPointToRay(new Vector2(0, 0)))).toBeNull();
     expect(Physics.raycast(new Ray([0, 0, 10], [0, 0, -1]), 5)).toBeNull(); // maxDistance as the second argument
     expect(Physics.raycast({ x: 0, y: 0, z: 10 }, { x: 0, y: 0, z: -1 }, 100)?.distance).toBeCloseTo(9); // the old form still works
+  });
+
+  describe("with a render surface's canvas", () => {
+    // A surface reporting its canvas's CSS size the way BabylonSurface does (through CanvasCssSize),
+    // with a canvas whose layout reads are counted.
+    let reads = 0;
+    let size = { w: 800, h: 400 };
+    const canvas = {
+      get clientWidth() { reads++; return size.w; },
+      get clientHeight() { reads++; return size.h; },
+    };
+    let observed: (() => void) | null = null;
+    class FakeObserver {
+      constructor(cb: () => void) { observed = cb; }
+      observe(): void {}
+      disconnect(): void {}
+    }
+    let tracker: CanvasCssSize;
+    beforeEach(() => {
+      reads = 0;
+      size = { w: 800, h: 400 };
+      tracker = new CanvasCssSize(canvas, FakeObserver as unknown as typeof ResizeObserver);
+      engine.world.render = { canvas, canvasCssSize: () => tracker.get() } as never;
+    });
+    afterEach(() => {
+      engine.world.render = null;
+    });
+    /** The canvas resizes: the observer reports after layout, as ResizeObserver does. */
+    const resize = (w: number, h: number) => {
+      size = { w, h };
+      observed!();
+    };
+
+    it("follows the canvas's size as it changes", () => {
+      const cam = camera({ projection: "orthographic", orthographicSize: 5 });
+      expect(cam.aspect).toBeCloseTo(2);
+      expect(cam.worldToScreenPoint(new Vector3(0, 0, 0)).x).toBeCloseTo(400);
+      resize(300, 600);
+      expect(cam.aspect).toBeCloseTo(0.5);
+      expect(cam.worldToScreenPoint(new Vector3(0, 0, 0)).toArray().slice(0, 2)).toEqual([150, 300]);
+      const corner = cam.screenPointToRay(new Vector2(0, 0)); // top-left: x -2.5 (aspect 0.5 * 5), y +5
+      expect(corner.origin.x).toBeCloseTo(-2.5);
+      expect(corner.origin.y).toBeCloseTo(5);
+      const perspective = camera({ projection: "perspective", fieldOfView: 50 }, [3, 2, 12], [10, 25, 5]);
+      const back = perspective.worldToScreenPoint(perspective.screenPointToRay(new Vector2(250, 120)).at(7));
+      expect(back.x).toBeCloseTo(250, 3);
+      expect(back.y).toBeCloseTo(120, 3);
+    });
+
+    it("reads the canvas's layout once per resize, not once per call", () => {
+      const cam = camera({ projection: "perspective" });
+      for (let i = 0; i < 50; i++) cam.worldToScreenPoint(new Vector3(i, 0, 0));
+      expect(reads).toBe(2); // clientWidth and clientHeight, once
+      resize(640, 480);
+      for (let i = 0; i < 50; i++) cam.screenPointToRay(new Vector2(i, i));
+      expect(reads).toBe(4);
+      expect(cam.aspect).toBeCloseTo(640 / 480);
+      tracker.invalidate(); // the surface set the canvas's style itself
+      size = { w: 200, h: 100 };
+      expect(cam.aspect).toBeCloseTo(2);
+      expect(reads).toBe(6);
+    });
+
+    it("falls back to the project's display size while the canvas has no size", () => {
+      resize(0, 0);
+      expect(camera({}).aspect).toBeCloseTo(2); // 800 x 400 from the project
+      resize(100, 100);
+      expect(camera({}).aspect).toBeCloseTo(1);
+    });
+
+    it("reads the canvas every call without ResizeObserver", () => {
+      const plain = new CanvasCssSize(canvas, undefined);
+      engine.world.render = { canvas, canvasCssSize: () => plain.get() } as never;
+      const cam = camera({});
+      size = { w: 100, h: 200 };
+      expect(cam.aspect).toBeCloseTo(0.5);
+      size = { w: 300, h: 100 };
+      expect(cam.aspect).toBeCloseTo(3);
+    });
   });
 });

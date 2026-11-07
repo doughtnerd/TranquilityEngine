@@ -1,6 +1,7 @@
+import { Fragment } from "preact";
 import { Color } from "../../engine";
 import { compileShaderGraph } from "../../engine/render/shaderGraph/compile";
-import { colorHex, materialGraph, type MaterialInstancing, type MaterialSettings } from "../../engine/scene/material";
+import { MATERIAL_MAPS, colorHex, materialGraph, type MaterialAlphaMode, type MaterialInstancing, type MaterialMapKey, type MaterialSettings } from "../../engine/scene/material";
 import { isShaderAssetPath } from "../../engine/scene/shaderAsset";
 import type { GraphProperty, GraphValue } from "../../engine/scene/shaderGraph";
 import type { ShaderKeyword } from "../../engine/scene/shaderKeywords";
@@ -100,6 +101,9 @@ export function MaterialInspector(props: { path: string }) {
     </label>
   );
   /** A colour row; `onValue` gets how to change the colour as it is when the edit is applied. */
+  /** A physical layer's texture rows (ADR 0118). */
+  const layerMaps = (group: string) =>
+    MATERIAL_MAPS.filter((m) => "group" in m && m.group === group).map((m) => <Fragment key={m.key}>{texture(m.label, settings[m.key as MaterialMapKey], (v) => void set({ [m.key]: v } as Partial<MaterialSettings>))}</Fragment>);
   const color = (label: string, value: Color, onValue: (change: (current: Color) => Color) => void, alpha: boolean) => (
     <label class="import-row">
       <span>{label}</span>
@@ -262,7 +266,13 @@ export function MaterialInspector(props: { path: string }) {
             {number("Metalness", settings.metalness, (v) => void set({ metalness: v }), [0, 1])}
             {number("Roughness", settings.roughness, (v) => void set({ roughness: v }), [0, 1])}
             {texture("Normal Map", settings.normalMap, (v) => void set({ normalMap: v }))}
+            {settings.normalMap && number("Normal Scale", settings.normalScale, (v) => void set({ normalScale: v }))}
+            {texture("Metal/Rough Map", settings.metalRoughMap, (v) => void set({ metalRoughMap: v }))}
+            {texture("Occlusion Map", settings.occlusionMap, (v) => void set({ occlusionMap: v }))}
+            {settings.occlusionMap && number("Occlusion Strength", settings.occlusionStrength, (v) => void set({ occlusionStrength: v }), [0, 1])}
             {color("Emission", settings.emission, (change) => void set((now) => ({ emission: change(now.emission) })), false)}
+            {number("Emission Intensity", settings.emissionIntensity, (v) => void set({ emissionIntensity: Math.max(0, v) }))}
+            {texture("Emission Map", settings.emissionMap, (v) => void set({ emissionMap: v }))}
           </>
         )}
         {physical && (
@@ -270,25 +280,46 @@ export function MaterialInspector(props: { path: string }) {
             <h4 class="material-group">Clearcoat</h4>
             {number("Clearcoat", settings.clearcoat, (v) => void set({ clearcoat: v }), [0, 1])}
             {number("Clearcoat Roughness", settings.clearcoatRoughness, (v) => void set({ clearcoatRoughness: v }), [0, 1])}
+            {layerMaps("Clearcoat")}
+            {settings.clearcoatNormalMap && number("Clearcoat Normal Scale", settings.clearcoatNormalScale, (v) => void set({ clearcoatNormalScale: v }))}
             <h4 class="material-group">Sheen</h4>
             {number("Sheen", settings.sheen, (v) => void set({ sheen: v }), [0, 1])}
             {color("Sheen Color", settings.sheenColor, (change) => void set((now) => ({ sheenColor: change(now.sheenColor) })), false)}
             {number("Sheen Roughness", settings.sheenRoughness, (v) => void set({ sheenRoughness: v }), [0, 1])}
+            {layerMaps("Sheen")}
             <h4 class="material-group">Transmission</h4>
             {number("Transmission", settings.transmission, (v) => void set({ transmission: v }), [0, 1])}
             {number("Thickness", settings.thickness, (v) => void set({ thickness: Math.max(0, v) }))}
             {number("IOR", settings.ior, (v) => void set({ ior: v }), [1, 2.333])}
+            {color("Attenuation Color", settings.attenuationColor, (change) => void set((now) => ({ attenuationColor: change(now.attenuationColor) })), false)}
+            {number("Attenuation Distance", settings.attenuationDistance, (v) => void set({ attenuationDistance: Math.max(0, v) }))}
+            {layerMaps("Transmission")}
             <h4 class="material-group">Iridescence</h4>
             {number("Iridescence", settings.iridescence, (v) => void set({ iridescence: v }), [0, 1])}
             {number("Iridescence IOR", settings.iridescenceIOR, (v) => void set({ iridescenceIOR: v }), [1, 2.333])}
+            {number("Thickness Min (nm)", settings.iridescenceThicknessMin, (v) => void set({ iridescenceThicknessMin: Math.max(0, v) }))}
+            {number("Thickness Max (nm)", settings.iridescenceThicknessMax, (v) => void set({ iridescenceThicknessMax: Math.max(0, v) }))}
+            {layerMaps("Iridescence")}
             <h4 class="material-group">Anisotropy</h4>
             {number("Anisotropy", settings.anisotropy, (v) => void set({ anisotropy: v }), [0, 1])}
             {number("Anisotropy Rotation", settings.anisotropyRotation, (v) => void set({ anisotropyRotation: v }))}
+            {layerMaps("Anisotropy")}
             <h4 class="material-group">Specular</h4>
             {number("Specular Intensity", settings.specularIntensity, (v) => void set({ specularIntensity: v }), [0, 1])}
             {color("Specular Color", settings.specularColor, (change) => void set((now) => ({ specularColor: change(now.specularColor) })), false)}
+            {layerMaps("Specular")}
           </>
         )}
+        <label class="import-row" title="Auto blends when the colour's alpha is below 1; Mask cuts out pixels whose alpha is below the cutoff">
+          <span>Alpha</span>
+          <select aria-label="Alpha Mode" disabled={readOnly} value={settings.alphaMode} onChange={(e) => void set({ alphaMode: (e.currentTarget as HTMLSelectElement).value as MaterialAlphaMode })}>
+            <option value="auto">Auto</option>
+            <option value="opaque">Opaque</option>
+            <option value="blend">Blend</option>
+            <option value="mask">Mask</option>
+          </select>
+        </label>
+        {settings.alphaMode === "mask" && number("Alpha Cutoff", settings.alphaCutoff, (v) => void set({ alphaCutoff: v }), [0, 1])}
         <label class="import-row">
           <span>Double Sided</span>
           <input type="checkbox" aria-label="Double Sided" disabled={readOnly} checked={settings.doubleSided} onChange={(e) => void set({ doubleSided: (e.currentTarget as HTMLInputElement).checked })} />

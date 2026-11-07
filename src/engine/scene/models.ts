@@ -20,6 +20,7 @@ import type { BufferAttribute, BufferGeometry, Color as ThreeColor, LoadingManag
 import { Assets, normalizeAssetPath, sidecarValue } from "./Assets";
 import { BAKED_SUFFIX, decodeBakedModel, encodeBakedModel } from "./bakedModel";
 import { BUILTIN_MESHES, builtinMeshData, type BuiltinMesh } from "./builtinMeshes";
+import { Mat4 } from "../core/math";
 import { splitSpriteRef, type ImportSettings } from "./importSettings";
 
 let three: typeof import("three") | null = null;
@@ -108,7 +109,7 @@ export interface SurfaceInfo {
   readonly unlit?: boolean;
   /** The mesh's vertex colours multiply the colour. */
   readonly vertexColors?: boolean;
-  /** Physical layers (KHR_materials_clearcoat, sheen, transmission, volume, ior, specular, iridescence); factors only. */
+  /** Physical layers (KHR_materials_clearcoat, sheen, transmission, volume, ior, specular, iridescence, anisotropy); their textures are `layerMaps`. */
   readonly physical?: {
     readonly clearcoat: number;
     readonly clearcoatRoughness: number;
@@ -122,7 +123,94 @@ export interface SurfaceInfo {
     readonly specularColor: readonly [number, number, number];
     readonly iridescence: number;
     readonly iridescenceIOR: number;
+    /** Iridescence film thickness range in nanometres, [min, max] (ADR 0118). */
+    readonly iridescenceThickness?: readonly [number, number];
+    /** Volume attenuation (KHR_materials_volume): the colour light turns after `attenuationDistance` metres. */
+    readonly attenuationColor?: readonly [number, number, number];
+    readonly attenuationDistance?: number;
+    /** KHR_materials_anisotropy: strength 0 … 1 and rotation in radians (ADR 0118). */
+    readonly anisotropy?: number;
+    readonly anisotropyRotation?: number;
   };
+  /** The physical layers' textures (ADR 0118), with glTF's channels: each absent when the file has none. */
+  readonly layerMaps?: Partial<Record<LayerMapKey, TextureInfo>>;
+  /** Clearcoat normal map strength. */
+  readonly clearcoatNormalScale?: number;
+}
+
+/** @internal The physical layers' texture slots (ADR 0118), each read with glTF's channel convention. */
+export const LAYER_MAP_KEYS = [
+  "clearcoat", // R: clearcoat
+  "clearcoatRoughness", // G: clearcoat roughness
+  "clearcoatNormal",
+  "sheenColor", // RGB, sRGB
+  "sheenRoughness", // A
+  "transmission", // R
+  "thickness", // G
+  "specularIntensity", // A
+  "specularColor", // RGB, sRGB
+  "iridescence", // R
+  "iridescenceThickness", // G
+  "anisotropy", // RG direction, B strength
+] as const;
+export type LayerMapKey = (typeof LAYER_MAP_KEYS)[number];
+
+/** three.js's MeshPhysicalMaterial property for each layer texture slot. */
+const LAYER_MAP_THREE: Record<LayerMapKey, string> = {
+  clearcoat: "clearcoatMap",
+  clearcoatRoughness: "clearcoatRoughnessMap",
+  clearcoatNormal: "clearcoatNormalMap",
+  sheenColor: "sheenColorMap",
+  sheenRoughness: "sheenRoughnessMap",
+  transmission: "transmissionMap",
+  thickness: "thicknessMap",
+  specularIntensity: "specularIntensityMap",
+  specularColor: "specularColorMap",
+  iridescence: "iridescenceMap",
+  iridescenceThickness: "iridescenceThicknessMap",
+  anisotropy: "anisotropyMap",
+};
+
+/** @internal A node's pose in model space (ADR 0118): position, quaternion [x, y, z, w], scale; the import settings applied. */
+export interface NodePose {
+  readonly position: readonly [number, number, number];
+  readonly rotation: readonly [number, number, number, number];
+  readonly scale: readonly [number, number, number];
+}
+
+/** @internal A glTF light (KHR_lights_punctual) in the engine Light's terms (ADR 0118). */
+export interface ModelLight {
+  readonly type: "directional" | "point" | "spot";
+  /** sRGB, as the Light component's colour. */
+  readonly color: readonly [number, number, number];
+  /** Candela (point, spot) or lux (directional), as the Light component takes them. */
+  readonly intensity: number;
+  /** Metres; 0 for no limit. */
+  readonly range: number;
+  /** Spot: full cone angle in degrees, and edge softness 0 … 1. */
+  readonly spotAngle: number;
+  readonly spotSoftness: number;
+}
+
+/** @internal A glTF camera in the engine Camera's terms (ADR 0118). */
+export interface ModelCamera {
+  readonly projection: "perspective" | "orthographic";
+  /** Vertical field of view, degrees (perspective). */
+  readonly fieldOfView: number;
+  /** Half the vertical view size (orthographic). */
+  readonly orthographicSize: number;
+  readonly near: number;
+  readonly far: number;
+}
+
+/** @internal A node of the model's file that isn't a mesh: a group on a mesh's path, a light or a camera (ADR 0118). */
+export interface ModelNode {
+  readonly name: string;
+  /** The names of the nodes above it, outermost first, as `ModelMesh.path`. */
+  readonly path: readonly string[];
+  readonly pose: NodePose;
+  readonly light?: ModelLight;
+  readonly camera?: ModelCamera;
 }
 
 /** @internal One mesh of a model, in model space. */
@@ -142,6 +230,13 @@ export interface ModelMesh {
    * the editor makes a node tree from them (ADR 0088). Empty for a mesh at the top.
    */
   readonly path?: readonly string[];
+  /** Its node's model-space pose (ADR 0118); absent: the identity (built-in meshes). */
+  readonly pose?: NodePose;
+  /**
+   * Material variants (KHR_materials_variants, ADR 0118): for each variant that changes this mesh,
+   * its full surface list (index for index with `surfaces`; unmapped slots keep the default).
+   */
+  readonly variantSurfaces?: Readonly<Record<string, readonly SurfaceInfo[]>>;
 }
 
 /** A float attribute as a tightly packed array (copied only when interleaved or not float). */
@@ -244,9 +339,34 @@ function surfaceOf(source: Material): SurfaceInfo {
       specularColor: p.specularColor ? rgb(p.specularColor) : [1, 1, 1],
       iridescence: p.iridescence ?? 0,
       iridescenceIOR: p.iridescenceIOR ?? 1.3,
+      ...physicalExtras(source),
     };
+    const maps: Partial<Record<LayerMapKey, TextureInfo>> = {};
+    for (const key of LAYER_MAP_KEYS) {
+      const t = textureInfo((source as unknown as Record<string, AnyTexture | null | undefined>)[LAYER_MAP_THREE[key]]);
+      if (t) maps[key] = t;
+    }
+    if (Object.keys(maps).length) surface.layerMaps = maps;
+    if (maps.clearcoatNormal) surface.clearcoatNormalScale = (source as unknown as { clearcoatNormalScale?: { x: number } }).clearcoatNormalScale?.x ?? 1;
   }
   return surface;
+}
+
+/** The physical layers' values beyond 0088's factors (ADR 0118), only where they differ from glTF's defaults. */
+function physicalExtras(source: Material): Partial<NonNullable<SurfaceInfo["physical"]>> {
+  const p = source as Material & { iridescenceThicknessMinimum?: number; iridescenceThicknessMaximum?: number; attenuationColor?: ThreeColor; attenuationDistance?: number; anisotropy?: number; anisotropyRotation?: number; anisotropyMap?: unknown };
+  const out: { -readonly [K in keyof NonNullable<SurfaceInfo["physical"]>]?: NonNullable<SurfaceInfo["physical"]>[K] } = {};
+  const thin = p.iridescenceThicknessMinimum ?? 100, thick = p.iridescenceThicknessMaximum ?? 400;
+  if (thin !== 100 || thick !== 400) out.iridescenceThickness = [thin, thick];
+  if (p.attenuationDistance !== undefined && Number.isFinite(p.attenuationDistance)) {
+    out.attenuationDistance = p.attenuationDistance;
+    out.attenuationColor = p.attenuationColor ? rgb(p.attenuationColor) : [1, 1, 1];
+  }
+  if (p.anisotropy || p.anisotropyMap) {
+    out.anisotropy = p.anisotropy ?? 0;
+    out.anisotropyRotation = p.anisotropyRotation ?? 0;
+  }
+  return out;
 }
 
 /** One surface per source material, so meshes sharing a material share its slot (ADR 0089) and its renderer material. */
@@ -326,6 +446,10 @@ export function neutralMesh(geometry: BufferGeometry, materials: readonly Materi
 /** @internal A loaded model. */
 export interface ModelData {
   readonly meshes: readonly ModelMesh[];
+  /** The group nodes on the meshes' paths, and the file's lights and cameras (ADR 0118). */
+  readonly nodes?: readonly ModelNode[];
+  /** The file's material variant names (KHR_materials_variants, ADR 0118), in file order. */
+  readonly variants?: readonly string[];
 }
 
 interface CacheEntry {
@@ -417,11 +541,99 @@ export async function loadMeshes(ref: string): Promise<readonly ModelMesh[]> {
   return selectMeshes(await loadModel(path), path, slice);
 }
 
-function selectMeshes(data: ModelData, path: string, slice: string | null): readonly ModelMesh[] {
-  if (slice === null) return data.meshes;
+function selectMeshes(data: ModelData, path: string, ref: string | null): readonly ModelMesh[] {
+  if (ref === null) return data.meshes;
+  const modelSpace = ref.endsWith(MODEL_SPACE_SUFFIX);
+  const slice = modelSpace ? ref.slice(0, -MODEL_SPACE_SUFFIX.length) : ref;
   const mesh = data.meshes.find((m) => m.name === slice);
-  if (!mesh) warnOnce(`${path} has no mesh named "${slice}".`);
-  return mesh ? [mesh] : [];
+  if (!mesh) {
+    warnOnce(`${path} has no mesh named "${slice}".`);
+    return [];
+  }
+  // ADR 0118: with node pivots, one mesh on its own is in its node's space (a whole model stays in model
+  // space); `#Part#model` (what scene format 1 files migrate to) pins it to model space.
+  return [!modelSpace && Assets.importSettings(path).pivots === "node" ? nodeSpaceMesh(mesh) : mesh];
+}
+
+/** @internal The suffix pinning one mesh of a model to model space (`asset:car.glb#Wheel#model`, ADR 0118). */
+export const MODEL_SPACE_SUFFIX = "#model";
+
+const nodeSpace = new WeakMap<ModelMesh, ModelMesh>();
+
+/**
+ * @internal A model-space mesh in its node's space (ADR 0118): its vertices through the inverse of its
+ * pose, made once per mesh. The mesh itself when its pose is the identity.
+ */
+export function nodeSpaceMesh(mesh: ModelMesh): ModelMesh {
+  const pose = mesh.pose;
+  if (!pose || isIdentityPose(pose)) return mesh;
+  let out = nodeSpace.get(mesh);
+  if (out) return out;
+  const m = new Float64Array(16);
+  Mat4.compose(m, 0, [...pose.position], 0, [...pose.rotation], 0, [...pose.scale], 0);
+  const inv = new Float64Array(16);
+  Mat4.invert(inv, 0, m, 0);
+  const d = mesh.data;
+  const positions = new Float32Array(d.positions.length);
+  for (let i = 0; i < positions.length; i += 3) {
+    const [x, y, z] = Mat4.transformPoint(inv, 0, d.positions[i], d.positions[i + 1], d.positions[i + 2]);
+    positions[i] = x;
+    positions[i + 1] = y;
+    positions[i + 2] = z;
+  }
+  let normals: Float32Array | null = null;
+  if (d.normals) {
+    // Normals go through the inverse transpose of the inverse's linear part: scale · rotation⁻¹.
+    const [qx, qy, qz, qw] = pose.rotation;
+    const conj = new Float64Array(16);
+    Mat4.compose(conj, 0, [0, 0, 0], 0, [-qx, -qy, -qz, qw], 0, [1, 1, 1], 0);
+    const [sx, sy, sz] = pose.scale;
+    normals = new Float32Array(d.normals.length);
+    for (let i = 0; i < normals.length; i += 3) {
+      let [x, y, z] = Mat4.transformPoint(conj, 0, d.normals[i], d.normals[i + 1], d.normals[i + 2]);
+      x *= sx;
+      y *= sy;
+      z *= sz;
+      const len = Math.hypot(x, y, z) || 1;
+      normals[i] = x / len;
+      normals[i + 1] = y / len;
+      normals[i + 2] = z / len;
+    }
+  }
+  let indices = d.indices;
+  if (pose.scale[0] * pose.scale[1] * pose.scale[2] < 0) {
+    indices = Uint32Array.from(d.indices);
+    for (let i = 0; i + 2 < indices.length; i += 3) [indices[i + 1], indices[i + 2]] = [indices[i + 2], indices[i + 1]];
+  }
+  out = { ...mesh, geometry: undefined, data: { ...d, positions, normals, indices }, pose: undefined };
+  nodeSpace.set(mesh, out);
+  return out;
+}
+
+function isIdentityPose(p: NodePose): boolean {
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  return p.position.every((v) => near(v, 0)) && near(p.rotation[0], 0) && near(p.rotation[1], 0) && near(p.rotation[2], 0) && near(Math.abs(p.rotation[3]), 1) && p.scale.every((v) => near(v, 1));
+}
+
+/** @internal The material variant names of the model behind a mesh reference (ADR 0118); empty while it loads or when it has none. */
+export function modelVariantsIfLoaded(ref: string): readonly string[] {
+  if (!ref || ref.startsWith(BUILTIN_PREFIX)) return [];
+  const path = splitSpriteRef(normalizeAssetPath(ref)).path;
+  return cache.get(path)?.data?.variants ?? [];
+}
+
+/**
+ * @internal The variant a renderer draws (ADR 0118): `variant` when the model has it, else undefined
+ * (the defaults), warning once for a name the loaded model lacks.
+ */
+export function drawnVariant(ref: string, variant: string): string | undefined {
+  if (!variant) return undefined;
+  const path = splitSpriteRef(normalizeAssetPath(ref)).path;
+  const data = cache.get(path)?.data;
+  if (!data) return undefined;
+  if (data.variants?.includes(variant)) return variant;
+  warnOnce(`${path} has no material variant "${variant}"; drawing its default materials.`);
+  return undefined;
 }
 
 /** @internal The names of a model's meshes (what `#name` can refer to), once loaded. */
@@ -615,12 +827,54 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
   const converted = new Map<Material, Material>();
   const matrix = new Matrix4();
   const instance = new (lib().Matrix4)();
+  // ADR 0118: every node's model-space pose, the group nodes on mesh paths, lights and cameras.
+  const poseOf = (o: Object3D): NodePose => {
+    matrix.multiplyMatrices(importMatrix, o.matrixWorld);
+    const { Vector3, Quaternion } = lib();
+    const p = new Vector3(), q = new Quaternion(), sc = new Vector3();
+    matrix.decompose(p, q, sc);
+    return { position: [p.x, p.y, p.z], rotation: [q.x, q.y, q.z, q.w], scale: [sc.x, sc.y, sc.z] };
+  };
+  const nodes: ModelNode[] = [];
+  const groupKeys = new Set<string>();
+  const addGroups = (o: Object3D) => {
+    const chain: Object3D[] = [];
+    for (let p = o.parent; p && p !== root; p = p.parent) if (p.name) chain.unshift(p);
+    chain.forEach((g, i) => {
+      const path = chain.slice(0, i).map((c) => safeName(c.name));
+      const key = [...path, safeName(g.name)].join("/");
+      if (groupKeys.has(key)) return;
+      groupKeys.add(key);
+      nodes.push({ name: safeName(g.name), path, pose: poseOf(g) });
+    });
+  };
+  const variantNames = (root.userData.mycoVariants as string[] | undefined) ?? [];
+  const convert = (m: Material) => {
+    let c = converted.get(m);
+    if (!c) {
+      converted.set(m, (c = standardMaterial(m)));
+      if (!c.name) c.name = `Material ${converted.size}`; // a name to key material slots by (ADR 0089)
+    }
+    return c;
+  };
+  root.traverse((o) => {
+    const special = o.userData as { mycoLight?: ModelLight; mycoCamera?: ModelCamera };
+    if (special.mycoLight || special.mycoCamera) {
+      addGroups(o);
+      const k = settings.scale;
+      const light = special.mycoLight && { ...special.mycoLight, range: special.mycoLight.range * k };
+      const camera = special.mycoCamera && { ...special.mycoCamera, near: special.mycoCamera.near * k, far: special.mycoCamera.far * k, orthographicSize: special.mycoCamera.orthographicSize * k };
+      nodes.push({ name: safeName(o.name) || (light ? "Light" : "Camera"), path: ancestry(o, root), pose: poseOf(o), ...(light ? { light } : {}), ...(camera ? { camera } : {}) });
+    }
+  });
   root.traverse((o) => {
     const mesh = o as Mesh & { isInstancedMesh?: boolean; count?: number; getMatrixAt?(i: number, m: Matrix4): void };
     if (!mesh.isMesh || !mesh.geometry?.getAttribute("position")) return;
     const sources = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+    const variantSources = mesh.userData.mycoVariantMaterials as Record<string, (Material | null)[]> | undefined;
+    const allSources = variantSources ? [...sources, ...Object.values(variantSources).flatMap((list) => list.filter((m): m is Material => !!m))] : sources;
     // UV transforms (KHR_texture_transform) are baked into the copy's UVs, in the file's UV space.
-    const uvTransforms = options.flipV ? uvTransformsOf(sources, mesh.name) : null;
+    const uvTransforms = options.flipV ? uvTransformsOf(allSources, mesh.name) : null;
     // EXT_mesh_gpu_instancing: every instance baked into one geometry.
     const copies = mesh.isInstancedMesh && mesh.getMatrixAt ? Array.from({ length: mesh.count ?? 0 }, (_, i) => (mesh.getMatrixAt!(i, instance), instance.clone())) : [null];
     const parts = copies.map((at) => {
@@ -642,23 +896,38 @@ export function bakeMeshes(root: Object3D, settings: Pick<ImportSettings, "scale
     }
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
-    const materials = sources.map((m) => {
-      let c = converted.get(m);
-      if (!c) {
-        converted.set(m, (c = standardMaterial(m)));
-        if (!c.name) c.name = `Material ${converted.size}`; // a name to key material slots by (ADR 0089)
+    const materials = sources.map(convert);
+    const neutral = neutralMesh(geometry, materials);
+    let variantSurfaces: Record<string, SurfaceInfo[]> | undefined;
+    if (variantSources) {
+      for (const name of variantNames) {
+        const list = variantSources[name];
+        if (!list) continue;
+        variantSurfaces ??= {};
+        variantSurfaces[name] = neutral.surfaces.map((s, i) => (list[i] ? sharedSurface(convert(list[i]!)) : s));
       }
-      return c;
+    }
+    addGroups(mesh);
+    meshes.push({
+      name: uniqueName(mesh.name || mesh.parent?.name || "mesh", used),
+      geometry,
+      materials,
+      ...neutral,
+      path: ancestry(mesh, root),
+      pose: poseOf(mesh),
+      ...(variantSurfaces ? { variantSurfaces } : {}),
     });
-    meshes.push({ name: uniqueName(mesh.name || mesh.parent?.name || "mesh", used), geometry, materials, ...neutralMesh(geometry, materials), path: ancestry(mesh, root) });
   });
-  return { meshes };
+  return { meshes, ...(nodes.length ? { nodes } : {}), ...(variantNames.length ? { variants: [...variantNames] } : {}) };
 }
+
+/** A node name as the engine keeps it in paths (no `#`, `/`, `\` or quotes). */
+const safeName = (name: string) => name.replace(/[#/\\"']/g, "_");
 
 /** The names of the nodes between the root and `o` (both left out), outermost first; unnamed ones skipped. */
 function ancestry(o: Object3D, root: Object3D): string[] {
   const out: string[] = [];
-  for (let p = o.parent; p && p !== root; p = p.parent) if (p.name) out.unshift(p.name.replace(/[#/\\"']/g, "_"));
+  for (let p = o.parent; p && p !== root; p = p.parent) if (p.name) out.unshift(safeName(p.name));
   return out;
 }
 
@@ -833,6 +1102,18 @@ export function materialSlotsIfLoaded(ref: string): MaterialSlot[] | null {
 /** @internal The names of a model's meshes if it has loaded (starting the load if not), else null. */
 export function meshNamesIfLoaded(path: string): string[] | null {
   return meshesIfLoaded(splitSpriteRef(normalizeAssetPath(path)).path)?.map((m) => m.name) ?? null;
+}
+
+/**
+ * @internal What the editor's drop builds from a loaded model (ADR 0088, 0118): its meshes with their
+ * node paths and poses, the group nodes, lights and cameras, and the import settings' pivot mode. Null while it loads.
+ */
+export function modelTreeIfLoaded(path: string): { pivots: ImportSettings["pivots"]; meshes: { name: string; path: readonly string[]; pose?: NodePose }[]; nodes: readonly ModelNode[] } | null {
+  const p = splitSpriteRef(normalizeAssetPath(path)).path;
+  if (!meshesIfLoaded(p)) return null;
+  const data = cache.get(p)?.data;
+  if (!data) return null;
+  return { pivots: Assets.importSettings(p).pivots, meshes: data.meshes.map((m) => ({ name: m.name, path: m.path ?? [], pose: m.pose })), nodes: data.nodes ?? [] };
 }
 
 /** @internal Each mesh's name and the names of the nodes above it in the file (ADR 0088), if the model has loaded (starting the load if not), else null. */
