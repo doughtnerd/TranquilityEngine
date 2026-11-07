@@ -17,7 +17,18 @@ export interface RecentProject {
   lastOpened: number;
   /** "path": reopened by path (desktop). "handle": reopened from a stored folder handle (browser). */
   kind: "path" | "handle";
+  /**
+   * Browser folders only: a note the user typed saying where the folder is (the File System
+   * Access API never reveals a real path, ADR 0116), shown instead of the bare folder name.
+   */
+  label?: string;
 }
+
+/** What the start screen shows under a recent project's name: a browser folder's note if it has one, else its path or folder name. */
+export const locationOf = (e: RecentProject): string => (e.kind === "handle" && e.label ? e.label : e.path);
+
+/** A location note as stored: single-line, trimmed, at most 200 characters (empty: none). */
+export const cleanLabel = (v: unknown): string => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, 200) : "");
 
 /** What reopening a recent project would find. */
 export type RecentState = "ok" | "missing" | "needs-access" | "unknown";
@@ -39,7 +50,7 @@ export const MAX_RECENT = 10;
 
 const isEntry = (e: unknown): e is RecentProject => {
   const r = e as RecentProject;
-  return !!r && typeof r.id === "string" && typeof r.name === "string" && typeof r.path === "string" && typeof r.lastOpened === "number" && (r.kind === "path" || r.kind === "handle");
+  return !!r && typeof r.id === "string" && typeof r.name === "string" && typeof r.path === "string" && typeof r.lastOpened === "number" && (r.kind === "path" || r.kind === "handle") && (r.label === undefined || typeof r.label === "string");
 };
 
 let counter = 0;
@@ -82,12 +93,23 @@ export class RecentProjects {
     } else if (!project.handle) {
       existing = list.find((e) => e.kind === "path" && samePath(e.path, project.path));
     }
-    const entry: RecentProject = { id: existing?.id ?? newId(), name: project.name, path: project.path, lastOpened: now, kind };
+    const entry: RecentProject = { id: existing?.id ?? newId(), name: project.name, path: project.path, lastOpened: now, kind, ...(existing?.label ? { label: existing.label } : {}) };
     if (project.handle) await this.handles?.set(entry.id, project.handle);
     const next = [entry, ...list.filter((e) => e.id !== entry.id)];
     for (const dropped of next.slice(this.max)) if (dropped.kind === "handle") await this.handles?.delete(dropped.id).catch(() => {});
     this.save(next.slice(0, this.max));
     return entry;
+  }
+
+  /** Set (or with empty text, clear) the location note of a browser folder's entry. */
+  setLabel(id: string, label: string): void {
+    const list = this.list();
+    const entry = list.find((e) => e.id === id);
+    if (!entry || entry.kind !== "handle") return;
+    const clean = cleanLabel(label);
+    if (clean) entry.label = clean;
+    else delete entry.label;
+    this.save(list);
   }
 
   /** Take a project off the list (its folder is untouched). */

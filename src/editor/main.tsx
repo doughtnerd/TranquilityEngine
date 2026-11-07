@@ -15,9 +15,11 @@ import { installMessageLog } from "./messages";
 import { prefetchWhenIdle } from "./prefetch";
 import { findSample } from "./samples";
 import { setStartActions, type StartActions } from "./startActions";
+import { installProjectTheme } from "./projectTheme";
 import { installTheme } from "./theme";
 import { AboutDialog } from "./ui/AboutDialog";
 import "./ui/editor.css";
+import "./ui/fonts";
 import { NewProjectDialog } from "./ui/NewProjectDialog";
 import { StartScreen } from "./ui/StartScreen";
 
@@ -36,6 +38,7 @@ const startActions: StartActions = {
 async function main(): Promise<void> {
   installMessageLog();
   installTheme(); // before the first render, so it paints in the chosen theme
+  installProjectTheme(); // a project's own .myco/theme.json overrides it while the project is open (ADR 0116)
   setStartActions(startActions);
   // End-to-end test hook; usable before the session has loaded.
   Object.assign(window, { openTestProject: async (extra?: Record<string, string>) => (await session()).openTestProject(extra) });
