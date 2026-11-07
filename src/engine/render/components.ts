@@ -6,6 +6,7 @@ import { Component } from "../core/Component";
 import { Color, Quaternion, Ray, Vector2, Vector3 } from "../core/math";
 import { AssetRef, PlainObject, component, field } from "../core/registry";
 import { World } from "../core/World";
+import { pixelPerfectView } from "./pixelPerfect";
 
 /** Draws a textured quad (ADR 0014). */
 @component("engine.SpriteRenderer")
@@ -51,6 +52,14 @@ export class Camera extends Component {
   @field(Vector2) viewportPosition = new Vector2(0, 0);
   /** The camera's rectangle on the canvas: its width and height as fractions of the canvas (ADR 0056). */
   @field(Vector2) viewportSize = new Vector2(1, 1);
+  /**
+   * Orthographic only. Zooms the view by a whole number so each sprite texel covers an integer
+   * number of screen (device) pixels, and snaps the camera's position to that pixel grid (ADR 0014).
+   * `orthographicSize` becomes the minimum half-height wanted.
+   */
+  @field(Boolean) pixelPerfect = false;
+  /** With `pixelPerfect` on, sprites' world positions snap to the texel grid (1 / pixelsPerUnit units) when drawn. */
+  @field(Boolean) pixelSnapping = true;
 
   /** The enabled camera with the lowest depth in the current World (ADR 0032). */
   static get main(): Camera | null {
@@ -84,6 +93,18 @@ export class Camera extends Component {
     return r.width / r.height;
   }
 
+  /**
+   * The half-height the camera's maths uses: with `pixelPerfect` on (orthographic) the integer-zoom
+   * size for the viewport's height in device pixels, else `orthographicSize`.
+   * @internal
+   */
+  _effectiveOrthographicSize(): number {
+    if (!this.pixelPerfect || this.projection !== "orthographic") return this.orthographicSize;
+    const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
+    const heightPx = this.pixelRect().height * dpr;
+    return pixelPerfectView(heightPx, this.orthographicSize, this.world.settings.render.pixelsPerUnit).orthographicSize;
+  }
+
   /** The camera's world position and axes (right, up, forward = the node's -Z), ignoring scale. */
   private frame(): { position: Vector3; right: Vector3; up: Vector3; forward: Vector3 } {
     const t = this.node.transform!;
@@ -96,7 +117,7 @@ export class Camera extends Component {
     const { position, right, up, forward } = this.frame();
     const aspect = this.aspect;
     if (this.projection === "orthographic") {
-      const s = this.orthographicSize;
+      const s = this._effectiveOrthographicSize();
       const origin = position.clone().addScaled(right, nx * s * aspect).addScaled(up, ny * s);
       return new Ray(origin, forward);
     }
@@ -132,8 +153,9 @@ export class Camera extends Component {
     const aspect = this.aspect;
     let nx: number, ny: number;
     if (this.projection === "orthographic") {
-      nx = x / (this.orthographicSize * aspect);
-      ny = y / this.orthographicSize;
+      const s = this._effectiveOrthographicSize();
+      nx = x / (s * aspect);
+      ny = y / s;
     } else {
       const tan = Math.tan((this.fieldOfView * Math.PI) / 360);
       const w = Math.abs(depth) < 1e-9 ? 1e-9 : depth;

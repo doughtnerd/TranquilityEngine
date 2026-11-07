@@ -245,6 +245,10 @@ export function MaterialInspector(props: { path: string }) {
         </label>
           </>
         )}
+        <label class="import-row" title="Take the World's Fog (off for glows and UI-like surfaces)">
+          <span>Fog</span>
+          <input type="checkbox" aria-label="Fog" disabled={readOnly} checked={settings.fog} onChange={(e) => void set({ fog: (e.currentTarget as HTMLInputElement).checked })} />
+        </label>
       </div>
       <p class="asset-inspector-note">{readOnly ? "This project is read-only." : "Changes save to the file as you make them."}</p>
     </div>
