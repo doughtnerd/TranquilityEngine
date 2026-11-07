@@ -25,6 +25,7 @@ Constraints: picking, the editor's outlines and box selection, shadows, fog, ref
 
 - Sprites draw as **thin instances of one quad per texture (atlas) and run**: the renderer sorts sprites by sorting layer and order (the order 0014 defines), and consecutive sprites sharing a texture form one batch with one material. Per instance: the matrix (size, pivot, flips, node transform), the tint (Babylon's instance colour) and the UV rectangle of the slice (a small material plugin, GLSL and WGSL). A tile map from one atlas is one draw.
 - Batches keep `alphaIndex` ordering between runs, so layer order is exactly as before; within a run, sprites keep their sort order.
+- Where the editor's tools are attached (the scene view and editor play mode), sprites keep a mesh each and thin batches draw as instances, since picking and selection outlines need per-object meshes. Games batch.
 
 ### Pixel-perfect camera
 
