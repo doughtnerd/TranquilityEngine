@@ -98,6 +98,11 @@ export interface RenderSurface {
   /** Forget the World this surface draws, so another may claim it. */
   releaseWorld(): void;
   dispose(): void;
+  /**
+   * Resolves once the renderer has started (true) or failed to (false); frames before then draw
+   * nothing. The desktop editor shows its window after this, so the scene view opens drawn (ADR 0082).
+   */
+  readonly started?: Promise<boolean>;
   /** Load textures ahead of time so sprites don't pop in. */
   preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void>;
   /**

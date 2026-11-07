@@ -1,4 +1,5 @@
 import { signal } from "@preact/signals";
+import { settingsOpen } from "./dialogState";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { PRODUCT_NAME } from "../brand";
 import { askBeforeClearingReferences, askBeforeDeletingAssets, historyLocation } from "../preferences";
@@ -29,8 +30,6 @@ import { aboutOpen } from "./AboutDialog";
 import "./history.css";
 import "./brand.css";
 
-/** Whether the Settings dialog is open. */
-export const settingsOpen = signal(false);
 
 type Section = "general" | "appearance";
 const SECTIONS: { id: Section; label: string }[] = [
@@ -294,3 +293,6 @@ function SizeInput({ label, value, range, fallback, onChange }: { label: string;
     </label>
   );
 }
+
+/** Re-exported from dialogState.ts (ADR 0083), where the menus read it without loading this dialog. */
+export { settingsOpen };

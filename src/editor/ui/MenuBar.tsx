@@ -17,10 +17,9 @@ import { closeProject, openProjectFolder, openRecentProject, reloadScripts, save
 import { isEditable } from "../shortcuts";
 import { currentProject, docVersion, openScene, playState, selectedKeys, selectedUIElement } from "../state";
 import { aboutOpen } from "./AboutDialog";
-import { exportOpen } from "./ExportDialog";
+import { exportOpen, settingsOpen } from "./dialogState";
 import { createMenuItems } from "./HierarchyMenu";
 import { openNewProjectDialog } from "./NewProjectDialog";
-import { settingsOpen } from "./SettingsDialog";
 import "./menubar.css";
 
 const RECENT_IN_MENU = 5;
