@@ -131,6 +131,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0097](decisions/0097-audio-mixer-buses.md) | Audio mixer buses, snapshots and ducking over one shared AudioContext | Proposed |
 | [0098](decisions/0098-audio-backend-interface.md) | An internal audio backend interface, with Howler as the default implementation | Proposed |
 | [0099](decisions/0099-fmod-spike.md) | FMOD as an optional audio backend: spike, recommendation and stub adapter | Proposed |
+| [0100](decisions/0100-replicate-node-structure-and-a-string-table.md) | Replication sends each ghost's active flag and parent as a versioned structure, and spawn strings through a per-connection string table | Proposed |
+| [0101](decisions/0101-replication-settings-on-world-configs.md) | A server World's snapshot rate and budget are set by `replication` on its World config | Proposed |
+| [0102](decisions/0102-in-page-websocket-links-use-loopback.md) | A link between two Worlds of one page over a transport that can't listen there connects them over loopback | Proposed |
 | [0103](decisions/0103-tilemaps.md) | Tilemaps: tileset assets, a layered Tilemap component in chunks, and native editor painting | Proposed |
 | [0104](decisions/0104-2d-physics-backend-review.md) | Keep Rapier 2D as the 2D physics backend after reviewing Box2D v3 and Planck.js | Proposed |
 | [0105](decisions/0105-tile-colliders-and-one-way-platforms.md) | Tile colliders merge into seam-free Rapier shapes; one-way platforms use contact-pair hooks | Proposed |

@@ -26,6 +26,7 @@
 import type { BootstrapConfig, BootstrapSetting, Engine, LinkConfig, WorldConfig } from "../engine";
 import { inputStreams, setNetConditions, writeWorldInput, type NetPeerInfo, type NetTrafficInfo, type NetWorldInfo } from "../engine/editor";
 import { uniqueName } from "./worldsConfig";
+import { transportCanListen } from "../engine/net/Transport";
 
 export const MAX_CLIENTS = 4;
 export const MAX_THIN_CLIENTS = 8;
@@ -257,12 +258,14 @@ export function applyNetConditions(engine: Engine, c: NetConditionValues): numbe
 
 /**
  * `bootstrap` with `c` in every loopback link's options, so the links simulate it from their first
- * message (the handshake and tick sync included); null or a code bootstrap: as it is.
+ * message (the handshake and tick sync included); null or a code bootstrap: as it is. Links over a
+ * transport that can't listen in this page (WebSocket) run over loopback here (ADR 0102), so they
+ * get `c` too.
  */
 export function withConditions(bootstrap: BootstrapSetting | undefined, c: NetConditionValues | null): BootstrapSetting | undefined {
   if (!c || !isRecord(bootstrap) || !Array.isArray(bootstrap.links)) return bootstrap;
   const config = bootstrap as BootstrapConfig;
-  return { ...config, links: config.links!.map((l) => (l.transport === "loopback" ? { ...l, options: { ...l.options, ...linkConditions(c) } } : l)) };
+  return { ...config, links: config.links!.map((l) => (l.transport === "loopback" || !transportCanListen(l.transport) ? { ...l, options: { ...l.options, ...linkConditions(c) } } : l)) };
 }
 
 // --- stats --------------------------------------------------------------------------------------
