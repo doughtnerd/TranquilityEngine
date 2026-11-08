@@ -14,6 +14,7 @@ import { BabylonRenderer } from "../render/babylon/BabylonRenderer";
 import type { BabylonEditorContext, BabylonEditorRendererHooks, EditorMesh } from "../render/babylon/editorContext";
 import { BabylonEditorTools } from "../render/babylon/editorTools";
 import { ViewportHandle } from "../render/editorViewport";
+import { FakeRenderPolicyPort } from "../render/fakeViewport";
 import type { UICoreLike } from "../ui/uiCoreTypes";
 
 const COLORS = { background: 0x112233, grid: 0x445566, gridCenter: 0x778899, outline: 0xff8800, cameraGizmo: 0x00ff00 };
@@ -45,7 +46,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
       renderer: hooks,
     } as unknown as BabylonEditorContext;
     tools = new BabylonEditorTools(ctx);
-    return new ViewportHandle(() => (loaded ? tools : null));
+    return new ViewportHandle(() => (loaded ? tools : null), new FakeRenderPolicyPort());
   };
 
   beforeEach(async () => {
@@ -62,10 +63,7 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     hooks = {
       setClearColor: vi.fn(),
       setSelected: vi.fn(),
-      setCameraPreview: vi.fn(),
       cameraPreviewDrawn: vi.fn(() => true),
-      setParticlePreview: vi.fn(),
-      restartParticlePreview: vi.fn(),
       spriteSize: vi.fn(() => [3, 4] as [number, number]),
       ui: vi.fn(() => null),
       bakeReflectionProbe: vi.fn(async () => new Uint8Array([1, 2]).buffer),
@@ -98,7 +96,6 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     viewport.setGrid({ cellSize: 2, visible: false });
     viewport.setColors(COLORS);
     viewport.setSelection([node]);
-    viewport.setParticlePreview({ speed: 2 });
     expect(viewport.ready).toBe(false);
     expect(viewport.grid()).toBeNull(); // nothing yet
     expect(hooks.setClearColor).not.toHaveBeenCalled();
@@ -108,7 +105,6 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     expect(viewport.ready).toBe(true);
     expect(hooks.setClearColor).toHaveBeenCalledWith(0x112233);
     expect(hooks.setSelected).toHaveBeenCalledWith([node]);
-    expect(hooks.setParticlePreview).toHaveBeenCalledWith({ speed: 2 });
     expect(tools!.overlays.isOutlined(node)).toBe(true);
 
     viewport.pick(400, 300); // a later query doesn't replay again
@@ -148,16 +144,12 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     expect(viewport.drawn()).toMatchObject({ handles: 2, cameraPreview: true });
   });
 
-  it("forwards renderer-level features: sprite sizes, camera preview, particle restarts, probe bakes and the UI", async () => {
+  it("forwards renderer-level features: sprite sizes, probe bakes and the UI", async () => {
     const viewport = make();
     const node = GameObject.create("s");
     node.addBehavior(SpriteRenderer, {});
     expect(viewport.spriteSize(node)).toEqual([3, 4]);
     expect(viewport.spriteSize(GameObject.create("plain"))).toBeNull();
-    viewport.setCameraPreview(cameras[0], null);
-    expect(hooks.setCameraPreview).toHaveBeenCalledWith(cameras[0], null);
-    viewport.restartParticlePreview();
-    expect(hooks.restartParticlePreview).toHaveBeenCalled();
     expect(new Uint8Array(await viewport.bakeReflectionProbe({} as never))).toEqual(new Uint8Array([1, 2]));
     expect(viewport.pickUI(1, 2)).toEqual([]);
     const element = {} as never;
