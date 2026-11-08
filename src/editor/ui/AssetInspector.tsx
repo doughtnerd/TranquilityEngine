@@ -33,7 +33,7 @@ export function AssetInspector() {
   const Plugin = path && kind ? (registeredKind(kind) ? pluginInspector(registeredKind(kind)!) : null) : null;
   if (path && Plugin) return <Plugin path={path} />;
   if (path && kind === "rendertexture") return <RenderTextureInspector path={path} />;
-  if (path && (kind === "environment" || kind === "cubemap" || kind === "prefab")) return <PreviewInspector path={path} kind={kind as "environment" | "cubemap" | "prefab"} />;
+  if (path && kind === "prefab") return <PreviewInspector path={path} />;
   return <ImportInspector />;
 }
 
@@ -111,18 +111,12 @@ function PlatformOverridesEditor(props: { draft: ImportSettings; onChange: (s: I
 
 const KIND_TITLES = { image: "Image", audio: "Audio", model: "Model" } as const;
 
-/** Environments and prefabs: no settings to edit here, just a look at them (ADR 0061). */
-function PreviewInspector(props: { path: string; kind: "environment" | "cubemap" | "prefab" }) {
+/** Prefabs: no settings to edit here, just a look at them (ADR 0061). Environment maps and cubemaps: the Environment plugin's view (ADR 0140). */
+function PreviewInspector(props: { path: string }) {
   return (
     <div class="asset-inspector">
       <h3>{fileName(props.path)}</h3>
-      <p class="hint">
-        {props.kind === "environment"
-          ? "Environment map. An Environment component lights the scene with it and can show it as the sky."
-          : props.kind === "cubemap"
-            ? "Cubemap (ADR 0113): six images as a skybox. Use it as an Environment's map."
-            : "Prefab. Drag it into the Hierarchy or the scene view to place a copy."}
-      </p>
+      <p class="hint">Prefab. Drag it into the Hierarchy or the scene view to place a copy.</p>
       <LargePreview path={props.path} />
     </div>
   );

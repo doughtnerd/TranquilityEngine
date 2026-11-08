@@ -1,10 +1,16 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { environmentEditorPlugin } from "../plugins/environment/editor";
+import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
 import { Engine, GameObject, ReflectionProbe } from "../engine";
 import { assetKind } from "./assetBrowser";
 import { SetField } from "./document";
 import { bakeProbe, probeBakePath } from "./probeBake";
 import { editorSettings, joinPath, openFolderProject, type EditorProject } from "./projects";
 import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
+
+// `.env` files are the Environment plugin's kind (ADR 0140).
+beforeAll(() => activatePlugins([environmentEditorPlugin]));
+afterAll(() => deactivatePlugin(environmentEditorPlugin.manifest.name));
 
 let fs: MemoryFileSystem;
 let project: EditorProject;

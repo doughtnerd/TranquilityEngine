@@ -2,15 +2,19 @@
 // nodes that adding an asset creates. No UI here; `ui/Assets.tsx` renders it.
 import { isSidecarPath } from "../engine/scene/importSettings";
 import { composeMatrix, localPoseFromMatrix } from "../engine/render/gizmoMath";
-import { MODEL_EXTENSIONS, loadModel, modelTreeIfLoaded, type NodePose } from "../engine/scene/models";
-import { matchRegisteredKind } from "./assetKindLookup";
+import { modelTreeIfLoaded, type NodePose } from "../engine/scene/models";
+import { matchRegisteredKind, registeredKindInCode, registeredSceneNodes } from "./assetKindLookup";
 import { logMessage } from "./messages";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-/** The kinds the editor itself knows; plugins add more (ADR 0133). */
-export type BuiltinAssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "rendertexture" | "environment" | "cubemap" | "lut" | "json" | "script" | "javascript" | "typescript" | "text" | "uidocument" | "stylesheet" | "xml" | "other";
+/**
+ * The kinds the editor itself knows; plugins add more (ADR 0133): among them `model` (Meshes and
+ * models), `environment` and `cubemap` (Environment), `lut` (Post-processing), `uidocument` and
+ * `stylesheet` (UI) since ADR 0140.
+ */
+export type BuiltinAssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "rendertexture" | "json" | "script" | "javascript" | "typescript" | "text" | "xml" | "other";
 /** A built-in kind or a registered one's id. */
 export type AssetKind = BuiltinAssetKind | (string & {});
 
@@ -43,7 +47,7 @@ export function assetKind(path: string): AssetKind {
 /** The length of the ending a built-in rule matched: a compound one (`.scene.json`) or the last extension. Used so a registered kind with a longer extension wins. */
 function builtinExtensionLength(p: string): number {
   const name = p.slice(p.lastIndexOf("/") + 1);
-  const compound = /\.(scene|prefab|rendertexture|cubemap|ui)\.(json|xml)$/.exec(name);
+  const compound = /\.(scene|prefab|rendertexture)\.json$/.exec(name);
   return compound ? compound[0].length : name.length - Math.max(name.lastIndexOf("."), 0);
 }
 
@@ -51,15 +55,9 @@ function builtinKind(p: string): BuiltinAssetKind {
   if (p.endsWith(".scene.json")) return "scene";
   if (p.endsWith(".prefab.json")) return "prefab";
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(p)) return "image";
-  if (/\.(hdr|exr|dds)$/.test(p) || /[^/]\.env$/.test(p)) return "environment";
-  if (p.endsWith(".cube")) return "lut";
   if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";
-  if (MODEL_EXTENSIONS.test(p)) return "model";
   if (p.endsWith(".rendertexture.json")) return "rendertexture";
-  if (p.endsWith(".cubemap.json")) return "cubemap";
   if (p.endsWith(".json")) return "json";
-  if (p.endsWith(".ui.xml")) return "uidocument";
-  if (p.endsWith(".css")) return "stylesheet";
   if (p.endsWith(".xml")) return "xml";
   if (p.endsWith(".ts") && !p.endsWith(".d.ts")) return "script";
   if (/\.(js|mjs|cjs)$/.test(p)) return "javascript";
@@ -68,10 +66,10 @@ function builtinKind(p: string): BuiltinAssetKind {
   return "other";
 }
 
-/** Kinds that open in the Code panel: scripts, plain JSON, JavaScript and TypeScript modules, and text (scenes, prefabs and graphs open in their own views). */
-const CODE_KINDS: ReadonlySet<AssetKind> = new Set(["script", "json", "javascript", "typescript", "text", "uidocument", "stylesheet", "xml"]);
-/** True if an asset kind opens in the Code panel. */
-export const opensInCodePanel = (kind: AssetKind | "folder") => CODE_KINDS.has(kind as AssetKind);
+/** Kinds that open in the Code panel: scripts, plain JSON, JavaScript and TypeScript modules, XML and text (scenes, prefabs and graphs open in their own views). */
+const CODE_KINDS: ReadonlySet<AssetKind> = new Set(["script", "json", "javascript", "typescript", "text", "xml"]);
+/** True if an asset kind opens in the Code panel: a built-in code kind, or a registered kind with `codeEditor` (UI documents, stylesheets; ADR 0140). */
+export const opensInCodePanel = (kind: AssetKind | "folder") => CODE_KINDS.has(kind as AssetKind) || registeredKindInCode(kind);
 
 /** The file name of a project path: `images/bird.png` → `bird.png`. */
 export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
@@ -353,13 +351,13 @@ export function disabledModelCameras(entries: readonly NodeEntry[]): number {
   return entries.filter((e) => e.components?.some((c) => c.type === "engine.Camera" && c.enabled === false)).length;
 }
 
-/** Load what adding these assets needs to know first: models' meshes. Never rejects (a model that fails adds as one node). */
+/** Load what adding these assets needs to know first (a registered kind's `addToScene.prepare`: models' meshes). Never rejects (a model that fails adds as one node). */
 export async function prepareAssets(paths: readonly string[]): Promise<void> {
-  await Promise.all(paths.filter((p) => assetKind(p) === "model").map((p) => loadModel(p).catch(() => undefined)));
+  await Promise.all(paths.map((p) => registeredSceneNodes(assetKind(p))?.prepare?.(p).catch(() => undefined)));
 }
 
-/** True for assets that have a scene node to become: prefabs and scenes, images, audio, models. */
-export const canAddToScene = (path: string) => ["prefab", "scene", "image", "sprite", "audio", "model", "particles"].includes(assetKind(path));
+/** True for assets that have a scene node to become: prefabs and scenes, images, audio, particle effects, and registered kinds with `addToScene` (models, ADR 0140). */
+export const canAddToScene = (path: string) => ["prefab", "scene", "image", "sprite", "audio", "particles"].includes(assetKind(path)) || registeredSceneNodes(assetKind(path)) !== undefined;
 
 /**
  * Why `path` can't be added to the document, or null if it can: assets with no node type, and
@@ -385,6 +383,18 @@ export interface AddOptions {
 
 /** The scene entry an asset becomes: an instance (prefab, scene), a sprite (image) or an audio source (audio). */
 export function nodeForAsset(doc: SceneDocument, path: string, options: AddOptions = {}): NodeEntry | null {
+  return sceneEntriesForAsset(doc, path, options)[0] ?? null;
+}
+
+/** Every entry adding `path` makes: the root first (`nodeForAsset`), then any descendants (a model's node tree). */
+function sceneEntriesForAsset(doc: SceneDocument, path: string, options: AddOptions): NodeEntry[] {
+  const registered = registeredSceneNodes(assetKind(path));
+  if (registered) return registered.nodes(doc, path, options.position);
+  const entry = builtinNodeForAsset(doc, path, options);
+  return entry ? [entry] : [];
+}
+
+function builtinNodeForAsset(doc: SceneDocument, path: string, options: AddOptions): NodeEntry | null {
   switch (assetKind(path)) {
     case "prefab":
     case "scene":
@@ -394,8 +404,6 @@ export function nodeForAsset(doc: SceneDocument, path: string, options: AddOptio
       return spriteNodeEntry(doc, path, options.position);
     case "audio":
       return audioNodeEntry(doc, path, options.position);
-    case "model":
-      return modelNodeEntries(doc, path, options.position)[0];
     case "particles":
       return particleNodeEntry(doc, path, options.position);
     default:
@@ -406,9 +414,9 @@ export function nodeForAsset(doc: SceneDocument, path: string, options: AddOptio
 /** Add an asset to the open scene as one undoable command. Returns the new node's id; throws if it can't be added. */
 export function addAsset(scene: OpenScene, path: string, options: AddOptions = {}): string {
   const reason = whyNotAddable(scene.doc, path);
-  const entry = reason ? null : nodeForAsset(scene.doc, path, options);
+  const entries = reason ? [] : sceneEntriesForAsset(scene.doc, path, options);
+  const entry = entries[0];
   if (!entry) throw new Error(reason ?? `"${path}" can't be added to a scene.`);
-  const entries = assetKind(path) === "model" ? modelNodeEntries(scene.doc, path, options.position) : [entry];
   scene.stack.execute(new AddNode(entries, { parent: options.parent ?? null, index: options.index }));
   const cameras = disabledModelCameras(entries);
   if (cameras) logMessage("info", `${path}: its ${cameras === 1 ? "camera was" : `${cameras} cameras were`} added with the Camera component turned off, so it doesn't take over the view; enable it to look through it.`);

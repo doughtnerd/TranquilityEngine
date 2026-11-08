@@ -8,11 +8,13 @@ import { assetKinds, type AssetKindContribution } from "./sdk/contributions";
 export function matchRegisteredKind(path: string): { kind: AssetKindContribution; length: number } | null {
   void assetKinds.version.value;
   const p = path.toLowerCase();
+  const nameLength = p.length - p.lastIndexOf("/") - 1;
   let best: { kind: AssetKindContribution; length: number } | null = null;
   for (const kind of assetKinds.list()) {
     for (const ext of kind.extensions) {
       const e = ext.toLowerCase();
-      if (p.endsWith(e) && (!best || e.length > best.length)) best = { kind, length: e.length };
+      // The ending must follow a name: a dotfile such as `.env` is no environment map.
+      if (p.endsWith(e) && nameLength > e.length && (!best || e.length > best.length)) best = { kind, length: e.length };
     }
   }
   return best;
@@ -30,5 +32,9 @@ export const kindLabel = (kind: string): string | undefined => registeredKind(ki
 export const kindIcon = (kind: string): string | undefined => registeredKind(kind)?.icon;
 /** True if `kind` is registered and has `open`. */
 export const registeredKindOpens = (kind: string): boolean => registeredKind(kind)?.open !== undefined;
+/** True if `kind` is registered and opens in the Code panel (ADR 0140). */
+export const registeredKindInCode = (kind: string): boolean => registeredKind(kind)?.codeEditor === true;
+/** What adding a file of registered kind `kind` to a scene makes, if anything (ADR 0140). */
+export const registeredSceneNodes = (kind: string) => registeredKind(kind)?.addToScene;
 /** True if `path` is of a registered kind that has `open`. */
 export const kindOpens = (path: string): boolean => matchRegisteredKind(path)?.kind.open !== undefined;
