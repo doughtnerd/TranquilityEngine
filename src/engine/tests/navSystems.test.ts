@@ -1,3 +1,5 @@
+import { navigationOf } from "../../plugins/navigation/runtime/navigationSystems";
+import { physics3DOf } from "../../plugins/physics3d/runtime/physics3d";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   Assets,
@@ -13,11 +15,11 @@ import {
   SceneManager,
   Vector3,
   type ProjectSettingsInput,
-} from "../index";
+} from "../../myco";
 import { World } from "../core/World";
 import { bakeChunk, releaseBakeCaches, type NavBakeMesh } from "../nav/bake";
-import { clearNavBakeCache } from "../nav/navigationSystems";
-import { chunkIdOf, type Vec3 } from "../nav/runtime";
+import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
+import { chunkIdOf, type Vec3 } from "../../plugins/navigation/runtime/runtime";
 import { defaultNavAgentType, defaultNavigationSettings, type NavigationSettings } from "../nav/settings";
 
 // ADR 0065, W6: navigation in the engine: components, the built-in systems and the Navigation facade, on a
@@ -144,7 +146,7 @@ const dist = (p: { x: number; y: number; z: number }, q: Vec3) => Math.hypot(p.x
 describe("navigation in the engine (ADR 0065)", () => {
   it("loads the scene's chunk with the scene and walks agents to their destinations through the gap", async () => {
     const { engine } = await setup({ agents: [{ id: "a", position: [-6, 0, -6] }, { id: "b", position: [-6, 0, 6] }] });
-    expect(engine.world.navigation).not.toBeNull();
+    expect(navigationOf(engine.world)).not.toBeNull();
     const chunk = find("Chunk")!.getBehavior(NavChunk)!;
     steps(engine, 1);
     expect(chunk.isLoaded).toBe(true); // preloaded by SceneManager.load: loaded at the first step
@@ -289,7 +291,7 @@ describe("navigation in the engine (ADR 0065)", () => {
 
     expect(() => Navigation.setAreaCost("mud", 4)).not.toThrow();
     Navigation.debug.paths = true;
-    expect(engine.world.navigation!.debug.paths).toBe(true);
+    expect(navigationOf(engine.world)!.debug.paths).toBe(true);
   });
 
   it("removes the chunk when its scene unloads", async () => {
@@ -324,7 +326,7 @@ describe("navigation in the engine (ADR 0065)", () => {
       physics: "3d",
       agents: [{ id: "a", position: [-6, 0, -6], extra: [{ type: "engine.RigidBody", data: { bodyType: "kinematic" } }, { type: "engine.BoxCollider", data: {} }] }],
     });
-    expect(engine.world.physics3D).not.toBeNull();
+    expect(physics3DOf(engine.world)!).not.toBeNull();
     const a = agentOf("a");
     a.setDestination([-6, 0, 6]);
     steps(engine, 120);
@@ -391,7 +393,7 @@ describe("navigation in the engine (ADR 0065)", () => {
     engines.push(engine);
     await SceneManager.load("empty.json");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(engine.world.navigation).toBeNull();
+    expect(navigationOf(engine.world)).toBeNull();
     expect(Navigation.findPath([0, 0, 0], [1, 0, 1])).toEqual({ status: "none", waypoints: [] });
     expect(Navigation.raycast([0, 0, 0], [1, 0, 1])).toBeNull();
     expect(Navigation.isReady).toBe(false);
@@ -399,7 +401,7 @@ describe("navigation in the engine (ADR 0065)", () => {
 
     const node = GameObject.create("agent");
     node.addBehavior(NavAgent);
-    await vi.waitFor(() => expect(engine.world.navigation).not.toBeNull());
+    await vi.waitFor(() => expect(navigationOf(engine.world)).not.toBeNull());
     expect(Navigation.isReady).toBe(true);
   });
 });

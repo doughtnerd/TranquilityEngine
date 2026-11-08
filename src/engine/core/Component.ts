@@ -113,6 +113,28 @@ export abstract class Component {
   }
 }
 
+/**
+ * What both physics plugins' collision hooks receive (`Collision2D` and `Collision` have these and more).
+ * Core names only the shared shape: physics lives in plugins (ADR 0135).
+ */
+export interface PhysicsCollision {
+  /** The other collider. */
+  readonly collider: Component;
+  /** This side's collider. */
+  readonly otherCollider: Component;
+  /** The other collider's owner node. */
+  readonly gameObject: GameObject;
+  readonly rigidbody: Component | null;
+}
+
+/** What both character controllers' hits have (`ControllerColliderHit2D` and `ControllerColliderHit` have more). */
+export interface PhysicsControllerHit {
+  readonly controller: Component;
+  readonly collider: Component;
+  readonly gameObject: GameObject;
+  readonly rigidbody: Component | null;
+}
+
 /** Lifecycle hooks a GameBehavior may implement (ADR 0007). All are optional. */
 export interface LifecycleHooks {
   awake?(): void | Promise<void>;
@@ -123,20 +145,23 @@ export interface LifecycleHooks {
   lateUpdate?(): void;
   onDisable?(): void;
   onDestroy?(): void;
-  /** The other collider: a Collider2D in 2D physics, a Collider in 3D physics. */
-  onTriggerEnter?(other: import("../physics/Collider2D").Collider2D | import("../physics/Collider").Collider): void;
+  /**
+   * The other collider: a Collider2D in 2D physics, a Collider in 3D physics (the physics plugins, ADR
+   * 0135). Annotate the parameter with the one your game uses: `onTriggerEnter(other: Collider2D)`.
+   */
+  onTriggerEnter?(other: Component): void;
   /** Every fixed step after onTriggerEnter while the two still overlap (ADR 0093). */
-  onTriggerStay?(other: import("../physics/Collider2D").Collider2D | import("../physics/Collider").Collider): void;
-  onTriggerExit?(other: import("../physics/Collider2D").Collider2D | import("../physics/Collider").Collider): void;
-  /** A Collision2D in 2D physics, a Collision in 3D physics. */
-  onCollisionEnter?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
+  onTriggerStay?(other: Component): void;
+  onTriggerExit?(other: Component): void;
+  /** A Collision2D in 2D physics, a Collision in 3D physics: annotate the parameter with the one your game uses. */
+  onCollisionEnter?(collision: PhysicsCollision): void;
   /** Every fixed step after onCollisionEnter while the two still touch (ADR 0093). */
-  onCollisionStay?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
-  onCollisionExit?(collision: import("../physics/Collider2D").Collision2D | import("../physics/Collider").Collision): void;
-  /** A joint on this node broke (its `breakForce` or `breakTorque` was exceeded); it is destroyed after this (ADR 0092). */
-  onJointBreak?(joint: import("../physics/Joint").Joint | import("../physics/Joint2D").Joint2D, force: number, torque: number): void;
-  /** A CharacterController or CharacterController2D on this node ran into a collider during `move` (ADR 0091). */
-  onControllerColliderHit?(hit: import("../physics/CharacterController").ControllerColliderHit | import("../physics/CharacterController2D").ControllerColliderHit2D): void;
+  onCollisionStay?(collision: PhysicsCollision): void;
+  onCollisionExit?(collision: PhysicsCollision): void;
+  /** A Joint or Joint2D on this node broke (its `breakForce` or `breakTorque` was exceeded); it is destroyed after this (ADR 0092). */
+  onJointBreak?(joint: Component, force: number, torque: number): void;
+  /** A CharacterController or CharacterController2D on this node ran into a collider during `move` (ADR 0091): a ControllerColliderHit or ControllerColliderHit2D. */
+  onControllerColliderHit?(hit: PhysicsControllerHit): void;
 }
 
 export type FrameHook = "fixedUpdate" | "update" | "lateUpdate";

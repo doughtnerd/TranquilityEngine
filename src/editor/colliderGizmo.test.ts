@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Engine, PolygonCollider2D } from "../engine";
+import { Engine, PolygonCollider2D } from "../myco";
 import { AddComponent, SetField } from "./document";
 import { colliderOverlay, colliderShapes } from "./colliderGizmo";
 import { MIN_EXTENT, capsule2DHandles, capsule2DPoints, dragCapsule2DHeight, dragCapsule2DRadius, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Assets, BoxCollider2D, Engine, FLIP_DIAGONAL, FLIP_X, GameObject, RigidBody2D, SceneManager, Tilemap, TilemapChanges, TilemapCollider2D, getComponentClass } from "../index";
+import { Assets, BoxCollider2D, Engine, FLIP_DIAGONAL, FLIP_X, GameObject, RigidBody2D, SceneManager, Tilemap, TilemapChanges, TilemapCollider2D, getComponentClass } from "../../myco";
 import { blobMasks, canonicalBlob, maskToPattern, missingBlobMasks, neighbourMask, paintTerrain, patternScore, pickTerrainTile, sidesPattern } from "../tilemap/autotile";
 import { floodCells, lineCells, rectCells, stampCells } from "../tilemap/brushes";
 import { buildTileShapes, flipPoint, greedyRectangles, rowRuns, traceOutlines } from "../tilemap/collision";

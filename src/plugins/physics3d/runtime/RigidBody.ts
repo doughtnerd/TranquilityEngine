@@ -1,8 +1,9 @@
-import { Component } from "../core/Component";
-import { DEG2RAD, RAD2DEG, Vector3, type Vec3Like } from "../core/math";
-import { PlainObject, component, field } from "../core/registry";
+import { physics3DOf } from "./physics3d";
+import { Component } from "../../../engine/core/Component";
+import { DEG2RAD, RAD2DEG, Vector3, type Vec3Like } from "../../../engine/core/math";
+import { PlainObject, component, field } from "../../../engine/core/registry";
 import type { BodyHandleState3D } from "./Physics3DWorld";
-import type { BodyType, ForceMode } from "./RigidBody2D";
+import type { BodyType, ForceMode } from "../../../engine/physics/types";
 
 export interface RigidBodyConstraints {
   freezePosition: { x: boolean; y: boolean; z: boolean };
@@ -108,6 +109,6 @@ export class RigidBody extends Component {
   }
 
   override _onDetach(): void {
-    this._world.physics3D?.releaseBody(this);
+    physics3DOf(this._world)?.releaseBody(this);
   }
 }

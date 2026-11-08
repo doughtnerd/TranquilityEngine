@@ -1,28 +1,13 @@
-import { Component } from "../core/Component";
-import { Vector3 } from "../core/math";
-import { PlainObject, component, field } from "../core/registry";
-import { GameObject } from "../scene/GameObject";
+import { physics3DOf } from "./physics3d";
+import { Component } from "../../../engine/core/Component";
+import { Vector3 } from "../../../engine/core/math";
+import { PlainObject, component, field } from "../../../engine/core/registry";
+import { GameObject } from "../../../engine/scene/GameObject";
 import type { JointHandleState3D } from "./Physics3DWorld";
 import { RigidBody } from "./RigidBody";
 
-/** A joint's range of movement: degrees for hinges, units for sliders. */
-export interface JointLimits {
-  min: number;
-  max: number;
-}
-
-/** Drives a hinge or slider at `targetVelocity` (degrees or units per second) with at most `force`. */
-export interface JointMotor {
-  targetVelocity: number;
-  force: number;
-}
-
-/** Pulls a hinge or slider towards `targetPosition` (degrees or units) with stiffness `spring` and damping `damper`. */
-export interface JointSpring {
-  spring: number;
-  damper: number;
-  targetPosition: number;
-}
+import type { JointLimits, JointMotor, JointSpring } from "../../../engine/physics/types";
+export type { JointLimits, JointMotor, JointSpring };
 
 /**
  * Base class for 3D joints (ADR 0005, 0092). A joint links the RigidBody on its node (or the nearest
@@ -77,7 +62,7 @@ export abstract class Joint extends Component {
   }
 
   override _onDetach(): void {
-    this._world.physics3D?.releaseJoint(this);
+    physics3DOf(this._world)?.releaseJoint(this);
   }
 }
 

@@ -1,5 +1,6 @@
-import { Quaternion, Ray, Vector3, type Vec3Like } from "../core/math";
-import { World } from "../core/World";
+import { physics3DOf } from "./physics3d";
+import { Quaternion, Ray, Vector3, type Vec3Like } from "../../../engine/core/math";
+import { World } from "../../../engine/core/World";
 import type { Collider } from "./Collider";
 
 export interface RaycastHit {
@@ -44,7 +45,7 @@ function cast(center: Vec3Like, shape: CastShape, rotation: Quaternion, directio
 }
 
 function physics() {
-  const p = World.require().physics3D;
+  const p = physics3DOf(World.require());
   if (!p) throw new Error('3D physics is not running. Load a scene with "settings": { "physics": "3d" }, or one with 3D bodies or colliders.');
   return p;
 }

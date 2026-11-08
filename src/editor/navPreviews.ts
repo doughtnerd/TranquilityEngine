@@ -13,10 +13,10 @@
 import { signal } from "@preact/signals";
 import type { World } from "../engine/core/World";
 import { addEditorOverlay, removeEditorOverlay } from "../engine/editor";
-import { NavChunk, NavModifierVolume, NavResolutionVolume } from "../engine/nav/components";
+import { NavChunk, NavModifierVolume, NavResolutionVolume } from "../plugins/navigation/runtime/components";
 import { leafSegments, type DebugSegments } from "../engine/nav/debugGeometry";
 import { collectNavGeometry, loadNavGeometryMeshes } from "../engine/nav/geometry";
-import { bakeAgentGroups } from "../engine/nav/runtime";
+import { bakeAgentGroups } from "../plugins/navigation/runtime/runtime";
 import { binColor, bakeVolumeGroups, classifySurfaceBins, debugBakeFlightLeaves, leavesInBox, surfaceBinLayout, type SurfaceBinLayout } from "../engine/nav/plan";
 import type { NavigationSettings } from "../engine/nav/settings";
 import type { GameObject } from "../engine/scene/GameObject";

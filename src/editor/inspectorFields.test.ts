@@ -1,7 +1,7 @@
 // ADR 0042: editing list and choice fields, a component's Worlds and a node's tags from the
 // Inspector, on plain nodes and prefab instances.
 import { beforeEach, describe, expect, it } from "vitest";
-import { Color, Engine, GameBehavior, GameObject, Input, Quaternion, RigidBody2D, Vector2, behavior, field } from "../engine";
+import { Color, Engine, GameBehavior, GameObject, Input, Quaternion, RigidBody2D, Vector2, behavior, field } from "../myco";
 import { getFields } from "../engine/core/registry";
 import { listComponents, type FieldValue } from "../engine/editor";
 import { AddComponent, AddNode, SetField, type NodePath } from "./document";

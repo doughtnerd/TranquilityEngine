@@ -1,6 +1,6 @@
 /**
  * A World's navigation (ADR 0065). Internal: game code uses the navigation components and the `Navigation`
- * facade. Loaded on demand by `ensureNavigation` (navigation.ts), like `Physics3DWorld`.
+ * facade. Loaded on demand by its World service (`NAVIGATION_SERVICE`, navigationSystems.ts), like `Physics3DWorld`.
  *
  * Each fixed step:
  * - `sync` (engine.NavSync): chunks load or unload, gates open or close, agents / groups / obstacles get runtime
@@ -12,16 +12,16 @@
  *   / `updateRotation`), before the physics pushes, so a kinematic RigidBody follows its transform; `_state` is
  *   filled for the getters.
  */
-import type { World } from "../core/World";
-import { getComponentClass } from "../core/registry";
-import { Quaternion, Vector3 } from "../core/math";
-import { Mat4 } from "../core/math";
-import type { GameObject } from "../scene/GameObject";
-import { SceneInstance } from "../scene/SceneLoader";
+import type { World } from "../../../engine/core/World";
+import { getComponentClass } from "../../../engine/core/registry";
+import { Quaternion, Vector3 } from "../../../engine/core/math";
+import { Mat4 } from "../../../engine/core/math";
+import type { GameObject } from "../../../engine/scene/GameObject";
+import { SceneInstance } from "../../../engine/scene/SceneLoader";
 import { NavAgent, NavAvoidanceObstacle, NavChunk, NavCostVolume, NavFlowGoal, NavGate, NavGroup, NavSurround, type NavAgentStateData, type NavWaypoint } from "./components";
-import { loadNavigation, type NavigationModule } from "./loader";
-import { formationMask, readFormationValue, type NavFormationAsset } from "./formation";
-import { Assets } from "../scene/Assets";
+import { loadNavigation, type NavigationModule } from "../../../engine/nav/loader";
+import { formationMask, readFormationValue, type NavFormationAsset } from "../../../engine/nav/formation";
+import { Assets } from "../../../engine/scene/Assets";
 import { loadNavBake, navBakeBytesIfLoaded, navDebugOf, type NavDebugSettings } from "./navigationSystems";
 import {
   AGENT_IN_STRIDE,
@@ -118,7 +118,7 @@ export class NavigationWorld {
   private costVolumesSent = "";
 
   constructor(private readonly world: World) {
-    if (!navModule) throw new Error("NavigationWorld: the navigation module isn't loaded (use ensureNavigation).");
+    if (!navModule) throw new Error("NavigationWorld: the navigation module isn't loaded (its World service loads it).");
     this.module = navModule;
     this.runtime = NavigationRuntime.createSync(navModule, world.settings.navigation);
   }

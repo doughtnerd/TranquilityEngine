@@ -16,7 +16,7 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { Assets } from "../engine";
+import { Assets } from "../myco"; // registers every built-in Component, the plugins' too (the bake reads colliders and nav volumes)
 import { World } from "../engine/core/World";
 import { destroyNow, instantiateDocument } from "../engine/editor";
 import { bakeChunk } from "../engine/nav/bake";

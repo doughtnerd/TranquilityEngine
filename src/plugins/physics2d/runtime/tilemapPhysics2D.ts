@@ -10,10 +10,10 @@
  * Everything is rebuilt when the tilemap's cells, the collider's settings or the node's scale change.
  */
 import RAPIER from "@dimforge/rapier2d-compat";
-import { DEG2RAD } from "../core/math";
-import type { World } from "../core/World";
-import { buildTileShapes } from "../tilemap/collision";
-import type { TilemapCollider2D } from "../tilemap/TilemapCollider2D";
+import { DEG2RAD } from "../../../engine/core/math";
+import type { World } from "../../../engine/core/World";
+import { buildTileShapes } from "../../../engine/tilemap/collision";
+import type { TilemapCollider2D } from "./TilemapCollider2D";
 import type { RigidBody2D } from "./RigidBody2D";
 
 /** @internal What Physics2DWorld lends the tilemap colliders. */

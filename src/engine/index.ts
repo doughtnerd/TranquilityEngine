@@ -16,7 +16,7 @@ export { Interest } from "./net/interest";
 export { replicate, type DataReplication, type ReplicatedSettings, type ReplicationMode } from "./net/replication";
 export type { FieldEncoding } from "./net/codec";
 export { isResimulating, predictedTick } from "./net/prediction";
-export { Component, GameBehavior, Waits, type LifecycleHooks } from "./core/Component";
+export { Component, GameBehavior, Waits, type LifecycleHooks, type PhysicsCollision, type PhysicsControllerHit } from "./core/Component";
 export { Time } from "./core/Time";
 export { Color, Mathf, Plane, Quaternion, Ray, Vector2, Vector3, DEG2RAD, RAD2DEG, type Vec2Like, type Vec3Like, type Vec2Input, type Vec3Input } from "./core/math";
 export { ASSET_FIELD_KINDS, AssetRef, PlainObject, behavior, component, field, getComponentClass, getComponentId, getComponentOptions, getFields, registerComponent, type AssetFieldKind, type ComponentOptions, type FieldChoice, type FieldChoices, type FieldOptions, type FieldType, type ListFieldType } from "./core/registry";
@@ -43,30 +43,11 @@ export { Water, WaterSurface, type WaterSample } from "./render/water/WaterSurfa
 export type { WaterWave } from "./render/water/gerstner";
 export { CUBEMAP_FORMAT, parseCubemap, formatCubemap, type CubemapFaces, type CubeFace } from "./sky/cubemapFormat";
 
-export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
-export { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type ColliderPoint2D, type Collision2D, type PhysicsMaterial, type PhysicsMaterial2D } from "./physics/Collider2D";
-export { Physics2D, type RaycastHit2D, type ShapeCastHit2D } from "./physics/Physics2D";
-export { CharacterController2D, type ControllerColliderHit2D } from "./physics/CharacterController2D";
-export { AxisJoint2D, FixedJoint2D, HingeJoint2D, Joint2D, RopeJoint2D, SliderJoint2D, SpringJoint2D } from "./physics/Joint2D";
-export { CollisionEvents2D, TriggerEvents2D, type PhysicsEvent2D } from "./physics/physics2dSystems";
-
 export { Tilemap, TilemapChanges, type TileChange } from "./tilemap/Tilemap";
-export { TilemapCollider2D } from "./tilemap/TilemapCollider2D";
 export { FLIP_DIAGONAL, FLIP_X, FLIP_Y, type TilemapLayerData } from "./tilemap/format";
 export type { TerrainDef, TileCollision, TileDef, TilePattern, TilePolygon, TilesetData } from "./tilemap/tileset";
 export type { TileCollisionMode } from "./tilemap/collision";
 
-export { RigidBody, type RigidBodyConstraints } from "./physics/RigidBody";
-export { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type CapsuleDirection, type Collision } from "./physics/Collider";
-export { Physics, type RaycastHit, type ShapeCastHit } from "./physics/Physics";
-export { CharacterController, type CollisionFlags, type ControllerColliderHit } from "./physics/CharacterController";
-export { AxisJoint, BallJoint, FixedJoint, HingeJoint, Joint, RopeJoint, SliderJoint, SpringJoint, type JointLimits, type JointMotor, type JointSpring } from "./physics/Joint";
-export { CollisionEvents, TriggerEvents, type PhysicsEvent } from "./physics/physics3d";
-export { Buoyancy, type BuoyancyMode } from "./physics/Buoyancy";
-
-export { NavAgent, NavAvoidanceObstacle, NavChunk, NavCostVolume, NavFlowGoal, NavGate, NavGroup, NavModifierVolume, NavObstacle, NavResolutionVolume, NavSurface, NavSurround, type NavMode, type NavPathState, type NavWaypoint } from "./nav/components";
-export { Navigation, type NavNearestPoint, type NavPathResult, type NavPathStatus, type NavRaycastHit } from "./nav/Navigation";
-export type { NavDebugSettings } from "./nav/navigationSystems";
 export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 
 export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UIPositionType, type UITextAlign, type UIWordBreak } from "./ui/components";

@@ -1,20 +1,21 @@
 /**
- * Navigation entry points that don't need the WebAssembly module loaded (ADR 0065), like `physics3d.ts` for
- * Rapier: the fixed-step systems, `ensureNavigation` (loads the module and `NavigationWorld` the first time a
- * World needs them), the scene scan `SceneManager.load` uses, and the cache of baked chunk bytes it preloads so
- * NavChunks load synchronously when their scene is instantiated.
+ * Navigation entry points that don't need the WebAssembly module loaded (ADR 0065, 0135), like Physics 3D's
+ * `physics3d.ts` for Rapier: the World service (it loads the module and `NavigationWorld` the first time a
+ * World needs them), the fixed-step systems, and the cache of baked chunk bytes a scene load fills (the
+ * service's `prepareScene`) so NavChunks load synchronously when their scene is instantiated.
  *
  * (Not `navigation.ts`: on case-insensitive file systems that's the facade's `Navigation.ts`.)
  */
-import { Vector3, type Vec3Input } from "../core/math";
-import { defineBuiltinSystem } from "../core/systems";
-import type { World } from "../core/World";
-import { Assets, fetchAssetBytes, normalizeAssetPath } from "../scene/Assets";
-import { resolvedComponents, type ResolvedComponent } from "../scene/resolvedScene";
+import { Vector3, type Vec3Input } from "../../../engine/core/math";
+import type { BuiltinSystem } from "../../../engine/core/systems";
+import type { World } from "../../../engine/core/World";
+import type { WorldServiceDef } from "../../../engine/core/worldServices";
+import { Assets, fetchAssetBytes, normalizeAssetPath } from "../../../engine/scene/Assets";
+import { resolvedComponents, type ResolvedComponent } from "../../../engine/scene/resolvedScene";
 import type { NavigationWorld } from "./NavigationWorld";
 
-/** Component types that need the World's navigation runtime. */
-export const NAV_RUNTIME_TYPES: ReadonlySet<string> = new Set([
+/** Component types that start the World's navigation runtime: in a loaded scene, or attaching later. */
+export const NAV_RUNTIME_TYPES: readonly string[] = [
   "engine.NavChunk",
   "engine.NavAgent",
   "engine.NavGroup",
@@ -23,16 +24,11 @@ export const NAV_RUNTIME_TYPES: ReadonlySet<string> = new Set([
   "engine.NavSurround",
   "engine.NavFlowGoal",
   "engine.NavAvoidanceObstacle",
-]);
+];
 
 /** Every effective component entry of a scene file and the prefabs it instances (overrides' added components and nodes too). */
 function sceneComponents(path: string): readonly ResolvedComponent[] {
   return resolvedComponents(path);
-}
-
-/** @internal True if a scene file (or a prefab it instances) has a navigation component. */
-export function usesNavigation(path: string): boolean {
-  return sceneComponents(path).some((c) => NAV_RUNTIME_TYPES.has(c.type));
 }
 
 /** @internal The bake assets a scene's NavChunks (and its prefabs') reference. */
@@ -106,20 +102,11 @@ export function clearNavBakeCache(): void {
 
 // ------------------------------------------------------------------------------------------- the World's navigation
 
-let loading: Promise<typeof import("./NavigationWorld")> | null = null;
+/** The World service's id (ADR 0135). */
+export const NAVIGATION = "myco.navigation";
 
-/** @internal Create the World's navigation world, loading the navigation module once. */
-export async function ensureNavigation(world: World): Promise<NavigationWorld | null> {
-  loading ??= import("./NavigationWorld")
-    .then(async (m) => (await m.initNavigationModule(), m))
-    .catch((err: unknown) => {
-      loading = null; // a failed fetch or WASM start is tried again next time
-      throw err;
-    });
-  const mod = await loading;
-  if (!world.navigation && !world._navigationDisposed) world.navigation = new mod.NavigationWorld(world);
-  return world.navigation;
-}
+/** @internal The World's navigation, or null while it has none. */
+export const navigationOf = (world: World): NavigationWorld | null => world.service<NavigationWorld>(NAVIGATION);
 
 /**
  * @internal True if the World runs the navigation systems: not an editor World (play mode runs its own Engine), and
@@ -128,15 +115,6 @@ export async function ensureNavigation(world: World): Promise<NavigationWorld | 
  */
 export function simulatesNavigation(world: World): boolean {
   return world.kind !== "editor" && world.scheduler.names().includes("engine.NavStep");
-}
-
-/**
- * @internal A navigation component attached in a World without navigation: start it (asynchronously; the
- * component begins working at the first fixed step after the module loads), if the World simulates navigation.
- */
-export function ensureNavigationFor(world: World): void {
-  if (world.navigation || world._navigationDisposed || !simulatesNavigation(world)) return;
-  ensureNavigation(world).catch((err: unknown) => console.error("[myco] nav: couldn't load the navigation module:", err));
 }
 
 /** @internal A Vec3Input as a tuple. */
@@ -149,7 +127,7 @@ export function readVec3(v: Vec3Input): [number, number, number] {
 
 /**
  * What `Navigation.debug` asks the debug drawing to show (state only: the debug drawing reads it, through
- * `world.navigation.debug`). The same keys as the debug drawing's `NavDebugFlags`. All off by default.
+ * `navigationOf(world).debug`). The same keys as the debug drawing's `NavDebugFlags`. All off by default.
  */
 export interface NavDebugSettings {
   /** Polygon outlines, shared edges and chunk-face edges. */
@@ -189,13 +167,33 @@ export function navDebugOf(world: World): NavDebugSettings {
  * simulate (play mode runs its own Engine). Nothing runs in a World without navigation.
  */
 const NAV_WORLDS = ["default", "local", "server"];
-defineBuiltinSystem({ name: "engine.NavSync", phase: "fixedUpdate", after: ["engine.FixedUpdateScripts"], worlds: NAV_WORLDS, run: (w) => w.navigation?.sync() });
-defineBuiltinSystem({ name: "engine.NavStep", phase: "fixedUpdate", after: ["engine.NavSync"], worlds: NAV_WORLDS, run: (w, dt) => w.navigation?.step(dt) });
-defineBuiltinSystem({
-  name: "engine.NavWriteBack",
-  phase: "fixedUpdate",
-  after: ["engine.NavStep"],
-  before: ["engine.PhysicsPush", "engine.Physics3DPush"],
-  worlds: NAV_WORLDS,
-  run: (w) => w.navigation?.writeBack(),
-});
+/** @internal */
+export const NAV_SYSTEMS: readonly BuiltinSystem[] = [
+  { name: "engine.NavSync", phase: "fixedUpdate", after: ["engine.FixedUpdateScripts"], worlds: NAV_WORLDS, run: (w) => navigationOf(w)?.sync() },
+  { name: "engine.NavStep", phase: "fixedUpdate", after: ["engine.NavSync"], worlds: NAV_WORLDS, run: (w, dt) => navigationOf(w)?.step(dt) },
+  {
+    name: "engine.NavWriteBack",
+    phase: "fixedUpdate",
+    after: ["engine.NavStep"],
+    before: ["engine.PhysicsPush", "engine.Physics3DPush"],
+    worlds: NAV_WORLDS,
+    run: (w) => navigationOf(w)?.writeBack(),
+  },
+];
+
+type NavigationModule = typeof import("./NavigationWorld");
+
+/**
+ * @internal Navigation as a World service (ADR 0135): started by a scene with navigation components or by
+ * one attaching, only in Worlds that simulate it (not clients, which get agents by replication). A scene
+ * load also preloads its NavChunks' bakes.
+ */
+export const NAVIGATION_SERVICE: WorldServiceDef<NavigationModule, NavigationWorld> = {
+  id: NAVIGATION,
+  neededBy: { components: NAV_RUNTIME_TYPES },
+  runsIn: simulatesNavigation,
+  load: () => import("./NavigationWorld").then(async (m) => (await m.initNavigationModule(), m)),
+  create: (world, m) => new m.NavigationWorld(world),
+  dispose: (n) => n.dispose(),
+  prepareScene: (_world, path) => preloadNavBakes(path),
+};

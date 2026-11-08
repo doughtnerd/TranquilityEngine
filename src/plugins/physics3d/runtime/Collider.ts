@@ -1,8 +1,9 @@
-import { Component } from "../core/Component";
-import { Vector3 } from "../core/math";
-import { AssetRef, PlainObject, component, field } from "../core/registry";
-import type { GameObject } from "../scene/GameObject";
-import type { PhysicsMaterial } from "./Collider2D";
+import { physics3DOf } from "./physics3d";
+import { Component } from "../../../engine/core/Component";
+import { Vector3 } from "../../../engine/core/math";
+import { AssetRef, PlainObject, component, field } from "../../../engine/core/registry";
+import type { GameObject } from "../../../engine/scene/GameObject";
+import type { PhysicsMaterial } from "../../../engine/physics/types";
 import type { ColliderHandleState3D } from "./Physics3DWorld";
 import { RigidBody } from "./RigidBody";
 
@@ -34,7 +35,7 @@ export abstract class Collider extends Component {
   abstract _shapeSignature(): string;
 
   override _onDetach(): void {
-    this._world.physics3D?.releaseCollider(this);
+    physics3DOf(this._world)?.releaseCollider(this);
   }
 }
 

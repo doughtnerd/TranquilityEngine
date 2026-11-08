@@ -1,11 +1,12 @@
+import { navigationOf } from "../../plugins/navigation/runtime/navigationSystems";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { Assets, Engine, GameObject, NavAgent, NavCostVolume, Navigation, SceneManager, type ProjectSettingsInput } from "../index";
+import { Assets, Engine, GameObject, NavAgent, NavCostVolume, Navigation, SceneManager, type ProjectSettingsInput } from "../../myco";
 import { World } from "../core/World";
 import { bakeChunk, releaseBakeCaches, type NavBakeMesh } from "../nav/bake";
 import { costSegments, RuntimeNavOverlay, NO_NAV_DEBUG, type NavDebugColors } from "../nav/debugGeometry";
-import { clearNavBakeCache } from "../nav/navigationSystems";
+import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import { describeNavCostVolume } from "../nav/plan";
-import type { Vec3 } from "../nav/runtime";
+import type { Vec3 } from "../../plugins/navigation/runtime/runtime";
 import { defaultNavAgentType, defaultNavigationSettings, type NavigationSettings } from "../nav/settings";
 
 // ADR 0070: NavCostVolume changes path costs at runtime without a rebake. A floor split by a wall along x = 0 with a
@@ -165,7 +166,7 @@ describe("NavCostVolume (ADR 0070)", () => {
   it("draws the polygons it changes when Navigation.debug.costs is on", async () => {
     const engine = await setup({ size: [3, 4, 3], cost: 50 });
     steps(engine, 2);
-    const nav = engine.world.navigation!;
+    const nav = navigationOf(engine.world)!;
     const chunk = nav.loadedChunks()[0];
     const lines = nav.runtime.debugCosts(chunk, WALKER);
     expect(lines.length).toBeGreaterThan(0);

@@ -1,9 +1,9 @@
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, Navigation, Quaternion, Replicated } from "../index";
+import { Assets, Engine, GameObject, Navigation, Quaternion, Replicated } from "../../myco";
 import { World } from "../core/World";
 import { releaseBakeCaches } from "../nav/bake";
-import { clearNavBakeCache } from "../nav/navigationSystems";
+import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import { readProject } from "../../server/project";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
 import { CLOUD_PREFAB, Cloud, FlagState, Fx, SHIP_PREFAB, SHIP_RADIUS, Ship, bearing, type CloudView, type FlagView, type ShipView } from "../../../samples/pirates/scripts/data";

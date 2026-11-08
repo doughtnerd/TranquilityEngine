@@ -1,7 +1,4 @@
 import { World } from "../core/World";
-import { ensurePhysics2D } from "../physics/physics2dSystems";
-import { ensurePhysics3D, usesPhysics3D } from "../physics/physics3d";
-import { ensureNavigation, preloadNavBakes, simulatesNavigation, usesNavigation } from "../nav/navigationSystems";
 import { Assets } from "./Assets";
 import { MATERIAL_MAPS, isMaterialPath } from "./material";
 import { isModelPath, loadModel } from "./models";
@@ -11,6 +8,7 @@ import { SceneInstance, collectAssetRefs, instantiateFile, loadSceneFile } from 
 import { loadUIDocumentSupport } from "../ui/UIDocument";
 import { warmSet, warmSetEmpty, type WarmSet } from "./warmUp";
 import { _startWorldServicesForScene } from "../core/worldServices";
+import { resolvedComponents } from "./resolvedScene";
 
 export interface LoadSceneOptions {
   /** Keep already-loaded scene nodes instead of replacing them (ADR 0016). */
@@ -50,12 +48,6 @@ export class SceneManager {
   static async load(path: string, options: LoadSceneOptions = {}): Promise<GameObject> {
     const world = World.require();
     const file = loadSceneFile(path);
-    if (file.settings?.physics === "2d") await ensurePhysics2D(world);
-    // 3D physics when the scene says so, or (saying nothing) when it has 3D bodies or colliders (ADR 0045).
-    if (file.settings?.physics === "3d" || (file.settings?.physics === undefined && usesPhysics3D(path))) await ensurePhysics3D(world);
-    // Navigation (ADR 0065): the module, and the scene's baked chunks, so its NavChunks load as it's instantiated;
-    // only in Worlds that run it (not clients, which get agents by replication).
-    if (usesNavigation(path) && simulatesNavigation(world)) await Promise.all([ensureNavigation(world), preloadNavBakes(path)]);
     // World services (ADR 0135) the scene needs: by its settings, the World's tags, or its Components.
     await _startWorldServicesForScene(world, { path, settings: file.settings as Readonly<Record<string, unknown>> | undefined, componentTypes: () => sceneComponentTypes(path) });
 
@@ -161,23 +153,10 @@ async function prepareAssets(world: World, files: readonly string[], onProgress:
 }
 
 /**
- * The Component type ids in a scene file and the prefabs it instances, overrides' added Components
- * included, for deciding which World services it needs (ADR 0135).
- * TODO(ADR 0135 step 3): the resolved scene view (every override kind applied) replaces this scan.
+ * The Component type ids in a scene file and the prefabs it instances, for deciding which World services
+ * it needs (ADR 0135): the resolved scene view, so every override kind counts (added Components and
+ * added nodes alike).
  */
-function sceneComponentTypes(path: string, seen = new Set<string>(), out = new Set<string>()): Set<string> {
-  if (seen.has(path)) return out;
-  seen.add(path);
-  let file;
-  try {
-    file = loadSceneFile(path);
-  } catch {
-    return out;
-  }
-  for (const n of file.nodes) {
-    for (const c of n.components ?? []) out.add(c.type);
-    for (const o of n.overrides ?? []) if (o.addComponent) out.add(o.addComponent.type);
-    if (n.prefab !== undefined) sceneComponentTypes(n.prefab, seen, out);
-  }
-  return out;
+function sceneComponentTypes(path: string): Set<string> {
+  return new Set(resolvedComponents(path).map((c) => c.type));
 }

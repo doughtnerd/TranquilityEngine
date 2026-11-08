@@ -6,15 +6,15 @@
  * Bake-only components (NavSurface, NavObstacle, NavModifierVolume, NavResolutionVolume) are data the editor's
  * bake reads; nothing runs for them at runtime.
  */
-import { Component } from "../core/Component";
-import { Vector3, type Vec3Input } from "../core/math";
-import { AssetRef, PlainObject, component, field } from "../core/registry";
-import type { ProjectSettings } from "../core/settings";
-import type { World } from "../core/World";
-import { GameObject } from "../scene/GameObject";
+import { Component } from "../../../engine/core/Component";
+import { Vector3, type Vec3Input } from "../../../engine/core/math";
+import { AssetRef, PlainObject, component, field } from "../../../engine/core/registry";
+import type { ProjectSettings } from "../../../engine/core/settings";
+import type { World } from "../../../engine/core/World";
+import { GameObject } from "../../../engine/scene/GameObject";
 import type { NavAgentBackend, NavChunkBackend, NavGateBackend, NavObstacleBackend, NavTargetBackend } from "./NavigationWorld";
-import { ensureNavigationFor, readVec3 } from "./navigationSystems";
-import { navAvoidanceLayerName, navLayerBit, navShownLayers } from "./settings";
+import { navigationOf, readVec3 } from "./navigationSystems";
+import { navAvoidanceLayerName, navLayerBit, navShownLayers } from "../../../engine/nav/settings";
 
 /** Where an agent is on its path. */
 export type NavPathState = "none" | "following" | "partial" | "arrived" | "failed";
@@ -73,9 +73,7 @@ export type NavGroupCommand =
   | { op: "mask"; mask: { bits: boolean[]; width: number; height: number } | null };
 
 /** Releases the World's navigation handles of a component (if it has a navigation world). */
-function navOf(world: World) {
-  return world.navigation;
-}
+const navOf = navigationOf;
 
 /** A scene's navigation chunk: its bake, loaded while the chunk node exists. */
 @component("engine.NavChunk")
@@ -102,9 +100,6 @@ export class NavChunk extends Component {
     return this._backend?.loaded ?? false;
   }
 
-  override _onAttach(): void {
-    ensureNavigationFor(this._world);
-  }
 
   override _onDetach(): void {
     navOf(this._world)?.releaseChunk(this);
@@ -159,9 +154,6 @@ export class NavGate extends Component {
 
   /** @internal */ _backend: NavGateBackend | null = null;
 
-  override _onAttach(): void {
-    ensureNavigationFor(this._world);
-  }
 }
 
 /**
@@ -183,9 +175,6 @@ export class NavCostVolume extends Component {
   /** Navmesh polygons, flight leaves, or both. */
   @field(String, { choices: ["ground", "air", "both"] }) domain = "both";
 
-  override _onAttach(): void {
-    ensureNavigationFor(this._world);
-  }
 }
 
 /**
@@ -278,9 +267,6 @@ export class NavAgent extends Component {
     return navOf(this._world)?.agentPath(this) ?? [];
   }
 
-  override _onAttach(): void {
-    ensureNavigationFor(this._world);
-  }
 
   override _onDetach(): void {
     navOf(this._world)?.releaseAgent(this);
@@ -357,9 +343,6 @@ export class NavGroup extends Component {
     return this._state.remainingDistance;
   }
 
-  override _onAttach(): void {
-    ensureNavigationFor(this._world);
-  }
 
   override _onDetach(): void {
     navOf(this._world)?.releaseGroup(this);
@@ -378,9 +361,6 @@ export class NavSurround extends Component {
 
   /** @internal */ _backend: NavTargetBackend | null = null;
 
-  override _onAttach(): void {
-    ensureNavigationFor(this._world);
-  }
 
   override _onDetach(): void {
     navOf(this._world)?.releaseTargetFeature(this);
@@ -395,9 +375,6 @@ export class NavFlowGoal extends Component {
 
   /** @internal */ _backend: NavTargetBackend | null = null;
 
-  override _onAttach(): void {
-    ensureNavigationFor(this._world);
-  }
 
   override _onDetach(): void {
     navOf(this._world)?.releaseTargetFeature(this);
@@ -413,9 +390,6 @@ export class NavAvoidanceObstacle extends Component {
 
   /** @internal */ _backend: NavObstacleBackend | null = null;
 
-  override _onAttach(): void {
-    ensureNavigationFor(this._world);
-  }
 
   override _onDetach(): void {
     navOf(this._world)?.releaseObstacle(this);

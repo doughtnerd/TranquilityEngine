@@ -1,3 +1,5 @@
+import { PHYSICS_2D, physics2DOf } from "../../plugins/physics2d/runtime/physics2dSystems";
+import { _startWorldService } from "../core/worldServices";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   Assets,
@@ -13,9 +15,8 @@ import {
   defineComponent,
   f32,
   field,
-} from "../index";
+} from "../../myco";
 import { World } from "../core/World";
-import { ensurePhysics2D } from "../physics/physics2dSystems";
 import { instantiateFile, loadSceneFile } from "../scene/SceneLoader";
 
 // ADR 0032, T3: Worlds share no nodes, data, buffers or physics; references and reparenting never
@@ -126,9 +127,9 @@ describe("Worlds share nothing (T3)", () => {
   });
 
   it("gives each World its own physics", async () => {
-    await ensurePhysics2D(a);
-    await ensurePhysics2D(b);
-    expect(a.physics2D).not.toBe(b.physics2D);
+    await _startWorldService(a, PHYSICS_2D);
+    await _startWorldService(b, PHYSICS_2D);
+    expect(physics2DOf(a)).not.toBe(physics2DOf(b));
     const wall = inWorld(a, () => GameObject.create("Wall"));
     wall.addBehavior(BoxCollider2D, { size: new Vector2(2, 2) });
     frame(a);

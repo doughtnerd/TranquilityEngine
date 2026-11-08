@@ -1,3 +1,4 @@
+import { physics2DOf } from "../plugins/physics2d/runtime/physics2dSystems";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, Input, SceneManager } from "../engine";
 import { World } from "../engine/core/World";
@@ -63,7 +64,7 @@ describe("play mode (ADR 0022)", () => {
 
     expect(World.active).toBe(editor.world);
     expect(runtimeManager.node.isValid).toBe(false); // destroyed, so scripts got onDestroy
-    expect(play.engine.world.physics2D).toBeNull(); // Rapier world freed
+    expect(physics2DOf(play.engine.world)).toBeNull(); // Rapier world freed
     expect(editorBird.isValid).toBe(true);
     expect(editorBird.transform!.position.toArray()).toEqual(before);
     // The play snapshot no longer shadows the project's scene file.

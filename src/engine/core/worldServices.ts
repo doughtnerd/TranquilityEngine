@@ -25,6 +25,18 @@ export interface WorldServiceNeeds {
   readonly worldTags?: readonly WorldTag[];
   /** Any other test of a scene file being loaded (its path). */
   scene?(path: string): boolean;
+  /**
+   * Scene settings under which a scene's Components don't start it (`{ physics: ["2d", "none"] }`: a scene
+   * that chose another physics dimension). A Component attaching later still does.
+   */
+  readonly exceptSceneSetting?: Readonly<Record<string, readonly unknown[]>>;
+}
+
+/** @internal A ray hit a service answers for core code (particle collisions) that mustn't know which plugin answers. */
+export interface WorldRayHit {
+  readonly point: { readonly x: number; readonly y: number; readonly z: number };
+  readonly normal: { readonly x: number; readonly y: number; readonly z: number };
+  readonly distance: number;
 }
 
 /** @internal A lazily loaded per-World subsystem (ADR 0135). `L` is what `load` gives, `I` one World's instance. */
@@ -39,6 +51,12 @@ export interface WorldServiceDef<L = unknown, I = unknown> {
   readonly neededBy: WorldServiceNeeds;
   /** Whether `world` runs this service at all. Default: every World but the editor's (play mode runs its own Engine). */
   runsIn?(world: World): boolean;
+  /** Scene loading: what to fetch before a scene that needs the service is instantiated (navigation's baked chunks), alongside the start. */
+  prepareScene?(world: World, path: string): Promise<void>;
+  /** Each rendered frame, after the fixed steps: `alpha` is how far real time is between the last two fixed steps (ADR 0093). */
+  interpolate?(instance: I, alpha: number): void;
+  /** A world-space 3D ray query (`dir` need not be unit length), for core code such as particle collisions. */
+  raycast?(instance: I, origin: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, maxDistance: number): WorldRayHit | null;
 }
 
 interface Entry {
@@ -188,7 +206,8 @@ export function _servicesNeededBy(world: World, scene: SceneNeeds): string[] {
     const bySetting = n.sceneSetting !== undefined && Object.keys(n.sceneSetting).length > 0 && Object.entries(n.sceneSetting).every(([k, v]) => scene.settings?.[k] === v);
     const byTag = !!n.worldTags?.some((t) => world.worldTags.includes(t));
     let needed = bySetting || byTag || !!n.scene?.(scene.path);
-    if (!needed && n.components?.length) {
+    const excepted = !!n.exceptSceneSetting && Object.entries(n.exceptSceneSetting).some(([k, vs]) => scene.settings?.[k] !== undefined && vs.includes(scene.settings![k]));
+    if (!needed && !excepted && n.components?.length) {
       types ??= new Set(scene.componentTypes());
       needed = n.components.some((c) => types!.has(c));
     }
@@ -203,7 +222,33 @@ export function _servicesNeededBy(world: World, scene: SceneNeeds): string[] {
  */
 export async function _startWorldServicesForScene(world: World, scene: SceneNeeds): Promise<void> {
   if (services.size === 0) return;
-  await Promise.all(_servicesNeededBy(world, scene).map((id) => _startWorldService(world, id)));
+  await Promise.all(
+    _servicesNeededBy(world, scene).flatMap((id) => {
+      const prepare = services.get(id)!.def.prepareScene;
+      return prepare ? [_startWorldService(world, id), prepare(world, scene.path)] : [_startWorldService(world, id)];
+    }),
+  );
+}
+
+/** @internal Each rendered frame (`Engine`): the World's running services that interpolate do, in start order. */
+export function _interpolateWorldServices(world: World, alpha: number): void {
+  const s = states.get(world);
+  if (!s) return;
+  for (const id of s.order) {
+    const def = services.get(id)?.def;
+    if (def?.interpolate) def.interpolate(s.instances.get(id), alpha);
+  }
+}
+
+/** @internal A 3D ray against the first running service that answers ray queries (3D physics); null when none does. */
+export function _worldRaycast(world: World, origin: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, maxDistance: number): WorldRayHit | null {
+  const s = states.get(world);
+  if (!s) return null;
+  for (const id of s.order) {
+    const def = services.get(id)?.def;
+    if (def?.raycast) return def.raycast(s.instances.get(id), origin, dir, maxDistance);
+  }
+  return null;
 }
 
 /**

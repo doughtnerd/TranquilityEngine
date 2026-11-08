@@ -2,7 +2,7 @@
 // brighter): a cross at its anchor, a line to the connected anchor, a hinge's axis and limits arc,
 // a slider's axis and range, a spring's zig-zag. 2D joints lie in the XY plane at the node's z.
 // Display only: the joints are edited in the Inspector.
-import { GameObject, Joint, Joint2D, AxisJoint, AxisJoint2D, BallJoint, FixedJoint, FixedJoint2D, HingeJoint, HingeJoint2D, RopeJoint, RopeJoint2D, SliderJoint, SliderJoint2D, SpringJoint, SpringJoint2D, type Engine } from "../engine";
+import { GameObject, Joint, Joint2D, AxisJoint, AxisJoint2D, BallJoint, FixedJoint, FixedJoint2D, HingeJoint, HingeJoint2D, RopeJoint, RopeJoint2D, SliderJoint, SliderJoint2D, SpringJoint, SpringJoint2D, type Engine } from "../myco";
 import { addEditorOverlay, removeEditorOverlay, type EditorOverlay } from "../engine/editor";
 import { worldCenter } from "./collider3dMath";
 import { toWorld } from "./colliderMath";

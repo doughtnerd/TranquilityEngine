@@ -1,19 +1,13 @@
-import { GameBehavior } from "../core/Component";
-import { Vector3, type Vec3Like } from "../core/math";
-import { component, field } from "../core/registry";
-import type { GameObject } from "../scene/GameObject";
+import { physics3DOf } from "./physics3d";
+import { GameBehavior } from "../../../engine/core/Component";
+import { Vector3, type Vec3Like } from "../../../engine/core/math";
+import { component, field } from "../../../engine/core/registry";
+import type { GameObject } from "../../../engine/scene/GameObject";
 import { Collider } from "./Collider";
 import type { RigidBody } from "./RigidBody";
 
-/** Which sides of a CharacterController touched something during its last `move` (ADR 0091). */
-export interface CollisionFlags {
-  /** Touched ground it can stand on (or is snapped to it). */
-  readonly below: boolean;
-  /** Touched a wall or a slope too steep to climb. */
-  readonly sides: boolean;
-  /** Touched a ceiling. */
-  readonly above: boolean;
-}
+import type { CollisionFlags } from "../../../engine/physics/types";
+export type { CollisionFlags };
 
 /** Passed to `onControllerColliderHit` for each collider a CharacterController's `move` ran into. */
 export interface ControllerColliderHit {
@@ -93,7 +87,7 @@ export class CharacterController extends Collider {
    * controller (its first fixed step), the node moves unobstructed.
    */
   move(motion: Vec3Like): CollisionFlags {
-    const physics = this._world.physics3D;
+    const physics = physics3DOf(this._world);
     const result = physics?.moveCharacter(this, motion);
     const t = this.node.transform;
     if (!result) {
@@ -114,7 +108,7 @@ export class CharacterController extends Collider {
    */
   simpleMove(speed: Vec3Like): boolean {
     const dt = this._world.time.deltaTime;
-    const g = this._world.physics3D?.gravity.y ?? -9.81;
+    const g = physics3DOf(this._world)?.gravity.y ?? -9.81;
     this._fallSpeed = this.isGrounded ? Math.min(0, g * dt) : this._fallSpeed + g * dt;
     this.move({ x: speed.x * dt, y: this._fallSpeed * dt, z: speed.z * dt });
     if (this.isGrounded) this._fallSpeed = 0;

@@ -1,7 +1,8 @@
+import { physics2DOf } from "../../plugins/physics2d/runtime/physics2dSystems";
 import "../sampleTypes";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GameManager } from "../../../samples/flappy/scripts/behaviors/GameManager";
-import { Assets, BoxCollider2D, Color, Engine, SpriteRenderer } from "../../engine";
+import { Assets, BoxCollider2D, Color, Engine, SpriteRenderer } from "../../myco";
 import { getDataComponentDef } from "../../engine/core/data";
 import {
   AddComponent,
@@ -97,7 +98,7 @@ describe("WorldSync build", () => {
     for (let i = 0; i < 30; i++) engine.step(1 / 60);
     expect(at("ground-a").transform!.position.x).toBe(groundX);
     expect(at("bird").transform!.position.y).toBe(birdY);
-    expect(engine.world.physics2D).toBeNull();
+    expect(physics2DOf(engine.world)).toBeNull();
   });
 });
 

@@ -15,9 +15,6 @@ import { Mat4 } from "./math";
 import { QueryRows, type Rows } from "./rows";
 import { Scheduler, defineBuiltinSystem, type QueryTerm } from "./systems";
 import { resolveSettings, type ProjectSettings, type ProjectSettingsInput } from "./settings";
-import type { Physics2DWorld } from "../physics/Physics2DWorld";
-import type { Physics3DWorld } from "../physics/Physics3DWorld";
-import type { NavigationWorld } from "../nav/NavigationWorld";
 import type { RenderSurface } from "../render/RenderSurface";
 import type { NetworkTime } from "../net/time";
 import type { WorldTag } from "./worlds";
@@ -122,10 +119,6 @@ export class World {
 
   /** @internal */ readonly scheduler: Scheduler;
   /** @internal */ _waits: PendingWait[] = [];
-  /** @internal */ physics2D: Physics2DWorld | null = null;
-  /** @internal Created by `ensurePhysics3D` (ADR 0045). */ physics3D: Physics3DWorld | null = null;
-  /** @internal Created by `ensureNavigation` (ADR 0065). */ navigation: NavigationWorld | null = null;
-  /** @internal Set when the World is torn down, so a navigation load finishing later doesn't start one. */ _navigationDisposed = false;
   /** @internal The Engine that owns this World (ADR 0032): set by the Engine (T1), used by `Engine.createWorld`/`findWorld`. */
   _engine: unknown = null;
   /** @internal Transports this World owns (ADR 0033), closed when it's destroyed: see `createWorldTransport`. */
@@ -674,13 +667,6 @@ export class World {
   _destroyAll(): void {
     for (const e of this.childEntities(0)) this._destroyNode(e);
     this._flushDestroyed();
-    this.physics2D?.rapier.free();
-    this.physics2D = null;
-    this.physics3D?.rapier.free();
-    this.physics3D = null;
-    this.navigation?.dispose();
-    this.navigation = null;
-    this._navigationDisposed = true;
     _disposeWorldServices(this); // reverse start order; a load finishing later starts nothing (ADR 0135)
     // Its connections and listen addresses go with it (a loopback address is page-wide).
     for (const t of this._transports) t.close();

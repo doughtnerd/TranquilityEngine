@@ -10,7 +10,7 @@ import {
   chunkIdOf,
   debugBakeLines,
   type Vec3,
-} from "../nav/runtime";
+} from "../../plugins/navigation/runtime/runtime";
 import { defaultNavAgentType, defaultNavigationSettings, parseNavigationSettings, type NavigationSettings } from "../nav/settings";
 
 // ADR 0065: the WebAssembly boundary end to end in Node: bake a floor with a box on it, load it into a

@@ -7,7 +7,7 @@
 // the centre handle moves the offset. Each drag or click is one undo step (an override on prefab
 // instances).
 import { effect } from "@preact/signals";
-import { BoxCollider, BoxCollider2D, CapsuleCollider, CharacterController, CharacterController2D, CircleCollider2D, Collider, Collider2D, EdgeCollider2D, GameObject, MeshCollider, PolygonCollider2D, SphereCollider, type Engine } from "../engine";
+import { BoxCollider, BoxCollider2D, CapsuleCollider, CharacterController, CharacterController2D, CircleCollider2D, Collider, Collider2D, EdgeCollider2D, GameObject, MeshCollider, PolygonCollider2D, SphereCollider, type Engine } from "../myco";
 import { addEditorOverlay, type EditorOverlay, meshTriangleData, removeEditorOverlay, viewport, viewportCanvas } from "../engine/editor";
 import {
   boxHandles3D,

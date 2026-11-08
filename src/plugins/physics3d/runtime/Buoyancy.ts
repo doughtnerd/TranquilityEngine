@@ -4,12 +4,13 @@
  * mode places the node on the waves directly. Runs in a fixed-step system after scripts and before
  * the 3D physics push, and needs no renderer, so servers float objects the same as clients.
  */
-import { Component } from "../core/Component";
-import { Quaternion, Vector2, Vector3 } from "../core/math";
-import { component, field } from "../core/registry";
-import { defineBuiltinSystem } from "../core/systems";
-import type { World } from "../core/World";
-import { firstSurface, sampleSurface, waterTime } from "../render/water/WaterSurface";
+import { physics3DOf } from "./physics3d";
+import { Component } from "../../../engine/core/Component";
+import { Quaternion, Vector2, Vector3 } from "../../../engine/core/math";
+import { component, field } from "../../../engine/core/registry";
+import type { BuiltinSystem } from "../../../engine/core/systems";
+import type { World } from "../../../engine/core/World";
+import { firstSurface, sampleSurface, waterTime } from "../../../engine/render/water/WaterSurface";
 import { RigidBody } from "./RigidBody";
 
 export type BuoyancyMode = "physics" | "kinematic";
@@ -178,14 +179,15 @@ function nlerp(a: Quaternion, b: Quaternion, t: number): Quaternion {
 
 /** The downward pull of gravity: the 3D physics world's, else the project's. */
 function gravity(world: World): number {
-  const g = world.physics3D?.gravity;
+  const g = physics3DOf(world)?.gravity;
   if (g) return Math.hypot(g.x, g.y, g.z);
   const s = world.settings.physics.gravity as readonly number[];
   return Math.hypot(s[0] ?? 0, s[1] ?? -9.81, s[2] ?? 0);
 }
 
 // After scripts' fixedUpdate (so a script's waveScale or force this step counts) and before the 3D push.
-defineBuiltinSystem({
+/** @internal Registered by the Physics 3D plugin. */
+export const BUOYANCY_SYSTEM: BuiltinSystem = {
   name: "engine.Buoyancy",
   phase: "fixedUpdate",
   after: ["engine.FixedUpdateScripts"],
@@ -196,4 +198,4 @@ defineBuiltinSystem({
     const time = waterTime(world);
     for (const b of floats) if (b.isActiveAndEnabled) b._step(world, time, dt);
   },
-});
+};

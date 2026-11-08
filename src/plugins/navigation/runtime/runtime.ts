@@ -15,9 +15,9 @@
  * - `agentState` (bytes, tick writes): path state, motion mode, flags ({@link NavStateFlags}), kind — stride 4.
  * - `obstaclesIn` (host writes): position xyz, up xyz — stride 6.
  */
-import { loadNavigation, type NavigationModule } from "./loader";
-import type { NavigationSettings } from "./settings";
-import type { NavRuntime as RawRuntime } from "./wasm/myco_nav.js";
+import { loadNavigation, type NavigationModule } from "../../../engine/nav/loader";
+import type { NavigationSettings } from "../../../engine/nav/settings";
+import type { NavRuntime as RawRuntime } from "../../../engine/nav/wasm/myco_nav.js";
 
 export const AGENT_IN_STRIDE = 10;
 export const AGENT_OUT_STRIDE = 17;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { addEditorOverlay, mergeOverlays, navigationOf, removeEditorOverlay, setEditorOverlay, type EditorOverlay } from "../editor";
+import { addEditorOverlay, mergeOverlays, removeEditorOverlay, setEditorOverlay, type EditorOverlay } from "../editor";
+import { navigationOf } from "../../plugins/navigation/runtime/navigationSystems";
 import type { World } from "../core/World";
 import { FakeRenderSurface } from "../render/fakeViewport";
 import {
@@ -63,11 +64,11 @@ describe("composable editor overlays", () => {
     expect(mergeOverlays([])).toEqual({ lines: [], handles: [] });
   });
 
-  it("reads a World's navigation defensively", () => {
-    expect(navigationOf({} as World)).toBeNull();
-    expect(navigationOf({ navigation: null } as unknown as World)).toBeNull();
+  it("reads a World's navigation through its World services (null while it has none)", () => {
+    const world = { service: (id: string) => (id === "myco.navigation" ? nav : null) } as unknown as World;
     const nav = { runtime: {} };
-    expect(navigationOf({ navigation: nav } as unknown as World)).toBe(nav);
+    expect(navigationOf(world)).toBe(nav);
+    expect(navigationOf({ service: () => null } as unknown as World)).toBeNull();
   });
 });
 

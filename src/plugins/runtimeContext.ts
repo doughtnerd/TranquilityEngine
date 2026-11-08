@@ -3,7 +3,7 @@
 // The player, the dedicated server and the editor (its own World and Play) activate the first-party
 // halves (`RUNTIME_PLUGINS`) before `Engine.create`; `src/engine/` never imports `src/plugins/`.
 import { _unregisterComponent, getComponentClass, getComponentId, getComponentOptions, registerComponent, type ComponentClass } from "../engine/core/registry";
-import { _undefineSystem, defineSystem, type SystemDef } from "../engine/core/systems";
+import { _undefineBuiltinSystem, _undefineSystem, defineBuiltinSystem, defineSystem, type BuiltinSystem, type SystemDef } from "../engine/core/systems";
 import { _registerWorldService, type WorldServiceDef } from "../engine/core/worldServices";
 import { _registerRenderFeature, type RenderFeatureRegistration, type RenderFeatureSpec } from "../engine/render/renderFeatures";
 import type { PluginManifest } from "./manifest";
@@ -26,6 +26,12 @@ export interface RuntimePluginContext {
   registerComponents(classes: readonly ComponentClass[]): void;
   /** Systems for the system catalog (ADR 0032); removed again when the plugin is deactivated. */
   registerSystems(defs: readonly SystemDef[]): void;
+  /**
+   * @internal First-party only (ADR 0133): engine systems (`run(world, dt)`, every World unless `worlds`
+   * says otherwise), listed with the engine's in the catalog, such as the physics steps. Removed again on
+   * deactivation.
+   */
+  registerEngineSystems(defs: readonly BuiltinSystem[]): void;
   /** A lazily loaded per-World subsystem (ADR 0135). */
   registerWorldService<L, I>(service: WorldServiceDef<L, I>): void;
   /** @internal First-party only (ADR 0133): a render feature, for renderers created from now on. */
@@ -92,6 +98,7 @@ export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], option
       plugin.activate({
         registerComponents: (classes) => void classes.forEach((cls) => undo.push(unclaim(cls, idOf(cls)))),
         registerSystems: () => {},
+        registerEngineSystems: () => {},
         registerWorldService: () => {},
         registerRenderFeature: () => {},
       });
@@ -109,6 +116,12 @@ export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], option
         for (const def of defs) {
           defineSystem(def);
           undo.push(() => _undefineSystem(def.name));
+        }
+      },
+      registerEngineSystems: (defs) => {
+        for (const def of defs) {
+          defineBuiltinSystem(def);
+          undo.push(() => _undefineBuiltinSystem(def));
         }
       },
       registerWorldService: (service) => void undo.push(_registerWorldService(service)),
@@ -137,5 +150,8 @@ export function deactivateRuntimePlugin(name: string): void {
   active.delete(name);
   for (const u of undo.reverse()) u();
 }
+
+/** True once any runtime half has been activated or disabled: a host has chosen the plugin set. */
+export const runtimePluginsChosen = (): boolean => active.size > 0 || disabled.size > 0;
 
 export const isRuntimePluginActive = (name: string): boolean => active.has(name);

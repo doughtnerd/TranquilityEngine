@@ -1,3 +1,5 @@
+import { physics2DOf } from "../../plugins/physics2d/runtime/physics2dSystems";
+import { physics3DOf } from "../../plugins/physics3d/runtime/physics3d";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -17,7 +19,7 @@ import {
   SphereCollider,
   type Collider,
   type Collision,
-} from "../index";
+} from "../../myco";
 import { clearModelCache } from "../scene/models";
 import { boxHalfExtents, capsuleSize, sphereRadius } from "../physics/shape3d";
 
@@ -85,7 +87,7 @@ describe("3D physics on Rapier (ADR 0045)", () => {
     expect(box.transform!.position.y).toBeCloseTo(0, 1); // resting on the floor's top face (y = -0.5)
     expect(events).toContain("collision:floor");
     expect(reader.seen).toContain("box/floor");
-    expect(engine.world.physics3D).not.toBeNull();
+    expect(physics3DOf(engine.world)!).not.toBeNull();
   });
 
   it("falls under gravity, and spins when given angular velocity", async () => {
@@ -180,8 +182,8 @@ describe("3D physics on Rapier (ADR 0045)", () => {
     );
     const engine = await Engine.create({ headless: true, project });
     await SceneManager.load("auto.json");
-    expect(engine.world.physics3D).not.toBeNull();
-    expect(engine.world.physics2D).toBeNull();
+    expect(physics3DOf(engine.world)!).not.toBeNull();
+    expect(physics2DOf(engine.world)).toBeNull();
   });
 });
 
@@ -196,6 +198,6 @@ describe("3D physics auto-detection", () => {
     );
     const engine = await Engine.create({ headless: true, project });
     await SceneManager.load("s.json");
-    expect(engine.world.physics3D).not.toBeNull();
+    expect(physics3DOf(engine.world)!).not.toBeNull();
   });
 });

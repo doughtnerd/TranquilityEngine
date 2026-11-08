@@ -1,8 +1,9 @@
-import { GameBehavior } from "../core/Component";
-import { Vector2, type Vec2Like } from "../core/math";
-import { component, field } from "../core/registry";
-import type { GameObject } from "../scene/GameObject";
-import type { CollisionFlags } from "./CharacterController";
+import { physics2DOf } from "./physics2dSystems";
+import { GameBehavior } from "../../../engine/core/Component";
+import { Vector2, type Vec2Like } from "../../../engine/core/math";
+import { component, field } from "../../../engine/core/registry";
+import type { GameObject } from "../../../engine/scene/GameObject";
+import type { CollisionFlags } from "../../../engine/physics/types";
 import { Collider2D } from "./Collider2D";
 import type { RigidBody2D } from "./RigidBody2D";
 
@@ -70,7 +71,7 @@ export class CharacterController2D extends Collider2D {
 
   /** Move by `motion`, sliding along what it hits. The node moves at once. See CharacterController.move. */
   move(motion: Vec2Like): CollisionFlags {
-    const result = this._world.physics2D?.moveCharacter(this, motion);
+    const result = physics2DOf(this._world)?.moveCharacter(this, motion);
     const t = this.node.transform;
     if (!result) {
       if (t) {
@@ -102,7 +103,7 @@ export class CharacterController2D extends Collider2D {
   /** Walk at `speed.x` units per second for this frame, falling with gravity when not grounded. Returns `isGrounded`. */
   simpleMove(speed: Vec2Like): boolean {
     const dt = this._world.time.deltaTime;
-    const g = this._world.physics2D?.gravity.y ?? -9.81;
+    const g = physics2DOf(this._world)?.gravity.y ?? -9.81;
     this._fallSpeed = this.isGrounded ? Math.min(0, g * dt) : this._fallSpeed + g * dt;
     this.move({ x: speed.x * dt, y: this._fallSpeed * dt });
     if (this.isGrounded) this._fallSpeed = 0;

@@ -1,7 +1,7 @@
 // The platformer sample (ADR 0031, 0103, 0105): its tilemap level loads and plays end to end, headless.
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { Assets, Engine, GameObject, SceneManager, Tilemap, TilemapCollider2D } from "../index";
+import { Assets, Engine, GameObject, SceneManager, Tilemap, TilemapCollider2D } from "../../myco";
 import { readProject } from "../../server/project";
 import { Player } from "../../../samples/platformer/scripts/behaviors/Player";
 import "../../../samples/platformer/scripts/behaviors/CameraFollow";

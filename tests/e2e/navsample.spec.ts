@@ -42,7 +42,7 @@ const playState = (page: Page) =>
     type W = {
       time: { frameCount: number };
       sceneNodes: Node[];
-      navigation: { loadedChunks(): string[] } | null;
+      service(id: string): { loadedChunks(): string[] } | null;
       _componentsOfType(type: unknown): Agent[];
     };
     const myco = (globalThis as unknown as { __myco?: { NavAgent: unknown } }).__myco;
@@ -51,7 +51,7 @@ const playState = (page: Page) =>
     return {
       frame: w.time.frameCount,
       chunkScenes: w.sceneNodes.map((s) => s.name).filter((n) => n.startsWith("chunk-")),
-      runtimeChunks: w.navigation?.loadedChunks().length ?? 0,
+      runtimeChunks: w.service("myco.navigation")?.loadedChunks().length ?? 0, // the Navigation plugin's World service (ADR 0135)
       agents: w
         ._componentsOfType(myco.NavAgent)
         .filter((a) => a.node.isValid && a.node.transform)

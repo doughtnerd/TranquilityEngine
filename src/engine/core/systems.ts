@@ -148,6 +148,14 @@ export function _undefineSystem(name: string): void {
   catalogVersion++;
 }
 
+/** @internal Remove an engine system a first-party plugin added (`registerEngineSystems`, ADR 0135). */
+export function _undefineBuiltinSystem(system: BuiltinSystem): void {
+  const at = builtinSystems.indexOf(system);
+  if (at < 0) return;
+  builtinSystems.splice(at, 1);
+  catalogVersion++;
+}
+
 /** A system in the catalog: what can be added to a World (ADR 0032). */
 export interface SystemCatalogEntry {
   readonly name: string;

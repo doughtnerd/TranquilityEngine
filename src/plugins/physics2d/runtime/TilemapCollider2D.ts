@@ -1,7 +1,7 @@
-import { component, field } from "../core/registry";
-import { Collider2D } from "../physics/Collider2D";
-import type { TileCollisionMode } from "./collision";
-import { Tilemap } from "./Tilemap";
+import { component, field } from "../../../engine/core/registry";
+import { Collider2D } from "./Collider2D";
+import type { TileCollisionMode } from "../../../engine/tilemap/collision";
+import { Tilemap } from "../../../engine/tilemap/Tilemap";
 
 /** @internal What the physics backend keeps for a TilemapCollider2D (Rapier colliders are typed loosely here so Rapier stays out of this module). */
 export interface TilemapColliderState {
@@ -9,7 +9,7 @@ export interface TilemapColliderState {
   /** The tilemap and settings the colliders were built from. */
   signature: string;
   syncedVersion: number;
-  body: import("../physics/RigidBody2D").RigidBody2D | null;
+  body: import("./RigidBody2D").RigidBody2D | null;
   active: boolean;
 }
 

@@ -9,20 +9,20 @@
  * - static bodies and colliders without a body: pushed when their Transform changes.
  */
 import RAPIER from "@dimforge/rapier2d-compat";
-import { GameBehavior } from "../core/Component";
-import { DEG2RAD, Mat4, RAD2DEG, Vector2 } from "../core/math";
-import type { World } from "../core/World";
-import { GameObject } from "../scene/GameObject";
+import { GameBehavior } from "../../../engine/core/Component";
+import { DEG2RAD, Mat4, RAD2DEG, Vector2 } from "../../../engine/core/math";
+import type { World } from "../../../engine/core/World";
+import { GameObject } from "../../../engine/scene/GameObject";
 import { BoxCollider2D, CircleCollider2D, Collider2D, EdgeCollider2D, PolygonCollider2D, type Collision2D } from "./Collider2D";
-import { layerGroups } from "./layers";
+import { layerGroups } from "../../../engine/physics/layers";
 import { Queries2D } from "./queries2d";
-import { cleanPoints, convexParts } from "./polygon";
-import type { CollisionFlags } from "./CharacterController";
+import { cleanPoints, convexParts } from "../../../engine/physics/polygon";
+import type { CollisionFlags } from "../../../engine/physics/types";
 import { CharacterController2D, type ControllerColliderHit2D } from "./CharacterController2D";
 import { AxisJoint2D, FixedJoint2D, HingeJoint2D, Joint2D, RopeJoint2D, SliderJoint2D, SpringJoint2D } from "./Joint2D";
 import { CollisionEvents2D, TriggerEvents2D } from "./physics2dSystems";
 import { RigidBody2D } from "./RigidBody2D";
-import { TilemapCollider2D } from "../tilemap/TilemapCollider2D";
+import { TilemapCollider2D } from "./TilemapCollider2D";
 import { TilemapPhysics2D } from "./tilemapPhysics2D";
 
 /** @internal */
@@ -77,7 +77,7 @@ const MOTOR_GAIN = 1e4;
 
 let rapierReady: Promise<void> | null = null;
 
-/** @internal Initialize Rapier 2D's WASM once (`ensurePhysics2D` in physics2d.ts calls it). */
+/** @internal Initialize Rapier 2D's WASM once (the World service in physics2dSystems.ts calls it). */
 export function initRapier2D(): Promise<void> {
   return (rapierReady ??= RAPIER.init().catch((err: unknown) => {
     rapierReady = null; // tried again next time

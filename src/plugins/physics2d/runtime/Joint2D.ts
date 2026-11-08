@@ -1,8 +1,9 @@
-import { Component } from "../core/Component";
-import { Vector2 } from "../core/math";
-import { PlainObject, component, field } from "../core/registry";
-import { GameObject } from "../scene/GameObject";
-import type { JointLimits, JointMotor, JointSpring } from "./Joint";
+import { physics2DOf } from "./physics2dSystems";
+import { Component } from "../../../engine/core/Component";
+import { Vector2 } from "../../../engine/core/math";
+import { PlainObject, component, field } from "../../../engine/core/registry";
+import { GameObject } from "../../../engine/scene/GameObject";
+import type { JointLimits, JointMotor, JointSpring } from "../../../engine/physics/types";
 import type { JointHandleState } from "./Physics2DWorld";
 import { RigidBody2D } from "./RigidBody2D";
 
@@ -56,7 +57,7 @@ export abstract class Joint2D extends Component {
   }
 
   override _onDetach(): void {
-    this._world.physics2D?.releaseJoint(this);
+    physics2DOf(this._world)?.releaseJoint(this);
   }
 }
 

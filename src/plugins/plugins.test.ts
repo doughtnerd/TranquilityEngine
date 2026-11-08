@@ -76,7 +76,7 @@ describe("plugin import direction", () => {
     expect(bad).toEqual([]);
   });
 
-  it("only the player, the server, the editor's boot and Play import the runtime plugin list", () => {
+  it("only the player, the server, the editor's boot, Play, Vitest's setup file and myco.ts import the runtime plugin list", () => {
     const importers: string[] = [];
     for (const f of files(SRC)) {
       if (/\.test\.tsx?$/.test(f)) continue;
@@ -85,7 +85,8 @@ describe("plugin import direction", () => {
         if (target.startsWith("/") && /^plugins\/runtime(\.ts)?$/.test(rel(target))) importers.push(rel(f));
       }
     }
-    expect(importers.sort()).toEqual(["editor/playMode.ts", "player/main.ts", "plugins/editorBoot.ts", "server/run.ts"]);
+    // myco.ts: the default activation for games built on the engine library (ADR 0135).
+    expect(importers.sort()).toEqual(["editor/playMode.ts", "myco.ts", "player/main.ts", "plugins/editorBoot.ts", "plugins/testSetup.ts", "server/run.ts"]);
   });
 
   it("keeps the editor core free of plugins' editor halves (only main.tsx loads them, through editorBoot.ts)", () => {

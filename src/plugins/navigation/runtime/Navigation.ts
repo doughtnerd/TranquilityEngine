@@ -5,10 +5,10 @@
  * Navigation loads asynchronously (its WebAssembly module): before it has, queries return null / empty results
  * with a warning. Scenes with navigation components load it before they're instantiated.
  */
-import { Vector3, type Vec3Input } from "../core/math";
-import { World } from "../core/World";
+import { Vector3, type Vec3Input } from "../../../engine/core/math";
+import { World } from "../../../engine/core/World";
 import type { NavWaypoint } from "./components";
-import { navDebugOf, readVec3, type NavDebugSettings } from "./navigationSystems";
+import { navDebugOf, navigationOf, readVec3, type NavDebugSettings } from "./navigationSystems";
 
 /** How far a found path goes: all the way, as close as it could get, or nowhere (no path). */
 export type NavPathStatus = "success" | "partial" | "none";
@@ -39,7 +39,7 @@ const warned = new WeakSet<World>();
 
 function nav(what: string) {
   const world = World.require();
-  const n = world.navigation;
+  const n = navigationOf(world);
   if (!n && !warned.has(world)) {
     warned.add(world);
     console.warn(`[myco] nav: Navigation.${what} called before navigation loaded in World "${world.name}" (load a scene with navigation components first); returning nothing.`);
@@ -80,12 +80,12 @@ export class Navigation {
 
   /** The ids of the chunks loaded in this World. */
   static get loadedChunks(): string[] {
-    return World.require().navigation?.loadedChunks() ?? [];
+    return navigationOf(World.require())?.loadedChunks() ?? [];
   }
 
   /** True once this World's navigation has loaded. */
   static get isReady(): boolean {
-    return World.require().navigation !== null;
+    return navigationOf(World.require()) !== null;
   }
 
   /** What the navigation debug drawing shows in this World (toggle fields; drawing reads them). */

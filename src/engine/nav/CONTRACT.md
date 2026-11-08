@@ -1,6 +1,6 @@
 # W6 component contract (shared by the engine, editor-bake and debug agents)
 
-Component ids and fields (engine agent implements them in src/engine/nav/components.ts; others refer to them by these ids/field names):
+Component ids and fields (implemented in src/plugins/navigation/runtime/components.ts, ADR 0135; others refer to them by these ids/field names):
 
 - `engine.NavChunk` — a scene's navigation chunk (on the scene root or any node; one per scene normally).
   - `bake: AssetRef` — the baked `<scene>.nav.bin` (written by the editor's Bake).
@@ -24,7 +24,7 @@ Component ids and fields (engine agent implements them in src/engine/nav/compone
 
 Field choices that come from project settings are labelled (ADR 0066): agent type fields show type names and store ids, area fields show area names ("Walkable" = "") and store ids.
 
-World field: `world.navigation: NavigationWorld | null` (created lazily by `ensureNavigation(world)` in `navigationSystems.ts`; `Navigation.ts` is the public facade, and the two names can't differ only by case on Windows and macOS); `NavigationWorld.runtime: NavigationRuntime` (src/engine/nav/runtime.ts) and `NavigationWorld.loadedChunks()`.
+World service: `navigationOf(world): NavigationWorld | null` (the `myco.navigation` World service, ADR 0135, started by its Components; `navigationSystems.ts` in src/plugins/navigation/runtime/; `Navigation.ts` is the public facade, and the two names can't differ only by case on Windows and macOS); `NavigationWorld.runtime: NavigationRuntime` (src/plugins/navigation/runtime/runtime.ts) and `NavigationWorld.loadedChunks()`.
 Project settings: `ProjectSettings.navigation` = `NavigationSettings` from src/engine/nav/settings.ts (parse with parseNavigationSettings). `navigation.avoidanceLayers: string[]` names the avoidance layers (index = bit, up to 32, "" = unnamed; default ["Default"]); editor labels only, left out of the bake input signature. An agent type's `avoidance.layers` is one bit (the parser keeps the lowest), `avoidLayers` a mask (0xffffffff = Everything).
 Baked asset path convention: `<scene path without .scene.json>.nav.bin` (e.g. `scenes/main.nav.bin`), referenced by the scene's NavChunk `bake` field as `asset:scenes/main.nav.bin`.
 Chunk id: `chunkId(scenePath, chunkNodeId)` from the wasm module (project-relative scene path with forward slashes; the NavChunk node's id).

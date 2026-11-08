@@ -14,8 +14,6 @@ import type { Engine, EngineTiming, WorldViewState } from "../core/Engine";
 import type { WorldConfig } from "../core/worlds";
 import { Input } from "../input/Input";
 import { localPoseFromMatrix, matrixFrom, type LocalPose } from "../render/gizmoMath";
-import type { NavigationWorld } from "../nav/NavigationWorld";
-import { NavAgent } from "../nav/components";
 import { ViewportHandle, type EditorOverlay, type EditorViewport } from "../render/editorViewport";
 import type { RenderPolicyPort } from "../render/renderPolicy";
 import type { RenderDiagnostics } from "../render/RenderSurface";
@@ -534,16 +532,6 @@ export function nodeCount(world: World): number {
     stack.push(...node.children);
   }
   return n;
-}
-
-/** How many navigation agents `world` has, or null while it has no navigation (ADR 0065). */
-export function navAgentCount(world: World): number | null {
-  return world.navigation ? world._componentsOfType(NavAgent).length : null;
-}
-
-/** The World's navigation (ADR 0065), or null while it has none. */
-export function navigationOf(world: World): NavigationWorld | null {
-  return world.navigation ?? null;
 }
 
 // --- Adding components (ADR 0022) ---------------------------------------------------------------

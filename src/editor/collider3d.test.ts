@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Assets, BoxCollider, Engine, MeshRenderer } from "../engine";
+import { Assets, BoxCollider, Engine, MeshRenderer } from "../myco";
 import { addAsset, assetKind, prepareAssets, whyNotAddable } from "./assetBrowser";
 import { newComponentEntry } from "./componentEdits";
 import {

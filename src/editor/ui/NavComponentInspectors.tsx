@@ -8,7 +8,7 @@
 // - NavModifierVolume: what its flight preview found (ModifierVolumeFlightPreview).
 // - NavCostVolume (ADR 0070, new in Myco): what it does at runtime, and agent types it can't affect.
 import { useEffect, useState } from "preact/hooks";
-import { NavChunk } from "../../engine/nav/components";
+import { NavChunk } from "../../plugins/navigation/runtime/components";
 import { collectNavGeometry, loadNavGeometryMeshes } from "../../engine/nav/geometry";
 import { chunkBakesAgentType, describeNavBakePlan, describeNavCostVolume, describeSurfaceBins, navBakePlan, resolutionRegionEffects, resolveAgentType, surfaceBinLayout, type NavBakePlan } from "../../engine/nav/plan";
 import type { NavigationSettings } from "../../engine/nav/settings";

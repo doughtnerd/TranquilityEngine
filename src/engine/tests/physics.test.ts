@@ -12,7 +12,7 @@ import {
   TriggerEvents2D,
   type Collider2D,
   type Collision2D,
-} from "../index";
+} from "../../myco";
 
 const events: string[] = [];
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Assets, EdgeCollider2D, Engine, GameObject, PolygonCollider2D, RigidBody2D, SceneManager, CircleCollider2D, Physics2D, getComponentClass, getFields } from "../index";
+import { Assets, EdgeCollider2D, Engine, GameObject, PolygonCollider2D, RigidBody2D, SceneManager, CircleCollider2D, Physics2D, getComponentClass, getFields } from "../../myco";
 import { cleanPoints, convexParts, isConvex, signedArea2, triangulate } from "../physics/polygon";
 
 const area = (pts: readonly (readonly number[])[]) => Math.abs(signedArea2(pts as [number, number][])) / 2;

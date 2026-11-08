@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Assets } from "../index";
-import { usesNavigation, navBakeRefs } from "../nav/navigationSystems";
-import { usesPhysics3D } from "../physics/physics3d";
+import { NAV_RUNTIME_TYPES, navBakeRefs } from "../../plugins/navigation/runtime/navigationSystems";
+import { PHYSICS_3D_COMPONENTS } from "../../plugins/physics3d/runtime/physics3d";
 import { anyComponentOf, assetRefs, invalidateResolvedScenes, resolveScene, resolvedComponents } from "../scene/resolvedScene";
 import { collectAssetRefs } from "../scene/SceneLoader";
 import { warmSet } from "../scene/warmUp";
 
 const F = "myco.scene@1";
+/** What the 3D physics World service's scene scan asks (ADR 0135). */
+const usesPhysics3D = (path: string) => anyComponentOf(path, PHYSICS_3D_COMPONENTS);
+const usesNavigation = (path: string) => anyComponentOf(path, NAV_RUNTIME_TYPES);
 const files: Record<string, unknown> = {
   "scene.json": {
     nodes: [

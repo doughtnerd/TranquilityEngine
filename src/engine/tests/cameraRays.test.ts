@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CanvasCssSize } from "../render/canvasCssSize";
-import { Assets, Camera, Engine, GameObject, Physics, Plane, Ray, SceneManager, SphereCollider, Vector2, Vector3 } from "../index";
+import { Assets, Camera, Engine, GameObject, Physics, Plane, Ray, SceneManager, SphereCollider, Vector2, Vector3 } from "../../myco";
 
 describe("Ray and Plane (ADR 0073)", () => {
   it("normalizes the ray's direction and walks along it", () => {

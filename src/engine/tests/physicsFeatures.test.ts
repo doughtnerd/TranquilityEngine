@@ -1,6 +1,8 @@
 // Stay events, child colliders that move relative to their body, and interpolation (ADR 0093), in 2D and 3D.
+import { physics2DOf } from "../../plugins/physics2d/runtime/physics2dSystems";
+import { physics3DOf } from "../../plugins/physics3d/runtime/physics3d";
 import { describe, expect, it } from "vitest";
-import { Assets, BoxCollider, BoxCollider2D, Engine, GameBehavior, GameObject, Physics, Physics2D, RigidBody, RigidBody2D, SceneManager } from "../index";
+import { Assets, BoxCollider, BoxCollider2D, Engine, GameBehavior, GameObject, Physics, Physics2D, RigidBody, RigidBody2D, SceneManager } from "../../myco";
 
 const project = { physics: { gravity: [0, -10] as [number, number], layers: ["Default"] } };
 
@@ -107,15 +109,15 @@ describe("interpolation (ADR 0093)", () => {
     steps(engine, 5);
     const sim = box.transform!.position.y;
     const world = engine.world;
-    world.physics3D!.interpolate(0);
+    physics3DOf(world)!.interpolate(0);
     const prev = box.transform!.position.y;
     expect(prev).toBeGreaterThan(sim); // one step behind (higher: it's falling)
-    world.physics3D!.interpolate(0.5);
+    physics3DOf(world)!.interpolate(0.5);
     expect(box.transform!.position.y).toBeCloseTo((prev + sim) / 2, 5);
-    world.physics3D!.restoreInterpolated();
+    physics3DOf(world)!.restoreInterpolated();
     expect(box.transform!.position.y).toBeCloseTo(sim, 5);
     // The interpolated pose was not taken for a teleport: the body keeps falling smoothly.
-    world.physics3D!.interpolate(0.25);
+    physics3DOf(world)!.interpolate(0.25);
     steps(engine, 1);
     expect(box.transform!.position.y).toBeLessThan(sim);
     expect(sim - box.transform!.position.y).toBeLessThan(0.1);
@@ -133,11 +135,11 @@ describe("interpolation (ADR 0093)", () => {
     b.addBehavior(BoxCollider2D);
     steps(engine, 5);
     const simB = b.transform!.position.y;
-    engine.world.physics2D!.interpolate(0);
+    physics2DOf(engine.world)!.interpolate(0);
     expect(b.transform!.position.y).toBe(simB);
     expect(a.transform!.position.y).toBeGreaterThan(simB);
     a.transform!.position.y = 100; // a script teleports it
-    engine.world.physics2D!.interpolate(0.5);
+    physics2DOf(engine.world)!.interpolate(0.5);
     expect(a.transform!.position.y).toBe(100);
     steps(engine, 1);
     expect(a.transform!.position.y).toBeGreaterThan(99);

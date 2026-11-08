@@ -17,6 +17,7 @@ import { parseGraphics } from "./graphics";
 import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
 import { FrameMonitor } from "../render/qualityDetect";
 import { listSystemCatalog } from "./systems";
+import { _interpolateWorldServices } from "./worldServices";
 import { World, type WorldKind } from "./World";
 import { WorldHandleImpl } from "./WorldHandle";
 import { DEFAULT_WORLD_TAGS, type Bootstrap, type BootstrapEngine, type BootstrapSetting, type LinkConfig, type WorldConfig, type WorldHandle } from "./worlds";
@@ -155,7 +156,11 @@ export class Engine implements BootstrapEngine {
     this.container = options.headless ? null : (options.container ?? null);
   }
 
+  /** @internal Set by the public `myco` module (ADR 0135): turns on the first-party plugins when no host (player, server, editor) has activated any. */
+  static _defaultPlugins: (() => void) | null = null;
+
   static async create(options: EngineOptions = {}): Promise<Engine> {
+    Engine._defaultPlugins?.();
     const engine = new Engine(options);
     for (const source of ([] as AssetSource[]).concat(options.assets ?? [])) Assets.addSource(source);
     Storage.use(options.storage ?? (await defaultStorage(engine.settings.name, !engine.container)));
@@ -729,8 +734,7 @@ export class Engine implements BootstrapEngine {
       const surface = world === this.viewWorld ? this.render : this.extraViews.get(world);
       if (surface) {
         // Rendered Worlds show interpolating bodies between their last two fixed steps (ADR 0093).
-        world.physics2D?.interpolate(time.fixedAlpha);
-        world.physics3D?.interpolate(time.fixedAlpha);
+        _interpolateWorldServices(world, time.fixedAlpha);
       }
       if (timing) [fixedMs, mark] = [performance.now() - mark, performance.now()];
 

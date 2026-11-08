@@ -3,7 +3,8 @@
 // The collector is the Engine's timing hook (`setEngineTiming`) only while the panel shows, so a
 // hidden panel costs nothing.
 import type { Engine } from "../engine";
-import { type EngineTiming, engineWorld, navAgentCount, nodeCount, renderDiagnostics, type RenderStats } from "../engine/editor";
+import { type EngineTiming, engineWorld, nodeCount, renderDiagnostics, type RenderStats } from "../engine/editor";
+import { navAgentCount } from "../plugins/navigation/runtime";
 
 /** Frame rate figures over a window of recent frames. */
 export interface FrameSummary {

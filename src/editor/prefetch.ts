@@ -27,7 +27,7 @@ export function prefetchWhenIdle(): void {
   whenIdle(() => {
     void prefetchEngine().then(() =>
       whenIdle(() => {
-        void Promise.allSettled([import("typescript"), import("../engine/physics/Physics2DWorld"), import("../engine/physics/Physics3DWorld")]);
+        void Promise.allSettled([import("typescript"), import("../plugins/physics2d/runtime/Physics2DWorld"), import("../plugins/physics3d/runtime/Physics3DWorld")]);
       }),
     );
   });

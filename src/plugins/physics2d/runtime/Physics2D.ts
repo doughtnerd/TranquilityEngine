@@ -1,5 +1,6 @@
-import { Vector2, type Vec2Like } from "../core/math";
-import { World } from "../core/World";
+import { physics2DOf } from "./physics2dSystems";
+import { Vector2, type Vec2Like } from "../../../engine/core/math";
+import { World } from "../../../engine/core/World";
 import type { Collider2D } from "./Collider2D";
 
 export interface RaycastHit2D {
@@ -34,8 +35,8 @@ function cast(origin: Vec2Like, shape: CastShape2D, angle: number, direction: Ve
 }
 
 function physics() {
-  const p = World.require().physics2D;
-  if (!p) throw new Error('2D physics is not running. Load a scene with "settings": { "physics": "2d" }.');
+  const p = physics2DOf(World.require());
+  if (!p) throw new Error('2D physics is not running. Load a scene with "settings": { "physics": "2d" }, or one with 2D bodies or colliders.');
   return p;
 }
 

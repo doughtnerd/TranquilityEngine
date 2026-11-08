@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { Assets, Engine, NavAgent, NavGroup, SceneManager, type ProjectSettingsInput } from "../index";
+import { Assets, Engine, NavAgent, NavGroup, SceneManager, type ProjectSettingsInput } from "../../myco";
 import { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { bakeChunk, releaseBakeCaches, type NavBakeMesh } from "../nav/bake";
@@ -22,7 +22,7 @@ import {
   setFormationCell,
   type NavFormationAsset,
 } from "../nav/formation";
-import { clearNavBakeCache } from "../nav/navigationSystems";
+import { clearNavBakeCache } from "../../plugins/navigation/runtime/navigationSystems";
 import {
   binColor,
   chunkBakesAgentType,

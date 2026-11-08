@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Buoyancy, Engine, GameObject, Graphics, Quaternion, RigidBody, SceneManager, Assets, Vector3, Water, WaterSurface, type WaterWave } from "../index";
+import { Buoyancy, Engine, GameObject, Graphics, Quaternion, RigidBody, SceneManager, Assets, Vector3, Water, WaterSurface, type WaterWave } from "../../myco";
 import type { World } from "../core/World";
 import {
   GERSTNER_BODY,

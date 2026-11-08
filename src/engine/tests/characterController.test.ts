@@ -14,7 +14,7 @@ import {
   RigidBody2D,
   SceneManager,
   type ControllerColliderHit,
-} from "../index";
+} from "../../myco";
 
 const project = { physics: { gravity: [0, -10] as [number, number], layers: ["Default"] } };
 

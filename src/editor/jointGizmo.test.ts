@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Engine, HingeJoint } from "../engine";
+import { Engine, HingeJoint } from "../myco";
 import { AddComponent } from "./document";
 import { jointOverlay } from "./jointGizmo";
 import { ARC_RADIUS, arcPoints, crossLines, jointWire, perpendicular, rotateAround, zigzag } from "./jointMath";

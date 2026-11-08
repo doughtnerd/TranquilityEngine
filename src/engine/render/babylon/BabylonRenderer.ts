@@ -38,6 +38,7 @@ import type { BabylonEditorTools } from "./editorTools";
 import type { Component } from "../../core/Component";
 import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
+import { _worldRaycast } from "../../core/worldServices";
 import type { Color } from "../../core/math";
 import type { GraphShared } from "./graphMaterial";
 import { Camera, PostProcessing, ReflectionProbe, SpriteRenderer, Text } from "../components";
@@ -729,9 +730,9 @@ export class BabylonRenderer {
       tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
       material: (path) => this.materials.material(path), // shared with MeshRenderers; null while missing
       materialCopy: (path, name) => this.materials.copy(path, name), // soft and kernel particles (ADR 0126)
-      // 3D physics only; null while the World has none (loaded later by a scene)
+      // A World service that answers ray queries (3D physics, ADR 0135); null while the World has none
       raycast: (ox, oy, oz, dx, dy, dz, maxDistance) => {
-        const hit = this.owner?.physics3D?.raycast({ x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, maxDistance);
+        const hit = this.owner && _worldRaycast(this.owner, { x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, maxDistance);
         return hit ? { point: [hit.point.x, hit.point.y, hit.point.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance } : null;
       },
     };

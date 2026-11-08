@@ -11,7 +11,7 @@ import {
   Quaternion,
   SceneManager,
   SphereCollider,
-} from "../index";
+} from "../../myco";
 
 const project = { physics: { gravity: [0, 0] as [number, number], layers: ["Default", "Player", "Ghost"] } };
 

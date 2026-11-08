@@ -1,10 +1,11 @@
-import { Component } from "../core/Component";
-import { DEG2RAD, RAD2DEG, Vector2, type Vec2Like } from "../core/math";
-import { PlainObject, component, field } from "../core/registry";
+import { physics2DOf } from "./physics2dSystems";
+import { Component } from "../../../engine/core/Component";
+import { DEG2RAD, RAD2DEG, Vector2, type Vec2Like } from "../../../engine/core/math";
+import { PlainObject, component, field } from "../../../engine/core/registry";
 import type { BodyHandleState } from "./Physics2DWorld";
 
-export type BodyType = "dynamic" | "kinematic" | "static";
-export type ForceMode = "force" | "impulse";
+import type { BodyType, ForceMode } from "../../../engine/physics/types";
+export type { BodyType, ForceMode };
 
 export interface RigidBody2DConstraints {
   freezePosition: { x: boolean; y: boolean };
@@ -97,6 +98,6 @@ export class RigidBody2D extends Component {
   }
 
   override _onDetach(): void {
-    this._world.physics2D?.releaseBody(this);
+    physics2DOf(this._world)?.releaseBody(this);
   }
 }

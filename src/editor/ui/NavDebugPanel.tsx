@@ -1,7 +1,7 @@
 import { signal } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
-import { navigationOf } from "../../engine/editor";
-import type { NavTickStats } from "../../engine/nav/runtime";
+import { navigationOf } from "../../plugins/navigation/runtime/navigationSystems";
+import type { NavTickStats } from "../../plugins/navigation/runtime/runtime";
 import { cleanNavOverlay, navOverlaySettings, updateNavOverlay } from "../navGizmo";
 import { projectNavigation } from "../navBake";
 import { currentProject } from "../state";

@@ -14,7 +14,8 @@
 import { effect, type ReadonlySignal } from "@preact/signals";
 import type { Engine } from "../engine";
 import type { World } from "../engine/core/World";
-import { addEditorOverlay, navigationOf, removeEditorOverlay, type EditorOverlay } from "../engine/editor";
+import { addEditorOverlay, removeEditorOverlay, type EditorOverlay } from "../engine/editor";
+import { navigationOf } from "../plugins/navigation/runtime/navigationSystems";
 import {
   NO_NAV_DEBUG,
   RuntimeNavOverlay,
@@ -28,7 +29,7 @@ import {
   type NavDebugFlags,
   type NavDebugSource,
 } from "../engine/nav/debugGeometry";
-import { bakeAgentGroups, debugBakeLines } from "../engine/nav/runtime";
+import { bakeAgentGroups, debugBakeLines } from "../plugins/navigation/runtime/runtime";
 import { projectNavigation } from "./navBake";
 import { persisted } from "./preferences";
 import type { PlaySession } from "./playMode";

@@ -1,17 +1,13 @@
-import { Component } from "../core/Component";
-import { Vector2 } from "../core/math";
-import { PlainObject, component, field } from "../core/registry";
-import type { GameObject } from "../scene/GameObject";
+import { physics2DOf } from "./physics2dSystems";
+import { Component } from "../../../engine/core/Component";
+import { Vector2 } from "../../../engine/core/math";
+import { PlainObject, component, field } from "../../../engine/core/registry";
+import type { GameObject } from "../../../engine/scene/GameObject";
 import type { ColliderHandleState } from "./Physics2DWorld";
 import { RigidBody2D } from "./RigidBody2D";
 
-/** A collider's surface, in 2D and 3D: how it slides and how it bounces. */
-export interface PhysicsMaterial {
-  friction: number;
-  bounciness: number;
-}
-/** The 2D name `PhysicsMaterial` had first. */
-export type PhysicsMaterial2D = PhysicsMaterial;
+import type { PhysicsMaterial, PhysicsMaterial2D } from "../../../engine/physics/types";
+export type { PhysicsMaterial, PhysicsMaterial2D };
 
 /** Base class for 2D colliders (ADR 0005). Without a RigidBody2D on the node or an ancestor, a collider is static. */
 export abstract class Collider2D extends Component {
@@ -38,7 +34,7 @@ export abstract class Collider2D extends Component {
   abstract _shapeSignature(): string;
 
   override _onDetach(): void {
-    this._world.physics2D?.releaseCollider(this);
+    physics2DOf(this._world)?.releaseCollider(this);
   }
 }
 

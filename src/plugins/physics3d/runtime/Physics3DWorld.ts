@@ -1,6 +1,6 @@
 /**
  * Rapier 3D physics backend (ADR 0005, 0045). Internal: game code uses RigidBody, the 3D colliders
- * and the Physics facade. Loaded on demand by `ensurePhysics3D` (physics3d.ts).
+ * and the Physics facade. Loaded on demand by its World service (`PHYSICS_3D_SERVICE`, physics3d.ts).
  *
  * The same sync rules as 2D (ADR 0010):
  * - dynamic bodies: physics → Transform after each step; if a script moved the Transform since
@@ -9,20 +9,20 @@
  * - static bodies and colliders without a body: pushed when their Transform changes.
  */
 import RAPIER from "@dimforge/rapier3d-compat";
-import { GameBehavior } from "../core/Component";
-import { DEG2RAD, Mat4, Quat, Quaternion, Vector3, type QuatLike } from "../core/math";
-import type { World } from "../core/World";
-import { MeshRenderer } from "../render/components";
-import { GameObject } from "../scene/GameObject";
-import { meshesIfLoaded, meshTriangles, type ModelMesh } from "../scene/models";
+import { GameBehavior } from "../../../engine/core/Component";
+import { DEG2RAD, Mat4, Quat, Quaternion, Vector3, type QuatLike } from "../../../engine/core/math";
+import type { World } from "../../../engine/core/World";
+import { MeshRenderer } from "../../../engine/render/components";
+import { GameObject } from "../../../engine/scene/GameObject";
+import { meshesIfLoaded, meshTriangles, type ModelMesh } from "../../../engine/scene/models";
 import { BoxCollider, CapsuleCollider, Collider, MeshCollider, SphereCollider, type Collision } from "./Collider";
-import { layerGroups } from "./layers";
+import { layerGroups } from "../../../engine/physics/layers";
 import { Queries3D } from "./queries3d";
 import { CharacterController, type CollisionFlags, type ControllerColliderHit } from "./CharacterController";
 import { AxisJoint, BallJoint, FixedJoint, HingeJoint, Joint, RopeJoint, SliderJoint, SpringJoint } from "./Joint";
 import { CollisionEvents, TriggerEvents } from "./physics3d";
 import { RigidBody } from "./RigidBody";
-import { AXIS_INDEX, boxHalfExtents, capsuleSize, scaledCenter, sphereRadius } from "./shape3d";
+import { AXIS_INDEX, boxHalfExtents, capsuleSize, scaledCenter, sphereRadius } from "../../../engine/physics/shape3d";
 
 /** @internal */
 export interface BodyHandleState3D {
