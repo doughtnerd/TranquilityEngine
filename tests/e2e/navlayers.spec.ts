@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
+import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
 
 // Named avoidance layers (ADR 0066, Foxfire's Avoidance Layers page): the Project panel's Navigation section names
@@ -21,17 +22,8 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-/** Shows the Navigation settings, whether the Project panel lists categories as tabs, a dropdown or one long page. */
-async function showNavigation(page: Page): Promise<void> {
-  const panel = page.locator(".panel.project");
-  const tab = panel.getByRole("tab", { name: /^Navigation(,|$)/ });
-  if (await tab.count()) {
-    await tab.first().click();
-    return;
-  }
-  const dropdown = panel.getByRole("combobox", { name: "Settings category" });
-  if (await dropdown.count()) await dropdown.selectOption({ value: "Navigation" });
-}
+/** Shows the Navigation settings, whether the Project panel lists categories as tabs or a dropdown (it waits for the lazy panel). */
+const showNavigation = (page: Page) => pickCategory(page, "Navigation");
 
 const navigation = async (page: Page) => JSON.parse((await readFile(page, "Layers/project.json")) ?? "{}").navigation ?? {};
 

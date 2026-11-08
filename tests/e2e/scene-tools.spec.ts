@@ -68,7 +68,8 @@ test("space and pivot toggle from the toolbar and with X / Z, and are remembered
 
 test("snap settings set the grid and steps; Always snap toggles; settings are remembered", async ({ page }) => {
   await openEditor(page);
-  expect(await page.evaluate(() => (window as unknown as Hooks).sceneView.grid())).toMatchObject({ cellSize: 1, visible: true });
+  // The grid is an editor helper, loaded lazily: null until it has loaded.
+  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).sceneView.grid())).toMatchObject({ cellSize: 1, visible: true });
   await toolbar(page).getByRole("button", { name: "Snap settings" }).click();
   const popover = page.getByRole("dialog", { name: "Snap settings" });
   await expect(popover).toBeVisible();
@@ -89,7 +90,7 @@ test("snap settings set the grid and steps; Always snap toggles; settings are re
 
   await page.reload();
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  expect(await page.evaluate(() => (window as unknown as Hooks).sceneView.grid())).toMatchObject({ cellSize: 0.5, visible: false });
+  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).sceneView.grid())).toMatchObject({ cellSize: 0.5, visible: false });
   await expect(toolbar(page).locator(".snap-toggle")).toHaveAttribute("aria-pressed", "true");
   await toolbar(page).getByRole("button", { name: "Snap settings" }).click();
   await expect(page.getByRole("textbox", { name: "Move step" })).toHaveValue("2");
