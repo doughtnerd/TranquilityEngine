@@ -323,15 +323,15 @@ export class BabylonMaterialLibrary {
       this.sampledFrom.set(load.key, samplingSource(path)); // sampled from the asset's own settings, not a sidecar
       return Promise.resolve(rt);
     }
+    // Resolved before the promise exists: a missing asset must not leave an entry in `pending` (the executor
+    // runs before `pending.set`, so deleting there did nothing, and `settled()` then spun forever).
+    let url: string;
+    try {
+      url = Assets.url(path);
+    } catch (err) {
+      return Promise.reject(err);
+    }
     p = new Promise<Texture>((resolve, reject) => {
-      let url: string;
-      try {
-        url = Assets.url(path);
-      } catch (err) {
-        this.pending.delete(load.key);
-        reject(err);
-        return;
-      }
       const sampling = samplingOf(Assets.importSettings(path));
       const tex: Texture = new Texture(url, this.scene, {
         noMipmap: sampling.mipmaps === "none",

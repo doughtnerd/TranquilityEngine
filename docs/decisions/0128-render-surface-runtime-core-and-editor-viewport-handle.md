@@ -107,7 +107,9 @@ that do real work stay: the overlay registry (`addEditorOverlay`, `removeEditorO
 - The snapshot is computed in full on each call. Play mode's Stats calls it a few times a second, which costs
   more than the old `renderStats()`.
 - On a game World, the editor's viewport features (sprite sizes, the UI, previews) now arrive with the editor
-  tools, not with the renderer.
+  tools, not with the renderer. Selection and the particle preview set before the tools load reach the
+  renderer only when they load (the handle replays them), and a `restartParticlePreview()` made before then
+  is dropped. If the tools fail to load, none of these arrive; the renderer retries the load on the next call.
 
 ## Deprecates
 

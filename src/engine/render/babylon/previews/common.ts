@@ -6,8 +6,7 @@
  *
  * Previews draw straight into their engine's canvas and copy it (`drawImage`) into a 2D canvas in the
  * same task: a WebGPU canvas can't be read after it's presented, but it can be right after drawing.
- * Colours: the scene's own image processing converts linear light to sRGB with no tone mapping, like
- * the three.js previews' `WebGLRenderer` defaults.
+ * Colours: the scene's own image processing converts linear light to sRGB with no tone mapping.
  */
 import "../register";
 import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";

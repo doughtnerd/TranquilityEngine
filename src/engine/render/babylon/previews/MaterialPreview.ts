@@ -236,8 +236,6 @@ export class MaterialPreview {
  * need a GPU context per node.
  */
 export class NodePreviewRenderer {
-  /** The textures node graphs load (ADR 0127). */
-  private library: BabylonMaterialLibrary | null = null;
   private engine: AbstractEngine | null = null;
   private scene: Scene | null = null;
   private mesh: Mesh | null = null;
@@ -245,8 +243,8 @@ export class NodePreviewRenderer {
   private readonly shapes = new Map<NodePreviewShape, Mesh>();
   private readonly shared: GraphShared = { time: 0, resolution: [1, 1] };
   private readonly canvas: HTMLCanvasElement;
-  /** Compiled graphs and their materials by the graph's JSON; ones not drawn in a pass are freed. */
-  private readonly entries = new Map<string, { compiled: CompiledShaderGraph; graph: BabylonGraphMaterial; used: boolean; failed: boolean }>();
+  /** Compiled graphs, their materials and textures (ADR 0127) by the graph's JSON; ones not drawn in a pass are freed. */
+  private readonly entries = new Map<string, { compiled: CompiledShaderGraph; graph: BabylonGraphMaterial; library: BabylonMaterialLibrary; used: boolean; failed: boolean }>();
   private readonly start = performance.now();
   private disposed = false;
 
@@ -325,9 +323,11 @@ export class NodePreviewRenderer {
     let e = this.entries.get(key);
     if (!e) {
       const compiled = compileShaderGraph(graph, { shaderLevel: level });
-      const library = (this.library ??= previewMaterials(scene, this.shared));
+      // A library per entry, freed with it: a new preview graph loads the project's images afresh (as it did
+      // before ADR 0127), instead of one renderer-long cache that never sees an image change.
+      const library = previewMaterials(scene, this.shared);
       const made = createGraphMaterial(scene, "preview.node", compiled, {}, this.shared, (p, linear) => library.texture(p, linear ? "graphData" : "graphColor"));
-      const entry = { compiled, graph: made, used: true, failed: false };
+      const entry = { compiled, graph: made, library, used: true, failed: false };
       watchShaderErrors(made, () => (entry.failed = true));
       this.entries.set(key, entry);
       e = entry;
@@ -352,15 +352,18 @@ export class NodePreviewRenderer {
     for (const [k, e] of this.entries) {
       if (e.used) continue;
       e.graph.dispose();
+      e.library.dispose();
       this.entries.delete(k);
     }
   }
 
   dispose(): void {
     this.disposed = true;
-    for (const e of this.entries.values()) e.graph.dispose();
+    for (const e of this.entries.values()) {
+      e.graph.dispose();
+      e.library.dispose();
+    }
     this.entries.clear();
-    this.library?.dispose();
     this.scene?.dispose();
     this.engine?.dispose();
   }

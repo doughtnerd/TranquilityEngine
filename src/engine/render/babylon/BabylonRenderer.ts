@@ -1,7 +1,7 @@
 /**
  * Babylon.js renderer, stage 1 of ADR 0075: the engine (WebGPU, WebGL2 fallback), cameras, meshes
- * (built-in and imported), sprites and material assets. Loaded on demand by `BabylonSurface`, so a
- * page on the three.js backend never downloads Babylon. Internal: game code never sees anything here.
+ * (built-in and imported), sprites and material assets. Loaded on demand by `BabylonSurface`.
+ * Internal: game code never sees anything here.
  *
  * The engine node graph is authoritative (ADR 0010): each frame, sync copies world matrices into
  * Babylon objects, which are kept flat (no parenting) with frozen world matrices. The scene is
@@ -464,6 +464,7 @@ export class BabylonRenderer {
       })
       .catch((err) => {
         console.error("[myco] the Babylon editor helpers couldn't load:", err);
+        this.toolsLoading = null; // try again on the next call, and stop counting as loading (sprite batching)
         return null;
       });
     return this.toolsLoading;
