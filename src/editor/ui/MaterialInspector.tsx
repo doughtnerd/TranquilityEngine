@@ -1,4 +1,5 @@
 import { Fragment } from "preact";
+import { useEffect } from "preact/hooks";
 import { Color } from "../../engine";
 import { compileShaderGraph } from "../../engine/render/shaderGraph/compile";
 import { MATERIAL_MAPS, colorHex, materialGraph, type MaterialAlphaMode, type MaterialInstancing, type MaterialMapKey, type MaterialSettings } from "../../engine/scene/material";
@@ -6,10 +7,10 @@ import { isShaderAssetPath } from "../../engine/scene/shaderAsset";
 import type { GraphProperty, GraphValue } from "../../engine/scene/shaderGraph";
 import type { ShaderKeyword } from "../../engine/scene/shaderKeywords";
 import { assetKind, fileName } from "../assetBrowser";
-import { editMaterial, readMaterial, readShaderAsset, withKeywordValue } from "../materialAssets";
-import { errorStatus } from "../messages";
+import { openAssetDocument } from "../assetDocuments";
+import { readShaderAsset, sameMaterial, withKeywordValue } from "../materialAssets";
 import { createMaterialForGraph, openShaderGraphAsset, readShaderGraph } from "../shaderGraphAssets";
-import { currentProject, docVersion, status } from "../state";
+import { currentProject, docVersion } from "../state";
 import { PropertyValue } from "./ShaderPropertyValue";
 import { LargePreview } from "./AssetPreview";
 import "./assetInspector.css";
@@ -25,8 +26,11 @@ export function MaterialInspector(props: { path: string }) {
   const { path } = props;
   const project = currentProject.value;
   if (!project) return <p class="empty">Nothing selected</p>;
-  const { settings, problems } = readMaterial(project, path);
-  const readOnly = !project.canSave;
+  const doc = openAssetDocument<MaterialSettings>(project, path, "material");
+  const settings = doc.value.value;
+  const problems = doc.problems.value.map((p) => p.message);
+  const readOnly = doc.readOnly;
+  useEffect(() => () => void doc.flush(), [doc]); // write a pending slider change when the inspector closes
   const images = project.files.filter((f) => assetKind(f) === "image" || assetKind(f) === "rendertexture");
   const graphs = project.files.filter((f) => assetKind(f) === "shadergraph");
   const physical = settings.shader === "physical";
@@ -46,14 +50,24 @@ export function MaterialInspector(props: { path: string }) {
       : null;
   const sourceExists = !!graphFile && (isShaderAsset ? shaders : graphs).includes(graphFile);
 
-  // Edits queue up and each applies to the file as the one before left it (`editMaterial`).
-  const set = async (patch: Partial<MaterialSettings> | ((current: MaterialSettings) => Partial<MaterialSettings>)) => {
+  // Edits go through the material's asset document: one undo step each, or one per drag.
+  let dragging = false;
+  const set = (patch: Partial<MaterialSettings> | ((current: MaterialSettings) => Partial<MaterialSettings>)) => {
+    const current = doc.value.peek();
+    const next = { ...current, ...(typeof patch === "function" ? patch(current) : patch) };
+    if (!sameMaterial(next, current)) doc.edit(next, dragging ? { coalesce: true } : undefined);
+  };
+  /** Run an edit from a slider or colour drag: its quick changes in a row make one undo step and one write. */
+  const drag = (edit: () => void) => {
+    dragging = true;
     try {
-      if (await editMaterial(project, path, patch)) docVersion.value++;
-    } catch (err) {
-      status.value = errorStatus(`Couldn't save ${fileName(path)}`, err);
+      edit();
+    } finally {
+      dragging = false;
     }
   };
+  const undo = () => doc.undo();
+  const redo = () => doc.redo();
   const number = (label: string, value: number, onValue: (v: number) => void, range?: [number, number]) => (
     <label class="import-row">
       <span>{label}</span>
@@ -67,7 +81,7 @@ export function MaterialInspector(props: { path: string }) {
             aria-label={`${label} slider`}
             disabled={readOnly}
             value={value}
-            onChange={(e) => onValue(Number((e.currentTarget as HTMLInputElement).value))}
+            onChange={(e) => drag(() => onValue(Number((e.currentTarget as HTMLInputElement).value)))}
           />
         )}
         <input
@@ -103,14 +117,14 @@ export function MaterialInspector(props: { path: string }) {
   /** A colour row; `onValue` gets how to change the colour as it is when the edit is applied. */
   /** A physical layer's texture rows (ADR 0118). */
   const layerMaps = (group: string) =>
-    MATERIAL_MAPS.filter((m) => "group" in m && m.group === group).map((m) => <Fragment key={m.key}>{texture(m.label, settings[m.key as MaterialMapKey], (v) => void set({ [m.key]: v } as Partial<MaterialSettings>))}</Fragment>);
+    MATERIAL_MAPS.filter((m) => "group" in m && m.group === group).map((m) => <Fragment key={m.key}>{texture(m.label, settings[m.key as MaterialMapKey], (v) => set({ [m.key]: v } as Partial<MaterialSettings>))}</Fragment>);
   const color = (label: string, value: Color, onValue: (change: (current: Color) => Color) => void, alpha: boolean) => (
     <label class="import-row">
       <span>{label}</span>
       <span class="material-color">
         <input type="color" aria-label={label} disabled={readOnly} value={value.toHex()} onChange={(e) => {
           const picked = Color.from((e.currentTarget as HTMLInputElement).value);
-          onValue((current) => withAlpha(picked, current.a));
+          drag(() => onValue((current) => withAlpha(picked, current.a)));
         }} />
         <code>{colorHex(value)}</code>
         {alpha && (
@@ -134,11 +148,29 @@ export function MaterialInspector(props: { path: string }) {
   );
 
   return (
-    <div class="inspector-body asset-inspector" aria-label="Material">
+    <div
+      class="inspector-body asset-inspector"
+      aria-label="Material"
+      onKeyDown={(e) => {
+        if (!(e.ctrlKey || e.metaKey) || (e.target as HTMLElement).tagName === "INPUT") return;
+        if (e.key.toLowerCase() === "z") (e.shiftKey ? redo : undo)();
+        else if (e.key.toLowerCase() === "y") redo();
+        else return;
+        e.preventDefault();
+      }}
+    >
       <div class="asset-inspector-head">
         <span class="asset-inspector-kind">Material</span>
         <span class="asset-inspector-name" title={path}>
           {fileName(path)}
+        </span>
+        <span class="material-pair" style={{ marginLeft: "auto", flex: "none" }}>
+          <button onClick={undo} disabled={readOnly || !doc.canUndo.value} title="Undo (Ctrl+Z)">
+            Undo
+          </button>
+          <button onClick={redo} disabled={readOnly || !doc.canRedo.value} title="Redo (Ctrl+Shift+Z)">
+            Redo
+          </button>
         </span>
       </div>
       <LargePreview path={path} />
@@ -153,7 +185,7 @@ export function MaterialInspector(props: { path: string }) {
         <h3>Material</h3>
         <label class="import-row">
           <span>Shader</span>
-          <select aria-label="Shader" disabled={readOnly} value={settings.shader} onChange={(e) => void set({ shader: (e.currentTarget as HTMLSelectElement).value as MaterialSettings["shader"] })}>
+          <select aria-label="Shader" disabled={readOnly} value={settings.shader} onChange={(e) => set({ shader: (e.currentTarget as HTMLSelectElement).value as MaterialSettings["shader"] })}>
             <option value="lit">Lit (physically based)</option>
             <option value="physical">Physical (clearcoat, sheen, glass…)</option>
             <option value="unlit">Unlit</option>
@@ -174,7 +206,7 @@ export function MaterialInspector(props: { path: string }) {
           <>
             {source?.properties.map((p) => {
               const own = settings.properties[p.name];
-              const reset = () => void set((now) => ({ properties: Object.fromEntries(Object.entries(now.properties).filter(([k]) => k !== p.name)) }));
+              const reset = () => set((now) => ({ properties: Object.fromEntries(Object.entries(now.properties).filter(([k]) => k !== p.name)) }));
               return (
                 <div key={p.name} class="import-row">
                   <span title={own === undefined ? `The ${source?.what}'s default` : "Set by this material"}>
@@ -188,7 +220,7 @@ export function MaterialInspector(props: { path: string }) {
                       value={own ?? p.value}
                       images={images}
                       disabled={readOnly}
-                      onValue={(v: GraphValue) => void set((now) => ({ properties: { ...now.properties, [p.name]: v } }))}
+                      onValue={(v: GraphValue) => set((now) => ({ properties: { ...now.properties, [p.name]: v } }))}
                     />
                     {own !== undefined && (
                       <button title={`Use the ${source?.what}'s default`} aria-label={`Reset ${p.name}`} disabled={readOnly} onClick={reset}>
@@ -217,7 +249,7 @@ export function MaterialInspector(props: { path: string }) {
                         {k.name}
                         {value !== undefined && "*"}
                       </span>
-                      <select aria-label={`Keyword ${k.name}`} disabled={readOnly} value={typeof value === "string" && k.values.includes(value) ? value : k.values[0]} onChange={(e) => void set((now) => ({ keywords: withKeywordValue(now.keywords, k, (e.currentTarget as HTMLSelectElement).value) }))}>
+                      <select aria-label={`Keyword ${k.name}`} disabled={readOnly} value={typeof value === "string" && k.values.includes(value) ? value : k.values[0]} onChange={(e) => set((now) => ({ keywords: withKeywordValue(now.keywords, k, (e.currentTarget as HTMLSelectElement).value) }))}>
                         {k.values.map((v) => (
                           <option key={v} value={v}>
                             {v}
@@ -228,7 +260,7 @@ export function MaterialInspector(props: { path: string }) {
                   ) : (
                     <label key={k.name} class="import-row" title="On compiles the variant with this keyword defined">
                       <span>{k.name}</span>
-                      <input type="checkbox" aria-label={`Keyword ${k.name}`} disabled={readOnly} checked={value === true} onChange={(e) => void set((now) => ({ keywords: withKeywordValue(now.keywords, k, (e.currentTarget as HTMLInputElement).checked) }))} />
+                      <input type="checkbox" aria-label={`Keyword ${k.name}`} disabled={readOnly} checked={value === true} onChange={(e) => set((now) => ({ keywords: withKeywordValue(now.keywords, k, (e.currentTarget as HTMLInputElement).checked) }))} />
                     </label>
                   );
                 })}
@@ -239,8 +271,8 @@ export function MaterialInspector(props: { path: string }) {
         )}
         {!graphPath && (
           <>
-        {color("Color", settings.color, (change) => void set((now) => ({ color: change(now.color) })), true)}
-        {texture("Texture", settings.texture, (v) => void set({ texture: v }))}
+        {color("Color", settings.color, (change) => set((now) => ({ color: change(now.color) })), true)}
+        {texture("Texture", settings.texture, (v) => set({ texture: v }))}
         <div class="import-row">
           <span>Tiling</span>
           <span class="material-pair">
@@ -255,7 +287,7 @@ export function MaterialInspector(props: { path: string }) {
                 onChange={(e) => {
                   const v = Number((e.currentTarget as HTMLInputElement).value);
                   if (!Number.isFinite(v) || v === 0) return;
-                  void set((now) => ({ tiling: i === 0 ? [v, now.tiling[1]] : [now.tiling[0], v] }));
+                  set((now) => ({ tiling: i === 0 ? [v, now.tiling[1]] : [now.tiling[0], v] }));
                 }}
               />
             ))}
@@ -263,72 +295,72 @@ export function MaterialInspector(props: { path: string }) {
         </div>
         {lit && (
           <>
-            {number("Metalness", settings.metalness, (v) => void set({ metalness: v }), [0, 1])}
-            {number("Roughness", settings.roughness, (v) => void set({ roughness: v }), [0, 1])}
-            {texture("Normal Map", settings.normalMap, (v) => void set({ normalMap: v }))}
-            {settings.normalMap && number("Normal Scale", settings.normalScale, (v) => void set({ normalScale: v }))}
-            {texture("Metal/Rough Map", settings.metalRoughMap, (v) => void set({ metalRoughMap: v }))}
-            {texture("Occlusion Map", settings.occlusionMap, (v) => void set({ occlusionMap: v }))}
-            {settings.occlusionMap && number("Occlusion Strength", settings.occlusionStrength, (v) => void set({ occlusionStrength: v }), [0, 1])}
-            {color("Emission", settings.emission, (change) => void set((now) => ({ emission: change(now.emission) })), false)}
-            {number("Emission Intensity", settings.emissionIntensity, (v) => void set({ emissionIntensity: Math.max(0, v) }))}
-            {texture("Emission Map", settings.emissionMap, (v) => void set({ emissionMap: v }))}
+            {number("Metalness", settings.metalness, (v) => set({ metalness: v }), [0, 1])}
+            {number("Roughness", settings.roughness, (v) => set({ roughness: v }), [0, 1])}
+            {texture("Normal Map", settings.normalMap, (v) => set({ normalMap: v }))}
+            {settings.normalMap && number("Normal Scale", settings.normalScale, (v) => set({ normalScale: v }))}
+            {texture("Metal/Rough Map", settings.metalRoughMap, (v) => set({ metalRoughMap: v }))}
+            {texture("Occlusion Map", settings.occlusionMap, (v) => set({ occlusionMap: v }))}
+            {settings.occlusionMap && number("Occlusion Strength", settings.occlusionStrength, (v) => set({ occlusionStrength: v }), [0, 1])}
+            {color("Emission", settings.emission, (change) => set((now) => ({ emission: change(now.emission) })), false)}
+            {number("Emission Intensity", settings.emissionIntensity, (v) => set({ emissionIntensity: Math.max(0, v) }))}
+            {texture("Emission Map", settings.emissionMap, (v) => set({ emissionMap: v }))}
           </>
         )}
         {physical && (
           <>
             <h4 class="material-group">Clearcoat</h4>
-            {number("Clearcoat", settings.clearcoat, (v) => void set({ clearcoat: v }), [0, 1])}
-            {number("Clearcoat Roughness", settings.clearcoatRoughness, (v) => void set({ clearcoatRoughness: v }), [0, 1])}
+            {number("Clearcoat", settings.clearcoat, (v) => set({ clearcoat: v }), [0, 1])}
+            {number("Clearcoat Roughness", settings.clearcoatRoughness, (v) => set({ clearcoatRoughness: v }), [0, 1])}
             {layerMaps("Clearcoat")}
-            {settings.clearcoatNormalMap && number("Clearcoat Normal Scale", settings.clearcoatNormalScale, (v) => void set({ clearcoatNormalScale: v }))}
+            {settings.clearcoatNormalMap && number("Clearcoat Normal Scale", settings.clearcoatNormalScale, (v) => set({ clearcoatNormalScale: v }))}
             <h4 class="material-group">Sheen</h4>
-            {number("Sheen", settings.sheen, (v) => void set({ sheen: v }), [0, 1])}
-            {color("Sheen Color", settings.sheenColor, (change) => void set((now) => ({ sheenColor: change(now.sheenColor) })), false)}
-            {number("Sheen Roughness", settings.sheenRoughness, (v) => void set({ sheenRoughness: v }), [0, 1])}
+            {number("Sheen", settings.sheen, (v) => set({ sheen: v }), [0, 1])}
+            {color("Sheen Color", settings.sheenColor, (change) => set((now) => ({ sheenColor: change(now.sheenColor) })), false)}
+            {number("Sheen Roughness", settings.sheenRoughness, (v) => set({ sheenRoughness: v }), [0, 1])}
             {layerMaps("Sheen")}
             <h4 class="material-group">Transmission</h4>
-            {number("Transmission", settings.transmission, (v) => void set({ transmission: v }), [0, 1])}
-            {number("Thickness", settings.thickness, (v) => void set({ thickness: Math.max(0, v) }))}
-            {number("IOR", settings.ior, (v) => void set({ ior: v }), [1, 2.333])}
-            {color("Attenuation Color", settings.attenuationColor, (change) => void set((now) => ({ attenuationColor: change(now.attenuationColor) })), false)}
-            {number("Attenuation Distance", settings.attenuationDistance, (v) => void set({ attenuationDistance: Math.max(0, v) }))}
+            {number("Transmission", settings.transmission, (v) => set({ transmission: v }), [0, 1])}
+            {number("Thickness", settings.thickness, (v) => set({ thickness: Math.max(0, v) }))}
+            {number("IOR", settings.ior, (v) => set({ ior: v }), [1, 2.333])}
+            {color("Attenuation Color", settings.attenuationColor, (change) => set((now) => ({ attenuationColor: change(now.attenuationColor) })), false)}
+            {number("Attenuation Distance", settings.attenuationDistance, (v) => set({ attenuationDistance: Math.max(0, v) }))}
             {layerMaps("Transmission")}
             <h4 class="material-group">Iridescence</h4>
-            {number("Iridescence", settings.iridescence, (v) => void set({ iridescence: v }), [0, 1])}
-            {number("Iridescence IOR", settings.iridescenceIOR, (v) => void set({ iridescenceIOR: v }), [1, 2.333])}
-            {number("Thickness Min (nm)", settings.iridescenceThicknessMin, (v) => void set({ iridescenceThicknessMin: Math.max(0, v) }))}
-            {number("Thickness Max (nm)", settings.iridescenceThicknessMax, (v) => void set({ iridescenceThicknessMax: Math.max(0, v) }))}
+            {number("Iridescence", settings.iridescence, (v) => set({ iridescence: v }), [0, 1])}
+            {number("Iridescence IOR", settings.iridescenceIOR, (v) => set({ iridescenceIOR: v }), [1, 2.333])}
+            {number("Thickness Min (nm)", settings.iridescenceThicknessMin, (v) => set({ iridescenceThicknessMin: Math.max(0, v) }))}
+            {number("Thickness Max (nm)", settings.iridescenceThicknessMax, (v) => set({ iridescenceThicknessMax: Math.max(0, v) }))}
             {layerMaps("Iridescence")}
             <h4 class="material-group">Anisotropy</h4>
-            {number("Anisotropy", settings.anisotropy, (v) => void set({ anisotropy: v }), [0, 1])}
-            {number("Anisotropy Rotation", settings.anisotropyRotation, (v) => void set({ anisotropyRotation: v }))}
+            {number("Anisotropy", settings.anisotropy, (v) => set({ anisotropy: v }), [0, 1])}
+            {number("Anisotropy Rotation", settings.anisotropyRotation, (v) => set({ anisotropyRotation: v }))}
             {layerMaps("Anisotropy")}
             <h4 class="material-group">Specular</h4>
-            {number("Specular Intensity", settings.specularIntensity, (v) => void set({ specularIntensity: v }), [0, 1])}
-            {color("Specular Color", settings.specularColor, (change) => void set((now) => ({ specularColor: change(now.specularColor) })), false)}
+            {number("Specular Intensity", settings.specularIntensity, (v) => set({ specularIntensity: v }), [0, 1])}
+            {color("Specular Color", settings.specularColor, (change) => set((now) => ({ specularColor: change(now.specularColor) })), false)}
             {layerMaps("Specular")}
           </>
         )}
         <label class="import-row" title="Auto blends when the colour's alpha is below 1; Mask cuts out pixels whose alpha is below the cutoff">
           <span>Alpha</span>
-          <select aria-label="Alpha Mode" disabled={readOnly} value={settings.alphaMode} onChange={(e) => void set({ alphaMode: (e.currentTarget as HTMLSelectElement).value as MaterialAlphaMode })}>
+          <select aria-label="Alpha Mode" disabled={readOnly} value={settings.alphaMode} onChange={(e) => set({ alphaMode: (e.currentTarget as HTMLSelectElement).value as MaterialAlphaMode })}>
             <option value="auto">Auto</option>
             <option value="opaque">Opaque</option>
             <option value="blend">Blend</option>
             <option value="mask">Mask</option>
           </select>
         </label>
-        {settings.alphaMode === "mask" && number("Alpha Cutoff", settings.alphaCutoff, (v) => void set({ alphaCutoff: v }), [0, 1])}
+        {settings.alphaMode === "mask" && number("Alpha Cutoff", settings.alphaCutoff, (v) => set({ alphaCutoff: v }), [0, 1])}
         <label class="import-row">
           <span>Double Sided</span>
-          <input type="checkbox" aria-label="Double Sided" disabled={readOnly} checked={settings.doubleSided} onChange={(e) => void set({ doubleSided: (e.currentTarget as HTMLInputElement).checked })} />
+          <input type="checkbox" aria-label="Double Sided" disabled={readOnly} checked={settings.doubleSided} onChange={(e) => set({ doubleSided: (e.currentTarget as HTMLInputElement).checked })} />
         </label>
           </>
         )}
         <label class="import-row" title="Auto: renderers with the same mesh and material draw in one instanced call. Thin: one buffer per mesh, culled as a whole — for many small things that rarely move. Off: one mesh per renderer.">
           <span>Instancing</span>
-          <select aria-label="Instancing" disabled={readOnly} value={settings.instancing} onChange={(e) => void set({ instancing: (e.currentTarget as HTMLSelectElement).value as MaterialInstancing })}>
+          <select aria-label="Instancing" disabled={readOnly} value={settings.instancing} onChange={(e) => set({ instancing: (e.currentTarget as HTMLSelectElement).value as MaterialInstancing })}>
             <option value="auto">Auto</option>
             <option value="thin">Thin instances</option>
             <option value="off">Off</option>
@@ -336,7 +368,7 @@ export function MaterialInspector(props: { path: string }) {
         </label>
         <label class="import-row" title="Take the World's Fog (off for glows and UI-like surfaces)">
           <span>Fog</span>
-          <input type="checkbox" aria-label="Fog" disabled={readOnly} checked={settings.fog} onChange={(e) => void set({ fog: (e.currentTarget as HTMLInputElement).checked })} />
+          <input type="checkbox" aria-label="Fog" disabled={readOnly} checked={settings.fog} onChange={(e) => set({ fog: (e.currentTarget as HTMLInputElement).checked })} />
         </label>
       </div>
       <p class="asset-inspector-note">{readOnly ? "This project is read-only." : "Changes save to the file as you make them."}</p>

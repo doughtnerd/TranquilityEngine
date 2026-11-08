@@ -5,9 +5,15 @@ import { defaultShaderAsset, formatShaderAsset, parseShaderAsset, type ShaderAss
 import type { KeywordValue, ShaderKeyword } from "../engine/scene/shaderKeywords";
 import { fileName } from "./assetBrowser";
 import { freePath } from "./assetOps";
+import { openAssetDocument, type EditOptions } from "./assetDocuments";
 import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";
+import { materialFormat } from "./materialFormat";
+import { assetFormats } from "./sdk/contributions";
 import { currentProject, docVersion, status } from "./state";
+
+// Registered here until the Materials plugin takes this over (ADR 0134).
+if (!assetFormats.get("material")) assetFormats.register(materialFormat);
 
 export interface ReadMaterial {
   settings: MaterialSettings;
@@ -24,7 +30,7 @@ export function readMaterial(project: EditorProject, path: string): ReadMaterial
   }
 }
 
-/** Write a material asset. Throws for a read-only project. */
+/** Write a material asset's file directly (New Material and other creators; edits go through `editMaterial`). Throws for a read-only project. */
 export async function writeMaterial(project: EditorProject, path: string, settings: MaterialSettings): Promise<void> {
   await project.writeText(path, formatMaterial(settings));
 }
@@ -32,27 +38,23 @@ export async function writeMaterial(project: EditorProject, path: string, settin
 /** True if two settings would write the same file. */
 export const sameMaterial = (a: MaterialSettings, b: MaterialSettings) => formatMaterial(a) === formatMaterial(b);
 
-/** Each material's writes in progress, so edits apply one after another. */
-const writing = new Map<string, Promise<unknown>>();
-
 /**
- * Change a material asset: `patch` (or what it returns for the settings as they are then) is
- * applied to the file's settings once the edits before it have been written, so quick edits in a
- * row never undo one another. Resolves true if the file changed.
+ * Change a material asset through its asset document (undo, ordered writes, read-only refusal):
+ * `patch` (or what it returns for the settings as they are then) is applied to the document's
+ * current settings. Resolves true once the file has the change; false if nothing changed or the
+ * project is read-only. `coalesce` merges quick edits (drags) into one undo step.
  */
-export function editMaterial(project: EditorProject, path: string, patch: Partial<MaterialSettings> | ((current: MaterialSettings) => Partial<MaterialSettings>)): Promise<boolean> {
-  const run = async () => {
-    const { settings } = readMaterial(project, path);
-    const next = { ...settings, ...(typeof patch === "function" ? patch(settings) : patch) };
-    if (sameMaterial(next, settings)) return false;
-    await writeMaterial(project, path, next);
-    return true;
-  };
-  const result = (writing.get(path) ?? Promise.resolve()).then(run, run);
-  const settled = result.catch(() => undefined);
-  writing.set(path, settled);
-  void settled.then(() => writing.get(path) === settled && writing.delete(path));
-  return result;
+export async function editMaterial(project: EditorProject, path: string, patch: Partial<MaterialSettings> | ((current: MaterialSettings) => Partial<MaterialSettings>), options?: EditOptions): Promise<boolean> {
+  const doc = openAssetDocument<MaterialSettings>(project, path, "material");
+  const settings = doc.value.peek();
+  const next = { ...settings, ...(typeof patch === "function" ? patch(settings) : patch) };
+  if (sameMaterial(next, settings) || doc.readOnly) {
+    if (doc.readOnly) doc.edit(next);
+    return false;
+  }
+  doc.edit(next, options);
+  if (!options?.coalesce) await doc.flush(); // a drag writes after its pause
+  return true;
 }
 
 /** Where New Material goes by default: `materials/` if the project has it, else the folder given. */
