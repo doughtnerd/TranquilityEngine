@@ -51,6 +51,8 @@ test("the rim shader asset compiles and draws on a mesh, and meshes draw instanc
     name,
     { timeout: 30_000 },
   );
+  // The renderer starts asynchronously, possibly after the World's first frames.
+  await page.waitForFunction(() => !!(window as unknown as { engine?: { world: { render: { renderer: unknown } } } }).engine?.world.render.renderer);
   const webgpu = await page.evaluate(() => (window as unknown as Hooks).engine!.world.render.renderer.engine.isWebGPU);
   test.info().annotations.push({ type: "engine", description: webgpu ? "WebGPU (WGSL)" : "WebGL2 (GLSL)" });
   const shaderErrors = errors.filter((e) => /shader|effect|compil|wgsl|glsl/i.test(e));

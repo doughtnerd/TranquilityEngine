@@ -28,6 +28,8 @@ type Hooks = {
 
 /** Shader graphs compile to WGSL alone (ADR 0081): on the WebGL2 fallback (software GL) they draw plain PBR. */
 async function requireWebGPU(page: Page): Promise<void> {
+  // The renderer starts asynchronously, possibly after the World's first frames.
+  await page.waitForFunction(() => !!(window as unknown as { engine?: { world: { render: { renderer: unknown } } } }).engine?.world.render.renderer);
   const webgpu = await page.evaluate(() => (window as unknown as { engine: { world: { render: { renderer: { engine: { isWebGPU: boolean } } } } } }).engine.world.render.renderer.engine.isWebGPU);
   test.skip(!webgpu, "shader graphs need WebGPU; the WebGL2 fallback draws plain PBR (ADR 0081)");
 }
