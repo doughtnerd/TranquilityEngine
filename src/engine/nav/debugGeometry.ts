@@ -2,7 +2,7 @@
  * Debug drawing geometry for navigation (ADR 0065 "Debug drawing"): typed access to the wasm debug
  * buffers that need no runtime (a bake's bytes), and pure functions that turn the flat buffers
  * (see `debug.rs`) into coloured line segments the editor overlay draws (`EditorOverlay.segments`).
- * Used by the scene view (src/editor/navGizmo.ts) and, through `RuntimeNavOverlay`, by games.
+ * Used by the scene view (the Navigation plugin's src/plugins/navigation/editor/navGizmo.ts) and, through `RuntimeNavOverlay`, by games.
  */
 import { loadNavigation } from "./loader";
 

@@ -6,6 +6,7 @@ import type { CommandStack, NodePath, SceneDocument, WorldSync } from "./documen
 import type { OrbitCamera, ViewMode } from "./OrbitCamera";
 import type { EditorProject } from "./projects";
 import type { HierarchyEntry } from "./selectionModel";
+import type { PlaySession } from "./playMode";
 
 /** The scene view camera, set once the Editor World is running. */
 export const sceneCamera = signal<OrbitCamera | null>(null);
@@ -153,35 +154,24 @@ export function selectedNodes(): { key: string; path: NodePath; node: GameObject
   return out;
 }
 
-/** The collider whose handles are showing ("Edit Collider", like Unity), or null. */
-export interface EditingCollider {
-  /** Path key of the node (see `selection`). */
-  key: string;
-  type: "engine.BoxCollider2D" | "engine.CircleCollider2D" | "engine.PolygonCollider2D" | "engine.EdgeCollider2D" | "engine.BoxCollider" | "engine.SphereCollider" | "engine.CapsuleCollider" | "engine.MeshCollider" | "engine.CharacterController" | "engine.CharacterController2D";
-  /** Which collider of that type on the node. */
-  index: number;
-}
-export const editingCollider = signal<EditingCollider | null>(null);
+/** The running play session, for the Network panel (ADR 0033 §9) and the play Worlds' overlays; null while editing. */
+export const playing = signal<PlaySession | null>(null);
 
 /**
  * The active viewport tool's id (ADR 0138), or null for the transform tools. At most one tool is
- * active; activating one ends collider editing, and the transform gizmo steps aside while it's set.
+ * active (editing a collider is the Physics plugin's tool, ADR 0142), and the transform gizmo steps aside while it's set.
  */
 const activeTool = signal<string | null>(null);
 export const activeViewportTool: ReadonlySignal<string | null> = activeTool;
 
 /** Make a viewport tool the active one, or give the scene view back to the transform tools (null). */
 export function activateViewportTool(id: string | null): void {
-  batch(() => {
-    if (id !== null) editingCollider.value = null;
-    activeTool.value = id;
-  });
+  activeTool.value = id;
 }
 
-/** Pick a tool. Picking any tool, even the current one, ends collider editing and the active viewport tool so its gizmo comes back. */
+/** Pick a tool. Picking any tool, even the current one, ends the active viewport tool (collider editing, painting) so its gizmo comes back. */
 export function pickTool(t: Tool): void {
   batch(() => {
-    editingCollider.value = null;
     activeTool.value = null;
     tool.value = t;
   });

@@ -2,13 +2,15 @@
 // paints a formation's mask, accepted by NavGroup's formation asset field, New Navigation Formation) and its asset
 // format; the Navigation category of Project settings (agent types, areas, avoidance, Bake All); the navigation
 // counters under the Worlds panel while playing; and the Inspector sections of the NavChunk (bake plan, Bake), NavAgent,
-// NavAvoidanceObstacle, NavGroup (formation preview) and the three volume components.
-// Still in `src/editor/`, because the editor session and the Scene toolbar wire them: the bake runner (`navBake.ts`),
-// the scene view's gizmo and previews (`navGizmo.ts`, `navPreviews.ts`) and the toolbar's overlay popover.
+// NavAvoidanceObstacle, NavGroup (formation preview) and the three volume components; the bake runner (`navBake.ts`,
+// in a worker); the scene view's navigation drawing and selection previews (`navGizmo.ts`, `navPreviews.ts`, viewport
+// tools, ADR 0138) and the Scene toolbar's Nav popover that switches them (a toolbar item, ADR 0142).
 import type { EditorPlugin } from "../../../editor/sdk";
 import { navigationManifest } from "../manifest";
 import { createFormation } from "./formationAssets";
 import { formationFormat } from "./formationFormat";
+import { navOverlayTool } from "./navGizmo";
+import { navPreviewTool } from "./navPreviews";
 
 /** A grid of slots with the front row on top, stroked in a 24×24 box (the icon formations have always had). */
 const FORMATION_ICON = "M5 5h3v3H5zM10.5 5h3v3h-3zM16 5h3v3h-3zM8 11h3v3H8zM13 11h3v3h-3zM10.5 17h3v3h-3z";
@@ -43,5 +45,15 @@ export const navigationEditorPlugin: EditorPlugin = {
     context.registerInspectorSection("engine.NavResolutionVolume", () => import("./NavComponentInspectors").then((m) => m.NavResolutionVolumeSection), { single: true });
     context.registerInspectorSection("engine.NavModifierVolume", () => import("./NavComponentInspectors").then((m) => m.NavModifierVolumeSection), { single: true });
     context.registerInspectorSection("engine.NavCostVolume", () => import("./NavComponentInspectors").then((m) => m.NavCostVolumeSection), { single: true });
+    context.registerViewportTool(navOverlayTool);
+    context.registerViewportTool(navPreviewTool);
+    context.registerSceneToolbarItem({
+      id: "myco.navigation.overlay",
+      label: "Navigation overlay",
+      buttonText: "Nav",
+      buttonClass: "nav-overlay",
+      title: "Draw the baked navmesh, links and flight volume in the scene view",
+      view: () => import("./NavOverlayForm").then((m) => m.NavOverlayForm),
+    });
   },
 };

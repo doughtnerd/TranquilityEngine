@@ -4,7 +4,7 @@
 // its other sections; values the parser rejects are listed as problems and keep the file unchanged.
 import type { ComponentChildren } from "preact";
 import { MAX_NAV_AGENT_TYPES, MAX_NAV_AREAS, NAV_EASES, isNavAvoidanceLayerNamed, navAvoidanceLayerName, navShownLayers, type NavAgentType, type NavigationSettings } from "../../../engine/nav/settings";
-import { bakeAllFromPanel, navBakeAllProgress } from "../../../editor/navBake";
+import { bakeAllFromPanel, navBakeAllProgress } from "./navBake";
 import {
   addNavAgentType,
   addNavArea,

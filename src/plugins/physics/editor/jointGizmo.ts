@@ -1,15 +1,18 @@
 // Joint gizmos: every 3D and 2D joint in the edited scene is drawn in orange (the selected node's
 // brighter): a cross at its anchor, a line to the connected anchor, a hinge's axis and limits arc,
 // a slider's axis and range, a spring's zig-zag. 2D joints lie in the XY plane at the node's z.
-// Display only: the joints are edited in the Inspector.
-import { GameObject, Joint, Joint2D, AxisJoint, AxisJoint2D, BallJoint, FixedJoint, FixedJoint2D, HingeJoint, HingeJoint2D, RopeJoint, RopeJoint2D, SliderJoint, SliderJoint2D, SpringJoint, SpringJoint2D, type Engine } from "../myco";
-import { addEditorOverlay, removeEditorOverlay, type EditorOverlay } from "../engine/editor";
+// Display only: the joints are edited in the Inspector. The Physics plugin's always-on viewport tool
+// `myco.physics.joints` (ADR 0138, 0142): it never becomes active and takes no presses.
+import { GameObject, type Engine } from "../../../engine";
+import { Joint, Joint2D, AxisJoint, AxisJoint2D, BallJoint, FixedJoint, FixedJoint2D, HingeJoint, HingeJoint2D, RopeJoint, RopeJoint2D, SliderJoint, SliderJoint2D, SpringJoint, SpringJoint2D } from "../runtime";
+import type { EditorOverlay } from "../../../engine/editor";
+import type { ViewportToolContribution } from "../../../editor/sdk";
 import { worldCenter } from "./collider3dMath";
 import { toWorld } from "./colliderMath";
 import { jointWire, type JointKind, type JointShape, type V3 } from "./jointMath";
 import { poseOf, pose3DOf } from "./colliderGizmo";
 import { rotate } from "./collider3dMath";
-import { selectedNodes } from "./state";
+import { selectedNodes } from "../../../editor/state";
 
 const COLOR = 0xe8a33d;
 const COLOR_SELECTED = 0xffcf70;
@@ -91,8 +94,10 @@ export function jointOverlay(engine: Engine): EditorOverlay {
   return overlay;
 }
 
-/** Draw joint gizmos. Returns a function that removes them. */
-export function installJointGizmo(engine: Engine): () => void {
-  addEditorOverlay(engine.world, "joints", () => jointOverlay(engine), "colliders"); // toggled with the collider gizmos
-  return () => removeEditorOverlay(engine.world, "joints");
-}
+/** The scene view's joint drawing, toggled with the collider gizmos. */
+export const jointTool: ViewportToolContribution = {
+  id: "myco.physics.joints",
+  install(view) {
+    view.overlay(() => jointOverlay(view.engine), { kind: "colliders" });
+  },
+};

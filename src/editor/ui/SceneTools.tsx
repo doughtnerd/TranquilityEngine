@@ -5,7 +5,8 @@ import { previewCamera, previewFrame, selectedCamera } from "../cameraPreview";
 import { cameraPreviewEnabled, cleanSnap, gizmoPivot, gizmoSpace, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, type SnapSettings } from "../sceneTools";
 import { docVersion, openScene, sceneCamera, selectedKeys, viewMode } from "../state";
 import { previewedQuality, previewQuality, qualityTiers } from "../graphicsPreview";
-import { NavOverlayForm } from "./NavOverlayForm";
+import { sceneToolbarItems, type SceneToolbarItemContribution } from "../sdk/contributions";
+import { lazyComponent, type LazyComponent } from "./lazy";
 import "./scene-tools.css";
 
 /**
@@ -35,9 +36,7 @@ export function SceneToolButtons() {
         </Popover>
       </div>
       <AlignMenu />
-      <Popover label="Navigation overlay" buttonClass="nav-overlay" buttonText="Nav" title="Draw the baked navmesh, links and flight volume in the scene view">
-        <NavOverlayForm />
-      </Popover>
+      <SceneToolbarItems />
       <button
         class={`camera-preview-toggle${cameraPreviewEnabled.value ? " active" : ""}`}
         aria-pressed={cameraPreviewEnabled.value}
@@ -57,6 +56,28 @@ export function SceneToolButtons() {
           <option key={name} value={name}>{name}</option>
         ))}
       </select>
+    </>
+  );
+}
+
+// One lazy wrapper per contribution object: a popover's content loads when it first opens.
+const itemViews = new WeakMap<SceneToolbarItemContribution, LazyComponent>();
+const lazyItem = (item: SceneToolbarItemContribution): LazyComponent => {
+  let lazy = itemViews.get(item);
+  if (!lazy) itemViews.set(item, (lazy = lazyComponent(item.view, null)));
+  return lazy;
+};
+
+/** The plugins' toolbar popovers (ADR 0142), in registration order: the Navigation plugin's Nav overlay. */
+function SceneToolbarItems() {
+  sceneToolbarItems.version.value;
+  return (
+    <>
+      {sceneToolbarItems.list().map((item: SceneToolbarItemContribution) => (
+        <Popover key={item.id} label={item.label} buttonClass={item.buttonClass} buttonText={item.buttonText} title={item.title}>
+          {lazyItem(item)()}
+        </Popover>
+      ))}
     </>
   );
 }

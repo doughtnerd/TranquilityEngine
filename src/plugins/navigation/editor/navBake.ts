@@ -8,9 +8,9 @@
 // `.myco/nav/<asset>.json`: the report and a signature of the inputs, so a chunk whose inputs changed since
 // is flagged as stale.
 import { signal } from "@preact/signals";
-import { World } from "../engine/core/World";
-import { instantiateDocument, destroyNow } from "../engine/editor";
-import { bakeChunk, releaseBakeCaches, type NavBakeChunk, type NavBakeMesh, type NavBakeResult } from "../engine/nav/bake";
+import { World } from "../../../engine/core/World";
+import { instantiateDocument, destroyNow } from "../../../engine/editor";
+import { bakeChunk, releaseBakeCaches, type NavBakeChunk, type NavBakeMesh, type NavBakeResult } from "../../../engine/nav/bake";
 import {
   collectNavGeometry,
   findNavChunks,
@@ -19,14 +19,14 @@ import {
   navBakeChunk,
   navChunkOf,
   navInputSignature,
-} from "../engine/nav/geometry";
-import { parseNavigationSettings, type NavigationSettings } from "../engine/nav/settings";
-import type { GameObject } from "../engine/scene/GameObject";
-import { SetField } from "./document";
-import type { SceneFile } from "../engine/scene/SceneLoader";
-import { errorStatus } from "./messages";
-import { editorSettings, isScenePath, joinPath, type EditorProject } from "./projects";
-import { openScene, openScenes, status, type OpenScene } from "./state";
+} from "../../../engine/nav/geometry";
+import { parseNavigationSettings, type NavigationSettings } from "../../../engine/nav/settings";
+import type { GameObject } from "../../../engine/scene/GameObject";
+import { SetField } from "../../../editor/document";
+import type { SceneFile } from "../../../engine/scene/SceneLoader";
+import { errorStatus } from "../../../editor/messages";
+import { editorSettings, isScenePath, joinPath, type EditorProject } from "../../../editor/projects";
+import { openScene, openScenes, status, type OpenScene } from "../../../editor/state";
 import { assetPathOf, chunkIdOf, navAssetFor, navBakeRecord, navBakeSummary, navRecordPath, withBakeReference, type NavBakeRecord } from "./navBakeFiles";
 
 export { navBakeSummary, navPolyCount, type NavBakeRecord } from "./navBakeFiles";

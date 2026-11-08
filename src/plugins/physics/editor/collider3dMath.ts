@@ -1,7 +1,7 @@
 // Geometry for the 3D collider gizmos (ADR 0045): wireframes in world space and the handles that
 // resize them, sized exactly as the physics backend sizes the shapes (engine/physics/shape3d.ts).
 // Pure functions over plain arrays, so they're tested without a renderer.
-import { AXIS_INDEX, boxHalfExtents, capsuleSize, scaledCenter, sphereRadius, type V3 } from "../engine/physics/shape3d";
+import { AXIS_INDEX, boxHalfExtents, capsuleSize, scaledCenter, sphereRadius, type V3 } from "../../../engine/physics/shape3d";
 import { MIN_EXTENT } from "./colliderMath";
 
 export type { V3 };

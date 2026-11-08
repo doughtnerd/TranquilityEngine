@@ -23,7 +23,7 @@ import { bakeChunk } from "../engine/nav/bake";
 import { collectNavGeometry, findNavChunks, loadNavGeometryMeshes, navBakeChunk, navChunkOf, navInputSignature } from "../engine/nav/geometry";
 import { parseNavigationSettings } from "../engine/nav/settings";
 import type { SceneFile } from "../engine/scene/SceneLoader";
-import { assetPathOf, chunkIdOf, navAssetOf, navBakeRecord, navBakeSummary, navRecordPath, withBakeReference } from "../editor/navBakeFiles";
+import { assetPathOf, chunkIdOf, navAssetOf, navBakeRecord, navBakeSummary, navRecordPath, withBakeReference } from "../plugins/navigation/editor/navBakeFiles";
 import { readProject, ServerError } from "../server/project";
 
 export const USAGE = `Usage: npm run nav:bake -- <projectDir> [scene…]

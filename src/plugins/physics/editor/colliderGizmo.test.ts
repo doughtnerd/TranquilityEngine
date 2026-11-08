@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Engine, PolygonCollider2D } from "../myco";
-import { AddComponent, SetField } from "./document";
-import { colliderOverlay, colliderShapes } from "./colliderGizmo";
+import { Engine, PolygonCollider2D } from "../../../myco";
+import { AddComponent, SetField } from "../../../editor/document";
+import { colliderOverlay, colliderShapes, editingCollider } from "./colliderGizmo";
 import { MIN_EXTENT, capsule2DHandles, capsule2DPoints, dragCapsule2DHeight, dragCapsule2DRadius, boxCorners, boxHandles, circleHandles, circlePoints, dragBoxEdge, dragCircleRadius, pointInPolygon, polygonArea, toLocal, toWorld, type Pose2D } from "./colliderMath";
-import { openSceneFile } from "./project";
-import { editingCollider, openScene, selection } from "./state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
+import { openSceneFile } from "../../../editor/project";
+import { openScene, selection } from "../../../editor/state";
+import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose2D = { position: [0, 0, 0], rotation: 0, scale: [1, 1] };

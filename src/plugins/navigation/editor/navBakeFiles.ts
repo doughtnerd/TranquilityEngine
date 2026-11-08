@@ -1,10 +1,10 @@
 // The files a navigation bake writes (ADR 0065), shared by the editor (navBake.ts) and `npm run nav:bake`
 // (src/nav-cli): which bake file a chunk writes, the record of what it baked from (`.myco/nav/<asset>.json`,
 // for the stale notice), and pointing a scene file's NavChunk at its bake. No editor state: Node runs it too.
-import type { NavBakeReport } from "../engine/nav/bake";
-import { findNavChunks, NAV_CHUNK, navBakePath, navChunkOf } from "../engine/nav/geometry";
-import type { GameObject } from "../engine/scene/GameObject";
-import type { SceneFile } from "../engine/scene/SceneLoader";
+import type { NavBakeReport } from "../../../engine/nav/bake";
+import { findNavChunks, NAV_CHUNK, navBakePath, navChunkOf } from "../../../engine/nav/geometry";
+import type { GameObject } from "../../../engine/scene/GameObject";
+import type { SceneFile } from "../../../engine/scene/SceneLoader";
 
 /** What a bake did, kept in `.myco/nav/<asset>.json`. */
 export interface NavBakeRecord {
