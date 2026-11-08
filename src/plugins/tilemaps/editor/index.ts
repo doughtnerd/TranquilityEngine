@@ -1,9 +1,10 @@
 // The Tilemaps plugin's editor half (ADR 0103, 0134): the `tileset` asset kind (the Inspector view that edits
 // tiles, terrains and collision, accepted by Tilemap's tileset field) and its asset format. The Tile Palette
 // panel and the tile painting tools still live in `src/editor/` (`ui/TilePalettePanel.tsx`, `tilemap/`), and
-// so does the Assets panel's New Tileset and Create Tileset from Slices entries (`createTileset` in
-// `src/editor/tilesetAssets.ts`): add `create` here when New Tileset is removed from the panel's built-in menu.
+// so does the Assets panel's Create Tileset from Slices entry; New Tileset is this kind's `create`
+// (`createTileset` in `src/editor/tilesetAssets.ts`).
 import type { EditorPlugin } from "../../../editor/sdk";
+import { createTileset } from "../../../editor/tilesetAssets";
 import { tilemapsManifest } from "../manifest";
 import { tilesetFormat } from "./tilesetFormat";
 
@@ -19,6 +20,7 @@ export const tilemapsEditorPlugin: EditorPlugin = {
       label: "Tileset",
       icon: TILESET_ICON,
       inspector: () => import("./TilesetInspector").then((m) => m.TilesetInspector),
+      create: { label: "New Tileset", create: (folder) => createTileset(folder) },
       referencedAs: ["tileset"],
     });
     context.registerAssetFormat(tilesetFormat);

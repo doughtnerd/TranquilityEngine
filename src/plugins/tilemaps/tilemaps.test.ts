@@ -175,6 +175,6 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(isPluginActive("myco.tilemaps")).toBe(false);
     expect(kindLabel("tileset")).toBeUndefined();
     expect(assetFormats.get("tileset")).toBeUndefined();
-    expect(inspectableAsset(TILESET)).toBe(TILESET); // the built-in table still names it, until its entries go
+    expect(inspectableAsset(TILESET)).toBeNull(); // a disabled plugin's files show as generic files
   });
 });

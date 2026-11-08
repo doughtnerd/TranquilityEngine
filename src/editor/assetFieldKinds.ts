@@ -22,12 +22,12 @@ const FILTERS: Record<AssetFieldKind, (file: string) => boolean> = {
   sprite: ofKind("image", "sprite"),
   rendertexture: ofKind("rendertexture"),
   audio: ofKind("audio"),
-  particles: ofKind("particles"),
-  formation: ofKind("formation"),
+  particles: () => false, // registered kinds by `referencedAs`: particles (Particles plugin), formation (Navigation)
+  formation: () => false,
   lut: ofKind("lut"),
   environment: (f) => ofKind("environment", "cubemap")(f) || /\.(png|jpe?g)$/i.test(f),
   envmap: (f) => /\.env$/i.test(f) && assetKind(f) === "environment",
-  tileset: ofKind("tileset"),
+  tileset: () => false, // the Tilemaps plugin's tileset kind
   font: (f) => /\.(ttf|otf|woff2?)$/i.test(f),
   uidocument: ofKind("uidocument"),
   navbake: (f) => /\.nav\.bin$/i.test(f),

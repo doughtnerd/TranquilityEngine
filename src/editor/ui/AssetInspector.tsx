@@ -8,9 +8,6 @@ import { lazyComponent, type LazyComponent } from "./lazy";
 import { extractModelMaterials } from "../materialExtract";
 import { AudioPreview, LargePreview } from "./AssetPreview";
 import { RenderTextureInspector } from "./RenderTextureInspector";
-import { ParticleAssetInspector, ParticleEffectInspector } from "./ParticleInspector";
-import { NavFormationInspector } from "./NavFormationInspector";
-import { TilesetInspector } from "./TilesetInspector";
 import { importKind, inspectedAsset, openSpriteEditor, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
 import { errorStatus } from "../messages";
 import { PIVOT_PRESETS, pivotLabel } from "../spriteSlicing";
@@ -35,11 +32,7 @@ export function AssetInspector() {
   const kind = path ? assetKind(path) : null;
   const Plugin = path && kind ? (registeredKind(kind) ? pluginInspector(registeredKind(kind)!) : null) : null;
   if (path && Plugin) return <Plugin path={path} />;
-  if (path && kind === "particles") return <ParticleEffectInspector path={path} />;
-  if (path && (kind === "particlesubgraph" || kind === "particleblock")) return <ParticleAssetInspector path={path} />;
   if (path && kind === "rendertexture") return <RenderTextureInspector path={path} />;
-  if (path && kind === "formation") return <NavFormationInspector path={path} />;
-  if (path && kind === "tileset") return <TilesetInspector path={path} />;
   if (path && (kind === "environment" || kind === "cubemap" || kind === "prefab")) return <PreviewInspector path={path} kind={kind as "environment" | "cubemap" | "prefab"} />;
   return <ImportInspector />;
 }

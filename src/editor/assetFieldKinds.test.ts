@@ -2,14 +2,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ASSET_FIELD_KINDS, AssetRef, type AssetFieldKind } from "../engine/core/registry";
 import { materialsEditorPlugin } from "../plugins/materials/editor";
+import { navigationEditorPlugin } from "../plugins/navigation/editor";
+import { particlesEditorPlugin } from "../plugins/particles/editor";
 import { skyEditorPlugin } from "../plugins/sky/editor";
+import { tilemapsEditorPlugin } from "../plugins/tilemaps/editor";
 import { assetKindsOf, assetListId, assetsForKinds, isHiddenField } from "./assetFieldKinds";
 import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
 
 // Sky assets are the Sky plugin's (ADR 0134), its kind `referencedAs` environment; materials and
 // shader graphs are the Materials plugin's, `referencedAs` material.
-beforeAll(() => activatePlugins([materialsEditorPlugin, skyEditorPlugin]));
+beforeAll(() => activatePlugins([materialsEditorPlugin, skyEditorPlugin, particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin]));
 afterAll(() => {
+  for (const p of [tilemapsEditorPlugin, navigationEditorPlugin, particlesEditorPlugin]) deactivatePlugin(p.manifest.name);
   deactivatePlugin(skyEditorPlugin.manifest.name);
   deactivatePlugin(materialsEditorPlugin.manifest.name);
 });

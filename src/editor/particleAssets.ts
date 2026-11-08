@@ -1,15 +1,12 @@
 // Creating particle effect assets (ADR 0057, 0060). Core, because the Hierarchy's Create menu
 // (`hierarchyActions.ts`) and the embedded-effect migration (`particleMigration.ts`) make effects.
 // Opening, reading and editing them is the Particles plugin's (`src/plugins/particles/editor/`,
-// ADR 0134), which core never imports: the two deprecated helpers below reach it through its
-// registered asset kinds, for the built-in Assets tables until they go.
+// ADR 0134), which core never imports.
 import type { ParticleGraph } from "../engine/scene/particleGraph";
 import { defaultParticleGraph, formatParticleGraph } from "../engine/scene/particleGraphFormat";
 import { fileName } from "./assetBrowser";
-import { matchRegisteredKind } from "./assetKindLookup";
 import { freePath } from "./assetOps";
 import { errorStatus } from "./messages";
-import { assetKinds } from "./sdk/contributions";
 import { currentProject, docVersion, status } from "./state";
 
 /** Where New Particle Effect goes by default: `effects/` if the project has it, else the folder given. */
@@ -39,14 +36,3 @@ export async function createParticleEffect(folder: string, graph: ParticleGraph 
   status.value = { kind: "info", text: `Created ${fileName(path)}.` };
   return path;
 }
-
-/** @deprecated The Particles plugin's asset kind opens these (ADR 0134); kept for the built-in Assets table until it goes. */
-export function openParticleGraphAsset(path: string): void {
-  matchRegisteredKind(path)?.kind.open?.(path);
-}
-
-/** @deprecated The Particles plugin's New… entry (ADR 0134); kept for the built-in Assets menu until it goes. */
-export const createParticleSubgraph = (folder: string): Promise<string | null> => assetKinds.get("particlesubgraph")?.create?.create(folder) ?? Promise.resolve(null);
-
-/** @deprecated The Particles plugin's New… entry (ADR 0134); kept for the built-in Assets menu until it goes. */
-export const createParticleBlock = (folder: string): Promise<string | null> => assetKinds.get("particleblock")?.create?.create(folder) ?? Promise.resolve(null);

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { materialsEditorPlugin } from "../../plugins/materials/editor";
+import { particlesEditorPlugin } from "../../plugins/particles/editor";
 import { activatePlugins, deactivatePlugin } from "../sdk/plugins";
 import { MemoryFileSystem } from "../memoryFs";
 import { computePeaks, decodeSummary, encodeSummary } from "./audio";
@@ -9,8 +10,11 @@ import { ThumbnailService, type Thumbnail, type ThumbnailMaker, type ThumbnailPr
 import { memoryStore, projectStore } from "./store";
 
 // Materials and shader graphs get their previews through the Materials plugin's kinds (ADR 0134).
-beforeAll(() => activatePlugins([materialsEditorPlugin]));
-afterAll(() => deactivatePlugin(materialsEditorPlugin.manifest.name));
+beforeAll(() => activatePlugins([materialsEditorPlugin, particlesEditorPlugin]));
+afterAll(() => {
+  deactivatePlugin(particlesEditorPlugin.manifest.name);
+  deactivatePlugin(materialsEditorPlugin.manifest.name);
+});
 
 const enc = (s: string) => new TextEncoder().encode(s);
 

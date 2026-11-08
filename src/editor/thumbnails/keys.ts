@@ -18,7 +18,6 @@ export function previewKind(path: string): PreviewKind | null {
   if (registered) return registered;
   if (/\.(obj|fbx|gltf|glb)$/.test(p)) return "model";
   if (/\.(hdr|exr|env|dds)$/.test(p) || p.endsWith(".cubemap.json")) return "environment";
-  if (p.endsWith(".particles.json")) return "particles";
   if (p.endsWith(".prefab.json")) return "prefab";
   if (p.endsWith(".scene.json")) return "scene";
   if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";

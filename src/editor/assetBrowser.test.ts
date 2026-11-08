@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, SpriteRenderer } from "../engine";
 import {
   addAssetToScene,
@@ -17,12 +17,20 @@ import {
   whyNotAddable,
 } from "./assetBrowser";
 import { OrbitCamera } from "./OrbitCamera";
+import { navigationEditorPlugin } from "../plugins/navigation/editor";
+import { particlesEditorPlugin } from "../plugins/particles/editor";
+import { tilemapsEditorPlugin } from "../plugins/tilemaps/editor";
+import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
 import { openScene, sceneCamera } from "./state";
 import { sampleProject } from "./testing";
 
 const demo = sampleProject();
+
+const PLUGINS = [particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin];
+beforeAll(() => activatePlugins(PLUGINS));
+afterAll(() => PLUGINS.forEach((p) => deactivatePlugin(p.manifest.name)));
 
 describe("asset browser: folders and search", () => {
   it("builds a sorted folder tree from project paths", () => {

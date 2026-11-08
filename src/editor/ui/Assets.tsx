@@ -35,9 +35,7 @@ import { createScene } from "../newScene";
 import { createShader } from "../shaderAssets";
 import { createRenderTexture } from "../renderTextureAssets";
 import { createUIDocument } from "../uiDocumentEdits";
-import { createFormation } from "../formationAssets";
-import { createTileset, createTilesetFromSlices, hasSlices } from "../tilesetAssets";
-import { createParticleBlock, createParticleEffect, createParticleSubgraph, openParticleGraphAsset } from "../particleAssets";
+import { createTilesetFromSlices, hasSlices } from "../tilesetAssets";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { switchScene } from "../session";
@@ -58,11 +56,6 @@ const KIND_LABELS: Record<BuiltinAssetKind | "folder", string> = {
   audio: "Audio",
   model: "Model",
   rendertexture: "Render Texture",
-  particles: "Particle Effect",
-  particlesubgraph: "Particle Sub-graph",
-  particleblock: "Particle Block",
-  formation: "Formation",
-  tileset: "Tileset",
   json: "JSON",
   script: "Script",
   javascript: "JS",
@@ -130,12 +123,11 @@ function openEntry(entry: string): void {
   const registered = matchRegisteredKind(entry)?.kind;
   if (registered?.id === kind && registered.open) return registered.open(entry); // ADR 0133
   if (kind === "image") return openSpriteEditor(entry);
-  if (kind === "particles" || kind === "particlesubgraph" || kind === "particleblock") return openParticleGraphAsset(entry);
   if (opensInCodePanel(kind)) openScript(entry);
   else if (kind === "scene" || kind === "prefab") void switchScene(entry);
 }
 
-const opens = (entry: string) => isFolderEntry(entry) || registeredKindOpens(assetKind(entry)) || opensInCodePanel(assetKind(entry)) || ["scene", "prefab", "image", "sprite", "particles", "particlesubgraph", "particleblock"].includes(assetKind(entry));
+const opens = (entry: string) => isFolderEntry(entry) || registeredKindOpens(assetKind(entry)) || opensInCodePanel(assetKind(entry)) || ["scene", "prefab", "image", "sprite"].includes(assetKind(entry));
 
 /** Why `entries` can't be changed (renamed, moved, deleted), or null. */
 function whyNotEditable(project: EditorProject, entries: readonly string[]): string | null {
@@ -180,12 +172,6 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
     { label: "New UI Document", disabled: readOnly, run: () => void createUIDocument(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Render Texture", disabled: readOnly, run: () => void createRenderTexture(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Shader", disabled: readOnly, run: () => void createShader(pasteFolder(entries)).then((made) => made && select([made])) },
-    { label: "New Particle Effect", disabled: readOnly, run: () => void createParticleEffect(pasteFolder(entries)).then((made) => made && select([made])) },
-    { label: "New Particle Sub-graph", disabled: readOnly, run: () => void createParticleSubgraph(pasteFolder(entries)).then((made) => made && select([made])) },
-    { label: "New Particle Block", disabled: readOnly, run: () => void createParticleBlock(pasteFolder(entries)).then((made) => made && select([made])) },
-    // Create › Navigation › Formation (Foxfire's NavFormation asset, ADR 0065).
-    { label: "New Navigation Formation", disabled: readOnly, run: () => void createFormation(pasteFolder(entries)).then((made) => made && select([made])) },
-    { label: "New Tileset", disabled: readOnly, run: () => void createTileset(pasteFolder(entries)).then((made) => made && select([made])) },
     // Registered kinds with `create` add their own entries (ADR 0133).
     ...assetKinds.list().flatMap((k) => (k.create ? [{ label: k.create.label, disabled: readOnly, run: () => void k.create!.create(pasteFolder(entries)).then((made) => made && select([made])) }] : [])),
     ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),
