@@ -31,6 +31,7 @@ import {
   createStudioTexture,
   previewMaterials,
   renderFrame,
+  renderFrameChecked,
   useWhenReady,
 } from "./common";
 
@@ -67,6 +68,8 @@ export class MaterialPreview {
   private readonly distance = 3.4;
   private readonly start = performance.now();
   private shaderFailed = false;
+  /** The graph was rebuilt and no frame has been checked for shader errors yet. */
+  private unchecked = false;
   private disposed = false;
 
   constructor(private readonly container: HTMLElement, canvas?: HTMLCanvasElement) {
@@ -151,6 +154,7 @@ export class MaterialPreview {
     if (!scene) return;
     this.graph?.dispose();
     this.shaderFailed = false;
+    this.unchecked = true;
     this.onShaderError?.(null);
     this.library?.dispose();
     const library = (this.library = previewMaterials(scene, this.shared));
@@ -195,7 +199,15 @@ export class MaterialPreview {
     this.shared.resolution = [engine.getRenderWidth(), engine.getRenderHeight()];
     const r = this.distance;
     aimCamera(camera, [Math.sin(this.yaw) * Math.cos(this.pitch) * r, Math.sin(this.pitch) * r, Math.cos(this.yaw) * Math.cos(this.pitch) * r], [0, 0, 0]);
-    renderFrame(engine, scene);
+    // The first frame a new graph is ready to draw is watched for WGSL errors (see renderFrameChecked).
+    if (this.unchecked && this.mesh?.material?.isReady(this.mesh)) {
+      this.unchecked = false;
+      renderFrameChecked(engine, scene, (message) => {
+        if (this.disposed) return;
+        this.shaderFailed = true;
+        this.onShaderError?.(message);
+      });
+    } else renderFrame(engine, scene);
   }
 
   /**
@@ -244,7 +256,7 @@ export class NodePreviewRenderer {
   private readonly shared: GraphShared = { time: 0, resolution: [1, 1] };
   private readonly canvas: HTMLCanvasElement;
   /** Compiled graphs, their materials and textures (ADR 0127) by the graph's JSON; ones not drawn in a pass are freed. */
-  private readonly entries = new Map<string, { compiled: CompiledShaderGraph; graph: BabylonGraphMaterial; library: BabylonMaterialLibrary; used: boolean; failed: boolean }>();
+  private readonly entries = new Map<string, { compiled: CompiledShaderGraph; graph: BabylonGraphMaterial; library: BabylonMaterialLibrary; used: boolean; failed: boolean; checked: boolean }>();
   private readonly start = performance.now();
   private disposed = false;
 
@@ -327,7 +339,7 @@ export class NodePreviewRenderer {
       // before ADR 0127), instead of one renderer-long cache that never sees an image change.
       const library = previewMaterials(scene, this.shared);
       const made = createGraphMaterial(scene, "preview.node", compiled, {}, this.shared, (p, linear) => library.texture(p, linear ? "graphData" : "graphColor"));
-      const entry = { compiled, graph: made, library, used: true, failed: false };
+      const entry = { compiled, graph: made, library, used: true, failed: false, checked: false };
       watchShaderErrors(made, () => (entry.failed = true));
       this.entries.set(key, entry);
       e = entry;
@@ -339,7 +351,12 @@ export class NodePreviewRenderer {
     if (this.mesh) this.mesh.setEnabled(mesh === this.mesh);
     for (const m of this.shapes.values()) m.setEnabled(m === mesh);
     mesh.material = material;
-    renderFrame(engine, scene);
+    if (e.checked) renderFrame(engine, scene);
+    else {
+      e.checked = true;
+      const entry = e;
+      renderFrameChecked(engine, scene, () => (entry.failed = true));
+    }
     const ctx = target.getContext("2d");
     if (!ctx) return !e.failed;
     ctx.clearRect(0, 0, target.width, target.height);
