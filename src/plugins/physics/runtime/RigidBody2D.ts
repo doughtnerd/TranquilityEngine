@@ -1,8 +1,9 @@
-import { physics2DOf } from "./physics2dSystems";
+import { physics2DOf } from "./systems2d";
 import { Component } from "../../../engine/core/Component";
 import { DEG2RAD, RAD2DEG, Vector2, type Vec2Like } from "../../../engine/core/math";
 import { PlainObject, component, field } from "../../../engine/core/registry";
-import type { BodyHandleState } from "./Physics2DWorld";
+import type { Dim2 } from "./backend";
+import type { BodyState } from "./core/state";
 
 import type { BodyType, ForceMode } from "../../../engine/physics/types";
 export type { BodyType, ForceMode };
@@ -35,7 +36,7 @@ export class RigidBody2D extends Component {
    */
   @field(Boolean) interpolate = true;
 
-  /** @internal */ _state: BodyHandleState | null = null;
+  /** @internal */ _state: BodyState<Dim2> | null = null;
   /** @internal */ _pendingVelocity: [number, number] | null = null;
   /** @internal */ _pendingAngularVelocity: number | null = null;
   /** @internal */ _force: [number, number] = [0, 0];
@@ -47,7 +48,7 @@ export class RigidBody2D extends Component {
   get velocity(): Vector2 {
     const body = this._state?.body;
     if (body) {
-      const v = body.linvel();
+      const v = body.linearVelocity();
       this.velocityStorage[0] = v.x;
       this.velocityStorage[1] = v.y;
     } else if (this._pendingVelocity) {
@@ -62,11 +63,11 @@ export class RigidBody2D extends Component {
   /** Angular velocity in degrees/second. */
   get angularVelocity(): number {
     const body = this._state?.body;
-    return body ? body.angvel() * RAD2DEG : (this._pendingAngularVelocity ?? 0);
+    return body ? body.angularVelocity() * RAD2DEG : (this._pendingAngularVelocity ?? 0);
   }
   set angularVelocity(degPerSec: number) {
     const body = this._state?.body;
-    if (body) body.setAngvel(degPerSec * DEG2RAD, true);
+    if (body) body.setAngularVelocity(degPerSec * DEG2RAD);
     else this._pendingAngularVelocity = degPerSec;
   }
 
@@ -74,7 +75,7 @@ export class RigidBody2D extends Component {
   addForce(force: Vec2Like, mode: ForceMode = "force"): void {
     const body = this._state?.body;
     if (mode === "impulse" && body) {
-      body.applyImpulse({ x: force.x, y: force.y }, true);
+      body.applyImpulse({ x: force.x, y: force.y });
     } else if (mode === "impulse") {
       const m = this.mass > 0 ? this.mass : 1;
       const [vx, vy] = this._pendingVelocity ?? [0, 0];
@@ -87,13 +88,13 @@ export class RigidBody2D extends Component {
 
   addTorque(torque: number, mode: ForceMode = "force"): void {
     const body = this._state?.body;
-    if (mode === "impulse" && body) body.applyTorqueImpulse(torque, true);
+    if (mode === "impulse" && body) body.applyTorqueImpulse(torque);
     else this._torque += torque;
   }
 
   private setVelocity(x: number, y: number): void {
     const body = this._state?.body;
-    if (body) body.setLinvel({ x, y }, true);
+    if (body) body.setLinearVelocity({ x, y });
     else this._pendingVelocity = [x, y];
   }
 

@@ -1,4 +1,4 @@
-import { physics2DOf } from "../../plugins/physics2d/runtime/physics2dSystems";
+import { physics2DOf } from "../../plugins/physics/runtime/systems2d";
 import "../sampleTypes";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GameManager } from "../../../samples/flappy/scripts/behaviors/GameManager";

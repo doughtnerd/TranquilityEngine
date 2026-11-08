@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Assets } from "../index";
 import { NAV_RUNTIME_TYPES, navBakeRefs } from "../../plugins/navigation/runtime/navigationSystems";
-import { PHYSICS_3D_COMPONENTS } from "../../plugins/physics3d/runtime/physics3d";
+import { PHYSICS_3D_COMPONENTS } from "../../plugins/physics/runtime/systems3d";
 import { anyComponentOf, assetRefs, invalidateResolvedScenes, resolveScene, resolvedComponents } from "../scene/resolvedScene";
 import { collectAssetRefs } from "../scene/SceneLoader";
 import { warmSet } from "../scene/warmUp";

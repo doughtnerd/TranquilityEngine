@@ -1,9 +1,10 @@
-import { physics2DOf } from "./physics2dSystems";
+import { physics2DOf } from "./systems2d";
 import { Component } from "../../../engine/core/Component";
 import { Vector2 } from "../../../engine/core/math";
 import { PlainObject, component, field } from "../../../engine/core/registry";
 import type { GameObject } from "../../../engine/scene/GameObject";
-import type { ColliderHandleState } from "./Physics2DWorld";
+import type { Dim2 } from "./backend";
+import type { ColliderState } from "./core/state";
 import { RigidBody2D } from "./RigidBody2D";
 
 import type { PhysicsMaterial, PhysicsMaterial2D } from "../../../engine/physics/types";
@@ -19,7 +20,7 @@ export abstract class Collider2D extends Component {
   @field(String, { choices: (s) => s.physics.layers }) layer = "Default";
   @field(PlainObject) material: PhysicsMaterial = { friction: 0.5, bounciness: 0 };
 
-  /** @internal */ _state: ColliderHandleState | null = null;
+  /** @internal */ _state: ColliderState<Dim2, RigidBody2D> | null = null;
 
   /** The body this collider is attached to: the nearest active RigidBody2D on this node or an ancestor. */
   get attachedRigidbody(): RigidBody2D | null {

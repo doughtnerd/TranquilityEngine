@@ -89,6 +89,23 @@ describe("plugin import direction", () => {
     expect(importers.sort()).toEqual(["editor/playMode.ts", "myco.ts", "player/main.ts", "plugins/editorApply.ts", "plugins/testSetup.ts", "server/run.ts"]);
   });
 
+  it("lets a plugin reach another only through its public module (ADR 0133): `plugins/<other>/runtime`", () => {
+    const bad: string[] = [];
+    for (const f of files(join(SRC, "plugins"))) {
+      if (/\.test\.tsx?$/.test(f)) continue;
+      const own = /^plugins\/([^/]+)\//.exec(rel(f))?.[1];
+      if (!own) continue;
+      for (const { spec } of specifiers(f)) {
+        const target = resolved(f, spec);
+        if (!target.startsWith("/")) continue;
+        const m = /^plugins\/([^/]+)\/(.+)$/.exec(rel(target));
+        if (!m || m[1] === own) continue;
+        if (!/^runtime(\/index)?(\.ts)?$/.test(m[2])) bad.push(`${rel(f)} imports ${spec}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
   it("keeps the editor core free of plugins' editor halves (only main.tsx loads them, through editorBoot.ts)", () => {
     const bad: string[] = [];
     for (const f of files(join(SRC, "editor"))) {

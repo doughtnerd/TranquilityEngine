@@ -1,7 +1,7 @@
 // The Project panel's model (ADR 0038): the parts of `project.json` beyond the bootstrap (name,
 // display, time, physics, render, autoloads) as a draft, edited by pure functions, checked, and
 // written back into the file's text one top-level key at a time so the rest keeps its layout.
-import { defaultSettings, pluginSettingsProblems, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
+import { defaultSettings, physicsBackendProblems, pluginSettingsProblems, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import { defaultTier, parseGraphics, PLATFORMS, type GraphicsSettings, type Platform, type PlatformDefaults, type QualityTier } from "../engine/core/graphics";
 import { parseAudioSettings } from "../engine/audio/settings";
 import { parseNavigationSettings } from "../engine/nav/settings";
@@ -347,6 +347,7 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
     p("physics.gravity", "Gravity must be two numbers, x and y, or three with z.");
   }
   if (physics.layers !== undefined) nameList(physics.layers, "physics.layers", "Physics layers", problems);
+  for (const message of physicsBackendProblems(physics)) p(message.startsWith("physics.backend2d") ? "physics.backend2d" : "physics.backend3d", message);
   const layers = layersOf(draft);
   if (Array.isArray(layers) && layers.length > MAX_LAYERS) p("physics.layers", `There can be at most ${MAX_LAYERS} physics layers.`);
   const matrix = physics.collisionMatrix;

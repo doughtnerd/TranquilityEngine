@@ -12,7 +12,7 @@ import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type 
 import { mixer } from "../audio/backend";
 import { useFmodBackendIfConfigured } from "../audio/fmodBackend";
 import { parseAudioSettings } from "../audio/settings";
-import { navigationSettingsProblems, resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
+import { navigationSettingsProblems, physicsBackendProblems, resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { parseGraphics } from "./graphics";
 import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
 import { FrameMonitor } from "../render/qualityDetect";
@@ -169,6 +169,8 @@ export class Engine implements BootstrapEngine {
     for (const p of parseGraphics(options.project?.graphics).problems) console.warn(`[myco] project.json ${p}`);
     // Navigation (ADR 0065): a bad section falls back to defaults, so say what was replaced.
     if (options.project?.navigation !== undefined) for (const p of navigationSettingsProblems(options.project.navigation)) console.warn(`[myco] project.json ${p}`);
+    // Physics backends (ADR 0137): a bad id is ignored (the only enabled backend is used).
+    for (const p of physicsBackendProblems(options.project?.physics)) console.warn(`[myco] project.json ${p}`);
     // Audio (ADR 0097): the project's mixer buses; one shared mixer, like the one audio context.
     for (const p of parseAudioSettings(options.project?.audio).problems) console.warn(`[myco] project.json ${p}`);
     mixer.configure(engine.settings.audio);

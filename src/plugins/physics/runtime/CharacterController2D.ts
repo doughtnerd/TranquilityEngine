@@ -1,4 +1,4 @@
-import { physics2DOf } from "./physics2dSystems";
+import { physics2DOf } from "./systems2d";
 import { GameBehavior } from "../../../engine/core/Component";
 import { Vector2, type Vec2Like } from "../../../engine/core/math";
 import { component, field } from "../../../engine/core/registry";

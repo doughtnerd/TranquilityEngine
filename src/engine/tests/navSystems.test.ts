@@ -1,5 +1,5 @@
 import { navigationOf } from "../../plugins/navigation/runtime/navigationSystems";
-import { physics3DOf } from "../../plugins/physics3d/runtime/physics3d";
+import { physics3DOf } from "../../plugins/physics/runtime/systems3d";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   Assets,
@@ -332,7 +332,7 @@ describe("navigation in the engine (ADR 0065)", () => {
     steps(engine, 120);
     const p = a.transform.position;
     expect(p.z).toBeGreaterThan(-4);
-    const body = a.node.getBehavior(RigidBody)!._state!.body.translation();
+    const body = a.node.getBehavior(RigidBody)!._state!.body.pose().position;
     expect(Math.hypot(body.x - p.x, body.z - p.z)).toBeLessThan(0.2); // the body follows the transform
     expect(a.node.getBehavior(BoxCollider)).not.toBeNull();
   });

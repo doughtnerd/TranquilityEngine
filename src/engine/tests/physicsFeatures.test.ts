@@ -1,6 +1,6 @@
 // Stay events, child colliders that move relative to their body, and interpolation (ADR 0093), in 2D and 3D.
-import { physics2DOf } from "../../plugins/physics2d/runtime/physics2dSystems";
-import { physics3DOf } from "../../plugins/physics3d/runtime/physics3d";
+import { physics2DOf } from "../../plugins/physics/runtime/systems2d";
+import { physics3DOf } from "../../plugins/physics/runtime/systems3d";
 import { describe, expect, it } from "vitest";
 import { Assets, BoxCollider, BoxCollider2D, Engine, GameBehavior, GameObject, Physics, Physics2D, RigidBody, RigidBody2D, SceneManager } from "../../myco";
 

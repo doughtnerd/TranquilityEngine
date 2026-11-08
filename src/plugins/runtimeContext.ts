@@ -18,6 +18,18 @@ export interface RenderFeatureContribution {
   load: RenderFeatureRegistration["load"];
 }
 
+/**
+ * A contribution point another plugin owns (ADR 0133, 0137), such as the Physics plugin's backends: the
+ * owner exports it from its public module, and plugins that depend on the owner contribute through
+ * their context, so deactivating them removes what they added.
+ */
+export interface ContributionPoint<T> {
+  /** Unique, e.g. `myco.physics.backend`. */
+  readonly id: string;
+  /** Adds `value`; returns the undo. */
+  register(value: T): () => void;
+}
+
 export interface RuntimePluginContext {
   /**
    * Claim Components for the plugin. They keep their decorators (`@component`); deactivating the plugin
@@ -36,6 +48,8 @@ export interface RuntimePluginContext {
   registerWorldService<L, I>(service: WorldServiceDef<L, I>): void;
   /** @internal First-party only (ADR 0133): a render feature, for renderers created from now on. */
   registerRenderFeature(feature: RenderFeatureContribution): void;
+  /** Add `value` to a contribution point another plugin owns (a physics backend); removed again on deactivation. */
+  contribute<T>(point: ContributionPoint<T>, value: T): void;
 }
 
 /** A plugin's runtime half. */
@@ -113,6 +127,7 @@ export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], option
         registerEngineSystems: () => {},
         registerWorldService: () => {},
         registerRenderFeature: () => {},
+        contribute: () => {},
       });
       continue;
     }
@@ -141,6 +156,7 @@ export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], option
         const after = [...(f.spec.after ?? []), ...(f.after ?? [])];
         undo.push(_registerRenderFeature({ spec: after.length ? { ...f.spec, after } : f.spec, load: f.load }));
       },
+      contribute: (point, value) => void undo.push(point.register(value)),
     };
     try {
       plugin.activate(context);

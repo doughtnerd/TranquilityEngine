@@ -2,7 +2,7 @@
 // what's off is stored (`plugins.disabled`), so new plugins default on. Turning off a plugin that others
 // need asks first and turns them off too; turning one on turns on what it needs.
 import { pluginManifests } from "../../plugins/editorApply";
-import { pluginDependencies, pluginDependents, resolveEnabledPlugins, setPluginEnabled } from "../../plugins/enabled";
+import { migrateDisabledPlugins, pluginDependencies, pluginDependents, resolveEnabledPlugins, setPluginEnabled } from "../../plugins/enabled";
 import { pluginTitle, type PluginManifest } from "../../plugins/manifest";
 import { disabledPluginsOf, setDisabledPlugins, type SettingsDraft } from "../projectSettingsModel";
 import { confirmInEditor } from "./ConfirmDialog";
@@ -16,7 +16,7 @@ export function PluginsSection(props: { draft: SettingsDraft; set: Set }) {
     const m = manifests.find((x) => x.name === name);
     return m ? pluginTitle(m) : name;
   };
-  const disabled = disabledPluginsOf(draft);
+  const disabled = migrateDisabledPlugins(disabledPluginsOf(draft)); // old names (myco.physics2d) read as their new plugin (ADR 0137)
   const enabled = resolveEnabledPlugins(manifests, disabled);
 
   const toggle = async (m: PluginManifest, on: boolean) => {

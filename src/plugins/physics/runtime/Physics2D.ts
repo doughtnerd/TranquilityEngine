@@ -1,4 +1,4 @@
-import { physics2DOf } from "./physics2dSystems";
+import { physics2DOf } from "./systems2d";
 import { Vector2, type Vec2Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
 import type { Collider2D } from "./Collider2D";
@@ -29,14 +29,14 @@ function capsuleOf(size: Vec2Like): CastShape2D {
 }
 
 function cast(origin: Vec2Like, shape: CastShape2D, angle: number, direction: Vec2Like, maxDistance: number, layers?: string[]): ShapeCastHit2D | null {
-  const hit = physics().queries.castShape(shape, origin, toRad(angle), direction, maxDistance, layers);
+  const hit = physics().castShape(shape, origin, toRad(angle), direction, maxDistance, layers);
   if (!hit) return null;
   return { collider: hit.collider, point: Vector2.from(hit.point), normal: Vector2.from(hit.normal), distance: hit.distance };
 }
 
 function physics() {
   const p = physics2DOf(World.require());
-  if (!p) throw new Error('2D physics is not running. Load a scene with "settings": { "physics": "2d" }, or one with 2D bodies or colliders.');
+  if (!p) throw new Error('2D physics is not running. Load a scene with "settings": { "physics": "2d" }, or one with 2D bodies or colliders, with a 2D physics backend enabled.');
   return p;
 }
 
@@ -77,21 +77,21 @@ export class Physics2D {
 
   /** Every collider overlapping a circle. */
   static overlapCircle(point: Vec2Like, radius: number, layers?: string[]): Collider2D[] {
-    return physics().queries.overlap({ kind: "circle", radius }, point, 0, layers);
+    return physics().overlap({ kind: "circle", radius }, point, 0, layers);
   }
 
   /** Every collider overlapping a box (full `size`, rotated by `angle` degrees). */
   static overlapBox(point: Vec2Like, size: Vec2Like, angle = 0, layers?: string[]): Collider2D[] {
-    return physics().queries.overlap({ kind: "box", halfExtents: { x: size.x / 2, y: size.y / 2 } }, point, toRad(angle), layers);
+    return physics().overlap({ kind: "box", halfExtents: { x: size.x / 2, y: size.y / 2 } }, point, toRad(angle), layers);
   }
 
   /** Every collider overlapping a vertical capsule (full `size`, rotated by `angle` degrees). */
   static overlapCapsule(point: Vec2Like, size: Vec2Like, angle = 0, layers?: string[]): Collider2D[] {
-    return physics().queries.overlap(capsuleOf(size), point, toRad(angle), layers);
+    return physics().overlap(capsuleOf(size), point, toRad(angle), layers);
   }
 
   /** Every collider containing the point. */
   static overlapPoint(point: Vec2Like, layers?: string[]): Collider2D[] {
-    return physics().queries.overlapPoint(point, layers);
+    return physics().overlapPoint(point, layers);
   }
 }

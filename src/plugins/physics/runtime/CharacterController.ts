@@ -1,4 +1,4 @@
-import { physics3DOf } from "./physics3d";
+import { physics3DOf } from "./systems3d";
 import { GameBehavior } from "../../../engine/core/Component";
 import { Vector3, type Vec3Like } from "../../../engine/core/math";
 import { component, field } from "../../../engine/core/registry";

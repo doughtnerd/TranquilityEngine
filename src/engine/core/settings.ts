@@ -39,6 +39,12 @@ export interface ProjectSettings {
      * When omitted, every layer collides with every other layer.
      */
     collisionMatrix?: Record<string, string[]>;
+    /**
+     * The physics backend for 2D and for 3D, by id (ADR 0137; Rapier's is `"rapier"`). Omitted: the only
+     * one enabled. Backends come from plugins, so the engine checks only the form (`physicsBackendProblems`).
+     */
+    backend2d?: string;
+    backend3d?: string;
   };
   render: {
     /** Sorting layers from back to front (ADR 0014). */
@@ -89,6 +95,17 @@ export function pluginSettingsProblems(input: unknown, known?: readonly string[]
     if (known && !known.includes(name)) warnings.push(`plugins.disabled names "${name}", which isn't a known plugin; it is ignored.`);
   }
   return { problems, warnings };
+}
+
+/** Everything wrong with `physics.backend2d` / `physics.backend3d` (ADR 0137), as readable sentences: each must be a backend id when present. */
+export function physicsBackendProblems(physics: unknown): string[] {
+  if (!isRecord(physics)) return [];
+  const problems: string[] = [];
+  for (const key of ["backend2d", "backend3d"]) {
+    const v = physics[key];
+    if (v !== undefined && (typeof v !== "string" || !v.trim())) problems.push(`physics.${key} must be a physics backend's id, such as "rapier" (got ${describe(v)}).`);
+  }
+  return problems;
 }
 
 export type ProjectSettingsInput = {

@@ -1,5 +1,5 @@
-import { physics2DOf } from "../../plugins/physics2d/runtime/physics2dSystems";
-import { physics3DOf } from "../../plugins/physics3d/runtime/physics3d";
+import { physics2DOf } from "../../plugins/physics/runtime/systems2d";
+import { physics3DOf } from "../../plugins/physics/runtime/systems3d";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import {

@@ -43,7 +43,7 @@ describe("the plugins setting", () => {
   });
 
   it("every first-party manifest has a title and a description", () => {
-    for (const m of pluginManifests().filter((x) => ["myco.sky", "myco.materials", "myco.physics2d", "myco.physics3d", "myco.navigation"].includes(x.name))) {
+    for (const m of pluginManifests().filter((x) => ["myco.sky", "myco.materials", "myco.physics", "myco.physics-rapier", "myco.navigation"].includes(x.name))) {
       expect(m.title, m.name).toBeTruthy();
       expect(m.description, m.name).toBeTruthy();
     }

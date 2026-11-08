@@ -1,18 +1,18 @@
-// The Physics 3D plugin (ADR 0135): a World service started by its Components, with the engine's one
+// The Physics plugin (ADR 0135, 0137): its 3D World service, started by its Components, with the engine's one
 // lifecycle. This file's first test must run before Rapier 3D has loaded in it (Vitest isolates files).
 import { describe, expect, it, vi } from "vitest";
 import { Assets, BoxCollider, Engine, GameObject, RigidBody, SceneManager } from "../../myco";
 import { listSystemCatalog } from "../../engine/core/systems";
 import { _servicesNeededBy, _startWorldService, _worldServiceIds } from "../../engine/core/worldServices";
 import { RUNTIME_PLUGINS } from "../runtime";
-import { physics3dRuntimePlugin } from "./runtime";
-import { PHYSICS_3D, physics3DOf } from "./runtime/physics3d";
+import { physicsRuntimePlugin } from "./runtime";
+import { PHYSICS_3D, physics3DOf } from "./runtime/systems3d";
 
 const steps = (engine: Engine, n: number) => {
   for (let i = 0; i < n; i++) engine.step(1 / 60);
 };
 
-describe("the Physics 3D plugin (ADR 0135)", () => {
+describe("the Physics plugin's 3D service (ADR 0135, 0137)", () => {
   it("never gives a World destroyed while Rapier loads a physics world", async () => {
     Assets.clearSources();
     const a = await Engine.create({ headless: true });
@@ -48,7 +48,7 @@ describe("the Physics 3D plugin (ADR 0135)", () => {
   });
 
   it("is a first-party runtime half with its service, systems and the scene scan's rules", async () => {
-    expect(RUNTIME_PLUGINS).toContain(physics3dRuntimePlugin);
+    expect(RUNTIME_PLUGINS).toContain(physicsRuntimePlugin);
     expect(_worldServiceIds()).toContain(PHYSICS_3D);
     expect(listSystemCatalog().find((s) => s.name === "engine.Physics3DStep")).toMatchObject({ builtin: true, worlds: ["*"] });
     Assets.clearSources();

@@ -1,4 +1,4 @@
-import { physics2DOf } from "../plugins/physics2d/runtime/physics2dSystems";
+import { physics2DOf } from "../plugins/physics/runtime/systems2d";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, Input, SceneManager } from "../engine";
 import { World } from "../engine/core/World";

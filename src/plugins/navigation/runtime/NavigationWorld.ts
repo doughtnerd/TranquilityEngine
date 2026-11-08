@@ -1,6 +1,6 @@
 /**
  * A World's navigation (ADR 0065). Internal: game code uses the navigation components and the `Navigation`
- * facade. Loaded on demand by its World service (`NAVIGATION_SERVICE`, navigationSystems.ts), like `Physics3DWorld`.
+ * facade. Loaded on demand by its World service (`NAVIGATION_SERVICE`, navigationSystems.ts), like the physics core and its backend.
  *
  * Each fixed step:
  * - `sync` (engine.NavSync): chunks load or unload, gates open or close, agents / groups / obstacles get runtime

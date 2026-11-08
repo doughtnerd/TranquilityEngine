@@ -1,4 +1,4 @@
-import { PHYSICS_2D, physics2DOf } from "../../plugins/physics2d/runtime/physics2dSystems";
+import { PHYSICS_2D, physics2DOf } from "../../plugins/physics/runtime/systems2d";
 import { _startWorldService } from "../core/worldServices";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {

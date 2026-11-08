@@ -4,7 +4,7 @@
  * mode places the node on the waves directly. Runs in a fixed-step system after scripts and before
  * the 3D physics push, and needs no renderer, so servers float objects the same as clients.
  */
-import { physics3DOf } from "./physics3d";
+import { physics3DOf } from "./systems3d";
 import { Component } from "../../../engine/core/Component";
 import { Quaternion, Vector2, Vector3 } from "../../../engine/core/math";
 import { component, field } from "../../../engine/core/registry";

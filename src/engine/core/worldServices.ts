@@ -43,8 +43,16 @@ export interface WorldRayHit {
 export interface WorldServiceDef<L = unknown, I = unknown> {
   /** Unique, e.g. `myco.physics3d`. */
   readonly id: string;
-  /** Loads the service's code (a dynamic import, so it stays out of the main chunk). Called once per page, again after a failure. */
-  load(): Promise<L>;
+  /**
+   * Loads the service's code (a dynamic import, so it stays out of the main chunk). Called once per page
+   * (per variant), again after a failure.
+   */
+  load(variant: string): Promise<L>;
+  /**
+   * Which build of the service `world` uses, when there are several (physics: the backend the project
+   * chose, ADR 0137). Each variant loads once. Default: one, `""`.
+   */
+  variant?(world: World): string;
   /** One World's instance. */
   create(world: World, loaded: L): I;
   dispose(instance: I): void;
@@ -59,10 +67,15 @@ export interface WorldServiceDef<L = unknown, I = unknown> {
   raycast?(instance: I, origin: { x: number; y: number; z: number }, dir: { x: number; y: number; z: number }, maxDistance: number): WorldRayHit | null;
 }
 
-interface Entry {
-  readonly def: WorldServiceDef;
+interface Load {
   loading: Promise<unknown> | null;
   loaded: { value: unknown } | null;
+}
+
+interface Entry {
+  readonly def: WorldServiceDef;
+  /** By variant. */
+  readonly loads: Map<string, Load>;
 }
 
 interface WorldState {
@@ -105,7 +118,7 @@ const runs = (def: WorldServiceDef, world: World) => (def.runsIn ? def.runsIn(wo
  */
 export function _registerWorldService<L, I>(def: WorldServiceDef<L, I>): () => void {
   if (services.has(def.id)) throw new Error(`World service "${def.id}" is already registered.`);
-  const entry: Entry = { def: def as WorldServiceDef, loading: null, loaded: null };
+  const entry: Entry = { def: def as WorldServiceDef, loads: new Map() };
   services.set(def.id, entry);
   reindex();
   return () => {
@@ -129,18 +142,25 @@ export function _worldServiceIds(): string[] {
   return [...services.keys()];
 }
 
-function load(entry: Entry): Promise<unknown> {
-  entry.loading ??= entry.def.load().then(
+function loadOf(entry: Entry, variant: string): Load {
+  let l = entry.loads.get(variant);
+  if (!l) entry.loads.set(variant, (l = { loading: null, loaded: null }));
+  return l;
+}
+
+function load(entry: Entry, variant: string): Promise<unknown> {
+  const l = loadOf(entry, variant);
+  l.loading ??= entry.def.load(variant).then(
     (value) => {
-      entry.loaded = { value };
+      l.loaded = { value };
       return value;
     },
     (err: unknown) => {
-      entry.loading = null; // a failed fetch or WASM start is tried again next time
+      l.loading = null; // a failed fetch or WASM start is tried again next time
       throw err;
     },
   );
-  return entry.loading;
+  return l.loading;
 }
 
 function create(world: World, s: WorldState, entry: Entry, loaded: unknown): unknown {
@@ -173,10 +193,12 @@ export function _startWorldService(world: World, id: string): Promise<unknown> {
   const s = stateOf(world);
   if (s.destroyed || !runs(entry.def, world)) return Promise.resolve(null);
   if (s.instances.has(id)) return Promise.resolve(s.instances.get(id));
-  if (entry.loaded) return Promise.resolve(create(world, s, entry, entry.loaded.value));
+  const variant = entry.def.variant?.(world) ?? "";
+  const loaded = loadOf(entry, variant).loaded;
+  if (loaded) return Promise.resolve(create(world, s, entry, loaded.value));
   const pending = s.starting.get(id);
   if (pending) return pending;
-  const p = load(entry).then((loaded) => (s.destroyed || services.get(id) !== entry ? null : create(world, s, entry, loaded)));
+  const p = load(entry, variant).then((loaded) => (s.destroyed || services.get(id) !== entry ? null : create(world, s, entry, loaded)));
   s.starting.set(id, p);
   const clear = () => void (s.starting.get(id) === p && s.starting.delete(id));
   p.then(clear, clear);

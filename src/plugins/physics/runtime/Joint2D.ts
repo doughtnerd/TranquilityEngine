@@ -1,54 +1,50 @@
-import { physics3DOf } from "./physics3d";
+import { physics2DOf } from "./systems2d";
 import { Component } from "../../../engine/core/Component";
-import { Vector3 } from "../../../engine/core/math";
+import { Vector2 } from "../../../engine/core/math";
 import { PlainObject, component, field } from "../../../engine/core/registry";
 import { GameObject } from "../../../engine/scene/GameObject";
-import type { JointHandleState3D } from "./Physics3DWorld";
-import { RigidBody } from "./RigidBody";
-
 import type { JointLimits, JointMotor, JointSpring } from "../../../engine/physics/types";
-export type { JointLimits, JointMotor, JointSpring };
+import type { Dim2 } from "./backend";
+import type { JointState } from "./core/state";
+import { RigidBody2D } from "./RigidBody2D";
 
 /**
- * Base class for 3D joints (ADR 0005, 0092). A joint links the RigidBody on its node (or the nearest
- * one above it) to `connectedBody`, a node with a RigidBody, or to the world when that's empty.
+ * Base class for 2D joints (ADR 0005, 0092), like the 3D ones: a joint links the RigidBody2D on its
+ * node (or the nearest one above it) to `connectedBody`, a node with a RigidBody2D, or to the world.
  * `anchor` is the joint's point in this node's local space; with `autoConfigureConnectedAnchor` the
  * other body's anchor is wherever that point is when the joint is made, otherwise `connectedAnchor`
  * in the connected node's local space (world space when connected to the world). Joints rest in the
  * pose the bodies are in when the joint is made.
  */
-export abstract class Joint extends Component {
+export abstract class Joint2D extends Component {
   /** The other body's node; empty joins the body to the world. */
   @field(GameObject) connectedBody: GameObject | null = null;
-  @field(Vector3) anchor = new Vector3(0, 0, 0);
+  @field(Vector2) anchor = new Vector2(0, 0);
   @field(Boolean) autoConfigureConnectedAnchor = true;
-  @field(Vector3) connectedAnchor = new Vector3(0, 0, 0);
+  @field(Vector2) connectedAnchor = new Vector2(0, 0);
   /** Let the two bodies' colliders collide with each other. */
   @field(Boolean) enableCollision = false;
-  /**
-   * The force (newtons) that breaks the joint; 0, the default, never breaks it. When it breaks,
-   * `onJointBreak(joint, force, torque)` runs on the node's behaviors and the joint is destroyed.
-   */
+  /** The force (newtons) that breaks the joint; 0 never breaks it. See Joint.breakForce. */
   @field(Number) breakForce = 0;
   /** The torque (newton-metres) that breaks the joint; 0 never breaks it. */
   @field(Number) breakTorque = 0;
 
-  /** @internal */ _state: JointHandleState3D | null = null;
+  /** @internal */ _state: JointState<Dim2, RigidBody2D> | null = null;
   /** @internal Broken: never rebuilt. */ _broken = false;
 
   /** The body this joint moves: the nearest active RigidBody on this node or above it. */
-  get body(): RigidBody | null {
+  get body(): RigidBody2D | null {
     for (let n: GameObject | null = this.node; n; n = n.parent) {
-      const rb = n.getBehavior(RigidBody);
+      const rb = n.getBehavior(RigidBody2D);
       if (rb && rb.isActiveAndEnabled) return rb;
     }
     return null;
   }
 
   /** The connected node's body (its own RigidBody or the nearest above it), or null for the world. */
-  get connectedRigidbody(): RigidBody | null {
+  get connectedRigidbody(): RigidBody2D | null {
     for (let n: GameObject | null = this.connectedBody?.isValid ? this.connectedBody : null; n; n = n.parent) {
-      const rb = n.getBehavior(RigidBody);
+      const rb = n.getBehavior(RigidBody2D);
       if (rb && rb.isActiveAndEnabled) return rb;
     }
     return null;
@@ -62,22 +58,20 @@ export abstract class Joint extends Component {
   }
 
   override _onDetach(): void {
-    physics3DOf(this._world)?.releaseJoint(this);
+    physics2DOf(this._world)?.releaseJoint(this);
   }
 }
 
 /** Holds two bodies together as if welded. */
-@component("engine.FixedJoint")
-export class FixedJoint extends Joint {
+@component("engine.FixedJoint2D")
+export class FixedJoint2D extends Joint2D {
   override _jointSignature(): string {
     return "fixed";
   }
 }
 
 /** Shared by hinges and sliders: one axis of movement, with optional limits, a motor or a spring. */
-export abstract class AxisJoint extends Joint {
-  /** The axis it turns around (hinge) or slides along (slider), in this node's local space. */
-  @field(Vector3) axis = new Vector3(1, 0, 0);
+export abstract class AxisJoint2D extends Joint2D {
   @field(Boolean) useLimits = false;
   @field(PlainObject) limits: JointLimits = { min: 0, max: 0 };
   @field(Boolean) useMotor = false;
@@ -92,47 +86,28 @@ export abstract class AxisJoint extends Joint {
   }
 }
 
-/** Lets the body turn around `axis` through the anchor, like a door; limits and targets in degrees. */
-@component("engine.HingeJoint")
-export class HingeJoint extends AxisJoint {
+/** Lets the body turn around the anchor, like a wheel on an axle; limits and targets in degrees (counterclockwise). */
+@component("engine.HingeJoint2D")
+export class HingeJoint2D extends AxisJoint2D {
   override _jointSignature(): string {
-    return `hinge:${this.axis.x},${this.axis.y},${this.axis.z}|${this.useLimits}`;
+    return `hinge|${this.useLimits}`;
   }
 }
 
-/** Lets the body slide along `axis` without turning, like a drawer; limits and targets in units. */
-@component("engine.SliderJoint")
-export class SliderJoint extends AxisJoint {
-  override _jointSignature(): string {
-    return `slider:${this.axis.x},${this.axis.y},${this.axis.z}|${this.useLimits}`;
-  }
-}
-
-/**
- * Keeps the anchors together but lets the body turn around them, like a shoulder. With `useLimits`,
- * it twists around `axis` only between `twistLimits` (degrees) and swings off it at most
- * `swingLimit` degrees around each of the two axes across it (a four-sided limit, not a round cone).
- */
-@component("engine.BallJoint")
-export class BallJoint extends Joint {
-  /** The twist axis, in this node's local space. */
-  @field(Vector3) axis = new Vector3(1, 0, 0);
-  @field(Boolean) useLimits = false;
-  @field(PlainObject) twistLimits: JointLimits = { min: -45, max: 45 };
-  @field(Number) swingLimit = 45;
+/** Lets the body slide along `axis` without turning; limits and targets in units. */
+@component("engine.SliderJoint2D")
+export class SliderJoint2D extends AxisJoint2D {
+  /** The direction it slides along, in this node's local space. */
+  @field(Vector2) axis = new Vector2(1, 0);
 
   override _jointSignature(): string {
-    return `ball:${this.axis.x},${this.axis.y},${this.axis.z}|${this.useLimits}`;
-  }
-
-  override _settingsSignature(): string {
-    return [this.twistLimits?.min, this.twistLimits?.max, this.swingLimit].join("|");
+    return `slider:${this.axis.x},${this.axis.y}|${this.useLimits}`;
   }
 }
 
 /** Keeps the anchors at most `maxDistance` apart, slack when closer, like a rope. */
-@component("engine.RopeJoint")
-export class RopeJoint extends Joint {
+@component("engine.RopeJoint2D")
+export class RopeJoint2D extends Joint2D {
   /** Use the anchors' distance when the joint is made as `maxDistance`. */
   @field(Boolean) autoConfigureDistance = true;
   @field(Number) maxDistance = 1;
@@ -143,8 +118,8 @@ export class RopeJoint extends Joint {
 }
 
 /** Pulls the anchors towards `restLength` apart with stiffness `spring` and damping `damper`. */
-@component("engine.SpringJoint")
-export class SpringJoint extends Joint {
+@component("engine.SpringJoint2D")
+export class SpringJoint2D extends Joint2D {
   /** Use the anchors' distance when the joint is made as `restLength`. */
   @field(Boolean) autoConfigureDistance = true;
   @field(Number) restLength = 1;

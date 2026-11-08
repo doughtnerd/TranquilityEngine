@@ -1,8 +1,9 @@
-import { physics3DOf } from "./physics3d";
+import { physics3DOf } from "./systems3d";
 import { Component } from "../../../engine/core/Component";
 import { DEG2RAD, RAD2DEG, Vector3, type Vec3Like } from "../../../engine/core/math";
 import { PlainObject, component, field } from "../../../engine/core/registry";
-import type { BodyHandleState3D } from "./Physics3DWorld";
+import type { Dim3 } from "./backend";
+import type { BodyState } from "./core/state";
 import type { BodyType, ForceMode } from "../../../engine/physics/types";
 
 export interface RigidBodyConstraints {
@@ -33,7 +34,7 @@ export class RigidBody extends Component {
    */
   @field(Boolean) interpolate = true;
 
-  /** @internal */ _state: BodyHandleState3D | null = null;
+  /** @internal */ _state: BodyState<Dim3> | null = null;
   /** @internal */ _pendingVelocity: [number, number, number] | null = null;
   /** @internal */ _pendingAngularVelocity: [number, number, number] | null = null;
   /** @internal */ _force: [number, number, number] = [0, 0, 0];
@@ -45,7 +46,7 @@ export class RigidBody extends Component {
   get velocity(): Vector3 {
     const body = this._state?.body;
     if (body) {
-      const v = body.linvel();
+      const v = body.linearVelocity();
       this.velocityStorage[0] = v.x;
       this.velocityStorage[1] = v.y;
       this.velocityStorage[2] = v.z;
@@ -62,7 +63,7 @@ export class RigidBody extends Component {
   get angularVelocity(): Vector3 {
     const body = this._state?.body;
     if (body) {
-      const w = body.angvel();
+      const w = body.angularVelocity();
       return new Vector3(w.x * RAD2DEG, w.y * RAD2DEG, w.z * RAD2DEG);
     }
     const p = this._pendingAngularVelocity ?? [0, 0, 0];
@@ -70,7 +71,7 @@ export class RigidBody extends Component {
   }
   set angularVelocity(degPerSec: Vec3Like) {
     const body = this._state?.body;
-    if (body) body.setAngvel({ x: degPerSec.x * DEG2RAD, y: degPerSec.y * DEG2RAD, z: degPerSec.z * DEG2RAD }, true);
+    if (body) body.setAngularVelocity({ x: degPerSec.x * DEG2RAD, y: degPerSec.y * DEG2RAD, z: degPerSec.z * DEG2RAD });
     else this._pendingAngularVelocity = [degPerSec.x, degPerSec.y, degPerSec.z];
   }
 
@@ -78,7 +79,7 @@ export class RigidBody extends Component {
   addForce(force: Vec3Like, mode: ForceMode = "force"): void {
     const body = this._state?.body;
     if (mode === "impulse" && body) {
-      body.applyImpulse({ x: force.x, y: force.y, z: force.z }, true);
+      body.applyImpulse({ x: force.x, y: force.y, z: force.z });
     } else if (mode === "impulse") {
       const m = this.mass > 0 ? this.mass : 1;
       const [vx, vy, vz] = this._pendingVelocity ?? [0, 0, 0];
@@ -94,7 +95,7 @@ export class RigidBody extends Component {
   addTorque(torque: Vec3Like, mode: ForceMode = "force"): void {
     const body = this._state?.body;
     if (mode === "impulse" && body) {
-      body.applyTorqueImpulse({ x: torque.x, y: torque.y, z: torque.z }, true);
+      body.applyTorqueImpulse({ x: torque.x, y: torque.y, z: torque.z });
     } else {
       this._torque[0] += torque.x;
       this._torque[1] += torque.y;
@@ -104,7 +105,7 @@ export class RigidBody extends Component {
 
   private setVelocity(x: number, y: number, z: number): void {
     const body = this._state?.body;
-    if (body) body.setLinvel({ x, y, z }, true);
+    if (body) body.setLinearVelocity({ x, y, z });
     else this._pendingVelocity = [x, y, z];
   }
 

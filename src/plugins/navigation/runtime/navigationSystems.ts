@@ -1,6 +1,6 @@
 /**
- * Navigation entry points that don't need the WebAssembly module loaded (ADR 0065, 0135), like Physics 3D's
- * `physics3d.ts` for Rapier: the World service (it loads the module and `NavigationWorld` the first time a
+ * Navigation entry points that don't need the WebAssembly module loaded (ADR 0065, 0135), like the Physics
+ * plugin's `systems3d.ts` for its backend: the World service (it loads the module and `NavigationWorld` the first time a
  * World needs them), the fixed-step systems, and the cache of baked chunk bytes a scene load fills (the
  * service's `prepareScene`) so NavChunks load synchronously when their scene is instantiated.
  *

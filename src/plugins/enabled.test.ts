@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pluginDependencies, pluginDependents, resolveEnabledPlugins, setPluginEnabled, unknownPlugins } from "./enabled";
+import { migrateDisabledPlugins, pluginDependencies, pluginDependents, resolveEnabledPlugins, setPluginEnabled, unknownPlugins } from "./enabled";
 
 const m = (name: string, ...deps: string[]) => ({ name, dependencies: Object.fromEntries(deps.map((d) => [d, "1.0.0"])) });
 const set = [m("a"), m("b", "a"), m("c", "b"), m("d")];
@@ -33,5 +33,19 @@ describe("dependency walks and toggling", () => {
     expect(off).toEqual({ disabled: ["x", "a", "b", "c"], affected: ["b", "c"] });
     const on = setPluginEnabled(set, off.disabled, "c", true);
     expect(on).toEqual({ disabled: ["x"], affected: ["a", "b"] });
+  });
+});
+
+describe("renamed plugins (ADR 0137)", () => {
+  const physics = [m("myco.physics"), m("myco.physics-rapier", "myco.physics"), m("myco.sky")];
+  it("maps the old physics plugins' names in plugins.disabled to myco.physics", () => {
+    expect([...resolveEnabledPlugins(physics, ["myco.physics2d"])]).toEqual(["myco.sky"]);
+    expect([...resolveEnabledPlugins(physics, ["myco.physics3d"])]).toEqual(["myco.sky"]);
+    expect(migrateDisabledPlugins(["myco.physics2d", "myco.sky", "myco.physics3d"])).toEqual(["myco.physics", "myco.sky"]);
+    expect(unknownPlugins(physics, ["myco.physics2d", "gone"])).toEqual(["gone"]);
+  });
+  it("rewrites old names when a plugin is toggled", () => {
+    expect(setPluginEnabled(physics, ["myco.physics2d", "myco.physics3d"], "myco.physics", true)).toEqual({ disabled: [], affected: [] });
+    expect(setPluginEnabled(physics, ["myco.physics3d"], "myco.sky", false).disabled).toEqual(["myco.physics", "myco.sky"]);
   });
 });

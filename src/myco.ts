@@ -63,7 +63,7 @@ export {
 // The Particles plugin (ADR 0057, 0060, 0135).
 export { ParticleSystem, type ParticlePropertyValue } from "./plugins/particles/runtime";
 
-// The Physics 2D plugin (ADR 0005, 0105, 0135).
+// The Physics plugin (ADR 0005, 0045, 0105, 0135, 0137): 2D and 3D. Its backends (Rapier) come from other plugins.
 export {
   RigidBody2D,
   BoxCollider2D,
@@ -93,10 +93,6 @@ export {
   type ShapeCastHit2D,
   type ControllerColliderHit2D,
   type PhysicsEvent2D,
-} from "./plugins/physics2d/runtime";
-
-// The Physics 3D plugin (ADR 0045, 0135).
-export {
   RigidBody,
   BoxCollider,
   CapsuleCollider,
@@ -128,7 +124,7 @@ export {
   type JointSpring,
   type PhysicsEvent,
   type BuoyancyMode,
-} from "./plugins/physics3d/runtime";
+} from "./plugins/physics/runtime";
 
 // The Navigation plugin (ADR 0065, 0135). Its settings types (`NavigationSettings`…) are core exports.
 export {

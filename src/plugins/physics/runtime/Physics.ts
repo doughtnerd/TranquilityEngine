@@ -1,4 +1,4 @@
-import { physics3DOf } from "./physics3d";
+import { physics3DOf } from "./systems3d";
 import { Quaternion, Ray, Vector3, type Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
 import type { Collider } from "./Collider";
@@ -39,14 +39,14 @@ function normalized(x: number, y: number, z: number, w: number): Quaternion {
 }
 
 function cast(center: Vec3Like, shape: CastShape, rotation: Quaternion, direction: Vec3Like, maxDistance: number, layers?: string[]): ShapeCastHit | null {
-  const hit = physics().queries.castShape(shape, center, rotation, direction, maxDistance, layers);
+  const hit = physics().castShape(shape, center, rotation, direction, maxDistance, layers);
   if (!hit) return null;
   return { collider: hit.collider, point: Vector3.from(hit.point), normal: Vector3.from(hit.normal), distance: hit.distance };
 }
 
 function physics() {
   const p = physics3DOf(World.require());
-  if (!p) throw new Error('3D physics is not running. Load a scene with "settings": { "physics": "3d" }, or one with 3D bodies or colliders.');
+  if (!p) throw new Error('3D physics is not running. Load a scene with "settings": { "physics": "3d" }, or one with 3D bodies or colliders, with a 3D physics backend enabled.');
   return p;
 }
 
@@ -103,18 +103,18 @@ export class Physics {
 
   /** Every collider overlapping a sphere. */
   static overlapSphere(center: Vec3Like, radius: number, layers?: string[]): Collider[] {
-    return physics().queries.overlap({ kind: "sphere", radius }, center, Quaternion.identity, layers);
+    return physics().overlap({ kind: "sphere", radius }, center, Quaternion.identity, layers);
   }
 
   /** Every collider overlapping a box (centre, half extents, optional orientation). */
   static overlapBox(center: Vec3Like, halfExtents: Vec3Like, orientation: Quaternion = Quaternion.identity, layers?: string[]): Collider[] {
-    return physics().queries.overlap({ kind: "box", halfExtents }, center, orientation, layers);
+    return physics().overlap({ kind: "box", halfExtents }, center, orientation, layers);
   }
 
   /** Every collider overlapping a capsule, given its two cap centres. */
   static overlapCapsule(point1: Vec3Like, point2: Vec3Like, radius: number, layers?: string[]): Collider[] {
     const c = capsuleFrom(point1, point2, radius);
-    return physics().queries.overlap(c.shape, c.center, c.rotation, layers);
+    return physics().overlap(c.shape, c.center, c.rotation, layers);
   }
 
   /** True if any collider overlaps the sphere. */

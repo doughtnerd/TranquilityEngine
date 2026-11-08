@@ -1,10 +1,11 @@
-import { physics3DOf } from "./physics3d";
+import { physics3DOf } from "./systems3d";
 import { Component } from "../../../engine/core/Component";
 import { Vector3 } from "../../../engine/core/math";
 import { AssetRef, PlainObject, component, field } from "../../../engine/core/registry";
 import type { GameObject } from "../../../engine/scene/GameObject";
 import type { PhysicsMaterial } from "../../../engine/physics/types";
-import type { ColliderHandleState3D } from "./Physics3DWorld";
+import type { Dim3 } from "./backend";
+import type { ColliderState } from "./core/state";
 import { RigidBody } from "./RigidBody";
 
 /**
@@ -20,7 +21,7 @@ export abstract class Collider extends Component {
   @field(String, { choices: (s) => s.physics.layers }) layer = "Default";
   @field(PlainObject) material: PhysicsMaterial = { friction: 0.5, bounciness: 0 };
 
-  /** @internal */ _state: ColliderHandleState3D | null = null;
+  /** @internal */ _state: ColliderState<Dim3, RigidBody> | null = null;
 
   /** The body this collider is attached to: the nearest active RigidBody on this node or an ancestor. */
   get attachedRigidbody(): RigidBody | null {

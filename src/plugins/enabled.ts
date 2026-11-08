@@ -8,11 +8,30 @@ type Named = Pick<PluginManifest, "name" | "dependencies">;
 const depsOf = (m: Named) => Object.keys(m.dependencies ?? {});
 
 /**
+ * Plugins that were renamed or merged, old name → new (ADR 0137: the 2D and 3D physics plugins became
+ * `myco.physics`). A `plugins.disabled` entry naming an old plugin turns off the new one.
+ */
+export const RENAMED_PLUGINS: Readonly<Record<string, string>> = {
+  "myco.physics2d": "myco.physics",
+  "myco.physics3d": "myco.physics",
+};
+
+/** `disabled` with old plugin names replaced by their new ones (each once, in order). */
+export function migrateDisabledPlugins(disabled: Iterable<string>): string[] {
+  const out: string[] = [];
+  for (const name of disabled) {
+    const now = RENAMED_PLUGINS[name] ?? name;
+    if (!out.includes(now)) out.push(now);
+  }
+  return out;
+}
+
+/**
  * The names of the enabled plugins: every one that isn't listed in `disabled` and doesn't depend
  * (directly or not) on a plugin that is off. Unknown names in `disabled` are ignored.
  */
 export function resolveEnabledPlugins(manifests: readonly Named[], disabled: Iterable<string> = []): Set<string> {
-  const off = new Set(disabled);
+  const off = new Set(migrateDisabledPlugins(disabled));
   const byName = new Map(manifests.map((m) => [m.name, m]));
   const state = new Map<string, boolean>();
   const isOn = (name: string, chain: readonly string[]): boolean => {
@@ -50,18 +69,19 @@ export function pluginDependencies(manifests: readonly Named[], name: string): s
   return manifests.map((m) => m.name).filter((n) => out.has(n));
 }
 
-/** Names in `disabled` that no plugin has (a plugin that was removed, or a typo). */
+/** Names in `disabled` that no plugin has (a plugin that was removed, or a typo). Old names of renamed plugins count as known. */
 export function unknownPlugins(manifests: readonly Named[], disabled: readonly string[] = []): string[] {
   const known = new Set(manifests.map((m) => m.name));
-  return disabled.filter((n) => !known.has(n));
+  return disabled.filter((n) => !known.has(RENAMED_PLUGINS[n] ?? n));
 }
 
 /**
  * The `disabled` list after turning `name` on or off. Off lists the plugin and everything that needs
  * it; on removes the plugin and everything it needs. Other entries (unknown names included) are kept.
- * `affected` is what changed besides `name`.
+ * `affected` is what changed besides `name`. Old names of renamed plugins are replaced by the new ones.
  */
-export function setPluginEnabled(manifests: readonly Named[], disabled: readonly string[], name: string, on: boolean): { disabled: string[]; affected: string[] } {
+export function setPluginEnabled(manifests: readonly Named[], disabledBefore: readonly string[], name: string, on: boolean): { disabled: string[]; affected: string[] } {
+  const disabled = migrateDisabledPlugins(disabledBefore);
   if (on) {
     const turnOn = new Set([name, ...pluginDependencies(manifests, name)]);
     const affected = [...turnOn].filter((n) => n !== name && disabled.includes(n));
