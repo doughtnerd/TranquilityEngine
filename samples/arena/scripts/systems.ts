@@ -21,7 +21,7 @@ import {
   SHOT_SPEED,
   SPAWN_POINTS,
   Shot,
-  connectionStates,
+  clientWorlds,
   players,
   type ClientConnection,
   type PlayerView,
@@ -51,8 +51,9 @@ defineSystem({
 });
 
 /**
- * Notes this client World's connection state for the HUD, which as a behavior can't query data
- * components: connecting, open, or (once a connection it had is gone) lost.
+ * Notes this client World's name and connection state for the menu and HUD, which as behaviors
+ * can't query data components or name their World: connecting, open, or (once a connection it had
+ * is gone) lost.
  */
 defineSystem({
   name: "arena.WatchConnection",
@@ -62,8 +63,8 @@ defineSystem({
   run(rows, ctx) {
     let state: ClientConnection = "none";
     for (const row of rows) state = (row.connection as { state: number }).state === ConnectionState.open ? "open" : "connecting";
-    const before = connectionStates.get(ctx.world) ?? "none";
-    connectionStates.set(ctx.world, state === "none" && before !== "none" ? "lost" : state);
+    const before = clientWorlds.get(ctx.time)?.connection ?? "none";
+    clientWorlds.set(ctx.time, { name: ctx.world.name, connection: state === "none" && before !== "none" ? "lost" : state });
   },
 });
 

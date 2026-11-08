@@ -252,7 +252,8 @@ test("Host pattern: Arena plays with 2 clients and a thin client on a server mad
   await expect(panel.locator(".network-note")).toContainText("scenes/arena.scene.json");
 
   await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  // Arena has scripts: Play type-checks them first (ADR 0125), loading Monaco's TypeScript worker the first time.
+  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: 20_000 });
   expect(await page.evaluate(() => (window as unknown as Hooks).playEngine!.worlds().map((w) => w.name))).toEqual(["Client 1", "Client 2", "Thin 1", "Server"]);
   await expect(page.locator("#game-view .game-tile")).toHaveCount(2);
 

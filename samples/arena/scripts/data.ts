@@ -53,8 +53,18 @@ export type PlayerView = DataView<typeof Player.schema>;
 /** A client World's connection to its server, as `arena.WatchConnection` last saw it. */
 export type ClientConnection = "none" | "connecting" | "open" | "lost";
 
-/** Client Worlds' connection states (keyed by World; Worlds share these modules, so state is per World). */
-export const connectionStates = new WeakMap<object, ClientConnection>();
+/** What `arena.WatchConnection` knows about a client World, for its behaviors: the World's name and connection. */
+export interface ClientWorldInfo {
+  readonly name: string;
+  readonly connection: ClientConnection;
+}
+
+/**
+ * Client Worlds' info, keyed by the World's clock (Worlds share these modules, so state is per
+ * World). A behavior can't name its own World, but its `this.time` is the same object as a
+ * system's `ctx.time` in that World, so `clientWorlds.get(this.time)` finds it.
+ */
+export const clientWorlds = new WeakMap<object, ClientWorldInfo>();
 
 /** A player in the current World. */
 export interface PlayerInfo {
