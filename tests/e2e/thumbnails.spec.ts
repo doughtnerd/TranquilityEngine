@@ -169,10 +169,12 @@ test("switching the Inspector between an effect and a material many times leaves
 });
 
 /**
- * A tiny 4×2 Radiance HDR whose pixel bytes are all below 128, so it survives the fake folder's
- * text storage: a dim warm sky over a darker ground.
+ * A tiny 8×2 Radiance HDR whose pixel bytes are all below 128, so it survives the fake folder's
+ * text storage: a dim warm sky over a darker ground. 8 pixels wide because Babylon's reader rejects
+ * narrower images (each pixel below is doubled).
  */
-const TINY_HDR = ["#?RADIANCE", "FORMAT=32-bit_rle_rgbe", "", "-Y 2 +X 4", ""].join("\n") + String.fromCharCode(...[100, 90, 70, 127, 110, 95, 75, 127, 100, 90, 70, 127, 90, 85, 70, 127, 40, 50, 60, 127, 35, 45, 55, 127, 40, 50, 60, 127, 45, 55, 65, 127]);
+const PIXELS = [100, 90, 70, 127, 110, 95, 75, 127, 100, 90, 70, 127, 90, 85, 70, 127, 40, 50, 60, 127, 35, 45, 55, 127, 40, 50, 60, 127, 45, 55, 65, 127];
+const TINY_HDR = ["#?RADIANCE", "FORMAT=32-bit_rle_rgbe", "", "-Y 2 +X 8", ""].join("\n") + String.fromCharCode(...PIXELS.flatMap((_, i) => (i % 4 === 0 ? [...PIXELS.slice(i, i + 4), ...PIXELS.slice(i, i + 4)] : [])));
 
 test("an environment map gets a preview in the Inspector", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");

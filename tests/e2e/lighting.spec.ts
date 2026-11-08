@@ -20,8 +20,11 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
   return out;
 }
 
-/** A 4×2 Radiance HDR with flat (uncompressed) scanlines whose bytes are all ASCII, so it travels as text. */
-const TINY_HDR = `#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 2 +X 4\n${"dPx\u007f".repeat(8)}`;
+/**
+ * An 8×2 Radiance HDR with flat (uncompressed) scanlines whose bytes are all ASCII, so it travels as text.
+ * 8 pixels wide because Babylon's reader rejects narrower images.
+ */
+const TINY_HDR = `#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 2 +X 8\n${"dPx\u007f".repeat(16)}`;
 
 type Lighting = { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean };
 type Hooks = { engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { lighting: Lighting } } } } };
