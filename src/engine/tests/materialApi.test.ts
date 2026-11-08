@@ -1,13 +1,8 @@
 // ADR 0107: scripts change materials through engine `Material` objects — the shared one per asset, or
-// instances per renderer — with no Babylon types. Engine semantics, then the Babylon renderer on a
-// NullEngine applying them (shared values in place; instances on their own copies).
-import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
-import type { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
-import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+// instances per renderer — with no Babylon types. Engine semantics here; the Babylon material library
+// applying them is in `materialLibrary.test.ts`.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { World } from "../core/World";
 import { Assets, Color, Engine, GameObject, Material, MeshRenderer, SceneManager, Vector2 } from "../index";
-import { BabylonRenderer } from "../render/babylon/BabylonRenderer";
 
 const RED = "asset:materials/red.material.json";
 const BLUE = "asset:materials/blue.material.json";
@@ -152,83 +147,5 @@ describe("MeshRenderer.sharedMaterial / materialInstance (ADR 0107)", () => {
   });
 });
 
-describe("script Materials on the Babylon renderer (ADR 0107)", () => {
-  let nullEngine: NullEngine;
-  let babylon: BabylonRenderer;
-  let world: World;
-  type Internals = { meshRenderers: Map<MeshRenderer, { meshes: { material: BabylonMaterial | null }[] }>; instanceMaterials: Map<Material, unknown> };
-
-  beforeEach(async () => {
-    Assets.clearSources();
-    Assets.addSource(
-      Assets.fromObject({
-        "s.json": { format: "myco.scene@1", nodes: [] },
-        "materials/red.material.json": { format: "myco.material@1", color: "#ff0000", roughness: 0.8 },
-      }),
-    );
-    await Engine.create({ headless: true });
-    await SceneManager.load("s.json");
-    world = World.require();
-    nullEngine = new NullEngine();
-    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown, fill: boolean) => BabylonRenderer;
-    babylon = new Ctor(nullEngine, world.settings, false);
-  });
-  afterEach(() => {
-    Material._resetShared();
-    babylon.dispose();
-    nullEngine.dispose();
-  });
-
-  const internals = () => babylon as unknown as Internals;
-  const drawn = (r: MeshRenderer) => internals().meshRenderers.get(r)!.meshes[0].material as PBRMaterial;
-  const box = (name: string) => GameObject.create(name).addBehavior(MeshRenderer, { material: RED });
-
-  it("applies the shared Material to the asset's material in place, for every renderer", () => {
-    const a = box("a"), b = box("b");
-    babylon.syncMeshes(world);
-    const asset = drawn(a);
-    expect(drawn(b)).toBe(asset);
-    expect(asset.roughness).toBeCloseTo(0.8);
-    Material.shared(RED).setFloat("roughness", 0.3);
-    babylon.syncMeshes(world);
-    expect(drawn(a)).toBe(asset); // same material, changed in place
-    expect(asset.roughness).toBeCloseTo(0.3);
-    Material._resetShared();
-    babylon.syncMeshes(world);
-    expect(asset.roughness).toBeCloseTo(0.8); // back to the asset's value
-  });
-
-  it("draws an instance with its own copy, leaving the others on the asset's material", () => {
-    const a = box("a"), b = box("b");
-    babylon.syncMeshes(world);
-    const asset = drawn(b);
-    a.materialInstance.setColor("color", Color.from("#0000ff"));
-    a.materialInstance.setFloat("metalness", 1);
-    babylon.syncMeshes(world);
-    const mine = drawn(a);
-    expect(mine).not.toBe(asset);
-    expect(mine.metallic).toBe(1);
-    expect(mine.albedoColor.b).toBeCloseTo(1);
-    expect(mine.roughness).toBeCloseTo(0.8); // the asset's own value where the instance sets none
-    expect(asset.metallic).toBe(0);
-    expect(drawn(b)).toBe(asset);
-    // Back to the shared Material: the copy is disposed after the next sync.
-    a.sharedMaterial = Material.shared(RED);
-    babylon.syncMeshes(world);
-    expect(drawn(a)).toBe(asset);
-    expect(internals().instanceMaterials.size).toBe(0);
-  });
-
-  it("layers per-renderer overrides (ADR 0049) over a shared Material, following its changes", () => {
-    const a = box("a");
-    a.setMaterialProperty("metalness", 0.5);
-    babylon.syncMeshes(world);
-    const copy = drawn(a);
-    expect(copy.metallic).toBe(0.5);
-    Material.shared(RED).setFloat("roughness", 0.1);
-    babylon.syncMeshes(world);
-    expect(drawn(a)).toBe(copy);
-    expect(copy.roughness).toBeCloseTo(0.1);
-    expect(copy.metallic).toBe(0.5);
-  });
-});
+// The Babylon side (shared values in place, instances on their own copies, overrides over shared
+// values) is tested through the material library in `materialLibrary.test.ts` (ADR 0127).

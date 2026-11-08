@@ -82,36 +82,41 @@ const isCustom = (w: WarmItem): w is WarmCustom => typeof (w as WarmCustom).buil
 /** What a warm item draws, so warming it again (another load, `rewarm`) is recognised: a custom item's key, a mesh's layout. */
 const warmKey = (w: WarmItem): string => (isCustom(w) ? w.key : `mesh|${w.mesh}|${w.material}|${w.materials?.join(",") ?? ""}|${w.castShadows}|${w.receiveShadows}`);
 
-/** What the warmer needs from the renderer. */
-export interface WarmDeps {
-  scene: Scene;
+/**
+ * What the warmer asks of the scene's material library (`BabylonMaterialLibrary`, ADR 0127), so warm
+ * draws use the materials the scene's draws use.
+ */
+export interface WarmMaterials {
   /** The shared Babylon material of a material asset (what renderers without overrides draw with), or null. */
-  materialFor(path: string): BabylonMaterial | null;
-  /** The material a renderer without a material asset gets for a model mesh (its own surfaces, else the default). */
-  materialForSource(src: ModelMesh, mesh: Mesh): BabylonMaterial;
+  material(path: string): BabylonMaterial | null;
   /**
-   * What each of a warm mesh's model meshes draws with, resolved as the renderer resolves a MeshRenderer's
-   * material slots (ADR 0089: `materials[i]`, then `material`, then the model's import settings, then its
-   * own): one material, or a multi-material (its submeshes set on `mesh`). Without it, `material` or
-   * `materialForSource`.
+   * What each of a warm mesh's model meshes draws with, resolved as a MeshRenderer's material slots are
+   * (ADR 0089: `materials[i]`, then `material`, then the model's import settings, then its own): one
+   * material, or a multi-material (its submeshes set on `mesh`).
    */
-  slotMaterials?(w: WarmMesh, sources: readonly ModelMesh[]): (src: ModelMesh, mesh: Mesh) => BabylonMaterial;
+  slotMaterials(w: WarmMesh, sources: readonly ModelMesh[]): (src: ModelMesh, mesh: Mesh) => BabylonMaterial;
   /** Whether the material is a shader graph's (graph copies share the compiled program; no blend copy). */
   isGraph(material: BabylonMaterial): boolean;
   /** Whether the material opts out of fog (ADR 0071), which changes its shader. */
   fogless(material: BabylonMaterial): boolean;
   /** Whether textures are still loading: a material's texture changes its shader, so a batch waits for them. */
-  loadingTextures(): boolean;
+  loading(): boolean;
   /**
    * How renderers drawing a material asset batch (ADR 0108): warm meshes draw the same way (instanced,
-   * thin-instanced or plain), since instancing is part of the shader variant. Without it they draw plain.
+   * thin-instanced or plain), since instancing is part of the shader variant.
    */
-  instancing?(path: string | null): MaterialInstancing;
+  instancing(path: string | null): MaterialInstancing;
   /**
    * Extra copies of a material in the keyword combinations scripts may switch to (`"variants": "all"`,
    * ADR 0106), drawn too so those variants compile now; each with its dispose.
    */
-  keywordVariants?(material: BabylonMaterial): { material: BabylonMaterial; dispose(): void }[];
+  warmVariants(material: BabylonMaterial): { material: BabylonMaterial; dispose(): void }[];
+}
+
+/** What the warmer needs from the renderer. */
+export interface WarmDeps {
+  scene: Scene;
+  materials: WarmMaterials;
   /**
    * The renderer's reflection-probe copies of a built-in material, one per captured probe (ADR 0054;
    * box projection changes the shader, ADR 0110), so meshes entering a probe's box don't compile then.
@@ -253,7 +258,7 @@ export class PipelineWarmer {
     const b = this.batch;
     if (!b) return;
     b.frames++;
-    if (!this.deps.loadingTextures() && b.meshes.every((m) => m.isReady(true, m.hasInstances)) && b.parts.every((p) => p.ready())) b.readyFrames++;
+    if (!this.deps.materials.loading() && b.meshes.every((m) => m.isReady(true, m.hasInstances)) && b.parts.every((p) => p.ready())) b.readyFrames++;
     if (b.readyFrames < 2 && b.frames < MAX_FRAMES) return;
     if (this.deps.effectMs) this.size = nextBatchSize(b.size, this.deps.effectMs() - b.effectStart, this.maxBatch);
     this.drop(b);
@@ -341,11 +346,12 @@ export class PipelineWarmer {
         continue;
       }
       this.retries.delete(w);
-      const base = w.material ? this.deps.materialFor(w.material) : null;
+      const mats = this.deps.materials;
+      const base = w.material ? mats.material(w.material) : null;
       // What each model mesh draws with: its slots' materials (ADR 0089), one material or a multi-material.
-      const drawnOf = this.deps.slotMaterials?.(w, sources) ?? ((src: ModelMesh, mesh: Mesh) => base ?? this.deps.materialForSource(src, mesh));
-      // As `instancingFor`: slot 0's material asset says how the renderer batches.
-      const mode = this.deps.instancing ? this.deps.instancing(w.materials?.[0] || w.material || null) : "off";
+      const drawnOf = mats.slotMaterials(w, sources);
+      // As the renderer: slot 0's material asset says how it batches.
+      const mode = mats.instancing(w.materials?.[0] || w.material || null);
       const place = (mesh: Mesh, material: BabylonMaterial, fogOf: BabylonMaterial) => {
         mesh.material = material;
         const pbrs = material instanceof MultiMaterial ? material.subMaterials : [material];
@@ -353,7 +359,7 @@ export class PipelineWarmer {
           if (m instanceof PBRMaterial && !b.watched.some((x) => x.material === m)) b.watched.push({ material: m, albedo: m.albedoTexture, bump: m.bumpTexture });
         }
         mesh.receiveShadows = w.receiveShadows;
-        mesh.applyFog = !this.deps.fogless(fogOf);
+        mesh.applyFog = !mats.fogless(fogOf);
         mesh.isPickable = false;
         // Instances and thin instances draw through their source's `_draw` too.
         this.own(mesh, "_draw");
@@ -381,7 +387,7 @@ export class PipelineWarmer {
         let out = key.get(m);
         if (out) return out;
         out = [];
-        const builtin = m instanceof PBRMaterial && !this.deps.isGraph(m);
+        const builtin = m instanceof PBRMaterial && !mats.isGraph(m);
         if (w.blended && m === base && builtin) {
           // What a renderer fading its colour draws (`applyBuiltinOverrides`: alpha below 1 blends).
           const blend = m.clone(`${WARM_PREFIX}${m.name}:blend`);
@@ -391,7 +397,7 @@ export class PipelineWarmer {
           b.blends.push([blend, m]);
           out.push(blend);
         }
-        for (const v of this.deps.keywordVariants?.(m) ?? []) {
+        for (const v of mats.warmVariants(m)) {
           out.push(v.material);
           b.disposers.push(v.dispose);
         }

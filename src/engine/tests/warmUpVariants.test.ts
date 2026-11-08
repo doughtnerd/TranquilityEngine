@@ -102,11 +102,15 @@ describe("the Babylon warmer's custom items (ADR 0080)", () => {
     shared = new PBRMaterial("material:materials/rock.material.json", scene);
     warmer = new PipelineWarmer({
       scene,
-      materialFor: () => shared,
-      materialForSource: () => shared,
-      isGraph: () => false,
-      fogless: () => false,
-      loadingTextures: () => false,
+      materials: {
+        material: () => shared,
+        slotMaterials: () => () => shared,
+        isGraph: () => false,
+        fogless: () => false,
+        loading: () => false,
+        instancing: () => "off",
+        warmVariants: () => [],
+      },
     });
   });
   afterEach(() => {

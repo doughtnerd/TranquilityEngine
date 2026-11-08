@@ -161,6 +161,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0123](decisions/0123-per-component-field-migrations.md) | Per-component field migrations with component versions recorded per file | Proposed (not to be built yet) |
 | [0124](decisions/0124-structural-edits-to-a-live-world.md) | The live Hierarchy and Inspector create, delete, rename and reparent nodes, add and remove components and set node references in a running World; play-only, no undo | Proposed |
 | [0126](decisions/0126-kernel-particle-trails-materials-sorting-dead-list-and-soft-cpu-particles.md) | Kernel particles gain trails, material assets, sorting and a dead list; soft CPU particles; a height-fog hook for custom shaders | Proposed |
+| [0127](decisions/0127-renderer-neutral-material-resolution-and-a-babylon-material-library.md) | Material resolution is renderer-neutral; a per-scene Babylon material library builds from it (World renderer, warm-up, particles, previews) | Proposed |
 
 ## Working with decisions
 

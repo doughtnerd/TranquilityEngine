@@ -132,7 +132,7 @@ describe("sprites on the Babylon renderer (ADR 0108)", () => {
   it("gives 9-sliced sprites a mesh of their own in the batched path (the batcher draws plain quads)", () => {
     const r = make(false);
     const tex = RawTexture.CreateRGBATexture(new Uint8Array(16 * 8 * 4), 16, 8, (r as unknown as { scene: Scene }).scene);
-    (r as unknown as { textures: Map<string, unknown> }).textures.set("images/ui.png", tex);
+    (r as unknown as { materials: { textures: Map<string, unknown> } }).materials.textures.set("images/ui.png", tex); // as if loaded (ADR 0127)
     const sliced = sprite("panel", 0, { sprite: "asset:images/ui.png#panel", size: new Vector2(3, 2) });
     const plain = sprite("dot", 1, { sprite: "asset:images/ui.png#dot" });
     syncSprites(r);

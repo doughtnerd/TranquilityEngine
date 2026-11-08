@@ -128,13 +128,18 @@ describe("the Babylon warmer (ADR 0080)", () => {
     camera.setTarget(Vector3.Zero());
     fallback = new PBRMaterial("fallback", scene);
     const shared = new PBRMaterial("material:materials/splash.material.json", scene);
+    const materialFor = (p: string) => (p.includes("splash") ? shared : null);
     warmer = new PipelineWarmer({
       scene,
-      materialFor: (p) => (p.includes("splash") ? shared : null),
-      materialForSource: () => fallback,
-      isGraph: () => false,
-      fogless: () => false,
-      loadingTextures: () => false,
+      materials: {
+        material: materialFor,
+        slotMaterials: (w) => () => (w.material ? materialFor(w.material) : null) ?? fallback,
+        isGraph: () => false,
+        fogless: () => false,
+        loading: () => false,
+        instancing: () => "off",
+        warmVariants: () => [],
+      },
     });
   });
   afterEach(() => {
@@ -257,13 +262,15 @@ describe("the warmer draws the variants the scene will (ADR 0106, 0108)", () => 
     const disposed: string[] = [];
     const warmer = new PipelineWarmer({
       scene,
-      materialFor: () => shared,
-      materialForSource: () => shared,
-      isGraph: () => true,
-      fogless: () => false,
-      loadingTextures: () => false,
-      instancing: () => mode,
-      keywordVariants: () => variants.map((material) => ({ material, dispose: () => disposed.push(material.name) })),
+      materials: {
+        material: () => shared,
+        slotMaterials: () => () => shared,
+        isGraph: () => true,
+        fogless: () => false,
+        loading: () => false,
+        instancing: () => mode,
+        warmVariants: () => variants.map((material) => ({ material, dispose: () => disposed.push(material.name) })),
+      },
     });
     return { warmer, disposed };
   };
@@ -332,26 +339,26 @@ describe("the warmer draws a model's material slots (ADR 0080, 0089)", () => {
     const keywordOf = new Map<BabylonMaterial, PBRMaterial>();
     const warmer = new PipelineWarmer({
       scene,
-      materialFor: () => null,
-      materialForSource: () => {
-        throw new Error("slots resolve every mesh");
-      },
-      slotMaterials: (w) => {
-        // As the renderer: slot i draws `materials[i]`, else the model's own.
-        const pick = new Map(slots.map((s, i) => [s.surface, w.materials?.[i] ? rock : null]));
-        return (src, mesh) => {
-          const m = modelBaseMaterial(scene, cache, src, (s) => pick.get(s) ?? null, multis)!;
-          if (m instanceof MultiMaterial) modelSubMeshes(src, mesh);
-          return m;
-        };
-      },
-      isGraph: () => false,
-      fogless: () => false,
-      loadingTextures: () => false,
-      keywordVariants: (m) => {
-        let v = keywordOf.get(m);
-        if (!v) keywordOf.set(m, (v = new PBRMaterial(`${m.name}:keyword`, scene)));
-        return [{ material: v, dispose: () => {} }];
+      materials: {
+        material: () => null,
+        slotMaterials: (w) => {
+          // As the renderer: slot i draws `materials[i]`, else the model's own.
+          const pick = new Map(slots.map((s, i) => [s.surface, w.materials?.[i] ? rock : null]));
+          return (src, mesh) => {
+            const m = modelBaseMaterial(scene, cache, src, (s) => pick.get(s) ?? null, multis)!;
+            if (m instanceof MultiMaterial) modelSubMeshes(src, mesh);
+            return m;
+          };
+        },
+        isGraph: () => false,
+        fogless: () => false,
+        loading: () => false,
+        instancing: () => "off",
+        warmVariants: (m) => {
+          let v = keywordOf.get(m);
+          if (!v) keywordOf.set(m, (v = new PBRMaterial(`${m.name}:keyword`, scene)));
+          return [{ material: v, dispose: () => {} }];
+        },
       },
       probeVariants: (base) => {
         let p = probeCopies.get(base);

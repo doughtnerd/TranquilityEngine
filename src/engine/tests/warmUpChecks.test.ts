@@ -1,6 +1,7 @@
 // ADR 0080: what the warm-up row listed as checked only by hand, now on Babylon's NullEngine: the
 // variant report (a shader variant compiled after the load names its node, prefab and define change)
-// and renderer override copies following a base texture that loads after them. And ADR 0120's load
+// and (in `materialLibrary.test.ts`) renderer override copies following a base texture that loads after
+// them. And ADR 0120's load
 // fixes that run without a GPU: the screen UI's readable canvas and the remembered include expansion.
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
@@ -8,15 +9,10 @@ import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { ProcessIncludes, _ClearIncludeCache } from "@babylonjs/core/Engines/Processors/shaderProcessor.js";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
-import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Vector3 as BVector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { World } from "../core/World";
-import { Assets, Color, Engine, GameObject, MeshRenderer, SceneManager } from "../index";
-import { Material } from "../render/Material";
-import { BabylonRenderer } from "../render/babylon/BabylonRenderer";
 import { readableCanvas } from "../render/babylon/ui";
 import { VariantReport, WARM_PREFIX } from "../render/babylon/warmUp";
 
@@ -102,45 +98,6 @@ describe("the variant report (ADR 0080)", () => {
     frame(report);
     expect(warn).not.toHaveBeenCalled();
     report.dispose();
-  });
-});
-
-describe("renderer override copies (ADR 0080, 0049)", () => {
-  let nullEngine: NullEngine;
-  let babylon: BabylonRenderer;
-  let world: World;
-  type Internals = { meshRenderers: Map<MeshRenderer, { meshes: { material: unknown }[] }>; materialAsset(path: string): PBRMaterial | null; scene: Scene };
-  const RED = "asset:materials/red.material.json";
-
-  beforeEach(async () => {
-    Assets.clearSources();
-    Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "materials/red.material.json": { format: "myco.material@1", color: "#ff0000" } }));
-    await Engine.create({ headless: true });
-    await SceneManager.load("s.json");
-    world = World.require();
-    nullEngine = new NullEngine();
-    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown, fill: boolean) => BabylonRenderer;
-    babylon = new Ctor(nullEngine, world.settings, false);
-  });
-  afterEach(() => {
-    Material._resetShared();
-    babylon.dispose();
-    nullEngine.dispose();
-  });
-
-  it("follow a base texture that loads after the copy was taken", () => {
-    const internals = babylon as unknown as Internals;
-    const r = GameObject.create("sail").addBehavior(MeshRenderer, { material: RED });
-    r.setMaterialProperty("color", Color.from("#00ff00")); // a script tints it: the renderer draws its own copy
-    babylon.syncMeshes(world);
-    const base = internals.materialAsset(RED)!;
-    const copy = internals.meshRenderers.get(r)!.meshes[0]!.material as PBRMaterial;
-    expect(copy).not.toBe(base);
-    expect(copy.albedoTexture).toBeNull();
-    base.albedoTexture = new Texture(null, internals.scene); // the asset's texture arrives
-    babylon.syncMeshes(world);
-    expect(copy.albedoTexture).toBe(base.albedoTexture);
-    expect(copy.albedoColor.g).toBeCloseTo(1); // still tinted
   });
 });
 
