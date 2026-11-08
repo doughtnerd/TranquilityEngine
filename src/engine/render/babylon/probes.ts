@@ -261,6 +261,20 @@ export class BabylonProbes {
     return { captured: this.boxes.length, probes: this.entries.size, reflecting };
   }
 
+  /**
+   * `p` was destroyed: free its capture (and baked map) now instead of at the next `sync`, and stop
+   * reflecting or rendering it.
+   */
+  release(p: ReflectionProbe): void {
+    const e = this.entries.get(p);
+    if (!e) return;
+    if (e.probe) this.toRender = this.toRender.filter((r) => r !== e.probe);
+    this.boxes = this.boxes.filter((b) => b.box !== e.box);
+    e.probe?.dispose();
+    e.baked?.texture?.dispose();
+    this.entries.delete(p);
+  }
+
   dispose(): void {
     for (const e of this.entries.values()) {
       e.probe?.dispose();
