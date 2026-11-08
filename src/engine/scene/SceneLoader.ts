@@ -10,6 +10,7 @@ import { AssetRef, PlainObject, component, field, getComponentClass, getComponen
 import type { World } from "../core/World";
 import { Assets } from "./Assets";
 import { GameObject, _componentAllowedIn, type InstantiateOptions } from "./GameObject";
+import { assetRefs } from "./resolvedScene";
 
 export const SCENE_FORMAT = "myco.scene";
 /** 2: model part references are node-pivoted by default; version 1 ones are pinned to model space (ADR 0118, `pivotMigration.ts`). */
@@ -612,20 +613,7 @@ export function instantiatePrefab(world: World, path: string, options: Instantia
   });
 }
 
-/** Collect every `asset:` path referenced by a scene file and the prefabs it uses. */
-export function collectAssetRefs(path: string, seen = new Set<string>(), out = new Set<string>()): Set<string> {
-  if (seen.has(path)) return out;
-  seen.add(path);
-  const file = loadSceneFile(path);
-  const walk = (v: unknown): void => {
-    if (typeof v === "string" && v.startsWith("asset:")) out.add(v.slice(6));
-    else if (Array.isArray(v)) v.forEach(walk);
-    else if (isPlainObject(v)) Object.values(v).forEach(walk);
-  };
-  for (const n of file.nodes) {
-    walk(n.components);
-    walk(n.overrides);
-    if (n.prefab) collectAssetRefs(n.prefab, seen, out);
-  }
-  return out;
+/** Collect every `asset:` path referenced by a scene file and the prefabs it uses, overrides' added nodes included (the resolved scene view). */
+export function collectAssetRefs(path: string): Set<string> {
+  return assetRefs(path);
 }

@@ -10,7 +10,7 @@ import { Vector3, type Vec3Input } from "../core/math";
 import { defineBuiltinSystem } from "../core/systems";
 import type { World } from "../core/World";
 import { Assets, fetchAssetBytes, normalizeAssetPath } from "../scene/Assets";
-import { loadSceneFile, type ComponentEntry } from "../scene/SceneLoader";
+import { resolvedComponents, type ResolvedComponent } from "../scene/resolvedScene";
 import type { NavigationWorld } from "./NavigationWorld";
 
 /** Component types that need the World's navigation runtime. */
@@ -25,22 +25,9 @@ export const NAV_RUNTIME_TYPES: ReadonlySet<string> = new Set([
   "engine.NavAvoidanceObstacle",
 ]);
 
-/** Every component entry of a scene file and the prefabs it instances (overrides' added components too). */
-function sceneComponents(path: string, seen = new Set<string>(), out: ComponentEntry[] = []): ComponentEntry[] {
-  if (seen.has(path)) return out;
-  seen.add(path);
-  let file;
-  try {
-    file = loadSceneFile(path);
-  } catch {
-    return out;
-  }
-  for (const n of file.nodes) {
-    out.push(...(n.components ?? []));
-    for (const o of n.overrides ?? []) if (o.addComponent) out.push(o.addComponent);
-    if (n.prefab !== undefined) sceneComponents(n.prefab, seen, out);
-  }
-  return out;
+/** Every effective component entry of a scene file and the prefabs it instances (overrides' added components and nodes too). */
+function sceneComponents(path: string): readonly ResolvedComponent[] {
+  return resolvedComponents(path);
 }
 
 /** @internal True if a scene file (or a prefab it instances) has a navigation component. */
@@ -52,7 +39,7 @@ export function usesNavigation(path: string): boolean {
 export function navBakeRefs(path: string): string[] {
   const refs = new Set<string>();
   for (const c of sceneComponents(path)) {
-    const bake = c.type === "engine.NavChunk" ? c.data?.bake : undefined;
+    const bake = c.type === "engine.NavChunk" ? (c.data as { bake?: unknown } | undefined)?.bake : undefined;
     if (typeof bake === "string" && bake !== "") refs.add(bake);
   }
   return [...refs];

@@ -3,6 +3,7 @@
 // (`t:camera` finds engine.Camera, `t:Bird` a script's game.Bird). Matching rows show with their
 // ancestors, so each stays in place in the tree.
 import { Assets } from "../engine";
+import { resolveScene } from "../engine/scene/resolvedScene";
 import { isScenePath } from "../engine/scene/SceneLoader";
 import type { NodeEntry, SceneDocument, SceneFile } from "./document";
 import { ancestorKeys, hierarchyEntries } from "./selectionModel";
@@ -27,20 +28,11 @@ export function parseHierarchyQuery(text: string): HierarchyQuery | null {
 
 const fileOf = (path: string): SceneFile | null => (Assets.has(path) ? Assets.json<SceneFile>(path) : null);
 
-/** The root node of a prefab file (a scene file's instance has no components of its own). */
-function prefabRoot(path: string): NodeEntry | null {
-  const file = fileOf(path);
-  if (!file || isScenePath(path)) return null;
-  return file.nodes.find((n) => !n.parent) ?? null;
-}
-
-/** Types of an instance of `prefabPath`: the prefab root's, nested prefabs resolved. */
-function instanceTypes(prefabPath: string, seen = new Set<string>()): string[] {
-  if (seen.has(prefabPath)) return [];
-  const root = prefabRoot(prefabPath);
-  if (!root) return [];
-  if (root.prefab) return [...instanceTypes(root.prefab, new Set(seen).add(prefabPath)), ...(root.overrides ?? []).filter((o) => o.addComponent).map((o) => o.addComponent!.type)];
-  return (root.components ?? []).map((c) => c.type);
+/** Types of an instance of `prefabPath`: the prefab root's components, nested prefabs and their overrides resolved. */
+function instanceTypes(prefabPath: string): string[] {
+  if (isScenePath(prefabPath)) return [];
+  const root = resolveScene(prefabPath).nodes.find((n) => n.parent === undefined);
+  return root ? root.components.map((c) => c.type) : [];
 }
 
 /**

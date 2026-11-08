@@ -6,7 +6,8 @@
  * with the particle effects its ParticleSystems play and whether it has world-space UI.
  */
 import { Assets } from "./Assets";
-import { loadSceneFile, type ComponentEntry } from "./SceneLoader";
+import { resolveScene } from "./resolvedScene";
+import { loadSceneFile } from "./SceneLoader";
 export { scriptAssetRefs } from "./scriptAssetRefs";
 
 /** One mesh to warm: what a MeshRenderer with this data draws, in every pass the frame puts it in. */
@@ -102,16 +103,15 @@ export function warmSet(path: string | null, extra: readonly string[] = []): War
       addMesh({ mesh: "builtin:sphere", material: `asset:${p}`, castShadows: true, receiveShadows: true, blended: true });
       return;
     }
-    let scene;
-    try {
-      scene = loadSceneFile(p);
-    } catch {
-      return;
-    }
+    // The resolved view: nested prefab instances expanded and every override applied, so components
+    // an override adds (also on added nodes) are seen like any other.
+    const scene = resolveScene(p);
+    if (!scene.files.includes(p)) return;
     if (p.endsWith(".prefab.json")) prefabs.add(p);
+    for (const f of scene.files) if (bare(f).endsWith(".prefab.json")) prefabs.add(bare(f));
     const referenced: string[] = [];
     for (const node of scene.nodes) {
-      const components: ComponentEntry[] = node.components ?? [];
+      const components = node.components;
       const scripted = components.some((c) => !c.type.startsWith("engine."));
       for (const c of components) {
         const data = (c.data ?? {}) as Record<string, unknown>;
@@ -134,9 +134,9 @@ export function warmSet(path: string | null, extra: readonly string[] = []): War
         } else if (c.type === "engine.UICanvas" && data.mode === "world") worldUI = true;
         walkData(data, referenced);
       }
-      walkData(node.overrides, referenced);
-      if (node.prefab) referenced.push(node.prefab);
     }
+    // Prefab paths an override's value names (a field override, an added node's data) and files the raw nodes' data names.
+    for (const file of scene.raw.values()) for (const n of file.nodes as { overrides?: unknown }[]) walkData(n?.overrides, referenced);
     for (const r of referenced) walkFile(r);
   };
   if (path) walkFile(path);

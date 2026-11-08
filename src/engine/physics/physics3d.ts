@@ -6,7 +6,7 @@
 import { defineBuffer } from "../core/data";
 import { defineBuiltinSystem } from "../core/systems";
 import type { World } from "../core/World";
-import { loadSceneFile } from "../scene/SceneLoader";
+import { anyComponentOf } from "../scene/resolvedScene";
 import type { Collider } from "./Collider";
 import type { Physics3DWorld } from "./Physics3DWorld";
 
@@ -22,23 +22,9 @@ export const CollisionEvents = defineBuffer<PhysicsEvent>("engine.CollisionEvent
 /** Component types that need a 3D physics world. */
 export const PHYSICS_3D_TYPES: ReadonlySet<string> = new Set(["engine.RigidBody", "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider", "engine.MeshCollider", "engine.CharacterController", "engine.FixedJoint", "engine.HingeJoint", "engine.SliderJoint", "engine.BallJoint", "engine.RopeJoint", "engine.SpringJoint"]);
 
-/** @internal True if a scene file (or a prefab it instances) has a 3D body or collider. */
-export function usesPhysics3D(path: string, seen = new Set<string>()): boolean {
-  if (seen.has(path)) return false;
-  seen.add(path);
-  let file;
-  try {
-    file = loadSceneFile(path);
-  } catch {
-    return false;
-  }
-  return file.nodes.some(
-    (n) =>
-      (n.components ?? []).some((c) => PHYSICS_3D_TYPES.has(c.type)) ||
-      // A prefab instance's overrides can add components too.
-      (n.overrides ?? []).some((o) => o.addComponent !== undefined && PHYSICS_3D_TYPES.has(o.addComponent.type)) ||
-      (n.prefab !== undefined && usesPhysics3D(n.prefab, seen)),
-  );
+/** @internal True if a scene file (or a prefab it instances, overrides' added components and nodes included) has a 3D body or collider. */
+export function usesPhysics3D(path: string): boolean {
+  return anyComponentOf(path, PHYSICS_3D_TYPES);
 }
 
 let loading: Promise<typeof import("./Physics3DWorld")> | null = null;
