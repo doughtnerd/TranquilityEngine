@@ -80,9 +80,8 @@ describe("kernel outputs with material assets, and kernel warm-up (ADR 0126)", (
     copies = 0;
     player = new BabylonParticles({
       scene,
-      editor: false,
+      particlePreview: () => null,
       worldMatrix: () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-      selected: () => true,
       texture: () => Promise.reject(new Error("no textures")),
       tierScale: () => 1,
       kernelExecutors: ["js"],

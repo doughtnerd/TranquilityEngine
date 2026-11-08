@@ -207,9 +207,8 @@ describe("warming particle effects (ADR 0080)", () => {
     material = null;
     player = new BabylonParticles({
       scene,
-      editor: false,
+      particlePreview: () => null,
       worldMatrix: () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-      selected: () => true,
       texture: (path) => textures.get(path) ?? Promise.reject(new Error("no such texture")),
       tierScale: () => 1,
       material: () => material,

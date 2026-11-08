@@ -8,7 +8,7 @@ import type { Component } from "../core/Component";
 import type { World } from "../core/World";
 import type { WarmContent } from "../scene/warmUp";
 import type { GameObject } from "../scene/GameObject";
-import type { Camera, ReflectionProbe, SpriteRenderer } from "./components";
+import type { ReflectionProbe, SpriteRenderer } from "./components";
 import {
   ViewportHandle,
   type EditorColors,
@@ -24,6 +24,29 @@ import {
   type WorldBox,
 } from "./editorViewport";
 import type { ParticlePreviewSettings, RenderDiagnostics, RenderSurface } from "./RenderSurface";
+import { GAME_POLICY, type RenderPolicy, type RenderPolicyPort } from "./renderPolicy";
+
+/** @internal A render policy port that records what the editor asked for (ADR 0129). */
+export class FakeRenderPolicyPort implements RenderPolicyPort {
+  /** Calls in order (setPolicy, setParticlePreview, restartParticlePreview). */
+  readonly calls: string[] = [];
+  policy: RenderPolicy = { ...GAME_POLICY };
+  particlePreview: Partial<ParticlePreviewSettings> = {};
+  restarts = 0;
+
+  setPolicy(change: Partial<RenderPolicy>): void {
+    this.calls.push("setPolicy");
+    Object.assign(this.policy, change);
+  }
+  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
+    this.calls.push("setParticlePreview");
+    Object.assign(this.particlePreview, preview);
+  }
+  restartParticlePreview(): void {
+    this.calls.push("restartParticlePreview");
+    this.restarts++;
+  }
+}
 
 /** @internal The fake viewport adapter: state is plain fields, queries read `rects` and the fixed camera. */
 export class FakeViewportAdapter implements ViewportAdapter {
@@ -35,9 +58,6 @@ export class FakeViewportAdapter implements ViewportAdapter {
   selectionShown = true;
   overlay: (() => EditorOverlay) | null = null;
   gizmo: { nodes: readonly GameObject[]; options: GizmoOptions; handlers: GizmoHandlers | null } | null = null;
-  cameraPreview: { camera: Camera | null; frame: HTMLElement | null } | null = null;
-  particlePreview: Partial<ParticlePreviewSettings> = {};
-  restarts = 0;
 
   /** Canvas size in CSS pixels, and the fixed camera's scale. */
   width = 800;
@@ -75,18 +95,6 @@ export class FakeViewportAdapter implements ViewportAdapter {
     this.calls.push("setGizmo");
     this.gizmo = nodes.length ? { nodes: [...nodes], options, handlers } : null;
   }
-  setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void {
-    this.calls.push("setCameraPreview");
-    this.cameraPreview = { camera, frame };
-  }
-  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
-    this.calls.push("setParticlePreview");
-    Object.assign(this.particlePreview, preview);
-  }
-  restartParticlePreview(): void {
-    this.restarts++;
-  }
-
   grid(): { cellSize: number; visible: boolean; divisions: number } {
     return { cellSize: this.gridState.cellSize, visible: this.gridState.visible, divisions: 100 };
   }
@@ -149,7 +157,7 @@ export class FakeViewportAdapter implements ViewportAdapter {
     const o = this.overlay?.();
     const segments = (o?.lines.reduce((n, l) => n + l.points.length - (l.closed ? 0 : 1), 0) ?? 0) + (o?.segments?.reduce((n, s) => n + s.positions.length / 6, 0) ?? 0);
     const outlines = this.selectionShown ? this.selection.length : 0;
-    return { segments, handles: o?.handles.length ?? 0, outlines, drawnObjects: 0, lightWires: 0, cameraPreview: !!this.cameraPreview?.camera && !!this.cameraPreview.frame };
+    return { segments, handles: o?.handles.length ?? 0, outlines, drawnObjects: 0, lightWires: 0, cameraPreview: false };
   }
 
   bakeReflectionProbe(_probe: ReflectionProbe): Promise<ArrayBuffer> {
@@ -175,6 +183,7 @@ function fakeCanvas(adapter: FakeViewportAdapter): HTMLCanvasElement {
  */
 export class FakeRenderSurface implements RenderSurface {
   readonly adapter = new FakeViewportAdapter();
+  readonly policyPort = new FakeRenderPolicyPort();
   readonly canvas: HTMLCanvasElement;
   readonly started = Promise.resolve(true);
   loaded: boolean;
@@ -199,7 +208,7 @@ export class FakeRenderSurface implements RenderSurface {
   async warmUp(_set: WarmContent): Promise<void> {}
 
   editorViewport(): EditorViewport {
-    return (this.viewport ??= new ViewportHandle(() => (this.loaded ? this.adapter : null)));
+    return (this.viewport ??= new ViewportHandle(() => (this.loaded ? this.adapter : null), this.policyPort));
   }
 
   diagnostics(): RenderDiagnostics {

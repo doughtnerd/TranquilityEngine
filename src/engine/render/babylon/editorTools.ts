@@ -9,7 +9,6 @@ import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import type { Camera, ReflectionProbe, SpriteRenderer } from "../components";
 import type { EditorColors, EditorDrawing, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect, ViewportAdapter, ViewportUI, ViewRay, WorldBox } from "../editorViewport";
-import type { ParticlePreviewSettings } from "../RenderSurface";
 import type { BabylonEditorContext } from "./editorContext";
 import { BabylonEditorGizmo } from "./editorGizmo";
 import { BabylonEditorOverlays } from "./editorOverlays";
@@ -52,7 +51,6 @@ export class BabylonEditorTools implements ViewportAdapter {
   }
 
   setSelection(nodes: readonly GameObject[], shown: boolean): void {
-    this.ctx.renderer.setSelected(nodes);
     this.overlays.setSelectionOutline(nodes);
     this.overlays.setSelectionOutlineShown(shown);
   }
@@ -63,18 +61,6 @@ export class BabylonEditorTools implements ViewportAdapter {
 
   setGizmo(nodes: readonly GameObject[], options: GizmoOptions, handlers: GizmoHandlers | null): void {
     this.gizmo.setGizmo(nodes, options, handlers);
-  }
-
-  setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void {
-    this.ctx.renderer.setCameraPreview(camera, frame);
-  }
-
-  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
-    this.ctx.renderer.setParticlePreview(preview);
-  }
-
-  restartParticlePreview(): void {
-    this.ctx.renderer.restartParticlePreview();
   }
 
   grid(): { cellSize: number; visible: boolean; divisions: number } | null {

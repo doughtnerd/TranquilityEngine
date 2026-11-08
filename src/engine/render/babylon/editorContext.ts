@@ -17,7 +17,6 @@ import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import type { Camera, MeshRenderer, ReflectionProbe, SpriteRenderer, Text } from "../components";
 import type { ViewportUI } from "../editorViewport";
-import type { ParticlePreviewSettings } from "../RenderSurface";
 
 /** A sprite as the renderer draws it. */
 export interface EditorSprite {
@@ -60,15 +59,14 @@ export interface BabylonEditorContext {
   readonly renderer: BabylonEditorRendererHooks;
 }
 
-/** @internal Renderer-level editor features: the background, camera inset, particle preview, sprite sizes, UI and probe bakes. */
+/**
+ * @internal Renderer-level editor features: the background, whether the camera inset drew, sprite sizes,
+ * UI and probe bakes. The camera inset, selection and particle preview are render policy (ADR 0129),
+ * set through the surface's `RenderPolicyPort`, not here.
+ */
 export interface BabylonEditorRendererHooks {
   setClearColor(color: number): void;
-  /** The selected nodes (the particle preview plays their effects). */
-  setSelected(nodes: readonly GameObject[]): void;
-  setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void;
   cameraPreviewDrawn(): boolean;
-  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void;
-  restartParticlePreview(): void;
   spriteSize(s: SpriteRenderer): [number, number] | null;
   ui(): ViewportUI | null;
   bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer>;

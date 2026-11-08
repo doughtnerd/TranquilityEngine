@@ -1,6 +1,6 @@
 # 0128. The render surface is a runtime core plus an editor viewport handle
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

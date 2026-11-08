@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
 import { Assets, Camera, Color, Engine, GameObject, SceneManager, SpriteRenderer, Vector2 } from "../index";
 import { BabylonRenderer } from "../render/babylon/BabylonRenderer";
+import { ViewportHandle } from "../render/editorViewport";
+import type { RenderPolicyPort } from "../render/renderPolicy";
 import { SpriteBatcher, spriteUvCode, UV_RECT_ATTRIBUTE, type SpriteItem } from "../render/babylon/spriteBatches";
 
 describe("the sprite batcher (ADR 0108)", () => {
@@ -83,9 +85,12 @@ describe("sprites on the Babylon renderer (ADR 0108)", () => {
   let nullEngine: NullEngine;
   let world: World;
   type Internals = { spriteBatcher: SpriteBatcher; sprites: Map<SpriteRenderer, { mesh: unknown; item: SpriteItem | null }> };
-  const make = (fill: boolean) => {
-    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown, fill: boolean) => BabylonRenderer;
-    return new Ctor(nullEngine, world.settings, fill);
+  /** A renderer with a game's policy, or the editor scene view's (what its viewport handle sets, ADR 0129). */
+  const make = (sceneView: boolean) => {
+    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown) => BabylonRenderer;
+    const r = new Ctor(nullEngine, world.settings);
+    if (sceneView) r.setPolicy({ sceneView: true, drawPolicy: "perObject" });
+    return r;
   };
 
   beforeEach(async () => {
@@ -150,6 +155,23 @@ describe("sprites on the Babylon renderer (ADR 0108)", () => {
     const internals = r as unknown as Internals;
     expect(internals.sprites.get(a)!.mesh).not.toBeNull();
     expect(internals.spriteBatcher.stats().batches).toBe(0);
+    r.dispose();
+  });
+
+  it("batches in a game, and keeps a mesh per sprite once the editor asks for the viewport (ADR 0129)", () => {
+    const r = make(false);
+    const a = sprite("a", 0);
+    // The editor tools loading, or failing to, doesn't change how a game batches: only the policy does.
+    syncSprites(r);
+    const internals = r as unknown as Internals;
+    expect(internals.sprites.get(a)!.mesh).toBeNull();
+    expect(internals.spriteBatcher.stats()).toEqual({ batches: 1, sprites: 1 });
+    // Editor play mode reaches into the game World: its viewport handle asks for per-object meshes.
+    const port: RenderPolicyPort = { setPolicy: (c) => r.setPolicy(c), setParticlePreview: () => undefined, restartParticlePreview: () => undefined };
+    new ViewportHandle(() => null, port).pick(0, 0);
+    syncSprites(r);
+    expect(internals.sprites.get(a)!.mesh).not.toBeNull();
+    expect(internals.spriteBatcher.stats().sprites).toBe(0);
     r.dispose();
   });
 

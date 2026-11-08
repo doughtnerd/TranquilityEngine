@@ -45,12 +45,13 @@ interface KernelPlan {
 export interface BabylonParticleHost {
   /** Babylon scene (right-handed, +Y up). */
   readonly scene: Scene;
-  /** An editor World: only selected systems (or all, with Simulate All) play, at the preview speed. */
-  readonly editor: boolean;
   /** The node's world matrix (16 floats, column-major). */
   worldMatrix(c: ParticleSystem): ArrayLike<number>;
-  /** Editor: whether the node is selected. */
-  selected(c: ParticleSystem): boolean;
+  /**
+   * Preview mode (ADR 0057, 0129 `RenderPolicy.particlePreview`): script commands are ignored and only
+   * systems on selected nodes (all with Simulate All) play, at the preview speed. Null: game rules.
+   */
+  particlePreview(): { selected(node: GameObject): boolean } | null;
   /**
    * Loads a texture asset (sRGB colour) for particles: flipped as other textures (V 1 is the image's
    * top), or with `sheet` unflipped (V 0 at the top), as Babylon's particle sprite sheets read it.
@@ -255,8 +256,9 @@ export class BabylonParticles {
     sim.configure(this.host.worldMatrix(c), inst.scale, inst.tint);
 
     let dt: number;
-    if (this.host.editor) {
-      const shown = this.preview.simulateAll || this.host.selected(c);
+    const previewing = this.host.particlePreview();
+    if (previewing) {
+      const shown = this.preview.simulateAll || previewing.selected(c.node);
       if (shown && !inst.shown) this.applyState(inst, "restart");
       if (!shown && inst.shown) this.applyState(inst, "clear");
       inst.shown = shown;
@@ -290,7 +292,7 @@ export class BabylonParticles {
     if (inst.state === "playing") inst.started = true;
     c._state = { playing: inst.state === "playing", paused: inst.state === "paused", time: inst.time, count, alive };
 
-    if (this.host.editor) {
+    if (previewing) {
       // Preview: a finished one-shot effect plays again after a moment.
       if (inst.shown && !alive && this.preview.playing) {
         inst.idle += dt;
@@ -733,7 +735,7 @@ export class BabylonParticles {
 
   /** Restart every previewed effect (the editor overlay's Restart). */
   restartAll(): void {
-    for (const inst of this.instances.values()) if (inst.shown || !this.host.editor) this.applyState(inst, "restart");
+    for (const inst of this.instances.values()) if (inst.shown || !this.host.particlePreview()) this.applyState(inst, "restart");
   }
 
   release(c: ParticleSystem): void {

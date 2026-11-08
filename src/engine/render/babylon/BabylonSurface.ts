@@ -17,7 +17,8 @@ import type { World, WorldKind } from "../../core/World";
 import { CanvasCssSize } from "../canvasCssSize";
 import { fitCanvas } from "../canvasFit";
 import { ViewportHandle, type EditorViewport } from "../editorViewport";
-import type { RenderDiagnostics, RenderSurface } from "../RenderSurface";
+import type { ParticlePreviewSettings, RenderDiagnostics, RenderSurface } from "../RenderSurface";
+import { GAME_POLICY, type RenderPolicy, type RenderPolicyPort } from "../renderPolicy";
 import type { BabylonRenderer } from "./BabylonRenderer";
 
 /** What a surface reports before its renderer has started. */
@@ -53,6 +54,21 @@ export class BabylonSurface implements RenderSurface {
   private owner: World | null = null;
   /** The editor's viewport handle, once something asked (games never do). */
   private viewport: ViewportHandle | null = null;
+  /** Render policy (ADR 0129) the viewport handle set, kept for the renderer until it has loaded. */
+  private policy: RenderPolicy = { ...GAME_POLICY };
+  private readonly particlePreview: Partial<ParticlePreviewSettings> = {};
+  /** What the viewport handle sets render policy through: live from the start. */
+  private readonly policyPort: RenderPolicyPort = {
+    setPolicy: (change) => {
+      this.policy = { ...this.policy, ...change };
+      this.renderer?.setPolicy(change);
+    },
+    setParticlePreview: (preview) => {
+      Object.assign(this.particlePreview, preview);
+      this.renderer?.setParticlePreview(preview);
+    },
+    restartParticlePreview: () => this.renderer?.restartParticlePreview(),
+  };
   /** Resolves once the renderer has loaded and started (true), or couldn't (false). */
   readonly started: Promise<boolean>;
 
@@ -74,9 +90,15 @@ export class BabylonSurface implements RenderSurface {
     this.resizeObserver.observe(container);
     this.resize();
     this.started = import("./BabylonRenderer")
-      .then((m) => m.BabylonRenderer.create(this.canvas, settings, this.fill))
-      // An editor World draws its grid and outlines from the first frame: wait for the editor tools too.
-      .then(async (r) => (this.fill ? (await r.loadEditorTools(), r) : r))
+      .then((m) => m.BabylonRenderer.create(this.canvas, settings))
+      .then(async (r) => {
+        // Policy first (ADR 0129): the editor tools read it as they build (an editor World's grid).
+        r.setPolicy(this.policy);
+        r.setParticlePreview({ ...this.particlePreview });
+        // An editor World draws its grid and outlines from the first frame: wait for the editor tools too.
+        if (this.fill) await r.loadEditorTools();
+        return r;
+      })
       .then((r) => {
         if (this.disposed) {
           r.dispose();
@@ -90,6 +112,7 @@ export class BabylonSurface implements RenderSurface {
           (g.__mycoBabylonSurfaces ??= []).push(this);
         }
         r.setClearColor(settings.display.backgroundColor);
+        r.setPolicy(this.policy); // anything the handle set while the tools loaded
         r.setVariantReport(this.variantReport);
         this.viewport?.poll(); // hand the editor's state over before the first frame
         this.applyQuality();
@@ -138,7 +161,7 @@ export class BabylonSurface implements RenderSurface {
   }
 
   editorViewport(): EditorViewport {
-    return (this.viewport ??= new ViewportHandle(() => this.renderer?.editorTools() ?? null, this.fill));
+    return (this.viewport ??= new ViewportHandle(() => this.renderer?.editorTools() ?? null, this.policyPort, this.fill));
   }
 
   diagnostics(): RenderDiagnostics {
