@@ -1,17 +1,23 @@
 // Shader graph assets in the editor (ADR 0046, 0047): creating `*.shadergraph.json` files,
-// reading and writing them, which one the Shader Graph panel has open, and each graph's undo
-// history for the session.
+// reading them, and which one the Shader Graph panel has open. Editing (the write queue, undo and
+// redo, outside changes) goes through each graph's asset document (ADR 0134):
+// `shaderGraphDocument(project, path)`.
 import { signal } from "@preact/signals";
-import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph, parseShaderGraph, type ShaderGraph } from "../engine/scene/shaderGraph";
+import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph, isShaderSubGraphPath, type ShaderGraph } from "../engine/scene/shaderGraph";
 import { defaultMaterialSettings } from "../engine/scene/material";
 import { fileName } from "./assetBrowser";
-import { createGraphHistory, type GraphHistory as SharedGraphHistory } from "./graph/history";
+import { openAssetDocument, type AssetDocument } from "./assetDocuments";
 import { freePath } from "./assetOps";
 import { showPanel } from "./layout/store";
 import { writeMaterial } from "./materialAssets";
 import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";
+import { assetFormats } from "./sdk/contributions";
+import { shaderGraphFormat, shaderSubgraphFormat } from "./shaderGraphFormat";
 import { currentProject, docVersion, status } from "./state";
+
+// The graph formats are registered here until the Materials plugin takes them over (ADR 0134).
+for (const format of [shaderGraphFormat, shaderSubgraphFormat]) if (!assetFormats.get(format.id)) assetFormats.register(format);
 
 /** The shader graph open in the Shader Graph panel, or null. */
 export const openShaderGraph = signal<string | null>(null);
@@ -22,6 +28,12 @@ export function openShaderGraphAsset(path: string): void {
   showPanel("shadergraph");
 }
 
+/** The format id of the graph at `path`: a sub-graph or a shader graph. */
+export const shaderGraphFormatId = (path: string): "shadergraph" | "shadersubgraph" => (isShaderSubGraphPath(path) ? "shadersubgraph" : "shadergraph");
+
+/** The asset document editing the graph at `path`: its value, edits, undo and redo, saving. */
+export const shaderGraphDocument = (project: EditorProject, path: string): AssetDocument<ShaderGraph> => openAssetDocument<ShaderGraph>(project, path, shaderGraphFormatId(path));
+
 export interface ReadShaderGraph {
   graph: ShaderGraph;
   problems: string[];
@@ -29,46 +41,17 @@ export interface ReadShaderGraph {
 
 /** A shader graph as its file holds it now. */
 export function readShaderGraph(project: EditorProject, path: string): ReadShaderGraph {
-  try {
-    return parseShaderGraph(project.assets.get(path), path);
-  } catch (err) {
-    return { graph: defaultShaderGraph(), problems: [(err as Error).message] };
-  }
+  const read = (isShaderSubGraphPath(path) ? shaderSubgraphFormat : shaderGraphFormat).parse(project.assets.get(path), path);
+  return { graph: read.value, problems: read.problems.map((p) => p.message) };
 }
 
-/** Each graph's writes in progress, so saves land in order. */
-const writing = new Map<string, Promise<unknown>>();
-
-/** Write a graph after the writes before it. Throws for a read-only project. */
+/** Replace a graph through its document (one undo step) and wait for the write. Throws for a read-only project. */
 export function writeShaderGraph(project: EditorProject, path: string, graph: ShaderGraph): Promise<void> {
-  const text = formatShaderGraph(graph);
-  const run = () => project.writeText(path, text);
-  const result = (writing.get(path) ?? Promise.resolve()).then(run, run);
-  const settled = result.catch(() => undefined);
-  writing.set(path, settled);
-  void settled.then(() => writing.get(path) === settled && writing.delete(path));
-  return result;
+  if (!project.canSave) return Promise.reject(new Error(`${project.name} is read-only.`));
+  const doc = shaderGraphDocument(project, path);
+  doc.edit(graph);
+  return doc.flush();
 }
-
-/** Undo and redo for one graph: the graphs before and after the current one. */
-export type GraphHistory = SharedGraphHistory<ShaderGraph>;
-
-const histories = createGraphHistory<ShaderGraph>();
-
-/** A graph's history this session (kept while the panel shows another graph). */
-export const graphHistory = (path: string): GraphHistory => histories.get(path);
-
-/** Record that the graph was `before` until an edit. */
-export const recordEdit = (path: string, before: ShaderGraph): void => histories.record(path, before);
-
-/** Step a graph back from `current`: the graph to show, or undefined with nothing to undo. */
-export const undoEdit = (path: string, current: ShaderGraph): ShaderGraph | undefined => histories.undo(path, current);
-
-/** Step a graph forward from `current`: the graph to show, or undefined with nothing to redo. */
-export const redoEdit = (path: string, current: ShaderGraph): ShaderGraph | undefined => histories.redo(path, current);
-
-/** Forget a graph's history (its file was renamed or deleted). */
-export const forgetGraphHistory = (path: string) => histories.forget(path);
 
 /** Where New Shader Graph goes by default: `shaders/` if the project has it, else the folder given. */
 export function shaderGraphFolder(folder: string): string {

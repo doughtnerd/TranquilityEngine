@@ -2,9 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { MaterialPreview, NodePreviewRenderer } from "../../engine/editor";
 import { compileShaderGraph, nodePreviewGraph, shaderGraphListing, type CompiledShaderGraph } from "../../engine/render/shaderGraph/compile";
 import { NODES, nodeDef, type PortDef, type SettingDef, type ValueType } from "../../engine/render/shaderGraph/nodes";
-import { formatShaderGraph, GRAPH_PREVIEW_MESHES, GRAPH_PROPERTY_TYPES, NODE_PREVIEW_SHAPES, nodePreviewShape, type NodePreviewShape, isPortName, portRef, propertySize, splitPortRef, type CustomFunction, type FunctionPort, type GraphGroup, type GraphNode, type GraphPreviewMesh, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../engine/scene/shaderGraph";
+import { GRAPH_PREVIEW_MESHES, GRAPH_PROPERTY_TYPES, NODE_PREVIEW_SHAPES, nodePreviewShape, type NodePreviewShape, isPortName, portRef, propertySize, splitPortRef, type CustomFunction, type FunctionPort, type GraphGroup, type GraphNode, type GraphPreviewMesh, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../engine/scene/shaderGraph";
 import { assetKind, fileName } from "../assetBrowser";
-import { errorStatus } from "../messages";
 import type { EditorProject } from "../projects";
 import {
   addNode,
@@ -57,7 +56,7 @@ import {
 } from "../shaderGraph/graphEdit";
 import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, settingValue, type NodeBox } from "../shaderGraph/nodeLayout";
 import { NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, wirePath, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type SearchItem, type View } from "../graph";
-import { createMaterialForGraph, graphHistory, openShaderGraph, readShaderGraph, recordEdit, redoEdit, undoEdit, writeShaderGraph, createShaderGraph, openShaderGraphAsset } from "../shaderGraphAssets";
+import { createMaterialForGraph, openShaderGraph, createShaderGraph, openShaderGraphAsset, shaderGraphDocument } from "../shaderGraphAssets";
 import { currentProject, docVersion, status } from "../state";
 import { searchGraph, cycleIndex } from "../shaderGraph/graphSearch";
 import { PropertyValue, numberValue, toHex2 } from "./ShaderPropertyValue";
@@ -92,11 +91,14 @@ const cssType = (t: ValueType | "dynamic") => `t-${t === "dynamic" ? "float" : t
 
 function GraphEditor(props: { project: EditorProject; path: string }) {
   const { project, path } = props;
-  const readOnly = !project.canSave;
-  docVersion.value; // re-read the file when it changes on disk or elsewhere in the editor
-
-  const [graph, setGraph] = useState<ShaderGraph>(() => readShaderGraph(project, path).graph);
-  const [parseProblems, setParseProblems] = useState<string[]>(() => readShaderGraph(project, path).problems);
+  docVersion.value; // the file list changes with it
+  // The graph's asset document (ADR 0134) owns saving, undo and redo, the read-only refusal and
+  // changes made outside the panel; selection, the view and the previews stay here.
+  const doc = shaderGraphDocument(project, path);
+  const readOnly = doc.readOnly;
+  const graph = doc.value.value;
+  const parseProblems = doc.problems.value.map((p) => p.message);
+  useEffect(() => () => void doc.flush(), [doc]); // write a pending drag or value change when the panel closes
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
   const [dragging, setDragging] = useState<Map<string, Point> | null>(null);
@@ -110,25 +112,9 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   const [showCode, setShowCode] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [shaderError, setShaderError] = useState<string | null>(null);
-  const [, setHistoryTick] = useState(0);
 
   const root = useRef<HTMLDivElement>(null);
   const flowId = useMemo(() => `sg${Math.random().toString(36).slice(2, 8)}`, []);
-  /** The file text last read or written, to tell our own writes from changes made elsewhere. */
-  const fileText = useRef(formatShaderGraph(graph));
-  /** Saves in flight: until they land, the project still serves the text before them. */
-  const saving = useRef(0);
-
-  // A change to the file from outside the panel (another editor, an undo of a rename…) replaces the graph.
-  const onDisk = readShaderGraph(project, path);
-  const diskText = formatShaderGraph(onDisk.graph);
-  if (diskText !== fileText.current && !dragging && saving.current === 0) {
-    fileText.current = diskText;
-    queueMicrotask(() => {
-      setGraph(onDisk.graph);
-      setParseProblems(onDisk.problems);
-    });
-  }
 
   const compiled: CompiledShaderGraph = useMemo(() => compileShaderGraph(graph), [graph]);
   const connectedInputs = useMemo(() => new Set(graph.edges.map((e) => e.to)), [graph]);
@@ -162,58 +148,26 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   });
   const { pane, paneApi, view, paneSize, panBy, paneCenter, frameAll } = canvas;
 
-  // xyflow reads the latest state through these.
-  const live = useRef({ graph, nodes: canvasNodes });
-  live.current = { graph, nodes: canvasNodes };
+  // xyflow reads the latest state through these (the graph straight from the document, so edits in a row see each other).
+  const live = useRef({ get graph() { return doc.value.peek(); }, nodes: canvasNodes });
+  live.current = { get graph() { return doc.value.peek(); }, nodes: canvasNodes };
 
   // --- editing ---------------------------------------------------------------------------------------
 
-  const save = (next: ShaderGraph) => {
-    const text = formatShaderGraph(next);
-    fileText.current = text;
-    saving.current++;
-    writeShaderGraph(project, path, next)
-      .catch((err) => (status.value = errorStatus(`Couldn't save ${fileName(path)}`, err)))
-      .finally(() => {
-        saving.current--;
-        docVersion.value++;
-      });
+  /**
+   * Apply an edit through the document: one undo step, saved (an edit that changes nothing adds
+   * none). `drag`: a node drag or a value or colour change, whose quick changes in a row make one
+   * undo step and one write.
+   */
+  const commit = (next: ShaderGraph, drag = false) => {
+    if (next === doc.value.peek()) return;
+    doc.edit(next, drag ? { coalesce: true } : undefined);
   };
+  /** A drag or value change: see `commit`. */
+  const commitDrag = (next: ShaderGraph) => commit(next, true);
 
-  /** Apply an edit: remember the graph before it for undo, show it, and save it. */
-  const commit = (next: ShaderGraph) => {
-    const before = live.current.graph;
-    if (next === before) return;
-    if (readOnly) {
-      status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to edit shader graphs.` };
-      return;
-    }
-    recordEdit(path, before);
-    live.current.graph = next;
-    setGraph(next);
-    setHistoryTick((t) => t + 1);
-    save(next);
-  };
-
-  const history = graphHistory(path);
-  const undo = () => {
-    if (readOnly) return;
-    const prev = undoEdit(path, live.current.graph);
-    if (!prev) return;
-    live.current.graph = prev;
-    setGraph(prev);
-    setHistoryTick((t) => t + 1);
-    save(prev);
-  };
-  const redo = () => {
-    if (readOnly) return;
-    const next = redoEdit(path, live.current.graph);
-    if (!next) return;
-    live.current.graph = next;
-    setGraph(next);
-    setHistoryTick((t) => t + 1);
-    save(next);
-  };
+  const undo = () => doc.undo();
+  const redo = () => doc.redo();
 
   // --- canvas ----------------------------------------------------------------------------------------
 
@@ -324,7 +278,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
       onMove: (dx, dy) => setDragging(moved(dx, dy)),
       onEnd: (dx, dy) => {
         setDragging(null);
-        commit(moveNodes(live.current.graph, new Map([...moved(dx, dy)].map(([id, p]) => [id, [p.x, p.y] as [number, number]]))));
+        commitDrag(moveNodes(live.current.graph, new Map([...moved(dx, dy)].map(([id, p]) => [id, [p.x, p.y] as [number, number]]))));
       },
     });
   };
@@ -567,10 +521,10 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
         <button title="Find in this graph (Ctrl+F)" aria-pressed={!!find} onClick={() => (find ? closeFind() : openFind())}>
           Find
         </button>
-        <button title="Undo (Ctrl+Z)" disabled={readOnly || history.undo.length === 0} onClick={undo}>
+        <button title="Undo (Ctrl+Z)" disabled={readOnly || !doc.canUndo.value} onClick={undo}>
           Undo
         </button>
-        <button title="Redo (Ctrl+Shift+Z)" disabled={readOnly || history.redo.length === 0} onClick={redo}>
+        <button title="Redo (Ctrl+Shift+Z)" disabled={readOnly || !doc.canRedo.value} onClick={redo}>
           Redo
         </button>
         <button title="Add a node (Space, or right-click the canvas)" disabled={readOnly} onClick={() => openSearch(paneCenter(), null)}>
@@ -651,7 +605,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
               );
             })}
             {graph.notes?.map((n) => (
-              <NoteView key={n.id} note={n} zoom={view.zoom} readOnly={readOnly} onChange={(patch) => commit(updateNote(live.current.graph, n.id, patch))} onRemove={() => commit(removeNote(live.current.graph, n.id))} />
+              <NoteView key={n.id} note={n} zoom={view.zoom} readOnly={readOnly} onChange={(patch) => commit(updateNote(live.current.graph, n.id, patch), !("text" in patch))} onRemove={() => commit(removeNote(live.current.graph, n.id))} />
             ))}
             <svg class="sg-wires">
               {graph.edges.map((e) => {
@@ -696,7 +650,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
                   onMove: (m) => setDragging(new Map(m)),
                   onEnd: (m) => {
                     setDragging(null);
-                    if (!readOnly) commit(moveNodes(live.current.graph, new Map([...m].map(([id, p]) => [id, [p.x, p.y] as [number, number]]))));
+                    if (!readOnly) commitDrag(moveNodes(live.current.graph, new Map([...m].map(([id, p]) => [id, [p.x, p.y] as [number, number]]))));
                   },
                 }}
               />
@@ -789,7 +743,7 @@ function NodeView(props: {
   readOnly: boolean;
   onDown(e: PointerEvent, id: string): void;
   onPortDown(e: MouseEvent, node: GraphNode, port: PortDef, side: "input" | "output"): void;
-  commit(g: ShaderGraph): void;
+  commit(g: ShaderGraph, drag?: boolean): void;
   drag: DragHooks;
 }) {
   const { node, graph, box, at, dynamic } = props;
@@ -848,13 +802,13 @@ function NodeView(props: {
             <div key={`i-${r.port.id}`} class={`sg-row in${connected ? " connected" : ""}`} style={{ top: px(top), height: px(ROW) }}>
               <span {...handleProps(props.flowId, node.id, r.port.id, "input")} class={`${handleProps(props.flowId, node.id, r.port.id, "input").class} sg-port ${cssType(t)}${connected ? " filled" : ""}`} title={`${r.port.label} (${t})`} onMouseDown={(e) => props.onPortDown(e, node, r.port, "input")} />
               <span class="sg-label">{r.port.label}</span>
-              {!connected && <InlineValue node={node} port={r.port} dynamic={dynamic} readOnly={props.readOnly} onValue={(v) => props.commit(setInput(graph, node.id, r.port.id, v))} />}
+              {!connected && <InlineValue node={node} port={r.port} dynamic={dynamic} readOnly={props.readOnly} onValue={(v) => props.commit(setInput(graph, node.id, r.port.id, v), true)} />}
             </div>
           );
         }
         return (
           <div key={`s-${r.setting.id}`} class="sg-row setting" style={{ top: px(top), height: px(ROW) }}>
-            <SettingField node={node} setting={r.setting} graph={graph} images={props.images} subgraphs={props.subgraphs} readOnly={props.readOnly} onValue={(v) => props.commit(setSetting(graph, node.id, r.setting.id, v))} />
+            <SettingField node={node} setting={r.setting} graph={graph} images={props.images} subgraphs={props.subgraphs} readOnly={props.readOnly} onValue={(v) => props.commit(setSetting(graph, node.id, r.setting.id, v), r.setting.kind === "color")} />
           </div>
         );
       })}
@@ -966,7 +920,7 @@ function NodeSearch(props: { graph: ShaderGraph; subgraphs: string[]; at: Point;
 
 const PROPERTY_LABELS: Record<GraphPropertyType, string> = { float: "Float", vector2: "Vector 2", vector3: "Vector 3", vector4: "Vector 4", color: "Color", texture: "Texture" };
 
-function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[]; readOnly: boolean; commit(g: ShaderGraph): void; placeNode(name: string): void }) {
+function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[]; readOnly: boolean; commit(g: ShaderGraph, drag?: boolean): void; placeNode(name: string): void }) {
   const { graph, readOnly, commit } = props;
   return (
     <div class="sg-blackboard" aria-label="Properties">
@@ -1017,7 +971,7 @@ function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[];
             </select>
           </div>
           <div class="sg-property-row">
-            <PropertyValue name={p.name} type={p.type} value={p.value} images={props.images} disabled={readOnly} onValue={(v) => commit(setPropertyValue(graph, p.name, v))} />
+            <PropertyValue name={p.name} type={p.type} value={p.value} images={props.images} disabled={readOnly} onValue={(v) => commit(setPropertyValue(graph, p.name, v), true)} />
           </div>
           <div class="sg-property-row sg-property-actions">
             <button title="Place a node that reads this property" disabled={readOnly} onClick={() => props.placeNode(p.name)}>
