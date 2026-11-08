@@ -1,6 +1,6 @@
 # 0136. The Tilemaps plugin owns tile data and drawing logic; the renderer core gives it a renderer-neutral quad-batch host
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -61,16 +61,16 @@ export interface QuadBatch {
 
 **3. Ordering among render features stays as today** through 0135's `after` constraints, not list position. Plugin slots are appended after the built-in ones; `byPhase` then orders the `content` phase as sprites → tilemaps (`after: ["sprites"]`) → meshes (`MESHES_SPEC` keeps `after: ["sprites", "tilemaps"]`; the name is ignored when Tilemaps is disabled). Draw order itself comes from `alphaIndex`, not sync order, so it doesn't change. A test pins the resulting `content` order.
 
-**4. Physics 2D reads tiles through optional, typed coupling, not a hard dependency** (0133):
+**4. 2D colliders are not bound to tilemaps, and Tilemaps names no physics** (0133; amended on acceptance). A 2D collider can sit on anything that collides in two dimensions (a sprite, a 3D model, a tilemap), so the coupling runs through a generic, engine-level shape source instead of a Physics 2D ↔ Tilemaps link:
 
-- `TilemapCollider2D` and `tilemapPhysics2D.ts` stay in Physics 2D: the collider extends `Collider2D` and builds Rapier shapes, which Tilemaps must not know about.
-- Tilemaps' public module exports an interface, `TileCollisionSource` (`version`, `cellSize`, `shapes(mode)`, the one-way flags), which `Tilemap` implements by calling its own `buildTileShapes`.
-- Physics 2D imports that interface **type-only** and finds the sibling Component with `getComponentClass("engine.Tilemap")`: undefined when Tilemaps is disabled, and the collider then builds nothing and warns once. The lookup is synchronous, so there is no start-order race.
-- A new rule in `plugins.test.ts`: a plugin may import another plugin only through its `runtime/index.ts`, and only `import type` unless its manifest lists that plugin under `dependencies`.
+- **Core** gets `src/engine/physics/shapeSource2D.ts` (no Rapier, no tile types): `CollisionShapeSource2D`, a Component that offers 2D collision shapes — `collisionSignature()` (changes whenever its shapes would) and `collisionShapes(merge)` → `CollisionShapes2D` (`unit` = one shape unit in the node's local space, `boxes`, `loops`, `polygons`, `oneWay`, `oneWayPolygons`) — and `findShapeSource2D(node)`, which returns the first Component on the node that implements it.
+- **Tilemaps** implements it on `Tilemap` (its shapes come from the tileset's per-tile collision and `buildTileShapes`). It imports nothing from Physics 2D, declares no dependency on it, and requires no collider: a Tilemap without a collider simply never has its shapes asked for.
+- **Physics 2D** keeps `TilemapCollider2D` (the Component id `engine.TilemapCollider2D` stays, so scenes load unchanged) and `tilemapPhysics2D.ts`, but the collider reads whatever shape source is on its node (`source`, replacing the `tilemap` getter) and imports nothing from Tilemaps, not even types. With no source on the node it builds nothing. Any future Component that offers shapes (a polygon sprite outline, a procedural level) works with it the same way.
+- A new rule in `plugins.test.ts`: a plugin may import another plugin only through its `runtime/index.ts`, and only `import type` unless its manifest lists that plugin under `dependencies`. Today no plugin imports another.
 
 **5. The editor consumes the runtime half's public module.** The painting tools, the Tile Palette panel, `TileThumb`, the inspectors and `tilesetAssets.ts` import from `src/plugins/tilemaps/runtime` instead of `src/engine/tilemap/` (the editor core may import runtime halves). Moving them into the plugin's editor half (a panel contribution, 0134, plus a viewport-tool hook for painting) is a follow-up step that needs a viewport tool contribution point first. Thumbnails need nothing from the renderer: `TileThumb` crops the image in CSS.
 
-**Build order:** (1) the quad-batch host and its Babylon adapter, with `BabylonTilemaps` rewritten on it while still in core, so the screenshot and e2e checks compare like with like; (2) move the data files and the tile renderer into the plugin and register the feature; (3) Physics 2D's typed lookup and the import rule; (4) editor imports; later, the editor half.
+**Build order:** (1) the quad-batch host and its Babylon adapter, with `BabylonTilemaps` rewritten on it while still in core, so the screenshot and e2e checks compare like with like; (2) move the data files and the tile renderer into the plugin and register the feature; (3) the 2D shape source and the import rule; (4) editor imports; later, the editor half.
 
 ## Alternatives considered
 
@@ -78,7 +78,8 @@ export interface QuadBatch {
 - **Move `BabylonTilemaps` into the plugin and widen the Babylon-folder rule to `src/plugins/*/runtime/*Feature.ts`.** Smallest change, but it breaks ADR 0075's one-folder rule and invites every plugin to import Babylon, which makes a future backend impossible to scope.
 - **Keep the tile data in core** (only the Component moves). Physics 2D and the editor keep working untouched, but the plugin would be a shell, and the engine would still carry autotile, brushes and tileset parsing for games without tiles.
 - **Physics 2D depends hard on Tilemaps** (manifest `dependencies`, value imports). Simple and explicit, but enabling 2D physics would force Tilemaps on, and Tilemaps could never be disabled in a physics game. 0133 names exactly this case as one for optional coupling.
-- **Tilemaps publishes a World service with the tile shapes.** Matches 0133's wording, but World services start asynchronously and independently, so Physics 2D could start before it and see no tiles; the data it would carry is already on the Component. The registry lookup gives the same optionality synchronously.
+- **Tilemaps publishes a World service with the tile shapes.** World services start asynchronously and independently, so Physics 2D could start before it and see no tiles; the data it would carry is already on the Component.
+- **Physics 2D looks up `engine.Tilemap` by id and reads it through a type-only `TileCollisionSource`** (the proposed version of this record). Optional, but it still binds the 2D collider to tilemaps and makes Tilemaps describe itself in physics terms; the owner rejected it on acceptance in favour of the generic shape source.
 
 ## Consequences
 
@@ -86,13 +87,13 @@ export interface QuadBatch {
 - `src/engine/` no longer contains tile code; disabling Tilemaps leaves no tile Components and no tile feature.
 - Tile drawing logic becomes testable without Babylon (fake `QuadBatchHost`).
 - The quad-batch host is reusable by other 2D plugin features (text in world, decals) without each adding a Babylon file.
-- The Physics 2D ↔ Tilemaps coupling is visible in types and checked by a test.
+- Physics 2D and Tilemaps don't know each other; both meet at a small core interface any Component can implement, and a test checks cross-plugin imports.
 
 **Negative / costs**
 - One extra layer between tile chunks and Babylon meshes; the per-frame cost stays one `setVisible`/`setOrder` per batch, as today.
 - Materials move from per (layer, texture) to shared per (texture, tint, opacity): same visual result, but a regression risk to check with the tile e2e screenshots.
 - `myco.ts` grows another re-export block, kept in step by hand (as for Sky).
-- Physics 2D's tilemap collider silently does less when Tilemaps is disabled (a warning, not an error).
+- `TilemapCollider2D` keeps a tile-specific name although it now takes any shape source; renaming it (with an alias for the old id) is left open.
 
 ## Deprecates
 
@@ -100,6 +101,8 @@ export interface QuadBatch {
 - The tile exports of `src/engine/index.ts` (they move to `src/myco.ts`).
 
 ## Open questions
+
+- Whether `TilemapCollider2D` is renamed (for example `ShapeCollider2D`, keeping `engine.TilemapCollider2D` as an alias) now that it takes any `CollisionShapeSource2D`.
 
 - Animated tiles: tilesets have no animation frames today. When they do, the plugin advances frames and rewrites UVs through `setQuads`; whether the host needs a cheaper UV-only update is decided then.
 - Whether the tile feature should load lazily (`lazy: true`, `holdsFirstFrame: true`) so games without tiles skip its chunk; eager keeps today's behaviour and is the start.
