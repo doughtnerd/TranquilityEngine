@@ -1,7 +1,9 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, opensInCodePanel, searchEntries, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
+import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, opensInCodePanel, searchEntries, sliceEntry, splitSliceEntry, type AssetKind, type BuiltinAssetKind } from "../assetBrowser";
+import { kindLabel, matchRegisteredKind, registeredKindOpens } from "../assetKindLookup";
+import { assetKinds } from "../sdk/contributions";
 import { inspectSelectedAsset, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { deleteAssets, entryPath, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "../assetDelete";
@@ -46,7 +48,7 @@ import { TileThumbnail } from "./AssetPreview";
 import "./assets.css";
 import "./assetSlices.css";
 
-const KIND_LABELS: Record<AssetKind | "folder", string> = {
+const KIND_LABELS: Record<BuiltinAssetKind | "folder", string> = {
   folder: "Folder",
   scene: "Scene",
   prefab: "Prefab",
@@ -108,6 +110,8 @@ const dropTarget = (path: string) => {
   return t?.kind === "folder" && t.folder === path;
 };
 
+/** A kind's label: a registered kind's own (ADR 0133), else the built-in table. */
+const labelOf = (kind: AssetKind | "folder"): string => kindLabel(kind) ?? KIND_LABELS[kind as BuiltinAssetKind | "folder"] ?? kind;
 const kindOf = (entry: string): AssetKind | "folder" => (isFolderEntry(entry) ? "folder" : assetKind(entry));
 const nameOf = (entry: string) => (isSliceEntry(entry) ? splitSliceEntry(entry).slice : fileName(entryPath(entry)));
 const toggleKey = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.metaKey;
@@ -129,6 +133,8 @@ function openEntry(entry: string): void {
   if (isFolderEntry(entry)) return openFolder(entryPath(entry));
   if (isSliceEntry(entry)) return openSpriteEditor(splitSliceEntry(entry).image);
   const kind = assetKind(entry);
+  const registered = matchRegisteredKind(entry)?.kind;
+  if (registered?.id === kind && registered.open) return registered.open(entry); // ADR 0133
   if (kind === "image") return openSpriteEditor(entry);
   if (kind === "shadergraph" || kind === "shadersubgraph") return openShaderGraphAsset(entry);
   if (kind === "particles" || kind === "particlesubgraph" || kind === "particleblock") return openParticleGraphAsset(entry);
@@ -137,7 +143,7 @@ function openEntry(entry: string): void {
   else if (kind === "scene" || kind === "prefab") void switchScene(entry);
 }
 
-const opens = (entry: string) => isFolderEntry(entry) || opensInCodePanel(assetKind(entry)) || ["scene", "prefab", "image", "sprite", "shadergraph", "shadersubgraph", "particles", "particlesubgraph", "particleblock", "sky"].includes(assetKind(entry));
+const opens = (entry: string) => isFolderEntry(entry) || registeredKindOpens(assetKind(entry)) || opensInCodePanel(assetKind(entry)) || ["scene", "prefab", "image", "sprite", "shadergraph", "shadersubgraph", "particles", "particlesubgraph", "particleblock", "sky"].includes(assetKind(entry));
 
 /** Why `entries` can't be changed (renamed, moved, deleted), or null. */
 function whyNotEditable(project: EditorProject, entries: readonly string[]): string | null {
@@ -193,6 +199,8 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
     // Create › Navigation › Formation (Foxfire's NavFormation asset, ADR 0065).
     { label: "New Navigation Formation", disabled: readOnly, run: () => void createFormation(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Tileset", disabled: readOnly, run: () => void createTileset(pasteFolder(entries)).then((made) => made && select([made])) },
+    // Registered kinds with `create` add their own entries (ADR 0133).
+    ...assetKinds.list().flatMap((k) => (k.create ? [{ label: k.create.label, disabled: readOnly, run: () => void k.create!.create(pasteFolder(entries)).then((made) => made && select([made])) }] : [])),
     ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),
   ];
   if (entries.length === 0) {
@@ -604,7 +612,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         ) : slice && sliceRect && typeof url === "string" ? (
           <SliceThumb url={url} rect={sliceRect} />
         ) : (
-          <TileThumbnail path={path} kind={kind} label={KIND_LABELS[kind]} name={nameOf(entry)} />
+          <TileThumbnail path={path} kind={kind} label={labelOf(kind)} name={nameOf(entry)} />
         )}
       </div>
       {sliceCount > 0 && (
@@ -626,7 +634,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         </button>
       )}
       {renamingAsset.value === entry ? <RenameInput entry={entry} /> : <span class="asset-name">{nameOf(entry)}</span>}
-      {list && <span class="asset-col-kind">{KIND_LABELS[kind]}</span>}
+      {list && <span class="asset-col-kind">{labelOf(kind)}</span>}
       {list && <span class="asset-col-size">{isFolderEntry(entry) ? "" : formatSize(project.sizeOf(path))}</span>}
       {showFolder && !list && <span class="asset-folder-hint">{folderOf(path) || "/"}</span>}
       {addable && (

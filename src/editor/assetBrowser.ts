@@ -3,12 +3,16 @@
 import { isSidecarPath } from "../engine/scene/importSettings";
 import { composeMatrix, localPoseFromMatrix } from "../engine/render/gizmoMath";
 import { MODEL_EXTENSIONS, loadModel, modelTreeIfLoaded, type NodePose } from "../engine/scene/models";
+import { matchRegisteredKind } from "./assetKindLookup";
 import { logMessage } from "./messages";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export type AssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "rendertexture" | "shadergraph" | "shadersubgraph" | "particles" | "particlesubgraph" | "particleblock" | "formation" | "tileset" | "environment" | "sky" | "cubemap" | "lut" | "json" | "script" | "javascript" | "typescript" | "text" | "uidocument" | "stylesheet" | "xml" | "other";
+/** The kinds the editor itself knows; plugins add more (ADR 0133). */
+export type BuiltinAssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "rendertexture" | "shadergraph" | "shadersubgraph" | "particles" | "particlesubgraph" | "particleblock" | "formation" | "tileset" | "environment" | "sky" | "cubemap" | "lut" | "json" | "script" | "javascript" | "typescript" | "text" | "uidocument" | "stylesheet" | "xml" | "other";
+/** A built-in kind or a registered one's id. */
+export type AssetKind = BuiltinAssetKind | (string & {});
 
 /** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
 export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
@@ -26,6 +30,24 @@ export function assetKind(path: string): AssetKind {
   const hash = path.indexOf("#");
   if (hash >= 0) return assetKind(path.slice(0, hash)) === "image" ? "sprite" : "other";
   const p = path.toLowerCase();
+  // A registered kind wins when its extension is at least as long as the built-in rule's (ADR 0133).
+  const registered = matchRegisteredKind(p);
+  if (registered) {
+    const builtin = builtinKind(p);
+    if (builtin === "other" || registered.length >= builtinExtensionLength(p)) return registered.kind.id;
+    return builtin;
+  }
+  return builtinKind(p);
+}
+
+/** The length of the ending a built-in rule matched: a compound one (`.scene.json`) or the last extension. Used so a registered kind with a longer extension wins. */
+function builtinExtensionLength(p: string): number {
+  const name = p.slice(p.lastIndexOf("/") + 1);
+  const compound = /\.(scene|prefab|material|rendertexture|shadergraph|shadersubgraph|particles|particlesubgraph|particleblock|formation|tileset|sky|cubemap|ui)\.(json|xml)$/.exec(name);
+  return compound ? compound[0].length : name.length - Math.max(name.lastIndexOf("."), 0);
+}
+
+function builtinKind(p: string): BuiltinAssetKind {
   if (p.endsWith(".scene.json")) return "scene";
   if (p.endsWith(".prefab.json")) return "prefab";
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(p)) return "image";

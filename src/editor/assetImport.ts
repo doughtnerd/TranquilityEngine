@@ -10,6 +10,7 @@ import {
   type ImportSettings,
 } from "../engine/scene/importSettings";
 import { assetKind, folderOf, isSliceEntry, splitSliceEntry } from "./assetBrowser";
+import { registeredKind } from "./assetKindLookup";
 import { openFolder, select as selectAssets, selectedAssets } from "./assetSelection";
 import type { EditorProject } from "./projects";
 import { select as selectNodes, selectedKeys } from "./state";
@@ -19,7 +20,7 @@ export type ImportKind = "image" | "audio" | "model";
 /** The kind of import settings an asset has, or null if it has none. */
 export function importKind(path: string): ImportKind | null {
   const kind = assetKind(path);
-  return kind === "image" || kind === "audio" || kind === "model" ? kind : null;
+  return kind === "image" || kind === "audio" || kind === "model" ? (kind as ImportKind) : null;
 }
 
 export interface ReadSettings {
@@ -56,7 +57,8 @@ const INSPECTED_KINDS: readonly string[] = ["material", "shadergraph", "shadersu
 /** The file the Asset Inspector shows for an Assets panel entry (a slice shows its image), or null if it has no inspector. */
 export function inspectableAsset(entry: string): string | null {
   const file = isSliceEntry(entry) ? splitSliceEntry(entry).image : entry;
-  return importKind(file) || INSPECTED_KINDS.includes(assetKind(file)) ? file : null;
+  // Registered kinds with an `inspector` count too (ADR 0133).
+  return importKind(file) || INSPECTED_KINDS.includes(assetKind(file)) || registeredKind(assetKind(file))?.inspector !== undefined ? file : null;
 }
 
 /**

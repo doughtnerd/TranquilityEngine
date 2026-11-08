@@ -9,6 +9,7 @@ import { ASSET_FIELD_KINDS, AssetRef, isListType, type AssetFieldKind } from "..
 import type { FieldValue } from "../engine/editor";
 import { BUILTIN_MESHES } from "../engine/scene/models";
 import { assetKind, type AssetKind } from "./assetBrowser";
+import { matchRegisteredKind } from "./assetKindLookup";
 
 const ofKind = (...kinds: AssetKind[]) => (f: string) => kinds.includes(assetKind(f));
 
@@ -39,11 +40,17 @@ const BUILTINS: Partial<Record<AssetFieldKind, readonly string[]>> = {
   mesh: BUILTIN_MESHES.map((m) => `builtin:${m}`),
 };
 
+/** Whether a file suits field kind `k`: the built-in filter, or a registered kind that declares `referencedAs` it (ADR 0133). */
+export function acceptsFile(k: AssetFieldKind, file: string): boolean {
+  if (FILTERS[k](file)) return true;
+  return matchRegisteredKind(file)?.kind.referencedAs?.includes(k) === true && assetKind(file) === matchRegisteredKind(file)!.kind.id;
+}
+
 /** What an asset field of these kinds offers from `files`: built-in values first, then matching files. Empty `kinds` offers every file. */
 export function assetsForKinds(kinds: readonly AssetFieldKind[], files: readonly string[]): string[] {
   if (kinds.length === 0) return [...files];
   const builtins = [...new Set(kinds.flatMap((k) => BUILTINS[k] ?? []))];
-  return [...builtins, ...files.filter((f) => kinds.some((k) => FILTERS[k](f)))];
+  return [...builtins, ...files.filter((f) => kinds.some((k) => acceptsFile(k, f)))];
 }
 
 /** The asset kinds a field (or one item of a list field) declares; empty when it takes any asset or isn't an asset field. */

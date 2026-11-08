@@ -1,6 +1,7 @@
 // Asset thumbnails (ADR 0061): which assets get a rendered preview, what each preview depends on,
 // and the content key that names its cached file. Pure apart from hashing (WebCrypto), so the
 // rules are unit-tested.
+import { matchRegisteredKind } from "../assetKindLookup";
 import { isSidecarPath, sidecarPath } from "../../engine/scene/importSettings";
 
 /** Bumped when the renderer's look changes, so every cached thumbnail is rendered again. */
@@ -13,6 +14,8 @@ export type PreviewKind = "model" | "material" | "shadergraph" | "environment" |
 export function previewKind(path: string): PreviewKind | null {
   const p = path.toLowerCase();
   if (p.includes("#") || isSidecarPath(p)) return null;
+  const registered = matchRegisteredKind(p)?.kind.preview; // a registered kind's renderer (ADR 0133)
+  if (registered) return registered;
   if (/\.(obj|fbx|gltf|glb)$/.test(p)) return "model";
   if (p.endsWith(".material.json")) return "material";
   if (p.endsWith(".shadergraph.json")) return "shadergraph";

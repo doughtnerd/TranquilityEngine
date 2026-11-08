@@ -2,6 +2,9 @@ import { useEffect, useState } from "preact/hooks";
 import { DEFAULT_SLOT, loadMeshes, materialSlots } from "../../engine/scene/models";
 import { IMPORT_PLATFORMS, TEXTURE_COMPRESSIONS, withPlatformOverride, type ImportPlatform, type ImportSettings, type PlatformOverrides } from "../../engine/scene/importSettings";
 import { assetKind, fileName } from "../assetBrowser";
+import { registeredKind } from "../assetKindLookup";
+import type { AssetKindContribution } from "../sdk/contributions";
+import { lazyComponent, type LazyComponent } from "./lazy";
 import { extractModelMaterials } from "../materialExtract";
 import { AudioPreview, LargePreview } from "./AssetPreview";
 import { RenderTextureInspector } from "./RenderTextureInspector";
@@ -19,16 +22,27 @@ import "./assetInspector.css";
 /** The project's pixels per unit (100 by default, ADR 0014). */
 const projectPPU = (settings: { render?: { pixelsPerUnit?: number } }) => settings.render?.pixelsPerUnit ?? 100;
 
+/** One lazy Inspector view per registered kind (ADR 0133): created on first use, so the module loads then. */
+const pluginInspectors = new WeakMap<AssetKindContribution, LazyComponent<{ path: string }>>();
+function pluginInspector(kind: AssetKindContribution): LazyComponent<{ path: string }> | null {
+  if (!kind.inspector) return null;
+  let view = pluginInspectors.get(kind);
+  if (!view) pluginInspectors.set(kind, (view = lazyComponent(kind.inspector, null)));
+  return view;
+}
+
 /** The selected asset in the Inspector: a material's settings (ADR 0043), a shader graph (ADR 0047), or a file's import settings. */
 export function AssetInspector() {
   const path = inspectedAsset.value;
   const kind = path ? assetKind(path) : null;
+  const Plugin = path && kind ? (registeredKind(kind) ? pluginInspector(registeredKind(kind)!) : null) : null;
+  if (path && Plugin) return <Plugin path={path} />;
   if (path && kind === "particles") return <ParticleEffectInspector path={path} />;
   if (path && (kind === "particlesubgraph" || kind === "particleblock")) return <ParticleAssetInspector path={path} />;
   if (path && kind === "rendertexture") return <RenderTextureInspector path={path} />;
   if (path && kind === "formation") return <NavFormationInspector path={path} />;
   if (path && kind === "tileset") return <TilesetInspector path={path} />;
-  if (path && (kind === "environment" || kind === "cubemap" || kind === "prefab")) return <PreviewInspector path={path} kind={kind} />;
+  if (path && (kind === "environment" || kind === "cubemap" || kind === "prefab")) return <PreviewInspector path={path} kind={kind as "environment" | "cubemap" | "prefab"} />;
   if (path && kind === "sky") return <SkyInspector path={path} />;
   return path && kind === "material" ? <MaterialInspector path={path} /> : path && (kind === "shadergraph" || kind === "shadersubgraph") ? <ShaderGraphInspector path={path} /> : <ImportInspector />;
 }
