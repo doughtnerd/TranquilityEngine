@@ -4,41 +4,8 @@
 // `layout/store.ts` (to show its panel) before this body runs, so the layout is read again after
 // activation. A plugin that throws is rolled back by `activatePlugins`; it must not stop the editor,
 // so the rest still start.
-import { errorStatus } from "../editor/messages";
-import { reloadLayout } from "../editor/layout/store";
-import { activatePlugins, isPluginActive, type EditorPlugin } from "../editor/sdk/plugins";
-import { status } from "../editor/state";
-import { EDITOR_PLUGINS } from "./editor";
-import { RUNTIME_PLUGINS, activateRuntimePlugins } from "./runtime";
+import { applyEnabledPlugins } from "./editorApply";
 
-const report = (name: string, err: unknown) => {
-  console.error(`Plugin ${name} failed to activate`, err);
-  status.value = errorStatus(`Plugin ${name} failed to activate`, err);
-};
-
-// The runtime halves first (ADR 0135): the editor's own World draws with them (the sky), and Play uses them.
-try {
-  activateRuntimePlugins(RUNTIME_PLUGINS);
-} catch (err) {
-  report("(runtime)", err);
-}
-
-// All together, so dependencies order correctly. A failing plugin is rolled back and left out, then
-// the rest are tried again (already-active plugins are skipped).
-let remaining: readonly EditorPlugin[] = EDITOR_PLUGINS;
-while (remaining.length > 0) {
-  try {
-    activatePlugins(remaining);
-    break;
-  } catch (err) {
-    const failed = remaining.find((p) => !isPluginActive(p.manifest.name));
-    if (!failed) {
-      report("(unknown)", err);
-      break;
-    }
-    report(failed.manifest.name, err);
-    remaining = remaining.filter((p) => p !== failed);
-  }
-}
-
-reloadLayout();
+// Every plugin on: the project isn't known yet. Opening a project applies its `plugins.disabled`
+// (`session.ts`, ADR 0133).
+applyEnabledPlugins(undefined);

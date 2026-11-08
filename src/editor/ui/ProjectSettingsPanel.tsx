@@ -3,6 +3,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ANTIALIAS_MODES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
+import { pluginManifests } from "../../plugins/editorApply";
 import { reloadGraphics } from "../graphicsPreview";
 import { errorStatus } from "../messages";
 import { projectSettingsCategory } from "../preferences";
@@ -14,6 +15,7 @@ import {
   addTier,
   autoloadsOf,
   collides,
+  disabledPluginsOf,
   graphicsOf,
   layersOf,
   MAX_LAYERS,
@@ -48,10 +50,12 @@ import {
 } from "../projectSettingsModel";
 import type { EditorProject } from "../projects";
 import { currentProject, docVersion, status } from "../state";
+import { reapplyPlugins } from "../session";
 import { confirmInEditor } from "./ConfirmDialog";
 import { layerRenamesBetween, layerUsers, renameLayerReferences, type LayerKind, type LayerRename } from "../layerRename";
 import { EditHistory } from "../worldsConfig";
 import { AudioSettingsSection } from "./AudioSettingsSection";
+import { PluginsSection } from "./PluginsSection";
 import { NavSettingsSection } from "./NavSettingsSection";
 import { NumberField, TextField } from "./WorldsPanel";
 import "./projectSettings.css";
@@ -96,6 +100,7 @@ function persist(s: PanelState): void {
     if (settingsProblems(draft, s.project.files).length > 0) return;
     if (sectionsKey(draft) === sectionsKey(readDraft(s.project.settings))) return;
     const text = withSettings(s.project.textOf(PROJECT_FILE) ?? "{}\n", draft, s.project.settings);
+    const pluginsBefore = JSON.stringify(disabledPluginsOf(readDraft(s.project.settings)));
     s.saving = true;
     s.writingText = text;
     version.value++;
@@ -105,6 +110,7 @@ function persist(s: PanelState): void {
       s.savedKey = sectionsKey(draft);
       s.error = null;
       reloadGraphics(graphicsOf(draft)); // the running editor uses the new tiers
+      if (JSON.stringify(disabledPluginsOf(draft)) !== pluginsBefore) reapplyPlugins(); // plugins turned on or off take effect live (ADR 0133)
       docVersion.value++; // the toolbar shows the project's name
     } catch (err) {
       s.error = errorStatus(`Couldn't save the project settings to ${PROJECT_FILE}`, err).text;
@@ -193,7 +199,7 @@ export function ProjectSettingsPanel() {
   const draft = s.history.current;
   const editable = project.canSave;
   const problems = settingsProblems(draft, project.files);
-  const warnings = settingsWarnings(draft);
+  const warnings = settingsWarnings(draft, pluginManifests().map((m) => m.name));
   const unsaved = sectionsKey(draft) !== sectionsKey(readDraft(project.settings));
   const problemsAt = (field: string) => problems.filter((p) => p.field === field || p.field.startsWith(`${field}.`));
   const set = (label: string, next: SettingsDraft) => edit(s, label, next);
@@ -314,6 +320,10 @@ export function ProjectSettingsPanel() {
             <AudioSettingsSection draft={draft} problems={problemsAt("audio").map((p) => p.message)} set={set} />
           </Section>
 
+          <Section title="Plugins">
+            <PluginsSection draft={draft} set={set} />
+          </Section>
+
           <Section title="Autoloads">
             <Autoloads s={s} draft={draft} project={project} problems={problems} />
           </Section>
@@ -371,7 +381,7 @@ function ProblemList(props: { list: readonly string[]; label: string; warning?: 
 }
 
 /** The settings categories, in order (Unity-style list). A category's title is its id. */
-const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Audio", "Autoloads", "Build"] as const;
+const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Audio", "Plugins", "Autoloads", "Build"] as const;
 const NARROW_WIDTH = 250;
 
 /** The category a problem's field belongs to (`"render.pixelsPerUnit"` is Rendering's). */

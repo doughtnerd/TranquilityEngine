@@ -31,6 +31,7 @@ import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
 import { applyKept, endLiveInspection, takeKept, type KeptValues } from "./runtimeInspect";
 import { openSceneFile, saveOpenScene } from "./project";
+import { applyEnabledPlugins } from "../plugins/editorApply";
 import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, docVersion, editingCollider, openScene, openScenes, playState, sceneCamera, scriptProblems, scriptsVersion, select, selectedKeys, selection, setViewMode, status, viewMode, type OpenScene } from "./state";
 import type { ViewMode } from "./OrbitCamera";
@@ -117,6 +118,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   pendingReload = false;
   closeAllScripts();
   resetAssetBrowser();
+  applyEnabledPlugins(project.settings.plugins?.disabled); // before the scripts and scenes: a disabled plugin's Components are gone (ADR 0133)
   const scripts = await replaceScripts(project.scripts, jsonFiles(project), packageSourceFor(project));
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;
@@ -551,6 +553,26 @@ export async function closeProject(): Promise<void> {
   status.value = null;
 }
 
+/**
+ * The open project's `plugins.disabled` changed (the Project settings' Plugins category, ADR 0133):
+ * activate or deactivate the plugins' halves live and rebuild the open scene, so disabled Components
+ * show as missing and re-enabled ones come back. Other open scene tabs rebuild when shown. During play
+ * the running game keeps the plugins it started with; the Editor World is rebuilt on Stop.
+ */
+export function reapplyPlugins(): void {
+  const project = currentProject.value;
+  if (!project) return;
+  if (playState.value !== "edit") {
+    pendingPlugins = true;
+    status.value = { kind: "info", text: "Plugin settings changed. They apply when you stop playing." };
+    return;
+  }
+  pendingPlugins = false;
+  applyEnabledPlugins(project.settings.plugins?.disabled, { live: true });
+  openScene.value?.sync.build();
+  docVersion.value++; // panels, outlines, asset kinds and the Inspector pick up the change
+}
+
 /** Save the open scene to disk. */
 export async function save(): Promise<void> {
   const scene = openScene.value, project = currentProject.value;
@@ -632,6 +654,7 @@ export function stopPlaying(): void {
   playState.value = "edit";
   status.value = null;
   if (keptValues.length > 0) writeKeptValues(keptValues);
+  if (pendingPlugins) reapplyPlugins();
   if (pendingReload) void reloadScripts();
 }
 
@@ -689,6 +712,8 @@ export async function openScriptExternally(path: string): Promise<void> {
 
 /** Scripts changed during play mode: reload them on Stop (ADR 0030). */
 let pendingReload = false;
+/** Plugin settings changed during play mode: apply them on Stop (ADR 0133). */
+let pendingPlugins = false;
 
 /**
  * Reload the project's scripts from disk (ADR 0030): compile and load them again, unregister

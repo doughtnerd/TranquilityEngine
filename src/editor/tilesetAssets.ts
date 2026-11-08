@@ -1,11 +1,11 @@
 // Tileset assets in the editor (ADR 0103): creating `*.tileset.json` files (empty, or one tile per slice of an
-// image), reading them, and writing edits from the Inspector's tileset editor (ui/TilesetInspector.tsx) one after
-// another, each recorded in the tileset's undo history for the session.
+// image), reading them, and the slice helpers the Assets panel and the Tile Palette use. Editing goes through the
+// tileset's asset document (ADR 0134), made by the Tilemaps plugin's `tileset` format
+// (`src/plugins/tilemaps/editor/`).
 import { newTileset, parseTileset, TILESET_SUFFIX, type TileDef, type TilesetData } from "../engine/tilemap/tileset";
 import { fileName } from "./assetBrowser";
 import { readImportSettings } from "./assetImport";
 import { freePath } from "./assetOps";
-import { createGraphHistory } from "./graph/history";
 import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";
 import { currentProject, docVersion, status } from "./state";
@@ -28,63 +28,6 @@ export function readTileset(project: EditorProject, path: string): ReadTileset {
 
 /** The file text of a tileset: pretty JSON, 2-space indent. */
 export const formatTileset = (data: TilesetData): string => `${JSON.stringify(data, null, 2)}\n`;
-
-/** Each tileset's writes in progress, so quick edits apply one after another. */
-const writing = new Map<string, Promise<unknown>>();
-
-/** Write a tileset asset after the writes before it. Throws for a read-only project. */
-export function writeTileset(project: EditorProject, path: string, data: TilesetData): Promise<void> {
-  const text = formatTileset(data);
-  const run = () => project.writeText(path, text);
-  const result = (writing.get(path) ?? Promise.resolve()).then(run, run);
-  const settled = result.catch(() => undefined);
-  writing.set(path, settled);
-  void settled.then(() => writing.get(path) === settled && writing.delete(path));
-  return result;
-}
-
-const histories = createGraphHistory<TilesetData>();
-
-/** A tileset's undo history this session. */
-export const tilesetHistory = (path: string) => histories.get(path);
-
-async function save(project: EditorProject, path: string, data: TilesetData): Promise<void> {
-  try {
-    const write = writeTileset(project, path, data);
-    docVersion.value++;
-    await write;
-    docVersion.value++;
-  } catch (err) {
-    status.value = errorStatus(`Couldn't save ${fileName(path)}`, err);
-  }
-}
-
-/** Apply an edit: `next` is written, and `before` becomes the state to undo to (`record: false` skips the undo step). */
-export async function editTileset(project: EditorProject, path: string, before: TilesetData, next: TilesetData, record = true): Promise<void> {
-  if (next === before) return;
-  if (!project.canSave) {
-    status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to edit tilesets.` };
-    return;
-  }
-  if (record) histories.record(path, before);
-  await save(project, path, next);
-}
-
-/** Undo the tileset's last edit (false with nothing to undo). */
-export async function undoTileset(project: EditorProject, path: string): Promise<boolean> {
-  const prev = histories.undo(path, readTileset(project, path).tileset);
-  if (!prev) return false;
-  await save(project, path, prev);
-  return true;
-}
-
-/** Redo the tileset's last undone edit (false with nothing to redo). */
-export async function redoTileset(project: EditorProject, path: string): Promise<boolean> {
-  const next = histories.redo(path, readTileset(project, path).tileset);
-  if (!next) return false;
-  await save(project, path, next);
-  return true;
-}
 
 /** A tile's sprite reference split into its image and slice (null for a reference that isn't `asset:<image>#<slice>`). */
 export function splitSprite(sprite: string): { image: string; slice: string } | null {
@@ -134,7 +77,7 @@ export async function createTileset(folder: string, data: TilesetData = newTiles
   }
   const path = freePath(project, folder, `${name}${TILESET_SUFFIX}`);
   try {
-    await writeTileset(project, path, data);
+    await project.writeText(path, formatTileset(data));
   } catch (err) {
     status.value = errorStatus(`Couldn't create ${path}`, err);
     return null;

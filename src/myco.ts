@@ -42,6 +42,27 @@ export {
   type SkyPresetId,
 } from "./plugins/sky/runtime";
 
+// The Tilemaps plugin (ADR 0103, 0135).
+export {
+  Tilemap,
+  TilemapChanges,
+  FLIP_DIAGONAL,
+  FLIP_X,
+  FLIP_Y,
+  type TileChange,
+  type TilemapLayerData,
+  type TerrainDef,
+  type TileCollision,
+  type TileDef,
+  type TilePattern,
+  type TilePolygon,
+  type TilesetData,
+  type TileCollisionMode,
+} from "./plugins/tilemaps/runtime";
+
+// The Particles plugin (ADR 0057, 0060, 0135).
+export { ParticleSystem, type ParticlePropertyValue } from "./plugins/particles/runtime";
+
 // The Physics 2D plugin (ADR 0005, 0105, 0135).
 export {
   RigidBody2D,

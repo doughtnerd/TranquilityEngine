@@ -37,16 +37,12 @@ export { Assets, type AssetSource } from "./scene/Assets";
 export type { ImportPlatform, ImportSettings, PlatformOverrides, TextureCompression, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
-export { Camera, Environment, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type FogMode, type LightType, type MaterialPropertyValue, type ParticlePropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";
+// ParticleSystem (and ParticlePropertyValue) are the Particles plugin's public exports (`src/myco.ts`, ADR 0135).
+export { Camera, Environment, Fog, Light, MeshRenderer, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type FogMode, type LightType, type MaterialPropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";
 export { Material, type MaterialValue } from "./render/Material";
 export { Water, WaterSurface, type WaterSample } from "./render/water/WaterSurface";
 export type { WaterWave } from "./render/water/gerstner";
 export { CUBEMAP_FORMAT, parseCubemap, formatCubemap, type CubemapFaces, type CubeFace } from "./sky/cubemapFormat";
-
-export { Tilemap, TilemapChanges, type TileChange } from "./tilemap/Tilemap";
-export { FLIP_DIAGONAL, FLIP_X, FLIP_Y, type TilemapLayerData } from "./tilemap/format";
-export type { TerrainDef, TileCollision, TileDef, TilePattern, TilePolygon, TilesetData } from "./tilemap/tileset";
-export type { TileCollisionMode } from "./tilemap/collision";
 
 export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 

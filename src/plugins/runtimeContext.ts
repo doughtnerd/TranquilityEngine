@@ -57,10 +57,21 @@ const disabled = new Map<string, Array<() => void>>();
 /** Each claimed class's id, kept while it's unregistered so it can be registered again. */
 const claimedIds = new WeakMap<ComponentClass, string>();
 
-function idOf(cls: ComponentClass): string {
+/** Component type id → the plugin that claims it, kept while the plugin is disabled too (for "missing (plugin X is disabled)"). */
+const componentPlugins = new Map<string, string>();
+
+/** The name of the plugin whose runtime half claims the Component `id` (once that half has run), if any. */
+/** Manifests of the runtime halves that have run (active or disabled), by name. */
+const manifests = new Map<string, PluginManifest>();
+export const runtimePluginManifest = (name: string): PluginManifest | undefined => manifests.get(name);
+
+export const pluginOfComponent = (id: string): string | undefined => componentPlugins.get(id);
+
+function idOf(cls: ComponentClass, plugin: string): string {
   const id = getComponentId(cls) ?? claimedIds.get(cls);
   if (id === undefined) throw new Error(`registerComponents: ${cls.name || "a class"} isn't a registered Component (decorate it with @component).`);
   claimedIds.set(cls, id);
+  componentPlugins.set(id, plugin);
   return id;
 }
 
@@ -89,6 +100,7 @@ export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], option
   for (const plugin of orderPlugins(plugins)) {
     const name = plugin.manifest.name;
     if (active.has(name)) continue;
+    manifests.set(name, plugin.manifest);
     const on = (!enabled || enabled.has(name)) && !(options.server && plugin.manifest.server === false);
     if (!on) {
       if (disabled.has(name)) continue;
@@ -96,7 +108,7 @@ export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], option
       const undo: Array<() => void> = [];
       disabled.set(name, undo);
       plugin.activate({
-        registerComponents: (classes) => void classes.forEach((cls) => undo.push(unclaim(cls, idOf(cls)))),
+        registerComponents: (classes) => void classes.forEach((cls) => undo.push(unclaim(cls, idOf(cls, name)))),
         registerSystems: () => {},
         registerEngineSystems: () => {},
         registerWorldService: () => {},
@@ -110,7 +122,7 @@ export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], option
     active.set(name, undo);
     const context: RuntimePluginContext = {
       registerComponents: (classes) => {
-        for (const cls of classes) undo.push(claim(cls, idOf(cls)));
+        for (const cls of classes) undo.push(claim(cls, idOf(cls, name)));
       },
       registerSystems: (defs) => {
         for (const def of defs) {
@@ -137,6 +149,16 @@ export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], option
       throw err;
     }
   }
+}
+
+/**
+ * Make exactly `enabled` active: the others are deactivated (dependents first), then the rest
+ * activate. For hosts that apply a project's plugin settings to an already-running set (the editor).
+ */
+export function syncRuntimePlugins(plugins: readonly RuntimePlugin[], enabled: Iterable<string>, options: Omit<ActivateOptions, "enabled"> = {}): void {
+  const on = new Set(enabled);
+  for (const plugin of orderPlugins(plugins).reverse()) if (!on.has(plugin.manifest.name)) deactivateRuntimePlugin(plugin.manifest.name);
+  activateRuntimePlugins(plugins, { ...options, enabled: on });
 }
 
 /**

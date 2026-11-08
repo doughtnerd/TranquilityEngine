@@ -3,6 +3,8 @@ import type { PluginManifest } from "../manifest";
 
 export const skyManifest: PluginManifest = {
   name: "myco.sky",
+  title: "Sky",
+  description: "Procedural sky assets and the Sky component.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
   // Drawing only: the dedicated server skips it.

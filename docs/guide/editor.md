@@ -57,6 +57,12 @@ Panels load the first time they show (ADR 0083): the ones your layout shows load
 - **Reset Layout** (Window menu) puts every panel back where it started and expands every dock.
 - **Layouts are saved** in the browser's or app's local storage (`myco.editor.layout`), collapsed docks included. If storage is blocked, the layout just isn't remembered.
 
+## Project settings: Plugins
+
+The **Plugins** category of the Project panel lists the first-party plugins (Materials, Sky, Physics 2D, Physics 3D, Navigation, and the others that ship with the editor) with a checkbox each. A plugin that is off is not loaded by the editor, by Play, by the exported game or by the dedicated server: its components are unregistered and its asset kinds and panels are gone. Nothing is deleted. Scenes show its components as `missing (plugin Sky is disabled)` with their data kept, its files show as generic assets, and everything comes back when you turn it on again.
+
+Only what is off is saved, as `"plugins": { "disabled": ["myco.sky"] }` in `project.json`, so projects made before a plugin existed get it switched on, and a name that no plugin has only produces a warning. Plugins that need a plugin you turn off turn off with it (the editor lists them and asks first); turning a plugin on turns on the ones it needs. The change applies at once to the open scene; other open scene tabs update when you switch to them, and during Play it applies when you stop.
+
 ## Asset previews
 
 The Assets panel shows tiles (or rows, in list view). Tiles that scroll into view get a picture; tiles out of view ask for nothing.

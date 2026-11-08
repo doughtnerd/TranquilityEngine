@@ -2,9 +2,9 @@
  * Render feature adapters for the Babylon backend (ADR 0130): each wraps one existing module as a
  * `BabylonFeature`, and each has its spec constant (name, phase, the Components it owns, lazy or not).
  *
- * The lazy features, water and particles, live in `waterFeature.ts` and `particlesFeature.ts`; this file
- * only holds their specs and must not import `water.ts` or `particles.ts`, so a game without them never
- * downloads them (ADR 0083).
+ * The lazy water feature lives in `waterFeature.ts`; this file only holds its spec and must not import
+ * `water.ts`, so a game without water never downloads it (ADR 0083). Particles are the Particles
+ * plugin's feature (`src/plugins/particles/runtime/`), loaded the same way, and must not be imported here.
  *
  * Order inside the `lighting` phase matters, and the specs' `after` constraints say it (ADR 0135): sky,
  * then lights, then fog, then environment. The sky (the Sky plugin's feature, `src/plugins/sky/runtime/`)
@@ -16,7 +16,7 @@ import type { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js"
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
 import { Tilemap } from "../../tilemap/Tilemap";
-import { Light, ParticleSystem, ReflectionProbe, Fog } from "../components";
+import { Light, ReflectionProbe, Fog } from "../components";
 import type { RenderFeatureSpec } from "../renderFeatures";
 import { WaterSurface } from "../water/WaterSurface";
 import type { BabylonFeature, FeatureState, FeatureSyncContext } from "./feature";
@@ -36,7 +36,6 @@ export const ENVIRONMENT_SPEC: RenderFeatureSpec = { name: "environment", phase:
 export const PROBES_SPEC: RenderFeatureSpec = { name: "probes", phase: "capture", types: [ReflectionProbe], lazy: false };
 /** Holds the first frame while it loads, so a World that starts with water shows it from frame one (ADR 0120). */
 export const WATER_SPEC: RenderFeatureSpec = { name: "water", phase: "surfaces", types: [WaterSurface], lazy: true, holdsFirstFrame: true };
-export const PARTICLES_SPEC: RenderFeatureSpec = { name: "particles", phase: "effects", types: [ParticleSystem], lazy: true, holdsFirstFrame: false };
 
 // --- Adapters -------------------------------------------------------------------------------------
 

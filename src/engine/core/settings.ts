@@ -56,6 +56,39 @@ export interface ProjectSettings {
   autoload: string[];
   /** Which Worlds the Engine creates at start (ADR 0032). Omitted: the default bootstrap, one World. */
   bootstrap?: BootstrapSetting;
+  /**
+   * Per-project plugin enabling (ADR 0133): only what's off is stored, so new first-party plugins default on.
+   * A plugin is also off when one it depends on is. Names are read by the hosts (`resolveEnabledPlugins`).
+   */
+  plugins?: PluginSettings;
+}
+
+/** `project.json`'s `plugins` section. */
+export interface PluginSettings {
+  disabled?: string[];
+}
+
+/**
+ * Everything wrong with a `plugins` section, as readable sentences: `problems` are malformed values,
+ * `warnings` are names in `disabled` that aren't among `known` (checked only when `known` is given: the
+ * engine doesn't know the plugins, ADR 0010; a removed plugin must not stop a project from loading).
+ */
+export function pluginSettingsProblems(input: unknown, known?: readonly string[]): { problems: string[]; warnings: string[] } {
+  const problems: string[] = [];
+  const warnings: string[] = [];
+  if (input === undefined) return { problems, warnings };
+  if (!isRecord(input)) return { problems: [`plugins must be an object with a disabled list (got ${describe(input)}).`], warnings };
+  unknownKeys(input, ["disabled"], "plugins", problems);
+  const list = input.disabled;
+  if (list === undefined) return { problems, warnings };
+  if (!isStringList(list)) return { problems: [...problems, `plugins.disabled must be a list of plugin names (got ${describe(list)}).`], warnings };
+  const seen = new Set<string>();
+  for (const name of list) {
+    if (seen.has(name)) problems.push(`plugins.disabled lists "${name}" twice.`);
+    seen.add(name);
+    if (known && !known.includes(name)) warnings.push(`plugins.disabled names "${name}", which isn't a known plugin; it is ignored.`);
+  }
+  return { problems, warnings };
 }
 
 export type ProjectSettingsInput = {
@@ -93,6 +126,7 @@ export function resolveSettings(input: ProjectSettingsInput = {}): ProjectSettin
     audio: parseAudioSettings(input.audio).settings, // problems are reported by the Engine and the Project panel
     autoload: input.autoload ?? [],
     ...(input.bootstrap !== undefined ? { bootstrap: input.bootstrap } : {}), // checked by validateBootstrap when the bootstrap runs
+    ...(input.plugins !== undefined ? { plugins: input.plugins } : {}), // read by the hosts; checked by pluginSettingsProblems
   };
 }
 

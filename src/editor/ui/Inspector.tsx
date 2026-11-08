@@ -21,7 +21,9 @@ import {
 } from "../inspectorEdits";
 import "./inspector-fields.css";
 import {
+  disabledPluginOf,
   inFileOrder,
+  missingBadge,
   moveComponent,
   removeComponentFrom,
   removeMissingComponent,
@@ -288,7 +290,7 @@ function MissingComponents(props: { scene: OpenScene; path: NodePath }) {
             <h3>
               <span class="missing-mark" aria-hidden="true">⚠</span>
               {name}
-              <span class="badge">missing script</span>
+              <span class="badge">{missingBadge(entry.type)}</span>
               <button
                 class="remove-component"
                 aria-label={`Remove ${name}`}
@@ -300,8 +302,16 @@ function MissingComponents(props: { scene: OpenScene; path: NodePath }) {
               </button>
             </h3>
             <p class="missing-note">
+              {disabledPluginOf(entry.type) !== null ? (
+                <>
+                  The plugin {disabledPluginOf(entry.type)} is disabled in Project settings, so <code>{entry.type}</code> isn't available. Its data stays in the scene, and it comes back when the plugin is enabled.
+                </>
+              ) : (
+                <>
               No script registers <code>{entry.type}</code>: it was deleted or renamed, or it didn't load. Its data stays in the scene, and it comes back
               when the script does.
+                </>
+              )}
             </p>
           </section>
         );

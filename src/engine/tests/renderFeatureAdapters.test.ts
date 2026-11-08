@@ -8,7 +8,8 @@ import { Assets, Engine, Fog, GameObject, Graphics, Light, ReflectionProbe, Scen
 import { Tilemap } from "../tilemap/Tilemap";
 import { ParticleSystem } from "../render/components";
 import { WaterSurface } from "../render/water/WaterSurface";
-import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, LightsFeature, EnvironmentFeature, PARTICLES_SPEC, PROBES_SPEC, ProbesFeature, TILEMAPS_SPEC, WATER_SPEC } from "../render/babylon/features";
+import { PARTICLES_SPEC } from "../../plugins/particles/runtime";
+import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, LightsFeature, EnvironmentFeature, PROBES_SPEC, ProbesFeature, TILEMAPS_SPEC, WATER_SPEC } from "../render/babylon/features";
 import type { FeatureSyncContext } from "../render/babylon/feature";
 import { FogFeature } from "../render/babylon/fog";
 import { BabylonLighting } from "../render/babylon/lighting";

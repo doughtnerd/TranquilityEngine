@@ -11,7 +11,7 @@ import type { World } from "../engine/core/World";
 import { listenWorld, netSession, setDefaultListenOptions, type NetPeer } from "../engine/net/session";
 import { loadProjectScripts, readProject, scriptExports, ServerError, type ServerProject } from "./project";
 import { parseListenAddress } from "./websocketServer";
-import { activateRuntimePlugins, RUNTIME_PLUGINS } from "../plugins/runtime";
+import { activateRuntimePlugins, enabledRuntimePlugins, RUNTIME_PLUGINS } from "../plugins/runtime";
 
 export { ServerError } from "./project";
 
@@ -72,7 +72,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   let engine: Engine;
   try {
     // First-party runtime halves (ADR 0135), skipping drawing-only ones (`server: false`).
-    activateRuntimePlugins(RUNTIME_PLUGINS, { server: true });
+    activateRuntimePlugins(RUNTIME_PLUGINS, { server: true, enabled: enabledRuntimePlugins(project.settings.plugins?.disabled) }); // and the project's disabled ones (ADR 0133)
     engine = await Engine.create({ headless: true, project: project.settings, bootstrap: plan.bootstrap });
   } catch (err) {
     Assets.removeSource(project.assets);

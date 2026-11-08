@@ -12,6 +12,8 @@ import { currentProject, docVersion, status } from "./state";
 export interface EditOptions {
   /** Merge with the previous coalesced edit into one undo step, and write after the format's writeDelay (default 150 ms) of quiet. For sliders and drags. */
   coalesce?: boolean;
+  /** False: a view change (a collapsed frame) that's written but makes no undo step and leaves the history as it is. */
+  history?: false;
 }
 
 export interface AssetDocument<T> {
@@ -104,7 +106,7 @@ class Document<T> implements AssetDocument<T> {
     this.endBurst();
     const before = this.value.peek();
     if (this.format.format(next) === this.format.format(before)) return;
-    this.record(before);
+    if (options.history !== false) this.record(before);
     this.replace(next);
   }
 

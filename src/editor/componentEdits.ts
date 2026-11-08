@@ -5,6 +5,8 @@
 // Each edit is one undo step, across every selected node. Reordering moves entries in a plain
 // node's list (data components too); on an instance it's an `order` override (ADR 0029) of its
 // scripts and engine components.
+import { pluginTitle } from "../plugins/manifest";
+import { isRuntimePluginActive, pluginOfComponent, runtimePluginManifest } from "../plugins/runtimeContext";
 import { Assets, type GameObject } from "../engine";
 import { componentCatalog, type ComponentInfo, isDataComponent, isEditableComponent, listComponents, meshLocalBounds, viewport } from "../engine/editor";
 import { isScenePath } from "../engine/scene/SceneLoader";
@@ -278,6 +280,23 @@ export function moveComponent(scene: OpenScene, path: NodePath, node: GameObject
   stack.execute(new SetOverrides(id, "Reorder components", list));
   return true;
 }
+
+/**
+ * The title of the disabled plugin the Component `type` belongs to (ADR 0133), or null when no
+ * disabled plugin claims it (its script is gone instead, ADR 0030).
+ */
+export function disabledPluginOf(type: string): string | null {
+  const name = pluginOfComponent(type);
+  if (name === undefined || isRuntimePluginActive(name)) return null;
+  const manifest = runtimePluginManifest(name);
+  return manifest ? pluginTitle(manifest) : name;
+}
+
+/** The badge on a missing Component's card: "missing script", or which disabled plugin it is missing with. */
+export const missingBadge = (type: string): string => {
+  const plugin = disabledPluginOf(type);
+  return plugin === null ? "missing script" : `missing (plugin ${plugin} is disabled)`;
+};
 
 /**
  * Why the `k`-th missing component of `type` on the node at `path` (one whose script is gone,

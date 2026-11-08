@@ -3,8 +3,7 @@ import { defaultImportSettings, formatImportSettings, sidecarPath } from "../eng
 import { assetKind } from "./assetBrowser";
 import { blockStamp } from "./tilemap/palette";
 import { joinPath, openFolderProject } from "./projects";
-import { formatTileset, readTileset, splitSprite, tilesetFromSlices, tilesForSlices, writeTileset } from "./tilesetAssets";
-import { parsePolygon } from "./ui/TilesetInspector";
+import { formatTileset, readTileset, splitSprite, tilesetFromSlices, tilesForSlices } from "./tilesetAssets";
 import { MemoryFileSystem, ROOT } from "./testing";
 
 async function projectWithSlices(rects: [number, number, number, number][]) {
@@ -51,7 +50,7 @@ describe("tileset assets (ADR 0103)", () => {
   it("writes pretty JSON that reads back", async () => {
     const { fs, project } = await projectWithSlices([[0, 0, 8, 8]]);
     const data = tilesetFromSlices("images/t.png", project);
-    await writeTileset(project, "a.tileset.json", data);
+    await project.writeText("a.tileset.json", formatTileset(data));
     expect(fs.files.get(joinPath(ROOT, "a.tileset.json"))).toBe(formatTileset(data));
     expect(formatTileset(data)).toContain('\n  "tileSize"');
     expect(readTileset(project, "a.tileset.json").tileset.tiles).toHaveLength(1);
@@ -60,12 +59,6 @@ describe("tileset assets (ADR 0103)", () => {
   it("splits sprite references", () => {
     expect(splitSprite("asset:images/t.png#grass")).toEqual({ image: "images/t.png", slice: "grass" });
     expect(splitSprite("asset:images/t.png")).toBeNull();
-  });
-
-  it("parses polygon points", () => {
-    expect(parsePolygon("0,0 1,0 1,1")).toEqual([[0, 0], [1, 0], [1, 1]]);
-    expect(parsePolygon("0,0 1,0")).toBeNull();
-    expect(parsePolygon("0,0 a,b 1,1")).toBeNull();
   });
 
   it("lays a dragged block out with the bottom row first", () => {

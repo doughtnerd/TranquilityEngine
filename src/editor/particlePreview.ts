@@ -1,7 +1,8 @@
 // The scene view's particle preview (ADR 0057): with a ParticleSystem node selected in edit mode, its
 // effect plays in the scene view, steered by a small overlay (ui/ParticlePreviewOverlay.tsx).
 import { computed, effect, signal } from "@preact/signals";
-import { ParticleSystem, type Engine, type GameObject } from "../engine";
+import type { Engine, GameObject } from "../engine";
+import { ParticleSystem } from "../engine/render/components";
 import { renderDiagnostics, viewport } from "../engine/editor";
 import { docVersion, playState, selectedWorldNode } from "./state";
 

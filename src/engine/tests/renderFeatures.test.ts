@@ -4,11 +4,12 @@ import { Component } from "../core/Component";
 import type { World } from "../core/World";
 import { SYNC_PHASES, byPhase, ownerOf, specNeeded, type RenderFeatureSpec } from "../render/renderFeatures";
 import { eagerFeature, lazyFeature, type BabylonFeature } from "../render/babylon/feature";
-import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, PARTICLES_SPEC, PROBES_SPEC, TILEMAPS_SPEC, WATER_SPEC } from "../render/babylon/features";
+import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, PROBES_SPEC, TILEMAPS_SPEC, WATER_SPEC } from "../render/babylon/features";
 import { MESHES_SPEC } from "../render/babylon/meshes";
 import { SPRITES_SPEC } from "../render/babylon/sprites";
 import { UI_SPEC } from "../render/babylon/uiSpec";
 import { SKY_SPEC } from "../../plugins/sky/runtime";
+import { PARTICLES_SPEC } from "../../plugins/particles/runtime";
 
 class A extends Component {}
 class B extends Component {}

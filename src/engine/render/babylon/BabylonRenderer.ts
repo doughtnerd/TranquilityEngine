@@ -55,17 +55,16 @@ import { GAME_POLICY, type RenderPolicy } from "../renderPolicy";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
-import { BabylonTilemaps } from "./tilemaps";
 import { BabylonMaterialLibrary } from "./materialLibrary";
-import { eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type FeatureSlot, type FeatureSyncContext } from "./feature";
+import { eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type FeatureSlot, type FeatureSyncContext, type ParticlesFeatureApi } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonSprites, SPRITES_SPEC } from "./sprites";
 import { BabylonMeshes, MESHES_SPEC } from "./meshes";
-import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PARTICLES_SPEC, PROBES_SPEC, ProbesFeature, TILEMAPS_SPEC, TilemapsFeature, WATER_SPEC } from "./features";
+import { BabylonTilemaps } from "./tilemaps";
+import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PROBES_SPEC, ProbesFeature, TILEMAPS_SPEC, TilemapsFeature, WATER_SPEC } from "./features";
 import { FogFeature } from "./fog";
 import { UI_SPEC } from "./uiSpec";
 import type { BabylonUIFeature, BabylonUIHost } from "./uiFeature";
-import type { ParticlesFeature } from "./particlesFeature";
 import type { WaterFeature } from "./waterFeature";
 import type { BabylonParticleHost } from "./particles";
 import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
@@ -169,8 +168,7 @@ export class BabylonRenderer {
   private readonly probes: BabylonProbes;
   /** Render texture assets cameras draw into (ADR 0109). */
   private readonly renderTextures: BabylonRenderTextures;
-  /** Particle effects (stage 5), water (ADR 0072) and game UI (stage 9), loaded the first time a World has one (ADR 0083). */
-  private readonly particles: FeatureSlot<ParticlesFeature>;
+  /** Water (ADR 0072) and game UI (stage 9), loaded the first time a World has one (ADR 0083). Particles are a plugin's feature (`particles()`). */
   private readonly water: FeatureSlot<WaterFeature>;
   private readonly ui: FeatureSlot<BabylonUIFeature>;
   /** Every render feature, in registration order (ADR 0130): the built-ins, then plugins' (ADR 0135). */
@@ -272,7 +270,6 @@ export class BabylonRenderer {
     });
     this.lights = new LightsFeature(this.lighting);
     this.fog = new FogFeature({ scene, setSkyFog: (amount) => this.lighting.setSkyFog(amount) });
-    this.particles = lazyFeature(PARTICLES_SPEC, (cancelled) => import("./particlesFeature").then((m) => (cancelled() ? null : new m.ParticlesFeature(this.particleHost(), () => this.particlePreview))));
     this.water = lazyFeature(WATER_SPEC, (cancelled) => import("./waterFeature").then((m) => (cancelled() ? null : new m.WaterFeature(scene, (x, y, z) => this.probes.lookup(x, y, z)))));
     this.ui = lazyFeature(UI_SPEC, (cancelled) => import("./uiFeature").then((m) => (cancelled() ? null : m.BabylonUIFeature.create(this.uiHost()))));
     // Order inside a phase is registration order adjusted by the specs' `after` constraints (ADR 0130,
@@ -286,7 +283,6 @@ export class BabylonRenderer {
       eagerFeature(LIGHTS_SPEC, this.lights),
       eagerFeature(FOG_SPEC, this.fog),
       eagerFeature(ENVIRONMENT_SPEC, new EnvironmentFeature(this.lighting)),
-      this.particles,
       eagerFeature(PROBES_SPEC, new ProbesFeature(this.probes, { reflecting: () => this.reflecting })),
       this.water,
       this.ui,
@@ -327,7 +323,8 @@ export class BabylonRenderer {
     // Each lazy feature builds its own warm items once it has loaded (ADR 0130); asking loads it.
     for (const e of set.effects) {
       const name = `${WARM_PREFIX}particles:${typeof e === "string" ? e : "embedded"}`;
-      items.push(this.deferredWarm(this.particles, { meshes: [], effects: [e], worldUI: false }, typeof e === "string" ? name : `${name}:${JSON.stringify(e)}`));
+      const particles = this.particlesSlot();
+      if (particles) items.push(this.deferredWarm(particles, { meshes: [], effects: [e], worldUI: false }, typeof e === "string" ? name : `${name}:${JSON.stringify(e)}`));
     }
     if (set.worldUI) items.push(this.warmWorldCanvas());
     const done = this.warmer.add(items);
@@ -399,7 +396,7 @@ export class BabylonRenderer {
     };
     const owner = this.meshes.ownerOf(drawn as AbstractMesh);
     if (owner) return of(owner.node, `"${owner.node.name}"`);
-    const system = this.particles.feature?.particles.ownerOf(drawn);
+    const system = this.particles()?.ownerOf(drawn);
     if (system) return of(system.node, `The particle effect of "${system.node.name}"`, system.effect ? system.effect.replace(/^asset:/, "") : undefined);
     if (drawn.name.startsWith(CANVAS_PREFIX)) return { what: `The world-space UI canvas "${drawn.name.slice(CANVAS_PREFIX.length)}"` };
     return null;
@@ -573,6 +570,8 @@ export class BabylonRenderer {
       materials: this.materials,
       probeLookup: (x, y, z) => this.probes.lookup(x, y, z),
       warnOnce: (key, message) => this.warnOnce(key, message),
+      particleHost: () => this.particleHost(),
+      particlePreview: () => this.particlePreview,
     };
   }
 
@@ -717,6 +716,16 @@ export class BabylonRenderer {
 
   // --- Particles (ADR 0057, 0060; stage 5) -------------------------------------------------------
 
+  /** The particles feature's slot (the Particles plugin registers it, ADR 0135), or null without the plugin. */
+  private particlesSlot(): FeatureSlot | null {
+    return this.slots.find((s) => s.spec.name === "particles") ?? null;
+  }
+
+  /** The particles feature once loaded, or null. */
+  private particles(): ParticlesFeatureApi | null {
+    return (this.particlesSlot()?.feature as ParticlesFeatureApi | null | undefined) ?? null;
+  }
+
   /** The particle player's host (ADR 0130's model). */
   private particleHost(): BabylonParticleHost {
     return {
@@ -740,11 +749,11 @@ export class BabylonRenderer {
 
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
     Object.assign(this.particlePreview, preview);
-    this.particles.feature?.setPreview(preview);
+    this.particles()?.setPreview(preview);
   }
 
   restartParticlePreview(): void {
-    this.particles.feature?.restartAll();
+    this.particles()?.restartAll();
   }
 
   /** Editor (ADR 0110): a probe's current capture as a prefiltered `.env` file. */

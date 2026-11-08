@@ -1,14 +1,14 @@
 // The Project panel's model (ADR 0038): the parts of `project.json` beyond the bootstrap (name,
 // display, time, physics, render, autoloads) as a draft, edited by pure functions, checked, and
 // written back into the file's text one top-level key at a time so the rest keeps its layout.
-import { defaultSettings, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
+import { defaultSettings, pluginSettingsProblems, SCALE_MODES, type ProjectSettings, type ProjectSettingsInput } from "../engine/core/settings";
 import { defaultTier, parseGraphics, PLATFORMS, type GraphicsSettings, type Platform, type PlatformDefaults, type QualityTier } from "../engine/core/graphics";
 import { parseAudioSettings } from "../engine/audio/settings";
 import { parseNavigationSettings } from "../engine/nav/settings";
 import { uniqueName, withMember } from "./worldsConfig";
 
 /** The top-level keys the Project panel edits (the Worlds panel edits `bootstrap`). */
-export const SETTINGS_SECTIONS = ["name", "display", "time", "physics", "render", "autoload", "graphics", "navigation", "audio", "build"] as const;
+export const SETTINGS_SECTIONS = ["name", "display", "time", "physics", "render", "autoload", "graphics", "navigation", "audio", "plugins", "build"] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 /** The panel's sections of `project.json`, as written (missing values fall back to the engine's defaults). */
@@ -25,6 +25,8 @@ export interface SettingsDraft {
   navigation?: Record<string, unknown>;
   /** Audio mixer buses, snapshots, ducking and backend (ADR 0097): as written; read leniently by `parseAudioSettings`. */
   audio?: Record<string, unknown>;
+  /** Per-project plugin enabling (ADR 0133): only the plugins that are off. */
+  plugins?: { disabled?: string[] } & Record<string, unknown>;
   /** Game export settings (ADR 0041), read by the exporter; other keys in it are kept. */
   build?: { icon?: string; identifier?: string; version?: string } & Record<string, unknown>;
 }
@@ -383,6 +385,8 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
   for (const message of parseNavigationSettings(draft.navigation).problems) p("navigation", message);
   for (const message of parseAudioSettings(draft.audio).problems) p("audio", message);
 
+  for (const message of pluginSettingsProblems(draft.plugins).problems) p("plugins", message);
+
   // The export's own checks (src/export/desktop.ts), so a bad value shows here rather than at export.
   const build = draft.build ?? {};
   if (build.identifier !== undefined && !(typeof build.identifier === "string" && /^[A-Za-z][\w-]*(\.[A-Za-z][\w-]*)+$/.test(build.identifier))) {
@@ -397,8 +401,21 @@ export function settingsProblems(draft: SettingsDraft, files?: readonly string[]
 }
 
 /** Notes that don't stop a save: things that work but are probably unintended. */
-export function settingsWarnings(draft: SettingsDraft): string[] {
+export function settingsWarnings(draft: SettingsDraft, knownPlugins?: readonly string[]): string[] {
   const out: string[] = [];
+  out.push(...pluginSettingsProblems(draft.plugins, knownPlugins).warnings);
   if (!sortingLayersOf(draft).includes("Default")) out.push('There\'s no "Default" sorting layer, which sprites use unless they name another.');
   return out;
+}
+
+// --- plugins ----------------------------------------------------------------------------------------
+
+/** The plugins listed as off (what's stored; dependents are implied by `resolveEnabledPlugins`). */
+export const disabledPluginsOf = (d: SettingsDraft): string[] => (Array.isArray(d.plugins?.disabled) ? d.plugins.disabled.filter((n) => typeof n === "string") : []);
+
+/** Set the list of plugins that are off; an empty list removes the section, so the defaults apply. */
+export function setDisabledPlugins(draft: SettingsDraft, disabled: readonly string[]): SettingsDraft {
+  const { disabled: _old, ...rest } = draft.plugins ?? {};
+  const next = disabled.length > 0 ? { ...rest, disabled: [...disabled] } : rest;
+  return { ...draft, plugins: Object.keys(next).length > 0 ? next : undefined };
 }

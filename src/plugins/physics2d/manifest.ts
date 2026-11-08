@@ -5,6 +5,8 @@ import type { PluginManifest } from "../manifest";
 
 export const physics2dManifest: PluginManifest = {
   name: "myco.physics2d",
+  title: "Physics 2D",
+  description: "2D bodies, colliders, joints and the character controller (Rapier).",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
 };

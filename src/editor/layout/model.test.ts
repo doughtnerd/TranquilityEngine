@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { materialsEditorPlugin } from "../../plugins/materials/editor";
+import { particlesEditorPlugin } from "../../plugins/particles/editor";
 import { skyEditorPlugin } from "../../plugins/sky/editor";
 import { activatePlugins, deactivatePlugin } from "../sdk/plugins";
 import {
@@ -26,9 +27,13 @@ import {
 } from "./model";
 import { panels, type PanelContribution } from "../sdk/contributions";
 
-// The Shader Graph panel is the Materials plugin's (ADR 0134); the editor activates it before any layout loads.
-beforeEach(() => activatePlugins([materialsEditorPlugin]));
-afterEach(() => deactivatePlugin(materialsEditorPlugin.manifest.name));
+// The Shader Graph panel is the Materials plugin's and the Particle Graph the Particles plugin's (ADR 0134);
+// the editor activates them (in EDITOR_PLUGINS' order) before any layout loads.
+beforeEach(() => activatePlugins([particlesEditorPlugin, materialsEditorPlugin]));
+afterEach(() => {
+  deactivatePlugin(materialsEditorPlugin.manifest.name);
+  deactivatePlugin(particlesEditorPlugin.manifest.name);
+});
 
 const bounds = { x: 0, y: 0, w: 1200, h: 800 };
 const sides = (l: Layout) => l.docks.map((d) => `${d.side}:${d.groups.map((g) => g.panels.join("+")).join("|")}`);

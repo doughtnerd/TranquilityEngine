@@ -4,6 +4,8 @@ import type { PluginManifest } from "../manifest";
 
 export const materialsManifest: PluginManifest = {
   name: "myco.materials",
+  title: "Materials",
+  description: "Materials, shader graphs and sub-graphs, and their editors.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
   // Drawing only: the dedicated server skips it.

@@ -13,14 +13,14 @@
 
 import { panels as panelRegistry } from "../sdk/contributions";
 
-export type BuiltinPanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "particlegraph" | "tilepalette";
+export type BuiltinPanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "tilepalette";
 /** A built-in panel's id, or the id of a panel a plugin registered (ADR 0133). */
 export type PanelId = BuiltinPanelId | (string & {});
 export type Side = "left" | "right" | "bottom";
 
 /** The built-in panels (registered ones: `allPanels()`). */
-export const PANELS: readonly BuiltinPanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "particlegraph", "tilepalette"];
-export const PANEL_TITLES: Record<BuiltinPanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", particlegraph: "Particle Graph", tilepalette: "Tile Palette" };
+export const PANELS: readonly BuiltinPanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "tilepalette"];
+export const PANEL_TITLES: Record<BuiltinPanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", tilepalette: "Tile Palette" };
 
 /** Every panel: the built-in ones, then those plugins registered. Reads the registry's version, so a component calling it re-renders on changes. */
 export function allPanels(): PanelId[] {
@@ -111,7 +111,7 @@ const newId = (prefix: string) => `${prefix}${Date.now().toString(36)}-${nextId+
 export const ON_DEMAND_PANELS: readonly BuiltinPanelId[] = [];
 
 /** Where a panel missing from a layout goes: beside its usual neighbour, else with the Inspector, else the first group. */
-const BESIDE: Partial<Record<BuiltinPanelId, BuiltinPanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", particlegraph: "scene", tilepalette: "assets" };
+const BESIDE: Partial<Record<BuiltinPanelId, BuiltinPanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", tilepalette: "assets" };
 /** The group holding `panel`'s neighbour, else its neighbour's neighbour and so on (the Sky panel → Particle Graph → Scene), else the Inspector's, else the first. */
 function groupFor(layout: Layout, panel: PanelId): TabGroup {
   const groups = layout.docks.flatMap((d) => d.groups);
@@ -149,7 +149,7 @@ function builtinDefaultLayout(): Layout {
       { id: "left", side: "left", size: DEFAULT_SIZE.left, groups: [{ id: "hierarchy", panels: ["hierarchy"], active: "hierarchy" }], fractions: [1] },
       { id: "right", side: "right", size: DEFAULT_SIZE.right, groups: [{ id: "inspector", panels: ["inspector", "history", "worlds", "network", "project"], active: "inspector" }], fractions: [1] },
       // Innermost: fills the middle.
-      { id: "main", side: "left", size: 0, groups: [{ id: "scene", panels: ["scene", "particlegraph"], active: "scene" }], fractions: [1] },
+      { id: "main", side: "left", size: 0, groups: [{ id: "scene", panels: ["scene"], active: "scene" }], fractions: [1] },
     ],
   };
 }

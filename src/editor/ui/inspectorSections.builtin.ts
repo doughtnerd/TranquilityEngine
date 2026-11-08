@@ -2,8 +2,7 @@
 // module loads the first time a component that has one is inspected (ADR 0083).
 import { registerInspectorSection } from "./inspectorSections";
 
-// A ParticleSystem's effect is edited below its fields, not as raw JSON (ADR 0057).
-registerInspectorSection("engine.ParticleSystem", () => import("./ParticleInspector").then((m) => m.ParticleSystemSection), { single: true });
+// (The ParticleSystem's section is the Particles plugin's, ADR 0134.)
 // A Tilemap's layers are painted in the Tile Palette (ADR 0103).
 registerInspectorSection("engine.Tilemap", () => import("./TilemapInspector").then((m) => m.TilemapSection), { single: true });
 // An Environment using a procedural sky opens it in the Sky panel (ADR 0112).

@@ -29,11 +29,17 @@ interface Section extends InspectorSectionOptions {
 
 const sections = new Map<string, Section[]>();
 
-/** Add a section under every `type` component's fields, after the ones registered before it. */
-export function registerInspectorSection(type: string, load: () => Promise<FunctionComponent<InspectorSectionProps>>, options: InspectorSectionOptions = {}): void {
+/** Add a section under every `type` component's fields, after the ones registered before it. Returns a function that removes it (a plugin's, ADR 0134). */
+export function registerInspectorSection(type: string, load: () => Promise<FunctionComponent<InspectorSectionProps>>, options: InspectorSectionOptions = {}): () => void {
   const list = sections.get(type) ?? [];
-  list.push({ ...options, view: lazyComponent(load) });
+  const section: Section = { ...options, view: lazyComponent(load) };
+  list.push(section);
   sections.set(type, list);
+  return () => {
+    const now = sections.get(type);
+    const at = now?.indexOf(section) ?? -1;
+    if (at >= 0) now!.splice(at, 1);
+  };
 }
 
 /** The sections a `type` component shows for this selection, in registration order (none loads until rendered). */

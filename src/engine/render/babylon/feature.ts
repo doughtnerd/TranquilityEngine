@@ -9,13 +9,14 @@ import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
 import type { WarmContent } from "../../scene/warmUp";
-import type { Camera } from "../components";
-import type { RenderDiagnostics } from "../RenderSurface";
+import type { Camera, ParticleSystem } from "../components";
+import type { ParticlePreviewSettings, RenderDiagnostics } from "../RenderSurface";
 import { specNeeded, type RenderFeatureSpec } from "../renderFeatures";
 import type { WarmItem } from "./warmUp";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { BabylonLighting } from "./lighting";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
+import type { BabylonParticleHost } from "./particles";
 import type { ProbeHit } from "./probes";
 
 /** @internal What the renderer worked out before a feature's phase (ADR 0130). */
@@ -62,6 +63,20 @@ export interface BabylonFeatureHost {
   /** The reflection probe nearest a point (ADR 0130's probe lookup). */
   probeLookup(x: number, y: number, z: number): ProbeHit | null;
   warnOnce(key: string, message: string): void;
+  /** The particle player's services (the Particles plugin's feature): the World's matrices, textures, materials, ray queries. */
+  particleHost(): BabylonParticleHost;
+  /** The editor's particle preview settings so far (`setParticlePreview`), applied when the particles feature starts. */
+  particlePreview(): Partial<ParticlePreviewSettings>;
+}
+
+/**
+ * @internal What the renderer asks of the feature named "particles" (the Particles plugin's, ADR 0135):
+ * the editor's particle preview, and which ParticleSystem drew something (the variant report).
+ */
+export interface ParticlesFeatureApi extends BabylonFeature {
+  setPreview(preview: Partial<ParticlePreviewSettings>): void;
+  restartAll(): void;
+  ownerOf(drawn: object): ParticleSystem | null;
 }
 
 /** @internal A plugin render feature's factory, as `RenderFeatureRegistration.load` gives it for this backend. */

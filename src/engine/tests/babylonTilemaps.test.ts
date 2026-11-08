@@ -4,7 +4,8 @@ import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
-import { Assets, Engine, GameObject, SceneManager, Tilemap } from "../index";
+import { Assets, Engine, GameObject, SceneManager } from "../index";
+import { Tilemap } from "../tilemap/Tilemap";
 import { BabylonTilemaps } from "../render/babylon/tilemaps";
 import { newLayer } from "../tilemap/format";
 

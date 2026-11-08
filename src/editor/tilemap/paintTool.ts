@@ -2,7 +2,8 @@
 // a brush, left presses in the scene view paint instead of selecting. Draws the map's grid around
 // the pointer and the brush's footprint as an overlay.
 import { effect } from "@preact/signals";
-import type { Engine, Tilemap } from "../../engine";
+import type { Engine } from "../../engine";
+import type { Tilemap } from "../../plugins/tilemaps/runtime";
 import { Quat } from "../../engine/core/math";
 import { addEditorOverlay, removeEditorOverlay, viewport, viewportCanvas } from "../../engine/editor";
 import type { EditorOverlay } from "../../engine/editor";
