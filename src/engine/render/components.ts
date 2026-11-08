@@ -14,7 +14,7 @@ import { modelVariantsIfLoaded } from "../scene/models";
 @component("engine.SpriteRenderer")
 export class SpriteRenderer extends Component {
   /** Asset path of the texture. Empty draws a plain colored quad. */
-  @field(AssetRef) sprite = "";
+  @field(AssetRef, { kind: "sprite" }) sprite = "";
   @field(Color) color = Color.white;
   /** Size in world units. When null, the texture's pixel size / pixelsPerUnit is used. */
   @field(Vector2) size: Vector2 | null = null;
@@ -67,7 +67,7 @@ export class Camera extends Component {
    * Materials, sprites and UI images that name the same asset show what the camera sees (a frame
    * later: cameras drawing into textures draw after the ones on the canvas). Empty: the canvas.
    */
-  @field(AssetRef) targetTexture = "";
+  @field(AssetRef, { kind: "rendertexture" }) targetTexture = "";
 
   /** The enabled camera with the lowest depth in the current World (ADR 0032). */
   static get main(): Camera | null {
@@ -225,19 +225,19 @@ export class Text extends Component {
  */
 @component("engine.MeshRenderer")
 export class MeshRenderer extends Component {
-  @field(AssetRef) mesh = "builtin:cube";
+  @field(AssetRef, { kind: "mesh" }) mesh = "builtin:cube";
   /**
    * A material asset (`asset:materials/wood.material.json`). Empty: the model's own materials,
    * or the default material (white, lit) for meshes without one.
    */
-  @field(AssetRef) material = "";
+  @field(AssetRef, { kind: "material" }) material = "";
   /**
    * A material asset per material slot (ADR 0089), drawn in place of `material` for that slot.
    * The slots are the model's own materials, in the order its meshes first use them (a built-in
    * mesh has one); an empty entry, or none, leaves the slot to `material`, then to the model's
    * import settings, then to the model's own material.
    */
-  @field([AssetRef]) materials: string[] = [];
+  @field([AssetRef], { kind: "material" }) materials: string[] = [];
   /** Cast shadows from Lights with `castShadows` on. */
   @field(Boolean) castShadows = true;
   /** Show shadows cast onto it. */
@@ -470,7 +470,7 @@ export class PostProcessing extends Component {
    * A colour lookup table (`.cube`, ADR 0111) applied to the final, tone-mapped image, as exported by
    * grading tools (DaVinci Resolve, Photoshop). Empty: none.
    */
-  @field(AssetRef) lut = "";
+  @field(AssetRef, { kind: "lut" }) lut = "";
   /** How much of the lookup table's look to apply, 0 to 1. */
   @field(Number) lutIntensity = 1;
 
@@ -503,7 +503,7 @@ export class PostProcessing extends Component {
 @component("engine.Environment")
 export class Environment extends Component {
   /** An .hdr, .exr, .png or .jpg equirectangular image, an .env/.dds cube or a .cubemap.json (ADR 0113), or a .sky.json procedural sky (ADR 0112). Empty: the built-in studio room. */
-  @field(AssetRef) map = "";
+  @field(AssetRef, { kind: "environment" }) map = "";
   /** Strength of the environment lighting (1 = unchanged). */
   @field(Number) intensity = 1;
   /** Draw the map as the background. Off keeps the camera's background colour. */
@@ -576,7 +576,7 @@ export class ReflectionProbe extends Component {
    */
   @field(Number) blendDistance = 1;
   /** A capture baked in the editor (a prefiltered `.env` cube map), used when `refresh` is `baked`. */
-  @field(AssetRef) bakedMap = "";
+  @field(AssetRef, { kind: "envmap" }) bakedMap = "";
 
   /** @internal Bumped by `capture()`; the render backend recaptures when it changes. */
   _captureRequests = 0;
@@ -605,14 +605,14 @@ export type ParticlePropertyValue = number | readonly number[] | string | boolea
 @component("engine.ParticleSystem")
 export class ParticleSystem extends Component {
   /** The particle effect asset (`asset:effects/sparks.particles.json`). */
-  @field(AssetRef) effect = "";
+  @field(AssetRef, { kind: "particles" }) effect = "";
   /**
    * @deprecated Effects are assets (ADR 0060); the editor moves embedded effects into asset files.
    * Still played, when `effect` is empty, so scenes saved before then keep working.
    */
-  @field(PlainObject) embeddedEffect: Record<string, unknown> | null = null;
+  @field(PlainObject, { hidden: true }) embeddedEffect: Record<string, unknown> | null = null;
   /** This instance's values for the effect's exposed properties, by name (set them with `setProperty`). */
-  @field(PlainObject) overrides: Record<string, ParticlePropertyValue> = {};
+  @field(PlainObject, { hidden: true }) overrides: Record<string, ParticlePropertyValue> = {};
   /** Start playing when the node is created. Off: wait for `play()`. */
   @field(Boolean) playOnAwake = true;
   /** Simulation speed (1 = normal), on top of the World's time scale. */

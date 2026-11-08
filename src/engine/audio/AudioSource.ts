@@ -42,7 +42,7 @@ const worldPlays = (world: World | null): boolean => !!world?.render;
  */
 @component("engine.AudioSource")
 export class AudioSource extends Component {
-  @field(AssetRef) clip = "";
+  @field(AssetRef, { kind: "audio" }) clip = "";
   @field(Number) volume = 1;
   @field(Boolean) loop = false;
   @field(Boolean) playOnAwake = true;

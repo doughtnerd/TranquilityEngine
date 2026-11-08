@@ -3,6 +3,7 @@ import { useState } from "preact/hooks";
 import { bakeOpenSceneProbe } from "../probeBake";
 import { currentProject, type OpenScene } from "../state";
 import "./navBake.css";
+import type { InspectorSectionProps } from "./inspectorSections";
 
 export function ReflectionProbeBake(props: { scene: OpenScene; nodeId: string }) {
   const { scene, nodeId } = props;
@@ -32,4 +33,9 @@ export function ReflectionProbeBake(props: { scene: OpenScene; nodeId: string })
       {error && <p class="nav-chunk-error" role="alert">{error}</p>}
     </div>
   );
+}
+
+/** The Inspector section under a top-level ReflectionProbe (ADR 0131). */
+export function ReflectionProbeSection({ scene, paths }: InspectorSectionProps) {
+  return <ReflectionProbeBake scene={scene} nodeId={paths[0][0]} />;
 }

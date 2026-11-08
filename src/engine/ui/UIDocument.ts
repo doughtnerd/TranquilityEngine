@@ -387,7 +387,7 @@ export interface UIListOptions<T> {
 @component("engine.UIDocument")
 export class UIDocument extends Component {
   /** The markup file (`asset:ui/menu.ui.xml`). */
-  @field(AssetRef) document = "";
+  @field(AssetRef, { kind: "uidocument" }) document = "";
 
   /** Values for `{name}` bindings, checked each frame: `ui.data.score += 10` updates the text. */
   data: Record<string, unknown> = {};

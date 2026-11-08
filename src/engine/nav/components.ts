@@ -81,7 +81,7 @@ function navOf(world: World) {
 @component("engine.NavChunk")
 export class NavChunk extends Component {
   /** The baked `<scene>.nav.bin`, written by the editor's Bake. */
-  @field(AssetRef) bake = "";
+  @field(AssetRef, { kind: "navbake" }) bake = "";
   /** Bake only inside the box `center` / `size` (world space). */
   @field(Boolean) useChunkBounds = false;
   @field(Vector3) center = new Vector3(0, 0, 0);
@@ -298,7 +298,7 @@ export class NavGroup extends Component {
    * A formation asset (`*.formation.json`, Foxfire's NavFormation): when set, its shape, layers, layer spacing and
    * painted mask replace `formation`, `layers` and `layerSpacing`.
    */
-  @field(AssetRef) formationAsset = "";
+  @field(AssetRef, { kind: "formation" }) formationAsset = "";
   @field(Number) spacing = 3;
   @field(Number) slack = 4;
   @field(Number) catchUp = 2;

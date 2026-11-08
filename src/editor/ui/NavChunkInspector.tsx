@@ -5,6 +5,7 @@ import { useEffect } from "preact/hooks";
 import { navPolyCount, NAV_STAGE_LABELS, bakeOpenSceneChunk, checkNavInputs, isNavBakeStale, lookUpNavRecord, navBakeSummary, navBakeVersion, navChunkState } from "../navBake";
 import { currentProject, docVersion, type OpenScene } from "../state";
 import "./navBake.css";
+import type { InspectorSectionProps } from "./inspectorSections";
 
 export function NavChunkBake(props: { scene: OpenScene; nodeId: string }) {
   const { scene, nodeId } = props;
@@ -75,4 +76,9 @@ export function NavChunkBake(props: { scene: OpenScene; nodeId: string }) {
       )}
     </div>
   );
+}
+
+/** The Inspector section under a top-level NavChunk (ADR 0065, 0131). */
+export function NavChunkBakeSection({ scene, paths }: InspectorSectionProps) {
+  return <NavChunkBake scene={scene} nodeId={paths[0][0]} />;
 }

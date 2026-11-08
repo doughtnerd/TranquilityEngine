@@ -18,6 +18,7 @@ import { GradientEditor } from "./particles/GradientEditor";
 import { NumField, ParticleColorInput, VecField } from "./particles/valueInputs";
 import "./assetInspector.css";
 import { LargePreview } from "./AssetPreview";
+import { sectionField, type InspectorSectionProps } from "./inspectorSections";
 
 /** Problems of a graph: its parse problems plus what compiling it reports. */
 function allProblems(graph: ParticleGraph, parse: { message: string }[]): string[] {
@@ -297,4 +298,18 @@ function groupGesture(scene: OpenScene): void {
   };
   window.addEventListener("pointerup", end, true);
   window.addEventListener("pointercancel", end, true);
+}
+
+/** The Inspector section under a ParticleSystem (ADR 0057, 0131). */
+export function ParticleSystemSection({ scene, paths, info }: InspectorSectionProps) {
+  return (
+    <ParticleSystemEffect
+      scene={scene}
+      path={paths[0]}
+      index={info.index}
+      effectPath={String(sectionField(info, "effect") ?? "")}
+      embedded={sectionField(info, "embeddedEffect")}
+      overrides={sectionField(info, "overrides")}
+    />
+  );
 }

@@ -114,7 +114,7 @@ export class UIText extends UIElement {
    * the first time it's used; empty is the bundled Inter. Characters the font lacks use Inter. On the
    * three.js renderer it's ignored: text there is always Inter.
    */
-  @field(AssetRef) font = "";
+  @field(AssetRef, { kind: "font" }) font = "";
   @field(Number) fontSize = 16;
   @field(Color) color = Color.white;
   /** `"normal"`, `"medium"`, `"semi-bold"`, `"bold"`, or a number 100–900. */
@@ -128,7 +128,7 @@ export class UIText extends UIElement {
 @component("engine.UIImage")
 export class UIImage extends UIElement {
   /** Texture asset (`asset:images/logo.png`). */
-  @field(AssetRef) image = "";
+  @field(AssetRef, { kind: "texture" }) image = "";
   /**
    * `fill` stretches it to the element; `cover` fills the element and crops; `contain` keeps the
    * texture's aspect ratio when the element's size comes from it (one side `auto`).
@@ -198,7 +198,7 @@ export class UIInputField extends UIPanel {
   /** 0: no limit. */
   @field(Number) maxLength = 0;
   /** A font file in the project, as `UIText.font`; empty is the bundled Inter. Ignored on three.js. */
-  @field(AssetRef) font = "";
+  @field(AssetRef, { kind: "font" }) font = "";
   @field(Number) fontSize = 16;
   @field(Color) color = Color.white;
   @field(Color) placeholderColor = new Color(1, 1, 1, 0.45);

@@ -135,6 +135,8 @@ Components keep calling `world.render?.release(this)` and stay unaware of featur
 
 ## D. Field metadata on the Component declaration, not hard-coded in the Inspector (Worth exploring, in-process; public API change, so an ADR)
 
+**Done:** [ADR 0131](../decisions/0131-field-metadata-on-the-component-declaration.md), Accepted and built.
+
 **Where.** `src/editor/ui/Inspector.tsx`:
 - `assetListFor()` has about 8 type/field pairs that map to an asset kind (MeshRenderer.mesh/material/materials, MeshCollider.mesh, Camera.targetTexture, ParticleSystem.effect, NavGroup.formationAsset, PostProcessing.lut, ReflectionProbe.bakedMap, Environment.map);
 - the hidden fields for ParticleSystem and Tilemap;

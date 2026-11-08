@@ -1,0 +1,18 @@
+// Under an Environment's fields in the Inspector (ADR 0112, 0131): "Edit sky" when its map is a sky
+// asset in the project.
+import { isSkyPath } from "../../engine/sky/skyFormat";
+import { openSkyAsset } from "../skyAssets";
+import { currentProject } from "../state";
+import { sectionField, type InspectorSectionProps } from "./inspectorSections";
+
+export function EnvironmentSection({ info }: InspectorSectionProps) {
+  const path = String(sectionField(info, "map") ?? "").replace(/^asset:/, "");
+  if (!isSkyPath(path) || !currentProject.value?.files.includes(path)) return null;
+  return (
+    <div class="prefab-actions">
+      <button type="button" onClick={() => openSkyAsset(path)} title={`Open ${path} in the Sky panel`}>
+        Edit sky
+      </button>
+    </div>
+  );
+}
