@@ -12,6 +12,8 @@ export interface TileFrame {
   uv: [number, number, number, number];
   /** Width and height in cells (1 × 1 for a slice the tileset's tile size). */
   size: [number, number];
+  /** Where the sprite sits in its cell (ADR 0119): the sprite's point `[x, y]` (0..1 from its bottom-left) lands on the same point of the cell. Default `[0, 0]`: corners together, overhanging up and right. */
+  anchor?: [number, number];
 }
 
 export interface ChunkMesh {
@@ -66,10 +68,11 @@ export function buildChunkMeshes(cells: ArrayLike<number>, cx: number, cy: numbe
       const x = cx * CHUNK_SIZE + (i % CHUNK_SIZE), y = cy * CHUNK_SIZE + Math.floor(i / CHUNK_SIZE);
       const [fw, fh] = flags & FLIP_DIAGONAL ? [frame.size[1], frame.size[0]] : frame.size;
       const [u0, v0, u1, v1] = frame.uv;
+      const ox = frame.anchor ? frame.anchor[0] * (1 - fw) : 0, oy = frame.anchor ? frame.anchor[1] * (1 - fh) : 0;
       for (let c = 0; c < 4; c++) {
         const [s, t] = CORNERS[c];
-        positions[q * 12 + c * 3] = (x + s * fw) * cellSize.x;
-        positions[q * 12 + c * 3 + 1] = (y + (1 - t) * fh) * cellSize.y;
+        positions[q * 12 + c * 3] = (x + ox + s * fw) * cellSize.x;
+        positions[q * 12 + c * 3 + 1] = (y + oy + (1 - t) * fh) * cellSize.y;
         positions[q * 12 + c * 3 + 2] = 0;
         const [ss, st] = sourceCorner(s, t, flags);
         uvs[q * 8 + c * 2] = u0 + ss * (u1 - u0);

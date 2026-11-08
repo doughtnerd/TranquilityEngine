@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets } from "../index";
-import { clampTextureSize, defaultImportSettings, formatImportSettings, importSettingsJSON, parseImportSettings, resolveImportSettings, withPlatformOverride } from "../scene/importSettings";
+import { authoredSize, clampTextureSize, defaultImportSettings, formatImportSettings, importSettingsJSON, parseImportSettings, resolveImportSettings, withPlatformOverride } from "../scene/importSettings";
 
 afterEach(() => {
   Assets.clearSources();
@@ -76,5 +76,16 @@ describe("platform overrides and compression (ADR 0115)", () => {
     expect(clampTextureSize(1024, 512, 2048)).toEqual([1024, 512]);
     expect(clampTextureSize(1024, 512, 256)).toEqual([256, 128]);
     expect(clampTextureSize(100, 3, 10)).toEqual([10, 1]);
+  });
+});
+
+describe("sourceSize (ADR 0119)", () => {
+  it("parses, round-trips and gives the authored size", () => {
+    const { settings, problems } = parse({ sourceSize: [100, 50] });
+    expect(problems).toEqual([]);
+    expect(authoredSize(settings, 50, 25)).toEqual([100, 50]);
+    expect(importSettingsJSON(settings).sourceSize).toEqual([100, 50]);
+    expect(authoredSize(defaultImportSettings(), 50, 25)).toEqual([50, 25]);
+    expect(parse({ sourceSize: [0, 5] }).problems[0]).toMatch(/sourceSize/);
   });
 });

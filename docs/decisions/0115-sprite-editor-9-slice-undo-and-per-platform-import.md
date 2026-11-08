@@ -22,7 +22,7 @@
 
 **Slice search.** Searching the Assets panel also lists matching slices (`images/a.png#walk_0` entries, every word matched against the slice name, `searchEntries` in `assetBrowser.ts`) beside matching files, so a sprite in a sheet can be found and dragged without expanding the sheet.
 
-**Per-platform import overrides and compression** (images). New sidecar keys, parsed leniently and written only when not default:
+**Per-platform import overrides and compression** (images; `maxSize` and `compression` are applied at export by 0119, which retires the "advisory" wording below). New sidecar keys, parsed leniently and written only when not default:
 
 ```jsonc
 {
@@ -76,8 +76,8 @@ Checked 2026-11-07 whether the exporter can honour `compression` and `maxSize` b
 
 ## Open questions
 
-- Tile anchoring (centred, or from the top-left) and a per-SpriteRenderer fill override.
-- Applying `maxSize` and `compression` in the game export: investigated, deferred (see "Export-time compression investigation"); revisit when the conditions listed there hold.
+- Tile anchoring: answered by 0119. A per-SpriteRenderer fill override is still open.
+- Applying `maxSize` and `compression` in the game export: done as resize + WebP by 0119 (KTX2 stays deferred, see "Export-time compression investigation").
 - More platforms (mobile, console) and a way to preview another platform's settings in the editor.
 
 ## References

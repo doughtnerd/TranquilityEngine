@@ -8,6 +8,7 @@
  * {
  *   "format": "myco.tileset@1",
  *   "tileSize": [16, 16],                 // pixels of one cell; a slice bigger than this overhangs up and right
+ *   "anchor": [0.5, 0],                   // optional (ADR 0119): the sprite's point lands on the same point of the cell; tiles may set their own
  *   "terrains": [{ "name": "Ground", "color": "#7cb342" }],
  *   "tiles": [
  *     { "id": 1, "sprite": "asset:images/tiles.png#ground_0", "collision": "full",
@@ -49,6 +50,8 @@ export interface TileDef {
   pattern?: TilePattern;
   /** Relative chance for random brushes and auto-tiling ties (default 1). */
   weight?: number;
+  /** Where the tile's sprite sits in its cell, `[x, y]` 0..1: the sprite's point lands on the same point of the cell (ADR 0119). Default: the tileset's, else `[0, 0]`. */
+  anchor?: [number, number];
   /** Anything the game wants, read with `Tilemap.getTileData`. */
   data?: Record<string, unknown>;
 }
@@ -62,6 +65,8 @@ export interface TerrainDef {
 export interface TilesetData {
   format: string;
   tileSize: [number, number];
+  /** Default anchor of the tiles' sprites in their cells (ADR 0119); tiles may set their own. Written only when not `[0, 0]`. */
+  anchor?: [number, number];
   terrains: TerrainDef[];
   tiles: TileDef[];
 }
@@ -84,6 +89,17 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 /** A new, empty tileset. */
 export function newTileset(tileSize: [number, number] = [16, 16]): TilesetData {
   return { format: TILESET_FORMAT, tileSize, terrains: [], tiles: [] };
+}
+
+/** A tile anchor `[x, y]` (each 0..1), or null if `raw` isn't one. */
+export function parseAnchor(raw: unknown): [number, number] | null {
+  if (Array.isArray(raw) && raw.length === 2 && raw.every((n) => typeof n === "number" && n >= 0 && n <= 1)) return [raw[0], raw[1]];
+  return null;
+}
+
+/** The anchor of `tile`'s sprite in its cell: its own, else the tileset's, else `[0, 0]`. */
+export function tileAnchor(data: TilesetData, tile: TileDef): [number, number] {
+  return tile.anchor ?? data.anchor ?? [0, 0];
 }
 
 /** True for a valid neighbour pattern. */
@@ -111,6 +127,11 @@ export function parseTileset(raw: unknown, where = "tileset"): { tileset: Tilese
   const ts = newTileset();
   if (Array.isArray(raw.tileSize) && raw.tileSize.length === 2 && raw.tileSize.every((n) => typeof n === "number" && n > 0)) ts.tileSize = [raw.tileSize[0], raw.tileSize[1]];
   else if (raw.tileSize !== undefined) problems.push(`${where}: "tileSize" should be [width, height] in pixels; using 16 × 16.`);
+  if (raw.anchor !== undefined) {
+    const a = parseAnchor(raw.anchor);
+    if (a) ts.anchor = a;
+    else problems.push(`${where}: "anchor" should be [x, y] from 0 to 1; using [0, 0].`);
+  }
   if (Array.isArray(raw.terrains)) {
     for (const t of raw.terrains) {
       if (isObject(t) && typeof t.name === "string" && t.name && !ts.terrains.some((o) => o.name === t.name)) ts.terrains.push(typeof t.color === "string" ? { name: t.name, color: t.color } : { name: t.name });
@@ -133,6 +154,11 @@ export function parseTileset(raw: unknown, where = "tileset"): { tileset: Tilese
         else problems.push(`${where}: tile ${id} "pattern" should be 8 of 0, 1 or *; ignored.`);
       }
       if (typeof t.weight === "number" && t.weight >= 0) def.weight = t.weight;
+      if (t.anchor !== undefined) {
+        const a = parseAnchor(t.anchor);
+        if (a) def.anchor = a;
+        else problems.push(`${where}: tile ${id} "anchor" should be [x, y] from 0 to 1; ignored.`);
+      }
       if (isObject(t.data)) def.data = structuredClone(t.data);
       ids.add(id);
       ts.tiles.push(def);

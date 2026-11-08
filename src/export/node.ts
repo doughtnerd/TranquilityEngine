@@ -14,6 +14,8 @@ import { DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type 
 import { ENGINE_FILE, MANIFEST_FILE, PLAYER_FILE_LIST, PLAYER_PAGE } from "./format";
 import { Assets } from "../engine/scene/Assets";
 import { bakeModelFile } from "../engine/scene/models";
+import { processImages } from "./images";
+import { sharpTranscoder } from "./imagesNode";
 import { ExportError, copiedPath, isOutputInsideProject, planWebBuild, withBakedModels, type WebBuildPlan } from "./webBuild";
 
 export type ExportTarget = "web" | "desktop";
@@ -59,6 +61,14 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   Assets.addSource(project.assets);
   try {
     plan = await withBakedModels(plan, bakeModelFile, log);
+    // Resize and re-encode images per their sidecars for this platform (ADR 0119).
+    plan = await processImages(plan, {
+      platform: target === "desktop" ? "desktop" : "web",
+      readText: (path) => readFile(join(project.root, ...path.split("/")), "utf8").catch(() => undefined),
+      readBytes: async (path) => new Uint8Array(await readFile(join(project.root, ...path.split("/")))),
+      transcode: sharpTranscoder,
+      log,
+    });
   } finally {
     Assets.removeSource(project.assets);
   }

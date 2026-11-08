@@ -77,7 +77,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0037](decisions/0037-rename-to-myco-engine.md) | The engine is renamed Myco Engine, by Foxfire Studios | Accepted |
 | [0038](decisions/0038-browser-editor-opens-folders.md) | The browser editor opens project folders through the File System Access API | Accepted, amended by 0063 (the menu bar replaces the toolbar Project menu) |
 | [0039](decisions/0039-polygon-edge-colliders.md) | Polygon and edge colliders for 2D physics | Accepted |
-| [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted, extended by 0115 (proposed) |
+| [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted, extended by 0115 and 0119 (proposed) |
 | [0041](decisions/0041-game-builds.md) | Games build to a static web player, packaged for desktop through Tauri | Accepted |
 | [0042](decisions/0042-inspector-field-types.md) | List fields, field choices, and per-instance Worlds and tags overrides | Accepted |
 | [0043](decisions/0043-meshes-lights-materials.md) | Meshes, lights and material assets: a default lit material and default lighting | Proposed |
@@ -155,17 +155,15 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0116](decisions/0116-editor-themes-display-scaling-layer-rename-and-history-pruning.md) | Theme import/export and per-project themes, bundled fonts and a light logo; display scaling; project-wide layer rename; persisted desktop folder access; age-based history pruning | Proposed |
 | [0117](decisions/0117-shader-graph-search-node-preview-shapes-and-scene-thumbnails.md) | Shader graph find, per-node preview shapes, and camera-view scene thumbnails | Proposed |
 | [0118](decisions/0118-gltf-pivots-lights-cameras-layer-textures-and-variants.md) | Model parts keep node pivots by default (scene format 2 pins old part references with `#model`), glTF lights and cameras as nodes, layer textures and anisotropy, material assets and physical graphs gain every glTF material feature (lossless extraction), material variants on `MeshRenderer.variant` | Proposed |
+| [0119](decisions/0119-export-image-processing-and-tile-anchors.md) | Game exports resize (`maxSize`) and WebP re-encode (`compression`) images per platform, keeping paths and world size; tiles get an `anchor` | Proposed |
 | [0120](decisions/0120-hold-a-worlds-first-frames-and-trim-load-time-main-thread-work.md) | A new World's first frames are held on the clear colour while their pipelines (content, post-process, UI) compile asynchronously; Babylon's include expansion is memoized in our patch; the screen UI's canvas is made with `willReadFrequently` | Proposed |
 | [0121](decisions/0121-interest-management-and-ghost-component-changes.md) | Snapshots carry only ghosts relevant to each connection (by distance and group), and replicate components' enabled state, sibling order and components added or removed after spawn | Proposed |
 | [0122](decisions/0122-rename-and-deactivate-inside-instances-and-open-prefab-from-an-instance.md) | Rename and deactivate nodes inside a prefab instance (overrides Apply writes), and Open Prefab from an instance in its own tab | Proposed |
 | [0123](decisions/0123-per-component-field-migrations.md) | Per-component field migrations with component versions recorded per file | Proposed (not to be built yet) |
 | [0124](decisions/0124-structural-edits-to-a-live-world.md) | The live Hierarchy and Inspector create, delete, rename and reparent nodes, add and remove components and set node references in a running World; play-only, no undo | Proposed |
 | [0126](decisions/0126-kernel-particle-trails-materials-sorting-dead-list-and-soft-cpu-particles.md) | Kernel particles gain trails, material assets, sorting and a dead list; soft CPU particles; a height-fog hook for custom shaders | Proposed |
-<<<<<<< HEAD
 | [0127](decisions/0127-renderer-neutral-material-resolution-and-a-babylon-material-library.md) | Material resolution is renderer-neutral; a per-scene Babylon material library builds from it (World renderer, warm-up, particles, previews) | Proposed |
-=======
 | [0128](decisions/0128-render-surface-runtime-core-and-editor-viewport-handle.md) | The render surface is a runtime core plus an editor viewport handle | Proposed |
->>>>>>> claude/render-surface-split-373326
 
 ## Working with decisions
 

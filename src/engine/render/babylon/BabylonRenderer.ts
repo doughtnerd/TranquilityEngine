@@ -47,7 +47,7 @@ import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
 import type { Color } from "../../core/math";
 import { Assets } from "../../scene/Assets";
-import { splitSpriteRef } from "../../scene/importSettings";
+import { authoredSize, splitSpriteRef } from "../../scene/importSettings";
 import type { MaterialInstancing } from "../../scene/material";
 import { drawnVariant, materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import type { GraphShared } from "./graphMaterial";
@@ -1081,8 +1081,11 @@ export class BabylonRenderer {
     let frame: SpriteFrame | null = null;
     let texSize: { width: number; height: number } | null = null;
     if (entry.texture) {
-      texSize = entry.texture.getBaseSize();
-      frame = spriteFrame(Assets.importSettings(image), slice, texSize.width, texSize.height, { component: s.pixelsPerUnit, project: this.settings.render.pixelsPerUnit }, s.size);
+      const base = entry.texture.getBaseSize();
+      const settings = Assets.importSettings(image);
+      const [aw, ah] = authoredSize(settings, base.width, base.height); // a build may have shrunk the image (ADR 0119)
+      texSize = { width: aw, height: ah };
+      frame = spriteFrame(settings, slice, texSize.width, texSize.height, { component: s.pixelsPerUnit, project: this.settings.render.pixelsPerUnit }, s.size);
       [w, h] = frame.size;
       [px, py] = frame.pivot;
       if (frame.missingSlice) this.warnOnce(`slice|${s.sprite}`, `${image} has no slice named "${slice}" (in ${image}.meta.json); drawing the whole image.`);
