@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine, type AssetSource } from "../engine";
 import { FLIP_X, FLIP_Y, FLIP_DIAGONAL, Tilemap } from "../plugins/tilemaps/runtime";
-import { cellValue } from "../engine/tilemap/format";
+import { cellValue } from "../plugins/tilemaps/runtime/format";
 import { createNode } from "./nodeCreate";
 import { openSceneFile } from "./project";
 import { openScene } from "./state";

@@ -8,11 +8,13 @@
  * the renderer and colliders rebuild only the chunks that changed. Script edits don't rewrite the
  * `layers` field; `toLayerData()` encodes the current cells when they need saving.
  */
-import { Component } from "../core/Component";
-import { defineBuffer } from "../core/data";
-import { Vector2, Vector3, type Vec2Like, type Vec3Like } from "../core/math";
-import { AssetRef, PlainObject, component, field } from "../core/registry";
-import { Assets } from "../scene/Assets";
+import { Component } from "../../../engine/core/Component";
+import { defineBuffer } from "../../../engine/core/data";
+import { Vector2, Vector3, type Vec2Like, type Vec3Like } from "../../../engine/core/math";
+import { AssetRef, PlainObject, component, field } from "../../../engine/core/registry";
+import type { CollisionShapes2D, CollisionShapeSource2D, ShapeMerge2D } from "../../../engine/physics/shapeSource2D";
+import { Assets } from "../../../engine/scene/Assets";
+import { buildTileShapes } from "./collision";
 import { paintTerrain } from "./autotile";
 import {
   CHUNK_CELLS,
@@ -96,7 +98,7 @@ export function loadTileset(path: string): Tileset | null {
 let nextVersion = 1;
 
 @component("engine.Tilemap")
-export class Tilemap extends Component {
+export class Tilemap extends Component implements CollisionShapeSource2D {
   /** The tileset asset (`*.tileset.json`) the cells' tile ids refer to. */
   @field(AssetRef, { kind: "tileset" }) tileset = "";
   /** One cell's width and height in local units. */
@@ -170,6 +172,29 @@ export class Tilemap extends Component {
   /** The tileset asset, or null while it's missing. */
   get tilesetAsset(): Tileset | null {
     return loadTileset(this.tileset);
+  }
+
+  // --- 2D collision shapes (ADR 0105, 0136) ---------------------------------------------------
+
+  /** @internal The 2D shape source signature: changes with the cell size, the tileset and the colliding layers' cells. */
+  collisionSignature(): string {
+    const layers = this._layers().map((l) => `${l.version}:${l.meta.collision}`).join(",");
+    return [this.cellSize.x, this.cellSize.y, this.tileset, this.tilesetAsset ? "ts" : "", layers].join("|");
+  }
+
+  /**
+   * @internal The tiles' collision shapes (each tile's from the tileset; layers with `collision: false`
+   * skipped), for whatever 2D collider sits on this node. Null while the tileset is missing.
+   */
+  collisionShapes(merge: ShapeMerge2D): CollisionShapes2D | null {
+    const ts = this.tilesetAsset;
+    if (!ts) return null;
+    const cells: { x: number; y: number; value: number }[] = [];
+    this._layers().forEach((l, i) => {
+      if (!l.meta.collision) return;
+      for (const cell of this.tiles(i)) cells.push(cell);
+    });
+    return { unit: { x: this.cellSize.x, y: this.cellSize.y }, ...buildTileShapes(cells, (id) => ts.tile(id)?.collision, merge) };
   }
 
   // --- layers --------------------------------------------------------------------------------

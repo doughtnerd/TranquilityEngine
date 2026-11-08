@@ -2,7 +2,7 @@
 // (assetDocuments.ts). Built from the runtime's parse function and the editor's pretty-JSON formatter.
 import { formatTileset } from "../../../editor/tilesetAssets";
 import type { AssetFormatContribution } from "../../../editor/sdk/contributions";
-import { newTileset, parseTileset, type TilesetData } from "../../../engine/tilemap/tileset";
+import { newTileset, parseTileset, type TilesetData } from "../runtime/tileset";
 
 export const tilesetFormat: AssetFormatContribution<TilesetData> = {
   id: "tileset",

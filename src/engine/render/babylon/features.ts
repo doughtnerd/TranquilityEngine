@@ -4,7 +4,8 @@
  *
  * The lazy water feature lives in `waterFeature.ts`; this file only holds its spec and must not import
  * `water.ts`, so a game without water never downloads it (ADR 0083). Particles are the Particles
- * plugin's feature (`src/plugins/particles/runtime/`), loaded the same way, and must not be imported here.
+ * plugin's feature (`src/plugins/particles/runtime/`), loaded the same way, and must not be imported here;
+ * so are tilemaps (`src/plugins/tilemaps/runtime/`, drawn through `quadBatches.ts`, ADR 0136).
  *
  * Order inside the `lighting` phase matters, and the specs' `after` constraints say it (ADR 0135): sky,
  * then lights, then fog, then environment. The sky (the Sky plugin's feature, `src/plugins/sky/runtime/`)
@@ -15,7 +16,6 @@ import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
-import { Tilemap } from "../../tilemap/Tilemap";
 import { Light, ReflectionProbe, Fog } from "../components";
 import type { RenderFeatureSpec } from "../renderFeatures";
 import { WaterSurface } from "../water/WaterSurface";
@@ -23,11 +23,9 @@ import type { BabylonFeature, FeatureState, FeatureSyncContext } from "./feature
 import type { ShadowRequest } from "./frameGraph";
 import type { BabylonLighting } from "./lighting";
 import type { BabylonProbes, ProbeHit } from "./probes";
-import type { BabylonTilemaps } from "./tilemaps";
 
 // --- Specs ----------------------------------------------------------------------------------------
 
-export const TILEMAPS_SPEC: RenderFeatureSpec = { name: "tilemaps", phase: "content", types: [Tilemap], lazy: false, after: ["sprites"] };
 /** After the sky, which may drive the sun. */
 export const LIGHTS_SPEC: RenderFeatureSpec = { name: "lights", phase: "lighting", types: [Light], lazy: false, after: ["sky"] };
 export const FOG_SPEC: RenderFeatureSpec = { name: "fog", phase: "lighting", types: [Fog], lazy: false, after: ["sky", "lights"] };
@@ -38,23 +36,6 @@ export const PROBES_SPEC: RenderFeatureSpec = { name: "probes", phase: "capture"
 export const WATER_SPEC: RenderFeatureSpec = { name: "water", phase: "surfaces", types: [WaterSurface], lazy: true, holdsFirstFrame: true };
 
 // --- Adapters -------------------------------------------------------------------------------------
-
-/** @internal Tilemaps (ADR 0130). */
-export class TilemapsFeature implements BabylonFeature {
-  constructor(readonly tilemaps: BabylonTilemaps) {}
-
-  sync(world: World): void {
-    this.tilemaps.sync(world);
-  }
-
-  release(c: Component): void {
-    if (c instanceof Tilemap) this.tilemaps.release(c);
-  }
-
-  dispose(): void {
-    this.tilemaps.dispose();
-  }
-}
 
 /**
  * @internal Light components and their shadow requests. `BabylonLighting` is split into two features

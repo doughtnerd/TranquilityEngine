@@ -1,9 +1,8 @@
-// The Tilemaps plugin (ADR 0103, 0134, 0135): its runtime half claims the Tilemap Component and the tile
+// The Tilemaps plugin (ADR 0103, 0134, 0135, 0136): its runtime half claims the Tilemap Component and the tile
 // render feature; its editor half registers the tileset kind and format, and tilesets edit through an asset document.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../../engine/core/registry";
 import { byPhase } from "../../engine/render/renderFeatures";
-import { TILEMAPS_SPEC } from "../../engine/render/babylon/features";
 import { assetKind } from "../../editor/assetBrowser";
 import { _reset, assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
@@ -21,8 +20,9 @@ import { MESHES_SPEC } from "../../engine/render/babylon/meshes";
 import { SPRITES_SPEC } from "../../engine/render/babylon/sprites";
 import { tilemapsEditorPlugin } from "./editor";
 import { parsePolygon } from "./editor/TilesetInspector";
-import { Tilemap, tilemapsRuntimePlugin } from "./runtime";
-import { newTileset, type TilesetData } from "../../engine/tilemap/tileset";
+import { TILEMAPS_SPEC, Tilemap, tilemapsRuntimePlugin } from "./runtime";
+import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
+import { newTileset, type TilesetData } from "./runtime/tileset";
 
 const TILESET = "tiles/ground.tileset.json";
 
@@ -49,9 +49,10 @@ describe("the Tilemaps plugin's runtime half (ADR 0135)", () => {
     expect(tilemapsRuntimePlugin.manifest.name).toBe("myco.tilemaps");
   });
 
-  it("claims the Tilemap Component; the tiles render feature stays in the renderer, ordered after sprites", () => {
+  it("claims the Tilemap Component and registers the tiles render feature, ordered after sprites (ADR 0136)", () => {
     expect(isRuntimePluginActive("myco.tilemaps")).toBe(true);
     expect(getComponentClass("engine.Tilemap")).toBe(Tilemap);
+    expect(_registeredRenderFeatures().find((r) => r.spec.name === "tilemaps")?.spec).toMatchObject({ ...TILEMAPS_SPEC });
     expect(TILEMAPS_SPEC).toMatchObject({ phase: "content", types: [Tilemap], lazy: false, after: ["sprites"] });
     // The order is kept: sprites, tilemaps, meshes (meshes name tilemaps in their own `after`).
     const specs = [SPRITES_SPEC, MESHES_SPEC, TILEMAPS_SPEC];
@@ -62,6 +63,7 @@ describe("the Tilemaps plugin's runtime half (ADR 0135)", () => {
     deactivateRuntimePlugin("myco.tilemaps");
     try {
       expect(getComponentClass("engine.Tilemap")).toBeUndefined();
+      expect(_registeredRenderFeatures().some((r) => r.spec.name === "tilemaps")).toBe(false);
     } finally {
       activateRuntimePlugins([tilemapsRuntimePlugin]);
     }

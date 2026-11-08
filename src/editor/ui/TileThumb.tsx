@@ -1,7 +1,7 @@
 // A tile drawn from its sprite slice (ADR 0103): a CSS background of the image, moved and scaled to show the slice's
 // rect, with pixels left sharp. Shared by the Tileset inspector and the Tile Palette.
 import { useEffect, useState } from "preact/hooks";
-import type { TileDef } from "../../engine/tilemap/tileset";
+import type { TileDef } from "../../plugins/tilemaps/runtime/tileset";
 import { findSlice } from "../../engine/scene/importSettings";
 import { readImportSettings } from "../assetImport";
 import { splitSprite } from "../tilesetAssets";

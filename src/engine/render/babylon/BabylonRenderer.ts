@@ -60,8 +60,8 @@ import { eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeat
 import { _registeredRenderFeatures, byPhase, ownerOf, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonSprites, SPRITES_SPEC } from "./sprites";
 import { BabylonMeshes, MESHES_SPEC } from "./meshes";
-import { BabylonTilemaps } from "./tilemaps";
-import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PROBES_SPEC, ProbesFeature, TILEMAPS_SPEC, TilemapsFeature, WATER_SPEC } from "./features";
+import { BabylonQuadBatches } from "./quadBatches";
+import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PROBES_SPEC, ProbesFeature, WATER_SPEC } from "./features";
 import { FogFeature } from "./fog";
 import { UI_SPEC } from "./uiSpec";
 import type { BabylonUIFeature, BabylonUIHost } from "./uiFeature";
@@ -134,6 +134,8 @@ export class BabylonRenderer {
   private readonly sprites: BabylonSprites;
   /** MeshRenderers (ADR 0108, 0130). */
   private readonly meshes: BabylonMeshes;
+  /** Quad batches for plugin features (the Tilemaps plugin's tiles, ADR 0136). */
+  private readonly quads: BabylonQuadBatches;
   private readonly cameras = new Map<Camera, CameraEntry>();
   /** Materials and textures (ADR 0127): every material and texture the scene draws is built and cached there. */
   private readonly materials: BabylonMaterialLibrary;
@@ -258,7 +260,7 @@ export class BabylonRenderer {
       warnOnce: (key, message) => this.warnOnce(key, message),
     });
     this.meshes = new BabylonMeshes({ scene, materials: this.materials, probes: this.probes, reflected: () => this.reflecting++ });
-    const tilemaps = new BabylonTilemaps({
+    this.quads = new BabylonQuadBatches({
       scene,
       texture: (path, onLoad) => {
         const t = this.materials.loadedTexture(path);
@@ -278,7 +280,6 @@ export class BabylonRenderer {
     const host = this.featureHost();
     this.slots = [
       eagerFeature(SPRITES_SPEC, this.sprites),
-      eagerFeature(TILEMAPS_SPEC, new TilemapsFeature(tilemaps)),
       eagerFeature(MESHES_SPEC, this.meshes),
       eagerFeature(LIGHTS_SPEC, this.lights),
       eagerFeature(FOG_SPEC, this.fog),
@@ -569,6 +570,7 @@ export class BabylonRenderer {
       lighting: this.lighting,
       materials: this.materials,
       probeLookup: (x, y, z) => this.probes.lookup(x, y, z),
+      quads: this.quads,
       warnOnce: (key, message) => this.warnOnce(key, message),
       particleHost: () => this.particleHost(),
       particlePreview: () => this.particlePreview,
@@ -788,6 +790,7 @@ export class BabylonRenderer {
     this.frame.overlay = null;
     this.overlayLayer?.dispose();
     for (let i = this.slots.length - 1; i >= 0; i--) this.slots[i].dispose(); // reverse registration order (ADR 0130)
+    this.quads.dispose(); // after the features that drew with them
     this.frame.ui = null;
     this.frame.previewUI = null;
     this.materials.dispose();

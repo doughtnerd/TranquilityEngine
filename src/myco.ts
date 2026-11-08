@@ -42,7 +42,7 @@ export {
   type SkyPresetId,
 } from "./plugins/sky/runtime";
 
-// The Tilemaps plugin (ADR 0103, 0135).
+// The Tilemaps plugin (ADR 0103, 0135, 0136).
 export {
   Tilemap,
   TilemapChanges,

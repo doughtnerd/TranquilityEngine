@@ -102,3 +102,49 @@ describe("plugin import direction", () => {
     expect(bad).toEqual([]);
   });
 });
+
+describe("plugin to plugin imports (ADR 0133, 0136)", () => {
+  /** The plugin folders: each has a manifest. */
+  const pluginDirs = readdirSync(join(SRC, "plugins")).filter((d) => {
+    try {
+      return statSync(join(SRC, "plugins", d, "manifest.ts")).isFile();
+    } catch {
+      return false;
+    }
+  });
+  /** Plugin names a plugin's manifest lists under `dependencies`. */
+  const dependencies = (dir: string): string[] => {
+    const text = readFileSync(join(SRC, "plugins", dir, "manifest.ts"), "utf8");
+    const block = /dependencies\s*:\s*\{([^}]*)\}/.exec(text)?.[1] ?? "";
+    return [...block.matchAll(/["']([^"']+)["']\s*:/g)].map((m) => m[1]!);
+  };
+  const nameOf = (dir: string): string => /name:\s*["']([^"']+)["']/.exec(readFileSync(join(SRC, "plugins", dir, "manifest.ts"), "utf8"))?.[1] ?? dir;
+
+  it("finds the plugin folders (the scan works)", () => expect(pluginDirs).toEqual(expect.arrayContaining(["tilemaps", "physics2d", "sky"])));
+
+  it("imports another plugin only through its runtime/index.ts, and type-only unless the manifest depends on it", () => {
+    const bad: string[] = [];
+    for (const dir of pluginDirs) {
+      const deps = dependencies(dir);
+      for (const f of files(join(SRC, "plugins", dir))) {
+        if (/\.test\.tsx?$/.test(f)) continue;
+        for (const { spec, typeOnly } of specifiers(f)) {
+          const target = resolved(f, spec);
+          if (!target.startsWith("/")) continue;
+          const m = /^plugins\/([^/]+)(\/.*)?$/.exec(rel(target));
+          if (!m || m[1] === dir || !pluginDirs.includes(m[1]!)) continue;
+          if (!/^\/runtime(\/index(\.ts)?)?$/.test(m[2] ?? "")) bad.push(`${rel(f)} imports ${spec}: only another plugin's runtime/index.ts`);
+          else if (!typeOnly && !deps.includes(nameOf(m[1]!))) bad.push(`${rel(f)} imports ${spec}: a value import needs ${nameOf(m[1]!)} in its manifest's dependencies`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it("keeps Physics 2D and Tilemaps apart: 2D colliders read core shape sources (ADR 0136)", () => {
+    const touches = (dir: string, other: string) =>
+      files(join(SRC, "plugins", dir)).some((f) => specifiers(f).some(({ spec }) => resolved(f, spec).startsWith("/") && rel(resolved(f, spec)).startsWith(`plugins/${other}/`)));
+    expect(touches("physics2d", "tilemaps")).toBe(false);
+    expect(touches("tilemaps", "physics2d")).toBe(false);
+  });
+});

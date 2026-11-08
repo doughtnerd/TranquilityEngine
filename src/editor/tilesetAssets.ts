@@ -2,7 +2,7 @@
 // image), reading them, and the slice helpers the Assets panel and the Tile Palette use. Editing goes through the
 // tileset's asset document (ADR 0134), made by the Tilemaps plugin's `tileset` format
 // (`src/plugins/tilemaps/editor/`).
-import { newTileset, parseTileset, TILESET_SUFFIX, type TileDef, type TilesetData } from "../engine/tilemap/tileset";
+import { newTileset, parseTileset, TILESET_SUFFIX, type TileDef, type TilesetData } from "../plugins/tilemaps/runtime/tileset";
 import { fileName } from "./assetBrowser";
 import { readImportSettings } from "./assetImport";
 import { freePath } from "./assetOps";

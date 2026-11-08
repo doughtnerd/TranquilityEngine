@@ -1,23 +1,28 @@
-// The Tilemaps plugin's runtime half (ADR 0103, 0135): the `Tilemap` Component, claimed when the plugin
-// activates. The tileset and layer formats, auto-tiling, brushes, the chunk mesh builder and the Babylon
-// drawing stay in `src/engine/tilemap/` and `src/engine/render/babylon/tilemaps.ts` for now: the drawing is
-// a Babylon adapter that must live in the backend (ADR 0075), the engine can't import plugins, and it needs
-// the Tilemap's layers, the tileset and the mesh builder, so moving them (and the tiles render feature,
-// which stays in `BabylonRenderer`'s list) needs a renderer-neutral tile-layer interface first. This module
-// re-exports their public parts, so `myco` (`src/myco.ts`) exports them from here.
-// Runtime code: never imports from `src/editor/` or the plugin's `editor/` folder.
+// The Tilemaps plugin's runtime half (ADR 0103, 0135, 0136): the `Tilemap` Component, tilesets, layer
+// formats, auto-tiling, brushes, tile collision shapes, the chunk mesh builder and the tiles render
+// feature. The feature draws through the renderer core's quad batches (`QuadBatchHost`), so no tile code
+// is left in the backend: `BabylonQuadBatches` knows quads, not tiles. `Tilemap` offers its tile
+// collision as a core 2D shape source; it names no physics plugin. `myco` (`src/myco.ts`) exports this
+// module's public parts.
+// Runtime code: never imports from `src/editor/` or the plugin's `editor/` folder; never imports Babylon
+// (the feature's code loads on demand).
+import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
 import type { RuntimePlugin } from "../../runtimeContext";
 import { tilemapsManifest } from "../manifest";
-import { Tilemap } from "../../../engine/tilemap/Tilemap";
+import { Tilemap } from "./Tilemap";
 
-export { Tilemap, TilemapChanges, type TileChange } from "../../../engine/tilemap/Tilemap";
-export { FLIP_DIAGONAL, FLIP_X, FLIP_Y, type TilemapLayerData } from "../../../engine/tilemap/format";
-export type { TerrainDef, TileCollision, TileDef, TilePattern, TilePolygon, TilesetData } from "../../../engine/tilemap/tileset";
-export type { TileCollisionMode } from "../../../engine/tilemap/collision";
+export { Tilemap, TilemapChanges, type TileChange } from "./Tilemap";
+export { FLIP_DIAGONAL, FLIP_X, FLIP_Y, type TilemapLayerData } from "./format";
+export type { TerrainDef, TileCollision, TileDef, TilePattern, TilePolygon, TilesetData } from "./tileset";
+export type { TileCollisionMode } from "./collision";
+
+/** @internal After sprites; `MESHES_SPEC` names it in its own `after`, so meshes sync after it (ADR 0135). */
+export const TILEMAPS_SPEC: RenderFeatureSpec = { name: "tilemaps", phase: "content", types: [Tilemap], lazy: false, after: ["sprites"] };
 
 export const tilemapsRuntimePlugin: RuntimePlugin = {
   manifest: tilemapsManifest,
   activate(context) {
     context.registerComponents([Tilemap]);
+    context.registerRenderFeature({ spec: TILEMAPS_SPEC, load: () => import("./tilemapsFeature").then((m) => m.createTilemapsFeature) });
   },
 };

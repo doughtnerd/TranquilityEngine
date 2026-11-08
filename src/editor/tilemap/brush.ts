@@ -4,9 +4,9 @@
 import { signal } from "@preact/signals";
 import { type GameObject } from "../../engine";
 import { Tilemap } from "../../plugins/tilemaps/runtime";
-import { floodCells, lineCells, rectCells, type Cell, type Stamp } from "../../engine/tilemap/brushes";
-import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, cellValue, flagsOf, rotateFlagsClockwise, tileIdOf } from "../../engine/tilemap/format";
-import { pickWeighted } from "../../engine/tilemap/tileset";
+import { floodCells, lineCells, rectCells, type Cell, type Stamp } from "../../plugins/tilemaps/runtime/brushes";
+import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, cellValue, flagsOf, rotateFlagsClockwise, tileIdOf } from "../../plugins/tilemaps/runtime/format";
+import { pickWeighted } from "../../plugins/tilemaps/runtime/tileset";
 import { SetField } from "../document";
 import type { OpenScene } from "../state";
 

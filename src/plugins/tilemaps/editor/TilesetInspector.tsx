@@ -4,8 +4,8 @@
 // writes the file through the tileset's asset document and can be undone (Ctrl+Z / Ctrl+Shift+Z over the inspector,
 // or the Undo / Redo buttons).
 import { useEffect, useState } from "preact/hooks";
-import { missingBlobMasks } from "../../../engine/tilemap/autotile";
-import { ANY_PATTERN, type TileCollision, type TileDef, type TilesetData } from "../../../engine/tilemap/tileset";
+import { missingBlobMasks } from "../runtime/autotile";
+import { ANY_PATTERN, type TileCollision, type TileDef, type TilesetData } from "../runtime/tileset";
 import { assetKind, fileName } from "../../../editor/assetBrowser";
 import { openAssetDocument } from "../../../editor/assetDocuments";
 import { readImportSettings } from "../../../editor/assetImport";

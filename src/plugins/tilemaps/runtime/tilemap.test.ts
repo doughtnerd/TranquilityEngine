@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Assets, BoxCollider2D, Engine, FLIP_DIAGONAL, FLIP_X, GameObject, RigidBody2D, SceneManager, Tilemap, TilemapChanges, TilemapCollider2D, getComponentClass } from "../../myco";
-import { blobMasks, canonicalBlob, maskToPattern, missingBlobMasks, neighbourMask, paintTerrain, patternScore, pickTerrainTile, sidesPattern } from "../tilemap/autotile";
-import { floodCells, lineCells, rectCells, stampCells } from "../tilemap/brushes";
-import { buildTileShapes, flipPoint, greedyRectangles, rowRuns, traceOutlines } from "../tilemap/collision";
-import { CHUNK_CELLS, cellToChunk, cellValue, decodeChunk, encodeChunk, migrateLayer, newLayer, registerTilemapLayerMigration, rotateFlagsClockwise, FLIP_Y } from "../tilemap/format";
-import { buildChunkMeshes, sourceCorner, type TileFrame } from "../tilemap/mesh";
-import { Tileset, newTileset, parseTileset, pickWeighted, tileAnchor, type TileDef } from "../tilemap/tileset";
+import { Assets, BoxCollider2D, Engine, FLIP_DIAGONAL, FLIP_X, GameObject, RigidBody2D, SceneManager, Tilemap, TilemapChanges, TilemapCollider2D, getComponentClass } from "../../../myco";
+import { blobMasks, canonicalBlob, maskToPattern, missingBlobMasks, neighbourMask, paintTerrain, patternScore, pickTerrainTile, sidesPattern } from "./autotile";
+import { floodCells, lineCells, rectCells, stampCells } from "./brushes";
+import { buildTileShapes, flipPoint, greedyRectangles, rowRuns, traceOutlines } from "./collision";
+import { CHUNK_CELLS, cellToChunk, cellValue, decodeChunk, encodeChunk, migrateLayer, newLayer, registerTilemapLayerMigration, rotateFlagsClockwise, FLIP_Y } from "./format";
+import { buildChunkMeshes, sourceCorner, type TileFrame } from "./mesh";
+import { Tileset, newTileset, parseTileset, pickWeighted, tileAnchor, type TileDef } from "./tileset";
 
 const TILESET = {
   format: "myco.tileset@1",
