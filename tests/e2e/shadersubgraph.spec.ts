@@ -26,6 +26,12 @@ type Hooks = {
   engine?: { world: { time: { frameCount: number }; render: { renderer: { meshes: { meshRenderers: Map<Renderer, { meshes: { material: { unlit: boolean; uniqueId: number } | null }[] }> } } | null } } };
 };
 
+/** Shader graphs compile to WGSL alone (ADR 0081): on the WebGL2 fallback (software GL) they draw plain PBR. */
+async function requireWebGPU(page: Page): Promise<void> {
+  const webgpu = await page.evaluate(() => (window as unknown as { engine: { world: { render: { renderer: { engine: { isWebGPU: boolean } } } } } }).engine.world.render.renderer.engine.isWebGPU);
+  test.skip(!webgpu, "shader graphs need WebGPU; the WebGL2 fallback draws plain PBR (ADR 0081)");
+}
+
 function trackErrors(page: Page, allow: RegExp[] = []): string[] {
   const errors: string[] = [];
   const add = (text: string) => !allow.some((a) => a.test(text)) && errors.push(text);
@@ -68,9 +74,10 @@ const meshMaterial = (page: Page, name: string) =>
 
 test("sub-graphs rebuild the materials using them; custom functions, copy and paste, groups, notes and previews save to the file", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
-  // The broken custom function below is meant to fail in WebGL; three.js logs that as an error.
-  const errors = trackErrors(page, [/THREE\.WebGLProgram|Shader Error|ERROR: 0:/]);
+  // The broken custom function below is meant to fail in WGSL; Babylon only warns about that.
+  const errors = trackErrors(page);
   await openPlayground(page, true);
+  await requireWebGPU(page);
 
   // The Ground draws with the water graph, which uses shaders/ripple.shadersubgraph.json.
   await row(page, "Ground").click();
@@ -90,13 +97,13 @@ test("sub-graphs rebuild the materials using them; custom functions, copy and pa
   await expect.poll(async () => (await json(page, "Playground/shaders/ripple.shadersubgraph.json")).properties[0].value).toBe(12);
   await expect.poll(() => meshMaterial(page, "Ground")).not.toBe(before);
 
-  // The Custom Function node's code is edited in the side bar; a body that doesn't compile shows WebGL's error.
+  // The Custom Function node's code is edited in the side bar; a body that doesn't compile shows the compiler's error.
   await node(page, "ripple").locator(".sg-node-header").click();
   const fn = panel.getByLabel("Custom Function");
   await expect(fn.getByRole("textbox", { name: "Function name" })).toHaveValue("ripple");
-  await fn.getByRole("textbox", { name: "Function body" }).fill("height = ;");
-  await fn.getByRole("textbox", { name: "Function body" }).blur();
-  await expect(panel.getByLabel("Shader graph problems")).toContainText("WebGL couldn't compile");
+  await fn.getByRole("textbox", { name: "WGSL body" }).fill("height = ;");
+  await fn.getByRole("textbox", { name: "WGSL body" }).blur();
+  await expect(panel.getByLabel("Shader graph problems")).toContainText("The generated shader didn't compile");
   await expect(node(page, "ripple").locator("canvas.sg-node-preview")).toHaveClass(/failed/);
   await panel.locator(".sg-pane").click({ position: { x: 40, y: 300 } });
   await page.keyboard.press("ControlOrMeta+z");
