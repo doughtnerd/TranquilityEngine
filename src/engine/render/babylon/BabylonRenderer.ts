@@ -25,101 +25,55 @@
 import "./register";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js";
-import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
-import { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
-import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
-import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Viewport } from "@babylonjs/core/Maths/math.viewport.js";
-import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
-import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
-import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRenderer.js";
-import { EDITOR_LAYER_MASK, type BabylonEditorContext, type EditorMesh, type EditorSprite } from "./editorContext";
+import { EDITOR_LAYER_MASK, type BabylonEditorContext } from "./editorContext";
 import type { BabylonEditorTools } from "./editorTools";
 import type { Component } from "../../core/Component";
 import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
 import type { Color } from "../../core/math";
-import { Assets } from "../../scene/Assets";
-import { authoredSize, splitSpriteRef } from "../../scene/importSettings";
-import type { MaterialInstancing } from "../../scene/material";
-import { drawnVariant, materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import type { GraphShared } from "./graphMaterial";
-import { Camera, Fog, Light, MeshRenderer, ParticleSystem, PostProcessing, ReflectionProbe, SpriteRenderer, Text } from "../components";
-import { UICanvas, isUIComponent } from "../../ui/components";
+import { Camera, PostProcessing, ReflectionProbe, SpriteRenderer, Text } from "../components";
 import type { UICore } from "../../ui/UICore";
-import type { BabylonUI } from "./ui";
-import { Scene as BabylonScene } from "@babylonjs/core/scene.js";
-import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
-import { BabylonProbes, type ProbeHit } from "./probes";
-import { setHeightFog } from "./heightFog";
+import { BabylonProbes } from "./probes";
 import { BabylonRenderTextures } from "./renderTextures";
-import { BabylonWater } from "./water";
-import { WaterSurface } from "../water/WaterSurface";
 import type { GameObject } from "../../scene/GameObject";
-import type { DrawnMaterial, ParticlePreviewSettings, RenderDiagnostics } from "../RenderSurface";
-import type { BabylonParticles } from "./particles";
+import type { ParticlePreviewSettings, RenderDiagnostics } from "../RenderSurface";
 import { PARTICLE_SCALE } from "../../core/graphics";
 import { Graphics } from "../Graphics";
 import type { PostSettings } from "../postEffects";
 import { canvasCameras, planFrame, type FrameCamera, type PlannedView, type Rgb, type ViewRect } from "../framePlan";
 import { GAME_POLICY, type RenderPolicy } from "../renderPolicy";
 import type { PostEffects, ToneMappingName } from "../postEffects";
-import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
+import { BabylonFrame, type CameraView } from "./frameGraph";
 import { BabylonSky } from "./sky/BabylonSky";
 import { BabylonLighting } from "./lighting";
-import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import { BabylonTilemaps } from "./tilemaps";
-import { Tilemap } from "../../tilemap/Tilemap";
-import { pbr } from "./materials";
 import { BabylonMaterialLibrary } from "./materialLibrary";
-import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
-import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
+import { eagerFeature, lazyFeature, type FeatureSlot, type FeatureSyncContext } from "./feature";
+import { byPhase, ownerOf, SYNC_PHASES, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
+import { BabylonSprites, SPRITES_SPEC } from "./sprites";
+import { BabylonMeshes, MESHES_SPEC } from "./meshes";
+import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PARTICLES_SPEC, PROBES_SPEC, ProbesFeature, SKY_SPEC, SkyFeature, TILEMAPS_SPEC, TilemapsFeature, WATER_SPEC } from "./features";
+import { FogFeature } from "./fog";
+import { UI_SPEC } from "./uiSpec";
+import type { BabylonUIFeature, BabylonUIHost } from "./uiFeature";
+import type { ParticlesFeature } from "./particlesFeature";
+import type { WaterFeature } from "./waterFeature";
+import type { BabylonParticleHost } from "./particles";
 import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
 import { AsyncPipelines, FirstFrames } from "./asyncPipelines";
-import { effectClock, PipelineWarmer, VariantReport, WARM_PREFIX, type ParticleSystemLike, type WarmCustom, type WarmItem, type WarmParts } from "./warmUp";
-import type { WarmContent, WarmEffect } from "../../scene/warmUp";
+import { effectClock, PipelineWarmer, VariantReport, WARM_PREFIX, type ParticleSystemLike, type WarmCustom, type WarmItem } from "./warmUp";
+import type { WarmContent } from "../../scene/warmUp";
 import type { QualityTier } from "../../core/graphics";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
-
-interface SpriteEntry {
-  /** Its own quad and material: the editor's scene view only (picking and outlines); other Worlds batch (ADR 0108). */
-  mesh: Mesh | null;
-  material: PBRMaterial | null;
-  /** What the batcher draws for it (ADR 0108), null while hidden. */
-  item: SpriteItem | null;
-  spritePath: string | null;
-  texture: Texture | null;
-  /** The UVs the quad has, as a key ("" for the whole texture). */
-  uvKey: string;
-  /** The mesh's vertex count (16 for the 9-slice grid; more when tiled). */
-  vertexCount: number;
-  /** Size in node units (before the node's scale), once the texture has loaded. */
-  size: [number, number] | null;
-  /** The world matrix the quad is frozen at (Babylon keeps it), or null before the first sync. */
-  matrix: Matrix | null;
-}
-
-interface MeshEntry {
-  /** The renderer's own Babylon meshes (instances, or whole meshes with instancing off); none in a thin batch. */
-  meshes: AbstractMesh[];
-  /** One per model mesh: where it draws (ADR 0108). */
-  drawables: Drawable[];
-  /** Drawables that haven't had a matrix yet. */
-  pending: boolean[];
-  sources: readonly ModelMesh[] | null;
-  material: BabylonMaterial | null;
-  /** Its meshes' material slots (ADR 0089). */
-  slotList: MaterialSlot[];
-  /** The world matrix its meshes were last frozen with (null: freeze next sync). */
-  matrix: Float32Array | null;
-}
 
 interface CameraEntry {
   camera: TargetCamera;
@@ -129,41 +83,13 @@ interface CameraEntry {
 
 
 const tmpMatrix = new Matrix();
-const HEIGHT_FOG_OFF = { on: false, density: 0, base: 0, falloff: 1, color: [1, 1, 1] as [number, number, number] };
-const HEIGHT_FOG_SCRATCH = { on: false, density: 0, base: 0, falloff: 1, color: [1, 1, 1] as [number, number, number] };
-/** Each renderer mesh's frozen world matrix (Babylon keeps the one it's given), refilled when its node moves. */
-const frozenMatrices = new WeakMap<Mesh, Matrix>();
-const tmpSpriteA = new Matrix();
-const tmpColor = new Color3();
-/** The batch a renderer mesh wants this frame, refilled per mesh (ADR 0108). */
-const wantedKey: DrawKey = { src: null as unknown as ModelMesh, material: null as unknown as BabylonMaterial, receiveShadows: true, castShadows: true, mode: "auto", applyFog: true };
-const tmpSpriteB = new Matrix();
-const tmpSpriteC = new Matrix();
 const tmpScale = new Vector3();
 const tmpQuat = new Quaternion();
 const tmpPos = new Vector3();
-/** Unit quad facing +Z, centred on the origin: bottom-left, bottom-right, top-right, top-left. */
-const SPRITE_GRID_NORMALS = Array.from({ length: 16 }, () => [0, 0, 1]).flat();
-const WHOLE_FRAME: SpriteFrame = { uv: null, size: [1, 1], pivot: [0.5, 0.5], border: null, fill: "stretch", pixelsPerUnit: 1, pixelSize: [1, 1], missingSlice: false };
 
-/**
- * @internal Whether a world matrix (16 floats of `source` from `offset`) differs from the one an
- * entry's meshes were last frozen with; if so, it becomes the entry's.
- */
-export function matrixChanged(entry: { matrix: Float32Array | null }, source: ArrayLike<number>, offset: number): boolean {
-  let m = entry.matrix;
-  if (m) {
-    let i = 0;
-    while (i < 16 && m[i] === source[offset + i]) i++;
-    if (i === 16) return false;
-  } else {
-    m = entry.matrix = new Float32Array(16);
-  }
-  for (let i = 0; i < 16; i++) m[i] = source[offset + i];
-  return true;
-}
+/** @internal Moved to the mesh feature (ADR 0130); re-exported for its tests. */
+export { matrixChanged } from "./meshes";
 
-/** A CSS colour string or 0xRRGGBB number as a Babylon colour (gamma space, for clearing). */
 /** World-space UI canvases' planes are named with this (`ui.ts`). */
 const CANVAS_PREFIX = "myco.canvas.";
 
@@ -189,6 +115,7 @@ function rgbOf(c: Color): Rgb {
   return [q(c.r), q(c.g), q(c.b)];
 }
 
+/** A CSS colour string or 0xRRGGBB number as a Babylon colour (gamma space, for clearing). */
 function clearColorOf(v: string | number): Color4 {
   if (typeof v === "number") return Color4.FromColor3(Color3.FromInts((v >> 16) & 255, (v >> 8) & 255, v & 255), 1);
   const hex = /^#([0-9a-f]{6})$/i.test(v) ? v : /^#([0-9a-f]{3})$/i.test(v) ? "#" + [...v.slice(1)].map((c) => c + c).join("") : "#000000";
@@ -198,14 +125,10 @@ function clearColorOf(v: string | number): Color4 {
 /** @internal Stage 1 Babylon.js renderer (ADR 0075). */
 export class BabylonRenderer {
   readonly scene: Scene;
-  private readonly sprites = new Map<SpriteRenderer, SpriteEntry>();
-  private readonly meshRenderers = new Map<MeshRenderer, MeshEntry>();
-  /** MeshRenderer meshes batched for GPU instancing (ADR 0108). */
-  private readonly batches: MeshBatches;
-  /** Sprites batched per texture run (ADR 0108); the editor's scene view keeps a mesh per sprite. */
-  private readonly spriteBatcher: SpriteBatcher;
-  /** A sprite changed since the batcher was last given them. */
-  private spritesDirty = true;
+  /** Sprites (ADR 0108, 0130). */
+  private readonly sprites: BabylonSprites;
+  /** MeshRenderers (ADR 0108, 0130). */
+  private readonly meshes: BabylonMeshes;
   private readonly cameras = new Map<Camera, CameraEntry>();
   /** Materials and textures (ADR 0127): every material and texture the scene draws is built and cached there. */
   private readonly materials: BabylonMaterialLibrary;
@@ -232,32 +155,37 @@ export class BabylonRenderer {
   private warmedProbes = 0;
   /** When `render` last drew a frame: a warm-up only waits while frames are being drawn. */
   private lastRenderAt = -Infinity;
+  /** Shared by the sky, lights and environment features, and the frame's sky fit. */
   private readonly lighting: BabylonLighting;
-  /** Tilemap chunks (ADR 0103). */
-  private readonly tilemaps: BabylonTilemaps;
-  /** Reflection probes (stage 6). */
+  private readonly lights: LightsFeature;
+  private readonly fog: FogFeature;
+  /** Reflection probes (stage 6): the probe lookup meshes and water use. */
   private readonly probes: BabylonProbes;
   /** Render texture assets cameras draw into (ADR 0109). */
   private readonly renderTextures: BabylonRenderTextures;
   /** The procedural sky (ADR 0112): drawn, baked and driving the sun when the Environment uses a sky asset. */
   private readonly sky: BabylonSky;
-  /** Water surfaces (ADR 0072; stage 6), made the first time a World has one. */
-  private water: BabylonWater | null = null;
+  /** Particle effects (stage 5), water (ADR 0072) and game UI (stage 9), loaded the first time a World has one (ADR 0083). */
+  private readonly particles: FeatureSlot<ParticlesFeature>;
+  private readonly water: FeatureSlot<WaterFeature>;
+  private readonly ui: FeatureSlot<BabylonUIFeature>;
+  /** Every render feature, in registration order (ADR 0130). */
+  private readonly slots: FeatureSlot[];
+  /** Their specs, in the same order (for `ownerOf`). */
+  private readonly specs: RenderFeatureSpec[];
+  /** The slots of each sync phase, in run order (`byPhase`). */
+  private readonly phases = new Map<SyncPhase, FeatureSlot[]>();
+  /** What the renderer worked out for the features this sync. */
+  private readonly syncCtx: FeatureSyncContext = { view: null, viewCamera: null, ready: false, probeMeshes: [] };
   /** Meshes drawn with a probe's map last frame, for tests. */
   private reflecting = 0;
-  /** The World's fog over the sky this frame (ADR 0071): how much, and its colour (sRGB). */
-  private skyFog: { amount: number; color: Color4 } | null = null;
-  /** Particle effects (stage 5), loaded the first time a World has a ParticleSystem. */
-  private particles: BabylonParticles | null = null;
-  private particlesLoading = false;
-  /** Editor preview settings set before the particles loaded. */
+  /** Editor preview settings, handed to the particles when they load. */
   private readonly particlePreview: Partial<ParticlePreviewSettings> = {};
   /** What this World's renderer does beyond game rules (ADR 0129); the editor sets it through its viewport handle. */
   private policy: RenderPolicy = { ...GAME_POLICY };
   /** The last frame's plan (ADR 0129), for diagnostics. */
   private lastPlan: PlannedView[] = [];
   private readonly frame: BabylonFrame;
-  private shadows: ShadowRequest[] = [];
   private readonly casters: AbstractMesh[] = [];
   /** What the last frame's first camera ran, for tests and the editor. */
   private lastPost: { composed: boolean; toneMapping: ToneMappingName; effects: PostEffects | null; composedCameras: number } | null = null;
@@ -270,20 +198,6 @@ export class BabylonRenderer {
   private overlayLayer: UtilityLayerRenderer | null = null;
   /** Editor: whether the last frame drew the camera preview. */
   cameraPreviewDrawn = false;
-  /** Game UI (stage 9): the layout and routing core and the GUI drawing, loaded the first time a World has a UICanvas or Text. */
-  private uiCore: UICore | null = null;
-  private uiDraw: BabylonUI | null = null;
-  private uiLoading = false;
-  /** The UI drawing module loaded for the warm-up (a world canvas's plane) before the World had UI. */
-  private uiDrawModule: typeof import("./ui") | null = null;
-  private uiDrawLoading: Promise<unknown> | null = null;
-  /** The UI modules, once loaded (the camera preview builds its own core and drawing from them). */
-  private uiModules: { core: typeof import("../../ui/UICore"); draw: typeof import("./ui") } | null = null;
-  /**
-   * Editor: the game's screen UI laid out again at the camera preview inset's size and drawn into it,
-   * so the preview shows what the game camera's view will (a passive core: no routing or typing).
-   */
-  private previewUI: { core: UICore; draw: BabylonUI } | null = null;
   /** What reflection probes capture: the scene's meshes minus editor-only ones, refilled each frame. */
   private readonly probeMeshes: AbstractMesh[] = [];
 
@@ -327,11 +241,19 @@ export class BabylonRenderer {
     this.materials = new BabylonMaterialLibrary(scene, {
       shared: this.graphShared,
       renderTexture: (path) => this.renderTextures.texture(path),
-      editorPicking: () => this.spriteMeshes, // with editor tools, picking needs per-object instances
+      editorPicking: () => this.policy.drawPolicy === "perObject", // the editor's picking needs per-object instances
     });
-    this.batches = new MeshBatches(scene);
-    this.spriteBatcher = new SpriteBatcher(scene);
-    this.tilemaps = new BabylonTilemaps({
+    this.sprites = new BabylonSprites({
+      scene,
+      pixelsPerUnit: () => this.settings.render.pixelsPerUnit,
+      sortingLayers: () => this.settings.render.sortingLayers,
+      texture: (path) => this.materials.texture(path),
+      loadedTexture: (path) => this.materials.loadedTexture(path),
+      drawPolicy: () => this.policy.drawPolicy,
+      warnOnce: (key, message) => this.warnOnce(key, message),
+    });
+    this.meshes = new BabylonMeshes({ scene, materials: this.materials, probes: this.probes, reflected: () => this.reflecting++ });
+    const tilemaps = new BabylonTilemaps({
       scene,
       texture: (path, onLoad) => {
         const t = this.materials.loadedTexture(path);
@@ -339,8 +261,35 @@ export class BabylonRenderer {
         this.materials.texture(path).then(onLoad, (err) => this.warnOnce(`tile|${path}`, `failed to load tile texture "${path}": ${(err as Error).message}`));
         return null;
       },
-      sortOrder: (layer, order) => this.sortOrder(layer, order),
+      sortOrder: (layer, order) => this.sprites.sortOrder(layer, order),
     });
+    this.lights = new LightsFeature(this.lighting);
+    this.fog = new FogFeature({ scene, setSkyFog: (amount) => this.lighting.setSkyFog(amount) });
+    this.particles = lazyFeature(PARTICLES_SPEC, () => import("./particlesFeature").then((m) => new m.ParticlesFeature(this.particleHost(), () => this.particlePreview)));
+    this.water = lazyFeature(WATER_SPEC, () => import("./waterFeature").then((m) => new m.WaterFeature(scene, (x, y, z) => this.probes.lookup(x, y, z))));
+    this.ui = lazyFeature(UI_SPEC, () => import("./uiFeature").then((m) => m.BabylonUIFeature.create(this.uiHost())));
+    // Registration order decides order inside a phase (ADR 0130): the sky before lights (it may drive
+    // the sun), lights before fog, fog before the environment (the skybox fades with the sky fog).
+    this.slots = [
+      eagerFeature(SPRITES_SPEC, this.sprites),
+      eagerFeature(TILEMAPS_SPEC, new TilemapsFeature(tilemaps)),
+      eagerFeature(MESHES_SPEC, this.meshes),
+      eagerFeature(SKY_SPEC, new SkyFeature(this.sky)),
+      eagerFeature(LIGHTS_SPEC, this.lights),
+      eagerFeature(FOG_SPEC, this.fog),
+      eagerFeature(ENVIRONMENT_SPEC, new EnvironmentFeature(this.lighting)),
+      this.particles,
+      eagerFeature(PROBES_SPEC, new ProbesFeature(this.probes, { reflecting: () => this.reflecting })),
+      this.water,
+      this.ui,
+    ];
+    this.specs = this.slots.map((f) => f.spec);
+    for (const i of byPhase(this.specs)) {
+      const slot = this.slots[i];
+      const list = this.phases.get(slot.spec.phase) ?? [];
+      list.push(slot);
+      this.phases.set(slot.spec.phase, list);
+    }
 
     // Before the warmer, which asks whether compiles are async. Only while it's busy: everywhere else a
     // missing pipeline is made as Babylon makes it, so what's drawn never skips a frame.
@@ -366,59 +315,25 @@ export class BabylonRenderer {
    */
   warmUp(set: WarmContent): Promise<void> {
     const items: WarmItem[] = [...set.meshes];
-    for (const e of set.effects) items.push(this.warmEffect(e));
-    if (set.worldUI) items.push(this.warmWorldCanvas());
+    // Each lazy feature builds its own warm items once it has loaded (ADR 0130); asking loads it.
+    for (const e of set.effects) {
+      const name = `${WARM_PREFIX}particles:${typeof e === "string" ? e : "embedded"}`;
+      items.push(this.deferredWarm(this.particles, { meshes: [], effects: [e], worldUI: false }, typeof e === "string" ? name : `${name}:${JSON.stringify(e)}`));
+    }
+    if (set.worldUI) items.push(this.deferredWarm(this.ui, { meshes: [], effects: [], worldUI: true }, "worldUI"));
     const done = this.warmer.add(items);
     return performance.now() - this.lastRenderAt < 500 ? done : Promise.resolve();
   }
 
-  /** A particle effect to warm: its draws, built by the particle player (loaded now if it isn't). */
-  private warmEffect(effect: WarmEffect): WarmCustom {
-    const name = `${WARM_PREFIX}particles:${typeof effect === "string" ? effect : "embedded"}`;
+  /** A warm item a lazy feature builds once loaded (the warmer asks again until it does). */
+  private deferredWarm(slot: FeatureSlot, content: WarmContent, key: string): WarmCustom {
     return {
-      key: typeof effect === "string" ? name : `${name}:${JSON.stringify(effect)}`,
-      build: (_at, position, camera) => {
-        const particles = this.loadParticles();
-        const draws = particles?.warmDraws(effect, name, position, () => camera);
-        if (!draws) return null; // the player, or a texture or model, is still loading
-        const meshes: Mesh[] = [];
-        const systems: { render(): number; isReady(): boolean }[] = [];
-        for (const d of draws) {
-          if (d.kind === "system") systems.push(d.ps as unknown as { render(): number; isReady(): boolean });
-          else meshes.push((d as unknown as { mesh: Mesh }).mesh);
-        }
-        return {
-          meshes,
-          systems,
-          ready: () => meshes.every((m) => m.isReady(true)) && systems.every((s) => s.isReady()),
-          dispose: () => draws.forEach((d) => d.dispose()),
-        };
+      key,
+      build: (at, position, camera) => {
+        const item = slot.ensure()?.warm?.(content)[0];
+        return item && "build" in item ? item.build(at, position, camera) : null;
       },
     };
-  }
-
-  /** A world-space UI canvas's plane to warm (ADR 0076): the GUI's material on a plane (the UI drawing loads now if it isn't). */
-  private warmWorldCanvas(): WarmCustom {
-    return {
-      key: "worldUI",
-      build: (at) => {
-        const ui = this.loadUIDraw();
-        if (!ui) return null;
-        const parts: WarmParts = ui.warmWorldCanvas(this.scene, `${WARM_PREFIX}canvas`, at);
-        return parts;
-      },
-    };
-  }
-
-  /** The UI drawing module for the warm-up, or null while it loads (the first call starts loading it). */
-  private loadUIDraw(): typeof import("./ui") | null {
-    if (this.uiModules) return this.uiModules.draw;
-    if (!this.uiDrawLoading) {
-      this.uiDrawLoading = import("./ui")
-        .then((m) => (this.uiDrawModule = m))
-        .catch((err) => console.error("[myco] the UI couldn't load for the warm-up:", err));
-    }
-    return this.uiDrawModule;
   }
 
   /** The tier changed what draws need (MSAA, passes, shadows, shader level): draw what this World warmed again in the new passes. */
@@ -444,10 +359,9 @@ export class BabylonRenderer {
       if (prefab) return { what: `${what} (from ${prefab})`, prefab };
       return asset ? { what, prefab: asset } : { what };
     };
-    for (const [r, e] of this.meshRenderers) {
-      if (e.meshes.includes(drawn as AbstractMesh) || e.drawables.some((d) => d.source === drawn)) return of(r.node, `"${r.node.name}"`);
-    }
-    const system = this.particles?.ownerOf(drawn);
+    const owner = this.meshes.ownerOf(drawn as AbstractMesh);
+    if (owner) return of(owner.node, `"${owner.node.name}"`);
+    const system = this.particles.feature?.particles.ownerOf(drawn);
     if (system) return of(system.node, `The particle effect of "${system.node.name}"`, system.effect ? system.effect.replace(/^asset:/, "") : undefined);
     if (drawn.name.startsWith(CANVAS_PREFIX)) return { what: `The world-space UI canvas "${drawn.name.slice(CANVAS_PREFIX.length)}"` };
     return null;
@@ -496,18 +410,14 @@ export class BabylonRenderer {
       world: () => this.owner,
       viewCameras: () => (this.owner ? this.viewCameras(this.owner) : []),
       babylonCamera: (c) => this.cameras.get(c)?.camera ?? null,
-      *sprites(): Iterable<EditorSprite> {
-        for (const [component, e] of self.sprites) if (e.mesh) yield { component, mesh: e.mesh, size: e.size, order: self.sortOrder(component.sortingLayer, component.orderInLayer) };
-      },
-      *meshes(): Iterable<EditorMesh> {
-        for (const [component, e] of self.meshRenderers) yield { component, meshes: e.meshes };
-      },
+      sprites: () => self.sprites.editorSprites(),
+      meshes: () => self.meshes.editorMeshes(),
       texts: () => [], // Text draws from stage 9
       renderer: {
         setClearColor: (color) => this.setClearColor(color),
         cameraPreviewDrawn: () => this.cameraPreviewDrawn,
         spriteSize: (sprite) => this.spriteSize(sprite),
-        ui: () => this.uiCore,
+        ui: () => this.ui.feature?.core() ?? null,
         bakeReflectionProbe: (probe) => this.bakeReflectionProbe(probe),
       },
     };
@@ -515,8 +425,7 @@ export class BabylonRenderer {
 
   /** ADR 0129: change some render policy settings (the editor's viewport handle, through the surface). */
   setPolicy(change: Partial<RenderPolicy>): void {
-    this.policy = { ...this.policy, ...change };
-    this.uiCore?.setInteractive(!this.policy.sceneView);
+    this.policy = { ...this.policy, ...change }; // the UI reads `interactive()` at its next sync
   }
 
   /**
@@ -546,7 +455,7 @@ export class BabylonRenderer {
     if (!p || !rect) return null;
     const r = p.frame.getBoundingClientRect();
     const y = Math.min(1, Math.max(0, 1 - rect.top - rect.height));
-    return { camera: p.camera, rect: { x: rect.x, y, width: rect.width, height: rect.height }, aspect: r.width / r.height, ui: !!this.previewUI };
+    return { camera: p.camera, rect: { x: rect.x, y, width: rect.width, height: rect.height }, aspect: r.width / r.height, ui: this.ui.feature?.hasPreviewUI() ?? false };
   }
 
   /** Sets the editor background (editor Worlds) and clear colour. */
@@ -580,113 +489,59 @@ export class BabylonRenderer {
   /** Step 8: mirror the World's cameras, meshes and sprites into Babylon. */
   sync(world: World): void {
     this.claim(world);
-    const snap = this.spriteSnap(world);
-    for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s, snap);
-    this.flushSprites();
-    this.tilemaps.sync(world);
-    this.syncMeshes(world);
-    for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
-    const view = this.viewCameras(world)[0];
-    const camera = view ? this.cameras.get(view)!.camera : null;
-    this.casters.length = 0;
-    for (const [r, e] of this.meshRenderers) if (r.castShadows && r.isActiveAndEnabled) this.casters.push(...e.meshes);
-    for (const m of this.batches.thinCasters()) this.casters.push(m);
-    this.sky.sync(world); // before the lights: the sky may drive the sun
-    this.shadows = this.lighting.syncLights(world, camera);
-    this.syncParticles(world);
-    this.syncFog(world);
-    this.lighting.syncEnvironment(world, view?.far ?? 1000);
-    let ready = !this.materials.loading();
-    if (ready) for (const m of this.meshRenderers.values()) if (m.sources === null) { ready = false; break; }
-    this.contentLoaded = ready;
-    this.probeMeshes.length = 0;
-    for (const m of this.scene.meshes) if ((m.layerMask & EDITOR_LAYER_MASK) === 0) this.probeMeshes.push(m);
-    this.probes.sync(world, this.probeMeshes, ready);
-    // Probes capture after the scene loads, after its warm-up: warm their material copies once they exist (ADR 0080).
-    const captured = this.probes.textures().length;
-    if (captured > this.warmedProbes) void this.warmer.rewarm();
-    this.warmedProbes = captured;
-    const surfaces = world._componentsOfType(WaterSurface);
-    if (surfaces.length || this.water) {
-      this.water ??= new BabylonWater(this.scene, (x, y, z) => this.probes.lookup(x, y, z));
-      this.water.sync(world, surfaces);
+    const ctx = this.syncCtx;
+    ctx.view = ctx.viewCamera = null;
+    ctx.ready = false;
+    for (const phase of SYNC_PHASES) {
+      for (const slot of this.phases.get(phase) ?? []) slot.ensure(world)?.sync(world, ctx);
+      this.afterPhase(phase, world, ctx);
     }
-    this.syncUI(world);
     this.tools?.sync(world);
   }
 
-  // --- Game UI (ADR 0069, 0076; stage 9) ----------------------------------------------------------
-
-  /** Load the UI on first use (games without UI never download Yoga or Babylon GUI), then lay out and mirror it. */
-  private syncUI(world: World): void {
-    if (!this.uiCore || !this.uiDraw) {
-      if (this.uiLoading || (!world._componentsOfType(UICanvas).length && !world._componentsOfType(Text).length)) return;
-      this.uiLoading = true;
-      // The bundled Inter loads before the first layout, so text isn't measured in a fallback font first.
-      Promise.all([import("../../ui/UICore"), import("./ui"), import("../../ui/fonts").then((f) => f.loadBundledFont())])
-        .then(([core, draw]) => {
-          if (this.disposed) return;
-          this.uiModules = { core, draw };
-          this.uiDraw = new draw.BabylonUI(this.scene, { texture: (ref) => this.materials.texture(ref) });
-          this.uiCore = new core.UICore({
-            interactive: !this.policy.sceneView, // the editor's scene view: clicks select, they don't press buttons
-            host: { viewCamera: () => (this.owner ? (this.viewCameras(this.owner)[0] ?? null) : null), measureText: draw.measureText },
-          });
-          const screen = this.uiDraw.screen;
-          this.frame.ui = () => {
-            screen._checkUpdate(null);
-            return screen._layerToDispose;
-          };
-        })
-        .catch((err) => console.error("[myco] the UI couldn't start on the Babylon backend:", err))
-        .finally(() => (this.uiLoading = false));
-      return;
+  /** The renderer's own steps between feature phases (ADR 0130 `SYNC_PHASES`). */
+  private afterPhase(phase: SyncPhase, world: World, ctx: FeatureSyncContext): void {
+    if (phase === "content") {
+      for (const c of world._componentsOfType(Camera)) this.syncCamera(world, c);
+      const view = this.viewCameras(world)[0] ?? null;
+      ctx.view = view;
+      ctx.viewCamera = view ? this.cameras.get(view)!.camera : null;
+      this.casters.length = 0;
+      this.meshes.casters(this.casters);
+    } else if (phase === "effects") {
+      ctx.ready = this.contentLoaded = !this.materials.loading() && this.meshes.loaded();
+      this.probeMeshes.length = 0;
+      for (const m of this.scene.meshes) if ((m.layerMask & EDITOR_LAYER_MASK) === 0) this.probeMeshes.push(m);
+      ctx.probeMeshes = this.probeMeshes;
+    } else if (phase === "capture") {
+      // Probes capture after the scene loads, after its warm-up: warm their material copies once they exist (ADR 0080).
+      const captured = this.probes.textures().length;
+      if (captured > this.warmedProbes) void this.warmer.rewarm();
+      this.warmedProbes = captured;
     }
-    const canvas = this.engine.getRenderingCanvas();
-    const cssW = canvas?.clientWidth || this.settings.display.width, cssH = canvas?.clientHeight || this.settings.display.height;
-    const pixelRatio = this.engine.getRenderWidth() / Math.max(1, cssW);
-    const core = this.uiCore;
-    core.sync(world, cssW, cssH, world.time.unscaledDeltaTime);
-    this.uiDraw.sync(world, core, { caretOf: (c) => core.caretOf(c) }, cssW, cssH, pixelRatio);
-    this.uiDraw.syncTexts(world, cssW, cssH);
-    this.syncPreviewUI(world, cssW, cssH, pixelRatio);
-  }
-
-  /** Editor: lay the screen UI out at the camera preview inset's size and draw it there (or drop it when there's no inset). */
-  private syncPreviewUI(world: World, cssW: number, cssH: number, pixelRatio: number): void {
-    const rect = this.uiModules ? this.previewRect() : null;
-    if (!rect) {
-      if (this.previewUI) {
-        this.frame.previewUI = null;
-        this.previewUI.core.dispose();
-        this.previewUI.draw.dispose();
-        this.previewUI = null;
-      }
-      return;
-    }
-    if (!this.previewUI) {
-      const { core, draw } = this.uiModules!;
-      const ui = {
-        core: new core.UICore({ interactive: false, passive: true, host: { measureText: draw.measureText } }),
-        draw: new draw.BabylonUI(this.scene, { texture: (ref) => this.materials.texture(ref), screenOnly: true }),
-      };
-      this.previewUI = ui;
-      const screen = ui.draw.screen;
-      this.frame.previewUI = () => {
-        screen._checkUpdate(null);
-        return screen._layerToDispose;
-      };
-    }
-    const { core, draw } = this.previewUI;
-    const w = rect.width * cssW, h = rect.height * cssH;
-    core.sync(world, w, h, 0);
-    draw.sync(world, core, {}, w, h, pixelRatio, { x: rect.x * cssW, y: rect.top * cssH });
-    draw.syncTexts(world, w, h);
   }
 
   /** @internal Tests and the editor: the UI core (layout and routing), once loaded. */
   uiState(): UICore | null {
-    return this.uiCore;
+    return this.ui.feature?.core() ?? null;
+  }
+
+  /** The UI feature's host (ADR 0130). */
+  private uiHost(): BabylonUIHost {
+    return {
+      scene: this.scene,
+      texture: (ref) => this.materials.texture(ref),
+      viewCamera: () => (this.owner ? (this.viewCameras(this.owner)[0] ?? null) : null),
+      interactive: () => !this.policy.sceneView, // the editor's scene view: clicks select, they don't press buttons
+      previewRect: () => this.previewRect(),
+      canvasSize: () => {
+        const canvas = this.engine.getRenderingCanvas();
+        const cssW = canvas?.clientWidth || this.settings.display.width, cssH = canvas?.clientHeight || this.settings.display.height;
+        return { cssW, cssH, pixelRatio: this.engine.getRenderWidth() / Math.max(1, cssW) };
+      },
+      setFrameUI: (draw) => (this.frame.ui = draw),
+      setFramePreviewUI: (draw) => (this.frame.previewUI = draw),
+    };
   }
 
   render(world: World): void {
@@ -699,10 +554,11 @@ export class BabylonRenderer {
     engine.beginFrame();
     // ADR 0129: the frame plan decides the views; this only maps them to Babylon cameras and passes.
     const cc = this.clearColor;
+    const skyFog = this.fog.skyFog();
     const plan = planFrame({
       cameras: this.frameCameras(world),
       clearColor: [cc.r, cc.g, cc.b],
-      skyFog: this.skyFog ? { color: [this.skyFog.color.r, this.skyFog.color.g, this.skyFog.color.b], amount: this.skyFog.amount } : null,
+      skyFog: skyFog ? { color: [skyFog.color.r, skyFog.color.g, skyFog.color.b], amount: skyFog.amount } : null,
       tier: Graphics.tier,
       sceneView: this.policy.sceneView,
       overlay: !!this.tools,
@@ -731,12 +587,12 @@ export class BabylonRenderer {
       const skipped = this.asyncPipelines?.skippedShown ?? 0;
       this.firstFrameDrawing = first;
       try {
-        this.frame.render(views, this.shadows, this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
+        this.frame.render(views, this.lights.shadows(), this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
       } finally {
         this.firstFrameDrawing = false;
       }
       // A layout change rebuilds the graph instead of running it: that frame shows the clear colour and doesn't count.
-      if (first && this.frame.ready) held = this.firstFrames.end(this.asyncPipelines!.skippedShown > skipped, this.contentLoaded && !this.uiLoading, performance.now());
+      if (first && this.frame.ready) held = this.firstFrames.end(this.asyncPipelines!.skippedShown > skipped, this.contentLoaded && !this.slots.some((f) => f.loading && f.spec.holdsFirstFrame), performance.now());
       if (held) engine.restoreDefaultFramebuffer();
     }
     if (!views.length || !this.frame.ready || held) engine.clear(this.clearColor, true, true, true);
@@ -812,63 +668,34 @@ export class BabylonRenderer {
 
   // --- Particles (ADR 0057, 0060; stage 5) -------------------------------------------------------
 
-  /** Load the particle player on first use (games without particles never download it), then step it. */
-  private syncParticles(world: World): void {
-    const systems = world._componentsOfType(ParticleSystem);
-    if (!this.particles) {
-      if (systems.length) this.loadParticles();
-      return;
-    }
-    this.particles.sync(systems, world.time.deltaTime, world.time.unscaledDeltaTime);
-  }
-
-  /** The particle player, or null while it loads (the first call starts loading it). */
-  private loadParticles(): BabylonParticles | null {
-    if (!this.particles && !this.particlesLoading && !this.disposed) {
-      this.particlesLoading = true;
-      import("./particles")
-        .then((m) => {
-          if (this.disposed) return;
-          this.particles = new m.BabylonParticles({
-            scene: this.scene,
-            particlePreview: () => this.policy.particlePreview,
-            worldMatrix: (c) => {
-              const e = c.node.entity;
-              return this.owner!.worldMatrix(e).subarray(e * 16, e * 16 + 16);
-            },
-            texture: (path, sheet) => this.materials.texture(path, sheet ? "sheet" : "color"),
-            tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
-            material: (path) => this.materials.material(path), // shared with MeshRenderers; null while missing
-            materialCopy: (path, name) => this.materials.copy(path, name), // soft and kernel particles (ADR 0126)
-            // 3D physics only; null while the World has none (loaded later by a scene)
-            raycast: (ox, oy, oz, dx, dy, dz, maxDistance) => {
-              const hit = this.owner?.physics3D?.raycast({ x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, maxDistance);
-              return hit ? { point: [hit.point.x, hit.point.y, hit.point.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance } : null;
-            },
-          });
-          Object.assign(this.particles.preview, this.particlePreview);
-        })
-        .catch((err) => console.error("[myco] particles couldn't start on the Babylon backend:", err))
-        .finally(() => (this.particlesLoading = false));
-    }
-    return this.particles;
+  /** The particle player's host (ADR 0130's model). */
+  private particleHost(): BabylonParticleHost {
+    return {
+      scene: this.scene,
+      particlePreview: () => this.policy.particlePreview,
+      worldMatrix: (c) => {
+        const e = c.node.entity;
+        return this.owner!.worldMatrix(e).subarray(e * 16, e * 16 + 16);
+      },
+      texture: (path, sheet) => this.materials.texture(path, sheet ? "sheet" : "color"),
+      tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
+      material: (path) => this.materials.material(path), // shared with MeshRenderers; null while missing
+      materialCopy: (path, name) => this.materials.copy(path, name), // soft and kernel particles (ADR 0126)
+      // 3D physics only; null while the World has none (loaded later by a scene)
+      raycast: (ox, oy, oz, dx, dy, dz, maxDistance) => {
+        const hit = this.owner?.physics3D?.raycast({ x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, maxDistance);
+        return hit ? { point: [hit.point.x, hit.point.y, hit.point.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance } : null;
+      },
+    };
   }
 
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
     Object.assign(this.particlePreview, preview);
-    if (this.particles) Object.assign(this.particles.preview, preview);
+    this.particles.feature?.setPreview(preview);
   }
 
   restartParticlePreview(): void {
-    this.particles?.restartAll();
-  }
-
-  // --- Reflection probes and fog (ADR 0054, 0071; stage 6) ----------------------------------------
-
-  /** The probe a mesh's bounds centre lies in, if any. */
-  private probeAt(m: Mesh): ProbeHit | null {
-    const centre = m.getBoundingInfo().boundingBox.centerWorld;
-    return this.probes.lookup(centre.x, centre.y, centre.z);
+    this.particles.feature?.restartAll();
   }
 
   /** Editor (ADR 0110): a probe's current capture as a prefiltered `.env` file. */
@@ -876,85 +703,15 @@ export class BabylonRenderer {
     return this.probes.bake(probe);
   }
 
-  /**
-   * The World's first enabled Fog sets the scene's distance fog (ADR 0071): linear or exponential
-   * squared, like three.js's Fog and FogExp2. Its colour is linear here, since the scene renders in
-   * linear HDR. With `affectsSkybox`, the sky dims towards the fog and a plain background lerps to it.
-   */
-  private syncFog(world: World): void {
-    const fog = world._componentsOfType(Fog).find((f) => f.isActiveAndEnabled) ?? null;
-    const s = this.scene;
-    if (!fog) {
-      s.fogMode = BabylonScene.FOGMODE_NONE;
-      this.skyFog = null;
-      this.lighting.setSkyFog(0);
-      setHeightFog(s, HEIGHT_FOG_OFF);
-      return;
-    }
-    const exp = fog.mode === "exponential";
-    s.fogMode = fog.mode === "none" ? BabylonScene.FOGMODE_NONE : exp ? BabylonScene.FOGMODE_EXP2 : BabylonScene.FOGMODE_LINEAR;
-    s.fogColor.set(fog.color.r, fog.color.g, fog.color.b).toLinearSpaceToRef(s.fogColor); // in place: no colour per frame
-    s.fogDensity = Math.max(0, fog.density);
-    s.fogStart = Math.max(0, fog.near);
-    s.fogEnd = Math.max(s.fogStart + 1e-3, fog.far);
-    const amount = fog.affectsSkybox ? Math.min(1, Math.max(0, fog.skyboxFog)) : 0;
-    if (amount <= 0) this.skyFog = null;
-    else {
-      this.skyFog ??= { amount, color: new Color4() };
-      this.skyFog.amount = amount;
-      this.skyFog.color.set(fog.color.r, fog.color.g, fog.color.b, 1);
-    }
-    this.lighting.setSkyFog(amount);
-    // Height fog (ADR 0110): in the same linear colour as distance fog.
-    const hf = HEIGHT_FOG_SCRATCH;
-    hf.on = fog.heightFog;
-    hf.density = Math.max(0, fog.heightFogDensity);
-    hf.base = fog.heightFogBase;
-    hf.falloff = Math.max(1e-4, fog.heightFogFalloff);
-    hf.color[0] = s.fogColor.r;
-    hf.color[1] = s.fogColor.g;
-    hf.color[2] = s.fogColor.b;
-    setHeightFog(s, hf);
-  }
-
+  /** A destroyed Component's drawing goes (ADR 0130: to the feature that owns it). */
   release(c: Component): void {
-    if (this.uiDraw && this.uiCore && isUIComponent(c)) {
-      this.uiCore.release(c);
-      this.uiDraw.release(c);
-      this.previewUI?.core.release(c);
-      this.previewUI?.draw.release(c);
-      return;
-    }
-    if (c instanceof SpriteRenderer) {
-      const e = this.sprites.get(c);
-      if (e) {
-        e.mesh?.dispose();
-        e.material?.dispose();
-        this.sprites.delete(c);
-        this.spritesDirty = true;
-      }
-    } else if (c instanceof MeshRenderer) {
-      const e = this.meshRenderers.get(c);
-      if (e) {
-        for (const d of e.drawables) this.batches.release(d);
-        this.meshRenderers.delete(c);
-      }
-      this.materials.release(c);
-    } else if (c instanceof Tilemap) {
-      this.tilemaps.release(c);
-    } else if (c instanceof WaterSurface) {
-      this.water?.release(c);
-    } else if (c instanceof ParticleSystem) {
-      this.particles?.release(c);
-    } else if (c instanceof Light) {
-      this.lighting.release(c);
-    } else if (c instanceof Text) {
-      this.uiDraw?.release(c);
-      this.previewUI?.draw.release(c);
-    } else if (c instanceof Camera) {
+    if (c instanceof Camera) {
       this.cameras.get(c)?.camera.dispose();
       this.cameras.delete(c);
+      return;
     }
+    const i = ownerOf(this.specs, c);
+    if (i >= 0) this.slots[i].feature?.release?.(c);
   }
 
   releaseWorld(): void {
@@ -966,27 +723,17 @@ export class BabylonRenderer {
     if (this.disposed) return;
     this.disposed = true;
     this.warmer.dispose();
-    this.batches.dispose();
-    this.spriteBatcher.dispose();
     this.asyncPipelines?.dispose();
     this.effects.dispose();
     this.report?.dispose();
-    this.particles?.dispose();
     this.tools?.dispose();
-    this.frame.ui = null;
-    this.frame.previewUI = null;
-    this.uiCore?.dispose();
-    this.uiDraw?.dispose();
-    this.previewUI?.core.dispose();
-    this.previewUI?.draw.dispose();
     this.frame.overlay = null;
     this.overlayLayer?.dispose();
-    this.probes.dispose();
+    for (let i = this.slots.length - 1; i >= 0; i--) this.slots[i].dispose(); // reverse registration order (ADR 0130)
+    this.frame.ui = null;
+    this.frame.previewUI = null;
     this.materials.dispose();
     this.renderTextures.dispose();
-    this.tilemaps.dispose();
-    this.sky.dispose();
-    this.water?.dispose();
     this.frame.dispose();
     this.scene.dispose();
     this.engine.dispose();
@@ -1052,300 +799,14 @@ export class BabylonRenderer {
     camera.rotationQuaternion!.copyFrom(tmpQuat);
   }
 
-  // --- Sprites (ADR 0014, 0040) -----------------------------------------------------------------
-
-  private sortOrder(layer: string, order: number): number {
-    let index = this.settings.render.sortingLayers.indexOf(layer);
-    if (index < 0) {
-      this.warnOnce(`layer|${layer}`, `unknown sorting layer "${layer}"; add it to project settings render.sortingLayers.`);
-      index = 0;
-    }
-    return index * 10000 + order;
-  }
-
-  private syncSprite(world: World, s: SpriteRenderer, snap: number): void {
-    let entry = this.sprites.get(s);
-    if (!entry) {
-      entry = { mesh: null, material: null, item: null, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null };
-      this.sprites.set(s, entry);
-      this.spritesDirty = true;
-    }
-    const { path: image, slice } = splitSpriteRef(s.sprite);
-    if (entry.spritePath !== s.sprite) {
-      entry.spritePath = s.sprite;
-      const tex = image ? this.materials.loadedTexture(image) : null;
-      entry.texture = tex;
-      if (tex) tex.hasAlpha = true; // Babylon reads a texture's alpha only when told it has one
-      if (entry.material) entry.material.albedoTexture = tex;
-      this.spritesDirty = true;
-      if (image && !tex) {
-        const requested = s.sprite;
-        this.materials
-          .texture(image)
-          .then(() => {
-            if (entry!.spritePath === requested) entry!.spritePath = null; // re-resolve next sync
-          })
-          .catch((err) => console.error(`[myco] failed to load texture "${image}":`, err));
-      }
-    }
-    // A sidecar rewritten since the texture loaded (the editor's import settings): sample it anew.
-    if (entry.texture && image) this.materials.loadedTexture(image);
-
-    const ready = !s.sprite || !!entry.texture;
-    const visible = s.isActiveAndEnabled && ready;
-    if (!visible) {
-      entry.mesh?.setEnabled(false);
-      if (entry.item) this.spritesDirty = true;
-      entry.item = null;
-      return;
-    }
-
-    let w = 1, h = 1, px = 0.5, py = 0.5;
-    let frame: SpriteFrame | null = null;
-    let texSize: { width: number; height: number } | null = null;
-    if (entry.texture) {
-      const base = entry.texture.getBaseSize();
-      const settings = Assets.importSettings(image);
-      const [aw, ah] = authoredSize(settings, base.width, base.height); // a build may have shrunk the image (ADR 0119)
-      texSize = { width: aw, height: ah };
-      frame = spriteFrame(settings, slice, texSize.width, texSize.height, { component: s.pixelsPerUnit, project: this.settings.render.pixelsPerUnit }, s.size);
-      [w, h] = frame.size;
-      [px, py] = frame.pivot;
-      if (frame.missingSlice) this.warnOnce(`slice|${s.sprite}`, `${image} has no slice named "${slice}" (in ${image}.meta.json); drawing the whole image.`);
-    } else if (s.size) {
-      w = s.size.x;
-      h = s.size.y;
-    }
-    entry.size = entry.texture || s.size ? [w, h] : null;
-
-    // A mesh of its own with editor tools (picking and outlines), or for a 9-sliced or tiled slice
-    // (ADR 0115), whose grid the batcher's quads can't draw; plain sprites batch (ADR 0108).
-    const own = this.spriteMeshes || !!(frame && (frame.border || frame.fill === "tile"));
-    if (own && !entry.mesh) this.makeSpriteMesh(s, entry);
-    else if (!own && entry.mesh) {
-      entry.mesh.dispose();
-      entry.material?.dispose();
-      entry.mesh = entry.material = null;
-      entry.matrix = null;
-    }
-    const { mesh, material } = entry;
-    if (mesh) {
-      mesh.setEnabled(true);
-      if (entry.item) this.spritesDirty = true; // drawn by its own mesh now
-      entry.item = null;
-    }
-
-    const order = this.sortOrder(s.sortingLayer, s.orderInLayer);
-    const c = s.color;
-    if (material) {
-      material.albedoColor.set(c.r, c.g, c.b).toLinearSpaceToRef(material.albedoColor);
-      material.alpha = c.a;
-      mesh!.alphaIndex = order;
-      if (frame && texSize) this.setSpriteGeometry(entry, frame, texSize.width, texSize.height);
-    } else {
-      const item = (entry.item ??= { texture: null, order, matrix: new Float32Array(16), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
-      // The batch's instance colour multiplies the (white) albedo: linear, like the albedo colour.
-      tmpColor.set(c.r, c.g, c.b).toLinearSpaceToRef(tmpColor);
-      if (item.color[0] !== tmpColor.r || item.color[1] !== tmpColor.g || item.color[2] !== tmpColor.b || item.color[3] !== c.a || item.order !== order || item.texture !== entry.texture) {
-        item.color[0] = tmpColor.r;
-        item.color[1] = tmpColor.g;
-        item.color[2] = tmpColor.b;
-        item.color[3] = c.a;
-        item.order = order;
-        item.texture = entry.texture;
-        this.spritesDirty = true;
-      }
-      const [u0, v0, u1, v1] = frame?.uv ?? [0, 0, 1, 1];
-      const r = item.uvRect;
-      if (r[0] !== u0 || r[1] !== v0 || r[2] !== u1 - u0 || r[3] !== v1 - v0) {
-        r[0] = u0;
-        r[1] = v0;
-        r[2] = u1 - u0;
-        r[3] = v1 - v0;
-        this.spritesDirty = true;
-      }
-    }
-
-    // Scale the unit quad to size with the pivot at the node's origin (flips mirror about it).
-    const e = s.node.entity;
-    // Without allocating, and frozen again only when it changed: freezing recomputes the bounds.
-    Matrix.TranslationToRef(0.5 - px, 0.5 - py, 0, tmpSpriteA);
-    Matrix.ScalingToRef(s.flipX ? -w : w, s.flipY ? -h : h, 1, tmpSpriteB);
-    tmpSpriteA.multiplyToRef(tmpSpriteB, tmpSpriteC);
-    Matrix.FromArrayToRef(world.worldMatrix(e) as unknown as number[], e * 16, tmpMatrix);
-    if (snap > 0) {
-      // A pixel-perfect camera's pixel snapping (ADR 0108): the node's position on the texel grid.
-      const m = tmpMatrix.m as unknown as number[];
-      tmpMatrix.setTranslationFromFloats(snapToGrid(m[12], snap), snapToGrid(m[13], snap), m[14]);
-    }
-    tmpSpriteC.multiplyToRef(tmpMatrix, tmpSpriteA);
-    if (entry.matrix?.equals(tmpSpriteA)) return;
-    entry.matrix ??= new Matrix();
-    entry.matrix.copyFrom(tmpSpriteA);
-    if (mesh) mesh.freezeWorldMatrix(entry.matrix);
-    else {
-      entry.matrix.copyToArray(entry.item!.matrix);
-      this.spritesDirty = true;
-    }
-  }
-
-  /** A sprite's own quad and material: a 4 × 4 vertex grid, so a slice's 9-slice border can move the inner lines (ADR 0115). */
-  private makeSpriteMesh(s: SpriteRenderer, entry: SpriteEntry): void {
-    const mesh = new Mesh(`sprite:${s.node.name}`, this.scene);
-    const data = new VertexData();
-    const grid = spriteMeshData(WHOLE_FRAME, 1, 1);
-    data.positions = grid.positions;
-    data.normals = SPRITE_GRID_NORMALS;
-    data.uvs = grid.uvs;
-    data.indices = SPRITE_GRID_INDICES as number[];
-    data.applyToMesh(mesh, true);
-    const material = pbr(`sprite:${s.node.name}`, this.scene);
-    material.unlit = true;
-    material.backFaceCulling = false; // flipped sprites mirror their quad
-    material.disableDepthWrite = true;
-    material.depthFunction = Constants.ALWAYS; // sprites draw in layer order, not by depth (ADR 0014)
-    material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-    material.useAlphaFromAlbedoTexture = true;
-    material.albedoTexture = entry.texture;
-    mesh.material = material;
-    mesh.alwaysSelectAsActiveMesh = true;
-    entry.mesh = mesh;
-    entry.material = material;
-    entry.uvKey = "";
-    entry.vertexCount = 16;
-    entry.matrix = null;
-  }
-
-  /** Draw a slice's part of the texture (9-sliced when it has a border), or the whole texture, on the sprite's own mesh. */
-  private setSpriteGeometry(entry: SpriteEntry, frame: SpriteFrame, texWidth: number, texHeight: number): void {
-    const mesh = entry.mesh;
-    if (!mesh) return;
-    const key = frame.uv || frame.border || frame.fill === "tile" ? `${frame.uv?.join(",") ?? ""}|${frame.border?.join(",") ?? ""}|${frame.fill}|${frame.size.join(",")}|${frame.pixelsPerUnit}|${texWidth}x${texHeight}` : "";
-    if (key === entry.uvKey) return;
-    entry.uvKey = key;
-    const grid = spriteMeshData(frame, texWidth, texHeight);
-    if (grid.tileCapped) this.warnOnce(`tiles|${entry.spritePath}`, `sprite "${entry.spritePath}" would need more than ${MAX_TILE_QUADS} tiles; drawing it stretched. Use a bigger tile or a smaller sprite.`);
-    if (grid.indices === SPRITE_GRID_INDICES && entry.vertexCount === 16) {
-      mesh.updateVerticesData(VertexBuffer.PositionKind, grid.positions);
-      mesh.updateVerticesData(VertexBuffer.UVKind, grid.uvs);
-      return;
-    }
-    // A different vertex count (tiling): replace the buffers and indices.
-    const count = grid.positions.length / 3;
-    entry.vertexCount = count;
-    mesh.setVerticesData(VertexBuffer.PositionKind, grid.positions, true);
-    mesh.setVerticesData(VertexBuffer.NormalKind, Array.from({ length: count }, () => [0, 0, 1]).flat());
-    mesh.setVerticesData(VertexBuffer.UVKind, grid.uvs, true);
-    mesh.setIndices(grid.indices);
-  }
-
-  /** After syncing sprites: hand the batcher this frame's sprites when any changed (ADR 0108). */
-  private flushSprites(): void {
-    if (!this.spritesDirty) return;
-    this.spritesDirty = false;
-    const items: SpriteItem[] = [];
-    for (const e of this.sprites.values()) if (e.item && !e.mesh) items.push(e.item); // sprites with a mesh of their own draw with it
-    this.spriteBatcher.update(items);
-  }
-
-  /**
-   * Whether sprites draw as a mesh each: when the editor asked for this World's viewport (the scene
-   * view, editor play mode), whose picking and outlines use them. Games batch plain sprites (ADR 0108, 0129).
-   */
-  private get spriteMeshes(): boolean {
-    return this.policy.drawPolicy === "perObject";
-  }
-
-  /** The texel step sprites snap to this frame: a pixel-perfect view camera with pixel snapping, else 0. */
-  private spriteSnap(world: World): number {
-    // As `viewCameras` picks, without needing the camera synced yet (sprites sync first).
-    const view = world._componentsOfType(Camera).filter((c) => c.isActiveAndEnabled && !world.inEditMode(c.node.entity)).sort((a, b) => a.depth - b.depth)[0];
-    if (!view || !view.pixelPerfect || !view.pixelSnapping || view.projection !== "orthographic") return 0;
-    const ppu = this.settings.render.pixelsPerUnit;
-    return ppu > 0 ? 1 / ppu : 0;
-  }
-
   /** @internal The sprite's size in node units once its texture has loaded. */
   spriteSize(s: SpriteRenderer): [number, number] | null {
-    if (s.size) return [s.size.x, s.size.y];
-    return this.sprites.get(s)?.size ?? null;
+    return this.sprites.spriteSize(s);
   }
 
-  // --- Meshes and materials (ADR 0043, 0044) ----------------------------------------------------
-
-  /** @internal Every MeshRenderer, then the script Material instances no renderer drew any more (ADR 0107). */
+  /** @internal Tests: sync just the MeshRenderers (ADR 0130's mesh feature). */
   syncMeshes(world: World): void {
-    this.materials.beginSync();
-    for (const m of world._componentsOfType(MeshRenderer)) this.syncMesh(world, m);
-    this.materials.endSync();
-    this.batches.flush();
-  }
-
-  private syncMesh(world: World, r: MeshRenderer): void {
-    let entry = this.meshRenderers.get(r);
-    if (!entry) {
-      entry = { meshes: [], drawables: [], pending: [], sources: null, material: null, slotList: [], matrix: null };
-      this.meshRenderers.set(r, entry);
-    }
-    const sources = meshesIfLoaded(r.mesh); // null while the model loads
-    const same = entry.sources !== null && sources !== null && entry.sources.length === sources.length && entry.sources.every((m, i) => m === sources[i]);
-    const slots = same ? entry.slotList : sources ? materialSlots(sources) : [];
-    const variant = sources?.length ? drawnVariant(r.mesh, r.variant) : undefined; // ADR 0118
-    // Material slots, script Materials and overrides (ADR 0089, 0107, 0049), resolved by the library.
-    const drawnBy = this.materials.meshMaterials(r, slots, variant);
-    const material = drawnBy.material;
-    if (!same) {
-      for (const d of entry.drawables) this.batches.release(d);
-      entry.drawables = [];
-      entry.pending = [];
-      entry.sources = sources;
-      entry.slotList = slots;
-      entry.matrix = null;
-    }
-    entry.material = material;
-    const visible = r.isActiveAndEnabled;
-    const e = r.node.entity;
-    const world16 = world.worldMatrix(e);
-    // Refill the drawables' matrices only when the node moved: freezing recomputes their bounds.
-    const moved = visible && (sources?.length ?? 0) > 0 && matrixChanged(entry, world16, e * 16);
-    const mode = this.instancingFor(r);
-    let changed = !same;
-    (sources ?? []).forEach((src, i) => {
-      // One material, or a multi-material shared by every renderer with the same slot materials, so they batch (ADR 0108).
-      const base = drawnBy.of(src);
-      // A reflection probe (ADR 0054) for built-in materials; graph materials keep the scene's environment.
-      const probe = visible && this.probes.any && base instanceof PBRMaterial && !this.materials.isGraph(base) ? this.probes.lookup(world16[e * 16 + 12], world16[e * 16 + 13], world16[e * 16 + 14]) : null;
-      const drawn = probe ? this.materials.probeCopy(base as PBRMaterial, probe) : base;
-      if (probe) this.reflecting++;
-      // The batch it draws in (ADR 0108): same geometry, material and shadow settings draw instanced.
-      const key = wantedKey;
-      key.src = src;
-      key.material = drawn;
-      key.receiveShadows = r.receiveShadows;
-      key.castShadows = r.castShadows;
-      key.mode = mode;
-      key.applyFog = !this.materials.fogless(base);
-      let d = entry!.drawables[i];
-      if (!d || !sameDraw(d.draw, key)) {
-        if (d) this.batches.release(d);
-        d = this.batches.acquire(key, `${r.node.name}:${src.name}`);
-        entry!.drawables[i] = d;
-        entry!.pending[i] = true;
-        changed = true;
-      }
-      d.setEnabled(visible);
-      if (visible && (moved || entry!.pending[i]) && entry!.matrix) {
-        Matrix.FromArrayToRef(entry!.matrix as unknown as number[], 0, tmpMatrix);
-        d.setMatrix(tmpMatrix);
-        entry!.pending[i] = false;
-      }
-    });
-    if (changed) entry.meshes = entry.drawables.flatMap((d) => (d.mesh ? [d.mesh] : []));
-  }
-
-  /** How a renderer's meshes batch (ADR 0108): its slot 0 material asset's `instancing`. */
-  private instancingFor(r: MeshRenderer): MaterialInstancing {
-    return this.materials.instancing(r.materials[0] || r.material);
+    this.meshes.sync(world, this.syncCtx);
   }
 
   // --- Diagnostics (ADR 0128) ------------------------------------------------------------------
@@ -1362,30 +823,22 @@ export class BabylonRenderer {
         cameras.push({ camera: v.camera, target: kind === "texture" ? "texture" : kind });
       }
     }
-    const meshes = new Map<GameObject, DrawnMaterial[]>();
-    for (const [r, e] of this.meshRenderers) {
-      const shown = e.drawables.filter((d) => d.enabled);
-      if (!shown.length) continue;
-      const list = meshes.get(r.node) ?? [];
-      for (const d of shown) list.push(drawnMaterial(d.draw.material));
-      meshes.set(r.node, list);
-    }
-    const sprites = new Set<GameObject>();
-    for (const [s, e] of this.sprites) if (e.mesh ? e.mesh.isEnabled() : e.item) sprites.add(s.node);
     const post = this.lastPost;
-    return {
+    const out: Omit<RenderDiagnostics, "started" | "quality"> = {
       lighting: this.lighting.state(),
       sky: this.sky.state(),
       post: { composed: !!post?.composed, loaded: this.frame.ready, toneMapping: post?.toneMapping ?? "none", effects: post?.effects ?? null, composedCameras: post?.composedCameras ?? 0 },
-      water: this.water?.state() ?? { surfaces: 0 },
+      water: { surfaces: 0 },
       probes: this.probes.state(this.reflecting),
       renderTextures: this.renderTextures.state(),
-      particles: this.particles?.state() ?? null,
+      particles: null,
       // Babylon counts the draw calls of the frame being drawn and resets at the next frame's start, so between frames this is the last frame's (0 on NullEngine).
       stats: { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: 0 },
       cameras,
-      drawn: { meshes: [...meshes].map(([node, materials]) => ({ node, materials })), sprites: [...sprites] },
+      drawn: { meshes: this.meshes.drawn(), sprites: this.sprites.drawnNodes() },
     };
+    for (const slot of this.slots) Object.assign(out, slot.feature?.state?.()); // each loaded feature's part (ADR 0130)
+    return out;
   }
 
   private warnOnce(key: string, message: string): void {
@@ -1393,11 +846,4 @@ export class BabylonRenderer {
     this.warned.add(key);
     console.warn(`[myco] ${message}`);
   }
-}
-
-/** A Babylon material in the engine's material terms (diagnostics, ADR 0128). */
-function drawnMaterial(m: BabylonMaterial): DrawnMaterial {
-  if (m instanceof PBRMaterial) return { unlit: m.unlit, clearcoat: m.clearCoat.isEnabled ? m.clearCoat.intensity : 0, transmission: m.subSurface.isRefractionEnabled ? m.subSurface.refractionIntensity : 0 };
-  const lit = m as { unlit?: boolean; disableLighting?: boolean };
-  return { unlit: !!(lit.unlit ?? lit.disableLighting), clearcoat: 0, transmission: 0 };
 }
