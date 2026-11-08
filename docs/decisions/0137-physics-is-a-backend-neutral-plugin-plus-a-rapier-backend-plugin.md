@@ -1,6 +1,6 @@
 # 0137. Physics is two plugins: a backend-neutral Physics plugin and a Rapier backend plugin
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
