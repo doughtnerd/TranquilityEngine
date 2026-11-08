@@ -304,9 +304,11 @@ describe("lobby over WebSocket (ADR 0067, 0068)", () => {
     expect(matchAddress).toBe(`ws://127.0.0.1:${port}/match/1`);
     const match = matchOf(host, "Match 1");
     await stepUntil(all, () => match.players.every((p) => p.connectionId > 0), "both connected to the match", 3000, true);
+    // The server counts a player connected when it accepts the handshake; the client's Connection opens
+    // when the accept arrives over the socket, a moment later.
     const clientWorld = pages[0]._world(a.matchWorld!.name)!;
-    const conn = [...clientWorld._query([Connection])][0].connection as { state: number };
-    expect(conn.state).toBe(ConnectionState.open);
+    const clientState = () => ([...clientWorld._query([Connection])][0]?.connection as { state: number } | undefined)?.state;
+    await stepUntil(all, () => clientState() === ConnectionState.open, "Anne's match connection to open", 3000, true);
 
     match.end({ winner: "Anne" });
     await stepUntil(all, () => a.state === "room" && b.state === "room", "back in the room", 3000, true);
