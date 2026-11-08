@@ -786,14 +786,17 @@ export class BabylonRenderer {
     };
   }
 
-  /** The frame plan's cameras (ADR 0129): every enabled, synced camera, in component order. */
-  private frameCameras(world: World): FrameCamera[] {
+  /**
+   * The frame plan's cameras (ADR 0129): every enabled, synced camera, in component order. Without
+   * `full`, backgrounds and post settings are left out (enough to pick the canvas cameras).
+   */
+  private frameCameras(world: World, full = true): FrameCamera[] {
     const out: FrameCamera[] = [];
     for (const c of world._componentsOfType(Camera)) {
       const entry = c.isActiveAndEnabled ? this.cameras.get(c) : undefined;
       if (!entry) continue;
-      const bg = c.backgroundColor;
-      const p = c.node.getComponent(PostProcessing);
+      const bg = full ? c.backgroundColor : null;
+      const p = full ? c.node.getComponent(PostProcessing) : null;
       out.push({
         camera: c,
         depth: c.depth,
@@ -956,6 +959,7 @@ export class BabylonRenderer {
 
   releaseWorld(): void {
     this.owner = null;
+    this.lastPlan = [];
   }
 
   dispose(): void {
@@ -995,7 +999,7 @@ export class BabylonRenderer {
 
   /** Enabled cameras that draw on the canvas, in depth order (the editor's scene camera in edit mode, ADR 0026), as the frame plan picks them. */
   private viewCameras(world: World): Camera[] {
-    return canvasCameras(this.frameCameras(world)).map((f) => f.camera);
+    return canvasCameras(this.frameCameras(world, false)).map((f) => f.camera);
   }
 
   // --- Cameras ----------------------------------------------------------------------------------

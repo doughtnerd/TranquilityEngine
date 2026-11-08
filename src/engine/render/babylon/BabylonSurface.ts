@@ -91,8 +91,14 @@ export class BabylonSurface implements RenderSurface {
     this.resize();
     this.started = import("./BabylonRenderer")
       .then((m) => m.BabylonRenderer.create(this.canvas, settings))
-      // An editor World draws its grid and outlines from the first frame: wait for the editor tools too.
-      .then(async (r) => (this.fill ? (await r.loadEditorTools(), r) : r))
+      .then(async (r) => {
+        // Policy first (ADR 0129): the editor tools read it as they build (an editor World's grid).
+        r.setPolicy(this.policy);
+        r.setParticlePreview({ ...this.particlePreview });
+        // An editor World draws its grid and outlines from the first frame: wait for the editor tools too.
+        if (this.fill) await r.loadEditorTools();
+        return r;
+      })
       .then((r) => {
         if (this.disposed) {
           r.dispose();
@@ -106,8 +112,7 @@ export class BabylonSurface implements RenderSurface {
           (g.__mycoBabylonSurfaces ??= []).push(this);
         }
         r.setClearColor(settings.display.backgroundColor);
-        r.setPolicy(this.policy);
-        r.setParticlePreview({ ...this.particlePreview });
+        r.setPolicy(this.policy); // anything the handle set while the tools loaded
         r.setVariantReport(this.variantReport);
         this.viewport?.poll(); // hand the editor's state over before the first frame
         this.applyQuality();
