@@ -85,10 +85,10 @@ Without the plugin, each answer is the empty one: no casters, content counts as 
 draw order for a sorting layer (ADR 0014); the sprites adapter and the quad-batch host both use it, so tiles keep
 sorting with sprites when the Sprites plugin is off.
 
-**`BabylonFeatureHost` grows** what the moved adapters took from the renderer: `settings()` (pixels per unit, sorting
-layers), `drawPolicy()`, `texture`/`loadedTexture` (the material library already is), `probes` (`any`, `lookup`),
-`reflected()` (the mesh-with-probe counter), `waterProbe` via `probeLookup`, and `uiHost()` (the UI's frame hooks,
-preview rect and canvas size).
+**`BabylonFeatureHost` grows** what the moved adapters took from the renderer: `settings` (pixels per unit, sorting
+layers), `drawPolicy()`, `probes` (`any`, `lookup`), `reflected()` (the mesh-with-probe counter) and `uiHost()` (the
+UI's frame hooks, preview rect and canvas size). Textures come from the existing `materials`; water uses the existing
+`probeLookup`.
 
 ### Order
 
@@ -134,6 +134,15 @@ Asset kinds move out of the built-in tables into contributions. `AssetKindContri
 
 The model kind's import settings (the shared sidecar Inspector of images, audio and models, ADR 0040) stay in the
 editor shell until an importer contribution point exists; it keys on the kind id `model`, which the plugin keeps.
+`modelNodeEntries` (the model's node tree) also stays in `assetBrowser.ts` beside the other node-entry builders it
+shares helpers with; the plugin's `addToScene` calls it.
+
+A registered extension must follow a file name: a dotfile such as `.env` is not an environment map (the built-in rule
+already said so).
+
+**As built.** The UI plugin's loader awaits the bundled font, then returns a synchronous factory
+(`BabylonUIFeature.fromHost`), since plugin factories are synchronous. `loadPluginFeatures` is exported for tests,
+which build a NullEngine renderer with only the Meshes plugin's feature.
 
 ## Alternatives considered
 
