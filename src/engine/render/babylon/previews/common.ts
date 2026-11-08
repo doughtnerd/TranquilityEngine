@@ -122,6 +122,19 @@ export function renderFrame(engine: AbstractEngine, scene: Scene): void {
   engine.endFrame();
 }
 
+/**
+ * Draw one frame like {@link renderFrame}, and on WebGPU watch it for validation errors: a WGSL shader
+ * that doesn't compile fails when its pipeline is made (Babylon only logs it, and `Effect.onErrorObservable`
+ * never fires), so `onError` gets the compiler's message a moment later. On WebGL2 it's a plain frame.
+ */
+export function renderFrameChecked(engine: AbstractEngine, scene: Scene, onError: (message: string) => void): void {
+  const device = engine instanceof WebGPUEngine ? engine._device : null;
+  if (!device) return renderFrame(engine, scene);
+  device.pushErrorScope("validation");
+  renderFrame(engine, scene);
+  device.popErrorScope().then((error: { message: string } | null) => error && onError(error.message), () => undefined);
+}
+
 /** Make the engine's canvas `w` × `h` pixels (a no-op if it is already, or the engine has no canvas, as under tests). */
 export function ensureCanvasSize(engine: AbstractEngine, w: number, h: number): void {
   const canvas = engine.getRenderingCanvas();

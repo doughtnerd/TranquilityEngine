@@ -52,6 +52,12 @@ async function openPlayground(page: Page, writable: boolean): Promise<void> {
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 }
 
+/** Shader graphs compile to WGSL alone (ADR 0081): on the WebGL2 fallback (software GL) they draw plain PBR. */
+async function requireWebGPU(page: Page): Promise<void> {
+  const webgpu = await page.evaluate(() => (window as unknown as { engine: { world: { render: { renderer: { engine: { isWebGPU: boolean } } } } } }).engine.world.render.renderer.engine.isWebGPU);
+  test.skip(!webgpu, "shader graphs need WebGPU; the WebGL2 fallback draws plain PBR (ADR 0081)");
+}
+
 const box = async (l: Locator) => (await l.boundingBox())!;
 const showFolder = (page: Page, name: string) => page.locator(".asset-folder", { hasText: new RegExp(`^${name}$`) }).click();
 const node = (page: Page, id: string) => page.locator(`.sg-node[data-node="${id}"]`);
@@ -73,6 +79,7 @@ test("create a shader graph, wire a colour property to the output, and see the p
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
   const errors = trackErrors(page);
   await openPlayground(page, true);
+  await requireWebGPU(page);
 
   // New Shader Graph from the Assets panel's menu; double-clicking it opens the panel.
   await showFolder(page, "shaders");
@@ -148,9 +155,9 @@ test("create a shader graph, wire a colour property to the output, and see the p
   await page.mouse.up();
   await expect.poll(async () => (await graphFile(page, file)).nodes.find((n: { id: string }) => n.id === "fresnel1").position[0]).toBeGreaterThan(before[0] + 20);
 
-  // The generated GLSL is one click away.
-  await panel.getByRole("button", { name: "GLSL" }).click();
-  await expect(page.getByLabel("Generated GLSL")).toContainText("uniform vec4 uP0_Color;");
+  // The generated WGSL is one click away.
+  await panel.getByRole("button", { name: "WGSL" }).click();
+  await expect(page.getByLabel("Generated WGSL")).toContainText("uniforms.uP0_Color");
   expect(errors).toEqual([]);
 });
 

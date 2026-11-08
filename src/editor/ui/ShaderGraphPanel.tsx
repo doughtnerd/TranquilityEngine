@@ -748,7 +748,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
           {search && <NodeSearch graph={graph} subgraphs={subgraphs} at={search.at} pending={search.pending} onPick={(type, settings) => addFromSearch(type, settings, search.at, search.pending)} onClose={closeSearch} />}
           {(problems.length > 0 || shaderError) && (
             <ul class="sg-problems" aria-label="Shader graph problems">
-              {shaderError && <li class="error">WebGL couldn't compile the generated shader: {shaderError}</li>}
+              {shaderError && <li class="error">The generated shader didn't compile: {shaderError}</li>}
               {problems.map((p) => (
                 <li key={p}>{p}</li>
               ))}
