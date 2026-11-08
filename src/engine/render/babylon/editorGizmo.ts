@@ -26,7 +26,7 @@ import { Mat4, Quat, Quaternion as EngineQuaternion, Vector3 as EngineVector3 } 
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import { composeMatrix, localPoseFromMatrix, matrixFrom, type LocalPose } from "../gizmoMath";
-import type { GizmoHandlers, GizmoOptions } from "../RenderSurface";
+import type { GizmoHandlers, GizmoOptions } from "../editorViewport";
 import type { BabylonEditorContext } from "./editorContext";
 
 type AnyGizmo = PositionGizmo | RotationGizmo | ScaleGizmo;

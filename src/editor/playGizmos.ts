@@ -11,7 +11,7 @@
 // Worlds created while playing are picked up by a light poll.
 import { effect, type ReadonlySignal } from "@preact/signals";
 import type { World } from "../engine/core/World";
-import { editorDrawingShown, setEditorOverlayFilter, setSelectionOutlineShown, shownEditorOverlays, type EditorOverlayKind } from "../engine/editor";
+import { type EditorOverlayKind, setEditorOverlayFilter, shownEditorOverlays, viewport } from "../engine/editor";
 import type { PlaySession } from "./playMode";
 import { persisted } from "./preferences";
 
@@ -77,7 +77,7 @@ export function installPlayGizmos(playing: ReadonlySignal<PlaySession | null>): 
       if (!world || applied.get(world) === playGizmos.peek()) continue;
       applied.set(world, playGizmos.peek());
       setEditorOverlayFilter(world, (kind) => overlayKindShown(s, kind));
-      setSelectionOutlineShown(world, outlineShown(s));
+      viewport(world).setSelectionShown(outlineShown(s));
     }
   };
   const stop = effect(() => {
@@ -109,7 +109,7 @@ export function installPlayGizmos(playing: ReadonlySignal<PlaySession | null>): 
         if (!session) return [];
         return session.engine.worlds().flatMap((h) => {
           const world = session.engine._world(h.name);
-          return world ? [{ world: h.name, overlays: shownEditorOverlays(world), drawn: editorDrawingShown(world) }] : [];
+          return world ? [{ world: h.name, overlays: shownEditorOverlays(world), drawn: viewport(world).drawn() }] : [];
         });
       },
     });

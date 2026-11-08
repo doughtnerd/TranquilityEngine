@@ -14,7 +14,10 @@ import type { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLaye
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
-import type { Camera, MeshRenderer, SpriteRenderer, Text } from "../components";
+import type { GameObject } from "../../scene/GameObject";
+import type { Camera, MeshRenderer, ReflectionProbe, SpriteRenderer, Text } from "../components";
+import type { ViewportUI } from "../editorViewport";
+import type { ParticlePreviewSettings } from "../RenderSurface";
 
 /** A sprite as the renderer draws it. */
 export interface EditorSprite {
@@ -53,6 +56,22 @@ export interface BabylonEditorContext {
   meshes(): Iterable<EditorMesh>;
   /** Screen-space Text components (ADR 0069's interim Text) and their canvas rectangles, if drawn. */
   texts(): Iterable<{ component: Text; rect: { left: number; top: number; right: number; bottom: number } }>;
+  /** What the editor viewport (ADR 0128) asks of the renderer itself, beside the helpers' own drawing. */
+  readonly renderer: BabylonEditorRendererHooks;
+}
+
+/** @internal Renderer-level editor features: the background, camera inset, particle preview, sprite sizes, UI and probe bakes. */
+export interface BabylonEditorRendererHooks {
+  setClearColor(color: number): void;
+  /** The selected nodes (the particle preview plays their effects). */
+  setSelected(nodes: readonly GameObject[]): void;
+  setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void;
+  cameraPreviewDrawn(): boolean;
+  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void;
+  restartParticlePreview(): void;
+  spriteSize(s: SpriteRenderer): [number, number] | null;
+  ui(): ViewportUI | null;
+  bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer>;
 }
 
 /**

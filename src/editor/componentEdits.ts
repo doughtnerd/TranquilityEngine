@@ -6,7 +6,7 @@
 // node's list (data components too); on an instance it's an `order` override (ADR 0029) of its
 // scripts and engine components.
 import { Assets, type GameObject } from "../engine";
-import { componentCatalog, isDataComponent, isEditableComponent, listComponents, meshLocalBounds, spriteSize, type ComponentInfo } from "../engine/editor";
+import { componentCatalog, type ComponentInfo, isDataComponent, isEditableComponent, listComponents, meshLocalBounds, viewport } from "../engine/editor";
 import { isScenePath } from "../engine/scene/SceneLoader";
 import {
   AddComponent,
@@ -43,7 +43,7 @@ export function whyNotAddable(node: GameObject, type: string): string | null {
  * around the mesh, a sphere around its largest side, an upright capsule around it (ADR 0045).
  */
 export function newComponentEntry(node: GameObject, type: string): ComponentEntry {
-  const size = type === "engine.BoxCollider2D" || type === "engine.CircleCollider2D" ? spriteSize(node) : null;
+  const size = type === "engine.BoxCollider2D" || type === "engine.CircleCollider2D" ? viewport(node.world).spriteSize(node) : null;
   const round = (n: number) => Math.round(n * 1e4) / 1e4;
   if (size && type === "engine.BoxCollider2D") return { type, data: { size: size.map(round) } };
   if (size && type === "engine.CircleCollider2D") return { type, data: { radius: round(Math.max(...size) / 2) } };

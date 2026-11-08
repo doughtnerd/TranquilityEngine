@@ -1,12 +1,12 @@
 /**
- * The Babylon.js backend's drawing surface (ADR 0075). It owns the canvas and its layout, and loads
- * the renderer (`BabylonRenderer`, which imports Babylon) on demand, so this file stays light and a
- * page on the three.js backend never downloads Babylon. Until the renderer is ready, frames are
- * skipped; sync mirrors the whole World every frame, so nothing is lost.
+ * The Babylon.js drawing surface (ADR 0075, 0081). It owns the canvas and its layout, and loads the
+ * renderer (`BabylonRenderer`, which imports Babylon) on demand, so this file stays light and a page
+ * downloads Babylon only when it draws. Until the renderer is ready, frames are skipped; sync mirrors
+ * the whole World every frame, so nothing is lost.
  *
- * Editor helpers (stage 8) live in the renderer's `editorTools`, loaded on demand; editor state set
- * before they load (grid, colours, selection, overlay, gizmo) is kept here and handed over once they
- * have. Until then queries answer "nothing".
+ * The editor's viewport (ADR 0128) is a `ViewportHandle` over the renderer's editor tools (the
+ * Babylon adapter, `editorTools.ts`, loaded on demand): the handle keeps editor state set before they
+ * load and hands it over once. An editor World's surface waits for the tools before it reports started.
  */
 import type { WarmContent } from "../../scene/warmUp";
 import type { Component } from "../../core/Component";
@@ -14,24 +14,28 @@ import { Graphics } from "../Graphics";
 import { SHADOW_MAP_SIZE } from "../../core/graphics";
 import type { ProjectSettings } from "../../core/settings";
 import type { World, WorldKind } from "../../core/World";
-import type { GameObject } from "../../scene/GameObject";
-import type { Camera, ReflectionProbe, SpriteRenderer } from "../components";
-import type { UICoreLike } from "../../ui/uiCoreTypes";
 import { CanvasCssSize } from "../canvasCssSize";
 import { fitCanvas } from "../canvasFit";
-import type { PostEffects, ToneMappingName } from "../postEffects";
-import type {
-  EditorColors,
-  EditorOverlay,
-  GizmoHandlers,
-  GizmoOptions,
-  ParticlePreviewSettings,
-  ParticleStats,
-  RenderSurface,
-  ScreenRect,
-} from "../RenderSurface";
+import { ViewportHandle, type EditorViewport } from "../editorViewport";
+import type { RenderDiagnostics, RenderSurface } from "../RenderSurface";
 import type { BabylonRenderer } from "./BabylonRenderer";
-import type { BabylonEditorTools } from "./editorTools";
+
+/** What a surface reports before its renderer has started. */
+function nothingYet(): Omit<RenderDiagnostics, "quality"> {
+  return {
+    started: false,
+    lighting: { cascades: false, environment: "", environmentLoaded: false, skybox: false },
+    sky: { active: false, drawn: false, bakes: 0, baked: false, time: 0, lastBakeMs: 0 },
+    post: { composed: false, loaded: false, toneMapping: "none", effects: null, composedCameras: 0 },
+    water: { surfaces: 0 },
+    probes: { captured: 0, probes: 0, reflecting: 0 },
+    renderTextures: {},
+    particles: null,
+    stats: { drawCalls: 0, triangles: 0, lines: 0, points: 0, geometries: 0, textures: 0, programs: 0 },
+    cameras: [],
+    drawn: { meshes: [], sprites: [] },
+  };
+}
 
 /** @internal The Babylon.js render surface (ADR 0075). */
 export class BabylonSurface implements RenderSurface {
@@ -47,21 +51,8 @@ export class BabylonSurface implements RenderSurface {
   private appliedQuality = -1;
   private pixelRatio = 1;
   private owner: World | null = null;
-  private background: string | number;
-  /** Editor state set before the renderer loaded, applied once it has. */
-  private readonly particlePreview: Partial<ParticlePreviewSettings> = {};
-  private selection: GameObject[] = [];
-  private outlineShown = true;
-  private editorColors: EditorColors | null = null;
-  private gridPlane: "xz" | "xy" | null = null;
-  private grid: { cellSize: number; visible: boolean } | null = null;
-  private overlayProvider: (() => EditorOverlay) | null = null;
-  private gizmo: { nodes: readonly GameObject[]; options: GizmoOptions; handlers: GizmoHandlers | null } | null = null;
-  private cameraPreview: { camera: Camera | null; frame: HTMLElement | null } | null = null;
-  /** The editor helpers the state above was handed to. */
-  private toolsSeen: BabylonEditorTools | null = null;
-  /** Something asked for an editor helper (games never do, so they never load the gizmos). */
-  private toolsWanted = false;
+  /** The editor's viewport handle, once something asked (games never do). */
+  private viewport: ViewportHandle | null = null;
   /** Resolves once the renderer has loaded and started (true), or couldn't (false). */
   readonly started: Promise<boolean>;
 
@@ -79,29 +70,28 @@ export class BabylonSurface implements RenderSurface {
     this.cssSize = new CanvasCssSize(this.canvas);
     // Editor Worlds fill their viewport panel; games keep the reference aspect ratio, letterboxed.
     this.fill = kind === "editor";
-    this.background = settings.display.backgroundColor;
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
     this.started = import("./BabylonRenderer")
       .then((m) => m.BabylonRenderer.create(this.canvas, settings, this.fill))
+      // An editor World draws its grid and outlines from the first frame: wait for the editor tools too.
+      .then(async (r) => (this.fill ? (await r.loadEditorTools(), r) : r))
       .then((r) => {
         if (this.disposed) {
           r.dispose();
           return false;
         }
         this.renderer = r;
-        // Dev builds: every live Babylon scene, for inspecting the migration from the console.
+        // Dev builds: every live Babylon scene, for inspecting the renderer from the console.
         if (import.meta.env?.DEV) {
           const g = globalThis as { __mycoBabylonScenes?: unknown[]; __mycoBabylonSurfaces?: unknown[] };
           (g.__mycoBabylonScenes ??= []).push(r.scene);
           (g.__mycoBabylonSurfaces ??= []).push(this);
         }
-        r.setClearColor(this.background);
+        r.setClearColor(settings.display.backgroundColor);
         r.setVariantReport(this.variantReport);
-        r.setParticlePreview(this.particlePreview);
-        r.setSelected(this.selection);
-        if (this.cameraPreview) r.setCameraPreview(this.cameraPreview.camera, this.cameraPreview.frame);
+        this.viewport?.poll(); // hand the editor's state over before the first frame
         this.applyQuality();
         return true;
       })
@@ -144,25 +134,17 @@ export class BabylonSurface implements RenderSurface {
     if (!this.renderer) return;
     if (Graphics._version !== this.appliedQuality) this.applyQuality();
     this.renderer.sync(world);
-    // Hand pending editor state over once the helpers have loaded (an editor World, or a game World an editor query reached).
-    if (this.fill || this.toolsWanted) this.tools();
+    this.viewport?.poll(); // hand the editor's state over once the tools have loaded
   }
 
-  /** The renderer's editor helpers once loaded (asking starts loading them), with this surface's editor state applied. */
-  private tools(): BabylonEditorTools | null {
-    this.toolsWanted = true;
-    const t = this.renderer?.editorTools() ?? null;
-    if (t && t !== this.toolsSeen) {
-      this.toolsSeen = t;
-      if (this.editorColors) t.overlays.setEditorColors(this.editorColors);
-      if (this.gridPlane) t.overlays.setEditorGridPlane(this.gridPlane);
-      if (this.grid) t.overlays.setEditorGrid(this.grid.cellSize, this.grid.visible);
-      t.overlays.setSelectionOutline(this.selection);
-      t.overlays.setSelectionOutlineShown(this.outlineShown);
-      t.overlays.setOverlayProvider(this.overlayProvider);
-      if (this.gizmo) t.gizmo.setGizmo(this.gizmo.nodes, this.gizmo.options, this.gizmo.handlers);
-    }
-    return t;
+  editorViewport(): EditorViewport {
+    return (this.viewport ??= new ViewportHandle(() => this.renderer?.editorTools() ?? null, this.fill));
+  }
+
+  diagnostics(): RenderDiagnostics {
+    const tier = Graphics.tier;
+    const quality = { tier: tier.name, pixelRatio: this.pixelRatio, shadows: tier.shadows !== "off", shadowMapSize: SHADOW_MAP_SIZE[tier.shadows], msaa: tier.antialias === "msaa" };
+    return { ...(this.renderer ? { started: true, ...this.renderer.diagnostics() } : nothingYet()), quality };
   }
 
   render(world: World): void {
@@ -203,145 +185,5 @@ export class BabylonSurface implements RenderSurface {
     // Textures load into the renderer's scene, so wait for it (it's quick next to the textures).
     while (!this.renderer && !this.disposed) await new Promise((r) => setTimeout(r, 16));
     await this.renderer?.preloadTextures(paths, onProgress);
-  }
-
-  spriteSize(s: SpriteRenderer): [number, number] | null {
-    if (s.size) return [s.size.x, s.size.y];
-    return this.renderer?.spriteSize(s) ?? null;
-  }
-
-  renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number } {
-    return this.renderer?.renderStats() ?? { drawCalls: 0, triangles: 0, lines: 0, points: 0, geometries: 0, textures: 0, programs: 0 };
-  }
-
-  qualityState(): { tier: string; pixelRatio: number; shadows: boolean; shadowMapSize: number; anisotropy: number; msaa: boolean } {
-    const tier = Graphics.tier;
-    return { tier: tier.name, pixelRatio: this.pixelRatio, shadows: tier.shadows !== "off", shadowMapSize: SHADOW_MAP_SIZE[tier.shadows], anisotropy: 1, msaa: true };
-  }
-
-  setEditorColors(colors: EditorColors): void {
-    if (!this.fill) return;
-    this.background = colors.background;
-    this.renderer?.setClearColor(colors.background);
-    this.editorColors = colors;
-    this.toolsSeen?.overlays.setEditorColors(colors);
-  }
-
-  // --- Later stages (ADR 0075): nothing to report yet --------------------------------------------
-
-  lightingState(): { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean } {
-    return this.renderer?.lightingState() ?? { cascades: false, environment: "", environmentLoaded: false, skybox: false };
-  }
-
-  skyState(): { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number } {
-    return this.renderer?.skyState() ?? { active: false, drawn: false, bakes: 0, baked: false, time: 0, lastBakeMs: 0 };
-  }
-  postState(): { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null } {
-    return this.renderer?.postState() ?? { composed: false, loaded: false, toneMapping: "none", effects: null };
-  }
-  stackCount(): number {
-    return 0;
-  }
-  waterState(): { surfaces: number } {
-    return this.renderer?.waterState() ?? { surfaces: 0 };
-  }
-  probeState(): { captured: number; probes: number; reflecting: number } {
-    return this.renderer?.probeState() ?? { captured: 0, probes: 0, reflecting: 0 };
-  }
-  bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer> {
-    return this.renderer ? this.renderer.bakeReflectionProbe(probe) : Promise.reject(new Error("the renderer hasn't started yet"));
-  }
-  renderTextureState(): Record<string, { width: number; height: number; format: string }> {
-    return this.renderer?.renderTextureState() ?? {};
-  }
-  particleState(): ParticleStats | null {
-    return this.renderer?.particleState() ?? null;
-  }
-  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "pickCanvases" | "cornersOf"> | null {
-    return this.renderer?.uiState() ?? null;
-  }
-  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
-    Object.assign(this.particlePreview, preview);
-    this.renderer?.setParticlePreview(preview);
-  }
-  restartParticlePreview(): void {
-    this.renderer?.restartParticlePreview();
-  }
-
-  // --- Editor helpers (stage 8) -----------------------------------------------------------------
-
-  setEditorGridPlane(plane: "xz" | "xy"): void {
-    this.gridPlane = plane;
-    this.toolsSeen?.overlays.setEditorGridPlane(plane);
-  }
-  setEditorGrid(cellSize: number, visible: boolean): void {
-    this.grid = { cellSize, visible };
-    this.toolsSeen?.overlays.setEditorGrid(cellSize, visible);
-  }
-  editorGrid(): { cellSize: number; visible: boolean; divisions: number } | null {
-    return this.tools()?.overlays.editorGrid() ?? null;
-  }
-  setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void {
-    this.cameraPreview = { camera, frame };
-    this.renderer?.setCameraPreview(camera, frame);
-  }
-  get cameraPreviewDrawn(): boolean {
-    return this.renderer?.cameraPreviewDrawn ?? false;
-  }
-  pick(world: World, x: number, y: number): GameObject[] {
-    return this.tools()?.queries.pick(world, x, y) ?? [];
-  }
-  meshBounds(node: GameObject): { min: [number, number, number]; max: [number, number, number] } | null {
-    return this.tools()?.queries.meshBounds(node) ?? null;
-  }
-  rayAt(world: World, x: number, y: number): { origin: [number, number, number]; direction: [number, number, number] } | null {
-    return this.tools()?.queries.rayAt(world, x, y) ?? null;
-  }
-  worldToCanvas(world: World, p: readonly number[]): [number, number] | null {
-    return this.tools()?.queries.worldToCanvas(world, p) ?? null;
-  }
-  screenBounds(world: World, root: GameObject): { node: GameObject; rect: ScreenRect }[] {
-    return this.tools()?.queries.screenBounds(world, root) ?? [];
-  }
-  pointOnPlaneZ(world: World, x: number, y: number, z = 0): [number, number, number] | null {
-    return this.tools()?.queries.pointOnPlaneZ(world, x, y, z) ?? null;
-  }
-  pointOnPlane(world: World, x: number, y: number, normal: readonly number[], point: readonly number[]): [number, number, number] | null {
-    return this.tools()?.queries.pointOnPlane(world, x, y, normal, point) ?? null;
-  }
-  setSelectionOutline(nodes: readonly GameObject[]): void {
-    this.selection = [...nodes];
-    this.renderer?.setSelected(nodes); // the particle preview plays the selection's effects
-    this.toolsSeen?.overlays.setSelectionOutline(nodes);
-  }
-  setSelectionOutlineShown(shown: boolean): void {
-    this.outlineShown = shown;
-    this.toolsSeen?.overlays.setSelectionOutlineShown(shown);
-  }
-  editorDrawingShown(): { segments: number; handles: number; outlines: number; drawnObjects: number } {
-    return this.tools()?.overlays.editorDrawingShown() ?? { segments: 0, handles: 0, outlines: 0, drawnObjects: 0 };
-  }
-  setOverlayProvider(provider: (() => EditorOverlay) | null): void {
-    this.overlayProvider = provider;
-    this.toolsSeen?.overlays.setOverlayProvider(provider);
-  }
-  overlayHandlesOnCanvas(world: World): { id: string; x: number; y: number }[] {
-    return this.tools()?.overlays.overlayHandlesOnCanvas(world) ?? [];
-  }
-  pickOverlayHandle(world: World, x: number, y: number, radius = 9): string | null {
-    return this.tools()?.overlays.pickOverlayHandle(world, x, y, radius) ?? null;
-  }
-  lightIconsOnCanvas(world: World): { node: GameObject; x: number; y: number }[] {
-    return this.tools()?.overlays.lightIconsOnCanvas(world) ?? [];
-  }
-  lightWireCount(): number {
-    return this.tools()?.overlays.lightWireCount() ?? 0;
-  }
-  setGizmo(nodes: readonly GameObject[], options: GizmoOptions, handlers: GizmoHandlers | null): void {
-    this.gizmo = { nodes: [...nodes], options, handlers };
-    this.toolsSeen?.gizmo.setGizmo(nodes, options, handlers);
-  }
-  gizmoActiveAt(x: number, y: number): boolean {
-    return this.tools()?.gizmo.gizmoActiveAt(x, y) ?? false;
   }
 }

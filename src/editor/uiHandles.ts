@@ -17,7 +17,7 @@
 // outline still shows there.
 import type { Engine, UIDocumentElement } from "../engine";
 import type { World } from "../engine/core/World";
-import { uiElementBox, viewportCanvas } from "../engine/editor";
+import { viewport, viewportCanvas } from "../engine/editor";
 import type { UIComponentType } from "../engine/ui/components";
 import { openScene } from "./state";
 import { beginUIEdit, cancelUIEdit, endUIEdit, moveUIElement, setUIElementAttributes, whyNotEditableUI } from "./uiDocumentEdits";
@@ -226,7 +226,7 @@ export function pressOnSelectedUI(world: World, p: Point): boolean {
   const scene = openScene.peek(), ref = selectedUIRef();
   const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;
   if (!el || !el.node.activeInHierarchy || whyNoHandles(el)) return false;
-  const box = uiElementBox(world, el.component), map = box && boxMap(box);
+  const box = viewport(world).uiElementBox(el.component), map = box && boxMap(box);
   const at = map?.toLocal(p);
   return !!box && !!at && at[0] >= 0 && at[1] >= 0 && at[0] <= box.size[0] && at[1] <= box.size[1];
 }
@@ -239,7 +239,7 @@ export function installUIHandles(engine: Engine): () => void {
   const canvas = viewportCanvas(world);
   if (!canvas) return () => {};
   const host = viewportElements().viewport;
-  const boxOf: BoxOf = (c) => uiElementBox(world, c);
+  const boxOf: BoxOf = (c) => viewport(world).uiElementBox(c);
   const svg = document.createElementNS(SVG, "svg");
   svg.classList.add("ui-element-handles");
   svg.setAttribute("aria-hidden", "true");
@@ -354,7 +354,7 @@ export function installUIHandles(engine: Engine): () => void {
     raf = requestAnimationFrame(frame);
     const scene = openScene.peek(), ref = selectedUIRef();
     const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;
-    const box = el && el.node.activeInHierarchy && !whyNoHandles(el) ? uiElementBox(world, el.component) : null;
+    const box = el && el.node.activeInHierarchy && !whyNoHandles(el) ? viewport(world).uiElementBox(el.component) : null;
     const map = box && boxMap(box);
     const c = canvas.getBoundingClientRect(), h = host.getBoundingClientRect();
     const dx = c.left - h.left, dy = c.top - h.top;

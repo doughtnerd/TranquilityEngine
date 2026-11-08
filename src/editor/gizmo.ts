@@ -5,7 +5,7 @@
 // around that point moves them too. Space, pivot and snap steps come from the scene tools.
 import { effect } from "@preact/signals";
 import type { Engine } from "../engine";
-import { setGizmo, type GizmoHandlers, type GizmoOptions, type LocalPose } from "../engine/editor";
+import { type GizmoHandlers, type GizmoOptions, type LocalPose, viewport } from "../engine/editor";
 import { SetField, type NodePath, type SceneDocument } from "./document";
 import { toSceneJSON } from "./fieldValues";
 import { topmostKeys } from "./selectionModel";
@@ -99,10 +99,10 @@ export function installGizmo(engine: Engine): () => void {
     const top = scene ? new Set(topmostKeys(scene.doc, selected.map((s) => s.key))) : new Set<string>();
     const chosen = selected.filter((s) => top.has(s.key));
     targets = chosen.map((s) => ({ path: s.path, name: s.node.name }));
-    setGizmo(world, chosen.map((s) => s.node), gizmoOptions(mode ?? "translate", chosen.map((s) => s.key), selected.at(-1)?.key ?? null), handlers);
+    viewport(world).setGizmo(chosen.map((s) => s.node), gizmoOptions(mode ?? "translate", chosen.map((s) => s.key), selected.at(-1)?.key ?? null), handlers);
   });
   return () => {
     stop();
-    setGizmo(world, [], { mode: "translate", planar: false, snap: false }, null);
+    viewport(world).setGizmo([], { mode: "translate", planar: false, snap: false }, null);
   };
 }

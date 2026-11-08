@@ -13,7 +13,7 @@ import { Vector2, Vector3 } from "../../core/math";
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import type { Camera } from "../components";
-import type { ScreenRect } from "../RenderSurface";
+import type { ScreenRect } from "../editorViewport";
 import type { BabylonEditorContext } from "./editorContext";
 
 /** Icons (camera and light) draw above every sprite; meshes below every sprite (as on three.js). */

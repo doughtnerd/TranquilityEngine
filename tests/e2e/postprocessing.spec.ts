@@ -7,7 +7,7 @@ import { expect, test, type Page } from "@playwright/test";
 test.describe.configure({ timeout: 60_000 });
 
 type Post = { composed: boolean; loaded: boolean; toneMapping: string; effects: { bloom: unknown; ambientOcclusion: unknown; vignette: unknown; depthOfField: unknown; antialias: string } | null };
-type Hooks = { engine?: { world: { time: { frameCount: number }; render: { postState(): Post; meshRenderers: Map<unknown, unknown> } } } };
+type Hooks = { engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { post: Post } } } } };
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -16,7 +16,7 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-const post = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.postState());
+const post = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().post);
 
 test("the scene view previews the camera's effects on High, and Low draws directly with the same tone mapping", async ({ page }) => {
   const errors = trackErrors(page);
