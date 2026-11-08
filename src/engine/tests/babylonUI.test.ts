@@ -447,6 +447,30 @@ describe("the interim Text on the screen texture", () => {
     expect(textRoot().children).toHaveLength(0);
   });
 
+  it("redraws the whole padded box when a text is cleared, so outlined descenders don't stay behind", () => {
+    // Babylon grows a control's old box by its left and top padding only; the block widens the redraw itself.
+    ui.screen.scaleTo(800, 600);
+    const t = GameObject.create("Message").addBehavior(Text, { text: "Press Space or click to flap", fontSize: 34, anchor: "top", offset: new Vector2(0, 150), outlineColor: new Color(0, 0, 0, 1), outlineWidth: 5 });
+    const block = textBox(t, 800, 600);
+    ui.screen._checkUpdate(null);
+    const box = { left: block.leftInPixels, top: block.topInPixels, right: block.leftInPixels + block.widthInPixels, bottom: block.topInPixels + block.heightInPixels };
+
+    const rects: number[][] = [];
+    const invalidate = ui.screen.invalidateRect.bind(ui.screen);
+    ui.screen.invalidateRect = (...r: [number, number, number, number]) => {
+      rects.push(r);
+      invalidate(...r);
+    };
+    t.text = "";
+    ui.syncTexts(World.require(), 800, 600);
+    ui.screen._checkUpdate(null);
+    expect(block.isVisible).toBe(false);
+    expect(Math.min(...rects.map((r) => r[0]))).toBeLessThanOrEqual(box.left);
+    expect(Math.min(...rects.map((r) => r[1]))).toBeLessThanOrEqual(box.top);
+    expect(Math.max(...rects.map((r) => r[2]))).toBeGreaterThanOrEqual(box.right);
+    expect(Math.max(...rects.map((r) => r[3]))).toBeGreaterThanOrEqual(box.bottom);
+  });
+
   it("scales the text container by the pixel ratio (CSS-pixel coordinates)", () => {
     const core = new FakeCore();
     core.set([], []);
