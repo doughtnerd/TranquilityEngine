@@ -66,9 +66,8 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
   function make(editor = false, selected = true, host: Partial<BabylonParticleHost> = {}) {
     const player = new BabylonParticles({
       scene,
-      editor,
+      particlePreview: () => (editor ? { selected: () => selected } : null),
       worldMatrix: () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-      selected: () => selected,
       texture: () => Promise.reject(new Error("no textures here")),
       tierScale: () => 1,
       ...host,

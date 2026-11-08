@@ -1,6 +1,6 @@
 # 0127. Material resolution is renderer-neutral; a per-scene Babylon material library builds from it
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

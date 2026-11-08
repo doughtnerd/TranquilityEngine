@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
 import { renderDiagnostics, viewport } from "../editor";
 import { Assets, Engine, GameObject, SceneManager, SpriteRenderer, Vector2 } from "../index";
-import { FakeRenderSurface, FakeViewportAdapter } from "../render/fakeViewport";
+import { FakeRenderPolicyPort, FakeRenderSurface, FakeViewportAdapter } from "../render/fakeViewport";
 import { ViewportHandle } from "../render/editorViewport";
 
 const COLORS = { background: 1, grid: 2, gridCenter: 3, outline: 4, cameraGizmo: 5 };
@@ -15,6 +15,7 @@ describe("the editor viewport handle (ADR 0128)", () => {
   let loaded: boolean;
   let connects: number;
   let handle: ViewportHandle;
+  let port: FakeRenderPolicyPort;
 
   beforeEach(async () => {
     Assets.clearSources();
@@ -24,7 +25,8 @@ describe("the editor viewport handle (ADR 0128)", () => {
     adapter = new FakeViewportAdapter();
     loaded = false;
     connects = 0;
-    handle = new ViewportHandle(() => (connects++, loaded ? adapter : null));
+    port = new FakeRenderPolicyPort();
+    handle = new ViewportHandle(() => (connects++, loaded ? adapter : null), port);
   });
   afterEach(() => engine.dispose());
 
@@ -54,20 +56,15 @@ describe("the editor viewport handle (ADR 0128)", () => {
     handle.setSelectionShown(false);
     handle.setOverlay(() => ({ lines: [], handles: [] }));
     handle.setGizmo([a], { mode: "rotate", planar: true, snap: false }, handlers);
-    handle.setParticlePreview({ playing: false });
-    handle.setParticlePreview({ speed: 3 });
-    handle.restartParticlePreview(); // nothing to restart yet: dropped
     loaded = true;
     handle.poll();
-    expect(adapter.calls).toEqual(["setColors", "setGrid", "setSelection", "setOverlay", "setGizmo", "setParticlePreview"]);
+    expect(adapter.calls).toEqual(["setColors", "setGrid", "setSelection", "setOverlay", "setGizmo"]);
     expect(adapter.gridState).toEqual({ plane: "xy", cellSize: 0.5, visible: true });
     expect(adapter.selectionShown).toBe(false);
     expect(adapter.gizmo).toMatchObject({ nodes: [a], options: { mode: "rotate" }, handlers });
-    expect(adapter.particlePreview).toEqual({ playing: false, speed: 3 });
-    expect(adapter.restarts).toBe(0);
     handle.poll();
     handle.pick(0, 0);
-    expect(adapter.calls).toHaveLength(6); // no second replay
+    expect(adapter.calls).toHaveLength(5); // no second replay
     handle.setGrid({ visible: false }); // later calls go straight through, merged with what was set
     expect(adapter.gridState).toEqual({ plane: "xy", cellSize: 0.5, visible: false });
     expect(handle.grid()).toEqual({ plane: "xy", cellSize: 0.5, visible: false, divisions: 100 });
@@ -79,7 +76,7 @@ describe("the editor viewport handle (ADR 0128)", () => {
     handle.pick(0, 0);
     handle.poll();
     expect(connects).toBe(2);
-    const eager = new ViewportHandle(() => (connects++, null), true);
+    const eager = new ViewportHandle(() => (connects++, null), new FakeRenderPolicyPort(), true);
     eager.poll();
     expect(connects).toBe(3);
   });

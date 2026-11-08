@@ -17,6 +17,7 @@ import { localPoseFromMatrix, matrixFrom, type LocalPose } from "../render/gizmo
 import type { NavigationWorld } from "../nav/NavigationWorld";
 import { NavAgent } from "../nav/components";
 import { ViewportHandle, type EditorOverlay, type EditorViewport } from "../render/editorViewport";
+import type { RenderPolicyPort } from "../render/renderPolicy";
 import type { RenderDiagnostics } from "../render/RenderSurface";
 import { MeshRenderer, SpriteRenderer } from "../render/components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
@@ -250,6 +251,8 @@ export function viewportCanvas(world: World): HTMLCanvasElement | null {
 }
 
 const headlessViewports = new WeakMap<World, EditorViewport>();
+/** A headless World has no renderer to steer: policy settings go nowhere (ADR 0129). */
+const NO_POLICY: RenderPolicyPort = { setPolicy() {}, setParticlePreview() {}, restartParticlePreview() {} };
 
 /**
  * The editor's handle on `world`'s viewport (ADR 0128): overlays, the transform gizmo, picking, rays,
@@ -261,7 +264,7 @@ export function viewport(world: World): EditorViewport {
   const surface = world.render;
   if (surface) return surface.editorViewport();
   let v = headlessViewports.get(world);
-  if (!v) headlessViewports.set(world, (v = new ViewportHandle(() => null)));
+  if (!v) headlessViewports.set(world, (v = new ViewportHandle(() => null, NO_POLICY)));
   return v;
 }
 

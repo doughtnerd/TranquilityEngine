@@ -4,11 +4,13 @@
  * render surface for it (`RenderSurface.editorViewport()`); games never do.
  *
  * Two layers. `EditorViewport` is what the editor calls. `ViewportHandle` implements it once for
- * every renderer: it keeps the editor's state (selection, grid, colours, overlay, gizmo, previews)
+ * every renderer: it keeps the editor's state (selection, grid, colours, overlay, gizmo)
  * from the first call, loads the renderer's editor tools on demand, hands that state over exactly
- * once when they arrive, and answers "nothing" until then. Below it, `ViewportAdapter` is the seam
- * a renderer implements: the Babylon one (`babylon/editorTools.ts`) and an in-memory fake for tests
- * (`fakeViewport.ts`). Both speak engine types only (ADR 0010): node ids live on `GameObject`s,
+ * once when they arrive, and answers "nothing" until then. Renderer policy (scene view, per-object
+ * sprites, camera and particle previews; ADR 0129) is not the tools' business: it goes straight to the
+ * surface's `RenderPolicyPort`, live before the tools load. Below the handle, `ViewportAdapter` is the
+ * seam a renderer implements for the editor tools: the Babylon one (`babylon/editorTools.ts`) and an
+ * in-memory fake for tests (`fakeViewport.ts`). Both speak engine types only (ADR 0010): node ids live on `GameObject`s,
  * points are canvas CSS pixels (origin top-left), and nothing a renderer owns is ever handed out.
  */
 import type { GameObject } from "../scene/GameObject";
@@ -18,6 +20,7 @@ import type { Camera, ReflectionProbe } from "./components";
 import { SpriteRenderer } from "./components";
 import type { LocalPose } from "./gizmoMath";
 import type { ParticlePreviewSettings } from "./RenderSurface";
+import type { RenderPolicyPort } from "./renderPolicy";
 
 /** @internal Editor gizmo settings (ADR 0022). */
 export interface GizmoOptions {
@@ -180,8 +183,10 @@ export interface EditorViewport {
 }
 
 /**
- * @internal What a renderer implements for the editor viewport (ADR 0128): its loaded editor tools.
- * Setters take whole state; `ViewportHandle` keeps the pieces and replays them. Engine types only.
+ * @internal What a renderer implements for the editor viewport (ADR 0128): its loaded editor tools
+ * only (grid, outlines, overlay, gizmo, picking, queries). Renderer policy goes through
+ * `RenderPolicyPort` instead (ADR 0129). Setters take whole state; `ViewportHandle` keeps the pieces
+ * and replays them. Engine types only.
  */
 export interface ViewportAdapter {
   setColors(colors: EditorColors): void;
@@ -189,9 +194,6 @@ export interface ViewportAdapter {
   setSelection(nodes: readonly GameObject[], shown: boolean): void;
   setOverlay(provider: (() => EditorOverlay) | null): void;
   setGizmo(nodes: readonly GameObject[], options: GizmoOptions, handlers: GizmoHandlers | null): void;
-  setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void;
-  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void;
-  restartParticlePreview(): void;
   grid(): { cellSize: number; visible: boolean; divisions: number } | null;
   pick(x: number, y: number): GameObject[];
   rayAt(x: number, y: number): ViewRay | null;
@@ -224,14 +226,24 @@ export class ViewportHandle implements EditorViewport {
   private selectionShown = true;
   private overlay: (() => EditorOverlay) | null = null;
   private gizmo: { nodes: readonly GameObject[]; options: GizmoOptions; handlers: GizmoHandlers | null } | null = null;
-  private cameraPreview: { camera: Camera | null; frame: HTMLElement | null } | null = null;
-  private readonly particlePreview: Partial<ParticlePreviewSettings> = {};
+  /** The selected nodes, for the particle preview's `selected` predicate (read live by the renderer). */
+  private readonly selected = new Set<GameObject>();
+  private perObjectSet = false;
 
+  /**
+   * `policy` is the surface's render policy port. An eager handle (an editor World) sets the scene
+   * view policy at once, before the editor tools exist.
+   */
   constructor(
     private readonly connect: () => ViewportAdapter | null,
+    private readonly policy: RenderPolicyPort,
     eager = false,
   ) {
     this.wanted = eager;
+    if (eager) {
+      this.perObjectSet = true;
+      policy.setPolicy({ sceneView: true, drawPolicy: "perObject", particlePreview: { selected: (node) => this.selected.has(node) } });
+    }
   }
 
   get ready(): boolean {
@@ -247,6 +259,10 @@ export class ViewportHandle implements EditorViewport {
   private live(): ViewportAdapter | null {
     if (this.adapter) return this.adapter;
     this.wanted = true;
+    if (!this.perObjectSet) {
+      this.perObjectSet = true;
+      this.policy.setPolicy({ drawPolicy: "perObject" });
+    }
     const a = this.connect();
     if (!a) return null;
     this.adapter = a;
@@ -255,8 +271,6 @@ export class ViewportHandle implements EditorViewport {
     a.setSelection(this.selection, this.selectionShown);
     a.setOverlay(this.overlay);
     if (this.gizmo) a.setGizmo(this.gizmo.nodes, this.gizmo.options, this.gizmo.handlers);
-    if (this.cameraPreview) a.setCameraPreview(this.cameraPreview.camera, this.cameraPreview.frame);
-    if (Object.keys(this.particlePreview).length) a.setParticlePreview({ ...this.particlePreview });
     return a;
   }
 
@@ -276,6 +290,8 @@ export class ViewportHandle implements EditorViewport {
 
   setSelection(nodes: readonly GameObject[]): void {
     this.selection = [...nodes];
+    this.selected.clear();
+    for (const n of this.selection) this.selected.add(n);
     this.live()?.setSelection(this.selection, this.selectionShown);
   }
 
@@ -295,17 +311,15 @@ export class ViewportHandle implements EditorViewport {
   }
 
   setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void {
-    this.cameraPreview = { camera, frame };
-    this.live()?.setCameraPreview(camera, frame);
+    this.policy.setPolicy({ cameraPreview: camera && frame ? { camera, frame } : null });
   }
 
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
-    Object.assign(this.particlePreview, preview);
-    this.live()?.setParticlePreview(preview);
+    this.policy.setParticlePreview(preview);
   }
 
   restartParticlePreview(): void {
-    this.live()?.restartParticlePreview();
+    this.policy.restartParticlePreview();
   }
 
   // --- Queries -----------------------------------------------------------------------------------
