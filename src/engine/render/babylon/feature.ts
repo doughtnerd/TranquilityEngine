@@ -1,6 +1,7 @@
 /**
  * The Babylon backend's render features (ADR 0130): one shape for every feature the renderer runs
- * (sprites, meshes, sky, lights, fog, probes, water, UI, and plugins' tilemaps and particles), and the slot that loads
+ * (the built-in lights, fog, environment and probes; plugins' sprites, tilemaps, meshes, sky, particles, water
+ * and UI, ADR 0135, 0140), and the slot that loads
  * a lazy one exactly once. Each feature gets what it shares with others (materials, casters, the probe
  * lookup, the render policy) as explicit host arguments, like `BabylonParticleHost`.
  */
@@ -9,7 +10,11 @@ import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
 import type { WarmContent } from "../../scene/warmUp";
-import type { Camera, ParticleSystem } from "../components";
+import type { Camera, MeshRenderer, ParticleSystem, SpriteRenderer } from "../components";
+import type { GameObject } from "../../scene/GameObject";
+import type { ProjectSettings } from "../../core/settings";
+import type { UICore } from "../../ui/UICore";
+import type { DrawnMaterial } from "../RenderSurface";
 import type { ParticlePreviewSettings, RenderDiagnostics } from "../RenderSurface";
 import type { QuadBatchHost } from "../quadBatches";
 import { specNeeded, type RenderFeatureSpec } from "../renderFeatures";
@@ -19,6 +24,9 @@ import type { BabylonLighting } from "./lighting";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import type { BabylonParticleHost } from "./particles";
 import type { ProbeHit } from "./probes";
+import type { EditorMesh, EditorSprite } from "./editorContext";
+import type { BabylonUIHost } from "./uiFeature";
+import type { MeshBatches } from "./meshBatches";
 
 /** @internal What the renderer worked out before a feature's phase (ADR 0130). */
 export interface FeatureSyncContext {
@@ -63,6 +71,16 @@ export interface BabylonFeatureHost {
   readonly materials: BabylonMaterialLibrary;
   /** The reflection probe nearest a point (ADR 0130's probe lookup). */
   probeLookup(x: number, y: number, z: number): ProbeHit | null;
+  /** Reflection probes for the Meshes plugin's feature (ADR 0140): whether any exist, and the lookup. */
+  readonly probes: { readonly any: boolean; lookup(x: number, y: number, z: number): ProbeHit | null };
+  /** A mesh drew with a probe's reflection this frame (counted for diagnostics). */
+  reflected(): void;
+  /** The project settings the renderer was made with (pixels per unit, sorting layers). */
+  readonly settings: ProjectSettings;
+  /** `perObject` in the editor's scene view and editor play mode (picking and outlines), else `batched` (ADR 0129). Read each sync. */
+  drawPolicy(): "batched" | "perObject";
+  /** The UI feature's services (the UI plugin's, ADR 0140): frame hooks, the preview inset, the canvas size. */
+  uiHost(): BabylonUIHost;
   /** Sorted, unlit textured quad batches (ADR 0136): what the Tilemaps plugin draws its tiles with. */
   readonly quads: QuadBatchHost;
   warnOnce(key: string, message: string): void;
@@ -80,6 +98,40 @@ export interface ParticlesFeatureApi extends BabylonFeature {
   setPreview(preview: Partial<ParticlePreviewSettings>): void;
   restartAll(): void;
   ownerOf(drawn: object): ParticleSystem | null;
+}
+
+/** @internal What the renderer asks of the feature named "sprites" (the Sprites plugin's, ADR 0140). */
+export interface SpritesFeatureApi extends BabylonFeature {
+  /** The sprite's size in node units once its texture has loaded. */
+  spriteSize(s: SpriteRenderer): [number, number] | null;
+  /** The sprites with a mesh of their own, for the editor tools (picking and outlines). */
+  editorSprites(): Iterable<EditorSprite>;
+  /** The nodes with a sprite drawn now (`RenderDiagnostics.drawn.sprites`). */
+  drawnNodes(): GameObject[];
+}
+
+/** @internal What the renderer asks of the feature named "meshes" (the Meshes plugin's, ADR 0140). */
+export interface MeshesFeatureApi extends BabylonFeature {
+  /** Adds the meshes that cast shadows this frame. */
+  casters(out: AbstractMesh[]): void;
+  /** Whether every MeshRenderer's model has loaded (a World's first frames and probes wait for it). */
+  loaded(): boolean;
+  /** The MeshRenderer a drawn mesh belongs to (the variant report, ADR 0080), or null. */
+  ownerOf(drawn: unknown): MeshRenderer | null;
+  /** What each node draws, with its materials (`RenderDiagnostics.drawn.meshes`). */
+  drawn(): { node: GameObject; materials: DrawnMaterial[] }[];
+  /** The MeshRenderers and their Babylon meshes, for the editor tools. */
+  editorMeshes(): Iterable<EditorMesh>;
+  /** Tests and e2e: the batches' counts (ADR 0108). */
+  batchStats(): ReturnType<MeshBatches["stats"]>;
+}
+
+/** @internal What the renderer asks of the feature named "ui" (the UI plugin's, ADR 0140). */
+export interface UIFeatureApi extends BabylonFeature {
+  /** The layout and routing core. */
+  core(): UICore;
+  /** Whether the editor's preview inset has its UI built (the frame plan's `preview.ui`). */
+  hasPreviewUI(): boolean;
 }
 
 /** @internal A plugin render feature's factory, as `RenderFeatureRegistration.load` gives it for this backend. */

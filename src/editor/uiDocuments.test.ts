@@ -2,7 +2,9 @@
 // and hot-reload when a file is saved; their elements map to selection refs, hierarchy rows, markup
 // spans and value sources; they're selected apart from nodes; and they never reach saved files.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Color, Engine, GameObject, Input, UIButton, UIDocument, UIText } from "../engine";
+import { Color, Engine, GameObject, Input } from "../engine";
+import { UIButton, UIText } from "../engine/ui/components";
+import { UIDocument } from "../engine/ui/UIDocument";
 import { loadUIDocumentSupport } from "../engine/ui/UIDocument";
 import { MemoryFileSystem } from "./memoryFs";
 import { OrbitCamera } from "./OrbitCamera";

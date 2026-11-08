@@ -2,7 +2,8 @@
 // instances per renderer — with no Babylon types. Engine semantics here; the Babylon material library
 // applying them is in `materialLibrary.test.ts`.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Assets, Color, Engine, GameObject, Material, MeshRenderer, SceneManager, Vector2 } from "../index";
+import { Assets, Color, Engine, GameObject, Material, SceneManager, Vector2 } from "../index";
+import { MeshRenderer } from "../render/components";
 
 const RED = "asset:materials/red.material.json";
 const BLUE = "asset:materials/blue.material.json";

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Camera, Engine, GameBehavior, GameObject, Input, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, Vector2, type UILength } from "../index";
+import { Camera, Engine, GameBehavior, GameObject, Input, Vector2 } from "../index";
+import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UILength } from "../ui/components";
 import { World } from "../core/World";
 import { UICore, canvasScale, onFrameEdge, uiLength } from "../ui/UICore";
 import type { TextMeasureRequest } from "../ui/uiCoreTypes";

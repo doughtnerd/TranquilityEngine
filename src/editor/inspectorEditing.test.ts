@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { AssetRef, Color, Engine, GameObject, Input, PlainObject, SpriteRenderer, Vector2, Vector3 } from "../engine";
+import { AssetRef, Color, Engine, GameObject, Input, PlainObject, Vector2, Vector3 } from "../engine";
+import { SpriteRenderer } from "../engine/render/components";
 import { listComponents } from "../engine/editor";
 import { RenameNode, SetActive, SetField } from "./document";
 import { colorToJSON, editorFor, parseNumber, toSceneJSON } from "./fieldValues";

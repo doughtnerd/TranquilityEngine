@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, Color, Engine, GameObject, Input, UIButton, UICanvas, UIDocument, UIEvents, UIInputField, UIPanel, UIText, type UIEvent } from "../index";
+import { Assets, Color, Engine, GameObject, Input } from "../index";
+import { UIButton, UICanvas, UIInputField, UIPanel, UIText } from "../ui/components";
+import { UIDocument, UIEvents, type UIEvent } from "../ui/UIDocument";
 import { World } from "../core/World";
 import { parseBindings, parseMarkup } from "../ui/document/markup";
 import { matchSelector, parseStylesheet, resolveStyle } from "../ui/document/stylesheet";

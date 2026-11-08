@@ -1,5 +1,5 @@
 /**
- * MeshRenderer drawing for the Babylon backend (ADR 0108, 0130): one `BabylonFeature` that mirrors the
+ * MeshRenderer drawing for the Babylon backend (ADR 0108, 0130; the Meshes plugin registers it, ADR 0140): one `BabylonFeature` that mirrors the
  * World's MeshRenderers into Babylon meshes, batched for GPU instancing. It takes what it shares with
  * the renderer (the material library, the probe lookup, the reflection counter) as `BabylonMeshHost`.
  */
@@ -15,9 +15,8 @@ import type { MaterialInstancing } from "../../scene/material";
 import { drawnVariant, materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import { MeshRenderer } from "../components";
 import type { DrawnMaterial } from "../RenderSurface";
-import type { RenderFeatureSpec } from "../renderFeatures";
 import type { EditorMesh } from "./editorContext";
-import type { BabylonFeature, FeatureSyncContext } from "./feature";
+import type { FeatureSyncContext, MeshesFeatureApi } from "./feature";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
 import type { ProbeHit } from "./probes";
@@ -37,8 +36,6 @@ export interface BabylonMeshHost {
   reflected?(): void;
 }
 
-/** @internal Content phase, eager (ADR 0130). */
-export const MESHES_SPEC: RenderFeatureSpec = { name: "meshes", phase: "content", types: [MeshRenderer], lazy: false, after: ["sprites", "tilemaps"] };
 
 interface MeshEntry {
   /** The renderer's own Babylon meshes (instances, or whole meshes with instancing off); none in a thin batch. */
@@ -84,7 +81,7 @@ function drawnMaterial(m: BabylonMaterial): DrawnMaterial {
 }
 
 /** @internal Draws every MeshRenderer, batched for GPU instancing (ADR 0108). */
-export class BabylonMeshes implements BabylonFeature {
+export class BabylonMeshes implements MeshesFeatureApi {
   private readonly meshRenderers = new Map<MeshRenderer, MeshEntry>();
   /** MeshRenderer meshes batched for GPU instancing (ADR 0108). */
   private readonly batches: MeshBatches;

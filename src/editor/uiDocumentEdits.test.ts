@@ -2,7 +2,9 @@
 // ids and classes, Move to class, Create, hierarchy edits, undo in the scene's history, and
 // read-only projects refusing.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Color, Engine, GameObject, Input, UIButton, UIDocument, UIPanel, UIText } from "../engine";
+import { Color, Engine, GameObject, Input } from "../engine";
+import { UIButton, UIPanel, UIText } from "../engine/ui/components";
+import { UIDocument } from "../engine/ui/UIDocument";
 import { loadUIDocumentSupport } from "../engine/ui/UIDocument";
 import { MemoryFileSystem } from "./memoryFs";
 import { OrbitCamera } from "./OrbitCamera";

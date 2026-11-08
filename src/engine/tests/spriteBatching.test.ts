@@ -9,8 +9,10 @@ import { pbrVertexShader } from "@babylonjs/core/Shaders/pbr.vertex.js";
 import { pbrVertexShaderWGSL } from "@babylonjs/core/ShadersWGSL/pbr.vertex.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
-import { Assets, Camera, Color, Engine, GameObject, SceneManager, SpriteRenderer, Vector2 } from "../index";
-import { BabylonSprites, SPRITES_SPEC } from "../render/babylon/sprites";
+import { Assets, Camera, Color, Engine, GameObject, SceneManager, Vector2 } from "../index";
+import { SpriteRenderer } from "../render/components";
+import { BabylonSprites } from "../render/babylon/sprites";
+import { SPRITES_SPEC } from "../../plugins/sprites/runtime";
 import type { FeatureSyncContext } from "../render/babylon/feature";
 import { SpriteBatcher, spriteUvCode, UV_RECT_ATTRIBUTE, type SpriteItem } from "../render/babylon/spriteBatches";
 

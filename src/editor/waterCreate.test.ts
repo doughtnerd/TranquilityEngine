@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Engine, WaterSurface } from "../engine";
+import { Engine } from "../engine";
+import { WaterSurface } from "../engine/render/water/WaterSurface";
 import { NEW_NODE_KINDS, createNode, newNodeEntry } from "./nodeCreate";
 import { openSceneFile } from "./project";
 import { openScene } from "./state";

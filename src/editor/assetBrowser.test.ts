@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { Engine, GameObject, Input, SpriteRenderer } from "../engine";
+import { Engine, GameObject, Input } from "../engine";
+import { SpriteRenderer } from "../engine/render/components";
 import {
   addAssetToScene,
   assetKind,

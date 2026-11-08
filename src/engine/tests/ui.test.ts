@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Color, Engine, GameBehavior, GameObject, Input, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, Vector2, getComponentClass, getFields, type UILength } from "../index";
+import { Color, Engine, GameBehavior, GameObject, Input, Vector2, getComponentClass, getFields } from "../index";
+import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UILength } from "../ui/components";
 import { World } from "../core/World";
 
 // ADR 0069: UI components in a headless World, and Input without UI. Layout, pointer routing and

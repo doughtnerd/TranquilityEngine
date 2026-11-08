@@ -3,7 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
 import { renderDiagnostics, viewport } from "../editor";
-import { Assets, Engine, GameObject, SceneManager, SpriteRenderer, Vector2 } from "../index";
+import { Assets, Engine, GameObject, SceneManager, Vector2 } from "../index";
+import { SpriteRenderer } from "../render/components";
 import { FakeRenderPolicyPort, FakeRenderSurface, FakeViewportAdapter } from "../render/fakeViewport";
 import { ViewportHandle } from "../render/editorViewport";
 

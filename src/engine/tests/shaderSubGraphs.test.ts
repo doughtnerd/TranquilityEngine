@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Assets, Color, MeshRenderer } from "../index";
+import { Assets, Color } from "../index";
+import { MeshRenderer } from "../render/components";
 import { compileShaderGraph, nodePreviewGraph } from "../render/shaderGraph/compile";
 import { nodePorts } from "../render/shaderGraph/nodes";
 import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph, parseShaderGraph, type GraphNode, type ShaderGraph } from "../scene/shaderGraph";

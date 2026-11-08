@@ -56,16 +56,13 @@ import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { BabylonMaterialLibrary } from "./materialLibrary";
-import { eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type FeatureSlot, type FeatureSyncContext, type ParticlesFeatureApi } from "./feature";
+import { eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type FeatureSlot, type FeatureSyncContext, type MeshesFeatureApi, type ParticlesFeatureApi, type SpritesFeatureApi, type UIFeatureApi } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
-import { BabylonSprites, SPRITES_SPEC } from "./sprites";
-import { BabylonMeshes, MESHES_SPEC } from "./meshes";
 import { BabylonQuadBatches } from "./quadBatches";
-import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PROBES_SPEC, ProbesFeature, WATER_SPEC } from "./features";
+import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PROBES_SPEC, ProbesFeature } from "./features";
 import { FogFeature } from "./fog";
-import { UI_SPEC } from "./uiSpec";
-import type { BabylonUIFeature, BabylonUIHost } from "./uiFeature";
-import type { WaterFeature } from "./waterFeature";
+import type { BabylonUIHost } from "./uiFeature";
+import { sortingOrder, unknownLayerMessage } from "../sortOrder";
 import type { BabylonParticleHost } from "./particles";
 import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
 import { AsyncPipelines, FirstFrames } from "./asyncPipelines";
@@ -86,8 +83,6 @@ const tmpScale = new Vector3();
 const tmpQuat = new Quaternion();
 const tmpPos = new Vector3();
 
-/** @internal Moved to the mesh feature (ADR 0130); re-exported for its tests. */
-export { matrixChanged } from "./meshes";
 
 /** World-space UI canvases' planes are named with this (`ui.ts`). */
 const CANVAS_PREFIX = "myco.canvas.";
@@ -130,10 +125,6 @@ function clearColorOf(v: string | number): Color4 {
 /** @internal Stage 1 Babylon.js renderer (ADR 0075). */
 export class BabylonRenderer {
   readonly scene: Scene;
-  /** Sprites (ADR 0108, 0130). */
-  private readonly sprites: BabylonSprites;
-  /** MeshRenderers (ADR 0108, 0130). */
-  private readonly meshes: BabylonMeshes;
   /** Quad batches for plugin features (the Tilemaps plugin's tiles, ADR 0136). */
   private readonly quads: BabylonQuadBatches;
   private readonly cameras = new Map<Camera, CameraEntry>();
@@ -170,10 +161,11 @@ export class BabylonRenderer {
   private readonly probes: BabylonProbes;
   /** Render texture assets cameras draw into (ADR 0109). */
   private readonly renderTextures: BabylonRenderTextures;
-  /** Water (ADR 0072) and game UI (stage 9), loaded the first time a World has one (ADR 0083). Particles are a plugin's feature (`particles()`). */
-  private readonly water: FeatureSlot<WaterFeature>;
-  private readonly ui: FeatureSlot<BabylonUIFeature>;
-  /** Every render feature, in registration order (ADR 0130): the built-ins, then plugins' (ADR 0135). */
+  /**
+   * Every render feature, in registration order (ADR 0130): the built-ins (the lighting rig and probes),
+   * then plugins' (ADR 0135, 0140): sprites, meshes, tilemaps, sky, particles, water, UI. The renderer
+   * reaches the ones it asks things of by name (`feature(name)`).
+   */
   private readonly slots: FeatureSlot[];
   /** Their specs, in the same order (for `ownerOf`). */
   private readonly specs: RenderFeatureSpec[];
@@ -250,16 +242,6 @@ export class BabylonRenderer {
       renderTexture: (path) => this.renderTextures.texture(path),
       editorPicking: () => this.policy.drawPolicy === "perObject", // the editor's picking needs per-object instances
     });
-    this.sprites = new BabylonSprites({
-      scene,
-      pixelsPerUnit: () => this.settings.render.pixelsPerUnit,
-      sortingLayers: () => this.settings.render.sortingLayers,
-      texture: (path) => this.materials.texture(path),
-      loadedTexture: (path) => this.materials.loadedTexture(path),
-      drawPolicy: () => this.policy.drawPolicy,
-      warnOnce: (key, message) => this.warnOnce(key, message),
-    });
-    this.meshes = new BabylonMeshes({ scene, materials: this.materials, probes: this.probes, reflected: () => this.reflecting++ });
     this.quads = new BabylonQuadBatches({
       scene,
       texture: (path, onLoad) => {
@@ -268,25 +250,19 @@ export class BabylonRenderer {
         this.materials.texture(path).then(onLoad, (err) => this.warnOnce(`tile|${path}`, `failed to load tile texture "${path}": ${(err as Error).message}`));
         return null;
       },
-      sortOrder: (layer, order) => this.sprites.sortOrder(layer, order),
+      sortOrder: (layer, order) => sortingOrder(this.settings.render.sortingLayers, layer, order, (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l))),
     });
     this.lights = new LightsFeature(this.lighting);
     this.fog = new FogFeature({ scene, setSkyFog: (amount) => this.lighting.setSkyFog(amount) });
-    this.water = lazyFeature(WATER_SPEC, (cancelled) => import("./waterFeature").then((m) => (cancelled() ? null : new m.WaterFeature(scene, (x, y, z) => this.probes.lookup(x, y, z)))));
-    this.ui = lazyFeature(UI_SPEC, (cancelled) => import("./uiFeature").then((m) => (cancelled() ? null : m.BabylonUIFeature.create(this.uiHost()))));
     // Order inside a phase is registration order adjusted by the specs' `after` constraints (ADR 0130,
-    // 0135): the sky (the Sky plugin's) before lights (it may drive the sun), lights before fog, fog
-    // before the environment (the skybox fades with the sky fog).
+    // 0135, 0140): the sky (the Sky plugin's) before lights (it may drive the sun), lights before fog, fog
+    // before the environment (the skybox fades with the sky fog); sprites, tilemaps, then meshes.
     const host = this.featureHost();
     this.slots = [
-      eagerFeature(SPRITES_SPEC, this.sprites),
-      eagerFeature(MESHES_SPEC, this.meshes),
       eagerFeature(LIGHTS_SPEC, this.lights),
       eagerFeature(FOG_SPEC, this.fog),
       eagerFeature(ENVIRONMENT_SPEC, new EnvironmentFeature(this.lighting)),
       eagerFeature(PROBES_SPEC, new ProbesFeature(this.probes, { reflecting: () => this.reflecting })),
-      this.water,
-      this.ui,
       ...plugged.flatMap((p) => pluginSlot(p, host)),
     ];
     this.specs = this.slots.map((f) => f.spec);
@@ -341,9 +317,9 @@ export class BabylonRenderer {
     return {
       key: "worldUI",
       build: (at, position, camera) => {
-        const item = this.ui.feature?.warm({ meshes: [], effects: [], worldUI: true })[0];
+        const item = this.uiFeature()?.warm?.({ meshes: [], effects: [], worldUI: true })[0];
         if (item && "build" in item) return item.build(at, position, camera);
-        const ui = this.loadUIDraw();
+        const ui = this.slot("ui") ? this.loadUIDraw() : null; // nothing to warm without the UI plugin
         return ui ? ui.warmWorldCanvas(this.scene, `${WARM_PREFIX}canvas`, at) : null;
       },
     };
@@ -395,7 +371,7 @@ export class BabylonRenderer {
       if (prefab) return { what: `${what} (from ${prefab})`, prefab };
       return asset ? { what, prefab: asset } : { what };
     };
-    const owner = this.meshes.ownerOf(drawn as AbstractMesh);
+    const owner = this.meshesFeature()?.ownerOf(drawn as AbstractMesh);
     if (owner) return of(owner.node, `"${owner.node.name}"`);
     const system = this.particles()?.ownerOf(drawn);
     if (system) return of(system.node, `The particle effect of "${system.node.name}"`, system.effect ? system.effect.replace(/^asset:/, "") : undefined);
@@ -446,14 +422,14 @@ export class BabylonRenderer {
       world: () => this.owner,
       viewCameras: () => (this.owner ? this.viewCameras(this.owner) : []),
       babylonCamera: (c) => this.cameras.get(c)?.camera ?? null,
-      sprites: () => self.sprites.editorSprites(),
-      meshes: () => self.meshes.editorMeshes(),
+      sprites: () => self.spritesFeature()?.editorSprites() ?? [],
+      meshes: () => self.meshesFeature()?.editorMeshes() ?? [],
       texts: () => [], // Text draws from stage 9
       renderer: {
         setClearColor: (color) => this.setClearColor(color),
         cameraPreviewDrawn: () => this.cameraPreviewDrawn,
         spriteSize: (sprite) => this.spriteSize(sprite),
-        ui: () => this.ui.feature?.core() ?? null,
+        ui: () => this.uiFeature()?.core() ?? null,
         bakeReflectionProbe: (probe) => this.bakeReflectionProbe(probe),
       },
     };
@@ -491,7 +467,7 @@ export class BabylonRenderer {
     if (!p || !rect) return null;
     const r = p.frame.getBoundingClientRect();
     const y = Math.min(1, Math.max(0, 1 - rect.top - rect.height));
-    return { camera: p.camera, rect: { x: rect.x, y, width: rect.width, height: rect.height }, aspect: r.width / r.height, ui: this.ui.feature?.hasPreviewUI() ?? false };
+    return { camera: p.camera, rect: { x: rect.x, y, width: rect.width, height: rect.height }, aspect: r.width / r.height, ui: this.uiFeature()?.hasPreviewUI() ?? false };
   }
 
   /** Sets the editor background (editor Worlds) and clear colour. */
@@ -544,9 +520,9 @@ export class BabylonRenderer {
       ctx.view = view;
       ctx.viewCamera = view ? this.cameras.get(view)!.camera : null;
       this.casters.length = 0;
-      this.meshes.casters(this.casters);
+      this.meshesFeature()?.casters(this.casters);
     } else if (phase === "effects") {
-      ctx.ready = this.contentLoaded = !this.materials.loading() && this.meshes.loaded();
+      ctx.ready = this.contentLoaded = !this.materials.loading() && (this.meshesFeature()?.loaded() ?? true);
       this.probeMeshes.length = 0;
       for (const m of this.scene.meshes) if ((m.layerMask & EDITOR_LAYER_MASK) === 0) this.probeMeshes.push(m);
       ctx.probeMeshes = this.probeMeshes;
@@ -560,7 +536,34 @@ export class BabylonRenderer {
 
   /** @internal Tests and the editor: the UI core (layout and routing), once loaded. */
   uiState(): UICore | null {
-    return this.ui.feature?.core() ?? null;
+    return this.uiFeature()?.core() ?? null;
+  }
+
+  /** A registered feature's slot by its spec's name, or null (its plugin is off). */
+  private slot(name: string): FeatureSlot | null {
+    return this.slots.find((s) => s.spec.name === name) ?? null;
+  }
+
+  /** A named feature once it exists (ADR 0140: the plugins' features the renderer asks things of). */
+  private feature<F>(name: string): F | null {
+    return (this.slot(name)?.feature as F | null | undefined) ?? null;
+  }
+
+  private spritesFeature(): SpritesFeatureApi | null {
+    return this.feature<SpritesFeatureApi>("sprites");
+  }
+
+  private meshesFeature(): MeshesFeatureApi | null {
+    return this.feature<MeshesFeatureApi>("meshes");
+  }
+
+  private uiFeature(): UIFeatureApi | null {
+    return this.feature<UIFeatureApi>("ui");
+  }
+
+  /** @internal Tests and e2e: the Meshes plugin's feature (`meshRenderers`, `batchStats()`), or null without it. */
+  get meshes(): MeshesFeatureApi | null {
+    return this.meshesFeature();
   }
 
   /** The shared services plugin render features are built from (ADR 0135). */
@@ -570,6 +573,11 @@ export class BabylonRenderer {
       lighting: this.lighting,
       materials: this.materials,
       probeLookup: (x, y, z) => this.probes.lookup(x, y, z),
+      probes: this.probes,
+      reflected: () => void this.reflecting++,
+      settings: this.settings,
+      drawPolicy: () => this.policy.drawPolicy,
+      uiHost: () => this.uiHost(),
       quads: this.quads,
       warnOnce: (key, message) => this.warnOnce(key, message),
       particleHost: () => this.particleHost(),
@@ -720,7 +728,7 @@ export class BabylonRenderer {
 
   /** The particles feature's slot (the Particles plugin registers it, ADR 0135), or null without the plugin. */
   private particlesSlot(): FeatureSlot | null {
-    return this.slots.find((s) => s.spec.name === "particles") ?? null;
+    return this.slot("particles");
   }
 
   /** The particles feature once loaded, or null. */
@@ -862,12 +870,12 @@ export class BabylonRenderer {
 
   /** @internal The sprite's size in node units once its texture has loaded. */
   spriteSize(s: SpriteRenderer): [number, number] | null {
-    return this.sprites.spriteSize(s);
+    return this.spritesFeature()?.spriteSize(s) ?? null;
   }
 
-  /** @internal Tests: sync just the MeshRenderers (ADR 0130's mesh feature). */
+  /** @internal Tests: sync just the MeshRenderers (the Meshes plugin's feature, ADR 0130, 0140). */
   syncMeshes(world: World): void {
-    this.meshes.sync(world, this.syncCtx);
+    this.meshesFeature()?.sync(world, this.syncCtx);
   }
 
   // --- Diagnostics (ADR 0128) ------------------------------------------------------------------
@@ -898,7 +906,7 @@ export class BabylonRenderer {
       // Programs: the shader effects the engine has compiled and holds (on WebGPU, each makes its pipelines).
       stats: { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: compiledEffects(this.engine) },
       cameras,
-      drawn: { meshes: this.meshes.drawn(), sprites: this.sprites.drawnNodes() },
+      drawn: { meshes: this.meshesFeature()?.drawn() ?? [], sprites: this.spritesFeature()?.drawnNodes() ?? [] },
     };
     for (const slot of this.slots) Object.assign(out, slot.feature?.state?.()); // each loaded feature's part (ADR 0130)
     return out;
@@ -914,13 +922,13 @@ export class BabylonRenderer {
 const NO_SKY: RenderDiagnostics["sky"] = { active: false, drawn: false, bakes: 0, baked: false, time: 0, lastBakeMs: 0 };
 
 /** A plugin's render feature (ADR 0135): an eager one's factory is loaded before the renderer starts; a lazy one's on first need. */
-interface PluginFeature {
+export interface PluginFeature {
   readonly registration: RenderFeatureRegistration;
   readonly factory: BabylonFeatureFactory | null;
 }
 
-/** Load the factories of the registered eager features; one that fails to load is logged and left out. */
-async function loadPluginFeatures(): Promise<PluginFeature[]> {
+/** @internal Load the factories of the registered eager features; one that fails to load is logged and left out. Tests pass them to the constructor. */
+export async function loadPluginFeatures(): Promise<PluginFeature[]> {
   const loaded = await Promise.all(
     _registeredRenderFeatures().map(async (registration): Promise<PluginFeature | null> => {
       if (registration.spec.lazy) return { registration, factory: null };

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listComponents, listNodes, instantiateDocument, writeField } from "../editor";
-import { Assets, Color, Engine, GameBehavior, GameObject, SpriteRenderer, Vector3, behavior, defineComponent, defineSystem, f32, field } from "../index";
+import { Assets, Color, Engine, GameBehavior, GameObject, Vector3, behavior, defineComponent, defineSystem, f32, field } from "../index";
+import { SpriteRenderer } from "../render/components";
 import type { SceneFile } from "../scene/SceneLoader";
 
 const calls: string[] = [];

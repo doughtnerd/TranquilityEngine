@@ -13,7 +13,7 @@
 // deleting or duplicating a used document's root acts on its `<Use>` tag; attributes written on the
 // `<Use>` tag (which override the used root's) are edited there. List rows (no path) aren't the
 // file's and can't be edited; neither can read-only projects (samples) or anything while playing.
-import type { UIDocumentElement } from "../engine";
+import type { UIDocumentElement } from "../engine/ui/UIDocument";
 import { Color } from "../engine/core/math";
 import { AssetRef, getFields, type FieldInfo } from "../engine/core/registry";
 import { hasBinding, resolvePath } from "../engine/ui/document/markup";

@@ -15,7 +15,8 @@
 // handles as before (select, click again to cycle). Handles show only where the element can be
 // edited (not in read-only projects, play mode, list rows or a button's label, nor the root); the
 // outline still shows there.
-import type { Engine, UIDocumentElement } from "../engine";
+import type { Engine } from "../engine";
+import type { UIDocumentElement } from "../engine/ui/UIDocument";
 import type { World } from "../engine/core/World";
 import { viewport, viewportCanvas } from "../engine/editor";
 import type { UIComponentType } from "../engine/ui/components";

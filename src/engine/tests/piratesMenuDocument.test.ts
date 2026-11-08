@@ -1,6 +1,8 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Color, Engine, Lobby, UIButton, UIDocument, UIInputField, UIPanel, UIText, type UIDocumentElement } from "../index";
+import { Assets, Color, Engine, Lobby } from "../index";
+import { UIButton, UIInputField, UIPanel, UIText } from "../ui/components";
+import { UIDocument, type UIDocumentElement } from "../ui/UIDocument";
 import type { World } from "../core/World";
 import { readProject } from "../../server/project";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).

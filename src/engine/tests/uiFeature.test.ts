@@ -6,10 +6,12 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import type { Layer } from "@babylonjs/core/Layers/layer.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
-import { Engine, GameObject, Input, Text, UIButton, UICanvas, type UILength } from "../index";
+import { Engine, GameObject, Input } from "../index";
+import { Text } from "../render/components";
+import { UIButton, UICanvas, type UILength } from "../ui/components";
 import { BabylonUI } from "../render/babylon/ui";
 import { BabylonUIFeature, type BabylonUIHost } from "../render/babylon/uiFeature";
-import { UI_SPEC } from "../render/babylon/uiSpec";
+import { UI_SPEC } from "../../plugins/ui/runtime";
 import { specNeeded, specOwns } from "../render/renderFeatures";
 import { _resetFonts } from "../ui/fonts";
 

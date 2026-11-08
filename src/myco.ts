@@ -60,6 +60,52 @@ export {
   type TileCollisionMode,
 } from "./plugins/tilemaps/runtime";
 
+// The Sprites plugin (ADR 0140).
+export { SpriteRenderer } from "./plugins/sprites/runtime";
+
+// The Meshes and models plugin (ADR 0140).
+export { MeshRenderer } from "./plugins/meshes/runtime";
+
+// The Water plugin (ADR 0072, 0140).
+export { Water, WaterSurface, type WaterSample } from "./plugins/water/runtime";
+
+// The UI plugin (ADR 0069, 0076, 0140).
+export {
+  Text,
+  type Anchor,
+  UIButton,
+  UICanvas,
+  UIImage,
+  UIInputField,
+  UIPanel,
+  UIText,
+  type UIAlign,
+  type UICanvasMode,
+  type UIDisplay,
+  type UIFlexDirection,
+  type UIImageFit,
+  type UIJustify,
+  type UILength,
+  type UIPositionType,
+  type UITextAlign,
+  type UIWordBreak,
+  UIClassList,
+  UIDocument,
+  UIDocumentElement,
+  UIEvents,
+  type UIEvent,
+  type UIEventHandler,
+  type UIEventType,
+  type UIListOptions,
+  type UITag,
+} from "./plugins/ui/runtime";
+
+// The Environment plugin (ADR 0140).
+export { Environment } from "./plugins/environment/runtime";
+
+// The Post-processing plugin (ADR 0140).
+export { PostProcessing, type ToneMapping } from "./plugins/post-processing/runtime";
+
 // The Particles plugin (ADR 0057, 0060, 0135).
 export { ParticleSystem, type ParticlePropertyValue } from "./plugins/particles/runtime";
 

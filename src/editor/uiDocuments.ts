@@ -9,7 +9,8 @@
 // (`UIDocumentElement._path`: "" for the root, then `/#id` or `/Tag[n]` per level, `/label` for a
 // button's text content). Refs survive rebuilds (hot reload) as long as the structure is the same.
 import { batch, signal } from "@preact/signals";
-import { Color, UIDocument, Vector2, type GameObject, type UIDocumentElement } from "../engine";
+import { Color, Vector2, type GameObject } from "../engine";
+import { UIDocument, type UIDocumentElement } from "../engine/ui/UIDocument";
 import { getFields, type FieldInfo } from "../engine/core/registry";
 import { Assets } from "../engine/scene/Assets";
 import type { UIComponentType } from "../engine/ui/components";

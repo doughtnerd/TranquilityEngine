@@ -19,15 +19,13 @@ import type { GameObject } from "../../scene/GameObject";
 import { authoredSize, splitSpriteRef } from "../../scene/importSettings";
 import { Camera, SpriteRenderer } from "../components";
 import { snapToGrid } from "../pixelPerfect";
-import type { RenderFeatureSpec } from "../renderFeatures";
+import { sortingOrder, unknownLayerMessage } from "../sortOrder";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import type { EditorSprite } from "./editorContext";
-import type { BabylonFeature, FeatureSyncContext } from "./feature";
+import type { FeatureSyncContext, SpritesFeatureApi } from "./feature";
 import { pbr } from "./materials";
 import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
 
-/** @internal The sprite feature's spec (ADR 0130). */
-export const SPRITES_SPEC: RenderFeatureSpec = { name: "sprites", phase: "content", types: [SpriteRenderer], lazy: false };
 
 /** @internal What the sprite feature needs from the renderer. */
 export interface BabylonSpriteHost {
@@ -76,8 +74,8 @@ const tmpColor = new Color3();
 const SPRITE_GRID_NORMALS = Array.from({ length: 16 }, () => [0, 0, 1]).flat();
 const WHOLE_FRAME: SpriteFrame = { uv: null, size: [1, 1], pivot: [0.5, 0.5], border: null, fill: "stretch", pixelsPerUnit: 1, pixelSize: [1, 1], missingSlice: false };
 
-/** @internal Draws the World's SpriteRenderers. */
-export class BabylonSprites implements BabylonFeature {
+/** @internal Draws the World's SpriteRenderers (the Sprites plugin's feature, ADR 0140). */
+export class BabylonSprites implements SpritesFeatureApi {
   private readonly sprites = new Map<SpriteRenderer, SpriteEntry>();
   /** Sprites batched per texture run (ADR 0108); the editor's scene view keeps a mesh per sprite. */
   private readonly batcher: SpriteBatcher;
@@ -129,12 +127,7 @@ export class BabylonSprites implements BabylonFeature {
 
   /** Draw order: `sortingLayer` index × 10000 + `orderInLayer`. */
   sortOrder(layer: string, order: number): number {
-    let index = this.host.sortingLayers().indexOf(layer);
-    if (index < 0) {
-      this.host.warnOnce(`layer|${layer}`, `unknown sorting layer "${layer}"; add it to project settings render.sortingLayers.`);
-      index = 0;
-    }
-    return index * 10000 + order;
+    return sortingOrder(this.host.sortingLayers(), layer, order, (l) => this.host.warnOnce(`layer|${l}`, unknownLayerMessage(l)));
   }
 
   /** The sprite's size in node units once its texture has loaded. */

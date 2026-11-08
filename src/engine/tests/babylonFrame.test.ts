@@ -3,7 +3,7 @@ import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
 import { describe, expect, it } from "vitest";
 import { AO_SETTINGS, cameraPasses, setCasters } from "../render/babylon/frameGraph";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
-import { matrixChanged } from "../render/babylon/BabylonRenderer";
+import { matrixChanged } from "../render/babylon/meshes";
 import { FINISH_SAMPLERS, FINISH_SHADER, FINISH_UNIFORMS } from "../render/babylon/finishShader";
 import type { PostEffects } from "../render/postEffects";
 

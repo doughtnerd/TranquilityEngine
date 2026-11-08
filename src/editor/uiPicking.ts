@@ -7,7 +7,7 @@
 // join the bare tier last: a world canvas by its rectangle, a screen canvas only by its frame's edge strip,
 // so a click on bare empty view still deselects. Pure: no engine state is read.
 import type { Color } from "../engine";
-import { UIImage, UIInputField, UIPanel, UIText } from "../engine";
+import { UIImage, UIInputField, UIPanel, UIText } from "../engine/ui/components";
 import type { UIComponentType } from "../engine/ui/components";
 
 const visibleColor = (c: Color | null | undefined): boolean => !!c && c.a > 0;

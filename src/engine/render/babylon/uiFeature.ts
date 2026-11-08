@@ -3,6 +3,7 @@
  * routes, `ui.ts` draws it with Babylon GUI, and (editor) a second passive core and drawing lay the
  * screen UI out at the camera preview inset's size. The renderer loads this whole module lazily through
  * a `FeatureSlot` (games without UI never download Yoga or Babylon GUI), so it imports them statically.
+ * The UI plugin registers it (`src/plugins/ui/runtime/`, ADR 0140).
  */
 import type { Layer } from "@babylonjs/core/Layers/layer.js";
 import type { Scene } from "@babylonjs/core/scene.js";
@@ -14,7 +15,7 @@ import { isUIComponent } from "../../ui/components";
 import { loadBundledFont } from "../../ui/fonts";
 import { UICore } from "../../ui/UICore";
 import { Text, type Camera } from "../components";
-import type { BabylonFeature, FeatureSyncContext } from "./feature";
+import type { FeatureSyncContext, UIFeatureApi } from "./feature";
 import { BabylonUI, measureText, warmWorldCanvas } from "./ui";
 import { WARM_PREFIX, type WarmItem } from "./warmUp";
 
@@ -50,7 +51,7 @@ function frameHook(draw: BabylonUI): () => Layer | null {
 }
 
 /** @internal The game UI. */
-export class BabylonUIFeature implements BabylonFeature {
+export class BabylonUIFeature implements UIFeatureApi {
   private readonly draw: BabylonUI;
   private readonly uiCore: UICore;
   private preview: { core: UICore; draw: BabylonUI } | null = null;
@@ -59,6 +60,11 @@ export class BabylonUIFeature implements BabylonFeature {
   /** Loads the bundled Inter first, so text isn't measured in a fallback font before the first layout. */
   static async create(host: BabylonUIHost): Promise<BabylonUIFeature> {
     await loadBundledFont();
+    return new BabylonUIFeature(host);
+  }
+
+  /** Once the bundled font has loaded (`loadBundledFont`): the UI plugin's factory (ADR 0140). */
+  static fromHost(host: BabylonUIHost): BabylonUIFeature {
     return new BabylonUIFeature(host);
   }
 
