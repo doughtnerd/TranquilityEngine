@@ -33,7 +33,6 @@ const LAZY: Record<Exclude<BuiltinPanelId, "scene">, LazyComponent> = {
   ),
   network: lazyComponent(() => import("./NetworkPanel").then((m) => m.NetworkPanel)),
   project: lazyComponent(() => import("./ProjectSettingsPanel").then((m) => m.ProjectSettingsPanel)),
-  tilepalette: lazyComponent(() => import("./TilePalettePanel").then((m) => m.TilePalettePanel)),
 };
 
 const builtin = (id: PanelId): LazyComponent | undefined => (Object.hasOwn(LAZY, id) ? LAZY[id as keyof typeof LAZY] : undefined);

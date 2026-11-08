@@ -3,7 +3,7 @@
 // plugin removes them all.
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
-import { assetFormats, assetKinds, panels, type AssetFormatContribution, type AssetKindContribution, type PanelContribution } from "./contributions";
+import { assetFormats, assetKinds, panels, viewportTools, type AssetFormatContribution, type AssetKindContribution, type PanelContribution, type ViewportToolContribution } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import type { LoadComponent } from "./contributions";
 
@@ -14,6 +14,8 @@ export interface EditorPluginContext {
   registerPanel(panel: PanelContribution): void;
   /** Extra UI under a Component type's fields in the Inspector (ADR 0131), loaded on first use. */
   registerInspectorSection(type: string, view: LoadComponent<InspectorSectionProps>, options?: InspectorSectionOptions): void;
+  /** A scene-view tool (ADR 0137), installed on every scene view while the plugin is active. */
+  registerViewportTool(tool: ViewportToolContribution): void;
 }
 
 /** A plugin's editor half. */
@@ -36,6 +38,7 @@ export function activatePlugins(plugins: readonly EditorPlugin[]): void {
       registerAssetFormat: (f) => void undo.push(assetFormats.register(f)),
       registerPanel: (p) => void undo.push(panels.register(p)),
       registerInspectorSection: (type, view, options) => void undo.push(registerInspectorSection(type, view, options)),
+      registerViewportTool: (t) => void undo.push(viewportTools.register(t)),
     };
     try {
       plugin.activate(context);

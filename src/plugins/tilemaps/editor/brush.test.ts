@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Assets, Engine, type AssetSource } from "../engine";
-import { FLIP_X, FLIP_Y, FLIP_DIAGONAL, Tilemap } from "../plugins/tilemaps/runtime";
-import { cellValue } from "../plugins/tilemaps/runtime/format";
-import { createNode } from "./nodeCreate";
-import { openSceneFile } from "./project";
-import { openScene } from "./state";
-import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
-import { activeLayer, brushFlags, brushRandom, brushStamp, brushTerrain, brushValueAt, combineFlags, commitTilemap, fillAt, paintCells, pickFromMap, strokeCells } from "./tilemap/brush";
+import { Assets, Engine, type AssetSource } from "../../../engine";
+import { FLIP_X, FLIP_Y, FLIP_DIAGONAL, Tilemap } from "../runtime";
+import { cellValue } from "../runtime/format";
+import { createNode } from "../../../editor/nodeCreate";
+import { openSceneFile } from "../../../editor/project";
+import { openScene } from "../../../editor/state";
+import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
+import { activeLayer, brushFlags, brushRandom, brushStamp, brushTerrain, brushValueAt, combineFlags, commitTilemap, fillAt, paintCells, pickFromMap, strokeCells } from "./brush";
 
 const TILESET = {
   format: "myco.tileset@1",

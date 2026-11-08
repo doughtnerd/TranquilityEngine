@@ -9,9 +9,15 @@ import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
-import { assetFormats, assetKinds } from "../../editor/sdk/contributions";
+import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
+import { registeredInspectorSections } from "../../editor/ui/inspectorSections";
+import { createViewportToolHost } from "../../editor/viewportTools";
+import type { Engine } from "../../engine";
+import type { World } from "../../engine/core/World";
+import { PAINT_TOOL_ID, PAINT_TOOL_KEYS } from "./editor/paintTool";
+import { brushTool, pickBrushTool } from "./editor/brush";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
-import { currentProject } from "../../editor/state";
+import { activeViewportTool, currentProject, pickTool } from "../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../editor/testing";
 import { formatTileset } from "../../editor/tilesetAssets";
 import { EDITOR_PLUGINS } from "../editor";
@@ -77,6 +83,38 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     _reset();
     deactivatePlugin("myco.tilemaps");
     currentProject.value = null;
+  });
+
+  it("registers the Tile Palette panel, the paint tool and the Tilemap's Inspector section, and removes them (ADR 0137)", () => {
+    expect(panels.get("tilepalette")).toMatchObject({ title: "Tile Palette", beside: "code" });
+    expect(viewportTools.get(PAINT_TOOL_ID)).toBeDefined();
+    expect(registeredInspectorSections("engine.Tilemap")).toHaveLength(1);
+    deactivatePlugin("myco.tilemaps");
+    expect(panels.get("tilepalette")).toBeUndefined();
+    expect(viewportTools.get(PAINT_TOOL_ID)).toBeUndefined();
+    expect(registeredInspectorSections("engine.Tilemap")).toHaveLength(0);
+  });
+
+  it("keeps the brush and the active viewport tool in step, and leaves the editor's keys alone", () => {
+    const canvas = Object.assign(new EventTarget(), { style: { cursor: "" }, getBoundingClientRect: () => ({ left: 0, top: 0 }) });
+    const dispose = createViewportToolHost({ engine: {} as Engine, world: {} as World, canvas, keys: new EventTarget(), addOverlay: () => {}, removeOverlay: () => {}, editable: () => false });
+    try {
+      pickBrushTool("pencil");
+      expect(activeViewportTool.value).toBe(PAINT_TOOL_ID);
+      expect(canvas.style.cursor).toBe("crosshair");
+      pickTool("move"); // Q/W/E/R or the toolbar
+      expect(brushTool.value).toBeNull();
+      pickBrushTool("rect");
+      pickBrushTool(null);
+      expect(activeViewportTool.value).toBeNull();
+      pickBrushTool("fill");
+    } finally {
+      dispose();
+    }
+    expect(activeViewportTool.value).toBeNull(); // uninstalled with the scene view
+    expect(brushTool.value).toBe("fill");
+    pickBrushTool(null);
+    for (const key of ["q", "w", "e", "r", "f"]) expect(PAINT_TOOL_KEYS[key]).toBeUndefined();
   });
 
   it("registers the tileset asset kind: matching, label, icon, inspector and tileset fields", () => {

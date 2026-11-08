@@ -2,13 +2,13 @@
 // stroke makes. Strokes paint the Editor World's Tilemap at once (so painting shows while the
 // pointer moves) and commit to the scene document as one SetField of `layers` when they end.
 import { signal } from "@preact/signals";
-import { type GameObject } from "../../engine";
-import { Tilemap } from "../../plugins/tilemaps/runtime";
-import { floodCells, lineCells, rectCells, type Cell, type Stamp } from "../../plugins/tilemaps/runtime/brushes";
-import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, cellValue, flagsOf, rotateFlagsClockwise, tileIdOf } from "../../plugins/tilemaps/runtime/format";
-import { pickWeighted } from "../../plugins/tilemaps/runtime/tileset";
-import { SetField } from "../document";
-import type { OpenScene } from "../state";
+import { type GameObject } from "../../../engine";
+import { Tilemap } from "../runtime";
+import { floodCells, lineCells, rectCells, type Cell, type Stamp } from "../runtime/brushes";
+import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, cellValue, flagsOf, rotateFlagsClockwise, tileIdOf } from "../runtime/format";
+import { pickWeighted } from "../runtime/tileset";
+import { SetField } from "../../../editor/document";
+import type { OpenScene } from "../../../editor/state";
 
 export type BrushTool = "pencil" | "rect" | "fill" | "erase" | "pick";
 

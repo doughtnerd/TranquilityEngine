@@ -2,12 +2,12 @@
 // terrains. Choosing a tile, a block of tiles, several tiles (random brush) or a terrain sets the brush the scene
 // view paints with (tilemap/brush.ts, tilemap/paintTool.ts).
 import { useRef, useState } from "preact/hooks";
-import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, newLayer, tileIdOf } from "../../plugins/tilemaps/runtime/format";
-import type { TileDef } from "../../plugins/tilemaps/runtime/tileset";
-import { assetKind } from "../assetBrowser";
-import { activeLayer, BRUSH_TOOLS, brushFlags, brushRandom, brushStamp, brushTerrain, brushTile, brushTool, flipBrush, pickBrushTool, tilemapOf } from "../tilemap/brush";
-import { blockStamp, commitLayers, commitTileset, editedLayers } from "../tilemap/palette";
-import { currentProject, docVersion, openScene, playState, selectedPath, selectedWorldNode, selection } from "../state";
+import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, newLayer, tileIdOf } from "../runtime/format";
+import type { TileDef } from "../runtime/tileset";
+import { assetKind } from "../../../editor/assetBrowser";
+import { activeLayer, BRUSH_TOOLS, brushFlags, brushRandom, brushStamp, brushTerrain, brushTile, brushTool, flipBrush, pickBrushTool, tilemapOf } from "./brush";
+import { blockStamp, commitLayers, commitTileset, editedLayers } from "./palette";
+import { currentProject, docVersion, openScene, playState, selectedPath, selectedWorldNode, selection } from "../../../editor/state";
 import { TileThumb } from "./TileThumb";
 import "./tilePalette.css";
 

@@ -4,10 +4,10 @@ import "./ui/inspectorSections.builtin";
 import { inspectorSectionsFor, registerInspectorSection, registeredInspectorSections } from "./ui/inspectorSections";
 
 describe("inspector sections", () => {
-  // The ParticleSystem's section is the Particles plugin's (src/plugins/particles/particles.test.ts).
+  // The ParticleSystem's section is the Particles plugin's (src/plugins/particles/particles.test.ts), the Tilemap's the Tilemaps plugin's (src/plugins/tilemaps/tilemaps.test.ts).
   it("registers the engine components' sections", () => {
     expect(registeredInspectorSections("engine.NavChunk")).toHaveLength(2);
-    for (const type of ["engine.Tilemap", "engine.Environment", "engine.ReflectionProbe", "engine.NavAgent", "engine.NavAvoidanceObstacle", "engine.NavGroup", "engine.NavResolutionVolume", "engine.NavModifierVolume", "engine.NavCostVolume"]) {
+    for (const type of ["engine.Environment", "engine.ReflectionProbe", "engine.NavAgent", "engine.NavAvoidanceObstacle", "engine.NavGroup", "engine.NavResolutionVolume", "engine.NavModifierVolume", "engine.NavCostVolume"]) {
       expect(registeredInspectorSections(type), type).toHaveLength(1);
     }
     expect(registeredInspectorSections("engine.Transform")).toHaveLength(0);
@@ -35,7 +35,7 @@ describe("inspector sections", () => {
   });
 
   it("each built-in section's module loads and exports its component", async () => {
-    const types = ["engine.Tilemap", "engine.Environment", "engine.NavChunk", "engine.ReflectionProbe", "engine.NavAgent", "engine.NavAvoidanceObstacle", "engine.NavGroup", "engine.NavResolutionVolume", "engine.NavModifierVolume", "engine.NavCostVolume"];
+    const types = ["engine.Environment", "engine.NavChunk", "engine.ReflectionProbe", "engine.NavAgent", "engine.NavAvoidanceObstacle", "engine.NavGroup", "engine.NavResolutionVolume", "engine.NavModifierVolume", "engine.NavCostVolume"];
     for (const type of types) {
       for (const view of registeredInspectorSections(type)) {
         await view.preload();

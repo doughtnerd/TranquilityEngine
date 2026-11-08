@@ -1,6 +1,6 @@
 # 0137. Viewport tools are an editor contribution point: installed per scene view, input routed by one host, at most one active tool
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -66,7 +66,7 @@ export interface ViewportToolContext {
   edit(label: string, fn: (scene: OpenScene) => void): boolean;
 }
 export interface ViewportPointer { x: number; y: number; button: number; alt: boolean; shift: boolean; ctrl: boolean; meta: boolean; pointerId: number; }
-export interface ViewportDrag { move?(p: ViewportPointer): void; end?(p: ViewportPointer): void; cancel?(): void; }
+export interface ViewportDrag { move?(p: ViewportPointer): void; end?(p: ViewportPointer): void; cancel?(): void; } // cancel: no release came (pointer cancelled, play started, tool removed); finish or undo the preview
 ```
 
 **3. The host** (`src/editor/viewportTools.ts`, `installViewportTools(engine)`, one entry in `session.ts`'s installer list replacing `installTilemapPainting`):
@@ -74,7 +74,7 @@ export interface ViewportDrag { move?(p: ViewportPointer): void; end?(p: Viewpor
 - **Follows the registry.** An effect on `viewportTools.version` installs newly registered tools and disposes removed ones, so enabling or disabling a plugin with a project open adds or removes its tools (the 0134 undo contract, carried to the scene view).
 - **Press routing.** One capture-phase `pointerdown` listener on the canvas. It offers the press to the active tool first, then to the other tools in registration order; the first handler that returns a drag claims it. The host then stops the event (selection, the transform gizmo and orbiting never see it), sets pointer capture and sends that pointer's moves, release and cancel to the drag only. Unclaimed presses reach the built-in selection and gizmo unchanged. Built-in capture-phase tools (collider handles) keep their own listeners and are installed before the host, as today, so their order doesn't change.
 - **One active tool.** `activeViewportTool: ReadonlySignal<string | null>` and `activateViewportTool(id | null)` (exported by the SDK; `ctx.activate` is sugar). `null` means the transform tools. Activating a tool clears `editingCollider`; `pickTool` (toolbar and Q/W/E/R) and editing a collider set it back to `null`; Escape with no drag running deactivates it; disposing the active tool's install deactivates it. `gizmo.ts` hides the transform gizmo while a tool is active, as it does while editing a collider. Always-on gizmos are tools that never call `activate`.
-- **Keys.** One `window` capture-phase `keydown` listener. Text fields, Ctrl/Cmd/Alt chords, open dialogs and play mode are skipped once for everyone; then the active tool's handler, then the others. A consumed key gets `preventDefault` and `stopPropagation`, so it doesn't also reach `shortcuts.ts`. Tools must not take Q, W, E, R or F (documented on `onKey`, and a test checks the Tilemaps tool doesn't).
+- **Keys.** One `window` capture-phase `keydown` listener. Text fields, Ctrl/Cmd/Alt chords, open dialogs and play mode are skipped once for everyone; then the active tool's handler, then the others. A consumed key gets `preventDefault` and `stopImmediatePropagation`, so it doesn't also reach `shortcuts.ts`. Tools must not take Q, W, E, R or F (documented on `onKey`, and a test checks the Tilemaps tool doesn't).
 - **Hover and cursor.** One `pointermove`/`pointerleave` pair feeds `onHover` (not during a drag); the canvas cursor is the active tool's `setCursor` value.
 - **Play mode.** Presses, hovers and keys aren't routed unless `playState` is `"edit"`. Entering play cancels a running drag (`cancel()`) and deactivates the active tool.
 - **Disposal.** Disposing an install cancels its drag, removes its handlers, overlays and cursor, and runs its returned cleanup. Disposing the host disposes every install.
@@ -84,7 +84,7 @@ export interface ViewportDrag { move?(p: ViewportPointer): void; end?(p: Viewpor
 **5. Tilemaps moves into its editor half.** `src/editor/tilemap/` (`paintTool.ts`, `brush.ts`, `palette.ts`), `ui/TilePalettePanel.tsx` with `tilePalette.css`, `ui/TileThumb.tsx` and `ui/TilemapInspector.tsx` move to `src/plugins/tilemaps/editor/`. The editor half registers:
 
 - the `myco.tilemaps.paint` viewport tool: `brushTool` non-null ⇔ the tool is active (picking a brush activates it; any other activation clears the brush); presses paint, hover draws the grid and footprint, B/U/G/I/Shift+E/X/Y/Z pick and flip as today, crosshair cursor while active;
-- the Tile Palette panel (id `tilepalette` kept, so saved layouts keep the tab; `beside: "assets"`), removed from `layout/model.ts`'s built-in panels and `ui/panels.tsx`;
+- the Tile Palette panel (id `tilepalette` kept, so saved layouts keep the tab; `beside: "code"`, so the default tabs stay Assets, Code, Tile Palette), removed from `layout/model.ts`'s built-in panels and `ui/panels.tsx`;
 - the Tilemap Inspector section (`registerInspectorSection("engine.Tilemap", …)`), removed from `inspectorSections.builtin.ts`.
 
 `tilesetAssets.ts` stays in core: the Assets panel's Create Tileset from Slices menu entry calls it and there is no asset-menu contribution point yet. `tests/e2e/tilemap.spec.ts` must pass unchanged except where it relies on the transform gizmo showing while painting.

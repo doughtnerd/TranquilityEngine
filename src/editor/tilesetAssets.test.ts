@@ -3,7 +3,7 @@ import { tilemapsEditorPlugin } from "../plugins/tilemaps/editor";
 import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
 import { defaultImportSettings, formatImportSettings, sidecarPath } from "../engine/scene/importSettings";
 import { assetKind } from "./assetBrowser";
-import { blockStamp } from "./tilemap/palette";
+import { blockStamp } from "../plugins/tilemaps/editor/palette";
 import { joinPath, openFolderProject } from "./projects";
 import { formatTileset, readTileset, splitSprite, tilesetFromSlices, tilesForSlices } from "./tilesetAssets";
 import { MemoryFileSystem, ROOT } from "./testing";

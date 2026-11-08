@@ -1,11 +1,11 @@
 // A tile drawn from its sprite slice (ADR 0103): a CSS background of the image, moved and scaled to show the slice's
 // rect, with pixels left sharp. Shared by the Tileset inspector and the Tile Palette.
 import { useEffect, useState } from "preact/hooks";
-import type { TileDef } from "../../plugins/tilemaps/runtime/tileset";
-import { findSlice } from "../../engine/scene/importSettings";
-import { readImportSettings } from "../assetImport";
-import { splitSprite } from "../tilesetAssets";
-import type { EditorProject } from "../projects";
+import type { TileDef } from "../runtime/tileset";
+import { findSlice } from "../../../engine/scene/importSettings";
+import { readImportSettings } from "../../../editor/assetImport";
+import { splitSprite } from "../../../editor/tilesetAssets";
+import type { EditorProject } from "../../../editor/projects";
 import "./tileThumb.css";
 
 const sizes = new Map<string, [number, number]>();

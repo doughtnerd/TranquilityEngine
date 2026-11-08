@@ -11,7 +11,7 @@ import { openAssetDocument } from "../../../editor/assetDocuments";
 import { readImportSettings } from "../../../editor/assetImport";
 import { currentProject, docVersion, status } from "../../../editor/state";
 import { tilesForSlices } from "../../../editor/tilesetAssets";
-import { TileThumb } from "../../../editor/ui/TileThumb";
+import { TileThumb } from "./TileThumb";
 import "../../../editor/ui/assetInspector.css";
 import "./tilesetInspector.css";
 
