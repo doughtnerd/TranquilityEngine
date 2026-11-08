@@ -11,11 +11,46 @@
 // to) but draws as a strip one header thick, its tabs along it. Tabs that don't fit a header go
 // behind an overflow button (`fitTabs`).
 
-export type PanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "shadergraph" | "particlegraph" | "tilepalette" | "sky";
+import { panels as panelRegistry } from "../sdk/contributions";
+
+export type BuiltinPanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "shadergraph" | "particlegraph" | "tilepalette" | "sky";
+/** A built-in panel's id, or the id of a panel a plugin registered (ADR 0133). */
+export type PanelId = BuiltinPanelId | (string & {});
 export type Side = "left" | "right" | "bottom";
 
-export const PANELS: readonly PanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "shadergraph", "particlegraph", "tilepalette", "sky"];
-export const PANEL_TITLES: Record<PanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", shadergraph: "Shader Graph", particlegraph: "Particle Graph", tilepalette: "Tile Palette", sky: "Sky" };
+/** The built-in panels (registered ones: `allPanels()`). */
+export const PANELS: readonly BuiltinPanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "shadergraph", "particlegraph", "tilepalette", "sky"];
+export const PANEL_TITLES: Record<BuiltinPanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", shadergraph: "Shader Graph", particlegraph: "Particle Graph", tilepalette: "Tile Palette", sky: "Sky" };
+
+/** Every panel: the built-in ones, then those plugins registered. Reads the registry's version, so a component calling it re-renders on changes. */
+export function allPanels(): PanelId[] {
+  void panelRegistry.version.value;
+  return [...PANELS, ...panelRegistry.list().map((p) => p.id).filter((id) => !(PANELS as readonly string[]).includes(id))];
+}
+
+/** True for a built-in or currently registered panel. */
+export function isKnownPanel(id: PanelId): boolean {
+  void panelRegistry.version.value;
+  return (PANELS as readonly string[]).includes(id) || panelRegistry.get(id) !== undefined;
+}
+
+/** A panel's title (the id itself if it's unknown). */
+export function panelTitle(id: PanelId): string {
+  void panelRegistry.version.value;
+  return (PANEL_TITLES as Record<string, string>)[id] ?? panelRegistry.get(id)?.title ?? id;
+}
+
+/** The panel whose group `id` joins when first shown, if it names one. */
+export function panelBeside(id: PanelId): PanelId | undefined {
+  void panelRegistry.version.value;
+  return (BESIDE as Record<string, PanelId | undefined>)[id] ?? panelRegistry.get(id)?.beside;
+}
+
+/** True for a panel kept out of the default layout (built-in or registered with `onDemand`). */
+export function isOnDemand(id: PanelId): boolean {
+  void panelRegistry.version.value;
+  return (ON_DEMAND_PANELS as readonly string[]).includes(id) || !!panelRegistry.get(id)?.onDemand;
+}
 
 export interface TabGroup {
   id: string;
@@ -73,14 +108,14 @@ const newId = (prefix: string) => `${prefix}${Date.now().toString(36)}-${nextId+
  * double-clicking a sky asset), so the editor starts without them; once opened they stay in the
  * layout like any other. Saved layouts without them don't get them added back.
  */
-export const ON_DEMAND_PANELS: readonly PanelId[] = ["sky"];
+export const ON_DEMAND_PANELS: readonly BuiltinPanelId[] = ["sky"];
 
 /** Where a panel missing from a layout goes: beside its usual neighbour, else with the Inspector, else the first group. */
-const BESIDE: Partial<Record<PanelId, PanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", shadergraph: "scene", particlegraph: "shadergraph", tilepalette: "assets", sky: "particlegraph" };
+const BESIDE: Partial<Record<BuiltinPanelId, BuiltinPanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", shadergraph: "scene", particlegraph: "shadergraph", tilepalette: "assets", sky: "particlegraph" };
 function groupFor(layout: Layout, panel: PanelId): TabGroup {
   const groups = layout.docks.flatMap((d) => d.groups);
   const holding = (p: PanelId) => groups.find((g) => g.panels.includes(p));
-  const near = BESIDE[panel];
+  const near = panelBeside(panel);
   return ((near && (holding(near) ?? (near === "particlegraph" ? holding("scene") : undefined))) || holding("inspector")) ?? groups[0]!;
 }
 
@@ -172,7 +207,7 @@ export function movePanel(layout: Layout, panel: PanelId, target: DropTarget): L
 /** Make `panel` the visible tab of its group, expanding its dock if it's collapsed. */
 export function activatePanel(layout: Layout, panel: PanelId): Layout {
   const from = locate(layout, panel);
-  if (!from && ON_DEMAND_PANELS.includes(panel)) {
+  if (!from && isOnDemand(panel)) {
     // First asked for: it joins the group its neighbour is in (the Sky panel beside the graph editors).
     const next = structuredClone(layout);
     const group = groupFor(next, panel);
@@ -244,22 +279,32 @@ export function resizeSplit(layout: Layout, dockId: string, index: number, delta
  */
 export function parseLayout(value: unknown): Layout | null {
   try {
-    const l = value as Layout;
+    const l = structuredClone(value) as Layout;
     if (!l || l.version !== 1 || !Array.isArray(l.docks)) return null;
     const seen: PanelId[] = [];
+    // Panels neither built in nor registered (a plugin since removed) are dropped, with their emptied groups and docks.
+    if (l.docks.every((d) => d && Array.isArray(d.groups) && Array.isArray(d.fractions) && d.groups.length === d.fractions.length)) {
+      l.docks = l.docks
+        .map((d) => {
+          const keep = d.groups.map((g) => (g && Array.isArray(g.panels) ? { ...g, panels: g.panels.filter((p) => isKnownPanel(p)) } : g));
+          const idx = keep.map((g, i) => (g && Array.isArray(g.panels) && g.panels.length === 0 ? -1 : i)).filter((i) => i >= 0);
+          return { ...d, groups: idx.map((i) => keep[i]!), fractions: idx.map((i) => d.fractions[i]!) };
+        })
+        .filter((d) => d.groups.length > 0);
+    }
     for (const d of l.docks) {
       if (!["left", "right", "bottom"].includes(d.side) || typeof d.size !== "number" || !Array.isArray(d.groups) || !Array.isArray(d.fractions)) return null;
       if (d.groups.length !== d.fractions.length || d.groups.length === 0) return null;
       if (d.collapsed !== undefined && typeof d.collapsed !== "boolean") delete (d as { collapsed?: unknown }).collapsed;
       for (const g of d.groups) {
         if (typeof g.id !== "string" || !Array.isArray(g.panels) || g.panels.length === 0) return null;
-        for (const p of g.panels) if (!PANELS.includes(p) || seen.includes(p)) return null;
+        for (const p of g.panels) if (typeof p !== "string" || seen.includes(p)) return null;
         seen.push(...g.panels);
       }
     }
     const result = normalize(structuredClone(l));
     if (!seen.includes("scene")) result.docks.push({ id: newId("d"), side: "left", size: 0, groups: [{ id: newId("g"), panels: ["scene"], active: "scene" }], fractions: [1] });
-    const missing = PANELS.filter((p) => !seen.includes(p) && p !== "scene" && !ON_DEMAND_PANELS.includes(p));
+    const missing = allPanels().filter((p) => !seen.includes(p) && p !== "scene" && !isOnDemand(p));
     for (const p of missing) groupFor(result, p).panels.push(p);
     return result;
   } catch {

@@ -1,7 +1,7 @@
 // The editor's menu bar as data: File, Edit, Create, Window and Help. Pure (no DOM, no signals), so
 // the rules for which items are enabled, and what they say, are unit-tested; MenuBar.tsx reads the
 // live state into a `MenuState`, wires the `MenuActions`, and draws the result.
-import { PANELS, PANEL_TITLES, type PanelId } from "./layout/model";
+import { allPanels, panelTitle, type PanelId } from "./layout/model";
 import { NEW_NODE_KINDS } from "./nodeCreate";
 
 export interface MenuEntry {
@@ -168,7 +168,7 @@ function createMenu(s: MenuState): Menu {
 }
 
 function windowMenu(s: MenuState, a: MenuActions): Menu {
-  const panels: MenuEntry[] = PANELS.map((p) => ({ label: PANEL_TITLES[p], checked: s.visiblePanels.has(p), run: () => a.showPanel(p), title: `Show the ${PANEL_TITLES[p]} panel` }));
+  const panels: MenuEntry[] = allPanels().map((p) => ({ label: panelTitle(p), checked: s.visiblePanels.has(p), run: () => a.showPanel(p), title: `Show the ${panelTitle(p)} panel` }));
   return { id: "window", label: "Window", items: [...panels, SEPARATOR, { label: "Reset Layout", run: a.resetLayout, title: "Put the panels back where they started" }] };
 }
 

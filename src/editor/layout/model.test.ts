@@ -4,12 +4,14 @@ import {
   HEADER_HEIGHT,
   MIN_FILL,
   MIN_FRACTION,
+  PANELS,
   activatePanel,
   canCollapse,
   computeGeometry,
   fitTabs,
   defaultLayout,
   hitTest,
+  allPanels,
   movePanel,
   parseLayout,
   resizeDock,
@@ -19,6 +21,7 @@ import {
   type Layout,
   type PanelId,
 } from "./model";
+import { panels, type PanelContribution } from "../sdk/contributions";
 
 const bounds = { x: 0, y: 0, w: 1200, h: 800 };
 const sides = (l: Layout) => l.docks.map((d) => `${d.side}:${d.groups.map((g) => g.panels.join("+")).join("|")}`);
@@ -349,5 +352,74 @@ describe("on-demand panels", () => {
     expect(saved!.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))).not.toContain("sky");
     const opened = parseLayout(JSON.parse(JSON.stringify(activatePanel(defaultLayout(), "sky"))));
     expect(opened!.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))).toContain("sky");
+  });
+});
+
+describe("registered panels (ADR 0133)", () => {
+  const view = async () => () => null;
+  const layoutPanels = (l: Layout) => l.docks.flatMap((d) => d.groups.flatMap((g) => g.panels));
+  const withPanel = async (c: PanelContribution, body: () => void | Promise<void>) => {
+    const off = panels.register(c);
+    try {
+      await body();
+    } finally {
+      off();
+    }
+  };
+
+  it("lists a registered panel in allPanels with its title", async () => {
+    const { allPanels, panelTitle, isKnownPanel } = await import("./model");
+    expect(isKnownPanel("plug")).toBe(false);
+    await withPanel({ id: "plug", title: "Plug", view }, () => {
+      expect(allPanels()).toContain("plug");
+      expect(allPanels().slice(0, PANELS.length)).toEqual([...PANELS]);
+      expect(panelTitle("plug")).toBe("Plug");
+      expect(isKnownPanel("plug")).toBe(true);
+    });
+    expect(allPanels()).not.toContain("plug");
+  });
+
+  it("joins its beside group when first shown, and stays out of the default layout when onDemand", async () => {
+    const { activatePanel, isOnDemand } = await import("./model");
+    await withPanel({ id: "plug", title: "Plug", view, beside: "history", onDemand: true }, () => {
+      expect(isOnDemand("plug")).toBe(true);
+      const l = defaultLayout();
+      expect(layoutPanels(l)).not.toContain("plug");
+      const shown = activatePanel(l, "plug");
+      const group = shown.docks.flatMap((d) => d.groups).find((g) => g.panels.includes("plug"))!;
+      expect(group.panels).toContain("history");
+      expect(group.active).toBe("plug");
+    });
+  });
+
+  it("adds a non-onDemand registered panel missing from a saved layout, beside its group", async () => {
+    const { parseLayout } = await import("./model");
+    await withPanel({ id: "plug", title: "Plug", view, beside: "assets" }, () => {
+      const saved = parseLayout(JSON.parse(JSON.stringify(defaultLayout())))!;
+      const group = saved.docks.flatMap((d) => d.groups).find((g) => g.panels.includes("plug"))!;
+      expect(group.panels).toContain("assets");
+    });
+  });
+
+  it("drops an unknown saved panel (and its emptied group) but keeps the rest", async () => {
+    const { parseLayout } = await import("./model");
+    const raw = JSON.parse(JSON.stringify(defaultLayout())) as Layout;
+    raw.docks[0]!.groups[0]!.panels.push("gone");
+    raw.docks[1]!.groups.push({ id: "x", panels: ["gone2"], active: "gone2" });
+    raw.docks[1]!.fractions = [0.5, 0.5];
+    const parsed = parseLayout(raw)!;
+    expect(layoutPanels(parsed)).not.toContain("gone");
+    expect(layoutPanels(parsed)).not.toContain("gone2");
+    expect(layoutPanels(parsed)).toContain("scene");
+    expect(parsed.docks[1]!.groups).toHaveLength(1);
+    expect(parsed.docks[1]!.fractions).toEqual([1]);
+  });
+
+  it("keeps a saved registered panel while its plugin is registered", async () => {
+    const { parseLayout, activatePanel } = await import("./model");
+    await withPanel({ id: "plug", title: "Plug", view, onDemand: true }, () => {
+      const raw = JSON.parse(JSON.stringify(activatePanel(defaultLayout(), "plug")));
+      expect(layoutPanels(parseLayout(raw)!)).toContain("plug");
+    });
   });
 });

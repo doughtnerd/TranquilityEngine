@@ -7,6 +7,7 @@
 // needs (as the desktop Projects window does), while the editor's layout, the session and the engine
 // load behind it; its buttons wait for the session if they are clicked first. Then the panels the
 // layout shows load (ADR 0083), and once idle the rest of the panels and the engine's chunks.
+import "../plugins/editorBoot"; // first: registers plugin contributions before the layout store loads (ADR 0133)
 import { render } from "preact";
 import { isTauri } from "../engine/platform/FileSystem";
 import { installCloseGuard } from "./dialogs";

@@ -3,7 +3,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import {
   HEADER_HEIGHT,
-  PANEL_TITLES,
+  panelTitle,
   activatePanel,
   canCollapse,
   computeGeometry,
@@ -77,7 +77,7 @@ export function DockLayout(props: { panels: Record<PanelId, () => ComponentChild
       {dragging?.hit && <div class="drop-preview" style={box(dragging.hit.preview)} />}
       {dragging && (
         <div class="drag-ghost" style={{ left: `${dragging.x + 12}px`, top: `${dragging.y + 12}px` }}>
-          {PANEL_TITLES[dragging.panel]}
+          {panelTitle(dragging.panel)}
         </div>
       )}
     </div>
@@ -88,7 +88,7 @@ export function DockLayout(props: { panels: Record<PanelId, () => ComponentChild
 const CHEVRON: Record<Side, [collapse: string, expand: string]> = { bottom: ["▾", "▴"], left: ["◂", "▸"], right: ["▸", "◂"] };
 
 /** A dock's name for labels: its first group's visible panel ("Assets dock"). */
-const dockName = (d: DockRect) => `${PANEL_TITLES[d.dock.groups[0].active]} dock`;
+const dockName = (d: DockRect) => `${panelTitle(d.dock.groups[0].active)} dock`;
 
 function CollapseButton(props: { dock: DockRect }) {
   const { dock } = props;
@@ -237,10 +237,10 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
             aria-selected={selected.includes(p)}
             class={`dock-tab${selected.includes(p) ? " active" : ""}${solo ? " solo" : ""}`}
             style={length ? (vertical ? { height: length } : { width: length }) : undefined}
-            title={`${PANEL_TITLES[p]}: drag to move`}
+            title={`${panelTitle(p)}: drag to move`}
             onPointerDown={(e) => startDrag(e, p, root)}
           >
-            <span class="dock-tab-label">{PANEL_TITLES[p]}</span>
+            <span class="dock-tab-label">{panelTitle(p)}</span>
           </div>
         );
       })}
@@ -251,7 +251,7 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
           aria-label="More tabs"
           aria-haspopup="menu"
           aria-expanded={!!menu}
-          title={hidden.map((p) => PANEL_TITLES[p]).join(", ")}
+          title={hidden.map((p) => panelTitle(p)).join(", ")}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -265,7 +265,7 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
       <div ref={measure} class={`dock-tabs-measure${vertical ? " vertical" : ""}`} aria-hidden="true">
         {panels.map((p) => (
           <div key={p} class="dock-tab-measure">
-            <span class="dock-tab-label">{PANEL_TITLES[p]}</span>
+            <span class="dock-tab-label">{panelTitle(p)}</span>
           </div>
         ))}
         <span class="dock-more">» 9</span>
@@ -303,8 +303,8 @@ function OverflowMenu(props: { panels: PanelId[]; at: { x: number; y: number }; 
   return (
     <div ref={ref} class="context-menu dock-more-menu" role="menu" aria-label="Hidden tabs" style={pos ? { left: `${pos.left}px`, top: `${pos.top}px` } : { left: "-9999px", top: "0px" }}>
       {panels.map((p) => (
-        <button key={p} role="menuitem" title={`Show ${PANEL_TITLES[p]} (drag to move it)`} onPointerDown={(e) => startDrag(e, p, root, onClose)}>
-          {PANEL_TITLES[p]}
+        <button key={p} role="menuitem" title={`Show ${panelTitle(p)} (drag to move it)`} onPointerDown={(e) => startDrag(e, p, root, onClose)}>
+          {panelTitle(p)}
         </button>
       ))}
     </div>
