@@ -602,6 +602,66 @@ export function unregisterScripts(registrations: ScriptRegistrations): void {
   for (const id of registrations.inputs) _undefineInput(id);
 }
 
+/** The component classes and data component definitions scripts had registered, by id: taken before a reload during play (ADR 0125). */
+export interface ScriptTypes {
+  readonly components: ReadonlyMap<string, ComponentClass>;
+  readonly data: ReadonlyMap<string, DataComponentDef>;
+}
+
+/** What `registrations` (a script load's) map to now, to swap from after the next load. */
+export function captureScriptTypes(registrations: ScriptRegistrations): ScriptTypes {
+  const components = new Map<string, ComponentClass>();
+  for (const id of registrations.components) {
+    const cls = getComponentClass(id);
+    if (cls) components.set(id, cls);
+  }
+  const data = new Map<string, DataComponentDef>();
+  for (const id of registrations.data) {
+    const def = getDataComponentDef(id);
+    if (def) data.set(id, def);
+  }
+  return { components, data };
+}
+
+/** What `swapScriptTypes` did. */
+export interface ScriptSwap {
+  /** Components replaced by instances of their reloaded class, across every World. */
+  readonly swapped: number;
+  /** Component ids still running their old code: their type is gone from the scripts (deleted, renamed, failed to load). */
+  readonly kept: readonly string[];
+}
+
+/**
+ * Swap a running Engine's Worlds to the script types registered since `before` was captured (ADR
+ * 0125): each component of an old class becomes an instance of the class now registered under its
+ * id, keeping its own properties; data component stores move to the new definitions. Systems
+ * follow the catalog by themselves. Components whose id has no class now keep their old code.
+ */
+export function swapScriptTypes(engine: Engine, before: ScriptTypes): ScriptSwap {
+  const idOf = new Map<Function, string>();
+  for (const [id, cls] of before.components) idOf.set(cls, id);
+  const kept = new Set<string>();
+  const classFor = (old: Function) => {
+    const id = idOf.get(old);
+    if (id === undefined) return undefined;
+    const next = getComponentClass(id);
+    if (!next) kept.add(id);
+    return next && next !== old ? (next as unknown as new () => Component) : undefined;
+  };
+  const oldIds = new Map<DataComponentDef, string>();
+  for (const [id, def] of before.data) oldIds.set(def, id);
+  const dataFor = (old: DataComponentDef) => {
+    const id = oldIds.get(old);
+    return id === undefined ? undefined : getDataComponentDef(id);
+  };
+  let swapped = 0;
+  for (const handle of engine.worlds()) {
+    const world = engineWorld(engine, handle.name);
+    if (world) swapped += World._runIn(world, () => world._swapScriptTypes(classFor, dataFor));
+  }
+  return { swapped, kept: [...kept] };
+}
+
 // --- Network tools (ADR 0033 §9, T15) ------------------------------------------------------------
 
 /** Bytes and messages one way on a connection, copied: totals and per message kind (`net.snapshot`, `net.input:…`, `net.rpc`, `net.ping`…). */

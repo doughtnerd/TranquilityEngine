@@ -374,6 +374,8 @@ body:has(.asset-drag-ghost.invalid), body:has(.asset-drag-ghost.invalid) * { cur
 .dialog h2 { margin: 0 0 8px; font-size: calc(15px * var(--ui-scale)); }
 .dialog p { margin: 0 0 8px; color: var(--muted); }
 .dialog-items { margin: 0 0 10px; padding-left: 18px; max-height: 160px; overflow: auto; font-size: calc(12px * var(--ui-scale)); }
+.dialog-item-link { all: unset; cursor: pointer; color: var(--accent); white-space: pre-wrap; word-break: break-word; font-family: var(--font-code); }
+.dialog-item-link:hover, .dialog-item-link:focus-visible { text-decoration: underline; }
 .dialog-option { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; color: var(--muted); }
 .dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
 button.danger { background: var(--danger-strong); border-color: var(--danger-strong); color: var(--danger-text); }

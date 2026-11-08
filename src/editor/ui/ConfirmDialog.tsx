@@ -13,6 +13,8 @@ export interface ConfirmOptions {
   danger?: boolean;
   /** A checkbox under the list, e.g. "Don't ask again"; its state comes back as `option`. */
   optionLabel?: string;
+  /** Makes the items links: clicking one cancels the dialog (keeping the checkbox's state) and calls this with its index. */
+  onItem?: (index: number) => void;
 }
 
 export interface ConfirmResult {
@@ -63,8 +65,23 @@ export function ConfirmDialog() {
         <p>{p.message}</p>
         {p.items && p.items.length > 0 && (
           <ul class="dialog-items">
-            {p.items.map((item) => (
-              <li key={item}>{item}</li>
+            {p.items.map((item, i) => (
+              <li key={item}>
+                {p.onItem ? (
+                  <button
+                    class="dialog-item-link"
+                    onClick={() => {
+                      pending.value = null;
+                      p.resolve({ ok: false, option });
+                      p.onItem!(i);
+                    }}
+                  >
+                    {item}
+                  </button>
+                ) : (
+                  item
+                )}
+              </li>
             ))}
           </ul>
         )}

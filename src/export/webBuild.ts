@@ -10,7 +10,8 @@
 // exporting their contents.
 import type { ProjectSettingsInput } from "../engine";
 import { pickMainScene } from "../editor/projects";
-import { compileScript, ENGINE_MODULE, LEGACY_ENGINE_MODULE, isScriptPath, loadOrder, resolveScript, rewriteImports, type ScriptProblem } from "../editor/scriptLoader";
+import { compileScript, ENGINE_MODULE, LEGACY_ENGINE_MODULE, isScriptPath, loadOrder, packageSpecifiers, resolveScript, rewriteImports, type ScriptProblem } from "../editor/scriptLoader";
+import { bundlePackages, isPackageSpecifier, type PackageSource } from "../editor/packages";
 import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
 import { ENGINE_FILE, MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, relativeSpecifier, type GameManifest } from "./format";
 
@@ -26,6 +27,8 @@ export interface BuildSource {
   readonly scripts: ReadonlyMap<string, string>;
   /** The JSON files' text by path (scripts can import them). */
   readonly json: ReadonlyMap<string, string>;
+  /** The project's node_modules, for npm package imports (ADR 0125); without it, scripts importing packages can't be built. */
+  readonly packages?: PackageSource;
 }
 
 export interface BuildOptions {
@@ -71,8 +74,14 @@ export function isExportedFile(path: string): boolean {
 
 const isEngineModule = (specifier: string) => specifier === ENGINE_MODULE || specifier === LEGACY_ENGINE_MODULE;
 
-/** Compile every script and point its imports at build files. Throws an `ExportError` listing every script that fails. */
-export async function compileForBuild(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string>): Promise<{ order: string[]; files: Map<string, string> }> {
+/** Where the bundled npm packages go in a build (ADR 0125): `code/deps/<chunk>.js`. */
+export const DEPS_DIR = "code/deps";
+
+/**
+ * Compile every script and point its imports at build files; npm packages they import are bundled
+ * into `code/deps/` (ADR 0125). Throws an `ExportError` listing every script that fails.
+ */
+export async function compileForBuild(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string>, packages?: PackageSource): Promise<{ order: string[]; files: Map<string, string> }> {
   const problems: ScriptProblem[] = [];
   const compiled = new Map<string, Exclude<Awaited<ReturnType<typeof compileScript>>, ScriptProblem>>();
   for (const [path, source] of [...scripts].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
@@ -89,14 +98,27 @@ export async function compileForBuild(scripts: ReadonlyMap<string, string>, json
       // reported against the scripts that import it
     }
   }
-  const plan = loadOrder(compiled, new Map([...json.keys()].map((p) => [p, parsed.has(p)])));
+  const specifiers = packageSpecifiers(compiled.values());
+  const files = new Map<string, string>();
+  const entryFiles = new Map<string, string>();
+  const packageProblems = new Map<string, string | undefined>();
+  if (specifiers.length > 0 && !packages) for (const s of specifiers) packageProblems.set(s, "npm packages need the project folder's node_modules");
+  else if (specifiers.length > 0 && packages) {
+    const bundle = await bundlePackages(specifiers, packages);
+    for (const [name, chunk] of bundle.chunks) {
+      const out = `${DEPS_DIR}/${name}`;
+      files.set(out, rewriteImports(chunk.code, chunk.imports, (spec) => (isEngineModule(spec) ? relativeSpecifier(out, ENGINE_FILE) : spec)));
+    }
+    for (const [spec, entry] of bundle.entries) entryFiles.set(spec, `${DEPS_DIR}/${entry}`);
+    for (const s of specifiers) packageProblems.set(s, entryFiles.has(s) ? undefined : (bundle.problems.get(s) ?? "it wasn't bundled"));
+  }
+  const plan = loadOrder(compiled, new Map([...json.keys()].map((p) => [p, parsed.has(p)])), packageProblems);
   problems.push(...plan.problems);
   if (problems.length > 0) {
     const list = problems.map((p) => `  - ${p.path}: ${p.message}`).join("\n");
     throw new ExportError(`Some scripts can't be built:\n${list}`, problems);
   }
   const known = new Set([...compiled.keys(), ...json.keys()]);
-  const files = new Map<string, string>();
   for (const path of plan.order) {
     const s = compiled.get(path)!;
     const out = modulePath(path);
@@ -104,6 +126,7 @@ export async function compileForBuild(scripts: ReadonlyMap<string, string>, json
       out,
       rewriteImports(s.code, s.imports, (spec) => {
         if (isEngineModule(spec)) return relativeSpecifier(out, ENGINE_FILE);
+        if (isPackageSpecifier(spec)) return relativeSpecifier(out, entryFiles.get(spec)!);
         const target = resolveScript(path, spec, known)!;
         if (parsed.has(target)) files.set(modulePath(target), `export default ${JSON.stringify(parsed.get(target))};\n`);
         return relativeSpecifier(out, modulePath(target));
@@ -124,7 +147,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   const mainScene = options.mainScene ?? pickMainScene(copies);
   if (options.mainScene !== undefined && !copies.includes(options.mainScene)) throw new ExportError(`There's no scene "${options.mainScene}" in the project.`);
 
-  const { order, files } = await compileForBuild(source.scripts, source.json);
+  const { order, files } = await compileForBuild(source.scripts, source.json, source.packages);
   const name = typeof source.settings.name === "string" && source.settings.name ? source.settings.name : source.name;
   const manifest: GameManifest = {
     format: MANIFEST_FORMAT,

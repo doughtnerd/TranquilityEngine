@@ -7,6 +7,7 @@ import { ENGINE_FILE, MANIFEST_FILE, PLAYER_FILE_LIST, PLAYER_PAGE } from "../ex
 import { processImages } from "../export/images";
 import { browserTranscoder } from "../export/imagesBrowser";
 import { bakeModelFile } from "../engine/scene/models";
+import { packageSourceFor } from "./projectPackages";
 import { ExportError, copiedPath, isOutputInsideProject, planWebBuild, withBakedModels, type WebBuildPlan } from "../export/webBuild";
 import { joinPath, jsonFiles, type EditorProject } from "./projects";
 
@@ -16,7 +17,7 @@ export const desktopExportCommand = (project: EditorProject) => `npm run export 
 /** Plan a web build of the open project (compiles its scripts). Throws an `ExportError` if it can't be built. */
 export async function planProjectBuild(project: EditorProject, bake = true): Promise<WebBuildPlan> {
   const files = [...new Set([...project.files, ...project.scripts.keys()])];
-  const plan = await planWebBuild({ name: project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name, settings: project.settings, files, scripts: project.scripts, json: jsonFiles(project) });
+  const plan = await planWebBuild({ name: project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name, settings: project.settings, files, scripts: project.scripts, json: jsonFiles(project), packages: packageSourceFor(project, "production") });
   // Models baked for the build (ADR 0090), through the project's assets the editor already serves.
   if (!bake) return plan;
   const log = (line: string) => console.warn(`[myco] ${line}`);

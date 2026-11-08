@@ -14,6 +14,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AssetSource, ProjectSettingsInput } from "../engine";
+import { nodePackageSource } from "./packages";
 import { isScriptPath, loadScripts, loadedScriptModule, type ScriptProblem } from "../editor/scriptLoader";
 
 /** A bad project folder, bootstrap or listen address: the message says what's wrong, for the command line. */
@@ -113,7 +114,7 @@ async function listFiles(root: string, dir = root): Promise<string[]> {
  */
 export async function loadProjectScripts(project: ServerProject): Promise<readonly string[]> {
   if (project.scripts.size === 0) return [];
-  const result = await loadScripts(project.scripts, project.json);
+  const result = await loadScripts(project.scripts, project.json, nodePackageSource(project.root, "production"));
   if (result.problems.length > 0) throw new ServerError(`Some scripts in "${project.root}" didn't load:\n${describeProblems(result.problems)}`);
   return result.loaded;
 }

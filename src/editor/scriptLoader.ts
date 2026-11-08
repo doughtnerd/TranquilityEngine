@@ -7,6 +7,8 @@
 import * as engine from "../engine";
 import { setScriptAssetRefs, unregisterScripts, withScriptRegistrations, type ScriptRegistrations } from "../engine/editor";
 import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
+import { importSites, rewriteImports, typescript, type ImportSite } from "./moduleImports";
+import { bundlePackages, chunkOrder, isPackageSpecifier, packagesKey, type PackageBundle, type PackageSource } from "./packages";
 import { isScriptPath } from "./projectPaths";
 
 /** The bare specifier scripts import the engine by. */
@@ -15,32 +17,18 @@ export const ENGINE_MODULE = "myco";
 export const LEGACY_ENGINE_MODULE = "tranquility";
 const isEngineModule = (specifier: string) => specifier === ENGINE_MODULE || specifier === LEGACY_ENGINE_MODULE;
 
-export { isScriptPath };
+export { isScriptPath, rewriteImports };
+export type { PackageSource };
 
 export interface ScriptProblem {
   readonly path: string;
   readonly message: string;
 }
 
-/** An import or export-from in compiled code: its specifier and where the specifier's text is. */
-interface ImportSite {
-  readonly specifier: string;
-  readonly start: number;
-  readonly end: number;
-}
-
 interface Compiled {
   readonly path: string;
   readonly code: string;
   readonly imports: readonly ImportSite[];
-}
-
-type TS = typeof import("typescript");
-let tsModule: Promise<TS> | null = null;
-
-/** The TypeScript compiler, loaded on first use (it's large, and only scripts need it). */
-function typescript(): Promise<TS> {
-  return (tsModule ??= import("typescript").then((m) => ((m as { default?: TS }).default ?? m) as TS));
 }
 
 /**
@@ -70,14 +58,7 @@ export async function compileScript(path: string, source: string, options: { sou
     const text = ts.flattenDiagnosticMessageText(error.messageText, "\n");
     return { path, message: where ? `line ${where.line + 1}: ${text}` : text };
   }
-  // Imports, export-froms and dynamic imports with a literal specifier, with their positions.
-  const info = ts.preProcessFile(out.outputText, true, true);
-  // Positions start at the literal's quote; find the specifier's own text from there.
-  const imports = info.importedFiles.map((f) => {
-    const start = out.outputText.indexOf(f.fileName, f.pos);
-    return { specifier: f.fileName, start, end: start + f.fileName.length };
-  });
-  return { path, code: out.outputText, imports };
+  return { path, code: out.outputText, imports: importSites(ts, out.outputText) };
 }
 
 /**
@@ -98,13 +79,16 @@ export function resolveScript(from: string, specifier: string, paths: ReadonlySe
 
 /**
  * Scripts in load order: each after the scripts it imports. Scripts in an import cycle, or that
- * import a missing script, invalid JSON or an unsupported package, are problems (and so is
+ * import a missing script, invalid JSON or a package that isn't available, are problems (and so is
  * anything that imports them); the rest still load. `json` maps the project's JSON files to
- * whether they parse; importing one isn't a dependency between scripts.
+ * whether they parse; importing one isn't a dependency between scripts. `packages` maps the
+ * package specifiers scripts import to why each can't load (undefined: it can), ADR 0125; without
+ * it, packages aren't supported.
  */
 export function loadOrder(
   scripts: ReadonlyMap<string, Compiled>,
   json: ReadonlyMap<string, boolean> = new Map(),
+  packages?: ReadonlyMap<string, string | undefined>,
 ): { order: string[]; problems: ScriptProblem[]; deps: Map<string, string[]> } {
   const paths = new Set([...scripts.keys(), ...json.keys()]);
   const deps = new Map<string, string[]>();
@@ -113,12 +97,17 @@ export function loadOrder(
     const list: string[] = [];
     for (const imp of s.imports) {
       if (isEngineModule(imp.specifier)) continue;
+      if (packages && isPackageSpecifier(imp.specifier)) {
+        const why = packages.has(imp.specifier) ? packages.get(imp.specifier) : "it wasn't bundled";
+        if (why !== undefined) problems.set(path, `can't import "${imp.specifier}": ${why}`);
+        continue;
+      }
       const target = resolveScript(path, imp.specifier, paths);
       if (target && json.has(target)) {
         if (!json.get(target)) problems.set(path, `can't import ${target}: it isn't valid JSON`);
       } else if (target) list.push(target);
       else if (imp.specifier.startsWith(".")) problems.set(path, `can't find "${imp.specifier}"`);
-      else problems.set(path, `can't import "${imp.specifier}": scripts can import "${ENGINE_MODULE}", other scripts and the project's JSON files only`);
+      else problems.set(path, `can't import "${imp.specifier}": scripts can import "${ENGINE_MODULE}", other scripts, the project's JSON files and npm packages installed in the project folder`);
     }
     deps.set(path, [...new Set(list)]);
   }
@@ -145,17 +134,6 @@ export function loadOrder(
   };
   for (const path of [...scripts.keys()].sort()) visit(path, []);
   return { order, problems: [...problems].map(([path, message]) => ({ path, message })), deps };
-}
-
-/** `code` with each import specifier replaced by what `urlFor` gives it (positions from `compileScript`). */
-export function rewriteImports(code: string, imports: readonly ImportSite[], urlFor: (specifier: string) => string): string {
-  let out = "";
-  let at = 0;
-  for (const imp of [...imports].sort((a, b) => a.start - b.start)) {
-    out += code.slice(at, imp.start) + urlFor(imp.specifier);
-    at = imp.end;
-  }
-  return out + code.slice(at);
 }
 
 const dataUrl = (code: string) => `data:text/javascript;charset=utf-8,${encodeURIComponent(code)}`;
@@ -194,7 +172,7 @@ export interface LoadResult {
  * build or an earlier load). A script that fails to compile or throws while loading is reported,
  * as is anything importing it; the others still load.
  */
-export async function loadScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map()): Promise<LoadResult> {
+export async function loadScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map(), packages?: PackageSource): Promise<LoadResult> {
   // The prefabs and materials the scripts name, warmed up with every scene load (ADR 0080).
   setScriptAssetRefs(projectScriptAssetRefs(scripts.values(), (p) => engine.Assets.has(p) || engine.Assets.has(`asset:${p}`)));
   const problems: ScriptProblem[] = [];
@@ -213,7 +191,9 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>, json: Re
       // reported against the scripts that import it
     }
   }
-  const plan = loadOrder(compiled, new Map([...json.keys()].map((p) => [p, parsed.has(p)])));
+  lastSpecifiers = packageSpecifiers(compiled.values());
+  const pkg = await loadPackages(lastSpecifiers, packages);
+  const plan = loadOrder(compiled, new Map([...json.keys()].map((p) => [p, parsed.has(p)])), pkg.problems);
   problems.push(...plan.problems);
   const known = new Set([...compiled.keys(), ...json.keys()]);
   /** A module per imported JSON file, made when first needed. */
@@ -238,6 +218,7 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>, json: Re
       const s = compiled.get(path)!;
       const code = rewriteImports(s.code, s.imports, (spec) => {
         if (isEngineModule(spec)) return shim;
+        if (isPackageSpecifier(spec)) return pkg.urls.get(spec)!;
         const target = resolveScript(path, spec, known)!;
         return parsed.has(target) ? jsonUrl(target) : urls.get(target)!;
       });
@@ -259,6 +240,59 @@ export async function loadScripts(scripts: ReadonlyMap<string, string>, json: Re
   return { loaded, problems, registered };
 }
 
+/** The package specifiers the last load's scripts import. */
+let lastSpecifiers: string[] = [];
+
+/** The npm package specifiers the loaded scripts import (ADR 0125), for the TypeScript service's package types. */
+export const loadedPackageSpecifiers = (): readonly string[] => lastSpecifiers;
+
+/** The package specifiers `scripts` import (ADR 0125). */
+export function packageSpecifiers(scripts: Iterable<Compiled>): string[] {
+  const out = new Set<string>();
+  for (const s of scripts) for (const imp of s.imports) if (isPackageSpecifier(imp.specifier)) out.add(imp.specifier);
+  return [...out].sort();
+}
+
+/** The loaded package bundle: its key, and each specifier's entry module URL. Kept across loads until the imports or the install change. */
+let packageCache: { key: string; urls: Map<string, string>; problems: Map<string, string>; chunkUrls: string[] } | null = null;
+
+/**
+ * Bundle and load the packages `specifiers` name (ADR 0125), or reuse the last load's when the
+ * specifiers and the installed packages are the same. Returns each specifier's module URL, and why
+ * the others can't load.
+ */
+async function loadPackages(specifiers: readonly string[], source: PackageSource | undefined): Promise<{ urls: Map<string, string>; problems: Map<string, string | undefined> }> {
+  const problems = new Map<string, string | undefined>();
+  if (specifiers.length === 0) return { urls: new Map(), problems };
+  if (!source) {
+    for (const s of specifiers) problems.set(s, "npm packages load from a project folder's node_modules, and this project isn't a folder");
+    return { urls: new Map(), problems };
+  }
+  const key = await packagesKey(specifiers, source);
+  if (packageCache?.key !== key) {
+    let bundle: PackageBundle;
+    try {
+      bundle = await bundlePackages(specifiers, source);
+    } catch (err) {
+      for (const s of specifiers) problems.set(s, `packages couldn't be bundled: ${err instanceof Error ? err.message : String(err)}`);
+      return { urls: new Map(), problems };
+    }
+    const shim = engineShimUrl();
+    const chunkUrls = new Map<string, string>();
+    for (const name of chunkOrder(bundle)) {
+      const chunk = bundle.chunks.get(name)!;
+      const code = rewriteImports(chunk.code, chunk.imports, (spec) => (isEngineModule(spec) ? shim : spec.startsWith("./") ? (chunkUrls.get(spec.slice(2)) ?? spec) : spec));
+      chunkUrls.set(name, moduleUrl(code));
+    }
+    for (const url of packageCache?.chunkUrls ?? []) if (url.startsWith("blob:")) URL.revokeObjectURL(url);
+    const urls = new Map<string, string>();
+    for (const [spec, entry] of bundle.entries) if (chunkUrls.has(entry)) urls.set(spec, chunkUrls.get(entry)!);
+    packageCache = { key, urls, problems: new Map(bundle.problems), chunkUrls: [...chunkUrls.values()] };
+  }
+  for (const s of specifiers) problems.set(s, packageCache.urls.has(s) ? undefined : (packageCache.problems.get(s) ?? "it wasn't bundled"));
+  return { urls: packageCache.urls, problems };
+}
+
 /** The last load's module URLs, by script path. */
 let loadedModules = new Map<string, string>();
 
@@ -276,18 +310,22 @@ export async function loadedScriptModule(path: string): Promise<Record<string, u
 /** What the current project's scripts registered (the last `replaceScripts`). */
 let current: ScriptRegistrations = { components: [], data: [], systems: [], inputs: [] };
 
+/** What the current project's scripts registered: what a reload during play swaps from (ADR 0125). */
+export const loadedRegistrations = (): ScriptRegistrations => current;
+
 /**
  * Load `scripts` in place of the scripts loaded before (a reload, or another project): their
  * types replace the old ones, and types the old scripts registered that the new ones don't (a
  * deleted script, a renamed id, one that failed to load) are unregistered, so scenes show them as
  * missing. Pass an empty map to unload everything.
  */
-export async function replaceScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map()): Promise<LoadResult> {
+export async function replaceScripts(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string> = new Map(), packages?: PackageSource): Promise<LoadResult> {
   if (scripts.size === 0) {
     loadedModules = new Map();
+    lastSpecifiers = [];
     setScriptAssetRefs([]);
   }
-  const result = scripts.size > 0 ? await loadScripts(scripts, json) : { loaded: [], problems: [], registered: { components: [], data: [], systems: [], inputs: [] } };
+  const result = scripts.size > 0 ? await loadScripts(scripts, json, packages) : { loaded: [], problems: [], registered: { components: [], data: [], systems: [], inputs: [] } };
   const gone = (old: string[], now: string[]) => old.filter((id) => !now.includes(id));
   unregisterScripts({
     components: gone(current.components, result.registered.components),

@@ -65,6 +65,8 @@ const FLAG_PENDING_DESTROY = 4;
 const FLAG_EDIT_MODE = 8;
 
 const FRAME_HOOKS: FrameHook[] = ["fixedUpdate", "update", "lateUpdate"];
+/** A component's engine state, never copied when a reloaded script's component is swapped (ADR 0125). */
+const SWAP_SKIPPED = new Set(["_node", "_enabled", "_active", "_awoken", "_started", "_destroyed", "_seq", "_wait", "_abort"]);
 
 export class World {
   /** The world static facades (Time, Input, GameObject.instantiate…) act on. */
@@ -393,6 +395,125 @@ export class World {
     if (this.suspendDepth > 0) this.deferred.push(c);
     else this._refreshComponent(c);
     return c;
+  }
+
+  /**
+   * @internal Editor (ADR 0125): swap script types reloaded while this World runs. `classFor` gives
+   * the class now registered for an old component class (undefined: keep it); `dataFor` the new
+   * definition for an old data component definition. Each component of a replaced class is replaced
+   * by an instance of the new class that takes its place, with every own property copied (references
+   * to other replaced components re-pointed), not awoken or started again; the old one gets
+   * onDisable first and the new one onEnable. Data stores move to the new definitions, keeping the
+   * fields both have. Returns how many components were swapped.
+   */
+  _swapScriptTypes(classFor: (old: Function) => (new () => Component) | undefined, dataFor: (old: DataComponentDef) => DataComponentDef | undefined): number {
+    // Data components: move each store to its new definition.
+    for (const [def, store] of [...this.dataStores]) {
+      const next = dataFor(def);
+      if (!next || next === def) continue;
+      const moved = new DataStore(next, this.capacity);
+      for (const e of store.dense) {
+        const init: Record<string, number> = {};
+        for (const f of next.fields) if (store.arrays[f]) init[f] = store.arrays[f][e];
+        moved.add(e, init);
+      }
+      this.dataStores.delete(def);
+      this.dataStores.set(next, moved);
+    }
+    this.rowBuffers.clear();
+
+    // Components: make the replacements first, so references between them can be re-pointed.
+    const replaced = new Map<Component, Component>();
+    const classes = new Map<Function, Function>();
+    for (const list of this.componentsOf) {
+      if (!list) continue;
+      for (const c of list) {
+        if (c._destroyed) continue;
+        const next = classFor(c.constructor);
+        if (!next || next === c.constructor) continue;
+        replaced.set(c, new next());
+        classes.set(c.constructor, next);
+      }
+    }
+    if (replaced.size === 0) return 0;
+    const remap = (value: unknown): unknown => {
+      if (value instanceof Component) return replaced.get(value) ?? value;
+      if (Array.isArray(value)) {
+        for (let i = 0; i < value.length; i++) if (value[i] instanceof Component && replaced.has(value[i])) value[i] = replaced.get(value[i]);
+      } else if (value instanceof Map) {
+        for (const [k, v] of value) if (v instanceof Component && replaced.has(v)) value.set(k, replaced.get(v));
+      } else if (value instanceof Set) {
+        for (const v of [...value]) if (v instanceof Component && replaced.has(v)) (value.delete(v), value.add(replaced.get(v)));
+      }
+      return value;
+    };
+    // Static properties (`static instance`) carry over to the new class, re-pointed the same way.
+    for (const [old, next] of classes) {
+      for (const key of Object.keys(old)) {
+        try {
+          (next as unknown as Record<string, unknown>)[key] = remap((old as unknown as Record<string, unknown>)[key]);
+        } catch {
+          // a read-only static: the new class keeps its own
+        }
+      }
+    }
+    for (const [old, next] of replaced) {
+      // The old instance stops as if disabled (its waits and async flows end with it).
+      if (old._active) {
+        old._active = false;
+        if (!this.inEditMode(old._node.entity) || old._activatesInEditMode) old._onDeactivate();
+        if (old instanceof GameBehavior) {
+          if (old.onDisable) this.invoke(old, "onDisable");
+          this.cancelAsync(old);
+        }
+      } else if (old instanceof GameBehavior) this.cancelAsync(old);
+      old._onDetach();
+      for (const key of Object.keys(old)) {
+        if (SWAP_SKIPPED.has(key)) continue;
+        try {
+          (next as unknown as Record<string, unknown>)[key] = remap((old as unknown as Record<string, unknown>)[key]);
+        } catch {
+          // an accessor-only property on the new class: it keeps its own
+        }
+      }
+      next._node = old._node;
+      next._enabled = old._enabled;
+      next._awoken = old._awoken;
+      next._started = old._started;
+      next._seq = old._seq;
+      old._destroyed = true;
+      const e = old._node.entity;
+      const list = this.componentsOf[e];
+      list[list.indexOf(old)] = next;
+      for (let t: Function | null = old.constructor; t && t !== Component && t !== Object; t = Object.getPrototypeOf(t)) {
+        const of = this.byType.get(t);
+        if (of) removeItem(of, old);
+      }
+      for (let t: Function | null = next.constructor; t && t !== Component && t !== Object; t = Object.getPrototypeOf(t)) {
+        let of = this.byType.get(t);
+        if (!of) this.byType.set(t, (of = []));
+        of.push(next);
+        of.sort((a, b) => a._seq - b._seq);
+      }
+      if (old instanceof GameBehavior) {
+        for (const hook of FRAME_HOOKS) removeItem(this.hookLists[hook], old);
+        removeItem(this.pendingStart, old);
+      }
+      if (next instanceof GameBehavior) {
+        for (const hook of FRAME_HOOKS) if (typeof (next as unknown as Record<string, unknown>)[hook] === "function") this.hookLists[hook].push(next);
+      }
+      const queued = this.destroyQueue.indexOf(old);
+      if (queued >= 0) this.destroyQueue[queued] = next;
+      const deferred = this.deferred.indexOf(old);
+      if (deferred >= 0) this.deferred[deferred] = next;
+    }
+    this.orderDirty = true;
+    // Then each replacement starts where its old instance was: onEnable, and start() if it hadn't run.
+    for (const next of replaced.values()) {
+      next._onAttach();
+      if (!this.deferred.includes(next)) this._refreshComponent(next);
+    }
+    return replaced.size;
   }
 
   /** @internal Queue a component for removal at the end of the frame. */

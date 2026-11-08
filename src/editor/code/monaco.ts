@@ -137,3 +137,61 @@ function disposeModels(): void {
   for (const entry of jsonLibs.values()) entry.lib.dispose();
   jsonLibs.clear();
 }
+
+/** The declaration files of the project's npm packages the TypeScript service has (ADR 0125), by path. */
+const packageLibs = new Map<string, { text: string; lib: monaco.IDisposable }>();
+
+/**
+ * Give the TypeScript service the project's npm package declarations (ADR 0125): `files` by
+ * project path (`node_modules/…`, from `packageTypes`), served at `file:///node_modules/…` as the
+ * engine's are, and an untyped module for each package in `untyped`.
+ */
+export function setPackageTypes(files: ReadonlyMap<string, string>, untyped: readonly string[]): void {
+  const wanted = new Map(files);
+  for (const name of untyped) wanted.set(`node_modules/.myco-untyped/${name}.d.ts`, `declare module ${JSON.stringify(name)};\n`);
+  for (const [path, entry] of packageLibs) {
+    if (wanted.get(path) === entry.text) continue;
+    entry.lib.dispose();
+    packageLibs.delete(path);
+  }
+  for (const [path, text] of wanted) {
+    if (packageLibs.has(path)) continue;
+    packageLibs.set(path, { text, lib: ts.typescriptDefaults.addExtraLib(text, `file:///${path}`) });
+  }
+}
+
+/** A type error in a script (ADR 0125): 1-based line and column. */
+export interface ScriptDiagnostic {
+  readonly path: string;
+  readonly line: number;
+  readonly column: number;
+  readonly message: string;
+}
+
+const flatten = (text: string | { messageText: string; next?: unknown[] }): string =>
+  typeof text === "string" ? text : [text.messageText, ...((text.next ?? []) as (typeof text)[]).map(flatten)].join(" ");
+
+/**
+ * Type-check `project`'s scripts (paths in `files` under scripts/) with the TypeScript service, as
+ * the Code panel shows them: their syntax and type errors (not warnings or suggestions), in path
+ * then line order.
+ */
+export async function checkScripts(project: unknown, files: ReadonlyMap<string, string>, dirty: ReadonlySet<string>): Promise<ScriptDiagnostic[]> {
+  syncProject(project, files, dirty);
+  const scripts = [...files.keys()].filter((p) => p.startsWith("scripts/") && p.endsWith(".ts") && !p.endsWith(".d.ts")).sort();
+  if (scripts.length === 0) return [];
+  const worker = await ts.getTypeScriptWorker();
+  const client = await worker(...scripts.map(uriOf));
+  const out: ScriptDiagnostic[] = [];
+  for (const path of scripts) {
+    const uri = uriOf(path).toString();
+    const model = monaco.editor.getModel(uriOf(path));
+    const found = [...(await client.getSyntacticDiagnostics(uri)), ...(await client.getSemanticDiagnostics(uri))];
+    for (const d of found) {
+      if (d.category !== 1) continue; // errors only
+      const at = model && d.start !== undefined ? model.getPositionAt(d.start) : null;
+      out.push({ path, line: at?.lineNumber ?? 1, column: at?.column ?? 1, message: flatten(d.messageText as never) });
+    }
+  }
+  return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.line - b.line));
+}
