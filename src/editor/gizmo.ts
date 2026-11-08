@@ -10,7 +10,7 @@ import { SetField, type NodePath, type SceneDocument } from "./document";
 import { toSceneJSON } from "./fieldValues";
 import { topmostKeys } from "./selectionModel";
 import { cleanSnap, gizmoPivot, gizmoSpace, snapActive, snapSettings } from "./sceneTools";
-import { docVersion, editingCollider, openScene, selectedNodes, tool, viewMode, type Tool } from "./state";
+import { activeViewportTool, docVersion, editingCollider, openScene, selectedNodes, tool, viewMode, type Tool } from "./state";
 
 type Mode = GizmoOptions["mode"];
 
@@ -93,8 +93,8 @@ export function installGizmo(engine: Engine): () => void {
   const stop = effect(() => {
     docVersion.value; // nodes are rebuilt by structural edits; re-target the gizmo
     const scene = openScene.value;
-    // While a collider's handles are showing ("Edit Collider"), the transform gizmo steps aside.
-    const mode = editingCollider.value ? null : gizmoMode(tool.value);
+    // While a collider's handles are showing ("Edit Collider") or a viewport tool is active (ADR 0138), the transform gizmo steps aside.
+    const mode = editingCollider.value || activeViewportTool.value ? null : gizmoMode(tool.value);
     const selected = mode && scene ? selectedNodes() : [];
     const top = scene ? new Set(topmostKeys(scene.doc, selected.map((s) => s.key))) : new Set<string>();
     const chosen = selected.filter((s) => top.has(s.key));

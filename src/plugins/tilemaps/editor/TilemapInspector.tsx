@@ -1,9 +1,9 @@
 // Under a Tilemap's fields in the Inspector (ADR 0103, 0131): its layer and tile counts, and the way
 // to the Tile Palette, where its layers are painted (the `layers` field itself is hidden).
-import { showPanel } from "../layout/store";
-import { tilemapOf } from "../tilemap/brush";
-import { docVersion } from "../state";
-import type { InspectorSectionProps } from "./inspectorSections";
+import { showPanel } from "../../../editor/layout/store";
+import { tilemapOf } from "./brush";
+import { docVersion } from "../../../editor/state";
+import type { InspectorSectionProps } from "../../../editor/ui/inspectorSections";
 
 export function TilemapSection({ scene, paths }: InspectorSectionProps) {
   docVersion.value;

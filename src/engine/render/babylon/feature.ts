@@ -1,6 +1,6 @@
 /**
  * The Babylon backend's render features (ADR 0130): one shape for every feature the renderer runs
- * (sprites, meshes, tilemaps, sky, lights, fog, particles, probes, water, UI), and the slot that loads
+ * (sprites, meshes, sky, lights, fog, probes, water, UI, and plugins' tilemaps and particles), and the slot that loads
  * a lazy one exactly once. Each feature gets what it shares with others (materials, casters, the probe
  * lookup, the render policy) as explicit host arguments, like `BabylonParticleHost`.
  */
@@ -11,6 +11,7 @@ import type { World } from "../../core/World";
 import type { WarmContent } from "../../scene/warmUp";
 import type { Camera, ParticleSystem } from "../components";
 import type { ParticlePreviewSettings, RenderDiagnostics } from "../RenderSurface";
+import type { QuadBatchHost } from "../quadBatches";
 import { specNeeded, type RenderFeatureSpec } from "../renderFeatures";
 import type { WarmItem } from "./warmUp";
 import type { Scene } from "@babylonjs/core/scene.js";
@@ -62,6 +63,8 @@ export interface BabylonFeatureHost {
   readonly materials: BabylonMaterialLibrary;
   /** The reflection probe nearest a point (ADR 0130's probe lookup). */
   probeLookup(x: number, y: number, z: number): ProbeHit | null;
+  /** Sorted, unlit textured quad batches (ADR 0136): what the Tilemaps plugin draws its tiles with. */
+  readonly quads: QuadBatchHost;
   warnOnce(key: string, message: string): void;
   /** The particle player's services (the Particles plugin's feature): the World's matrices, textures, materials, ray queries. */
   particleHost(): BabylonParticleHost;

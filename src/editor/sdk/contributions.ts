@@ -4,7 +4,12 @@
 import type { FunctionComponent } from "preact";
 import type { SettingsDraft } from "../projectSettingsModel";
 import type { EditorProject } from "../projects";
+import type { ReadonlySignal } from "@preact/signals";
 import { createRegistry } from "./registry";
+import type { Engine } from "../../engine";
+import type { World } from "../../engine/core/World";
+import type { EditorOverlay, EditorOverlayKind } from "../../engine/editor";
+import type { OpenScene } from "../state";
 
 /** A component loaded on first use (ADR 0083). */
 export type LoadComponent<P extends object> = () => Promise<FunctionComponent<P>>;
@@ -106,9 +111,71 @@ export interface ComponentNoteContribution {
   note(type: string): string | null;
 }
 
+/** A pointer on the scene view, in canvas pixels (ADR 0138). */
+export interface ViewportPointer {
+  readonly x: number;
+  readonly y: number;
+  readonly button: number;
+  readonly alt: boolean;
+  readonly shift: boolean;
+  readonly ctrl: boolean;
+  readonly meta: boolean;
+  readonly pointerId: number;
+}
+
+/** A press a tool claimed: it alone gets that pointer's moves and release. */
+export interface ViewportDrag {
+  move?(p: ViewportPointer): void;
+  end?(p: ViewportPointer): void;
+  /** Play started, Escape is not involved: the tool was removed or the pointer was cancelled. Undo any preview. */
+  cancel?(): void;
+}
+
+/**
+ * What a viewport tool installs through, once per scene view (ADR 0138). Everything registered here
+ * is removed when the install is disposed. Internal tier (ADR 0133): it exposes the Engine.
+ */
+export interface ViewportToolContext {
+  readonly engine: Engine;
+  readonly world: World;
+  /** Whether this tool is the active tool. */
+  readonly active: ReadonlySignal<boolean>;
+  /** Become the active tool (the transform gizmo and collider editing step aside). */
+  activate(): void;
+  /** Give the scene view back to the transform tools, if this tool is active. */
+  deactivate(): void;
+  /**
+   * Presses on the scene view while editing: the active tool is asked first, then the others in
+   * registration order, then selection and the transform gizmo. Return a drag to claim the press.
+   */
+  onPress(handler: (p: ViewportPointer) => ViewportDrag | null | undefined | void): void;
+  /** The pointer over the scene view while no drag runs; null when it leaves. */
+  onHover(handler: (p: ViewportPointer | null) => void): void;
+  /**
+   * Keys while editing, outside text fields and dialogs, without Ctrl/Cmd/Alt: the active tool first.
+   * Return true to consume the key. Q, W, E, R and F belong to the editor; don't take them.
+   */
+  onKey(handler: (e: KeyboardEvent) => boolean): void;
+  /** An editor overlay on the Editor World, id `${tool id}` or `${tool id}:${suffix}`. */
+  overlay(provider: () => EditorOverlay, options?: { kind?: EditorOverlayKind; suffix?: string }): void;
+  /** The scene view's CSS cursor while this tool is active (null: the default). */
+  setCursor(cursor: string | null): void;
+  /** One undo step on the open scene's command stack: begins a group, runs `fn`, always ends it. False with no open scene. */
+  edit(label: string, fn: (scene: OpenScene) => void): boolean;
+}
+
+/** A scene-view tool (ADR 0138): painting, handles, overlays. */
+export interface ViewportToolContribution {
+  /** e.g. "myco.tilemaps.paint". Also its overlay id and its active-tool id. */
+  readonly id: string;
+  /** Called for each scene view, and at once when registered while one is open. May return extra cleanup. */
+  install(view: ViewportToolContext): void | (() => void);
+}
+
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const assetFormats = createRegistry<AssetFormatContribution<any>>("Asset format"); // eslint-disable-line @typescript-eslint/no-explicit-any -- formats differ in T
 export const panels = createRegistry<PanelContribution>("Panel");
 export const projectSettingsSections = createRegistry<ProjectSettingsSectionContribution>("Project settings section");
 export const panelExtensions = createRegistry<PanelExtensionContribution>("Panel extension");
+export const viewportTools = createRegistry<ViewportToolContribution>("Viewport tool");

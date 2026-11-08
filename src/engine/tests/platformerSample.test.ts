@@ -5,8 +5,8 @@ import { Assets, Engine, GameObject, SceneManager, Tilemap, TilemapCollider2D } 
 import { readProject } from "../../server/project";
 import { Player } from "../../../samples/platformer/scripts/behaviors/Player";
 import "../../../samples/platformer/scripts/behaviors/CameraFollow";
-import { loadTileset } from "../tilemap/Tilemap";
-import { missingBlobMasks } from "../tilemap/autotile";
+import { loadTileset } from "../../plugins/tilemaps/runtime/Tilemap";
+import { missingBlobMasks } from "../../plugins/tilemaps/runtime/autotile";
 
 const SAMPLE = fileURLToPath(new URL("../../../samples/platformer", import.meta.url));
 const engines: Engine[] = [];

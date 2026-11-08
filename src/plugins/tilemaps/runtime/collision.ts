@@ -1,7 +1,7 @@
 /**
  * Tile collision shapes (ADR 0105). Pure: turns a layer's cells into a few merged shapes in cell
- * units (cell (x, y) covers x..x+1, y..y+1), which the physics backend scales by the cell size and
- * builds as Rapier colliders.
+ * units (cell (x, y) covers x..x+1, y..y+1), which the Tilemap offers as a 2D collision shape
+ * source (ADR 0136) for any 2D collider on its node to build.
  *
  * - Whole-cell solid tiles merge into the fewest rectangles a greedy scan finds ("rectangles"
  *   mode), or into closed outlines around each solid region ("outline" mode).
@@ -9,31 +9,18 @@
  * - One-way tiles merge into horizontal runs, one per row, kept apart so each can decide on its
  *   own whether a body passes.
  */
-import { convexParts } from "../physics/polygon";
+import { convexParts } from "../../../engine/physics/polygon";
+import type { CollisionShapes2D, ShapeMerge2D, ShapeRect2D } from "../../../engine/physics/shapeSource2D";
 import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, flagsOf, tileIdOf } from "./format";
 import type { TileCollision } from "./tileset";
 
-export type TileCollisionMode = "rectangles" | "outline";
+/** How whole-cell tiles merge (ADR 0105): the core 2D shape source's merge modes (ADR 0136). */
+export type TileCollisionMode = ShapeMerge2D;
 
-export interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+export type Rect = ShapeRect2D;
 
-export interface TileShapes {
-  /** Solid rectangles ("rectangles" mode). */
-  boxes: Rect[];
-  /** Closed outlines with the solid on the left of each edge (counter-clockwise outside, clockwise around holes) ("outline" mode). */
-  loops: [number, number][][];
-  /** Convex solid polygons from polygon tiles. */
-  polygons: [number, number][][];
-  /** One-way platform rectangles (one row high). */
-  oneWay: Rect[];
-  /** Convex one-way polygons. */
-  oneWayPolygons: [number, number][][];
-}
+/** Tile collision shapes in cell units: the core shape set without its unit (the Tilemap adds its cell size). */
+export type TileShapes = Omit<CollisionShapes2D, "unit">;
 
 /** A cell with a tile: its coordinates and value (tile id plus flip flags). */
 export interface TileCell {

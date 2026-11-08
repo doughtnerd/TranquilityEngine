@@ -1,10 +1,10 @@
 // What the Tile Palette does besides drawing (ADR 0103): the stamp a block of tiles makes, and layer edits written
 // to the scene as one undoable SetField of `layers`.
-import type { Tilemap } from "../../plugins/tilemaps/runtime";
-import type { Stamp } from "../../engine/tilemap/brushes";
-import type { TilemapLayerData } from "../../engine/tilemap/format";
-import { SetField } from "../document";
-import type { OpenScene } from "../state";
+import type { Tilemap } from "../runtime";
+import type { Stamp } from "../runtime/brushes";
+import type { TilemapLayerData } from "../runtime/format";
+import { SetField } from "../../../editor/document";
+import type { OpenScene } from "../../../editor/state";
 
 /**
  * The stamp for the block of the palette grid between tile positions `a` and `b` (indices into `ids`, laid out

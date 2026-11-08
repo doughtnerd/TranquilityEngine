@@ -4,7 +4,8 @@ import { Component } from "../core/Component";
 import type { World } from "../core/World";
 import { SYNC_PHASES, byPhase, ownerOf, specNeeded, type RenderFeatureSpec } from "../render/renderFeatures";
 import { eagerFeature, lazyFeature, type BabylonFeature } from "../render/babylon/feature";
-import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, PROBES_SPEC, TILEMAPS_SPEC, WATER_SPEC } from "../render/babylon/features";
+import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, PROBES_SPEC, WATER_SPEC } from "../render/babylon/features";
+import { TILEMAPS_SPEC } from "../../plugins/tilemaps/runtime";
 import { MESHES_SPEC } from "../render/babylon/meshes";
 import { SPRITES_SPEC } from "../render/babylon/sprites";
 import { UI_SPEC } from "../render/babylon/uiSpec";
@@ -54,11 +55,11 @@ describe("render feature ordering (ADR 0130)", () => {
 describe("render feature ordering constraints (ADR 0135)", () => {
   const names = (specs: RenderFeatureSpec[]) => byPhase(specs).map((i) => specs[i].name);
 
-  it("keeps the built-ins' order with a plugin's sky registered last", () => {
-    const specs = [SPRITES_SPEC, TILEMAPS_SPEC, MESHES_SPEC, LIGHTS_SPEC, FOG_SPEC, ENVIRONMENT_SPEC, PARTICLES_SPEC, PROBES_SPEC, WATER_SPEC, UI_SPEC, SKY_SPEC];
+  it("keeps the built-ins' order with plugins' features (sky, tilemaps) registered last", () => {
+    const specs = [SPRITES_SPEC, MESHES_SPEC, LIGHTS_SPEC, FOG_SPEC, ENVIRONMENT_SPEC, PARTICLES_SPEC, PROBES_SPEC, WATER_SPEC, UI_SPEC, SKY_SPEC, TILEMAPS_SPEC];
     expect(names(specs)).toEqual(["sprites", "tilemaps", "meshes", "sky", "lights", "fog", "environment", "particles", "probes", "water", "ui"]);
-    // Without the Sky plugin, the rest keep their order.
-    expect(names(specs.slice(0, -1))).toEqual(["sprites", "tilemaps", "meshes", "lights", "fog", "environment", "particles", "probes", "water", "ui"]);
+    // Without the Sky and Tilemaps plugins, the rest keep their order.
+    expect(names(specs.slice(0, -2))).toEqual(["sprites", "meshes", "lights", "fog", "environment", "particles", "probes", "water", "ui"]);
     // Registered in any order, the constraints still hold.
     expect(names([ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, SKY_SPEC, MESHES_SPEC, TILEMAPS_SPEC, SPRITES_SPEC]).join()).toBe("sprites,tilemaps,meshes,sky,lights,fog,environment");
   });

@@ -1,18 +1,23 @@
-// The Tilemaps plugin (ADR 0103, 0134, 0135): its runtime half claims the Tilemap Component and the tile
+// The Tilemaps plugin (ADR 0103, 0134, 0135, 0136): its runtime half claims the Tilemap Component and the tile
 // render feature; its editor half registers the tileset kind and format, and tilesets edit through an asset document.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../../engine/core/registry";
 import { byPhase } from "../../engine/render/renderFeatures";
-import { TILEMAPS_SPEC } from "../../engine/render/babylon/features";
 import { assetKind } from "../../editor/assetBrowser";
 import { _reset, assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
-import { assetFormats, assetKinds } from "../../editor/sdk/contributions";
+import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
+import { registeredInspectorSections } from "../../editor/ui/inspectorSections";
+import { createViewportToolHost } from "../../editor/viewportTools";
+import type { Engine } from "../../engine";
+import type { World } from "../../engine/core/World";
+import { PAINT_TOOL_ID, PAINT_TOOL_KEYS } from "./editor/paintTool";
+import { brushTool, pickBrushTool } from "./editor/brush";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
-import { currentProject } from "../../editor/state";
+import { activeViewportTool, currentProject, pickTool } from "../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../editor/testing";
 import { formatTileset } from "../../editor/tilesetAssets";
 import { EDITOR_PLUGINS } from "../editor";
@@ -21,8 +26,9 @@ import { MESHES_SPEC } from "../../engine/render/babylon/meshes";
 import { SPRITES_SPEC } from "../../engine/render/babylon/sprites";
 import { tilemapsEditorPlugin } from "./editor";
 import { parsePolygon } from "./editor/TilesetInspector";
-import { Tilemap, tilemapsRuntimePlugin } from "./runtime";
-import { newTileset, type TilesetData } from "../../engine/tilemap/tileset";
+import { TILEMAPS_SPEC, Tilemap, tilemapsRuntimePlugin } from "./runtime";
+import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
+import { newTileset, type TilesetData } from "./runtime/tileset";
 
 const TILESET = "tiles/ground.tileset.json";
 
@@ -49,9 +55,10 @@ describe("the Tilemaps plugin's runtime half (ADR 0135)", () => {
     expect(tilemapsRuntimePlugin.manifest.name).toBe("myco.tilemaps");
   });
 
-  it("claims the Tilemap Component; the tiles render feature stays in the renderer, ordered after sprites", () => {
+  it("claims the Tilemap Component and registers the tiles render feature, ordered after sprites (ADR 0136)", () => {
     expect(isRuntimePluginActive("myco.tilemaps")).toBe(true);
     expect(getComponentClass("engine.Tilemap")).toBe(Tilemap);
+    expect(_registeredRenderFeatures().find((r) => r.spec.name === "tilemaps")?.spec).toMatchObject({ ...TILEMAPS_SPEC });
     expect(TILEMAPS_SPEC).toMatchObject({ phase: "content", types: [Tilemap], lazy: false, after: ["sprites"] });
     // The order is kept: sprites, tilemaps, meshes (meshes name tilemaps in their own `after`).
     const specs = [SPRITES_SPEC, MESHES_SPEC, TILEMAPS_SPEC];
@@ -62,6 +69,7 @@ describe("the Tilemaps plugin's runtime half (ADR 0135)", () => {
     deactivateRuntimePlugin("myco.tilemaps");
     try {
       expect(getComponentClass("engine.Tilemap")).toBeUndefined();
+      expect(_registeredRenderFeatures().some((r) => r.spec.name === "tilemaps")).toBe(false);
     } finally {
       activateRuntimePlugins([tilemapsRuntimePlugin]);
     }
@@ -75,6 +83,38 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     _reset();
     deactivatePlugin("myco.tilemaps");
     currentProject.value = null;
+  });
+
+  it("registers the Tile Palette panel, the paint tool and the Tilemap's Inspector section, and removes them (ADR 0138)", () => {
+    expect(panels.get("tilepalette")).toMatchObject({ title: "Tile Palette", beside: "code" });
+    expect(viewportTools.get(PAINT_TOOL_ID)).toBeDefined();
+    expect(registeredInspectorSections("engine.Tilemap")).toHaveLength(1);
+    deactivatePlugin("myco.tilemaps");
+    expect(panels.get("tilepalette")).toBeUndefined();
+    expect(viewportTools.get(PAINT_TOOL_ID)).toBeUndefined();
+    expect(registeredInspectorSections("engine.Tilemap")).toHaveLength(0);
+  });
+
+  it("keeps the brush and the active viewport tool in step, and leaves the editor's keys alone", () => {
+    const canvas = Object.assign(new EventTarget(), { style: { cursor: "" }, getBoundingClientRect: () => ({ left: 0, top: 0 }) });
+    const dispose = createViewportToolHost({ engine: {} as Engine, world: {} as World, canvas, keys: new EventTarget(), addOverlay: () => {}, removeOverlay: () => {}, editable: () => false });
+    try {
+      pickBrushTool("pencil");
+      expect(activeViewportTool.value).toBe(PAINT_TOOL_ID);
+      expect(canvas.style.cursor).toBe("crosshair");
+      pickTool("move"); // Q/W/E/R or the toolbar
+      expect(brushTool.value).toBeNull();
+      pickBrushTool("rect");
+      pickBrushTool(null);
+      expect(activeViewportTool.value).toBeNull();
+      pickBrushTool("fill");
+    } finally {
+      dispose();
+    }
+    expect(activeViewportTool.value).toBeNull(); // uninstalled with the scene view
+    expect(brushTool.value).toBe("fill");
+    pickBrushTool(null);
+    for (const key of ["q", "w", "e", "r", "f"]) expect(PAINT_TOOL_KEYS[key]).toBeUndefined();
   });
 
   it("registers the tileset asset kind: matching, label, icon, inspector and tileset fields", () => {

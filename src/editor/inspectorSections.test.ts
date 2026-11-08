@@ -4,9 +4,9 @@ import "./ui/inspectorSections.builtin";
 import { inspectorSectionsFor, registerInspectorSection, registeredInspectorSections } from "./ui/inspectorSections";
 
 describe("inspector sections", () => {
-  // The ParticleSystem's section is the Particles plugin's (src/plugins/particles/particles.test.ts), the navigation components' the Navigation plugin's.
+  // The ParticleSystem's section is the Particles plugin's (src/plugins/particles/particles.test.ts), the navigation components' the Navigation plugin's, the Tilemap's the Tilemaps plugin's (src/plugins/tilemaps/tilemaps.test.ts).
   it("registers the engine components' sections", () => {
-    for (const type of ["engine.Tilemap", "engine.Environment", "engine.ReflectionProbe"]) {
+    for (const type of ["engine.Environment", "engine.ReflectionProbe"]) {
       expect(registeredInspectorSections(type), type).toHaveLength(1);
     }
     expect(registeredInspectorSections("engine.Transform")).toHaveLength(0);
@@ -34,7 +34,7 @@ describe("inspector sections", () => {
   });
 
   it("each built-in section's module loads and exports its component", async () => {
-    const types = ["engine.Tilemap", "engine.Environment", "engine.ReflectionProbe"];
+    const types = ["engine.Environment", "engine.ReflectionProbe"];
     for (const type of types) {
       for (const view of registeredInspectorSections(type)) {
         await view.preload();

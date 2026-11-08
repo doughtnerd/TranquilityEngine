@@ -1,21 +1,18 @@
 /**
- * Colliders for TilemapCollider2D (ADR 0105), as neutral descriptions for the 2D backend (ADR 0137).
- * Internal, loaded with the shared core.
+ * Colliders for TilemapCollider2D (ADR 0105, 0136), as neutral descriptions for the 2D backend (ADR 0137).
+ * Internal, loaded with the shared core. The shapes come from the 2D shape source on the collider's node
+ * (a Tilemap, say; ADR 0136); this module knows nothing of what offers them.
  *
- * A tilemap collider becomes:
+ * A shape collider becomes:
  * - one compound collider holding every solid rectangle and polygon part, with internal edges fixed so
  *   bodies sliding across the seams between parts don't catch;
  * - in "outline" mode, one oriented polyline collider per solid region outline (solid on the left);
  * - one collider per one-way run or polygon, which the backend lets bodies through from below
  *   (capability `oneWayPlatforms`; without it they're solid).
- * Everything is rebuilt when the tilemap's cells, the collider's settings or the node's scale change.
- *
- * TilemapCollider2D stays in the Physics plugin, reading the core's Tilemap, until ADR 0136 settles how
- * plugins read tile data.
+ * Everything is rebuilt when the source's signature, the collider's settings or the node's scale change.
  */
 import { DEG2RAD } from "../../../../engine/core/math";
 import type { World } from "../../../../engine/core/World";
-import { buildTileShapes } from "../../../../engine/tilemap/collision";
 import type { BackendCollider, Dim2, PhysicsWorld2DBackend, Point2, ShapeDesc2D, Vec2 } from "../backend";
 import type { RigidBody2D } from "../RigidBody2D";
 import type { TilemapCollider2D } from "../TilemapCollider2D";
@@ -36,20 +33,19 @@ export class TilemapColliders2D {
   constructor(private readonly host: TilemapCollidersHost) {}
 
   push(c: TilemapCollider2D): void {
-    const map = c.tilemap;
-    const active = c.isActiveAndEnabled && !!map && map.isActiveAndEnabled;
+    const source = c.source;
+    const active = c.isActiveAndEnabled && !!source && source.isActiveAndEnabled;
     const body = active ? c.attachedRigidbody : null;
     const t = c.node.transform;
     const ws = t ? t.worldScale : { x: 1, y: 1 };
-    const layers = map?._layers();
-    const signature = [c.mode, c.isTrigger, c.layer, c.material?.friction, c.material?.bounciness, c.center.x, c.center.y, ws.x.toFixed(4), ws.y.toFixed(4), map?.cellSize.x, map?.cellSize.y, map?.tileset, map?.tilesetAsset ? "ts" : "", layers?.map((l) => `${l.version}:${l.meta.collision}`).join(",")].join("|");
+    const signature = [c.mode, c.isTrigger, c.layer, c.material?.friction, c.material?.bounciness, c.center.x, c.center.y, ws.x.toFixed(4), ws.y.toFixed(4), source?.collisionSignature() ?? ""].join("|");
     let st = c._tileState;
     if (st && (st.body !== body || st.signature !== signature || (body && !body._state) || !active)) {
       this.release(c);
       st = null;
     }
     if (!st) {
-      if (!active || !map) return;
+      if (!active || !source) return;
       if (body && !body._state) return; // made later in this push pass
       st = c._tileState = { colliders: [], signature, syncedVersion: this.host.world.tVersion[c.node.entity], body, active: true };
       this.build(c, st);
@@ -65,19 +61,12 @@ export class TilemapColliders2D {
   }
 
   private build(c: TilemapCollider2D, st: NonNullable<TilemapCollider2D["_tileState"]>): void {
-    const map = c.tilemap!;
-    const ts = map.tilesetAsset;
-    if (!ts) return;
+    const shapes = c.source?.collisionShapes(c.mode);
+    if (!shapes) return; // its signature changes once it can say
     const t = c.node.transform;
     const ws = t ? t.worldScale : { x: 1, y: 1 };
-    const sx = map.cellSize.x * ws.x, sy = map.cellSize.y * ws.y;
+    const sx = shapes.unit.x * ws.x, sy = shapes.unit.y * ws.y;
     const ox = c.center.x * ws.x, oy = c.center.y * ws.y;
-    const cells: { x: number; y: number; value: number }[] = [];
-    map._layers().forEach((l, i) => {
-      if (!l.meta.collision) return;
-      for (const cell of map.tiles(i)) cells.push(cell);
-    });
-    const shapes = buildTileShapes(cells, (id) => ts.tile(id)?.collision, c.mode);
 
     // Node pose (and the body's, when attached).
     const p = t ? t.worldPosition : { x: 0, y: 0 };

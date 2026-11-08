@@ -1,5 +1,5 @@
 // Shared editor UI state (ADR 0025). Signals so Preact panels re-render when it changes.
-import { batch, signal } from "@preact/signals";
+import { batch, signal, type ReadonlySignal } from "@preact/signals";
 import { selectedAssets } from "./assetSelection";
 import type { GameObject } from "../engine";
 import type { CommandStack, NodePath, SceneDocument, WorldSync } from "./document";
@@ -163,8 +163,26 @@ export interface EditingCollider {
 }
 export const editingCollider = signal<EditingCollider | null>(null);
 
-/** Pick a tool. Picking any tool, even the current one, ends collider editing so its gizmo comes back. */
+/**
+ * The active viewport tool's id (ADR 0138), or null for the transform tools. At most one tool is
+ * active; activating one ends collider editing, and the transform gizmo steps aside while it's set.
+ */
+const activeTool = signal<string | null>(null);
+export const activeViewportTool: ReadonlySignal<string | null> = activeTool;
+
+/** Make a viewport tool the active one, or give the scene view back to the transform tools (null). */
+export function activateViewportTool(id: string | null): void {
+  batch(() => {
+    if (id !== null) editingCollider.value = null;
+    activeTool.value = id;
+  });
+}
+
+/** Pick a tool. Picking any tool, even the current one, ends collider editing and the active viewport tool so its gizmo comes back. */
 export function pickTool(t: Tool): void {
-  editingCollider.value = null;
-  tool.value = t;
+  batch(() => {
+    editingCollider.value = null;
+    activeTool.value = null;
+    tool.value = t;
+  });
 }

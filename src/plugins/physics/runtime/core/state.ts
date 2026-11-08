@@ -56,7 +56,7 @@ export interface JointState<D extends DimensionTypes, RB> {
 /** @internal What the core keeps for a TilemapCollider2D. */
 export interface TilemapColliderState<D extends DimensionTypes, RB> {
   colliders: BackendCollider<D>[];
-  /** The tilemap and settings the colliders were built from. */
+  /** The shape source's signature and the settings the colliders were built from. */
   signature: string;
   syncedVersion: number;
   body: RB | null;

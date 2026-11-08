@@ -5,3 +5,4 @@ export * from "./contributions";
 export * from "./plugins";
 export { openAssetDocument, type AssetDocument, type EditOptions } from "../assetDocuments";
 export type { InspectorSectionProps, InspectorSectionOptions } from "../ui/inspectorSections";
+export { activeViewportTool, activateViewportTool } from "../state";

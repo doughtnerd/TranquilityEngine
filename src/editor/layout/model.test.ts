@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { materialsEditorPlugin } from "../../plugins/materials/editor";
 import { particlesEditorPlugin } from "../../plugins/particles/editor";
 import { skyEditorPlugin } from "../../plugins/sky/editor";
+import { tilemapsEditorPlugin } from "../../plugins/tilemaps/editor";
 import { activatePlugins, deactivatePlugin } from "../sdk/plugins";
 import {
   EDGE_BAND,
@@ -29,8 +30,9 @@ import { panels, type PanelContribution } from "../sdk/contributions";
 
 // The Shader Graph panel is the Materials plugin's and the Particle Graph the Particles plugin's (ADR 0134);
 // the editor activates them (in EDITOR_PLUGINS' order) before any layout loads.
-beforeEach(() => activatePlugins([particlesEditorPlugin, materialsEditorPlugin]));
+beforeEach(() => activatePlugins([particlesEditorPlugin, materialsEditorPlugin, tilemapsEditorPlugin]));
 afterEach(() => {
+  deactivatePlugin(tilemapsEditorPlugin.manifest.name);
   deactivatePlugin(materialsEditorPlugin.manifest.name);
   deactivatePlugin(particlesEditorPlugin.manifest.name);
 });

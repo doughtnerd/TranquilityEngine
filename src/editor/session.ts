@@ -1,6 +1,5 @@
 // The editor session: one Editor World per open project (ADR 0016, 0026). Opening another
 // project tears the World down and boots a new one with that project's settings and assets.
-import { installTilemapPainting } from "./tilemap/paintTool";
 import { errorStatus } from "./messages";
 import { Engine, GameObject, Material } from "../engine";
 import { viewport } from "../engine/editor";
@@ -45,6 +44,7 @@ import { captureScriptTypes, swapScriptTypes, type ScriptSwap } from "../engine/
 import { viewportElements } from "./ui/ScenePanel";
 import { watchScripts, writeScriptingFiles } from "./scriptingSetup";
 import { installViewportSelection } from "./viewportSelection";
+import { installViewportTools } from "./viewportTools";
 import { installUIElementOutline } from "./uiOutline";
 import { installUIHandles } from "./uiHandles";
 import { loadUIDocumentSupport } from "../engine/ui/UIDocument";
@@ -133,7 +133,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   orbit.mode = viewMode.value;
   sceneCamera.value = orbit;
-  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installJointGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine), installUIElementOutline(engine), installUIHandles(engine), installTilemapPainting(engine)];
+  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installJointGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine), installUIElementOutline(engine), installUIHandles(engine), installViewportTools(engine)]; // plugins' scene-view tools (ADR 0138)
   session = {
     engine,
     dispose() {
