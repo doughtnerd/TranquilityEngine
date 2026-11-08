@@ -172,6 +172,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0132](decisions/0132-behaviors-reach-their-world-through-a-handle.md) | A behaviour reaches its own World through `this.world`, a `WorldHandle`; the engine's internal getter becomes `_world` | Accepted |
 | [0133](decisions/0133-features-are-plugins-over-an-engine-and-editor-sdk.md) | Features are plugins (a manifest, a runtime half and an editor half) registering into contribution points of a public SDK (`myco`, `myco/editor`); first-party and user plugins use the same SDK; render features stay internal; Sky is the pilot | Accepted |
 | [0134](decisions/0134-plugin-loading-asset-kinds-asset-documents-and-panels.md) | Editor plugins load from `src/plugins/editor.ts` and register asset kinds, asset formats and panels; asset documents own saving, outside changes and undo; Sky is the first plugin | Accepted |
+| [0135](decisions/0135-runtime-contribution-points-and-plugin-activation.md) | Runtime halves activate through a context: Components, systems, World services (physics, navigation), internal render features with ordering constraints; `myco` becomes `src/myco.ts` re-exporting core plus first-party runtime halves | Proposed |
 
 ## Working with decisions
 
