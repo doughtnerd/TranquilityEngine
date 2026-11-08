@@ -22,6 +22,7 @@ import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture.js";
 import { EXRCubeTexture } from "@babylonjs/core/Materials/Textures/exrCubeTexture.js";
 import { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture.js";
+import "../prefilterGuard";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector.js";

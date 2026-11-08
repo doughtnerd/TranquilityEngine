@@ -1,5 +1,5 @@
 import { signal } from "@preact/signals";
-import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useRef } from "preact/hooks";
 import type { FileSystem } from "../../engine/platform/FileSystem";
 import { describeError } from "../messages";
 import { PROJECT_TEMPLATES, whyNotProjectName, type ProjectTemplate } from "../newProject";
@@ -11,28 +11,42 @@ const open = signal(false);
 /** The last folder a project was created in, offered again this session. */
 let lastLocation: { fs: FileSystem; path: string } | null = null;
 
-/** Show the New Project dialog. */
+type Location = { fs: FileSystem; path: string };
+// The form lives here, not in the component: the editor replaces the start-screen shell with the full
+// App while the dialog may already be open, remounting the component, and component-local state (reset
+// on mount) would wipe what was typed in the meantime.
+const nameField = signal("");
+const templateField = signal<ProjectTemplate>("2d");
+const locationField = signal<Location | null>(null);
+const errorField = signal<string | null>(null);
+const busyField = signal(false);
+
+/** Show the New Project dialog, with a blank form. */
 export function openNewProjectDialog(): void {
+  if (open.value) return;
+  nameField.value = "";
+  templateField.value = "2d";
+  locationField.value = lastLocation;
+  errorField.value = null;
+  busyField.value = false;
   open.value = true;
 }
 
 /** New Project (ADR 0038): a name, a template and a parent folder; Create makes the project's folder there and opens it. */
 export function NewProjectDialog() {
-  const [name, setName] = useState("");
-  const [template, setTemplate] = useState<ProjectTemplate>("2d");
-  const [location, setLocation] = useState<{ fs: FileSystem; path: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  // A layout effect, so the reset lands before paint: a name typed right after the dialog appears isn't wiped.
+  const name = nameField.value;
+  const template = templateField.value;
+  const location = locationField.value;
+  const error = errorField.value;
+  const busy = busyField.value;
+  const setName = (v: string) => (nameField.value = v);
+  const setTemplate = (v: ProjectTemplate) => (templateField.value = v);
+  const setLocation = (v: Location | null) => (locationField.value = v);
+  const setError = (v: string | null) => (errorField.value = v);
+  const setBusy = (v: boolean) => (busyField.value = v);
   useLayoutEffect(() => {
-    if (!open.value) return;
-    setName("");
-    setTemplate("2d");
-    setLocation(lastLocation);
-    setError(null);
-    setBusy(false);
-    input.current?.focus();
+    if (open.value) input.current?.focus();
   }, [open.value]);
   if (!open.value) return null;
 
