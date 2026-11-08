@@ -166,6 +166,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0127](decisions/0127-renderer-neutral-material-resolution-and-a-babylon-material-library.md) | Material resolution is renderer-neutral; a per-scene Babylon material library builds from it (World renderer, warm-up, particles, previews) | Accepted |
 | [0128](decisions/0128-render-surface-runtime-core-and-editor-viewport-handle.md) | The render surface is a runtime core plus an editor viewport handle | Accepted |
 | [0129](decisions/0129-renderer-neutral-frame-plan-and-editor-render-policy.md) | A renderer-neutral frame plan decides each frame's views; the editor sets render policy through its viewport handle | Accepted |
+| [0130](decisions/0130-render-features-declare-ownership-phase-and-loading.md) | Each render feature declares the Components it owns, its sync phase and whether it loads lazily; the renderer runs features generically | Proposed |
 | [0131](decisions/0131-field-metadata-on-the-component-declaration.md) | Asset kind and Inspector visibility are field options (`@field(AssetRef, { kind, hidden })`); per-type Inspector extras come from a lazy sections registry | Accepted |
 
 ## Working with decisions
