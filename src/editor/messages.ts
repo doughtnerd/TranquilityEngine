@@ -2,6 +2,7 @@
 // exceptions, rejected promises, console errors and warnings), with stack traces. The status bar
 // shows the latest; clicking it opens the log so whole messages and their details can be read.
 import { effect, signal } from "@preact/signals";
+import { persisted } from "./preferences";
 import { status, type Status } from "./state";
 
 export interface LogEntry {
@@ -22,6 +23,27 @@ export const messageLog = signal<readonly LogEntry[]>([]);
 export const unseenErrors = signal(0);
 /** The log panel is open. */
 export const logOpen = signal(false);
+
+/** Every kind of entry, in the order the log's filter toggles list them. */
+export const LOG_KINDS: readonly LogEntry["kind"][] = ["info", "warning", "error"];
+
+/** Which kinds of entry the log panel shows (its filter toggles); remembered per user. */
+export const logShown = persisted<Record<LogEntry["kind"], boolean>>("myco.editor.logShown", { info: true, warning: true, error: true });
+
+/** Whether entries of `kind` are shown; a kind missing from a stored preference is shown. */
+export function kindShown(kind: LogEntry["kind"], shown: Partial<Record<LogEntry["kind"], boolean>> = logShown.value): boolean {
+  return shown[kind] !== false;
+}
+
+/** Show or hide one kind of entry in the log panel. */
+export function toggleLogKind(kind: LogEntry["kind"]): void {
+  logShown.value = { ...logShown.value, [kind]: !kindShown(kind) };
+}
+
+/** The entries the log panel's filter lets through, oldest first. */
+export function shownEntries(entries: readonly LogEntry[] = messageLog.value, shown: Partial<Record<LogEntry["kind"], boolean>> = logShown.value): readonly LogEntry[] {
+  return LOG_KINDS.every((k) => kindShown(k, shown)) ? entries : entries.filter((e) => kindShown(e.kind, shown));
+}
 
 let nextId = 1;
 
