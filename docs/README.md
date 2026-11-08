@@ -170,7 +170,8 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0130](decisions/0130-render-features-declare-ownership-phase-and-loading.md) | Each render feature declares the Components it owns, its sync phase and whether it loads lazily; the renderer runs features generically | Accepted |
 | [0131](decisions/0131-field-metadata-on-the-component-declaration.md) | Asset kind and Inspector visibility are field options (`@field(AssetRef, { kind, hidden })`); per-type Inspector extras come from a lazy sections registry | Accepted |
 | [0132](decisions/0132-behaviors-reach-their-world-through-a-handle.md) | A behaviour reaches its own World through `this.world`, a `WorldHandle`; the engine's internal getter becomes `_world` | Accepted |
-| [0133](decisions/0133-features-are-plugins-over-an-engine-and-editor-sdk.md) | Features are plugins (a manifest, a runtime half and an editor half) registering into contribution points of a public SDK (`myco`, `myco/editor`); first-party and user plugins use the same SDK; render features stay internal; Sky is the pilot | Proposed |
+| [0133](decisions/0133-features-are-plugins-over-an-engine-and-editor-sdk.md) | Features are plugins (a manifest, a runtime half and an editor half) registering into contribution points of a public SDK (`myco`, `myco/editor`); first-party and user plugins use the same SDK; render features stay internal; Sky is the pilot | Accepted |
+| [0134](decisions/0134-plugin-loading-asset-kinds-asset-documents-and-panels.md) | Editor plugins load from `src/plugins/editor.ts` and register asset kinds, asset formats and panels; asset documents own saving, outside changes and undo; Sky is the first plugin | Proposed |
 
 ## Working with decisions
 

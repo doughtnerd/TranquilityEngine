@@ -1,0 +1,66 @@
+// The editor contribution points the Sky pilot builds (ADR 0134): asset kinds, asset formats
+// (what an asset document is made from) and panels. Each is a registry; plugins add to them
+// through `EditorPluginContext` so their entries are removed when the plugin is.
+import type { FunctionComponent } from "preact";
+import { createRegistry } from "./registry";
+
+/** A component loaded on first use (ADR 0083). */
+export type LoadComponent<P extends object> = () => Promise<FunctionComponent<P>>;
+
+/**
+ * One type of asset file and how the editor treats it (ADR 0133 "asset kind").
+ * Built-in kinds not yet moved to a plugin still live in `assetBrowser.ts`'s tables; a registered
+ * kind wins over them.
+ */
+export interface AssetKindContribution {
+  /** The kind's id, e.g. "sky". Also what `assetKind(path)` returns. */
+  readonly id: string;
+  /** File-name endings, lower case with the dot, e.g. [".sky.json"]. The longest match over all kinds wins. */
+  readonly extensions: readonly string[];
+  /** Shown in the Assets panel ("Sky"). */
+  readonly label: string;
+  /** An SVG path (`d`) drawn in a 24×24 box, stroked, like the built-in asset icons. */
+  readonly icon: string;
+  /** Double-click / Open. Absent: the file only selects. */
+  open?(path: string): void;
+  /** The Inspector's view of a selected file of this kind, loaded on first use. */
+  readonly inspector?: LoadComponent<{ path: string }>;
+  /** An entry in the Assets panel's New… menu. `create` returns the new file's path, or null. */
+  readonly create?: { readonly label: string; create(folder: string): Promise<string | null> };
+  /** Policy: the field asset kinds (0131 `@field(AssetRef, { kind })`) that also accept this kind, e.g. sky → ["environment"]. */
+  readonly referencedAs?: readonly string[];
+  /** Which built-in thumbnail renderer draws its preview (internal tier: renderers stay first-party, ADR 0133). */
+  readonly preview?: "sky" | "material" | "shadergraph" | "particles" | "environment" | "model" | "prefab" | "scene" | "audio";
+}
+
+/** A problem found reading an asset file. */
+export interface AssetProblem {
+  readonly message: string;
+}
+
+/** How an asset kind's file becomes a value and back: what an asset document is made from. */
+export interface AssetFormatContribution<T = unknown> {
+  /** The asset kind id this format is for. */
+  readonly id: string;
+  /** The file's parsed JSON (or undefined when missing) to a value; never throws, reports problems instead. */
+  parse(raw: unknown, path: string): { value: T; problems: readonly AssetProblem[] };
+  /** A value to the file's text. */
+  format(value: T): string;
+  /** Milliseconds to wait after the last coalesced edit before writing (sliders). Default 150. */
+  readonly writeDelay?: number;
+}
+
+/** A dockable panel. */
+export interface PanelContribution {
+  readonly id: string;
+  readonly title: string;
+  readonly view: LoadComponent<object>;
+  /** The panel whose group it joins when first shown. */
+  readonly beside?: string;
+  /** Kept out of the default layout and the idle preload; opened by something else (double-clicking an asset). */
+  readonly onDemand?: boolean;
+}
+
+export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
+export const assetFormats = createRegistry<AssetFormatContribution<any>>("Asset format"); // eslint-disable-line @typescript-eslint/no-explicit-any -- formats differ in T
+export const panels = createRegistry<PanelContribution>("Panel");

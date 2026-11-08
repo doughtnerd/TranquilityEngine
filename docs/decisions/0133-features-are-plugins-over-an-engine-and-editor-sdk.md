@@ -1,6 +1,6 @@
 # 0133. Features are plugins, each with a runtime half and an editor half, built on a public engine and editor SDK
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
