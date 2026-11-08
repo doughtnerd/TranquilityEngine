@@ -105,6 +105,28 @@ describe("asset documents (ADR 0133)", () => {
     expect(onDisk(PATH)).toBe('{"n":3}\n');
   });
 
+  it("keeps its unsaved value after a failed write until a later write succeeds", async () => {
+    const doc = open();
+    let fail = true;
+    const write = project.writeText.bind(project);
+    project.writeText = async (path, text) => {
+      if (fail) throw new Error("disk full");
+      await write(path, text);
+    };
+    doc.edit({ n: 2 });
+    await doc.flush();
+    expect(onDisk(PATH)).toBe('{ "n": 1 }');
+    docVersion.value++; // something else changed: the disk still says 1, but the edit isn't lost
+    expect(doc.value.value).toEqual({ n: 2 });
+    fail = false;
+    doc.edit({ n: 3 });
+    await doc.flush();
+    expect(onDisk(PATH)).toBe('{"n":3}\n');
+    await project.writeText(PATH, '{ "n": 7 }'); // outside changes are followed again
+    docVersion.value++;
+    expect(doc.value.value).toEqual({ n: 7 });
+  });
+
   it("merges coalesced edits into one undo step and one write after the delay", async () => {
     vi.useFakeTimers();
     const doc = open();

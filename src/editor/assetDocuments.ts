@@ -56,6 +56,8 @@ class Document<T> implements AssetDocument<T> {
   private lastText: string;
   private tail: Promise<void> = Promise.resolve();
   private inFlight = 0;
+  /** The last write failed: the value holds edits the file doesn't, so outside changes don't replace it until a later write succeeds. */
+  private writeFailed = false;
   /** Dropped: edits do nothing and outside changes aren't followed. */
   private closed = false;
   /** Dropped with its file deleted: queued writes are skipped. */
@@ -183,18 +185,22 @@ class Document<T> implements AssetDocument<T> {
           wrote = true;
         }
       } catch (err) {
+        this.writeFailed = true;
         status.value = errorStatus(`Couldn't save ${this.path}`, err);
       } finally {
         this.inFlight--;
       }
-      if (wrote) docVersion.value++;
+      if (wrote) {
+        this.writeFailed = false;
+        docVersion.value++;
+      }
     };
     this.tail = this.tail.then(run);
   }
 
   /** The file changed (docVersion moved): take what it holds now if someone else changed it. */
   private reread(): void {
-    if (this.closed || this.burst || this.inFlight > 0) return;
+    if (this.closed || this.burst || this.inFlight > 0 || this.writeFailed) return;
     const read = this.format.parse(this.project.assets.get(this.path), this.path);
     const text = this.format.format(read.value);
     if (text === this.lastText) return;

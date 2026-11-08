@@ -13,14 +13,14 @@
 
 import { panels as panelRegistry } from "../sdk/contributions";
 
-export type BuiltinPanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "shadergraph" | "particlegraph" | "tilepalette" | "sky";
+export type BuiltinPanelId = "scene" | "hierarchy" | "inspector" | "assets" | "history" | "code" | "worlds" | "network" | "project" | "shadergraph" | "particlegraph" | "tilepalette";
 /** A built-in panel's id, or the id of a panel a plugin registered (ADR 0133). */
 export type PanelId = BuiltinPanelId | (string & {});
 export type Side = "left" | "right" | "bottom";
 
 /** The built-in panels (registered ones: `allPanels()`). */
-export const PANELS: readonly BuiltinPanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "shadergraph", "particlegraph", "tilepalette", "sky"];
-export const PANEL_TITLES: Record<BuiltinPanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", shadergraph: "Shader Graph", particlegraph: "Particle Graph", tilepalette: "Tile Palette", sky: "Sky" };
+export const PANELS: readonly BuiltinPanelId[] = ["scene", "hierarchy", "inspector", "assets", "history", "code", "worlds", "network", "project", "shadergraph", "particlegraph", "tilepalette"];
+export const PANEL_TITLES: Record<BuiltinPanelId, string> = { scene: "Scene", hierarchy: "Hierarchy", inspector: "Inspector", assets: "Assets", history: "History", code: "Code", worlds: "Worlds", network: "Network", project: "Project", shadergraph: "Shader Graph", particlegraph: "Particle Graph", tilepalette: "Tile Palette" };
 
 /** Every panel: the built-in ones, then those plugins registered. Reads the registry's version, so a component calling it re-renders on changes. */
 export function allPanels(): PanelId[] {
@@ -108,10 +108,10 @@ const newId = (prefix: string) => `${prefix}${Date.now().toString(36)}-${nextId+
  * double-clicking a sky asset), so the editor starts without them; once opened they stay in the
  * layout like any other. Saved layouts without them don't get them added back.
  */
-export const ON_DEMAND_PANELS: readonly BuiltinPanelId[] = ["sky"];
+export const ON_DEMAND_PANELS: readonly BuiltinPanelId[] = [];
 
 /** Where a panel missing from a layout goes: beside its usual neighbour, else with the Inspector, else the first group. */
-const BESIDE: Partial<Record<BuiltinPanelId, BuiltinPanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", shadergraph: "scene", particlegraph: "shadergraph", tilepalette: "assets", sky: "particlegraph" };
+const BESIDE: Partial<Record<BuiltinPanelId, BuiltinPanelId>> = { code: "assets", worlds: "history", network: "worlds", project: "worlds", shadergraph: "scene", particlegraph: "shadergraph", tilepalette: "assets" };
 function groupFor(layout: Layout, panel: PanelId): TabGroup {
   const groups = layout.docks.flatMap((d) => d.groups);
   const holding = (p: PanelId) => groups.find((g) => g.panels.includes(p));

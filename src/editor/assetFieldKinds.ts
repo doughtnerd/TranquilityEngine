@@ -25,7 +25,7 @@ const FILTERS: Record<AssetFieldKind, (file: string) => boolean> = {
   particles: ofKind("particles"),
   formation: ofKind("formation"),
   lut: ofKind("lut"),
-  environment: (f) => ofKind("environment", "sky", "cubemap")(f) || /\.(png|jpe?g)$/i.test(f),
+  environment: (f) => ofKind("environment", "cubemap")(f) || /\.(png|jpe?g)$/i.test(f),
   envmap: (f) => /\.env$/i.test(f) && assetKind(f) === "environment",
   tileset: ofKind("tileset"),
   font: (f) => /\.(ttf|otf|woff2?)$/i.test(f),

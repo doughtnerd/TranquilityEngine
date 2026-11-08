@@ -14,7 +14,6 @@ import { NavFormationInspector } from "./NavFormationInspector";
 import { TilesetInspector } from "./TilesetInspector";
 import { importKind, inspectedAsset, openSpriteEditor, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
 import { errorStatus } from "../messages";
-import { openSkyAsset } from "../skyAssets";
 import { PIVOT_PRESETS, pivotLabel } from "../spriteSlicing";
 import { currentProject, docVersion, status } from "../state";
 import "./assetInspector.css";
@@ -43,7 +42,6 @@ export function AssetInspector() {
   if (path && kind === "formation") return <NavFormationInspector path={path} />;
   if (path && kind === "tileset") return <TilesetInspector path={path} />;
   if (path && (kind === "environment" || kind === "cubemap" || kind === "prefab")) return <PreviewInspector path={path} kind={kind as "environment" | "cubemap" | "prefab"} />;
-  if (path && kind === "sky") return <SkyInspector path={path} />;
   return path && kind === "material" ? <MaterialInspector path={path} /> : path && (kind === "shadergraph" || kind === "shadersubgraph") ? <ShaderGraphInspector path={path} /> : <ImportInspector />;
 }
 
@@ -134,22 +132,6 @@ function PreviewInspector(props: { path: string; kind: "environment" | "cubemap"
             : "Prefab. Drag it into the Hierarchy or the scene view to place a copy."}
       </p>
       <LargePreview path={props.path} />
-    </div>
-  );
-}
-
-/** A procedural sky (ADR 0112): a look at it, and a way into the Sky panel. */
-function SkyInspector(props: { path: string }) {
-  return (
-    <div class="asset-inspector">
-      <h3>{fileName(props.path)}</h3>
-      <p class="hint">A procedural sky (ADR 0112). Use it as an Environment's map.</p>
-      <LargePreview path={props.path} />
-      <div class="asset-inspector-actions">
-        <button class="primary" onClick={() => openSkyAsset(props.path)}>
-          Edit in Sky panel
-        </button>
-      </div>
     </div>
   );
 }

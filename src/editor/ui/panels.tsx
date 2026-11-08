@@ -36,7 +36,6 @@ const LAZY: Record<Exclude<BuiltinPanelId, "scene">, LazyComponent> = {
   shadergraph: lazyComponent(() => import("./ShaderGraphPanel").then((m) => m.ShaderGraphPanel)),
   particlegraph: lazyComponent(() => import("./ParticleGraphPanel").then((m) => m.ParticleGraphPanel)),
   tilepalette: lazyComponent(() => import("./TilePalettePanel").then((m) => m.TilePalettePanel)),
-  sky: lazyComponent(() => import("./SkyPanel").then((m) => m.SkyPanel)), // on demand (ON_DEMAND_PANELS): not in the default layout
 };
 
 const builtin = (id: PanelId): LazyComponent | undefined => (Object.hasOwn(LAZY, id) ? LAZY[id as keyof typeof LAZY] : undefined);

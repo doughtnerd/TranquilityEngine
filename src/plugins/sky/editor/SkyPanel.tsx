@@ -1,17 +1,17 @@
-// The Sky panel (ADR 0112): edits a `*.sky.json` asset layer by layer with a live preview. Loaded
-// lazily the first time it shows; self-contained (its form is driven by the `SECTIONS` table below).
-// Every change shows at once in the panel and is written to the file after a short pause, which the
-// preview, the thumbnails and any scene using the sky then pick up.
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { SKY_PRESETS, skyPreset, type SkyPresetId } from "../../engine/sky/presets";
-import { cloneSky, defaultCloudLayer, MAX_CLOUD_LAYERS, type SkySettings } from "../../engine/sky/skyFormat";
-import { skyLight, sunAngles } from "../../engine/sky/skyMath";
-import { assetKind, fileName, listedFiles } from "../assetBrowser";
-import { createGraphHistory } from "../graph/history";
-import { errorStatus } from "../messages";
-import { openSky, readSky, writeSky } from "../skyAssets";
-import { currentProject, docVersion, status } from "../state";
-import { LargePreview } from "./AssetPreview";
+// The Sky panel (ADR 0112, 0134): edits a `*.sky.json` asset layer by layer with a live preview.
+// Part of the Sky plugin; loaded lazily the first time it shows; its form is driven by the
+// `SECTIONS` table below. Editing goes through the sky's asset document, which keeps undo and redo,
+// writes the file (sliders after a short pause) and follows changes made elsewhere; the preview,
+// the thumbnails and any scene using the sky then pick the file up.
+import { useEffect, useMemo } from "preact/hooks";
+import { SKY_PRESETS, skyPreset, type SkyPresetId } from "../../../engine/sky/presets";
+import { cloneSky, defaultCloudLayer, MAX_CLOUD_LAYERS, type SkySettings } from "../../../engine/sky/skyFormat";
+import { skyLight, sunAngles } from "../../../engine/sky/skyMath";
+import { assetKind, fileName, listedFiles } from "../../../editor/assetBrowser";
+import { openAssetDocument } from "../../../editor/sdk";
+import { currentProject, docVersion } from "../../../editor/state";
+import { LargePreview } from "../../../editor/ui/AssetPreview";
+import { openSky } from "./skyAssets";
 import "./skyPanel.css";
 
 type Path = readonly (string | number)[];
@@ -129,14 +129,10 @@ function set<T>(o: T, path: Path, value: unknown): T {
   return copy as unknown as T;
 }
 
-const histories = createGraphHistory<SkySettings>();
-/** Milliseconds between the last change and writing the file. */
-const WRITE_DELAY = 150;
-
 export function SkyPanel() {
   const path = openSky.value;
   const project = currentProject.value;
-  docVersion.value; // re-read when the file changes elsewhere
+  docVersion.value; // the file list changes with it
   if (!project || !path) return <p class="empty">Double-click a sky asset (.sky.json) in the Assets panel, or create one with New Sky.</p>;
   if (!project.files.includes(path)) return <p class="empty">{path} isn't in the project any more.</p>;
   return <SkyEditor key={path} path={path} />;
@@ -144,53 +140,17 @@ export function SkyPanel() {
 
 function SkyEditor({ path }: { path: string }) {
   const project = currentProject.value!;
-  const readOnly = !project.canSave;
-  const saved = readSky(project, path);
-  const [draft, setDraft] = useState<SkySettings>(saved.settings);
-  const pending = useRef<{ timer: ReturnType<typeof setTimeout> | null; before: SkySettings | null }>({ timer: null, before: null });
-  const latest = useRef(draft);
-  latest.current = draft;
+  const doc = openAssetDocument<SkySettings>(project, path, "sky");
+  const readOnly = doc.readOnly;
+  const draft = doc.value.value;
+  const problems = doc.problems.value;
+  useEffect(() => () => void doc.flush(), [doc]); // write a pending slider change when the panel closes
 
-  // A change from outside (undo elsewhere, a script, another window) replaces the draft when no write is pending.
-  const savedText = JSON.stringify(saved.settings);
-  useEffect(() => {
-    if (!pending.current.timer && savedText !== JSON.stringify(latest.current)) setDraft(JSON.parse(savedText) as SkySettings);
-  }, [savedText]);
-
-  const flush = () => {
-    const p = pending.current;
-    if (p.timer) clearTimeout(p.timer);
-    p.timer = null;
-    if (p.before) histories.record(path, p.before);
-    p.before = null;
-    writeSky(project, path, latest.current).then(
-      () => docVersion.value++,
-      (err: unknown) => (status.value = errorStatus(`Couldn't save ${path}`, err)),
-    );
-  };
-  useEffect(() => () => pending.current.timer && flush(), []); // write a pending change when the panel closes
-
-  const change = (next: SkySettings) => {
-    if (readOnly) return;
-    const p = pending.current;
-    p.before ??= latest.current;
-    latest.current = next;
-    setDraft(next);
-    if (p.timer) clearTimeout(p.timer);
-    p.timer = setTimeout(flush, WRITE_DELAY);
-  };
-  const replace = (next: SkySettings | undefined) => {
-    if (!next) return;
-    latest.current = next;
-    setDraft(next);
-    writeSky(project, path, next).then(() => docVersion.value++, (err: unknown) => (status.value = errorStatus(`Couldn't save ${path}`, err)));
-  };
-  const undo = () => replace(histories.undo(path, latest.current));
-  const redo = () => replace(histories.redo(path, latest.current));
-  const applyPreset = (id: SkyPresetId) => {
-    histories.record(path, latest.current);
-    replace(skyPreset(id));
-  };
+  /** `drag`: a slider or colour drag, whose quick changes in a row make one undo step and one write. Otherwise one step, written now. */
+  const change = (next: SkySettings, drag = false) => doc.edit(next, drag ? { coalesce: true } : undefined);
+  const undo = () => doc.undo();
+  const redo = () => doc.redo();
+  const applyPreset = (id: SkyPresetId) => doc.edit(skyPreset(id));
 
   const images = useMemo(() => listedFiles(project.files).filter((f) => assetKind(f) === "image"), [project.files]);
   const sun = sunAngles(draft);
@@ -220,10 +180,10 @@ function SkyEditor({ path }: { path: string }) {
           Sun {sun.elevation.toFixed(1)}° up, {(((sun.azimuth % 360) + 360) % 360).toFixed(0)}° · lights with the {light.body} at {light.intensity.toFixed(2)}
         </p>
         <div class="sky-panel-actions">
-          <button onClick={undo} disabled={readOnly} title="Undo (Ctrl+Z)">
+          <button onClick={undo} disabled={readOnly || !doc.canUndo.value} title="Undo (Ctrl+Z)">
             Undo
           </button>
-          <button onClick={redo} disabled={readOnly} title="Redo (Ctrl+Shift+Z)">
+          <button onClick={redo} disabled={readOnly || !doc.canRedo.value} title="Redo (Ctrl+Shift+Z)">
             Redo
           </button>
           <select aria-label="Preset" disabled={readOnly} value="" onChange={(e) => (e.currentTarget as HTMLSelectElement).value && applyPreset((e.currentTarget as HTMLSelectElement).value as SkyPresetId)}>
@@ -235,9 +195,9 @@ function SkyEditor({ path }: { path: string }) {
             ))}
           </select>
         </div>
-        {saved.problems.length > 0 && (
+        {problems.length > 0 && (
           <ul class="asset-inspector-problems">
-            {saved.problems.map((p) => (
+            {problems.map((p) => (
               <li key={p.message}>{p.message}</li>
             ))}
           </ul>
@@ -249,7 +209,7 @@ function SkyEditor({ path }: { path: string }) {
           <fieldset class="component sky-section" key={s.title}>
             <legend>{s.title}</legend>
             {s.fields.filter((f) => visible(f, draft)).map((f) => (
-              <FieldRow key={f.path.join(".")} field={f} value={get(draft, f.path)} images={images} disabled={readOnly} onValue={(v) => change(set(draft, f.path, v))} />
+              <FieldRow key={f.path.join(".")} field={f} value={get(draft, f.path)} images={images} disabled={readOnly} onValue={(v, drag) => change(set(draft, f.path, v), drag)} />
             ))}
           </fieldset>
         ))}
@@ -264,7 +224,7 @@ function SkyEditor({ path }: { path: string }) {
                 </button>
               </div>
               {CLOUD_FIELDS.map((f) => (
-                <FieldRow key={f.path.join(".")} field={{ ...f, label: f.label, path: ["clouds", i, ...f.path] }} prefix={`Cloud ${i + 1} `} value={get(layer, f.path)} images={images} disabled={readOnly} onValue={(v) => change(set(draft, ["clouds", i, ...f.path], v))} />
+                <FieldRow key={f.path.join(".")} field={{ ...f, label: f.label, path: ["clouds", i, ...f.path] }} prefix={`Cloud ${i + 1} `} value={get(layer, f.path)} images={images} disabled={readOnly} onValue={(v, drag) => change(set(draft, ["clouds", i, ...f.path], v), drag)} />
               ))}
             </div>
           ))}
@@ -288,23 +248,23 @@ function visible(f: Field, s: SkySettings): boolean {
   return true;
 }
 
-function FieldRow(props: { field: Field; value: unknown; images: readonly string[]; disabled: boolean; prefix?: string; onValue: (v: unknown) => void }) {
+function FieldRow(props: { field: Field; value: unknown; images: readonly string[]; disabled: boolean; prefix?: string; onValue: (v: unknown, drag?: boolean) => void }) {
   const { field: f, value, disabled, onValue } = props;
   const label = `${props.prefix ?? ""}${f.label}`;
   const hint = "hint" in f ? f.hint : undefined;
   switch (f.kind) {
     case "number": {
       const n = typeof value === "number" ? value : 0;
-      const read = (e: Event) => {
+      const read = (drag: boolean) => (e: Event) => {
         const v = Number((e.currentTarget as HTMLInputElement).value);
-        if (Number.isFinite(v)) onValue(v);
+        if (Number.isFinite(v)) onValue(v, drag);
       };
       return (
         <label class="import-row sky-number" title={hint}>
           <span>{f.label}</span>
           <span class="sky-slider">
-            <input type="range" aria-label={label} min={f.min} max={f.max} step={f.step} value={n} disabled={disabled} onInput={read} />
-            <input type="number" aria-label={`${label} value`} step={f.step} value={+n.toFixed(4)} disabled={disabled} onChange={read} />
+            <input type="range" aria-label={label} min={f.min} max={f.max} step={f.step} value={n} disabled={disabled} onInput={read(true)} />
+            <input type="number" aria-label={`${label} value`} step={f.step} value={+n.toFixed(4)} disabled={disabled} onChange={read(false)} />
           </span>
         </label>
       );
@@ -320,7 +280,7 @@ function FieldRow(props: { field: Field; value: unknown; images: readonly string
       return (
         <label class="import-row">
           <span>{f.label}</span>
-          <input type="color" aria-label={label} value={typeof value === "string" ? value.slice(0, 7) : "#000000"} disabled={disabled} onInput={(e) => onValue((e.currentTarget as HTMLInputElement).value)} />
+          <input type="color" aria-label={label} value={typeof value === "string" ? value.slice(0, 7) : "#000000"} disabled={disabled} onInput={(e) => onValue((e.currentTarget as HTMLInputElement).value, true)} />
         </label>
       );
     case "choice":

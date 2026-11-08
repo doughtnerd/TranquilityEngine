@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { skyEditorPlugin } from "../../plugins/sky/editor";
+import { activatePlugins, deactivatePlugin } from "../sdk/plugins";
 import {
   EDGE_BAND,
   HEADER_HEIGHT,
@@ -334,9 +336,13 @@ describe("tab fitting and header height edge cases", () => {
 
 
 describe("on-demand panels", () => {
+  // The Sky plugin's panel (ADR 0134) is the on-demand one.
+  beforeEach(() => activatePlugins([skyEditorPlugin]));
+  afterEach(() => deactivatePlugin(skyEditorPlugin.manifest.name));
+
   it("leaves the Sky panel out of the default layout and adds it beside the graph editors when shown", async () => {
-    const { ON_DEMAND_PANELS, activatePanel } = await import("./model");
-    expect(ON_DEMAND_PANELS).toContain("sky");
+    const { isOnDemand, activatePanel } = await import("./model");
+    expect(isOnDemand("sky")).toBe(true);
     const l = defaultLayout();
     expect(l.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))).not.toContain("sky");
     const shown = activatePanel(l, "sky");

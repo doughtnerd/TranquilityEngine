@@ -20,7 +20,6 @@ export function previewKind(path: string): PreviewKind | null {
   if (p.endsWith(".material.json")) return "material";
   if (p.endsWith(".shadergraph.json")) return "shadergraph";
   if (/\.(hdr|exr|env|dds)$/.test(p) || p.endsWith(".cubemap.json")) return "environment";
-  if (p.endsWith(".sky.json")) return "sky";
   if (p.endsWith(".particles.json")) return "particles";
   if (p.endsWith(".prefab.json")) return "prefab";
   if (p.endsWith(".scene.json")) return "scene";

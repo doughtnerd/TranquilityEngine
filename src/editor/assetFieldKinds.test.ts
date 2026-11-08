@@ -1,7 +1,13 @@
 // ADR 0131: which project files an asset field offers, from the kind it declares.
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ASSET_FIELD_KINDS, AssetRef, type AssetFieldKind } from "../engine/core/registry";
+import { skyEditorPlugin } from "../plugins/sky/editor";
 import { assetKindsOf, assetListId, assetsForKinds, isHiddenField } from "./assetFieldKinds";
+import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
+
+// Sky assets are the Sky plugin's (ADR 0134); its kind is `referencedAs` environment.
+beforeAll(() => activatePlugins([skyEditorPlugin]));
+afterAll(() => deactivatePlugin(skyEditorPlugin.manifest.name));
 
 const FILES = [
   "models/ship.glb",

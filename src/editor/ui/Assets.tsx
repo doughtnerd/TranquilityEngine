@@ -38,7 +38,6 @@ import { createUIDocument } from "../uiDocumentEdits";
 import { createFormation } from "../formationAssets";
 import { createTileset, createTilesetFromSlices, hasSlices } from "../tilesetAssets";
 import { createParticleBlock, createParticleEffect, createParticleSubgraph, openParticleGraphAsset } from "../particleAssets";
-import { createSky, openSkyAsset } from "../skyAssets";
 import { createShaderGraph, createShaderSubGraph, openShaderGraphAsset } from "../shaderGraphAssets";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
@@ -56,7 +55,6 @@ const KIND_LABELS: Record<BuiltinAssetKind | "folder", string> = {
   sprite: "Sprite",
   environment: "Environment",
   lut: "Colour LUT",
-  sky: "Sky",
   cubemap: "Cubemap",
   audio: "Audio",
   model: "Model",
@@ -138,12 +136,11 @@ function openEntry(entry: string): void {
   if (kind === "image") return openSpriteEditor(entry);
   if (kind === "shadergraph" || kind === "shadersubgraph") return openShaderGraphAsset(entry);
   if (kind === "particles" || kind === "particlesubgraph" || kind === "particleblock") return openParticleGraphAsset(entry);
-  if (kind === "sky") return openSkyAsset(entry);
   if (opensInCodePanel(kind)) openScript(entry);
   else if (kind === "scene" || kind === "prefab") void switchScene(entry);
 }
 
-const opens = (entry: string) => isFolderEntry(entry) || registeredKindOpens(assetKind(entry)) || opensInCodePanel(assetKind(entry)) || ["scene", "prefab", "image", "sprite", "shadergraph", "shadersubgraph", "particles", "particlesubgraph", "particleblock", "sky"].includes(assetKind(entry));
+const opens = (entry: string) => isFolderEntry(entry) || registeredKindOpens(assetKind(entry)) || opensInCodePanel(assetKind(entry)) || ["scene", "prefab", "image", "sprite", "shadergraph", "shadersubgraph", "particles", "particlesubgraph", "particleblock"].includes(assetKind(entry));
 
 /** Why `entries` can't be changed (renamed, moved, deleted), or null. */
 function whyNotEditable(project: EditorProject, entries: readonly string[]): string | null {
@@ -193,8 +190,6 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
     { label: "New Particle Effect", disabled: readOnly, run: () => void createParticleEffect(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Particle Sub-graph", disabled: readOnly, run: () => void createParticleSubgraph(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Particle Block", disabled: readOnly, run: () => void createParticleBlock(pasteFolder(entries)).then((made) => made && select([made])) },
-    // The menu has no submenus, so New Sky makes the default preset; the Sky panel switches presets.
-    { label: "New Sky", disabled: readOnly, run: () => void createSky(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Shader Sub Graph", disabled: readOnly, run: () => void createShaderSubGraph(pasteFolder(entries)).then((made) => made && select([made])) },
     // Create › Navigation › Formation (Foxfire's NavFormation asset, ADR 0065).
     { label: "New Navigation Formation", disabled: readOnly, run: () => void createFormation(pasteFolder(entries)).then((made) => made && select([made])) },
