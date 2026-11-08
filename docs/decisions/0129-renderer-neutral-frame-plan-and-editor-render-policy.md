@@ -71,7 +71,7 @@ no backend types.
 | `sceneView: boolean` | The view sees editor-only content, previews the scene camera's post-processing, shows the backdrop; UI clicks select rather than press buttons | `false` |
 | `drawPolicy: "batched" \| "perObject"` | `"perObject"` keeps a mesh per sprite (for picking and outlines); `"batched"` lets plain sprites batch (ADR 0108) | `"batched"` |
 | `cameraPreview: { camera, frame } \| null` | An extra view the caller contributes: a camera drawn into an inset, with its screen UI laid out at the inset's size | `null` |
-| `particlePreview: { shown(c: ParticleSystem): boolean } \| null` | Particles in preview mode: script commands ignored, only systems where `shown` is true play, at the preview speed (ADR 0057) | `null` (game rules) |
+| `particlePreview: { selected(node: GameObject): boolean } | null` | Particles in preview mode (ADR 0057): script commands ignored, only systems on selected nodes play (all with Simulate All), at the preview speed |\| null` | Particles in preview mode: script commands ignored, only systems where `shown` is true play, at the preview speed (ADR 0057) | `null` (game rules) |
 
 The renderer reads only this, never `fill`. `fill` stays on `BabylonSurface`, which uses it only for canvas sizing.
 
@@ -84,7 +84,7 @@ tools have loaded.
   mode when it reaches into the game World), the handle sets `drawPolicy: "perObject"`. Batching then depends on an
   explicit request, not on load timing.
 - **Scene view.** An editor World's handle (the eager one) also sets `sceneView` and `particlePreview`.
-- **No waiting for the tools.** `setCameraPreview` and `setSelection` (which feeds `particlePreview.shown`) go to
+- **No waiting for the tools.** `setCameraPreview`, `setParticlePreview`, `restartParticlePreview` and `setSelection` (which feeds `particlePreview.selected`) go to
   the port immediately. The adapter (`ViewportAdapter`) keeps only what the editor tools draw: grid, outlines,
   overlays, gizmos and queries.
 - **Test fake.** `fakeViewport.ts` gets a fake port so `ViewportHandle` tests check the policy it sets.
