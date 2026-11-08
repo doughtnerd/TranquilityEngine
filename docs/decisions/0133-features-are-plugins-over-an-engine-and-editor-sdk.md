@@ -1,6 +1,6 @@
 # 0133. Features are plugins, each with a runtime half and an editor half, built on a public engine and editor SDK
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0135 (game builds keep small classes of disabled first-party plugins)
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

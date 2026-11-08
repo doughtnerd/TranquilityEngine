@@ -1,6 +1,6 @@
 # 0135. Runtime halves activate through a context that registers Components, systems, World services and (internally) render features
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
