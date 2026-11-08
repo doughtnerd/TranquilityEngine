@@ -1,13 +1,12 @@
 /**
  * What the editor's Babylon preview renderers share (ADR 0061, 0075 stage 7): making an engine on a
  * canvas (WebGPU, else the WebGL2 fallback), a scene lit like the editor's default one, the studio
- * environment, loading project textures into a scene, and building material assets and shader graphs
- * as Babylon materials. Babylon types stay inside `render/babylon/` (ADR 0010).
+ * environment, and a preview scene's material library (the World renderer's, ADR 0127). Babylon types
+ * stay inside `render/babylon/` (ADR 0010).
  *
  * Previews draw straight into their engine's canvas and copy it (`drawImage`) into a 2D canvas in the
  * same task: a WebGPU canvas can't be read after it's presented, but it can be right after drawing.
- * Colours: the scene's own image processing converts linear light to sRGB with no tone mapping, like
- * the three.js previews' `WebGLRenderer` defaults.
+ * Colours: the scene's own image processing converts linear light to sRGB with no tone mapping.
  */
 import "../register";
 import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
@@ -15,25 +14,16 @@ import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
-import type { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
-import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture.js";
-import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../../scene/Assets";
-import type { ImportSettings } from "../../../scene/importSettings";
-import { materialGraph, parseMaterial, type MaterialSettings } from "../../../scene/material";
-import { parseShaderGraph, type GraphValue, type ShaderGraph } from "../../../scene/shaderGraph";
-import { Graphics } from "../../Graphics";
-import { compileShaderGraph, type CompiledShaderGraph } from "../../shaderGraph/compile";
-import { compileShaderAsset, type ShaderAssetSources } from "../../shaderGraph/shaderAsset";
-import { isShaderAssetPath, parseShaderAsset } from "../../../scene/shaderAsset";
-import type { KeywordValue } from "../../../scene/shaderKeywords";
-import { createGraphMaterial, type GraphShared } from "../graphMaterial";
-import { applyBuiltinSettings, builtinTextureSlots, pbr, tiledTexture } from "../materials";
+import { parseMaterial, type MaterialSettings } from "../../../scene/material";
+import { parseShaderGraph, type ShaderGraph } from "../../../scene/shaderGraph";
+import type { GraphShared } from "../graphMaterial";
+import { BabylonMaterialLibrary } from "../materialLibrary";
 import { studioHdrUrl } from "../studioEnvironment";
 
 /** What a thumbnail's lights are (the editor's default scene: soft ambient, a sun, the studio room). */
@@ -162,48 +152,24 @@ export function aimCamera(camera: TargetCamera, eye: readonly number[], target: 
   camera.rotationQuaternion = lookAtRotation(eye, target);
 }
 
-// --- project textures -------------------------------------------------------------------------------
+// --- materials and textures ------------------------------------------------------------------------
 
-function samplingMode(settings: ImportSettings): number {
-  const point = settings.filter === "point";
-  if (!settings.mipmaps) return point ? Texture.NEAREST_SAMPLINGMODE : Texture.BILINEAR_SAMPLINGMODE;
-  return point ? Texture.NEAREST_NEAREST_MIPNEAREST : Texture.TRILINEAR_SAMPLINGMODE;
-}
+const warned = new Set<string>();
 
 /**
- * How a project texture is read: `color` as a material's image (Babylon decodes sRGB in the shader),
- * `graphColor` for shader graph code, which samples it raw (sRGB decoded by the hardware), and
- * `graphData` for data (normal maps) left linear.
+ * A preview scene's material library (ADR 0127): the World renderer's materials and textures, built the
+ * same way, as saved (no script Material values). Warnings show once per editor session; `quiet` drops
+ * them (thumbnails, which warn once themselves when they can't draw an asset).
  */
-export type TextureUse = "color" | "graphColor" | "graphData";
-
-/** Load a project image into `scene`, with its import settings (ADR 0040). Rejects if it can't be read. */
-export function loadTexture(scene: Scene, path: string, use: TextureUse = "color"): Promise<Texture> {
-  return new Promise<Texture>((resolve, reject) => {
-    let url: string;
-    try {
-      url = Assets.url(path);
-    } catch (err) {
-      reject(err);
-      return;
-    }
-    const settings = Assets.importSettings(path);
-    const graph = use !== "color";
-    const tex: Texture = new Texture(url, scene, {
-      noMipmap: !settings.mipmaps,
-      invertY: true,
-      samplingMode: samplingMode(settings),
-      ...(graph ? { useSRGBBuffer: use === "graphColor", gammaSpace: false } : {}),
-      onLoad: () => {
-        const wrap = settings.wrap === "repeat" ? Texture.WRAP_ADDRESSMODE : settings.wrap === "mirror" ? Texture.MIRROR_ADDRESSMODE : Texture.CLAMP_ADDRESSMODE;
-        tex.wrapU = tex.wrapV = wrap;
-        resolve(tex);
-      },
-      onError: (message) => {
-        tex.dispose();
-        reject(new Error(message ?? `couldn't load ${path}`));
-      },
-    });
+export function previewMaterials(scene: Scene, shared: GraphShared, quiet = false): BabylonMaterialLibrary {
+  return new BabylonMaterialLibrary(scene, {
+    shared,
+    scriptMaterials: false,
+    warn: (key, message) => {
+      if (quiet || warned.has(key)) return;
+      warned.add(key);
+      console.warn(`[myco] preview: ${message}`);
+    },
   });
 }
 
@@ -219,25 +185,6 @@ export function readMaterial(path: string): MaterialSettings | null {
 }
 
 /** A shader graph asset, or null if it can't be read. */
-/** A shader asset (ADR 0106) compiled for previews, its code files read through `Assets`. Throws if it isn't one. */
-export function readShaderAsset(path: string): CompiledShaderGraph {
-  const { shader } = parseShaderAsset(Assets.json(path), path);
-  const sources: ShaderAssetSources = {};
-  const deps: string[] = [];
-  for (const lang of ["wgsl", "glsl"] as const) {
-    const code = shader[lang];
-    if (!code) continue;
-    if ("code" in code) sources[lang] = code.code;
-    else {
-      const file = code.file.replace(/^asset:/, "");
-      deps.push(file);
-      const text = Assets.has(file) ? Assets.get(file) : undefined;
-      if (typeof text === "string") sources[lang] = text;
-    }
-  }
-  return compileShaderAsset(shader, sources, deps);
-}
-
 export function readGraph(path: string): ShaderGraph | null {
   try {
     return parseShaderGraph(Assets.json(path), path).graph;
@@ -248,94 +195,3 @@ export function readGraph(path: string): ShaderGraph | null {
 
 /** True if a shader graph reads the Time node, so its preview moves. */
 export const usesTime = (graph: ShaderGraph | null): boolean => !!graph?.nodes.some((n) => n.type === "time");
-
-/** A material built for a preview, and how to free it. */
-export interface PreviewMaterial {
-  material: BabylonMaterial;
-  dispose(): void;
-}
-
-/** A material asset (by path), or a shader graph with property values. */
-export type MaterialSource = string | { graph: string; properties: Record<string, GraphValue> };
-
-let warnedWebGL = false;
-
-/**
- * A material asset or shader graph built as a Babylon material in `scene`, its textures loaded (a
- * texture that can't be read leaves its slot empty). Graph materials are compiled to WGSL; on the WebGL2
- * fallback they draw as plain PBR (one warning). Throws if the asset isn't a material or graph.
- */
-export async function buildPreviewMaterial(scene: Scene, source: MaterialSource, shared: GraphShared): Promise<PreviewMaterial> {
-  let graphPath: string | null;
-  let properties: Record<string, GraphValue>;
-  let keywords: Record<string, KeywordValue> = {};
-  let settings: MaterialSettings | null = null;
-  if (typeof source === "string") {
-    settings = readMaterial(source);
-    if (!settings) throw new Error(`"${source}" isn't a material.`);
-    graphPath = materialGraph(settings);
-    properties = settings.properties;
-    keywords = settings.keywords;
-  } else {
-    graphPath = source.graph;
-    properties = source.properties;
-  }
-  if (graphPath) {
-    const where = graphPath.replace(/^asset:/, "");
-    let compiled: CompiledShaderGraph;
-    if (isShaderAssetPath(where)) {
-      // A hand-written shader asset (ADR 0106): its code files read as text.
-      compiled = readShaderAsset(where);
-    } else {
-      const graph = readGraph(where);
-      if (!graph) throw new Error(`shader graph "${graphPath}" can't be read.`);
-      if (!scene.getEngine().isWebGPU && !warnedWebGL) {
-        warnedWebGL = true;
-        console.warn("[myco] shader graph previews need WebGPU on the Babylon backend; on the WebGL2 fallback they draw as plain PBR.");
-      }
-      compiled = compileShaderGraph(graph, { shaderLevel: Graphics.tier.shaderLevel });
-    }
-    const pending: Promise<unknown>[] = [];
-    const made = createGraphMaterial(scene, `preview:${where}`, compiled, properties, shared, (p, linear) => {
-      const t = loadTexture(scene, p, linear ? "graphData" : "graphColor");
-      pending.push(t.catch(() => undefined));
-      return t;
-    });
-    made.setKeywords(keywords);
-    await Promise.all(pending);
-    await Promise.resolve(); // the slots are set as their promises settle: give them a turn
-    return { material: made.material, dispose: () => made.dispose() };
-  }
-  const s = settings!;
-  const m = pbr(`preview:${typeof source === "string" ? source : "material"}`, scene);
-  applyBuiltinSettings(m, s);
-  const owned: Texture[] = [];
-  const load = async (ref: string, apply: (t: Texture) => void) => {
-    const image = ref.replace(/^asset:/, "");
-    if (!image) return;
-    try {
-      const { texture, owned: own } = tiledTexture(await loadTexture(scene, image, "color"), s.tiling);
-      if (own) owned.push(texture);
-      apply(texture);
-    } catch (err) {
-      console.warn(`[myco] preview: couldn't load "${image}":`, (err as Error).message);
-    }
-  };
-  await Promise.all(builtinTextureSlots(m, s).map((slot) => load(slot.image, slot.apply)));
-  return {
-    material: m,
-    dispose: () => {
-      m.dispose(false, true);
-      owned.forEach((t) => t.dispose());
-    },
-  };
-}
-
-/** A default white-ish PBR material for meshes without one. */
-export function defaultPreviewMaterial(scene: Scene): PBRMaterial {
-  const m = pbr("preview.default", scene);
-  m.albedoColor = new Color3(1, 1, 1);
-  m.metallic = 0;
-  m.roughness = 0.5;
-  return m;
-}

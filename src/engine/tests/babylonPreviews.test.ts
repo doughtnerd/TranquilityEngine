@@ -111,7 +111,7 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
         const p = (await renderer.prepare(kind, path, true))!;
         expect(p).not.toBeNull();
         expect(p.scene.meshes).toHaveLength(1);
-        expect(p.scene.meshes[0].material?.name).toMatch(/^preview:/);
+        expect(p.scene.meshes[0].material?.name).toMatch(/^graph:g\.shadergraph\.json$/); // built by the preview scene's material library (ADR 0127)
         expect(p.step).toBeTypeOf("function");
         p.step!(0.1);
         p.dispose();
@@ -140,8 +140,8 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       const plain = (await renderer.prepare("particles", "c.particles.json", false))!;
       const withMaterial = (await renderer.prepare("particles", "cm.particles.json", false))!;
       expect(systems(withMaterial.scene)).toHaveLength(systems(plain.scene).length - 1);
-      expect(withMaterial.scene.meshes.some((m) => m.material?.name === "preview:m.material.json")).toBe(true);
-      expect(plain.scene.meshes.some((m) => m.material?.name === "preview:m.material.json")).toBe(false);
+      expect(withMaterial.scene.meshes.some((m) => m.material?.name === "material:asset:m.material.json")).toBe(true);
+      expect(plain.scene.meshes.some((m) => m.material?.name === "material:asset:m.material.json")).toBe(false);
       plain.dispose();
       withMaterial.dispose();
     });

@@ -12,7 +12,6 @@ import { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture.js";
-import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
@@ -23,13 +22,14 @@ import { Graphics } from "../../Graphics";
 import { compileShaderGraph, type CompiledShaderGraph } from "../../shaderGraph/compile";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "../graphMaterial";
 import { meshOf } from "../materials";
+import type { BabylonMaterialLibrary } from "../materialLibrary";
 import {
   addPreviewLights,
   aimCamera,
   createPreviewEngine,
   createPreviewScene,
   createStudioTexture,
-  loadTexture,
+  previewMaterials,
   renderFrame,
   useWhenReady,
 } from "./common";
@@ -56,8 +56,8 @@ export class MaterialPreview {
   private readonly shared: GraphShared = { time: 0, resolution: [1, 1] };
   private readonly resizeObserver: ResizeObserver;
   private graph: BabylonGraphMaterial | null = null;
-  /** Textures this preview loaded, freed when the graph is rebuilt. */
-  private textures: Promise<Texture>[] = [];
+  /** The textures the graph loaded (ADR 0127), freed when it's rebuilt, so changed images load anew. */
+  private library: BabylonMaterialLibrary | null = null;
   private kind: PreviewMesh = "sphere";
   /** What `setGraph` last drew, to rebuild when the quality tier changes a Quality Branch. */
   private last: { graph: ShaderGraph; properties: Record<string, GraphValue>; compiled: CompiledShaderGraph; usesShaderLevel: boolean; version: number } | null = null;
@@ -152,21 +152,14 @@ export class MaterialPreview {
     this.graph?.dispose();
     this.shaderFailed = false;
     this.onShaderError?.(null);
-    this.freeTextures();
-    this.graph = createGraphMaterial(scene, "preview.graph", compiled, properties, this.shared, (p, linear) => {
-      const t = loadTexture(scene, p, linear ? "graphData" : "graphColor");
-      this.textures.push(t);
-      return t;
-    });
+    this.library?.dispose();
+    const library = (this.library = previewMaterials(scene, this.shared));
+    this.graph = createGraphMaterial(scene, "preview.graph", compiled, properties, this.shared, (p, linear) => library.texture(p, linear ? "graphData" : "graphColor"));
     watchShaderErrors(this.graph, (message) => {
       this.shaderFailed = true;
       this.onShaderError?.(message);
     });
     if (this.mesh) this.mesh.material = this.graph.material;
-  }
-
-  private freeTextures(): void {
-    for (const t of this.textures.splice(0)) void t.then((x) => x.dispose(), () => undefined);
   }
 
   /** Forget loaded textures (the project's images changed): the graph loads them again. */
@@ -229,7 +222,7 @@ export class MaterialPreview {
     this.resizeObserver.disconnect();
     this.canvas.removeEventListener("pointerdown", this.onPointerDown);
     this.graph?.dispose();
-    this.freeTextures();
+    this.library?.dispose();
     this.studio?.dispose();
     this.scene?.dispose();
     this.engine?.dispose();
@@ -250,8 +243,8 @@ export class NodePreviewRenderer {
   private readonly shapes = new Map<NodePreviewShape, Mesh>();
   private readonly shared: GraphShared = { time: 0, resolution: [1, 1] };
   private readonly canvas: HTMLCanvasElement;
-  /** Compiled graphs and their materials by the graph's JSON; ones not drawn in a pass are freed. */
-  private readonly entries = new Map<string, { compiled: CompiledShaderGraph; graph: BabylonGraphMaterial; used: boolean; failed: boolean }>();
+  /** Compiled graphs, their materials and textures (ADR 0127) by the graph's JSON; ones not drawn in a pass are freed. */
+  private readonly entries = new Map<string, { compiled: CompiledShaderGraph; graph: BabylonGraphMaterial; library: BabylonMaterialLibrary; used: boolean; failed: boolean }>();
   private readonly start = performance.now();
   private disposed = false;
 
@@ -330,8 +323,11 @@ export class NodePreviewRenderer {
     let e = this.entries.get(key);
     if (!e) {
       const compiled = compileShaderGraph(graph, { shaderLevel: level });
-      const made = createGraphMaterial(scene, "preview.node", compiled, {}, this.shared, (p, linear) => loadTexture(scene, p, linear ? "graphData" : "graphColor"));
-      const entry = { compiled, graph: made, used: true, failed: false };
+      // A library per entry, freed with it: a new preview graph loads the project's images afresh (as it did
+      // before ADR 0127), instead of one renderer-long cache that never sees an image change.
+      const library = previewMaterials(scene, this.shared);
+      const made = createGraphMaterial(scene, "preview.node", compiled, {}, this.shared, (p, linear) => library.texture(p, linear ? "graphData" : "graphColor"));
+      const entry = { compiled, graph: made, library, used: true, failed: false };
       watchShaderErrors(made, () => (entry.failed = true));
       this.entries.set(key, entry);
       e = entry;
@@ -356,13 +352,17 @@ export class NodePreviewRenderer {
     for (const [k, e] of this.entries) {
       if (e.used) continue;
       e.graph.dispose();
+      e.library.dispose();
       this.entries.delete(k);
     }
   }
 
   dispose(): void {
     this.disposed = true;
-    for (const e of this.entries.values()) e.graph.dispose();
+    for (const e of this.entries.values()) {
+      e.graph.dispose();
+      e.library.dispose();
+    }
     this.entries.clear();
     this.scene?.dispose();
     this.engine?.dispose();

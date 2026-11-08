@@ -1,3 +1,4 @@
+import { viewport } from "../engine/editor";
 import { Camera, DEG2RAD, GameBehavior, GameObject, Input, Mathf, Vector3, behavior, field, type Vec3Input } from "../engine";
 
 export type ViewMode = "3d" | "2d";
@@ -61,7 +62,7 @@ export class OrbitCamera extends GameBehavior {
       ({ yaw: this.yaw, pitch: this.pitch } = this.saved3D);
     }
     this._mode = mode;
-    this.world.render?.setEditorGridPlane(mode === "2d" ? "xy" : "xz");
+    viewport(this.world).setGrid({ plane: mode === "2d" ? "xy" : "xz" });
     this.apply();
   }
 

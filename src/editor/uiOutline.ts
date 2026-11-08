@@ -4,7 +4,7 @@
 // boxes come from the UI core's layout (ADR 0076). The
 // resize handles and reorder marker are `uiHandles.ts`, in an overlay of their own above this one.
 import type { Engine } from "../engine";
-import { uiElementOutline, viewportCanvas } from "../engine/editor";
+import { viewport, viewportCanvas } from "../engine/editor";
 import { viewportElements } from "./ui/ScenePanel";
 import { openScene } from "./state";
 import { resolveUIElement, selectedUIRef } from "./uiDocuments";
@@ -31,7 +31,7 @@ export function installUIElementOutline(engine: Engine): () => void {
     const scene = openScene.peek(), ref = selectedUIRef();
     const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;
     const canvas = viewportCanvas(world);
-    const points = el && canvas && el.node.activeInHierarchy ? uiElementOutline(world, el.component) : null;
+    const points = el && canvas && el.node.activeInHierarchy ? (viewport(world).uiElementBox(el.component)?.points ?? null) : null;
     let attr = "";
     if (points && canvas) {
       const c = canvas.getBoundingClientRect(), h = host.getBoundingClientRect();

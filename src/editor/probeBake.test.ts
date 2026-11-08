@@ -42,7 +42,7 @@ describe("bakeProbe", () => {
     const commands: SetField[] = [];
     const path = await bakeProbe({
       project, scenePath: "main.scene.json", node, nodeId: "n1", hasNode: () => true,
-      surface: { bakeReflectionProbe: async () => { log.push("bake"); return new Uint8Array([7, 8]).buffer; } },
+      viewport: { bakeReflectionProbe: async () => { log.push("bake"); return new Uint8Array([7, 8]).buffer; } },
       execute: (c) => { log.push("edit"); commands.push(c); },
     });
     expect(path).toBe("probes/main-Lobby.env");
@@ -57,7 +57,7 @@ describe("bakeProbe", () => {
     const commands: unknown[] = [];
     await expect(bakeProbe({
       project, scenePath: "main.scene.json", node, nodeId: "n1", hasNode: () => true,
-      surface: { bakeReflectionProbe: async () => { throw new Error("probes are off"); } },
+      viewport: { bakeReflectionProbe: async () => { throw new Error("probes are off"); } },
       execute: (c) => commands.push(c),
     })).rejects.toThrow("probes are off");
     expect(commands).toEqual([]);

@@ -4,8 +4,8 @@
 import { effect } from "@preact/signals";
 import type { Engine, Tilemap } from "../../engine";
 import { Quat } from "../../engine/core/math";
-import { addEditorOverlay, pointOnPlane, removeEditorOverlay, viewportCanvas } from "../../engine/editor";
-import type { EditorOverlay } from "../../engine/render/RenderSurface";
+import { addEditorOverlay, removeEditorOverlay, viewport, viewportCanvas } from "../../engine/editor";
+import type { EditorOverlay } from "../../engine/editor";
 import type { Cell } from "../../engine/tilemap/brushes";
 import { isEditable } from "../editable";
 import { openScene, playState, selectedPath, selectedWorldNode, selection, tool } from "../state";
@@ -30,7 +30,7 @@ export function cellAt(map: Tilemap, x: number, y: number): Cell | null {
   if (!t) return null;
   const n = Quat.rotate(t.worldRotation, { x: 0, y: 0, z: 1 });
   const p = t.worldPosition;
-  const hit = pointOnPlane(map.node.world, x, y, [n.x, n.y, n.z], [p.x, p.y, p.z]);
+  const hit = viewport(map.node.world).pointOnPlane(x, y, [n.x, n.y, n.z], [p.x, p.y, p.z]);
   if (!hit) return null;
   const c = map.worldToCell({ x: hit[0], y: hit[1], z: hit[2] });
   return [c.x, c.y];

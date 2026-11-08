@@ -5,7 +5,7 @@
 // webview takes over on Windows for its own file drops.
 import { errorStatus } from "./messages";
 import { signal } from "@preact/signals";
-import { pointOnGround, pointOnSpritePlane } from "../engine/editor";
+import { viewport } from "../engine/editor";
 import type { SceneDocument } from "./document";
 import { addAsset, fileName, prepareAssets, whyNotAddable } from "./assetBrowser";
 import { entryPath, isFolderEntry } from "./assetDelete";
@@ -98,7 +98,7 @@ export function hierarchyTargetAt(clientX: number, clientY: number): AssetDropTa
 export function viewportDropPoint(x: number, y: number): [number, number, number] {
   const camera = sceneCamera.value;
   if (!camera) return [0, 0, 0];
-  const hit = viewMode.value === "3d" ? pointOnGround(camera.world, x, y) : pointOnSpritePlane(camera.world, x, y);
+  const hit = viewMode.value === "3d" ? viewport(camera.world).pointOnPlane(x, y, [0, 1, 0], [0, 0, 0]) : viewport(camera.world).pointOnPlane(x, y, [0, 0, 1], [0, 0, 0]);
   return hit ?? (camera.focusPoint.toArray() as [number, number, number]);
 }
 

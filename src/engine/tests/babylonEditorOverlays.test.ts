@@ -12,7 +12,7 @@ import { Assets, Camera, Engine, GameObject, Light, ParticleSystem, SceneManager
 import type { BabylonEditorContext, EditorMesh, EditorSprite } from "../render/babylon/editorContext";
 import { EDITOR_LAYER_MASK } from "../render/babylon/editorContext";
 import { BabylonEditorOverlays, gridDivisions, lightSegments } from "../render/babylon/editorOverlays";
-import type { EditorOverlay } from "../render/RenderSurface";
+import type { EditorOverlay } from "../render/editorViewport";
 
 describe("Babylon editor overlays (ADR 0075 stage 8)", () => {
   let engine: Engine;

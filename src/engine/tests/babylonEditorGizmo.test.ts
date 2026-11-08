@@ -15,7 +15,7 @@ import { Assets, Engine, GameObject, SceneManager } from "../index";
 import type { LocalPose } from "../render/gizmoMath";
 import { BabylonEditorGizmo, gizmoRootScale } from "../render/babylon/editorGizmo";
 import type { BabylonEditorContext } from "../render/babylon/editorContext";
-import type { GizmoHandlers, GizmoOptions } from "../render/RenderSurface";
+import type { GizmoHandlers, GizmoOptions } from "../render/editorViewport";
 
 const base: GizmoOptions = { mode: "translate", planar: false, snap: false };
 

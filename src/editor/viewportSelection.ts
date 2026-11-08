@@ -9,7 +9,7 @@
 // outlined in the viewport, and the scene camera's F key frames it.
 import { effect } from "@preact/signals";
 import type { Engine, GameObject } from "../engine";
-import { gizmoActive, pick, pickUI, pickUICanvases, pointOnSpritePlane, screenBounds, setSelectionOutline, viewportCanvas, worldToCanvas, type ScreenRect } from "../engine/editor";
+import { type ScreenRect, viewport, viewportCanvas } from "../engine/editor";
 import type { UIComponentType } from "../engine/ui/components";
 import { colliderShapes } from "./colliderGizmo";
 import { pointInPolygon, polygonArea } from "./colliderMath";
@@ -179,10 +179,7 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
   // Outline the selection; re-run when it changes or the document is edited (nodes may be rebuilt).
   const stopOutline = effect(() => {
     docVersion.value;
-    setSelectionOutline(
-      world,
-      selectedNodes().map((s) => s.node),
-    );
+    viewport(world).setSelection(selectedNodes().map((s) => s.node));
   });
 
   const canvas = viewportCanvas(world);
@@ -205,7 +202,7 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
   /** What each node covers on the canvas: its renderers or origin, and its colliders. */
   const boundsUnderScene = () => {
     const root = openScene.value?.sync.sceneNode;
-    return root ? [...screenBounds(world, root), ...colliderBounds(shapes(), (p) => worldToCanvas(world, p))].filter((b) => pickable(b.node)) : [];
+    return root ? [...viewport(world).screenBounds(root), ...colliderBounds(shapes(), (p) => viewport(world).worldToCanvas(p))].filter((b) => pickable(b.node)) : [];
   };
   /** False for nodes locked in the hierarchy (by themselves or an ancestor): the viewport can't pick them. */
   const pickable = (node: GameObject) => {
@@ -241,7 +238,7 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
   const onDown = (e: PointerEvent) => {
     // Presses on a gizmo handle drag the gizmo; they never change the selection.
     const p = sample(e);
-    down = e.button === 0 && !gizmoActive(world, p.x, p.y) ? { ...p, pointerId: e.pointerId, ui: !e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && pressOnSelectedUI(world, [p.x, p.y]) } : null;
+    down = e.button === 0 && !viewport(world).gizmoActiveAt(p.x, p.y) ? { ...p, pointerId: e.pointerId, ui: !e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey && pressOnSelectedUI(world, [p.x, p.y]) } : null;
   };
   const onMove = (e: PointerEvent) => {
     if (!down || down.alt || down.ui || !openScene.value) return;
@@ -277,13 +274,13 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
     if (!isPlainClick(start, p)) return;
     // UI under the pointer first (ADR 0077: drawn over the scene; its elements topmost first), then
     // colliders containing the pointer (smallest first), then renderers under it (topmost first).
-    const inColliders = colliderHits(shapes(), (z) => pointOnSpritePlane(world, p.x, p.y, z));
-    const hits = hitIds([...inColliders, ...pick(world, p.x, p.y)].filter(pickable), (n) => scene.sync.nodeIdOf(n));
+    const inColliders = colliderHits(shapes(), (z) => viewport(world).pointOnPlane(p.x, p.y, [0, 0, 1], [0, 0, z]));
+    const hits = hitIds([...inColliders, ...viewport(world).pick(p.x, p.y)].filter(pickable), (n) => scene.sync.nodeIdOf(n));
     const mode: SelectMode = selectModeFor(e);
     if (mode === "replace") {
       const sameSpot = lastClick !== null && Math.hypot(p.x - lastClick.x, p.y - lastClick.y) < CLICK_SLOP;
-      const { painted, bare } = partitionUIHits(pickUI(world, p.x, p.y));
-      const all = orderClickHits(uiHitKeys(painted, scene.sync, pickable), hits, uiHitKeys([...bare, ...pickUICanvases(world, p.x, p.y)], scene.sync, pickable)); // canvases last (ADR 0117)
+      const { painted, bare } = partitionUIHits(viewport(world).pickUI(p.x, p.y));
+      const all = orderClickHits(uiHitKeys(painted, scene.sync, pickable), hits, uiHitKeys([...bare, ...viewport(world).pickUICanvases(p.x, p.y)], scene.sync, pickable)); // canvases last (ADR 0117)
       applyClickSelection(chooseSelection(all, selectedUIElement.peek() ?? selection.peek(), sameSpot));
     } else if (hits.length > 0) {
       select(combineSelection(selectedKeys.peek(), [hits[0]], mode));

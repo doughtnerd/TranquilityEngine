@@ -1,7 +1,7 @@
 // Baking a ReflectionProbe from the Inspector (ADR 0110): capture the probe in the editor's World,
 // write the prefiltered `.env` next to the scene, then point the probe at it through an undoable edit.
 import { ReflectionProbe } from "../engine";
-import type { RenderSurface } from "../engine/render/RenderSurface";
+import { viewport, type EditorViewport } from "../engine/editor";
 import type { GameObject } from "../engine/scene/GameObject";
 import { freePath } from "./assetOps";
 import { SetField } from "./document";
@@ -31,7 +31,8 @@ export function probeBakePath(project: EditorProject, scenePath: string, nodeNam
 export interface ProbeBakeDeps {
   project: EditorProject;
   scenePath: string;
-  surface: Pick<RenderSurface, "bakeReflectionProbe">;
+  /** The editor World's viewport, which captures the probe. */
+  viewport: Pick<EditorViewport, "bakeReflectionProbe">;
   node: GameObject;
   /** Called with the new field edits (the scene's undoable stack in the editor). */
   execute: (command: SetField) => void;
@@ -45,7 +46,7 @@ export async function bakeProbe(d: ProbeBakeDeps): Promise<string> {
   const probe = d.node.getComponent(ReflectionProbe);
   if (!probe) throw new Error(`${d.node.name} has no ReflectionProbe.`);
   const path = probeBakePath(d.project, d.scenePath, d.node.name, probe.bakedMap);
-  const bytes = await d.surface.bakeReflectionProbe(probe);
+  const bytes = await d.viewport.bakeReflectionProbe(probe);
   await d.project.writeBinary(path, new Uint8Array(bytes));
   if (d.hasNode(d.nodeId)) {
     if (assetPathOf(probe.bakedMap) !== path) d.execute(new SetField(d.nodeId, REFLECTION_PROBE, "bakedMap", `asset:${path}`));
@@ -59,10 +60,9 @@ export async function bakeOpenSceneProbe(scene: OpenScene, nodeId: string, proje
   const node = scene.sync.nodeFor([nodeId]);
   if (!node) return;
   try {
-    const surface = scene.sync.world.render;
-    if (!surface) throw new Error("The editor has no renderer to capture with.");
+    if (!scene.sync.world.render) throw new Error("The editor has no renderer to capture with.");
     const path = await bakeProbe({
-      project, scenePath: scene.path, surface, node, nodeId,
+      project, scenePath: scene.path, viewport: viewport(scene.sync.world), node, nodeId,
       execute: (c) => scene.stack.execute(c), hasNode: (id) => scene.doc.has(id),
     });
     status.value = { kind: "info", text: `Baked ${node.name}: ${path}.` };

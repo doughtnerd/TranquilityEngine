@@ -7,7 +7,7 @@
 import { signal } from "@preact/signals";
 import { Connection, GameObject, Replicated, type Engine } from "../engine";
 import type { World } from "../engine/core/World";
-import { engineWorld, instantiatedPrefabOf, listComponents, listNodes, sceneSourceOf, setSelectionOutline, writeField, type ComponentInfo } from "../engine/editor";
+import { type ComponentInfo, engineWorld, instantiatedPrefabOf, listComponents, listNodes, sceneSourceOf, viewport, writeField } from "../engine/editor";
 import { SetField, pathKey, type NodePath, type SceneDocument } from "./document";
 import { editorFor, toSceneJSON } from "./fieldValues";
 import { findInner } from "./prefabs";
@@ -165,8 +165,8 @@ let highlighted: World | null = null;
 export function highlightLive(engine: Engine | null, worldName: string | null, node: GameObject | null): void {
   const world = engine && worldName ? engineWorld(engine, worldName) : null;
   try {
-    if (highlighted && highlighted !== world) setSelectionOutline(highlighted, []);
-    if (world) setSelectionOutline(world, node?.isValid ? [node] : []);
+    if (highlighted && highlighted !== world) viewport(highlighted).setSelection([]);
+    if (world) viewport(world).setSelection(node?.isValid ? [node] : []);
   } catch (err) {
     console.warn("[myco] Couldn't outline the live selection:", err); // a World torn down meanwhile
   }

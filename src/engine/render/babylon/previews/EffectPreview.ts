@@ -4,8 +4,8 @@
  * ground grid, an orbit camera (drag to turn, wheel to zoom), and our own `EffectSimulation` drawn as
  * in a World (`particleDraw.ts`: Babylon particle systems, or meshes for mesh and trail modes and
  * material assets). It mirrors what `BabylonParticles` does for a World's ParticleSystem (build, delays,
- * one-shot repeat) but without a World. Material assets are built here (`buildPreviewMaterial`), lit by
- * the preview's own soft lights.
+ * one-shot repeat) but without a World. Material assets come from the preview scene's material library (ADR
+ * 0127), lit by the preview's own soft lights.
  *
  * The engine starts asynchronously (WebGPU needs `initAsync`), so the constructor returns at once; a
  * program set before that is built when it's up.
@@ -25,12 +25,14 @@ import type { ParticleProgram } from "../../../scene/particleCompile";
 import { ProgramRunner, playTimes } from "../../particles/programRunner";
 import { EffectSimulation } from "../../particles/simulation";
 import type { ParticleEffectPreviewApi, PreviewBackground } from "../../previewTypes";
+import type { Material } from "@babylonjs/core/Materials/material.js";
 import type { GraphShared } from "../graphMaterial";
 import { copyParticles, createDotTexture, makeDraw, type Draw } from "../particleDraw";
 import { chooseBackend, compileParticleKernels } from "../../../scene/particleKernel";
 import { KernelEffect } from "../../particles/gpu/kernelEffect";
 import { BabylonKernelHost, KernelDraw, SceneDepth } from "../gpuParticles";
-import { addPreviewLights, aimCamera, buildPreviewMaterial, createPreviewEngine, createPreviewScene, loadTexture, renderFrame, type PreviewMaterial } from "./common";
+import { addPreviewLights, aimCamera, createPreviewEngine, createPreviewScene, previewMaterials, renderFrame } from "./common";
+import type { BabylonMaterialLibrary } from "../materialLibrary";
 
 export type { PreviewBackground } from "../../previewTypes";
 
@@ -51,7 +53,7 @@ const WHITE: [number, number, number, number] = [1, 1, 1, 1];
 /** An emitter texture: loading, failed (the dot stands in), or ready. */
 type TextureState = Promise<unknown> | "failed" | Texture;
 /** An emitter's material asset: loading, failed (its texture and blending stand in), or built. */
-type MaterialState = Promise<unknown> | "failed" | PreviewMaterial;
+type MaterialState = Promise<unknown> | "failed" | Material;
 
 /** A GridHelper(20, 20): a line every unit over [-10, 10] on the ground, the two through the origin in `center`. */
 function gridLines(scene: Scene, center: string, other: string): LinesMesh {
@@ -86,6 +88,8 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
   private readonly resizeObserver: ResizeObserver;
   private readonly textures = new Map<string, TextureState>();
   private readonly materials = new Map<string, MaterialState>();
+  /** The scene's materials and textures (ADR 0127). */
+  private library: BabylonMaterialLibrary | null = null;
   private readonly shared: GraphShared = { time: 0, resolution: [1, 1] };
   private dot: RawTexture | null = null;
 
@@ -141,6 +145,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
       scene.activeCamera = camera;
       addPreviewLights(scene, 0.35, 1); // for lit material assets (Babylon's particle systems and the unlit material ignore them)
       this.scene = scene;
+      this.library = previewMaterials(scene, this.shared);
       this.camera = camera;
       this.background = this._background;
       this.resize();
@@ -232,8 +237,8 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
     this.clearEmitters();
     this.depth?.dispose();
     this.textures.clear();
-    for (const m of this.materials.values()) if (typeof m === "object" && !(m instanceof Promise)) m.dispose();
     this.materials.clear();
+    this.library?.dispose();
     this.scene?.dispose(); // the grid, textures, particle systems and meshes go with it
     this.engine?.dispose();
     this.canvas.remove();
@@ -256,10 +261,9 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
 
   /** An emitter's texture: undefined while it loads (the load starts), null if it failed, else the texture. */
   private texture(path: string): Texture | null | undefined {
-    const scene = this.scene!;
     const have = this.textures.get(path);
     if (have === undefined) {
-      const p = loadTexture(scene, path, "color").then(
+      const p = this.library!.texture(path).then(
         (tex) => this.textures.set(path, tex),
         (err: Error) => {
           console.warn(`[myco] preview: couldn't load particle texture "${path}": ${err.message}`);
@@ -275,19 +279,19 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
   }
 
   /** An emitter's material asset: undefined while it builds (the build starts), null if it failed, else the material. */
-  private material(path: string): PreviewMaterial | null | undefined {
+  private material(path: string): Material | null | undefined {
     const have = this.materials.get(path);
     if (have === undefined) {
-      const p = buildPreviewMaterial(this.scene!, path, this.shared).then(
-        (m) => {
-          if (this.disposed) m.dispose();
-          else this.materials.set(path, m);
-        },
-        (err: Error) => {
-          console.warn(`[myco] preview: couldn't build particle material "${path}": ${err.message}`);
-          this.materials.set(path, "failed");
-        },
-      );
+      const library = this.library!;
+      const m = library.material(path);
+      if (!m) {
+        this.materials.set(path, "failed"); // the library warned
+        return null;
+      }
+      // Its textures first, so the emitters build once with them.
+      const p = library.settled().then(() => {
+        if (!this.disposed) this.materials.set(path, m);
+      });
       this.materials.set(path, p);
       return undefined;
     }
@@ -337,7 +341,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
     this.sim = sim;
     this.draws = sim.emitters.map((e) => {
       const r = e.renderer;
-      const material = (r.material ? this.material(r.material) : null)?.material ?? null;
+      const material = (r.material ? this.material(r.material) : null) ?? null;
       const tex = r.texture && !material ? this.texture(r.texture) : null;
       const mesh = r.mode === "mesh" ? meshesIfLoaded(r.mesh)?.[0] : undefined;
       return makeDraw(scene, `particles:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles)), tex ?? (this.dot ??= createDotTexture(scene)), !tex, { material, mesh, depth: this.depth });

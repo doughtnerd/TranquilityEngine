@@ -33,7 +33,7 @@ import { Assets } from "../../../scene/Assets";
 import { materialGraph } from "../../../scene/material";
 import { compileParticleGraph } from "../../../scene/particleCompile";
 import { parseParticleGraph } from "../../../scene/particleGraphFormat";
-import { loadMeshes, materialSlots, meshesIfLoaded, type ModelMesh, type SurfaceInfo } from "../../../scene/models";
+import { loadMeshes, meshesIfLoaded, type ModelMesh } from "../../../scene/models";
 import { flattenSceneNodes } from "../../sceneFlatten";
 import { ProgramRunner, playTimes } from "../../particles/programRunner";
 import { EffectSimulation } from "../../particles/simulation";
@@ -45,60 +45,28 @@ import { SkyBaker, SkyDrawable } from "../sky/BabylonSky";
 import { cubemapReady, loadCubemap } from "../sky/cubemaps";
 import { parseSky } from "../../../sky/skyFormat";
 import { copyParticles, createDotTexture, makeDraw, type Draw } from "../particleDraw";
-import { meshOf, modelMaterial, pbr } from "../materials";
+import { meshOf, pbr } from "../materials";
 import {
   addPreviewLights,
   aimCamera,
-  buildPreviewMaterial,
   createPreviewEngine,
   createPreviewScene,
   createStudioTexture,
-  defaultPreviewMaterial,
   ensureCanvasSize,
   LIGHT_AMBIENT,
   LIGHT_ENVIRONMENT,
   LIGHT_SUN,
-  loadTexture,
+  previewMaterials,
   readGraph,
   readMaterial,
   renderFrame,
   sceneReady,
   useWhenReady,
   usesTime,
-  type PreviewMaterial,
 } from "./common";
 
 export { frameView, seededRandom } from "../../thumbnailMath";
 export type { ThumbnailKind, ThumbnailPreview } from "../../previewTypes";
-
-/**
- * What draws each material slot (ADR 0089) of `sources` in a preview: the renderer's `materials[i]`,
- * then its `material`, then the model's import settings, as the World renderer does; null leaves a
- * slot to the model's own material.
- */
-async function slotPicker(scene: Scene, shared: GraphShared, ref: string, sources: readonly ModelMesh[], materials: readonly string[], all: string): Promise<(surface: SurfaceInfo) => Material | null> {
-  const built = new Map<string, Promise<PreviewMaterial | null>>();
-  const build = (path: string) => {
-    const key = path.replace(/^asset:/, "");
-    let p = built.get(key);
-    if (!p) built.set(key, (p = buildPreviewMaterial(scene, key, shared).catch(() => null)));
-    return p;
-  };
-  let remap: Record<string, string> = {};
-  if (!ref.startsWith("builtin:")) {
-    try {
-      remap = Assets.importSettings(ref.replace(/^asset:/, "").split("#")[0]).materials;
-    } catch {
-      // no sidecar
-    }
-  }
-  const bySurface = new Map<SurfaceInfo, Material | null>();
-  for (const [i, slot] of materialSlots(sources).entries()) {
-    const path = materials[i] || all || remap[slot.surface.name] || "";
-    bySurface.set(slot.surface, path ? ((await build(path))?.material ?? null) : null);
-  }
-  return (surface) => bySurface.get(surface) ?? null;
-}
 
 /** Thumbnails are this many pixels square: about twice the Assets panel's largest tile. */
 export const THUMBNAIL_SIZE = 256;
@@ -493,15 +461,16 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   private async prepareModel(path: string): Promise<Prepared> {
     const sources = await loadMeshes(path);
     const scene = this.litScene();
-    const cache = new WeakMap<object, Material>();
-    const fallback = defaultPreviewMaterial(scene);
+    const library = previewMaterials(scene, { time: 0, resolution: [this.size, this.size] }, true);
     const box = new BoundsBox();
-    const pick = await slotPicker(scene, { time: 0, resolution: [this.size, this.size] }, path, sources, [], "");
+    // Slots as the World renderer resolves them (ADR 0089): here, the model's import settings, then its own.
+    const drawn = library.slotMaterials({ mesh: path, material: "" }, sources);
     for (const src of sources) {
       const mesh = meshOf(scene, `model:${src.name}`, src);
-      mesh.material = modelMaterial(scene, cache, src, mesh, pick) ?? fallback;
+      mesh.material = drawn(src, mesh);
       box.add(src.data.positions, null);
     }
+    await library.settled();
     await this.ready(scene, 3000); // the models' textures load on their own
     return { scene, ...this.camera(scene, box.bounds(), DIRECTION_3D, UNIT), dispose: () => scene.dispose() };
   }
@@ -510,9 +479,13 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     const scene = this.litScene();
     const shared: GraphShared = { time: 0, resolution: [this.size, this.size] };
     try {
-      const built = await buildPreviewMaterial(scene, kind === "shadergraph" ? { graph: path, properties: {} } : path, shared);
+      // A material asset, or a shader graph named directly (its own property values).
+      const library = previewMaterials(scene, shared, true);
+      const material = library.material(path);
+      if (!material) throw new Error(`"${path}" isn't a ${kind === "shadergraph" ? "shader graph that can be read" : "material"}.`);
+      await library.settled();
       const sphere = meshesIfLoaded("builtin:sphere")![0];
-      meshOf(scene, "preview.sphere", sphere).material = built.material;
+      meshOf(scene, "preview.sphere", sphere).material = material;
       await this.ready(scene, 5000);
       let time = 0;
       return {
@@ -639,22 +612,24 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       addPreviewLights(scene, LIGHT_AMBIENT, LIGHT_SUN);
       // Everything the emitters draw with, loaded first, so the build doesn't wait on a texture.
       const textures = new Map<string, Texture | null>();
-      const materials = new Map<string, PreviewMaterial | null>();
+      const materials = new Map<string, Material | null>();
       const shared: GraphShared = { time: 0, resolution: [this.size, this.size] };
+      const library = previewMaterials(scene, shared, true);
       for (const e of program.effect.emitters) {
         const r = e.renderer;
-        if (r.texture && !textures.has(r.texture)) textures.set(r.texture, await loadTexture(scene, r.texture, "color").catch(() => null));
+        if (r.texture && !textures.has(r.texture)) textures.set(r.texture, await library.texture(r.texture).catch(() => null));
         if (r.mode === "mesh" && r.mesh) await loadMeshes(r.mesh).catch(() => undefined);
         // A material asset draws instead of the texture (as in a World); one that can't be built falls back to the texture.
-        if (r.material && !materials.has(r.material)) materials.set(r.material, await buildPreviewMaterial(scene, r.material.replace(/^asset:/, ""), shared).catch(() => null));
+        if (r.material && !materials.has(r.material)) materials.set(r.material, library.material(r.material));
       }
+      await library.settled();
       const dot = createDotTexture(scene);
       const random = seededRandom(1);
       const runner = withRandom(random, () => new ProgramRunner(program, random));
       const sim = new EffectSimulation(withRandom(random, () => runner.effect()), { live: runner.live, random });
       const draws: Draw[] = sim.emitters.map((e) => {
         const r = e.renderer;
-        const material = (r.material ? materials.get(r.material) : null)?.material ?? null;
+        const material = (r.material ? materials.get(r.material) : null) ?? null;
         const tex = r.texture && !material ? textures.get(r.texture) : null;
         const mesh = r.mode === "mesh" ? meshesIfLoaded(r.mesh)?.[0] : undefined;
         return makeDraw(scene, `particles:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles)), tex ?? dot, !tex, { material, mesh });
@@ -698,7 +673,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
         matte: true,
         dispose: () => {
           for (const d of draws) d.dispose();
-          for (const m of materials.values()) m?.dispose();
+          library.dispose();
           scene.dispose();
         },
       };
@@ -738,12 +713,11 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       return m;
     };
     const scene = this.litScene();
-    const cache = new WeakMap<object, Material>();
     const box = new BoundsBox();
     let meshes = 0;
     let sprites = 0;
     try {
-      const shared: GraphShared = { time: 0, resolution: [this.size, this.size] };
+      const library = previewMaterials(scene, { time: 0, resolution: [this.size, this.size] }, true);
       for (const n of nodes) {
         for (const c of n.components ?? []) {
           const data = (c.data ?? {}) as Record<string, unknown>;
@@ -751,17 +725,18 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
             const ref = typeof data.mesh === "string" ? data.mesh : "builtin:cube";
             const parts: readonly ModelMesh[] = await loadMeshes(ref).catch(() => []);
             const list = Array.isArray(data.materials) ? data.materials.map((m) => (typeof m === "string" ? m : "")) : [];
-            const pick = await slotPicker(scene, shared, ref, parts, list, typeof data.material === "string" ? data.material : "");
+            // Slots as the World renderer resolves them (ADR 0089): `materials[i]`, `material`, the model's import settings, its own.
+            const drawn = library.slotMaterials({ mesh: ref, material: typeof data.material === "string" ? data.material : "", materials: list }, parts);
             for (const part of parts) {
               const mesh = meshOf(scene, `prefab:${n.id}:${part.name}`, part);
-              mesh.material = modelMaterial(scene, cache, part, mesh, pick) ?? defaultPreviewMaterial(scene);
+              mesh.material = drawn(part, mesh);
               const world = worldOf(n);
               mesh.freezeWorldMatrix(Matrix.FromArray(world));
               box.add(part.data.positions, world);
               meshes++;
             }
           } else if (c.type === "engine.SpriteRenderer" && typeof data.sprite === "string" && data.sprite) {
-            const texture = await loadTexture(scene, data.sprite.split("#")[0].replace(/^asset:/, ""), "color").catch(() => null);
+            const texture = await library.texture(data.sprite.split("#")[0].replace(/^asset:/, "")).catch(() => null);
             if (!texture) continue;
             const image = texture.getBaseSize();
             const size = Array.isArray(data.size) ? (data.size as number[]) : [(image.width || SPRITE_PPU) / SPRITE_PPU, (image.height || SPRITE_PPU) / SPRITE_PPU];
@@ -774,6 +749,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
         }
       }
       if (!meshes && !sprites) throw new Error("it has nothing to draw.");
+      await library.settled();
       const view = asScene ? this.sceneView(scene, nodes, worldOf) : null;
       await this.ready(scene, 3000);
       // A scene is seen from its camera; otherwise (and for prefabs) from three-quarters above, or the front for sprites only.

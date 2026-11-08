@@ -3,7 +3,7 @@
 // draws the inset's frame, `previewFrame`; the engine renders into the canvas under it).
 import { computed, effect, signal } from "@preact/signals";
 import { Camera, type Engine, type GameObject } from "../engine";
-import { cameraPreviewDrawn, editorGrid, setCameraPreview, setEditorGrid } from "../engine/editor";
+import { viewport } from "../engine/editor";
 import { installParticlePreview } from "./particlePreview";
 import { cameraPreviewEnabled, cleanSnap, installSceneToolKeys, snapSettings } from "./sceneTools";
 import { docVersion, playState, selectedWorldNode } from "./state";
@@ -27,18 +27,18 @@ export function installSceneView(engine: Engine): () => void {
   const world = engine.world;
   const stopGrid = effect(() => {
     const s = cleanSnap(snapSettings.value);
-    setEditorGrid(world, s.grid, s.showGrid);
+    viewport(world).setGrid({ cellSize: s.grid, visible: s.showGrid });
   });
-  const stopPreview = effect(() => setCameraPreview(world, previewCamera.value, previewFrame.value));
+  const stopPreview = effect(() => viewport(world).setCameraPreview(previewCamera.value?.getBehavior(Camera) ?? null, previewFrame.value));
   const stopParticles = installParticlePreview(engine);
   const stopKeys = typeof window === "undefined" ? () => {} : installSceneToolKeys(window);
   // Debug and end-to-end test hooks.
-  if (typeof window !== "undefined") Object.assign(window, { sceneView: { grid: () => editorGrid(world), previewDrawn: () => cameraPreviewDrawn(world) } });
+  if (typeof window !== "undefined") Object.assign(window, { sceneView: { grid: () => viewport(world).grid(), previewDrawn: () => viewport(world).drawn().cameraPreview } });
   return () => {
     stopGrid();
     stopPreview();
     stopParticles();
     stopKeys();
-    setCameraPreview(world, null, null);
+    viewport(world).setCameraPreview(null, null);
   };
 }
