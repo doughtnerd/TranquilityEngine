@@ -7,6 +7,8 @@ import type { Page } from "@playwright/test";
 export async function showTab(page: Page, name: string | RegExp): Promise<void> {
   const re = typeof name === "string" ? new RegExp(`^${name}`) : name;
   const tab = page.getByRole("tab", { name: re });
+  // count() doesn't wait: wait until the tab, or an overflow button it may be behind, has rendered.
+  await tab.or(page.getByRole("button", { name: "More tabs" })).first().waitFor();
   if (await tab.count()) return tab.first().click();
   for (const more of await page.getByRole("button", { name: "More tabs" }).all()) {
     await more.click();

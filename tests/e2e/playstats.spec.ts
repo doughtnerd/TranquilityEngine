@@ -5,6 +5,9 @@ import { expect, test, type Page } from "@playwright/test";
 // selection outline). Read through `window.playEditorDrawing()` (src/editor/playGizmos.ts).
 const FLAPPY = "/editor.html?sample=flappy"; // relative to baseURL (E2E_PORT)
 
+// Play type-checks the scripts first (ADR 0125); in a full WebKit run (CPU rendering) that alone can take 20 s.
+test.describe.configure({ timeout: 60_000 });
+
 type Drawing = { world: string; overlays: string[]; drawn: { segments: number; handles: number; outlines: number } | null };
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };

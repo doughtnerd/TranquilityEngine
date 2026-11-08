@@ -23,6 +23,7 @@
     "bench:memory": "node --expose-gc bench/memory.mjs",
     "build:nav": "node native/nav/build.mjs",
     "test:e2e": "playwright test",
+    "test:e2e:chromium": "playwright test --project=chromium",
     "test:e2e:install": "playwright install chromium webkit",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json",
     "tauri": "tauri",

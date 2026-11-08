@@ -18,7 +18,7 @@ This file covers the four candidates left (A–D below) and some loose ends.
 - **Vocabulary.** Use module, interface, implementation, depth, seam, adapter, leverage, locality. Apply the deletion test before adding a module.
 - **ADRs and status.** A public or editor-facing interface change needs an ADR (`docs/decisions/0000-template.md`; take the next free number, 0129+ as of now). Add its row to `docs/README.md` and update `docs/architecture/implementation-status.md`.
 - **Testing on this machine.**
-  - Chromium's WebGPU fails to start in e2e here (`dxcompiler.dll` error 87), and on master too. Run Chromium e2e with `E2E_SOFTWARE_GL=1 npx playwright test --project=chromium`.
+  - Chromium's WebGPU failed to start in e2e here (`dxcompiler.dll` error 87): fixed 2026-11-08 by `--disable-dawn-features=use_dxc` in `playwright.config.ts`, so GPU mode (the default locally) works again.
   - Before blaming a change for an e2e failure, compare against master in a temporary worktree (`git worktree add --detach .claude/worktrees/tmp-master-e2e master`, then `E2E_PORT=4190`).
   - Specs already failing on master in both browsers:
     - `cameras.spec.ts:36` (flaky)
