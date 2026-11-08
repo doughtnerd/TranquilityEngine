@@ -614,6 +614,31 @@ export class BabylonLighting {
     this.parked.push(e);
   }
 
+  /**
+   * Dispose of what it made: its lights (in use, parked, clustered, the container and the defaults), the
+   * environment map and its sky copy, the studio room, and the skybox. Not `skyEnvironment`, which
+   * `BabylonSky` owns. Safe to call twice.
+   */
+  dispose(): void {
+    for (const e of [...this.lights.values(), ...this.parked, ...this.clusterParked]) e.light.dispose();
+    this.lights.clear();
+    this.parked.length = 0;
+    this.clusterParked.length = 0;
+    this.cluster?.dispose();
+    this.cluster = null;
+    for (const d of this.defaults) d.dispose();
+    this.envMap?.texture?.dispose();
+    this.envMap?.sky?.dispose();
+    this.envMap = null;
+    if (this.scene.environmentTexture === this.studio) this.scene.environmentTexture = null;
+    this.studio?.dispose();
+    this.studio = null;
+    this.skybox?.dispose();
+    this.skybox = null;
+    this.skyMaterial?.dispose();
+    this.skyMaterial = null;
+  }
+
   private warnOnce(key: string, message: string): void {
     if (this.warned.has(key)) return;
     this.warned.add(key);

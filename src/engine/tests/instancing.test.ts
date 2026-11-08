@@ -1,23 +1,30 @@
 // ADR 0108: MeshRenderers draw GPU-instanced by geometry, material and shadow settings; a material may
-// ask for thin-instance batches or none. The Babylon renderer on a NullEngine.
+// ask for thin-instance batches or none. The mesh feature on a NullEngine.
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { InstancedMesh } from "@babylonjs/core/Meshes/instancedMesh.js";
-import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
 import { Assets, Color, Engine, GameObject, Material, MeshRenderer, SceneManager } from "../index";
-import { BabylonRenderer } from "../render/babylon/BabylonRenderer";
-import type { MeshBatches } from "../render/babylon/meshBatches";
+import { Scene as BabylonScene } from "@babylonjs/core/scene.js";
+import { BabylonMaterialLibrary } from "../render/babylon/materialLibrary";
+import { BabylonMeshes } from "../render/babylon/meshes";
 
 const RED = "asset:materials/red.material.json";
 const THIN = "asset:materials/thin.material.json";
 const OFF = "asset:materials/off.material.json";
 
-describe("GPU instancing on the Babylon renderer (ADR 0108)", () => {
+describe("GPU instancing in the Babylon mesh feature (ADR 0108)", () => {
   let nullEngine: NullEngine;
-  let babylon: BabylonRenderer;
+  let babylon: BabylonMeshes;
+  let materials: BabylonMaterialLibrary;
+  let scene: BabylonScene;
   let world: World;
-  type Internals = { batches: MeshBatches; meshRenderers: Map<MeshRenderer, { meshes: AbstractMesh[] }>; casters: AbstractMesh[] };
+  /** A mesh feature on its own scene; `perObject` is the host's draw policy (what the renderer's `drawPolicy` gives the library, ADR 0129). */
+  const make = (perObject: boolean) => {
+    const sc = new BabylonScene(nullEngine);
+    const lib = new BabylonMaterialLibrary(sc, { editorPicking: () => perObject });
+    return { sc, lib, meshes: new BabylonMeshes({ scene: sc, materials: lib, probes: { any: false, lookup: () => null } }) };
+  };
 
   beforeEach(async () => {
     Assets.clearSources();
@@ -33,28 +40,28 @@ describe("GPU instancing on the Babylon renderer (ADR 0108)", () => {
     await SceneManager.load("s.json");
     world = World.require();
     nullEngine = new NullEngine();
-    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown) => BabylonRenderer;
-    babylon = new Ctor(nullEngine, world.settings);
+    ({ sc: scene, lib: materials, meshes: babylon } = make(false));
   });
   afterEach(() => {
     Material._resetShared();
     babylon.dispose();
+    materials.dispose();
+    scene.dispose();
     nullEngine.dispose();
   });
 
-  const internals = () => babylon as unknown as Internals;
   const box = (name: string, material = RED, x = 0) => {
     const node = GameObject.create(name);
     node.transform!.position.set(x, 0, 0);
     return node.addBehavior(MeshRenderer, { mesh: "builtin:cube", material });
   };
-  const sync = () => babylon.syncMeshes(world);
+  const sync = () => babylon.sync(world);
 
   it("draws renderers of one mesh and material as instances of one hidden source", () => {
     const rs = [box("a"), box("b", RED, 2), box("c", RED, 4)];
     sync();
-    expect(internals().batches.stats()).toMatchObject({ batches: 1, instanced: 1, drawables: 3 });
-    const meshes = rs.map((r) => internals().meshRenderers.get(r)!.meshes[0]);
+    expect(babylon.batchStats()).toMatchObject({ batches: 1, instanced: 1, drawables: 3 });
+    const meshes = rs.map((r) => babylon.meshesOf(r)![0]);
     expect(meshes.every((m) => m instanceof InstancedMesh)).toBe(true);
     const source = (meshes[0] as InstancedMesh).sourceMesh;
     expect(meshes.every((m) => (m as InstancedMesh).sourceMesh === source)).toBe(true);
@@ -68,14 +75,14 @@ describe("GPU instancing on the Babylon renderer (ADR 0108)", () => {
     const d = box("d");
     d.receiveShadows = false;
     sync();
-    expect(internals().batches.stats()).toMatchObject({ batches: 2, drawables: 3 }); // red+receive (a, b), red no-receive (d); "off" isn't batched
+    expect(babylon.batchStats()).toMatchObject({ batches: 2, drawables: 3 }); // red+receive (a, b), red no-receive (d); "off" isn't batched
     a.setMaterialProperty("color", Color.from("#0000ff")); // its own copy: a batch of one
     sync();
-    expect(internals().batches.stats().batches).toBe(3);
+    expect(babylon.batchStats().batches).toBe(3);
     a.clearMaterialProperties();
     b.materialInstance.setFloat("metalness", 1); // an instance (ADR 0107): its own batch too
     sync();
-    expect(internals().batches.stats()).toMatchObject({ batches: 3, drawables: 3 });
+    expect(babylon.batchStats()).toMatchObject({ batches: 3, drawables: 3 });
   });
 
   it("draws a slot's own material (ADR 0089) and its script instance, still batching renderers that match", () => {
@@ -83,16 +90,16 @@ describe("GPU instancing on the Babylon renderer (ADR 0108)", () => {
     a.materials = [THIN];
     b.materials = [THIN];
     sync();
-    const meshOf = (r: MeshRenderer) => internals().meshRenderers.get(r)!.meshes;
+    const meshOf = (r: MeshRenderer) => babylon.meshesOf(r)!;
     // The slot's own entry wins over `material` (thin draws as thin outside the editor: no meshes per renderer).
-    expect(internals().batches.stats()).toMatchObject({ batches: 1, thin: 1, drawables: 2 });
+    expect(babylon.batchStats()).toMatchObject({ batches: 1, thin: 1, drawables: 2 });
     expect(meshOf(a)).toHaveLength(0);
     // A script instance of slot 0 draws apart.
     a.materials = [RED];
     b.materials = [RED];
     a.getMaterialInstance(0).setFloat("metalness", 1);
     sync();
-    expect(internals().batches.stats()).toMatchObject({ batches: 2, drawables: 2 });
+    expect(babylon.batchStats()).toMatchObject({ batches: 2, drawables: 2 });
     const mat = (meshOf(a)[0] as InstancedMesh).sourceMesh.material as unknown as { metallic: number };
     expect(mat.metallic).toBe(1);
   });
@@ -102,20 +109,20 @@ describe("GPU instancing on the Babylon renderer (ADR 0108)", () => {
     sync();
     b.enabled = false;
     sync();
-    expect(internals().meshRenderers.get(b)!.meshes[0].isEnabled()).toBe(false);
+    expect(babylon.meshesOf(b)![0].isEnabled()).toBe(false);
     babylon.release(a); // what destroying the component does (`_onDetach`)
     babylon.release(b);
-    expect(internals().batches.stats().batches).toBe(0);
+    expect(babylon.batchStats().batches).toBe(0);
   });
 
   it("packs a thin material's renderers into one thin-instance buffer", () => {
     const rs = [box("a", THIN), box("b", THIN, 2), box("c", THIN, 4)];
     sync();
-    const stats = internals().batches.stats();
+    const stats = babylon.batchStats();
     expect(stats).toMatchObject({ batches: 1, thin: 1, drawables: 3 });
-    const source = internals().batches.sources()[0];
+    const source = babylon.batchSources()[0];
     expect(source.thinInstanceCount).toBe(3);
-    expect(rs.every((r) => internals().meshRenderers.get(r)!.meshes.length === 0)).toBe(true);
+    expect(rs.every((r) => babylon.meshesOf(r)!.length === 0)).toBe(true);
     rs[1].enabled = false;
     sync();
     expect(source.thinInstanceCount).toBe(2);
@@ -125,12 +132,12 @@ describe("GPU instancing on the Babylon renderer (ADR 0108)", () => {
   });
 
   it("keeps per-object instances in the editor's scene view, where picking needs them", () => {
-    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown) => BabylonRenderer;
-    const editor = new Ctor(new NullEngine(), world.settings);
-    editor.setPolicy({ sceneView: true, drawPolicy: "perObject" }); // what the editor's viewport handle sets (ADR 0129)
+    const editor = make(true); // the host's policy: what the editor's viewport handle sets (ADR 0129)
     box("a", THIN);
-    editor.syncMeshes(world);
-    expect((editor as unknown as Internals).batches.stats()).toMatchObject({ thin: 0, instanced: 1 });
-    editor.dispose();
+    editor.meshes.sync(world);
+    expect(editor.meshes.batchStats()).toMatchObject({ thin: 0, instanced: 1 });
+    editor.meshes.dispose();
+    editor.lib.dispose();
+    editor.sc.dispose();
   });
 });

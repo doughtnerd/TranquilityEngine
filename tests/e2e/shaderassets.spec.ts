@@ -8,8 +8,11 @@ test.describe.configure({ timeout: 60_000 }); // WebKit renders on the CPU
 
 type Renderer = {
   engine: { isWebGPU: boolean };
-  meshRenderers: Map<{ material: string; node: { name: string } }, { meshes: { isReady(complete?: boolean): boolean; material: { name: string; isReady(mesh?: unknown, instances?: boolean): boolean } | null }[] }>;
-  batches: { stats(): { batches: number; instanced: number; drawables: number } };
+  /** The mesh feature (ADR 0130). */
+  meshes: {
+    meshRenderers: Map<{ material: string; node: { name: string } }, { meshes: { isReady(complete?: boolean): boolean; material: { name: string; isReady(mesh?: unknown, instances?: boolean): boolean } | null }[] }>;
+    batchStats(): { batches: number; instanced: number; drawables: number };
+  };
 };
 /** `world.render` is the Babylon surface; its `renderer` is the BabylonRenderer (private fields, read for the test). */
 type Hooks = { engine?: { world: { time: { frameCount: number }; render: { renderer: Renderer } } } };
@@ -28,20 +31,20 @@ test("the rim shader asset compiles and draws on a mesh, and meshes draw instanc
   await page.goto("/editor.html?sample=playground3d");
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 
-  const stats = await page.evaluate(() => (window as unknown as Hooks).engine!.world.render.renderer.batches.stats());
+  const stats = await page.evaluate(() => (window as unknown as Hooks).engine!.world.render.renderer.meshes.batchStats());
   expect(stats.drawables).toBeGreaterThan(0);
   expect(stats.instanced).toBe(stats.batches); // the editor's scene view never thin-instances
 
   // Point the first MeshRenderer at the rim material.
   const name = await page.evaluate(() => {
-    const [r] = [...(window as unknown as Hooks).engine!.world.render.renderer.meshRenderers.keys()];
+    const [r] = [...(window as unknown as Hooks).engine!.world.render.renderer.meshes.meshRenderers.keys()];
     r.material = "asset:materials/rim.material.json";
     return r.node.name;
   });
   await page.waitForFunction(
     (node) => {
       const render = (window as unknown as Hooks).engine!.world.render.renderer;
-      const entry = [...render.meshRenderers].find(([r]) => r.node.name === node)?.[1];
+      const entry = [...render.meshes.meshRenderers].find(([r]) => r.node.name === node)?.[1];
       const mesh = entry?.meshes[0];
       return !!mesh?.material?.name.includes("rim.shader.json") && mesh.isReady(true);
     },

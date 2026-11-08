@@ -10,9 +10,8 @@ import { pbrVertexShaderWGSL } from "@babylonjs/core/ShadersWGSL/pbr.vertex.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
 import { Assets, Camera, Color, Engine, GameObject, SceneManager, SpriteRenderer, Vector2 } from "../index";
-import { BabylonRenderer } from "../render/babylon/BabylonRenderer";
-import { ViewportHandle } from "../render/editorViewport";
-import type { RenderPolicyPort } from "../render/renderPolicy";
+import { BabylonSprites, SPRITES_SPEC } from "../render/babylon/sprites";
+import type { FeatureSyncContext } from "../render/babylon/feature";
 import { SpriteBatcher, spriteUvCode, UV_RECT_ATTRIBUTE, type SpriteItem } from "../render/babylon/spriteBatches";
 
 describe("the sprite batcher (ADR 0108)", () => {
@@ -81,17 +80,24 @@ describe("the sprite batcher (ADR 0108)", () => {
   });
 });
 
-describe("sprites on the Babylon renderer (ADR 0108)", () => {
+describe("the sprite feature (ADR 0108, 0130)", () => {
   let nullEngine: NullEngine;
+  let scene: Scene;
   let world: World;
-  type Internals = { spriteBatcher: SpriteBatcher; sprites: Map<SpriteRenderer, { mesh: unknown; item: SpriteItem | null }> };
-  /** A renderer with a game's policy, or the editor scene view's (what its viewport handle sets, ADR 0129). */
-  const make = (sceneView: boolean) => {
-    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown) => BabylonRenderer;
-    const r = new Ctor(nullEngine, world.settings);
-    if (sceneView) r.setPolicy({ sceneView: true, drawPolicy: "perObject" });
-    return r;
-  };
+  let policy: "batched" | "perObject";
+  let textures: Map<string, Texture>;
+  let warnings: string[];
+  type Internals = { batcher: SpriteBatcher; sprites: Map<SpriteRenderer, { mesh: unknown; item: SpriteItem | null }> };
+  const make = (): BabylonSprites =>
+    new BabylonSprites({
+      scene,
+      pixelsPerUnit: () => world.settings.render.pixelsPerUnit,
+      sortingLayers: () => world.settings.render.sortingLayers,
+      texture: async (path) => textures.get(path)!,
+      loadedTexture: (path) => textures.get(path) ?? null,
+      drawPolicy: () => policy,
+      warnOnce: (key) => void warnings.push(key),
+    });
 
   beforeEach(async () => {
     Assets.clearSources();
@@ -105,84 +111,119 @@ describe("sprites on the Babylon renderer (ADR 0108)", () => {
     await SceneManager.load("s.json");
     world = World.require();
     nullEngine = new NullEngine();
+    scene = new Scene(nullEngine);
+    policy = "batched";
+    textures = new Map();
+    warnings = [];
   });
-  afterEach(() => nullEngine.dispose());
+  afterEach(() => {
+    scene.dispose();
+    nullEngine.dispose();
+  });
 
   const sprite = (name: string, x: number, props: Record<string, unknown> = {}) => {
     const node = GameObject.create(name);
     node.transform!.position.set(x, 0, 0);
     return node.addBehavior(SpriteRenderer, { size: new Vector2(1, 1), ...props });
   };
-  const syncSprites = (r: BabylonRenderer) => {
-    const b = r as unknown as { syncSprite(w: World, s: SpriteRenderer, snap: number): void; flushSprites(): void; spriteSnap(w: World): number };
-    const snap = b.spriteSnap(world);
-    for (const s of world._componentsOfType(SpriteRenderer)) b.syncSprite(world, s, snap);
-    b.flushSprites();
-  };
+  const ctx = {} as FeatureSyncContext;
+
+  it("is registered as a content-phase, eager feature that owns SpriteRenderers", () => {
+    expect(SPRITES_SPEC).toMatchObject({ name: "sprites", phase: "content", lazy: false });
+    expect(SPRITES_SPEC.types).toEqual([SpriteRenderer]);
+  });
 
   it("batches plain sprites into one draw, and re-fills when a sprite changes", () => {
-    const r = make(false);
+    const f = make();
     const a = sprite("a", 0), b = sprite("b", 2, { color: Color.from("#ff0000") });
-    syncSprites(r);
-    const internals = r as unknown as Internals;
-    expect(internals.spriteBatcher.stats()).toEqual({ batches: 1, sprites: 2 });
+    f.sync(world, ctx);
+    const internals = f as unknown as Internals;
+    expect(internals.batcher.stats()).toEqual({ batches: 1, sprites: 2 });
     expect(internals.sprites.get(a)!.mesh).toBeNull(); // no mesh per sprite
     expect(internals.sprites.get(b)!.item!.color[1]).toBe(0);
+    expect(f.drawnNodes().length).toBe(2);
     b.enabled = false;
-    syncSprites(r);
-    expect(internals.spriteBatcher.stats().sprites).toBe(1);
-    r.dispose();
+    f.sync(world, ctx);
+    expect(internals.batcher.stats().sprites).toBe(1);
+    f.dispose();
   });
 
   it("gives 9-sliced sprites a mesh of their own in the batched path (the batcher draws plain quads)", () => {
-    const r = make(false);
-    const tex = RawTexture.CreateRGBATexture(new Uint8Array(16 * 8 * 4), 16, 8, (r as unknown as { scene: Scene }).scene);
-    (r as unknown as { materials: { textures: Map<string, unknown> } }).materials.textures.set("images/ui.png", tex); // as if loaded (ADR 0127)
+    const f = make();
+    textures.set("images/ui.png", RawTexture.CreateRGBATexture(new Uint8Array(16 * 8 * 4), 16, 8, scene)); // as if loaded (ADR 0127)
     const sliced = sprite("panel", 0, { sprite: "asset:images/ui.png#panel", size: new Vector2(3, 2) });
     const plain = sprite("dot", 1, { sprite: "asset:images/ui.png#dot" });
-    syncSprites(r);
-    const internals = r as unknown as Internals;
+    f.sync(world, ctx);
+    const internals = f as unknown as Internals;
     expect(internals.sprites.get(sliced)!.mesh).not.toBeNull();
     expect(internals.sprites.get(plain)!.mesh).toBeNull();
-    expect(internals.spriteBatcher.stats()).toEqual({ batches: 1, sprites: 1 });
-    r.dispose();
+    expect(internals.batcher.stats()).toEqual({ batches: 1, sprites: 1 });
+    expect([...f.editorSprites()].map((e) => e.component)).toEqual([sliced]);
+    f.dispose();
   });
 
-  it("keeps a mesh per sprite in the editor's scene view", () => {
-    const r = make(true);
+  it("keeps a mesh per sprite when the draw policy is perObject (the editor's scene view)", () => {
+    policy = "perObject";
+    const f = make();
     const a = sprite("a", 0);
-    syncSprites(r);
-    const internals = r as unknown as Internals;
+    f.sync(world, ctx);
+    const internals = f as unknown as Internals;
     expect(internals.sprites.get(a)!.mesh).not.toBeNull();
-    expect(internals.spriteBatcher.stats().batches).toBe(0);
-    r.dispose();
+    expect(internals.batcher.stats().batches).toBe(0);
+    f.dispose();
   });
 
-  it("batches in a game, and keeps a mesh per sprite once the editor asks for the viewport (ADR 0129)", () => {
-    const r = make(false);
+  it("batches in a game, and keeps a mesh per sprite once the policy turns perObject (ADR 0129)", () => {
+    const f = make();
     const a = sprite("a", 0);
-    // The editor tools loading, or failing to, doesn't change how a game batches: only the policy does.
-    syncSprites(r);
-    const internals = r as unknown as Internals;
+    f.sync(world, ctx);
+    const internals = f as unknown as Internals;
     expect(internals.sprites.get(a)!.mesh).toBeNull();
-    expect(internals.spriteBatcher.stats()).toEqual({ batches: 1, sprites: 1 });
-    // Editor play mode reaches into the game World: its viewport handle asks for per-object meshes.
-    const port: RenderPolicyPort = { setPolicy: (c) => r.setPolicy(c), setParticlePreview: () => undefined, restartParticlePreview: () => undefined };
-    new ViewportHandle(() => null, port).pick(0, 0);
-    syncSprites(r);
+    expect(internals.batcher.stats()).toEqual({ batches: 1, sprites: 1 });
+    policy = "perObject"; // editor play mode reaches into the game World: its viewport handle asks for per-object meshes
+    f.sync(world, ctx);
     expect(internals.sprites.get(a)!.mesh).not.toBeNull();
-    expect(internals.spriteBatcher.stats().sprites).toBe(0);
-    r.dispose();
+    expect(internals.batcher.stats().sprites).toBe(0);
+    f.dispose();
   });
 
   it("snaps sprites to the texel grid under a pixel-perfect camera", () => {
-    const r = make(false);
+    const f = make();
     GameObject.create("cam").addBehavior(Camera, { pixelPerfect: true });
     const a = sprite("a", 0.51);
-    syncSprites(r);
-    const m = (r as unknown as Internals).sprites.get(a)!.item!.matrix;
+    f.sync(world, ctx);
+    const m = (f as unknown as Internals).sprites.get(a)!.item!.matrix;
     expect(m[12] * 16).toBeCloseTo(Math.round(m[12] * 16)); // on a 1/16 grid (the quad's pivot offset is 0 here)
     expect(m[12]).toBeCloseTo(0.5);
-    r.dispose();
+    f.dispose();
+  });
+
+  it("orders by sorting layer, warns once-per-key on an unknown layer, and sizes sprites", () => {
+    const f = make();
+    const layers = world.settings.render.sortingLayers;
+    expect(f.sortOrder(layers[0], 5)).toBe(5);
+    if (layers.length > 1) expect(f.sortOrder(layers[1], 5)).toBe(10005);
+    expect(f.sortOrder("nope", 3)).toBe(3);
+    expect(warnings).toEqual(["layer|nope"]);
+    expect(f.spriteSize(sprite("a", 0, { size: new Vector2(2, 3) }))).toEqual([2, 3]);
+    f.dispose();
+  });
+
+  it("release drops a sprite's mesh and batch entry; dispose frees everything", () => {
+    policy = "perObject";
+    const f = make();
+    const a = sprite("a", 0);
+    f.sync(world, ctx);
+    const internals = f as unknown as Internals;
+    const mesh = internals.sprites.get(a)!.mesh as { isDisposed(): boolean };
+    f.release(a);
+    expect(internals.sprites.has(a)).toBe(false);
+    expect(mesh.isDisposed()).toBe(true);
+    const b = sprite("b", 1);
+    f.sync(world, ctx);
+    const meshB = internals.sprites.get(b)!.mesh as { isDisposed(): boolean };
+    f.dispose();
+    expect(meshB.isDisposed()).toBe(true);
+    expect(internals.sprites.size).toBe(0);
   });
 });

@@ -26,7 +26,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
 type Pixel = [number, number, number, number];
 /** The editor's debug hooks on `window`. Page callbacks are serialized, so each casts `window` itself. */
 type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { renderer: { meshRenderers: Map<{ node: { name: string } }, { meshes: { material: { unlit: boolean } | null }[] }> } | null } } };
+  engine?: { world: { time: { frameCount: number }; render: { renderer: { meshes: { meshRenderers: Map<{ node: { name: string } }, { meshes: { material: { unlit: boolean } | null }[] }> } } | null } } };
   shaderGraphPreview?: { readCenter(): Pixel | null; setGraph(graph: unknown): unknown };
 };
 
@@ -160,7 +160,7 @@ test("editing a graph updates the scene's meshes whose material uses it", async 
   await openPlayground(page, true);
   const pillarMaterial = () =>
     page.evaluate(() => {
-      for (const [r, e] of (window as unknown as Hooks).engine!.world.render.renderer?.meshRenderers ?? []) if (r.node.name === "Pillar") { const m = e.meshes[0]?.material; return m ? (m.unlit ? "unlit" : "lit") : null; }
+      for (const [r, e] of (window as unknown as Hooks).engine!.world.render.renderer?.meshes.meshRenderers ?? []) if (r.node.name === "Pillar") { const m = e.meshes[0]?.material; return m ? (m.unlit ? "unlit" : "lit") : null; }
       return null;
     });
   // The Pillar's material draws with shaders/pulse.shadergraph.json, a lit graph.
