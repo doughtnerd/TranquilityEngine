@@ -160,6 +160,7 @@ function SkyEditor({ path }: { path: string }) {
     <div
       class="sky-panel"
       aria-label="Sky"
+      data-asset-document={doc.path}
       onKeyDown={(e) => {
         if (!(e.ctrlKey || e.metaKey) || (e.target as HTMLElement).tagName === "INPUT") return;
         if (e.key.toLowerCase() === "z") (e.shiftKey ? redo : undo)();

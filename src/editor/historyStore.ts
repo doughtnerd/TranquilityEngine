@@ -66,13 +66,16 @@ export class HistoryStore {
   }
 }
 
-/** History files in the project folder: `.myco/history/<scene path>.history.<slot>.json`. */
-export function projectSlots(fs: FileSystem, root: string, scene: string): SlotBackend {
+/**
+ * History files in the project folder: `.myco/history/<scene path>.history.<slot>.json`, or under
+ * `base` (asset documents use `.myco/asset-history`, ADR 0133).
+ */
+export function projectSlots(fs: FileSystem, root: string, scene: string, base = ".myco/history"): SlotBackend {
   const folder = scene.includes("/") ? scene.slice(0, scene.lastIndexOf("/")) : "";
-  const dir = joinPath(root, `.myco/history${folder ? `/${folder}` : ""}`);
-  const file = (slot: "a" | "b") => joinPath(root, `.myco/history/${scene}.history.${slot}.json`);
+  const dir = joinPath(root, `${base}${folder ? `/${folder}` : ""}`);
+  const file = (slot: "a" | "b") => joinPath(root, `${base}/${scene}.history.${slot}.json`);
   return {
-    where: joinPath(root, ".myco/history"),
+    where: joinPath(root, base),
     async read(slot) {
       return (await fs.exists(file(slot))) ? fs.readText(file(slot)) : null;
     },

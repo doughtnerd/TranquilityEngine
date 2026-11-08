@@ -73,7 +73,7 @@ export interface HistoryState {
 /** The history tree as written to a history file (ADR 0027). */
 export interface HistoryFile {
   format: "myco.history@1";
-  /** Project-relative path of the scene this history belongs to. */
+  /** Project-relative path of the scene this history belongs to (an asset document's file for a `TextHistory`, ADR 0133). */
   scene: string;
   root: number;
   current: number;

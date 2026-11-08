@@ -33,7 +33,7 @@ export const checkScriptsBeforePlay = persisted("myco.editor.checkScriptsBeforeP
 export const askBeforeClearingReferences = persisted("myco.editor.askBeforeClearingReferences", true);
 
 /**
- * Where edit history files go (ADR 0027): the project folder (`.myco/history/`, the
+ * Where edit history files go (ADR 0027): the project folder (`.myco/history/`, and `.myco/asset-history/` for asset documents, ADR 0141; the
  * default) or per-user storage outside the project. Read-only projects always use per-user storage.
  */
 export const historyLocation = persisted<"project" | "user">("myco.editor.historyLocation", "project");

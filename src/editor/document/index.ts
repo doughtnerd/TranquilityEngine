@@ -24,6 +24,7 @@ export {
   type SetFieldOptions,
 } from "./commands";
 export { CommandStack, HISTORY_LIMIT, diffText, type FilePatch, type HistoryFile, type HistoryState, type StackEvent, type StackListener, type TextFileHost } from "./CommandStack";
+export { TextHistory } from "./TextHistory";
 export { applyPatch, changesBetween, diffFiles, hashFile, hashText, type DocPatch } from "./patch";
 export { WorldSync } from "./WorldSync";
 export { RebuildInstances, RevertOverrides, SetInnerNodeProperty, SetOverrides, isInnerPropertyOverride } from "./prefabCommands";
