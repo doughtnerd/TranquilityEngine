@@ -27,6 +27,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | Doc | What it covers |
 | --- | --- |
 | [Architecture overview](architecture/overview.md) | Goals, non-goals, layers, module layout, glossary |
+| [Glossary](../GLOSSARY.md) | Plugin and SDK terms (0133) and newer domain terms; core terms are in the overview |
 | [Open questions](architecture/open-questions.md) | Design decisions not yet made, with leanings |
 | [Implementation status](architecture/implementation-status.md) | What `src/engine/` implements today versus each decision record |
 | [Worlds and netcode plan](architecture/worlds-and-netcode-plan.md) | Task breakdown, waves and agent roles for 0032 and 0033 |
@@ -169,6 +170,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0130](decisions/0130-render-features-declare-ownership-phase-and-loading.md) | Each render feature declares the Components it owns, its sync phase and whether it loads lazily; the renderer runs features generically | Accepted |
 | [0131](decisions/0131-field-metadata-on-the-component-declaration.md) | Asset kind and Inspector visibility are field options (`@field(AssetRef, { kind, hidden })`); per-type Inspector extras come from a lazy sections registry | Accepted |
 | [0132](decisions/0132-behaviors-reach-their-world-through-a-handle.md) | A behaviour reaches its own World through `this.world`, a `WorldHandle`; the engine's internal getter becomes `_world` | Accepted |
+| [0133](decisions/0133-features-are-plugins-over-an-engine-and-editor-sdk.md) | Features are plugins (a manifest, a runtime half and an editor half) registering into contribution points of a public SDK (`myco`, `myco/editor`); first-party and user plugins use the same SDK; render features stay internal; Sky is the pilot | Proposed |
 
 ## Working with decisions
 

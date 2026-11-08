@@ -93,6 +93,8 @@ requestAnimationFrame
 
 ## Glossary
 
+Core engine terms. Plugin and SDK terms (ADR 0133) and newer domain terms are in [GLOSSARY.md](../../GLOSSARY.md).
+
 | Term | Meaning |
 | --- | --- |
 | **Node** / **GameObject** | Anything in a scene. Has a stable id, a name, an active flag, a parent and children. Backed by an ECS entity. |
