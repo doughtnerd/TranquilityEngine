@@ -1,10 +1,10 @@
-// New Shader (ADR 0106): stays in core (see shaderAssets.ts).
+// New Shader (ADR 0106): the Materials plugin's `shader` kind creates it (see shaderAssets.ts).
 import { describe, expect, it } from "vitest";
-import { parseShaderAsset } from "../engine/scene/shaderAsset";
-import { joinPath, openFolderProject } from "./projects";
+import { parseShaderAsset } from "../../../engine/scene/shaderAsset";
+import { joinPath, openFolderProject } from "../../../editor/projects";
 import { createShader } from "./shaderAssets";
-import { currentProject } from "./state";
-import { MemoryFileSystem, ROOT } from "./testing";
+import { currentProject } from "../../../editor/state";
+import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 
 describe("New Shader", () => {
   it("creates the shader asset with WGSL and GLSL beside it, under a free name, in shaders/ if present", async () => {

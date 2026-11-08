@@ -32,7 +32,6 @@ import { openScript } from "../code/codeState";
 import { installOsDrop, osDragFolder, osDragOver } from "../osDrop";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
-import { createShader } from "../shaderAssets";
 import { createRenderTexture } from "../renderTextureAssets";
 import { createUIDocument } from "../uiDocumentEdits";
 import { createTilesetFromSlices, hasSlices } from "../tilesetAssets";
@@ -171,7 +170,6 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
     { label: "New Scene", disabled: readOnly, run: () => void createScene(pasteFolder(entries)) },
     { label: "New UI Document", disabled: readOnly, run: () => void createUIDocument(pasteFolder(entries)).then((made) => made && select([made])) },
     { label: "New Render Texture", disabled: readOnly, run: () => void createRenderTexture(pasteFolder(entries)).then((made) => made && select([made])) },
-    { label: "New Shader", disabled: readOnly, run: () => void createShader(pasteFolder(entries)).then((made) => made && select([made])) },
     // Registered kinds with `create` add their own entries (ADR 0133).
     ...assetKinds.list().flatMap((k) => (k.create ? [{ label: k.create.label, disabled: readOnly, run: () => void k.create!.create(pasteFolder(entries)).then((made) => made && select([made])) }] : [])),
     ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),

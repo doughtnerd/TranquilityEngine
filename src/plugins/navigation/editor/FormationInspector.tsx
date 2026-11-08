@@ -28,9 +28,9 @@ import { errorStatus } from "../../../editor/messages";
 import type { EditorProject } from "../../../editor/projects";
 import { currentProject, docVersion, status } from "../../../editor/state";
 import { theme } from "../../../editor/theme";
-import { drawFormation } from "../../../editor/ui/NavFormationInspector";
+import { drawFormation } from "./NavGroupSection";
 import "../../../editor/ui/assetInspector.css";
-import "../../../editor/ui/navFormation.css";
+import "./navFormation.css";
 
 const SHAPE_LABELS: Record<FormationShape, string> = { box: "Box", line: "Line", column: "Column", wedge: "Wedge", circle: "Circle", mask: "Mask (painted)" };
 const MAX_CELL = 24;

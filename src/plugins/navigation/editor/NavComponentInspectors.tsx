@@ -8,18 +8,18 @@
 // - NavModifierVolume: what its flight preview found (ModifierVolumeFlightPreview).
 // - NavCostVolume (ADR 0070, new in Myco): what it does at runtime, and agent types it can't affect.
 import { useEffect, useState } from "preact/hooks";
-import { NavChunk } from "../../plugins/navigation/runtime/components";
-import { collectNavGeometry, loadNavGeometryMeshes } from "../../engine/nav/geometry";
-import { chunkBakesAgentType, describeNavBakePlan, describeNavCostVolume, describeSurfaceBins, navBakePlan, resolutionRegionEffects, resolveAgentType, surfaceBinLayout, type NavBakePlan } from "../../engine/nav/plan";
-import type { NavigationSettings } from "../../engine/nav/settings";
-import { projectNavigation } from "../navBake";
-import { navAvoidanceSummary, navObstacleSummary } from "../navSettingsModel";
-import { navPreviewStatus, navSurfaceBins } from "../navPreviews";
-import { currentProject, docVersion, type OpenScene } from "../state";
-import "./navBake.css";
+import { NavChunk } from "../runtime/components";
+import { collectNavGeometry, loadNavGeometryMeshes } from "../../../engine/nav/geometry";
+import { chunkBakesAgentType, describeNavBakePlan, describeNavCostVolume, describeSurfaceBins, navBakePlan, resolutionRegionEffects, resolveAgentType, surfaceBinLayout, type NavBakePlan } from "../../../engine/nav/plan";
+import type { NavigationSettings } from "../../../engine/nav/settings";
+import { projectNavigation } from "../../../editor/navBake";
+import { navAvoidanceSummary, navObstacleSummary } from "./navSettingsModel";
+import { navPreviewStatus, navSurfaceBins } from "../../../editor/navPreviews";
+import { currentProject, docVersion, type OpenScene } from "../../../editor/state";
+import "../../../editor/ui/navBake.css";
 import "./navInspectors.css";
-import { pathKey } from "../document";
-import { sectionField, type InspectorSectionProps } from "./inspectorSections";
+import { pathKey } from "../../../editor/document";
+import { sectionField, type InspectorSectionProps } from "../../../editor/ui/inspectorSections";
 
 /** The open scene's NavChunk components, in node order. */
 function sceneChunks(scene: OpenScene): NavChunk[] {

@@ -19,9 +19,9 @@ import {
   type NavAgentType,
   type NavArea,
   type NavigationSettings,
-} from "../engine/nav/settings";
-import type { SettingsDraft } from "./projectSettingsModel";
-import { uniqueName } from "./worldsConfig";
+} from "../../../engine/nav/settings";
+import type { SettingsDraft } from "../../../editor/projectSettingsModel";
+import { uniqueName } from "../../../editor/worldsConfig";
 
 /** The draft's navigation settings (the defaults when there's no section). */
 export const navigationOf = (d: SettingsDraft): NavigationSettings => parseNavigationSettings(d.navigation).settings;

@@ -7,6 +7,7 @@ import { pluginManifests } from "../../plugins/editorApply";
 import { reloadGraphics } from "../graphicsPreview";
 import { errorStatus } from "../messages";
 import { projectSettingsCategory } from "../preferences";
+import { projectSettingsSections, type ProjectSettingsSectionContribution, type ProjectSettingsSectionProps } from "../sdk/contributions";
 import { PROJECT_FILE, queueProjectFileWrite } from "../projectFile";
 import {
   addAutoload,
@@ -56,7 +57,7 @@ import { layerRenamesBetween, layerUsers, renameLayerReferences, type LayerKind,
 import { EditHistory } from "../worldsConfig";
 import { AudioSettingsSection } from "./AudioSettingsSection";
 import { PluginsSection } from "./PluginsSection";
-import { NavSettingsSection } from "./NavSettingsSection";
+import { lazyComponent, type LazyComponent } from "./lazy";
 import { NumberField, TextField } from "./WorldsPanel";
 import "./projectSettings.css";
 
@@ -192,6 +193,7 @@ const isTextField = (el: EventTarget | null) =>
  */
 export function ProjectSettingsPanel() {
   version.value;
+  void projectSettingsSections.version.value; // a plugin's category (de)registered
   docVersion.value; // files added (autoload choices)
   const project = currentProject.value;
   if (!project) return <p class="empty">No project open</p>;
@@ -312,10 +314,6 @@ export function ProjectSettingsPanel() {
             <Tiers draft={draft} problems={problemsAt("graphics")} set={set} />
           </Section>
 
-          <Section title="Navigation">
-            <NavSettingsSection draft={draft} problems={problemsAt("navigation").map((p) => p.message)} set={set} project={project} />
-          </Section>
-
           <Section title="Audio">
             <AudioSettingsSection draft={draft} problems={problemsAt("audio").map((p) => p.message)} set={set} />
           </Section>
@@ -351,6 +349,15 @@ export function ProjectSettingsPanel() {
               </select>
             </Row>
           </Section>
+
+          {projectSettingsSections.list().map((c) => {
+            const View = lazySection(c);
+            return (
+              <Section key={c.id} title={c.title}>
+                <View draft={draft} problems={problemsAt(c.id).map((p) => p.message)} set={set} project={project} />
+              </Section>
+            );
+          })}
         </fieldset>
       </CategoryLayout>
     </div>
@@ -381,7 +388,25 @@ function ProblemList(props: { list: readonly string[]; label: string; warning?: 
 }
 
 /** The settings categories, in order (Unity-style list). A category's title is its id. */
-const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Audio", "Plugins", "Autoloads", "Build"] as const;
+const BUILTIN_CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Audio", "Plugins", "Autoloads", "Build"] as const;
+
+/** The categories in order: the built-in ones, with each registered section (a plugin's, ADR 0133) after the one it names, else last. */
+function categories(): string[] {
+  const list: string[] = [...BUILTIN_CATEGORIES];
+  for (const c of projectSettingsSections.list()) {
+    const at = c.after ? list.indexOf(c.after) : -1;
+    list.splice(at < 0 ? list.length : at + 1, 0, c.title);
+  }
+  return list;
+}
+
+// One lazy wrapper per contribution object, created on first use.
+const sectionViews = new WeakMap<ProjectSettingsSectionContribution, LazyComponent<ProjectSettingsSectionProps>>();
+const lazySection = (c: ProjectSettingsSectionContribution) => {
+  let lazy = sectionViews.get(c);
+  if (!lazy) sectionViews.set(c, (lazy = lazyComponent(c.view)));
+  return lazy;
+};
 const NARROW_WIDTH = 250;
 
 /** The category a problem's field belongs to (`"render.pixelsPerUnit"` is Rendering's). */
@@ -395,7 +420,7 @@ function categoryOf(field: string): string {
     case "autoload":
       return "Autoloads";
     default:
-      return head[0].toUpperCase() + head.slice(1);
+      return projectSettingsSections.list().find((c) => c.id === head)?.title ?? head[0].toUpperCase() + head.slice(1);
   }
 }
 
@@ -407,7 +432,7 @@ function categoryProblems(problems: SettingsProblem[]): Record<string, number> {
 
 const selectedCategory = (): string => {
   const v = projectSettingsCategory.value;
-  return (CATEGORIES as readonly string[]).includes(v) ? v : CATEGORIES[0];
+  return categories().includes(v) ? v : BUILTIN_CATEGORIES[0];
 };
 const tabId = (c: string) => `ps-tab-${c}`;
 const plural = (n: number) => `${n} problem${n === 1 ? "" : "s"}`;
@@ -428,13 +453,14 @@ function CategoryLayout(props: { counts: Record<string, number>; children: Compo
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  const CATEGORIES = categories();
   const selected = selectedCategory();
   const select = (c: string, focus = false) => {
     projectSettingsCategory.value = c;
     if (focus) ref.current?.querySelector<HTMLElement>(`[id="${tabId(c)}"]`)?.focus();
   };
   const onListKey = (e: KeyboardEvent) => {
-    const i = CATEGORIES.indexOf(selected as (typeof CATEGORIES)[number]);
+    const i = CATEGORIES.indexOf(selected);
     const next = e.key === "ArrowDown" ? i + 1 : e.key === "ArrowUp" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? CATEGORIES.length - 1 : null;
     if (next === null) return;
     e.preventDefault();

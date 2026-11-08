@@ -2,6 +2,8 @@
 // (what an asset document is made from) and panels. Each is a registry; plugins add to them
 // through `EditorPluginContext` so their entries are removed when the plugin is.
 import type { FunctionComponent } from "preact";
+import type { SettingsDraft } from "../projectSettingsModel";
+import type { EditorProject } from "../projects";
 import { createRegistry } from "./registry";
 
 /** A component loaded on first use (ADR 0083). */
@@ -61,6 +63,38 @@ export interface PanelContribution {
   readonly onDemand?: boolean;
 }
 
+/** What a Project settings section is given. */
+export interface ProjectSettingsSectionProps {
+  /** The settings being edited. */
+  draft: SettingsDraft;
+  /** Messages of the problems found at this section's `id` (its field head, e.g. "navigation"). */
+  problems: readonly string[];
+  /** Replace the draft: `label` is the undo step's name. */
+  set(label: string, next: SettingsDraft): void;
+  project: EditorProject;
+}
+
+/** A category of the Project settings panel a plugin adds (ADR 0133; built-in categories keep their own code). */
+export interface ProjectSettingsSectionContribution {
+  /** Also the settings field head its problems are found under (`project.json`'s `navigation`). */
+  readonly id: string;
+  /** The category's name in the list and its heading. */
+  readonly title: string;
+  readonly view: LoadComponent<ProjectSettingsSectionProps>;
+  /** The category it follows in the list (a title); absent, or not found: after the last one. */
+  readonly after?: string;
+}
+
+/** Extra UI a plugin adds under a built-in panel's own content (the Worlds panel's navigation counters). */
+export interface PanelExtensionContribution {
+  readonly id: string;
+  /** The panel it renders in, e.g. "worlds". */
+  readonly panel: string;
+  readonly view: LoadComponent<object>;
+}
+
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const assetFormats = createRegistry<AssetFormatContribution<any>>("Asset format"); // eslint-disable-line @typescript-eslint/no-explicit-any -- formats differ in T
 export const panels = createRegistry<PanelContribution>("Panel");
+export const projectSettingsSections = createRegistry<ProjectSettingsSectionContribution>("Project settings section");
+export const panelExtensions = createRegistry<PanelExtensionContribution>("Panel extension");

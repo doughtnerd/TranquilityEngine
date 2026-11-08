@@ -1,0 +1,4 @@
+/* The scene view's navigation overlay toggles (ADR 0065). */
+.nav-overlay-form .nav-group { grid-template-columns: 1fr auto; }
+.nav-overlay-form .nav-group select { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; font: inherit; padding: 1px 4px; }
+.nav-overlay-form .nav-play-heading { margin-top: 4px; color: var(--muted); font-size: 11px; }

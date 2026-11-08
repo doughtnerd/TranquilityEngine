@@ -1,12 +1,12 @@
 // Formation assets in the editor (ADR 0065, Foxfire's NavFormation): creating `*.formation.json` files and reading
 // them (the Assets panel and a NavGroup's inspector section use these). Editing goes through the formation's asset
 // document (ADR 0134), made by the Navigation plugin's `formation` format (`src/plugins/navigation/editor/`).
-import { defaultFormation, formatFormation, parseFormation, type NavFormationAsset } from "../engine/nav/formation";
-import { fileName } from "./assetBrowser";
-import { freePath } from "./assetOps";
-import { errorStatus } from "./messages";
-import type { EditorProject } from "./projects";
-import { currentProject, docVersion, status } from "./state";
+import { defaultFormation, formatFormation, parseFormation, type NavFormationAsset } from "../../../engine/nav/formation";
+import { fileName } from "../../../editor/assetBrowser";
+import { freePath } from "../../../editor/assetOps";
+import { errorStatus } from "../../../editor/messages";
+import type { EditorProject } from "../../../editor/projects";
+import { currentProject, docVersion, status } from "../../../editor/state";
 
 export interface ReadFormation {
   formation: NavFormationAsset;

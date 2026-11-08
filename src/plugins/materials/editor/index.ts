@@ -1,12 +1,14 @@
 // The Materials plugin's editor half (ADR 0133: Material and Shader together; ADR 0134): the
-// `material`, `shadergraph` and `shadersubgraph` asset kinds (New… entries, Inspector views, opening
+// `material`, `shader` (`*.shader.json`, ADR 0106), `shadergraph` and `shadersubgraph` asset kinds (New… entries, Inspector views, opening
 // graphs in the Shader Graph panel, accepted by material fields, thumbnails), their asset formats and
 // the Shader Graph panel. Other editor code still compares these kind ids (dropping a material on a
 // mesh, model material slots, the particle graph's material list); only the definitions live here.
+import { openScript } from "../../../editor/code/codeState";
 import type { EditorPlugin } from "../../../editor/sdk";
 import { materialsManifest } from "../manifest";
 import { createMaterial } from "./materialAssets";
 import { materialFormat } from "./materialFormat";
+import { createShader } from "./shaderAssets";
 import { createShaderGraph, createShaderSubGraph, openShaderGraphAsset } from "./shaderGraphAssets";
 import { shaderGraphFormat, shaderSubgraphFormat } from "./shaderGraphFormat";
 
@@ -14,6 +16,9 @@ import { shaderGraphFormat, shaderSubgraphFormat } from "./shaderGraphFormat";
 const MATERIAL_ICON = "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM6 9a7 7 0 0 1 6-4";
 /** A page with a folded corner: the file icon graphs have always shown until their thumbnail renders. */
 const GRAPH_ICON = "M7 3h7l5 5v13H7zM14 3v5h5";
+
+/** A hand-written shader: a page with code brackets, stroked in a 24×24 box. */
+const SHADER_ICON = "M7 3h7l5 5v13H7zM14 3v5h5M10.5 12l-2 2.5 2 2.5M14.5 12l2 2.5-2 2.5";
 
 const shaderGraphInspector = () => import("./MaterialInspector").then((m) => m.ShaderGraphInspector);
 
@@ -29,6 +34,15 @@ export const materialsEditorPlugin: EditorPlugin = {
       create: { label: "New Material", create: (folder) => createMaterial(folder) },
       referencedAs: ["material"],
       preview: "material",
+    });
+    context.registerAssetKind({
+      id: "shader",
+      extensions: [".shader.json"],
+      label: "Shader",
+      icon: SHADER_ICON,
+      // The asset's JSON opens in the Code panel, as `.shader.json` always has.
+      open: (path) => openScript(path),
+      create: { label: "New Shader", create: (folder) => createShader(folder) },
     });
     context.registerAssetKind({
       id: "shadergraph",

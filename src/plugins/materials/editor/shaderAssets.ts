@@ -1,12 +1,10 @@
 // New Shader (ADR 0106): a `*.shader.json` shader asset with its WGSL and GLSL code beside it.
-// Stays in core while the rest of Materials and Shaders is a plugin (ADR 0134): `.shader.json` files
-// are plain JSON to the asset browser (no asset kind owns them), and a New… entry is contributed
-// per asset kind, so the Materials plugin has nowhere to hang this one yet.
-import { defaultShaderAsset, formatShaderAsset, type ShaderAsset } from "../engine/scene/shaderAsset";
-import { fileName } from "./assetBrowser";
-import { freePath } from "./assetOps";
-import { errorStatus } from "./messages";
-import { currentProject, docVersion, status } from "./state";
+// The `shader` asset kind's `create` (ADR 0134): the Materials plugin owns `.shader.json`.
+import { defaultShaderAsset, formatShaderAsset, type ShaderAsset } from "../../../engine/scene/shaderAsset";
+import { fileName } from "../../../editor/assetBrowser";
+import { freePath } from "../../../editor/assetOps";
+import { errorStatus } from "../../../editor/messages";
+import { currentProject, docVersion, status } from "../../../editor/state";
 
 /** WGSL starter for New Shader: a `Tint` property sets the base colour. */
 export const NEW_SHADER_WGSL = `// Properties are uniforms.<Name>. Keywords are #ifdef KW_<NAME>.

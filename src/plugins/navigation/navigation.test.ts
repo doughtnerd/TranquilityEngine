@@ -8,7 +8,8 @@ import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
-import { assetFormats, assetKinds } from "../../editor/sdk/contributions";
+import { inspectorSectionsFor, registeredInspectorSections } from "../../editor/ui/inspectorSections";
+import { assetFormats, assetKinds, panelExtensions, projectSettingsSections } from "../../editor/sdk/contributions";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
 import { currentProject } from "../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../editor/testing";
@@ -81,10 +82,38 @@ describe("the Navigation plugin's editor half (ADR 0134)", () => {
     expect(doc.canUndo.value).toBe(false);
   });
 
+  it("adds the Navigation category to Project settings, after Graphics", () => {
+    const section = projectSettingsSections.get("navigation");
+    expect(section).toMatchObject({ title: "Navigation", after: "Graphics" });
+  });
+
+  it("adds the navigation counters under the Worlds panel", () => {
+    expect(panelExtensions.list().map((e) => [e.id, e.panel])).toEqual([["navigation-debug", "worlds"]]);
+  });
+
+  it("registers the navigation components' Inspector sections, which load", async () => {
+    expect(registeredInspectorSections("engine.NavChunk")).toHaveLength(2);
+    // Rooted-only sections show for a top-level node only.
+    expect(inspectorSectionsFor("engine.NavChunk", [["a", "b"]])).toHaveLength(0);
+    expect(inspectorSectionsFor("engine.NavChunk", [["a"]])).toHaveLength(2);
+    for (const type of ["engine.NavAgent", "engine.NavAvoidanceObstacle", "engine.NavGroup", "engine.NavResolutionVolume", "engine.NavModifierVolume", "engine.NavCostVolume"]) {
+      expect(registeredInspectorSections(type), type).toHaveLength(1);
+    }
+    for (const type of ["engine.NavChunk", "engine.NavAgent", "engine.NavAvoidanceObstacle", "engine.NavGroup", "engine.NavResolutionVolume", "engine.NavModifierVolume", "engine.NavCostVolume"]) {
+      for (const view of registeredInspectorSections(type)) {
+        await view.preload();
+        expect(view.loaded, type).toBe(true);
+      }
+    }
+  }, 60_000);
+
   it("removes everything when deactivated", () => {
     deactivatePlugin("myco.navigation");
     expect(isPluginActive("myco.navigation")).toBe(false);
     expect(kindLabel("formation")).toBeUndefined();
     expect(assetFormats.get("formation")).toBeUndefined();
+    expect(projectSettingsSections.list()).toEqual([]);
+    expect(panelExtensions.list()).toEqual([]);
+    for (const type of ["engine.NavChunk", "engine.NavAgent", "engine.NavGroup", "engine.NavCostVolume"]) expect(registeredInspectorSections(type), type).toEqual([]);
   });
 });

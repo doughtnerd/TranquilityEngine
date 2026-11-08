@@ -5,7 +5,7 @@ import { previewCamera, previewFrame, selectedCamera } from "../cameraPreview";
 import { cameraPreviewEnabled, cleanSnap, gizmoPivot, gizmoSpace, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, type SnapSettings } from "../sceneTools";
 import { docVersion, openScene, sceneCamera, selectedKeys, viewMode } from "../state";
 import { previewedQuality, previewQuality, qualityTiers } from "../graphicsPreview";
-import { NavOverlayForm } from "./NavDebugPanel";
+import { NavOverlayForm } from "./NavOverlayForm";
 import "./scene-tools.css";
 
 /**

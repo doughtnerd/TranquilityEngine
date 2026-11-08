@@ -2,16 +2,16 @@
 // a picture of its formation asset's mask with Edit (selects the asset), or Create formation asset. The formation
 // asset's own Inspector view (painting the mask and so on) is the Navigation plugin's (`src/plugins/navigation/editor/`).
 import { useLayoutEffect, useRef } from "preact/hooks";
-import { defaultFormation, formationSlotCount, formationFillOrder, type NavFormationAsset } from "../../engine/nav/formation";
-import { fileName } from "../assetBrowser";
-import { showAsset } from "../assetImport";
-import { SetField } from "../document";
-import { createFormation, readFormation } from "../formationAssets";
-import { currentProject, docVersion, type OpenScene } from "../state";
-import { theme } from "../theme";
-import "./assetInspector.css";
+import { defaultFormation, formationSlotCount, formationFillOrder, type NavFormationAsset } from "../../../engine/nav/formation";
+import { fileName } from "../../../editor/assetBrowser";
+import { showAsset } from "../../../editor/assetImport";
+import { SetField } from "../../../editor/document";
+import { createFormation, readFormation } from "./formationAssets";
+import { currentProject, docVersion, type OpenScene } from "../../../editor/state";
+import { theme } from "../../../editor/theme";
+import "../../../editor/ui/assetInspector.css";
 import "./navFormation.css";
-import { sectionField, type InspectorSectionProps } from "./inspectorSections";
+import { sectionField, type InspectorSectionProps } from "../../../editor/ui/inspectorSections";
 
 const MAX_NUMBERED = 64;
 
@@ -123,13 +123,4 @@ export function NavGroupSection({ scene, paths, info }: InspectorSectionProps) {
       formationAsset={String(sectionField(info, "formationAsset") ?? "")}
     />
   );
-}
-
-/**
- * Fallback for a formation asset when the Navigation plugin is off (ADR 0133). The formation editor itself is the
- * plugin's (`src/plugins/navigation/editor/FormationInspector.tsx`); a registered kind's inspector wins in
- * `AssetInspector`, so this only exists until its `formation` line is removed there.
- */
-export function NavFormationInspector(_props: { path: string }) {
-  return <p class="empty">Enable the Navigation plugin to edit formations.</p>;
 }

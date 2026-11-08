@@ -3,7 +3,7 @@
 // plugin removes them all.
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
-import { assetFormats, assetKinds, panels, type AssetFormatContribution, type AssetKindContribution, type PanelContribution } from "./contributions";
+import { assetFormats, assetKinds, panelExtensions, panels, projectSettingsSections, type AssetFormatContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import type { LoadComponent } from "./contributions";
 
@@ -12,6 +12,10 @@ export interface EditorPluginContext {
   registerAssetKind(kind: AssetKindContribution): void;
   registerAssetFormat<T>(format: AssetFormatContribution<T>): void;
   registerPanel(panel: PanelContribution): void;
+  /** A category of the Project settings panel (listed after the built-in ones unless `after` places it). */
+  registerProjectSettingsSection(section: ProjectSettingsSectionContribution): void;
+  /** Extra UI rendered under a built-in panel's own content (`panel`: its id). */
+  registerPanelExtension(extension: PanelExtensionContribution): void;
   /** Extra UI under a Component type's fields in the Inspector (ADR 0131), loaded on first use. */
   registerInspectorSection(type: string, view: LoadComponent<InspectorSectionProps>, options?: InspectorSectionOptions): void;
 }
@@ -35,6 +39,8 @@ export function activatePlugins(plugins: readonly EditorPlugin[]): void {
       registerAssetKind: (k) => void undo.push(assetKinds.register(k)),
       registerAssetFormat: (f) => void undo.push(assetFormats.register(f)),
       registerPanel: (p) => void undo.push(panels.register(p)),
+      registerProjectSettingsSection: (section) => void undo.push(projectSettingsSections.register(section)),
+      registerPanelExtension: (extension) => void undo.push(panelExtensions.register(extension)),
       registerInspectorSection: (type, view, options) => void undo.push(registerInspectorSection(type, view, options)),
     };
     try {

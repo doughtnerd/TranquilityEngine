@@ -1,11 +1,13 @@
 // The Navigation plugin's editor half (ADR 0065, 0134): the `formation` asset kind (the Inspector view that
-// paints a formation's mask, accepted by NavGroup's formation asset field) and its asset format. The rest of
-// navigation's editor UI (navigation settings, the debug panel, baking, gizmos and previews) still lives in
-// `src/editor/`. New Navigation Formation is this kind's `create`
-// (`createFormation` in `src/editor/formationAssets.ts`).
+// paints a formation's mask, accepted by NavGroup's formation asset field, New Navigation Formation) and its asset
+// format; the Navigation category of Project settings (agent types, areas, avoidance, Bake All); the navigation
+// counters under the Worlds panel while playing; and the Inspector sections of the NavChunk (bake plan, Bake), NavAgent,
+// NavAvoidanceObstacle, NavGroup (formation preview) and the three volume components.
+// Still in `src/editor/`, because the editor session and the Scene toolbar wire them: the bake runner (`navBake.ts`),
+// the scene view's gizmo and previews (`navGizmo.ts`, `navPreviews.ts`) and the toolbar's overlay popover.
 import type { EditorPlugin } from "../../../editor/sdk";
-import { createFormation } from "../../../editor/formationAssets";
 import { navigationManifest } from "../manifest";
+import { createFormation } from "./formationAssets";
 import { formationFormat } from "./formationFormat";
 
 /** A grid of slots with the front row on top, stroked in a 24×24 box (the icon formations have always had). */
@@ -24,5 +26,22 @@ export const navigationEditorPlugin: EditorPlugin = {
       referencedAs: ["formation"],
     });
     context.registerAssetFormat(formationFormat);
+    // Project settings > Navigation, after Graphics as it has always been.
+    context.registerProjectSettingsSection({
+      id: "navigation",
+      title: "Navigation",
+      after: "Graphics",
+      view: () => import("./NavSettingsSection").then((m) => m.NavSettingsSection),
+    });
+    // The play-mode counters below the Worlds panel.
+    context.registerPanelExtension({ id: "navigation-debug", panel: "worlds", view: () => import("./NavDebugPanel").then((m) => m.NavDebugPanel) });
+    context.registerInspectorSection("engine.NavChunk", () => import("./NavComponentInspectors").then((m) => m.NavChunkPlanSection), { rootOnly: true });
+    context.registerInspectorSection("engine.NavChunk", () => import("./NavChunkInspector").then((m) => m.NavChunkBakeSection), { rootOnly: true });
+    context.registerInspectorSection("engine.NavAgent", () => import("./NavComponentInspectors").then((m) => m.NavAgentSection), { single: true });
+    context.registerInspectorSection("engine.NavAvoidanceObstacle", () => import("./NavComponentInspectors").then((m) => m.NavAvoidanceObstacleSection), { single: true });
+    context.registerInspectorSection("engine.NavGroup", () => import("./NavGroupSection").then((m) => m.NavGroupSection), { rootOnly: true });
+    context.registerInspectorSection("engine.NavResolutionVolume", () => import("./NavComponentInspectors").then((m) => m.NavResolutionVolumeSection), { single: true });
+    context.registerInspectorSection("engine.NavModifierVolume", () => import("./NavComponentInspectors").then((m) => m.NavModifierVolumeSection), { single: true });
+    context.registerInspectorSection("engine.NavCostVolume", () => import("./NavComponentInspectors").then((m) => m.NavCostVolumeSection), { single: true });
   },
 };

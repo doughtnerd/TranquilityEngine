@@ -3,8 +3,8 @@
 // settings in a collapsible block, and Bake All. Edits go through the panel's undo history and save like
 // its other sections; values the parser rejects are listed as problems and keep the file unchanged.
 import type { ComponentChildren } from "preact";
-import { MAX_NAV_AGENT_TYPES, MAX_NAV_AREAS, NAV_EASES, isNavAvoidanceLayerNamed, navAvoidanceLayerName, navShownLayers, type NavAgentType, type NavigationSettings } from "../../engine/nav/settings";
-import { bakeAllFromPanel, navBakeAllProgress } from "../navBake";
+import { MAX_NAV_AGENT_TYPES, MAX_NAV_AREAS, NAV_EASES, isNavAvoidanceLayerNamed, navAvoidanceLayerName, navShownLayers, type NavAgentType, type NavigationSettings } from "../../../engine/nav/settings";
+import { bakeAllFromPanel, navBakeAllProgress } from "../../../editor/navBake";
 import {
   addNavAgentType,
   addNavArea,
@@ -33,10 +33,10 @@ import {
   setNavAgentValue,
   setNavAreaValue,
   setNavValue,
-} from "../navSettingsModel";
-import type { SettingsDraft } from "../projectSettingsModel";
-import type { EditorProject } from "../projects";
-import { TextField } from "./WorldsPanel";
+} from "./navSettingsModel";
+import type { SettingsDraft } from "../../../editor/projectSettingsModel";
+import type { EditorProject } from "../../../editor/projects";
+import { TextField } from "../../../editor/ui/WorldsPanel";
 import "./navSettings.css";
 
 type Set = (label: string, next: SettingsDraft) => void;

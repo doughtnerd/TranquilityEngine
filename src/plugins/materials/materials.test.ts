@@ -24,7 +24,8 @@ import { materialsRuntimePlugin } from "./runtime";
 const MATERIAL = "materials/hull.material.json";
 const GRAPH = "shaders/glow.shadergraph.json";
 const SUB = "shaders/ripple.shadersubgraph.json";
-const KINDS = ["material", "shadergraph", "shadersubgraph"] as const;
+const SHADER = "shaders/rim.shader.json";
+const KINDS = ["material", "shader", "shadergraph", "shadersubgraph"] as const;
 
 beforeEach(() => activatePlugins([materialsEditorPlugin]));
 afterEach(() => {
@@ -41,7 +42,9 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
     expect(materialsEditorPlugin.manifest).toMatchObject({ name: "myco.materials", server: false });
   });
 
-  it("detects its three kinds, case-insensitively, none of which open in the Code panel", () => {
+  it("detects its four kinds, case-insensitively, none of which are built-in Code panel kinds", () => {
+    expect(assetKind(SHADER)).toBe("shader");
+    expect(assetKind("shaders/Rim.SHADER.json")).toBe("shader");
     expect(assetKind(MATERIAL)).toBe("material");
     expect(assetKind("materials/Hull.MATERIAL.json")).toBe("material");
     expect(assetKind(GRAPH)).toBe("shadergraph");
@@ -50,19 +53,21 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
   });
 
   it("gives them labels, icons, previews, inspectors, open behaviour and New… entries", () => {
-    expect(KINDS.map((k) => kindLabel(k))).toEqual(["Material", "Shader Graph", "Sub Graph"]);
+    expect(KINDS.map((k) => kindLabel(k))).toEqual(["Material", "Shader", "Shader Graph", "Sub Graph"]);
     for (const k of KINDS) expect(kindIcon(k), k).toMatch(/^M/);
-    expect([previewKind(MATERIAL), previewKind(GRAPH), previewKind(SUB)]).toEqual(["material", "shadergraph", null]);
+    expect([previewKind(MATERIAL), previewKind(SHADER), previewKind(GRAPH), previewKind(SUB)]).toEqual(["material", null, "shadergraph", null]);
     for (const p of [MATERIAL, GRAPH, SUB]) expect(inspectableAsset(p), p).toBe(p);
-    // A material only selects; graphs open in the Shader Graph panel.
-    expect([kindOpens(MATERIAL), kindOpens(GRAPH), kindOpens(SUB)]).toEqual([false, true, true]);
-    expect(KINDS.map((k) => assetKinds.get(k)?.create?.label)).toEqual(["New Material", "New Shader Graph", "New Shader Sub Graph"]);
+    expect(inspectableAsset(SHADER)).toBeNull();
+    // A material only selects; shaders open in the Code panel and graphs in the Shader Graph panel.
+    expect([kindOpens(MATERIAL), kindOpens(SHADER), kindOpens(GRAPH), kindOpens(SUB)]).toEqual([false, true, true, true]);
+    expect(KINDS.map((k) => assetKinds.get(k)?.create?.label)).toEqual(["New Material", "New Shader", "New Shader Graph", "New Shader Sub Graph"]);
   });
 
   it("lets material fields take materials and shader graphs, not sub-graphs", () => {
     expect(acceptsFile("material", MATERIAL)).toBe(true);
     expect(acceptsFile("material", GRAPH)).toBe(true);
     expect(acceptsFile("material", SUB)).toBe(false);
+    expect(acceptsFile("material", SHADER)).toBe(false);
     expect(acceptsFile("environment", MATERIAL)).toBe(false);
   });
 
@@ -109,7 +114,7 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
   it("removes everything when deactivated", () => {
     deactivatePlugin("myco.materials");
     expect(isPluginActive("myco.materials")).toBe(false);
-    for (const p of [MATERIAL, GRAPH, SUB]) {
+    for (const p of [MATERIAL, SHADER, GRAPH, SUB]) {
       expect(assetKind(p), p).toBe("json");
       expect(previewKind(p), p).toBeNull();
       expect(inspectableAsset(p), p).toBeNull();
@@ -132,6 +137,7 @@ describe("New… entries", () => {
     fs.files.set(joinPath(ROOT, "shaders/old.shadergraph.json"), "{}");
     currentProject.value = await openFolderProject(fs, ROOT);
     expect(await assetKinds.get("material")!.create!.create("")).toBe("materials/New Material.material.json");
+    expect(await assetKinds.get("shader")!.create!.create("")).toBe("shaders/New Shader.shader.json");
     expect(await assetKinds.get("shadergraph")!.create!.create("")).toBe("shaders/New Shader Graph.shadergraph.json");
     expect(await assetKinds.get("shadersubgraph")!.create!.create("")).toBe("shaders/New Sub Graph.shadersubgraph.json");
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_NAV_AGENT_TYPE_ID } from "../engine/nav/settings";
+import { DEFAULT_NAV_AGENT_TYPE_ID } from "../../../engine/nav/settings";
 import {
   addNavAgentType,
   addNavArea,
@@ -32,7 +32,7 @@ import {
   setNavAreaValue,
   setNavValue,
 } from "./navSettingsModel";
-import { readDraft, sectionsKey, settingsProblems, withSettings, type SettingsDraft } from "./projectSettingsModel";
+import { readDraft, sectionsKey, settingsProblems, withSettings, type SettingsDraft } from "../../../editor/projectSettingsModel";
 
 // The Project panel's Navigation section (ADR 0065): editing project.json's `navigation` key.
 
