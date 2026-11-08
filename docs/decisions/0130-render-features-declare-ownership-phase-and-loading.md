@@ -97,6 +97,18 @@ reads those, which completes ADR 0129 part 4.
 **6. Components don't change.** They keep calling `world.render?.release(this)` in `onDestroy` and know nothing of
 features. `RenderSurface` (ADR 0128) doesn't change.
 
+**As built (2026-11-07).**
+- Lighting is two features, `lights` then `environment`, with `fog` between them: the environment reads the sky fog
+  (the skybox fades with it), so the old lights → fog → environment order is kept by registration order.
+- Water is lazy and holds the first frame while it loads (`holdsFirstFrame`), so a World that starts with water
+  still shows it from its first frame, as when it was built inside the first sync.
+- Warm-up: the renderer maps warm content to features (particle effects to the particle feature; a world UI canvas
+  to the UI feature once loaded, else the UI drawing module alone, so warming a canvas in an unspawned prefab
+  doesn't load Yoga, the font and a live GUI layer). Meshes go to the warmer directly.
+- A lazy feature's loader gets `cancelled()` and builds nothing once the renderer was disposed.
+- The shader e2e specs read the mesh feature's map (`renderer.meshes.meshRenderers`, `batchStats()`); moving them
+  to `diagnostics().drawn` is still open.
+
 ## Alternatives considered
 
 - **A `Map<ComponentClass, handler>` for release only.** It fixes the `instanceof` chain, but leaves sync order,
