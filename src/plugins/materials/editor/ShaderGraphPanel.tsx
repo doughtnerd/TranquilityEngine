@@ -466,7 +466,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   };
 
   return (
-    <div class={`shader-graph${maximized ? " maximized" : ""}`} ref={root} tabIndex={0} onKeyDown={onKeyDown} aria-label="Shader Graph">
+    <div class={`shader-graph${maximized ? " maximized" : ""}`} data-asset-document={doc.path} ref={root} tabIndex={0} onKeyDown={onKeyDown} aria-label="Shader Graph">
       <div class="sg-toolbar">
         <span class="sg-name" title={path}>
           {fileName(path)}

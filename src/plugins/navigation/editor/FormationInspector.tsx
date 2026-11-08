@@ -70,7 +70,7 @@ export function NavFormationInspector(props: { path: string }) {
   };
 
   return (
-    <div class="inspector-body asset-inspector nav-formation" aria-label="Formation" tabIndex={-1} onKeyDown={onKeyDown}>
+    <div class="inspector-body asset-inspector nav-formation" aria-label="Formation" data-asset-document={doc.path} tabIndex={-1} onKeyDown={onKeyDown}>
       <div class="asset-inspector-head">
         <span class="asset-inspector-kind">Formation</span>
         <span class="asset-inspector-name" title={path}>

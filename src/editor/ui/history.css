@@ -2,6 +2,7 @@
 .panel.history .panel-body { padding: 0; overflow: hidden; display: flex; }
 .history-panel { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .history-hint { flex: none; padding: 4px 8px; font-size: calc(11px * var(--ui-scale)); color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.history-hint.history-asset { color: var(--text); }
 .history-list { flex: 1; position: relative; overflow: auto; min-height: 0; }
 .history-gutter { position: absolute; left: 0; top: 0; }
 .history-edge { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }

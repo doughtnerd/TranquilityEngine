@@ -650,6 +650,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     <GraphEditorContext.Provider value={api}>
       <div
         class={`particle-graph${maximized ? " maximized" : ""}`}
+        data-asset-document={doc.path}
         ref={root}
         tabIndex={0}
         onKeyDown={onKeyDown}

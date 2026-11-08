@@ -151,6 +151,7 @@ export function MaterialInspector(props: { path: string }) {
     <div
       class="inspector-body asset-inspector"
       aria-label="Material"
+      data-asset-document={doc.path}
       onKeyDown={(e) => {
         if (!(e.ctrlKey || e.metaKey) || (e.target as HTMLElement).tagName === "INPUT") return;
         if (e.key.toLowerCase() === "z") (e.shiftKey ? redo : undo)();

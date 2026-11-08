@@ -93,7 +93,7 @@ export function TilesetInspector(props: { path: string }) {
   };
 
   return (
-    <div class="inspector-body asset-inspector tileset-inspector" aria-label="Tileset" tabIndex={-1} onKeyDown={onKeyDown}>
+    <div class="inspector-body asset-inspector tileset-inspector" aria-label="Tileset" data-asset-document={doc.path} tabIndex={-1} onKeyDown={onKeyDown}>
       <div class="asset-inspector-head">
         <span class="asset-inspector-kind">Tileset</span>
         <span class="asset-inspector-name" title={path}>
