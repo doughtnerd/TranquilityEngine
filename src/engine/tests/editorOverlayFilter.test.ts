@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { addEditorOverlay, removeEditorOverlay, setEditorOverlay, setEditorOverlayFilter, shownEditorOverlays, type EditorOverlay } from "../editor";
 import type { World } from "../core/World";
+import { FakeRenderSurface } from "../render/fakeViewport";
 
-/** A World with a render backend that records the provider it was given. */
+/** A World with a fake render surface (ADR 0128) whose viewport records the overlay provider it was given. */
 function fakeWorld() {
-  const state: { provider: (() => EditorOverlay) | null } = { provider: null };
-  const world = { render: { setOverlayProvider: (p: (() => EditorOverlay) | null) => (state.provider = p) } } as unknown as World;
+  const surface = new FakeRenderSurface();
+  const world = { render: surface } as unknown as World;
+  const state = { get provider(): (() => EditorOverlay) | null { return surface.adapter.overlay; } };
   return { world, state };
 }
 const line = (color: number): EditorOverlay["lines"][number] => ({ points: [[0, 0, 0], [1, 0, 0]], closed: false, color });

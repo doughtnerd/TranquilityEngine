@@ -3,7 +3,7 @@
 import { installTilemapPainting } from "./tilemap/paintTool";
 import { errorStatus } from "./messages";
 import { Engine, GameObject, Material } from "../engine";
-import { overlayHandlesOnCanvas, screenBounds } from "../engine/editor";
+import { viewport } from "../engine/editor";
 import { pathKey } from "./document";
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { effect, signal } from "@preact/signals";
@@ -78,7 +78,7 @@ export async function openTestProject(extra: Record<string, string> = {}): Promi
 function nodeRect(key: string): { left: number; top: number; right: number; bottom: number } | null {
   const scene = openScene.peek(), root = scene?.sync.sceneNode;
   if (!scene || !root) return null;
-  const rects = screenBounds(scene.sync.world, root)
+  const rects = viewport(scene.sync.world).screenBounds(root)
     .filter((b) => {
       const path = scene.sync.pathOf(b.node);
       return path !== null && pathKey(path) === key;
@@ -140,7 +140,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   currentProject.value = project;
   engine.start();
   // Debug and end-to-end test hooks.
-  Object.assign(window, { engine, orbit, overlayHandles: () => overlayHandlesOnCanvas(engine.world), nodeRect });
+  Object.assign(window, { engine, orbit, overlayHandles: () => viewport(engine.world).overlayHandles(), nodeRect });
   if (project.mainScene) openScene_(project.mainScene);
   preloadCodeEditor(project); // so the first file opens without the wait
   if (scripts.problems.length > 0) {

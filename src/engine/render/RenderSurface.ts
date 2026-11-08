@@ -1,73 +1,19 @@
 /**
- * What the engine and editor ask of a render backend (ADR 0075): one World's drawing surface. The
- * three.js backend (`RenderBackend`) and the Babylon.js backend (`babylon/BabylonSurface`) both
- * implement it while the renderer migrates; `createRenderSurface` picks one. Internal: game code
- * never sees it, and no renderer type appears here (ADR 0010).
+ * What the engine asks of a renderer (ADR 0032, 0075, 0128): one World's drawing surface. Babylon.js
+ * (`babylon/BabylonSurface`) is the only implementation today; `createRenderSurface` picks it.
+ * Internal: game code never sees it, and no renderer type appears here or in anything it returns
+ * (ADR 0010), so another renderer can implement it without touching the engine or the editor.
+ *
+ * Three parts: the runtime core the Engine drives each frame, one diagnostics snapshot (tests,
+ * play mode's Stats), and the editor's viewport handle (`editorViewport.ts`), which games never ask for.
  */
 import type { WarmContent } from "../scene/warmUp";
 import type { Component } from "../core/Component";
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
-import type { LocalPose } from "./gizmoMath";
-import type { Camera, ReflectionProbe, SpriteRenderer } from "./components";
+import type { Camera } from "./components";
+import type { EditorViewport } from "./editorViewport";
 import type { PostEffects, ToneMappingName } from "./postEffects";
-import type { UICoreLike } from "../ui/uiCoreTypes";
-
-/** @internal Editor gizmo settings (ADR 0022). */
-export interface GizmoOptions {
-  mode: "translate" | "rotate" | "scale";
-  /** 2D view: move/scale on X and Y only, rotate around Z only. */
-  planar: boolean;
-  /** Snap drags to `snapSteps` (default 0.25 m, 15° and 0.1 scale steps). */
-  snap: boolean;
-  /** Snap steps: metres for moves, degrees for turns, a factor for scaling. */
-  snapSteps?: { move: number; rotate: number; scale: number };
-  /** Move and turn along the world's axes (default) or the node's own (the active node's for several). */
-  space?: "world" | "local";
-  /** Several nodes: the gizmo sits at their centre (default) or on the active node's origin. */
-  pivot?: "center" | "pivot";
-  /** Which of the nodes is the active one (default: the last). */
-  activeIndex?: number;
-}
-
-/** @internal Editor overlay (e.g. collider outlines and handles), supplied every frame by the editor. */
-export interface EditorOverlay {
-  /** Polylines in world space; `color` is 0xRRGGBB. */
-  lines: { points: [number, number, number][]; closed: boolean; color: number }[];
-  /** Handles drawn as fixed-size squares on top of everything; picked by `pickOverlayHandle`. */
-  handles: { id: string; position: [number, number, number]; color: number }[];
-  /** Many loose segments in one colour (6 floats each: a xyz, b xyz), for big overlays like navmesh debug drawing. */
-  segments?: { positions: Float32Array; color: number }[];
-}
-
-/** @internal What the editor does with a gizmo drag: one start, many changes, one end. */
-export interface GizmoHandlers {
-  onStart(): void;
-  /** Each target node's new local Transform values, in the order the nodes were given. */
-  onChange(poses: LocalPose[]): void;
-  onEnd(): void;
-}
-
-/** @internal A rectangle on the canvas in CSS pixels (origin top-left); a point when left = right and top = bottom. */
-export interface ScreenRect {
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-}
-
-/**
- * @internal Editor overlay colours (ADR 0022), 0xRRGGBB: the viewport background, the grid's lines
- * and centre lines, the selection outline and unselected camera wireframes. The editor sets them
- * from its theme (`setEditorColors`).
- */
-export interface EditorColors {
-  background: number;
-  grid: number;
-  gridCenter: number;
-  outline: number;
-  cameraGizmo: number;
-}
 
 /** @internal Particle preview controls (ADR 0057). */
 export interface ParticlePreviewSettings {
@@ -85,10 +31,63 @@ export interface ParticleStats {
   previewed: { time: number; count: number } | null;
 }
 
-/** @internal One World's drawing surface (ADR 0032, 0075). */
+/** @internal What the last frame drew and the GPU resources the surface holds (play mode's Stats). */
+export interface RenderStats {
+  readonly drawCalls: number;
+  readonly triangles: number;
+  readonly lines: number;
+  readonly points: number;
+  readonly geometries: number;
+  readonly textures: number;
+  readonly programs: number;
+}
+
+/** @internal A material as a drawn mesh uses it, in the engine's material terms (ADR 0044, 0084). */
+export interface DrawnMaterial {
+  /** Unlit shading (no lights). */
+  unlit: boolean;
+  /** Physical clearcoat strength, 0 when off. */
+  clearcoat: number;
+  /** Physical transmission, 0 when off. */
+  transmission: number;
+}
+
+/**
+ * @internal A renderer's state as engine facts (ADR 0128), for tests and the editor. A snapshot:
+ * computed when asked, never kept up to date. Nothing in it is a renderer object or name.
+ */
+export interface RenderDiagnostics {
+  /** The renderer has started; before then every other field reports nothing. */
+  started: boolean;
+  /** The graphics tier as applied (ADR 0050). */
+  quality: { tier: string; pixelRatio: number; shadows: boolean; shadowMapSize: number; msaa: boolean };
+  lighting: { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean };
+  /** The procedural sky (ADR 0112): drawn, bakes made, whether a bake lights the scene, its time of day, the last bake's CPU time. */
+  sky: { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number };
+  /** Post-processing (ADR 0051, 0056): what the first camera ran, and how many canvas cameras composed effects. */
+  post: { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null; composedCameras: number };
+  water: { surfaces: number };
+  probes: { captured: number; probes: number; reflecting: number };
+  /** The render texture assets made so far (ADR 0109), by path. */
+  renderTextures: Record<string, { width: number; height: number; format: string }>;
+  /** Null until the particle renderer has loaded. */
+  particles: ParticleStats | null;
+  stats: RenderStats;
+  /** The cameras that drew the last frame: to the canvas (depth order), into a render texture, or the editor's preview inset. */
+  cameras: { camera: Camera; target: "canvas" | "texture" | "preview" }[];
+  /** The nodes whose renderers are drawn (visible, loaded), once each: meshes with their materials, and sprites. */
+  drawn: { meshes: { node: GameObject; materials: DrawnMaterial[] }[]; sprites: GameObject[] };
+}
+
+/** @internal One World's drawing surface (ADR 0032, 0075, 0128). */
 export interface RenderSurface {
   /** The canvas the World draws to; input listens to it. */
   readonly canvas: HTMLCanvasElement;
+  /**
+   * Resolves once the renderer has started (true) or failed to (false); frames before then draw
+   * nothing. The desktop editor shows its window after this, so the scene view opens drawn (ADR 0082).
+   */
+  readonly started: Promise<boolean>;
   /** Step 8 of the frame: mirror the World's render components into the renderer. */
   sync(world: World): void;
   /** Draw the World's cameras, then its UI. */
@@ -98,11 +97,6 @@ export interface RenderSurface {
   /** Forget the World this surface draws, so another may claim it. */
   releaseWorld(): void;
   dispose(): void;
-  /**
-   * Resolves once the renderer has started (true) or failed to (false); frames before then draw
-   * nothing. The desktop editor shows its window after this, so the scene view opens drawn (ADR 0082).
-   */
-  readonly started?: Promise<boolean>;
   /** Load textures ahead of time so sprites don't pop in. */
   preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void>;
   /**
@@ -113,51 +107,8 @@ export interface RenderSurface {
   warmUp(set: WarmContent): Promise<void>;
   /** @internal Editor play mode: log shader variants compiled after loading, naming their prefab (ADR 0080). */
   _setVariantReport?(on: boolean): void;
-
-  // Tests and diagnostics.
-  qualityState(): { tier: string; pixelRatio: number; shadows: boolean; shadowMapSize: number; anisotropy: number; msaa: boolean };
-  lightingState(): { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean };
-  /** The procedural sky (ADR 0112): drawn, bakes made, whether a bake lights the scene, its time of day, the last bake's CPU time. */
-  skyState(): { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number };
-  postState(): { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null };
-  stackCount(): number;
-  waterState(): { surfaces: number };
-  probeState(): { captured: number; probes: number; reflecting: number };
-  /** Editor (ADR 0110): a reflection probe's current capture as a prefiltered `.env` file, for its `bakedMap`. */
-  bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer>;
-  /** Tests and the editor: the render texture assets made so far (ADR 0109). */
-  renderTextureState(): Record<string, { width: number; height: number; format: string }>;
-  particleState(): ParticleStats | null;
-  renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number };
-  /** Tests and the editor: the UI core's layout and hit testing, once loaded. */
-  uiRuntime(): Pick<UICoreLike, "rectOf" | "hitTest" | "pickAll" | "pickCanvases" | "cornersOf"> | null;
-
-  // Editor (ADR 0022 and later).
-  setEditorColors(colors: EditorColors): void;
-  setEditorGridPlane(plane: "xz" | "xy"): void;
-  setEditorGrid(cellSize: number, visible: boolean): void;
-  editorGrid(): { cellSize: number; visible: boolean; divisions: number } | null;
-  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void;
-  restartParticlePreview(): void;
-  setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void;
-  /** True if the last frame drew a camera preview. */
-  readonly cameraPreviewDrawn: boolean;
-  pick(world: World, x: number, y: number): GameObject[];
-  spriteSize(s: SpriteRenderer): [number, number] | null;
-  meshBounds(node: GameObject): { min: [number, number, number]; max: [number, number, number] } | null;
-  rayAt(world: World, x: number, y: number): { origin: [number, number, number]; direction: [number, number, number] } | null;
-  worldToCanvas(world: World, p: readonly number[]): [number, number] | null;
-  screenBounds(world: World, root: GameObject): { node: GameObject; rect: ScreenRect }[];
-  pointOnPlaneZ(world: World, x: number, y: number, z?: number): [number, number, number] | null;
-  pointOnPlane(world: World, x: number, y: number, normal: readonly number[], point: readonly number[]): [number, number, number] | null;
-  setSelectionOutline(nodes: readonly GameObject[]): void;
-  setSelectionOutlineShown(shown: boolean): void;
-  editorDrawingShown(): { segments: number; handles: number; outlines: number; drawnObjects: number };
-  setOverlayProvider(provider: (() => EditorOverlay) | null): void;
-  overlayHandlesOnCanvas(world: World): { id: string; x: number; y: number }[];
-  pickOverlayHandle(world: World, x: number, y: number, radius?: number): string | null;
-  lightIconsOnCanvas(world: World): { node: GameObject; x: number; y: number }[];
-  lightWireCount(): number;
-  setGizmo(nodes: readonly GameObject[], options: GizmoOptions, handlers: GizmoHandlers | null): void;
-  gizmoActiveAt(x: number, y: number): boolean;
+  /** The renderer's state now, as engine facts (tests, play mode's Stats). */
+  diagnostics(): RenderDiagnostics;
+  /** The editor's handle on this surface's viewport (ADR 0128), made on first ask; asking loads the editor tools. */
+  editorViewport(): EditorViewport;
 }

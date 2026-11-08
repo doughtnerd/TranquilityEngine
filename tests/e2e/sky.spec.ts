@@ -20,7 +20,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
 }
 
 type SkyState = { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number };
-type Hooks = { engine?: { world: { time: { frameCount: number }; render: { skyState(): SkyState; lightingState(): { environment: string } } } } };
+type Hooks = { engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { sky: SkyState; lighting: { environment: string } } } } } };
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -29,7 +29,7 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-const sky = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.skyState());
+const sky = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().sky);
 const assets = (page: Page) => page.locator(".assets");
 
 async function openPlayground(page: Page, extra: Record<string, string> = {}): Promise<void> {

@@ -16,8 +16,9 @@ import { Input } from "../input/Input";
 import { localPoseFromMatrix, matrixFrom, type LocalPose } from "../render/gizmoMath";
 import type { NavigationWorld } from "../nav/NavigationWorld";
 import { NavAgent } from "../nav/components";
-import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRect } from "../render/RenderSurface";
-import { Camera, MeshRenderer, SpriteRenderer } from "../render/components";
+import { ViewportHandle, type EditorOverlay, type EditorViewport } from "../render/editorViewport";
+import type { RenderDiagnostics } from "../render/RenderSurface";
+import { MeshRenderer, SpriteRenderer } from "../render/components";
 import { meshesIfLoaded, type ModelMesh } from "../scene/models";
 import type { GameObject } from "../scene/GameObject";
 import type { UICanvas, UIComponentType } from "../ui/components";
@@ -239,101 +240,32 @@ export function viewportCanvas(world: World): HTMLCanvasElement | null {
   return world.render?.canvas ?? null;
 }
 
-/**
- * Nodes whose renderers lie under a canvas point (CSS pixels, origin top-left), topmost first.
- * Only nodes with a SpriteRenderer or Text are pickable. Empty when headless.
- */
-export function pick(world: World, x: number, y: number): GameObject[] {
-  return world.render?.pick(world, x, y) ?? [];
-}
-
-export type { ScreenRect } from "../render/RenderSurface";
+const headlessViewports = new WeakMap<World, EditorViewport>();
 
 /**
- * Where each active node under `root` is on the canvas (CSS pixels): the rectangle around its
- * sprite or text, or a point at its origin. Parents come before children. Empty headless.
+ * The editor's handle on `world`'s viewport (ADR 0128): overlays, the transform gizmo, picking, rays,
+ * screen bounds and camera queries, in canvas CSS pixels (origin top-left). State set on it (selection,
+ * grid, colours, overlay, gizmo, previews) holds until changed, from before the renderer has loaded;
+ * its queries answer nothing (empty, null, false) until it has, and always headless.
  */
-export function screenBounds(world: World, root: GameObject): { node: GameObject; rect: ScreenRect }[] {
-  return world.render?.screenBounds(world, root) ?? [];
+export function viewport(world: World): EditorViewport {
+  const surface = world.render;
+  if (surface) return surface.editorViewport();
+  let v = headlessViewports.get(world);
+  if (!v) headlessViewports.set(world, (v = new ViewportHandle(() => null)));
+  return v;
 }
 
-/** A world point's place on the canvas (CSS pixels), or null (headless, or behind the camera). */
-export function worldToCanvas(world: World, point: readonly number[]): [number, number] | null {
-  return world.render?.worldToCanvas(world, point) ?? null;
-}
-
-/**
- * UI elements (ADR 0069, 0077) drawn under a canvas point (CSS pixels), topmost first: screen
- * canvases, then world canvases nearest first, picked with the UI's layout boxes (canvases
- * themselves aren't listed). World canvases are hit with the view camera's ray. Empty headless and
- * before the UI loads.
- */
-export function pickUI(world: World, x: number, y: number): UIComponentType[] {
-  const ui = world.render?.uiRuntime();
-  if (!ui) return [];
-  return ui.pickAll(x, y, rayAt(world, x, y));
-}
-
-/**
- * UI canvases (ADR 0117) a click at a canvas point selects, topmost first: a world canvas by its
- * rectangle, a screen canvas only by the edge strip of its frame. Empty headless.
- */
-export function pickUICanvases(world: World, x: number, y: number): UICanvas[] {
-  const ui = world.render?.uiRuntime();
-  if (!ui) return [];
-  return ui.pickCanvases(x, y, rayAt(world, x, y));
-}
-
-/**
- * A UI element's laid-out box on the canvas: its four corners in canvas CSS pixels (top-left,
- * top-right, bottom-right, bottom-left; a world canvas's projected through the view camera) and its
- * size in UI pixels, for outlining it and for the scene view's resize and move handles. Null when it
- * isn't laid out, a corner is behind the camera, or headless.
- */
-export function uiElementBox(world: World, c: UIComponentType): { points: [number, number][]; size: readonly [number, number] } | null {
-  const corners = world.render?.uiRuntime()?.cornersOf(c);
-  if (!corners) return null;
-  if (corners.space === "screen") return { points: corners.points.map((p) => [p[0], p[1]]), size: corners.size };
-  const out: [number, number][] = [];
-  for (const p of corners.points) {
-    const q = worldToCanvas(world, p);
-    if (!q) return null;
-    out.push(q);
-  }
-  return { points: out, size: corners.size };
-}
-
-/** A UI element's box corners on the canvas (see `uiElementBox`), or null. */
-export function uiElementOutline(world: World, c: UIComponentType): [number, number][] | null {
-  return uiElementBox(world, c)?.points ?? null;
-}
-
-/** Outline the renderers of these nodes (and their descendants) in the viewport until changed. */
-export function setSelectionOutline(world: World, nodes: readonly GameObject[]): void {
-  world.render?.setSelectionOutline(nodes);
-}
-
-export type { EditorColors } from "../render/RenderSurface";
-
-/** Recolour the viewport's background, grid, selection outline and camera gizmos (the editor's theme). No-op headless. */
-export function setEditorColors(world: World, colors: EditorColors): void {
-  world.render?.setEditorColors(colors);
-}
-
-export type { GizmoHandlers, GizmoOptions } from "../render/RenderSurface";
+export type { EditorColors, EditorDrawing, EditorGrid, EditorOverlay, EditorViewport, GizmoHandlers, GizmoOptions, ScreenRect, ViewRay, WorldBox } from "../render/editorViewport";
 export type { LocalPose } from "../render/gizmoMath";
+export type { RenderDiagnostics, RenderStats } from "../render/RenderSurface";
 
 /**
- * Show a move/rotate/scale gizmo on `nodes` (none hides it): on the node itself for one, at their
- * centre for several. Drags report each node's new local pose. No-op headless.
+ * `world`'s renderer state now, as engine facts (ADR 0128): quality, lighting, post-processing, probes,
+ * particles, render counters, the cameras that drew the last frame and the nodes drawn. Null headless.
  */
-export function setGizmo(world: World, nodes: readonly GameObject[], options: GizmoOptions, handlers: GizmoHandlers | null): void {
-  world.render?.setGizmo(nodes, options, handlers);
-}
-
-/** True while dragging the gizmo or if a canvas point is over one of its handles, so clicks there don't select. */
-export function gizmoActive(world: World, x: number, y: number): boolean {
-  return world.render?.gizmoActiveAt(x, y) ?? false;
+export function renderDiagnostics(world: World): RenderDiagnostics | null {
+  return world.render?.diagnostics() ?? null;
 }
 
 /** Give keyboard and pointer input back to this World's canvas and make it the active World (after play mode). */
@@ -396,11 +328,6 @@ export function sceneSourceOf(node: GameObject): string | undefined {
   return node.isSceneNode ? node.getBehavior(SceneInstance)?.source : undefined;
 }
 
-/** The world point on the plane z = 0 under a canvas point (CSS pixels), or null (headless, or the ray misses it). */
-export function pointOnSpritePlane(world: World, x: number, y: number, z = 0): [number, number, number] | null {
-  return world.render?.pointOnPlaneZ(world, x, y, z) ?? null;
-}
-
 /**
  * The local Transform values that keep `node` where it is in the world once it's moved under
  * `parent` (null: the top of the scene). Null if the node has no Transform.
@@ -410,72 +337,6 @@ export function localPoseUnder(node: GameObject, parent: GameObject | null): Loc
   const world = node.world;
   const parentWorld = parent ? matrixFrom(world.worldMatrix(parent.entity), parent.entity * 16) : null;
   return localPoseFromMatrix(parentWorld, matrixFrom(world.worldMatrix(node.entity), node.entity * 16));
-}
-
-/** Set the scene view grid's cell size (metres) and whether it shows. No-op headless. */
-export function setEditorGrid(world: World, cellSize: number, visible: boolean): void {
-  world.render?.setEditorGrid(cellSize, visible);
-}
-
-/** The scene view grid's cell size, lines per side and visibility; null headless. */
-export function editorGrid(world: World): { cellSize: number; visible: boolean; divisions: number } | null {
-  return world.render?.editorGrid() ?? null;
-}
-
-/**
- * Draw what the Camera on `camera` sees into the canvas under `frame`, picture-in-picture (null
- * stops). The camera is one in the edited scene; the editor's helpers aren't drawn. No-op headless.
- */
-export function setCameraPreview(world: World, camera: GameObject | null, frame: HTMLElement | null): void {
-  world.render?.setCameraPreview(camera?.getBehavior(Camera) ?? null, frame);
-}
-
-/**
- * The scene view's particle preview (ADR 0057): in an editor World, selected ParticleSystems (or
- * every one, with `simulateAll`) play at `speed`, paused when `playing` is off. No-op headless.
- */
-export function setParticlePreview(world: World, preview: { playing?: boolean; speed?: number; simulateAll?: boolean }): void {
-  world.render?.setParticlePreview(preview);
-}
-
-/** Restart the previewed particle effects. */
-export function restartParticlePreview(world: World): void {
-  world.render?.restartParticlePreview();
-}
-
-/** What the particle renderer is playing (null headless, or before it has loaded). */
-export function particleState(world: World): { systems: number; emitters: number; particles: number; batches: number; previewed: { time: number; count: number } | null } | null {
-  return world.render?.particleState() ?? null;
-}
-
-/** True if the last frame drew a camera preview. */
-export function cameraPreviewDrawn(world: World): boolean {
-  return world.render?.cameraPreviewDrawn ?? false;
-}
-
-/** The world point on the ground (the plane y = `y`) under a canvas point, or null (headless, or the ray misses it). */
-export function pointOnGround(world: World, x: number, y: number, height = 0): [number, number, number] | null {
-  return world.render?.pointOnPlane(world, x, y, [0, 1, 0], [0, height, 0]) ?? null;
-}
-
-/** The world point on a plane (through `point`, facing `normal`) under a canvas point, or null. */
-export function pointOnPlane(world: World, x: number, y: number, normal: readonly number[], point: readonly number[]): [number, number, number] | null {
-  return world.render?.pointOnPlane(world, x, y, normal, point) ?? null;
-}
-
-/** The ray under a canvas point (CSS pixels) through the view's camera, or null headless. */
-export function rayAt(world: World, x: number, y: number): { origin: [number, number, number]; direction: [number, number, number] } | null {
-  return world.render?.rayAt(world, x, y) ?? null;
-}
-
-/** Where each light icon in the edited scene is on the canvas (CSS pixels). Empty headless. */
-export function lightIconsOnCanvas(world: World): { node: GameObject; x: number; y: number }[] {
-  return world.render?.lightIconsOnCanvas(world) ?? [];
-}
-
-/** How many light wireframe segments the last frame drew (0 headless). */
-export function lightWireCount(world: World): number {
-  return world.render?.lightWireCount() ?? 0;
 }
 
 /**
@@ -531,10 +392,10 @@ export function meshLocalBounds(node: GameObject): { min: [number, number, numbe
  */
 export function worldBounds(node: GameObject): { min: [number, number, number]; max: [number, number, number] } {
   const world = node.world;
-  const mesh = world.render?.meshBounds(node);
+  const mesh = viewport(world).meshBounds(node);
   if (mesh) return mesh;
   const m = world.worldMatrix(node.entity), mo = node.entity * 16;
-  const size = spriteSize(node);
+  const size = viewport(world).spriteSize(node);
   const corners = size
     ? [[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]].map(([x, y]) => Mat4.transformPoint(m, mo, x * size[0], y * size[1], 0))
     : [Mat4.transformPoint(m, mo, 0, 0, 0)];
@@ -558,7 +419,6 @@ export function localPositionFor(node: GameObject, point: readonly number[]): [n
   return Mat4.transformPoint(inverse, 0, x, y, z);
 }
 
-export type { EditorOverlay } from "../render/RenderSurface";
 
 /**
  * What an overlay draws, so the editor can show or hide each kind (play mode's Gizmos menu):
@@ -624,8 +484,8 @@ function installOverlays(world: World, map: Map<string, OverlayEntry>): void {
   const filter = overlayFilters.get(world);
   const shown = [...map.values()].filter((e) => !filter || filter(e.kind)).map((e) => e.provider);
   // None shown: no provider, so the backend clears what it drew and stops asking.
-  if (shown.length === 0) return world.render?.setOverlayProvider(null);
-  world.render?.setOverlayProvider(() => mergeOverlays(shown.map((p) => p())));
+  if (shown.length === 0) return viewport(world).setOverlay(null);
+  viewport(world).setOverlay(() => mergeOverlays(shown.map((p) => p())));
 }
 
 /** Draw an overlay (lines and handles) supplied by `provider` every frame; null stops. Shares the World with `addEditorOverlay`'s overlays (under the id "default"). */
@@ -634,35 +494,9 @@ export function setEditorOverlay(world: World, provider: (() => EditorOverlay) |
   else removeEditorOverlay(world, "default");
 }
 
-/** Show or hide `world`'s selection outline, keeping what's outlined (play mode's Gizmos menu). No-op headless. */
-export function setSelectionOutlineShown(world: World, shown: boolean): void {
-  world.render?.setSelectionOutlineShown(shown);
-}
-
-/** How much editor drawing `world`'s view shows now: overlay line segments, handles and selection outlines. Null headless. */
-export function editorDrawingShown(world: World): { segments: number; handles: number; outlines: number; drawnObjects: number } | null {
-  return world.render?.editorDrawingShown() ?? null;
-}
-
 // --- Play mode's Stats -------------------------------------------------------------------------
 
 export type { EngineTiming } from "../core/Engine";
-
-/** What `world`'s view drew last frame (every camera and the UI) and the GPU resources it holds. */
-export interface RenderStats {
-  readonly drawCalls: number;
-  readonly triangles: number;
-  readonly lines: number;
-  readonly points: number;
-  readonly geometries: number;
-  readonly textures: number;
-  readonly programs: number;
-}
-
-/** `world`'s render counters (see `RenderStats`), or null when it doesn't render (headless, or no view). */
-export function renderStats(world: World): RenderStats | null {
-  return world.render?.renderStats() ?? null;
-}
 
 /** Report `engine`'s frame and per-World phase timings to `timing` from now on (null stops; then there's no cost). */
 export function setEngineTiming(engine: Engine, timing: EngineTiming | null): void {
@@ -700,16 +534,6 @@ export function navigationOf(world: World): NavigationWorld | null {
   return world.navigation ?? null;
 }
 
-/** The id of the overlay handle under a canvas point, or null. */
-export function overlayHandleAt(world: World, x: number, y: number): string | null {
-  return world.render?.pickOverlayHandle(world, x, y) ?? null;
-}
-
-/** Where each overlay handle is on the canvas (CSS pixels). Empty headless. */
-export function overlayHandlesOnCanvas(world: World): { id: string; x: number; y: number }[] {
-  return world.render?.overlayHandlesOnCanvas(world) ?? [];
-}
-
 // --- Adding components (ADR 0022) ---------------------------------------------------------------
 
 /** A component type the editor can add: its id, display name and group. */
@@ -740,12 +564,6 @@ export function componentCatalog(): ComponentTypeInfo[] {
   ];
   const order = { Engine: 0, Scripts: 1, Data: 2 };
   return out.sort((a, b) => order[a.group] - order[b.group] || a.name.localeCompare(b.name));
-}
-
-/** The size of the sprite on `node` in the node's units (before its scale), or null (no sprite, texture not loaded, or headless). */
-export function spriteSize(node: GameObject): [number, number] | null {
-  const s = node.getBehavior(SpriteRenderer);
-  return s ? (node.world.render?.spriteSize(s) ?? null) : null;
 }
 
 // --- Project scripts (ADR 0030) -----------------------------------------------------------------

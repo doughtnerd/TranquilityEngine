@@ -5,12 +5,13 @@ import { expect, test, type Page } from "@playwright/test";
 
 test.describe.configure({ timeout: 60_000 });
 
+/** The surface's diagnostics snapshot (ADR 0128). */
 type Render = {
-  probeState(): { captured: number; probes: number; reflecting: number };
-  stackCount(): number;
-  postState(): { composed: boolean };
-  cameraPreviewDrawn: boolean;
-  cameras: Map<unknown, unknown>;
+  diagnostics(): {
+    probes: { captured: number; probes: number; reflecting: number };
+    post: { composed: boolean; composedCameras: number };
+    cameras: { camera: unknown; target: "canvas" | "texture" | "preview" }[];
+  };
 };
 type Hooks = {
   engine?: { world: { time: { frameCount: number }; render: Render } };
@@ -29,7 +30,7 @@ async function openPlayground(page: Page): Promise<void> {
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 }
 
-const probes = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.probeState());
+const probes = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().probes);
 const row = (page: Page, name: string) => page.locator(".tree .row", { has: page.locator(".name", { hasText: new RegExp(`^${name}$`) }) });
 
 test("a reflection probe from the Create menu captures the scene and the meshes inside it reflect it; Low turns probes off", async ({ page }) => {
@@ -59,7 +60,7 @@ test("the selected camera's inset shows its effects", async ({ page }) => {
   await row(page, "Camera").click();
   const preview = page.getByRole("button", { name: "Preview", exact: true });
   if ((await preview.getAttribute("aria-pressed")) !== "true") await preview.click();
-  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.cameraPreviewDrawn), { timeout: 15_000 }).toBe(true);
+  await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().cameras.some((c) => c.target === "preview")), { timeout: 15_000 }).toBe(true);
   expect(errors).toEqual([]);
 });
 
@@ -69,8 +70,8 @@ test("in play, a second camera in a corner viewport gets its own composer, drawn
   await page.getByRole("button", { name: "▶ Play" }).click();
   await page.waitForFunction(() => ((window as unknown as Hooks).playEngine?.world.time.frameCount ?? 0) > 10);
   const render = () => page.evaluate(() => {
-    const r = (window as unknown as Hooks).playEngine!.world.render;
-    return { stacks: r.stackCount(), composed: r.postState().composed };
+    const { post } = (window as unknown as Hooks).playEngine!.world.render.diagnostics();
+    return { stacks: post.composedCameras, composed: post.composed };
   });
   await expect.poll(async () => (await render()).composed, { timeout: 15_000 }).toBe(true);
   expect((await render()).stacks).toBe(1);
@@ -79,7 +80,7 @@ test("in play, a second camera in a corner viewport gets its own composer, drawn
   await page.evaluate(() => {
     type Node = { addComponent(type: unknown, init?: unknown): Record<string, unknown>; getComponents(type: unknown): Record<string, unknown>[]; constructor: { create(name: string, o: unknown): Node } };
     const w = (window as unknown as Hooks).playEngine!.world;
-    const cam = [...w.render.cameras.keys()][0] as { node: Node; constructor: unknown };
+    const cam = w.render.diagnostics().cameras[0].camera as { node: Node; constructor: unknown };
     const ComponentClass = Object.getPrototypeOf(cam.constructor);
     const post = cam.node.getComponents(ComponentClass).find((c) => "bloomThreshold" in c)!;
     const node = cam.node.constructor.create("Minimap", { parent: w.root });

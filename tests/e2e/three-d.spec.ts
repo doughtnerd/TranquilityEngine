@@ -34,9 +34,8 @@ type Hooks = {
     world: {
       time: { frameCount: number };
       render: {
-        renderer: { meshRenderers: Map<{ node: { name: string } }, { meshes: { isEnabled(): boolean }[] }> } | null; // the surface's Babylon renderer; its private map (ADR 0081)
-        lightIconsOnCanvas(world: unknown): { node: { name: string }; x: number; y: number }[];
-        lightWireCount(): number;
+        diagnostics(): { drawn: { meshes: { node: { name: string } }[] } }; // ADR 0128
+        editorViewport(): { lightIcons(): { node: { name: string }; x: number; y: number }[]; drawn(): { lightWires: number } };
       };
     };
   };
@@ -70,9 +69,8 @@ async function openPlayground(page: Page, writable: boolean): Promise<void> {
 /** Names of the nodes whose meshes are drawn in the scene view, once each. */
 const drawnMeshes = (page: Page) =>
   page.evaluate(() => {
-    const names = new Set<string>();
-    for (const [r, e] of (window as unknown as Hooks).engine!.world.render.renderer?.meshRenderers ?? []) if (e.meshes.some((m) => m.isEnabled())) names.add(r.node.name);
-    return [...names].sort();
+    const names = (window as unknown as Hooks).engine!.world.render.diagnostics().drawn.meshes.map((m) => m.node.name);
+    return [...new Set(names)].sort();
   });
 
 const box = async (l: Locator) => (await l.boundingBox())!;
@@ -118,11 +116,10 @@ test("the 3D Playground draws its models, shapes and lights", async ({ page }) =
   await expect.poll(() => drawnMeshes(page)).toEqual(["Ball", "Body", "Crate 1", "Crate 2", "Crate 3", "Crate 4", "Ground", "Head", "Orb", "Pillar", "Street Lamp"]);
   // Every light shows an icon; the sun's arrow and other wireframes are drawn.
   const icons = await page.evaluate(() => {
-    const w = (window as unknown as Hooks).engine!.world;
-    return w.render.lightIconsOnCanvas(w).map((i) => i.node.name).sort();
+    return (window as unknown as Hooks).engine!.world.render.editorViewport().lightIcons().map((i) => i.node.name).sort();
   });
   expect(icons).toEqual(["Ambient Light", "Lamp", "Sun"]);
-  expect(await page.evaluate(() => (window as unknown as Hooks).engine!.world.render.lightWireCount())).toBeGreaterThan(0);
+  expect(await page.evaluate(() => (window as unknown as Hooks).engine!.world.render.editorViewport().drawn().lightWires)).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
 
@@ -260,8 +257,7 @@ test("sphere and capsule collider handles set the radius and height; lights from
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const w = (window as unknown as Hooks).engine!.world;
-        return w.render.lightIconsOnCanvas(w).some((i) => i.node.name === "Spot Light");
+        return (window as unknown as Hooks).engine!.world.render.editorViewport().lightIcons().some((i) => i.node.name === "Spot Light");
       }),
     )
     .toBe(true);

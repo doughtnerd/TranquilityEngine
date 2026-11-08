@@ -3,7 +3,7 @@
 // The collector is the Engine's timing hook (`setEngineTiming`) only while the panel shows, so a
 // hidden panel costs nothing.
 import type { Engine } from "../engine";
-import { engineWorld, navAgentCount, nodeCount, renderStats, type EngineTiming, type RenderStats } from "../engine/editor";
+import { type EngineTiming, engineWorld, navAgentCount, nodeCount, renderDiagnostics, type RenderStats } from "../engine/editor";
 
 /** Frame rate figures over a window of recent frames. */
 export interface FrameSummary {
@@ -147,7 +147,7 @@ export function takeSnapshot(engine: Engine, collector: StatsCollector): StatsSn
   for (const h of engine.worlds()) {
     const world = engineWorld(engine, h.name);
     if (!world) continue;
-    worlds.push({ name: h.name, paused: h.paused, phases: phases.get(h.name) ?? null, render: renderStats(world), nodes: nodeCount(world), agents: navAgentCount(world) });
+    worlds.push({ name: h.name, paused: h.paused, phases: phases.get(h.name) ?? null, render: renderDiagnostics(world)?.stats ?? null, nodes: nodeCount(world), agents: navAgentCount(world) });
   }
   return { frame: collector.frames.summary(collector.now()), stepMs: step, heap: jsHeap(), worlds };
 }

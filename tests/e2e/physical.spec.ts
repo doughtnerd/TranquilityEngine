@@ -21,7 +21,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
 }
 
 type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { renderer: { meshRenderers: Map<{ node: { name: string } }, { meshes: { material: { getClassName(): string; clearCoat: { isEnabled: boolean; intensity: number }; subSurface: { refractionIntensity: number } } | null }[] }> } | null } } };
+  engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { drawn: { meshes: { node: { name: string }; materials: { unlit: boolean; clearcoat: number; transmission: number }[] }[] } } } } };
   shaderGraphPreview?: { setGraph(g: unknown): unknown; readCenter(): number[] | null };
 };
 
@@ -34,11 +34,8 @@ function trackErrors(page: Page): string[] {
 
 const meshMaterial = (page: Page, name: string) =>
   page.evaluate((n) => {
-    for (const [r, e] of (window as unknown as Hooks).engine!.world.render.renderer?.meshRenderers ?? []) {
-      const m = r.node.name === n ? e.meshes[0]?.material : undefined;
-      if (m) return { type: m.getClassName(), clearcoat: m.clearCoat.isEnabled ? m.clearCoat.intensity : 0, transmission: m.subSurface.refractionIntensity }; // getters: read them here
-    }
-    return null;
+    // What the renderer draws the node with, in engine material terms (ADR 0128).
+    return (window as unknown as Hooks).engine!.world.render.diagnostics().drawn.meshes.find((m) => m.node.name === n)?.materials[0] ?? null;
   }, name);
 
 test("a physical material's fields save to its file and the mesh draws with clearcoat and transmission", async ({ page, browserName }) => {
@@ -60,8 +57,8 @@ test("a physical material's fields save to its file and the mesh draws with clea
     await material.getByRole("spinbutton", { name: label, exact: true }).press("Enter");
   }
   await expect.poll(async () => JSON.parse((await readFile(page, "Playground/materials/metal.material.json")) ?? "{}")).toMatchObject({ shader: "physical", clearcoat: 1, transmission: 0.5, ior: 1.33 });
-  await expect.poll(async () => (await meshMaterial(page, "Body"))?.type).toBe("PBRMaterial");
-  expect(await meshMaterial(page, "Body")).toMatchObject({ clearcoat: 1, transmission: 0.5 });
+  await expect.poll(async () => (await meshMaterial(page, "Body"))?.clearcoat).toBe(1);
+  expect(await meshMaterial(page, "Body")).toMatchObject({ unlit: false, clearcoat: 1, transmission: 0.5 });
   expect(errors).toEqual([]);
 });
 

@@ -75,7 +75,7 @@ import { isRenderTexturePath } from "../renderTexture";
 import { BabylonWater } from "./water";
 import { WaterSurface } from "../water/WaterSurface";
 import type { GameObject } from "../../scene/GameObject";
-import type { ParticlePreviewSettings, ParticleStats } from "../RenderSurface";
+import type { DrawnMaterial, ParticlePreviewSettings, RenderDiagnostics } from "../RenderSurface";
 import type { BabylonParticles } from "./particles";
 import { PARTICLE_SCALE } from "../../core/graphics";
 import { Graphics } from "../Graphics";
@@ -324,13 +324,13 @@ export class BabylonRenderer {
   private shadows: ShadowRequest[] = [];
   private readonly casters: AbstractMesh[] = [];
   /** What the last frame's first camera ran, for tests and the editor. */
-  private lastPost: { composed: boolean; toneMapping: ToneMappingName; effects: PostEffects | null } | null = null;
+  private lastPost: { composed: boolean; toneMapping: ToneMappingName; effects: PostEffects | null; composedCameras: number } | null = null;
   private clearColor: Color4;
   private owner: World | null = null;
   private disposed = false;
   /** Editor helpers (stage 8), loaded on first use; an editor World loads them at once. */
   private tools: BabylonEditorTools | null = null;
-  private toolsLoading = false;
+  private toolsLoading: Promise<BabylonEditorTools | null> | null = null;
   private overlayLayer: UtilityLayerRenderer | null = null;
   /** Editor: the camera drawn into an inset of the canvas (ADR 0022), and the element it fills. */
   private preview: { camera: Camera; frame: HTMLElement } | null = null;
@@ -531,23 +531,30 @@ export class BabylonRenderer {
 
   // --- Editor (ADR 0022; stage 8) ---------------------------------------------------------------
 
-  /** The editor helpers, or null while they load (the first call starts loading them). */
+  /** The editor helpers (the editor viewport's Babylon adapter, ADR 0128), or null while they load (the first call starts loading them). */
   editorTools(): BabylonEditorTools | null {
-    if (this.tools || this.toolsLoading || this.disposed) return this.tools;
-    this.toolsLoading = true;
-    import("./editorTools")
+    if (!this.disposed) void this.loadEditorTools();
+    return this.tools;
+  }
+
+  /** Load the editor helpers (once); resolves with them, or null if they couldn't load or the renderer was disposed. */
+  loadEditorTools(): Promise<BabylonEditorTools | null> {
+    this.toolsLoading ??= import("./editorTools")
       .then((m) => {
-        if (this.disposed) return;
+        if (this.disposed) return null;
         // Manual rendering: the frame graph draws it (frameGraph.ts), straight onto the canvas.
         const layer = new UtilityLayerRenderer(this.scene, true, true);
         layer.utilityLayerScene._useCurrentFrameBuffer = true;
         this.overlayLayer = layer;
         this.frame.overlay = layer;
         this.tools = new m.BabylonEditorTools(this.editorContext(layer));
+        return this.tools;
       })
-      .catch((err) => console.error("[myco] the Babylon editor helpers couldn't load:", err))
-      .finally(() => (this.toolsLoading = false));
-    return null;
+      .catch((err) => {
+        console.error("[myco] the Babylon editor helpers couldn't load:", err);
+        return null;
+      });
+    return this.toolsLoading;
   }
 
   /** What the editor helpers read (editorContext.ts). */
@@ -569,6 +576,17 @@ export class BabylonRenderer {
         for (const [component, e] of self.meshRenderers) yield { component, meshes: e.meshes };
       },
       texts: () => [], // Text draws from stage 9
+      renderer: {
+        setClearColor: (color) => this.setClearColor(color),
+        setSelected: (nodes) => this.setSelected(nodes),
+        setCameraPreview: (camera, frame) => this.setCameraPreview(camera, frame),
+        cameraPreviewDrawn: () => this.cameraPreviewDrawn,
+        setParticlePreview: (preview) => this.setParticlePreview(preview),
+        restartParticlePreview: () => this.restartParticlePreview(),
+        spriteSize: (sprite) => this.spriteSize(sprite),
+        ui: () => this.uiCore,
+        bakeReflectionProbe: (probe) => this.bakeReflectionProbe(probe),
+      },
     };
   }
 
@@ -843,7 +861,7 @@ export class BabylonRenderer {
       const backdrop = this.fill && i === 0 && !c.backgroundColor && !this.postSettings(c) ? background : undefined;
       return { ui: this.tools ? i === 0 : i === cams.length - 1, overlay: i === 0 && !!this.tools, camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure, backdrop };
     });
-    this.lastPost = views[0] ? { composed: !!views[0].effects, toneMapping: views[0].toneMapping, effects: views[0].effects } : null;
+    this.lastPost = views[0] ? { composed: !!views[0].effects, toneMapping: views[0].toneMapping, effects: views[0].effects, composedCameras: views.filter((v) => v.effects && !v.target).length } : null;
     // Cameras drawing into render textures (ADR 0109), after the canvas's: what samples their texture shows the last frame.
     for (const c of this.targetCameras(world)) {
       const target = this.renderTextures.target(c.targetTexture);
@@ -944,10 +962,6 @@ export class BabylonRenderer {
     this.particles?.restartAll();
   }
 
-  particleState(): ParticleStats | null {
-    return this.particles?.state() ?? null;
-  }
-
   // --- Reflection probes and fog (ADR 0054, 0071; stage 6) ----------------------------------------
 
   /** The probe a mesh's bounds centre lies in, if any. */
@@ -987,19 +1001,9 @@ export class BabylonRenderer {
     return m;
   }
 
-  /** Tests: how many water surfaces are drawn. */
-  waterState(): { surfaces: number } {
-    return this.water?.state() ?? { surfaces: 0 };
-  }
-
   /** Editor (ADR 0110): a probe's current capture as a prefiltered `.env` file. */
   bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer> {
     return this.probes.bake(probe);
-  }
-
-  /** Tests: probes captured, probes, and meshes reflecting one. */
-  probeState(): { captured: number; probes: number; reflecting: number } {
-    return this.probes.state(this.reflecting);
   }
 
   /**
@@ -1041,11 +1045,6 @@ export class BabylonRenderer {
     hf.color[1] = s.fogColor.g;
     hf.color[2] = s.fogColor.b;
     setHeightFog(s, hf);
-  }
-
-  /** Tests and the editor: what the last frame's first camera ran. */
-  postState(): { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null } {
-    return { composed: !!this.lastPost?.composed, loaded: this.frame.ready, toneMapping: this.lastPost?.toneMapping ?? "none", effects: this.lastPost?.effects ?? null };
   }
 
   release(c: Component): void {
@@ -1392,7 +1391,7 @@ export class BabylonRenderer {
    * picking and outlines use them. Games batch plain sprites (ADR 0108).
    */
   private get spriteMeshes(): boolean {
-    return this.fill || this.tools !== null || this.toolsLoading;
+    return this.fill || this.tools !== null || this.toolsLoading !== null;
   }
 
   /** The texel step sprites snap to this frame: a pixel-perfect view camera with pixel snapping, else 0. */
@@ -1894,26 +1893,41 @@ export class BabylonRenderer {
     return m;
   }
 
-  /** Tests and the editor: the render texture assets made so far (ADR 0109). */
-  renderTextureState(): ReturnType<BabylonRenderTextures["state"]> {
-    return this.renderTextures.state();
-  }
+  // --- Diagnostics (ADR 0128) ------------------------------------------------------------------
 
-  /** Tests: cascaded shadows and the environment map's state. */
-  lightingState(): ReturnType<BabylonLighting["state"]> {
-    return this.lighting.state();
-  }
-
-  /** Tests and the editor: the procedural sky's state (ADR 0112). */
-  skyState(): ReturnType<BabylonSky["state"]> {
-    return this.sky.state();
-  }
-
-  // --- Diagnostics ------------------------------------------------------------------------------
-
-  renderStats(): { drawCalls: number; triangles: number; lines: number; points: number; geometries: number; textures: number; programs: number } {
-    // Babylon counts the draw calls of the frame being drawn and resets at the next frame's start, so between frames this is the last frame's (0 on NullEngine).
-    return { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: 0 };
+  /** The renderer's state as engine facts (the surface adds the quality tier). */
+  diagnostics(): Omit<RenderDiagnostics, "started" | "quality"> {
+    const world = this.owner;
+    const cameras: RenderDiagnostics["cameras"] = [];
+    if (world) {
+      for (const camera of this.viewCameras(world)) cameras.push({ camera, target: "canvas" });
+      for (const camera of this.targetCameras(world)) cameras.push({ camera, target: "texture" });
+    }
+    if (this.cameraPreviewDrawn && this.preview) cameras.push({ camera: this.preview.camera, target: "preview" });
+    const meshes = new Map<GameObject, DrawnMaterial[]>();
+    for (const [r, e] of this.meshRenderers) {
+      const shown = e.drawables.filter((d) => d.enabled);
+      if (!shown.length) continue;
+      const list = meshes.get(r.node) ?? [];
+      for (const d of shown) list.push(drawnMaterial(d.draw.material));
+      meshes.set(r.node, list);
+    }
+    const sprites = new Set<GameObject>();
+    for (const [s, e] of this.sprites) if (e.mesh ? e.mesh.isEnabled() : e.item) sprites.add(s.node);
+    const post = this.lastPost;
+    return {
+      lighting: this.lighting.state(),
+      sky: this.sky.state(),
+      post: { composed: !!post?.composed, loaded: this.frame.ready, toneMapping: post?.toneMapping ?? "none", effects: post?.effects ?? null, composedCameras: post?.composedCameras ?? 0 },
+      water: this.water?.state() ?? { surfaces: 0 },
+      probes: this.probes.state(this.reflecting),
+      renderTextures: this.renderTextures.state(),
+      particles: this.particles?.state() ?? null,
+      // Babylon counts the draw calls of the frame being drawn and resets at the next frame's start, so between frames this is the last frame's (0 on NullEngine).
+      stats: { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: 0 },
+      cameras,
+      drawn: { meshes: [...meshes].map(([node, materials]) => ({ node, materials })), sprites: [...sprites] },
+    };
   }
 
   private warnOnce(key: string, message: string): void {
@@ -1921,4 +1935,11 @@ export class BabylonRenderer {
     this.warned.add(key);
     console.warn(`[myco] ${message}`);
   }
+}
+
+/** A Babylon material in the engine's material terms (diagnostics, ADR 0128). */
+function drawnMaterial(m: BabylonMaterial): DrawnMaterial {
+  if (m instanceof PBRMaterial) return { unlit: m.unlit, clearcoat: m.clearCoat.isEnabled ? m.clearCoat.intensity : 0, transmission: m.subSurface.isRefractionEnabled ? m.subSurface.refractionIntensity : 0 };
+  const lit = m as { unlit?: boolean; disableLighting?: boolean };
+  return { unlit: !!(lit.unlit ?? lit.disableLighting), clearcoat: 0, transmission: 0 };
 }

@@ -24,7 +24,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
 const TINY_HDR = `#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 2 +X 4\n${"dPx\u007f".repeat(8)}`;
 
 type Lighting = { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean };
-type Hooks = { engine?: { world: { time: { frameCount: number }; render: { lightingState(): Lighting } } } };
+type Hooks = { engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { lighting: Lighting } } } } };
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -33,7 +33,7 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-const lighting = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.lightingState());
+const lighting = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().lighting);
 const row = (page: Page, name: string) => page.locator(".tree .row", { has: page.locator(".name", { hasText: new RegExp(`^${name}$`) }) });
 
 test("cascaded shadows follow the quality tier", async ({ page }) => {

@@ -8,7 +8,7 @@
 // instances).
 import { effect } from "@preact/signals";
 import { BoxCollider, BoxCollider2D, CapsuleCollider, CharacterController, CharacterController2D, CircleCollider2D, Collider, Collider2D, EdgeCollider2D, GameObject, MeshCollider, PolygonCollider2D, SphereCollider, type Engine } from "../engine";
-import { meshTriangleData, overlayHandleAt, pointOnPlane, pointOnSpritePlane, rayAt, addEditorOverlay, removeEditorOverlay, viewportCanvas, type EditorOverlay } from "../engine/editor";
+import { addEditorOverlay, type EditorOverlay, meshTriangleData, removeEditorOverlay, viewport, viewportCanvas } from "../engine/editor";
 import {
   boxHandles3D,
   boxWire,
@@ -255,7 +255,7 @@ export function installColliderGizmo(engine: Engine): () => void {
     const scene = openScene.value;
     if (!edited || !scene) return;
     const at = local(e);
-    const handle = overlayHandleAt(world, at.x, at.y);
+    const handle = viewport(world).pickOverlayHandle(at.x, at.y);
     if (!handle) return;
     e.stopImmediatePropagation();
     e.preventDefault();
@@ -271,7 +271,7 @@ export function installColliderGizmo(engine: Engine): () => void {
     const startSize: V2 = collider instanceof BoxCollider2D ? [collider.size.x, collider.size.y] : [0, 0];
     const pointer = (m: PointerEvent): V2 | null => {
       const p = local(m);
-      const w = pointOnSpritePlane(world, p.x, p.y, pose.position[2]);
+      const w = viewport(world).pointOnPlane(p.x, p.y, [0, 0, 1], [0, 0, pose.position[2]]);
       return w ? toLocal(pose, w) : null;
     };
     const grab = pointer(e);
@@ -355,7 +355,7 @@ export function installColliderGizmo(engine: Engine): () => void {
     const startCenter: V3 = [collider.center.x, collider.center.y, collider.center.z];
     const c0 = worldCenter(pose, startCenter);
     const start = local(e);
-    const ray0 = rayAt(world, start.x, start.y);
+    const ray0 = viewport(world).rayAt(start.x, start.y);
     if (!ray0) return;
     const [id, ...target] = editing.key.split("/");
     const written = new Map<string, string>();
@@ -383,20 +383,20 @@ export function installColliderGizmo(engine: Engine): () => void {
     const t0 = axis ? closestOnAxis(ray0.origin, ray0.direction, c0, axis) : null;
     const handleT = axis ? (grabbed[0] - c0[0]) * axis[0] + (grabbed[1] - c0[1]) * axis[1] + (grabbed[2] - c0[2]) * axis[2] : 0;
     const normal: V3 = [-ray0.direction[0], -ray0.direction[1], -ray0.direction[2]];
-    const grab0 = handle === "center" ? pointOnPlane(world, start.x, start.y, normal, c0) : null;
+    const grab0 = handle === "center" ? viewport(world).pointOnPlane(start.x, start.y, normal, c0) : null;
     const startSize: V3 = collider instanceof BoxCollider ? [collider.size.x, collider.size.y, collider.size.z] : [0, 0, 0];
     canvas.setPointerCapture?.(e.pointerId);
     scene.stack.beginGroup(handle === "center" ? "Move collider center" : "Resize collider");
     const move = (m: PointerEvent) => {
       const p = local(m);
       if (handle === "center") {
-        const hit = pointOnPlane(world, p.x, p.y, normal, c0);
+        const hit = viewport(world).pointOnPlane(p.x, p.y, normal, c0);
         if (!hit || !grab0) return;
         const delta = centerDelta(pose, [hit[0] - grab0[0], hit[1] - grab0[1], hit[2] - grab0[2]]);
         write("center", startCenter.map((v, i) => tidy(v + delta[i])));
         return;
       }
-      const ray = rayAt(world, p.x, p.y);
+      const ray = viewport(world).rayAt(p.x, p.y);
       const t = ray && axis ? closestOnAxis(ray.origin, ray.direction, c0, axis) : null;
       if (t === null || t0 === null) return;
       // How far out the handle is now (along its own outward axis).

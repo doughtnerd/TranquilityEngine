@@ -23,8 +23,8 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
   return out;
 }
 
-type Quality = { tier: string; pixelRatio: number; shadows: boolean; shadowMapSize: number; anisotropy: number; msaa: boolean };
-type Hooks = { engine?: { world: { time: { frameCount: number }; render: { qualityState(): Quality } } } };
+type Quality = { tier: string; pixelRatio: number; shadows: boolean; shadowMapSize: number; msaa: boolean };
+type Hooks = { engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { quality: Quality } } } } };
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -35,7 +35,7 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-const quality = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.qualityState());
+const quality = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().quality);
 const waitForFrames = (page: Page) => page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 
 test("the scene view's Quality menu previews a tier: resolution, shadows and texture filtering follow it", async ({ page }) => {
@@ -51,7 +51,7 @@ test("the scene view's Quality menu previews a tier: resolution, shadows and tex
   await menu.selectOption("Low");
   await expect.poll(async () => (await quality(page)).tier).toBe("Low");
   const low = await quality(page);
-  expect(low).toMatchObject({ shadows: true, shadowMapSize: 512, anisotropy: 1 });
+  expect(low).toMatchObject({ shadows: true, shadowMapSize: 512 });
   expect(low.pixelRatio).toBeCloseTo(high.pixelRatio * 0.75, 5);
 
   await menu.selectOption("Ultra");

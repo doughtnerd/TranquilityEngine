@@ -36,7 +36,7 @@ import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import { frustumSegments } from "../cameraGizmo";
 import { Camera, Light, ParticleSystem } from "../components";
-import type { EditorColors, EditorOverlay } from "../RenderSurface";
+import type { EditorColors, EditorOverlay } from "../editorViewport";
 import { EDITOR_LAYER_MASK, type BabylonEditorContext } from "./editorContext";
 
 /** Rendering groups of the overlay scene, back to front (Babylon has four). */
