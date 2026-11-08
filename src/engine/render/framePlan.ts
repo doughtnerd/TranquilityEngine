@@ -80,9 +80,66 @@ export interface PlannedView {
   editorContent: boolean;
 }
 
+const byDepth = (list: readonly FrameCamera[]): FrameCamera[] => list.map((c, i) => ({ c, i })).sort((a, b) => a.c.depth - b.c.depth || a.i - b.i).map((e) => e.c);
+
 /** @internal The frame's views, in draw order: canvas cameras by depth, then render-texture cameras by depth, then the preview inset. */
 export function planFrame(input: FrameInput): PlannedView[] {
-  void input;
-  void resolvePostEffects;
-  throw new Error("planFrame: not implemented yet (ADR 0129 wave 1)");
+  const { skyFog, tier } = input;
+  const backgroundOf = (cam: FrameCamera): Rgb => {
+    const bg = cam.background ?? input.clearColor;
+    if (!skyFog) return bg;
+    const a = skyFog.amount;
+    return [bg[0] + (skyFog.color[0] - bg[0]) * a, bg[1] + (skyFog.color[1] - bg[1]) * a, bg[2] + (skyFog.color[2] - bg[2]) * a];
+  };
+  const canvas = byDepth(input.cameras.filter((c) => c.target === "" && !c.editMode));
+  const textures = byDepth(input.cameras.filter((c) => c.target !== ""));
+  let scenePost: PostSettings | null = null;
+  if (input.sceneView) {
+    const first = input.cameras.find((c) => c.post !== null);
+    if (first) scenePost = { ...first.post!, enabled: true, depthOfField: false };
+  }
+  const views: PlannedView[] = [];
+  canvas.forEach((cam, i) => {
+    const background = backgroundOf(cam);
+    const settings = cam.post ?? (input.sceneView && i === 0 ? scenePost : null);
+    views.push({
+      camera: cam.camera,
+      output: { kind: "canvas", rect: cam.rect },
+      clear: i === 0 || cam.background !== null ? background : null,
+      backdrop: input.sceneView && i === 0 && cam.background === null && cam.post === null ? background : null,
+      post: resolvePostEffects(settings, tier),
+      ui: input.overlay ? (i === 0 ? "screen" : null) : i === canvas.length - 1 ? "screen" : null,
+      overlay: input.overlay && i === 0,
+      editorContent: input.sceneView,
+    });
+  });
+  for (const cam of textures) {
+    views.push({
+      camera: cam.camera,
+      output: { kind: "texture", texture: cam.target },
+      clear: backgroundOf(cam),
+      backdrop: null,
+      post: resolvePostEffects(cam.post, tier),
+      ui: null,
+      overlay: false,
+      editorContent: false,
+    });
+  }
+  const p = input.preview;
+  if (p && views.length) {
+    const cam = input.cameras.find((c) => c.camera === p.camera);
+    if (cam && !views.some((v) => v.camera === p.camera)) {
+      views.push({
+        camera: cam.camera,
+        output: { kind: "preview", rect: p.rect, aspect: p.aspect },
+        clear: backgroundOf(cam),
+        backdrop: null,
+        post: resolvePostEffects(cam.post, tier),
+        ui: p.ui ? "preview" : null,
+        overlay: false,
+        editorContent: false,
+      });
+    }
+  }
+  return views;
 }
