@@ -10,6 +10,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    // First-party runtime plugins active, as in the player (ADR 0135).
+    setupFiles: ["./src/plugins/testSetup.ts"],
     // `npm run bench` (vitest bench): ECS benchmarks, never part of `npm test`.
     benchmark: { include: ["bench/**/*.bench.ts"] },
   },
