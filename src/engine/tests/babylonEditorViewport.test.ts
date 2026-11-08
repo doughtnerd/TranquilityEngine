@@ -62,7 +62,6 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     loaded = true;
     hooks = {
       setClearColor: vi.fn(),
-      setSelected: vi.fn(),
       cameraPreviewDrawn: vi.fn(() => true),
       spriteSize: vi.fn(() => [3, 4] as [number, number]),
       ui: vi.fn(() => null),
@@ -104,12 +103,10 @@ describe("the editor viewport's Babylon adapter (ADR 0128)", () => {
     expect(viewport.grid()).toEqual({ plane: "xz", cellSize: 2, visible: false, divisions: expect.any(Number) });
     expect(viewport.ready).toBe(true);
     expect(hooks.setClearColor).toHaveBeenCalledWith(0x112233);
-    expect(hooks.setSelected).toHaveBeenCalledWith([node]);
     expect(tools!.overlays.isOutlined(node)).toBe(true);
 
     viewport.pick(400, 300); // a later query doesn't replay again
     expect(hooks.setClearColor).toHaveBeenCalledTimes(1);
-    expect(hooks.setSelected).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a game surface's background: colours apply to editor Worlds only", () => {
@@ -179,8 +176,8 @@ describe("the Babylon renderer's diagnostics (ADR 0128)", () => {
     await SceneManager.load("s.json");
     world = World.require();
     nullEngine = new NullEngine();
-    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown, fill: boolean) => BabylonRenderer;
-    renderer = new Ctor(nullEngine, world.settings, false);
+    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown) => BabylonRenderer;
+    renderer = new Ctor(nullEngine, world.settings);
   });
   afterEach(() => {
     Material._resetShared();

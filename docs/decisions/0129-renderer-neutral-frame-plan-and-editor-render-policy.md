@@ -93,6 +93,12 @@ tools have loaded.
 drawn meshes and sprites (an engine Component paired with its Babylon meshes). These stay inside `render/babylon/`.
 `editorContext.ts` reads them instead of the renderer's private maps.
 
+*Built 2026-11-07:* the sprite and mesh maps still live in `BabylonRenderer` itself (there is no separate mesh or
+sprite module to host the query yet), and `editorContext.sprites()`/`meshes()` are already iterators the renderer
+supplies, so nothing outside the renderer reads the maps. Moving them behind a feature's own query belongs to
+follow-up C (render features behind one shape). The e2e specs that still read the private `meshRenderers` map
+need `diagnostics().drawn` to report material identity and readiness first; that remains a loose end.
+
 ## Alternatives considered
 
 - **Keep `fill`, and make sprite batching read only `fill`.** This fixes the cause of 42f2858 in one line, but editor

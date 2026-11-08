@@ -82,7 +82,7 @@ export class UICore implements UICoreLike {
   private config: ReturnType<Yoga["Config"]["create"]> | null = null;
   private readonly entries = new Map<UIComponentType, Entry>();
   private readonly canvasEntries = new Map<UICanvas, CanvasEntry>();
-  private readonly interactiveMode: boolean;
+  private interactiveMode: boolean;
   private readonly host: UICoreHost;
   private readonly removeHook: () => void;
   private readonly passive: boolean;
@@ -103,6 +103,11 @@ export class UICore implements UICoreLike {
   private activeEntry: Entry | null = null;
   private programmatic = false;
   private detachDom: (() => void) | null = null;
+
+  /** Whether clicks press buttons and focus fields (false: the editor's scene view, where they select; ADR 0129). */
+  setInteractive(on: boolean): void {
+    this.interactiveMode = on;
+  }
 
   constructor(options: UICoreOptions = {}) {
     this.interactiveMode = options.interactive ?? true;

@@ -33,8 +33,8 @@ describe("GPU instancing on the Babylon renderer (ADR 0108)", () => {
     await SceneManager.load("s.json");
     world = World.require();
     nullEngine = new NullEngine();
-    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown, fill: boolean) => BabylonRenderer;
-    babylon = new Ctor(nullEngine, world.settings, false);
+    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown) => BabylonRenderer;
+    babylon = new Ctor(nullEngine, world.settings);
   });
   afterEach(() => {
     Material._resetShared();
@@ -125,8 +125,9 @@ describe("GPU instancing on the Babylon renderer (ADR 0108)", () => {
   });
 
   it("keeps per-object instances in the editor's scene view, where picking needs them", () => {
-    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown, fill: boolean) => BabylonRenderer;
-    const editor = new Ctor(new NullEngine(), world.settings, true);
+    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown) => BabylonRenderer;
+    const editor = new Ctor(new NullEngine(), world.settings);
+    editor.setPolicy({ sceneView: true, drawPolicy: "perObject" }); // what the editor's viewport handle sets (ADR 0129)
     box("a", THIN);
     editor.syncMeshes(world);
     expect((editor as unknown as Internals).batches.stats()).toMatchObject({ thin: 0, instanced: 1 });

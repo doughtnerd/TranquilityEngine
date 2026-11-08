@@ -67,7 +67,9 @@ import type { DrawnMaterial, ParticlePreviewSettings, RenderDiagnostics } from "
 import type { BabylonParticles } from "./particles";
 import { PARTICLE_SCALE } from "../../core/graphics";
 import { Graphics } from "../Graphics";
-import { resolvePostEffects, type PostSettings } from "../postEffects";
+import type { PostSettings } from "../postEffects";
+import { canvasCameras, planFrame, type FrameCamera, type PlannedView, type Rgb, type ViewRect } from "../framePlan";
+import { GAME_POLICY, type RenderPolicy } from "../renderPolicy";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView, type ShadowRequest } from "./frameGraph";
 import { BabylonSky } from "./sky/BabylonSky";
@@ -174,6 +176,19 @@ export function pipelineTierKey(t: Readonly<QualityTier>): string {
   return [t.antialias, t.shadows, t.shadowCascades, t.shaderLevel, t.postProcessing, t.bloom, t.ambientOcclusion, t.depthOfField, t.reflectionProbes].join("|");
 }
 
+/** The whole camera texture (each camera renders into a texture its rectangle's size, frameGraph.ts). */
+const FULL_VIEW: ViewRect = Object.freeze({ x: 0, y: 0, width: 1, height: 1 });
+
+function color4(c: Rgb): Color4 {
+  return new Color4(c[0], c[1], c[2], 1);
+}
+
+/** An engine colour as the frame plan's sRGB triple (as `clearColorOf` reads its hex: 8 bits a channel). */
+function rgbOf(c: Color): Rgb {
+  const q = (n: number) => Math.round(Math.min(1, Math.max(0, n)) * 255) / 255;
+  return [q(c.r), q(c.g), q(c.b)];
+}
+
 function clearColorOf(v: string | number): Color4 {
   if (typeof v === "number") return Color4.FromColor3(Color3.FromInts((v >> 16) & 255, (v >> 8) & 255, v & 255), 1);
   const hex = /^#([0-9a-f]{6})$/i.test(v) ? v : /^#([0-9a-f]{3})$/i.test(v) ? "#" + [...v.slice(1)].map((c) => c + c).join("") : "#000000";
@@ -237,8 +252,10 @@ export class BabylonRenderer {
   private particlesLoading = false;
   /** Editor preview settings set before the particles loaded. */
   private readonly particlePreview: Partial<ParticlePreviewSettings> = {};
-  /** Editor: the selected nodes (the particle preview plays only theirs). */
-  private readonly selectedNodes = new Set<GameObject>();
+  /** What this World's renderer does beyond game rules (ADR 0129); the editor sets it through its viewport handle. */
+  private policy: RenderPolicy = { ...GAME_POLICY };
+  /** The last frame's plan (ADR 0129), for diagnostics. */
+  private lastPlan: PlannedView[] = [];
   private readonly frame: BabylonFrame;
   private shadows: ShadowRequest[] = [];
   private readonly casters: AbstractMesh[] = [];
@@ -251,8 +268,6 @@ export class BabylonRenderer {
   private tools: BabylonEditorTools | null = null;
   private toolsLoading: Promise<BabylonEditorTools | null> | null = null;
   private overlayLayer: UtilityLayerRenderer | null = null;
-  /** Editor: the camera drawn into an inset of the canvas (ADR 0022), and the element it fills. */
-  private preview: { camera: Camera; frame: HTMLElement } | null = null;
   /** Editor: whether the last frame drew the camera preview. */
   cameraPreviewDrawn = false;
   /** Game UI (stage 9): the layout and routing core and the GUI drawing, loaded the first time a World has a UICanvas or Text. */
@@ -273,7 +288,7 @@ export class BabylonRenderer {
   private readonly probeMeshes: AbstractMesh[] = [];
 
   /** Creates the engine (WebGPU, else the WebGL2 fallback, loaded only then) and the scene. */
-  static async create(canvas: HTMLCanvasElement, settings: ProjectSettings, fill = false): Promise<BabylonRenderer> {
+  static async create(canvas: HTMLCanvasElement, settings: ProjectSettings): Promise<BabylonRenderer> {
     let engine: AbstractEngine;
     if (await WebGPUEngine.IsSupportedAsync) {
       // The adapter's limits rather than WebGPU's minimums: a material with clustered lights (ADR 0079),
@@ -285,14 +300,12 @@ export class BabylonRenderer {
       const { Engine } = await import("@babylonjs/core/Engines/engine.js");
       engine = new Engine(canvas, true, { adaptToDeviceRatio: false });
     }
-    return new BabylonRenderer(engine, settings, fill);
+    return new BabylonRenderer(engine, settings);
   }
 
   private constructor(
     readonly engine: AbstractEngine,
     private readonly settings: ProjectSettings,
-    /** An editor World: its scene view previews the scene camera's effects (ADR 0051). */
-    private readonly fill: boolean,
   ) {
     const scene = new Scene(engine);
     scene.useRightHandedSystem = true; // the engine's convention (ADR 0014)
@@ -342,7 +355,6 @@ export class BabylonRenderer {
       probeVariants: (base) => this.probes.warmHits().map((hit) => this.materials.probeCopy(base, hit)),
     });
     this.warmer.onDrained = () => this.report?.quiet();
-    if (fill) this.editorTools();
   }
 
   // --- Warm-up (ADR 0080) -----------------------------------------------------------------------
@@ -478,7 +490,9 @@ export class BabylonRenderer {
       overlay,
       canvas: this.engine.getRenderingCanvas() as HTMLCanvasElement,
       settings: this.settings,
-      editor: this.fill,
+      get editor() {
+        return self.policy.sceneView;
+      },
       world: () => this.owner,
       viewCameras: () => (this.owner ? this.viewCameras(this.owner) : []),
       babylonCamera: (c) => this.cameras.get(c)?.camera ?? null,
@@ -491,11 +505,7 @@ export class BabylonRenderer {
       texts: () => [], // Text draws from stage 9
       renderer: {
         setClearColor: (color) => this.setClearColor(color),
-        setSelected: (nodes) => this.setSelected(nodes),
-        setCameraPreview: (camera, frame) => this.setCameraPreview(camera, frame),
         cameraPreviewDrawn: () => this.cameraPreviewDrawn,
-        setParticlePreview: (preview) => this.setParticlePreview(preview),
-        restartParticlePreview: () => this.restartParticlePreview(),
         spriteSize: (sprite) => this.spriteSize(sprite),
         ui: () => this.uiCore,
         bakeReflectionProbe: (probe) => this.bakeReflectionProbe(probe),
@@ -503,9 +513,10 @@ export class BabylonRenderer {
     };
   }
 
-  /** Editor: draw `camera` into the canvas under `frame` (picture-in-picture), without editor helpers; null stops. */
-  setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void {
-    this.preview = camera && frame ? { camera, frame } : null;
+  /** ADR 0129: change some render policy settings (the editor's viewport handle, through the surface). */
+  setPolicy(change: Partial<RenderPolicy>): void {
+    this.policy = { ...this.policy, ...change };
+    this.uiCore?.setInteractive(!this.policy.sceneView);
   }
 
   /**
@@ -513,7 +524,7 @@ export class BabylonRenderer {
    * the top), or null when there's none to draw.
    */
   private previewRect(): { x: number; top: number; width: number; height: number } | null {
-    const p = this.preview;
+    const p = this.policy.cameraPreview;
     const entry = p && p.camera.node.isValid && p.camera.isActiveAndEnabled ? this.cameras.get(p.camera) : undefined;
     if (!p || !entry) return null;
     const canvas = this.engine.getRenderingCanvas();
@@ -528,25 +539,14 @@ export class BabylonRenderer {
     return { x, top, width: w, height: h };
   }
 
-  /** The camera preview's part of the frame, or null. Its projection takes the inset's aspect ratio until the next sync. */
-  private previewView(views: CameraView[]): CameraView | null {
-    const p = this.preview;
-    const entry = p ? this.cameras.get(p.camera) : undefined;
-    const rect = this.previewRect();
-    if (!p || !entry || !rect || views.some((v) => v.camera === entry.camera)) return null;
+  /** The frame plan's preview input (ADR 0129): the inset from the bottom-left, its aspect ratio, and whether its UI is ready. */
+  private previewInput(): { camera: Camera; rect: { x: number; y: number; width: number; height: number }; aspect: number; ui: boolean } | null {
+    const p = this.policy.cameraPreview;
+    const rect = p ? this.previewRect() : null;
+    if (!p || !rect) return null;
     const r = p.frame.getBoundingClientRect();
-    const { x, width: w, height: h } = rect;
-    const y = Math.min(1, Math.max(0, 1 - rect.top - h));
-    const camera = entry.camera;
-    camera.layerMask = 0x0fffffff; // no editor-only meshes
-    if (p.camera.projection === "orthographic") {
-      const s = p.camera.orthographicSize, aspect = r.width / r.height;
-      camera.orthoLeft = -s * aspect;
-      camera.orthoRight = s * aspect;
-    }
-    const resolved = resolvePostEffects(this.postSettings(p.camera), Graphics.tier);
-    const bg = p.camera.backgroundColor;
-    return { camera, viewport: { x, y, width: w, height: h }, clear: bg ? clearColorOf(bg.toHex().slice(0, 7)) : this.clearColor, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure, previewUI: !!this.previewUI };
+    const y = Math.min(1, Math.max(0, 1 - rect.top - rect.height));
+    return { camera: p.camera, rect: { x: rect.x, y, width: rect.width, height: rect.height }, aspect: r.width / r.height, ui: !!this.previewUI };
   }
 
   /** Sets the editor background (editor Worlds) and clear colour. */
@@ -629,7 +629,7 @@ export class BabylonRenderer {
           this.uiModules = { core, draw };
           this.uiDraw = new draw.BabylonUI(this.scene, { texture: (ref) => this.materials.texture(ref) });
           this.uiCore = new core.UICore({
-            interactive: !this.fill, // the editor's own World: clicks select, they don't press buttons
+            interactive: !this.policy.sceneView, // the editor's scene view: clicks select, they don't press buttons
             host: { viewCamera: () => (this.owner ? (this.viewCameras(this.owner)[0] ?? null) : null), measureText: draw.measureText },
           });
           const screen = this.uiDraw.screen;
@@ -654,7 +654,7 @@ export class BabylonRenderer {
 
   /** Editor: lay the screen UI out at the camera preview inset's size and draw it there (or drop it when there's no inset). */
   private syncPreviewUI(world: World, cssW: number, cssH: number, pixelRatio: number): void {
-    const rect = this.fill && this.uiModules ? this.previewRect() : null;
+    const rect = this.uiModules ? this.previewRect() : null;
     if (!rect) {
       if (this.previewUI) {
         this.frame.previewUI = null;
@@ -695,37 +695,32 @@ export class BabylonRenderer {
     this.reflecting = 0;
     this.graphShared.time = world.time.time;
     this.graphShared.resolution = [this.engine.getRenderWidth(), this.engine.getRenderHeight()];
-    const cams = this.viewCameras(world);
     const engine = this.engine;
     engine.beginFrame();
-    const views: CameraView[] = cams.map((c, i) => {
-      // Post-processing (ADR 0051, 0056): each camera's own component, filtered by the tier; the editor's view previews the scene camera's.
-      const resolved = resolvePostEffects(this.postSettings(c) ?? (i === 0 && this.fill ? this.scenePostSettings(world) : null), Graphics.tier);
-      let background = c.backgroundColor ? clearColorOf(c.backgroundColor.toHex().slice(0, 7)) : this.clearColor;
-      if (this.skyFog) background = Color4.Lerp(background, this.skyFog.color, this.skyFog.amount); // Fog's affectsSkybox (ADR 0071)
-      const entry = this.cameras.get(c)!;
-      entry.camera.layerMask = this.fill ? 0xffffffff : 0x0fffffff; // an editor World's view sees the grid
-      // The game's screen UI goes over the editor's view (and its overlay), else over the last camera.
-      // The editor's own view (it previews the scene camera's effects, having none of its own) shows the
-      // editor background as set, not tone mapped with the scene (ADR 0111).
-      const backdrop = this.fill && i === 0 && !c.backgroundColor && !this.postSettings(c) ? background : undefined;
-      return { ui: this.tools ? i === 0 : i === cams.length - 1, overlay: i === 0 && !!this.tools, camera: entry.camera, viewport: entry.rect, clear: i === 0 || c.backgroundColor ? background : null, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure, backdrop };
+    // ADR 0129: the frame plan decides the views; this only maps them to Babylon cameras and passes.
+    const cc = this.clearColor;
+    const plan = planFrame({
+      cameras: this.frameCameras(world),
+      clearColor: [cc.r, cc.g, cc.b],
+      skyFog: this.skyFog ? { color: [this.skyFog.color.r, this.skyFog.color.g, this.skyFog.color.b], amount: this.skyFog.amount } : null,
+      tier: Graphics.tier,
+      sceneView: this.policy.sceneView,
+      overlay: !!this.tools,
+      preview: this.previewInput(),
     });
-    this.lastPost = views[0] ? { composed: !!views[0].effects, toneMapping: views[0].toneMapping, effects: views[0].effects, composedCameras: views.filter((v) => v.effects && !v.target).length } : null;
-    // Cameras drawing into render textures (ADR 0109), after the canvas's: what samples their texture shows the last frame.
-    for (const c of this.targetCameras(world)) {
-      const target = this.renderTextures.target(c.targetTexture);
-      if (!target) continue;
-      const resolved = resolvePostEffects(this.postSettings(c), Graphics.tier);
-      let background = c.backgroundColor ? clearColorOf(c.backgroundColor.toHex().slice(0, 7)) : this.clearColor;
-      if (this.skyFog) background = Color4.Lerp(background, this.skyFog.color, this.skyFog.amount);
-      const entry = this.cameras.get(c)!;
-      entry.camera.layerMask = 0x0fffffff; // no editor-only meshes
-      views.push({ camera: entry.camera, viewport: { x: 0, y: 0, width: 1, height: 1 }, clear: background, effects: resolved.composer, toneMapping: resolved.toneMapping, exposure: resolved.exposure, target });
+    this.lastPlan = plan;
+    const views: CameraView[] = [];
+    let previewShown = false, composedCameras = 0;
+    for (const v of plan) {
+      const view = this.cameraView(v);
+      if (!view) continue;
+      views.push(view);
+      if (v.output.kind === "preview") previewShown = true;
+      if (v.output.kind === "canvas" && view.effects) composedCameras++;
     }
-    const preview = views.length ? this.previewView(views) : null;
-    if (preview) views.push(preview);
-    this.cameraPreviewDrawn = !!preview && this.frame.ready;
+    const first = plan[0]?.output.kind === "canvas" ? views[0] : undefined;
+    this.lastPost = first ? { composed: !!first.effects, toneMapping: first.toneMapping, effects: first.effects, composedCameras } : null;
+    this.cameraPreviewDrawn = previewShown && this.frame.ready;
     this.sky.bake(); // before the frame graph runs, like probe captures
     if (views.length) this.probes.capture(views[0].camera); // before the frame graph runs
     this.warmer.beforeRender(views[0]?.camera ?? null, this.casters);
@@ -753,18 +748,63 @@ export class BabylonRenderer {
     }
   }
 
-  /** A camera's PostProcessing component, if it has an enabled one. */
-  private postSettings(c: Camera): PostSettings | null {
-    const p = c.node.getComponent(PostProcessing);
-    return p && p.isActiveAndEnabled ? ({ ...p, enabled: true } as unknown as PostSettings) : null;
+  /** A planned view as a frame-graph camera view (ADR 0129), or null when its render texture isn't ready. */
+  private cameraView(v: PlannedView): CameraView | null {
+    const entry = this.cameras.get(v.camera);
+    if (!entry) return null;
+    const camera = entry.camera;
+    camera.layerMask = v.editorContent ? 0xffffffff : 0x0fffffff; // editor-only meshes (the grid) carry EDITOR_LAYER_MASK
+    const out = v.output;
+    let viewport = FULL_VIEW;
+    let target: CameraView["target"];
+    if (out.kind === "canvas") viewport = out.rect;
+    else if (out.kind === "texture") {
+      const t = this.renderTextures.target(out.texture);
+      if (!t) return null;
+      target = t;
+    } else {
+      viewport = out.rect;
+      // The inset's aspect until the next sync recomputes the camera's own.
+      if (v.camera.projection === "orthographic") {
+        const s = v.camera.orthographicSize;
+        camera.orthoLeft = -s * out.aspect;
+        camera.orthoRight = s * out.aspect;
+      }
+    }
+    return {
+      camera,
+      viewport,
+      clear: v.clear ? color4(v.clear) : null,
+      backdrop: v.backdrop ? color4(v.backdrop) : undefined,
+      effects: v.post.composer,
+      toneMapping: v.post.toneMapping,
+      exposure: v.post.exposure,
+      ui: v.ui === "screen",
+      previewUI: v.ui === "preview",
+      overlay: v.overlay,
+      target,
+    };
   }
 
-  /** Editor: the scene view previews the first camera with a PostProcessing component, minus depth of field. */
-  private scenePostSettings(world: World): PostSettings | null {
-    for (const p of world._componentsOfType(PostProcessing)) {
-      if (p.isActiveAndEnabled && p.node.getComponent(Camera)) return { ...(p as unknown as PostSettings), enabled: true, depthOfField: false };
+  /** The frame plan's cameras (ADR 0129): every enabled, synced camera, in component order. */
+  private frameCameras(world: World): FrameCamera[] {
+    const out: FrameCamera[] = [];
+    for (const c of world._componentsOfType(Camera)) {
+      const entry = c.isActiveAndEnabled ? this.cameras.get(c) : undefined;
+      if (!entry) continue;
+      const bg = c.backgroundColor;
+      const p = c.node.getComponent(PostProcessing);
+      out.push({
+        camera: c,
+        depth: c.depth,
+        rect: entry.rect,
+        target: c.targetTexture,
+        background: bg ? rgbOf(bg) : null,
+        post: p && p.isActiveAndEnabled ? ({ ...p, enabled: true } as unknown as PostSettings) : null,
+        editMode: world.inEditMode(c.node.entity),
+      });
     }
-    return null;
+    return out;
   }
 
   // --- Particles (ADR 0057, 0060; stage 5) -------------------------------------------------------
@@ -788,12 +828,11 @@ export class BabylonRenderer {
           if (this.disposed) return;
           this.particles = new m.BabylonParticles({
             scene: this.scene,
-            editor: this.fill,
+            particlePreview: () => this.policy.particlePreview,
             worldMatrix: (c) => {
               const e = c.node.entity;
               return this.owner!.worldMatrix(e).subarray(e * 16, e * 16 + 16);
             },
-            selected: (c) => this.selectedNodes.has(c.node),
             texture: (path, sheet) => this.materials.texture(path, sheet ? "sheet" : "color"),
             tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
             material: (path) => this.materials.material(path), // shared with MeshRenderers; null while missing
@@ -810,12 +849,6 @@ export class BabylonRenderer {
         .finally(() => (this.particlesLoading = false));
     }
     return this.particles;
-  }
-
-  /** Editor: the selected nodes, for the particle preview. */
-  setSelected(nodes: readonly GameObject[]): void {
-    this.selectedNodes.clear();
-    for (const n of nodes) this.selectedNodes.add(n);
   }
 
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
@@ -960,23 +993,9 @@ export class BabylonRenderer {
     if (this.owner !== world) throw new Error(`This render surface draws World "${this.owner.name}"; World "${world.name}" needs its own (ADR 0032).`);
   }
 
-  /** Enabled cameras that draw the view, in depth order (the editor's scene camera in edit mode, ADR 0026). */
+  /** Enabled cameras that draw on the canvas, in depth order (the editor's scene camera in edit mode, ADR 0026), as the frame plan picks them. */
   private viewCameras(world: World): Camera[] {
-    return world
-      ._componentsOfType(Camera)
-      .filter((c) => c.isActiveAndEnabled && !c.targetTexture && this.cameras.has(c) && !world.inEditMode(c.node.entity))
-      .sort((a, b) => a.depth - b.depth);
-  }
-
-  /**
-   * Enabled cameras drawing into render textures (ADR 0109), in depth order. Drawn in the editor's edit
-   * mode too, so materials showing their texture look in the scene view as they will in the game.
-   */
-  private targetCameras(world: World): Camera[] {
-    return world
-      ._componentsOfType(Camera)
-      .filter((c) => c.isActiveAndEnabled && !!c.targetTexture && this.cameras.has(c))
-      .sort((a, b) => a.depth - b.depth);
+    return canvasCameras(this.frameCameras(world)).map((f) => f.camera);
   }
 
   // --- Cameras ----------------------------------------------------------------------------------
@@ -1223,11 +1242,11 @@ export class BabylonRenderer {
   }
 
   /**
-   * Whether sprites draw as a mesh each: with editor tools (the scene view, editor play mode), whose
-   * picking and outlines use them. Games batch plain sprites (ADR 0108).
+   * Whether sprites draw as a mesh each: when the editor asked for this World's viewport (the scene
+   * view, editor play mode), whose picking and outlines use them. Games batch plain sprites (ADR 0108, 0129).
    */
   private get spriteMeshes(): boolean {
-    return this.fill || this.tools !== null || this.toolsLoading !== null;
+    return this.policy.drawPolicy === "perObject";
   }
 
   /** The texel step sprites snap to this frame: a pixel-perfect view camera with pixel snapping, else 0. */
@@ -1328,11 +1347,14 @@ export class BabylonRenderer {
   diagnostics(): Omit<RenderDiagnostics, "started" | "quality"> {
     const world = this.owner;
     const cameras: RenderDiagnostics["cameras"] = [];
+    // The last frame's plan (ADR 0129): what drew, not worked out again.
     if (world) {
-      for (const camera of this.viewCameras(world)) cameras.push({ camera, target: "canvas" });
-      for (const camera of this.targetCameras(world)) cameras.push({ camera, target: "texture" });
+      for (const v of this.lastPlan) {
+        const kind = v.output.kind;
+        if (kind === "preview" && !this.cameraPreviewDrawn) continue;
+        cameras.push({ camera: v.camera, target: kind === "texture" ? "texture" : kind });
+      }
     }
-    if (this.cameraPreviewDrawn && this.preview) cameras.push({ camera: this.preview.camera, target: "preview" });
     const meshes = new Map<GameObject, DrawnMaterial[]>();
     for (const [r, e] of this.meshRenderers) {
       const shown = e.drawables.filter((d) => d.enabled);

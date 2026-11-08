@@ -82,6 +82,11 @@ export interface PlannedView {
 
 const byDepth = (list: readonly FrameCamera[]): FrameCamera[] => list.map((c, i) => ({ c, i })).sort((a, b) => a.c.depth - b.c.depth || a.i - b.i).map((e) => e.c);
 
+/** @internal The cameras that draw on the canvas, in draw order (depth, ties in input order): the renderer's main view is the first. */
+export function canvasCameras(cameras: readonly FrameCamera[]): FrameCamera[] {
+  return byDepth(cameras.filter((c) => c.target === "" && !c.editMode));
+}
+
 /** @internal The frame's views, in draw order: canvas cameras by depth, then render-texture cameras by depth, then the preview inset. */
 export function planFrame(input: FrameInput): PlannedView[] {
   const { skyFog, tier } = input;
@@ -91,7 +96,7 @@ export function planFrame(input: FrameInput): PlannedView[] {
     const a = skyFog.amount;
     return [bg[0] + (skyFog.color[0] - bg[0]) * a, bg[1] + (skyFog.color[1] - bg[1]) * a, bg[2] + (skyFog.color[2] - bg[2]) * a];
   };
-  const canvas = byDepth(input.cameras.filter((c) => c.target === "" && !c.editMode));
+  const canvas = canvasCameras(input.cameras);
   const textures = byDepth(input.cameras.filter((c) => c.target !== ""));
   let scenePost: PostSettings | null = null;
   if (input.sceneView) {
