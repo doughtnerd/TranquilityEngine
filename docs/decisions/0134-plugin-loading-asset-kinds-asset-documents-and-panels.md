@@ -1,6 +1,6 @@
 # 0134. Editor plugins load from a first-party list and contribute asset kinds, asset formats and panels; asset documents own editing
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
