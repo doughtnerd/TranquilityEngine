@@ -72,11 +72,11 @@
     "vite": "^8.3.5",
     "vitest": "^5.0.5"
   },
-  "types": "./dist/engine/types/index.d.ts",
+  "types": "./dist/engine/types/myco.d.ts",
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/engine/types/index.d.ts",
+      "types": "./dist/engine/types/myco.d.ts",
       "import": "./dist/engine/engine.js"
     }
   }

@@ -63,6 +63,31 @@ describe("plugin import direction", () => {
     expect(bad).toEqual([]);
   });
 
+  it("keeps the engine free of plugins entirely (ADR 0135): plugins register through the runtime context", () => {
+    const bad: string[] = [];
+    for (const f of files(join(SRC, "engine"))) {
+      if (/\.test\.tsx?$/.test(f) || /^engine\/tests\//.test(rel(f))) continue;
+      for (const { spec } of specifiers(f)) {
+        const target = resolved(f, spec);
+        const r = target.startsWith("/") ? rel(target) : target;
+        if (/^plugins(\/|$)/.test(r)) bad.push(`${rel(f)} imports ${spec}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it("only the player, the server, the editor's boot and Play import the runtime plugin list", () => {
+    const importers: string[] = [];
+    for (const f of files(SRC)) {
+      if (/\.test\.tsx?$/.test(f)) continue;
+      for (const { spec } of specifiers(f)) {
+        const target = resolved(f, spec);
+        if (target.startsWith("/") && /^plugins\/runtime(\.ts)?$/.test(rel(target))) importers.push(rel(f));
+      }
+    }
+    expect(importers.sort()).toEqual(["editor/playMode.ts", "player/main.ts", "plugins/editorBoot.ts", "server/run.ts"]);
+  });
+
   it("keeps the editor core free of plugins' editor halves (only main.tsx loads them, through editorBoot.ts)", () => {
     const bad: string[] = [];
     for (const f of files(join(SRC, "editor"))) {

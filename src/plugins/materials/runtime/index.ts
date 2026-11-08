@@ -2,7 +2,9 @@
 // and shader asset formats, and the graph compiler still live in `src/engine/` (`Material` and the
 // `MaterialSettings` types are exported from `myco`) until the runtime contribution points
 // (Components, render features) exist; this re-exports them so the plugin already has its shape.
+// `myco` (`src/myco.ts`) exports none of these from here: its material exports come from the core.
 // Runtime code: never imports from `src/editor/` or the plugin's `editor/` folder.
+import type { RuntimePlugin } from "../../runtimeContext";
 import { materialsManifest } from "../manifest";
 
 export { Material, type MaterialValue } from "../../../engine/render/Material";
@@ -43,4 +45,6 @@ export { SHADER_ASSET_FORMAT, SHADER_ASSET_SUFFIX, isShaderAssetPath, defaultSha
 export type { ShaderKeyword, KeywordValue } from "../../../engine/scene/shaderKeywords";
 export { compileShaderGraph, type CompiledShaderGraph } from "../../../engine/render/shaderGraph/compile";
 
-export const materialsRuntimePlugin = { manifest: materialsManifest } as const;
+// Material resolution and the material library are shared render services, which stay in core (ADR
+// 0133, 0135): the half registers nothing yet.
+export const materialsRuntimePlugin: RuntimePlugin = { manifest: materialsManifest, activate() {} };

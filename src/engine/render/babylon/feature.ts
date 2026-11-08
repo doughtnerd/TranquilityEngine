@@ -13,6 +13,10 @@ import type { Camera } from "../components";
 import type { RenderDiagnostics } from "../RenderSurface";
 import { specNeeded, type RenderFeatureSpec } from "../renderFeatures";
 import type { WarmItem } from "./warmUp";
+import type { Scene } from "@babylonjs/core/scene.js";
+import type { BabylonLighting } from "./lighting";
+import type { BabylonMaterialLibrary } from "./materialLibrary";
+import type { ProbeHit } from "./probes";
 
 /** @internal What the renderer worked out before a feature's phase (ADR 0130). */
 export interface FeatureSyncContext {
@@ -38,8 +42,30 @@ export interface BabylonFeature {
   warm?(content: WarmContent): WarmItem[];
   /** Its part of the diagnostics snapshot. */
   state?(): FeatureState;
+  /** Before each view is drawn: follow its camera (the sky's box around it). */
+  fit?(camera: TargetCamera): void;
+  /** Once a frame, before the frame graph runs (the sky's bake, like probe captures). */
+  beforeFrame?(): void;
   dispose(): void;
 }
+
+/**
+ * @internal The renderer's shared services a plugin's render feature is built from (ADR 0135): its
+ * factory (`RenderFeatureRegistration.load`) gets this. Internal and first-party only (ADR 0133).
+ */
+export interface BabylonFeatureHost {
+  readonly scene: Scene;
+  /** Lights, the environment and its skybox; the sky drives the sun and lights through it. */
+  readonly lighting: BabylonLighting;
+  /** The material library (ADR 0127). */
+  readonly materials: BabylonMaterialLibrary;
+  /** The reflection probe nearest a point (ADR 0130's probe lookup). */
+  probeLookup(x: number, y: number, z: number): ProbeHit | null;
+  warnOnce(key: string, message: string): void;
+}
+
+/** @internal A plugin render feature's factory, as `RenderFeatureRegistration.load` gives it for this backend. */
+export type BabylonFeatureFactory = (host: BabylonFeatureHost) => BabylonFeature;
 
 /** @internal A registered feature: its spec, and the feature once it exists. */
 export interface FeatureSlot<F extends BabylonFeature = BabylonFeature> {

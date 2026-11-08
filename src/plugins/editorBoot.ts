@@ -9,11 +9,19 @@ import { reloadLayout } from "../editor/layout/store";
 import { activatePlugins, isPluginActive, type EditorPlugin } from "../editor/sdk/plugins";
 import { status } from "../editor/state";
 import { EDITOR_PLUGINS } from "./editor";
+import { RUNTIME_PLUGINS, activateRuntimePlugins } from "./runtime";
 
 const report = (name: string, err: unknown) => {
   console.error(`Plugin ${name} failed to activate`, err);
   status.value = errorStatus(`Plugin ${name} failed to activate`, err);
 };
+
+// The runtime halves first (ADR 0135): the editor's own World draws with them (the sky), and Play uses them.
+try {
+  activateRuntimePlugins(RUNTIME_PLUGINS);
+} catch (err) {
+  report("(runtime)", err);
+}
 
 // All together, so dependencies order correctly. A failing plugin is rolled back and left out, then
 // the rest are tried again (already-active plugins are skipped).

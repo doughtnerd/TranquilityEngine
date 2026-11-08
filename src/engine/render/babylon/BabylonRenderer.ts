@@ -53,15 +53,14 @@ import { canvasCameras, planFrame, type FrameCamera, type PlannedView, type Rgb,
 import { GAME_POLICY, type RenderPolicy } from "../renderPolicy";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView } from "./frameGraph";
-import { BabylonSky } from "./sky/BabylonSky";
 import { BabylonLighting } from "./lighting";
 import { BabylonTilemaps } from "./tilemaps";
 import { BabylonMaterialLibrary } from "./materialLibrary";
-import { eagerFeature, lazyFeature, type FeatureSlot, type FeatureSyncContext } from "./feature";
-import { byPhase, ownerOf, SYNC_PHASES, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
+import { eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type FeatureSlot, type FeatureSyncContext } from "./feature";
+import { _registeredRenderFeatures, byPhase, ownerOf, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonSprites, SPRITES_SPEC } from "./sprites";
 import { BabylonMeshes, MESHES_SPEC } from "./meshes";
-import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PARTICLES_SPEC, PROBES_SPEC, ProbesFeature, SKY_SPEC, SkyFeature, TILEMAPS_SPEC, TilemapsFeature, WATER_SPEC } from "./features";
+import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PARTICLES_SPEC, PROBES_SPEC, ProbesFeature, TILEMAPS_SPEC, TilemapsFeature, WATER_SPEC } from "./features";
 import { FogFeature } from "./fog";
 import { UI_SPEC } from "./uiSpec";
 import type { BabylonUIFeature, BabylonUIHost } from "./uiFeature";
@@ -169,13 +168,11 @@ export class BabylonRenderer {
   private readonly probes: BabylonProbes;
   /** Render texture assets cameras draw into (ADR 0109). */
   private readonly renderTextures: BabylonRenderTextures;
-  /** The procedural sky (ADR 0112): drawn, baked and driving the sun when the Environment uses a sky asset. */
-  private readonly sky: BabylonSky;
   /** Particle effects (stage 5), water (ADR 0072) and game UI (stage 9), loaded the first time a World has one (ADR 0083). */
   private readonly particles: FeatureSlot<ParticlesFeature>;
   private readonly water: FeatureSlot<WaterFeature>;
   private readonly ui: FeatureSlot<BabylonUIFeature>;
-  /** Every render feature, in registration order (ADR 0130). */
+  /** Every render feature, in registration order (ADR 0130): the built-ins, then plugins' (ADR 0135). */
   private readonly slots: FeatureSlot[];
   /** Their specs, in the same order (for `ownerOf`). */
   private readonly specs: RenderFeatureSpec[];
@@ -223,12 +220,13 @@ export class BabylonRenderer {
       const { Engine } = await import("@babylonjs/core/Engines/engine.js");
       engine = new Engine(canvas, true, { adaptToDeviceRatio: false });
     }
-    return new BabylonRenderer(engine, settings);
+    return new BabylonRenderer(engine, settings, await loadPluginFeatures());
   }
 
   private constructor(
     readonly engine: AbstractEngine,
     private readonly settings: ProjectSettings,
+    plugged: readonly PluginFeature[] = [],
   ) {
     const scene = new Scene(engine);
     scene.useRightHandedSystem = true; // the engine's convention (ADR 0014)
@@ -240,10 +238,9 @@ export class BabylonRenderer {
     this.lighting = new BabylonLighting(scene);
     this.graphShared.mainLight = this.lighting.mainLight;
     this.frame = new BabylonFrame(scene);
-    this.sky = new BabylonSky(scene, this.lighting);
     this.frame.beforeView = (camera) => {
       this.lighting.fitSky(camera);
-      this.sky.fit(camera);
+      for (const slot of this.slots) slot.feature?.fit?.(camera); // the sky's box (ADR 0112)
     };
     this.probes = new BabylonProbes(scene);
     this.renderTextures = new BabylonRenderTextures(scene);
@@ -277,13 +274,14 @@ export class BabylonRenderer {
     this.particles = lazyFeature(PARTICLES_SPEC, (cancelled) => import("./particlesFeature").then((m) => (cancelled() ? null : new m.ParticlesFeature(this.particleHost(), () => this.particlePreview))));
     this.water = lazyFeature(WATER_SPEC, (cancelled) => import("./waterFeature").then((m) => (cancelled() ? null : new m.WaterFeature(scene, (x, y, z) => this.probes.lookup(x, y, z)))));
     this.ui = lazyFeature(UI_SPEC, (cancelled) => import("./uiFeature").then((m) => (cancelled() ? null : m.BabylonUIFeature.create(this.uiHost()))));
-    // Registration order decides order inside a phase (ADR 0130): the sky before lights (it may drive
-    // the sun), lights before fog, fog before the environment (the skybox fades with the sky fog).
+    // Order inside a phase is registration order adjusted by the specs' `after` constraints (ADR 0130,
+    // 0135): the sky (the Sky plugin's) before lights (it may drive the sun), lights before fog, fog
+    // before the environment (the skybox fades with the sky fog).
+    const host = this.featureHost();
     this.slots = [
       eagerFeature(SPRITES_SPEC, this.sprites),
       eagerFeature(TILEMAPS_SPEC, new TilemapsFeature(tilemaps)),
       eagerFeature(MESHES_SPEC, this.meshes),
-      eagerFeature(SKY_SPEC, new SkyFeature(this.sky)),
       eagerFeature(LIGHTS_SPEC, this.lights),
       eagerFeature(FOG_SPEC, this.fog),
       eagerFeature(ENVIRONMENT_SPEC, new EnvironmentFeature(this.lighting)),
@@ -291,6 +289,7 @@ export class BabylonRenderer {
       eagerFeature(PROBES_SPEC, new ProbesFeature(this.probes, { reflecting: () => this.reflecting })),
       this.water,
       this.ui,
+      ...plugged.flatMap((p) => pluginSlot(p, host)),
     ];
     this.specs = this.slots.map((f) => f.spec);
     for (const i of byPhase(this.specs)) {
@@ -565,6 +564,17 @@ export class BabylonRenderer {
     return this.ui.feature?.core() ?? null;
   }
 
+  /** The shared services plugin render features are built from (ADR 0135). */
+  private featureHost(): BabylonFeatureHost {
+    return {
+      scene: this.scene,
+      lighting: this.lighting,
+      materials: this.materials,
+      probeLookup: (x, y, z) => this.probes.lookup(x, y, z),
+      warnOnce: (key, message) => this.warnOnce(key, message),
+    };
+  }
+
   /** The UI feature's host (ADR 0130). */
   private uiHost(): BabylonUIHost {
     return {
@@ -615,7 +625,7 @@ export class BabylonRenderer {
     const first = plan[0]?.output.kind === "canvas" ? views[0] : undefined;
     this.lastPost = first ? { composed: !!first.effects, toneMapping: first.toneMapping, effects: first.effects, composedCameras } : null;
     this.cameraPreviewDrawn = previewShown && this.frame.ready;
-    this.sky.bake(); // before the frame graph runs, like probe captures
+    for (const slot of this.slots) slot.feature?.beforeFrame?.(); // the sky's bake: before the frame graph runs, like probe captures
     if (views.length) this.probes.capture(views[0].camera); // before the frame graph runs
     this.warmer.beforeRender(views[0]?.camera ?? null, this.casters);
     let held = false;
@@ -864,7 +874,7 @@ export class BabylonRenderer {
     const post = this.lastPost;
     const out: Omit<RenderDiagnostics, "started" | "quality"> = {
       lighting: this.lighting.state(),
-      sky: this.sky.state(),
+      sky: NO_SKY, // the sky feature's state replaces it when the Sky plugin is active
       // Composed only once the frame graph with the composer's passes has built: until then it hasn't drawn.
       post: { composed: !!post?.composed && this.frame.ready, loaded: this.frame.ready, toneMapping: post?.toneMapping ?? "none", effects: post?.effects ?? null, composedCameras: this.frame.ready ? (post?.composedCameras ?? 0) : 0 },
       water: { surfaces: 0 },
@@ -885,5 +895,40 @@ export class BabylonRenderer {
     if (this.warned.has(key)) return;
     this.warned.add(key);
     console.warn(`[myco] ${message}`);
+  }
+}
+
+const NO_SKY: RenderDiagnostics["sky"] = { active: false, drawn: false, bakes: 0, baked: false, time: 0, lastBakeMs: 0 };
+
+/** A plugin's render feature (ADR 0135): an eager one's factory is loaded before the renderer starts; a lazy one's on first need. */
+interface PluginFeature {
+  readonly registration: RenderFeatureRegistration;
+  readonly factory: BabylonFeatureFactory | null;
+}
+
+/** Load the factories of the registered eager features; one that fails to load is logged and left out. */
+async function loadPluginFeatures(): Promise<PluginFeature[]> {
+  const loaded = await Promise.all(
+    _registeredRenderFeatures().map(async (registration): Promise<PluginFeature | null> => {
+      if (registration.spec.lazy) return { registration, factory: null };
+      try {
+        return { registration, factory: (await registration.load()) as BabylonFeatureFactory };
+      } catch (err) {
+        console.error(`[myco] the render feature "${registration.spec.name}" couldn't load:`, err);
+        return null;
+      }
+    }),
+  );
+  return loaded.filter((p): p is PluginFeature => p !== null);
+}
+
+function pluginSlot(p: PluginFeature, host: BabylonFeatureHost): FeatureSlot[] {
+  const { spec } = p.registration;
+  if (!p.factory) return [lazyFeature(spec, (cancelled) => p.registration.load().then((f) => (cancelled() ? null : (f as BabylonFeatureFactory)(host))))];
+  try {
+    return [eagerFeature(spec, p.factory(host))];
+  } catch (err) {
+    console.error(`[myco] the render feature "${spec.name}" couldn't start:`, err);
+    return [];
   }
 }

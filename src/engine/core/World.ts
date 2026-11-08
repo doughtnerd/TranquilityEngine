@@ -21,6 +21,7 @@ import type { NavigationWorld } from "../nav/NavigationWorld";
 import type { RenderSurface } from "../render/RenderSurface";
 import type { NetworkTime } from "../net/time";
 import type { WorldTag } from "./worlds";
+import { _disposeWorldServices, _onComponentAttached, _worldServiceOf } from "./worldServices";
 
 export type WorldKind = "runtime" | "editor" | "server";
 
@@ -363,6 +364,11 @@ export class World {
     this.refreshActive(e);
   }
 
+  /** @internal The World's instance of World service `id` (ADR 0135), or null while it isn't running here. */
+  service<T = unknown>(id: string): T | null {
+    return _worldServiceOf(this, id) as T | null;
+  }
+
   /** @internal Queue a node (and its subtree) for destruction at the end of the frame. */
   _destroyNode(e: number): void {
     if (e === 0) throw new Error("The World root cannot be destroyed.");
@@ -392,6 +398,7 @@ export class World {
     }
     if (init) Object.assign(c, init);
     c._onAttach();
+    _onComponentAttached(this, type); // a World service it needs starts (ADR 0135)
     if (this.suspendDepth > 0) this.deferred.push(c);
     else this._refreshComponent(c);
     return c;
@@ -674,6 +681,7 @@ export class World {
     this.navigation?.dispose();
     this.navigation = null;
     this._navigationDisposed = true;
+    _disposeWorldServices(this); // reverse start order; a load finishing later starts nothing (ADR 0135)
     // Its connections and listen addresses go with it (a loopback address is page-wide).
     for (const t of this._transports) t.close();
     this._transports.clear();

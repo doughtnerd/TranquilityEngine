@@ -61,7 +61,8 @@ const ENGINE_TYPES = "virtual:myco-types";
 
 /**
  * The engine's public type declarations as a virtual module, `virtual:myco-types`: an
- * object of `.d.ts` text by path (`index.d.ts`, `core/World.d.ts`, ...), emitted in memory with
+ * object of `.d.ts` text by path (`index.d.ts`, which re-exports `myco.d.ts`, the public module of
+ * ADR 0135; `engine/core/World.d.ts`, `plugins/sky/runtime/index.d.ts`, ...), emitted in memory with
  * `tsconfig.engine.json`'s settings (internals stripped, editor access left out). The editor's
  * code editor serves them as the `"myco"` package (ADR 0030). Regenerated when an engine
  * source file changes.
@@ -98,6 +99,8 @@ export function engineTypes(): Plugin {
         const rel = fileName.replace(/\\/g, "/");
         files[rel.startsWith(`${outDir}/`) ? rel.slice(outDir.length + 1) : rel] = text;
       });
+      // The public module is src/myco.ts (ADR 0135); the package's `index.d.ts` re-exports it.
+      files["index.d.ts"] ??= 'export * from "./myco";\n';
       const code = `export default ${JSON.stringify(files)};`;
       try {
         mkdirSync(join(TYPES_CACHE, ".."), { recursive: true });

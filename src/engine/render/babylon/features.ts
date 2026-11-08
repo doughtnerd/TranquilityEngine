@@ -6,9 +6,10 @@
  * only holds their specs and must not import `water.ts` or `particles.ts`, so a game without them never
  * downloads them (ADR 0083).
  *
- * Registration order inside the `lighting` phase matters: sky, then lights, then fog, then environment.
- * The sky may drive the sun, so it syncs before the lights; the environment's skybox dims by the sky fog
- * the fog sets, so it syncs after the fog.
+ * Order inside the `lighting` phase matters, and the specs' `after` constraints say it (ADR 0135): sky,
+ * then lights, then fog, then environment. The sky (the Sky plugin's feature, `src/plugins/sky/runtime/`)
+ * may drive the sun, so it syncs before the lights; the environment's skybox dims by the sky fog the fog
+ * sets, so it syncs after the fog.
  */
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js";
@@ -22,18 +23,16 @@ import type { BabylonFeature, FeatureState, FeatureSyncContext } from "./feature
 import type { ShadowRequest } from "./frameGraph";
 import type { BabylonLighting } from "./lighting";
 import type { BabylonProbes, ProbeHit } from "./probes";
-import type { BabylonSky } from "./sky/BabylonSky";
 import type { BabylonTilemaps } from "./tilemaps";
 
 // --- Specs ----------------------------------------------------------------------------------------
 
-export const TILEMAPS_SPEC: RenderFeatureSpec = { name: "tilemaps", phase: "content", types: [Tilemap], lazy: false };
-/** Reads Environment (the sky asset) and Sky; owns nothing to release. Registers before the lights. */
-export const SKY_SPEC: RenderFeatureSpec = { name: "sky", phase: "lighting", types: [], lazy: false };
-export const LIGHTS_SPEC: RenderFeatureSpec = { name: "lights", phase: "lighting", types: [Light], lazy: false };
-export const FOG_SPEC: RenderFeatureSpec = { name: "fog", phase: "lighting", types: [Fog], lazy: false };
-/** Reads Environment; owns nothing to release. Registers after the fog. */
-export const ENVIRONMENT_SPEC: RenderFeatureSpec = { name: "environment", phase: "lighting", types: [], lazy: false };
+export const TILEMAPS_SPEC: RenderFeatureSpec = { name: "tilemaps", phase: "content", types: [Tilemap], lazy: false, after: ["sprites"] };
+/** After the sky, which may drive the sun. */
+export const LIGHTS_SPEC: RenderFeatureSpec = { name: "lights", phase: "lighting", types: [Light], lazy: false, after: ["sky"] };
+export const FOG_SPEC: RenderFeatureSpec = { name: "fog", phase: "lighting", types: [Fog], lazy: false, after: ["sky", "lights"] };
+/** Reads Environment; owns nothing to release. After the fog (the skybox fades with the sky fog). */
+export const ENVIRONMENT_SPEC: RenderFeatureSpec = { name: "environment", phase: "lighting", types: [], lazy: false, after: ["sky", "lights", "fog"] };
 export const PROBES_SPEC: RenderFeatureSpec = { name: "probes", phase: "capture", types: [ReflectionProbe], lazy: false };
 /** Holds the first frame while it loads, so a World that starts with water shows it from frame one (ADR 0120). */
 export const WATER_SPEC: RenderFeatureSpec = { name: "water", phase: "surfaces", types: [WaterSurface], lazy: true, holdsFirstFrame: true };
@@ -55,28 +54,6 @@ export class TilemapsFeature implements BabylonFeature {
 
   dispose(): void {
     this.tilemaps.dispose();
-  }
-}
-
-/** @internal The procedural sky. Register before `LightsFeature`: it may drive the sun. */
-export class SkyFeature implements BabylonFeature {
-  constructor(readonly sky: BabylonSky) {}
-
-  sync(world: World): void {
-    this.sky.sync(world);
-  }
-
-  /** Render a requested bake; call before the frame graph runs. */
-  bake(): void {
-    this.sky.bake();
-  }
-
-  state(): FeatureState {
-    return { sky: this.sky.state() };
-  }
-
-  dispose(): void {
-    this.sky.dispose();
   }
 }
 

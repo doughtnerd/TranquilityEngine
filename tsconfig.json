@@ -12,7 +12,7 @@
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "skipLibCheck": true,
-    "paths": { "myco": ["./src/engine/index.ts"], "tranquility": ["./src/engine/index.ts"] },
+    "paths": { "myco": ["./src/myco.ts"], "tranquility": ["./src/myco.ts"] },
     "sourceMap": true,
     "outDir": "./dist/"
   },

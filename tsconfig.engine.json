@@ -6,9 +6,9 @@
     "emitDeclarationOnly": true,
     "stripInternal": true,
     "sourceMap": false,
-    "rootDir": "./src/engine",
+    "rootDir": "./src",
     "outDir": "./dist/engine/types"
   },
-  "include": ["src/engine/**/*"],
-  "exclude": ["src/engine/tests/**/*", "src/engine/editor/**/*"]
+  "include": ["src/myco.ts", "src/engine/**/*", "src/plugins/manifest.ts", "src/plugins/order.ts", "src/plugins/runtimeContext.ts", "src/plugins/*/manifest.ts", "src/plugins/*/runtime/**/*"],
+  "exclude": ["src/engine/tests/**/*", "src/engine/editor/**/*", "src/plugins/**/*.test.ts"]
 }

@@ -4,6 +4,11 @@ import { Component } from "../core/Component";
 import type { World } from "../core/World";
 import { SYNC_PHASES, byPhase, ownerOf, specNeeded, type RenderFeatureSpec } from "../render/renderFeatures";
 import { eagerFeature, lazyFeature, type BabylonFeature } from "../render/babylon/feature";
+import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, PARTICLES_SPEC, PROBES_SPEC, TILEMAPS_SPEC, WATER_SPEC } from "../render/babylon/features";
+import { MESHES_SPEC } from "../render/babylon/meshes";
+import { SPRITES_SPEC } from "../render/babylon/sprites";
+import { UI_SPEC } from "../render/babylon/uiSpec";
+import { SKY_SPEC } from "../../plugins/sky/runtime";
 
 class A extends Component {}
 class B extends Component {}
@@ -43,6 +48,34 @@ describe("render feature ordering (ADR 0130)", () => {
     before("particles", "probes");
   });
   it("syncs UI last", () => expect(order.at(-1)).toBe("ui"));
+});
+
+describe("render feature ordering constraints (ADR 0135)", () => {
+  const names = (specs: RenderFeatureSpec[]) => byPhase(specs).map((i) => specs[i].name);
+
+  it("keeps the built-ins' order with a plugin's sky registered last", () => {
+    const specs = [SPRITES_SPEC, TILEMAPS_SPEC, MESHES_SPEC, LIGHTS_SPEC, FOG_SPEC, ENVIRONMENT_SPEC, PARTICLES_SPEC, PROBES_SPEC, WATER_SPEC, UI_SPEC, SKY_SPEC];
+    expect(names(specs)).toEqual(["sprites", "tilemaps", "meshes", "sky", "lights", "fog", "environment", "particles", "probes", "water", "ui"]);
+    // Without the Sky plugin, the rest keep their order.
+    expect(names(specs.slice(0, -1))).toEqual(["sprites", "tilemaps", "meshes", "lights", "fog", "environment", "particles", "probes", "water", "ui"]);
+    // Registered in any order, the constraints still hold.
+    expect(names([ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, SKY_SPEC, MESHES_SPEC, TILEMAPS_SPEC, SPRITES_SPEC]).join()).toBe("sprites,tilemaps,meshes,sky,lights,fog,environment");
+  });
+
+  it("is a stable sort: unconstrained features keep registration order", () => {
+    const specs = [spec("a", "lighting"), spec("b", "lighting", [], { after: ["d"] }), spec("c", "lighting"), spec("d", "lighting")];
+    expect(names(specs)).toEqual(["a", "c", "d", "b"]);
+  });
+
+  it("ignores names of absent features and of other phases", () => {
+    const specs = [spec("x", "lighting", [], { after: ["missing", "y"] }), spec("y", "content")];
+    expect(names(specs)).toEqual(["y", "x"]);
+  });
+
+  it("throws on a cycle, naming the features", () => {
+    const specs = [spec("a", "effects", [], { after: ["b"] }), spec("b", "effects", [], { after: ["a"] }), spec("c", "effects")];
+    expect(() => byPhase(specs)).toThrow(/"a", "b".*cycle.*effects/);
+  });
 });
 
 describe("ownership (ADR 0130)", () => {

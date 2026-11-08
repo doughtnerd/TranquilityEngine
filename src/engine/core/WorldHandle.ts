@@ -6,6 +6,7 @@ import { connectWorld, connectWorlds, listenWorld, netSession } from "../net/ses
 import { SceneManager } from "../scene/SceneManager";
 import { World } from "./World";
 import type { WorldHandle, WorldTag } from "./worlds";
+import { _setWorldServiceLookup } from "./worldServices";
 
 /** @internal What a handle needs from the Engine that owns its World. */
 export interface WorldOwner {
@@ -21,6 +22,9 @@ const worldsByHandle = new WeakMap<WorldHandle, World>();
 export function _worldOf(handle: WorldHandle): World | null {
   return handle.alive ? (worldsByHandle.get(handle) ?? null) : null;
 }
+
+// `worldService(handle, key)` (ADR 0135) finds the World behind a handle, and the current World, through these.
+_setWorldServiceLookup(_worldOf, () => World.active);
 
 /** @internal One per World, made by its Engine. */
 export class WorldHandleImpl implements WorldHandle {

@@ -4,7 +4,7 @@
 // scripts' URLs (loaded before it), JSON files of the project become modules exporting their
 // contents, and `"myco"` points at a shim module that re-exports the editor's own engine.
 // Scripts and the editor then share one registry and one World.
-import * as engine from "../engine";
+import * as engine from "../myco"; // the public module scripts import (ADR 0135)
 import { setScriptAssetRefs, unregisterScripts, withScriptRegistrations, type ScriptRegistrations } from "../engine/editor";
 import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
 import { importSites, rewriteImports, typescript, type ImportSite } from "./moduleImports";

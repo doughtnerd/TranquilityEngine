@@ -2,6 +2,7 @@
 // `activate` registers through the context, which remembers every registration so deactivating the
 // plugin removes them all.
 import type { PluginManifest } from "../../plugins/manifest";
+import { orderPlugins } from "../../plugins/order";
 import { assetFormats, assetKinds, panels, type AssetFormatContribution, type AssetKindContribution, type PanelContribution } from "./contributions";
 
 
@@ -18,28 +19,6 @@ export interface EditorPlugin {
 }
 
 const active = new Map<string, Array<() => void>>();
-
-/** Plugins in dependency order (dependencies first). Throws on a missing dependency or a cycle. */
-export function orderPlugins<P extends { manifest: PluginManifest }>(plugins: readonly P[]): P[] {
-  const byName = new Map(plugins.map((p) => [p.manifest.name, p]));
-  const out: P[] = [];
-  const state = new Map<string, "visiting" | "done">();
-  const visit = (p: P, chain: string[]) => {
-    const name = p.manifest.name;
-    if (state.get(name) === "done") return;
-    if (state.get(name) === "visiting") throw new Error(`Plugin dependency cycle: ${[...chain, name].join(" → ")}.`);
-    state.set(name, "visiting");
-    for (const dep of Object.keys(p.manifest.dependencies ?? {})) {
-      const d = byName.get(dep);
-      if (!d) throw new Error(`Plugin ${name} needs ${dep}, which isn't available.`);
-      visit(d, [...chain, name]);
-    }
-    state.set(name, "done");
-    out.push(p);
-  };
-  for (const p of plugins) visit(p, []);
-  return out;
-}
 
 /** Activate editor halves in dependency order; already-active plugins are skipped. */
 export function activatePlugins(plugins: readonly EditorPlugin[]): void {
@@ -73,3 +52,4 @@ export function deactivatePlugin(name: string): void {
 export const isPluginActive = (name: string): boolean => active.has(name);
 
 export type { PluginManifest };
+export { orderPlugins };

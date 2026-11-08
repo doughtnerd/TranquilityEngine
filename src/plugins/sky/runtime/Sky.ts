@@ -11,45 +11,18 @@
  * ```
  *
  * A World whose Environment has a sky but no Sky component draws the asset as saved.
+ *
+ * Part of the Sky plugin's runtime half (ADR 0135): registered for the plugin when it activates.
  */
-import { Component } from "../core/Component";
-import { Vector3 } from "../core/math";
-import { component, field } from "../core/registry";
-import { World } from "../core/World";
-import { Assets } from "../scene/Assets";
-import { Environment } from "../render/components";
-import { cloneSky, defaultSky, isSkyPath, parseSky, type SkySettings } from "./skyFormat";
-import { bodyDirections, skyLight } from "./skyMath";
+import { Component } from "../../../engine/core/Component";
+import { Vector3 } from "../../../engine/core/math";
+import { component, field } from "../../../engine/core/registry";
+import type { World } from "../../../engine/core/World";
+import { readSkyAsset, worldSkyPath } from "../../../engine/sky/skyAsset";
+import { cloneSky, type SkySettings } from "../../../engine/sky/skyFormat";
+import { bodyDirections, skyLight } from "../../../engine/sky/skyMath";
 
 const wrap24 = (h: number) => ((h % 24) + 24) % 24;
-
-/** The sky asset path of the World's first active Environment, or "" when it has no sky. */
-export function worldSkyPath(world: World): string {
-  const env = world._componentsOfType(Environment).find((e) => e.isActiveAndEnabled);
-  const path = env?.map.replace(/^asset:/, "") ?? "";
-  return isSkyPath(path) ? path : "";
-}
-
-/** A sky asset's settings as saved, parsed once per JSON object (`Assets.json` caches it); defaults if missing. */
-const parsed = new WeakMap<object, SkySettings>();
-export function readSkyAsset(path: string): SkySettings {
-  if (!path || !Assets.has(path)) return defaultSky();
-  let raw: unknown;
-  try {
-    raw = Assets.json(path);
-  } catch {
-    return defaultSky();
-  }
-  if (!raw || typeof raw !== "object") return parseSky(raw, path).settings;
-  let s = parsed.get(raw);
-  if (!s) {
-    const result = parseSky(raw, path);
-    for (const p of result.problems) console.warn(`[myco] ${p.message}`);
-    s = result.settings;
-    parsed.set(raw, s);
-  }
-  return s;
-}
 
 @component("engine.Sky")
 export class Sky extends Component {
@@ -149,7 +122,7 @@ export class Sky extends Component {
   }
 }
 
-/** The World's first active Sky, or null. */
+/** @internal The World's first active Sky, or null (the sky render feature's live sky). */
 export function worldSky(world: World): Sky | null {
   return world._componentsOfType(Sky).find((s) => s.isActiveAndEnabled) ?? null;
 }

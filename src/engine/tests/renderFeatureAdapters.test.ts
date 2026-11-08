@@ -8,7 +8,7 @@ import { Assets, Engine, Fog, GameObject, Graphics, Light, ReflectionProbe, Scen
 import { Tilemap } from "../tilemap/Tilemap";
 import { ParticleSystem } from "../render/components";
 import { WaterSurface } from "../render/water/WaterSurface";
-import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, LightsFeature, EnvironmentFeature, PARTICLES_SPEC, PROBES_SPEC, ProbesFeature, SKY_SPEC, TILEMAPS_SPEC, WATER_SPEC } from "../render/babylon/features";
+import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, LightsFeature, EnvironmentFeature, PARTICLES_SPEC, PROBES_SPEC, ProbesFeature, TILEMAPS_SPEC, WATER_SPEC } from "../render/babylon/features";
 import type { FeatureSyncContext } from "../render/babylon/feature";
 import { FogFeature } from "../render/babylon/fog";
 import { BabylonLighting } from "../render/babylon/lighting";
@@ -102,7 +102,6 @@ describe("render feature adapters (ADR 0130)", () => {
 
   it("each spec declares its phase, types and loading", () => {
     expect(TILEMAPS_SPEC).toMatchObject({ name: "tilemaps", phase: "content", types: [Tilemap], lazy: false });
-    expect(SKY_SPEC).toMatchObject({ phase: "lighting", types: [], lazy: false });
     expect(LIGHTS_SPEC).toMatchObject({ phase: "lighting", types: [Light], lazy: false });
     expect(FOG_SPEC).toMatchObject({ phase: "lighting", types: [Fog], lazy: false });
     expect(ENVIRONMENT_SPEC).toMatchObject({ phase: "lighting", types: [], lazy: false });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SKY_PRESETS, skyPreset } from "../sky/presets";
-import { Sky } from "../sky/Sky";
+import { Sky } from "../../plugins/sky/runtime/Sky";
 import { bakeSizeOf, defaultSky, formatSky, hexToLinear, isSkyPath, linearToHex, parseSky, SKY_FORMAT } from "../sky/skyFormat";
 import { bakeSignature, bodyDirections, directionFromAngles, hoursApart, moonPhase, SkyBakeScheduler, skyLight, starRotation, sunAngles, transmittance } from "../sky/skyMath";
 

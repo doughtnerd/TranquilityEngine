@@ -8,7 +8,8 @@
 //
 // The engine is the build's myco.js (a separate entry of the player bundle), which the compiled
 // scripts import too, so the game and its scripts share one engine.
-import * as engine from "../engine";
+import * as engine from "../myco";
+import { activateRuntimePlugins, RUNTIME_PLUGINS } from "../plugins/runtime";
 import { Assets, Engine, type Bootstrap, type ProjectSettingsInput } from "../engine";
 import { engineWorld, engineWorldConfig, setScriptAssetRefs } from "../engine/editor";
 import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, type GameManifest } from "../export/format";
@@ -42,6 +43,8 @@ async function boot(): Promise<void> {
   );
   Assets.addSource({ has: (p) => values.has(p), get: (p) => values.get(p) });
 
+  // First-party plugins' runtime halves (ADR 0135), all enabled until project.json lists them (ADR 0133).
+  activateRuntimePlugins(RUNTIME_PLUGINS);
   setScriptAssetRefs(manifest.assetRefs ?? []); // warmed up with every scene (ADR 0080)
   for (const script of manifest.scripts) await import(/* @vite-ignore */ urlOf(script.module));
   const moduleOf = (path: string) => manifest.scripts.find((s) => s.source === path.replace(/^\.?\//, ""))?.module;

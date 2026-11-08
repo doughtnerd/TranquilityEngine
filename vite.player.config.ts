@@ -19,7 +19,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         player: fileURLToPath(new URL("./player.html", import.meta.url)),
-        myco: fileURLToPath(new URL("./src/engine/index.ts", import.meta.url)),
+        myco: fileURLToPath(new URL("./src/myco.ts", import.meta.url)), // the public module (ADR 0135)
       },
       preserveEntrySignatures: "strict",
       output: {

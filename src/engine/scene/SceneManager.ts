@@ -10,6 +10,7 @@ import { splitSpriteRef } from "./importSettings";
 import { SceneInstance, collectAssetRefs, instantiateFile, loadSceneFile } from "./SceneLoader";
 import { loadUIDocumentSupport } from "../ui/UIDocument";
 import { warmSet, warmSetEmpty, type WarmSet } from "./warmUp";
+import { _startWorldServicesForScene } from "../core/worldServices";
 
 export interface LoadSceneOptions {
   /** Keep already-loaded scene nodes instead of replacing them (ADR 0016). */
@@ -55,6 +56,8 @@ export class SceneManager {
     // Navigation (ADR 0065): the module, and the scene's baked chunks, so its NavChunks load as it's instantiated;
     // only in Worlds that run it (not clients, which get agents by replication).
     if (usesNavigation(path) && simulatesNavigation(world)) await Promise.all([ensureNavigation(world), preloadNavBakes(path)]);
+    // World services (ADR 0135) the scene needs: by its settings, the World's tags, or its Components.
+    await _startWorldServicesForScene(world, { path, settings: file.settings as Readonly<Record<string, unknown>> | undefined, componentTypes: () => sceneComponentTypes(path) });
 
     // What the scene can show, warmed up before the swap (ADR 0080): its own content, the prefabs it
     // and the project's scripts name, and its `preload` list. Their assets load with the scene's.
@@ -155,4 +158,26 @@ async function prepareAssets(world: World, files: readonly string[], onProgress:
   if (world.render && images.length) await world.render.preloadTextures(images, onProgress);
   if (world.render && !warmSetEmpty(warm)) await world.render.warmUp(warm);
   onProgress?.(1);
+}
+
+/**
+ * The Component type ids in a scene file and the prefabs it instances, overrides' added Components
+ * included, for deciding which World services it needs (ADR 0135).
+ * TODO(ADR 0135 step 3): the resolved scene view (every override kind applied) replaces this scan.
+ */
+function sceneComponentTypes(path: string, seen = new Set<string>(), out = new Set<string>()): Set<string> {
+  if (seen.has(path)) return out;
+  seen.add(path);
+  let file;
+  try {
+    file = loadSceneFile(path);
+  } catch {
+    return out;
+  }
+  for (const n of file.nodes) {
+    for (const c of n.components ?? []) out.add(c.type);
+    for (const o of n.overrides ?? []) if (o.addComponent) out.add(o.addComponent.type);
+    if (n.prefab !== undefined) sceneComponentTypes(n.prefab, seen, out);
+  }
+  return out;
 }

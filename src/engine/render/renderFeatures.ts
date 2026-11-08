@@ -11,7 +11,8 @@ import type { World } from "../core/World";
  * - after `content`: it syncs cameras and collects shadow casters (from what content drew);
  * - after `effects`: it works out whether the content has loaded and which meshes probes capture;
  * - after `overlay`: it syncs the editor tools.
- * Inside a phase, features run in registration order.
+ * Inside a phase, features run in registration order, except where a feature's `after` names another
+ * feature of its phase that must sync first (ADR 0135).
  */
 export const SYNC_PHASES = ["content", "lighting", "effects", "capture", "surfaces", "overlay"] as const;
 
@@ -36,6 +37,11 @@ export interface RenderFeatureSpec {
   needed?(world: World): boolean;
   /** Lazy only: while it's loading, a World's first frame stays on the clear colour (ADR 0120). */
   holdsFirstFrame?: boolean;
+  /**
+   * Features of the same phase that sync before this one (ADR 0135): `["sky"]` for the lights, since the
+   * sky may drive the sun. Names of absent features, or of other phases, are ignored.
+   */
+  after?: readonly string[];
 }
 
 /** Whether `spec` owns `c`. */
@@ -54,7 +60,54 @@ export function ownerOf(specs: readonly RenderFeatureSpec[], c: Component): numb
   return specs.findIndex((s) => specOwns(s, c));
 }
 
-/** Spec indices in run order: by phase, then registration order inside a phase. */
+/**
+ * Spec indices in run order: by phase, then, inside a phase, registration order adjusted by the `after`
+ * constraints (ADR 0135): a stable topological sort, where each step runs the earliest-registered
+ * feature whose constraints are met. Throws on a cycle.
+ */
 export function byPhase(specs: readonly RenderFeatureSpec[]): number[] {
-  return specs.map((s, i) => ({ p: SYNC_PHASES.indexOf(s.phase), i })).sort((a, b) => a.p - b.p || a.i - b.i).map((e) => e.i);
+  const out: number[] = [];
+  for (const phase of SYNC_PHASES) {
+    const members = specs.map((s, i) => ({ s, i })).filter((e) => e.s.phase === phase);
+    const names = new Set(members.map((e) => e.s.name));
+    const placed = new Set<string>();
+    const left = [...members];
+    while (left.length > 0) {
+      const at = left.findIndex((e) => (e.s.after ?? []).every((n) => !names.has(n) || placed.has(n) || n === e.s.name));
+      if (at < 0) throw new Error(`Render features ${left.map((e) => `"${e.s.name}"`).join(", ")} order after each other in a cycle (phase "${phase}").`);
+      const [next] = left.splice(at, 1);
+      placed.add(next!.s.name);
+      out.push(next!.i);
+    }
+  }
+  return out;
+}
+
+/**
+ * @internal A render feature a plugin contributes (ADR 0135, first-party only): its spec (with its
+ * `after` constraints) and a loader for the factory that builds it from the backend's shared host
+ * services. The loader is a dynamic import, so the feature's code stays out of the main chunk; a
+ * renderer loads an eager feature's factory before it starts, a lazy one's on first need.
+ */
+export interface RenderFeatureRegistration<Host = never, Feature = unknown> {
+  readonly spec: RenderFeatureSpec;
+  load(): Promise<(host: Host) => Feature>;
+}
+
+const registered: RenderFeatureRegistration[] = [];
+
+/** @internal Register a render feature for renderers created from now on. Returns a function that removes it. */
+export function _registerRenderFeature<H, F>(registration: RenderFeatureRegistration<H, F>): () => void {
+  const r = registration as unknown as RenderFeatureRegistration;
+  if (registered.some((e) => e.spec.name === r.spec.name)) throw new Error(`Render feature "${r.spec.name}" is already registered.`);
+  registered.push(r);
+  return () => {
+    const at = registered.indexOf(r);
+    if (at >= 0) registered.splice(at, 1);
+  };
+}
+
+/** @internal The registered render features, in registration order. */
+export function _registeredRenderFeatures(): readonly RenderFeatureRegistration[] {
+  return registered;
 }

@@ -31,7 +31,7 @@ import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { World } from "../../../core/World";
 import { Assets } from "../../../scene/Assets";
-import { readSkyAsset, worldSky, worldSkyPath } from "../../../sky/Sky";
+import { readSkyAsset, worldSkyPath, type LiveSky } from "../../../sky/skyAsset";
 import type { SkySettings } from "../../../sky/skyFormat";
 import { SkyBakeScheduler, skyLight } from "../../../sky/skyMath";
 import { Environment, Fog } from "../../components";
@@ -287,9 +287,14 @@ export class BabylonSky {
   /** Milliseconds the last bake's draw calls took on the CPU (GPU time is not measured). */
   lastBakeMs = 0;
 
+  /**
+   * `liveSky` finds the World's live sky control (the Sky plugin's `Sky` component, ADR 0135), or null
+   * to draw the asset as saved.
+   */
   constructor(
     private readonly scene: Scene,
     private readonly lighting: SkyLightingHooks,
+    private readonly liveSky: (world: World) => LiveSky | null = () => null,
   ) {}
 
   /** Whether the World has a sky this frame. */
@@ -312,7 +317,7 @@ export class BabylonSky {
       return;
     }
     const env = world._componentsOfType(Environment).find((e) => e.isActiveAndEnabled)!;
-    const sky = worldSky(world);
+    const sky = this.liveSky(world);
     const settings = sky ? sky.settings : readSkyAsset(this.path);
     const time = sky ? sky.currentTime : settings.sun.timeOfDay;
     this.settings = settings;

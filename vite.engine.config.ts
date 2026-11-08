@@ -1,4 +1,4 @@
-// ENGINE library bundle (ADR 0015): src/engine/index.ts as one ES module in dist/engine/.
+// ENGINE library bundle (ADR 0015): the public module, src/myco.ts (ADR 0135), as one ES module in dist/engine/.
 // three.js, Babylon.js, Rapier and Howler stay external; the consuming game bundles them. Type
 // declarations come from `tsc -p tsconfig.engine.json` (see the build:engine script).
 import { readFileSync } from "node:fs";
@@ -45,7 +45,7 @@ export default defineConfig({
   oxc: false,
   build: {
     lib: {
-      entry: fileURLToPath(new URL("./src/engine/index.ts", import.meta.url)),
+      entry: fileURLToPath(new URL("./src/myco.ts", import.meta.url)),
       formats: ["es"],
       fileName: "engine",
     },

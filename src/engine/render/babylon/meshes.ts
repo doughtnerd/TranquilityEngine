@@ -38,7 +38,7 @@ export interface BabylonMeshHost {
 }
 
 /** @internal Content phase, eager (ADR 0130). */
-export const MESHES_SPEC: RenderFeatureSpec = { name: "meshes", phase: "content", types: [MeshRenderer], lazy: false };
+export const MESHES_SPEC: RenderFeatureSpec = { name: "meshes", phase: "content", types: [MeshRenderer], lazy: false, after: ["sprites", "tilemaps"] };
 
 interface MeshEntry {
   /** The renderer's own Babylon meshes (instances, or whole meshes with instancing off); none in a thin batch. */

@@ -1,6 +1,7 @@
 /**
- * Myco Engine public API. Game code imports from here only; three.js, Rapier and Howler
- * are never part of this surface (ADR 0010).
+ * Myco Engine core API (ADR 0135): what the public `myco` module (`src/myco.ts`) re-exports, alongside
+ * the first-party plugins' runtime halves. three.js, Rapier and Howler are never part of this surface
+ * (ADR 0010).
  */
 export { Engine, type EngineOptions } from "./core/Engine";
 export type { WorldKind, TimeState } from "./core/World";
@@ -22,6 +23,7 @@ export { ASSET_FIELD_KINDS, AssetRef, PlainObject, behavior, component, field, g
 export { defineBuffer, defineComponent, f32, i32, u8, type BufferDef, type ColumnArray, type Columns, type DataComponentDef, type DataView, type ScalarType, type Schema } from "./core/data";
 export { defineSystem, type Phase, type Row, type SystemContext, type SystemDef } from "./core/systems";
 export type { Rows } from "./core/rows";
+export { defineWorldService, worldService, type WorldServiceKey } from "./core/worldServices";
 export type { ProjectSettings, ProjectSettingsInput, ScaleMode } from "./core/settings";
 export type { AntialiasMode, GraphicsSettings, ParticleQuality, QualityTier, ShaderLevel, ShadowQuality } from "./core/graphics";
 export { Graphics } from "./render/Graphics";
@@ -39,9 +41,6 @@ export { Camera, Environment, Fog, Light, MeshRenderer, ParticleSystem, PostProc
 export { Material, type MaterialValue } from "./render/Material";
 export { Water, WaterSurface, type WaterSample } from "./render/water/WaterSurface";
 export type { WaterWave } from "./render/water/gerstner";
-export { Sky } from "./sky/Sky";
-export { SKY_FORMAT, MAX_CLOUD_LAYERS, defaultSky, defaultCloudLayer, parseSky, formatSky, type SkySettings, type SkyMode, type SunPlacement, type SkySun, type SkyAtmosphere, type SkyGradient, type SkySunDisc, type SkyMoon, type SkyCloudLayer, type SkyStars, type SkyHorizon, type SkyLighting, type SkyProblem } from "./sky/skyFormat";
-export { SKY_PRESETS, skyPreset, type SkyPresetId } from "./sky/presets";
 export { CUBEMAP_FORMAT, parseCubemap, formatCubemap, type CubemapFaces, type CubeFace } from "./sky/cubemapFormat";
 
 export { RigidBody2D, type BodyType, type ForceMode } from "./physics/RigidBody2D";
