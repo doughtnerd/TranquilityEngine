@@ -94,9 +94,29 @@ interface ElementEntry {
 }
 
 interface TextEntry {
-  control: TextBlock;
+  control: PaddedTextBlock;
   last: Last;
   stamp: number;
+}
+
+/**
+ * The interim Text's block, padded on every side. When a control changes, Babylon GUI clears and
+ * redraws its old and new boxes, but it grows the old box by one padding in width and height
+ * (`Measure.addAndTransformToRef(-left, -top, right, bottom)`), so the old box takes in the left and
+ * top padding but not the right and bottom ones. An outlined text's descenders reach into its bottom
+ * padding, so clearing or shortening a text left those pixels on the texture (the flappy sample's
+ * start message left the outlined "p"s of "Space" and "flap" on screen). `overflow`, in texture
+ * pixels, widens the redrawn rectangle on every side through Babylon's own hook (Rectangle widens it
+ * for its border the same way). On WebGPU, `uploadRedrawnPart` uploads that same rectangle.
+ */
+class PaddedTextBlock extends TextBlock {
+  overflow = 0;
+  protected override _computeAdditionalOffsetX(): number {
+    return this.overflow;
+  }
+  protected override _computeAdditionalOffsetY(): number {
+    return this.overflow;
+  }
 }
 
 /** Draws UI with Babylon GUI. */
@@ -521,7 +541,7 @@ export class BabylonUI {
   private syncText(t: Text, W: number, H: number, stamp: number): void {
     let e = this.texts.get(t);
     if (!e) {
-      const control = new TextBlock(`myco.text.${t.owner.name}`);
+      const control = new PaddedTextBlock(`myco.text.${t.owner.name}`);
       control.resizeToFit = false;
       control.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
       control.clipContent = false; // descenders and outlines may reach past the box
@@ -558,6 +578,8 @@ export class BabylonUI {
     if (put(ctl, "pad", pad)) {
       ctl.paddingLeftInPixels = ctl.paddingRightInPixels = ctl.paddingTopInPixels = ctl.paddingBottomInPixels = pad;
     }
+    // Kept while hidden, so the redraw that clears the text covers its padding too (see PaddedTextBlock).
+    ctl.overflow = Math.ceil(pad * this.textRoot.scaleX);
     if (put(ctl, "w", w)) ctl.widthInPixels = w;
     if (put(ctl, "h", h)) ctl.heightInPixels = h;
     // Anchor point + offset (offset.y down), and the box's own anchor point on it.
