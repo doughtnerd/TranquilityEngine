@@ -4,15 +4,15 @@
 // following the Shader Graph panel's conventions: every edit is a pure function on the graph,
 // recorded for undo, shown, and saved; a change to the file from elsewhere replaces the graph.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
-import { expandParticleGraph, projectAssets } from "../../../engine/scene/particleSubgraphs";
+import { expandParticleGraph, outputTypeResolved, portRateResolved } from "../../../engine/scene/particleSubgraphs";
 import { compileParticleGraph } from "../../../engine/scene/particleCompile";
-import type { ContextKind, GraphGroup, GraphProblem, ParticleGraph, Vec2 } from "../../../engine/scene/particleGraph";
-import { formatParticleGraph } from "../../../engine/scene/particleGraphFormat";
-import { nodeDef, outputType } from "../../../engine/scene/particleNodes";
+import type { ContextKind, GraphGroup, GraphNode, GraphProblem, ParticleGraph, Vec2 } from "../../../engine/scene/particleGraph";
+import type { PortType } from "../../../engine/scene/particleNodes";
 import { assetKind, fileName, listedFiles } from "../../assetBrowser";
 import { NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, writeGraphClipboard, type CanvasNode, type DraftWire, type Point } from "../../graph";
 import { errorStatus } from "../../messages";
-import { effectHistory, readEffect, recordEffectEdit, redoEffectEdit, undoEffectEdit, writeEffect } from "../../particleAssets";
+import { createParticleSubgraph, effectHistory, formatEffect, readEffect, recordEffectEdit, redoEffectEdit, undoEffectEdit, writeEffect } from "../../particleAssets";
+import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
 import {
   addBlock,
   addNode,
@@ -49,7 +49,7 @@ import { GraphEditorContext, type BlockDrop, type GraphEditorApi } from "./edito
 import { NODE_WIDTH, SYSTEM_WIDTH, canvasNode, measureCanvas, sameMeasure, type Measured } from "./layout";
 import { NodeView } from "./NodeView";
 import { ParticleGraphPreview } from "./PreviewPane";
-import { blockItems, canvasItems, nodeItems, type GraphSearchItem } from "./search";
+import { assetCanvasItems, blockItems, canvasItems, nodeItems, type GraphSearchItem } from "./search";
 import { SystemView, type DragHooks } from "./SystemView";
 import { Wires, type WireSelection } from "./Wires";
 import "../../graph/graph.css";
@@ -66,7 +66,7 @@ let previewSize = { w: 300, h: 220 };
 type Pending = { side: "output" | "input"; ref: string } | null;
 type SearchTarget = { kind: "canvas" } | { kind: "context"; system: string; context: ContextKind; output: number };
 
-const effectName = (path: string) => fileName(path).replace(/\.particles\.json$/i, "");
+const effectName = (path: string) => fileName(path).replace(/\.(particles|particlesubgraph|particleblock)\.json$/i, "");
 
 export function ParticleGraphEditor(props: { project: EditorProject; path: string }) {
   const { project, path } = props;
@@ -99,7 +99,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   const viewport = useRef<HTMLDivElement>(null);
   const flowId = useMemo(() => `pg${Math.random().toString(36).slice(2, 8)}`, []);
   /** The file text last read or written, to tell our own writes from changes made elsewhere. */
-  const fileText = useRef(formatParticleGraph(first.graph));
+  const fileText = useRef(formatEffect(first.graph, path));
   /** Saves in flight: until they land, the project still serves the text before them. */
   const saving = useRef(0);
   /** Why the wire being drawn can't end at the port under the pointer (set while xyflow checks it). */
@@ -107,7 +107,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
 
   // A change to the file from outside the panel (an undo of a rename, another window…) replaces the graph.
   const onDisk = readEffect(project, path);
-  const diskText = formatParticleGraph(onDisk.graph);
+  const diskText = formatEffect(onDisk.graph, path);
   if (diskText !== fileText.current && !dragging && saving.current === 0) {
     fileText.current = diskText;
     queueMicrotask(() => {
@@ -118,14 +118,22 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   }
 
   const collapsed = useMemo(() => collapsedSystems(graph), [graph]);
-  const compiled = useMemo(() => compileParticleGraph(expandParticleGraph(graph, projectAssets).graph), [graph]);
+  /** Reads a project asset's JSON by `asset:` reference (sub-graph and custom block ports come from these). */
+  const resolve = (ref: string): unknown => project.assets.get(ref.replace(/^asset:/, ""));
+  const assetDoc = assetMeta(graph);
+  /** The graph as the wire rules read it (an open asset's Input nodes as constants), and with its sub-graphs inlined. */
+  const rulesGraph = useMemo(() => wireRulesGraph(graph), [graph]);
+  const expansion = useMemo(() => expandParticleGraph(rulesGraph, resolve), [rulesGraph, docVersion.value]);
+  const compiled = useMemo(() => (assetDoc ? { problems: [] as GraphProblem[] } : compileParticleGraph(expansion.graph)), [expansion, assetDoc]);
   const problems = useMemo(() => {
     const seen = new Set<string>();
-    return [...parseProblems, ...compiled.problems].filter((p) => {
+    return [...parseProblems, ...expansion.problems, ...compiled.problems].filter((p) => {
       const key = `${p.at}|${p.message}`;
       return !seen.has(key) && !!seen.add(key);
     });
-  }, [parseProblems, compiled]);
+  }, [parseProblems, expansion, compiled]);
+  const typeOf = (node: GraphNode, port: string): PortType | null =>
+    node.type === ASSET_INPUT ? ((node.settings?.type as PortType | undefined) ?? "number") : isPseudo(node.type) ? null : outputTypeResolved(rulesGraph, node, port, resolve, expansion.graph);
   const problemIndex = useMemo(() => indexProblems(graph, problems), [graph, problems]);
   const wired = useMemo(() => new Map(graph.edges.map((e) => [e.to, e.from])), [graph]);
   const eventTargets = useMemo(() => new Set(graph.events.map((e) => e.to)), [graph]);
@@ -135,10 +143,10 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     for (const e of graph.edges) {
       const [id, port] = splitRef(e.from);
       const node = graph.nodes.find((n) => n.id === id);
-      m.set(e.from, (node && outputType(graph, node, port)) ?? "number");
+      m.set(e.from, (node && typeOf(node, port)) ?? "number");
     }
     return m;
-  }, [graph]);
+  }, [graph, expansion]);
 
   const position = (item: { id: string; position: Vec2 }): Point => dragging?.get(item.id) ?? { x: item.position[0], y: item.position[1] };
   const canvasNodes: CanvasNode[] = [
@@ -194,7 +202,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   // --- editing ---------------------------------------------------------------------------------------
 
   const save = (next: ParticleGraph) => {
-    fileText.current = formatParticleGraph(next);
+    fileText.current = formatEffect(next, path);
     saving.current++;
     writeEffect(project, path, next)
       .catch((err) => (status.value = errorStatus(`Couldn't save ${fileName(path)}`, err)))
@@ -290,16 +298,17 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       commit(made.graph);
       setSelection(new Set([made.id]));
     } else if (item.pick.kind === "node") {
-      const def = nodeDef(item.pick.type);
       const left = pending?.side === "input";
-      const made = addNode(g, item.pick.type, [left ? p.x - NODE_WIDTH - 20 : p.x, p.y - 14], item.pick.settings);
+      const place: [number, number] = [left ? p.x - NODE_WIDTH - 20 : p.x, p.y - 14];
+      const made = isPseudo(item.pick.type) ? addPseudoNode(g, item.pick.type, place, item.pick.settings) : addNode(g, item.pick.type, place, item.pick.settings);
       let next = made.graph;
+      const def = editorNodeDef(next.nodes.find((n) => n.id === made.id)!, resolve);
       if (pending?.side === "output") {
-        const input = def?.inputs.find((i) => !whyNotWire(next, pending.ref, `${made.id}.${i.name}`));
-        if (input) next = connectWire(next, pending.ref, `${made.id}.${input.name}`);
+        const input = def?.inputs.find((i) => !i.noPort && !whyNotWire(next, pending.ref, `${made.id}.${i.name}`, resolve));
+        if (input) next = connectWire(next, pending.ref, `${made.id}.${input.name}`, resolve);
       } else if (pending?.side === "input") {
-        const output = def?.outputs.find((o) => !whyNotWire(next, `${made.id}.${o.name}`, pending.ref));
-        if (output) next = connectWire(next, `${made.id}.${output.name}`, pending.ref);
+        const output = def?.outputs.find((o) => !whyNotWire(next, `${made.id}.${o.name}`, pending.ref, resolve));
+        if (output) next = connectWire(next, `${made.id}.${output.name}`, pending.ref, resolve);
       }
       commit(next);
       setSelection(new Set([made.id]));
@@ -310,8 +319,9 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   const searchItems = useMemo(() => {
     if (!search) return [];
     if (search.target.kind === "context") return blockItems(search.target.context);
+    if (assetDoc) return assetCanvasItems(assetDoc);
     return search.pending ? nodeItems(graph) : canvasItems(graph);
-  }, [search, graph.properties]);
+  }, [search, graph.properties, assetDoc?.kind, assetDoc?.contexts?.join()]);
 
   // --- wiring ----------------------------------------------------------------------------------------
 
@@ -322,7 +332,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     view: () => canvas.viewRef.current,
     panBy,
     canConnect: (from: string, to: string) => {
-      refusal.current = whyNotWire(live.current.graph, from, to);
+      refusal.current = whyNotWire(live.current.graph, from, to, resolve);
       return !refusal.current;
     },
     onDraft: (d: DraftWire | null) => {
@@ -341,7 +351,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   const isEventPort = (owner: string, port: string, side: "input" | "output") => {
     if (graph.systems.some((s) => s.id === owner)) return port === "start" || port === "stop" || side === "output";
     const node = graph.nodes.find((n) => n.id === owner);
-    return !!node && nodeDef(node.type)?.outputs.find((o) => o.name === port)?.type === "event";
+    return !!node && editorNodeDef(node)?.outputs.find((o) => o.name === port)?.type === "event";
   };
 
   const onPortDown = (e: MouseEvent, owner: string, port: string, side: "input" | "output") => {
@@ -364,7 +374,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
         srcPort,
         "output",
         connectOptions(
-          (from, to) => commit(connectWire(disconnect(live.current.graph, ref), from, to)),
+          (from, to) => commit(connectWire(disconnect(live.current.graph, ref), from, to, resolve)),
           () => commit(disconnect(live.current.graph, ref)),
           () => setDetached(null),
         ),
@@ -379,7 +389,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       port,
       side,
       connectOptions(
-        (from, to) => commit(connectWire(live.current.graph, from, to)),
+        (from, to) => commit(connectWire(live.current.graph, from, to, resolve)),
         (at) => !event && openSearch(at, { kind: "canvas" }, { side, ref }),
       ),
     );
@@ -504,6 +514,23 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     setSelection(new Set(made.ids));
   };
 
+  /** Move the selected operator nodes into a new sub-graph asset beside this file, replaced by a Sub-graph node (one undo step; the asset file stays). */
+  const saveAsSubgraph = async () => {
+    if (readOnly) return;
+    const probe = extractSubgraph(live.current.graph, selection, "asset:", resolve);
+    if (!probe) {
+      status.value = { kind: "info", text: "Select operator nodes to save as a sub-graph (property and event nodes can't move into one)." };
+      return;
+    }
+    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    const made = await createParticleSubgraph(folder, probe.asset, "Sub-graph");
+    if (!made) return;
+    const done = extractSubgraph(live.current.graph, selection, `asset:${made}`, resolve);
+    if (!done) return;
+    commit(done.graph);
+    setSelection(new Set([done.node]));
+  };
+
   const groupSelection = () => {
     if (selection.size === 0) return;
     commit(groupItems(live.current.graph, selection).graph);
@@ -582,6 +609,8 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
       images: files.filter((f) => assetKind(f) === "image").map((f) => `asset:${f}`),
       materials: files.filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph").map((f) => `asset:${f}`),
       meshes: files.filter((f) => assetKind(f) === "model").map((f) => `asset:${f}`),
+      subgraphs: files.filter((f) => assetKind(f) === "particlesubgraph" && f !== path).map((f) => `asset:${f}`),
+      blocks: files.filter((f) => assetKind(f) === "particleblock").map((f) => `asset:${f}`),
     }),
     [project.files],
   );
@@ -609,10 +638,14 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     draggingBlock: blockDrag?.key ?? null,
     blockDrop: blockDrag?.drop ?? null,
     assets,
+    resolve,
+    assetDoc,
+    typeOf,
+    rateOf: (ref) => portRateResolved(rulesGraph, ref, resolve, expansion.graph),
     sourceLabel: (from) => {
       const [id, port] = splitRef(from);
       const node = graph.nodes.find((n) => n.id === id);
-      const def = node && nodeDef(node.type);
+      const def = node && editorNodeDef(node, resolve);
       if (!node || !def) return from;
       const name = node.type === "property" && node.settings?.name ? String(node.settings.name) : def.label;
       return def.outputs.length > 1 ? `${name} ${def.outputs.find((o) => o.name === port)?.label ?? port}` : name;
@@ -639,6 +672,37 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
           <span class="sg-name" title={path}>
             {effectName(path)}
           </span>
+          {assetDoc && (
+            <span class="pg-asset-fields">
+              <span title={assetDoc.kind === "block" ? "Edited as a document of its own: the Input nodes are the block's inputs, the Block nodes its blocks." : "Edited as a document of its own: the Input and Output nodes are the ports of the Sub-graph node that uses it."}>
+                {assetDoc.kind === "block" ? "Custom block asset" : "Sub-graph asset"}
+              </span>
+              {assetDoc.kind === "block" && (
+                <>
+                  <label>
+                    Label
+                    <input type="text" aria-label="Block label" disabled={readOnly} value={assetDoc.label ?? ""} onKeyDown={(e) => e.stopPropagation()} onChange={(e) => commit(setAssetMeta(live.current.graph, { label: (e.currentTarget as HTMLInputElement).value }))} />
+                  </label>
+                  {BLOCK_CONTEXTS.map((c) => (
+                    <label key={c} title={`The block can be added to the ${c} context`}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Context ${c}`}
+                        disabled={readOnly}
+                        checked={(assetDoc.contexts ?? []).includes(c)}
+                        onChange={(e) => {
+                          const on = (e.currentTarget as HTMLInputElement).checked;
+                          const next = BLOCK_CONTEXTS.filter((k) => (k === c ? on : (assetDoc.contexts ?? []).includes(k)));
+                          commit(setAssetMeta(live.current.graph, { contexts: next.length ? next : assetDoc.contexts }));
+                        }}
+                      />
+                      {c}
+                    </label>
+                  ))}
+                </>
+              )}
+            </span>
+          )}
           <span class="pg-problems-anchor">
             <button
               type="button"
@@ -674,6 +738,13 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
           <button title="Add a system or node (Space, or right-click the canvas; over a context, add a block)" disabled={readOnly} onClick={() => openSearch(paneCenter(), { kind: "canvas" }, null)}>
             Add
           </button>
+          <button
+            title="Move the selected operator nodes into a new particle sub-graph asset, replaced by a Sub-graph node"
+            disabled={readOnly || !graph.nodes.some((n) => selection.has(n.id) && canMoveToAsset(n))}
+            onClick={() => void saveAsSubgraph()}
+          >
+            Save as sub-graph
+          </button>
           <button title="Put the selected systems and nodes in a group (Ctrl+G)" disabled={readOnly || selection.size === 0} onClick={groupSelection}>
             Group
           </button>
@@ -686,9 +757,11 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
           <button aria-pressed={showMinimap} class={showMinimap ? "active" : ""} title="Show the minimap" onClick={() => setShowMinimap(!showMinimap)}>
             Minimap
           </button>
-          <button aria-pressed={showPreview} class={showPreview ? "active" : ""} title="Show the preview" onClick={() => setShowPreview(!showPreview)}>
-            Preview
-          </button>
+          {!assetDoc && (
+            <button aria-pressed={showPreview} class={showPreview ? "active" : ""} title="Show the preview" onClick={() => setShowPreview(!showPreview)}>
+              Preview
+            </button>
+          )}
           <button aria-pressed={maximized} title={maximized ? "Back into the layout" : "Fill the window"} onClick={() => setMaximized(!maximized)}>
             {maximized ? "Restore" : "Maximize"}
           </button>
@@ -696,7 +769,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
         {migrated && !readOnly && <p class="pg-notice">This effect is in the old format (myco.particles@1). Your first edit saves it as a graph.</p>}
         {readOnly && <p class="pg-notice">This project is read-only: you can look at the effect, but not change it.</p>}
         <div class="pg-body">
-          <Blackboard collapsed={blackboardCollapsed} onCollapse={setBlackboardCollapsed} placeNode={(name) => placeProperty(name)} />
+          {!assetDoc && <Blackboard collapsed={blackboardCollapsed} onCollapse={setBlackboardCollapsed} placeNode={(name) => placeProperty(name)} />}
           <div
             class="sg-pane pg-pane"
             ref={pane}
@@ -768,10 +841,10 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
                 </div>
               )}
             </div>
-            {empty && <p class="pg-canvas-empty">Right-click or press Space to add a system.</p>}
+            {empty && <p class="pg-canvas-empty">{assetDoc ? "Right-click or press Space to add a node." : "Right-click or press Space to add a system."}</p>}
             {box && <SelectionBox box={box} />}
             {showMinimap && <Minimap nodes={canvasNodes} view={view} size={paneSize} pane={paneApi} />}
-            {showPreview && <PreviewCard graph={graph} problems={problems.length} onClose={() => setShowPreview(false)} />}
+            {showPreview && !assetDoc && <PreviewCard graph={graph} problems={problems.length} onClose={() => setShowPreview(false)} />}
             {search && (
               <NodeSearchPopup
                 items={searchItems}

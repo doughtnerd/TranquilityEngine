@@ -29,6 +29,39 @@ import type { ModelMesh } from "../../scene/models";
 import type { ParticleBlending } from "../../scene/particles";
 import { trailPoint, type SimEmitter } from "../particles/simulation";
 import { meshOf } from "./materials";
+import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import { MycoSoftParticlePlugin, type DepthSource } from "./softParticles";
+
+/** Soft particles for a mesh draw (ADR 0126). */
+export interface SoftOptions {
+  softness: number;
+  depth: DepthSource;
+  /** An unshared copy of the material asset (a graph's is a new graph material); default: a clone. */
+  copy?: (name: string) => { material: Material; dispose(): void } | null;
+}
+
+/**
+ * The material a mesh draw uses with soft particles: its own unlit material gains the fade; a material
+ * asset is shared, so the draw takes a copy of it with the fade (disposed with the draw). Materials
+ * that aren't standard or PBR (none today) draw hard. Returns the material and the copy to dispose.
+ */
+function softened(material: Material, own: boolean, soft: SoftOptions | null): { material: Material; copy: { dispose(): void } | null } {
+  if (!soft) return { material, copy: null };
+  if (own && material instanceof StandardMaterial) {
+    new MycoSoftParticlePlugin(material, soft.softness, soft.depth);
+    return { material, copy: null };
+  }
+  if (material instanceof PBRMaterial || material instanceof StandardMaterial) {
+    const name = `${material.name} (soft)`;
+    const made = soft.copy?.(name) ?? ((c) => (c ? { material: c, dispose: () => c.dispose(false, false) } : null))(material.clone(name));
+    if (made && (made.material instanceof PBRMaterial || made.material instanceof StandardMaterial)) {
+      new MycoSoftParticlePlugin(made.material, soft.softness, soft.depth);
+      return { material: made.material, copy: made };
+    }
+    made?.dispose();
+  }
+  return { material, copy: null };
+}
 
 /** One emitter's drawing on the Babylon backend. */
 export interface Draw {
@@ -106,6 +139,8 @@ export class InstanceDraw implements Draw {
   matrices = new Float32Array(0);
   colors = new Float32Array(0);
   private readonly own: StandardMaterial | null;
+  /** A soft copy of a material asset, owned by the draw. */
+  private readonly copy: { dispose(): void } | null;
 
   constructor(
     scene: Scene,
@@ -115,6 +150,7 @@ export class InstanceDraw implements Draw {
     source: ModelMesh,
     material: Material | null,
     texture: BaseTexture,
+    soft: SoftOptions | null = null,
   ) {
     const r = emitter.renderer;
     this.mesh = meshOf(scene, name, source);
@@ -122,7 +158,9 @@ export class InstanceDraw implements Draw {
     this.mesh.freezeWorldMatrix();
     this.mesh.alphaIndex = particleAlphaIndex(r.renderOrder);
     this.own = material ? null : unlitParticleMaterial(scene, `${name}:material`, texture, r.blending, false);
-    this.mesh.material = material ?? this.own;
+    const used = softened((material ?? this.own)!, !material, soft);
+    this.copy = used.copy;
+    this.mesh.material = used.material;
     // A material asset (a graph's Particle Color node, a PBR material) gets the per-instance alpha too: without this flag Babylon's colour mixing forces vertex alpha to 1.
     if (material) this.mesh.hasVertexAlpha = true;
     this.allocate(Math.max(1, capacity));
@@ -188,6 +226,7 @@ export class InstanceDraw implements Draw {
   dispose(): void {
     this.mesh.dispose(false, false); // a material asset is shared: not disposed
     this.own?.dispose(false, false); // the texture is shared too
+    this.copy?.dispose();
   }
 }
 
@@ -245,6 +284,7 @@ export class QuadDraw implements Draw {
   private readonly lo = new Vector3();
   private readonly hi = new Vector3();
   private readonly own: StandardMaterial | null;
+  private readonly copy: { dispose(): void } | null;
   private readonly pts = new Float32Array(MAX_TRAIL * 3);
   private readonly sides = new Float32Array(MAX_TRAIL * 3);
 
@@ -257,6 +297,7 @@ export class QuadDraw implements Draw {
     material: Material | null,
     texture: BaseTexture,
     private readonly camera: () => Camera | null,
+    soft: SoftOptions | null = null,
   ) {
     const r = emitter.renderer;
     this.capacity = Math.max(1, capacity);
@@ -266,7 +307,9 @@ export class QuadDraw implements Draw {
     this.mesh.hasVertexAlpha = true;
     this.mesh.alphaIndex = particleAlphaIndex(r.renderOrder);
     this.own = material ? null : unlitParticleMaterial(scene, `${name}:material`, texture, r.blending, true);
-    this.mesh.material = material ?? this.own;
+    const used = softened((material ?? this.own)!, !material, soft);
+    this.copy = used.copy;
+    this.mesh.material = used.material;
     if (material) this.normals = new Float32Array(0);
     this.grow(kind === "trail" ? this.capacity * 8 : this.capacity * (r.blendTiles ? 2 : 1));
   }
@@ -556,5 +599,6 @@ export class QuadDraw implements Draw {
   dispose(): void {
     this.mesh.dispose(false, false);
     this.own?.dispose(false, false);
+    this.copy?.dispose();
   }
 }

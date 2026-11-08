@@ -51,6 +51,9 @@ describe("asset browser: folders and search", () => {
   it("knows asset kinds", () => {
     expect(assetKind("scenes/main.scene.json")).toBe("scene");
     expect(assetKind("prefabs/pipe-pair.prefab.json")).toBe("prefab");
+    expect(assetKind("fx/a.particlesubgraph.json")).toBe("particlesubgraph");
+    expect(assetKind("fx/a.particleblock.json")).toBe("particleblock");
+    expect(assetKind("fx/a.particles.json")).toBe("particles");
     expect(assetKind("images/bird.PNG")).toBe("image");
     expect(assetKind("music/town.mp3")).toBe("audio");
     expect(assetKind("ui/menu.ui.xml")).toBe("uidocument");

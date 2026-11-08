@@ -8,6 +8,7 @@ import { AssetRef, PlainObject, component, field } from "../core/registry";
 import { World } from "../core/World";
 import { pixelPerfectView } from "./pixelPerfect";
 import { Material } from "./Material";
+import { modelVariantsIfLoaded } from "../scene/models";
 
 /** Draws a textured quad (ADR 0014). */
 @component("engine.SpriteRenderer")
@@ -77,12 +78,15 @@ export class Camera extends Component {
   /**
    * The canvas size the camera's maths uses: the render backend's canvas (CSS pixels, like
    * `Input.mousePosition`), or without one (headless) the project's reference resolution (ADR 0073).
+   * The surface keeps the size up to date, so this doesn't force a layout each call.
    */
-  private canvasSize(): { width: number; height: number } {
-    const canvas = this.world.render?.canvas;
-    if (canvas && canvas.clientWidth > 0 && canvas.clientHeight > 0) return { width: canvas.clientWidth, height: canvas.clientHeight };
-    const { width, height } = this.world.settings.display;
-    return { width, height };
+  private canvasSize(): { readonly width: number; readonly height: number } {
+    const render = this.world.render;
+    if (render) {
+      const size = render.canvasCssSize ? render.canvasCssSize() : render.canvas ? { width: render.canvas.clientWidth, height: render.canvas.clientHeight } : null;
+      if (size && size.width > 0 && size.height > 0) return size;
+    }
+    return this.world.settings.display;
   }
 
   /** The camera's rectangle in canvas pixels, origin top-left (ADR 0056). */
@@ -238,6 +242,17 @@ export class MeshRenderer extends Component {
   @field(Boolean) castShadows = true;
   /** Show shadows cast onto it. */
   @field(Boolean) receiveShadows = true;
+  /**
+   * The model's material variant to draw (glTF `KHR_materials_variants`, ADR 0118), by name; empty
+   * draws the file's default materials. It changes only slots drawing the model's own material: a
+   * slot with a material asset keeps it. The choices are `variants`.
+   */
+  @field(String) variant = "";
+
+  /** The names of the material variants the model offers (ADR 0118): empty until it has loaded, or for a model without variants. */
+  get variants(): readonly string[] {
+    return modelVariantsIfLoaded(this.mesh);
+  }
 
   private readonly materialProperties = new Map<string, MaterialPropertyValue>();
   /** @internal Bumped when the property overrides change, so the render backend applies them. */

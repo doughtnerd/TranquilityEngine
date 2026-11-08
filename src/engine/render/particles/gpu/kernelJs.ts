@@ -26,6 +26,8 @@ interface Frame {
   /** Float offset of the particle (index × 16). */
   o: number;
   idx: number;
+  /** Init: this particle's place in the frame's spawn (0, 1, …). */
+  rel: number;
   u: Float32Array;
   lut: Float32Array;
   loc: Record<KLocal, Float64Array>;
@@ -52,23 +54,59 @@ export class JsKernel {
   private readonly update: (() => void)[];
   private readonly outputs: (() => void)[][];
   private readonly spawnMask: Uint8Array;
+  /**
+   * Dead list (ADR 0126): free slots, a stack (`free[0..freeCount)`), when the system keeps one (not an
+   * event child). Spawning pops; finished particles push. Null: 0094's ring.
+   */
+  private readonly free: Int32Array | null;
+  private freeCount = 0;
+  /**
+   * Trail history (ADR 0126): `kernel.trail` blocks of the capacity, each slot's (position, seed) written
+   * into block `frame % points` every step. Null without trail outputs.
+   */
+  readonly history: Float32Array | null;
+  /** Particles alive after the last step (counted while stepping). */
+  private aliveAfter = 0;
 
-  constructor(readonly kernel: KernelSystem) {
+  constructor(
+    readonly kernel: KernelSystem,
+    opts: { deadList?: boolean } = {},
+  ) {
     this.state = new Float32Array(kernel.capacity * KERNEL_FLOATS);
     this.uniforms = new Float32Array(kernel.uniformVec4 * 4);
     this.lut = new Float32Array(Math.max(1, kernel.luts.length) * LUT_SAMPLES * 4);
     const loc = {} as Record<KLocal, Float64Array>;
     for (const k of Object.keys(LOCAL_WIDTH) as KLocal[]) loc[k] = new Float64Array(LOCAL_WIDTH[k]);
-    this.f = { s: this.state, o: 0, idx: 0, u: this.uniforms, lut: this.lut, loc, step: 0, dies: false, parent: null };
+    this.f = { s: this.state, o: 0, idx: 0, rel: 0, u: this.uniforms, lut: this.lut, loc, step: 0, dies: false, parent: null };
     this.init = kernel.init.map((s) => this.stmt(s));
     this.update = kernel.update.map((s) => this.stmt(s));
     this.outputs = kernel.outputs.map((o) => o.stmts.map((s) => this.stmt(s)));
     this.spawnMask = new Uint8Array(kernel.event ? kernel.capacity : 0);
+    this.free = opts.deadList && !kernel.event ? new Int32Array(kernel.capacity) : null;
+    this.history = kernel.trail ? new Float32Array(kernel.trail * kernel.capacity * 4) : null;
+    this.clear();
   }
 
   /** Kill every particle. */
   clear(): void {
     this.state.fill(0);
+    this.aliveAfter = 0;
+    const free = this.free;
+    if (!free) return;
+    // Popped from the top, so slots fill from 0 up.
+    const cap = this.kernel.capacity;
+    for (let i = 0; i < cap; i++) free[i] = cap - 1 - i;
+    this.freeCount = cap;
+  }
+
+  /** Whether spawning uses a dead list (else the ring). */
+  get deadList(): boolean {
+    return this.free !== null;
+  }
+
+  /** Particles alive (lifetime left) after the last step: exact. */
+  get aliveCount(): number {
+    return this.aliveAfter;
   }
 
   /** Advance one frame with the uniforms already written. `parent`: the event parent's executor, stepped this frame. */
@@ -81,18 +119,26 @@ export class JsKernel {
     const seed = u[U.misc * 4 + 1];
     const dt = u[U.time * 4 + 1];
     const ev = this.kernel.event && parent ? this.eventMask(parent) : null;
+    if (this.free) {
+      this.stepDeadList(count, frame, seed, dt);
+      this.writeHistory(frame);
+      return;
+    }
+    let alive = 0;
     for (let idx = 0; idx < cap; idx++) {
       const o = idx * KERNEL_FLOATS;
       f.o = o;
       f.idx = idx;
       f.loc.index[0] = idx;
-      const spawn = ev ? ev[idx] === 1 : count > 0 && (idx - start + cap) % cap < count;
+      f.rel = ev ? idx : (idx - start + cap) % cap;
+      const spawn = ev ? ev[idx] === 1 : count > 0 && f.rel < count;
       if (spawn) {
         for (let i = 0; i < KERNEL_FLOATS; i++) s[o + i] = 0;
         s[o + 15] = particleSeed(idx, frame, seed);
         f.parent = ev && parent ? parent.parentMotion(Math.floor(idx / Math.max(1, u[U.misc * 4 + 2])), u) : null;
         f.loc.t[0] = 0;
         for (const run of this.init) run();
+        if (s[o + 7] > 0) alive++;
         continue;
       }
       const life = s[o + 7];
@@ -100,13 +146,81 @@ export class JsKernel {
         s[o + 7] = 0; // died last frame
         continue;
       }
-      if (life === 0 || dt <= 0) continue;
-      f.step = dt;
-      f.dies = false;
-      f.loc.speedMod[0] = 1;
-      for (const run of this.update) run();
-      if (f.dies) s[o + 7] = -s[o + 7];
+      if (life === 0) continue;
+      if (dt > 0) {
+        f.step = dt;
+        f.dies = false;
+        f.loc.speedMod[0] = 1;
+        for (const run of this.update) run();
+        if (f.dies) s[o + 7] = -s[o + 7];
+      }
+      if (s[o + 7] > 0) alive++;
     }
+    this.aliveAfter = alive;
+    this.writeHistory(frame);
+  }
+
+  /** Trails: this frame's (position, seed) of every slot into the history. */
+  private writeHistory(frame: number): void {
+    const h = this.history;
+    if (!h) return;
+    const cap = this.kernel.capacity;
+    const s = this.state;
+    const base = (frame % this.kernel.trail!) * cap * 4;
+    for (let i = 0; i < cap; i++) {
+      const o = i * KERNEL_FLOATS;
+      const d = base + i * 4;
+      h[d] = s[o];
+      h[d + 1] = s[o + 1];
+      h[d + 2] = s[o + 2];
+      h[d + 3] = s[o + 15];
+    }
+  }
+
+  /** A step with the dead list: update every slot (finished ones go back on the list), then spawn into free slots. */
+  private stepDeadList(count: number, frame: number, seed: number, dt: number): void {
+    const { state: s, f } = this;
+    const free = this.free!;
+    const cap = this.kernel.capacity;
+    let alive = 0;
+    for (let idx = 0; idx < cap; idx++) {
+      const o = idx * KERNEL_FLOATS;
+      const life = s[o + 7];
+      if (life < 0) {
+        s[o + 7] = 0; // died last frame: free now
+        free[this.freeCount++] = idx;
+        continue;
+      }
+      if (life === 0) continue;
+      if (dt > 0) {
+        f.o = o;
+        f.idx = idx;
+        f.loc.index[0] = idx;
+        f.step = dt;
+        f.dies = false;
+        f.loc.speedMod[0] = 1;
+        for (const run of this.update) run();
+        if (f.dies) s[o + 7] = -s[o + 7];
+      }
+      if (s[o + 7] > 0) alive++;
+    }
+    // A full system drops the rest of the frame's spawns (no oldest particle is replaced).
+    for (let t = 0; t < count && this.freeCount > 0; t++) {
+      const idx = free[--this.freeCount];
+      const o = idx * KERNEL_FLOATS;
+      f.o = o;
+      f.idx = idx;
+      f.rel = t;
+      f.loc.index[0] = idx;
+      for (let i = 0; i < KERNEL_FLOATS; i++) s[o + i] = 0;
+      s[o + 15] = particleSeed(t, frame, seed);
+      f.parent = null;
+      f.loc.t[0] = 0;
+      for (const run of this.init) run();
+      if (s[o + 7] > 0) alive++;
+      else s[o + 7] = -1e-20; // born without a lifetime: freed by the next step, as on the GPU
+    }
+    this.aliveAfter = alive;
   }
 
   /** The drawn values of particle `idx` through output `k` (what the draw shader computes). */
@@ -596,9 +710,9 @@ export class JsKernel {
       let uu = r(0);
       if (mode !== "random") {
         const cap = this.kernel.capacity;
-        const ordinal = u[U.misc * 4] + ((f.idx - u[U.spawn * 4] + cap) % cap);
+        const ordinal = u[U.misc * 4] + f.rel;
         const n = Math.max(1, u[U.spawn * 4 + 1]);
-        if (mode === "burst") uu = ((f.idx - u[U.spawn * 4] + cap) % cap) / n;
+        if (mode === "burst") uu = f.rel / n;
         else {
           const x = spread > 0 ? ordinal * spread : ordinal / Math.max(1, cap);
           uu = mode === "loop" ? x - Math.floor(x) : ((m) => (m < 1 ? m : 2 - m))(x - 2 * Math.floor(x / 2));

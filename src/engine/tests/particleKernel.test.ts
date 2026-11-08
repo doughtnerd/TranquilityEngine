@@ -84,7 +84,7 @@ describe("kernel compiler (ADR 0094)", () => {
   it("leaves big systems with CPU-only blocks on the CPU", () => {
     const { g, sys } = burstGraph();
     sys.settings.capacity = 10000;
-    sys.output.type = "trail";
+    addBlock(g, sys, "update", "update.collisionColliders"); // CPU only (trails and material assets run on kernels since ADR 0126)
     const k = compileParticleKernels(g, compileParticleGraph(g)).systems[0];
     expect(k.unsupported.length).toBeGreaterThan(0);
     expect(chooseBackend("auto", k, ["webgpu"])).toBe("cpu");

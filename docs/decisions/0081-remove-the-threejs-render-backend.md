@@ -1,6 +1,6 @@
 # 0081. Remove the three.js render backend; keep three.js only for loading OBJ and FBX models
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0088 (proposed: three.js's glTF loader is allowed beside the OBJ, MTL and FBX loaders)
 - **Date:** 2026-11-06
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0078, 0021

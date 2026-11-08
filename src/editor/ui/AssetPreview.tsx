@@ -5,7 +5,7 @@ import { effect, signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { AssetKind } from "../assetBrowser";
 import { autoPlayAudio } from "../preferences";
-import { animateThumbnail, audioSummaryFor, canAnimate, contentKeyFor, previewAsset, previewKind, thumbnailFor, type AssetPreviewHandle, type AudioSummary } from "../thumbnails";
+import { animateThumbnail, audioSummaryFor, canAnimate, contentKeyFor, previewAsset, previewKind, thumbnailFor, holdThumbnail, type AssetPreviewHandle, type AudioSummary } from "../thumbnails";
 import { currentProject, docVersion } from "../state";
 
 // --- tiles ----------------------------------------------------------------------------------------
@@ -30,7 +30,10 @@ function useVisible(ref: { current: Element | null }): boolean {
  */
 function useThumbnail(path: string, active: boolean): string | null {
   const version = docVersion.value;
-  const [shown, setShown] = useState<{ path: string; url: string | null }>({ path, url: null });
+  // The shown URL is held (so an edit's cleanup can't revoke it while the <img> loads or shows it)
+  // and let go only after the next one is on screen.
+  const [shown, setShown] = useState<{ path: string; url: string | null; release?: () => void }>({ path, url: null });
+  useEffect(() => () => shown.release?.(), [shown]);
   const request = useRef<{ path: string; abort: AbortController; seq: number } | null>(null);
   const wanted = active && !!previewKind(path) && previewKind(path) !== "audio";
   // One signal per asset and visibility: aborted on unmount, on leaving view, or for another asset.
@@ -48,7 +51,11 @@ function useThumbnail(path: string, active: boolean): string | null {
     if (!wanted || !r || r.path !== path) return;
     const seq = ++r.seq;
     thumbnailFor(path, r.abort.signal).then(
-      (t) => !r.abort.signal.aborted && seq === r.seq && setShown({ path, url: t?.url ?? null }),
+      (t) => {
+        if (r.abort.signal.aborted || seq !== r.seq) return;
+        const url = t?.url ?? null;
+        setShown({ path, url, release: url ? holdThumbnail(url) : undefined });
+      },
       () => undefined,
     );
   }, [path, wanted, version]);
@@ -138,6 +145,8 @@ const ICONS: Partial<Record<AssetKind | "folder", string>> & { other: string } =
   material: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM6 9a7 7 0 0 1 6-4",
   rendertexture: "M4 5h16v14H4zM8 9h8v6H8zM4 5l4 4M20 5l-4 4M4 19l4-4M20 19l-4-4",
   formation: "M5 5h3v3H5zM10.5 5h3v3h-3zM16 5h3v3h-3zM8 11h3v3H8zM13 11h3v3h-3zM10.5 17h3v3h-3z",
+  particlesubgraph: "M4 6h5v4H4zM15 14h5v4h-5zM9 8h3v8h3M4 14h5v4H4z",
+  particleblock: "M5 4h14v5H5zM5 11h14v4H5zM5 17h14v3H5zM8 6.5h.01",
   tileset: "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z",
   environment: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18",
   lut: "M4 4h16v16H4zM4 12h16M12 4v16M8 4v16M16 4v16",

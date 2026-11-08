@@ -1,5 +1,5 @@
 /**
- * The shader graph node library (ADR 0047): each node type's ports, settings and the GLSL or WGSL it
+ * The shader graph node library (ADR 0047): each node type's ports, settings and the WGSL it
  * emits. Shared by the compiler and the editor's Shader Graph panel, so both agree on every port.
  */
 import { Assets, normalizeAssetPath } from "../../scene/Assets";
@@ -7,7 +7,7 @@ import type { GraphNode, GraphProperty, GraphPropertyType, InputValue, ShaderGra
 import { OUTPUT_NODE_TYPE, parseShaderGraph } from "../../scene/shaderGraph";
 import type { ShaderLevel } from "../../core/graphics";
 
-/** A value's GLSL type; `texture` is a `sampler2D` uniform. */
+/** A value's type in the shader (`vec3` is WGSL's `vec3f`); `texture` is a texture and its sampler. */
 export type ValueType = "float" | "vec2" | "vec3" | "vec4" | "texture";
 /** `dynamic` ports take the widest vector connected to the node's dynamic inputs (Unity's "Dynamic Vector"). */
 export type PortType = ValueType | "dynamic";
@@ -291,13 +291,18 @@ export const OUTPUT_INPUTS: readonly PortDef[] = [
   vec("vec3", "normal", "Normal (Tangent)", [0, 0, 1], { litOnly: true, optional: true }),
   { ...float("clearcoat", "Clearcoat", 0), physicalOnly: true },
   { ...float("clearcoatRoughness", "Clearcoat Roughness", 0), physicalOnly: true },
+  vec("vec3", "clearcoatNormal", "Clearcoat Normal (Tangent)", [0, 0, 1], { physicalOnly: true, optional: true }),
   vec("vec3", "sheenColor", "Sheen Color", [0, 0, 0], { color: true, physicalOnly: true }),
   { ...float("sheenRoughness", "Sheen Roughness", 1), physicalOnly: true },
   { ...float("transmission", "Transmission", 0), physicalOnly: true },
   { ...float("thickness", "Thickness", 0), physicalOnly: true },
   { ...float("ior", "IOR", 1.5), physicalOnly: true },
   { ...float("iridescence", "Iridescence", 0), physicalOnly: true },
+  { ...float("iridescenceThickness", "Iridescence Thickness (nm)", 400), physicalOnly: true },
+  { ...float("anisotropy", "Anisotropy", 0), physicalOnly: true },
+  vec("vec2", "anisotropyDirection", "Anisotropy Direction", [1, 0], { physicalOnly: true }),
   { ...float("specularIntensity", "Specular Intensity", 1), physicalOnly: true },
+  vec("vec3", "specularColor", "Specular Color", [1, 1, 1], { color: true, physicalOnly: true }),
   { ...float("alphaClip", "Alpha Clip", 0), optional: true },
 ];
 

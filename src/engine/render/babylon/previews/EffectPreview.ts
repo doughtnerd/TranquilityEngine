@@ -340,7 +340,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
       const material = (r.material ? this.material(r.material) : null)?.material ?? null;
       const tex = r.texture && !material ? this.texture(r.texture) : null;
       const mesh = r.mode === "mesh" ? meshesIfLoaded(r.mesh)?.[0] : undefined;
-      return makeDraw(scene, `particles:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles)), tex ?? (this.dot ??= createDotTexture(scene)), !tex, { material, mesh });
+      return makeDraw(scene, `particles:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles)), tex ?? (this.dot ??= createDotTexture(scene)), !tex, { material, mesh, depth: this.depth });
     });
     this.restartEmitters();
   }

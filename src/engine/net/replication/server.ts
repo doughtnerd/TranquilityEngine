@@ -19,13 +19,26 @@
  *   hasn't loaded waits until it has.
  * - Anything else (a node made with `GameObject.create`, or inside an instance whose root isn't
  *   replicated) can't be found on clients: it's skipped, with a warning once.
- * A ghost's layout (what's sent, `layout.ts`) is fixed when it's first seen: components added
- * later aren't sent. When its node or `Replicated` component is destroyed, it despawns.
+ * A ghost's layout (what's sent, `layout.ts`) is worked out when it's first seen, and again when
+ * its components change (ADR 0121): a changed layout bumps its `layoutVersion` and goes to
+ * connections in a relayout section. When its node or `Replicated` component is destroyed, it
+ * despawns.
+ *
+ * ## Relevancy (ADR 0121)
+ *
+ * A connection is sent only the ghosts relevant to it: a ghost passes for a connection that owns
+ * it, or when its `group` is "" or one the connection joined (`Interest.join`) and its
+ * `relevantDistance` is 0 or reaches one of the connection's viewpoints (`Interest.setViewer`, else
+ * the root ghosts it owns), with 10% hysteresis on leaving. It's relevant when it and every ghost
+ * above it pass. A ghost that stops being relevant goes in the leaves section until acked (clients
+ * destroy prefab ghosts and deactivate scene and nested ones); one that becomes relevant again is
+ * spawned afresh.
  *
  * ## Structure (ADR 0100)
  *
- * A ghost's node's own active flag and its parent, versioned: the version goes up (with the tick)
- * on each sent tick that finds either changed. The parent is the World root, a ghost's node or a
+ * A ghost's node's own active flag and its parent, plus (ADR 0121) its order among sibling
+ * ghosts (`after`) and its layout's disabled behaviors, versioned: the version goes up (with the
+ * tick) on each sent tick that finds any of them changed. The parent is the World root, a ghost's node or a
  * node with ids below one (a weapon under a player's "Hand"), a scene-placed node, or, for a
  * parent clients can't find (a node made with `GameObject.create`; warned once), their active
  * scene. A scene or nested ghost has no parent in its structure until it's moved (clients find it
@@ -48,7 +61,9 @@
  * ```
  * varuint  baseline: server tick − the connection's newest acked tick (0: none, or too old)
  * varuint  despawn count, then ghost ids (ascending, each as the gap from the previous)
- * varuint  spawn count,   then per spawn: id gap, the spawn and layout spec, its structure (wire.ts)
+ * varuint  leave count,   then ghost ids (ADR 0121: no longer relevant to this connection)
+ * varuint  spawn count,   then per spawn: id gap, the spawn and layout spec, layout version, its structure (wire.ts)
+ * varuint  relayout count, then per ghost: id gap, layout version, layout spec (ADR 0121)
  * varuint  structure change count, then per ghost: id gap, its structure
  * varuint  state count,   then per ghost: id gap,
  *            1 bit   uses the snapshot's baseline; if not, 1 bit has a baseline, and if it
@@ -57,7 +72,8 @@
  *            without one: the codec's full record
  * ```
  *
- * Despawns and spawns repeat in every snapshot until the connection acks one that carried them.
+ * Despawns, leaves, spawns and relayouts repeat in every snapshot until the connection acks one
+ * that carried them. A baseline is only used while it has the ghost's current layout.
  * A ghost's baseline is the state sent in the newest snapshot the connection acked that included
  * it: both ends keep what was sent per tick (the server for `BASELINE_WINDOW` ticks), so an
  * unchanged ghost costs its id gap and two bits, about a byte. A snapshot over the budget
@@ -70,16 +86,21 @@
  * server sets the connection's `lastAckedTick` (which shows on its `Connection` node), makes that
  * snapshot's states the baselines and stops repeating its spawns and despawns.
  */
+import type { Component } from "../../core/Component";
+import type { DataComponentDef } from "../../core/data";
+import { getComponentClass } from "../../core/registry";
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import { SceneInstance, _instantiatedPrefabOf } from "../../scene/SceneLoader";
 import { BitWriterImpl } from "../bits";
 import { Replicated } from "../Replicated";
 import { netSession, type NetPeer, type NetSession } from "../session";
+import { _interestOf, _pruneInterest, _setRelevanceQuery } from "../interest";
 import { layoutOf, readState, sameState, specOf, type GhostState, type Layout } from "./layout";
 import { ServerStrings } from "./strings";
 import {
   ACK,
+  AFTER_UNSPECIFIED,
   BASELINE_WINDOW,
   DEFAULT_MAX_SNAPSHOT_BYTES,
   PARENT_GHOST,
@@ -91,9 +112,12 @@ import {
   SPAWN_PREFAB,
   SPAWN_SCENE,
   StringTableOut,
+  sameOrderAndEnabled,
   sameParent,
   writeSpawn,
+  writeSpec,
   writeStructure,
+  type ComponentRef,
   type ParentRef,
   type SpawnInfo,
   type Structure,
@@ -103,7 +127,16 @@ interface ServerGhost {
   readonly id: number;
   readonly rep: Replicated;
   readonly node: GameObject;
-  readonly layout: Layout;
+  /** What it sends; replaced when its components change (ADR 0121). */
+  layout: Layout;
+  /** Bumped when `layout` changes (0 at first sight). */
+  layoutVersion: number;
+  /** Its node's components and data components when `layout` was worked out (to notice changes). */
+  components: readonly Component[];
+  dataDefs: readonly DataComponentDef[];
+  replicateTransform: boolean;
+  /** Its sibling order (`after`) at first sight: a scene or nested ghost sends none until it differs. */
+  readonly afterSeen: number;
   readonly spawn: SpawnInfo;
   /** What kind of ghost it is, for bandwidth per ghost type (tools): its prefab path, or for a scene ghost its scene and node path. */
   readonly type: string;
@@ -127,13 +160,23 @@ interface PeerGhost {
   lastSentTick: number;
   /** The newest structure version the connection acked (ADR 0100); -1: none. */
   structureAcked: number;
+  /** The layout version of `baseline` (ADR 0121): a baseline in an older layout isn't used. */
+  baselineLayout: number;
+  /** The newest layout version the connection acked (in a spawn or relayout); -1: none. */
+  layoutAcked: number;
 }
 
 /** What one snapshot carried, kept until acked or too old. */
 interface Sent {
   readonly spawns: number[];
   readonly despawns: number[];
+  /** Ghosts no longer relevant (ADR 0121). */
+  readonly leaves: number[];
   readonly states: Map<number, GhostState>;
+  /** The layout version of each state. */
+  readonly layouts: Map<number, number>;
+  /** Layouts carried (in spawns or relayouts): ghost id and layout version. */
+  readonly relayouts: [number, number][];
   /** Structures carried (in spawns or changes): ghost id and version. */
   readonly structures: [number, number][];
   /** String table indexes it defined. */
@@ -145,6 +188,10 @@ interface PeerState {
   readonly known: Map<number, PeerGhost>;
   /** Despawns not yet acked. */
   readonly despawns: Set<number>;
+  /** Leaves (ADR 0121) not yet acked. */
+  readonly leaves: Set<number>;
+  /** Scene and nested ghosts that left: clients keep them deactivated, so a despawn is still sent. */
+  readonly dormant: Set<number>;
   readonly history: Map<number, Sent>;
   /** Bytes of the last snapshot sent (for tests and tools). */
   lastBytes: number;
@@ -217,20 +264,115 @@ export class ServerReplication {
 
     const despawned = this.updateGhosts(tick);
     for (const g of this.ghosts.values()) g.state = readState(g.layout, g.node, g.rep);
-    for (const peer of session.openPeers()) {
+    const peers = session.openPeers();
+    const interest = this.interestFrame(peers);
+    for (const peer of peers) {
       let ps = this.peers.get(peer);
-      if (!ps) this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), history: new Map(), lastBytes: 0, lastCosts: new Map(), lastFullBits: 0, typeBits: new Map(), table: new StringTableOut() }));
+      if (!ps) this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), leaves: new Set(), dormant: new Set(), history: new Map(), lastBytes: 0, lastCosts: new Map(), lastFullBits: 0, typeBits: new Map(), table: new StringTableOut() }));
       for (const id of despawned) {
-        if (ps.known.delete(id)) ps.despawns.add(id);
+        if (ps.known.delete(id) || ps.dormant.delete(id)) ps.despawns.add(id);
+        ps.leaves.delete(id);
+      }
+      const relevant = interest ? this.relevantTo(peer, ps, interest) : null;
+      if (relevant) {
+        for (const id of [...ps.known.keys()]) {
+          if (relevant.has(id)) continue;
+          ps.known.delete(id);
+          ps.leaves.add(id);
+          if (this.byId.get(id)?.spawn.kind !== SPAWN_PREFAB) ps.dormant.add(id);
+        }
       }
       for (const g of this.ghosts.values()) {
-        if (!ps.known.has(g.id)) ps.known.set(g.id, { spawnAcked: false, baseline: null, baselineTick: 0, lastSentTick: -1, structureAcked: -1 });
+        if (ps.known.has(g.id) || (relevant && !relevant.has(g.id))) continue;
+        ps.known.set(g.id, { spawnAcked: false, baseline: null, baselineTick: 0, lastSentTick: -1, structureAcked: -1, baselineLayout: -1, layoutAcked: -1 });
+        // Back before its leave was acked: cancel it (a client that read it spawns it again from this spawn).
+        ps.leaves.delete(g.id);
+        ps.dormant.delete(g.id);
       }
       const bytes = this.snapshot(peer, ps, tick);
       ps.lastBytes = bytes.byteLength;
       session.send(SNAPSHOT, peer, "unreliable", bytes, tick);
     }
-    this.strings.send(session, this.ghosts.values(), despawned);
+    this.strings.send(session, this.ghosts.values(), despawned, (peer, id) => this.peers.get(peer)?.known.has(id) ?? false);
+  }
+
+  /** @internal Whether ghost `node` is in the connection `id`'s snapshots (`Interest.isRelevant`). */
+  isRelevantTo(id: number, node: GameObject): boolean {
+    const rep = node.isValid ? node.getBehavior(Replicated) : null;
+    const g = rep ? this.ghosts.get(rep) : undefined;
+    const peer = this.session.openPeers().find((p) => p.id === id);
+    const ps = peer && this.peers.get(peer);
+    return !!g && !!ps && ps.known.has(g.id);
+  }
+
+  /**
+   * What relevancy needs this sent tick (ADR 0121): each ghost's nearest ghost above it, and the
+   * world positions of distance-limited ghosts and owned root ghosts (viewpoints). Null when no
+   * ghost has a distance or a group (everything is relevant to everyone).
+   */
+  private interestFrame(peers: readonly NetPeer[]): InterestFrame | null {
+    _pruneInterest(this.world, new Set(peers.map((p) => p.id)));
+    let filtered = false;
+    for (const g of this.ghosts.values()) {
+      if (g.rep.relevantDistance > 0 || g.rep.group) {
+        filtered = true;
+        break;
+      }
+    }
+    if (!filtered) return null;
+    const world = this.world;
+    const above = new Map<ServerGhost, ServerGhost | null>();
+    const positions = new Map<ServerGhost, Float64Array>();
+    for (const g of this.ghosts.values()) {
+      let parent: ServerGhost | null = null;
+      for (let n = g.node.parent; n && n !== world.root && !parent; n = n.parent) {
+        const rep = n.getBehavior(Replicated);
+        parent = (rep && this.ghosts.get(rep)) || null;
+      }
+      above.set(g, parent);
+      if (g.rep.relevantDistance > 0 || (g.rep.ownerId !== 0 && !parent)) positions.set(g, worldPositionOf(world, g.node));
+    }
+    return { above, positions };
+  }
+
+  /** The ids of the ghosts relevant to `peer` (ADR 0121; see the top of this file). */
+  private relevantTo(peer: NetPeer, ps: PeerState, frame: InterestFrame): Set<number> {
+    const interest = _interestOf(this.world, peer.id);
+    const viewpoints: Float64Array[] = [];
+    const viewer = interest?.viewer;
+    if (viewer?.isValid && viewer.world === this.world) viewpoints.push(worldPositionOf(this.world, viewer));
+    else {
+      for (const [g, parent] of frame.above) {
+        if (!parent && g.rep.ownerId !== 0 && g.rep.ownerId === peer.id) viewpoints.push(frame.positions.get(g)!);
+      }
+    }
+    const passes = (g: ServerGhost): boolean => {
+      const rep = g.rep;
+      if (rep.ownerId !== 0 && rep.ownerId === peer.id) return true;
+      if (rep.group && !interest?.groups.has(rep.group)) return false;
+      const r = rep.relevantDistance;
+      if (!(r > 0)) return true;
+      const limit = ps.known.has(g.id) ? r * LEAVE_HYSTERESIS : r;
+      const p = frame.positions.get(g)!;
+      for (const v of viewpoints) {
+        const dx = p[0] - v[0], dy = p[1] - v[1], dz = p[2] - v[2];
+        if (dx * dx + dy * dy + dz * dz <= limit * limit) return true;
+      }
+      return false;
+    };
+    const memo = new Map<ServerGhost, boolean>();
+    const relevant = (g: ServerGhost): boolean => {
+      let r = memo.get(g);
+      if (r === undefined) {
+        const parent = frame.above.get(g) ?? null;
+        r = passes(g) && (!parent || relevant(parent));
+        memo.set(g, r);
+      }
+      return r;
+    };
+    const out = new Set<number>();
+    for (const g of this.ghosts.values()) if (relevant(g)) out.add(g.id);
+    return out;
   }
 
   /** Find new ghosts and gone ones, and structure changes (ADR 0100). Returns the ids that despawned. */
@@ -250,10 +392,7 @@ export class ServerReplication {
       if (world.inEditMode(rep.node.entity)) continue;
       fresh.push(rep);
     }
-    if (fresh.length === 0) {
-      this.updateStructures(tick, (node) => this.ghostIdOf(node));
-      return despawned;
-    }
+    this.updateLayouts();
     // Ids first, so spawns can name their parent or root ghost whatever order they were found in.
     const ids = new Map<Replicated, number>();
     for (const rep of fresh) ids.set(rep, this.nextId++);
@@ -262,7 +401,9 @@ export class ServerReplication {
       if (!rep) return 0;
       return this.ghosts.get(rep)?.id ?? ids.get(rep) ?? 0;
     };
-    this.updateStructures(tick, ghostOf);
+    const after = this.siblingOrder(fresh, ghostOf);
+    this.updateStructures(tick, ghostOf, after);
+    if (fresh.length === 0) return despawned;
     for (const rep of fresh) {
       const node = rep.node;
       const spawn = spawnOf(world, node, ghostOf);
@@ -276,9 +417,14 @@ export class ServerReplication {
       const layout = layoutOf(specOf(world, node, rep));
       const parent = node.parent;
       // A prefab ghost spawns under its parent; a scene or nested one is found where it is until it moves.
-      const ref: ParentRef | null = spawn.kind === SPAWN_PREFAB ? (parentRefOf(world, parent, ghostOf) ?? { kind: PARENT_SCENE }) : null;
-      const structure: Structure = { version: 0, tick, active: node.active, parent: ref };
-      const ghost: ServerGhost = { id, rep, node, layout, spawn, type: "", state: [], structure, parentNode: parent, warnedParent: false };
+      const prefab = spawn.kind === SPAWN_PREFAB;
+      const ref: ParentRef | null = prefab ? (parentRefOf(world, parent, ghostOf) ?? { kind: PARENT_SCENE }) : null;
+      const afterSeen = after.get(id) ?? 0;
+      const structure: Structure = { version: 0, tick, active: node.active, parent: ref, after: prefab ? afterSeen : AFTER_UNSPECIFIED, disabled: disabledOf(node, layout) };
+      const ghost: ServerGhost = {
+        id, rep, node, layout, layoutVersion: 0, components: [...world._componentsOf(node.entity)], dataDefs: world._dataComponentsOf(node.entity), replicateTransform: rep.replicateTransform,
+        afterSeen, spawn, type: "", state: [], structure, parentNode: parent, warnedParent: false,
+      };
       (ghost as { type: string }).type = this.typeOf(ghost);
       this.ghosts.set(rep, ghost);
       this.byId.set(id, ghost);
@@ -286,20 +432,64 @@ export class ServerReplication {
     return despawned;
   }
 
-  /** The ghost id of a node's `Replicated` component, or 0. */
-  private ghostIdOf(node: GameObject): number {
-    const rep = node.getBehavior(Replicated);
-    return rep ? (this.ghosts.get(rep)?.id ?? 0) : 0;
+  /**
+   * Work out a ghost's layout again when its components, data components or `replicateTransform`
+   * changed (ADR 0121); a different layout bumps its `layoutVersion`.
+   */
+  private updateLayouts(): void {
+    const world = this.world;
+    for (const g of this.ghosts.values()) {
+      const e = g.node.entity;
+      const components = world._componentsOf(e);
+      const dataDefs = world._dataComponentsOf(e);
+      if (g.replicateTransform === g.rep.replicateTransform && sameList(components, g.components) && sameList(dataDefs, g.dataDefs)) continue;
+      g.components = [...components];
+      g.dataDefs = dataDefs;
+      g.replicateTransform = g.rep.replicateTransform;
+      const layout = layoutOf(specOf(world, g.node, g.rep));
+      if (layout.key === g.layout.key) continue;
+      g.layout = layout;
+      g.layoutVersion++;
+    }
   }
 
-  /** Bump the structure of every ghost whose node was activated, deactivated or reparented since the last sent tick. */
-  private updateStructures(tick: number, ghostOf: (node: GameObject) => number): void {
+  /**
+   * Each ghost's order among its sibling ghosts (ADR 0121): the id of the nearest ghost before it
+   * under the same parent, or 0. Walks each ghost parent's children once.
+   */
+  private siblingOrder(fresh: readonly Replicated[], ghostOf: (node: GameObject) => number): Map<number, number> {
+    const parents = new Set<GameObject>();
+    for (const g of this.ghosts.values()) if (g.node.parent) parents.add(g.node.parent);
+    for (const rep of fresh) if (rep.node.parent) parents.add(rep.node.parent);
+    const after = new Map<number, number>();
+    for (const parent of parents) {
+      let previous = 0;
+      for (const child of parent.children) {
+        const id = ghostOf(child);
+        if (!id) continue;
+        after.set(id, previous);
+        previous = id;
+      }
+    }
+    return after;
+  }
+
+  /**
+   * Bump the structure of every ghost whose node was activated, deactivated, reparented or
+   * reordered, or whose replicated behaviors were enabled or disabled, since the last sent tick.
+   */
+  private updateStructures(tick: number, ghostOf: (node: GameObject) => number, afterOf: ReadonlyMap<number, number>): void {
     for (const g of this.ghosts.values()) {
       const node = g.node;
       const parent = node.parent;
       const active = node.active;
       const old = g.structure;
-      if (parent === g.parentNode && active === old.active) continue;
+      const seen = afterOf.get(g.id) ?? 0;
+      // A scene or nested ghost's order stays unspecified until it moves or differs from where it was found.
+      const after = old.after === AFTER_UNSPECIFIED && seen === g.afterSeen && parent === g.parentNode ? AFTER_UNSPECIFIED : seen;
+      const disabled = disabledOf(node, g.layout);
+      const sameRest = sameOrderAndEnabled(old, { after, disabled });
+      if (parent === g.parentNode && active === old.active && sameRest) continue;
       let ref = old.parent;
       if (parent !== g.parentNode) {
         g.parentNode = parent;
@@ -310,8 +500,8 @@ export class ServerReplication {
         }
         ref = found ?? { kind: PARENT_SCENE };
       }
-      if (sameParent(ref, old.parent) && active === old.active) continue;
-      g.structure = { version: old.version + 1, tick, active, parent: ref };
+      if (sameParent(ref, old.parent) && active === old.active && sameRest) continue;
+      g.structure = { version: old.version + 1, tick, active, parent: ref, after, disabled };
     }
   }
 
@@ -337,6 +527,11 @@ export class ServerReplication {
         if (pg) pg.spawnAcked = true;
       }
       for (const id of sent.despawns) ps.despawns.delete(id);
+      for (const id of sent.leaves) ps.leaves.delete(id);
+      for (const [id, version] of sent.relayouts) {
+        const pg = ps.known.get(id);
+        if (pg && version > pg.layoutAcked) pg.layoutAcked = version;
+      }
       for (const [id, version] of sent.structures) {
         const pg = ps.known.get(id);
         if (pg && version > pg.structureAcked) pg.structureAcked = version;
@@ -347,6 +542,7 @@ export class ServerReplication {
         if (pg && tick > pg.baselineTick) {
           pg.baseline = state;
           pg.baselineTick = tick;
+          pg.baselineLayout = sent.layouts.get(id) ?? -1;
         }
       }
     }
@@ -362,6 +558,7 @@ export class ServerReplication {
       const g = this.ghostById(id);
       if (g) all.push(g);
     }
+    all.sort((a, b) => a.id - b.id); // ghosts back in relevance were added out of order
     const budget = this.maxSnapshotBytes * 8;
     // Too big: unacked spawns first (oldest first), then the ghosts longest unsent, by importance.
     const choose = (costs: Map<number, number>, headerBits: number, fallbackCost: number) => {
@@ -411,11 +608,15 @@ export class ServerReplication {
 
   private write(ps: PeerState, tick: number, base: number, ghosts: readonly ServerGhost[]) {
     const w = new BitWriterImpl(256);
-    const sent: Sent = { spawns: [], despawns: [...ps.despawns].sort((a, b) => a - b), states: new Map(), structures: [], strings: [] };
+    const sent: Sent = {
+      spawns: [], despawns: [...ps.despawns].sort((a, b) => a - b), leaves: [...ps.leaves].sort((a, b) => a - b),
+      states: new Map(), layouts: new Map(), relayouts: [], structures: [], strings: [],
+    };
     const str = ps.table.writer(sent.strings);
     const costs = new Map<number, number>();
     w.writeVarUint(base ? tick - base : 0);
     writeIds(w, sent.despawns);
+    writeIds(w, sent.leaves);
     const spawning = ghosts.filter((g) => !ps.known.get(g.id)!.spawnAcked);
     w.writeVarUint(spawning.length);
     let previous = 0;
@@ -424,14 +625,32 @@ export class ServerReplication {
       w.writeVarUint(g.id - previous);
       previous = g.id;
       writeSpawn(w, g.spawn, g.layout.spec, str);
+      w.writeVarUint(g.layoutVersion);
       writeStructure(w, g.structure, tick, str);
       costs.set(g.id, w.length - start);
       sent.spawns.push(g.id);
+      sent.relayouts.push([g.id, g.layoutVersion]);
       sent.structures.push([g.id, g.structure.version]);
+    }
+    // Layouts that changed (ADR 0121) of spawned ghosts, repeated until acked, before any state in them.
+    const known = [...ps.known].sort((a, b) => a[0] - b[0]);
+    const relayout: ServerGhost[] = [];
+    for (const [id, pg] of known) {
+      const g = this.byId.get(id);
+      if (g && pg.spawnAcked && pg.layoutAcked < g.layoutVersion) relayout.push(g);
+    }
+    w.writeVarUint(relayout.length);
+    previous = 0;
+    for (const g of relayout) {
+      w.writeVarUint(g.id - previous);
+      previous = g.id;
+      w.writeVarUint(g.layoutVersion);
+      writeSpec(w, g.layout.spec, str);
+      sent.relayouts.push([g.id, g.layoutVersion]);
     }
     // Structure changes (ADR 0100) of spawned ghosts, repeated until acked, whether or not their state fits.
     const changed: ServerGhost[] = [];
-    for (const [id, pg] of ps.known) {
+    for (const [id, pg] of known) {
       const g = this.byId.get(id);
       if (g && pg.spawnAcked && pg.structureAcked < g.structure.version) changed.push(g);
     }
@@ -451,7 +670,7 @@ export class ServerReplication {
       const pg = ps.known.get(g.id)!;
       w.writeVarUint(g.id - previous);
       previous = g.id;
-      const baseline = pg.baseline && tick - pg.baselineTick <= BASELINE_WINDOW ? pg.baseline : null;
+      const baseline = pg.baseline && tick - pg.baselineTick <= BASELINE_WINDOW && pg.baselineLayout === g.layoutVersion ? pg.baseline : null;
       const values = g.state as unknown as Record<string, number>;
       if (baseline) {
         if (pg.baselineTick === base) {
@@ -470,9 +689,42 @@ export class ServerReplication {
       }
       costs.set(g.id, (costs.get(g.id) ?? 0) + w.length - start);
       sent.states.set(g.id, g.state);
+      sent.layouts.set(g.id, g.layoutVersion);
     }
     return { bytes: w.finish(), bits: w.length, headerBits, costs, sent };
   }
+}
+
+/** A relevant ghost stays relevant until it's this much beyond its `relevantDistance` (ADR 0121). */
+export const LEAVE_HYSTERESIS = 1.1;
+
+interface InterestFrame {
+  /** Each ghost's nearest ghost above it, or null. */
+  readonly above: Map<ServerGhost, ServerGhost | null>;
+  /** World positions of distance-limited ghosts and owned root ghosts (viewpoints). */
+  readonly positions: Map<ServerGhost, Float64Array>;
+}
+
+function worldPositionOf(world: World, node: GameObject): Float64Array {
+  const m = world.worldMatrix(node.entity), o = node.entity * 16;
+  return Float64Array.of(m[o + 12], m[o + 13], m[o + 14]);
+}
+
+function sameList<T>(a: readonly T[], b: readonly T[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/** The layout's behaviors (components with replicated fields) that are disabled on `node` (ADR 0121). */
+function disabledOf(node: GameObject, layout: Layout): ComponentRef[] {
+  const out: ComponentRef[] = [];
+  for (const b of layout.spec.behaviors) {
+    const type = getComponentClass(b.id);
+    const c = type ? (node.getBehaviors(type as abstract new () => Component)[b.index] as Component | undefined) : undefined;
+    if (c && !c.enabled) out.push({ id: b.id, index: b.index });
+  }
+  return out;
 }
 
 function writeIds(w: BitWriterImpl, ids: readonly number[]): void {
@@ -550,6 +802,8 @@ function scenePathOf(world: World, node: GameObject): { source: string; occurren
 }
 
 const servers = new WeakMap<World, ServerReplication>();
+
+_setRelevanceQuery((world, id, node) => servers.get(world)?.isRelevantTo(id, node) ?? false);
 
 /** @internal A server World's replication, created on first use; null if the World isn't a network server. */
 export function serverReplication(world: World): ServerReplication | null {

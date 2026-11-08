@@ -12,6 +12,7 @@ import {
   type FunctionPort,
   type GraphNode,
   type GraphNote,
+  type GraphPreviewMesh,
   type GraphProperty,
   type GraphPropertyType,
   type GraphValue,
@@ -551,6 +552,15 @@ export function setGraphPreviewShape(graph: ShaderGraph, shape: NodePreviewShape
   const g = clone(graph);
   if (shape === "quad") delete g.previewShape;
   else g.previewShape = shape;
+  return g;
+}
+
+/** Set the mesh the main preview draws (spheres are the default and aren't stored). */
+export function setGraphPreviewMesh(graph: ShaderGraph, mesh: GraphPreviewMesh): ShaderGraph {
+  if ((graph.previewMesh ?? "sphere") === mesh) return graph;
+  const g = clone(graph);
+  if (mesh === "sphere") delete g.previewMesh;
+  else g.previewMesh = mesh;
   return g;
 }
 

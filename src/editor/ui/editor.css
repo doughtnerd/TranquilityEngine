@@ -581,3 +581,9 @@ button:disabled.primary { opacity: 0.5; }
 .ui-element-handles .ui-handle { pointer-events: auto; fill: var(--panel); stroke: var(--accent); stroke-width: 1.5px; }
 .ui-element-handles .ui-handle:hover { fill: var(--accent); }
 .ui-element-handles .ui-insert-marker { stroke: var(--accent); stroke-width: 3px; stroke-linecap: round; }
+
+/* Renamed or deactivated nodes inside a prefab instance (ADR 0122) */
+.node-header .node-name.overridden { border-left: 2px solid var(--accent); }
+.node-header input[type="checkbox"].overridden { outline: 2px solid var(--accent); outline-offset: 1px; }
+.node-header .node-revert { padding: 0 4px; line-height: 1.2; background: none; border: none; color: var(--accent); flex: none; }
+.node-header .node-revert:hover { background: var(--button-hover); }

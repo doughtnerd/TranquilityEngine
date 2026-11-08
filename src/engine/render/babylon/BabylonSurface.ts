@@ -14,6 +14,7 @@ import { Graphics } from "../Graphics";
 import { SHADOW_MAP_SIZE } from "../../core/graphics";
 import type { ProjectSettings } from "../../core/settings";
 import type { World, WorldKind } from "../../core/World";
+import { CanvasCssSize } from "../canvasCssSize";
 import { fitCanvas } from "../canvasFit";
 import { ViewportHandle, type EditorViewport } from "../editorViewport";
 import type { RenderDiagnostics, RenderSurface } from "../RenderSurface";
@@ -41,6 +42,8 @@ export class BabylonSurface implements RenderSurface {
   readonly canvas: HTMLCanvasElement;
   private renderer: BabylonRenderer | null = null;
   private readonly resizeObserver: ResizeObserver;
+  /** The canvas's CSS size, for the camera's maths without a layout read per call. */
+  private readonly cssSize: CanvasCssSize;
   private readonly fill: boolean;
   private disposed = false;
   /** ADR 0080: whether the renderer logs shader variants compiled after loading (editor play mode). */
@@ -64,6 +67,7 @@ export class BabylonSurface implements RenderSurface {
     this.canvas.style.outline = "none";
     this.canvas.style.touchAction = "none";
     container.appendChild(this.canvas);
+    this.cssSize = new CanvasCssSize(this.canvas);
     // Editor Worlds fill their viewport panel; games keep the reference aspect ratio, letterboxed.
     this.fill = kind === "editor";
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -105,7 +109,12 @@ export class BabylonSurface implements RenderSurface {
     const size = this.fill ? { width: Math.floor(cw), height: Math.floor(ch) } : fitCanvas(scaleMode ?? "fit", width, height, cw, ch);
     this.canvas.style.width = `${size.width}px`;
     this.canvas.style.height = `${size.height}px`;
+    this.cssSize.invalidate();
     this.renderer?.resize(this.pixelRatio);
+  }
+
+  canvasCssSize(): { readonly width: number; readonly height: number } {
+    return this.cssSize.get();
   }
 
   /** The tier's render scale (ADR 0050); the rest of the tier arrives with later stages. */
@@ -156,6 +165,7 @@ export class BabylonSurface implements RenderSurface {
     if (this.disposed) return;
     this.disposed = true;
     this.resizeObserver.disconnect();
+    this.cssSize.dispose();
     this.renderer?.dispose();
     this.renderer = null;
     this.canvas.remove();

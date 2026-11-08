@@ -7,6 +7,8 @@
 // with a material asset draw as meshes instead (`particleDraw.ts`, `particleMeshes.ts`). Loaded on
 // demand by the renderer, so games without particles never load it. Babylon types stay inside this
 // folder (ADR 0010).
+import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
+import type { ParticleEmitterSettings } from "../../scene/particles";
 import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
@@ -24,10 +26,12 @@ import { ProgramRunner, playTimes } from "../particles/programRunner";
 import { randomForSeed } from "../particles/random";
 import { EffectSimulation, linearRGB, type ParticleRaycast, type SimEmitter } from "../particles/simulation";
 import { createDotTexture, makeDraw as makeBabylonDraw, usesSheet, type Draw } from "./particleDraw";
+import { heightFogOn } from "./heightFog";
+import { KernelMaterialDraw, drawsKernelParticles } from "./kernelMaterial";
 import { chooseBackend, compileParticleKernels, type KernelProgram, type KernelSystem, type SystemBackend } from "../../scene/particleKernel";
 import type { ParticleGraph } from "../../scene/particleGraph";
 import { KernelEffect } from "../particles/gpu/kernelEffect";
-import { BabylonKernelHost, KernelDraw, SceneDepth } from "./gpuParticles";
+import { BabylonKernelHost, KernelDraw, SceneDepth, sortRunOnce, type BabylonRun } from "./gpuParticles";
 
 /** How an effect's systems run (ADR 0094): per emitter, the CPU or a kernel executor. */
 interface KernelPlan {
@@ -61,6 +65,12 @@ export interface BabylonParticleHost {
    * without it material assets are never used.
    */
   material?(path: string): Material | null;
+  /**
+   * An unshared copy of a material asset (soft CPU particles, kernel outputs, ADR 0126), disposed by the
+   * caller; a shader graph's copy is a new graph material, not a clone. Optional: without it the shared
+   * material is cloned.
+   */
+  materialCopy?(path: string, name: string): { material: Material; dispose(): void } | null;
   /** Force the kernel executors (tests, benchmarks); default: what the engine supports (ADR 0094). */
   readonly kernelExecutors?: readonly import("../../scene/particleKernel").KernelExecutor[];
   /**
@@ -91,7 +101,7 @@ interface Instance {
   draws: Draw[];
   /** Kernel systems (ADR 0094) and their draws, one per output. */
   kfx: KernelEffect | null;
-  kdraws: KernelDraw[];
+  kdraws: (KernelDraw | KernelMaterialDraw)[];
   /** Quality tier × the component's emission scale. */
   scale: number;
   /** The component's tint (linear). */
@@ -227,7 +237,11 @@ export class BabylonParticles {
             const found = o.settings.texture ? this.textureFor(o.settings.texture, false) : null;
             const texture = found && found !== "failed" ? found : this.dotTexture();
             const mesh = o.type === "mesh" ? (this.meshFor(o.settings.mesh) ?? undefined) : undefined;
-            inst!.kdraws.push(new KernelDraw(this.host.scene, `particles:${c.node.name}:${s.kernel.id}:${k}`, s.kernel, k, s.run, texture, this.sceneDepth(), { mesh, softness: o.settings.softness ?? 0 }));
+            const name = `particles:${c.node.name}:${s.kernel.id}:${k}`;
+            const softness = o.settings.softness ?? 0;
+            const made = o.settings.material && o.type !== "trail" ? this.kernelMaterialDraw(name, s.kernel, k, s.run as BabylonRun, o.settings.material, { mesh, softness }) : null;
+            if (o.settings.material && !made) this.warnOnce(`kmat|${name}|${o.settings.material}`, `${c.node.name}: the kernel output "${s.kernel.name}" draws with its texture: ${o.type === "trail" ? "trails don't take material assets yet" : `"${o.settings.material}" isn't a PBR material (or hasn't loaded)`}.`);
+            inst!.kdraws.push(made ?? new KernelDraw(this.host.scene, name, s.kernel, k, s.run, texture, this.sceneDepth(), { mesh, softness }));
           });
         }
       }
@@ -439,6 +453,27 @@ export class BabylonParticles {
     return !!before && now.some((v, i) => v !== before[i]);
   }
 
+  /** An unshared copy of a material asset (the host's, else a clone of the shared one), or null. */
+  private copyMaterial(path: string, name: string): { material: Material; dispose(): void } | null {
+    const fromHost = this.host.materialCopy?.(path, name);
+    if (fromHost !== undefined) return fromHost;
+    const shared = this.materialFor(path);
+    const copy = shared?.clone(name) ?? null;
+    return copy ? { material: copy, dispose: () => copy.dispose(false, false) } : null;
+  }
+
+  /** A kernel output drawn with a material asset (ADR 0126), or null when the material can't (not PBR, not loaded). */
+  private kernelMaterialDraw(name: string, kernel: KernelSystem, k: number, run: BabylonRun, path: string, opts: { mesh?: ModelMesh; softness: number }): KernelMaterialDraw | null {
+    if (!drawsKernelParticles(this.materialFor(path))) return null;
+    const copy = this.copyMaterial(path, `${name}:material`);
+    if (!copy || !drawsKernelParticles(copy.material)) {
+      copy?.dispose();
+      return null;
+    }
+    const source = { textures: (sorted: boolean) => run.textures(sorted), sortFor: () => sortRunOnce(this.host.scene, run) };
+    return new KernelMaterialDraw(this.host.scene, name, kernel, k, source, { material: copy.material, dispose: copy.dispose }, { ...opts, depth: opts.softness > 0 ? this.sceneDepth() : null, interleaved: run.kind === "webgpu" });
+  }
+
   private sceneDepth(): SceneDepth {
     return (this.depth ??= new SceneDepth(this.host.scene));
   }
@@ -454,7 +489,7 @@ export class BabylonParticles {
   }
 
   /** @internal Tests: a system's kernel draws. */
-  kernelDrawsOf(c: ParticleSystem): readonly KernelDraw[] {
+  kernelDrawsOf(c: ParticleSystem): readonly (KernelDraw | KernelMaterialDraw)[] {
     return this.instances.get(c)?.kdraws ?? [];
   }
 
@@ -508,7 +543,9 @@ export class BabylonParticles {
 
   /** What the build depends on (each emitter's material, mesh and texture), or null while one still loads. */
   private buildKey(program: ParticleProgram): string | null {
-    const parts: string[] = [];
+    // Height fog moves billboards to mesh quads (ADR 0126): rebuild when it's turned on or off.
+    const fog = heightFogOn(this.host.scene);
+    const parts: string[] = [fog ? "fog" : ""];
     for (const e of program.effect.emitters) {
       if (!e.enabled) continue;
       if (e.renderer.mode === "mesh") {
@@ -527,7 +564,7 @@ export class BabylonParticles {
         parts.push("dot");
         continue;
       }
-      const t = this.textureFor(e.renderer.texture, usesSheet(e.renderer));
+      const t = this.textureFor(e.renderer.texture, usesSheet(e.renderer, fog));
       if (t === null) return null;
       parts.push(t === "failed" ? `${e.renderer.texture}:failed` : `${e.renderer.texture}:${t.uniqueId}`);
     }
@@ -546,10 +583,12 @@ export class BabylonParticles {
     const capacity = Math.max(1, Math.ceil(e.settings.maxParticles * Math.max(1, scale)));
     const r = e.renderer;
     const material = this.materialFor(r.material);
-    const found = r.texture && !material ? this.textureFor(r.texture, usesSheet(e.renderer)) : null;
+    const heightFog = heightFogOn(this.host.scene);
+    const found = r.texture && !material ? this.textureFor(r.texture, usesSheet(e.renderer, heightFog)) : null;
     const texture = found && found !== "failed" ? found : this.dotTexture();
     const mesh = r.mode === "mesh" ? this.meshFor(r.mesh) : undefined;
-    return makeBabylonDraw(this.host.scene, name, e, capacity, texture, texture === this.dot, { material, mesh });
+    const depth = (r.softness ?? 0) > 0 ? this.sceneDepth() : null;
+    return makeBabylonDraw(this.host.scene, name, e, capacity, texture, texture === this.dot, { material, mesh, depth, heightFog, copyMaterial: (n) => this.copyMaterial(r.material, n) });
   }
 
   /** Copy the simulation's particles into the draw (growing it when the particle limit went up). */
@@ -592,14 +631,22 @@ export class BabylonParticles {
     const key = this.buildKey(program);
     if (key === null) return null;
     const runner = new ProgramRunner(program);
-    const sim = new EffectSimulation(runner.effect(), { live: runner.live });
-    return sim.emitters.map((e) => {
+    const played = runner.effect();
+    const plan = this.plans.get(program);
+    // Kernel systems warm their own pipelines below; the CPU warms the rest (ADR 0126).
+    const cpuEffect = plan?.running.length ? { ...played, emitters: played.emitters.map((e, i) => (plan.backends[i] === "cpu" ? e : { ...e, enabled: false })) } : played;
+    const sim = new EffectSimulation(cpuEffect, { live: runner.live });
+    const kernelDraws = plan?.running.length ? this.warmKernels(plan.running, played.emitters, runner, name, camera) : [];
+    if (kernelDraws === null) return null;
+    const cpuDraws = sim.emitters.map((e) => {
       const r = e.renderer;
       const material = this.materialFor(r.material);
-      const found = r.texture && !material ? this.textureFor(r.texture, usesSheet(r)) : null;
+      const heightFog = heightFogOn(this.host.scene);
+      const found = r.texture && !material ? this.textureFor(r.texture, usesSheet(r, heightFog)) : null;
       const texture = found && found !== "failed" ? found : this.dotTexture();
       const mesh = r.mode === "mesh" ? this.meshFor(r.mesh) : undefined;
-      const d = makeBabylonDraw(this.host.scene, `${name}:${e.name}`, e, 1, texture, texture === this.dot, { material, mesh, camera });
+      const depth = (r.softness ?? 0) > 0 ? this.sceneDepth() : null;
+      const d = makeBabylonDraw(this.host.scene, `${name}:${e.name}`, e, 1, texture, texture === this.dot, { material, mesh, camera, depth, heightFog, copyMaterial: (n) => this.copyMaterial(r.material, n) });
       const p = e.alloc();
       p.wx = at.x;
       p.wy = at.y;
@@ -616,6 +663,53 @@ export class BabylonParticles {
       d.update();
       return d;
     });
+    return [...cpuDraws, ...kernelDraws];
+  }
+
+  /**
+   * Kernel systems' warm draws (ADR 0080, 0126): a kernel effect stepped once with nothing spawned, which
+   * builds each system's simulation pipeline (WebGPU compute, WebGL2 program; the dead list's spawn pass
+   * and the trail history pass with it), and each output's draw, updated once so a sorted output's sort
+   * passes are built too. The draws are meshes the warmer draws like the CPU's mesh draws; disposing them
+   * disposes the runs. Null while a texture or model they need is loading.
+   */
+  private warmKernels(kernels: KernelSystem[], emitters: readonly ParticleEmitterSettings[], runner: ProgramRunner, name: string, camera: () => Camera | null): Draw[] | null {
+    const fx = new KernelEffect(kernels, emitters, this.kernelHost(), { live: runner.live, seed: 1 });
+    const out: Draw[] = [];
+    for (const s of fx.systems) {
+      for (const [k, o] of s.kernel.outputs.entries()) {
+        const found = o.settings.texture ? this.textureFor(o.settings.texture, false) : null;
+        if (o.settings.texture && found === null) {
+          for (const d of out) d.dispose();
+          fx.dispose();
+          return null;
+        }
+        const texture = found && found !== "failed" ? found : this.dotTexture();
+        const mesh = o.type === "mesh" ? (this.meshFor(o.settings.mesh) ?? undefined) : undefined;
+        const dname = `${name}:${s.kernel.id}:${k}`;
+        const softness = o.settings.softness ?? 0;
+        const d = (o.settings.material && o.type !== "trail" ? this.kernelMaterialDraw(dname, s.kernel, k, s.run as BabylonRun, o.settings.material, { mesh, softness }) : null) ?? new KernelDraw(this.host.scene, dname, s.kernel, k, s.run, texture, this.sceneDepth(), { mesh, softness });
+        out.push({ name: dname, kind: "instances", mesh: d.mesh, ps: { dispose: () => d.dispose() }, emitter: null as never, capacity: 0, ensure: () => {}, update: () => d.update(), dispose: () => d.dispose() } as Draw & { mesh: Mesh });
+      }
+    }
+    fx.endEmit();
+    const cam = camera();
+    fx.step(1 / 60, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], 1, [1, 1, 1, 1], runner.context, undefined);
+    const prev = this.host.scene.activeCamera;
+    if (cam) this.host.scene.activeCamera = cam;
+    for (const d of out) d.update();
+    if (cam) this.host.scene.activeCamera = prev;
+    // The runs belong to the draws now: the last one disposed takes the effect with it.
+    let left = out.length;
+    for (const d of out) {
+      const dispose = d.dispose;
+      d.dispose = () => {
+        dispose();
+        if (--left === 0) fx.dispose();
+      };
+    }
+    if (!out.length) fx.dispose();
+    return out;
   }
 
   /** @internal The variant report: the ParticleSystem a draw's Babylon particle system or mesh belongs to, if any. */

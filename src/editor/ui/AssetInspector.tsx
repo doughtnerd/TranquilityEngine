@@ -6,7 +6,7 @@ import { extractModelMaterials } from "../materialExtract";
 import { AudioPreview, LargePreview } from "./AssetPreview";
 import { RenderTextureInspector } from "./RenderTextureInspector";
 import { MaterialInspector, ShaderGraphInspector } from "./MaterialInspector";
-import { ParticleEffectInspector } from "./ParticleInspector";
+import { ParticleAssetInspector, ParticleEffectInspector } from "./ParticleInspector";
 import { NavFormationInspector } from "./NavFormationInspector";
 import { TilesetInspector } from "./TilesetInspector";
 import { importKind, inspectedAsset, openSpriteEditor, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
@@ -24,6 +24,7 @@ export function AssetInspector() {
   const path = inspectedAsset.value;
   const kind = path ? assetKind(path) : null;
   if (path && kind === "particles") return <ParticleEffectInspector path={path} />;
+  if (path && (kind === "particlesubgraph" || kind === "particleblock")) return <ParticleAssetInspector path={path} />;
   if (path && kind === "rendertexture") return <RenderTextureInspector path={path} />;
   if (path && kind === "formation") return <NavFormationInspector path={path} />;
   if (path && kind === "tileset") return <TilesetInspector path={path} />;
@@ -296,6 +297,13 @@ function ImportInspector() {
               <select aria-label="Normals" value={draft.normals} onChange={(e) => set({ normals: (e.currentTarget as HTMLSelectElement).value as ImportSettings["normals"] })}>
                 <option value="import">From the file</option>
                 <option value="calculate">Calculate</option>
+              </select>
+            </label>
+            <label class="import-row" title="Where a dropped model's parts turn: about the model's origin, or about their own node in the file (ADR 0118)">
+              <span>Pivots</span>
+              <select aria-label="Pivots" value={draft.pivots} onChange={(e) => set({ pivots: (e.currentTarget as HTMLSelectElement).value as ImportSettings["pivots"] })}>
+                <option value="model">Model origin</option>
+                <option value="node">Node</option>
               </select>
             </label>
             <ModelMaterialRows path={path} materials={draft.materials} dirty={dirty} readOnly={readOnly} onChange={(materials) => set({ materials })} />

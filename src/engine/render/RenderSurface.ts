@@ -84,6 +84,12 @@ export interface RenderSurface {
   /** The canvas the World draws to; input listens to it. */
   readonly canvas: HTMLCanvasElement;
   /**
+   * The canvas's CSS size (`clientWidth` x `clientHeight`) without forcing a layout per call: the
+   * surface keeps it up to date (`CanvasCssSize`). The camera's maths reads it many times a frame.
+   * Surfaces without it are read through `canvas` directly.
+   */
+  canvasCssSize?(): { readonly width: number; readonly height: number };
+  /**
    * Resolves once the renderer has started (true) or failed to (false); frames before then draw
    * nothing. The desktop editor shows its window after this, so the scene view opens drawn (ADR 0082).
    */

@@ -3,17 +3,19 @@
 // material or texture and blending), then its stack of blocks and a "+" to add one.
 import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { ContextKind, OutputContext, OutputSettings, ParticleGraphSystem, SimulationChoice } from "../../../engine/scene/particleGraph";
+import type { ContextKind, OutputContext, OutputSettings, OutputSort, ParticleGraphSystem, SimulationChoice } from "../../../engine/scene/particleGraph";
 import { OUTPUT_TYPES } from "../../../engine/scene/particleGraph";
 import { BUILTIN_MESHES } from "../../../engine/scene/models";
 import { NO_DRAG } from "../../graph";
-import { contextOf, outputCount, removeOutput, setOutputSettings, setOutputSoftness, setOutputType, setSeed, setSimulation, setSpawnSettings, setSystemSettings } from "../../particleGraph/graphEdit";
+import { contextOf, outputCount, removeOutput, setOutputSettings, setOutputSoftness, setOutputSort, setOutputType, setSeed, setSimulation, setSpawnSettings, setSystemSettings } from "../../particleGraph/graphEdit";
 import { NumField } from "../particles/valueInputs";
 import { BlockView, Port } from "./BlockView";
 import { useGraphEditor } from "./editorContext";
 import { CONTEXT_TITLES, OUTPUT_LABELS } from "./layout";
 import { AssetValue, BoolValue, ChoiceValue } from "./valueFields";
 
+const SORTS: OutputSort[] = ["auto", "on", "off"];
+const SORT_LABELS: Record<string, string> = { auto: "Auto", on: "On", off: "Off" };
 const BLENDINGS: OutputSettings["blending"][] = ["additive", "alpha", "premultiplied"];
 
 function Setting(props: { label: string; title?: string; children: preact.ComponentChildren }) {
@@ -147,6 +149,9 @@ function OutputSettingsView(props: { system: ParticleGraphSystem; output: number
       )}
       <Setting label="Softness" title="Soft particles fade near surfaces (metres, 0 = off). Kernel (GPU) outputs only.">
         <NumField label="Softness" value={s.softness ?? 0} min={0} disabled={readOnly} onCommit={(n) => commit(setOutputSoftness(graph, id, n, o))} />
+      </Setting>
+      <Setting label="Sort" title="Draw back to front by distance from the camera. Auto sorts alpha-blended outputs and leaves additive and premultiplied ones unsorted. Kernel (GPU) outputs only.">
+        <ChoiceValue label="Sort" value={s.sort ?? "auto"} choices={SORTS} labels={SORT_LABELS} readOnly={readOnly} onChange={(v) => commit(setOutputSort(graph, id, v as OutputSort, o))} />
       </Setting>
       <Setting label="Render order" title="Higher draws later">
         <NumField label="Render order" value={s.renderOrder} integer disabled={readOnly} onCommit={(n) => set({ renderOrder: n })} />

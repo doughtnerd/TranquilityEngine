@@ -127,6 +127,14 @@ export function thumbnailFor(path: string, signal?: AbortSignal): Promise<Thumbn
   return service()?.thumbnailFor(path, signal) ?? Promise.resolve(null);
 }
 
+/**
+ * Keep a thumbnail's URL alive while an element shows it (see `ThumbnailService.hold`); returns the
+ * release. Hold before showing it and release once its replacement is on screen.
+ */
+export function holdThumbnail(url: string): () => void {
+  return current?.service.hold(url) ?? (() => undefined);
+}
+
 /** An audio clip's waveform peaks, length, channels and sample rate, or null. */
 export function audioSummaryFor(path: string): Promise<AudioSummary | null> {
   return service()?.audioSummaryFor(path) ?? Promise.resolve(null);

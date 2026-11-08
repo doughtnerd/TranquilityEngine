@@ -27,6 +27,7 @@ import { meshesIfLoaded, type ModelMesh } from "../../scene/models";
 import type { ParticleRenderer as RendererSettings } from "../../scene/particles";
 import type { SimEmitter, SimParticle } from "../particles/simulation";
 import { BLEND_EPSILON, InstanceDraw, QuadDraw, type Draw } from "./particleMeshes";
+import type { DepthSource } from "./softParticles";
 
 export type { Draw } from "./particleMeshes";
 export { particleAlphaIndex } from "./particleMeshes";
@@ -69,6 +70,15 @@ export interface DrawOptions {
   mesh?: ModelMesh | null;
   /** The camera trails and material-asset quads face. Default: the scene's active camera (the World's first view). */
   camera?: () => Camera | null;
+  /** The scene's depth, for soft emitters (`softness`, ADR 0126). Without it they draw hard. */
+  depth?: DepthSource | null;
+  /** An unshared copy of the material asset, for soft emitters with one (default: a clone). */
+  copyMaterial?: (name: string) => { material: Material; dispose(): void } | null;
+  /**
+   * The scene has height fog (ADR 0110): billboards draw as mesh quads, whose material fogs (Babylon's
+   * particle shader can't). The player rebuilds draws when this changes.
+   */
+  heightFog?: boolean;
 }
 
 /** A Babylon draw for an emitter, holding up to `capacity` particles before it grows; `isDot` when `texture` is the default dot. */
@@ -78,20 +88,30 @@ export interface DrawOptions {
  * sheet's cells with V 0 at the image's top, unlike its other textures (trails, `QuadDraw`, read
  * flipped ones).
  */
-export function usesSheet(r: RendererSettings): boolean {
-  return r.mode !== "mesh" && r.mode !== "trail" && r.tiles[0] * r.tiles[1] > 1;
+export function usesSheet(r: RendererSettings, heightFog = false): boolean {
+  return drawsAsSystem(r, heightFog) && r.tiles[0] * r.tiles[1] > 1;
+}
+
+/**
+ * Whether an emitter without a material asset draws through a Babylon particle system: billboard,
+ * stretched, horizontal or vertical, not soft (ADR 0126) and not under height fog. The others draw as
+ * meshes (`particleMeshes.ts`), whose materials can fade and fog.
+ */
+export function drawsAsSystem(r: RendererSettings, heightFog = false): boolean {
+  return r.mode !== "mesh" && r.mode !== "trail" && !((r.softness ?? 0) > 0) && !heightFog;
 }
 
 export function makeDraw(scene: Scene, name: string, e: SimEmitter, capacity: number, texture: BaseTexture, isDot: boolean, options: DrawOptions = {}): Draw {
   const r = e.renderer;
   const material = options.material ?? null;
   const camera = options.camera ?? (() => scene.activeCamera ?? scene.cameraToUseForPointers);
+  const soft = (r.softness ?? 0) > 0 && options.depth ? { softness: r.softness!, depth: options.depth, copy: options.copyMaterial } : null;
   if (r.mode === "mesh") {
     const source = options.mesh ?? meshesIfLoaded(r.mesh)?.[0] ?? meshesIfLoaded(FALLBACK_MESH)![0];
-    return new InstanceDraw(scene, name, e, capacity, source, material, texture);
+    return new InstanceDraw(scene, name, e, capacity, source, material, texture, soft);
   }
-  if (r.mode === "trail") return new QuadDraw(scene, name, e, capacity, "trail", material, texture, camera);
-  if (material) return new QuadDraw(scene, name, e, capacity, "quads", material, texture, camera);
+  if (r.mode === "trail") return new QuadDraw(scene, name, e, capacity, "trail", material, texture, camera, soft);
+  if (material || !drawsAsSystem(r, options.heightFog)) return new QuadDraw(scene, name, e, capacity, "quads", material, texture, camera, soft);
   return new SystemDraw(scene, name, e, capacity, texture, isDot);
 }
 

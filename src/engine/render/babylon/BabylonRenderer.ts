@@ -28,7 +28,7 @@ import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { Material as BabylonMaterial } from "@babylonjs/core/Materials/material.js";
-import type { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
+import { MultiMaterial } from "@babylonjs/core/Materials/multiMaterial.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
@@ -50,7 +50,7 @@ import { Assets, sidecarValue } from "../../scene/Assets";
 import { splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
 import { defaultMaterialSettings, parseMaterial, materialGraphOfJson, type MaterialInstancing, type MaterialSettings } from "../../scene/material";
 import { Material as EngineMaterial } from "../Material";
-import { materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
+import { drawnVariant, materialSlots, meshesIfLoaded, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import { isShaderGraphPath, parseShaderGraph, type GraphValue } from "../../scene/shaderGraph";
 import { isShaderAssetPath, parseShaderAsset } from "../../scene/shaderAsset";
 import { compileShaderAsset, type ShaderAssetSources } from "../shaderGraph/shaderAsset";
@@ -87,13 +87,13 @@ import { BabylonLighting } from "./lighting";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import { BabylonTilemaps } from "./tilemaps";
 import { Tilemap } from "../../tilemap/Tilemap";
-import { applyBuiltinOverrides, applyBuiltinSettings, linear, meshOf, modelBaseMaterial, modelMaterial, pbr, tiledTexture } from "./materials";
+import { applyBuiltinOverrides, applyBuiltinSettings, builtinTextureSlots, linear, meshOf, modelBaseMaterial, modelMaterial, modelSubMeshes, pbr, tiledTexture } from "./materials";
 import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
 import { SpriteBatcher, type SpriteItem } from "./spriteBatches";
 import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
-import { AsyncPipelines } from "./asyncPipelines";
+import { AsyncPipelines, FirstFrames } from "./asyncPipelines";
 import { effectClock, PipelineWarmer, VariantReport, WARM_PREFIX, type ParticleSystemLike, type WarmCustom, type WarmItem, type WarmParts } from "./warmUp";
-import type { WarmContent, WarmEffect } from "../../scene/warmUp";
+import type { WarmContent, WarmEffect, WarmMesh } from "../../scene/warmUp";
 import type { QualityTier } from "../../core/graphics";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 
@@ -282,6 +282,12 @@ export class BabylonRenderer {
   private readonly defaultMaterial: PBRMaterial;
   /** ADR 0080: draws queued meshes once, hidden, so their shader pipelines exist before they're shown. */
   private readonly warmer: PipelineWarmer;
+  /** A World's first frames, held while their pipelines compile asynchronously (ADR 0120). */
+  private readonly firstFrames = new FirstFrames();
+  /** True while the frame graph runs in a held first frame: `AsyncPipelines` skips any draw then, not just the warmer's. */
+  private firstFrameDrawing = false;
+  /** Whether the World's textures and models had all loaded at the last sync (a held first frame waits for them). */
+  private contentLoaded = false;
   /** WebGPU: the warm-up's pipelines compile asynchronously while the warmer is busy (no frame waits for them); null elsewhere. */
   private readonly asyncPipelines: AsyncPipelines | null;
   /** Time spent creating effects, which sizes the warm-up's batches. */
@@ -414,12 +420,14 @@ export class BabylonRenderer {
     this.defaultMaterial.roughness = 0.5;
     // Before the warmer, which asks whether compiles are async. Only while it's busy: everywhere else a
     // missing pipeline is made as Babylon makes it, so what's drawn never skips a frame.
-    this.asyncPipelines = AsyncPipelines.install(this.engine, () => this.warmer?.drawing ?? false);
+    // A World's first frames (ADR 0120) use it for every draw of the frame graph.
+    this.asyncPipelines = AsyncPipelines.install(this.engine, () => (this.warmer?.drawing ?? false) || this.firstFrameDrawing, () => !(this.warmer?.drawing ?? false));
     this.effects = effectClock(this.engine);
     this.warmer = new PipelineWarmer({
       scene,
       materialFor: (path) => this.materialAsset(path),
       materialForSource: (src, mesh) => modelMaterial(this.scene, this.modelMaterials, src, mesh) ?? this.defaultMaterial,
+      slotMaterials: (w, sources) => this.warmSlotMaterials(w, sources),
       isGraph: (m) => this.graphs.has(m),
       fogless: (m) => this.noFog.has(m),
       instancing: (path) => this.instancingOf(path),
@@ -427,7 +435,7 @@ export class BabylonRenderer {
       loadingTextures: () => this.loading.size > 0,
       ...(this.asyncPipelines ? { compiling: () => this.asyncPipelines!.settled() } : {}),
       effectMs: () => this.effects.ms(),
-      probeVariants: (base) => this.probes.textures().map((hit) => this.probeMaterial(base, hit)),
+      probeVariants: (base) => this.probes.warmHits().map((hit) => this.probeMaterial(base, hit)),
     });
     this.warmer.onDrained = () => this.report?.quiet();
     if (fill) this.editorTools();
@@ -446,6 +454,23 @@ export class BabylonRenderer {
     if (set.worldUI) items.push(this.warmWorldCanvas());
     const done = this.warmer.add(items);
     return performance.now() - this.lastRenderAt < 500 ? done : Promise.resolve();
+  }
+
+  /**
+   * What a warm mesh's model meshes draw with: its slots resolved as `syncMesh` resolves a MeshRenderer's
+   * (ADR 0089), from material assets only (script Material instances come later, from scripts), sharing
+   * `syncMesh`'s multi-materials, so the warmed draws are the ones the scene makes.
+   */
+  private warmSlotMaterials(w: WarmMesh, sources: readonly ModelMesh[]): (src: ModelMesh, mesh: Mesh) => BabylonMaterial {
+    const slots = materialSlots(sources);
+    const material = w.material ? this.materialAsset(w.material) : null;
+    const remap = slots.length ? this.sidecarMaterials(w.mesh) : null;
+    const bySurface = new Map(slots.map((slot, i) => [slot.surface, (w.materials?.[i] ? this.materialAsset(w.materials[i]!) : null) ?? material ?? (remap?.[slot.surface.name] ? this.materialAsset(remap[slot.surface.name]!) : null)]));
+    return (src, mesh) => {
+      const m = modelBaseMaterial(this.scene, this.modelMaterials, src, (surface) => bySurface.get(surface) ?? null, this.slotMultis) ?? this.defaultMaterial;
+      if (m instanceof MultiMaterial) modelSubMeshes(src, mesh);
+      return m;
+    };
   }
 
   /** A particle effect to warm: its draws, built by the particle player (loaded now if it isn't). */
@@ -749,6 +774,7 @@ export class BabylonRenderer {
     this.lighting.syncEnvironment(world, view?.far ?? 1000);
     let ready = this.loading.size === 0;
     if (ready) for (const m of this.meshRenderers.values()) if (m.sources === null) { ready = false; break; }
+    this.contentLoaded = ready;
     this.probeMeshes.length = 0;
     for (const m of this.scene.meshes) if ((m.layerMask & EDITOR_LAYER_MASK) === 0) this.probeMeshes.push(m);
     this.probes.sync(world, this.probeMeshes, ready);
@@ -879,8 +905,22 @@ export class BabylonRenderer {
     this.sky.bake(); // before the frame graph runs, like probe captures
     if (views.length) this.probes.capture(views[0].camera); // before the frame graph runs
     this.warmer.beforeRender(views[0]?.camera ?? null, this.casters);
-    if (views.length) this.frame.render(views, this.shadows, this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
-    if (!views.length || !this.frame.ready) engine.clear(this.clearColor, true, true, true);
+    let held = false;
+    if (views.length) {
+      // A World's first frames (ADR 0120): every missing pipeline compiles asynchronously, and a frame missing a draw is held on the clear colour.
+      const first = !!this.asyncPipelines && this.firstFrames.begin(this.frame.ready, performance.now());
+      const skipped = this.asyncPipelines?.skippedShown ?? 0;
+      this.firstFrameDrawing = first;
+      try {
+        this.frame.render(views, this.shadows, this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
+      } finally {
+        this.firstFrameDrawing = false;
+      }
+      // A layout change rebuilds the graph instead of running it: that frame shows the clear colour and doesn't count.
+      if (first && this.frame.ready) held = this.firstFrames.end(this.asyncPipelines!.skippedShown > skipped, this.contentLoaded && !this.uiLoading, performance.now());
+      if (held) engine.restoreDefaultFramebuffer();
+    }
+    if (!views.length || !this.frame.ready || held) engine.clear(this.clearColor, true, true, true);
     engine.endFrame();
     if (views.length && this.frame.ready) {
       this.warmer.afterRender();
@@ -933,6 +973,7 @@ export class BabylonRenderer {
             texture: (path, sheet) => this.texture(path, sheet),
             tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
             material: (path) => this.materialAsset(path), // shared with MeshRenderers; null while missing
+            materialCopy: (path, name) => this.particleMaterialCopy(path, name), // soft and kernel particles (ADR 0126)
             // 3D physics only; null while the World has none (loaded later by a scene)
             raycast: (ox, oy, oz, dx, dy, dz, maxDistance) => {
               const hit = this.owner?.physics3D?.raycast({ x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, maxDistance);
@@ -1452,9 +1493,10 @@ export class BabylonRenderer {
     const moved = visible && (sources?.length ?? 0) > 0 && matrixChanged(entry, world16, e * 16);
     const mode = this.instancingFor(r);
     let changed = !same;
+    const variant = sources?.length ? drawnVariant(r.mesh, r.variant) : undefined; // ADR 0118
     (sources ?? []).forEach((src, i) => {
       // One material, or a multi-material shared by every renderer with the same slot materials, so they batch (ADR 0108).
-      const base = modelBaseMaterial(this.scene, this.modelMaterials, src, (surface) => bySurface.get(surface) ?? null, this.slotMultis) ?? this.defaultMaterial;
+      const base = modelBaseMaterial(this.scene, this.modelMaterials, src, (surface) => bySurface.get(surface) ?? null, this.slotMultis, variant) ?? this.defaultMaterial;
       // A reflection probe (ADR 0054) for built-in materials; graph materials keep the scene's environment.
       const probe = visible && this.probes.any && base instanceof PBRMaterial && !this.graphs.has(base) ? this.probes.lookup(world16[e * 16 + 12], world16[e * 16 + 13], world16[e * 16 + 14]) : null;
       const drawn = probe ? this.probeMaterial(base as PBRMaterial, probe) : base;
@@ -1530,6 +1572,24 @@ export class BabylonRenderer {
    * The Babylon material for a material asset, or null for none (empty, missing, or not a material:
    * warned once). Rebuilt when the asset's JSON changes (the editor's Material inspector).
    */
+  /**
+   * An unshared copy of a material asset for particle draws that change it (ADR 0126: a soft fade, kernel
+   * placement): a shader graph's is a new graph material with the asset's properties and keywords (Babylon
+   * can't clone graph plugins), others a clone. Null when the asset isn't there.
+   */
+  private particleMaterialCopy(path: string, name: string): { material: BabylonMaterial; dispose(): void } | null {
+    const base = this.materialAsset(path);
+    if (!base) return null;
+    const g = this.graphs.get(base);
+    if (g) {
+      const made = createGraphMaterial(this.scene, name, g.compiled, { ...g.properties }, this.graphShared, (p, linear) => this.graphTexture(p, linear));
+      made.setKeywords(g.keywords);
+      return { material: made.material, dispose: () => made.dispose() };
+    }
+    const copy = base.clone(name);
+    return copy ? { material: copy, dispose: () => copy.dispose(false, false) } : null;
+  }
+
   private materialAsset(path: string): BabylonMaterial | null {
     const m = this.materialAssetBase(path);
     // The asset's shared script Material (ADR 0107), applied in place: every user of the asset follows.
@@ -1888,8 +1948,7 @@ export class BabylonRenderer {
         })
         .catch((err) => console.error(`[myco] failed to load texture "${image}" for ${path}:`, err));
     };
-    load(settings.texture, (tex) => (m.albedoTexture = tex));
-    if (settings.shader !== "unlit") load(settings.normalMap, (tex) => (m.bumpTexture = tex));
+    for (const slot of builtinTextureSlots(m, settings)) load(slot.image, slot.apply);
     return m;
   }
 

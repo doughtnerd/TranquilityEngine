@@ -30,6 +30,11 @@ export interface KernelRun {
   step(uniforms: Float32Array, lut: Float32Array | null, parent: KernelRun | null): void;
   clear(): void;
   dispose(): void;
+  /**
+   * Particles alive, when the executor knows (ADR 0126): exact on JavaScript, a frame or two late on
+   * WebGPU with a dead list; null (or absent) where only the spawn estimate is known (WebGL2).
+   */
+  readonly alive?: number | null;
 }
 
 /** Makes runs: the render backend's part. */
@@ -45,8 +50,12 @@ export interface KernelHost {
 export class JsRun implements KernelRun {
   readonly kind = "js" as const;
   readonly js: JsKernel;
-  constructor(kernel: KernelSystem) {
-    this.js = new JsKernel(kernel);
+  /** `deadList` (default on, ADR 0126): full systems stop spawning instead of replacing their oldest particles. */
+  constructor(kernel: KernelSystem, opts: { deadList?: boolean } = {}) {
+    this.js = new JsKernel(kernel, { deadList: opts.deadList ?? true });
+  }
+  get alive(): number {
+    return this.js.aliveCount;
   }
   step(uniforms: Float32Array, lut: Float32Array | null, parent: KernelRun | null): void {
     this.js.uniforms.set(uniforms.subarray(0, this.js.uniforms.length));
@@ -247,11 +256,13 @@ export class KernelEffect {
     for (const s of own) s.extra += Math.ceil(count / Math.max(1, own.length));
   }
 
-  /** Estimated live particles. */
+  /** Live particles: exact where the executor counts them (JavaScript, WebGPU a frame or two late), else estimated. */
   get count(): number {
     let n = 0;
     for (const s of this.systems) {
-      if (s.parent) n += Math.min(s.kernel.capacity, s.parent.spawner.estimate * Math.max(1, Math.floor(s.kernel.capacity / s.parent.kernel.capacity)));
+      const exact = s.run.alive;
+      if (exact !== undefined && exact !== null) n += exact;
+      else if (s.parent) n += Math.min(s.kernel.capacity, s.parent.spawner.estimate * Math.max(1, Math.floor(s.kernel.capacity / s.parent.kernel.capacity)));
       else n += s.spawner.estimate;
     }
     return n;

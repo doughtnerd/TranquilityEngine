@@ -178,6 +178,8 @@ GLOBAL(KV4, a1);
 GLOBAL(KV4, a2);
 GLOBAL(KV4, a3);
 GLOBAL(KF, k_idx);
+GLOBAL(KF, k_rel);
+GLOBAL(KF, k_sidx);
 GLOBAL(KF, k_t);
 GLOBAL(KF, k_step);
 GLOBAL(KF, k_dies);
@@ -354,8 +356,7 @@ FN(KF, k_shapeU, KI mode, KF spread) {
   VAR(KF, r) = k_rand(a3.w, 900u);
   if (mode == 0) { return r; }
   VAR(KF, cap) = ku[${U.spawn}].z;
-  VAR(KF, rel) = k_idx - ku[${U.spawn}].x;
-  rel = rel - floor(rel / cap) * cap;
+  VAR(KF, rel) = k_rel;
   if (mode == 3) { return rel / max(1.0, ku[${U.spawn}].y); }
   VAR(KF, ordinal) = ku[${U.misc}].x + rel;
   VAR(KF, x) = ordinal / max(1.0, cap);
@@ -706,7 +707,7 @@ FN(void, k_run, KF spawnHere) {
     a0 = KV4(0.0, 0.0, 0.0, 0.0);
     a1 = KV4(0.0, 0.0, 0.0, 0.0);
     a2 = KV4(0.0, 0.0, 0.0, 0.0);
-    a3 = KV4(0.0, 0.0, 0.0, k_seed(k_idx, ku[${U.spawn}].w, ku[${U.misc}].y));
+    a3 = KV4(0.0, 0.0, 0.0, k_seed(k_sidx, ku[${U.spawn}].w, ku[${U.misc}].y));
     k_t = 0.0;
     k_init();
     return;
@@ -727,6 +728,7 @@ FN(KF, k_spawnRing) {
   VAR(KF, cap) = ku[${U.spawn}].z;
   VAR(KF, rel) = k_idx - ku[${U.spawn}].x;
   rel = rel - floor(rel / cap) * cap;
+  k_rel = rel;
   if (ku[${U.spawn}].y > 0.0 && rel < ku[${U.spawn}].y) { return 1.0; }
   return 0.0;
 }
@@ -800,7 +802,8 @@ export const WORKGROUP = 64;
  * (state write), kl (look-up table); kp (the event parent's state) when it has one; kdepth when it
  * collides with the depth buffer. The parent's space flag rides in `ku[flags].w`.
  */
-export function wgslSimulation(kernel: KernelSystem): string {
+export function wgslSimulation(kernel: KernelSystem, opts: { deadList?: boolean } = {}): string {
+  const dead = !!opts.deadList && !kernel.event;
   const head = `
 @group(0) @binding(0) var<storage, read> ku: array<vec4f>;
 @group(0) @binding(1) var<storage, read> ksrc: array<vec4f>;
@@ -808,6 +811,8 @@ export function wgslSimulation(kernel: KernelSystem): string {
 @group(0) @binding(3) var<storage, read> kl: array<vec4f>;
 ${kernel.event ? "@group(0) @binding(4) var<storage, read> kp: array<vec4f>;" : ""}
 ${kernel.depth ? "@group(0) @binding(5) var kdepth: texture_2d<f32>;" : ""}
+${dead ? "@group(0) @binding(6) var<storage, read_write> kdead: array<i32>;\n@group(0) @binding(7) var<storage, read_write> kcount: array<atomic<i32>>;" : ""}
+${kernel.trail ? `@group(0) @binding(8) var<storage, read_write> khist: array<vec4f>;\nfn k_trailWrite(i: u32) { khist[(u32(ku[${U.spawn}].w) % ${kernel.trail}u) * ${kernel.capacity}u + i] = vec4f(a0.xyz, a3.w); }` : ""}
 fn k_lutAt(row: i32, i: i32) -> vec4f { return kl[row * ${LUT_SAMPLES} + i]; }
 ${kernel.event ? "fn k_par(i: i32, slot: i32) -> vec4f { return kp[i * 4 + slot]; }\nfn k_srcLife(j: i32) -> f32 { return ksrc[j * 4 + 1].w; }" : ""}
 ${kernel.depth ? "fn k_depthAt(x: i32, y: i32) -> f32 { return textureLoad(kdepth, vec2i(x, y), 0).r; }" : ""}
@@ -823,16 +828,85 @@ fn main(@builtin(global_invocation_id) gid: vec3u, @builtin(num_workgroups) grou
   a2 = ksrc[b + 2u];
   a3 = ksrc[b + 3u];
   k_idx = f32(i);
+  k_rel = k_idx;
+  k_sidx = k_idx;
   k_hasParent = 0.0;
-  ${kernel.event ? "k_run(k_spawnEvent());" : "k_run(k_spawnRing());"}
+  ${
+    dead
+      ? `let dying = a1.w < 0.0;
+  k_run(0.0);
+  if (dying) {
+    let at = atomicAdd(&kcount[0], 1);
+    kdead[at] = i32(i);
+  }
+  if (a1.w > 0.0) { atomicAdd(&kcount[1], 1); }`
+      : kernel.event
+        ? "k_run(k_spawnEvent());"
+        : "k_run(k_spawnRing());"
+  }
   kdst[b] = a0;
   kdst[b + 1u] = a1;
   kdst[b + 2u] = a2;
   kdst[b + 3u] = a3;
+  ${kernel.trail ? "k_trailWrite(i);" : ""}
 }
-`;
+${dead ? spawnMain(kernel) : ""}`;
   return head + ksl(simulationKsl(kernel, "wgsl"), "wgsl") + main;
 }
+
+/**
+ * The dead list's spawn pass (ADR 0126): one invocation per particle this frame spawns, after the update
+ * pass. Each pops a free slot (kcount[0] counts them, kdead holds them) and initialises it in the state
+ * just written; when none is left the spawn is dropped. The seed hashes the spawn number, not the slot.
+ */
+const spawnMain = (kernel: KernelSystem): string => `
+@compute @workgroup_size(${WORKGROUP})
+fn spawn(@builtin(global_invocation_id) gid: vec3u) {
+  let t = gid.x;
+  if (f32(t) >= ku[${U.spawn}].y) { return; }
+  let old = atomicSub(&kcount[0], 1);
+  if (old <= 0) {
+    atomicAdd(&kcount[0], 1);
+    return;
+  }
+  let i = u32(kdead[old - 1]);
+  let b = i * 4u;
+  k_idx = f32(i);
+  k_rel = f32(t);
+  k_sidx = f32(t);
+  k_hasParent = 0.0;
+  k_run(1.0);
+  if (a1.w <= 0.0) {
+    // Born without a lifetime: marked finished, so the next update pass frees the slot (no push here,
+    // where other invocations are popping).
+    a1.w = -1e-20;
+  } else {
+    atomicAdd(&kcount[1], 1);
+  }
+  kdst[b] = a0;
+  kdst[b + 1u] = a1;
+  kdst[b + 2u] = a2;
+  kdst[b + 3u] = a3;
+  ${kernel.trail ? "k_trailWrite(i);" : ""}
+}
+`;
+
+/**
+ * Trails (ADR 0126), WebGL2: after the simulation pass, one pass copies each slot's position and seed into
+ * this frame's block of the history texture (`STATE` width, `rows` per block, block `frame % points`).
+ */
+export const GLSL_TRAIL_HISTORY = `#version 300 es
+precision highp float;
+precision highp int;
+uniform highp sampler2D ks0;
+uniform highp sampler2D ks3;
+uniform int yoff;
+out vec4 o;
+void main() {
+  ivec2 c = ivec2(gl_FragCoord.xy) - ivec2(0, yoff);
+  o = vec4(texelFetch(ks0, c, 0).xyz, texelFetch(ks3, c, 0).w);
+}
+`;
 
 // --- GLSL ES 3.0 texture simulation ---------------------------------------------------------------------
 
@@ -893,6 +967,8 @@ void main() {
   a3 = texelFetch(ks3, c, 0);
   if (float(i) < ku[${U.spawn}].z) {
     k_idx = float(i);
+    k_rel = k_idx;
+    k_sidx = k_idx;
     k_hasParent = 0.0;
     ${kernel.event ? "k_run(k_spawnEvent());" : "k_run(k_spawnRing());"}
   }
@@ -927,6 +1003,13 @@ FN(void, k_outputStage) {
 export interface DrawShaderOptions {
   /** Read the depth texture in the fragment shader to fade particles near surfaces. */
   soft: boolean;
+  /** Draw instance i as the slot in the sorted pairs' i-th entry (ADR 0126: `kidx`, texture width `kidxW` on GLSL). */
+  sorted?: boolean;
+  /**
+   * Height fog (ADR 0126): the renderer's fragment declarations providing `mycoHeightFogFactor(p, eye)`
+   * and `mycoApplyHeightFog(rgb, p, eye)` (Babylon's `heightFogShader`). Absent: no fog.
+   */
+  fog?: string;
 }
 
 /**
@@ -952,16 +1035,20 @@ uniform highp sampler2D ks1;
 uniform highp sampler2D ks2;
 uniform highp sampler2D ks3;
 uniform highp sampler2D kl;
+${opts.sorted ? "uniform highp sampler2D kidx;\nuniform float kidxW;" : ""}
 varying vec2 vUV;
 varying vec2 vUV2;
 varying float vBlend;
 varying vec4 vColor;
 varying float vDepth;
+varying vec3 vWorld;
+varying vec3 vEye;
 vec4 k_lutAt(int row, int i) { return texelFetch(kl, ivec2(i, row), 0); }
 ${ksl(GLOBALS + PRELUDE + outputKsl(out, "glsl"), "glsl")}
 ${ksl(ORIENT, "glsl")}
 void main() {
   int i = gl_InstanceID;
+  ${opts.sorted ? "int sw = int(kidxW);\n  i = int(texelFetch(kidx, ivec2(gl_InstanceID % sw, gl_InstanceID / sw), 0).g);" : ""}
   int w = int(kw);
   ivec2 c = ivec2(i % w, i / w);
   a0 = texelFetch(ks0, c, 0);
@@ -980,6 +1067,8 @@ void main() {
   vBlend = k_tileBlend(kdraw);
   vec4 clip = viewProjection * vec4(placed.xyz, 1.0);
   vDepth = clip.w;
+  vWorld = placed.xyz;
+  vEye = kcam;
   gl_Position = placed.w > 0.5 ? clip : vec4(0.0, 0.0, -2.0, 1.0);
 }
 `;
@@ -989,9 +1078,12 @@ varying vec2 vUV2;
 varying float vBlend;
 varying vec4 vColor;
 varying float vDepth;
+varying vec3 vWorld;
+varying vec3 vEye;
 uniform sampler2D ktex;
 uniform vec4 kdraw2;
 ${opts.soft ? "uniform sampler2D kdepthTex;\nuniform vec4 ksoft;" : ""}
+${opts.fog ?? ""}
 void main() {
   vec4 t = texture2D(ktex, vUV);
   if (kdraw2.x > 0.5) { t = mix(t, texture2D(ktex, vUV2), vBlend); }
@@ -1004,10 +1096,12 @@ void main() {
   col.a *= clamp((scene - vDepth) / max(kdraw2.y, 0.0001), 0.0, 1.0);`
       : ""
   }
+  ${opts.fog ? FOG_GLSL : ""}
   if (kdraw2.z > 0.5) { col.rgb *= col.a; }
   gl_FragColor = col;
 }
 `;
+  if (out.type === "trail") return { vertex: glslTrailVertex(kernel, out, opts), fragment };
   return { vertex, fragment };
 }
 
@@ -1059,6 +1153,11 @@ FN(KV4, k_orient, KV3 corner, KV3 right0, KV3 up0, KV3 cam, KV4 draw) {
   }
   return KV4(p + (right * q.x + up * q.y) * size, alive);
 }
+FN(KV3, k_orientCentre) {
+  VAR(KV3, p) = a0.xyz;
+  if (ku[${U.flags}].z < 0.5) { p = k_xform(p); }
+  return p;
+}
 FN(KV4, k_tileUV, KV2 uv, KV4 draw, KF rows0) {
   VAR(KF, cols) = max(1.0, draw.w);
   VAR(KF, rows) = max(1.0, rows0);
@@ -1092,17 +1191,20 @@ uniform kdraw3 : vec4<f32>;
 var<storage, read> ku : array<vec4<f32>>;
 var<storage, read> ks : array<vec4<f32>>;
 var<storage, read> kl : array<vec4<f32>>;
+${opts.sorted ? "var<storage, read> kidx : array<vec2<f32>>;" : ""}
 varying vUV : vec2<f32>;
 varying vUV2 : vec2<f32>;
 varying vBlend : f32;
 varying vColor : vec4<f32>;
 varying vDepth : f32;
+varying vWorld : vec3<f32>;
+varying vEye : vec3<f32>;
 fn k_lutAt(row: i32, i: i32) -> vec4f { return kl[row * ${LUT_SAMPLES} + i]; }
 ${ksl(GLOBALS + PRELUDE + outputKsl(out, "wgsl"), "wgsl")}
 ${ksl(ORIENT, "wgsl")}
 @vertex
 fn main(input : VertexInputs) -> FragmentInputs {
-  let i = vertexInputs.instanceIndex;
+  let i = ${opts.sorted ? "u32(kidx[vertexInputs.instanceIndex].y)" : "vertexInputs.instanceIndex"};
   let b = i * 4u;
   a0 = ks[b];
   a1 = ks[b + 1u];
@@ -1121,6 +1223,8 @@ fn main(input : VertexInputs) -> FragmentInputs {
   vertexOutputs.vBlend = k_tileBlend(uniforms.kdraw);
   let clip = uniforms.viewProjection * vec4f(placed.xyz, 1.0);
   vertexOutputs.vDepth = clip.w;
+  vertexOutputs.vWorld = placed.xyz;
+  vertexOutputs.vEye = uniforms.kcam;
   vertexOutputs.position = select(vec4f(0.0, 0.0, -2.0, 1.0), clip, placed.w > 0.5);
 }
 `;
@@ -1130,10 +1234,13 @@ varying vUV2 : vec2<f32>;
 varying vBlend : f32;
 varying vColor : vec4<f32>;
 varying vDepth : f32;
+varying vWorld : vec3<f32>;
+varying vEye : vec3<f32>;
 var ktex : texture_2d<f32>;
 var ktexSampler : sampler;
 uniform kdraw2 : vec4<f32>;
 ${opts.soft ? "var kdepthTex : texture_2d<f32>;\nuniform ksoft : vec4<f32>;" : ""}
+${opts.fog ?? ""}
 @fragment
 fn main(input : FragmentInputs) -> FragmentOutputs {
   var t = textureSample(ktex, ktexSampler, fragmentInputs.vUV);
@@ -1149,11 +1256,339 @@ fn main(input : FragmentInputs) -> FragmentOutputs {
   col.a = col.a * clamp((scene - fragmentInputs.vDepth) / max(uniforms.kdraw2.y, 0.0001), 0.0, 1.0);`
       : ""
   }
+  ${opts.fog ? FOG_WGSL : ""}
   if (uniforms.kdraw2.z > 0.5) { col = vec4f(col.rgb * col.a, col.a); }
   fragmentOutputs.color = col;
 }
 `;
+  if (out.type === "trail") return { vertex: wgslTrailVertex(kernel, out, opts), fragment };
   return { vertex, fragment };
+}
+
+/** Height fog in the draws' fragment shaders: additive particles fade out (`kdraw2.w` 1), the rest mix towards the fog colour. */
+const FOG_GLSL = `if (kdraw2.w > 0.5) { col.rgb *= 1.0 - mycoHeightFogFactor(vWorld, vEye); } else { col.rgb = mycoApplyHeightFog(col.rgb, vWorld, vEye); }`;
+const FOG_WGSL = `if (uniforms.kdraw2.w > 0.5) { col = vec4f(col.rgb * (1.0 - mycoHeightFogFactor(fragmentInputs.vWorld, fragmentInputs.vEye)), col.a); } else { col = vec4f(mycoApplyHeightFog(col.rgb, fragmentInputs.vWorld, fragmentInputs.vEye), col.a); }`;
+
+/**
+ * The trail ribbon (ADR 0126) as KSL, after the particle (a0..a3) is loaded and its output stage run:
+ * `k_hist(k)` reads the k-th newest history point (needs it defined per dialect). Finds how many points
+ * belong to this particle (their tag is its seed; a binary search, the newest always does), clamps the
+ * strip's point `pt` to them and places one side (`side` ±0.5) of the ribbon there, facing the camera.
+ * Returns the world position, w 0 when nothing is drawn; `k_trailU` is how far along (0 at the head).
+ */
+const TRAIL = /* KSL */ `
+GLOBAL(KF, k_trailU);
+FN(KV3, k_trailWorld, KV3 p) {
+  if (ku[${U.flags}].z < 0.5) { return k_xform(p); }
+  return p;
+}
+FN(KV4, k_trail, KF pt, KF side, KF points, KI widthRow, KV3 cam, KV3 right0) {
+  if (!(a1.w > 0.0 && a0.w < a1.w)) { return KV4(0.0, 0.0, 0.0, 0.0); }
+  VAR(KF, lo) = 1.0;
+  VAR(KF, hi) = points;
+  for (VAR(KI, it) = 0; it < 7; it++) {
+    if (lo >= hi) { break; }
+    VAR(KF, mid) = floor((lo + hi + 1.0) * 0.5);
+    if (k_hist(mid - 1.0).w == a3.w) { lo = mid; } else { hi = mid - 1.0; }
+  }
+  VAR(KF, n) = lo;
+  if (n < 2.0) { return KV4(0.0, 0.0, 0.0, 0.0); }
+  VAR(KF, k) = min(pt, n - 1.0);
+  VAR(KV3, p) = k_trailWorld(k_hist(k).xyz);
+  VAR(KV3, a) = k_trailWorld(k_hist(max(k - 1.0, 0.0)).xyz);
+  VAR(KV3, b) = k_trailWorld(k_hist(min(k + 1.0, n - 1.0)).xyz);
+  VAR(KV3, dir) = cross(a - b, cam - p);
+  VAR(KF, len) = length(dir);
+  VAR(KV3, across) = right0;
+  if (len > 0.000000001) { across = dir / len; }
+  k_trailU = k / (n - 1.0);
+  VAR(KF, width) = max(0.0, k_oSize) * k_lut(widthRow, k_trailU).x;
+  return KV4(p + across * side * width, 1.0);
+}
+`;
+
+function glslTrailVertex(kernel: KernelSystem, out: KernelOutput, opts: DrawShaderOptions): string {
+  const points = kernel.trail ?? 0;
+  const rows = Math.ceil(kernel.capacity / Math.min(1024, kernel.capacity));
+  return `precision highp float;
+precision highp int;
+attribute vec3 position;
+attribute vec2 uv;
+uniform mat4 viewProjection;
+uniform mat4 view;
+uniform vec3 kcam;
+uniform vec4 ku[${kernel.uniformVec4}];
+uniform float kw;
+uniform vec4 kdraw;
+uniform vec4 kdraw3;
+uniform vec4 ktrail;
+uniform highp sampler2D ks0;
+uniform highp sampler2D ks1;
+uniform highp sampler2D ks2;
+uniform highp sampler2D ks3;
+uniform highp sampler2D kl;
+uniform highp sampler2D khist;
+${opts.sorted ? "uniform highp sampler2D kidx;\nuniform float kidxW;" : ""}
+varying vec2 vUV;
+varying vec2 vUV2;
+varying float vBlend;
+varying vec4 vColor;
+varying float vDepth;
+varying vec3 vWorld;
+varying vec3 vEye;
+int k_slot;
+vec4 k_lutAt(int row, int i) { return texelFetch(kl, ivec2(i, row), 0); }
+vec4 k_hist(float k) {
+  int w = int(kw);
+  float f = ktrail.x - k;
+  int block = int(f - floor(f / ${fl(points)}) * ${fl(points)});
+  return texelFetch(khist, ivec2(k_slot % w, block * ${rows} + k_slot / w), 0);
+}
+${ksl(GLOBALS + PRELUDE + outputKsl(out, "glsl"), "glsl")}
+${ksl(ORIENT + TRAIL, "glsl")}
+void main() {
+  int i = gl_InstanceID;
+  ${opts.sorted ? "int sw = int(kidxW);\n  i = int(texelFetch(kidx, ivec2(gl_InstanceID % sw, gl_InstanceID / sw), 0).g);" : ""}
+  k_slot = i;
+  int w = int(kw);
+  ivec2 c = ivec2(i % w, i / w);
+  a0 = texelFetch(ks0, c, 0);
+  a1 = texelFetch(ks1, c, 0);
+  a2 = texelFetch(ks2, c, 0);
+  a3 = texelFetch(ks3, c, 0);
+  k_idx = float(i);
+  k_outputStage();
+  vec3 right = vec3(view[0][0], view[1][0], view[2][0]);
+  vec4 placed = k_trail(position.y, position.x, ${fl(points)}, int(ktrail.w), kcam, right);
+  vColor = k_oColor;
+  vec4 uvs = k_tileUV(vec2(1.0 - k_trailU, uv.y), kdraw, kdraw3.x);
+  vUV = uvs.xy;
+  vUV2 = uvs.zw;
+  vBlend = k_tileBlend(kdraw);
+  vec4 clip = viewProjection * vec4(placed.xyz, 1.0);
+  vDepth = clip.w;
+  vWorld = placed.xyz;
+  vEye = kcam;
+  gl_Position = placed.w > 0.5 ? clip : vec4(0.0, 0.0, -2.0, 1.0);
+}
+`;
+}
+
+function wgslTrailVertex(kernel: KernelSystem, out: KernelOutput, opts: DrawShaderOptions): string {
+  const points = kernel.trail ?? 0;
+  return `
+attribute position : vec3<f32>;
+attribute uv : vec2<f32>;
+uniform viewProjection : mat4x4<f32>;
+uniform view : mat4x4<f32>;
+uniform kcam : vec3<f32>;
+uniform kdraw : vec4<f32>;
+uniform kdraw3 : vec4<f32>;
+uniform ktrail : vec4<f32>;
+var<storage, read> ku : array<vec4<f32>>;
+var<storage, read> ks : array<vec4<f32>>;
+var<storage, read> kl : array<vec4<f32>>;
+var<storage, read> khist : array<vec4<f32>>;
+${opts.sorted ? "var<storage, read> kidx : array<vec2<f32>>;" : ""}
+varying vUV : vec2<f32>;
+varying vUV2 : vec2<f32>;
+varying vBlend : f32;
+varying vColor : vec4<f32>;
+varying vDepth : f32;
+varying vWorld : vec3<f32>;
+varying vEye : vec3<f32>;
+var<private> k_slot : u32;
+var<private> k_frame : f32;
+fn k_lutAt(row: i32, i: i32) -> vec4f { return kl[row * ${LUT_SAMPLES} + i]; }
+fn k_hist(k: f32) -> vec4f {
+  let f = k_frame - k;
+  let block = u32(f - floor(f / ${fl(points)}) * ${fl(points)});
+  return khist[block * ${kernel.capacity}u + k_slot];
+}
+${ksl(GLOBALS + PRELUDE + outputKsl(out, "wgsl"), "wgsl")}
+${ksl(ORIENT + TRAIL, "wgsl")}
+@vertex
+fn main(input : VertexInputs) -> FragmentInputs {
+  let i = ${opts.sorted ? "u32(kidx[vertexInputs.instanceIndex].y)" : "vertexInputs.instanceIndex"};
+  k_slot = i;
+  k_frame = uniforms.ktrail.x;
+  let b = i * 4u;
+  a0 = ks[b];
+  a1 = ks[b + 1u];
+  a2 = ks[b + 2u];
+  a3 = ks[b + 3u];
+  k_idx = f32(i);
+  k_outputStage();
+  let vw = uniforms.view;
+  let right = vec3f(vw[0][0], vw[1][0], vw[2][0]);
+  let placed = k_trail(vertexInputs.position.y, vertexInputs.position.x, ${fl(points)}, i32(uniforms.ktrail.w), uniforms.kcam, right);
+  vertexOutputs.vColor = k_oColor;
+  let uvs = k_tileUV(vec2f(1.0 - k_trailU, vertexInputs.uv.y), uniforms.kdraw, uniforms.kdraw3.x);
+  vertexOutputs.vUV = uvs.xy;
+  vertexOutputs.vUV2 = uvs.zw;
+  vertexOutputs.vBlend = k_tileBlend(uniforms.kdraw);
+  let clip = uniforms.viewProjection * vec4f(placed.xyz, 1.0);
+  vertexOutputs.vDepth = clip.w;
+  vertexOutputs.vWorld = placed.xyz;
+  vertexOutputs.vEye = uniforms.kcam;
+  vertexOutputs.position = select(vec4f(0.0, 0.0, -2.0, 1.0), clip, placed.w > 0.5);
+}
+`;
+}
+
+/**
+ * Kernel particles drawn with a material asset (ADR 0126): code spliced into the material's own vertex
+ * shader (Babylon's PBR shader, by a material plugin) that reads the particle from textures and places
+ * the mesh's vertex. `definitions` goes at module scope; `update` where the shader has `positionUpdated`
+ * (and `normalUpdated`, `uvUpdated`, `colorUpdated` under their defines), mesh world matrix identity.
+ *
+ * Textures: the state as four (kps0..kps3, `kpdraw3.y` wide) or, `interleaved`, one texture of four
+ * texels per particle (kpst); the uniforms one row (kpu); the look-up table (kpl); the sorted pairs
+ * (kpidx, `kpdraw3.z` wide) when `sorted`. Uniforms: `kpdraw` (mode, speed scale, length scale, tile
+ * columns), `kpdraw3` (tile rows, state width, pairs width, unused), `kpcam` (camera position).
+ */
+export function materialVertexCode(kernel: KernelSystem, k: number, dialect: ShaderDialect, opts: { sorted: boolean; interleaved: boolean }): { definitions: string; update: string; worldPos: string } {
+  const out = kernel.outputs[k];
+  const wgsl = dialect === "wgsl";
+  const u = (name: string) => (wgsl ? `uniforms.${name}` : name);
+  // The KSL helpers read uniforms as `ku[i]`; here they come from a texture row.
+  const body = ksl(GLOBALS + PRELUDE + outputKsl(out, dialect) + ORIENT, dialect).replace(/\bku\[([^\]]+)\]/g, "k_u($1)");
+  const fetch = (tex: string, x: string, y: string) => (wgsl ? `textureLoad(${tex}, vec2i(${x}, ${y}), 0)` : `texelFetch(${tex}, ivec2(${x}, ${y}), 0)`);
+  const state = opts.interleaved
+    ? wgsl
+      ? `fn k_kpState(i: i32, a: i32) -> vec4f { let w = i32(${u("kpdraw3")}.y); return ${fetch("kpst", "(i % w) * 4 + a", "i / w")}; }`
+      : `vec4 k_kpState(int i, int a) { int w = int(kpdraw3.y); return ${fetch("kpst", "(i % w) * 4 + a", "i / w")}; }`
+    : wgsl
+      ? `fn k_kpState(i: i32, a: i32) -> vec4f {
+  let w = i32(${u("kpdraw3")}.y);
+  let c = vec2i(i % w, i / w);
+  if (a == 0) { return textureLoad(kps0, c, 0); }
+  if (a == 1) { return textureLoad(kps1, c, 0); }
+  if (a == 2) { return textureLoad(kps2, c, 0); }
+  return textureLoad(kps3, c, 0);
+}`
+      : `vec4 k_kpState(int i, int a) {
+  int w = int(kpdraw3.y);
+  ivec2 c = ivec2(i % w, i / w);
+  if (a == 0) { return texelFetch(kps0, c, 0); }
+  if (a == 1) { return texelFetch(kps1, c, 0); }
+  if (a == 2) { return texelFetch(kps2, c, 0); }
+  return texelFetch(kps3, c, 0);
+}`;
+  const textures = wgsl
+    ? [...(opts.interleaved ? ["kpst"] : ["kps0", "kps1", "kps2", "kps3"]), "kpu", "kpl", ...(opts.sorted ? ["kpidx"] : [])].map((t) => `var ${t}: texture_2d<f32>;`).join("\n")
+    : [...(opts.interleaved ? ["kpst"] : ["kps0", "kps1", "kps2", "kps3"]), "kpu", "kpl", ...(opts.sorted ? ["kpidx"] : [])].map((t) => `uniform highp sampler2D ${t};`).join("\n");
+  const definitions = wgsl
+    ? `${textures}
+fn k_u(i: i32) -> vec4f { return textureLoad(kpu, vec2i(i, 0), 0); }
+fn k_lutAt(row: i32, i: i32) -> vec4f { return textureLoad(kpl, vec2i(i, row), 0); }
+${state}
+${body}
+var<private> k_kpPos: vec3f;
+var<private> k_kpNormal: vec3f;
+var<private> k_kpUV: vec2f;
+fn k_kpPlace(corner: vec3f, cornerNormal: vec3f, instance: u32) {
+  var i = i32(instance);
+  ${opts.sorted ? `let sw = i32(${u("kpdraw3")}.z);\n  i = i32(textureLoad(kpidx, vec2i(i % sw, i / sw), 0).y);` : ""}
+  a0 = k_kpState(i, 0);
+  a1 = k_kpState(i, 1);
+  a2 = k_kpState(i, 2);
+  a3 = k_kpState(i, 3);
+  k_idx = f32(i);
+  k_outputStage();
+  let vw = scene.view;
+  let right = vec3f(vw[0][0], vw[1][0], vw[2][0]);
+  let up = vec3f(vw[0][1], vw[1][1], vw[2][1]);
+  let placed = k_orient(corner, right, up, ${u("kpcam")}.xyz, ${u("kpdraw")});
+  let p = k_orientCentre();
+  k_kpPos = select(p, placed.xyz, placed.w > 0.5);
+  let co = cos(a3.y);
+  let sn = sin(a3.y);
+  if (${u("kpdraw")}.x > 3.5) {
+    k_kpNormal = vec3f(cornerNormal.x * co + cornerNormal.z * sn, cornerNormal.y, -cornerNormal.x * sn + cornerNormal.z * co);
+  } else {
+    k_kpNormal = normalize(${u("kpcam")}.xyz - p + vec3f(0.0, 0.000001, 0.0));
+  }
+  k_kpUV = k_tileUV(corner.xy + vec2f(0.5), ${u("kpdraw")}, ${u("kpdraw3")}.x).xy;
+}
+`
+    : `${textures}
+vec4 k_u(int i) { return texelFetch(kpu, ivec2(i, 0), 0); }
+vec4 k_lutAt(int row, int i) { return texelFetch(kpl, ivec2(i, row), 0); }
+${state}
+${body}
+vec3 k_kpPos;
+vec3 k_kpNormal;
+vec2 k_kpUV;
+void k_kpPlace(vec3 corner, vec3 cornerNormal, int instance) {
+  int i = instance;
+  ${opts.sorted ? "int sw = int(kpdraw3.z);\n  i = int(texelFetch(kpidx, ivec2(i % sw, i / sw), 0).g);" : ""}
+  a0 = k_kpState(i, 0);
+  a1 = k_kpState(i, 1);
+  a2 = k_kpState(i, 2);
+  a3 = k_kpState(i, 3);
+  k_idx = float(i);
+  k_outputStage();
+  vec3 right = vec3(view[0][0], view[1][0], view[2][0]);
+  vec3 up = vec3(view[0][1], view[1][1], view[2][1]);
+  vec4 placed = k_orient(corner, right, up, kpcam.xyz, kpdraw);
+  vec3 p = k_orientCentre();
+  k_kpPos = placed.w > 0.5 ? placed.xyz : p;
+  float co = cos(a3.y);
+  float sn = sin(a3.y);
+  if (kpdraw.x > 3.5) {
+    k_kpNormal = vec3(cornerNormal.x * co + cornerNormal.z * sn, cornerNormal.y, -cornerNormal.x * sn + cornerNormal.z * co);
+  } else {
+    k_kpNormal = normalize(kpcam.xyz - p + vec3(0.0, 0.000001, 0.0));
+  }
+  k_kpUV = k_tileUV(corner.xy + vec2(0.5), kpdraw, kpdraw3.x).xy;
+}
+`;
+  const update = wgsl
+    ? `#ifdef NORMAL
+k_kpPlace(positionUpdated, normalUpdated, vertexInputs.instanceIndex);
+normalUpdated = k_kpNormal;
+#else
+k_kpPlace(positionUpdated, vec3f(0.0, 1.0, 0.0), vertexInputs.instanceIndex);
+#endif
+positionUpdated = k_kpPos;
+#ifdef UV1
+uvUpdated = k_kpUV;
+#endif
+#ifdef VERTEXCOLOR
+colorUpdated = k_oColor;
+#endif
+`
+    : `#ifdef NORMAL
+k_kpPlace(positionUpdated, normalUpdated, gl_InstanceID);
+normalUpdated = k_kpNormal;
+#else
+k_kpPlace(positionUpdated, vec3(0.0, 1.0, 0.0), gl_InstanceID);
+#endif
+positionUpdated = k_kpPos;
+#ifdef UV1
+uvUpdated = k_kpUV;
+#endif
+#ifdef VERTEXCOLOR
+colorUpdated = k_oColor;
+#endif
+`;
+  // The draw is instanced (forcedInstanceCount), so Babylon multiplies by per-instance world matrices it
+  // has no buffer for: the plugin's positions are world positions already, so take them as they are.
+  const worldPos = wgsl
+    ? `worldPos = vec4f(positionUpdated, 1.0);
+vertexOutputs.vPositionW = positionUpdated;
+#ifdef NORMAL
+vertexOutputs.vNormalW = normalize(normalUpdated);
+#endif
+`
+    : `worldPos = vec4(positionUpdated, 1.0);
+vPositionW = positionUpdated;
+#ifdef NORMAL
+vNormalW = normalize(normalUpdated);
+#endif
+`;
+  return { definitions, update, worldPos };
 }
 
 /** Draw mode numbers (`kdraw.x`). */

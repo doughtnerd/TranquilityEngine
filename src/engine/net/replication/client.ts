@@ -20,17 +20,30 @@
  *
  * When the connection to the server goes (or a new one replaces it), ghosts the client
  * instantiated are destroyed and scene ghosts become ordinary nodes again.
+ *
+ * ## Relevancy, relayouts, order and enabled state (ADR 0121)
+ *
+ * A ghost that leaves this connection's relevancy is forgotten: a prefab ghost's node is destroyed,
+ * a scene or nested ghost's node is deactivated (kept, since it can't be made again, until it comes
+ * back or despawns). A relayout replaces a ghost's layout: components it adds are added, ones it
+ * drops are removed, and its states start again. A structure's `after` puts the node right after
+ * the named sibling ghost; its `disabled` list sets the layout's behaviors' `enabled`.
  */
+import type { Component } from "../../core/Component";
+import { getDataComponentDef } from "../../core/data";
+import { getComponentClass, getComponentId, getComponentOptions, type ComponentClass } from "../../core/registry";
 import type { World } from "../../core/World";
-import type { GameObject } from "../../scene/GameObject";
+import { _componentAllowedIn, type GameObject } from "../../scene/GameObject";
 import { SceneInstance } from "../../scene/SceneLoader";
 import type { BitReader } from "../codec";
 import { Replicated } from "../Replicated";
+import { replicationOf } from "../replication";
 import { netSession, type NetPeer, type NetSession } from "../session";
-import { applyState, bind, interpolate, layoutOf, type Binding, type GhostState, type Layout } from "./layout";
+import { applyState, behaviorFields, bind, interpolate, layoutOf, type Binding, type GhostState, type Layout, type LayoutSpec } from "./layout";
 import { ClientStrings, GHOST_STRINGS } from "./strings";
 import {
   ACK,
+  AFTER_UNSPECIFIED,
   BASELINE_WINDOW,
   PARENT_GHOST,
   PARENT_NODE,
@@ -41,6 +54,7 @@ import {
   SPAWN_SCENE,
   StringTableIn,
   readSpawn,
+  readSpec,
   readStructure,
   sameParent,
   type ParentRef,
@@ -62,7 +76,10 @@ interface ReceivedState {
 /** @internal A ghost as a client sees it. */
 export interface ClientGhost {
   readonly id: number;
-  readonly layout: Layout;
+  /** Replaced by a relayout (ADR 0121). */
+  layout: Layout;
+  /** The server's version of `layout`. */
+  layoutVersion: number;
   readonly spawn: SpawnInfo;
   /** Its node once found or made; null while waiting (a scene not loaded yet, a parent ghost not there yet). */
   node: GameObject | null;
@@ -88,6 +105,12 @@ export class ClientReplication {
   newestTick = -1;
   private peer: NetPeer | null = null;
   private readonly despawned = new Set<number>();
+  /** Scene and nested ghosts out of relevancy (ADR 0121): deactivated nodes, destroyed if they despawn. */
+  private readonly dormant = new Map<number, GameObject>();
+  /** Parents whose ghost children got a new order this frame (ADR 0121), with each ghost's `after`. */
+  private readonly reorder = new Map<GameObject, Map<number, number>>();
+  /** Each ghost's `after` as last shown. */
+  private readonly afterShown = new Map<number, number>();
   private readonly scratch: number[] = [];
   private errorLogged = false;
   /** String behavior fields (ADR 0068). */
@@ -131,6 +154,7 @@ export class ClientReplication {
       }
     }
     this.resolve();
+    this.applyOrder();
     this.strings.apply(this.world, (id) => this.ghosts.get(id)?.node ?? null);
     if (received && peer?.state === "open") {
       const tick = this.newestTick;
@@ -158,6 +182,7 @@ export class ClientReplication {
       // Every ghost, shown or not: one waiting for its scene, or a predicted one, still gets a state each snapshot.
       this.prune(g, at);
     }
+    this.applyOrder();
   }
 
   /** A ghost's values at tick `at` (see the top of this file). */
@@ -210,12 +235,34 @@ export class ClientReplication {
     id = 0;
     for (let i = 0; i < count; i++) {
       id += r.readVarUint();
+      this.leave(id);
+    }
+
+    count = r.readVarUint();
+    id = 0;
+    for (let i = 0; i < count; i++) {
+      id += r.readVarUint();
       const { spawn, spec } = readSpawn(r, this.table.read);
+      const layoutVersion = r.readVarUint();
       const structure = readStructure(r, tick, this.table.read);
       const known = this.ghosts.get(id);
-      if (known) this.restructure(known, structure); // a repeat, maybe with a newer structure
+      if (known) {
+        // A repeat, maybe with a newer layout or structure.
+        if (layoutVersion > known.layoutVersion) this.relayout(known, spec, layoutVersion);
+        this.restructure(known, structure);
+      }
       if (known || this.despawned.has(id)) continue;
-      this.ghosts.set(id, { id, layout: layoutOf(spec), spawn, node: null, binding: null, states: [], baselineTick: 0, instantiated: false, failed: null, structure, applied: null });
+      this.ghosts.set(id, { id, layout: layoutOf(spec), layoutVersion, spawn, node: null, binding: null, states: [], baselineTick: 0, instantiated: false, failed: null, structure, applied: null });
+    }
+
+    count = r.readVarUint();
+    id = 0;
+    for (let i = 0; i < count; i++) {
+      id += r.readVarUint();
+      const version = r.readVarUint();
+      const spec = readSpec(r, this.table.read);
+      const g = this.ghosts.get(id);
+      if (g && version > g.layoutVersion) this.relayout(g, spec, version);
     }
 
     count = r.readVarUint();
@@ -276,7 +323,110 @@ export class ClientReplication {
       }
     }
     if (node.active !== s.active) node.setActive(s.active);
+    this.applyOrderAndEnabled(g, node, s);
     g.applied = s;
+  }
+
+  /**
+   * ADR 0121: put the node right after the sibling ghost `s.after` names (or before the first
+   * sibling ghost for 0), and set its layout's behaviors' `enabled` from `s.disabled`.
+   */
+  private applyOrderAndEnabled(g: ClientGhost, node: GameObject, s: Structure): void {
+    const parent = node.parent;
+    if (s.after !== AFTER_UNSPECIFIED && parent) this.reorder.set(parent, (this.reorder.get(parent) ?? new Map()).set(g.id, s.after));
+    const disabled = new Set(s.disabled.map((d) => `${d.id}#${d.index}`));
+    for (const b of g.layout.spec.behaviors) {
+      const type = getComponentClass(b.id);
+      const c = type ? (node.getBehaviors(type as abstract new () => Component)[b.index] as Component | undefined) : undefined;
+      const enabled = !disabled.has(`${b.id}#${b.index}`);
+      if (c && c.enabled !== enabled) c.enabled = enabled;
+    }
+  }
+
+  /**
+   * Put the ghost children of each parent whose order changed in the order their `after`s say
+   * (ADR 0121), in the places ghost children already take, so non-ghost siblings stay put. Done
+   * once all of a frame's structures are applied, so the result doesn't depend on which ghost's
+   * change was applied first.
+   */
+  private applyOrder(): void {
+    if (this.reorder.size === 0) return;
+    const world = this.world;
+    for (const [parent, changes] of this.reorder) {
+      for (const [id, after] of changes) this.afterShown.set(id, after);
+      if (!parent.isValid) continue;
+      const children = parent.children;
+      const slots: number[] = [];
+      const kids: { node: GameObject; id: number; after: number }[] = [];
+      children.forEach((c, i) => {
+        const rep = c.getBehavior(Replicated);
+        if (!rep?._isGhost || this.ghosts.get(rep._ghostId)?.node !== c) return;
+        slots.push(i);
+        // Unspecified: stays after the ghost child before it now.
+        const after = this.afterShown.get(rep._ghostId) ?? AFTER_UNSPECIFIED;
+        kids.push({ node: c, id: rep._ghostId, after: after === AFTER_UNSPECIFIED ? (kids.at(-1)?.id ?? 0) : after });
+      });
+      const present = new Set(kids.map((k) => k.id));
+      const followers = new Map<number, typeof kids>();
+      for (const k of kids) {
+        const key = present.has(k.after) ? k.after : 0;
+        followers.set(key, [...(followers.get(key) ?? []), k]);
+      }
+      const ordered: GameObject[] = [];
+      const seen = new Set<number>();
+      const visit = (id: number) => {
+        for (const k of followers.get(id) ?? []) {
+          if (seen.has(k.id)) continue;
+          seen.add(k.id);
+          ordered.push(k.node);
+          visit(k.id);
+        }
+      };
+      visit(0);
+      for (const k of kids) if (!seen.has(k.id)) ordered.push(k.node); // a cycle: keep the rest as they are
+      ordered.forEach((node, i) => {
+        if (parent.children.indexOf(node) !== slots[i]) world._setSiblingIndex(node.entity, slots[i]);
+      });
+    }
+    this.reorder.clear();
+  }
+
+  /**
+   * A ghost's layout changed (ADR 0121): add the components the new one has and the node lacks,
+   * remove the ones only the old one had, rebind, and start its states again (no interpolation
+   * across it; prediction starts afresh with the new binding).
+   */
+  private relayout(g: ClientGhost, spec: LayoutSpec, version: number): void {
+    const old = g.layout.spec;
+    g.layout = layoutOf(spec);
+    g.layoutVersion = version;
+    g.states.length = 0;
+    g.baselineTick = 0;
+    const binding = g.binding;
+    if (!binding?.node.isValid) return;
+    matchComponents(binding.node, spec, old);
+    g.binding = bind(g.layout, binding.node, binding.rep);
+    // Enabled flags refer to the layout's behaviors: apply them to the new ones.
+    if (g.applied) this.applyOrderAndEnabled(g, binding.node, { ...g.applied, after: AFTER_UNSPECIFIED });
+  }
+
+  /**
+   * A ghost isn't relevant to this connection any more (ADR 0121): destroy the node of a prefab
+   * ghost, deactivate a scene or nested one's (it can't be made again), and forget its states.
+   * Its strings are kept: the server resends them all when it comes back.
+   */
+  private leave(id: number): void {
+    this.afterShown.delete(id);
+    const g = this.ghosts.get(id);
+    if (!g) return;
+    this.ghosts.delete(id);
+    const node = g.node;
+    if (!node?.isValid) return;
+    if (g.instantiated) this.world._destroyNode(node.entity);
+    else {
+      node.setActive(false);
+      this.dormant.set(id, node);
+    }
   }
 
   /** The node a parent ref names, or undefined if it isn't there (yet). */
@@ -295,10 +445,16 @@ export class ClientReplication {
   }
 
   private despawn(id: number): void {
+    this.afterShown.delete(id);
     const g = this.ghosts.get(id);
     if (g) {
       if (g.node?.isValid) this.world._destroyNode(g.node.entity);
       this.ghosts.delete(id);
+    }
+    const dormant = this.dormant.get(id);
+    if (dormant) {
+      this.dormant.delete(id);
+      if (dormant.isValid) this.world._destroyNode(dormant.entity);
     }
     this.strings.forget(id);
     this.despawned.add(id);
@@ -353,7 +509,10 @@ export class ClientReplication {
     }
     rep._ghostId = g.id;
     rep._isGhost = true;
+    this.dormant.delete(g.id);
     g.node = node;
+    // Components added or removed on the server before this client saw the ghost (ADR 0121).
+    matchComponents(node, g.layout.spec, null);
     g.binding = bind(g.layout, node, rep);
     const newest = g.states[g.states.length - 1];
     if (newest) applyState(g.layout, g.binding, newest.values);
@@ -366,6 +525,7 @@ export class ClientReplication {
       placedUnder = !!parent;
     }
     if (node.active !== s.active) node.setActive(s.active);
+    this.applyOrderAndEnabled(g, node, s);
     // A parent not there yet: `interpolate` keeps trying.
     g.applied = placedUnder ? s : { ...s, parent: null };
     this.strings.placed(g.id);
@@ -382,12 +542,61 @@ export class ClientReplication {
         g.binding.rep._ghostId = 0;
       }
     }
+    for (const node of this.dormant.values()) {
+      const rep = node.isValid ? node.getBehavior(Replicated) : null;
+      if (rep) {
+        rep._isGhost = false;
+        rep._ghostId = 0;
+      }
+    }
+    this.dormant.clear();
+    this.reorder.clear();
+    this.afterShown.clear();
     this.ghosts.clear();
     this.despawned.clear();
     this.strings.clear();
     this.table.clear();
     this.newestTick = -1;
     this.errorLogged = false;
+  }
+}
+
+/**
+ * Make a ghost node's replicated components match `spec` (ADR 0121): behaviors with replicated
+ * fields and replicated data components it lacks are added; ones it has beyond the spec are
+ * removed (behaviors from the last of their class). With `old` (a relayout), only components the
+ * old spec had are removed; without it (a ghost first placed), only components registered for
+ * every World, so a component the server's World never had isn't taken off.
+ */
+function matchComponents(node: GameObject, spec: LayoutSpec, old: LayoutSpec | null): void {
+  const world = node.world;
+  const count = (s: LayoutSpec | null, id: string) => (s ? s.behaviors.filter((b) => b.id === id).length : 0);
+  const ids = new Set(spec.behaviors.map((b) => b.id));
+  for (const b of old?.behaviors ?? []) ids.add(b.id);
+  if (!old) {
+    for (const c of world._componentsOf(node.entity)) {
+      const type = c.constructor as ComponentClass;
+      const id = getComponentId(type);
+      if (id && !(c instanceof Replicated) && behaviorFields(type).length > 0 && getComponentOptions(type).worlds === undefined) ids.add(id);
+    }
+  }
+  for (const id of ids) {
+    const type = getComponentClass(id) as (ComponentClass & (new () => Component)) | undefined;
+    if (!type || type === (Replicated as unknown) || !_componentAllowedIn(world, type)) continue;
+    const want = count(spec, id);
+    const list = () => node.getBehaviors(type as abstract new () => Component) as Component[];
+    for (let tries = want - list().length; tries > 0 && list().length < want; tries--) node.addBehavior(type);
+    // Removal happens at the end of the frame, so count from one snapshot of the list.
+    const have = list().filter((c) => !c._destroyed);
+    const extra = Math.min(old ? count(old, id) - want : Infinity, have.length - want);
+    for (let i = 0; i < extra; i++) node.removeBehavior(have[have.length - 1 - i]);
+  }
+  const wanted = new Set(spec.data.map((d) => d.id));
+  const candidates = old ? old.data.map((d) => d.id) : world._dataComponentsOf(node.entity).filter((def) => replicationOf(def)).map((def) => def.id);
+  for (const id of candidates) {
+    if (wanted.has(id)) continue;
+    const def = getDataComponentDef(id);
+    if (def && node.getData(def)) node.removeData(def);
   }
 }
 

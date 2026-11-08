@@ -2,7 +2,10 @@
 // (ADR 0060), passed down through a Preact context rather than through every component.
 import { createContext } from "preact";
 import { useContext } from "preact/hooks";
-import type { ContextKind, ParticleGraph } from "../../../engine/scene/particleGraph";
+import type { ContextKind, GraphNode, ParticleGraph } from "../../../engine/scene/particleGraph";
+import type { PortType, Rate } from "../../../engine/scene/particleNodes";
+import type { AssetResolver } from "../../../engine/scene/particleSubgraphs";
+import type { AssetMeta } from "../../particleGraph/assetDocs";
 import type { ProblemIndex } from "../../particleGraph/problems";
 
 /** Where a dragged block would land. */
@@ -42,7 +45,15 @@ export interface GraphEditorApi {
   draggingBlock: string | null;
   blockDrop: BlockDrop | null;
   /** Project assets offered by the pickers (`asset:` references). */
-  assets: { images: string[]; materials: string[]; meshes: string[] };
+  assets: { images: string[]; materials: string[]; meshes: string[]; subgraphs: string[]; blocks: string[] };
+  /** Reads a project asset's JSON by `asset:` reference (sub-graph and block ports come from it). */
+  resolve: AssetResolver;
+  /** Set when the open file is a sub-graph or custom block asset rather than an effect. */
+  assetDoc: AssetMeta | null;
+  /** The value type of a node's output port (sub-graph outputs from their assets). */
+  typeOf(node: GraphNode, port: string): PortType | null;
+  /** The rate of a wire source (`node.port`), seeing through sub-graphs. */
+  rateOf(ref: string): Rate;
   /** A short name for a wire's source, shown on the input it feeds. */
   sourceLabel(from: string): string;
   /** The zoom, for drags measured in screen pixels. */

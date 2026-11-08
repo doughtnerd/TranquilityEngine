@@ -16,6 +16,7 @@
  */
 import { Assets } from "./Assets";
 import type { ContextKind, GraphBlock, GraphEdge, GraphInputValue, GraphNode, GraphProblem, ParticleGraph } from "./particleGraph";
+import { outputType, portRate, splitRef, whyNotConnect, type PortType, type Rate } from "./particleNodes";
 
 export const SUBGRAPH_FORMAT = "myco.particlesubgraph@1";
 export const BLOCK_FORMAT = "myco.particleblock@1";
@@ -272,4 +273,126 @@ export function expansionDependencies(graph: ParticleGraph, resolve: AssetResolv
   };
   visit(referencedAssets(graph), 0);
   return [...out];
+}
+
+// --- ports of a sub-graph node and a custom block, for the editor (ADR 0126) ---------------------------
+
+/** The ports an asset gives a node or block; `missing` when the asset isn't in the project (or isn't the right kind). */
+export interface ResolvedPorts {
+  missing: boolean;
+  inputs: AssetPort[];
+  outputs: AssetPort[];
+}
+
+const MISSING: ResolvedPorts = { missing: true, inputs: [], outputs: [] };
+
+function read(resolve: AssetResolver | undefined, ref: string): unknown {
+  if (!resolve || !ref) return undefined;
+  try {
+    return resolve(ref);
+  } catch {
+    return undefined;
+  }
+}
+
+/** A `subgraph` node's ports: its asset's inputs and outputs, with their types. */
+export function subgraphPorts(node: GraphNode, resolve: AssetResolver | undefined): ResolvedPorts {
+  const asset = parseSubgraphAsset(read(resolve, subgraphRef(node)));
+  return asset ? { missing: false, inputs: asset.inputs, outputs: asset.outputs } : MISSING;
+}
+
+/** A `custom` block's extra inputs: its asset's inputs (a block has no outputs). */
+export function customBlockPorts(block: GraphBlock, resolve: AssetResolver | undefined): ResolvedPorts {
+  const asset = parseBlockAsset(read(resolve, customBlockRef(block)));
+  return asset ? { missing: false, inputs: asset.inputs, outputs: [] } : MISSING;
+}
+
+const edgeLoops = (graph: ParticleGraph, fromId: string, toId: string): boolean => {
+  if (fromId === toId) return true;
+  const seen = new Set<string>();
+  const stack = [fromId];
+  while (stack.length) {
+    const id = stack.pop() as string;
+    if (id === toId) return true;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const e of graph.edges) if (e.to.startsWith(`${id}.`)) stack.push(splitRef(e.from)[0]);
+  }
+  return false;
+};
+
+/**
+ * `whyNotConnect` aware of sub-graph nodes. A node's ports come from its asset, so a wire from or
+ * into a Sub-graph node checks the asset's types by the same rules (equal types, or a number into a
+ * vector; a curve or gradient only into a curve or gradient); every other wire is checked on the
+ * graph with its sub-graphs inlined, so types and loops through a sub-graph count too.
+ */
+export function whyNotConnectResolved(graph: ParticleGraph, from: string, to: string, toType: PortType, resolve: AssetResolver | undefined): string | null {
+  const [fromId, fromPort] = splitRef(from);
+  const [toId, toPort] = splitRef(to);
+  const src = graph.nodes.find((n) => n.id === fromId);
+  const dst = graph.nodes.find((n) => n.id === toId);
+  const subSrc = src?.type === "subgraph", subDst = dst?.type === "subgraph";
+  if (!subSrc && !subDst) {
+    if (!graph.nodes.some((n) => n.type === "subgraph")) return whyNotConnect(graph, from, to, toType);
+    return whyNotConnect(expandParticleGraph(graph, resolve ?? (() => undefined)).graph, from, to, toType);
+  }
+  let fromType: PortType | null;
+  if (subSrc) {
+    const ports = subgraphPorts(src, resolve);
+    if (ports.missing) return "That Sub-graph's asset is missing.";
+    const out = ports.outputs.find((p) => p.name === fromPort);
+    if (!out) return `The Sub-graph has no output "${fromPort}".`;
+    fromType = out.type;
+  } else {
+    if (!src) return `There's no node "${fromId}".`;
+    fromType = outputType(expandParticleGraph(graph, resolve ?? (() => undefined)).graph, src, fromPort);
+    if (!fromType) return `That output has no value type.`;
+  }
+  let target: PortType = toType;
+  if (subDst) {
+    const ports = subgraphPorts(dst, resolve);
+    if (ports.missing) return "That Sub-graph's asset is missing.";
+    const input = ports.inputs.find((p) => p.name === toPort);
+    if (!input) return `The Sub-graph has no input "${toPort}".`;
+    target = input.type;
+  }
+  if (fromType === "event" || target === "event") return fromType === target ? null : "Events and values can't be connected.";
+  if (dst && edgeLoops(graph, fromId, toId)) return "That wire would make a loop.";
+  if (fromType === target) return null;
+  if (fromType === "number" && (target === "vector2" || target === "vector3")) return null;
+  if (fromType === "curve" || fromType === "gradient") return "A curve or gradient can only be wired into a curve or gradient input.";
+  return `Can't connect a ${fromType} to a ${target} input.`;
+}
+
+/** A wire source's value type, with sub-graph outputs read from their assets and sub-graphs inlined for the rest. */
+export function outputTypeResolved(graph: ParticleGraph, node: GraphNode, port: string, resolve: AssetResolver | undefined, expanded?: ParticleGraph): PortType | null {
+  if (node.type === "subgraph") return subgraphPorts(node, resolve).outputs.find((p) => p.name === port)?.type ?? null;
+  const g = expanded ?? (graph.nodes.some((n) => n.type === "subgraph") ? expandParticleGraph(graph, resolve ?? (() => undefined)).graph : graph);
+  return outputType(g, g.nodes.find((n) => n.id === node.id) ?? node, port);
+}
+
+/**
+ * The rate of a wire source. A Sub-graph output is per-particle when the nodes between its input
+ * and itself include a per-particle source (Random Range, Curve, Particle nodes...), or when any
+ * wired input of the node is per-particle (a deliberate simplification: one wired per-particle
+ * input makes every output per-particle); otherwise uniform. Other nodes are rated on the graph
+ * with its sub-graphs inlined, so a per-particle value passing through one stays per-particle.
+ */
+export function portRateResolved(graph: ParticleGraph, from: string, resolve: AssetResolver | undefined, expanded?: ParticleGraph, depth = 0): Rate {
+  const [id, port] = splitRef(from);
+  const node = graph.nodes.find((n) => n.id === id);
+  if (node?.type === "subgraph") {
+    if (depth > MAX_DEPTH) return "uniform";
+    const asset = parseSubgraphAsset(read(resolve, subgraphRef(node)));
+    if (!asset) return "uniform";
+    for (const e of graph.edges) if (e.to.startsWith(`${id}.`) && portRateResolved(graph, e.from, resolve, expanded, depth + 1) === "particle") return "particle";
+    const wire = asset.edges.find((e) => e.to === `output.${port}`);
+    if (!wire || wire.from.startsWith("input.")) return "uniform";
+    const inner: ParticleGraph = { properties: [], systems: [], nodes: asset.nodes, edges: asset.edges.filter((e) => !e.to.startsWith("output.")), events: [], notes: [], groups: [] };
+    const g = inner.nodes.some((n) => n.type === "subgraph") ? expandParticleGraph(inner, resolve ?? (() => undefined)).graph : inner;
+    return portRate(g, wire.from);
+  }
+  const g = expanded ?? (graph.nodes.some((n) => n.type === "subgraph") ? expandParticleGraph(graph, resolve ?? (() => undefined)).graph : graph);
+  return portRate(g, from);
 }

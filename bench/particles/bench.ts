@@ -2,6 +2,8 @@
 // real World particle player on the Babylon engine. Query: ?engine=webgpu|webgl2,
 // ?backend=cpu|gpu|js, ?counts=1000,10000, ?frames=120, ?shot=1 (stop after one run, for a
 // screenshot). Results in `window.__bench` (see bench/particles/README.md).
+import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
+import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
 import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera.js";
 import { Engine } from "@babylonjs/core/Engines/engine.js";
 import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine.js";
@@ -60,6 +62,36 @@ async function sync(engine: Engine | WebGPUEngine): Promise<void> {
   }
 }
 
+/**
+ * ADR 0126's looks, from the query: `&trail=N` adds a trail output of N points, `&blend=alpha` draws
+ * alpha-blended (sorted by default), `&soft=M` makes the output soft over M metres.
+ */
+function looks(g: ReturnType<typeof benchGraph>): ReturnType<typeof benchGraph> {
+  const sys = g.systems[0];
+  const blend = q.get("blend");
+  if (blend === "alpha" || blend === "premultiplied" || blend === "additive") sys.output.settings.blending = blend;
+  if (q.get("soft")) sys.output.settings.softness = Number(q.get("soft"));
+  if (q.get("material")) sys.output.settings.material = "materials/bench.material.json";
+  if (q.get("trail")) sys.extraOutputs = [{ type: "trail", settings: { ...sys.output.settings, trailLength: Number(q.get("trail")) }, blocks: [] }];
+  return g;
+}
+
+const benchMaterials = new WeakMap<Scene, PBRMaterial>();
+function benchMaterial(scene: Scene): PBRMaterial | null {
+  if (!q.get("material")) return null;
+  let m = benchMaterials.get(scene);
+  if (!m) {
+    new HemisphericLight("light", new Vector3(0.3, 1, 0.2), scene);
+    m = new PBRMaterial("bench material", scene);
+    m.metallic = 0;
+    m.roughness = 0.6;
+    m.albedoColor.set(1, 1, 1);
+    m.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
+    benchMaterials.set(scene, m);
+  }
+  return m;
+}
+
 async function runOne(engine: Engine | WebGPUEngine, count: number): Promise<Row> {
   const scene = new Scene(engine);
   scene.useRightHandedSystem = true;
@@ -76,11 +108,13 @@ async function runOne(engine: Engine | WebGPUEngine, count: number): Promise<Row
     texture: () => Promise.reject(new Error("no textures")),
     tierScale: () => 1,
     kernelExecutors: executors,
+    // `&material=1`: the output draws with a PBR material asset (ADR 0126), lit by a hemispheric light.
+    material: () => benchMaterial(scene),
   });
   const c = {
     isActiveAndEnabled: true,
     effect: "",
-    embeddedEffect: particleGraphJSON(benchGraph(count, backend === "cpu" ? "cpu" : "gpu")),
+    embeddedEffect: particleGraphJSON(looks(benchGraph(count, backend === "cpu" ? "cpu" : "gpu"))),
     overrides: {},
     playOnAwake: true,
     timeScale: 1,
@@ -112,6 +146,9 @@ async function runOne(engine: Engine | WebGPUEngine, count: number): Promise<Row
   const ms = (performance.now() - t0) / frames;
   const row: Row = { engine: engineKind, backend, executor: player.backendsOf(c)[0] ?? "?", particles: count, alive: c._state.count, msPerFrame: Math.round(ms * 100) / 100, errors: errors.splice(0) };
   if (q.get("shot")) {
+    // Each kernel draw's shader state, for checking new draw variants compile (ADR 0126).
+    Object.assign(window, { __player: player, __c: c, __scene: scene });
+    (window as unknown as { __draws: unknown }).__draws = player.kernelDrawsOf(c).map((d) => ({ name: d.mesh.name, ready: d.mesh.isReady(true), error: d.material.getEffect()?.getCompilationError() ?? null }));
     // Render into a texture and read it back (WebGPU canvases don't always reach headless screenshots).
     const rtt = new RenderTargetTexture("shot", { width: 640, height: 360 }, scene, false);
     camera.outputRenderTarget = rtt;

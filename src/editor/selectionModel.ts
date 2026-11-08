@@ -2,7 +2,7 @@
 // hierarchy's row order (for Shift ranges and the Alt+click list), and trimming a selection to
 // its topmost nodes (so moving or deleting a parent and its child doesn't act on the child twice).
 import { pathKey, type SceneDocument } from "./document";
-import { innerNodes, type InnerNode } from "./prefabs";
+import { instanceInnerNodes, type InnerNode } from "./prefabs";
 
 /** How a box or click combines with the current selection: replace it, add to it (Shift), or toggle (Ctrl/Cmd). */
 export type SelectMode = "replace" | "add" | "toggle";
@@ -39,7 +39,7 @@ export function hierarchyEntries(doc: SceneDocument): HierarchyEntry[] {
   const visit = (id: string, depth: number): void => {
     const node = doc.node(id);
     out.push({ key: id, name: node.name ?? id, depth, inner: false });
-    if (node.prefab) for (const n of innerNodes(node.prefab, [id])) visitInner(n, depth + 1);
+    if (node.prefab) for (const n of instanceInnerNodes(doc, id)) visitInner(n, depth + 1);
     else for (const c of doc.children(id)) visit(c, depth + 1);
   };
   for (const id of doc.roots()) visit(id, 0);
@@ -50,10 +50,24 @@ export function hierarchyEntries(doc: SceneDocument): HierarchyEntry[] {
 export function ancestorKeys(doc: SceneDocument, key: string): string[] {
   const path = key.split("/");
   const out: string[] = [];
-  for (let i = path.length - 1; i > 0; i--) out.push(pathKey(path.slice(0, i)));
+  // Inside a prefab instance, a node's path doesn't name its plain-node parents, so walk the instance's tree.
+  const chain = path.length > 1 && doc.has(path[0]) && doc.isPrefabInstance(path[0]) ? innerChain(instanceInnerNodes(doc, path[0]), key) : null;
+  if (chain) out.push(...chain.reverse(), path[0]);
+  else for (let i = path.length - 1; i > 0; i--) out.push(pathKey(path.slice(0, i)));
   if (!doc.has(path[0])) return out;
   for (let p = doc.parentOf(path[0]); p !== null; p = doc.parentOf(p)) out.push(p);
   return out;
+}
+
+/** Keys of the inner nodes from the top of `level` down to (not including) `key`, or null if it isn't there. */
+function innerChain(level: readonly InnerNode[], key: string): string[] | null {
+  for (const n of level) {
+    const k = pathKey(n.path);
+    if (k === key) return [];
+    const below = innerChain(n.children, key);
+    if (below) return [k, ...below];
+  }
+  return null;
 }
 
 /** `keys` without those that have an ancestor in `keys`, in their original order. */

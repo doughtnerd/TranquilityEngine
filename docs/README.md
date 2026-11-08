@@ -48,13 +48,13 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0008](decisions/0008-gameobjects-as-node-graph.md) | GameObjects are entities arranged as a node graph | Accepted |
 | [0009](decisions/0009-components-attached-or-as-child-nodes.md) | Components attach to a node or live as child nodes | Accepted |
 | [0010](decisions/0010-engine-graph-authoritative-over-threejs.md) | Engine node graph is authoritative; three.js never exposed | Accepted |
-| [0011](decisions/0011-frame-loop-and-system-order.md) | Frame loop and system order | Accepted |
+| [0011](decisions/0011-frame-loop-and-system-order.md) | Frame loop and system order | Accepted, amended by 0032 |
 | [0012](decisions/0012-ecs-storage-implementation.md) | ECS storage: in-house sparse sets, benchmark first | Accepted |
 | [0013](decisions/0013-data-driven-scene-format.md) | Data-driven scene format with a type registry | Accepted |
 | [0014](decisions/0014-unified-2d-and-3d.md) | 2D and 3D share one pipeline | Accepted |
 | [0015](decisions/0015-vite-build-tooling.md) | Vite build tooling | Accepted |
-| [0016](decisions/0016-world-root-and-scenes-as-nodes.md) | A World root node; scenes are nodes | Accepted |
-| [0017](decisions/0017-user-systems-and-data-components.md) | User systems and data components in v1; no engine event system | Accepted |
+| [0016](decisions/0016-world-root-and-scenes-as-nodes.md) | A World root node; scenes are nodes | Accepted, amended by 0032 |
+| [0017](decisions/0017-user-systems-and-data-components.md) | User systems and data components in v1; no engine event system | Accepted, amended by 0032 |
 | [0018](decisions/0018-promise-based-waits.md) | Promise-based waits for scripts | Accepted |
 | [0019](decisions/0019-public-api-conventions.md) | Public API conventions: names, angles, live vectors | Accepted |
 | [0020](decisions/0020-in-canvas-ui-with-uikit.md) | In-canvas UI built on pmndrs uikit | Accepted; partly superseded by 0076 (uikit) |
@@ -69,15 +69,15 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0029](decisions/0029-component-order-overrides.md) | Prefab overrides can reorder a node's components | Accepted |
 | [0030](decisions/0030-in-editor-scripting.md) | Write and run project scripts inside the editor | Accepted |
 | [0031](decisions/0031-samples-ship-beside-the-engine.md) | Samples are projects that ship beside the engine, not inside it | Accepted |
-| [0032](decisions/0032-worlds-systems-and-bootstraps.md) | The Engine runs several isolated Worlds, each with its own systems and clock | Accepted |
-| [0033](decisions/0033-server-authoritative-netcode.md) | Server-authoritative netcode between client and server Worlds | Accepted |
+| [0032](decisions/0032-worlds-systems-and-bootstraps.md) | The Engine runs several isolated Worlds, each with its own systems and clock | Accepted; partly superseded by 0034 (the current World outside frames, rendering and input ownership), amended by 0062 |
+| [0033](decisions/0033-server-authoritative-netcode.md) | Server-authoritative netcode between client and server Worlds | Accepted, amended by 0062 (links apply whenever both Worlds exist) |
 | [0034](decisions/0034-current-world-view-and-async.md) | Between frames the default World is current; the view passes between Worlds | Accepted |
 | [0035](decisions/0035-ws-for-the-node-websocket-server.md) | The Node WebSocket server uses the `ws` package | Accepted |
 | [0036](decisions/0036-connect-a-world-by-address.md) | A client World connects to a remote server by address | Accepted |
 | [0037](decisions/0037-rename-to-myco-engine.md) | The engine is renamed Myco Engine, by Foxfire Studios | Accepted |
-| [0038](decisions/0038-browser-editor-opens-folders.md) | The browser editor opens project folders through the File System Access API | Accepted |
+| [0038](decisions/0038-browser-editor-opens-folders.md) | The browser editor opens project folders through the File System Access API | Accepted, amended by 0063 (the menu bar replaces the toolbar Project menu) |
 | [0039](decisions/0039-polygon-edge-colliders.md) | Polygon and edge colliders for 2D physics | Accepted |
-| [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted |
+| [0040](decisions/0040-asset-import-sidecars.md) | Per-asset import settings live in sidecar files beside each asset | Accepted, extended by 0115 (proposed) |
 | [0041](decisions/0041-game-builds.md) | Games build to a static web player, packaged for desktop through Tauri | Accepted |
 | [0042](decisions/0042-inspector-field-types.md) | List fields, field choices, and per-instance Worlds and tags overrides | Accepted |
 | [0043](decisions/0043-meshes-lights-materials.md) | Meshes, lights and material assets: a default lit material and default lighting | Proposed |
@@ -88,13 +88,13 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0048](decisions/0048-shader-sub-graphs-and-custom-functions.md) | Shader sub-graphs, custom function nodes, normal-map sampling and node previews | Accepted |
 | [0049](decisions/0049-runtime-material-properties.md) | Scripts set material properties per MeshRenderer, like Unity's MaterialPropertyBlock | Accepted |
 | [0050](decisions/0050-graphics-quality-tiers.md) | Graphics quality tiers in project.json, chosen by the player through `Graphics.quality` | Accepted |
-| [0051](decisions/0051-post-processing.md) | Post-processing on pmndrs `postprocessing` and N8AO, set by a PostProcessing component and gated by quality tier | Accepted |
+| [0051](decisions/0051-post-processing.md) | Post-processing on pmndrs `postprocessing` and N8AO, set by a PostProcessing component and gated by quality tier | Accepted, amended by 0056 and 0111 (proposed) |
 | [0052](decisions/0052-physical-materials.md) | A physical material and graph target for clearcoat, sheen, transmission, iridescence and anisotropy | Accepted |
 | [0053](decisions/0053-environments-and-cascaded-shadows.md) | HDR environments and skyboxes through an Environment component; cascaded shadows set by quality tier | Accepted |
 | [0054](decisions/0054-reflection-probes.md) | Reflection probes capture local environment maps for the meshes inside them | Accepted |
 | [0055](decisions/0055-automatic-quality-detection.md) | Automatic graphics quality: a first guess from the GPU, then adjusting to the frame rate | Accepted |
 | [0056](decisions/0056-camera-viewports-and-per-camera-effects.md) | Camera viewports, and post-processing on every camera | Accepted |
-| [0057](decisions/0057-particle-effects-and-the-particlesystem-component.md) | Particle effects are assets in our own format, played by a ParticleSystem component on three.quarks | Accepted, amended by 0081 (no three.quarks) |
+| [0057](decisions/0057-particle-effects-and-the-particlesystem-component.md) | Particle effects are assets in our own format, played by a ParticleSystem component on three.quarks | Accepted, amended by 0081 (no three.quarks); partly superseded by 0060 (effect format and editor) |
 | [0058](decisions/0058-particle-graph-editor.md) | A particle graph editor: a node view of particle effect assets, on the shader graph's canvas | Superseded by 0060 |
 | [0059](decisions/0059-projects-window-and-faster-editor-start.md) | The desktop editor opens on a Projects window while the editor loads hidden; faster start-up | Proposed, amended by 0082 (the Projects window creates the editor window once it shows) |
 | [0060](decisions/0060-vfx-graph-particle-authoring.md) | Particle effects are VFX-Graph-style graph assets, authored only in the Particle Graph | Accepted (0094–0096 proposed amendments: kernel backends, attributes, sub-graphs and custom blocks) |
@@ -111,14 +111,14 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0071](decisions/0071-fog.md) | A Fog component sets a World's distance fog, honoured by every engine material | Accepted |
 | [0072](decisions/0072-water-surfaces-and-buoyancy.md) | Water surfaces with Gerstner waves, sampled the same on the CPU for buoyancy | Accepted |
 | [0073](decisions/0073-camera-rays-and-screen-points.md) | Cameras convert between screen points and world rays; `Ray` and `Plane` are public maths types | Accepted |
-| [0074](decisions/0074-spatial-audio-with-howler.md) | Spatial audio through Howler's spatial API, with an AudioListener component | Accepted |
+| [0074](decisions/0074-spatial-audio-with-howler.md) | Spatial audio through Howler's spatial API, with an AudioListener component | Accepted, extended by 0097 (proposed) |
 | [0075](decisions/0075-babylonjs-render-backend.md) | Babylon.js replaces three.js as the render backend (WebGPU, plain WGSL, frame graph), from upstream with module-by-module imports and copied subsystems instead of a fork | Accepted; stage 10 superseded by 0078, then restored for the renderer by 0081 |
 | [0076](decisions/0076-ui-yoga-layout-babylon-gui-drawing.md) | Game UI: Yoga lays out, Babylon GUI draws, the engine routes input; partly supersedes 0069 (uikit) | Accepted |
 | [0077](decisions/0077-ui-documents-markup-styles-scripts.md) | UI is authored as markup documents with stylesheets, driven by scripts on a data-oriented core, and edited in the scene view | Accepted |
 | [0078](decisions/0078-keep-both-render-backends.md) | Keep both render backends: Babylon.js by default, three.js as a toggle (no stage 10); three.js's loaders keep importing FBX and OBJ | Superseded by 0081 |
 | [0079](decisions/0079-clustered-lighting-for-point-and-spot-lights.md) | Point and spot lights without shadows render through Babylon's clustered lighting, so lights come and go without shader compiles and without a limit of 8 | Accepted |
 | [0080](decisions/0080-warm-up-shader-pipelines-on-scene-load.md) | Scene loads warm up the shader pipelines their content will need, derived from scenes, prefabs and script references, with a development report of anything missed | Accepted |
-| [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted |
+| [0081](decisions/0081-remove-the-threejs-render-backend.md) | Remove the three.js render backend and its toggle (Babylon.js only); `three` stays only for the OBJ, MTL and FBX loaders | Accepted, amended by 0088 (proposed: the glTF loader too) |
 | [0082](decisions/0082-editor-start-up-loading-order.md) | The editor loads in order: the Projects window (desktop) or start screen (browser) first, the editor window created once it shows, the engine prefetched behind it | Proposed |
 | [0083](decisions/0083-lazy-editor-panels-and-dialogs.md) | Editor panels and dialogs load on first show, through one small lazy-component helper and a panel registry | Proposed |
 | [0085](decisions/0085-import-files-dragged-in-from-the-os.md) | Files dragged from the OS into the Assets panel are copied into the project | Proposed |
@@ -154,6 +154,13 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0115](decisions/0115-sprite-editor-9-slice-undo-and-per-platform-import.md) | Sprites draw 9-sliced from a slice's border; the Sprite Editor gets border guides, undo/redo and slice search; import sidecars gain per-platform overrides, `maxSize` and `compression` (the last two advisory) | Proposed |
 | [0116](decisions/0116-editor-themes-display-scaling-layer-rename-and-history-pruning.md) | Theme import/export and per-project themes, bundled fonts and a light logo; display scaling; project-wide layer rename; persisted desktop folder access; age-based history pruning | Proposed |
 | [0117](decisions/0117-shader-graph-search-node-preview-shapes-and-scene-thumbnails.md) | Shader graph find, per-node preview shapes, and camera-view scene thumbnails | Proposed |
+| [0118](decisions/0118-gltf-pivots-lights-cameras-layer-textures-and-variants.md) | Model parts keep node pivots by default (scene format 2 pins old part references with `#model`), glTF lights and cameras as nodes, layer textures and anisotropy, material assets and physical graphs gain every glTF material feature (lossless extraction), material variants on `MeshRenderer.variant` | Proposed |
+| [0120](decisions/0120-hold-a-worlds-first-frames-and-trim-load-time-main-thread-work.md) | A new World's first frames are held on the clear colour while their pipelines (content, post-process, UI) compile asynchronously; Babylon's include expansion is memoized in our patch; the screen UI's canvas is made with `willReadFrequently` | Proposed |
+| [0121](decisions/0121-interest-management-and-ghost-component-changes.md) | Snapshots carry only ghosts relevant to each connection (by distance and group), and replicate components' enabled state, sibling order and components added or removed after spawn | Proposed |
+| [0122](decisions/0122-rename-and-deactivate-inside-instances-and-open-prefab-from-an-instance.md) | Rename and deactivate nodes inside a prefab instance (overrides Apply writes), and Open Prefab from an instance in its own tab | Proposed |
+| [0123](decisions/0123-per-component-field-migrations.md) | Per-component field migrations with component versions recorded per file | Proposed (not to be built yet) |
+| [0124](decisions/0124-structural-edits-to-a-live-world.md) | The live Hierarchy and Inspector create, delete, rename and reparent nodes, add and remove components and set node references in a running World; play-only, no undo | Proposed |
+| [0126](decisions/0126-kernel-particle-trails-materials-sorting-dead-list-and-soft-cpu-particles.md) | Kernel particles gain trails, material assets, sorting and a dead list; soft CPU particles; a height-fog hook for custom shaders | Proposed |
 | [0128](decisions/0128-render-surface-runtime-core-and-editor-viewport-handle.md) | The render surface is a runtime core plus an editor viewport handle | Proposed |
 
 ## Working with decisions

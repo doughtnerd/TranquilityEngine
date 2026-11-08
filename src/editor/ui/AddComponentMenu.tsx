@@ -16,7 +16,7 @@ import { currentProject, status, type OpenScene } from "../state";
  * showing each one's category. Arrows move, Right/Enter opens a submenu or adds, Left closes a
  * submenu, Escape closes one level, then the menu.
  */
-export function AddComponentMenu(props: { scene: OpenScene; targets: { path: NodePath; node: GameObject }[] }) {
+export function AddComponentMenu(props: MenuProps) {
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLDivElement>(null);
   return (
@@ -28,6 +28,12 @@ export function AddComponentMenu(props: { scene: OpenScene; targets: { path: Nod
     </div>
   );
 }
+
+/**
+ * Edit mode adds to the document's nodes (one undo step). A live World (ADR 0124) passes `onAdd`
+ * instead, which adds to the running nodes and returns how many took it; it has no New script item.
+ */
+type MenuProps = { scene: OpenScene; targets: { path: NodePath; node: GameObject }[]; onAdd?: undefined } | { scene?: undefined; targets: { node: GameObject }[]; onAdd: (type: string) => number };
 
 const MENU_HEIGHT = 320;
 const RECENT = 5;
@@ -60,8 +66,8 @@ function Flyout(props: { anchorKey: string; label: string; children: ComponentCh
   );
 }
 
-function Menu(props: { scene: OpenScene; targets: { path: NodePath; node: GameObject }[]; anchor: HTMLElement; close: () => void }) {
-  const { scene, targets, close } = props;
+function Menu(props: MenuProps & { anchor: HTMLElement; close: () => void }) {
+  const { targets, close } = props;
   // Fixed to the window, so the Inspector's scrolling panel doesn't clip it: below the button,
   // or above it when there isn't room.
   const [place, setPlace] = useState<Record<string, string>>({ opacity: "0" }); // until placed; still focusable
@@ -118,7 +124,7 @@ function Menu(props: { scene: OpenScene; targets: { path: NodePath; node: GameOb
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
 
   const add = (id: string) => {
-    const n = addComponentTo(scene, targets, id);
+    const n = props.onAdd ? props.onAdd(id) : addComponentTo(props.scene, props.targets, id);
     const name = id.replace(/^[^.]*\./, "");
     recentComponents.value = [id, ...recentComponents.value.filter((x) => x !== id)].slice(0, RECENT);
     if (targets.length > 1) status.value = { kind: "info", text: `Added ${name} to ${n} of ${targets.length} nodes.` };
@@ -276,7 +282,7 @@ function Menu(props: { scene: OpenScene; targets: { path: NodePath; node: GameOb
               {panelRows(es, j + 1)}
             </Flyout>
           ))}
-        {currentProject.value?.root != null && (
+        {!props.onAdd && currentProject.value?.root != null && (
           <button
             class="new-script-item"
             disabled={!currentProject.value.canSave}
@@ -284,7 +290,7 @@ function Menu(props: { scene: OpenScene; targets: { path: NodePath; node: GameOb
             onPointerDown={(e) => e.preventDefault() /* keep the search box focused until chosen */}
             onClick={() => {
               close();
-              void newScript({ addTo: targets });
+              if (!props.onAdd) void newScript({ addTo: props.targets });
             }}
           >
             New script…

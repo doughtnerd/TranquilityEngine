@@ -184,6 +184,11 @@
 .pg-node-head.cat-colour { --cat: var(--pg-color); }
 .pg-node-head.cat-property { --cat: var(--muted); }
 .pg-node-head.cat-event { --cat: var(--pg-event); }
+.pg-node-head.cat-sub-graph { --cat: var(--accent); }
+.pg-node-head.cat-particle { --cat: var(--accent2); }
+.pg-missing { margin: 2px 10px; padding: 1px 6px; border: 1px solid var(--danger); border-radius: 4px; background: var(--danger-soft); color: var(--danger); font-size: 11px; }
+.pg-toolbar .pg-asset-fields { display: inline-flex; gap: 8px; align-items: center; font-size: calc(12px * var(--ui-scale)); color: var(--muted); }
+.pg-toolbar .pg-asset-fields label { display: inline-flex; align-items: center; gap: 3px; }
 .pg-row { position: relative; display: flex; align-items: center; gap: 6px; min-height: 20px; padding: 1px 10px; }
 .pg-row.out { justify-content: flex-end; }
 .pg-row-label { flex: none; min-width: 34px; color: var(--muted); font-size: 11px; white-space: nowrap; }

@@ -1,5 +1,6 @@
 // The Hierarchy's menus (ADR 0022): the "+" Create menu in its header and the right-click menu on
 // rows and empty space. Same look and keys as the Assets panel's menu (`.context-menu`).
+import { openPrefabFrom } from "../prefabTabs";
 import { signal } from "@preact/signals";
 import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
 import { deleteSelected } from "../deleteSelection";
@@ -98,7 +99,7 @@ export function rowMenuItems(scene: OpenScene, key: string | null): MenuItem[] {
   if (key === null) return [...createItems(scene, null, undefined, ""), SEPARATOR, pasteItem(false)];
   const beside = besideRow(scene, key);
   const keys = selectedKeys.value;
-  const inner = keys.some(isInsidePrefab) ? "nodes inside a prefab are edited in the prefab" : null;
+  const inner = keys.some(isInsidePrefab) ? "nodes inside a prefab are edited in the prefab (Open Prefab)" : null;
   const editing = playState.value !== "edit" ? "stop playing to edit the scene" : null;
   const hiddenOwn = nodeFlags.value.hidden.has(key), lockedOwn = nodeFlags.value.locked.has(key);
   return [
@@ -112,6 +113,9 @@ export function rowMenuItems(scene: OpenScene, key: string | null): MenuItem[] {
     pasteItem(true),
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: editing ?? inner, run: () => void duplicateSelection() },
     { label: "Delete", shortcut: "Del", disabled: editing ?? (keys.some(isInsidePrefab) && !keys.every(isInsidePrefab) ? "can't delete nodes inside a prefab together with others" : null), run: () => void deleteSelected() },
+    ...(scene.doc.has(key.split("/")[0]) && scene.doc.isPrefabInstance(key.split("/")[0])
+      ? [SEPARATOR, { label: "Open Prefab", run: () => void openPrefabFrom(key.split("/")) }]
+      : []),
     SEPARATOR,
     {
       label: hiddenOwn ? "Show in Scene View" : "Hide in Scene View",
