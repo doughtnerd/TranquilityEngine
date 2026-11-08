@@ -12,7 +12,7 @@
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "skipLibCheck": true,
-    "paths": { "myco": ["./src/myco.ts"], "tranquility": ["./src/myco.ts"] },
+    "paths": { "myco": ["./src/myco.ts"], "myco/editor": ["./src/editor/sdk/index.ts"], "tranquility": ["./src/myco.ts"] },
     "sourceMap": true,
     "outDir": "./dist/"
   },

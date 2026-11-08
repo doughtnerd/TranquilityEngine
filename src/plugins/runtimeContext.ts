@@ -63,6 +63,8 @@ export interface ActivateOptions {
   readonly enabled?: Iterable<string>;
   /** For the dedicated server: plugins whose manifest says `server: false` are left out (as disabled). */
   readonly server?: boolean;
+  /** Dependencies outside `plugins` that are already active (ADR 0139: third-party halves activated after the first-party ones). */
+  readonly provided?: ReadonlySet<string>;
 }
 
 const active = new Map<string, Array<() => void>>();
@@ -111,7 +113,7 @@ function unclaim(cls: ComponentClass, id: string): () => void {
  */
 export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], options: ActivateOptions = {}): void {
   const enabled = options.enabled ? new Set(options.enabled) : null;
-  for (const plugin of orderPlugins(plugins)) {
+  for (const plugin of orderPlugins(plugins, options.provided)) {
     const name = plugin.manifest.name;
     if (active.has(name)) continue;
     manifests.set(name, plugin.manifest);

@@ -3,7 +3,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ANTIALIAS_MODES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
-import { pluginManifests } from "../../plugins/editorApply";
+import { allPluginManifests } from "../../plugins/thirdPartyEditor";
 import { RENAMED_PLUGINS } from "../../plugins/enabled";
 import { reloadGraphics } from "../graphicsPreview";
 import { errorStatus } from "../messages";
@@ -157,7 +157,7 @@ export function ProjectSettingsPanel() {
   const draft = s.history.current;
   const editable = project.canSave;
   const problems = settingsProblems(draft, project.files);
-  const warnings = settingsWarnings(draft, [...pluginManifests().map((m) => m.name), ...Object.keys(RENAMED_PLUGINS)]); // old names still work (ADR 0137)
+  const warnings = settingsWarnings(draft, [...allPluginManifests().map((m) => m.name), ...Object.keys(RENAMED_PLUGINS)]); // old names still work (ADR 0137)
   const unsaved = sectionsKey(draft) !== sectionsKey(readDraft(project.settings));
   const problemsAt = (field: string) => problems.filter((p) => p.field === field || p.field.startsWith(`${field}.`));
   const set = (label: string, next: SettingsDraft) => edit(s, label, next);

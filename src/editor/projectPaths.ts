@@ -46,5 +46,8 @@ export const isTextAsset = (path: string) => TEXT_LANGUAGES.has(extensionOf(path
 /** The Code panel's language for a file it opens: a text asset's by extension, else TypeScript (a script). */
 export const codeLanguageOf = (path: string): CodeLanguage => TEXT_LANGUAGES.get(extensionOf(path)) ?? "typescript";
 
-/** Where scripts live in a project, and which files count. */
-export const isScriptPath = (path: string) => path.startsWith("scripts/") && path.endsWith(".ts") && !path.endsWith(".d.ts");
+/**
+ * Where scripts live in a project, and which files count: `.ts` files under `scripts/`, and under a
+ * project plugin's folder, `plugins/<folder>/` (ADR 0139: plugin halves compile like scripts).
+ */
+export const isScriptPath = (path: string) => (path.startsWith("scripts/") || /^plugins\/[^/]+\/./.test(path)) && path.endsWith(".ts") && !path.endsWith(".d.ts");

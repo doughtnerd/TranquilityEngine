@@ -9,7 +9,7 @@ import { BootstrapError, assertValidBootstrap } from "../engine/core/bootstrap";
 import { DEFAULT_WORLD_TAGS } from "../engine/core/worlds";
 import type { World } from "../engine/core/World";
 import { listenWorld, netSession, setDefaultListenOptions, type NetPeer } from "../engine/net/session";
-import { loadProjectScripts, readProject, scriptExports, ServerError, type ServerProject } from "./project";
+import { loadProjectCode, readProject, scriptExports, ServerError, type ServerProject } from "./project";
 import { parseListenAddress } from "./websocketServer";
 import { activateRuntimePlugins, enabledRuntimePlugins, RUNTIME_PLUGINS } from "../plugins/runtime";
 
@@ -64,7 +64,7 @@ export interface RunningServer {
 export async function startServer(options: ServerOptions): Promise<RunningServer> {
   const log = options.log ?? ((line: string) => console.log(line));
   const project = await readProject(options.projectDir);
-  const loaded = await loadProjectScripts(project);
+  const { loaded, plugins: thirdParty } = await loadProjectCode(project); // scripts and third-party runtime halves (ADR 0139)
   log(`[server] Project "${project.settings.name ?? project.root}" (${project.root}): ${loaded.length} script${loaded.length === 1 ? "" : "s"} loaded.`);
 
   const plan = await serverBootstrap(project);
@@ -73,6 +73,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   try {
     // First-party runtime halves (ADR 0135), skipping drawing-only ones (`server: false`).
     activateRuntimePlugins(RUNTIME_PLUGINS, { server: true, enabled: enabledRuntimePlugins(project.settings.plugins?.disabled) }); // and the project's disabled ones (ADR 0133)
+    // Third-party runtime halves after them (ADR 0139); `loadProjectCode` already left out disabled and `server: false` ones.
+    if (thirdParty.length > 0) activateRuntimePlugins([...RUNTIME_PLUGINS, ...thirdParty], { server: true, enabled: [...enabledRuntimePlugins(project.settings.plugins?.disabled), ...thirdParty.map((p) => p.manifest.name)] });
     engine = await Engine.create({ headless: true, project: project.settings, bootstrap: plan.bootstrap });
   } catch (err) {
     Assets.removeSource(project.assets);

@@ -9,7 +9,7 @@ import JsonWorker from "monaco-editor/languages/features/json/json.worker.js?wor
 import CssWorker from "monaco-editor/languages/features/css/css.worker.js?worker";
 import TsWorker from "monaco-editor/languages/features/typescript/ts.worker.js?worker";
 import engineTypes from "virtual:myco-types";
-import { codeLanguageOf } from "../projectPaths";
+import { codeLanguageOf, isScriptPath } from "../projectPaths";
 import { codeAppearance, monacoColors } from "../theme";
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
@@ -178,7 +178,7 @@ const flatten = (text: string | { messageText: string; next?: unknown[] }): stri
  */
 export async function checkScripts(project: unknown, files: ReadonlyMap<string, string>, dirty: ReadonlySet<string>): Promise<ScriptDiagnostic[]> {
   syncProject(project, files, dirty);
-  const scripts = [...files.keys()].filter((p) => p.startsWith("scripts/") && p.endsWith(".ts") && !p.endsWith(".d.ts")).sort();
+  const scripts = [...files.keys()].filter(isScriptPath).sort(); // plugin sources too (ADR 0139)
   if (scripts.length === 0) return [];
   const worker = await ts.getTypeScriptWorker();
   const client = await worker(...scripts.map(uriOf));

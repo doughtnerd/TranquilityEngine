@@ -31,6 +31,7 @@ import { startPlay, type PlaySession } from "./playMode";
 import { applyKept, endLiveInspection, takeKept, type KeptValues } from "./runtimeInspect";
 import { openSceneFile, saveOpenScene } from "./project";
 import { applyEnabledPlugins } from "../plugins/editorApply";
+import { loadProjectCode, projectPlugins, unloadThirdPartyPlugins } from "../plugins/thirdPartyEditor";
 import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, docVersion, editingCollider, openScene, openScenes, playState, sceneCamera, scriptProblems, scriptsVersion, select, selectedKeys, selection, setViewMode, status, viewMode, type OpenScene } from "./state";
 import type { ViewMode } from "./OrbitCamera";
@@ -119,7 +120,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   closeAllScripts();
   resetAssetBrowser();
   applyEnabledPlugins(project.settings.plugins?.disabled); // before the scripts and scenes: a disabled plugin's Components are gone (ADR 0133)
-  const scripts = await replaceScripts(project.scripts, jsonFiles(project), packageSourceFor(project));
+  const scripts = await loadProjectCode(project); // scripts and third-party plugins (ADR 0139)
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;
   void setUpScripting(project);
@@ -546,6 +547,7 @@ export async function closeProject(): Promise<void> {
   closeAllScripts();
   resetAssetBrowser();
   currentProject.value = null;
+  unloadThirdPartyPlugins();
   const scripts = await replaceScripts(new Map(), new Map());
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;
@@ -571,6 +573,8 @@ export function reapplyPlugins(): void {
   applyEnabledPlugins(project.settings.plugins?.disabled, { live: true });
   openScene.value?.sync.build();
   docVersion.value++; // panels, outlines, asset kinds and the Inspector pick up the change
+  // Third-party plugins' code loads with the scripts (ADR 0139): reload it with the new set.
+  if (projectPlugins.value.found.length > 0) void reloadScripts();
 }
 
 /** Save the open scene to disk. */
@@ -748,7 +752,7 @@ export async function reloadScripts(options: { outside?: boolean } = {}): Promis
     status.value = errorStatus(`Couldn't read the scripts`, err);
     return;
   }
-  const result = await replaceScripts(project.scripts, jsonFiles(project), packageSourceFor(project));
+  const result = await loadProjectCode(project); // third-party plugins' halves re-activate from the new code (ADR 0139)
   scriptProblems.value = result.problems;
   scriptsVersion.value++;
   syncPackageTypes(project);
@@ -783,7 +787,7 @@ async function reloadIntoGame(project: EditorProject, session: PlaySession): Pro
     return;
   }
   const before = captureScriptTypes(loadedRegistrations());
-  const result = await replaceScripts(project.scripts, jsonFiles(project), packageSourceFor(project));
+  const result = await loadProjectCode(project, { runtime: false }); // plugins' editor halves re-activate; runtime halves wait for Stop (ADR 0139)
   scriptProblems.value = result.problems;
   scriptsVersion.value++;
   pendingReload = true; // the Editor World rebuilds from its document on Stop
@@ -816,7 +820,8 @@ export async function saveCodeFile(path: string, text: string): Promise<void> {
   scriptsVersion.value++;
   docVersion.value++; // e.g. the Assets panel
   const name = path.slice(path.lastIndexOf("/") + 1);
-  if (path.endsWith(".json") && [...project.scripts.values()].some((s) => s.includes(name))) await reloadScripts();
+  // A plugin's manifest (ADR 0139) decides what loads, so saving one reloads the project's code too.
+  if (/^plugins\/[^/]+\/plugin\.json$/.test(path) || (path.endsWith(".json") && [...project.scripts.values()].some((s) => s.includes(name)))) await reloadScripts();
   else status.value = { kind: "info", text: `Saved ${path}.` };
 }
 

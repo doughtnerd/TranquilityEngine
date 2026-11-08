@@ -199,3 +199,50 @@ export {
 
 // The Materials plugin's public types (`Material`, `MaterialSettings`) are core exports: material
 // resolution is a shared render service (ADR 0133).
+
+// --- Third-party plugin SDK (ADR 0139) -----------------------------------------------------------
+// What a third-party plugin's runtime half needs from `myco`: the plugin types, the SDK version its
+// `plugin.json` `sdk` range is checked against, and the Physics plugin's backend contribution point
+// (ADR 0137), so a backend plugin can be written against `myco` alone. Editor halves import
+// `myco/editor` (the editor SDK). Kept apart from the first-party plugin export blocks above.
+export type { PluginManifest } from "./plugins/manifest";
+export type { RuntimePlugin, RuntimePluginContext, ContributionPoint } from "./plugins/runtimeContext";
+export { SDK_VERSION, type ThirdPartyManifest, type PluginAssetKind } from "./plugins/thirdParty";
+export { PHYSICS_BACKENDS, physicsBackends, registerPhysicsBackend } from "./plugins/physics/runtime";
+export type {
+  Vec2 as PhysicsVec2,
+  Vec3 as PhysicsVec3,
+  Quat as PhysicsQuat,
+  Point2 as PhysicsPoint2,
+  ShapeDesc2D,
+  ShapeDesc3D,
+  QueryShape2D,
+  QueryShape3D,
+  JointKind2D,
+  JointKind3D,
+  JointSettings,
+  DimensionTypes,
+  Dim2,
+  Dim3,
+  Pose,
+  BodySettings,
+  BackendBody,
+  ColliderDesc,
+  BackendCollider,
+  JointDesc,
+  BackendJoint,
+  CharacterSettings,
+  CharacterHit,
+  BackendCharacter,
+  RayHit,
+  PhysicsCapabilities,
+  PhysicsWorldBackend,
+  PhysicsWorldOptions,
+  PhysicsBackend,
+  PhysicsBackend2D,
+  PhysicsBackend3D,
+  PhysicsWorld2DBackend,
+  PhysicsWorld3DBackend,
+  PhysicsDimension,
+  PhysicsBackendRegistration,
+} from "./plugins/physics/runtime";

@@ -155,7 +155,7 @@ class MapProject implements EditorProject {
 
   async writeScript(path: string, text: string): Promise<void> {
     if (!this.write) throw new Error(`${this.name} is read-only. Open a project folder to save.`);
-    if (!isScriptPath(path)) throw new Error(`${path} isn't a script: scripts are .ts files under scripts/.`);
+    if (!isScriptPath(path)) throw new Error(`${path} isn't a script: scripts are .ts files under scripts/ (or a plugin's folder under plugins/).`);
     await this.write(path, text);
     this.scriptMap = new Map(this.scriptMap).set(path, text);
   }
@@ -392,6 +392,10 @@ export async function openFolderProject(fs: FileSystem, root: string): Promise<E
     const scripts = new Map<string, string>();
     if (await fs.exists(joinPath(root, "scripts"))) {
       for (const path of await listAssetFiles(fs, root, "scripts", isScriptPath)) scripts.set(path, await fs.readText(joinPath(root, path)));
+    }
+    // Project plugins' sources compile like scripts (ADR 0139).
+    if (await fs.exists(joinPath(root, "plugins"))) {
+      for (const path of await listAssetFiles(fs, root, "plugins", isScriptPath)) scripts.set(path, await fs.readText(joinPath(root, path)));
     }
     return scripts;
   };

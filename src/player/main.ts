@@ -12,6 +12,7 @@ import * as engine from "../myco";
 import { activateRuntimePlugins, enabledRuntimePlugins, RUNTIME_PLUGINS } from "../plugins/runtime";
 import { Assets, Engine, type Bootstrap, type ProjectSettingsInput } from "../engine";
 import { engineWorld, engineWorldConfig, setScriptAssetRefs } from "../engine/editor";
+import { toRuntimePlugin } from "../plugins/thirdParty";
 import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, type GameManifest } from "../export/format";
 
 /** A build file's URL, from its "/"-separated path. */
@@ -48,6 +49,15 @@ async function boot(): Promise<void> {
   activateRuntimePlugins(RUNTIME_PLUGINS, { enabled: enabledRuntimePlugins(settings.plugins?.disabled) });
   setScriptAssetRefs(manifest.assetRefs ?? []); // warmed up with every scene (ADR 0080)
   for (const script of manifest.scripts) await import(/* @vite-ignore */ urlOf(script.module));
+  // Third-party plugins' runtime halves (ADR 0139): the build holds only enabled ones, in dependency order.
+  const thirdParty = [];
+  for (const p of manifest.plugins ?? []) {
+    const module = (await import(/* @vite-ignore */ urlOf(p.module))) as Record<string, unknown>;
+    thirdParty.push(toRuntimePlugin({ manifest: p.manifest, source: { kind: "project", folder: "" }, where: p.module, runtime: p.module }, module));
+  }
+  if (thirdParty.length > 0) {
+    activateRuntimePlugins([...RUNTIME_PLUGINS, ...thirdParty], { enabled: [...enabledRuntimePlugins(settings.plugins?.disabled), ...thirdParty.map((p) => p.manifest.name)] });
+  }
   const moduleOf = (path: string) => manifest.scripts.find((s) => s.source === path.replace(/^\.?\//, ""))?.module;
   const loadScript = async (path: string): Promise<Bootstrap> => {
     const module = moduleOf(path);
