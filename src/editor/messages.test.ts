@@ -1,12 +1,13 @@
 import { effect, signal } from "@preact/signals";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { LOG_LIMIT, clearLog, describeError, errorStatus, installMessageLog, logMessage, logOpen, logText, messageLog, unseenErrors } from "./messages";
+import { LOG_LIMIT, clearLog, describeError, errorStatus, installMessageLog, kindShown, logMessage, logOpen, logShown, logText, messageLog, shownEntries, toggleLogKind, unseenErrors } from "./messages";
 import { status } from "./state";
 
 beforeEach(() => {
   clearLog();
   logOpen.value = false;
   status.value = null;
+  logShown.value = { info: true, warning: true, error: true };
 });
 
 describe("error statuses", () => {
@@ -34,6 +35,34 @@ describe("the log", () => {
   it("copies as plain text with details", () => {
     logMessage("error", "oops", "at line 3");
     expect(logText()).toMatch(/\] ERROR oops\nat line 3$/);
+  });
+});
+
+describe("the log's filter", () => {
+  it("shows every kind by default and hides the kinds toggled off", () => {
+    logMessage("info", "a");
+    logMessage("warning", "b");
+    logMessage("error", "c");
+    expect(shownEntries()).toBe(messageLog.value);
+    toggleLogKind("info");
+    expect(shownEntries().map((e) => e.text)).toEqual(["b", "c"]);
+    toggleLogKind("error");
+    expect(shownEntries().map((e) => e.text)).toEqual(["b"]);
+    toggleLogKind("info");
+    expect(shownEntries().map((e) => e.text)).toEqual(["a", "b"]);
+    expect(messageLog.value).toHaveLength(3); // hiding never drops entries
+  });
+
+  it("treats a kind missing from a stored preference as shown", () => {
+    expect(kindShown("warning", { info: false })).toBe(true);
+    expect(kindShown("info", { info: false })).toBe(false);
+  });
+
+  it("copies only the entries passed", () => {
+    logMessage("info", "hello");
+    logMessage("error", "oops");
+    logShown.value = { info: false, warning: true, error: true };
+    expect(logText(shownEntries())).toMatch(/^\[[^\]]+\] ERROR oops$/);
   });
 });
 

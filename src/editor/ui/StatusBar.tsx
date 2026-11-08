@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { clearLog, logOpen, logText, messageLog, unseenErrors, type LogEntry } from "../messages";
+import { LOG_KINDS, clearLog, kindShown, logOpen, logText, messageLog, shownEntries, toggleLogKind, unseenErrors, type LogEntry } from "../messages";
 import { addToPreload, preloadSuggestion } from "../scenePreload";
 import { docVersion, openScene, scriptProblems, status } from "../state";
 import { menuOpen } from "./MenuBar";
@@ -79,9 +79,17 @@ function ScriptProblems() {
   );
 }
 
-/** The message log: newest first, with times, full text and details; Copy, Clear, Close; Escape closes. */
+/** What each filter toggle is called. */
+const KIND_LABELS: Record<LogEntry["kind"], string> = { info: "Info", warning: "Warnings", error: "Errors" };
+
+/**
+ * The message log: newest first, with times, full text and details; toggles that show or hide each
+ * kind of entry; Copy (what's shown), Clear, Close; Escape closes.
+ */
 function MessageLog() {
-  const entries = messageLog.value;
+  const all = messageLog.value;
+  const entries = shownEntries(all);
+  const filtered = entries.length !== all.length;
   const [copied, setCopied] = useState(false);
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -98,12 +106,30 @@ function MessageLog() {
     <section id="message-log" class="message-log" ref={panel} tabIndex={-1} role="log" aria-label="Message log">
       <header class="message-log-bar">
         <span class="message-log-title">Messages</span>
-        <span class="message-log-count">{entries.length === 0 ? "none yet" : `${entries.length}`}</span>
+        <span class="message-log-count">{all.length === 0 ? "none yet" : filtered ? `${entries.length} of ${all.length} shown` : `${all.length}`}</span>
+        <span class="message-log-filters" role="group" aria-label="Show messages of these kinds">
+          {LOG_KINDS.map((kind) => {
+            const on = kindShown(kind);
+            const count = all.reduce((n, e) => (e.kind === kind ? n + 1 : n), 0);
+            return (
+              <button
+                key={kind}
+                class={`message-log-filter ${kind}${on ? " on" : ""}`}
+                aria-pressed={on}
+                title={`${on ? "Hide" : "Show"} ${KIND_LABELS[kind].toLowerCase()}`}
+                onClick={() => toggleLogKind(kind)}
+              >
+                {KIND_LABELS[kind]} <span class="message-log-filter-count">{count}</span>
+              </button>
+            );
+          })}
+        </span>
         <button
           disabled={entries.length === 0}
+          title={filtered ? "Copy the messages shown" : "Copy every message"}
           onClick={async () => {
             try {
-              await navigator.clipboard.writeText(logText());
+              await navigator.clipboard.writeText(logText(entries));
               setCopied(true);
               setTimeout(() => setCopied(false), 1500);
             } catch {
@@ -113,7 +139,7 @@ function MessageLog() {
         >
           {copied ? "Copied" : "Copy"}
         </button>
-        <button disabled={entries.length === 0} onClick={clearLog}>
+        <button disabled={all.length === 0} onClick={clearLog}>
           Clear
         </button>
         <button aria-label="Close the message log" onClick={() => (logOpen.value = false)}>
@@ -121,7 +147,8 @@ function MessageLog() {
         </button>
       </header>
       <ol class="message-log-list">
-        {entries.length === 0 && <li class="empty">Messages and errors show up here.</li>}
+        {all.length === 0 && <li class="empty">Messages and errors show up here.</li>}
+        {all.length > 0 && entries.length === 0 && <li class="empty">No messages of the kinds shown. Turn on a kind above to see its messages.</li>}
         {[...entries].reverse().map((e) => (
           <Entry key={e.id} entry={e} />
         ))}

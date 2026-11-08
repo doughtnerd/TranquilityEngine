@@ -546,6 +546,11 @@ button:disabled.primary { opacity: 0.5; }
 .message-log-title { font-weight: 600; }
 .message-log-count { flex: 1; color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
 .message-log-bar button { padding: 1px 10px; font-size: calc(12px * var(--ui-scale)); }
+.message-log-filters { display: flex; gap: 4px; margin-right: 8px; }
+.message-log-bar .message-log-filter { opacity: 0.55; text-decoration: line-through; }
+.message-log-bar .message-log-filter.on { opacity: 1; text-decoration: none; border-color: var(--accent); }
+.message-log-filter-count { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 2px; }
+.message-log-filter.error.on .message-log-filter-count { color: var(--danger); }
 .message-log-list { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; user-select: text; }
 .message-log-list .empty { padding: 10px; color: var(--muted); }
 .message-entry .message-action { flex: none; font-size: calc(11px * var(--ui-scale)); padding: 1px 8px; }
