@@ -16,6 +16,7 @@ import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture.js";
+import "../prefilterGuard";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Scene } from "@babylonjs/core/scene.js";
