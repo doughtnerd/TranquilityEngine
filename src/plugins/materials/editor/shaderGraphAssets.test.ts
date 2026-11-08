@@ -1,14 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph } from "../engine/scene/shaderGraph";
-import { _reset } from "./assetDocuments";
-import { moveAssets } from "./assetOps";
-import { joinPath, openFolderProject, type EditorProject } from "./projects";
-import { assetFormats } from "./sdk/contributions";
+import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph } from "../../../engine/scene/shaderGraph";
+import { _reset } from "../../../editor/assetDocuments";
+import { activatePlugins, deactivatePlugin } from "../../../editor/sdk/plugins";
+import { materialsEditorPlugin } from ".";
+import { moveAssets } from "../../../editor/assetOps";
+import { joinPath, openFolderProject, type EditorProject } from "../../../editor/projects";
+import { assetFormats } from "../../../editor/sdk/contributions";
 import { addNode, moveNodes } from "./shaderGraph/graphEdit";
 import { readShaderGraph, shaderGraphDocument, writeShaderGraph } from "./shaderGraphAssets";
 import { shaderGraphFormat, shaderSubgraphFormat } from "./shaderGraphFormat";
-import { currentProject, status } from "./state";
-import { MemoryFileSystem, ROOT } from "./testing";
+import { currentProject, status } from "../../../editor/state";
+import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 
 const PATH = "shaders/a.shadergraph.json";
 const SUB = "shaders/b.shadersubgraph.json";
@@ -25,8 +27,11 @@ beforeEach(async () => {
   currentProject.value = project;
 });
 
+// The formats come from the Materials plugin (ADR 0134).
+beforeEach(() => activatePlugins([materialsEditorPlugin]));
 afterEach(() => {
   _reset();
+  deactivatePlugin(materialsEditorPlugin.manifest.name);
   vi.useRealTimers();
   currentProject.value = null;
   status.value = null;

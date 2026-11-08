@@ -1,17 +1,21 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { _reset, openAssetDocument } from "./assetDocuments";
-import { moveAssets } from "./assetOps";
-import type { MaterialSettings } from "../engine/scene/material";
-import { colorHex } from "../engine/scene/material";
-import { parseShaderAsset } from "../engine/scene/shaderAsset";
-import { createShader, editMaterial, readMaterial, withKeywordValue } from "./materialAssets";
-import { joinPath, openFolderProject } from "./projects";
-import { currentProject } from "./state";
-import { MemoryFileSystem, ROOT } from "./testing";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { _reset, openAssetDocument } from "../../../editor/assetDocuments";
+import { activatePlugins, deactivatePlugin } from "../../../editor/sdk/plugins";
+import { materialsEditorPlugin } from ".";
+import { moveAssets } from "../../../editor/assetOps";
+import type { MaterialSettings } from "../../../engine/scene/material";
+import { colorHex } from "../../../engine/scene/material";
+import { editMaterial, readMaterial, withKeywordValue } from "./materialAssets";
+import { joinPath, openFolderProject } from "../../../editor/projects";
+import { currentProject } from "../../../editor/state";
+import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 
 
+// The formats come from the Materials plugin (ADR 0134).
+beforeEach(() => activatePlugins([materialsEditorPlugin]));
 afterEach(() => {
   _reset();
+  deactivatePlugin(materialsEditorPlugin.manifest.name);
   vi.useRealTimers();
 });
 
@@ -101,28 +105,5 @@ describe("material keywords and instancing (ADR 0106)", () => {
     expect([settings.keywords, settings.instancing]).toEqual([{ RIM: true }, "thin"]);
     await editMaterial(project, "m.material.json", (now) => ({ keywords: withKeywordValue(now.keywords, { name: "RIM" }, false), instancing: "auto" }));
     expect(fs.files.get(joinPath(ROOT, "m.material.json"))).not.toMatch(/keywords|instancing/);
-  });
-});
-
-describe("New Shader", () => {
-  it("creates the shader asset with WGSL and GLSL beside it, under a free name, in shaders/ if present", async () => {
-    const fs = new MemoryFileSystem();
-    fs.files.set(joinPath(ROOT, "project.json"), "{}");
-    fs.files.set(joinPath(ROOT, "shaders/old.shader.json"), '{ "format": "myco.shader@1" }');
-    const project = await openFolderProject(fs, ROOT);
-    currentProject.value = project;
-    try {
-      const first = await createShader("");
-      expect(first).toBe("shaders/New Shader.shader.json");
-      for (const f of ["shaders/New Shader.wgsl", "shaders/New Shader.glsl"]) expect(fs.files.get(joinPath(ROOT, f))).toContain("surface(");
-      const { shader, problems } = parseShaderAsset(JSON.parse(fs.files.get(joinPath(ROOT, first!)) as string));
-      expect(problems).toEqual([]);
-      expect(shader.properties.map((p) => p.name)).toEqual(["Tint"]);
-      expect(shader.wgsl).toEqual({ file: "asset:shaders/New Shader.wgsl" });
-      expect(shader.glsl).toEqual({ file: "asset:shaders/New Shader.glsl" });
-      expect(await createShader("")).toBe("shaders/New Shader 2.shader.json");
-    } finally {
-      currentProject.value = null;
-    }
   });
 });

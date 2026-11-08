@@ -1,19 +1,19 @@
 import { Fragment } from "preact";
 import { useEffect } from "preact/hooks";
-import { Color } from "../../engine";
-import { compileShaderGraph } from "../../engine/render/shaderGraph/compile";
-import { MATERIAL_MAPS, colorHex, materialGraph, type MaterialAlphaMode, type MaterialInstancing, type MaterialMapKey, type MaterialSettings } from "../../engine/scene/material";
-import { isShaderAssetPath } from "../../engine/scene/shaderAsset";
-import type { GraphProperty, GraphValue } from "../../engine/scene/shaderGraph";
-import type { ShaderKeyword } from "../../engine/scene/shaderKeywords";
-import { assetKind, fileName } from "../assetBrowser";
-import { openAssetDocument } from "../assetDocuments";
-import { readShaderAsset, sameMaterial, withKeywordValue } from "../materialAssets";
-import { createMaterialForGraph, openShaderGraphAsset, readShaderGraph } from "../shaderGraphAssets";
-import { currentProject, docVersion } from "../state";
+import { Color } from "../../../engine";
+import { compileShaderGraph } from "../../../engine/render/shaderGraph/compile";
+import { MATERIAL_MAPS, colorHex, materialGraph, type MaterialAlphaMode, type MaterialInstancing, type MaterialMapKey, type MaterialSettings } from "../../../engine/scene/material";
+import { isShaderAssetPath } from "../../../engine/scene/shaderAsset";
+import type { GraphProperty, GraphValue } from "../../../engine/scene/shaderGraph";
+import type { ShaderKeyword } from "../../../engine/scene/shaderKeywords";
+import { assetKind, fileName } from "../../../editor/assetBrowser";
+import { openAssetDocument } from "../../../editor/assetDocuments";
+import { readShaderAsset, sameMaterial, withKeywordValue } from "./materialAssets";
+import { createMaterialForGraph, openShaderGraphAsset, readShaderGraph } from "./shaderGraphAssets";
+import { currentProject, docVersion } from "../../../editor/state";
 import { PropertyValue } from "./ShaderPropertyValue";
-import { LargePreview } from "./AssetPreview";
-import "./assetInspector.css";
+import { LargePreview } from "../../../editor/ui/AssetPreview";
+import "../../../editor/ui/assetInspector.css";
 
 const withAlpha = (c: Color, a: number) => new Color(c.r, c.g, c.b, a);
 

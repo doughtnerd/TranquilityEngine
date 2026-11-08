@@ -1,6 +1,13 @@
 /* The graph editors' shared canvas (ADR 0060): pane, wires, selection box, node search, groups, notes and
    the minimap. Theme tokens only (src/editor/theme.ts). The Shader Graph's wire and port colours stay in
-   src/editor/ui/shaderGraph.css. */
+   src/plugins/materials/editor/shaderGraph.css. */
+/* The toolbar both graph panels show above the canvas. */
+.sg-toolbar { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.sg-toolbar label { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.sg-toolbar select { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font: inherit; padding: 1px 4px; }
+.sg-name { font-weight: 600; color: var(--text-strong); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-spacer { flex: 1; }
+
 .sg-pane { flex: 1; position: relative; overflow: hidden; background-color: var(--bg-sunken); background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 20px 20px; min-width: 0; }
 .sg-viewport { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .sg-wires { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }

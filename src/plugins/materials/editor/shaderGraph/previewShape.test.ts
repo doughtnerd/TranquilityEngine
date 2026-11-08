@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultShaderGraph, formatShaderGraph, nodePreviewShape, parseShaderGraph } from "../../engine/scene/shaderGraph";
+import { defaultShaderGraph, formatShaderGraph, nodePreviewShape, parseShaderGraph } from "../../../../engine/scene/shaderGraph";
 import { setGraphPreviewShape, setNodePreviewShape } from "./graphEdit";
 
 describe("node preview shapes (ADR 0117)", () => {

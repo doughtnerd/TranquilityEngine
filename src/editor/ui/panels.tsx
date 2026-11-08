@@ -33,7 +33,6 @@ const LAZY: Record<Exclude<BuiltinPanelId, "scene">, LazyComponent> = {
   ),
   network: lazyComponent(() => import("./NetworkPanel").then((m) => m.NetworkPanel)),
   project: lazyComponent(() => import("./ProjectSettingsPanel").then((m) => m.ProjectSettingsPanel)),
-  shadergraph: lazyComponent(() => import("./ShaderGraphPanel").then((m) => m.ShaderGraphPanel)),
   particlegraph: lazyComponent(() => import("./ParticleGraphPanel").then((m) => m.ParticleGraphPanel)),
   tilepalette: lazyComponent(() => import("./TilePalettePanel").then((m) => m.TilePalettePanel)),
 };

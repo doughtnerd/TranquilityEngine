@@ -1,10 +1,9 @@
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets } from "../engine";
-import { colorHex } from "../engine/scene/material";
+import { colorHex, parseMaterial } from "../engine/scene/material";
 import { clearModelCache, type SurfaceInfo } from "../engine/scene/models";
 import { readImportSettings } from "./assetImport";
-import { readMaterial } from "./materialAssets";
 import { extractModelMaterials, materialFromSurface } from "./materialExtract";
 import { joinPath, openFolderProject } from "./projects";
 import { MemoryFileSystem, ROOT } from "./testing";
@@ -66,9 +65,9 @@ describe("extracting a model's materials (ADR 0089)", () => {
     expect(Object.keys(result.materials)).toEqual(["Stone", "Metal", "Bulb", "Glass"]);
     expect(result.materials.Metal).toBe("asset:models/lamp Materials/Metal.material.json");
     expect(result.lost).toEqual([]);
-    const metal = readMaterial(project, "models/lamp Materials/Metal.material.json").settings;
+    const metal = parseMaterial(project.assets.get("models/lamp Materials/Metal.material.json")).settings;
     expect([metal.metalness, metal.roughness]).toEqual([1, 0.35]);
-    const glass = readMaterial(project, "models/lamp Materials/Glass.material.json").settings;
+    const glass = parseMaterial(project.assets.get("models/lamp Materials/Glass.material.json")).settings;
     expect(glass.color.a).toBeCloseTo(0.3, 2);
     expect(readImportSettings(project, "models/lamp.glb").settings.materials).toEqual(result.materials);
   });

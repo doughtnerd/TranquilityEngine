@@ -1,10 +1,12 @@
 // Plugin-registered asset kinds in the editor's lookups (ADR 0133/0134).
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { materialsEditorPlugin } from "../plugins/materials/editor";
 import { assetKind, canAddToScene } from "./assetBrowser";
 import { assetsForKinds } from "./assetFieldKinds";
 import { kindIcon, kindLabel, kindOpens, registeredKindOpens } from "./assetKindLookup";
 import { inspectableAsset } from "./assetImport";
 import { assetKinds, type AssetKindContribution } from "./sdk/contributions";
+import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
 import { previewKind } from "./thumbnails/keys";
 
 const fake: AssetKindContribution = {
@@ -20,7 +22,12 @@ const fake: AssetKindContribution = {
 };
 const undo: (() => void)[] = [];
 const register = (k: AssetKindContribution) => undo.push(assetKinds.register(k));
-afterEach(() => undo.splice(0).forEach((u) => u()));
+// Materials (the "material" field kind's files) are the Materials plugin's (ADR 0134).
+beforeEach(() => activatePlugins([materialsEditorPlugin]));
+afterEach(() => {
+  undo.splice(0).forEach((u) => u());
+  deactivatePlugin(materialsEditorPlugin.manifest.name);
+});
 
 describe("registered asset kinds", () => {
   it("assetKind, labels, icons, open and inspector", () => {

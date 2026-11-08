@@ -4,11 +4,10 @@
 // they can be edited like any other material. ui/AssetInspector.tsx offers it for models.
 import { Color } from "../engine/core/math";
 import { Assets } from "../engine/scene/Assets";
-import { MATERIAL_MAPS, defaultMaterialSettings, type MaterialMapKey, type MaterialSettings } from "../engine/scene/material";
+import { MATERIAL_MAPS, defaultMaterialSettings, formatMaterial, type MaterialMapKey, type MaterialSettings } from "../engine/scene/material";
 import { loadMeshes, materialSlots, DEFAULT_SLOT, type SurfaceInfo, type TextureInfo } from "../engine/scene/models";
 import { fileName, folderOf } from "./assetBrowser";
 import { readImportSettings, writeImportSettings } from "./assetImport";
-import { writeMaterial } from "./materialAssets";
 import type { EditorProject } from "./projects";
 
 /** One linear channel in sRGB (material assets store sRGB colours; model surfaces are linear). */
@@ -166,7 +165,7 @@ export async function extractModelMaterials(project: EditorProject, modelPath: s
     const { settings: color, lost } = materialFromSurface(surface, (info, role) => textureFor(role)(info));
     await Promise.all(pending);
     const path = `${folder}/${name}.material.json`;
-    await writeMaterial(project, path, color);
+    await project.writeText(path, formatMaterial(color));
     result.materials[slot.name] = `asset:${path}`;
     if (lost.length) result.lost.push(`${slot.name}: ${lost.join(", ")}`);
   }

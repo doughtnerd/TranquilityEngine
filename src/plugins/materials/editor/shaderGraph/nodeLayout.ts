@@ -1,8 +1,8 @@
 // Where everything sits on a shader graph node (ADR 0046). Fixed rows, so port positions are known
 // without measuring the DOM: the panel draws from them and xyflow's core hit-tests with them.
 // Rows from the top: the header, each output, each input, then each setting.
-import { nodeDef, nodePorts, settingValue, type PortDef, type SettingDef, type ValueType } from "../../engine/render/shaderGraph/nodes";
-import type { GraphNode, ShaderGraph } from "../../engine/scene/shaderGraph";
+import { nodeDef, nodePorts, settingValue, type PortDef, type SettingDef, type ValueType } from "../../../../engine/render/shaderGraph/nodes";
+import type { GraphNode, ShaderGraph } from "../../../../engine/scene/shaderGraph";
 
 export const HEADER = 26;
 export const ROW = 22;

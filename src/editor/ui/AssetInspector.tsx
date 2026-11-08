@@ -8,7 +8,6 @@ import { lazyComponent, type LazyComponent } from "./lazy";
 import { extractModelMaterials } from "../materialExtract";
 import { AudioPreview, LargePreview } from "./AssetPreview";
 import { RenderTextureInspector } from "./RenderTextureInspector";
-import { MaterialInspector, ShaderGraphInspector } from "./MaterialInspector";
 import { ParticleAssetInspector, ParticleEffectInspector } from "./ParticleInspector";
 import { NavFormationInspector } from "./NavFormationInspector";
 import { TilesetInspector } from "./TilesetInspector";
@@ -30,7 +29,7 @@ function pluginInspector(kind: AssetKindContribution): LazyComponent<{ path: str
   return view;
 }
 
-/** The selected asset in the Inspector: a material's settings (ADR 0043), a shader graph (ADR 0047), or a file's import settings. */
+/** The selected asset in the Inspector: a registered kind's own view (materials and shader graphs: the Materials plugin), a built-in kind's, or a file's import settings. */
 export function AssetInspector() {
   const path = inspectedAsset.value;
   const kind = path ? assetKind(path) : null;
@@ -42,7 +41,7 @@ export function AssetInspector() {
   if (path && kind === "formation") return <NavFormationInspector path={path} />;
   if (path && kind === "tileset") return <TilesetInspector path={path} />;
   if (path && (kind === "environment" || kind === "cubemap" || kind === "prefab")) return <PreviewInspector path={path} kind={kind as "environment" | "cubemap" | "prefab"} />;
-  return path && kind === "material" ? <MaterialInspector path={path} /> : path && (kind === "shadergraph" || kind === "shadersubgraph") ? <ShaderGraphInspector path={path} /> : <ImportInspector />;
+  return <ImportInspector />;
 }
 
 const COMPRESSION_LABELS = { none: "None", low: "Low quality (smallest)", normal: "Normal quality", high: "High quality" } as const;

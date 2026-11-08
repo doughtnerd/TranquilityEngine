@@ -1,7 +1,7 @@
 // Find inside a shader graph (ADR 0117): a pure matcher over node titles, types, property names
 // and comment text (sticky notes, group titles). The panel lists the matches and frames the chosen one.
-import { nodeDef } from "../../engine/render/shaderGraph/nodes";
-import type { ShaderGraph } from "../../engine/scene/shaderGraph";
+import { nodeDef } from "../../../../engine/render/shaderGraph/nodes";
+import type { ShaderGraph } from "../../../../engine/scene/shaderGraph";
 import { nodeTitle } from "./nodeLayout";
 
 export interface GraphMatch {

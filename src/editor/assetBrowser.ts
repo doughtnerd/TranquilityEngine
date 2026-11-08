@@ -10,7 +10,7 @@ import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
 /** The kinds the editor itself knows; plugins add more (ADR 0133). */
-export type BuiltinAssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "material" | "rendertexture" | "shadergraph" | "shadersubgraph" | "particles" | "particlesubgraph" | "particleblock" | "formation" | "tileset" | "environment" | "cubemap" | "lut" | "json" | "script" | "javascript" | "typescript" | "text" | "uidocument" | "stylesheet" | "xml" | "other";
+export type BuiltinAssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "model" | "rendertexture" | "particles" | "particlesubgraph" | "particleblock" | "formation" | "tileset" | "environment" | "cubemap" | "lut" | "json" | "script" | "javascript" | "typescript" | "text" | "uidocument" | "stylesheet" | "xml" | "other";
 /** A built-in kind or a registered one's id. */
 export type AssetKind = BuiltinAssetKind | (string & {});
 
@@ -43,7 +43,7 @@ export function assetKind(path: string): AssetKind {
 /** The length of the ending a built-in rule matched: a compound one (`.scene.json`) or the last extension. Used so a registered kind with a longer extension wins. */
 function builtinExtensionLength(p: string): number {
   const name = p.slice(p.lastIndexOf("/") + 1);
-  const compound = /\.(scene|prefab|material|rendertexture|shadergraph|shadersubgraph|particles|particlesubgraph|particleblock|formation|tileset|cubemap|ui)\.(json|xml)$/.exec(name);
+  const compound = /\.(scene|prefab|rendertexture|particles|particlesubgraph|particleblock|formation|tileset|cubemap|ui)\.(json|xml)$/.exec(name);
   return compound ? compound[0].length : name.length - Math.max(name.lastIndexOf("."), 0);
 }
 
@@ -55,10 +55,7 @@ function builtinKind(p: string): BuiltinAssetKind {
   if (p.endsWith(".cube")) return "lut";
   if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";
   if (MODEL_EXTENSIONS.test(p)) return "model";
-  if (p.endsWith(".material.json")) return "material";
   if (p.endsWith(".rendertexture.json")) return "rendertexture";
-  if (p.endsWith(".shadergraph.json")) return "shadergraph";
-  if (p.endsWith(".shadersubgraph.json")) return "shadersubgraph";
   if (p.endsWith(".particles.json")) return "particles";
   if (p.endsWith(".particlesubgraph.json")) return "particlesubgraph";
   if (p.endsWith(".particleblock.json")) return "particleblock";

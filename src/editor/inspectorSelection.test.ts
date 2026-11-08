@@ -1,12 +1,17 @@
 // The Inspector follows the latest selection: selecting one asset it can show (a material, an
 // image, a particle effect…) deselects the scene's nodes, and selecting nodes deselects the
 // Assets panel's entries, whichever came first.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { materialsEditorPlugin } from "../plugins/materials/editor";
 import { inspectableAsset, inspectedAsset, inspectSelectedAsset, showAsset, showsAssetInspector } from "./assetImport";
 import { folderPath, resetAssetBrowser, select as selectAssets, selectedAssets } from "./assetSelection";
+import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
 import { select as selectNodes, selectedKeys } from "./state";
 
+// Materials and shader graphs have inspectors through the Materials plugin (ADR 0134).
+beforeEach(() => activatePlugins([materialsEditorPlugin]));
 afterEach(() => {
+  deactivatePlugin(materialsEditorPlugin.manifest.name);
   selectNodes([]);
   resetAssetBrowser();
 });

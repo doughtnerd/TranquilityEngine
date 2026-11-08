@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { compileShaderGraph } from "../../engine/render/shaderGraph/compile";
-import { defaultShaderGraph, formatShaderGraph, parseShaderGraph } from "../../engine/scene/shaderGraph";
+import { compileShaderGraph } from "../../../../engine/render/shaderGraph/compile";
+import { defaultShaderGraph, formatShaderGraph, parseShaderGraph } from "../../../../engine/scene/shaderGraph";
 import { setGraphPreviewMesh } from "./graphEdit";
 
 describe("main preview mesh (ADR 0117)", () => {

@@ -1,23 +1,19 @@
-// Shader graph assets in the editor (ADR 0046, 0047): creating `*.shadergraph.json` files,
-// reading them, and which one the Shader Graph panel has open. Editing (the write queue, undo and
-// redo, outside changes) goes through each graph's asset document (ADR 0134):
-// `shaderGraphDocument(project, path)`.
+// Shader graph assets in the editor (ADR 0046, 0047; the Materials plugin since 0134): creating
+// `*.shadergraph.json` files, reading them, and which one the Shader Graph panel has open. Editing
+// (the write queue, undo and redo, outside changes) goes through each graph's asset document:
+// `shaderGraphDocument(project, path)`, over the formats the plugin registers.
 import { signal } from "@preact/signals";
-import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph, isShaderSubGraphPath, type ShaderGraph } from "../engine/scene/shaderGraph";
-import { defaultMaterialSettings } from "../engine/scene/material";
-import { fileName } from "./assetBrowser";
-import { openAssetDocument, type AssetDocument } from "./assetDocuments";
-import { freePath } from "./assetOps";
-import { showPanel } from "./layout/store";
+import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph, isShaderSubGraphPath, type ShaderGraph } from "../../../engine/scene/shaderGraph";
+import { defaultMaterialSettings } from "../../../engine/scene/material";
+import { fileName } from "../../../editor/assetBrowser";
+import { openAssetDocument, type AssetDocument } from "../../../editor/assetDocuments";
+import { freePath } from "../../../editor/assetOps";
+import { showPanel } from "../../../editor/layout/store";
 import { writeMaterial } from "./materialAssets";
-import { errorStatus } from "./messages";
-import type { EditorProject } from "./projects";
-import { assetFormats } from "./sdk/contributions";
+import { errorStatus } from "../../../editor/messages";
+import type { EditorProject } from "../../../editor/projects";
 import { shaderGraphFormat, shaderSubgraphFormat } from "./shaderGraphFormat";
-import { currentProject, docVersion, status } from "./state";
-
-// The graph formats are registered here until the Materials plugin takes them over (ADR 0134).
-for (const format of [shaderGraphFormat, shaderSubgraphFormat]) if (!assetFormats.get(format.id)) assetFormats.register(format);
+import { currentProject, docVersion, status } from "../../../editor/state";
 
 /** The shader graph open in the Shader Graph panel, or null. */
 export const openShaderGraph = signal<string | null>(null);

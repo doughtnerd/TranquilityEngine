@@ -1,4 +1,4 @@
-import { propertySize, type GraphPropertyType, type GraphValue } from "../../engine/scene/shaderGraph";
+import { propertySize, type GraphPropertyType, type GraphValue } from "../../../engine/scene/shaderGraph";
 
 export const numberValue = (e: Event) => Number((e.currentTarget as HTMLInputElement).value);
 export const toHex2 = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, "0");

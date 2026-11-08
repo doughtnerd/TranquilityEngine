@@ -62,4 +62,17 @@ describe("plugin import direction", () => {
     }
     expect(bad).toEqual([]);
   });
+
+  it("keeps the editor core free of plugins' editor halves (only main.tsx loads them, through editorBoot.ts)", () => {
+    const bad: string[] = [];
+    for (const f of files(join(SRC, "editor"))) {
+      if (/\.test\.tsx?$/.test(f)) continue;
+      for (const { spec } of specifiers(f)) {
+        const target = resolved(f, spec);
+        const r = target.startsWith("/") ? rel(target) : target;
+        if (/^plugins\/[^/]+\/editor(\/|$)/.test(r) || (/^plugins\/(editor|editorBoot)(\.ts)?$/.test(r) && rel(f) !== "editor/main.tsx")) bad.push(`${rel(f)} imports ${spec}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
 });

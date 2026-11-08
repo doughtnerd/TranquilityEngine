@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultShaderGraph } from "../../engine/scene/shaderGraph";
+import { defaultShaderGraph } from "../../../../engine/scene/shaderGraph";
 import { addNode, defaultFunction, setFunction } from "./graphEdit";
 
 describe("custom function WGSL body", () => {

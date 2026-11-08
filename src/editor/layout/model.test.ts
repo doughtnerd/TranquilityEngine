@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { materialsEditorPlugin } from "../../plugins/materials/editor";
 import { skyEditorPlugin } from "../../plugins/sky/editor";
 import { activatePlugins, deactivatePlugin } from "../sdk/plugins";
 import {
@@ -25,6 +26,10 @@ import {
 } from "./model";
 import { panels, type PanelContribution } from "../sdk/contributions";
 
+// The Shader Graph panel is the Materials plugin's (ADR 0134); the editor activates it before any layout loads.
+beforeEach(() => activatePlugins([materialsEditorPlugin]));
+afterEach(() => deactivatePlugin(materialsEditorPlugin.manifest.name));
+
 const bounds = { x: 0, y: 0, w: 1200, h: 800 };
 const sides = (l: Layout) => l.docks.map((d) => `${d.side}:${d.groups.map((g) => g.panels.join("+")).join("|")}`);
 const where = (l: Layout, p: PanelId) => l.docks.find((d) => d.groups.some((g) => g.panels.includes(p)))!;
@@ -40,6 +45,21 @@ describe("default layout", () => {
     expect(main.rect).toEqual({ x: 240, y: 0, w: 1200 - 240 - 300, h: 610 });
     expect(geo.fill).toEqual(main.rect);
     expect(main.handle).toBeNull(); // the filling dock has no size to drag
+  });
+
+  it("places a registered panel after its neighbour, and leaves it out when its plugin isn't active", () => {
+    const scene = (l: Layout) => l.docks.flatMap((d) => d.groups).find((g) => g.panels.includes("scene"))!.panels;
+    expect(scene(defaultLayout())).toEqual(["scene", "shadergraph", "particlegraph"]);
+    deactivatePlugin(materialsEditorPlugin.manifest.name);
+    expect(scene(defaultLayout())).toEqual(["scene", "particlegraph"]);
+  });
+
+  it("restores a saved layout's Shader Graph tab only while the Materials plugin has registered it", () => {
+    const saved = JSON.parse(JSON.stringify(movePanel(defaultLayout(), "shadergraph", { kind: "tab", group: "hierarchy" }))) as Layout;
+    expect(where(parseLayout(saved)!, "shadergraph").side).toBe("left");
+    expect(where(parseLayout(saved)!, "shadergraph").groups[0]!.panels).toEqual(["hierarchy", "shadergraph"]);
+    deactivatePlugin(materialsEditorPlugin.manifest.name);
+    expect(parseLayout(saved)!.docks.flatMap((d) => d.groups.flatMap((g) => g.panels))).not.toContain("shadergraph");
   });
 });
 
@@ -188,7 +208,7 @@ describe("layouts saved before a panel existed", () => {
       ],
     };
     const l = parseLayout(old)!;
-    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history+worlds+network+project|assets+code+tilepalette", "left:scene+shadergraph+particlegraph"]); // Code joins Assets, where there's width
+    expect(sides(l)).toEqual(["left:hierarchy", "right:inspector+history+worlds+network+project|assets+code+tilepalette", "left:scene+particlegraph+shadergraph"]); // Code joins Assets, where there's width; registered panels (the Shader Graph) come after built-in ones
     expect(l.docks[0].size).toBe(300); // the user's arrangement is kept
     expect(where(l, "history").groups[0].active).toBe("inspector");
     const geo = computeGeometry(l, bounds);
@@ -200,7 +220,7 @@ describe("layouts saved before a panel existed", () => {
       version: 1,
       docks: [{ id: "b", side: "bottom", size: 200, groups: [{ id: "g", panels: ["assets", "hierarchy"], active: "assets" }], fractions: [1] }],
     })!;
-    expect(sides(l)).toEqual(["bottom:assets+hierarchy+inspector+history+code+worlds+network+project+tilepalette", "left:scene+shadergraph+particlegraph"]);
+    expect(sides(l)).toEqual(["bottom:assets+hierarchy+inspector+history+code+worlds+network+project+tilepalette", "left:scene+particlegraph+shadergraph"]);
   });
 
   it("adds the Worlds panel as a tab beside History, wherever History was moved", () => {

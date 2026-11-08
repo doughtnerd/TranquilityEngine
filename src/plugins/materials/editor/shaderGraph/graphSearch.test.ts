@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultShaderGraph, type ShaderGraph } from "../../engine/scene/shaderGraph";
+import { defaultShaderGraph, type ShaderGraph } from "../../../../engine/scene/shaderGraph";
 import { cycleIndex, searchGraph } from "./graphSearch";
 
 const graph = (): ShaderGraph => ({

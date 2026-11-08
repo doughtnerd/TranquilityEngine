@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { MaterialPreview, NodePreviewRenderer } from "../../engine/editor";
-import { compileShaderGraph, nodePreviewGraph, shaderGraphListing, type CompiledShaderGraph } from "../../engine/render/shaderGraph/compile";
-import { NODES, nodeDef, type PortDef, type SettingDef, type ValueType } from "../../engine/render/shaderGraph/nodes";
-import { GRAPH_PREVIEW_MESHES, GRAPH_PROPERTY_TYPES, NODE_PREVIEW_SHAPES, nodePreviewShape, type NodePreviewShape, isPortName, portRef, propertySize, splitPortRef, type CustomFunction, type FunctionPort, type GraphGroup, type GraphNode, type GraphPreviewMesh, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../engine/scene/shaderGraph";
-import { assetKind, fileName } from "../assetBrowser";
-import type { EditorProject } from "../projects";
+import { MaterialPreview, NodePreviewRenderer } from "../../../engine/editor";
+import { compileShaderGraph, nodePreviewGraph, shaderGraphListing, type CompiledShaderGraph } from "../../../engine/render/shaderGraph/compile";
+import { NODES, nodeDef, type PortDef, type SettingDef, type ValueType } from "../../../engine/render/shaderGraph/nodes";
+import { GRAPH_PREVIEW_MESHES, GRAPH_PROPERTY_TYPES, NODE_PREVIEW_SHAPES, nodePreviewShape, type NodePreviewShape, isPortName, portRef, propertySize, splitPortRef, type CustomFunction, type FunctionPort, type GraphGroup, type GraphNode, type GraphPreviewMesh, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../../engine/scene/shaderGraph";
+import { assetKind, fileName } from "../../../editor/assetBrowser";
+import type { EditorProject } from "../../../editor/projects";
 import {
   addNode,
   addNote,
@@ -53,14 +53,14 @@ import {
   sourceOf,
   whyNotConnect,
   whyNotPropertyName,
-} from "../shaderGraph/graphEdit";
-import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, settingValue, type NodeBox } from "../shaderGraph/nodeLayout";
-import { NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, wirePath, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type SearchItem, type View } from "../graph";
-import { createMaterialForGraph, openShaderGraph, createShaderGraph, openShaderGraphAsset, shaderGraphDocument } from "../shaderGraphAssets";
-import { currentProject, docVersion, status } from "../state";
-import { searchGraph, cycleIndex } from "../shaderGraph/graphSearch";
+} from "./shaderGraph/graphEdit";
+import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, settingValue, type NodeBox } from "./shaderGraph/nodeLayout";
+import { NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, wirePath, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type SearchItem, type View } from "../../../editor/graph";
+import { createMaterialForGraph, openShaderGraph, createShaderGraph, openShaderGraphAsset, shaderGraphDocument } from "./shaderGraphAssets";
+import { currentProject, docVersion, status } from "../../../editor/state";
+import { searchGraph, cycleIndex } from "./shaderGraph/graphSearch";
 import { PropertyValue, numberValue, toHex2 } from "./ShaderPropertyValue";
-import "../graph/graph.css";
+import "../../../editor/graph/graph.css";
 import "./shaderGraph.css";
 
 /** Nodes copied with Ctrl+C or cut with Ctrl+X, pasted into any graph (ADR 0048). */

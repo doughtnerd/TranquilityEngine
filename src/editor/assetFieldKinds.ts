@@ -17,7 +17,7 @@ const ofKind = (...kinds: AssetKind[]) => (f: string) => kinds.includes(assetKin
 const FILTERS: Record<AssetFieldKind, (file: string) => boolean> = {
   model: ofKind("model"),
   mesh: ofKind("model"),
-  material: ofKind("material", "shadergraph"),
+  material: () => false, // materials and shader graphs: the Materials plugin's kinds, by `referencedAs`
   texture: ofKind("image"),
   sprite: ofKind("image", "sprite"),
   rendertexture: ofKind("rendertexture"),

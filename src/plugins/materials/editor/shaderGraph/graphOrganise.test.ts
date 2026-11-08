@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultShaderGraph, defaultShaderSubGraph, type ShaderGraph } from "../../engine/scene/shaderGraph";
+import { defaultShaderGraph, defaultShaderSubGraph, type ShaderGraph } from "../../../../engine/scene/shaderGraph";
 import {
   addNode,
   addNote,

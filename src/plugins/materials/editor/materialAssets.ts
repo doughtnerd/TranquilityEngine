@@ -1,19 +1,15 @@
-// Material assets in the editor (ADR 0043): creating `*.material.json` files, and reading and
-// writing them for the Asset Inspector's material editor (ui/AssetInspector.tsx).
-import { defaultMaterialSettings, formatMaterial, parseMaterial, type MaterialSettings } from "../engine/scene/material";
-import { defaultShaderAsset, formatShaderAsset, parseShaderAsset, type ShaderAsset } from "../engine/scene/shaderAsset";
-import type { KeywordValue, ShaderKeyword } from "../engine/scene/shaderKeywords";
-import { fileName } from "./assetBrowser";
-import { freePath } from "./assetOps";
-import { openAssetDocument, type EditOptions } from "./assetDocuments";
-import { errorStatus } from "./messages";
-import type { EditorProject } from "./projects";
-import { materialFormat } from "./materialFormat";
-import { assetFormats } from "./sdk/contributions";
-import { currentProject, docVersion, status } from "./state";
-
-// Registered here until the Materials plugin takes this over (ADR 0134).
-if (!assetFormats.get("material")) assetFormats.register(materialFormat);
+// Material assets in the editor (ADR 0043, the Materials plugin since 0134): creating
+// `*.material.json` files, reading them, and editing them through their asset document (the
+// `material` format, registered by the plugin's `editor/index.ts`) for the Material inspector.
+import { defaultMaterialSettings, formatMaterial, parseMaterial, type MaterialSettings } from "../../../engine/scene/material";
+import { defaultShaderAsset, parseShaderAsset, type ShaderAsset } from "../../../engine/scene/shaderAsset";
+import type { KeywordValue, ShaderKeyword } from "../../../engine/scene/shaderKeywords";
+import { fileName } from "../../../editor/assetBrowser";
+import { freePath } from "../../../editor/assetOps";
+import { openAssetDocument, type EditOptions } from "../../../editor/assetDocuments";
+import { errorStatus } from "../../../editor/messages";
+import type { EditorProject } from "../../../editor/projects";
+import { currentProject, docVersion, status } from "../../../editor/state";
 
 export interface ReadMaterial {
   settings: MaterialSettings;
@@ -104,60 +100,4 @@ export function withKeywordValue(keywords: Readonly<Record<string, KeywordValue>
   if (isDefault) delete out[keyword.name];
   else out[keyword.name] = value;
   return out;
-}
-
-/** WGSL starter for New Shader: a `Tint` property sets the base colour. */
-export const NEW_SHADER_WGSL = `// Properties are uniforms.<Name>. Keywords are #ifdef KW_<NAME>.
-fn surface(s: MycoSurfaceInput, out: ptr<function, MycoSurface>) {
-  (*out).baseColor = uniforms.Tint.rgb;
-}
-`;
-
-/** GLSL ES 3.0 starter for New Shader, the same surface as the WGSL one. */
-export const NEW_SHADER_GLSL = `// Properties are bare names. Keywords are #ifdef KW_<NAME>.
-void surface(MycoSurfaceInput s, inout MycoSurface o) {
-  o.baseColor = Tint.rgb;
-}
-`;
-
-/** Where New Shader goes by default: `shaders/` if the project has it, else the folder given. */
-export function shaderFolder(folder: string): string {
-  return folder === "" && currentProject.value?.folders.includes("shaders") ? "shaders" : folder;
-}
-
-/**
- * Create `New Shader.shader.json` (or `New Shader 2`…) with `New Shader.wgsl` and `New Shader.glsl`
- * beside it: a minimal surface shader with a `Tint` colour property. Returns the JSON's path, or
- * null if the project is read-only or writing failed.
- */
-export async function createShader(folder: string): Promise<string | null> {
-  const project = currentProject.value;
-  if (!project) return null;
-  if (!project.canSave) {
-    status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to add shaders.` };
-    return null;
-  }
-  const dir = shaderFolder(folder);
-  const at = (stem: string, ext: string) => (dir ? `${dir}/${stem}${ext}` : `${stem}${ext}`);
-  const free = (stem: string) => [".shader.json", ".wgsl", ".glsl"].every((ext) => freePath(project, dir, `${stem}${ext}`) === at(stem, ext));
-  let stem = "New Shader";
-  for (let n = 2; !free(stem); n++) stem = `New Shader ${n}`;
-  const path = at(stem, ".shader.json");
-  const shader: ShaderAsset = {
-    ...defaultShaderAsset(),
-    properties: [{ name: "Tint", type: "color", value: "#ffffff" }],
-    wgsl: { file: `asset:${at(stem, ".wgsl")}` },
-    glsl: { file: `asset:${at(stem, ".glsl")}` },
-  };
-  try {
-    await project.writeFile(at(stem, ".wgsl"), NEW_SHADER_WGSL);
-    await project.writeFile(at(stem, ".glsl"), NEW_SHADER_GLSL);
-    await project.writeText(path, formatShaderAsset(shader));
-  } catch (err) {
-    status.value = errorStatus(`Couldn't create ${path}`, err);
-    return null;
-  }
-  docVersion.value++;
-  status.value = { kind: "info", text: `Created ${fileName(path)} with its WGSL and GLSL code.` };
-  return path;
 }
