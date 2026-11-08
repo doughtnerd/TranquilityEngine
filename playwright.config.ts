@@ -12,8 +12,13 @@ const port = Number(process.env.E2E_PORT ?? 4174);
 // with workers. Locally on Windows (Direct3D 11) only, where it's measured; other platforms can add
 // their ANGLE backend here. CI machines have no GPU, and E2E_SOFTWARE_GL=1 turns it off. WebKit
 // has no such switch and stays on the CPU.
+//
+// On the GPU the engine gets a WebGPU device (Dawn on Direct3D 12). Playwright's headless shell
+// doesn't ship dxcompiler.dll, so Dawn's default shader compiler (DXC) fails to load and
+// requestDevice throws ("dxcompiler.dll Windows Error: 87"), which failed ~90 specs.
+// `use_dxc` off makes Dawn compile with FXC (d3dcompiler_47.dll, part of Windows) instead.
 const gpuAngle = process.env.CI || process.env.E2E_SOFTWARE_GL || process.platform !== "win32" ? null : "d3d11";
-const chromiumArgs = gpuAngle ? ["--enable-gpu", `--use-angle=${gpuAngle}`, "--ignore-gpu-blocklist"] : [];
+const chromiumArgs = gpuAngle ? ["--enable-gpu", `--use-angle=${gpuAngle}`, "--ignore-gpu-blocklist", "--disable-dawn-features=use_dxc"] : [];
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -37,9 +42,11 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `npm run build:editor && npx vite preview --config vite.editor.config.ts --port ${port} --strictPort`,
+      // Rebuilds the editor only when its sources changed since the last e2e build (E2E_REBUILD=1 forces it), then serves it.
+      command: `node scripts/e2e-server.mjs`,
+      env: { E2E_PORT: String(port) },
       url: `http://localhost:${port}/editor.html`,
-      reuseExistingServer: false, // a reused server would serve a stale build: the command is what rebuilds
+      reuseExistingServer: false, // a reused server could serve a stale build: the command is what checks it
       timeout: 120_000,
     },
   ],
