@@ -665,10 +665,15 @@ function SliceThumb(props: { url: string; rect: readonly [number, number, number
     img.src = url;
   }, [url]);
   if (!size) return null;
-  // An SVG viewBox on the slice's rectangle scales just that part to the thumbnail.
+  // An SVG viewBox on the slice's rectangle scales just that part to the thumbnail. When the thumbnail's shape differs
+  // from the slice's, "meet" letterboxes, and the letterbox would show the image around the viewBox (the neighbouring
+  // slices), so a nested <svg> the size of the slice clips the image to it (an inner svg clips to its own viewport).
+  const box = `${rect[0]} ${rect[1]} ${rect[2]} ${rect[3]}`;
   return (
-    <svg class="asset-slice-thumb" viewBox={`${rect[0]} ${rect[1]} ${rect[2]} ${rect[3]}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-      <image href={url} width={size[0]} height={size[1]} style={{ imageRendering: "pixelated" }} />
+    <svg class="asset-slice-thumb" viewBox={box} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <svg x={rect[0]} y={rect[1]} width={rect[2]} height={rect[3]} viewBox={box} overflow="hidden">
+        <image href={url} width={size[0]} height={size[1]} style={{ imageRendering: "pixelated" }} />
+      </svg>
     </svg>
   );
 }
