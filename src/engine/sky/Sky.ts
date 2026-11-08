@@ -77,7 +77,7 @@ export class Sky extends Component {
    * asset again if the Environment's sky changes.
    */
   get settings(): SkySettings {
-    const path = this._node ? worldSkyPath(this.world) : "";
+    const path = this._node ? worldSkyPath(this._world) : "";
     // A new sky, or the asset itself changed (edited in the editor's Sky panel): copy it again.
     const source = path ? readSkyAsset(path) : null;
     if (!this._settings || path !== this._settingsPath || (source && this._source && source !== this._source)) {
@@ -90,7 +90,7 @@ export class Sky extends Component {
 
   set settings(value: SkySettings) {
     this._settings = value;
-    this._settingsPath = this._node ? worldSkyPath(this.world) : "";
+    this._settingsPath = this._node ? worldSkyPath(this._world) : "";
     this._source = this._settingsPath ? readSkyAsset(this._settingsPath) : null;
   }
 
@@ -101,7 +101,7 @@ export class Sky extends Component {
 
   /** The time of day now, 0–24: `timeOfDay` (or the asset's) advanced by `daySpeed` since it was set. */
   get currentTime(): number {
-    const now = this._node ? this.world.time.time : 0;
+    const now = this._node ? this._world.time.time : 0;
     // Following the asset's time (timeOfDay -1): a new asset time (another sky, an edit) restarts from it.
     const assetTime = this.timeOfDay < 0 ? this.settings.sun.timeOfDay : Number.NaN;
     const newAsset = this.timeOfDay < 0 && assetTime !== this.seenAssetTime;

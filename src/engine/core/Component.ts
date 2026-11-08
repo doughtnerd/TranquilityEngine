@@ -1,6 +1,7 @@
 import type { GameObject, InstantiateOptions } from "../scene/GameObject";
 import type { Transform } from "../scene/Transform";
 import type { TimeState, World } from "./World";
+import type { WorldHandle } from "./worlds";
 
 /**
  * Base class for everything attached to a node: built-in engine components and user
@@ -49,7 +50,7 @@ export abstract class Component {
   set enabled(value: boolean) {
     if (this._enabled === value) return;
     this._enabled = value;
-    this.world._refreshComponent(this);
+    this._world._refreshComponent(this);
   }
 
   /** True when enabled, the node is active in the hierarchy, and the node is in a loaded world. */
@@ -57,9 +58,21 @@ export abstract class Component {
     return this._active;
   }
 
-  /** @internal */
-  get world(): World {
+  /** @internal The World this component's node is in. Game code uses `world`, its handle (ADR 0132). */
+  get _world(): World {
     return this._node.world;
+  }
+
+  /**
+   * A handle on this component's World (ADR 0132): the same one `Engine.findWorld` returns. Load
+   * a scene into it, pause, connect or destroy it: `this.world.loadScene("scenes/level2.scene.json")`.
+   * Throws for a World no Engine owns.
+   */
+  get world(): WorldHandle {
+    const world = this._node.world;
+    const handle = (world._engine as { _handleOf?(world: World): WorldHandle | null } | null)?._handleOf?.(world);
+    if (!handle) throw new Error(`${this.constructor.name}: the World "${world.name}" has no handle: it isn't in an Engine.`);
+    return handle;
   }
 
   /**
@@ -182,24 +195,24 @@ export class Waits {
 
   /** Resolve after `seconds` of scaled game time. */
   seconds(seconds: number): Promise<void> {
-    const time = this.owner.world.time;
+    const time = this.owner._world.time;
     return this.add("seconds", time.time + seconds);
   }
 
   /** Resolve after `seconds` of real time, ignoring pause and time scale. */
   realtime(seconds: number): Promise<void> {
-    const time = this.owner.world.time;
+    const time = this.owner._world.time;
     return this.add("realtime", time.realtimeSinceStartup + seconds);
   }
 
   /** Resolve at the start of the next frame's update phase. */
   nextFrame(): Promise<void> {
-    return this.add("frame", this.owner.world.time.frameCount);
+    return this.add("frame", this.owner._world.time.frameCount);
   }
 
   /** Resolve at the next fixed step, before `fixedUpdate`. */
   fixedStep(): Promise<void> {
-    return this.add("fixed", this.owner.world.time.fixedStepCount);
+    return this.add("fixed", this.owner._world.time.fixedStepCount);
   }
 
   /** Resolve on the first frame `predicate()` returns true. */
@@ -210,7 +223,7 @@ export class Waits {
   private add(kind: WaitKind, target: number, predicate?: () => boolean): Promise<void> {
     return new Promise<void>((resolve) => {
       if (!this.owner.isActiveAndEnabled) return; // dropped: never resolves
-      this.owner.world._waits.push({ owner: this.owner, kind, target, predicate, resolve });
+      this.owner._world._waits.push({ owner: this.owner, kind, target, predicate, resolve });
     });
   }
 }

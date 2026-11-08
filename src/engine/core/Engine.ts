@@ -352,6 +352,11 @@ export class Engine implements BootstrapEngine {
     return world ? this.handles.get(world)! : null;
   }
 
+  /** @internal The handle on one of this Engine's Worlds, or null (`Component.world`, ADR 0132). */
+  _handleOf(world: World): WorldHandle | null {
+    return this.handles.get(world) ?? null;
+  }
+
   /** Handles on every World, in creation (and step) order. For the editor and bootstraps, not game scripts. */
   worlds(): readonly WorldHandle[] {
     return this.list.map((w) => this.handles.get(w)!);

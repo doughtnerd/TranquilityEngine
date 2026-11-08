@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameBehavior, GameObject, SceneManager, Time, defineSystem, type WorldConfig } from "../index";
 import { _undefineSystem } from "../core/systems";
 import { World } from "../core/World";
+import { _worldOf } from "../core/WorldHandle";
 
 // ADR 0032, T1: several Worlds per Engine, each with its own clock, stepped in one loop.
 
@@ -210,6 +211,22 @@ describe("several Worlds per Engine (T1)", () => {
     const editor = await Engine.create({ headless: true, kind: "editor" });
     expect(editor.world).toMatchObject({ name: "Editor", worldTags: ["editor"], kind: "editor" });
     editor.dispose();
+  });
+
+  it("gives a behaviour its own World's handle as this.world (ADR 0132)", async () => {
+    class Probe extends GameBehavior {}
+    const engine = await Engine.create({ headless: true });
+    const match = engine.createWorld({ name: "Match", tags: ["local"] });
+    const inDefault = GameObject.create("a").addBehavior(Probe);
+    expect(inDefault.world).toBe(engine.findWorld("Default"));
+    const inMatch = World._runIn(_worldOf(match)!, () => GameObject.create("b").addBehavior(Probe));
+    expect(inMatch.world).toBe(match);
+    expect(inMatch.world.name).toBe("Match");
+    engine.dispose();
+
+    const bare = new World();
+    const orphan = World._runIn(bare, () => GameObject.create("c").addBehavior(Probe));
+    expect(() => orphan.world).toThrow(/has no handle/);
   });
 
   it("moves engine.world to the next World when the default one is destroyed", async () => {

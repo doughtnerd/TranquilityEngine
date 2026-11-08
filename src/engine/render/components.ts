@@ -27,7 +27,7 @@ export class SpriteRenderer extends Component {
   @field(Number) orderInLayer = 0;
 
   override _onDetach(): void {
-    this.world.render?.release(this);
+    this._world.render?.release(this);
   }
 }
 
@@ -81,12 +81,12 @@ export class Camera extends Component {
    * The surface keeps the size up to date, so this doesn't force a layout each call.
    */
   private canvasSize(): { readonly width: number; readonly height: number } {
-    const render = this.world.render;
+    const render = this._world.render;
     if (render) {
       const size = render.canvasCssSize ? render.canvasCssSize() : render.canvas ? { width: render.canvas.clientWidth, height: render.canvas.clientHeight } : null;
       if (size && size.width > 0 && size.height > 0) return size;
     }
-    return this.world.settings.display;
+    return this._world.settings.display;
   }
 
   /** The camera's rectangle in canvas pixels, origin top-left (ADR 0056). */
@@ -113,7 +113,7 @@ export class Camera extends Component {
     if (!this.pixelPerfect || this.projection !== "orthographic") return this.orthographicSize;
     const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
     const heightPx = this.pixelRect().height * dpr;
-    return pixelPerfectView(heightPx, this.orthographicSize, this.world.settings.render.pixelsPerUnit).orthographicSize;
+    return pixelPerfectView(heightPx, this.orthographicSize, this._world.settings.render.pixelsPerUnit).orthographicSize;
   }
 
   /** The camera's world position and axes (right, up, forward = the node's -Z), ignoring scale. */
@@ -178,7 +178,7 @@ export class Camera extends Component {
   }
 
   override _onDetach(): void {
-    this.world.render?.release(this);
+    this._world.render?.release(this);
   }
 }
 
@@ -213,7 +213,7 @@ export class Text extends Component {
   @field(Number) lineHeight = 1.2;
 
   override _onDetach(): void {
-    this.world.render?.release(this);
+    this._world.render?.release(this);
   }
 }
 
@@ -390,7 +390,7 @@ export class MeshRenderer extends Component {
   }
 
   override _onDetach(): void {
-    this.world.render?.release(this);
+    this._world.render?.release(this);
   }
 }
 
@@ -424,7 +424,7 @@ export class Light extends Component {
   @field(Number) shadowArea = 20;
 
   override _onDetach(): void {
-    this.world.render?.release(this);
+    this._world.render?.release(this);
   }
 }
 
@@ -587,7 +587,7 @@ export class ReflectionProbe extends Component {
   }
 
   override _onDetach(): void {
-    this.world.render?.release(this);
+    this._world.render?.release(this);
   }
 }
 
@@ -700,6 +700,6 @@ export class ParticleSystem extends Component {
   }
 
   override _onDetach(): void {
-    this.world.render?.release(this);
+    this._world.render?.release(this);
   }
 }

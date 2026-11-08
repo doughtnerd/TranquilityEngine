@@ -62,7 +62,7 @@ export class OrbitCamera extends GameBehavior {
       ({ yaw: this.yaw, pitch: this.pitch } = this.saved3D);
     }
     this._mode = mode;
-    viewport(this.world).setGrid({ plane: mode === "2d" ? "xy" : "xz" });
+    viewport(this._world).setGrid({ plane: mode === "2d" ? "xy" : "xz" });
     this.apply();
   }
 
@@ -121,7 +121,7 @@ export class OrbitCamera extends GameBehavior {
 
   /** Drag the scene with the pointer: move the focus point against the drag, in the view plane. */
   private pan(dx: number, dy: number): void {
-    const pixels = this.world.render?.canvas.clientHeight || 720;
+    const pixels = this._world.render?.canvas.clientHeight || 720;
     const perPixel = this.viewHeight / pixels;
     const yaw = this.yaw * DEG2RAD, pitch = this.pitch * DEG2RAD;
     const right = new Vector3(Math.cos(yaw), 0, -Math.sin(yaw));

@@ -93,7 +93,7 @@ export class CharacterController extends Collider {
    * controller (its first fixed step), the node moves unobstructed.
    */
   move(motion: Vec3Like): CollisionFlags {
-    const physics = this.world.physics3D;
+    const physics = this._world.physics3D;
     const result = physics?.moveCharacter(this, motion);
     const t = this.node.transform;
     if (!result) {
@@ -113,8 +113,8 @@ export class CharacterController extends Collider {
    * World's gravity when not grounded. Returns `isGrounded`.
    */
   simpleMove(speed: Vec3Like): boolean {
-    const dt = this.world.time.deltaTime;
-    const g = this.world.physics3D?.gravity.y ?? -9.81;
+    const dt = this._world.time.deltaTime;
+    const g = this._world.physics3D?.gravity.y ?? -9.81;
     this._fallSpeed = this.isGrounded ? Math.min(0, g * dt) : this._fallSpeed + g * dt;
     this.move({ x: speed.x * dt, y: this._fallSpeed * dt, z: speed.z * dt });
     if (this.isGrounded) this._fallSpeed = 0;
@@ -122,7 +122,7 @@ export class CharacterController extends Collider {
   }
 
   private setVelocity(x: number, y: number, z: number): void {
-    const dt = this.world.time.deltaTime;
+    const dt = this._world.time.deltaTime;
     if (dt > 0) this._velocity.set(x / dt, y / dt, z / dt);
   }
 

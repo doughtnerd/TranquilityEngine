@@ -38,7 +38,7 @@ export abstract class Collider2D extends Component {
   abstract _shapeSignature(): string;
 
   override _onDetach(): void {
-    this.world.physics2D?.releaseCollider(this);
+    this._world.physics2D?.releaseCollider(this);
   }
 }
 

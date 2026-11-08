@@ -69,7 +69,7 @@ export class AudioSource extends Component {
   }
 
   play(): void {
-    if (!this.clip || !worldPlays(this.world)) return;
+    if (!this.clip || !worldPlays(this._world)) return;
     this.stop();
     const path = this.clip.replace(/^asset:/, "");
     this.voice = startClip(path, this.loop, this.output);

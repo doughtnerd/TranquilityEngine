@@ -1,5 +1,5 @@
 import { Engine, GameBehavior, GameObject, Input, Text, behavior, field, type WorldHandle } from "myco";
-import { ARENA_SCENE, DEDICATED_SERVER_URL, SERVER_WORLD, clientWorlds } from "../data";
+import { ARENA_SCENE, DEDICATED_SERVER_URL, SERVER_WORLD } from "../data";
 
 /**
  * The frontend (Unity Netcode for Entities' pattern): the game starts with one client World
@@ -41,7 +41,7 @@ export class Menu extends GameBehavior {
   private begin(message: string, connect: (me: WorldHandle) => void): void {
     this.busy = true;
     this.say(message);
-    const me = Engine.findWorld(clientWorlds.get(this.time)!.name)!;
+    const me = this.world;
     try {
       connect(me);
     } catch (err) {

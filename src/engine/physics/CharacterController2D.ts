@@ -70,7 +70,7 @@ export class CharacterController2D extends Collider2D {
 
   /** Move by `motion`, sliding along what it hits. The node moves at once. See CharacterController.move. */
   move(motion: Vec2Like): CollisionFlags {
-    const result = this.world.physics2D?.moveCharacter(this, motion);
+    const result = this._world.physics2D?.moveCharacter(this, motion);
     const t = this.node.transform;
     if (!result) {
       if (t) {
@@ -101,8 +101,8 @@ export class CharacterController2D extends Collider2D {
 
   /** Walk at `speed.x` units per second for this frame, falling with gravity when not grounded. Returns `isGrounded`. */
   simpleMove(speed: Vec2Like): boolean {
-    const dt = this.world.time.deltaTime;
-    const g = this.world.physics2D?.gravity.y ?? -9.81;
+    const dt = this._world.time.deltaTime;
+    const g = this._world.physics2D?.gravity.y ?? -9.81;
     this._fallSpeed = this.isGrounded ? Math.min(0, g * dt) : this._fallSpeed + g * dt;
     this.move({ x: speed.x * dt, y: this._fallSpeed * dt });
     if (this.isGrounded) this._fallSpeed = 0;
@@ -110,7 +110,7 @@ export class CharacterController2D extends Collider2D {
   }
 
   private setVelocity(x: number, y: number): void {
-    const dt = this.world.time.deltaTime;
+    const dt = this._world.time.deltaTime;
     if (dt > 0) this._velocity.set(x / dt, y / dt);
   }
 

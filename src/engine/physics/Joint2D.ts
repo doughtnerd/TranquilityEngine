@@ -56,7 +56,7 @@ export abstract class Joint2D extends Component {
   }
 
   override _onDetach(): void {
-    this.world.physics2D?.releaseJoint(this);
+    this._world.physics2D?.releaseJoint(this);
   }
 }
 

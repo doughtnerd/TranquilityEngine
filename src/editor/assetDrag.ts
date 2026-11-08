@@ -98,7 +98,7 @@ export function hierarchyTargetAt(clientX: number, clientY: number): AssetDropTa
 export function viewportDropPoint(x: number, y: number): [number, number, number] {
   const camera = sceneCamera.value;
   if (!camera) return [0, 0, 0];
-  const hit = viewMode.value === "3d" ? viewport(camera.world).pointOnPlane(x, y, [0, 1, 0], [0, 0, 0]) : viewport(camera.world).pointOnPlane(x, y, [0, 0, 1], [0, 0, 0]);
+  const hit = viewMode.value === "3d" ? viewport(camera._world).pointOnPlane(x, y, [0, 1, 0], [0, 0, 0]) : viewport(camera._world).pointOnPlane(x, y, [0, 0, 1], [0, 0, 0]);
   return hit ?? (camera.focusPoint.toArray() as [number, number, number]);
 }
 
