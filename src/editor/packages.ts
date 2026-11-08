@@ -30,7 +30,8 @@ export interface PackageSource {
   readonly id?: string;
 }
 
-const ENGINE_SPECIFIERS = new Set(["myco", "tranquility"]);
+// "myco/editor" (ADR 0139): the editor SDK, which npm plugins' editor halves import; external like "myco".
+const ENGINE_SPECIFIERS = new Set(["myco", "tranquility", "myco/editor"]);
 
 /** True for an import of an npm package: a bare specifier other than the engine's. */
 export const isPackageSpecifier = (specifier: string) =>

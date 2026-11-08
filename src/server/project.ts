@@ -15,7 +15,10 @@ import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AssetSource, ProjectSettingsInput } from "../engine";
 import { nodePackageSource } from "./packages";
-import { isScriptPath, loadScripts, loadedScriptModule, type ScriptProblem } from "../editor/scriptLoader";
+import { isScriptPath, loadScripts, loadedPackageModule, loadedScriptModule, type ScriptProblem } from "../editor/scriptLoader";
+import { FIRST_PARTY_MANIFESTS } from "../plugins/manifests";
+import type { RuntimePlugin } from "../plugins/runtimeContext";
+import { planPluginCode, toRuntimePlugin } from "../plugins/thirdParty";
 
 /** A bad project folder, bootstrap or listen address: the message says what's wrong, for the command line. */
 export class ServerError extends Error {
@@ -113,10 +116,31 @@ async function listFiles(root: string, dir = root): Promise<string[]> {
  * missing a system or RPC would run the wrong game, or reject every client in the handshake.
  */
 export async function loadProjectScripts(project: ServerProject): Promise<readonly string[]> {
-  if (project.scripts.size === 0) return [];
-  const result = await loadScripts(project.scripts, project.json, nodePackageSource(project.root, "production"));
+  return (await loadProjectCode(project)).loaded;
+}
+
+/**
+ * Load the project's scripts and its enabled third-party plugins' runtime halves (ADR 0139), minus
+ * plugins marked `server: false`, and return those halves for the server to activate. A refused
+ * plugin, or a script or plugin module that fails, is a `ServerError`.
+ */
+export async function loadProjectCode(project: ServerProject): Promise<{ loaded: readonly string[]; plugins: RuntimePlugin[] }> {
+  const packages = nodePackageSource(project.root, "production");
+  const plan = await planPluginCode({ json: project.json, code: project.scripts, packages: packages.files, disabled: project.settings.plugins?.disabled, builtIn: FIRST_PARTY_MANIFESTS }, { editor: false, server: true });
+  if (plan.problems.length > 0) throw new ServerError(`Some plugins in "${project.root}" can't load:\n${plan.problems.map((p) => `  - ${p.where}: ${p.message}`).join("\n")}`);
+  if (plan.code.size === 0 && plan.npmEntries.length === 0) return { loaded: [], plugins: [] };
+  const result = await loadScripts(plan.code, project.json, packages, plan.npmEntries);
   if (result.problems.length > 0) throw new ServerError(`Some scripts in "${project.root}" didn't load:\n${describeProblems(result.problems)}`);
-  return result.loaded;
+  const plugins: RuntimePlugin[] = [];
+  for (const p of plan.runtime) {
+    try {
+      const module = p.source.kind === "project" ? await loadedScriptModule(p.runtime!) : await loadedPackageModule(p.runtime!);
+      plugins.push(toRuntimePlugin(p, module));
+    } catch (err) {
+      throw new ServerError(`The plugin ${p.manifest.name} (${p.where}) didn't load: ${(err as Error).message}`);
+    }
+  }
+  return { loaded: result.loaded, plugins };
 }
 
 /** A loaded script's exports (for a code bootstrap's `bootstrap` function). */

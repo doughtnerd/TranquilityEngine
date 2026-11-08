@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import type { Plugin } from "vite";
@@ -66,6 +66,10 @@ const ENGINE_TYPES = "virtual:myco-types";
  * `tsconfig.engine.json`'s settings (internals stripped, editor access left out). The editor's
  * code editor serves them as the `"myco"` package (ADR 0030). Regenerated when an engine
  * source file changes.
+ *
+ * The editor SDK's declarations come with them (ADR 0139): `editor/sdk/index.d.ts` and the files it
+ * reaches (only those), with `editor.d.ts` re-exporting it, so `"myco/editor"` resolves beside
+ * `"myco"` for plugins' editor halves.
  */
 export function engineTypes(): Plugin {
   const resolved = `\0${ENGINE_TYPES}`;
@@ -82,10 +86,12 @@ export function engineTypes(): Plugin {
       });
       if (!config) throw new Error("tsconfig.engine.json: couldn't read it.");
       for (const f of config.fileNames) this.addWatchFile(f);
+      const editorFiles = sourceFiles(EDITOR_DIR);
+      for (const f of editorFiles) this.addWatchFile(f);
       // The emit takes several seconds and blocks the dev server meanwhile (the Code panel asks for
       // it once a project opens), so its output is kept on disk, reused while every engine source,
       // tsc and the options match (ADR 0082).
-      const key = hash([ts.version, JSON.stringify(config.options), ...config.fileNames.map((f) => `${f}\n${readFileSync(f, "utf8")}`)].join("\0"));
+      const key = hash([ts.version, JSON.stringify(config.options), ...[...config.fileNames, ...editorFiles].map((f) => `${f}\n${readFileSync(f, "utf8")}`)].join("\0"));
       try {
         const cached = JSON.parse(readFileSync(TYPES_CACHE, "utf8")) as { key: string; code: string };
         if (cached.key === key) return cached.code;
@@ -101,6 +107,8 @@ export function engineTypes(): Plugin {
       });
       // The public module is src/myco.ts (ADR 0135); the package's `index.d.ts` re-exports it.
       files["index.d.ts"] ??= 'export * from "./myco";\n';
+      Object.assign(files, editorSdkDeclarations(program, config.options, outDir, files));
+      files["editor.d.ts"] = 'export * from "./editor/sdk/index";\n';
       const code = `export default ${JSON.stringify(files)};`;
       try {
         mkdirSync(join(TYPES_CACHE, ".."), { recursive: true });
@@ -111,6 +119,63 @@ export function engineTypes(): Plugin {
       return code;
     },
   };
+}
+
+const SRC_DIR = fileURLToPath(new URL("./src/", import.meta.url));
+const EDITOR_DIR = join(SRC_DIR, "editor");
+
+/** Every `.ts`/`.tsx` source under `dir` (tests left out). */
+function sourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir).sort()) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
+    else if (/\.tsx?$/.test(name) && !/\.(test|d)\.tsx?$/.test(name)) out.push(full);
+  }
+  return out;
+}
+
+/**
+ * `myco/editor`'s declarations (ADR 0139): emitted one file at a time from `src/editor/sdk/index.ts`,
+ * following the relative imports of each emitted `.d.ts`, so only what the SDK's types reach is kept.
+ * Files `have` already holds (the engine's) aren't emitted again. Paths are relative to `src/`.
+ */
+function editorSdkDeclarations(engine: ts.Program, options: ts.CompilerOptions, outDir: string, have: Readonly<Record<string, string>>): Record<string, string> {
+  const root = join(EDITOR_DIR, "sdk", "index.ts");
+  const program = ts.createProgram({ rootNames: [root], options: { ...options, noEmit: false, declaration: true, emitDeclarationOnly: true }, oldProgram: engine });
+  const out: Record<string, string> = {};
+  const seen = new Set<string>();
+  const queue = [root];
+  /** A source file for a `.d.ts` path relative to src/ ("editor/sdk/plugins.d.ts" → src/editor/sdk/plugins.ts or .tsx). */
+  const sourceOf = (rel: string) => {
+    const base = join(SRC_DIR, rel.replace(/\.d\.ts$/, ""));
+    return [`${base}.ts`, `${base}.tsx`, join(base, "index.ts"), join(base, "index.tsx")].find((f) => existsSync(f));
+  };
+  while (queue.length > 0) {
+    const file = queue.shift()!;
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const source = program.getSourceFile(file);
+    if (!source) continue;
+    program.emit(
+      source,
+      (fileName, text) => {
+        const abs = fileName.replace(/\\/g, "/");
+        const rel = abs.startsWith(`${outDir}/`) ? abs.slice(outDir.length + 1) : abs;
+        if (!rel.endsWith(".d.ts") || rel in have) return;
+        out[rel] = text;
+        for (const m of text.matchAll(/(?:from\s+|import\s*\(\s*)["'](\.{1,2}\/[^"']+)["']/g)) {
+          const target = join(dirname(rel), m[1]!).split(sep).join("/").replace(/\.js$/, "");
+          if (`${target}.d.ts` in have || `${target}/index.d.ts` in have) continue;
+          const next = sourceOf(`${target}.d.ts`);
+          if (next) queue.push(next);
+        }
+      },
+      undefined,
+      true,
+    );
+  }
+  return out;
 }
 
 /** A sample project (ADR 0031) as the editor's start screen lists it. */

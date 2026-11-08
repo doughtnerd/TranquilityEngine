@@ -32,9 +32,13 @@ export interface EditorPlugin {
 
 const active = new Map<string, Array<() => void>>();
 
-/** Activate editor halves in dependency order; already-active plugins are skipped. */
-export function activatePlugins(plugins: readonly EditorPlugin[]): void {
-  for (const plugin of orderPlugins(plugins)) {
+/**
+ * Activate editor halves in dependency order; already-active plugins are skipped. `provided` names
+ * dependencies outside `plugins` that are already active (ADR 0139: a third-party half needing a
+ * first-party plugin).
+ */
+export function activatePlugins(plugins: readonly EditorPlugin[], options: { provided?: ReadonlySet<string> } = {}): void {
+  for (const plugin of orderPlugins(plugins, options.provided)) {
     const name = plugin.manifest.name;
     if (active.has(name)) continue;
     const undo: Array<() => void> = [];

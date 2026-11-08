@@ -11,6 +11,8 @@
 //   serve.mjs      a tiny static server (`node serve.mjs`), since browsers won't load modules from file://
 //   README.txt     how to run it
 
+import type { BuiltPlugin } from "../plugins/thirdParty";
+
 /** The manifest's file name, at the build's root. */
 export const MANIFEST_FILE = "game.json";
 /** The folder the project's own files are copied into. */
@@ -42,6 +44,11 @@ export interface GameManifest {
   readonly scripts: readonly { readonly source: string; readonly module: string }[];
   /** Prefab and material files the scripts name in string literals, warmed up with every scene (ADR 0080); omitted when none. */
   readonly assetRefs?: readonly string[];
+  /**
+   * The enabled third-party plugins' runtime halves (ADR 0139), in dependency order: each manifest and
+   * its compiled entry module, which the player activates after the first-party plugins. Omitted when none.
+   */
+  readonly plugins?: readonly BuiltPlugin[];
 }
 
 /** Where a compiled script, or a JSON file's module, goes in the build. */

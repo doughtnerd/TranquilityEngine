@@ -23,9 +23,10 @@ export function projectTsconfig(): string {
       resolveJsonModule: true,
       skipLibCheck: true,
       // "tranquility": the engine's former name (ADR 0037), for scripts written before the rename.
-      paths: { myco: [`./${TYPES_DIR}/index.d.ts`], tranquility: [`./${TYPES_DIR}/index.d.ts`] },
+      // "myco/editor": the editor SDK, for plugins' editor halves (ADR 0139).
+      paths: { myco: [`./${TYPES_DIR}/index.d.ts`], "myco/editor": [`./${TYPES_DIR}/editor.d.ts`], tranquility: [`./${TYPES_DIR}/index.d.ts`] },
     },
-    include: ["scripts/**/*.ts"],
+    include: ["scripts/**/*.ts", "plugins/**/*.ts"],
   };
   return `${JSON.stringify(config, null, 2)}\n`;
 }
@@ -67,7 +68,15 @@ export async function writeScriptingFiles(fs: FileSystem, root: string, declarat
 export async function watchScripts(fs: FileSystem, root: string, onChange: () => void): Promise<(() => void) | null> {
   if (!fs.watch) return null;
   // By file name: a script, not a declaration file or the temp file of an atomic write (`X.ts.tmp-…`).
-  return fs.watch(joinPath(root, "scripts"), (paths) => {
+  const changed = (paths: string[]) => {
     if (paths.some((p) => /\.ts$/i.test(p) && !/\.d\.ts$/i.test(p))) onChange();
-  });
+  };
+  const stop = await fs.watch(joinPath(root, "scripts"), changed);
+  // Project plugins' sources (ADR 0139), when the project has a plugins/ folder.
+  const stopPlugins = fs.exists && (await fs.exists(joinPath(root, "plugins")).catch(() => false)) ? await fs.watch(joinPath(root, "plugins"), changed).catch(() => null) : null;
+  if (!stopPlugins) return stop;
+  return () => {
+    stop?.();
+    stopPlugins();
+  };
 }

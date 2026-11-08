@@ -1,0 +1,10 @@
+{
+  "name": "acme.spinner",
+  "version": "1.0.0",
+  "title": "Spinner",
+  "description": "A Component that spins its node, and spin preset assets.",
+  "sdk": "^1.0.0",
+  "runtime": "runtime/index.ts",
+  "editor": "editor/index.ts",
+  "assetKinds": [{ "id": "spin", "extensions": [".spin.json"], "label": "Spin Preset", "icon": "M4 12a8 8 0 1 0 8-8M12 4l-3-3M12 4 9 7" }]
+}

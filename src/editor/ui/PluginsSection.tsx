@@ -1,7 +1,8 @@
-// The Project panel's Plugins category (ADR 0133): the first-party plugins with a checkbox each. Only
+// The Project panel's Plugins category (ADR 0133, 0139): the first-party plugins, then the project's
+// third-party ones (from plugins/ and npm packages), with a checkbox each, and the refused ones. Only
 // what's off is stored (`plugins.disabled`), so new plugins default on. Turning off a plugin that others
 // need asks first and turns them off too; turning one on turns on what it needs.
-import { pluginManifests } from "../../plugins/editorApply";
+import { allPluginManifests, projectPlugins } from "../../plugins/thirdPartyEditor";
 import { migrateDisabledPlugins, pluginDependencies, pluginDependents, resolveEnabledPlugins, setPluginEnabled } from "../../plugins/enabled";
 import { pluginTitle, type PluginManifest } from "../../plugins/manifest";
 import { disabledPluginsOf, setDisabledPlugins, type SettingsDraft } from "../projectSettingsModel";
@@ -11,7 +12,12 @@ type Set = (label: string, next: SettingsDraft) => void;
 
 export function PluginsSection(props: { draft: SettingsDraft; set: Set }) {
   const { draft, set } = props;
-  const manifests = pluginManifests();
+  const manifests = allPluginManifests();
+  const third = projectPlugins.value;
+  const sourceOf = (name: string) => {
+    const p = third.usable.find((x) => x.manifest.name === name);
+    return !p ? null : p.source.kind === "project" ? `${p.source.folder}/` : `npm: ${p.source.package}`;
+  };
   const title = (name: string) => {
     const m = manifests.find((x) => x.name === name);
     return m ? pluginTitle(m) : name;
@@ -54,7 +60,10 @@ export function PluginsSection(props: { draft: SettingsDraft; set: Set }) {
               <input id={id} type="checkbox" checked={on} data-plugin={m.name} onChange={(e) => void toggle(m, (e.currentTarget as HTMLInputElement).checked)} />
               <label for={id}>
                 <span class="plugins-title">{pluginTitle(m)}</span>
-                <span class="plugins-name">{m.name}</span>
+                <span class="plugins-name">
+                  {m.name}
+                  {sourceOf(m.name) && ` · ${m.version} · ${sourceOf(m.name)}`}
+                </span>
                 {m.description && <span class="plugins-description">{m.description}</span>}
                 {!on && blockedBy.length > 0 && !disabled.includes(m.name) && <span class="plugins-description">Off because it needs {blockedBy.map(title).join(", ")}.</span>}
                 {on && pluginDependencies(manifests, m.name).length > 0 && <span class="plugins-description">Needs {pluginDependencies(manifests, m.name).map(title).join(", ")}.</span>}
@@ -63,6 +72,24 @@ export function PluginsSection(props: { draft: SettingsDraft; set: Set }) {
           );
         })}
       </ul>
+      {third.problems.length > 0 && (
+        <>
+          <p class="project-settings-hint">Plugins that can't load:</p>
+          <ul class="plugins-list plugins-problems" aria-label="Plugin problems">
+            {third.problems.map((p) => (
+              <li key={`${p.where}:${p.message}`} class="plugins-item off">
+                <span class="plugins-title">{p.plugin}</span>
+                <span class="plugins-name">{p.where}</span>
+                <span class="plugins-description">{p.message}</span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <p class="project-settings-hint">
+        Third-party plugins come from the project's plugins/ folder and from npm packages that mark themselves as Myco plugins. They run with the same access as your scripts, so only add
+        plugins you trust.
+      </p>
     </div>
   );
 }

@@ -13,6 +13,8 @@ import { pickMainScene } from "../editor/projects";
 import { compileScript, ENGINE_MODULE, LEGACY_ENGINE_MODULE, isScriptPath, loadOrder, packageSpecifiers, resolveScript, rewriteImports, type ScriptProblem } from "../editor/scriptLoader";
 import { bundlePackages, isPackageSpecifier, type PackageSource } from "../editor/packages";
 import { projectScriptAssetRefs } from "../engine/scene/scriptAssetRefs";
+import { FIRST_PARTY_MANIFESTS } from "../plugins/manifests";
+import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
 import { ENGINE_FILE, MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, relativeSpecifier, type GameManifest } from "./format";
 
 /** A project to build, however it was read. */
@@ -81,7 +83,12 @@ export const DEPS_DIR = "code/deps";
  * Compile every script and point its imports at build files; npm packages they import are bundled
  * into `code/deps/` (ADR 0125). Throws an `ExportError` listing every script that fails.
  */
-export async function compileForBuild(scripts: ReadonlyMap<string, string>, json: ReadonlyMap<string, string>, packages?: PackageSource): Promise<{ order: string[]; files: Map<string, string> }> {
+export async function compileForBuild(
+  scripts: ReadonlyMap<string, string>,
+  json: ReadonlyMap<string, string>,
+  packages?: PackageSource,
+  extraPackages: readonly string[] = [],
+): Promise<{ order: string[]; files: Map<string, string>; packageEntries: Map<string, string> }> {
   const problems: ScriptProblem[] = [];
   const compiled = new Map<string, Exclude<Awaited<ReturnType<typeof compileScript>>, ScriptProblem>>();
   for (const [path, source] of [...scripts].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
@@ -98,7 +105,8 @@ export async function compileForBuild(scripts: ReadonlyMap<string, string>, json
       // reported against the scripts that import it
     }
   }
-  const specifiers = packageSpecifiers(compiled.values());
+  // npm plugins' runtime entries (ADR 0139) bundle with the packages the scripts import.
+  const specifiers = [...new Set([...packageSpecifiers(compiled.values()), ...extraPackages])].sort();
   const files = new Map<string, string>();
   const entryFiles = new Map<string, string>();
   const packageProblems = new Map<string, string | undefined>();
@@ -114,6 +122,7 @@ export async function compileForBuild(scripts: ReadonlyMap<string, string>, json
   }
   const plan = loadOrder(compiled, new Map([...json.keys()].map((p) => [p, parsed.has(p)])), packageProblems);
   problems.push(...plan.problems);
+  for (const spec of extraPackages) if (packageProblems.get(spec) !== undefined) problems.push({ path: spec, message: `the plugin entry can't be bundled: ${packageProblems.get(spec)}` });
   if (problems.length > 0) {
     const list = problems.map((p) => `  - ${p.path}: ${p.message}`).join("\n");
     throw new ExportError(`Some scripts can't be built:\n${list}`, problems);
@@ -133,7 +142,7 @@ export async function compileForBuild(scripts: ReadonlyMap<string, string>, json
       }),
     );
   }
-  return { order: plan.order, files };
+  return { order: plan.order, files, packageEntries: entryFiles };
 }
 
 /** Plan a web build of `source`. Throws an `ExportError` if it can't be built. */
@@ -147,7 +156,17 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   const mainScene = options.mainScene ?? pickMainScene(copies);
   if (options.mainScene !== undefined && !copies.includes(options.mainScene)) throw new ExportError(`There's no scene "${options.mainScene}" in the project.`);
 
-  const { order, files } = await compileForBuild(source.scripts, source.json, source.packages);
+  // Third-party plugins (ADR 0139): the enabled ones' runtime halves build with the scripts; a refused plugin stops the build.
+  const pluginPlan = await planPluginCode(
+    { json: source.json, code: source.scripts, packages: source.packages?.files, disabled: source.settings.plugins?.disabled, builtIn: FIRST_PARTY_MANIFESTS },
+    { editor: false },
+  );
+  if (pluginPlan.problems.length > 0) {
+    const list = pluginPlan.problems.map((p) => `  - ${p.where}: ${p.message}`).join("\n");
+    throw new ExportError(`Some plugins can't be built:\n${list}`, pluginPlan.problems.map((p) => ({ path: p.where, message: p.message })));
+  }
+  const { order, files, packageEntries } = await compileForBuild(pluginPlan.code, source.json, source.packages, pluginPlan.npmEntries);
+  const plugins: BuiltPlugin[] = pluginPlan.runtime.map((p) => ({ manifest: p.manifest, module: p.source.kind === "project" ? modulePath(p.runtime!) : packageEntries.get(p.runtime!)! }));
   const name = typeof source.settings.name === "string" && source.settings.name ? source.settings.name : source.name;
   const manifest: GameManifest = {
     format: MANIFEST_FORMAT,
@@ -155,6 +174,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     mainScene,
     files: copies,
     scripts: order.map((path) => ({ source: path, module: modulePath(path) })),
+    ...(plugins.length > 0 && { plugins }),
   };
   const assetRefs = projectScriptAssetRefs(source.scripts.values(), (p) => copies.includes(p));
   if (assetRefs.length) (manifest as { assetRefs?: readonly string[] }).assetRefs = assetRefs;
