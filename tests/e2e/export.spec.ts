@@ -172,7 +172,7 @@ test.describe("3D Playground web build", () => {
         const heights = m.GameObject.findObjectsOfType(m.RigidBody).map((b) => b.node.transform.position.y);
         return { drawn: drawn.sort(), highest: Math.max(...heights) };
       });
-    await expect.poll(async () => (await state()).drawn).toEqual(["Ball", "Body", "Crate 1", "Crate 2", "Crate 3", "Crate 4", "Ground", "Head", "Orb", "Pillar"]);
+    await expect.poll(async () => (await state()).drawn).toEqual(["Ball", "Body", "Crate 1", "Crate 2", "Crate 3", "Crate 4", "Ground", "Head", "Orb", "Pillar", "Street Lamp"]);
     // Everything starts 3 m or higher; after a few seconds it has all landed on the ground.
     await expect.poll(async () => (await state()).highest, { timeout: 15_000 }).toBeLessThan(3);
     expect(errors).toEqual([]);
