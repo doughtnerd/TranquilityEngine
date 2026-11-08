@@ -37,17 +37,16 @@ export { Assets, type AssetSource } from "./scene/Assets";
 export type { ImportPlatform, ImportSettings, PlatformOverrides, TextureCompression, ModelNormals, ModelUpAxis, SpriteSlice, TextureFilter, TextureWrap } from "./scene/importSettings";
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
-// ParticleSystem (and ParticlePropertyValue) are the Particles plugin's public exports (`src/myco.ts`, ADR 0135).
-export { Camera, Environment, Fog, Light, MeshRenderer, PostProcessing, ReflectionProbe, SpriteRenderer, Text, type Anchor, type FogMode, type LightType, type MaterialPropertyValue, type ProbeRefresh, type Projection, type ToneMapping } from "./render/components";
+// ParticleSystem (and ParticlePropertyValue) are the Particles plugin's public exports (`src/myco.ts`, ADR 0135);
+// SpriteRenderer, MeshRenderer, Environment, PostProcessing, Text, WaterSurface and the UI Components
+// are the Sprites, Meshes, Environment, Post-processing, UI and Water plugins' (ADR 0140).
+export { Camera, Fog, Light, ReflectionProbe, type FogMode, type LightType, type MaterialPropertyValue, type ProbeRefresh, type Projection } from "./render/components";
 export { Material, type MaterialValue } from "./render/Material";
-export { Water, WaterSurface, type WaterSample } from "./render/water/WaterSurface";
 export type { WaterWave } from "./render/water/gerstner";
 export { CUBEMAP_FORMAT, parseCubemap, formatCubemap, type CubemapFaces, type CubeFace } from "./sky/cubemapFormat";
 
 export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 
-export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UIPositionType, type UITextAlign, type UIWordBreak } from "./ui/components";
-export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "./ui/UIDocument";
 
 export { Audio, AudioSource, type OneShotOptions, type Rolloff } from "./audio/AudioSource";
 export type { Bus } from "./audio/mixer";

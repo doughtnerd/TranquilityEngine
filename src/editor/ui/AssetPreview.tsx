@@ -136,17 +136,11 @@ const ICONS: Partial<Record<BuiltinAssetKind | "folder", string>> & { other: str
   script: "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12",
   javascript: "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12",
   typescript: "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12",
-  uidocument: "M4 4h16v16H4zM4 9h16M9 9v11",
-  stylesheet: "M9 8l-4 4 4 4M15 8l4 4-4 4",
   xml: "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12",
   text: "M7 3h7l5 5v13H7zM14 3v5h5M10 12h6M10 15h6M10 18h4",
   json: "M9 4H8a2 2 0 0 0-2 2v3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3a2 2 0 0 1-2 2h-1",
   audio: "M9 17V6l10-2v11M9 17a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM19 15a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z",
-  model: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
   rendertexture: "M4 5h16v14H4zM8 9h8v6H8zM4 5l4 4M20 5l-4 4M4 19l4-4M20 19l-4-4",
-  environment: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18",
-  lut: "M4 4h16v16H4zM4 12h16M12 4v16M8 4v16M16 4v16",
-  cubemap: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
   other: "M7 3h7l5 5v13H7zM14 3v5h5",
 };
 

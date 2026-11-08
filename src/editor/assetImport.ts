@@ -51,8 +51,8 @@ export async function writeImportSettings(project: EditorProject, path: string, 
 /** True if two settings would write the same sidecar. */
 export const sameSettings = (a: ImportSettings, b: ImportSettings) => formatImportSettings(a) === formatImportSettings(b);
 
-/** Asset kinds the Inspector has an editor or preview for, besides files with import settings. */
-const INSPECTED_KINDS: readonly string[] = ["environment", "cubemap", "prefab"];
+/** Built-in asset kinds the Inspector has an editor or preview for, besides files with import settings (registered kinds bring their own `inspector`). */
+const INSPECTED_KINDS: readonly string[] = ["prefab"];
 
 /** The file the Asset Inspector shows for an Assets panel entry (a slice shows its image), or null if it has no inspector. */
 export function inspectableAsset(entry: string): string | null {

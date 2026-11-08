@@ -16,8 +16,6 @@ export function previewKind(path: string): PreviewKind | null {
   if (p.includes("#") || isSidecarPath(p)) return null;
   const registered = matchRegisteredKind(p)?.kind.preview; // a registered kind's renderer (ADR 0133)
   if (registered) return registered;
-  if (/\.(obj|fbx|gltf|glb)$/.test(p)) return "model";
-  if (/\.(hdr|exr|env|dds)$/.test(p) || p.endsWith(".cubemap.json")) return "environment";
   if (p.endsWith(".prefab.json")) return "prefab";
   if (p.endsWith(".scene.json")) return "scene";
   if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";

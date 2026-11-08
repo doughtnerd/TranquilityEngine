@@ -15,8 +15,8 @@ const ofKind = (...kinds: AssetKind[]) => (f: string) => kinds.includes(assetKin
 
 /** Whether a project file suits each kind. */
 const FILTERS: Record<AssetFieldKind, (file: string) => boolean> = {
-  model: ofKind("model"),
-  mesh: ofKind("model"),
+  model: () => false, // models: the Meshes plugin's kind, by `referencedAs` (ADR 0140)
+  mesh: () => false,
   material: () => false, // materials and shader graphs: the Materials plugin's kinds, by `referencedAs`
   texture: ofKind("image"),
   sprite: ofKind("image", "sprite"),
@@ -24,12 +24,12 @@ const FILTERS: Record<AssetFieldKind, (file: string) => boolean> = {
   audio: ofKind("audio"),
   particles: () => false, // registered kinds by `referencedAs`: particles (Particles plugin), formation (Navigation)
   formation: () => false,
-  lut: ofKind("lut"),
-  environment: (f) => ofKind("environment", "cubemap")(f) || /\.(png|jpe?g)$/i.test(f),
-  envmap: (f) => /\.env$/i.test(f) && assetKind(f) === "environment",
+  lut: () => false, // the Post-processing plugin's kind (ADR 0140)
+  environment: (f) => /\.(png|jpe?g)$/i.test(f), // panoramas; environment maps and cubemaps (Environment plugin) and skies (Sky) by `referencedAs`
+  envmap: (f) => /\.env$/i.test(f) && assetKind(f) === "environment", // a prefiltered map of the Environment plugin's kind
   tileset: () => false, // the Tilemaps plugin's tileset kind
   font: (f) => /\.(ttf|otf|woff2?)$/i.test(f),
-  uidocument: ofKind("uidocument"),
+  uidocument: () => false, // the UI plugin's kind (ADR 0140)
   navbake: (f) => /\.nav\.bin$/i.test(f),
   scene: ofKind("scene"),
   prefab: ofKind("prefab"),

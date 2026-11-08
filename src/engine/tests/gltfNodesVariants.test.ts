@@ -5,7 +5,8 @@ import type { Material as BabylonMaterial } from "@babylonjs/core/Materials/mate
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, MeshRenderer } from "../index";
+import { Assets } from "../index";
+import { MeshRenderer } from "../render/components";
 import { decodeBakedModel, encodeBakedModel } from "../scene/bakedModel";
 import { engineCamera, engineLight } from "../scene/gltf";
 import { parseImportSettings } from "../scene/importSettings";

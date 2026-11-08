@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Color, Engine, GameObject, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../engine";
+import { Color, Engine, GameObject } from "../engine";
+import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../engine/ui/components";
 import { isPaintedUI, orderClickHits, partitionUIHits } from "./uiPicking";
 
 let engine: Engine;

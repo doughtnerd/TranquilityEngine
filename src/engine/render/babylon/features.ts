@@ -2,10 +2,10 @@
  * Render feature adapters for the Babylon backend (ADR 0130): each wraps one existing module as a
  * `BabylonFeature`, and each has its spec constant (name, phase, the Components it owns, lazy or not).
  *
- * The lazy water feature lives in `waterFeature.ts`; this file only holds its spec and must not import
- * `water.ts`, so a game without water never downloads it (ADR 0083). Particles are the Particles
- * plugin's feature (`src/plugins/particles/runtime/`), loaded the same way, and must not be imported here;
- * so are tilemaps (`src/plugins/tilemaps/runtime/`, drawn through `quadBatches.ts`, ADR 0136).
+ * These are the renderer's own features: the lighting rig (lights, fog, environment) and reflection
+ * probes, shared render services that stay core (ADR 0140). Every feature that draws a plugin's
+ * Components is registered by its plugin and must not be imported here: sprites, meshes, water
+ * (`waterFeature.ts`) and UI (`uiFeature.ts`, ADR 0140), particles, tilemaps (ADR 0135, 0136) and the sky.
  *
  * Order inside the `lighting` phase matters, and the specs' `after` constraints say it (ADR 0135): sky,
  * then lights, then fog, then environment. The sky (the Sky plugin's feature, `src/plugins/sky/runtime/`)
@@ -18,7 +18,6 @@ import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
 import { Light, ReflectionProbe, Fog } from "../components";
 import type { RenderFeatureSpec } from "../renderFeatures";
-import { WaterSurface } from "../water/WaterSurface";
 import type { BabylonFeature, FeatureState, FeatureSyncContext } from "./feature";
 import type { ShadowRequest } from "./frameGraph";
 import type { BabylonLighting } from "./lighting";
@@ -32,8 +31,6 @@ export const FOG_SPEC: RenderFeatureSpec = { name: "fog", phase: "lighting", typ
 /** Reads Environment; owns nothing to release. After the fog (the skybox fades with the sky fog). */
 export const ENVIRONMENT_SPEC: RenderFeatureSpec = { name: "environment", phase: "lighting", types: [], lazy: false, after: ["sky", "lights", "fog"] };
 export const PROBES_SPEC: RenderFeatureSpec = { name: "probes", phase: "capture", types: [ReflectionProbe], lazy: false };
-/** Holds the first frame while it loads, so a World that starts with water shows it from frame one (ADR 0120). */
-export const WATER_SPEC: RenderFeatureSpec = { name: "water", phase: "surfaces", types: [WaterSurface], lazy: true, holdsFirstFrame: true };
 
 // --- Adapters -------------------------------------------------------------------------------------
 

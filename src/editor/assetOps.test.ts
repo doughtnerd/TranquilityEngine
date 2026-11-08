@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Engine, GameObject, Input, SpriteRenderer } from "../engine";
+import { Engine, GameObject, Input } from "../engine";
+import { SpriteRenderer } from "../engine/render/components";
 import { deleteAssets } from "./assetDelete";
 import { assetClipboard, copyAssets, duplicateAssets, freePath, moveAssets, moveAssetsTo, newFolder, pasteAssets, renameAsset, splitExtension, whyNotMoveTarget, whyNotValidName } from "./assetOps";
 import { OrbitCamera } from "./OrbitCamera";

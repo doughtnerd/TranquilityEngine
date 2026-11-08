@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, Lobby, Replicated, SceneInstance, UIButton, UIPanel, UIText } from "../index";
+import { Assets, Engine, GameObject, Lobby, Replicated, SceneInstance } from "../index";
+import { UIButton, UIPanel, UIText } from "../ui/components";
 import { World } from "../core/World";
 import { LobbyClient } from "../net/lobby/client";
 import { readProject } from "../../server/project";

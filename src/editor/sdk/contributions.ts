@@ -10,6 +10,7 @@ import type { Engine } from "../../engine";
 import type { World } from "../../engine/core/World";
 import type { EditorOverlay, EditorOverlayKind } from "../../engine/editor";
 import type { OpenScene } from "../state";
+import type { NodeEntry, SceneDocument } from "../document";
 
 /** A component loaded on first use (ADR 0083). */
 export type LoadComponent<P extends object> = () => Promise<FunctionComponent<P>>;
@@ -38,6 +39,18 @@ export interface AssetKindContribution {
   readonly referencedAs?: readonly string[];
   /** Which built-in thumbnail renderer draws its preview (internal tier: renderers stay first-party, ADR 0133). */
   readonly preview?: "sky" | "material" | "shadergraph" | "particles" | "environment" | "model" | "prefab" | "scene" | "audio";
+  /** Policy (ADR 0140): files of this kind open in the Code panel (UI documents, stylesheets). Ignored when `open` is set. */
+  readonly codeEditor?: boolean;
+  /** Policy (ADR 0133, 0140): what adding a file of this kind to a scene makes (a drop on the Hierarchy or the scene view, the Assets panel's +). */
+  readonly addToScene?: AssetSceneNodes;
+}
+
+/** What a file of an asset kind becomes in a scene (ADR 0140): node entries, the first one the root. */
+export interface AssetSceneNodes {
+  /** Load what `nodes` needs to know first (a model's meshes). Never rejects. */
+  prepare?(path: string): Promise<void>;
+  /** The entries to add, at `position` in the parent's space; the first is the root (selected), the rest its descendants. */
+  nodes(doc: SceneDocument, path: string, position?: readonly [number, number, number]): NodeEntry[];
 }
 
 /** A problem found reading an asset file. */

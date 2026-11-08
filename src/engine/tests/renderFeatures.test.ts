@@ -4,11 +4,12 @@ import { Component } from "../core/Component";
 import type { World } from "../core/World";
 import { SYNC_PHASES, byPhase, ownerOf, specNeeded, type RenderFeatureSpec } from "../render/renderFeatures";
 import { eagerFeature, lazyFeature, type BabylonFeature } from "../render/babylon/feature";
-import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, PROBES_SPEC, WATER_SPEC } from "../render/babylon/features";
+import { ENVIRONMENT_SPEC, FOG_SPEC, LIGHTS_SPEC, PROBES_SPEC } from "../render/babylon/features";
+import { WATER_SPEC } from "../../plugins/water/runtime";
 import { TILEMAPS_SPEC } from "../../plugins/tilemaps/runtime";
-import { MESHES_SPEC } from "../render/babylon/meshes";
-import { SPRITES_SPEC } from "../render/babylon/sprites";
-import { UI_SPEC } from "../render/babylon/uiSpec";
+import { MESHES_SPEC } from "../../plugins/meshes/runtime";
+import { SPRITES_SPEC } from "../../plugins/sprites/runtime";
+import { UI_SPEC } from "../../plugins/ui/runtime";
 import { SKY_SPEC } from "../../plugins/sky/runtime";
 import { PARTICLES_SPEC } from "../../plugins/particles/runtime";
 

@@ -9,8 +9,9 @@ import { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRend
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { World } from "../core/World";
-import { Assets, Camera, Engine, GameObject, Material, MeshRenderer, SceneManager, SpriteRenderer } from "../index";
-import { BabylonRenderer } from "../render/babylon/BabylonRenderer";
+import { Assets, Camera, Engine, GameObject, Material, SceneManager } from "../index";
+import { MeshRenderer, SpriteRenderer } from "../render/components";
+import { BabylonRenderer, loadPluginFeatures, type PluginFeature } from "../render/babylon/BabylonRenderer";
 import type { BabylonEditorContext, BabylonEditorRendererHooks, EditorMesh } from "../render/babylon/editorContext";
 import { BabylonEditorTools } from "../render/babylon/editorTools";
 import { ViewportHandle } from "../render/editorViewport";
@@ -176,8 +177,11 @@ describe("the Babylon renderer's diagnostics (ADR 0128)", () => {
     await SceneManager.load("s.json");
     world = World.require();
     nullEngine = new NullEngine();
-    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown) => BabylonRenderer;
-    renderer = new Ctor(nullEngine, world.settings);
+    const Ctor = BabylonRenderer as unknown as new (engine: NullEngine, settings: unknown, plugged: PluginFeature[]) => BabylonRenderer;
+    // The Meshes plugin's feature (ADR 0140), registered by Vitest's setup file's plugin activation.
+    const meshes = (await loadPluginFeatures()).filter((p) => p.registration.spec.name === "meshes");
+    expect(meshes).toHaveLength(1);
+    renderer = new Ctor(nullEngine, world.settings, meshes);
   });
   afterEach(() => {
     Material._resetShared();

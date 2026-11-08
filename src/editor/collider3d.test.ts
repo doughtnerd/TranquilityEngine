@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Assets, BoxCollider, Engine, MeshRenderer } from "../myco";
 import { addAsset, assetKind, prepareAssets, whyNotAddable } from "./assetBrowser";
 import { newComponentEntry } from "./componentEdits";
@@ -27,6 +27,12 @@ import { createNode, newNodeEntry } from "./nodeCreate";
 import { openSceneFile } from "./project";
 import { editingCollider, openScene, selection } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
+import { meshesEditorPlugin } from "../plugins/meshes/editor";
+import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
+
+// Models are the Meshes plugin's kind (ADR 0140).
+beforeAll(() => activatePlugins([meshesEditorPlugin]));
+afterAll(() => deactivatePlugin(meshesEditorPlugin.manifest.name));
 
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 6));
 const identity: Pose3D = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };

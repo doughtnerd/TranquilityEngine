@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { Engine, GameObject, Input, SpriteRenderer } from "../engine";
+import { Engine, GameObject, Input } from "../engine";
+import { SpriteRenderer } from "../engine/render/components";
 import {
   addAssetToScene,
   assetKind,
@@ -20,6 +21,9 @@ import { OrbitCamera } from "./OrbitCamera";
 import { navigationEditorPlugin } from "../plugins/navigation/editor";
 import { particlesEditorPlugin } from "../plugins/particles/editor";
 import { tilemapsEditorPlugin } from "../plugins/tilemaps/editor";
+import { environmentEditorPlugin } from "../plugins/environment/editor";
+import { meshesEditorPlugin } from "../plugins/meshes/editor";
+import { uiEditorPlugin } from "../plugins/ui/editor";
 import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
@@ -28,7 +32,7 @@ import { sampleProject } from "./testing";
 
 const demo = sampleProject();
 
-const PLUGINS = [particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin];
+const PLUGINS = [particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin, meshesEditorPlugin, environmentEditorPlugin, uiEditorPlugin];
 beforeAll(() => activatePlugins(PLUGINS));
 afterAll(() => PLUGINS.forEach((p) => deactivatePlugin(p.manifest.name)));
 

@@ -6,14 +6,20 @@ import { navigationEditorPlugin } from "../plugins/navigation/editor";
 import { particlesEditorPlugin } from "../plugins/particles/editor";
 import { skyEditorPlugin } from "../plugins/sky/editor";
 import { tilemapsEditorPlugin } from "../plugins/tilemaps/editor";
+import { environmentEditorPlugin } from "../plugins/environment/editor";
+import { meshesEditorPlugin } from "../plugins/meshes/editor";
+import { postProcessingEditorPlugin } from "../plugins/post-processing/editor";
+import { uiEditorPlugin } from "../plugins/ui/editor";
 import { assetKindsOf, assetListId, assetsForKinds, isHiddenField } from "./assetFieldKinds";
 import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
 
 // Sky assets are the Sky plugin's (ADR 0134), its kind `referencedAs` environment; materials and
 // shader graphs are the Materials plugin's, `referencedAs` material.
-beforeAll(() => activatePlugins([materialsEditorPlugin, skyEditorPlugin, particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin]));
+// Models, environment maps, cubemaps, LUTs and UI documents: the Meshes, Environment, Post-processing and UI plugins' (ADR 0140).
+const RENDER_PLUGINS = [meshesEditorPlugin, environmentEditorPlugin, postProcessingEditorPlugin, uiEditorPlugin];
+beforeAll(() => activatePlugins([materialsEditorPlugin, skyEditorPlugin, particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin, ...RENDER_PLUGINS]));
 afterAll(() => {
-  for (const p of [tilemapsEditorPlugin, navigationEditorPlugin, particlesEditorPlugin]) deactivatePlugin(p.manifest.name);
+  for (const p of [...RENDER_PLUGINS, tilemapsEditorPlugin, navigationEditorPlugin, particlesEditorPlugin]) deactivatePlugin(p.manifest.name);
   deactivatePlugin(skyEditorPlugin.manifest.name);
   deactivatePlugin(materialsEditorPlugin.manifest.name);
 });

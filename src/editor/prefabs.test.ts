@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Engine, GameObject, Input, SpriteRenderer } from "../engine";
+import { Engine, GameObject, Input } from "../engine";
+import { SpriteRenderer } from "../engine/render/components";
 import { AddNode, RevertOverrides, SetField, SetOverrides, type SceneFile } from "./document";
 import { OrbitCamera } from "./OrbitCamera";
 import { createPrefabFromNodes, addInnerNode, removeInnerNode, applyOverrides, createPrefab, findInner, innerNodes, isOverridden, newPrefabPath, prefabFileName } from "./prefabs";

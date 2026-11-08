@@ -2,7 +2,8 @@
 // reorder drag, from the element's real layout (the renderer-neutral UI core, as the Babylon backend
 // lays out), each one undo step written to the markup; Escape putting the file back; refusals.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Engine, GameObject, Input, UIPanel } from "../engine";
+import { Engine, GameObject, Input } from "../engine";
+import { UIPanel } from "../engine/ui/components";
 import { loadUIDocumentSupport } from "../engine/ui/UIDocument";
 import { UICore } from "../engine/ui/UICore";
 import type { UIComponentType } from "../engine/ui/components";

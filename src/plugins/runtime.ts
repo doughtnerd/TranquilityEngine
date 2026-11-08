@@ -10,8 +10,30 @@ import { resolveEnabledPlugins } from "./enabled";
 import type { RuntimePlugin } from "./runtimeContext";
 import { skyRuntimePlugin } from "./sky/runtime";
 import { tilemapsRuntimePlugin } from "./tilemaps/runtime";
+import { spritesRuntimePlugin } from "./sprites/runtime";
+import { meshesRuntimePlugin } from "./meshes/runtime";
+import { waterRuntimePlugin } from "./water/runtime";
+import { uiRuntimePlugin } from "./ui/runtime";
+import { environmentRuntimePlugin } from "./environment/runtime";
+import { postProcessingRuntimePlugin } from "./post-processing/runtime";
 
-export const RUNTIME_PLUGINS: readonly RuntimePlugin[] = [materialsRuntimePlugin, skyRuntimePlugin, particlesRuntimePlugin, physicsRuntimePlugin, physicsRapierRuntimePlugin, navigationRuntimePlugin, tilemapsRuntimePlugin];
+// Render features register in this order; inside a phase their `after` constraints decide (ADR 0135, 0140),
+// so the order here only breaks ties: content runs sprites, tilemaps, meshes in any order of this list.
+export const RUNTIME_PLUGINS: readonly RuntimePlugin[] = [
+  materialsRuntimePlugin,
+  skyRuntimePlugin,
+  spritesRuntimePlugin,
+  meshesRuntimePlugin,
+  particlesRuntimePlugin,
+  physicsRuntimePlugin,
+  physicsRapierRuntimePlugin,
+  navigationRuntimePlugin,
+  tilemapsRuntimePlugin,
+  waterRuntimePlugin,
+  uiRuntimePlugin,
+  environmentRuntimePlugin,
+  postProcessingRuntimePlugin,
+];
 
 export { activateRuntimePlugins, deactivateRuntimePlugin, isRuntimePluginActive, pluginOfComponent, runtimePluginManifest, syncRuntimePlugins, type RuntimePlugin, type RuntimePluginContext } from "./runtimeContext";
 

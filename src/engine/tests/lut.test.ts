@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { identityLut, lutStripRGBA8, lutStripRGBAFloat, parseCubeLut } from "../render/lut";
 import { Assets } from "../scene/Assets";
-import { assetKind } from "../../editor/assetBrowser";
 
 const identity2 = `# a comment
 TITLE "Neutral"
@@ -75,9 +74,7 @@ describe("assets", () => {
     vi.unstubAllGlobals();
   });
 
-  it(".cube is the Colour LUT kind", () => {
-    expect(assetKind("grade/warm.CUBE")).toBe("lut");
-  });
+  // `.cube` as the Colour LUT kind is the Post-processing plugin's editor half (ADR 0140): src/plugins/renderPluginsEditor.test.ts.
 
   it("Assets.text fetches once and caches", async () => {
     const fetchMock = vi.fn(async () => new Response(identity2));

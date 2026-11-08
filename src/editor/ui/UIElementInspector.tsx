@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { Color } from "../../engine";
-import type { UIDocumentElement } from "../../engine";
+import type { UIDocumentElement } from "../../engine/ui/UIDocument";
 import { openScript } from "../code/codeState";
 import { currentProject, openScene, playState } from "../state";
 import { editorTextFiles } from "../textFiles";
