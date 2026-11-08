@@ -56,24 +56,26 @@ test("Play runs the game: a flap starts it, falling ends it", async ({ page }) =
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect.poll(() => gameState(page), { timeout: 20_000 }).toBe("ready");
 
-  // The game draws a real picture (a blank or failed render has a color or two).
+  // The game draws a real picture (a blank or failed render has a color or two). Read what's on
+  // screen: a WebGPU canvas's contents can't be read back with drawImage once a frame is presented
+  // (it reads as transparent), so take the composited screenshot and count its colors in the page.
+  // The game can be ready a few frames before the renderer's warm-up lets the picture show.
   const canvas = page.locator("#game-view canvas");
-  const colors = await canvas.evaluate(
-    (source: HTMLCanvasElement) =>
-      new Promise<number>((resolve) =>
-        requestAnimationFrame(() => {
-          const sample = document.createElement("canvas");
-          sample.width = sample.height = 64;
-          const ctx = sample.getContext("2d")!;
-          ctx.drawImage(source, 0, 0, 64, 64);
-          const data = ctx.getImageData(0, 0, 64, 64).data;
-          const seen = new Set<number>();
-          for (let i = 0; i < data.length; i += 4) seen.add(((data[i] >> 4) << 8) | ((data[i + 1] >> 4) << 4) | (data[i + 2] >> 4));
-          resolve(seen.size);
-        }),
-      ),
-  );
-  expect(colors).toBeGreaterThan(8);
+  const colors = async () => {
+    const png = (await canvas.screenshot()).toString("base64");
+    return page.evaluate(async (data64: string) => {
+      const image = await createImageBitmap(await (await fetch(`data:image/png;base64,${data64}`)).blob());
+      const sample = document.createElement("canvas");
+      sample.width = sample.height = 64;
+      const ctx = sample.getContext("2d")!;
+      ctx.drawImage(image, 0, 0, 64, 64);
+      const data = ctx.getImageData(0, 0, 64, 64).data;
+      const seen = new Set<number>();
+      for (let i = 0; i < data.length; i += 4) seen.add(((data[i] >> 4) << 8) | ((data[i + 1] >> 4) << 4) | (data[i + 2] >> 4));
+      return seen.size;
+    }, png);
+  };
+  await expect.poll(colors, { timeout: 10_000 }).toBeGreaterThan(8);
 
   await canvas.click();
   await expect.poll(() => gameState(page)).toBe("playing");

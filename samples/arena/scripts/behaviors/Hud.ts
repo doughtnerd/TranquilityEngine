@@ -1,5 +1,5 @@
 import { Engine, GameBehavior, GameObject, Input, Text, behavior, field } from "myco";
-import { SECOND_CLIENT_WORLD, SERVER_WORLD, connectionStates, players } from "../data";
+import { SECOND_CLIENT_WORLD, SERVER_WORLD, clientWorlds, players } from "../data";
 
 /**
  * The arena's heads-up display in client Worlds: the replicated scores (the server keeps them),
@@ -19,7 +19,7 @@ export class Hud extends GameBehavior {
     const second = Engine.findWorld(SECOND_CLIENT_WORLD);
     if (hosting && !second && Input.getKeyDown("p")) this.addLocalPlayer();
 
-    const connection = connectionStates.get(this.world) ?? "none";
+    const connection = clientWorlds.get(this.time)?.connection ?? "none";
     if (connection === "lost") {
       this.setText(this.node, "Not connected to a server");
       this.setText(this.help, "Escape: back to the menu");
@@ -44,7 +44,7 @@ export class Hud extends GameBehavior {
 
   /** Back to the menu (a second local player's World just goes). */
   private leave(): void {
-    const me = Engine.findWorld(this.world.name)!;
+    const me = Engine.findWorld(clientWorlds.get(this.time)!.name)!;
     if (me.name === SECOND_CLIENT_WORLD) me.destroy();
     else void me.loadScene("scenes/main.scene.json");
   }

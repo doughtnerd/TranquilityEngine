@@ -57,6 +57,9 @@ const scoreboard = (page: Page, world: string) =>
 /** The x of the player a client World owns. */
 const myX = async (page: Page, world: string) => (await playersIn(page, world)).find((p) => p.mine)?.x ?? NaN;
 
+/** How long Play may take to start: it type-checks the scripts first (ADR 0125), loading Monaco's TypeScript worker the first time. */
+const PLAY_START = 20_000;
+
 const tile = (page: Page, world: string) => page.locator(`#game-view .game-tile[data-world="${world}"]`);
 
 test("the start screen lists Arena", async ({ page }) => {
@@ -76,7 +79,7 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
   await expect(page.locator(".project-name")).toHaveText("Arena (sample, read-only)");
 
   await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: PLAY_START });
   await expect.poll(() => worldNames(page)).toEqual(["Client"]);
 
   // Host: the Server World is created from its template; the bootstrap's link connects this client, which gets a player.
@@ -145,7 +148,11 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
 function dedicatedServer(log: string[]): Promise<{ process: ChildProcess; url: string }> {
   const child = spawn(process.execPath, ["src/server/cli.mjs", "samples/arena", "--port", "0", "--host", "127.0.0.1"], { cwd: process.cwd() });
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`The dedicated server didn't start:\n${log.join("")}`)), 30_000);
+    // It compiles the engine from source as it loads (tsLoader.mjs): about 20 s on its own, longer beside other tests.
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error(`The dedicated server didn't start:\n${log.join("")}`));
+    }, 60_000);
     child.stderr!.on("data", (d: Buffer) => log.push(String(d)));
     child.stdout!.on("data", (d: Buffer) => {
       log.push(String(d));
@@ -160,7 +167,7 @@ function dedicatedServer(log: string[]): Promise<{ process: ChildProcess; url: s
 }
 
 test("Play: Join connects to a dedicated server, which spawns a player the keyboard moves", async ({ page }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(120_000); // the dedicated server's start-up counts
   const errors = trackErrors(page);
   const log: string[] = [];
   const server = await dedicatedServer(log);
@@ -168,7 +175,7 @@ test("Play: Join connects to a dedicated server, which spawns a player the keybo
     await page.goto(`${START}?sample=arena`);
     await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
     await page.getByRole("button", { name: "▶ Play" }).click();
-    await expect.poll(() => worldNames(page)).toEqual(["Client"]);
+    await expect.poll(() => worldNames(page), { timeout: PLAY_START }).toEqual(["Client"]);
     // Point Join at this server (the scene says ws://localhost:7777, the server's default port).
     await page.evaluate((url) => {
       const t = (globalThis as unknown as { __myco: { getComponentClass(id: string): unknown } }).__myco;
