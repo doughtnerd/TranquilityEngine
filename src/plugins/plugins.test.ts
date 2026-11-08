@@ -41,11 +41,9 @@ describe("plugin import direction", () => {
   it("keeps runtime halves free of editor imports", () => {
     const bad: string[] = [];
     for (const f of runtimeFiles) {
-      for (const { spec, typeOnly } of specifiers(f)) {
+      for (const { spec } of specifiers(f)) {
         const target = resolved(f, spec);
         const r = target.startsWith("/") ? rel(target) : target;
-        // The manifest type lives in the editor SDK (a type-only import erases at build).
-        if (typeOnly && r === "editor/sdk/plugins") continue;
         if (editorSide(r) || /(^|\/)editor(\/|$)/.test(spec)) bad.push(`${rel(f)} imports ${spec}`);
       }
     }

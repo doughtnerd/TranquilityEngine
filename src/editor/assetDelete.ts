@@ -7,6 +7,7 @@
 import { fileName } from "./assetBrowser";
 import { closeScript, openScripts } from "./code/codeState";
 import { sceneWithoutAsset, settingsWithoutAsset } from "./assetCleanup";
+import { assetDocumentsDeleted } from "./assetDocuments";
 import { ReplaceDocument, type SceneFile } from "./document";
 import { errorStatus } from "./messages";
 import { instancesOf } from "./prefabs";
@@ -178,9 +179,11 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
     for (const path of loose) await project.deleteFile(path);
   } catch (err) {
     status.value = errorStatus(`Couldn't delete ${name}`, err);
+    assetDocumentsDeleted([...deleting].filter((p) => !project.files.includes(p) && !project.scripts.has(p)));
     docVersion.value++;
     return false;
   }
+  assetDocumentsDeleted([...loose, ...folders]); // open asset documents are dropped with their undo
   const cleaned = new Set<string>();
   const stack = openScene.value?.stack;
   stack?.beginGroup(`Remove references to ${name}`);

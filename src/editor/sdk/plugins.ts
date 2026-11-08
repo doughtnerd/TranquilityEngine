@@ -1,17 +1,9 @@
 // Plugins (ADR 0133): a manifest plus halves that register contributions. The editor half's
 // `activate` registers through the context, which remembers every registration so deactivating the
 // plugin removes them all.
+import type { PluginManifest } from "../../plugins/manifest";
 import { assetFormats, assetKinds, panels, type AssetFormatContribution, type AssetKindContribution, type PanelContribution } from "./contributions";
 
-export interface PluginManifest {
-  /** Unique, e.g. "myco.sky". */
-  readonly name: string;
-  readonly version: string;
-  /** Plugin names this one needs, with version ranges (first-party plugins: the engine's version). */
-  readonly dependencies?: Readonly<Record<string, string>>;
-  /** False for a runtime half the dedicated server skips (drawing only). Default true. */
-  readonly server?: boolean;
-}
 
 export interface EditorPluginContext {
   registerAssetKind(kind: AssetKindContribution): void;
@@ -79,3 +71,5 @@ export function deactivatePlugin(name: string): void {
 }
 
 export const isPluginActive = (name: string): boolean => active.has(name);
+
+export type { PluginManifest };

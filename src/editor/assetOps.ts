@@ -9,6 +9,7 @@ import { signal } from "@preact/signals";
 import { isSidecarPath, sidecarAsset } from "../engine/scene/importSettings";
 import { fileName, folderOf } from "./assetBrowser";
 import { withMovedAssets } from "./assetCleanup";
+import { assetDocumentsMoved } from "./assetDocuments";
 import { assetUsers, entryPath, filesIn, isFolderEntry, openScenePaths, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
 import { activeScript, dirtyScripts, openScripts } from "./code/codeState";
 import { ReplaceDocument, type SceneFile } from "./document";
@@ -110,10 +111,12 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
     }
   } catch (err) {
     status.value = errorStatus(`Couldn't move ${fileName(moves[done.length][0])}`, err);
+    assetDocumentsMoved(done);
     if (done.length > 0) await updateReferences(project, done);
     docVersion.value++;
     return false;
   }
+  assetDocumentsMoved(done); // open asset documents and their undo follow their files
   const { cleaned, scriptUsers } = await updateReferences(project, done);
   // Open Code tabs follow their files.
   const rename = renamer(done);
