@@ -1,6 +1,6 @@
 # 0131. Asset kind and visibility are field options on the Component declaration, and per-type Inspector extras come from a sections registry
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -39,17 +39,19 @@ Used as `@field(AssetRef, { kind: "material" })`, `@field([AssetRef], { kind: "m
 
 **4. Engine Components declare their kinds.** The 8 pairs above, plus the 10 that get every file today (`sprite`, `clip`, `tileset`, `font` ×2, `image`, `document`, `bake`), get a `kind`. `ParticleSystem.embeddedEffect`/`overrides` and `Tilemap.layers` get `hidden: true`, and the name filter in `ComponentSection` goes. The editor reads metadata only; no Component type id is matched for kind or visibility.
 
-**5. An Inspector sections registry, lazy (ADR 0083).** New `src/editor/ui/inspectorSections.ts`:
+**5. An Inspector sections registry, lazy (ADR 0083).** New `src/editor/ui/inspectorSections.tsx` (as built; the proposal passed `load` inside the options object):
 
 ```ts
 interface InspectorSectionProps { scene: OpenScene; paths: NodePath[]; info: ComponentInfo }
-registerInspectorSection(type: string, section: {
-  load: () => Promise<ComponentType<InspectorSectionProps>>;  // through lazyComponent
-  single?: boolean;      // only when one node is selected (most do)
-  rootOnly?: boolean;    // only for a top-level node (NavChunk, ReflectionProbe)
-});
-inspectorSectionsFor(type: string): ComponentType<InspectorSectionProps>[];
+registerInspectorSection(type: string,
+  load: () => Promise<FunctionComponent<InspectorSectionProps>>,  // wrapped in lazyComponent
+  options?: { single?: boolean;      // only when one node is selected (most do)
+              rootOnly?: boolean },  // only for a top-level node (NavChunk, ReflectionProbe, NavGroup)
+);
+inspectorSectionsFor(type: string, paths: NodePath[]): LazyComponent<InspectorSectionProps>[];
 ```
+
+`lazyComponent` (0083) gains a props type parameter so a lazy section receives its props.
 
 Each feature registers its section beside its own UI: `ParticleInspector.tsx`, `TilemapSummary` (moved out of `Inspector.tsx`), `EditSkyButton`, `NavChunkInspector.tsx`, `ReflectionProbeInspector.tsx`, and the six `navNote()` cases in `NavComponentInspectors.tsx`/`NavFormationInspector.tsx`. Registrations are gathered in one `src/editor/ui/inspectorSections.builtin.ts` that `Inspector.tsx` imports; it holds only `import()` thunks, so the section modules load the first time a Component that has one is inspected (the shared `<PanelLoading />` placeholder shows meanwhile, as for panels). `ComponentSection` renders `inspectorSectionsFor(info.type)` under the fields, in registration order. `navNote()` and the six inline conditions go.
 

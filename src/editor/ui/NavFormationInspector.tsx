@@ -36,6 +36,7 @@ import { currentProject, docVersion, status, type OpenScene } from "../state";
 import { theme } from "../theme";
 import "./assetInspector.css";
 import "./navFormation.css";
+import { sectionField, type InspectorSectionProps } from "./inspectorSections";
 
 const SHAPE_LABELS: Record<FormationShape, string> = { box: "Box", line: "Line", column: "Column", wedge: "Wedge", circle: "Circle", mask: "Mask (painted)" };
 const MAX_CELL = 24;
@@ -415,5 +416,18 @@ export function NavGroupFormation(props: { scene: OpenScene; nodeId: string; ind
         </>
       )}
     </div>
+  );
+}
+
+/** The Inspector section under a top-level NavGroup: the formation preview (ADR 0065, 0131). */
+export function NavGroupSection({ scene, paths, info }: InspectorSectionProps) {
+  return (
+    <NavGroupFormation
+      scene={scene}
+      nodeId={paths[0][0]}
+      index={info.index}
+      formation={String(sectionField(info, "formation") ?? "")}
+      formationAsset={String(sectionField(info, "formationAsset") ?? "")}
+    />
   );
 }

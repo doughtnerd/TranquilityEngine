@@ -163,7 +163,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0126](decisions/0126-kernel-particle-trails-materials-sorting-dead-list-and-soft-cpu-particles.md) | Kernel particles gain trails, material assets, sorting and a dead list; soft CPU particles; a height-fog hook for custom shaders | Proposed |
 | [0127](decisions/0127-renderer-neutral-material-resolution-and-a-babylon-material-library.md) | Material resolution is renderer-neutral; a per-scene Babylon material library builds from it (World renderer, warm-up, particles, previews) | Proposed |
 | [0128](decisions/0128-render-surface-runtime-core-and-editor-viewport-handle.md) | The render surface is a runtime core plus an editor viewport handle | Proposed |
-| [0131](decisions/0131-field-metadata-on-the-component-declaration.md) | Asset kind and Inspector visibility are field options (`@field(AssetRef, { kind, hidden })`); per-type Inspector extras come from a lazy sections registry | Proposed |
+| [0131](decisions/0131-field-metadata-on-the-component-declaration.md) | Asset kind and Inspector visibility are field options (`@field(AssetRef, { kind, hidden })`); per-type Inspector extras come from a lazy sections registry | Accepted |
 
 ## Working with decisions
 

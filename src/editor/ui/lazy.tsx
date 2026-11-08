@@ -10,8 +10,9 @@ import { signal } from "@preact/signals";
 import type { ComponentChildren, FunctionComponent, JSX } from "preact";
 
 /** A component that loads on first render. `preload` starts the load early (it never throws; the render reports failures). */
-export interface LazyComponent {
-  (): ComponentChildren;
+export interface LazyComponent<P extends object = object> {
+  /** Props pass through to the loaded component (none for panels and dialogs). */
+  (...props: object extends P ? [props?: P] : [props: P]): ComponentChildren;
   preload(): Promise<void>;
   /** True once the module has loaded. */
   readonly loaded: boolean;
@@ -42,8 +43,8 @@ export function PanelLoading(props: { error?: string; retry?: () => void }): JSX
  * Wrap a dynamic import of a component. `placeholder` is what shows while it loads (the shared
  * `<PanelLoading />` by default; dialogs pass `null`, as they have nothing to show until opened).
  */
-export function lazyComponent(load: () => Promise<FunctionComponent>, placeholder: "panel" | null = "panel"): LazyComponent {
-  const component = signal<FunctionComponent | null>(null);
+export function lazyComponent<P extends object = object>(load: () => Promise<FunctionComponent<P>>, placeholder: "panel" | null = "panel"): LazyComponent<P> {
+  const component = signal<FunctionComponent<P> | null>(null);
   const error = signal<string | undefined>(undefined);
   let loading: Promise<void> | null = null;
   const preload = (): Promise<void> =>
@@ -58,14 +59,14 @@ export function lazyComponent(load: () => Promise<FunctionComponent>, placeholde
         loading = null; // the next render or preload tries again
       },
     ));
-  const Lazy = (() => {
+  const Lazy = ((props?: P) => {
     const Loaded = component.value;
-    if (Loaded) return <Loaded />;
+    if (Loaded) return <Loaded {...(props ?? ({} as P))} />;
     const failed = error.value;
     if (failed === undefined) void preload();
     if (placeholder === null) return null;
     return <PanelLoading error={failed} retry={() => void preload()} />;
-  }) as LazyComponent;
+  }) as unknown as LazyComponent<P>;
   Lazy.preload = preload;
   Object.defineProperty(Lazy, "loaded", { get: () => component.peek() !== null });
   return Lazy;

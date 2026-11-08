@@ -18,6 +18,8 @@ import { navPreviewStatus, navSurfaceBins } from "../navPreviews";
 import { currentProject, docVersion, type OpenScene } from "../state";
 import "./navBake.css";
 import "./navInspectors.css";
+import { pathKey } from "../document";
+import { sectionField, type InspectorSectionProps } from "./inspectorSections";
 
 /** The open scene's NavChunk components, in node order. */
 function sceneChunks(scene: OpenScene): NavChunk[] {
@@ -260,5 +262,46 @@ export function NavCostVolumeNote(props: { cost: number; excluded: boolean; agen
       ))}
       <p class="nav-note">{summary}</p>
     </div>
+  );
+}
+
+// --- Inspector sections (ADR 0131) ---------------------------------------------------------------
+
+const agentsOf = (v: unknown) => (Array.isArray(v) ? v.map(String) : []);
+
+export function NavChunkPlanSection({ scene, paths }: InspectorSectionProps) {
+  return <NavChunkPlanSummary scene={scene} nodeId={paths[0][0]} />;
+}
+
+export function NavAgentSection({ scene, info }: InspectorSectionProps) {
+  const agentType = String(sectionField(info, "agentType") ?? "");
+  return (
+    <>
+      <NavAgentBakeNote scene={scene} agentType={agentType} />
+      <NavAvoidanceNote agentType={agentType} />
+    </>
+  );
+}
+
+export function NavAvoidanceObstacleSection({ info }: InspectorSectionProps) {
+  return <NavAvoidanceNote obstacleLayers={Number(sectionField(info, "layers") ?? 1)} />;
+}
+
+export function NavResolutionVolumeSection({ scene, paths, info }: InspectorSectionProps) {
+  return <NavResolutionSummary scene={scene} nodeKey={pathKey(paths[0])} cellSize={Number(sectionField(info, "cellSize") ?? 0)} agents={agentsOf(sectionField(info, "agents"))} />;
+}
+
+export function NavModifierVolumeSection({ paths, info }: InspectorSectionProps) {
+  return <NavModifierPreviewNote nodeKey={pathKey(paths[0])} appliesTo={String(sectionField(info, "appliesTo") ?? "both")} area={String(sectionField(info, "area") ?? "")} />;
+}
+
+export function NavCostVolumeSection({ info }: InspectorSectionProps) {
+  return (
+    <NavCostVolumeNote
+      cost={Number(sectionField(info, "cost") ?? 4)}
+      excluded={sectionField(info, "excluded") === true}
+      agents={agentsOf(sectionField(info, "agents"))}
+      domain={String(sectionField(info, "domain") ?? "both")}
+    />
   );
 }

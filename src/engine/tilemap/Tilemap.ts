@@ -98,11 +98,11 @@ let nextVersion = 1;
 @component("engine.Tilemap")
 export class Tilemap extends Component {
   /** The tileset asset (`*.tileset.json`) the cells' tile ids refer to. */
-  @field(AssetRef) tileset = "";
+  @field(AssetRef, { kind: "tileset" }) tileset = "";
   /** One cell's width and height in local units. */
   @field(Vector2) cellSize = new Vector2(1, 1);
   /** The layers, back to front within the same sorting layer and order. Scene data; see `format.ts`. */
-  @field(PlainObject) layers: TilemapLayerData[] = [newLayer("Ground")];
+  @field(PlainObject, { hidden: true }) layers: TilemapLayerData[] = [newLayer("Ground")];
 
   private source: unknown = null;
   private runtime: RuntimeLayer[] = [];

@@ -1,6 +1,4 @@
 import { errorStatus } from "../messages";
-import { isSkyPath } from "../../engine/sky/skyFormat";
-import { openSkyAsset } from "../skyAssets";
 import { signal } from "@preact/signals";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
@@ -37,16 +35,12 @@ import { deleteSelected } from "../deleteSelection";
 import { openPrefabFrom } from "../prefabTabs";
 import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
-import { ParticleSystemEffect } from "./ParticleInspector";
-import { showPanel } from "../layout/store";
-import { tilemapOf } from "../tilemap/brush";
-import { NavChunkBake } from "./NavChunkInspector";
-import { ReflectionProbeBake } from "./ReflectionProbeInspector";
-import { NavAgentBakeNote, NavAvoidanceNote, NavChunkPlanSummary, NavCostVolumeNote, NavModifierPreviewNote, NavResolutionSummary } from "./NavComponentInspectors";
-import { NavGroupFormation } from "./NavFormationInspector";
 import { showsAssetInspector } from "../assetImport";
-import { assetKind, listedFiles } from "../assetBrowser";
-import { BUILTIN_MESHES } from "../../engine/scene/models";
+import { listedFiles } from "../assetBrowser";
+import { assetKindsOf, assetListId, assetsForKinds, isHiddenField } from "../assetFieldKinds";
+import { ASSET_FIELD_KINDS, AssetRef, getComponentClass, getFields, isListType, listComponentIds, type AssetFieldKind } from "../../engine/core/registry";
+import { InspectorSections } from "./inspectorSections";
+import "./inspectorSections.builtin";
 import { liveInspecting } from "../runtimeInspect";
 import { addToPreload, preloadCandidates, removeFromPreload } from "../scenePreload";
 import { RuntimeInspector } from "./RuntimeInspector";
@@ -540,10 +534,6 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
   });
   const badges = new Set(worlds.map((w) => worldsBadge(effectiveWorlds(w.setting))));
   const badge = badges.size > 1 ? MIXED : [...badges][0] ?? null;
-  // A ParticleSystem's effect is edited below its fields, not as raw JSON (ADR 0057).
-  const particles = info.type === "engine.ParticleSystem";
-  // A Tilemap's layers are painted in the Tile Palette, not edited as raw data (ADR 0103).
-  const tilemap = info.type === "engine.Tilemap";
   return (
     <section class={`component${dropHere}${allEnabled ? "" : " off"}`} {...(reorderable ? { "data-reorder": "", "data-type": info.type, "data-index": String(info.index) } : {})}>
       <h3>
@@ -614,64 +604,17 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
       ) : (
         <div class="fields">
           {info.fields
-            .filter((f) => !(particles && (f.name === "embeddedEffect" || f.name === "overrides")) && !(tilemap && f.name === "layers"))
+            // Fields another editor owns (a ParticleSystem's effect, a Tilemap's layers) are hidden (ADR 0131).
+            .filter((f) => !isHiddenField(f))
             .map((f) => (
               <FieldRow key={f.name} {...props} info={info} values={infos.map((i) => i.fields.find((o) => o.name === f.name)?.value)} field={f} />
             ))}
         </div>
       )}
-      {particles && paths.length === 1 && (
-        <ParticleSystemEffect
-          scene={scene}
-          path={paths[0]}
-          index={info.index}
-          effectPath={String(info.fields.find((f) => f.name === "effect")?.value ?? "")}
-          embedded={info.fields.find((f) => f.name === "embeddedEffect")?.value}
-          overrides={info.fields.find((f) => f.name === "overrides")?.value}
-        />
-      )}
-      {tilemap && paths.length === 1 && <TilemapSummary scene={scene} path={paths[0]} />}
-      {/* An Environment using a procedural sky opens it in the Sky panel (ADR 0112). */}
-      {info.type === "engine.Environment" && <EditSkyButton map={String(info.fields.find((f) => f.name === "map")?.value ?? "")} />}
-      {/* A NavChunk bakes from here (ADR 0065). */}
-      {info.type === "engine.NavChunk" && paths.length === 1 && paths[0].length === 1 && <NavChunkPlanSummary scene={scene} nodeId={paths[0][0]} />}
-      {info.type === "engine.NavChunk" && paths.length === 1 && paths[0].length === 1 && <NavChunkBake scene={scene} nodeId={paths[0][0]} />}
-      {info.type === "engine.ReflectionProbe" && paths.length === 1 && paths[0].length === 1 && <ReflectionProbeBake scene={scene} nodeId={paths[0][0]} />}
-      {/* Ports of Foxfire's navigation editors (ADR 0065): notes, the formation preview, the volumes' summaries. */}
-      {paths.length === 1 && navNote(scene, paths[0], info)}
+      {/* Per-type extras under the fields: effect editor, bake buttons, nav notes… (ADR 0131). */}
+      <InspectorSections scene={scene} paths={paths} info={info} />
     </section>
   );
-}
-
-/** The navigation notes and previews under a component's fields (one node selected). */
-function navNote(scene: OpenScene, path: NodePath, info: ComponentInfo) {
-  const value = (name: string) => info.fields.find((f) => f.name === name)?.value;
-  const key = pathKey(path);
-  switch (info.type) {
-    case "engine.NavAgent":
-      return (
-        <>
-          <NavAgentBakeNote scene={scene} agentType={String(value("agentType") ?? "")} />
-          <NavAvoidanceNote agentType={String(value("agentType") ?? "")} />
-        </>
-      );
-    case "engine.NavAvoidanceObstacle":
-      return <NavAvoidanceNote obstacleLayers={Number(value("layers") ?? 1)} />;
-    case "engine.NavGroup":
-      return path.length === 1 ? <NavGroupFormation scene={scene} nodeId={path[0]} index={info.index} formation={String(value("formation") ?? "")} formationAsset={String(value("formationAsset") ?? "")} /> : null;
-    case "engine.NavResolutionVolume": {
-      const agents = value("agents");
-      return <NavResolutionSummary scene={scene} nodeKey={key} cellSize={Number(value("cellSize") ?? 0)} agents={Array.isArray(agents) ? agents.map(String) : []} />;
-    }
-    case "engine.NavModifierVolume":
-      return <NavModifierPreviewNote nodeKey={key} appliesTo={String(value("appliesTo") ?? "both")} area={String(value("area") ?? "")} />;
-    case "engine.NavCostVolume": {
-      const agents = value("agents");
-      return <NavCostVolumeNote cost={Number(value("cost") ?? 4)} excluded={value("excluded") === true} agents={Array.isArray(agents) ? agents.map(String) : []} domain={String(value("domain") ?? "both")} />;
-    }
-    default:
-      return null;
-  }
 }
 
 /**
@@ -734,7 +677,7 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
         {variants !== undefined ? (
           <ChoiceInput choices={variantChoices(variants)} value={field.value} mixed={mixed} label={field.name} onCommit={commit} />
         ) : (
-          <FieldEditorView editor={editor} field={field} values={values} mixed={mixed} scene={scene} componentType={props.info.type} onCommit={commit} onCommitAxis={commitAxis} />
+          <FieldEditorView editor={editor} field={field} values={values} mixed={mixed} scene={scene} onCommit={commit} onCommitAxis={commitAxis} />
         )}
       </div>
     </>
@@ -795,8 +738,6 @@ function FieldEditorView(props: {
   values: unknown[];
   mixed: boolean;
   scene: OpenScene;
-  /** The component the field belongs to, for asset suggestions. */
-  componentType?: string;
   onCommit: (value: unknown) => void;
   onCommitAxis: (axis: number, value: number) => void;
 }) {
@@ -819,7 +760,7 @@ function FieldEditorView(props: {
     case "string":
       return <TextInput value={mixed ? "" : String(v ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} onCommit={onCommit} />;
     case "asset":
-      return <TextInput value={mixed ? "" : String(v ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} list={assetListFor(props.componentType ?? "", field.name)} onCommit={onCommit} />;
+      return <TextInput value={mixed ? "" : String(v ?? "")} placeholder={mixed ? MIXED : undefined} label={field.name} list={assetListId(assetKindsOf(field))} onCommit={onCommit} />;
     case "color":
       return <ColorInput value={v instanceof Color ? v : Color.white} mixed={mixed} label={field.name} onCommit={onCommit} />;
     case "vector2":
@@ -870,49 +811,47 @@ function axesOf(values: unknown[]): (number | null)[] {
 
 /** Text that commits on Enter or blur and reverts on Escape. */
 /**
- * The id of a `<datalist>` suggesting values for an asset field (see `AssetLists`): meshes
- * (models and built-in meshes) for MeshRenderer and MeshCollider, materials for a material,
- * every asset otherwise.
+ * The asset suggestions asset fields offer as you type (ADR 0043, 0044): one `<datalist>` per asset
+ * kind a field can declare (ADR 0131), one per combination of kinds a registered component declares,
+ * and every file for fields that declare none.
  */
-function assetListFor(type: string, field: string): string {
-  if (field === "mesh" && (type === "engine.MeshRenderer" || type === "engine.MeshCollider")) return "asset-list-mesh";
-  if ((field === "material" || /^materials\[\d+\]$/.test(field)) && type === "engine.MeshRenderer") return "asset-list-material";
-  if (field === "targetTexture" && type === "engine.Camera") return "asset-list-rendertexture";
-  if (field === "effect" && type === "engine.ParticleSystem") return "asset-list-particles";
-  if (field === "formationAsset" && type === "engine.NavGroup") return "asset-list-formation";
-  if (field === "lut" && type === "engine.PostProcessing") return "asset-list-lut";
-  if (field === "bakedMap" && type === "engine.ReflectionProbe") return "asset-list-env";
-  if (field === "map" && type === "engine.Environment") return "asset-list-environment";
-  return "asset-list-all";
-}
-
-/** The asset suggestions asset fields offer as you type (ADR 0043, 0044). */
 function AssetLists() {
   const version = docVersion.value; // files come and go
+  const scripts = scriptsVersion.value; // script components come and go
   const project = currentProject.value;
   // Built when the project's files change, not on every Inspector render.
   return useMemo(() => {
     const files = listedFiles(project?.files ?? []);
     const options = (list: readonly string[]) => list.map((f) => <option key={f} value={f} />);
+    const lists = new Map<string, readonly AssetFieldKind[]>(ASSET_FIELD_KINDS.map((k) => [assetListId([k]), [k]]));
+    for (const kinds of declaredKindCombinations()) lists.set(assetListId(kinds), kinds);
     return (
       <>
-        <datalist id="asset-list-mesh">
-          {options(BUILTIN_MESHES.map((m) => `builtin:${m}`))}
-          {options(files.filter((f) => assetKind(f) === "model"))}
-        </datalist>
-        <datalist id="asset-list-material">{options(files.filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph"))}</datalist>
-        <datalist id="asset-list-rendertexture">{options(files.filter((f) => assetKind(f) === "rendertexture"))}</datalist>
-        <datalist id="asset-list-particles">{options(files.filter((f) => assetKind(f) === "particles"))}</datalist>
-        <datalist id="asset-list-formation">{options(files.filter((f) => assetKind(f) === "formation"))}</datalist>
-        <datalist id="asset-list-lut">{options(files.filter((f) => assetKind(f) === "lut"))}</datalist>
-        <datalist id="asset-list-env">{options(files.filter((f) => /\.env$/i.test(f) && assetKind(f) === "environment"))}</datalist>
-        <datalist id="asset-list-environment">
-          {options(files.filter((f) => ["environment", "sky", "cubemap"].includes(assetKind(f)) || /\.(png|jpe?g)$/i.test(f)))}
-        </datalist>
+        {[...lists].map(([id, kinds]) => (
+          <datalist key={id} id={id}>
+            {options(assetsForKinds(kinds, files))}
+          </datalist>
+        ))}
         <datalist id="asset-list-all">{options(files)}</datalist>
       </>
     );
-  }, [project, version, project?.files]);
+  }, [project, version, scripts, project?.files]);
+}
+
+/** Each combination of several asset kinds a registered component's field declares (`{ kind: ["texture", "rendertexture"] }`). */
+function declaredKindCombinations(): AssetFieldKind[][] {
+  const combos: AssetFieldKind[][] = [];
+  for (const id of listComponentIds()) {
+    const cls = getComponentClass(id);
+    if (!cls) continue;
+    for (const f of getFields(cls)) {
+      const item = isListType(f.type) ? f.type[0] : f.type;
+      if (item !== AssetRef) continue;
+      const kinds = assetKindsOf({ name: f.name, type: f.type, value: undefined, options: f.options });
+      if (kinds.length > 1) combos.push(kinds);
+    }
+  }
+  return combos;
 }
 
 function TextInput(props: { value: string; label: string; class?: string; placeholder?: string; list?: string; onCommit: (v: string) => void }) {
@@ -1397,34 +1336,4 @@ function formatNumber(n: number): string {
 /** `orderInLayer` → "Order In Layer". */
 function humanize(name: string): string {
   return name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
-}
-
-/** A Tilemap's layer and tile counts, and the way to the Tile Palette (ADR 0103). */
-function TilemapSummary(props: { scene: OpenScene; path: NodePath }) {
-  docVersion.value;
-  const map = tilemapOf(props.scene.sync.nodeFor(props.path));
-  if (!map) return null;
-  let tiles = 0;
-  for (let l = 0; l < map.layerCount; l++) for (const _ of map.tiles(l)) tiles++;
-  return (
-    <div class="tilemap-summary">
-      <span>
-        {map.layerCount} layer{map.layerCount === 1 ? "" : "s"} · {tiles} tile{tiles === 1 ? "" : "s"}
-      </span>
-      <button onClick={() => showPanel("tilepalette")}>Open Tile Palette</button>
-    </div>
-  );
-}
-
-/** "Edit sky" under an Environment whose map is a sky asset in the project. */
-function EditSkyButton({ map }: { map: string }) {
-  const path = map.replace(/^asset:/, "");
-  if (!isSkyPath(path) || !currentProject.value?.files.includes(path)) return null;
-  return (
-    <div class="prefab-actions">
-      <button type="button" onClick={() => openSkyAsset(path)} title={`Open ${path} in the Sky panel`}>
-        Edit sky
-      </button>
-    </div>
-  );
 }

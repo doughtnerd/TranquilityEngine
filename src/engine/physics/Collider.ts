@@ -83,7 +83,7 @@ export class CapsuleCollider extends Collider {
  */
 @component("engine.MeshCollider")
 export class MeshCollider extends Collider {
-  @field(AssetRef) mesh = "";
+  @field(AssetRef, { kind: "mesh" }) mesh = "";
   @field(Boolean) convex = false;
 
   override _shapeSignature(): string {

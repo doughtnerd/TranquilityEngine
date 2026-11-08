@@ -68,7 +68,44 @@ export type FieldChoices =
   | Readonly<Record<string, string | number>>
   | ((settings: import("./settings").ProjectSettings) => readonly (string | number)[] | Readonly<Record<string, string | number>>);
 
-/** Options on a declared field (ADR 0033, 0038). */
+/**
+ * The kind of asset an `AssetRef` field holds (ADR 0131): what the field needs, not a file format.
+ * The editor offers only matching assets; scene files and scripts may still hold any path.
+ * - `model`: model files (glTF, OBJ, FBX…); `mesh`: a model or a built-in mesh (`builtin:cube`);
+ * - `material`: material assets and shader graphs; `texture`: images; `sprite`: images and their slices;
+ * - `rendertexture`, `particles`, `formation`, `lut` (`.cube`), `tileset`, `uidocument` (`.ui.xml`),
+ *   `scene`, `prefab`: assets of that kind;
+ * - `environment`: what an Environment's `map` takes (HDR/EXR/DDS/`.env` maps, skies, cubemaps, panoramas);
+ * - `envmap`: a baked `.env` map; `audio`: sound files; `font`: `.ttf`, `.otf`, `.woff`, `.woff2`;
+ * - `navbake`: a baked navigation chunk (`.nav.bin`).
+ */
+export type AssetFieldKind =
+  | "model"
+  | "mesh"
+  | "material"
+  | "texture"
+  | "sprite"
+  | "rendertexture"
+  | "audio"
+  | "particles"
+  | "formation"
+  | "lut"
+  | "environment"
+  | "envmap"
+  | "tileset"
+  | "font"
+  | "uidocument"
+  | "navbake"
+  | "scene"
+  | "prefab";
+
+/** Every `AssetFieldKind`, in declaration order. */
+export const ASSET_FIELD_KINDS: readonly AssetFieldKind[] = [
+  "model", "mesh", "material", "texture", "sprite", "rendertexture", "audio", "particles", "formation",
+  "lut", "environment", "envmap", "tileset", "font", "uidocument", "navbake", "scene", "prefab",
+];
+
+/** Options on a declared field (ADR 0033, 0038, 0131). */
 export interface FieldOptions {
   /** Replicate this field from server to clients on replicated nodes (T11). */
   replicate?: boolean;
@@ -78,6 +115,16 @@ export interface FieldOptions {
   quantize?: number;
   /** The values this field (or each item of a list field) may take; the editor shows a dropdown. */
   choices?: FieldChoices;
+  /**
+   * For an `AssetRef` field, or each item of an `[AssetRef]` list: the kind (or kinds) of asset it
+   * holds (ADR 0131). The editor offers only those. Only guides the editor.
+   */
+  kind?: AssetFieldKind | readonly AssetFieldKind[];
+  /**
+   * Not shown in the Inspector, for fields another editor owns (ADR 0131). The field is still saved,
+   * loaded and replicated as usual.
+   */
+  hidden?: boolean;
 }
 
 /**
@@ -211,6 +258,9 @@ export const component = behavior;
 export function field(type: FieldType, options?: FieldOptions) {
   if (isListType(type) && (type.length !== 1 || isListType(type[0]) || type[0] === undefined)) {
     throw new Error(`@field: a list field names one item type in brackets, e.g. @field([Number]); lists don't nest.`);
+  }
+  if (options?.kind !== undefined && itemType(type) !== AssetRef) {
+    throw new Error(`@field: \`kind\` is for AssetRef fields (or [AssetRef] lists) only.`);
   }
   return function (_value: undefined, context: ClassFieldDecoratorContext): void {
     const meta = context.metadata as Record<symbol, FieldInfo[] | undefined>;
