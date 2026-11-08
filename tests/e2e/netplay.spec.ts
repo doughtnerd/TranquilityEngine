@@ -91,11 +91,14 @@ test("multiplayer play: 2 clients + 1 thin client, live stats, latency raises th
   await panel.getByRole("button", { name: "Show traffic by kind for Client 1 Server" }).click();
   await expect(panel.locator('.network-kinds tr[data-kind="pings"]')).toBeVisible();
 
-  // Latency raises the round trip: 150 ms each way.
-  await expect.poll(() => shownRtt(panel, "Client 1")).toBeLessThan(100);
+  // Latency raises the round trip: 150 ms each way. Pings are answered in frames, so without added
+  // latency the RTT is a frame or two: under 100 ms alone, more when the machine is loaded (WebKit
+  // renders on the CPU). Compare against what it was rather than a fixed figure.
+  await expect.poll(() => shownRtt(panel, "Client 1")).toBeLessThan(250);
+  const before = await shownRtt(panel, "Client 1");
   await slide(panel.getByRole("slider", { name: "Latency" }), 150);
   await expect(panel.locator(".network-slider-value").first()).toHaveText("150 ms");
-  await expect.poll(() => shownRtt(panel, "Client 1"), { timeout: 15_000 }).toBeGreaterThan(250);
+  await expect.poll(() => shownRtt(panel, "Client 1"), { timeout: 15_000 }).toBeGreaterThan(Math.max(250, before + 200));
   await expect.poll(() => shownRtt(panel, "Thin 1"), { timeout: 15_000 }).toBeGreaterThan(250);
 
   // Stop returns to editing; the panel explains itself again, and the slider keeps its value.
