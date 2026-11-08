@@ -35,7 +35,8 @@ export const FOG_SPEC: RenderFeatureSpec = { name: "fog", phase: "lighting", typ
 /** Reads Environment; owns nothing to release. Registers after the fog. */
 export const ENVIRONMENT_SPEC: RenderFeatureSpec = { name: "environment", phase: "lighting", types: [], lazy: false };
 export const PROBES_SPEC: RenderFeatureSpec = { name: "probes", phase: "capture", types: [ReflectionProbe], lazy: false };
-export const WATER_SPEC: RenderFeatureSpec = { name: "water", phase: "surfaces", types: [WaterSurface], lazy: true };
+/** Holds the first frame while it loads, so a World that starts with water shows it from frame one (ADR 0120). */
+export const WATER_SPEC: RenderFeatureSpec = { name: "water", phase: "surfaces", types: [WaterSurface], lazy: true, holdsFirstFrame: true };
 export const PARTICLES_SPEC: RenderFeatureSpec = { name: "particles", phase: "effects", types: [ParticleSystem], lazy: true, holdsFirstFrame: false };
 
 // --- Adapters -------------------------------------------------------------------------------------

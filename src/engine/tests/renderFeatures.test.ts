@@ -102,6 +102,18 @@ describe("feature slots (ADR 0130)", () => {
     expect(slot.ensure()).toBeNull();
   });
 
+  it("lets the load skip building when the slot was disposed meanwhile", async () => {
+    let resolve!: () => void;
+    const built = vi.fn(() => fake());
+    const slot = lazyFeature(spec("l", "effects", [], { lazy: true }), (cancelled) => new Promise<void>((r) => (resolve = r)).then(() => (cancelled() ? null : built())));
+    slot.ensure();
+    slot.dispose();
+    resolve();
+    await vi.waitFor(() => expect(slot.loading).toBe(false));
+    expect(built).not.toHaveBeenCalled();
+    expect(slot.feature).toBeNull();
+  });
+
   it("logs a failed load and tries again at the next need", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const f = fake();

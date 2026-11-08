@@ -72,18 +72,19 @@ export function eagerFeature<F extends BabylonFeature>(spec: RenderFeatureSpec, 
 }
 
 /**
- * @internal A feature loaded on first need (ADR 0083), once: a load that finishes after `dispose` is
- * thrown away (and the feature disposed); a failed load is logged and tried again at the next need.
+ * @internal A feature loaded on first need (ADR 0083), once. `load` gets `cancelled()`: true once the
+ * slot was disposed, so it can skip building the feature (return null); a feature that arrives anyway
+ * is disposed. A failed load is logged and tried again at the next need.
  */
-export function lazyFeature<F extends BabylonFeature>(spec: RenderFeatureSpec, load: () => Promise<F>): FeatureSlot<F> {
+export function lazyFeature<F extends BabylonFeature>(spec: RenderFeatureSpec, load: (cancelled: () => boolean) => Promise<F | null>): FeatureSlot<F> {
   let feature: F | null = null;
   let pending: Promise<void> | null = null;
   let disposed = false;
   const start = (): void => {
     if (feature || pending || disposed) return;
-    pending = load()
+    pending = load(() => disposed)
       .then((f) => {
-        if (disposed) f.dispose();
+        if (disposed) f?.dispose();
         else feature = f;
       })
       .catch((err) => console.error(`[myco] the ${spec.name} render feature couldn't load:`, err))

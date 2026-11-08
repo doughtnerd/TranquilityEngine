@@ -23,7 +23,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
 
 type Renderer = { node: { name: string }; setMaterialProperty(name: string, value: unknown): void; clearMaterialProperties(): void };
 type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { renderer: { meshRenderers: Map<Renderer, { meshes: { material: { unlit: boolean; uniqueId: number } | null }[] }> } | null } } };
+  engine?: { world: { time: { frameCount: number }; render: { renderer: { meshes: { meshRenderers: Map<Renderer, { meshes: { material: { unlit: boolean; uniqueId: number } | null }[] }> } } | null } } };
 };
 
 function trackErrors(page: Page, allow: RegExp[] = []): string[] {
@@ -62,7 +62,7 @@ const row = (page: Page, name: string) => page.locator(".tree .row", { has: page
 /** The material a node's mesh draws with: Babylon lit/unlit and id. */
 const meshMaterial = (page: Page, name: string) =>
   page.evaluate((n) => {
-    for (const [r, e] of (window as unknown as Hooks).engine!.world.render.renderer?.meshRenderers ?? []) if (r.node.name === n) { const m = e.meshes[0]?.material; return m ? `${m.unlit ? "unlit" : "lit"}:${m.uniqueId}` : null; }
+    for (const [r, e] of (window as unknown as Hooks).engine!.world.render.renderer?.meshes.meshRenderers ?? []) if (r.node.name === n) { const m = e.meshes[0]?.material; return m ? `${m.unlit ? "unlit" : "lit"}:${m.uniqueId}` : null; }
     return null;
   }, name);
 
@@ -160,11 +160,11 @@ test("node previews draw, the minimap pans the canvas, and scripts override a re
   const shared = await meshMaterial(page, "Pillar");
   expect(shared).toMatch(/^lit:/);
   await page.evaluate(() => {
-    for (const [r] of (window as unknown as Hooks).engine!.world.render.renderer?.meshRenderers ?? []) if (r.node.name === "Pillar") r.setMaterialProperty("Tint", [1, 0, 0]);
+    for (const [r] of (window as unknown as Hooks).engine!.world.render.renderer?.meshes.meshRenderers ?? []) if (r.node.name === "Pillar") r.setMaterialProperty("Tint", [1, 0, 0]);
   });
   await expect.poll(() => meshMaterial(page, "Pillar")).not.toBe(shared);
   await page.evaluate(() => {
-    for (const [r] of (window as unknown as Hooks).engine!.world.render.renderer?.meshRenderers ?? []) if (r.node.name === "Pillar") r.clearMaterialProperties();
+    for (const [r] of (window as unknown as Hooks).engine!.world.render.renderer?.meshes.meshRenderers ?? []) if (r.node.name === "Pillar") r.clearMaterialProperties();
   });
   await expect.poll(() => meshMaterial(page, "Pillar")).toBe(shared);
   expect(errors).toEqual([]);

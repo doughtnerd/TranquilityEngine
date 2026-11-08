@@ -179,6 +179,9 @@ export class BabylonRenderer {
   private readonly syncCtx: FeatureSyncContext = { view: null, viewCamera: null, ready: false, probeMeshes: [] };
   /** Meshes drawn with a probe's map last frame, for tests. */
   private reflecting = 0;
+  /** The UI drawing module, loaded alone for a world canvas's warm-up before the UI feature (`loadUIDraw`). */
+  private uiDrawModule: typeof import("./ui") | null = null;
+  private uiDrawLoading: Promise<unknown> | null = null;
   /** Editor preview settings, handed to the particles when they load. */
   private readonly particlePreview: Partial<ParticlePreviewSettings> = {};
   /** What this World's renderer does beyond game rules (ADR 0129); the editor sets it through its viewport handle. */
@@ -265,9 +268,9 @@ export class BabylonRenderer {
     });
     this.lights = new LightsFeature(this.lighting);
     this.fog = new FogFeature({ scene, setSkyFog: (amount) => this.lighting.setSkyFog(amount) });
-    this.particles = lazyFeature(PARTICLES_SPEC, () => import("./particlesFeature").then((m) => new m.ParticlesFeature(this.particleHost(), () => this.particlePreview)));
-    this.water = lazyFeature(WATER_SPEC, () => import("./waterFeature").then((m) => new m.WaterFeature(scene, (x, y, z) => this.probes.lookup(x, y, z))));
-    this.ui = lazyFeature(UI_SPEC, () => import("./uiFeature").then((m) => m.BabylonUIFeature.create(this.uiHost())));
+    this.particles = lazyFeature(PARTICLES_SPEC, (cancelled) => import("./particlesFeature").then((m) => (cancelled() ? null : new m.ParticlesFeature(this.particleHost(), () => this.particlePreview))));
+    this.water = lazyFeature(WATER_SPEC, (cancelled) => import("./waterFeature").then((m) => (cancelled() ? null : new m.WaterFeature(scene, (x, y, z) => this.probes.lookup(x, y, z)))));
+    this.ui = lazyFeature(UI_SPEC, (cancelled) => import("./uiFeature").then((m) => (cancelled() ? null : m.BabylonUIFeature.create(this.uiHost()))));
     // Registration order decides order inside a phase (ADR 0130): the sky before lights (it may drive
     // the sun), lights before fog, fog before the environment (the skybox fades with the sky fog).
     this.slots = [
@@ -320,9 +323,38 @@ export class BabylonRenderer {
       const name = `${WARM_PREFIX}particles:${typeof e === "string" ? e : "embedded"}`;
       items.push(this.deferredWarm(this.particles, { meshes: [], effects: [e], worldUI: false }, typeof e === "string" ? name : `${name}:${JSON.stringify(e)}`));
     }
-    if (set.worldUI) items.push(this.deferredWarm(this.ui, { meshes: [], effects: [], worldUI: true }, "worldUI"));
+    if (set.worldUI) items.push(this.warmWorldCanvas());
     const done = this.warmer.add(items);
     return performance.now() - this.lastRenderAt < 500 ? done : Promise.resolve();
+  }
+
+  /**
+   * A world-space UI canvas's plane to warm (ADR 0076): the UI feature's, once it has loaded; until then
+   * only the UI drawing module loads for it, not the whole UI (Yoga, the font, a live GUI layer), since
+   * the canvas may be in a prefab that hasn't spawned yet.
+   */
+  private warmWorldCanvas(): WarmCustom {
+    return {
+      key: "worldUI",
+      build: (at, position, camera) => {
+        const item = this.ui.feature?.warm({ meshes: [], effects: [], worldUI: true })[0];
+        if (item && "build" in item) return item.build(at, position, camera);
+        const ui = this.loadUIDraw();
+        return ui ? ui.warmWorldCanvas(this.scene, `${WARM_PREFIX}canvas`, at) : null;
+      },
+    };
+  }
+
+  /** The UI drawing module for the warm-up, or null while it loads (the first call starts loading it). */
+  private loadUIDraw(): typeof import("./ui") | null {
+    this.uiDrawLoading ??= import("./ui").then(
+      (m) => (this.uiDrawModule = m),
+      (err) => {
+        this.uiDrawLoading = null;
+        console.error("[myco] the UI couldn't load for the warm-up:", err);
+      },
+    );
+    return this.uiDrawModule;
   }
 
   /** A warm item a lazy feature builds once loaded (the warmer asks again until it does). */
