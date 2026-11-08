@@ -3,7 +3,7 @@
 // order; a tool that returns a drag owns that pointer until it's released, and selection, the
 // transform gizmo and orbiting never see the press. Keys skip text fields, dialogs, Ctrl/Cmd/Alt
 // chords and play mode once for every tool. At most one tool is active (`activeViewportTool`);
-// play, Escape, the transform tools and collider editing end it. The host follows the registry, so a
+// play, Escape and the transform tools end it. The host follows the registry, so a
 // plugin enabled or disabled while a project is open adds or removes its tools.
 import { computed, effect, signal, untracked } from "@preact/signals";
 import type { Engine } from "../engine";
@@ -12,8 +12,16 @@ import { addEditorOverlay, removeEditorOverlay, viewportCanvas, type EditorOverl
 import { isEditable } from "./editable";
 import { errorStatus } from "./messages";
 import type { Registry } from "./sdk/registry";
-import { viewportTools, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution } from "./sdk/contributions";
-import { activateViewportTool, activeViewportTool, editingCollider, openScene, playState, status } from "./state";
+import { viewportTools, type SelectableOutline, type ViewportDrag, type ViewportPointer, type ViewportToolContext, type ViewportToolContribution } from "./sdk/contributions";
+import { activateViewportTool, activeViewportTool, openScene, playState, status } from "./state";
+
+/** Each scene view's selectable outlines (ADR 0142), by its World. */
+const selectables = new Map<World, () => SelectableOutline[]>();
+
+/** The outlines the viewport tools on `world`'s scene view mark selectable (`ViewportToolContext.selectable`); none without a host. */
+export function selectableOutlines(world: World): SelectableOutline[] {
+  return selectables.get(world)?.() ?? [];
+}
 
 /** The bits of the canvas the host uses (a fake one in tests). */
 export interface ViewportHostCanvas extends EventTarget {
@@ -46,6 +54,7 @@ interface Install {
   press: PressHandler[];
   hover: HoverHandler[];
   keys: KeyHandler[];
+  outlines: (() => Iterable<SelectableOutline>)[];
   overlays: string[];
   cursor: string | null;
   cleanup?: () => void;
@@ -107,7 +116,7 @@ export function createViewportToolHost(options: ViewportToolHostOptions): () => 
   };
 
   const install = (tool: ViewportToolContribution) => {
-    const inst: Install = { tool, press: [], hover: [], keys: [], overlays: [], cursor: null };
+    const inst: Install = { tool, press: [], hover: [], keys: [], outlines: [], overlays: [], cursor: null };
     installs.set(tool.id, inst);
     const context: ViewportToolContext = {
       engine,
@@ -120,6 +129,7 @@ export function createViewportToolHost(options: ViewportToolHostOptions): () => 
       onPress: (h) => void inst.press.push(h),
       onHover: (h) => void inst.hover.push(h),
       onKey: (h) => void inst.keys.push(h),
+      selectable: (outlines) => void inst.outlines.push(outlines),
       overlay: (provider, o) => {
         const id = o?.suffix ? `${tool.id}:${o.suffix}` : tool.id;
         addOverlay(id, provider, o?.kind ?? "other");
@@ -158,6 +168,7 @@ export function createViewportToolHost(options: ViewportToolHostOptions): () => 
     inst.press = [];
     inst.hover = [];
     inst.keys = [];
+    inst.outlines = [];
     inst.overlays = [];
     const cleanup = inst.cleanup;
     inst.cleanup = undefined;
@@ -180,16 +191,16 @@ export function createViewportToolHost(options: ViewportToolHostOptions): () => 
     });
   });
 
-  // Leaving edit mode cancels a drag and ends the active tool; editing a collider ends it too.
+  const collectOutlines = (): SelectableOutline[] => [...installs.values()].flatMap((i) => i.outlines.flatMap((o) => [...o()]));
+  selectables.set(world, collectOutlines);
+
+  // Leaving edit mode cancels a drag and ends the active tool.
   const stopPlay = effect(() => {
     if (playState.value === "edit") return;
     untracked(() => {
       cancelDrag();
       if (activeViewportTool.peek() !== null) activateViewportTool(null);
     });
-  });
-  const stopCollider = effect(() => {
-    if (editingCollider.value && untracked(() => activeViewportTool.value) !== null) activateViewportTool(null);
   });
 
   // The active tool's cursor.
@@ -279,7 +290,7 @@ export function createViewportToolHost(options: ViewportToolHostOptions): () => 
   return () => {
     stopRegistry();
     stopPlay();
-    stopCollider();
+    if (selectables.get(world) === collectOutlines) selectables.delete(world);
     for (const inst of [...installs.values()].reverse()) uninstall(inst);
     stopCursor();
     if (canvas && cursorSet) canvas.style.cursor = "";

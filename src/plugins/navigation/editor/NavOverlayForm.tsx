@@ -1,8 +1,8 @@
-// The Scene toolbar's navigation overlay popover (ADR 0065): what the nav gizmo draws. Stays in core with the gizmo
-// (`navGizmo.ts`, installed by `session.ts`) and the toolbar that hosts it.
-import { cleanNavOverlay, navOverlaySettings, updateNavOverlay } from "../navGizmo";
-import { projectNavigation } from "../navBake";
-import { currentProject } from "../state";
+// The Scene toolbar's navigation overlay popover (ADR 0065), a toolbar item the Navigation plugin registers (ADR 0142):
+// what its scene-view overlay tool (`navGizmo.ts`) draws.
+import { cleanNavOverlay, navOverlaySettings, updateNavOverlay } from "./navGizmo";
+import { projectNavigation } from "./navBake";
+import { currentProject } from "../../../editor/state";
 import "./navOverlay.css";
 
 /** The scene view popover's toggles: Navmesh, Links, Flight volume, the agent group, and the play-mode extras. */

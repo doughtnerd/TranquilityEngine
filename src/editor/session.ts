@@ -18,10 +18,6 @@ import { historyLocation, netConditionsSetting, netPlaySetup } from "./preferenc
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { installSceneView } from "./cameraPreview";
 import { installThumbnails } from "./thumbnails";
-import { installColliderGizmo } from "./colliderGizmo";
-import { installJointGizmo } from "./jointGizmo";
-import { installNavGizmo } from "./navGizmo";
-import { installNavPreviews } from "./navPreviews";
 import { installPlayGizmos } from "./playGizmos";
 import { mountPlayTools } from "./ui/PlayStats";
 import { installGizmo } from "./gizmo";
@@ -33,7 +29,7 @@ import { openSceneFile, saveOpenScene } from "./project";
 import { applyEnabledPlugins } from "../plugins/editorApply";
 import { loadProjectCode, projectPlugins, unloadThirdPartyPlugins } from "../plugins/thirdPartyEditor";
 import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
-import { currentProject, docVersion, editingCollider, openScene, openScenes, playState, sceneCamera, scriptProblems, scriptsVersion, select, selectedKeys, selection, setViewMode, status, viewMode, type OpenScene } from "./state";
+import { currentProject, docVersion, openScene, openScenes, playing, playState, sceneCamera, scriptProblems, scriptsVersion, select, selectedKeys, selection, setViewMode, status, viewMode, type OpenScene } from "./state";
 import type { ViewMode } from "./OrbitCamera";
 import { closeAllScripts, loadedMonaco, preloadCodeEditor } from "./code/codeState";
 import { prefetchEngine } from "./prefetch";
@@ -54,8 +50,8 @@ import { migrateEmbeddedEffects } from "./particleMigration";
 
 let session: { engine: Engine; dispose(): void } | null = null;
 let play: PlaySession | null = null;
-/** The running play session, for the Network panel (ADR 0033 §9); null while editing. */
-export const playing = signal<PlaySession | null>(null);
+/** The running play session (kept in `state.ts`, so plugins' scene-view tools can follow it); re-exported for the panels. */
+export { playing };
 /** Removes the play bar's tools from the game view (set while playing). */
 let unmountPlayTools: () => void = () => {};
 /** Each open scene's edit history on disk (ADR 0027), kept saving while its tab is open. */
@@ -134,7 +130,7 @@ export async function loadProject(project: EditorProject): Promise<void> {
   const orbit = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
   orbit.mode = viewMode.value;
   sceneCamera.value = orbit;
-  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installColliderGizmo(engine), installJointGizmo(engine), installNavGizmo(engine, playing), installNavPreviews(engine.world), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine), installUIElementOutline(engine), installUIHandles(engine), installViewportTools(engine)]; // plugins' scene-view tools (ADR 0138)
+  const disposers = [installViewportSelection(engine, orbit), installGizmo(engine), installPlayGizmos(playing), installSceneView(engine), installViewportTheme(engine), installUIElementOutline(engine), installUIHandles(engine), installViewportTools(engine)]; // plugins' scene-view tools (ADR 0138)
   session = {
     engine,
     dispose() {
@@ -223,7 +219,6 @@ function deactivate(scene: OpenScene): void {
     camera: orbit ? { mode: viewMode.peek(), focus: orbit.focusPoint.toArray(), distance: orbit.distance, yaw: orbit.yaw, pitch: orbit.pitch } : null,
   });
   scene.sync.dispose();
-  editingCollider.value = null;
 }
 
 /** Make `scene` the active tab (the previous one already put aside): rebuild its nodes and view. */
@@ -310,7 +305,6 @@ function closeSceneNow(scene: OpenScene): boolean {
   scene.sync.dispose();
   if (openScene.peek() === scene) {
     stopPlaying();
-    editingCollider.value = null;
     const next = rest[Math.min(at, rest.length - 1)];
     if (next) activate(next);
     else {

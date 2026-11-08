@@ -10,21 +10,21 @@
 //   bin's normal and coverage cone, and the floor and ceiling capture cones.
 //
 // What the preview found ("rebake to see flight cells"…) is in `navPreviewStatus`, which the inspectors show.
+// The Navigation plugin's always-on viewport tool `myco.navigation.previews` (ADR 0138, 0142).
 import { signal } from "@preact/signals";
-import type { World } from "../engine/core/World";
-import { addEditorOverlay, removeEditorOverlay } from "../engine/editor";
-import { NavChunk, NavModifierVolume, NavResolutionVolume } from "../plugins/navigation/runtime/components";
-import { leafSegments, type DebugSegments } from "../engine/nav/debugGeometry";
-import { collectNavGeometry, loadNavGeometryMeshes } from "../engine/nav/geometry";
-import { bakeAgentGroups } from "../plugins/navigation/runtime/runtime";
-import { binColor, bakeVolumeGroups, classifySurfaceBins, debugBakeFlightLeaves, leavesInBox, surfaceBinLayout, type SurfaceBinLayout } from "../engine/nav/plan";
-import type { NavigationSettings } from "../engine/nav/settings";
-import type { GameObject } from "../engine/scene/GameObject";
+import type { ViewportToolContribution } from "../../../editor/sdk";
+import { NavChunk, NavModifierVolume, NavResolutionVolume } from "../runtime/components";
+import { leafSegments, type DebugSegments } from "../../../engine/nav/debugGeometry";
+import { collectNavGeometry, loadNavGeometryMeshes } from "../../../engine/nav/geometry";
+import { bakeAgentGroups } from "../runtime/runtime";
+import { binColor, bakeVolumeGroups, classifySurfaceBins, debugBakeFlightLeaves, leavesInBox, surfaceBinLayout, type SurfaceBinLayout } from "../../../engine/nav/plan";
+import type { NavigationSettings } from "../../../engine/nav/settings";
+import type { GameObject } from "../../../engine/scene/GameObject";
 import { projectNavigation } from "./navBake";
 import { openSceneBakeBytes, openSceneBakeKey } from "./navGizmo";
-import { persisted } from "./preferences";
-import { currentProject, docVersion, openScene, playState, selectedKeys } from "./state";
-import { parseHex, theme } from "./theme";
+import { persisted } from "../../../editor/preferences";
+import { currentProject, docVersion, openScene, playState, selectedKeys } from "../../../editor/state";
+import { parseHex, theme } from "../../../editor/theme";
 
 /** Outlines per preview (Foxfire's MaxCells). */
 export const MAX_PREVIEW_CELLS = 5000;
@@ -271,11 +271,11 @@ async function surfaceBinsPreview(node: GameObject, settings: NavigationSettings
   return { segments, status: { kind: "bins" as const, text: `${bins.length.toLocaleString("en")} walkable-source triangles${shown < bins.length ? ` (${shown.toLocaleString("en")} drawn)` : ""}${geometry.pending.length ? `; ${geometry.pending.length} models couldn't be loaded` : ""}.` } };
 }
 
-const PREVIEW_ID = "navigation-selection";
-
-/** Draw the selection previews in the scene view (edit mode). Returns a function that removes them. */
-export function installNavPreviews(world: World): () => void {
-  const preview = new NavSelectionPreview();
-  addEditorOverlay(world, PREVIEW_ID, () => ({ lines: [], handles: [], segments: preview.segments() }), "navigation");
-  return () => removeEditorOverlay(world, PREVIEW_ID);
-}
+/** The selection previews in the scene view (edit mode). */
+export const navPreviewTool: ViewportToolContribution = {
+  id: "myco.navigation.previews",
+  install(view) {
+    const preview = new NavSelectionPreview();
+    view.overlay(() => ({ lines: [], handles: [], segments: preview.segments() }), { kind: "navigation" });
+  },
+};

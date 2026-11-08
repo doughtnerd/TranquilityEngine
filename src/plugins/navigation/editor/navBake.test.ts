@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import "../engine";
-import { Assets } from "../engine";
-import { loadNavigation } from "../engine/nav/loader";
+import "../../../engine";
+import { Assets } from "../../../engine";
+import { loadNavigation } from "../../../engine/nav/loader";
 import { inThreadRunner, bakeAllNavigation, bakeNavChunk, checkNavInputs, isNavBakeStale, navChunkState, resetNavBakeStates, scratchSceneWorld, setNavBakeRunner, lookUpNavRecord } from "./navBake";
 import { navPolyCount, navRecordPath, withBakeReference } from "./navBakeFiles";
-import { MemoryFileSystem } from "./memoryFs";
-import { joinPath, openFolderProject, useProjectAssets } from "./projects";
-import type { SceneFile } from "../engine/scene/SceneLoader";
-import { findNavChunks } from "../engine/nav/geometry";
+import { MemoryFileSystem } from "../../../editor/memoryFs";
+import { joinPath, openFolderProject, useProjectAssets } from "../../../editor/projects";
+import type { SceneFile } from "../../../engine/scene/SceneLoader";
+import { findNavChunks } from "../../../engine/nav/geometry";
 
 // Baking navigation in the editor (ADR 0065): a NavChunk bakes from a World into `<scene>.nav.bin`, with a
 // record of its inputs for the stale notice; Bake All bakes every scene and points chunks at their files.

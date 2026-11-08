@@ -10,7 +10,9 @@ import type { Engine } from "../../engine";
 import type { World } from "../../engine/core/World";
 import type { EditorOverlay, EditorOverlayKind } from "../../engine/editor";
 import type { OpenScene } from "../state";
-import type { NodeEntry, SceneDocument } from "../document";
+import type { NodeEntry, NodePath, SceneDocument } from "../document";
+import type { GameObject } from "../../engine/scene/GameObject";
+import type { ComponentInfo } from "../../engine/editor";
 
 /** A component loaded on first use (ADR 0083). */
 export type LoadComponent<P extends object> = () => Promise<FunctionComponent<P>>;
@@ -175,6 +177,18 @@ export interface ViewportToolContext {
   setCursor(cursor: string | null): void;
   /** One undo step on the open scene's command stack: begins a group, runs `fn`, always ends it. False with no open scene. */
   edit(label: string, fn: (scene: OpenScene) => void): boolean;
+  /**
+   * Outlines that select their node (ADR 0142): a plain click inside one picks the node before renderers
+   * (smallest outline first), and they count as part of the node for the selection box and the Alt+click list.
+   * Read on every click; e.g. the Physics plugin's 2D collider outlines.
+   */
+  selectable(outlines: () => Iterable<SelectableOutline>): void;
+}
+
+/** A node's outline in world space that viewport picking treats as part of the node (ADR 0142). Picked in its own XY plane. */
+export interface SelectableOutline {
+  readonly node: GameObject;
+  readonly points: readonly (readonly [number, number, number])[];
 }
 
 /** A scene-view tool (ADR 0138): painting, handles, overlays. */
@@ -185,6 +199,46 @@ export interface ViewportToolContribution {
   install(view: ViewportToolContext): void | (() => void);
 }
 
+/**
+ * A button in the Scene toolbar that opens a popover (ADR 0142), shown after Align and before Preview in
+ * registration order: the Navigation plugin's Nav overlay toggles.
+ */
+export interface SceneToolbarItemContribution {
+  readonly id: string;
+  /** The button's and the popover's accessible name ("Navigation overlay"). */
+  readonly label: string;
+  /** The button's text ("Nav"). */
+  readonly buttonText: string;
+  /** The button's class, for styling and tests ("nav-overlay"). */
+  readonly buttonClass: string;
+  /** The button's tooltip. */
+  readonly title: string;
+  /** The popover's content, loaded when it first opens. */
+  readonly view: LoadComponent<object>;
+}
+
+/** What a component header action is given: the card's component on one or more selected nodes. */
+export interface ComponentHeaderActionProps {
+  readonly scene: OpenScene;
+  /** The nodes the card edits (the active node last). */
+  readonly paths: readonly NodePath[];
+  /** The card's component (the active node's copy). */
+  readonly info: ComponentInfo;
+}
+
+/**
+ * A control in an Inspector component card's header, before the Worlds menu and Remove (ADR 0142): the
+ * Physics plugin's Edit Collider button. `types` limits it to those Component types.
+ */
+export interface ComponentHeaderActionContribution {
+  readonly id: string;
+  readonly types: ReadonlySet<string> | readonly string[];
+  /** Rendered in the header; return null to show nothing (e.g. several nodes selected). */
+  readonly view: FunctionComponent<ComponentHeaderActionProps>;
+  /** Called before the card's component is removed through its Remove button. */
+  onRemove?(props: ComponentHeaderActionProps): void;
+}
+
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const assetFormats = createRegistry<AssetFormatContribution<any>>("Asset format"); // eslint-disable-line @typescript-eslint/no-explicit-any -- formats differ in T
@@ -192,3 +246,5 @@ export const panels = createRegistry<PanelContribution>("Panel");
 export const projectSettingsSections = createRegistry<ProjectSettingsSectionContribution>("Project settings section");
 export const panelExtensions = createRegistry<PanelExtensionContribution>("Panel extension");
 export const viewportTools = createRegistry<ViewportToolContribution>("Viewport tool");
+export const sceneToolbarItems = createRegistry<SceneToolbarItemContribution>("Scene toolbar item");
+export const componentHeaderActions = createRegistry<ComponentHeaderActionContribution>("Component header action");

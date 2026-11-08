@@ -49,7 +49,8 @@ import { RuntimeInspector } from "./RuntimeInspector";
 import { UIElementInspector } from "./UIElementInspector";
 import { openScript, scriptFor } from "../code/codeState";
 import { applyOverrides, applyOverridesTo, createPrefabFromNodes, createPrefab, findInner, isInnerPropertyOverridden, isOverridden, nodePropertyCommand, revertInnerProperty } from "../prefabs";
-import { currentProject, docVersion, editingCollider, openScene, scriptsVersion, selectedKeys, selectedUIElement, selection, status, type OpenScene } from "../state";
+import { currentProject, docVersion, openScene, scriptsVersion, selectedKeys, selectedUIElement, selection, status, type OpenScene } from "../state";
+import { componentHeaderActions, type ComponentHeaderActionContribution } from "../sdk/contributions";
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
@@ -455,7 +456,11 @@ function CreatePrefabButton(props: { scene: OpenScene; id: string }) {
   );
 }
 
-const COLLIDERS = new Set(["engine.BoxCollider2D", "engine.CircleCollider2D", "engine.PolygonCollider2D", "engine.EdgeCollider2D", "engine.BoxCollider", "engine.SphereCollider", "engine.CapsuleCollider", "engine.MeshCollider", "engine.CharacterController", "engine.CharacterController2D"]);
+/** The header controls plugins add for a Component type (ADR 0142: the Physics plugin's Edit Collider). */
+function headerActionsFor(type: string): ComponentHeaderActionContribution[] {
+  componentHeaderActions.version.value;
+  return componentHeaderActions.list().filter((a) => (a.types instanceof Set ? a.types.has(type) : (a.types as readonly string[]).includes(type)));
+}
 
 /** One component, shared by every node in `paths` (`infos` holds each node's copy, in the same order). */
 /** Where a dragged component would land: next to the component `type`#`index`, before or after it. */
@@ -504,9 +509,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
   const { paths, infos } = props;
   const info = infos[infos.length - 1];
   const title = info.type.replace(/^(engine|game|editor)\./, "");
-  const key = pathKey(paths[paths.length - 1]);
-  const e = editingCollider.value;
-  const editing = !!e && e.key === key && e.type === info.type && e.index === info.index;
+  const actions = headerActionsFor(info.type);
   // Remove: from every node that allows it; disabled (with the first reason) when none does.
   const { scene } = props;
   const checks = paths.map((path, i) => {
@@ -583,16 +586,9 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
             {"{ }"}
           </button>
         )}
-        {COLLIDERS.has(info.type) && paths.length === 1 && (
-          <button
-            class={`edit-collider${editing ? " active" : ""}`}
-            aria-pressed={editing}
-            title={editing ? "Stop editing the collider (handles hide, the transform gizmo returns)" : info.type.endsWith("PolygonCollider2D") || info.type.endsWith("EdgeCollider2D") ? "Show handles in the viewport: drag vertices, press an edge's middle handle to add one, Ctrl+click a vertex to remove it" : "Show handles in the viewport to resize this collider and move its center"}
-            onClick={() => (editingCollider.value = editing ? null : { key, type: info.type as "engine.BoxCollider2D", index: info.index })}
-          >
-            Edit Collider
-          </button>
-        )}
+        {actions.map((a) => (
+          <a.view key={a.id} scene={scene} paths={paths} info={info} />
+        ))}
         {worlds.length > 0 && <ComponentMenu scene={scene} title={title} worlds={worlds} />}
         {info.type !== "engine.Transform" && (
           <button
@@ -601,7 +597,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
             title={notRemovable ? `Can't remove: ${notRemovable}` : paths.length > 1 ? `Remove ${title} from ${removable.length} nodes` : `Remove ${title}`}
             disabled={removable.length === 0}
             onClick={() => {
-              if (editing) editingCollider.value = null;
+              for (const a of actions) a.onRemove?.({ scene, paths, info });
               removeComponentFrom(scene, removable);
             }}
           >

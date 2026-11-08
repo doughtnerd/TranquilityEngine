@@ -3,7 +3,7 @@
 // plugin removes them all.
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
-import { assetFormats, assetKinds, componentNotes, panelExtensions, panels, projectSettingsSections, viewportTools, type AssetFormatContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
+import { assetFormats, assetKinds, componentHeaderActions, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type AssetFormatContribution, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import type { LoadComponent } from "./contributions";
 
@@ -22,6 +22,10 @@ export interface EditorPluginContext {
   registerInspectorSection(type: string, view: LoadComponent<InspectorSectionProps>, options?: InspectorSectionOptions): void;
   /** A scene-view tool (ADR 0138), installed on every scene view while the plugin is active. */
   registerViewportTool(tool: ViewportToolContribution): void;
+  /** A Scene toolbar button that opens a popover (ADR 0142). */
+  registerSceneToolbarItem(item: SceneToolbarItemContribution): void;
+  /** A control in Inspector component cards' headers for some Component types (ADR 0142). */
+  registerComponentHeaderAction(action: ComponentHeaderActionContribution): void;
 }
 
 /** A plugin's editor half. */
@@ -52,6 +56,8 @@ export function activatePlugins(plugins: readonly EditorPlugin[], options: { pro
       registerComponentNote: (n) => void undo.push(componentNotes.register(n)),
       registerInspectorSection: (type, view, options) => void undo.push(registerInspectorSection(type, view, options)),
       registerViewportTool: (t) => void undo.push(viewportTools.register(t)),
+      registerSceneToolbarItem: (item) => void undo.push(sceneToolbarItems.register(item)),
+      registerComponentHeaderAction: (action) => void undo.push(componentHeaderActions.register(action)),
     };
     try {
       plugin.activate(context);

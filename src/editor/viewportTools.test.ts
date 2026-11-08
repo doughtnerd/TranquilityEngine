@@ -2,10 +2,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Engine } from "../engine";
 import type { World } from "../engine/core/World";
+import type { GameObject } from "../engine/scene/GameObject";
 import { createRegistry } from "./sdk/registry";
 import type { ViewportDrag, ViewportToolContext, ViewportToolContribution } from "./sdk/contributions";
-import { activateViewportTool, activeViewportTool, editingCollider, openScene, pickTool, playState, type OpenScene } from "./state";
-import { createViewportToolHost } from "./viewportTools";
+import { activateViewportTool, activeViewportTool, openScene, pickTool, playState, type OpenScene } from "./state";
+import { createViewportToolHost, selectableOutlines } from "./viewportTools";
 
 class FakeCanvas extends EventTarget {
   style = { cursor: "" };
@@ -29,6 +30,7 @@ let tools: ReturnType<typeof createRegistry<ViewportToolContribution>>;
 let overlays: Map<string, unknown>;
 let dispose: () => void;
 let editableTarget = false;
+let world: World;
 
 /** A tool whose context is kept for the test. */
 function tool(id: string, setup: (ctx: ViewportToolContext) => void | (() => void) = () => {}): { contribution: ViewportToolContribution; ctx: () => ViewportToolContext } {
@@ -53,10 +55,10 @@ beforeEach(() => {
   editableTarget = false;
   playState.value = "edit";
   activateViewportTool(null);
-  editingCollider.value = null;
+  world = {} as World;
   dispose = createViewportToolHost({
     engine: {} as Engine,
-    world: {} as World,
+    world,
     canvas,
     keys,
     tools,
@@ -179,7 +181,7 @@ describe("viewport tool host", () => {
     expect(got).toEqual(["b", "c"]);
   });
 
-  it("ends the active tool on Escape, a transform tool or collider editing", () => {
+  it("ends the active tool on Escape, a transform tool or another tool becoming active", () => {
     const t = tool("t.a");
     tools.register(t.contribution);
     t.ctx().activate();
@@ -189,11 +191,23 @@ describe("viewport tool host", () => {
     t.ctx().activate();
     pickTool("move");
     expect(activeViewportTool.value).toBeNull();
+    const other = tool("t.b");
+    tools.register(other.contribution);
     t.ctx().activate();
-    editingCollider.value = { key: "n", type: "engine.BoxCollider2D", index: 0 };
-    expect(activeViewportTool.value).toBeNull();
-    t.ctx().activate();
-    expect(editingCollider.value).toBeNull(); // and activating a tool ends collider editing
+    other.ctx().activate();
+    expect(t.ctx().active.value).toBe(false);
+    expect(activeViewportTool.value).toBe("t.b");
+  });
+
+  it("collects the selectable outlines of the installed tools for viewport picking (ADR 0142)", () => {
+    const node = {} as GameObject;
+    const outline = { node, points: [[0, 0, 0], [1, 0, 0], [0, 1, 0]] as [number, number, number][] };
+    const t = tool("t.a", (ctx) => ctx.selectable(() => [outline]));
+    expect(selectableOutlines(world)).toEqual([]);
+    const undo = tools.register(t.contribution);
+    expect(selectableOutlines(world)).toEqual([outline]);
+    undo();
+    expect(selectableOutlines(world)).toEqual([]);
   });
 
   it("shows the active tool's cursor", () => {

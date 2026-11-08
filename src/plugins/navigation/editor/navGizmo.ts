@@ -11,11 +11,13 @@
 // same toggles and by `Navigation.debug` flags on the facade. The game view's render backend draws
 // overlays too (RenderBackend.syncOverlay), so a game can draw them without the editor by adding
 // `RuntimeNavOverlay` through `addEditorOverlay`.
+//
+// The Navigation plugin's always-on viewport tool `myco.navigation.overlay` (ADR 0138, 0142); the toggles are the
+// Scene toolbar's Nav popover (`NavOverlayForm.tsx`, a registered toolbar item).
 import { effect, type ReadonlySignal } from "@preact/signals";
-import type { Engine } from "../engine";
-import type { World } from "../engine/core/World";
-import { addEditorOverlay, removeEditorOverlay, type EditorOverlay } from "../engine/editor";
-import { navigationOf } from "../plugins/navigation/runtime/navigationSystems";
+import type { World } from "../../../engine/core/World";
+import { addEditorOverlay, removeEditorOverlay, type EditorOverlay } from "../../../engine/editor";
+import { navigationOf } from "../runtime/navigationSystems";
 import {
   NO_NAV_DEBUG,
   RuntimeNavOverlay,
@@ -28,13 +30,14 @@ import {
   type NavDebugColors,
   type NavDebugFlags,
   type NavDebugSource,
-} from "../engine/nav/debugGeometry";
-import { bakeAgentGroups, debugBakeLines } from "../plugins/navigation/runtime/runtime";
+} from "../../../engine/nav/debugGeometry";
+import { bakeAgentGroups, debugBakeLines } from "../runtime/runtime";
 import { projectNavigation } from "./navBake";
-import { persisted } from "./preferences";
-import type { PlaySession } from "./playMode";
-import { currentProject, docVersion, openScene, playState } from "./state";
-import { mix, parseHex, theme, type ThemeTokens } from "./theme";
+import { persisted } from "../../../editor/preferences";
+import type { PlaySession } from "../../../editor/playMode";
+import type { ViewportToolContext, ViewportToolContribution } from "../../../editor/sdk";
+import { currentProject, docVersion, openScene, playing as playSession, playState } from "../../../editor/state";
+import { mix, parseHex, theme, type ThemeTokens } from "../../../editor/theme";
 
 /** The scene view's navigation toggles (and the group whose bake is drawn), remembered per user. */
 export interface NavOverlaySettings extends NavDebugFlags {
@@ -327,16 +330,16 @@ export function runtimeNavProvider(world: World, settings: () => NavDebugFlags =
   };
 }
 
+/** The overlay's id on the play Worlds (the scene view's is the tool's own). */
 const PLAY_ID = "navigation";
 
-/** Draw navigation in the scene view (edit mode) and in every World of a play session. Returns a function that removes it. */
-export function installNavGizmo(engine: Engine, playing: ReadonlySignal<PlaySession | null>): () => void {
-  const world = engine.world;
+/** Draw navigation in the scene view (edit mode) and in every World of a play session. Returns a function that removes the play Worlds' drawing. */
+export function installNavGizmo(view: Pick<ViewportToolContext, "overlay">, playing: ReadonlySignal<PlaySession | null>): () => void {
   const bake = new NavBakeOverlay(
     () => cleanNavOverlay(navOverlaySettings.peek()),
     () => navDebugColors(theme.peek()),
   );
-  addEditorOverlay(world, PLAY_ID, () => (playState.peek() === "edit" ? { lines: [], handles: [], segments: bake.segments() } : { lines: [], handles: [] }), "navigation");
+  view.overlay(() => (playState.peek() === "edit" ? { lines: [], handles: [], segments: bake.segments() } : { lines: [], handles: [] }), { kind: "navigation" });
 
   let playWorlds: World[] = [];
   const stopPlay = effect(() => {
@@ -360,8 +363,13 @@ export function installNavGizmo(engine: Engine, playing: ReadonlySignal<PlaySess
   }
   return () => {
     stopPlay();
-    removeEditorOverlay(world, PLAY_ID);
     for (const w of playWorlds) removeEditorOverlay(w, PLAY_ID);
     playWorlds = [];
   };
 }
+
+/** The scene view's navigation drawing: the open scene's bakes while editing, the live runtime of every play World. */
+export const navOverlayTool: ViewportToolContribution = {
+  id: "myco.navigation.overlay",
+  install: (view) => installNavGizmo(view, playSession),
+};

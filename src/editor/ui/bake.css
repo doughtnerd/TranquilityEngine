@@ -1,0 +1,6 @@
+/* A bake row under a component's fields in the Inspector: the button, its status line and an error (the
+   Navigation plugin's NavChunk bake, ADR 0065, and the reflection probe's, which shares the classes). */
+.nav-chunk-bake { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 8px; border-top: 1px solid var(--border); }
+.nav-chunk-bake-row { display: flex; align-items: center; gap: 8px; }
+.nav-chunk-bake-status { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-chunk-error { margin: 0; padding: 4px 6px; border: 1px solid var(--danger); border-radius: 4px; background: var(--danger-soft); color: var(--danger); font-size: 11px; }

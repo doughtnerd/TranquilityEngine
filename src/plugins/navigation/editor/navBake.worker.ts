@@ -5,8 +5,8 @@
 // Messages in: `{ id, type: "bake", request }` (see navBake.ts `NavBakeRequest`; the mesh arrays are
 // transferred), `{ id, type: "release", scenePath?, chunkNodeId? }`. Messages out: `{ id, type: "stage",
 // stage }`, `{ id, type: "done", result }` (the bytes transferred), `{ id, type: "error", message }`.
-import { bakeChunk, releaseBakeCaches } from "../engine/nav/bake";
-import { loadNavigation } from "../engine/nav/loader";
+import { bakeChunk, releaseBakeCaches } from "../../../engine/nav/bake";
+import { loadNavigation } from "../../../engine/nav/loader";
 import type { NavBakeRequest } from "./navBake";
 
 type Inbound = { id: number; type: "bake"; request: NavBakeRequest } | { id: number; type: "release"; scenePath?: string; chunkNodeId?: string };

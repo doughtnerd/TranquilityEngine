@@ -2,7 +2,7 @@
 import { useState } from "preact/hooks";
 import { bakeOpenSceneProbe } from "../probeBake";
 import { currentProject, type OpenScene } from "../state";
-import "./navBake.css";
+import "./bake.css";
 import type { InspectorSectionProps } from "./inspectorSections";
 
 export function ReflectionProbeBake(props: { scene: OpenScene; nodeId: string }) {

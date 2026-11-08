@@ -2,9 +2,10 @@
 // the last bake's summary (polys, fingerprints, warnings, time), and a notice when the chunk's inputs
 // changed since (its geometry, volumes, NavChunk fields or the project's navigation settings).
 import { useEffect } from "preact/hooks";
-import { navPolyCount, NAV_STAGE_LABELS, bakeOpenSceneChunk, checkNavInputs, isNavBakeStale, lookUpNavRecord, navBakeSummary, navBakeVersion, navChunkState } from "../../../editor/navBake";
+import { navPolyCount, NAV_STAGE_LABELS, bakeOpenSceneChunk, checkNavInputs, isNavBakeStale, lookUpNavRecord, navBakeSummary, navBakeVersion, navChunkState } from "./navBake";
 import { currentProject, docVersion, type OpenScene } from "../../../editor/state";
-import "../../../editor/ui/navBake.css";
+import "../../../editor/ui/bake.css";
+import "./navBake.css";
 import type { InspectorSectionProps } from "../../../editor/ui/inspectorSections";
 
 export function NavChunkBake(props: { scene: OpenScene; nodeId: string }) {

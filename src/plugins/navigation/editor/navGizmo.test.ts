@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { LINE_KIND } from "../engine/nav/debugGeometry";
+import { LINE_KIND } from "../../../engine/nav/debugGeometry";
 import { NavBakeOverlay, bakePathsOf, cleanNavOverlay, navDebugColors, type NavOverlaySettings } from "./navGizmo";
-import { PRESETS, resolveTheme } from "./theme";
+import { PRESETS, resolveTheme } from "../../../editor/theme";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const colors = navDebugColors(resolveTheme(PRESETS[0]));

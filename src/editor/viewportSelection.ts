@@ -1,5 +1,5 @@
-// Viewport selection (ADR 0022, 0026). A plain left click picks the smallest collider containing
-// the pointer (anywhere inside a collider counts), else the topmost renderer under it, and selects
+// Viewport selection (ADR 0022, 0026). A plain left click picks the smallest selectable outline (the Physics plugin's
+// 2D colliders, ADR 0142) containing the pointer, else the topmost renderer under it, and selects
 // its document node; clicking the same spot again cycles through overlapping
 // hits; clicking empty space clears. Shift+click adds the hit, Ctrl/Cmd+click toggles it. A left
 // drag on empty space draws a selection box: every node lying inside it is selected (Shift adds,
@@ -11,8 +11,8 @@ import { effect } from "@preact/signals";
 import type { Engine, GameObject } from "../engine";
 import { type ScreenRect, viewport, viewportCanvas } from "../engine/editor";
 import type { UIComponentType } from "../engine/ui/components";
-import { colliderShapes } from "./colliderGizmo";
-import { pointInPolygon, polygonArea } from "./colliderMath";
+import { pointInPolygon, polygonArea } from "./polygonMath";
+import { selectableOutlines } from "./viewportTools";
 import { pathKey, type NodePath } from "./document";
 import type { OrbitCamera } from "./OrbitCamera";
 import { isLocked } from "./nodeVisibility";
@@ -197,8 +197,8 @@ export function installViewportSelection(engine: Engine, camera: OrbitCamera): (
   /** The selection box being dragged: the selection before it, and its element. */
   let box: { before: readonly string[]; element: HTMLDivElement } | null = null;
 
-  /** Colliders of active nodes in the edited scene. */
-  const shapes = () => colliderShapes(engine).filter((s) => s.node.activeInHierarchy);
+  /** Outlines viewport tools mark selectable (ADR 0142: the Physics plugin's 2D colliders) of active nodes. */
+  const shapes = () => selectableOutlines(world).filter((s) => s.node.activeInHierarchy);
   /** What each node covers on the canvas: its renderers or origin, and its colliders. */
   const boundsUnderScene = () => {
     const root = openScene.value?.sync.sceneNode;
