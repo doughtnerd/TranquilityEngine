@@ -284,7 +284,7 @@ export class UIDocumentElement {
 
   /** Input fields: true for the frame the player changed its value. */
   get changed(): boolean {
-    return this._changeFrame === this._comp.world.time.frameCount;
+    return this._changeFrame === this._comp._world.time.frameCount;
   }
 
   /** Input fields: true for the frame Enter was pressed in it. */
@@ -461,7 +461,7 @@ export class UIDocument extends Component {
     const rows: UIDocumentElement[] = [];
     const keys: unknown[] = [];
     const fresh: [UIDocumentElement, T][] = [];
-    const world = this.world;
+    const world = this._world;
     world._batch(() => {
       items.forEach((item, index) => {
         const key = keyOf(item, index);
@@ -630,7 +630,7 @@ export class UIDocument extends Component {
         for (const p of this.problemList) warn(p.message);
         if (markup.root) {
           const root = markup.root;
-          this.world._batch(() => {
+          this._world._batch(() => {
             this.rootElement = this.build(root, null, null, reuse, "");
           });
           this.updateBindings(this.rootElement!);
@@ -672,7 +672,7 @@ export class UIDocument extends Component {
    */
   private build(markup: MarkupElement, parent: UIDocumentElement | null, scope: RowScope | null, reuse: Map<string, UIDocumentElement> | null, path: string): UIDocumentElement {
     const P = parsers!;
-    const world = this.world;
+    const world = this._world;
     const type = TAG_TYPES[markup.tag];
     const idAttr = markup.attributes.find((a) => a.name === "id")?.value ?? null;
     const classAttr = markup.attributes.find((a) => a.name === "class")?.value ?? "";
@@ -869,7 +869,7 @@ export class UIDocument extends Component {
   _collectEvents(): void {
     const root = this.rootElement;
     if (!root) return;
-    const world = this.world;
+    const world = this._world;
     if (world.inEditMode(this.node.entity)) return; // a scene being edited: no events (ADR 0026)
     const frame = world.time.frameCount;
     const events: UIEvent[] = [];
@@ -991,7 +991,7 @@ function destroyNode(node: GameObject, flush = true): void {
 }
 
 function documentsOf(world: World): UIDocument[] {
-  return [...liveDocuments].filter((d) => d.node.isValid && d.world === world);
+  return [...liveDocuments].filter((d) => d.node.isValid && d._world === world);
 }
 
 // Right after UI input routing (which runs as the frame begins) and before behaviors' update.

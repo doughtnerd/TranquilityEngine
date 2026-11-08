@@ -59,7 +59,7 @@ export class GameObject {
 
   /** Queue a node (with its subtree) or a component for destruction at the end of the frame. */
   static destroy(target: GameObject | Component): void {
-    if (target instanceof Component) target.world._removeComponent(target);
+    if (target instanceof Component) target._world._removeComponent(target);
     else if (target.isValid) target.world._destroyNode(target.entity);
   }
 

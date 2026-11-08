@@ -58,7 +58,7 @@ export class DayCycle extends GameBehavior {
     if (sky.light.body === "moon") {
       // night: light the torches
     }
-    sky.settings.clouds[0].coverage = 0.5 + 0.4 * Math.sin(this.world.time.time / 60);
+    sky.settings.clouds[0].coverage = 0.5 + 0.4 * Math.sin(this.time.time / 60);
   }
 }
 ```

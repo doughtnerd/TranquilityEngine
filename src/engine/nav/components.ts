@@ -103,11 +103,11 @@ export class NavChunk extends Component {
   }
 
   override _onAttach(): void {
-    ensureNavigationFor(this.world);
+    ensureNavigationFor(this._world);
   }
 
   override _onDetach(): void {
-    navOf(this.world)?.releaseChunk(this);
+    navOf(this._world)?.releaseChunk(this);
   }
 }
 
@@ -160,7 +160,7 @@ export class NavGate extends Component {
   /** @internal */ _backend: NavGateBackend | null = null;
 
   override _onAttach(): void {
-    ensureNavigationFor(this.world);
+    ensureNavigationFor(this._world);
   }
 }
 
@@ -184,7 +184,7 @@ export class NavCostVolume extends Component {
   @field(String, { choices: ["ground", "air", "both"] }) domain = "both";
 
   override _onAttach(): void {
-    ensureNavigationFor(this.world);
+    ensureNavigationFor(this._world);
   }
 }
 
@@ -229,7 +229,7 @@ export class NavAgent extends Component {
    * it has moved `repathDistance` metres (default 1) from where the current path ends.
    */
   chase(node: GameObject, repathDistance = 1): void {
-    this.world._assertOwns(node, "NavAgent.chase");
+    this._world._assertOwns(node, "NavAgent.chase");
     this._commands.push({ op: "chase", target: node, repathDistance });
   }
 
@@ -275,15 +275,15 @@ export class NavAgent extends Component {
 
   /** The current path's waypoints (empty without one). */
   get path(): NavWaypoint[] {
-    return navOf(this.world)?.agentPath(this) ?? [];
+    return navOf(this._world)?.agentPath(this) ?? [];
   }
 
   override _onAttach(): void {
-    ensureNavigationFor(this.world);
+    ensureNavigationFor(this._world);
   }
 
   override _onDetach(): void {
-    navOf(this.world)?.releaseAgent(this);
+    navOf(this._world)?.releaseAgent(this);
   }
 }
 
@@ -329,13 +329,13 @@ export class NavGroup extends Component {
 
   /** Adds an agent to the group. */
   join(agent: NavAgent): void {
-    this.world._assertOwns(agent, "NavGroup.join");
+    this._world._assertOwns(agent, "NavGroup.join");
     this._commands.push({ op: "join", agent });
   }
 
   /** Takes an agent out of the group, optionally sending it to `goal`. */
   leave(agent: NavAgent, goal?: Vec3Input): void {
-    this.world._assertOwns(agent, "NavGroup.leave");
+    this._world._assertOwns(agent, "NavGroup.leave");
     this._commands.push({ op: "leave", agent, goal: goal === undefined ? null : readVec3(goal) });
   }
 
@@ -358,11 +358,11 @@ export class NavGroup extends Component {
   }
 
   override _onAttach(): void {
-    ensureNavigationFor(this.world);
+    ensureNavigationFor(this._world);
   }
 
   override _onDetach(): void {
-    navOf(this.world)?.releaseGroup(this);
+    navOf(this._world)?.releaseGroup(this);
   }
 }
 
@@ -379,11 +379,11 @@ export class NavSurround extends Component {
   /** @internal */ _backend: NavTargetBackend | null = null;
 
   override _onAttach(): void {
-    ensureNavigationFor(this.world);
+    ensureNavigationFor(this._world);
   }
 
   override _onDetach(): void {
-    navOf(this.world)?.releaseTargetFeature(this);
+    navOf(this._world)?.releaseTargetFeature(this);
   }
 }
 
@@ -396,11 +396,11 @@ export class NavFlowGoal extends Component {
   /** @internal */ _backend: NavTargetBackend | null = null;
 
   override _onAttach(): void {
-    ensureNavigationFor(this.world);
+    ensureNavigationFor(this._world);
   }
 
   override _onDetach(): void {
-    navOf(this.world)?.releaseTargetFeature(this);
+    navOf(this._world)?.releaseTargetFeature(this);
   }
 }
 
@@ -414,10 +414,10 @@ export class NavAvoidanceObstacle extends Component {
   /** @internal */ _backend: NavObstacleBackend | null = null;
 
   override _onAttach(): void {
-    ensureNavigationFor(this.world);
+    ensureNavigationFor(this._world);
   }
 
   override _onDetach(): void {
-    navOf(this.world)?.releaseObstacle(this);
+    navOf(this._world)?.releaseObstacle(this);
   }
 }

@@ -230,7 +230,7 @@ export function CameraPreviewFrame() {
     };
   }, [node !== null]);
   if (!node) return null;
-  const display = sceneCamera.value?.world.settings.display ?? { width: 16, height: 9 };
+  const display = sceneCamera.value?._world.settings.display ?? { width: 16, height: 9 };
   return (
     <div ref={ref} class="camera-preview" style={{ aspectRatio: `${display.width} / ${display.height}` }} aria-label={`Camera preview: ${node.name}`} role="img">
       <span class="camera-preview-label">{node.name}</span>

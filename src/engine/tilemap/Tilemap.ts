@@ -253,7 +253,7 @@ export class Tilemap extends Component {
     l.version = nextVersion++;
     this._version = nextVersion++;
     const change: TileChange = { tilemap: this, layer: li, x, y, previous, value };
-    this.world._buffer(TilemapChanges).push(change);
+    this._world._buffer(TilemapChanges).push(change);
     for (const f of [...this.listeners]) {
       try {
         f(change);
@@ -353,7 +353,7 @@ export class Tilemap extends Component {
   }
 
   override _onDetach(): void {
-    this.world.render?.release(this);
+    this._world.render?.release(this);
     this.listeners.length = 0;
   }
 }

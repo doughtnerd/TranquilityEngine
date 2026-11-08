@@ -32,7 +32,7 @@ const ALIGN = ["flex-start", "center", "flex-end", "stretch", "baseline"];
 /** Releases what the render backend built for a removed UI component (its layout node and drawing). */
 abstract class UIComponent extends Component {
   override _onDetach(): void {
-    this.world.render?.release(this);
+    this._world.render?.release(this);
   }
 }
 
@@ -174,7 +174,7 @@ export class UIButton extends UIPanel {
 
   /** True for the one frame a click on the button finished (pressed and released over it). */
   get clicked(): boolean {
-    return this._clickFrame === this.world.time.frameCount && this.interactable;
+    return this._clickFrame === this._world.time.frameCount && this.interactable;
   }
 
   /**
@@ -227,7 +227,7 @@ export class UIInputField extends UIPanel {
 
   /** True for the one frame Enter was pressed in the focused field. */
   get submitted(): boolean {
-    return this._submitFrame === this.world.time.frameCount;
+    return this._submitFrame === this._world.time.frameCount;
   }
 
   /** @internal Tests and headless Worlds: report Enter, like `UIButton._simulateClick`. */
@@ -238,7 +238,7 @@ export class UIInputField extends UIPanel {
 
 /** The World frame whose scripts see an event that happens now: this one inside a frame, else the next. */
 function nextFrame(c: Component): number {
-  const world = c.world;
+  const world = c._world;
   return world._inFrame ? world.time.frameCount : world.time.frameCount + 1;
 }
 

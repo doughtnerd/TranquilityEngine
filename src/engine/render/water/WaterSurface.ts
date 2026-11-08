@@ -97,11 +97,11 @@ export class WaterSurface extends Component {
    * waves continue past the edge of the drawn grid.
    */
   sample(x: number, z: number): WaterSample {
-    return sampleSurface(this, x, z, waterTime(this.world));
+    return sampleSurface(this, x, z, waterTime(this._world));
   }
 
   override _onDetach(): void {
-    this.world.render?.release(this);
+    this._world.render?.release(this);
   }
 }
 
@@ -114,7 +114,7 @@ export function sampleSurface(surface: WaterSurface, x: number, z: number, time:
     return { height: s.height, normal: new Vector3(s.nx, s.ny, s.nz) };
   }
   const e = node.entity;
-  const m = surface.world.worldMatrix(e);
+  const m = surface._world.worldMatrix(e);
   const o = e * 16;
   // World XZ to local XZ through the matrix's horizontal part (the node is level).
   const a = m[o], b = m[o + 8], c = m[o + 2], d = m[o + 10];

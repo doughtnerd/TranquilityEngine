@@ -108,6 +108,6 @@ export class RigidBody extends Component {
   }
 
   override _onDetach(): void {
-    this.world.physics3D?.releaseBody(this);
+    this._world.physics3D?.releaseBody(this);
   }
 }
