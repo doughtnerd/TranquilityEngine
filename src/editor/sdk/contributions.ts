@@ -69,6 +69,10 @@ export interface ProjectSettingsSectionProps {
   draft: SettingsDraft;
   /** Messages of the problems found at this section's `id` (its field head, e.g. "navigation"). */
   problems: readonly string[];
+  /** The same problems with the settings field each is about (`"physics.layers.2"`), to highlight the right control. */
+  fieldProblems: readonly { field: string; message: string }[];
+  /** Re-render the panel (puts a text field back to the saved value after a cancelled edit). */
+  refresh(): void;
   /** Replace the draft: `label` is the undo step's name. */
   set(label: string, next: SettingsDraft): void;
   project: EditorProject;
@@ -93,6 +97,16 @@ export interface PanelExtensionContribution {
   readonly view: LoadComponent<object>;
 }
 
+/**
+ * A short note a plugin adds after a Component's name in the Add Component menu (ADR 0137: Physics
+ * Components say "(no physics backend)" while none is enabled for their dimension), or null for none.
+ */
+export interface ComponentNoteContribution {
+  readonly id: string;
+  note(type: string): string | null;
+}
+
+export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const assetFormats = createRegistry<AssetFormatContribution<any>>("Asset format"); // eslint-disable-line @typescript-eslint/no-explicit-any -- formats differ in T
 export const panels = createRegistry<PanelContribution>("Panel");

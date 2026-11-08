@@ -6,6 +6,7 @@ import { addComponentTo, componentCatalog, whyNotAddable } from "../componentEdi
 import { buildMenuTree, type MenuNode } from "../componentCategories";
 import type { NodePath } from "../document";
 import { newScript } from "../newScript";
+import { componentNotes } from "../sdk/contributions";
 import { recentComponents } from "../preferences";
 import { currentProject, status, type OpenScene } from "../state";
 
@@ -39,7 +40,7 @@ const MENU_HEIGHT = 320;
 const RECENT = 5;
 const HOVER_DELAY = 150;
 
-type Row = ComponentTypeInfo & { reason: string | null };
+type Row = ComponentTypeInfo & { reason: string | null; note: string | null };
 type Entry = { kind: "item"; item: Row } | { kind: "cat"; node: MenuNode<Row> };
 const entriesOf = (n: MenuNode<Row>): Entry[] => [...n.children.map((node): Entry => ({ kind: "cat", node })), ...n.items.map((item): Entry => ({ kind: "item", item }))];
 const takeable = (e: Entry) => e.kind === "cat" || e.item.reason === null;
@@ -89,10 +90,10 @@ function Menu(props: MenuProps & { anchor: HTMLElement; close: () => void }) {
   const catalog: Row[] = componentCatalog().map((t) => {
     // Greyed out only when no selected node can take it; otherwise it goes on those that can.
     const reasons = targets.map((x) => whyNotAddable(x.node, t.id));
-    return { ...t, reason: reasons.every((r) => r !== null) ? reasons[0] : null };
+    return { ...t, reason: reasons.every((r) => r !== null) ? reasons[0] : null, note: componentNotes.list().map((n) => n.note(t.id)).find((n) => n) ?? null };
   });
   const scripts = currentProject.value?.scripts;
-  const catalogKey = catalog.map((t) => `${t.id}:${t.reason ?? ""}`).join(",");
+  const catalogKey = catalog.map((t) => `${t.id}:${t.reason ?? ""}:${t.note ?? ""}`).join(",");
   const tree = useMemo(() => buildMenuTree(catalog, scripts ?? new Map()), [catalogKey, scripts]);
   const pathOf = new Map<string, string>();
   const walk = (n: MenuNode<Row>) => {
@@ -180,7 +181,7 @@ function Menu(props: MenuProps & { anchor: HTMLElement; close: () => void }) {
       onClick={() => item.reason === null && add(item.id)}
       {...extra}
     >
-      {item.name}
+      {item.note ? `${item.name} ${item.note}` : item.name}
     </li>
   );
 

@@ -12,33 +12,24 @@ import { projectSettingsSections, type ProjectSettingsSectionContribution, type 
 import { PROJECT_FILE, queueProjectFileWrite } from "../projectFile";
 import {
   addAutoload,
-  addLayer,
   addSortingLayer,
   addTier,
   autoloadsOf,
-  collides,
   disabledPluginsOf,
   graphicsOf,
-  layersOf,
-  MAX_LAYERS,
   moveAutoload,
   moveSortingLayer,
   moveTier,
   readDraft,
   removeAutoload,
-  removeLayer,
   removeSortingLayer,
   removeTier,
-  renameLayer,
-  renameSortingLayer,
   renameTier,
   sectionsKey,
-  setCollides,
   setAutoDetect,
   setDefaultTier,
   setPlatformDefault,
   setTargetFrameRate,
-  setGravity,
   setName,
   setTierValue,
   settingsProblems,
@@ -53,13 +44,14 @@ import {
 import type { EditorProject } from "../projects";
 import { currentProject, docVersion, status } from "../state";
 import { reapplyPlugins } from "../session";
-import { confirmInEditor } from "./ConfirmDialog";
-import { layerRenamesBetween, layerUsers, renameLayerReferences, type LayerKind, type LayerRename } from "../layerRename";
+import { layerRenamesBetween, type LayerKind } from "../layerRename";
 import { EditHistory } from "../worldsConfig";
 import { AudioSettingsSection } from "./AudioSettingsSection";
 import { PluginsSection } from "./PluginsSection";
 import { lazyComponent, type LazyComponent } from "./lazy";
 import { NumberField, TextField } from "./WorldsPanel";
+import { NameList, ProblemList, Row } from "./settingsControls";
+import { renameLayerEdit as renameLayer_, updateLayerReferences } from "../layerRenameEdit";
 import "./projectSettings.css";
 
 /** The panel's state for the open project. Kept outside the component, since a hidden tab unmounts. */
@@ -143,46 +135,9 @@ function jump(s: PanelState, redo: boolean): void {
   }
 }
 
-async function updateLayerReferences(project: EditorProject, renames: readonly LayerRename[]): Promise<void> {
-  try {
-    const done = await renameLayerReferences(project, renames);
-    if (done.length > 0) {
-      docVersion.value++;
-      status.value = { kind: "info", text: `Updated layer references in ${done.length} file${done.length === 1 ? "" : "s"}.` };
-    }
-  } catch (err) {
-    status.value = errorStatus("Couldn't update the scenes that use the renamed layer", err);
-  }
-}
-
-/**
- * Rename a physics or sorting layer, and the colliders or sprites that name it (ADR 0116). With
- * references to update, ask first. The rename is one undo step of the panel; undoing it also
- * restores the old name in the scenes (see `jump`).
- */
-async function renameLayerEdit(s: PanelState, kind: LayerKind, draft: SettingsDraft, index: number, name: string): Promise<void> {
-  const names = kind === "physics" ? layersOf(draft) : sortingLayersOf(draft);
-  const from = names[index];
-  const next = kind === "physics" ? renameLayer(draft, index, name) : renameSortingLayer(draft, index, name);
-  const label = kind === "physics" ? `Rename physics layer to ${name}` : `Rename sorting layer to ${name}`;
-  const valid = from !== undefined && name !== "" && name !== from && !names.includes(name);
-  const users = valid && s.project.canSave ? layerUsers(s.project, kind, from) : [];
-  if (users.length > 0) {
-    const answer = await confirmInEditor({
-      title: `Rename ${kind} layer`,
-      message: `Rename the ${kind} layer "${from}" to "${name}"? ${users.length === 1 ? "A scene or prefab names it" : `${users.length} scenes and prefabs name it`}; they will be updated.`,
-      items: users.slice(0, 8).map((u) => u.replace(/ \(unsaved\)$/, "")).concat(users.length > 8 ? [`and ${users.length - 8} more`] : []),
-      confirmLabel: "Rename and update",
-      danger: false,
-    });
-    if (!answer.ok) {
-      version.value++; // put the field back to the old name
-      return;
-    }
-  }
-  edit(s, label, next);
-  if (users.length > 0) await updateLayerReferences(s.project, [{ kind, from, to: name }]);
-}
+/** Rename a layer: one undo step of the panel. */
+const renameLayerEdit = (s: PanelState, kind: LayerKind, draft: SettingsDraft, index: number, name: string) =>
+  renameLayer_({ project: s.project, set: (label, next) => edit(s, label, next), refresh: () => void version.value++ }, kind, draft, index, name);
 
 const isTextField = (el: EventTarget | null) =>
   el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && !["checkbox", "radio", "button", "color"].includes(el.type));
@@ -219,7 +174,6 @@ export function ProjectSettingsPanel() {
   const display = draft.display ?? {};
   const time = draft.time ?? {};
   const render = draft.render ?? {};
-  const gravity = draft.physics?.gravity;
   const folder = project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name;
 
   return (
@@ -280,17 +234,6 @@ export function ProjectSettingsPanel() {
             <Row label="Max sub-steps" problems={problemsAt("time.maxSubSteps")}>
               <NumberField id="ps-substeps" label="Max sub-steps" value={time.maxSubSteps} placeholder={String(defaultSettings.time.maxSubSteps)} onCommit={(v) => set("Set max sub-steps", setValue(draft, "time", "maxSubSteps", v))} />
             </Row>
-          </Section>
-
-          <Section title="Physics">
-            <Row label="Gravity" problems={problemsAt("physics.gravity")}>
-              <span class="project-settings-pair">
-                <NumberField id="ps-gx" label="Gravity x" value={gravity?.[0]} placeholder={String(defaultSettings.physics.gravity[0])} suffix="x" onCommit={(v) => set("Set gravity", setGravity(draft, 0, v ?? defaultSettings.physics.gravity[0]))} />
-                <NumberField id="ps-gy" label="Gravity y" value={gravity?.[1]} placeholder={String(defaultSettings.physics.gravity[1])} suffix="y" onCommit={(v) => set("Set gravity", setGravity(draft, 1, v ?? defaultSettings.physics.gravity[1]))} />
-                <NumberField id="ps-gz" label="Gravity z" value={gravity?.[2]} placeholder="0" suffix="z" onCommit={(v) => set("Set gravity", setGravity(draft, 2, v ?? 0))} />
-              </span>
-            </Row>
-            <Layers s={s} draft={draft} problems={problems} />
           </Section>
 
           <Section title="Rendering">
@@ -355,7 +298,7 @@ export function ProjectSettingsPanel() {
             const View = lazySection(c);
             return (
               <Section key={c.id} title={c.title}>
-                <View draft={draft} problems={problemsAt(c.id).map((p) => p.message)} set={set} project={project} />
+                <View draft={draft} problems={problemsAt(c.id).map((p) => p.message)} fieldProblems={problemsAt(c.id)} refresh={() => void version.value++} set={set} project={project} />
               </Section>
             );
           })}
@@ -378,18 +321,8 @@ function SaveMarker(props: { editable: boolean; saving: boolean; error: string |
   return <span class="project-settings-status saved" title={`Matches ${PROJECT_FILE}`}>Saved</span>;
 }
 
-function ProblemList(props: { list: readonly string[]; label: string; warning?: boolean }) {
-  return (
-    <ul class={`project-settings-problems${props.warning ? " warning" : ""}`} aria-label={props.label}>
-      {props.list.map((p, i) => (
-        <li key={i}>{p}</li>
-      ))}
-    </ul>
-  );
-}
-
 /** The settings categories, in order (Unity-style list). A category's title is its id. */
-const BUILTIN_CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Audio", "Plugins", "Autoloads", "Build"] as const;
+const BUILTIN_CATEGORIES = ["Project", "Display", "Time", "Rendering", "Graphics", "Audio", "Plugins", "Autoloads", "Build"] as const;
 
 /** The categories in order: the built-in ones, with each registered section (a plugin's, ADR 0133) after the one it names, else last. */
 function categories(): string[] {
@@ -520,15 +453,6 @@ function Section(props: { title: string; children: ComponentChildren }) {
   );
 }
 
-function Row(props: { label: string; problems: SettingsProblem[]; children: ComponentChildren }) {
-  return (
-    <div class={`project-settings-row${props.problems.length ? " invalid" : ""}`}>
-      <span class="project-settings-label">{props.label}</span>
-      <span class="project-settings-value">{props.children}</span>
-    </div>
-  );
-}
-
 /** A colour: the picker, and a hex text box (empty: the default). */
 function ColorField(props: { value: string | undefined; fallback: string; onCommit: (v: string | undefined) => void }) {
   const [text, setText] = useState(props.value ?? "");
@@ -558,127 +482,6 @@ function ColorField(props: { value: string | undefined; fallback: string; onComm
         }}
       />
     </span>
-  );
-}
-
-/** An editable list of names: rename in place, remove, and (with `onMove`) reorder. */
-function NameList(props: {
-  title: string;
-  hint?: string;
-  names: readonly string[];
-  field: string;
-  problems: SettingsProblem[];
-  item: string;
-  /** Indices that can't be removed. */
-  fixed?: (i: number) => boolean;
-  addDisabled?: boolean;
-  onAdd: () => void;
-  onRename: (i: number, name: string) => void;
-  onRemove: (i: number) => void;
-  onMove?: (i: number, by: number) => void;
-}) {
-  const { names, field, problems, item } = props;
-  return (
-    <div class="project-settings-list" role="group" aria-label={props.title}>
-      <div class="project-settings-list-head">
-        <span>{props.title}</span>
-        {props.hint && <span class="project-settings-hint">{props.hint}</span>}
-      </div>
-      {names.map((name, i) => {
-        const invalid = problems.some((p) => p.field === `${field}.${i}`);
-        return (
-          <div key={`${i}:${name}`} class={`project-settings-item${invalid ? " invalid" : ""}`} data-index={i}>
-            <TextField value={name} label={`${item} ${i + 1}`} onCommit={(v) => props.onRename(i, v.trim())} />
-            {props.onMove && (
-              <>
-                <button class="icon" aria-label={`Move ${name} up`} title="Move up (further back)" disabled={i === 0} onClick={() => props.onMove!(i, -1)}>
-                  ↑
-                </button>
-                <button class="icon" aria-label={`Move ${name} down`} title="Move down (further front)" disabled={i === names.length - 1} onClick={() => props.onMove!(i, 1)}>
-                  ↓
-                </button>
-              </>
-            )}
-            <button class="icon" aria-label={`Remove ${item} ${name}`} title={`Remove this ${item}`} disabled={names.length <= 1 || props.fixed?.(i)} onClick={() => props.onRemove(i)}>
-              ×
-            </button>
-          </div>
-        );
-      })}
-      <button disabled={props.addDisabled} onClick={props.onAdd}>
-        + {item[0].toUpperCase() + item.slice(1)}
-      </button>
-    </div>
-  );
-}
-
-/** Physics layers, and which of them collide as a triangle of checkboxes. */
-function Layers(props: { s: PanelState; draft: SettingsDraft; problems: SettingsProblem[] }) {
-  const { s, draft, problems } = props;
-  const layers = layersOf(draft);
-  const set = (label: string, next: SettingsDraft) => edit(s, label, next);
-  const matrixProblems = problems.filter((p) => p.field === "physics.collisionMatrix");
-  return (
-    <>
-      <NameList
-        title="Layers"
-        hint="renaming updates the colliders that use a layer"
-        names={layers}
-        field="physics.layers"
-        problems={problems}
-        item="layer"
-        fixed={(i) => i === 0}
-        addDisabled={layers.length >= MAX_LAYERS}
-        onAdd={() => set("Add physics layer", addLayer(draft))}
-        onRename={(i, v) => void renameLayerEdit(s, "physics", draft, i, v)}
-        onRemove={(i) => set(`Remove physics layer ${layers[i]}`, removeLayer(draft, i))}
-      />
-      <div class="project-settings-list" role="group" aria-label="Collisions">
-        <div class="project-settings-list-head">
-          <span>Collisions</span>
-          <span class="project-settings-hint">{draft.physics?.collisionMatrix ? "checked pairs collide" : "every layer collides with every layer"}</span>
-        </div>
-        {matrixProblems.length > 0 && <ProblemList list={matrixProblems.map((p) => p.message)} label="Collision problems" />}
-        <table class="collision-matrix">
-          <thead>
-            <tr>
-              <th />
-              {[...layers].reverse().map((l) => (
-                <th key={l} scope="col" class="collision-col">
-                  <span>{l}</span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {layers.map((a, i) => (
-              <tr key={a}>
-                <th scope="row">{a}</th>
-                {[...layers].reverse().map((b, k) => {
-                  const j = layers.length - 1 - k;
-                  if (j < i) return <td key={b} />;
-                  const on = collides(draft, a, b);
-                  return (
-                    <td key={b}>
-                      <input
-                        type="checkbox"
-                        aria-label={`${a} collides with ${b}`}
-                        title={`${a} ↔ ${b}`}
-                        checked={on}
-                        onChange={(e) => {
-                          const next = (e.currentTarget as HTMLInputElement).checked;
-                          set(`${next ? "Collide" : "Don't collide"} ${a} with ${b}`, setCollides(draft, a, b, next));
-                        }}
-                      />
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
   );
 }
 

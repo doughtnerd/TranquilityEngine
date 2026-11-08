@@ -3,10 +3,11 @@
 import type { EditorPlugin } from "../editor/sdk/plugins";
 import { materialsEditorPlugin } from "./materials/editor";
 import { navigationEditorPlugin } from "./navigation/editor";
+import { physicsEditorPlugin } from "./physics/editor";
 import { particlesEditorPlugin } from "./particles/editor";
 import { skyEditorPlugin } from "./sky/editor";
 import { tilemapsEditorPlugin } from "./tilemaps/editor";
 
 // Particles first: its panel and the Shader Graph both join the Scene view's group, and registering it
 // first keeps the default tabs Scene, Shader Graph, Particle Graph.
-export const EDITOR_PLUGINS: readonly EditorPlugin[] = [particlesEditorPlugin, materialsEditorPlugin, skyEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin];
+export const EDITOR_PLUGINS: readonly EditorPlugin[] = [particlesEditorPlugin, materialsEditorPlugin, skyEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin, physicsEditorPlugin];
