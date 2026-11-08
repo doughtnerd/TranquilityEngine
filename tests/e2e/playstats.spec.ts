@@ -38,7 +38,8 @@ test("Stats shows frame rate, timings and render counters over the play view", a
   await page.goto(FLAPPY);
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
   await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  // Play starts once the scripts are checked ("Checking scripts…"), which takes longer while other tests load the CPU.
+  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: 20_000 });
 
   const statsToggle = page.locator(".play-tools").getByRole("button", { name: "Stats", exact: true });
   await expect(statsToggle).toHaveAttribute("aria-pressed", "false");

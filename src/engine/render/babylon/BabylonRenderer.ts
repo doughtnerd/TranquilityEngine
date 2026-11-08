@@ -105,6 +105,12 @@ export function pipelineTierKey(t: Readonly<QualityTier>): string {
 /** The whole camera texture (each camera renders into a texture its rectangle's size, frameGraph.ts). */
 const FULL_VIEW: ViewRect = Object.freeze({ x: 0, y: 0, width: 1, height: 1 });
 
+/** How many shader effects `engine` has compiled and holds (Babylon keeps them by key). */
+function compiledEffects(engine: AbstractEngine): number {
+  const effects = (engine as unknown as { _compiledEffects?: Record<string, unknown> })._compiledEffects;
+  return effects ? Object.keys(effects).length : 0;
+}
+
 function color4(c: Rgb): Color4 {
   return new Color4(c[0], c[1], c[2], 1);
 }
@@ -524,6 +530,7 @@ export class BabylonRenderer {
     const ctx = this.syncCtx;
     ctx.view = ctx.viewCamera = null;
     ctx.ready = false;
+    this.reflecting = 0; // the mesh feature counts this frame's meshes drawn with a probe as it syncs
     for (const phase of SYNC_PHASES) {
       for (const slot of this.phases.get(phase) ?? []) slot.ensure(world)?.sync(world, ctx);
       this.afterPhase(phase, world, ctx);
@@ -579,7 +586,6 @@ export class BabylonRenderer {
   render(world: World): void {
     this.claim(world);
     this.rewarmOnTierChange();
-    this.reflecting = 0;
     this.graphShared.time = world.time.time;
     this.graphShared.resolution = [this.engine.getRenderWidth(), this.engine.getRenderHeight()];
     const engine = this.engine;
@@ -859,13 +865,15 @@ export class BabylonRenderer {
     const out: Omit<RenderDiagnostics, "started" | "quality"> = {
       lighting: this.lighting.state(),
       sky: this.sky.state(),
-      post: { composed: !!post?.composed, loaded: this.frame.ready, toneMapping: post?.toneMapping ?? "none", effects: post?.effects ?? null, composedCameras: post?.composedCameras ?? 0 },
+      // Composed only once the frame graph with the composer's passes has built: until then it hasn't drawn.
+      post: { composed: !!post?.composed && this.frame.ready, loaded: this.frame.ready, toneMapping: post?.toneMapping ?? "none", effects: post?.effects ?? null, composedCameras: this.frame.ready ? (post?.composedCameras ?? 0) : 0 },
       water: { surfaces: 0 },
       probes: this.probes.state(this.reflecting),
       renderTextures: this.renderTextures.state(),
       particles: null,
       // Babylon counts the draw calls of the frame being drawn and resets at the next frame's start, so between frames this is the last frame's (0 on NullEngine).
-      stats: { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: 0 },
+      // Programs: the shader effects the engine has compiled and holds (on WebGPU, each makes its pipelines).
+      stats: { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: compiledEffects(this.engine) },
       cameras,
       drawn: { meshes: this.meshes.drawn(), sprites: this.sprites.drawnNodes() },
     };

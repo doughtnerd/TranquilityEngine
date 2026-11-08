@@ -55,32 +55,47 @@ test("the scene view keeps the composed frame under the editor's helpers when fo
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
   await page.getByRole("combobox", { name: "Quality" }).selectOption("Medium");
   await expect.poll(async () => (await post(page)).composed, { timeout: 30_000 }).toBe(true);
-  // Read the canvas back right after the backend draws a frame (the drawing buffer isn't preserved), and count how
-  // many pixels of a coarse grid differ from the fog colour of the background.
-  const varied = await page.evaluate(
+  // The first composed frames can still be held on the clear colour while their pipelines compile (ADR 0120), so poll
+  // until a drawn frame shows the scene; a wiped frame stayed wiped on every frame.
+  await expect.poll(() => variedPixels(page), { timeout: 20_000 }).toBeGreaterThan(200); // of 361: about 350 now; about 40 (the helper lines) when the frame was wiped
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Copy the canvas right after the surface draws a frame (the drawing buffer isn't preserved), and count how many
+ * pixels of a coarse grid over the sea and islands differ from the fog colour of the background.
+ */
+function variedPixels(page: Page): Promise<number> {
+  return page.evaluate(
     () =>
-      new Promise<number>((resolve) => {
-        type Backend = { render(world: unknown): void; renderer: { getContext(): WebGL2RenderingContext } };
-        const backend = (window as unknown as { engine: { world: { render: Backend } } }).engine.world.render;
-        const draw = backend.render.bind(backend);
-        backend.render = (world: unknown) => {
+      new Promise<number>((resolve, reject) => {
+        type Surface = { render(world: unknown): void; canvas: HTMLCanvasElement };
+        const surface = (window as unknown as { engine: { world: { render: Surface } } }).engine.world.render;
+        const draw = surface.render.bind(surface);
+        surface.render = (world: unknown) => {
+          surface.render = draw;
           draw(world);
-          backend.render = draw;
-          const gl = backend.renderer.getContext();
-          const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
-          const px = new Uint8Array(w * h * 4);
-          gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
-          const sample = (x: number, y: number) => { const i = (y * w + x) * 4; return [px[i], px[i + 1], px[i + 2]]; };
-          const sky = sample(Math.floor(w / 2), h - 2);
-          let n = 0;
-          for (let gy = 1; gy < 20; gy++) for (let gx = 1; gx < 20; gx++) {
-            const c = sample(Math.floor((gx * w) / 20), Math.floor(h * (0.2 + (0.3 * gy) / 20))); // sea and islands, above the HUD
-            if (Math.abs(c[0] - sky[0]) + Math.abs(c[1] - sky[1]) + Math.abs(c[2] - sky[2]) > 24) n++;
+          try {
+            const w = surface.canvas.width, h = surface.canvas.height;
+            const copy = document.createElement("canvas");
+            copy.width = w;
+            copy.height = h;
+            const ctx = copy.getContext("2d")!;
+            ctx.drawImage(surface.canvas, 0, 0);
+            const px = ctx.getImageData(0, 0, w, h).data;
+            // Rows from the top, so `h - 1 - y` puts y from the bottom.
+            const sample = (x: number, y: number) => { const i = ((h - 1 - y) * w + x) * 4; return [px[i], px[i + 1], px[i + 2]]; };
+            const sky = sample(Math.floor(w / 2), h - 2);
+            let n = 0;
+            for (let gy = 1; gy < 20; gy++) for (let gx = 1; gx < 20; gx++) {
+              const c = sample(Math.floor((gx * w) / 20), Math.floor(h * (0.2 + (0.3 * gy) / 20))); // sea and islands, above the HUD
+              if (Math.abs(c[0] - sky[0]) + Math.abs(c[1] - sky[1]) + Math.abs(c[2] - sky[2]) > 24) n++;
+            }
+            resolve(n);
+          } catch (err) {
+            reject(err);
           }
-          resolve(n);
         };
       }),
   );
-  expect(varied).toBeGreaterThan(200); // of 361: about 350 now; about 40 (the helper lines) when the frame was wiped
-  expect(errors).toEqual([]);
-});
+}
