@@ -9,11 +9,15 @@
 //! `process` that renders silence. Later tasks add modules beside these (A0.3 `status`/`counters`,
 //! A1.2 `voices`/`scheduler`/`panner`/`clips`, A1.3b `arena`, A2.1 `bus`/`fx`), each in its own file.
 
+pub mod clips;
 pub mod core;
 pub mod counters;
 pub mod layout;
+pub mod panner;
 pub mod params;
+pub mod scheduler;
 pub mod status;
+pub mod voices;
 
 pub use crate::core::Core;
 pub use crate::layout::{Layout, Region, RegionKind, REGION_ALIGN, REGION_ORDER};
