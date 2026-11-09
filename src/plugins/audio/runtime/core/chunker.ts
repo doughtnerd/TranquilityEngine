@@ -16,7 +16,13 @@ export interface ChunkPlan {
  * frame 0, in order, and the last holds the remainder. `totalFrames` 0 gives no chunks.
  */
 export function planChunks(_totalFrames: number, _channels: number, _bytesPerSample: number, _maxBytes: number = CLIP_BYTES_PER_QUANTUM): ChunkPlan[] {
-  throw new Error("not implemented: A1.3a-L1");
+  const chunks: ChunkPlan[] = [];
+  if (_totalFrames <= 0) return chunks;
+  const framesPerChunk = Math.max(1, Math.floor(_maxBytes / (_channels * _bytesPerSample)));
+  for (let offset = 0; offset < _totalFrames; offset += framesPerChunk) {
+    chunks.push({ frameOffset: offset, frames: Math.min(framesPerChunk, _totalFrames - offset) });
+  }
+  return chunks;
 }
 
 /** A chunk the pacer hands out: which clip, and which part of it. */
@@ -43,6 +49,68 @@ export interface ChunkPacer {
   readonly pending: number;
 }
 
+/** One clip's pending chunks; `next` indexes the first one not yet taken. */
+interface ClipQueue {
+  readonly items: PacedChunk[];
+  next: number;
+}
+
 export function createChunkPacer(): ChunkPacer {
-  throw new Error("not implemented: A1.3a-L1");
+  // Map insertion order is the rotation order. A drained clip is removed, so a re-enqueued clip goes to the back.
+  const queues = new Map<number, ClipQueue>();
+  let pendingCount = 0;
+
+  return {
+    enqueue(clipId, plan, channels, bytesPerSample) {
+      if (plan.length === 0) return;
+      const bytesPerFrame = channels * bytesPerSample;
+      let queue = queues.get(clipId);
+      if (queue === undefined) {
+        queue = { items: [], next: 0 };
+        queues.set(clipId, queue);
+      }
+      for (const chunk of plan) {
+        queue.items.push({
+          clipId,
+          frameOffset: chunk.frameOffset,
+          frames: chunk.frames,
+          bytes: chunk.frames * bytesPerFrame,
+        });
+      }
+      pendingCount += plan.length;
+    },
+
+    cancel(clipId) {
+      const queue = queues.get(clipId);
+      if (queue === undefined) return;
+      pendingCount -= queue.items.length - queue.next;
+      queues.delete(clipId);
+    },
+
+    take(budgetBytes = CLIP_BYTES_PER_QUANTUM) {
+      const out: PacedChunk[] = [];
+      let used = 0;
+      let full = false;
+      while (!full && queues.size > 0) {
+        // Snapshot this round's clips; drained ones leave the map as they finish.
+        for (const [clipId, queue] of [...queues]) {
+          const chunk = queue.items[queue.next];
+          if (out.length > 0 && used + chunk.bytes > budgetBytes) {
+            full = true;
+            break;
+          }
+          out.push(chunk);
+          used += chunk.bytes;
+          queue.next++;
+          if (queue.next === queue.items.length) queues.delete(clipId);
+        }
+      }
+      pendingCount -= out.length;
+      return out;
+    },
+
+    get pending() {
+      return pendingCount;
+    },
+  };
 }

@@ -6,7 +6,19 @@
  * `dst[f * channels.length + c] = channels[c][start + f]`. `dst.length` is at least `frames * channels.length`.
  */
 export function interleaveF32(_channels: readonly Float32Array[], _start: number, _frames: number, _dst: Float32Array): void {
-  throw new Error("not implemented: A1.3a-L1");
+  const n = _channels.length;
+  for (let c = 0; c < n; c++) {
+    const src = _channels[c];
+    for (let f = 0, d = c; f < _frames; f++, d += n) _dst[d] = src[_start + f];
+  }
+}
+
+/** Converts one f32 sample to int16: NaN to 0, clamp to [-1, 1], scale asymmetrically, round half away from zero. */
+function toI16(v: number): number {
+  if (Number.isNaN(v)) return 0;
+  const clamped = v < -1 ? -1 : v > 1 ? 1 : v;
+  const s = clamped < 0 ? clamped * 32768 : clamped * 32767;
+  return Math.sign(s) * Math.round(Math.abs(s));
 }
 
 /**
@@ -14,5 +26,9 @@ export function interleaveF32(_channels: readonly Float32Array[], _start: number
  * nearest (ties away from zero), NaN to 0. So -1 gives -32768, +1 gives 32767, 0 gives 0.
  */
 export function interleaveI16(_channels: readonly Float32Array[], _start: number, _frames: number, _dst: Int16Array): void {
-  throw new Error("not implemented: A1.3a-L1");
+  const n = _channels.length;
+  for (let c = 0; c < n; c++) {
+    const src = _channels[c];
+    for (let f = 0, d = c; f < _frames; f++, d += n) _dst[d] = toI16(src[_start + f]);
+  }
 }
