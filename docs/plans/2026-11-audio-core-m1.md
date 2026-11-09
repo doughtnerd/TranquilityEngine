@@ -11,6 +11,16 @@ Sources: [ADR 0157](../decisions/0157-audio-runs-on-an-engine-owned-rust-core-in
 - **This branch isn't merged.** It's seven commits ahead of where it branched from master. Master has moved since, and merging conflicts only in `docs/README.md` (both sides added records to the index). Merging is wave MS0.
 - **The code:** `src/engine/audio/` still has `howlerBackend.ts`, `fmodBackend.ts`, `busGraph.ts`, `backend.ts`, `mixer.ts`, `settings.ts`, `AudioSource.ts` and `AudioListener.ts`. Neither `native/audio/` nor `src/plugins/audio/` exists yet.
 
+## Tickets (GitHub issues)
+
+The plan is tracked as GitHub issues (the owner's refinement, 2026-11-09). Each milestone is an **epic** carrying its exit check, the vertical, demoable slice: MS0 [#42](https://github.com/doughtnerd/TranquilityEngine/issues/42) through MS8 [#50](https://github.com/doughtnerd/TranquilityEngine/issues/50), with a GitHub milestone of the same name. Each §9 task is one **sub-issue** of its epic (#51–#104), titled `[ID] …`, with the table's acceptance, its lead and Haiku leaves from the tree, the contracts it delivers, and native "blocked by" links.
+
+- **Blocking edges follow this plan, not the table**, where the two differ: A0.2 and A0.4 start in wave 1 with no blocker; A0.3 waits for A0.4 (it fills `service.ts`); A1.1 and A1.2 wait for A0.7 (the MS1 gate); A2.3 and A2.5 wait for A1.6 (K10); A2.7 waits for A1.7; B4 waits for B3b; B7 waits for all of MS5 and MS6 and A0.6; C3 waits for B7; C4 waits for H4.
+- **One new ticket:** D1 [#69](https://github.com/doughtnerd/TranquilityEngine/issues/69), the owner's one-shot completion `Promise` decision, blocks A1.6.
+- **Leaves aren't tickets.** They're checklist lines in their task's issue; a lead's leaf briefs go in its report, not the tracker.
+- **Labels:** `audio-core`, `epic`, `ready-for-agent` (every task but D1), `lead:opus` / `lead:sonnet` / `leaf-only`, `needs-owner` (H0, A0.7, D1, C3, C4), `critical-path`.
+- A task issue closes when its branch merges at the wave review. An epic closes when its milestone merges to master with the owner's approval.
+
 ## What "shippable" means here
 
 Every milestone merges to master with all of these true:

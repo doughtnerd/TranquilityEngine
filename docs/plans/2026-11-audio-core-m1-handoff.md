@@ -36,7 +36,7 @@ Written 2026-11-09 at the end of the planning session. **Next session:** make th
 
 ## Open
 
-- **The owner's refinement.** It's the first thing in the next session, and it hasn't been said yet. Apply it to whichever of the two plan files it concerns. If it changes ownership, re-check the collision audit and the leaf rules.
+- ~~**The owner's refinement.**~~ Done 2026-11-09: the plan became GitHub issues (epics #42–#50, tasks #51–#104), see "Tickets" in the milestone plan. Ownership didn't change, so the collision audit stands.
 - **One-shot completion `Promise`.** The recommendation is no in M1: poll `handle.playing`. The owner decides before A1.6 (MS2 wave 3) and the answer goes into ADR 0157's open questions.
 - **Owner-only items:**
   - H0: sending any letter to the HRIR rights holders;
