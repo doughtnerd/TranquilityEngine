@@ -1,6 +1,6 @@
 # 0141. Asset documents keep 0027's persistent history tree as text patches, stored apart from scenes' and following their file
 
-- **Status:** Proposed (built; the owner reviews at QA)
+- **Status:** Accepted
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -1,6 +1,6 @@
 # 0139. Third-party plugins are found in the project and its npm packages, and load through the script and package pipeline
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
