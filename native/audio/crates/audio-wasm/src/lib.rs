@@ -114,10 +114,22 @@ pub extern "C" fn myco_audio_inbox_cap() -> u32 {
 }
 
 /// Parses the inbox message of `len` bytes (BATCH, REPLAY or control); never inside `process`.
-/// TODO(A1.2): command apply.
+/// A1.2: `audio_core::scheduler::submit` parses it with `audio-wire`'s readers and applies the
+/// records. `NOT_INITIALIZED` before `init`; `INVALID_ARGUMENT` for `len` past the inbox.
 #[no_mangle]
-pub extern "C" fn myco_audio_submit(_len: u32) -> i32 {
-    codes::NOT_IMPLEMENTED
+pub extern "C" fn myco_audio_submit(len: u32) -> i32 {
+    let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
+    match inbox(len) {
+        Some(msg) => audio_core::scheduler::submit(core, msg),
+        None => codes::INVALID_ARGUMENT,
+    }
+}
+
+/// The first `len` bytes of the inbox, or `None` past its capacity.
+fn inbox(len: u32) -> Option<&'static [u8]> {
+    let len = len as usize;
+    // SAFETY: single-threaded (see `Global`); the shell writes the inbox only between exports.
+    (len <= INBOX_BYTES).then(|| unsafe { &(&*INBOX.get()).0[..len] })
 }
 
 // --- Clips (A1.3b) --------------------------------------------------------------------------
@@ -140,10 +152,17 @@ pub extern "C" fn myco_audio_clip_commit(_clip: u32, _frame_offset: u32, _bytes:
     codes::NOT_IMPLEMENTED
 }
 
-/// Copies from the inbox; tests only. TODO(A1.3b).
+/// Copies `len` bytes of samples (the clip's format, little-endian, whole frames) from the inbox
+/// into a reserved clip at `frame_offset`; tests only (A1.2). `ERR_UNKNOWN_CLIP` for a clip not
+/// reserved (so always, until A1.3b fills `clip_reserve`).
 #[no_mangle]
-pub extern "C" fn myco_audio_clip_write(_clip: u32, _frame_offset: u32, _len: u32) -> i32 {
-    codes::NOT_IMPLEMENTED
+pub extern "C" fn myco_audio_clip_write(clip: u32, frame_offset: u32, len: u32) -> i32 {
+    let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
+    let Some(bytes) = inbox(len) else { return codes::INVALID_ARGUMENT };
+    match core.clips_mut().write(clip, frame_offset, bytes) {
+        Ok(()) => codes::OK,
+        Err(e) => e,
+    }
 }
 
 /// TODO(A1.3b).
@@ -239,11 +258,11 @@ mod tests {
     #[test]
     fn stubbed_exports_return_not_implemented() {
         use codes::NOT_IMPLEMENTED as NI;
-        assert_eq!(myco_audio_submit(0), NI);
+        assert_eq!(myco_audio_submit(0), codes::NOT_INITIALIZED, "A1.2: before init");
         assert_eq!(myco_audio_clip_reserve(1, 128, 2, 48_000.0, 0), NI);
         assert!(myco_audio_clip_chunk_ptr(1, 0, 4).is_null());
         assert_eq!(myco_audio_clip_commit(1, 0, 4), NI);
-        assert_eq!(myco_audio_clip_write(1, 0, 4), NI);
+        assert_eq!(myco_audio_clip_write(1, 0, 4), codes::NOT_INITIALIZED, "A1.2: before init");
         assert_eq!(myco_audio_clip_free(1), NI);
         assert!(myco_audio_stream_chunk_ptr(0, 4_096).is_null());
         assert_eq!(myco_audio_stream_commit(0, 4_096, 0, 0), NI);

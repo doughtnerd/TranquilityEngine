@@ -8,3 +8,7 @@ publish.workspace = true
 
 [dependencies]
 audio-dsp.workspace = true
+# The generated wire readers (K1): `scheduler::submit` parses BATCH and REPLAY with them (A1.2).
+audio-wire.workspace = true
+# Transcendentals (the panner's azimuth), so native and wasm are bit-identical.
+libm.workspace = true

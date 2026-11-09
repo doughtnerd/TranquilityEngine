@@ -1,5 +1,6 @@
 //! `Core`: the mixer's state over the fixed regions, and the render entry point.
 
+use crate::clips::ClipStore;
 use crate::layout::{Layout, RegionKind};
 use crate::params::InitParams;
 use crate::{OUTPUT_CHANNELS, QUANTUM};
@@ -29,6 +30,8 @@ pub struct Core {
     regions: Regions,
     /// The context frame of the last rendered quantum.
     frame: u64,
+    /// Clip PCM (K11: A1.3b replaces the store's body with the slab arena).
+    clips: ClipStore,
 }
 
 impl Core {
@@ -64,7 +67,7 @@ impl Core {
             clip_directory: bytes(RegionKind::ClipDirectory),
             arena: bytes(RegionKind::Arena),
         };
-        Core { params, layout, base: base as usize, regions, frame: 0 }
+        Core { params, layout, base: base as usize, regions, frame: 0, clips: ClipStore::new() }
     }
 
     pub fn params(&self) -> &InitParams {
@@ -88,6 +91,21 @@ impl Core {
         &mut self.regions
     }
 
+    /// The clips voices read (A1.2, K11).
+    pub fn clips(&self) -> &ClipStore {
+        &self.clips
+    }
+
+    /// The clips, mutably: `onmessage` only (the `clip_*` exports and tests), never in `process`.
+    pub fn clips_mut(&mut self) -> &mut ClipStore {
+        &mut self.clips
+    }
+
+    /// The regions and the clips at once, for the render loop (A1.2).
+    pub(crate) fn parts_mut(&mut self) -> (&mut Regions, &ClipStore) {
+        (&mut self.regions, &self.clips)
+    }
+
     /// The context frame of the last rendered quantum.
     pub fn frame(&self) -> u64 {
         self.frame
@@ -96,12 +114,11 @@ impl Core {
     /// Renders one quantum (exactly [`QUANTUM`] frames) starting at context frame `frame` and
     /// returns the planar stereo output, `[L; 128][R; 128]`. Never allocates or grows memory.
     ///
-    /// M1a.0: silence. A1.2 mixes voices, A2.1 buses, A0.3 counts for STATUS.
+    /// A1.2 mixes voices (`voices::render`); A2.1 adds buses.
     pub fn process(&mut self, frame: u64) -> &[f32] {
         self.frame = frame;
-        let out = &mut self.regions.output[..OUTPUT_CHANNELS * QUANTUM];
-        out.fill(0.0);
-        out
+        crate::voices::render(self, frame);
+        &self.regions.output[..OUTPUT_CHANNELS * QUANTUM]
     }
 
     /// Work units spent in the last quantum (A3.3's model; 0 until then).
