@@ -155,3 +155,23 @@ Contracts K4 (`hostClock.ts`, the loopback host's signature in `testing.ts`) and
 - `npm ci` reports 2 audit findings (1 critical) in the existing dependency tree; not introduced here. To look at before MS2 reaches master.
 
 **Reserve used:** none.
+
+## MS2 wave 3 (A1.6), H2, and the milestone check
+
+**Landed**
+- A1.6 (#70, Sonnet lead, two Haiku leaves): the whole §1 public surface (K10): `playOneShot` returns an `AudioHandle`, never throws, and gives an inert handle on refusal (an unknown clip warns once); `Audio.volume`, a readable `muted`, `time`, `status`, `debug()`; `Bus.peak` (0 until A2.3); `AudioSource.priority = 128`; clamps with one warning each (volume, pitch 0.0625..16, priority 0..255, non-finite `at`, non-finite position); `at` ignored while locked; the locked queue (`unlockQueue.ts`: 32 one-shots within 1 s, owned and looping voices wait). The public types live in `src/engine/audio/backend.ts` and are re-exported from `myco.ts`. The `AudioBackend`/`AudioVoice` members are required, and the fakes and the Howler backend implement them. No completion Promise (the owner's decision).
+- H2 (#88, Sonnet lead, two Haiku leaves): `tools/hrir/convert.mjs` turns the 240 IRCAM IRC_Composite_C WAVs (fetched from Chromium cbba46fd, provenance with SHA-256s) into `myco_hrir.bin`, the format = 2 table: **247,696 B** (44.1 kHz, 256 frames), against the design's ≈0.75 MB estimate. Delays are removed by the port of Chromium's group-delay extraction (10.74–46.11 frames); peak 0.835, no scaling. 53 of the 240 source files are byte-identical upper-hemisphere duplicates, consistent with Chromium's `kMaxElevations`. `hrir.ts` resamples (windowed sinc) and scales the delays to the context rate, then loads the table through `clipRegistry.acquireReserved` under the reserved id (not counted in the ceiling; re-sent on rebuild). `coreBackend` fetches it on the first spatial play and reports `hrtfReady` in `debug().core`. The asset ships beside the engine bundle (BESIDE_BUNDLE) and in the player and editor builds. The IRCAM notice and guide acknowledgement are added. **Open for H3:** the core doesn't accept format 2 yet (the wire convention is on #89).
+
+**The milestone check found a startup race.** With `audio.backend: "core"` in flappy's project, the editor's first sound came before the core's World service finished loading, so `audioBackend()` cached the Howler fallback for the page and `"core"` never took effect. A fix worker made plays wait as locked voices in a stand-in backend while the core is loading. When the core registers they go to it, and on a real failure (`noteCoreUnavailable`) they go to Babylon/Howler with the single warning. Holders keep the same voice object, so AudioSource and handles need no restarts. `service.ts` now registers the core only after its first ready STATUS, and calls `noteCoreUnavailable` on a load error, ABI mismatch, shell error, or no STATUS within 5 s (nothing called it in those cases before). `audioSystem.ts` starts the service for any World with the view, so script-only one-shots don't wait forever; the core therefore also loads in the editor's edit World before Play (with `"core"` only). Verified in the browser, on the first Play after load: `CoreBackend`, logicalVoices 1, mixedVoices 1, 0 traps.
+
+**MS2 exit check (with `backend: "core"`):** one-shots and AudioSources play with pitch, pan, distance and loops from `decodeAudioData` clips; the loopback plays a WAV through the real wasm; `audioBackend`, `spatialAudio` and `audioHandle` run green on the fake and loopback hosts; flappy's music plays on the core in Chromium (checked through `Audio.debug()` counters, since the browser pane has no audio output; not heard by a person).
+
+**Numbers:** mixer wasm 63,333 B (61.8 KB; HRTF not linked yet); `cargo test` 198 passed; `npm test` 3,380+ passed, with only the baseline failures and known timeouts that pass alone; `npm run build` green; Chromium e2e 193 passed, 3 failed (`selection.spec.ts:48` in the baseline; `selection.spec.ts:147` and `shadergraph.spec.ts:72` passed alone).
+
+**Not in MS2 / follow-ups:** `npm audit` shows a critical DOMPurify advisory via `monaco-editor` (the editor's code editor, not audio); its fix is a breaking Monaco downgrade, so it's separate work. `debug.ts` lists no voices yet (A2.5).
+
+**Reserve used:** none.
+
+## MS2 complete (2026-11-09)
+
+Ready for the owner's approval to merge to master.
