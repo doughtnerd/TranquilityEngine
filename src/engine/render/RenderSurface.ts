@@ -53,30 +53,83 @@ export interface DrawnMaterial {
 }
 
 /**
+ * @internal What render features add to the diagnostics (ADR 0154), by feature name: an entry for each
+ * loaded feature that reports something, none for one that is off or hasn't loaded. Open: a feature's
+ * module declares its entry's type by merging into this interface (the Particles plugin's `particles`,
+ * the Sky plugin's `sky`, the Water plugin's `water`), so the core names none of them.
+ */
+export interface RenderFeatureDiagnostics {
+  [feature: string]: unknown;
+}
+
+/**
  * @internal A renderer's state as engine facts (ADR 0128), for tests and the editor. A snapshot:
- * computed when asked, never kept up to date. Nothing in it is a renderer object or name.
+ * computed when asked, never kept up to date. Nothing in it is a renderer object or name. The core
+ * part is the renderer's own; `features` is what its render features report (ADR 0154).
  */
 export interface RenderDiagnostics {
-  /** The renderer has started; before then every other field reports nothing. */
+  /** The renderer has started; before then every other field reports nothing (`noRenderDiagnostics()`). */
   started: boolean;
   /** The graphics tier as applied (ADR 0050). */
   quality: { tier: string; pixelRatio: number; shadows: boolean; shadowMapSize: number; msaa: boolean };
   lighting: { cascades: boolean; environment: string; environmentLoaded: boolean; skybox: boolean };
-  /** The procedural sky (ADR 0112): drawn, bakes made, whether a bake lights the scene, its time of day, the last bake's CPU time. */
-  sky: { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number };
   /** Post-processing (ADR 0051, 0056): what the first camera ran, and how many canvas cameras composed effects. */
   post: { composed: boolean; loaded: boolean; toneMapping: ToneMappingName; effects: PostEffects | null; composedCameras: number };
-  water: { surfaces: number };
   probes: { captured: number; probes: number; reflecting: number };
   /** The render texture assets made so far (ADR 0109), by path. */
   renderTextures: Record<string, { width: number; height: number; format: string }>;
-  /** Null until the particle renderer has loaded. */
-  particles: ParticleStats | null;
   stats: RenderStats;
   /** The cameras that drew the last frame: to the canvas (depth order), into a render texture, or the editor's preview inset. */
   cameras: { camera: Camera; target: "canvas" | "texture" | "preview" }[];
   /** The nodes whose renderers are drawn (visible, loaded), once each: meshes with their materials, and sprites. */
   drawn: { meshes: { node: GameObject; materials: DrawnMaterial[] }[]; sprites: GameObject[] };
+  /** Each loaded render feature's own part, by feature name (ADR 0154). */
+  features: RenderFeatureDiagnostics;
+}
+
+/**
+ * @internal The diagnostics of a surface that has drawn nothing (ADR 0154): one before its renderer has
+ * started, and the test surface. A fresh object each call.
+ */
+export function noRenderDiagnostics(): RenderDiagnostics {
+  return {
+    started: false,
+    quality: { tier: "", pixelRatio: 1, shadows: false, shadowMapSize: 0, msaa: false },
+    lighting: { cascades: false, environment: "", environmentLoaded: false, skybox: false },
+    post: { composed: false, loaded: false, toneMapping: "none", effects: null, composedCameras: 0 },
+    probes: { captured: 0, probes: 0, reflecting: 0 },
+    renderTextures: {},
+    stats: { drawCalls: 0, triangles: 0, lines: 0, points: 0, geometries: 0, textures: 0, programs: 0 },
+    cameras: [],
+    drawn: { meshes: [], sprites: [] },
+    features: {},
+  };
+}
+
+/**
+ * @internal The device-pixel grid a view draws on (ADR 0108, 0154): the canvas's CSS size and the pixel
+ * ratio the surface applied to it (drawing-buffer pixels per CSS pixel: the screen's ratio, capped, times
+ * the tier's render scale, `appliedPixelRatio`). Pixel-perfect zoom and snapping count pixels on it.
+ */
+export interface PixelGrid {
+  /** CSS pixels, like the canvas's `clientWidth` and `clientHeight`. */
+  readonly width: number;
+  readonly height: number;
+  /** Drawing-buffer pixels per CSS pixel. */
+  readonly pixelRatio: number;
+}
+
+/** @internal The highest screen pixel ratio a World's drawing buffer follows (ADR 0050). */
+export const MAX_PIXEL_RATIO = 2;
+
+/**
+ * @internal The pixel ratio a drawing buffer is made at (ADR 0050, 0154): the screen's ratio (the
+ * window's, without an argument), capped at `MAX_PIXEL_RATIO`, times the tier's `renderScale`. The
+ * one formula for a World's surface, its test stand-in and the editor's previews.
+ */
+export function appliedPixelRatio(renderScale = 1, devicePixelRatio = typeof window !== "undefined" ? window.devicePixelRatio : 1): number {
+  const dpr = devicePixelRatio > 0 && Number.isFinite(devicePixelRatio) ? devicePixelRatio : 1;
+  return Math.min(dpr, MAX_PIXEL_RATIO) * renderScale;
 }
 
 /** @internal One World's drawing surface (ADR 0032, 0075, 0128). */
@@ -84,11 +137,12 @@ export interface RenderSurface {
   /** The canvas the World draws to; input listens to it. */
   readonly canvas: HTMLCanvasElement;
   /**
-   * The canvas's CSS size (`clientWidth` x `clientHeight`) without forcing a layout per call: the
-   * surface keeps it up to date (`CanvasCssSize`). The camera's maths reads it many times a frame.
-   * Surfaces without it are read through `canvas` directly.
+   * The device-pixel grid of this view (ADR 0154): the canvas's CSS size (`clientWidth` x
+   * `clientHeight`, kept up to date without forcing a layout per call, `CanvasCssSize`) and the pixel
+   * ratio applied to it. The camera's maths reads it many times a frame. Surfaces without it are read
+   * through `canvas` directly, at pixel ratio 1.
    */
-  canvasCssSize?(): { readonly width: number; readonly height: number };
+  pixelGrid?(): PixelGrid;
   /**
    * Resolves once the renderer has started (true) or failed to (false); frames before then draw
    * nothing. The desktop editor shows its window after this, so the scene view opens drawn (ADR 0082).

@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Camera, Engine, GameObject, SceneManager, Vector2, Vector3 } from "../index";
+import { FakeRenderSurface } from "../render/fakeViewport";
 import { pixelCenterOffset, pixelPerfectView, snapToGrid } from "../render/pixelPerfect";
 
 describe("pixelPerfectView (ADR 0014)", () => {
@@ -80,5 +81,43 @@ describe("Camera pixelPerfect", () => {
     // one world unit is zoom * ppu = 32 device pixels
     expect(cam.worldToScreenPoint(new Vector3(1, 0, 0)).x - 400).toBeCloseTo(32);
     expect(cam.screenPointToRay(new Vector2(0, 0)).origin.y).toBeCloseTo(size);
+  });
+
+  describe("on the surface's device-pixel grid (ADR 0154)", () => {
+    afterEach(() => {
+      engine.world.render = null;
+    });
+
+    it("counts device pixels at the applied ratio: screen ratio 1.5 times render scale 0.5", () => {
+      const surface = new FakeRenderSurface({ devicePixelRatio: 1.5, renderScale: 0.5 });
+      surface.adapter.width = 800;
+      surface.adapter.height = 601;
+      engine.world.render = surface;
+      expect(surface.pixelGrid()).toEqual({ width: 800, height: 601, pixelRatio: 0.75 });
+      const cam = camera({ pixelPerfect: true, orthographicSize: 5 });
+      // 601 CSS px * 0.75 = 451 device px: zoom floor(451 / 160) = 2, not the 3 the CSS height would give.
+      expect(cam._devicePixelSize()).toEqual({ width: 600, height: 451 });
+      expect(cam._effectiveOrthographicSize()).toBeCloseTo(451 / (2 * 16 * 2));
+      // One device pixel is 1 / (ppu * zoom) units; the odd height puts the camera half a pixel up, the even width doesn't.
+      expect(cam._pixelSnap()).toEqual({ unit: expect.closeTo(1 / 32, 9), offsetX: 0, offsetY: expect.closeTo(1 / 64, 9) });
+      // The rays and screen points agree with the same grid (CSS pixels in, CSS pixels out).
+      expect(cam.worldToScreenPoint(new Vector3(0, cam._effectiveOrthographicSize(), 0)).y).toBeCloseTo(0);
+    });
+
+    it("caps the screen ratio at 2", () => {
+      const surface = new FakeRenderSurface({ devicePixelRatio: 3 });
+      surface.adapter.height = 400;
+      engine.world.render = surface;
+      const cam = camera({ pixelPerfect: true, orthographicSize: 5 });
+      expect(cam._devicePixelSize().height).toBe(800); // not 1200
+      expect(cam._effectiveOrthographicSize()).toBeCloseTo(800 / (2 * 16 * 5));
+      expect(cam._pixelSnap()!.unit).toBeCloseTo(1 / 80);
+    });
+
+    it("doesn't snap when pixelPerfect is off or perspective", () => {
+      engine.world.render = new FakeRenderSurface();
+      expect(camera({ orthographicSize: 5 })._pixelSnap()).toBeNull();
+      expect(camera({ pixelPerfect: true, projection: "perspective" })._pixelSnap()).toBeNull();
+    });
   });
 });

@@ -18,6 +18,8 @@ export interface RenderFeatureContribution {
   readonly after?: readonly string[];
   /** Loads the factory that builds the feature from the renderer's shared host services (a dynamic import). */
   load: RenderFeatureRegistration["load"];
+  /** Loads what warms the feature's content before the feature has loaded (ADR 0154); optional. */
+  loadWarm?: RenderFeatureRegistration["loadWarm"];
 }
 
 /**
@@ -161,7 +163,7 @@ export function activateRuntimePlugin(plugin: RuntimePlugin): void {
     registerWorldService: (service) => void undo.push(_registerWorldService(service)),
     registerRenderFeature: (f) => {
       const after = [...(f.spec.after ?? []), ...(f.after ?? [])];
-      undo.push(_registerRenderFeature({ spec: after.length ? { ...f.spec, after } : f.spec, load: f.load }));
+      undo.push(_registerRenderFeature({ spec: after.length ? { ...f.spec, after } : f.spec, load: f.load, ...(f.loadWarm ? { loadWarm: f.loadWarm } : {}) }));
     },
     contribute: (point, value) => void undo.push(point.register(value)),
   };

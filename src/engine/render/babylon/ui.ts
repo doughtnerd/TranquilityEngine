@@ -36,6 +36,8 @@ import type { Component } from "../../core/Component";
 import type { Color } from "../../core/math";
 import type { World } from "../../core/World";
 import { splitSpriteRef } from "../../scene/importSettings";
+import type { WarmContent } from "../../scene/warmUp";
+import { WARM_PREFIX, type WarmItem } from "./warmUp";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../../ui/components";
 import { fontEpoch, fontFamilyOf, onFontLoaded } from "../../ui/fonts";
 import { UI_FONT_FAMILY, UI_LINE_HEIGHT } from "../../ui/layout";
@@ -277,14 +279,14 @@ export class BabylonUI {
   }
 
   private createScreenCanvas(c: UILaidOutCanvas): CanvasEntry {
-    const root = new Container(`myco.canvas.${c.comp.owner.name}`);
+    const root = new Container(`${CANVAS_PREFIX}${c.comp.owner.name}`);
     placeBox(root);
     this.screen.addControl(root);
     return { comp: c.comp, root, adt: this.screen, mesh: null, last: {}, stamp: 0 };
   }
 
   private createWorldCanvas(c: UILaidOutCanvas): CanvasEntry {
-    const name = `myco.canvas.${c.comp.owner.name}`;
+    const name = `${CANVAS_PREFIX}${c.comp.owner.name}`;
     const { mesh, adt } = worldCanvasPlane(this.scene, name, c.width * c.pixelSize, c.height * c.pixelSize, Math.round(c.width * WORLD_RESOLUTION), Math.round(c.height * WORLD_RESOLUTION));
     const root = new Container(name);
     placeBox(root);
@@ -626,6 +628,18 @@ function worldCanvasPlane(scene: Scene, name: string, width: number, height: num
     material.backFaceCulling = false;
   }
   return { mesh, adt };
+}
+
+/** @internal A UI canvas's GUI container (and a world canvas's plane) is named this, then its node's name. */
+export const CANVAS_PREFIX = "myco.canvas.";
+
+/**
+ * @internal ADR 0080: the warm items for `content`'s world-space UI: one world canvas plane (the UI
+ * feature's, and before it loads the UI plugin's light warm factory, ADR 0154).
+ */
+export function worldCanvasWarm(scene: Scene, content: WarmContent): WarmItem[] {
+  if (!content.worldUI) return [];
+  return [{ key: "worldUI", build: (at) => warmWorldCanvas(scene, `${WARM_PREFIX}canvas`, at) }];
 }
 
 /**

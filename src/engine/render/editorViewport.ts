@@ -20,7 +20,7 @@ import type { Camera, ReflectionProbe } from "./components";
 import { SpriteRenderer } from "./components";
 import type { LocalPose } from "./gizmoMath";
 import type { ParticlePreviewSettings } from "./RenderSurface";
-import type { RenderPolicyPort } from "./renderPolicy";
+import type { ParticlePreview, RenderPolicyPort } from "./renderPolicy";
 
 /** @internal Editor gizmo settings (ADR 0022). */
 export interface GizmoOptions {
@@ -228,6 +228,11 @@ export class ViewportHandle implements EditorViewport {
   private gizmo: { nodes: readonly GameObject[]; options: GizmoOptions; handlers: GizmoHandlers | null } | null = null;
   /** The selected nodes, for the particle preview's `selected` predicate (read live by the renderer). */
   private readonly selected = new Set<GameObject>();
+  private readonly isSelected = (node: GameObject): boolean => this.selected.has(node);
+  /** The particle preview's playback and restart count (ADR 0154: they reach the renderer as render policy). */
+  private readonly playback = { playing: true, speed: 1, simulateAll: false, restarts: 0 };
+  /** Whether this handle put the renderer in particle preview mode (an editor World's scene view). */
+  private previewing = false;
   private perObjectSet = false;
 
   /**
@@ -242,8 +247,14 @@ export class ViewportHandle implements EditorViewport {
     this.wanted = eager;
     if (eager) {
       this.perObjectSet = true;
-      policy.setPolicy({ sceneView: true, drawPolicy: "perObject", particlePreview: { selected: (node) => this.selected.has(node) } });
+      this.previewing = true;
+      policy.setPolicy({ sceneView: true, drawPolicy: "perObject", particlePreview: this.particlePolicy() });
     }
+  }
+
+  /** The particle preview as render policy now (a new object, so the policy's value changes). */
+  private particlePolicy(): ParticlePreview {
+    return { ...this.playback, selected: this.isSelected };
   }
 
   get ready(): boolean {
@@ -315,11 +326,16 @@ export class ViewportHandle implements EditorViewport {
   }
 
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
-    this.policy.setParticlePreview(preview);
+    const p = this.playback;
+    p.playing = preview.playing ?? p.playing;
+    p.speed = preview.speed ?? p.speed;
+    p.simulateAll = preview.simulateAll ?? p.simulateAll;
+    if (this.previewing) this.policy.setPolicy({ particlePreview: this.particlePolicy() });
   }
 
   restartParticlePreview(): void {
-    this.policy.restartParticlePreview();
+    this.playback.restarts++;
+    if (this.previewing) this.policy.setPolicy({ particlePreview: this.particlePolicy() });
   }
 
   // --- Queries -----------------------------------------------------------------------------------

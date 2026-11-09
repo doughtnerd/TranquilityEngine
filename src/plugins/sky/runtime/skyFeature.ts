@@ -3,9 +3,19 @@
 // loader for it), so Babylon stays out of the `myco` module. The drawing itself, `BabylonSky`, stays in
 // the renderer because the asset thumbnails use its baker and drawable too.
 import type { World } from "../../../engine/core/World";
-import type { BabylonFeature, BabylonFeatureFactory, FeatureState } from "../../../engine/render/babylon/feature";
+import type { BabylonFeature, BabylonFeatureFactory } from "../../../engine/render/babylon/feature";
 import { BabylonSky } from "../../../engine/render/babylon/sky/BabylonSky";
 import { worldSky } from "./Sky";
+
+/** The procedural sky's diagnostics (ADR 0112): drawn, bakes made, whether a bake lights the scene, its time of day, the last bake's CPU time. */
+export type SkyDiagnostics = ReturnType<BabylonSky["state"]>;
+
+declare module "../../../engine/render/RenderSurface" {
+  interface RenderFeatureDiagnostics {
+    /** The Sky plugin's state (ADR 0112), once its feature has loaded. */
+    sky?: SkyDiagnostics;
+  }
+}
 
 /** The view camera `fit` gets (a Babylon camera; this module names no Babylon types itself, ADR 0075). */
 type ViewCamera = Parameters<NonNullable<BabylonFeature["fit"]>>[0];
@@ -27,8 +37,9 @@ export class SkyFeature implements BabylonFeature {
     this.sky.bake();
   }
 
-  state(): FeatureState {
-    return { sky: this.sky.state() };
+  /** `RenderDiagnostics.features.sky` (ADR 0154). */
+  diagnostics(): SkyDiagnostics {
+    return this.sky.state();
   }
 
   dispose(): void {

@@ -3,8 +3,15 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { Component } from "../../core/Component";
 import type { World } from "../../core/World";
 import { WaterSurface } from "../water/WaterSurface";
-import type { BabylonFeature, FeatureState } from "./feature";
+import type { BabylonFeature } from "./feature";
 import { BabylonWater, type BabylonWaterProbe } from "./water";
+
+declare module "../RenderSurface" {
+  interface RenderFeatureDiagnostics {
+    /** The Water plugin's surfaces (ADR 0140), once its feature has loaded. */
+    water?: { surfaces: number };
+  }
+}
 
 /** @internal Water surfaces over `BabylonWater`. */
 export class WaterFeature implements BabylonFeature {
@@ -22,8 +29,9 @@ export class WaterFeature implements BabylonFeature {
     if (c instanceof WaterSurface) this.water.release(c);
   }
 
-  state(): FeatureState {
-    return { water: this.water.state() };
+  /** `RenderDiagnostics.features.water` (ADR 0154). */
+  diagnostics(): { surfaces: number } {
+    return this.water.state();
   }
 
   dispose(): void {

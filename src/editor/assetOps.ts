@@ -1,21 +1,19 @@
 // File operations in the Assets panel: renaming, moving (dragging onto a folder, or cut and
 // paste), duplicating and copying, and new folders. Renames and moves update what refers to the
-// files: scenes, prefabs and project.json are rewritten (the open scene as one undo step, kept
-// when it's saved), and instances of a changed prefab in the open scene are rebuilt. Scripts
-// aren't edited, so ones that mention a moved file are listed. Deleting is in assetDelete.ts.
+// files (assetReferences.ts): scenes, prefabs, project.json and other JSON files are rewritten (the
+// open scene as one undo step, kept when it's saved), and instances of a changed prefab in the open
+// scene are rebuilt. Scripts aren't edited, so ones that quote a moved file are listed. Deleting is
+// in assetDelete.ts.
 // A file's import settings sidecar (`<file>.meta.json`, ADR 0040) moves, copies and deletes with
 // it (projects.ts), and references to its slices (`<file>#<slice>`) are updated like the file's.
 import { signal } from "@preact/signals";
 import { isSidecarPath, sidecarAsset } from "../engine/scene/importSettings";
 import { fileName, folderOf } from "./assetBrowser";
-import { withMovedAssets } from "./assetCleanup";
 import { assetDocumentsMoved } from "./assetDocuments";
-import { assetUsers, entryPath, filesIn, isFolderEntry, openScenePaths, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
+import { movedPath, rewriteReferences } from "./assetReferences";
+import { entryPath, filesIn, isFolderEntry, openScenePaths, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
 import { activeScript, dirtyScripts, openScripts } from "./code/codeState";
-import { ReplaceDocument, type SceneFile } from "./document";
 import { errorStatus } from "./messages";
-import { instancesOf } from "./prefabs";
-import { writeSceneFile } from "./project";
 import { isWithin, type EditorProject } from "./projects";
 import { isScriptPath } from "./scriptLoader";
 import { reloadScripts } from "./session";
@@ -97,9 +95,9 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
     return false;
   }
   assetDocumentsMoved(done); // open asset documents and their undo follow their files
-  const { cleaned, scriptUsers } = await updateReferences(project, done);
+  const { updated: cleaned, scriptUsers } = await updateReferences(project, done);
   // Open Code tabs follow their files.
-  const rename = renamer(done);
+  const rename = movedPath(done);
   if (openScripts.value.some((p) => rename(p) !== null)) {
     openScripts.value = openScripts.value.map((p) => rename(p) ?? p);
     if (activeScript.value) activeScript.value = rename(activeScript.value) ?? activeScript.value;
@@ -122,47 +120,12 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
   return true;
 }
 
-/** A path's new path under `moves` (folders move what's in them), or null if it didn't move. */
-function renamer(moves: readonly (readonly [string, string])[]): (path: string) => string | null {
-  return (path) => {
-    for (const [from, to] of moves) if (isWithin(path, from)) return to + path.slice(from.length);
-    return null;
-  };
-}
-
 /**
- * Point references at the moved files' new paths: scene and prefab files and project.json on
- * disk, and the open scene (one undo step). Returns the files updated and the scripts that still
- * mention an old path.
+ * Point references at the moved files' new paths (the asset reference module): the open scene's
+ * change is one undo step. Returns the files updated and the scripts that still quote an old path.
  */
-async function updateReferences(project: EditorProject, moves: readonly (readonly [string, string])[]): Promise<{ cleaned: string[]; scriptUsers: string[] }> {
-  const rename = renamer(moves);
-  const scene = openScene.value;
-  const cleaned: string[] = [];
-  const mentions = (text: string) => moves.some(([from]) => text.includes(`"${from}`) || text.includes(`"asset:${from}`));
-  for (const file of project.files) {
-    const text = file.endsWith(".json") && file !== scene?.path ? project.textOf(file) : undefined;
-    if (text === undefined || !mentions(text)) continue;
-    const json = JSON.parse(text) as Record<string, unknown>;
-    const result = withMovedAssets(json, rename);
-    if (!result.changed) continue;
-    if (typeof json.format === "string" && /^(myco|tranquility)\.scene@/.test(json.format)) {
-      await writeSceneFile(project, file, result.value as unknown as SceneFile);
-      if (scene) scene.sync.apply(instancesOf(scene.doc, file).map((node) => ({ kind: "rebuild", node }) as const));
-    } else {
-      await project.writeText(file, `${JSON.stringify(result.value, null, 2)}\n`);
-    }
-    cleaned.push(file);
-  }
-  if (scene) {
-    const result = withMovedAssets(scene.doc.toJSON(), rename);
-    if (result.changed) {
-      scene.stack.execute(new ReplaceDocument(result.value, `Update references to ${moves.length === 1 ? fileName(moves[0][1]) : `${moves.length} moved files`}`));
-      cleaned.push(`${scene.path} (unsaved)`);
-    }
-  }
-  const scriptUsers = [...new Set(moves.flatMap(([from]) => assetUsers(project, from)))].filter((u) => project.scripts.has(u));
-  return { cleaned, scriptUsers };
+function updateReferences(project: EditorProject, moves: readonly (readonly [string, string])[]): Promise<{ updated: string[]; scriptUsers: string[] }> {
+  return rewriteReferences(project, moves, `Update references to ${moves.length === 1 ? fileName(moves[0][1]) : `${moves.length} moved files`}`);
 }
 
 /**
@@ -173,7 +136,7 @@ async function updateReferences(project: EditorProject, moves: readonly (readonl
 export async function renameSliceReferences(project: EditorProject, image: string, renames: readonly (readonly [string, string])[]): Promise<string[]> {
   const moves = renames.filter(([a, b]) => a !== b).map(([a, b]) => [`${image}#${a}`, `${image}#${b}`] as const);
   if (moves.length === 0) return [];
-  const { cleaned } = await updateReferences(project, moves);
+  const { updated: cleaned } = await updateReferences(project, moves);
   docVersion.value++;
   return cleaned;
 }

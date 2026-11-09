@@ -5,4 +5,4 @@ import type { BabylonFeatureFactory } from "../../../engine/render/babylon/featu
 import { BabylonMeshes } from "../../../engine/render/babylon/meshes";
 
 /** @internal Builds the feature from the renderer's shared services. */
-export const createMeshesFeature: BabylonFeatureFactory = (host) => new BabylonMeshes({ scene: host.scene, materials: host.materials, probes: host.probes, reflected: () => host.reflected() });
+export const createMeshesFeature: BabylonFeatureFactory = (host) => new BabylonMeshes({ scene: host.scene, materials: host.materials, probes: host.probes, reflected: () => host.probes.reflected() });

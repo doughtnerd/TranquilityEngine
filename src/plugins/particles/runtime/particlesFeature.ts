@@ -1,29 +1,75 @@
 // The Particles plugin's render feature (ADR 0057, 0130, 0135): plays a World's ParticleSystems. Its
 // own module, statically importing the particle player, so the renderer loads both together on first
-// need (ADR 0083) through the loader the plugin registers. The player itself, `BabylonParticles`,
-// stays in the renderer because the asset thumbnails' effect previews use it too.
+// need (ADR 0083) through the loader the plugin registers. Only this feature uses `BabylonParticles`
+// (the World adapter); it stays in the renderer folder because Babylon does (ADR 0075), and the effect
+// player under it (`effectPlayer.ts`, ADR 0153) also plays the particle graph's preview and the thumbnails.
+// ADR 0154: the renderer names nothing here. The factory builds the player's host from the renderer's
+// core host, the editor's preview arrives as render policy, and the feature answers the renderer's
+// generic hooks (warm items, a drawn object's description, its diagnostics).
 import type { Component } from "../../../engine/core/Component";
 import type { World } from "../../../engine/core/World";
+import { _worldRaycast } from "../../../engine/core/worldServices";
+import { PARTICLE_SCALE } from "../../../engine/core/graphics";
 import type { WarmContent, WarmEffect } from "../../../engine/scene/warmUp";
 import { ParticleSystem } from "../../../engine/render/components";
-import type { ParticlePreviewSettings } from "../../../engine/render/RenderSurface";
-import type { BabylonFeatureFactory, FeatureState, ParticlesFeatureApi } from "../../../engine/render/babylon/feature";
+import { Graphics } from "../../../engine/render/Graphics";
+import type { ParticleStats } from "../../../engine/render/RenderSurface";
+import type { BabylonFeature, BabylonFeatureFactory, BabylonFeatureHost, DrawnDescription } from "../../../engine/render/babylon/feature";
 import { BabylonParticles, type BabylonParticleHost } from "../../../engine/render/babylon/particles";
 import { WARM_PREFIX, type WarmCustom, type WarmItem } from "../../../engine/render/babylon/warmUp";
+
+declare module "../../../engine/render/RenderSurface" {
+  interface RenderFeatureDiagnostics {
+    /** The Particles plugin's counts (ADR 0057), once its feature has loaded. */
+    particles?: ParticleStats;
+  }
+}
 
 /** A warm item's mesh (a Babylon mesh; this module names no Babylon types itself, ADR 0075). */
 type Mesh = NonNullable<ReturnType<WarmCustom["build"]>>["meshes"][number];
 
-/** @internal The particle player as a feature. `previewSettings` is applied once, at construction. */
-export class ParticlesFeature implements ParticlesFeatureApi {
-  readonly particles: BabylonParticles;
+/** @internal The particle player's host, from the renderer's core host (ADR 0130's model, ADR 0154). */
+export function particleHost(host: BabylonFeatureHost): BabylonParticleHost {
+  return {
+    scene: host.scene,
+    particlePreview: () => host.policy().particlePreview,
+    worldMatrix: (c) => {
+      const e = c.node.entity;
+      return host.world()!.worldMatrix(e).subarray(e * 16, e * 16 + 16);
+    },
+    texture: (path, sheet) => host.materials.texture(path, sheet ? "sheet" : "color"),
+    tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
+    material: (path) => host.materials.material(path), // shared with MeshRenderers; null while missing
+    materialCopy: (path, name) => host.materials.copy(path, name), // soft and kernel particles (ADR 0126)
+    // A World service that answers ray queries (3D physics, ADR 0135); null while the World has none
+    raycast: (ox, oy, oz, dx, dy, dz, maxDistance) => {
+      const world = host.world();
+      const hit = world && _worldRaycast(world, { x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, maxDistance);
+      return hit ? { point: [hit.point.x, hit.point.y, hit.point.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance } : null;
+    },
+  };
+}
 
-  constructor(host: BabylonParticleHost, previewSettings: () => Partial<ParticlePreviewSettings> = () => ({})) {
+/**
+ * @internal The particle player as a feature. The editor's preview (which nodes play, the playback,
+ * the restart count) is render policy, read through the host each sync (ADR 0154).
+ */
+export class ParticlesFeature implements BabylonFeature {
+  readonly particles: BabylonParticles;
+  /** The preview's restart count already acted on. */
+  private restarts: number;
+
+  constructor(private readonly host: BabylonParticleHost) {
     this.particles = new BabylonParticles(host);
-    Object.assign(this.particles.preview, previewSettings());
+    this.restarts = host.particlePreview()?.restarts ?? 0;
   }
 
   sync(world: World): void {
+    const restarts = this.host.particlePreview()?.restarts ?? this.restarts;
+    if (restarts !== this.restarts) {
+      this.restarts = restarts;
+      this.particles.restartAll(); // the overlay's Restart (ADR 0057)
+    }
     this.particles.sync(world._componentsOfType(ParticleSystem), world.time.deltaTime, world.time.unscaledDeltaTime);
   }
 
@@ -59,22 +105,16 @@ export class ParticlesFeature implements ParticlesFeatureApi {
     };
   }
 
-  state(): FeatureState {
-    return { particles: this.particles.state() };
+  /** `RenderDiagnostics.features.particles`. */
+  diagnostics(): ParticleStats {
+    return this.particles.state();
   }
 
-  /** Editor: apply preview settings to the running player. */
-  setPreview(preview: Partial<ParticlePreviewSettings>): void {
-    Object.assign(this.particles.preview, preview);
-  }
-
-  restartAll(): void {
-    this.particles.restartAll();
-  }
-
-  /** The ParticleSystem that drew `drawn` (for the variant report), or null. */
-  ownerOf(drawn: object): ParticleSystem | null {
-    return this.particles.ownerOf(drawn);
+  /** The particle effect that drew `drawn` (the variant report), naming its effect asset. */
+  describe(drawn: object): DrawnDescription | null {
+    const system = this.particles.ownerOf(drawn);
+    if (!system) return null;
+    return { node: system.node, what: `The particle effect of "${system.node.name}"`, ...(system.effect ? { asset: system.effect.replace(/^asset:/, "") } : {}) };
   }
 
   dispose(): void {
@@ -82,5 +122,5 @@ export class ParticlesFeature implements ParticlesFeatureApi {
   }
 }
 
-/** @internal Builds the feature from the renderer's shared services. */
-export const createParticlesFeature: BabylonFeatureFactory = (host) => new ParticlesFeature(host.particleHost(), host.particlePreview);
+/** @internal Builds the feature from the renderer's core services. */
+export const createParticlesFeature: BabylonFeatureFactory = (host) => new ParticlesFeature(particleHost(host));

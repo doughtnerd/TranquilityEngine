@@ -2,8 +2,8 @@
 // particles render feature, registered when the plugin activates. `myco` (`src/myco.ts`) exports the
 // public parts from here.
 // The component class, the effect format and compiler (`src/engine/scene/particle*.ts`) and the
-// particle player (`src/engine/render/babylon/particles.ts`, `render/particles/`) stay in core: the
-// asset thumbnails' effect previews, the editor's overlays and preview, and the warm-up use them too
+// effect player (`src/engine/render/babylon/effectPlayer.ts`, `render/particles/`, ADR 0153) stay in core:
+// the asset thumbnails, the particle graph's preview, the editor's overlays and the warm-up use them too
 // (renderers stay first-party, ADR 0133).
 // Runtime code: never imports from `src/editor/` or the plugin's `editor/` folder; never imports
 // Babylon (the feature's code loads on demand).
@@ -18,7 +18,15 @@ export { ParticleSystem, type ParticlePropertyValue } from "../../../engine/rend
  * @internal Plays ParticleSystems; loaded the first time a World has one (ADR 0083). The only feature
  * of the `effects` phase, which runs after content and lighting and before probes capture.
  */
-export const PARTICLES_SPEC: RenderFeatureSpec = { name: "particles", phase: "effects", types: [ParticleSystem], lazy: true, holdsFirstFrame: false };
+export const PARTICLES_SPEC: RenderFeatureSpec = {
+  name: "particles",
+  phase: "effects",
+  types: [ParticleSystem],
+  lazy: true,
+  holdsFirstFrame: false,
+  // A warm set's particle effects (ADR 0080): the warm-up loads the player for them (ADR 0154).
+  warms: (content) => content.effects.length > 0,
+};
 
 export const particlesRuntimePlugin: RuntimePlugin = {
   manifest: particlesManifest,

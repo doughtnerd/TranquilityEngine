@@ -1,17 +1,16 @@
-import { signal } from "@preact/signals";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { LinkConfig, WorldTag } from "../../engine";
 import { listSystemCatalog, type SystemCatalogEntry } from "../../engine/core/systems";
 import { listTransports } from "../../engine/net/Transport";
 import { liveLinks, type LiveLink } from "../../engine/editor";
-import { usePanelHistory, type UndoHistory } from "../activeHistory";
+import { usePanelHistory } from "../activeHistory";
 import { playWorldSources } from "../netPlay";
 import { playing } from "../session";
-import { errorStatus } from "../messages";
+import type { ProjectSectionSession } from "../projectSection";
 import type { EditorProject } from "../projects";
-import { currentProject, playState, scriptsVersion, status } from "../state";
+import { currentProject, playState, scriptsVersion } from "../state";
+import { createWorldsSection, editedWorlds, type WorldsDraft } from "../worldsSection";
 import {
-  EditHistory,
   PRESET_TAGS,
   addLink,
   addTemplate,
@@ -23,9 +22,7 @@ import {
   lobbyLinks,
   mentions,
   modelProblems,
-  modelToConfig,
   nameOf,
-  readBootstrap,
   remove,
   removeLink,
   rename,
@@ -41,8 +38,6 @@ import {
   extraOptionKeys,
   optionText,
   parseOptionText,
-  withBootstrap,
-  type BootstrapView,
   type GroupedProblems,
   type TemplateConfig,
   type TemplateEntry,
@@ -50,135 +45,39 @@ import {
   type WorldsModel,
   withReplicationSetting,
 } from "../worldsConfig";
-import { PROJECT_FILE, queueProjectFileWrite } from "../projectFile";
+import { PROJECT_FILE } from "../projectFile";
 import { DEFAULT_LAYOUT, layoutGraph, type LayoutLinkIn, type LayoutNodeIn } from "../worldsLayout";
 import "./worlds.css";
 import { NumberField, TextField } from "./settingsControls";
 
-/** An undoable panel state: the model, and whether it's written out (false: the project has no bootstrap and runs the default one). */
-interface Draft {
-  model: WorldsModel;
-  explicit: boolean;
+/** The panel's state for the open project: its project section's session (ADR 0151), kept outside the component. */
+type PanelState = ProjectSectionSession<WorldsDraft>;
+
+/** `bootstrap` in `project.json`: the draft, its undo, saving and outside changes (ADR 0151). */
+const worlds = createWorldsSection();
+
+/** The selected World or template, per session (a new session, after an outside edit, selects the first World). */
+const selections = new WeakMap<PanelState, WorldRef | null>();
+
+function selectedIn(s: PanelState): WorldRef | null {
+  if (!selections.has(s)) selections.set(s, s.draft.view.kind === "graph" ? { kind: "world", index: 0 } : null);
+  return selections.get(s) ?? null;
 }
 
-/** The panel's state for the open project. Kept outside the component, since a hidden tab unmounts. */
-interface PanelState {
-  project: EditorProject;
-  /** `project.json`'s text when the panel last read or wrote it; another change to it (the Code panel) starts over. */
-  fileText: string | undefined;
-  /** The text a save in progress is writing: until it's done, the project may already hold it. */
-  writingText?: string;
-  view: BootstrapView;
-  history: EditHistory<Draft> | null;
-  selected: WorldRef | null;
-  saving: boolean;
-  error: string | null;
-}
-
-let state: PanelState | null = null;
-/** Bumped when the panel's state changes, so it re-renders. */
-const version = signal(0);
-
-/** The state for `project`, read again from `project.json` if that changed since the panel last saw it. */
-function stateFor(project: EditorProject): PanelState {
-  const text = project.textOf(PROJECT_FILE);
-  if (state && state.project === project && (state.fileText === text || (state.writingText !== undefined && state.writingText === text))) return state;
-  // Another key changed (the Project panel's save): keep the draft and its undo history.
-  if (state && state.project === project && state.writingText === undefined && sameJson(bootstrapIn(state.fileText), project.settings.bootstrap)) {
-    state.fileText = text;
-    return state;
-  }
-  const view = readBootstrap(project.settings.bootstrap);
-  const history = view.kind === "graph" ? new EditHistory<Draft>({ model: view.model, explicit: view.explicit }) : null;
-  state = { project, fileText: text, view, history, selected: view.kind === "graph" ? { kind: "world", index: 0 } : null, saving: false, error: null };
-  return state;
-}
-
-const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-
-/** The bootstrap in a `project.json` text (undefined if it has none or doesn't parse). */
-function bootstrapIn(text: string | undefined): unknown {
-  try {
-    return text === undefined ? undefined : (JSON.parse(text) as { bootstrap?: unknown }).bootstrap;
-  } catch {
-    return undefined;
-  }
-}
-
-/** The bootstrap a draft writes: undefined while it's still the implicit default. */
-const settingOf = (draft: Draft) => (draft.explicit ? modelToConfig(draft.model) : undefined);
-
-/**
- * Write the current draft to `project.json` if it's valid and differs from the file. Invalid
- * drafts stay in the panel, unsaved (play mode would refuse them), until an edit or undo fixes
- * them. Writes run one at a time and always write the latest draft.
- */
-function persist(s: PanelState): void {
-  void queueProjectFileWrite(async () => {
-    if (state !== s || !s.history || !s.project.canSave) return;
-    const draft = s.history.current;
-    if (modelProblems(draft.model, listSystemCatalog()).length > 0) return;
-    const setting = settingOf(draft);
-    if (sameJson(setting, s.project.settings.bootstrap)) return;
-    const text = withBootstrap(s.project.textOf(PROJECT_FILE) ?? "{}\n", setting);
-    s.saving = true;
-    version.value++;
-    s.writingText = text; // a render mid-save sees either text, and mustn't take its own save for an outside change
-    try {
-      await s.project.writeText(PROJECT_FILE, text);
-      s.fileText = text;
-      s.error = null;
-    } catch (err) {
-      s.error = errorStatus(`Couldn't save the Worlds to ${PROJECT_FILE}`, err).text;
-      status.value = errorStatus(`Couldn't save the Worlds to ${PROJECT_FILE}`, err);
-    } finally {
-      s.writingText = undefined;
-      s.saving = false;
-      version.value++;
-    }
-  });
+function select(s: PanelState, ref: WorldRef | null): void {
+  selections.set(s, ref);
+  worlds.refresh();
 }
 
 /** Make an edit: record it for undo and save it (if valid). */
-function edit(s: PanelState, label: string, model: WorldsModel, select?: WorldRef | null): void {
-  if (!s.history || !s.project.canSave) return;
-  s.history.push(label, { model, explicit: true });
-  if (select !== undefined) s.selected = select;
-  version.value++;
-  persist(s);
+function edit(s: PanelState, label: string, model: WorldsModel, selectRef?: WorldRef | null): void {
+  if (s.draft.view.kind !== "graph" || !s.project.canSave) return;
+  if (selectRef !== undefined) selections.set(s, selectRef);
+  void s.edit(label, editedWorlds(model));
+  worlds.refresh();
 }
 
-function undo(s: PanelState): void {
-  if (s.history?.undo()) afterJump(s);
-}
-
-function redo(s: PanelState): void {
-  if (s.history?.redo()) afterJump(s);
-}
-
-function afterJump(s: PanelState): void {
-  version.value++;
-  persist(s);
-}
-
-/** The panel's undo list, the active history while the panel has the focus (ADR 0145): Ctrl+Z and Edit > Undo step it. */
-const worldsHistory: UndoHistory = {
-  name: "Worlds",
-  get canUndo() {
-    return (version.value, !!state?.project.canSave && !!state.history?.canUndo);
-  },
-  get canRedo() {
-    return (version.value, !!state?.project.canSave && !!state.history?.canRedo);
-  },
-  get undoLabel() {
-    return (version.value, state?.history?.undoLabel ?? null);
-  },
-  get redoLabel() {
-    return (version.value, state?.history?.redoLabel ?? null);
-  },
-  undo: () => state && undo(state),
-  redo: () => state && redo(state),
-};
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
  * The project's start-up Worlds, Spawnable Worlds (`templates` in project.json) and links (ADR 0032,
@@ -188,37 +87,35 @@ const worldsHistory: UndoHistory = {
  */
 export function WorldsPanel() {
   const root = useRef<HTMLDivElement>(null);
-  usePanelHistory(root, worldsHistory);
-  version.value;
+  usePanelHistory(root, worlds.history);
+  worlds.version.value;
   scriptsVersion.value; // scripts define systems
   const project = currentProject.value;
   if (!project) return <p class="empty">No project open</p>;
-  const s = stateFor(project);
-  if (s.view.kind === "code") {
+  const s = worlds.open(project);
+  const view = s.draft.view;
+  if (view.kind === "code") {
     return (
       <p class="empty">
-        This project starts its Worlds from a code bootstrap, <code>{s.view.path}</code>. Edit that script to change them.
+        This project starts its Worlds from a code bootstrap, <code>{view.path}</code>. Edit that script to change them.
       </p>
     );
   }
-  if (s.view.kind === "broken" || !s.history) {
+  if (view.kind === "broken") {
     return (
       <div class="worlds-panel">
         <p class="empty">{PROJECT_FILE}'s bootstrap section can't be shown as a graph. Fix it in the Code panel:</p>
-        <ul class="worlds-problems">{s.view.kind === "broken" && s.view.problems.map((p) => <li key={p}>{p}</li>)}</ul>
+        <ul class="worlds-problems">{view.problems.map((p) => <li key={p}>{p}</li>)}</ul>
       </div>
     );
   }
 
-  const history = s.history;
-  const draft = history.current;
-  const model = draft.model;
+  const model = view.model;
   const catalog = listSystemCatalog();
   const all = modelProblems(model, catalog);
   const problems = groupProblems(all);
   const editable = project.canSave;
-  const unsaved = !sameJson(settingOf(draft), project.settings.bootstrap);
-  let selected = s.selected;
+  let selected = selectedIn(s);
   if (selected && !configOf(model, selected)) selected = model.worlds.length ? { kind: "world", index: 0 } : null;
 
   return (
@@ -234,16 +131,16 @@ export function WorldsPanel() {
         >
           + Spawnable World
         </button>
-        <button disabled={!editable || !history.undoLabel} title={history.undoLabel ? `Undo ${history.undoLabel} (Ctrl+Z)` : "Nothing to undo"} onClick={() => undo(s)}>
+        <button disabled={!editable || !s.undoLabel} title={s.undoLabel ? `Undo ${s.undoLabel} (Ctrl+Z)` : "Nothing to undo"} onClick={() => void s.undo()}>
           Undo
         </button>
-        <button disabled={!editable || !history.redoLabel} title={history.redoLabel ? `Redo ${history.redoLabel} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => redo(s)}>
+        <button disabled={!editable || !s.redoLabel} title={s.redoLabel ? `Redo ${s.redoLabel} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => void s.redo()}>
           Redo
         </button>
-        <SaveMarker editable={editable} saving={s.saving} error={s.error} problems={all.length} unsaved={unsaved} explicit={draft.explicit} />
+        <SaveMarker editable={editable} saving={s.saving} error={s.error} problems={all.length} unsaved={s.unsaved} explicit={view.explicit} />
       </div>
       <div class="worlds-body">
-        <Graph model={model} problems={problems} selected={selected} onSelect={(ref) => ((s.selected = ref), version.value++)} defaultRate={defaultTickRate(project)} />
+        <Graph model={model} problems={problems} selected={selected} onSelect={(ref) => select(s, ref)} defaultRate={defaultTickRate(project)} />
         {problems.general.length > 0 && <Problems list={problems.general} />}
         <fieldset class="worlds-fields" disabled={!editable}>
           {selected && <Details s={s} model={model} target={selected} problems={problems} catalog={catalog} project={project} />}

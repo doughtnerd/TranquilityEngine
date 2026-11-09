@@ -6,7 +6,8 @@ import { Component } from "../core/Component";
 import { Color, Quaternion, Ray, Vector2, Vector3 } from "../core/math";
 import { AssetRef, PlainObject, component, field } from "../core/registry";
 import { World } from "../core/World";
-import { pixelPerfectView } from "./pixelPerfect";
+import { pixelCenterOffset, pixelPerfectView } from "./pixelPerfect";
+import type { PixelGrid } from "./RenderSurface";
 import { Material } from "./Material";
 import { modelVariantsIfLoaded } from "../scene/models";
 
@@ -76,22 +77,24 @@ export class Camera extends Component {
   }
 
   /**
-   * The canvas size the camera's maths uses: the render backend's canvas (CSS pixels, like
-   * `Input.mousePosition`), or without one (headless) the project's reference resolution (ADR 0073).
-   * The surface keeps the size up to date, so this doesn't force a layout each call.
+   * The device-pixel grid the camera's maths uses (ADR 0154): the render surface's (the canvas's CSS
+   * size, like `Input.mousePosition`, and the pixel ratio the surface applied), or without one
+   * (headless) the project's reference resolution at ratio 1 (ADR 0073). The surface keeps the size up
+   * to date, so this doesn't force a layout each call.
    */
-  private canvasSize(): { readonly width: number; readonly height: number } {
+  private pixelGrid(): PixelGrid {
     const render = this._world.render;
     if (render) {
-      const size = render.canvasCssSize ? render.canvasCssSize() : render.canvas ? { width: render.canvas.clientWidth, height: render.canvas.clientHeight } : null;
-      if (size && size.width > 0 && size.height > 0) return size;
+      const grid = render.pixelGrid ? render.pixelGrid() : render.canvas ? { width: render.canvas.clientWidth, height: render.canvas.clientHeight, pixelRatio: 1 } : null;
+      if (grid && grid.width > 0 && grid.height > 0) return grid;
     }
-    return this._world.settings.display;
+    const { width, height } = this._world.settings.display;
+    return { width, height, pixelRatio: 1 };
   }
 
   /** The camera's rectangle in canvas pixels, origin top-left (ADR 0056). */
-  private pixelRect(): { x: number; y: number; width: number; height: number } {
-    const { width: cw, height: ch } = this.canvasSize();
+  private pixelRect(grid: PixelGrid = this.pixelGrid()): { x: number; y: number; width: number; height: number } {
+    const { width: cw, height: ch } = grid;
     const clamp = (n: number) => Math.min(1, Math.max(0, n));
     const x = clamp(this.viewportPosition.x), y = clamp(this.viewportPosition.y);
     const w = Math.max(0.001, Math.min(clamp(this.viewportSize.x), 1 - x)), h = Math.max(0.001, Math.min(clamp(this.viewportSize.y), 1 - y));
@@ -111,9 +114,31 @@ export class Camera extends Component {
    */
   _effectiveOrthographicSize(): number {
     if (!this.pixelPerfect || this.projection !== "orthographic") return this.orthographicSize;
-    const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
-    const heightPx = this.pixelRect().height * dpr;
-    return pixelPerfectView(heightPx, this.orthographicSize, this._world.settings.render.pixelsPerUnit).orthographicSize;
+    return pixelPerfectView(this._devicePixelSize().height, this.orthographicSize, this._world.settings.render.pixelsPerUnit).orthographicSize;
+  }
+
+  /**
+   * The camera's rectangle in whole device pixels of the view's grid (ADR 0154: its CSS size times the
+   * pixel ratio the surface applied, render scale included): what pixel-perfect zoom and snapping count.
+   * @internal
+   */
+  _devicePixelSize(): { width: number; height: number } {
+    const grid = this.pixelGrid();
+    const r = this.pixelRect(grid);
+    return { width: Math.round(r.width * grid.pixelRatio), height: Math.round(r.height * grid.pixelRatio) };
+  }
+
+  /**
+   * Where a pixel-perfect orthographic camera's position snaps (ADR 0108, 0154): world units per device
+   * pixel, and the half-pixel offsets that keep texel edges on pixel edges for an odd pixel width or
+   * height. Null when it doesn't snap.
+   * @internal
+   */
+  _pixelSnap(): { unit: number; offsetX: number; offsetY: number } | null {
+    if (!this.pixelPerfect || this.projection !== "orthographic") return null;
+    const px = this._devicePixelSize();
+    const unit = (2 * this._effectiveOrthographicSize()) / Math.max(1, px.height);
+    return { unit, offsetX: pixelCenterOffset(px.width, unit), offsetY: pixelCenterOffset(px.height, unit) };
   }
 
   /** The camera's world position and axes (right, up, forward = the node's -Z), ignoring scale. */

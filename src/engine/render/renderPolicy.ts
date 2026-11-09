@@ -24,7 +24,18 @@ export interface RenderPolicy {
    * Particles in preview mode (ADR 0057): script commands are ignored, and only systems on selected
    * nodes play (all of them with Simulate All), at the preview speed. Null: game rules.
    */
-  particlePreview: { selected(node: GameObject): boolean } | null;
+  particlePreview: ParticlePreview | null;
+}
+
+/**
+ * @internal The particle preview as render policy (ADR 0057, 0154): which nodes' effects play, the
+ * playback settings, and a restart count. The one place the preview's state lives on its way to the
+ * renderer: the surface keeps the policy until the renderer loads and hands it over once.
+ */
+export interface ParticlePreview extends ParticlePreviewSettings {
+  selected(node: GameObject): boolean;
+  /** Raised by one to restart every previewed effect (the overlay's Restart); the renderer acts on a change. */
+  restarts: number;
 }
 
 /** @internal A game's policy: everything off. */
@@ -37,8 +48,4 @@ export const GAME_POLICY: Readonly<RenderPolicy> = Object.freeze({ sceneView: fa
 export interface RenderPolicyPort {
   /** Change some settings; the others keep their value. */
   setPolicy(change: Partial<RenderPolicy>): void;
-  /** The particle preview's playback (kept until changed). */
-  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void;
-  /** Restart every previewed effect. */
-  restartParticlePreview(): void;
 }

@@ -23,6 +23,7 @@ import { compileShaderGraph, type CompiledShaderGraph } from "../../shaderGraph/
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "../graphMaterial";
 import { meshOf } from "../materials";
 import type { BabylonMaterialLibrary } from "../materialLibrary";
+import { appliedPixelRatio } from "../../RenderSurface";
 import {
   addPreviewLights,
   aimCamera,
@@ -93,7 +94,7 @@ export class MaterialPreview {
         return;
       }
       this.engine = engine;
-      engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 2));
+      engine.setHardwareScalingLevel(1 / appliedPixelRatio()); // the World surface's pixel ratio, at render scale 1 (ADR 0154)
       const scene = createPreviewScene(engine);
       addPreviewLights(scene, 0.35, 1);
       const camera = new TargetCamera("preview.camera", Vector3.Zero(), scene, false);

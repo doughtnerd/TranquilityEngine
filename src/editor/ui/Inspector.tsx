@@ -3,10 +3,12 @@ import { signal } from "@preact/signals";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
 import type { FieldChoice } from "../../engine/core/registry";
-import { loadModel } from "../../engine/scene/models";
 import { listComponents, type ComponentInfo, type FieldValue } from "../../engine/editor";
-import { RevertOverrides, SetField, isFieldOverride, pathKey, type NodePath } from "../document";
-import { choicesFor, defaultItem, editorFor, itemEditorFor, itemField, parseNumber, toSceneJSON, type FieldEditor } from "../fieldValues";
+import { RevertOverrides, pathKey, type NodePath } from "../document";
+import { choicesFor, defaultItem, editorFor, itemEditorFor, itemField, parseNumber, type FieldEditor } from "../fieldValues";
+import { eulerAnglesOf, fieldState, revertField, setField, setFieldAxis, withAxis } from "../fieldEdits";
+import { fieldChoicesFor, listedChoices, loadFieldChoices } from "../fieldChoices";
+import type { FieldChoicesContribution } from "../sdk/contributions";
 import {
   cleanTag,
   componentWorlds,
@@ -48,7 +50,7 @@ import { addToPreload, preloadCandidates, removeFromPreload } from "../scenePrel
 import { RuntimeInspector } from "./RuntimeInspector";
 import { UIElementInspector } from "./UIElementInspector";
 import { openScript, scriptFor } from "../code/codeState";
-import { applyOverrides, applyOverridesTo, createPrefabFromNodes, createPrefab, findInner, isInnerPropertyOverridden, isOverridden, nodePropertyCommand, revertInnerProperty } from "../prefabs";
+import { applyOverrides, applyOverridesTo, createPrefabFromNodes, createPrefab, findInner, isInnerPropertyOverridden, nodePropertyCommand, revertInnerProperty } from "../prefabs";
 import { currentProject, docVersion, openScene, scriptsVersion, selectedKeys, selectedUIElement, selection, status, type OpenScene } from "../state";
 import { componentHeaderActions, type ComponentHeaderActionContribution } from "../sdk/contributions";
 
@@ -630,45 +632,17 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
 function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentInfo; field: FieldValue; values: unknown[] }) {
   const { scene, paths, info, field, values } = props;
   const editor = editorFor(field);
-  const variants = useModelVariants(info.type === "engine.MeshRenderer" && field.name === "variant" ? String(info.fields.find((f) => f.name === "mesh")?.value ?? "") : null);
-  const overridden = paths.some((p) => isOverridden(scene.doc, p, info.type, field.name, info.index));
-  const mixed = new Set(values.map((v) => valueKey(v, scene))).size > 1;
+  const { mixed, overridden } = fieldState(scene, paths, info, field.name, values);
+  // Choices a plugin supplies for this field (ADR 0152), e.g. a MeshRenderer's material variants.
+  const contributed = fieldChoicesFor(info.type, field.name);
+  const loaded = useContributedChoices(contributed, info);
+  const choices = contributed ? listedChoices(contributed, loaded, field.value, mixed) : undefined;
 
-  /** Write each node's new value through a SetField command (an override on prefab instances and nodes inside them). */
-  const commitEach = (valueFor: (i: number) => unknown) => {
-    const write = () =>
-      paths.forEach(([id, ...target], i) => {
-        const previous = scene.doc.isPrefabInstance(id)
-          ? scene.doc.overrideValue(id, target, info.type, field.name, info.index)
-          : scene.doc.fieldValue(id, info.type, field.name, info.index);
-        const json = toSceneJSON(editor, valueFor(i), {
-          field: field.name,
-          previous,
-          nodeId: (n) => scene.sync.nodeIdOf(n),
-          itemEditor: editor === "list" ? itemEditorFor(field) : undefined,
-        });
-        scene.stack.execute(new SetField(id, info.type, field.name, json, { index: info.index, target }));
-      });
-    if (paths.length === 1) write();
-    else inGroup(scene, `Set ${field.name} on ${paths.length} nodes`, write);
-  };
-  const commit = (value: unknown) => commitEach(() => value);
-  /** Set one axis of a vector on every node, keeping each node's other axes. */
-  const commitAxis = (axis: number, n: number) =>
-    commitEach((i) => {
-      const base = axesBase(values[i], editor);
-      return base.map((old, j) => (j === axis ? n : old));
-    });
-  const revert = () =>
-    inGroup(scene, `Revert ${field.name}`, () => {
-      for (const [id, ...target] of paths) {
-        if (!scene.doc.isPrefabInstance(id)) continue;
-        scene.stack.execute(new RevertOverrides(id, `Revert ${field.name}`, (o) => isFieldOverride(o, target, info.type, field.name, info.index)));
-      }
-    });
+  const commit = (value: unknown) => setField(scene, paths, info, field, value);
+  const commitAxis = (axis: number, n: number) => setFieldAxis(scene, paths, info, field, axis, n, values);
+  const revert = () => revertField(scene, paths, info, field.name);
 
-  // MeshRenderer.variant (ADR 0118): a dropdown of the model's material variants, hidden when it has none.
-  if (variants !== undefined && !variants.length && !field.value && !mixed) return null;
+  if (choices === null) return null; // nothing to choose and nothing set
   return (
     <>
       <div class={`label-cell${overridden ? " overridden" : ""}`}>
@@ -680,8 +654,8 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
         )}
       </div>
       <div class="value">
-        {variants !== undefined ? (
-          <ChoiceInput choices={variantChoices(variants)} value={field.value} mixed={mixed} label={field.name} onCommit={commit} />
+        {choices !== undefined ? (
+          <ChoiceInput choices={choices} value={field.value} mixed={mixed} label={field.name} onCommit={commit} />
         ) : (
           <FieldEditorView editor={editor} field={field} values={values} mixed={mixed} scene={scene} onCommit={commit} onCommitAxis={commitAxis} />
         )}
@@ -690,49 +664,23 @@ function FieldRow(props: { scene: OpenScene; paths: NodePath[]; info: ComponentI
   );
 }
 
-/** The material variant names of the model a mesh reference draws (ADR 0118); undefined when `meshRef` is null (not a variant field). */
-function useModelVariants(meshRef: string | null): readonly string[] | undefined {
-  const [variants, setVariants] = useState<readonly string[]>([]);
+/** A contributed field's loaded choices (ADR 0152), asked for again when what they depend on changes; empty until they load. */
+function useContributedChoices(contribution: FieldChoicesContribution | undefined, info: ComponentInfo): readonly FieldChoice[] {
+  const [loaded, setLoaded] = useState<readonly FieldChoice[]>([]);
+  const key = contribution ? `${contribution.id}\u0000${contribution.key(info)}` : null;
   useEffect(() => {
-    if (meshRef === null) return;
-    setVariants([]);
-    if (!meshRef || meshRef.startsWith("builtin:")) return;
+    setLoaded([]);
+    if (!contribution) return;
     let live = true;
-    loadModel(meshRef)
-      .then((data) => live && setVariants(data.variants ?? []))
-      .catch(() => undefined);
+    void loadFieldChoices(contribution, info).then((choices) => live && setLoaded(choices));
     return () => {
       live = false;
     };
-  }, [meshRef]);
-  return meshRef === null ? undefined : variants;
+  }, [key]); // `key` names everything the choices depend on
+  return loaded;
 }
-
-/** The variant field's choices: the file's default materials, then each variant. */
-const variantChoices = (names: readonly string[]): FieldChoice[] => [{ label: "Default", value: "" }, ...names.map((n) => ({ label: n, value: n }))];
 
 const isNumeric = (e: FieldEditor) => e === "number" || e === "integer";
-
-/** A vector's (or a quaternion's Euler angles') axes, or a default when it's unset. */
-function axesBase(value: unknown, editor: FieldEditor): number[] {
-  if (value instanceof Quaternion) return roundAngles(value.toEuler().toArray());
-  if (Array.isArray(value)) return [...value];
-  if (value && typeof value === "object" && "toArray" in value) return (value as { toArray(): number[] }).toArray();
-  return editor === "vector2" ? [1, 1] : [0, 0, 0];
-}
-
-/** Euler angles from a quaternion, rounded so a typed 30 doesn't read back as 29.999999. */
-const roundAngles = (a: number[]) => a.map((n) => Math.round(n * 1e4) / 1e4);
-
-/** A comparable form of a field value, to tell whether several nodes' values differ. */
-function valueKey(v: unknown, scene: OpenScene): string {
-  if (Array.isArray(v)) return `[${v.map((x) => valueKey(x, scene)).join(",")}]`;
-  if (v instanceof Quaternion) return `quat:${JSON.stringify(roundAngles(v.toEuler().toArray()))}`;
-  if (v instanceof Color) return `color:${v.toHex()}:${v.a}`;
-  if (v instanceof GameObject) return `node:${scene.sync.nodeIdOf(v)}`;
-  if (v && typeof v === "object" && "toArray" in v) return JSON.stringify((v as { toArray(): number[] }).toArray());
-  return JSON.stringify(v ?? null);
-}
 
 /** Shown for values that differ between the selected nodes. */
 const MIXED = "\u2014";
@@ -797,7 +745,7 @@ function FieldEditorView(props: {
     case "quaternion": {
       // Edited as Euler angles in degrees (ADR 0019).
       if (v === null || v === undefined) return <span class="none">None</span>;
-      const axes = values.map((x) => (x instanceof Quaternion ? roundAngles(x.toEuler().toArray()) : [0, 0, 0]));
+      const axes = values.map((x) => (x instanceof Quaternion ? eulerAnglesOf(x) : [0, 0, 0]));
       return <VectorInput value={axes[0].map((n, i) => (axes.every((a) => a[i] === n) ? n : null))} label={field.name} onCommitAxis={props.onCommitAxis} />;
     }
     case "list":
@@ -1096,7 +1044,7 @@ function ListInput(props: { field: FieldValue; mixed: boolean; scene: OpenScene;
                 mixed={false}
                 scene={scene}
                 onCommit={(v) => replace(i, v)}
-                onCommitAxis={(axis, n) => replace(i, axesBase(item, editor).map((old, j) => (j === axis ? n : old)))}
+                onCommitAxis={(axis, n) => replace(i, withAxis(item, editor, axis, n))}
               />
             </div>
             <span class="list-buttons">
@@ -1120,7 +1068,7 @@ function ListInput(props: { field: FieldValue; mixed: boolean; scene: OpenScene;
 /** A copy of a list item, for Add (vectors and colors are live objects; nodes are shared references). */
 function copyItem(item: unknown): unknown {
   if (item instanceof GameObject || item === null || typeof item !== "object") return item;
-  if (item instanceof Quaternion) return roundAngles(item.toEuler().toArray());
+  if (item instanceof Quaternion) return eulerAnglesOf(item);
   if (item instanceof Color) return item.clone();
   if ("toArray" in item) return (item as { toArray(): number[] }).toArray();
   return structuredClone(item);

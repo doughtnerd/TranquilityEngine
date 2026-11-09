@@ -121,6 +121,8 @@ After every wave, before the next one branches, the coordinator:
 
 ## MS0: Merge and kick-off (coordinator)
 
+**The merge is done (2026-11-09):** the design, spikes and this plan reached master by `claude/audio-core-m1-plan-fa7a9f`, and `docs/README.md` was resolved as below. What's left of MS0 is starting H0.
+
 - Merge `claude/fmod-integration-d19dbb` (this plan included) into master and resolve `docs/README.md`: keep master's rows and add 0156 and 0157. Check that `implementation-status.md` still lists both and that no `0148`/`0149` reference to these records survives (`git grep -n "0149-audio\|0148-fmod"`).
 - Start **H0** on day 1 (MS1 wave 1). It gates only MS6.
 

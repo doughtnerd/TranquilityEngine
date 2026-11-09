@@ -14,7 +14,6 @@ import { currentProject, openScene, playState, sceneCamera, select, status } fro
 import { editorTextFiles } from "./textFiles";
 import {
   beginUIEdit,
-  createUIDocument,
   createUIElement,
   cssValue,
   deleteUIElement,
@@ -31,6 +30,7 @@ import {
 } from "./uiDocumentEdits";
 import { fieldSources, resolveUIElement, selectedUIRef, selectUIElement, type UIElementRef } from "./uiDocuments";
 import { getFields } from "../engine/core/registry";
+import { createUIDocument } from "../plugins/ui/editor/uiDocumentAssets";
 
 const ROOT = "C:\\Games\\ui";
 const DT = 1 / 60;

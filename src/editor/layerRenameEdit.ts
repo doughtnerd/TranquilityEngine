@@ -2,7 +2,7 @@
 // Shared by the panel (sorting layers) and the Physics plugin's section (physics layers).
 import { errorStatus } from "./messages";
 import { layerUsers, renameLayerReferences, type LayerKind, type LayerRename } from "./layerRename";
-import { layersOf, renameLayer, renameSortingLayer, sortingLayersOf, type SettingsDraft } from "./projectSettingsModel";
+import type { SettingsDraft } from "./projectSettingsModel";
 import type { EditorProject } from "./projects";
 import { docVersion, status } from "./state";
 import { confirmInEditor } from "./ui/ConfirmDialog";
@@ -28,13 +28,13 @@ export async function updateLayerReferences(project: EditorProject, renames: rea
 
 /**
  * Rename a physics or sorting layer, and the colliders or sprites that name it (ADR 0116). With
- * references to update, ask first. The rename is one undo step of the panel; undoing it also
- * restores the old name in the scenes (the panel's `jump`).
+ * references to update, ask first. `names` are the kind's layers before; `next` is the draft with layer
+ * `index` renamed, made by the section that owns the layers (the Physics plugin's for physics layers).
+ * The rename is one undo step of the panel; undoing it also restores the old name in the scenes (the
+ * Project settings section's `stepped` hook, ADR 0151).
  */
-export async function renameLayerEdit(ctx: LayerRenameContext, kind: LayerKind, draft: SettingsDraft, index: number, name: string): Promise<void> {
-  const names = kind === "physics" ? layersOf(draft) : sortingLayersOf(draft);
+export async function renameLayerEdit(ctx: LayerRenameContext, kind: LayerKind, names: readonly string[], index: number, name: string, next: SettingsDraft): Promise<void> {
   const from = names[index];
-  const next = kind === "physics" ? renameLayer(draft, index, name) : renameSortingLayer(draft, index, name);
   const label = kind === "physics" ? `Rename physics layer to ${name}` : `Rename sorting layer to ${name}`;
   const valid = from !== undefined && name !== "" && name !== from && !names.includes(name);
   const users = valid && ctx.project.canSave ? layerUsers(ctx.project, kind, from) : [];

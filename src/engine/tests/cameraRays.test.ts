@@ -136,7 +136,7 @@ describe("Camera screen points (ADR 0073)", () => {
       reads = 0;
       size = { w: 800, h: 400 };
       tracker = new CanvasCssSize(canvas, FakeObserver as unknown as typeof ResizeObserver);
-      engine.world.render = { canvas, canvasCssSize: () => tracker.get() } as never;
+      engine.world.render = { canvas, pixelGrid: () => ({ ...tracker.get(), pixelRatio: 1 }) } as never;
     });
     afterEach(() => {
       engine.world.render = null;
@@ -186,7 +186,7 @@ describe("Camera screen points (ADR 0073)", () => {
 
     it("reads the canvas every call without ResizeObserver", () => {
       const plain = new CanvasCssSize(canvas, undefined);
-      engine.world.render = { canvas, canvasCssSize: () => plain.get() } as never;
+      engine.world.render = { canvas, pixelGrid: () => ({ ...plain.get(), pixelRatio: 1 }) } as never;
       const cam = camera({});
       size = { w: 100, h: 200 };
       expect(cam.aspect).toBeCloseTo(0.5);

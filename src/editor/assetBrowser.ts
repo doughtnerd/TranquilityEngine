@@ -1,10 +1,8 @@
 // Asset browser logic (ADR 0022): the project's files as a folder tree, search, and the scene
 // nodes that adding an asset creates. No UI here; `ui/Assets.tsx` renders it.
 import { isSidecarPath } from "../engine/scene/importSettings";
-import { assetKind, canAddToScene, sceneNodesOf } from "./assetKindLookup";
-import { logMessage } from "./messages";
+import { assetKind, hasSlices, sceneNodesAt } from "./assetKindLookup";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
-import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
 // The kind of a file and what it can do are the asset kind module's (ADR 0143); re-exported for the
@@ -84,7 +82,7 @@ export function searchFiles(files: readonly string[], query: string): string[] {
 
 /**
  * Search results including slices (ADR 0115): the files `searchFiles` finds, plus a slice entry
- * (`images/a.png#walk_0`) for each slice of an image whose name contains every word. `sliceNames`
+ * (`images/a.png#walk_0`) for each slice of a file (a kind with slices) whose name contains every word. `sliceNames`
  * gives an image's slice names. Sorted by name ("hero" sorts before "hero_walk", so slices named after their image list before it).
  */
 export function searchEntries(files: readonly string[], query: string, sliceNames: (image: string) => readonly string[]): string[] {
@@ -92,7 +90,7 @@ export function searchEntries(files: readonly string[], query: string, sliceName
   if (words.length === 0) return [];
   const out = [...searchFiles(files, query)];
   for (const f of files) {
-    if (assetKind(f) !== "image") continue;
+    if (!hasSlices(assetKind(f))) continue;
     for (const name of sliceNames(f)) if (words.every((w) => name.toLowerCase().includes(w))) out.push(sliceEntry(f, name));
   }
   const key = (e: string) => (isSliceEntry(e) ? splitSliceEntry(e).slice : fileName(e));
@@ -169,25 +167,19 @@ export function spriteNodeEntry(doc: SceneDocument, imagePath: string, position:
   };
 }
 
-/** The cameras a model's drop adds turned off (ADR 0118), for the message saying so. */
-export function disabledModelCameras(entries: readonly NodeEntry[]): number {
-  return entries.filter((e) => e.components?.some((c) => c.type === "engine.Camera" && c.enabled === false)).length;
-}
-
 /** Load what adding these assets needs to know first (a registered kind's `addToScene.prepare`: models' meshes). Never rejects (a model that fails adds as one node). */
 export async function prepareAssets(paths: readonly string[]): Promise<void> {
-  await Promise.all(paths.map((p) => sceneNodesOf(assetKind(p))?.prepare?.(p).catch(() => undefined)));
+  await Promise.all(paths.map((p) => sceneNodesAt(p)?.prepare?.(p).catch(() => undefined)));
 }
 
 /**
- * Why `path` can't be added to the document, or null if it can: assets with no node type, and
- * scenes or prefabs that would end up containing themselves.
+ * Why `path` can't be added to the document, or null if it can: assets with no node type, and what
+ * its kind refuses (`addToScene.whyNot`, ADR 0149: scenes or prefabs that would end up inside themselves).
  */
 export function whyNotAddable(doc: SceneDocument, path: string): string | null {
-  if (!canAddToScene(path)) return "no kind of scene node fits this file";
-  const kind = assetKind(path);
-  if ((kind === "scene" || kind === "prefab") && wouldNest(path, doc.path)) return "it would end up inside itself";
-  return null;
+  const add = sceneNodesAt(path);
+  if (!add) return "no kind of scene node fits this file";
+  return add.whyNot?.(doc, path) ?? null;
 }
 
 export interface AddOptions {
@@ -208,27 +200,23 @@ export function nodeForAsset(doc: SceneDocument, path: string, options: AddOptio
 
 /** Every entry adding `path` makes, from its kind's `addToScene` (ADR 0140, 0143): the root first (`nodeForAsset`), then any descendants (a model's node tree). */
 function sceneEntriesForAsset(doc: SceneDocument, path: string, options: AddOptions): NodeEntry[] {
-  const add = sceneNodesOf(assetKind(path));
+  const add = sceneNodesAt(path);
   if (!add) return [];
   return add.nodes(doc, path, add.keepsOwnPosition && !options.placeInstances ? undefined : options.position);
 }
 
-/** Add an asset to the open scene as one undoable command. Returns the new node's id; throws if it can't be added. */
-export function addAsset(scene: OpenScene, path: string, options: AddOptions = {}): string {
+/**
+ * Add one asset to the scene as one undoable command, with nothing around it: no preparing, no
+ * checks of the scene or play mode, no note. Returns the entries added, the root first; throws if
+ * it can't be added. Editor features add assets through `addAssets` (addAssets.ts, ADR 0149).
+ */
+export function addAssetEntries(scene: OpenScene, path: string, options: AddOptions = {}): NodeEntry[] {
   const reason = whyNotAddable(scene.doc, path);
   const entries = reason ? [] : sceneEntriesForAsset(scene.doc, path, options);
-  const entry = entries[0];
-  if (!entry) throw new Error(reason ?? `"${path}" can't be added to a scene.`);
+  if (!entries[0]) throw new Error(reason ?? `"${path}" can't be added to a scene.`);
   scene.stack.execute(new AddNode(entries, { parent: options.parent ?? null, index: options.index }));
-  const cameras = disabledModelCameras(entries);
-  if (cameras) logMessage("info", `${path}: its ${cameras === 1 ? "camera was" : `${cameras} cameras were`} added with the Camera component turned off, so it doesn't take over the view; enable it to look through it.`);
-  return entry.id;
+  return entries;
 }
 
-/**
- * The asset browser's + button: add under the selection (see `parentForAdd`). Sprites and audio
- * go at `position` (e.g. the scene camera's focus point). Returns the new node's id.
- */
-export function addAssetToScene(scene: OpenScene, path: string, selected: string | null, position: Vec3 = [0, 0, 0]): string {
-  return addAsset(scene, path, { parent: parentForAdd(scene.doc, selected), position });
-}
+/** `addAssetEntries`, returning the new root node's id. */
+export const addAsset = (scene: OpenScene, path: string, options: AddOptions = {}): string => addAssetEntries(scene, path, options)[0]!.id;
