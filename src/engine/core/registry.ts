@@ -78,8 +78,14 @@ export type FieldChoices =
  * - `environment`: what an Environment's `map` takes (HDR/EXR/DDS/`.env` maps, skies, cubemaps, panoramas);
  * - `envmap`: a baked `.env` map; `audio`: sound files; `font`: `.ttf`, `.otf`, `.woff`, `.woff2`;
  * - `navbake`: a baked navigation chunk (`.nav.bin`).
+ *
+ * Any other name is allowed (ADR 0143): a plugin's own asset kind declares the field kinds it
+ * satisfies (`referencedAs` in the editor), so `@field(AssetRef, { kind: "spin" })` offers its files.
  */
-export type AssetFieldKind =
+export type AssetFieldKind = KnownAssetFieldKind | (string & {});
+
+/** The field kinds the engine's own Components use (ADR 0131). */
+export type KnownAssetFieldKind =
   | "model"
   | "mesh"
   | "material"
@@ -99,8 +105,8 @@ export type AssetFieldKind =
   | "scene"
   | "prefab";
 
-/** Every `AssetFieldKind`, in declaration order. */
-export const ASSET_FIELD_KINDS: readonly AssetFieldKind[] = [
+/** Every known field kind (`KnownAssetFieldKind`), in declaration order. */
+export const ASSET_FIELD_KINDS: readonly KnownAssetFieldKind[] = [
   "model", "mesh", "material", "texture", "sprite", "rendertexture", "audio", "particles", "formation",
   "lut", "environment", "envmap", "tileset", "font", "uidocument", "navbake", "scene", "prefab",
 ];
