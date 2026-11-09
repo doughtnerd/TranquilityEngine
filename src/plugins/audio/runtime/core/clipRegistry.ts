@@ -57,8 +57,44 @@ export interface ClipRegistry {
   residentIds(): readonly number[];
 }
 
-/** A1.3a fills this: the registry on a host's link to the core. A1.3a may add parameters (the link, the preset);
- * other code gets the registry from the host, never by calling this. */
-export function createClipRegistry(): ClipRegistry {
+/** The decoded clip the loader hands the registry (`decodeAudioData`'s result, planar). */
+export interface DecodedClip {
+  readonly frames: number;
+  readonly channels: number;
+  readonly sampleRate: number;
+  /** One Float32Array per channel, each `frames` long. */
+  readonly channelData: readonly Float32Array[];
+}
+
+/**
+ * What the registry needs from its host. Every field is optional so `createClipRegistry()` still compiles in A1.4's
+ * code; the host (A1.4's coreBackend) passes the real ones. A1.3a's own tests pass fakes.
+ */
+export interface ClipRegistryDeps {
+  /** Posts one CLIP_BEGIN / CLIP_CHUNK / CLIP_UNLOAD message (one ArrayBuffer, transferred) to the core. */
+  send?: (message: ArrayBuffer) => void;
+  /** Fetches the asset's encoded bytes (default: `fetch` of the project asset URL). Rejects on failure. */
+  fetchBytes?: (path: string) => Promise<ArrayBuffer>;
+  /** Decodes encoded bytes on main (default: `decodeClip` in `loader.ts` on the host's context). */
+  decode?: (encoded: ArrayBuffer) => Promise<DecodedClip>;
+  /** Wire `ClipFormat` for ordinary clips: 0 f32 or 1 i16 (default 1, architecture section 5: i16 halves arena use). */
+  clipFormat?: number;
+  /** The `clipMemoryMB` ceiling in bytes, for the registry's own accounting (default `DEFAULT_CLIP_CEILING_MB`). */
+  ceilingBytes?: number;
+  /** The single warning on a failed clip (default `console.warn`). */
+  warn?: (message: string) => void;
+  /** Runs `callback` one frame later (unload deferral; default `requestAnimationFrame`, else a 16 ms timeout). */
+  nextFrame?: (callback: () => void) => void;
+  /** Runs `callback` about one core quantum later (chunk pacing; default `setTimeout(callback, 0)`). */
+  nextQuantum?: (callback: () => void) => void;
+  /** Encoded-bytes cache cap (default 32 MB, api-and-models section 3). */
+  encodedCapBytes?: number;
+}
+
+/** Ids: index in the low 24 bits, an 8-bit generation in the high bits; 0xFFFF0000..0xFFFF00FF is never handed out. */
+export const CLIP_INDEX_BITS = 24;
+
+/** A1.3a fills this: the registry on a host's link to the core. Other code gets the registry from the host. */
+export function createClipRegistry(_deps: ClipRegistryDeps = {}): ClipRegistry {
   throw new Error("not implemented: A1.3a (createClipRegistry)");
 }
