@@ -127,7 +127,7 @@ let coreFactory: (() => AudioBackend) | null = null;
 let warnedCore = false;
 let coreUnavailableReason: string | null = null;
 
-/** Register how the `"babylon"` backend is made (the Howler backend does this on import, until BB2 replaces it). */
+/** Register how the `"babylon"` backend is made (`BabylonBackend` does this on import, from `AudioSource.ts`). */
 export function registerDefaultBackend(make: () => AudioBackend): void {
   factory = make;
 }
@@ -160,7 +160,7 @@ export function resetCoreFallbackState(): void {
 }
 
 /**
- * K3: which backend `audio.backend` picks. `"babylon"` is the default backend (Howler until BB2); `"core"`
+ * K3: which backend `audio.backend` picks. `"babylon"` is the default backend (`BabylonBackend`, Babylon's AudioEngineV2); `"core"`
  * is the core. The settings parse reports pre-0157 values as problems and uses `"babylon"`.
  */
 export function resolveBackendKind(configured: AudioSettings["backend"]): "babylon" | "core" {

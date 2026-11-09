@@ -1,10 +1,10 @@
 /**
- * Audio (ADR 0006, 0074, 0097, 0098). Playback goes through an audio backend (Howler by default, which
- * handles format fallback and unlocking audio after the first user gesture) and the project's mixer buses.
+ * Audio (ADR 0006, 0074, 0097, 0098). Playback goes through an audio backend (Babylon's AudioEngineV2 by default,
+ * the core when `audio.backend` says so; the host unlocks audio after the first user gesture) and the project's mixer buses.
  * Game code never sees the backend library. Only the World that has the view plays sound.
  */
 import { mixer } from "../../../engine/audio/mixer";
-import "../../../engine/audio/howlerBackend"; // registers the "babylon" backend, Howler until BB2 (ADR 0098, K3)
+import "./babylonBackend"; // registers the "babylon" backend: Babylon's AudioEngineV2 (ADR 0098, 0157 K3)
 import { Component } from "../../../engine/core/Component";
 import { AssetRef, component, field } from "../../../engine/core/registry";
 import type { World } from "../../../engine/core/World";

@@ -1,6 +1,7 @@
 // ADR 0075: Babylon.js is imported module by module (never the "@babylonjs/core" barrel, which
 // bundles the whole library), and only inside the Babylon backend, so it stays out of the public
-// API (ADR 0010) and a page loads it only when it draws. Tests may import it to drive the backend
+// API (ADR 0010) and a page loads it only when it draws. The audio fallback (ADR 0157 BB1) is the one
+// other place: `babylonBackend.ts` imports AudioV2 modules. Tests may import it to drive the backend
 // headless.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -30,8 +31,16 @@ describe("Babylon.js imports (ADR 0075)", () => {
   });
 
   it("imports Babylon only inside the Babylon backend (and its tests)", () => {
-    const outside = imports.filter((i) => !i.file.startsWith("engine/render/babylon/") && !i.file.startsWith("engine/tests/"));
+    const allowed = (file: string) =>
+      file.startsWith("engine/render/babylon/") || file.startsWith("engine/tests/") || file === "plugins/audio/runtime/babylonBackend.ts" || (file.startsWith("plugins/audio/") && file.endsWith(".test.ts"));
+    const outside = imports.filter((i) => !allowed(i.file));
     expect(outside).toEqual([]);
+  });
+
+  it("keeps the audio fallback to the AudioV2 modules", () => {
+    const audio = imports.filter((i) => i.file === "plugins/audio/runtime/babylonBackend.ts");
+    expect(audio.length).toBeGreaterThan(0);
+    expect(audio.filter((i) => !i.specifier.startsWith("@babylonjs/core/AudioV2/"))).toEqual([]);
   });
 
   it("finds the backend's imports (the scan works)", () => {

@@ -1,7 +1,6 @@
 // A1.6 L2: one case per row of api-and-models §1 (K10). Request-shaped rows use the fake backend; handle, locked,
 // clock and status rows use a real `CoreBackend` on a recording port (the rig below, copied from coreBackend.test.ts);
-// the default-backend row runs the Howler backend on a mocked "howler".
-import { Howl } from "howler";
+// the default-backend row runs the Babylon backend on a mocked AudioV2 engine and a stand-in AudioContext.
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { Assets, Engine, GameObject, SceneManager, Time } from "../../../myco";
 import * as myco from "../../../myco";
@@ -14,8 +13,11 @@ import { CoreBackend, type CoreBackendHost } from "./core/coreBackend";
 import { makeStatusBlock } from "./core/mirror";
 import { _resetHandleWarningsForTests } from "./core/handle";
 import { setAudioBackend } from "./backend";
+import { babylonMock, makeFakeContext } from "../testing/babylonMocks";
 import { makeFakeBackend } from "./testing";
 import { Audio, AudioListener, AudioSource } from "./index";
+
+vi.mock("@babylonjs/core/AudioV2/webAudio/webAudioEngine", async () => (await import("../testing/babylonMocks")).webAudioEngineModule);
 
 // --- The core rig (copied from coreBackend.test.ts; not exported from there) --------------------------------------
 
@@ -175,6 +177,8 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  setAudioBackend(null);
 });
 
 describe("Audio public surface (api-and-models §1)", () => {
@@ -492,16 +496,22 @@ describe("Audio public surface (api-and-models §1)", () => {
       expect(info).toEqual(spy.mock.results[0]!.value);
     });
 
-    it("the default backend gives status running, handle reason null and a debug with an empty voice list", () => {
-      // Unset the test backend: the next audioBackend() builds the default (Howler) one.
+    it("the default backend gives status running, handle reason null and a debug with an empty voice list", async () => {
+      // Unset the test backend: the next audioBackend() builds the default (Babylon) one, on a stand-in context.
       setAudioBackend(null);
-      // The setup may have loaded the real Howler before this file's mock applied, so stand in for what it needs.
-      vi.spyOn(Howl.prototype, "playing").mockReturnValue(true);
+      babylonMock.reset();
+      vi.stubGlobal("AudioContext", class { constructor() { return makeFakeContext("running"); } });
       expect(Audio.status).toBe("running");
       const h = Audio.playOneShot("asset:a.wav");
       expect(h.playing).toBe(true);
       expect(h.reason).toBeNull();
       expect(Audio.debug().voices).toEqual([]);
+      expect(Audio.debug().core).toMatchObject({ backend: "babylon" });
+      // The sound reaches the mocked Babylon engine and plays.
+      for (let i = 0; i < 5; i++) await new Promise<void>((r) => setTimeout(r, 0));
+      expect(babylonMock.sounds).toHaveLength(1);
+      expect(babylonMock.sounds[0]!.plays).toHaveLength(1);
+      expect(h.playing).toBe(true);
     });
   });
 
