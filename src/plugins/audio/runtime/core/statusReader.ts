@@ -3,20 +3,177 @@
 // and items, for every message; #66). The same checks and errors as `readStatus` (`WireError`s with codes), the
 // same field offsets. The block it returns is the reader's own and is overwritten by the next `read`: consumers
 // (the mirror, in `onmessage`) use it before returning.
-import type { StatusBlock } from "../wire.generated";
+import {
+  ErrorCode,
+  Kind,
+  MAGIC,
+  VERSION_MAJOR,
+  WireError,
+  type StatusBlock,
+  type StatusClipEventsItem,
+  type StatusPeaksItem,
+  type StatusPlayheadsItem,
+  type StatusStreamEventsItem,
+} from "../wire.generated";
+
+const HEADER = 112;
+const MAX_ENDED = 1024;
+const MAX_PLAYHEADS = 256;
+const MAX_EVENTS = 64;
+const MAX_PEAKS = 32;
 
 export class StatusReader {
   /** The reused block. Its section arrays keep their capacity between reads; `length` is set per read. */
   readonly block: StatusBlock;
 
+  private readonly playheadItems: StatusPlayheadsItem[] = [];
+  private readonly clipItems: StatusClipEventsItem[] = [];
+  private readonly streamItems: StatusStreamEventsItem[] = [];
+  private readonly peakItems: StatusPeaksItem[] = [];
+
   constructor() {
-    this.block = undefined as unknown as StatusBlock;
-    throw new Error("not implemented: A1.4 (StatusReader)");
+    for (let i = 0; i < MAX_PLAYHEADS; i++) this.playheadItems.push({ id: 0, clipFrame: 0 });
+    for (let i = 0; i < MAX_EVENTS; i++) this.clipItems.push({ clipId: 0, code: 0 });
+    for (let i = 0; i < MAX_EVENTS; i++) this.streamItems.push({ id: 0, code: 0 });
+    for (let i = 0; i < MAX_PEAKS; i++) this.peakItems.push({ l: 0, r: 0 });
+    this.block = {
+      currentFrame: 0,
+      dateMs: 0,
+      pingSeq: 0,
+      pingFrameLo: 0,
+      underruns: 0,
+      lateCommands: 0,
+      workUnits: 0,
+      workUnitsMax: 0,
+      mixedVoices: 0,
+      liveVoices: 0,
+      flags: 0,
+      mixedCap: 0,
+      loadPermille: 0,
+      traps: 0,
+      minSlackFrames: 0,
+      underrunFrames: 0,
+      arenaUsedKB: 0,
+      arenaLargestFreeKB: 0,
+      abiVersion: 0,
+      maxLatenessFrames: 0,
+      hrtfVoices: 0,
+      hrtfLoadFailure: 0,
+      ended: [],
+      demoted: [],
+      starved: [],
+      playheads: [],
+      clipEvents: [],
+      streamEvents: [],
+      peaks: [],
+    };
+    // Warm the id arrays to full size once, so later reads only set `length` and indices.
+    for (const list of [this.block.ended, this.block.demoted, this.block.starved]) {
+      for (let i = 0; i < MAX_ENDED; i++) list.push(0);
+      list.length = 0;
+    }
   }
 
   /** Decodes `buffer` (envelope first) into `block` and returns it. Throws `WireError` as `readStatus` does. */
   read(buffer: ArrayBuffer | ArrayBufferView): StatusBlock {
-    void buffer;
-    throw new Error("not implemented: A1.4 (StatusReader.read)");
+    const view = buffer instanceof ArrayBuffer ? new DataView(buffer) : new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    if (HEADER > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
+    if (view.getUint32(0, true) !== MAGIC) throw new WireError(ErrorCode.BAD_MAGIC, "STATUS: bad magic");
+    if (view.getUint16(4, true) >> 8 !== VERSION_MAJOR) throw new WireError(ErrorCode.VERSION_MISMATCH, "STATUS: version mismatch");
+    if (view.getUint16(6, true) !== Kind.STATUS) throw new WireError(ErrorCode.MALFORMED, "STATUS: wrong kind");
+    const limit = 16 + view.getUint32(12, true);
+    if (limit > view.byteLength || limit < HEADER) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
+
+    const endedCount = view.getUint16(64, true);
+    const demotedCount = view.getUint16(66, true);
+    const starvedCount = view.getUint16(68, true);
+    const playheadCount = view.getUint16(70, true);
+    const busCount = view.getUint16(72, true);
+    const clipEventCount = view.getUint16(74, true);
+    const streamEventCount = view.getUint16(76, true);
+    // Validate every section before touching the block, so a refused message leaves it as it was.
+    let cur = HEADER;
+    if (endedCount > MAX_ENDED || endedCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: ended overrun");
+    cur += endedCount * 4;
+    if (demotedCount > MAX_ENDED || demotedCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: demoted overrun");
+    cur += demotedCount * 4;
+    if (starvedCount > MAX_ENDED || starvedCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: starved overrun");
+    cur += starvedCount * 4;
+    if (playheadCount > MAX_PLAYHEADS || playheadCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: playheads overrun");
+    cur += playheadCount * 8;
+    if (clipEventCount > MAX_EVENTS || clipEventCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: clipEvents overrun");
+    cur += clipEventCount * 8;
+    if (streamEventCount > MAX_EVENTS || streamEventCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: streamEvents overrun");
+    cur += streamEventCount * 8;
+    if (busCount > MAX_PEAKS || busCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: peaks overrun");
+
+    const b = this.block;
+    b.currentFrame = view.getFloat64(16, true);
+    b.dateMs = view.getFloat64(24, true);
+    b.pingSeq = view.getUint32(32, true);
+    b.pingFrameLo = view.getUint32(36, true);
+    b.underruns = view.getUint32(40, true);
+    b.lateCommands = view.getUint32(44, true);
+    b.workUnits = view.getUint32(48, true);
+    b.workUnitsMax = view.getUint32(52, true);
+    b.mixedVoices = view.getUint16(56, true);
+    b.liveVoices = view.getUint16(58, true);
+    b.flags = view.getUint32(60, true);
+    b.mixedCap = view.getUint16(78, true);
+    b.loadPermille = view.getUint16(80, true);
+    b.traps = view.getUint16(82, true);
+    b.minSlackFrames = view.getInt32(84, true);
+    b.underrunFrames = view.getUint32(88, true);
+    b.arenaUsedKB = view.getUint32(92, true);
+    b.arenaLargestFreeKB = view.getUint32(96, true);
+    b.abiVersion = view.getUint32(100, true);
+    b.maxLatenessFrames = view.getUint32(104, true);
+    b.hrtfVoices = view.getUint16(108, true);
+    b.hrtfLoadFailure = view.getUint16(110, true);
+
+    cur = HEADER;
+    cur = this.ids(view, cur, endedCount, b.ended);
+    cur = this.ids(view, cur, demotedCount, b.demoted);
+    cur = this.ids(view, cur, starvedCount, b.starved);
+    const playheads = b.playheads;
+    for (let i = 0; i < playheadCount; i++, cur += 8) {
+      const item = this.playheadItems[i]!;
+      item.id = view.getUint32(cur, true);
+      item.clipFrame = view.getUint32(cur + 4, true);
+      playheads[i] = item;
+    }
+    playheads.length = playheadCount;
+    const clipEvents = b.clipEvents;
+    for (let i = 0; i < clipEventCount; i++, cur += 8) {
+      const item = this.clipItems[i]!;
+      item.clipId = view.getUint32(cur, true);
+      item.code = view.getUint32(cur + 4, true);
+      clipEvents[i] = item;
+    }
+    clipEvents.length = clipEventCount;
+    const streamEvents = b.streamEvents;
+    for (let i = 0; i < streamEventCount; i++, cur += 8) {
+      const item = this.streamItems[i]!;
+      item.id = view.getUint32(cur, true);
+      item.code = view.getUint32(cur + 4, true);
+      streamEvents[i] = item;
+    }
+    streamEvents.length = streamEventCount;
+    const peaks = b.peaks;
+    for (let i = 0; i < busCount; i++, cur += 8) {
+      const item = this.peakItems[i]!;
+      item.l = view.getFloat32(cur, true);
+      item.r = view.getFloat32(cur + 4, true);
+      peaks[i] = item;
+    }
+    peaks.length = busCount;
+    return b;
+  }
+
+  private ids(view: DataView, at: number, count: number, out: number[]): number {
+    let cur = at;
+    for (let i = 0; i < count; i++, cur += 4) out[i] = view.getUint32(cur, true);
+    out.length = count;
+    return cur;
   }
 }

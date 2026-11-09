@@ -58,6 +58,11 @@ export class CoreLink {
   readonly ready: Promise<void>;
   /** Whether `ready` settled, and how. */
   readyState: "pending" | "ready" | "failed" = "pending";
+  /**
+   * How STATUS buffers are decoded. `readStatus` builds a new block per message; A1.4's `coreBackend` swaps in a
+   * `StatusReader` that fills one preallocated block (the block is then reused: listeners must not keep it).
+   */
+  statusDecoder: (buffer: ArrayBuffer) => StatusBlock = readStatus;
 
   private seq = 0;
   private pingSeq = 0;
@@ -125,7 +130,7 @@ export class CoreLink {
       }
       let status: StatusBlock | null = null;
       try {
-        status = readStatus(data);
+        status = this.statusDecoder(data);
       } catch {
         // A block we can't read still goes back, or the shell's pool shrinks.
       }
@@ -151,10 +156,16 @@ export class CoreLink {
     for (const listener of this.statusListeners) listener(status);
   }
 
-  private nextSeq(): number {
+  /** The envelope `seq` for the next message (per sender, on this one port, wraps). BATCHes and clip messages share it. */
+  nextSeq(): number {
     const seq = this.seq;
     this.seq = (this.seq + 1) >>> 0;
     return seq;
+  }
+
+  /** Posts a finished message (BATCH, CLIP_BEGIN, CLIP_CHUNK, CLIP_UNLOAD, ...), transferring the buffer. */
+  post(buffer: ArrayBuffer): void {
+    this.port.postMessage(buffer, [buffer]);
   }
 
   /** Stops listening to the port. */
