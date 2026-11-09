@@ -1,6 +1,6 @@
 # 0149. Audio runs on an engine-owned Rust core in an AudioWorklet, replacing Howler
 
-- **Status:** Accepted (revision 2, after the RFC round in `docs/rfc/0149/`)
+- **Status:** Accepted (revision 3: refined by the approved technical design in `docs/design/0149-audio-core/`; see "Revision 3" at the end. Revision 2 followed the RFC round in `docs/rfc/0149/`)
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0006, 0099
@@ -90,7 +90,7 @@ Audio becomes a **first-party plugin**, as 0133 already lists it:
   - owns playheads, voice lifetime, buses, effects and the clock;
   - renders one quantum per call;
   - never allocates inside `process()`.
-- **Status channel (audio → main).** At most once per frame, the worklet posts a compact status block:
+- **Status channel (audio → main).** Every 6 quanta (every 48 once frames stop arriving), the worklet posts a compact status block, and the host returns each buffer as soon as it has read it:
   - ended voice ids;
   - playheads, for voices that asked for them;
   - stolen and starved voices;
@@ -104,7 +104,7 @@ Audio becomes a **first-party plugin**, as 0133 already lists it:
   - **Voice ids are index + generation**, so a script handle held after its voice is reused becomes a no-op.
   - **Transport:** postMessage with transferable buffers, recycled by sending them back. When the page is cross-origin isolated, a SAB ring carries the same format.
   - Nothing ever waits on a reply.
-- **Clock.** Commands carry an **audio-frame timestamp**. The main thread maps game time to audio frames from `getOutputTimestamp()`/`currentTime` plus a scheduling lookahead of two frames. A late command runs at once and is counted. `Audio.time` is seconds on the audio clock, separate from game time, which pauses and scales.
+- **Clock.** Commands carry an **audio-frame timestamp**. The main thread maps game time to audio frames from `getOutputTimestamp()`/`currentTime`. Plays without `at` are flagged *asap* and apply at the first quantum after they arrive. Only stamped records (`at`, synchronised starts, replays) use a lookahead of clamp(2 frames, 8 quanta, 100 ms). A late stamped command runs at once and is counted. `Audio.time` is seconds on the audio clock, separate from game time, which pauses and scales.
 - **Clip memory.** The worklet's wasm memory is private, so clip PCM is copied into it.
   - It goes into a **reserved, pooled clip arena**.
   - Copies arrive in chunks, under a per-quantum byte budget of 256 KB.
@@ -124,10 +124,10 @@ Audio becomes a **first-party plugin**, as 0133 already lists it:
 
 | Failure | Handling |
 |---|---|
-| Before the first user gesture | The plugin's **unlock layer** (new in M1; Howler did this) listens for the first `pointerdown` or `keydown` and creates or resumes the context, then the core loads. Until then `play()` calls queue, at most 32 and for at most 1 s; older ones are dropped. `Audio.status` reads `locked`. |
-| Wasm trap or panic in `process()` | `panic = "abort"`. On `processorerror` the plugin recreates the node and core and replays from the main-thread voice table, at most 3 times a minute, then stays silent with `Audio.status = "failed"` and one warning. |
-| Core fails to load | One warning; silent with `Audio.status = "failed"`. During M1 the Howler backend remains selectable as the fallback. |
-| Device change, sample-rate change, `interrupted` (WebKit) | On `statechange` and `devicechange`, rebuild the context and replay. |
+| Before the first user gesture | The plugin's **unlock layer** (new in M1; Howler did this) listens for the first `pointerdown` or `keydown` and creates or resumes the context, then the core loads. Until then one-shots queue, at most 32 and for at most 1 s, and older ones are dropped. `AudioSource`-owned and looping voices wait for unlock with no timeout. `Audio.status` reads `locked`. |
+| Wasm trap or panic in `process()` | `panic = "abort"`. The shell catches the trap (or `processorerror` fires); the plugin performs a **hard rebuild**: a new node and core in the same context, a chunked REPLAY from the main-thread voice table, and clips re-sent from the main-side registry. At most 3 times a minute, then it stays silent with `Audio.status = "failed"` and one warning (no switch of backend mid-session). |
+| Core fails to load (no AudioWorklet or `simd128`, fetch, compile or ABI failure, no first STATUS in 5 s) | One warning, then an **automatic switch to the Babylon fallback backend** (basic playback, no effects, no priority), which stays after M1 for engines that can't run the core. |
+| Device change, sample-rate change, `interrupted` (WebKit) | `interrupted`: resume, retried for 2 s. A rebuild and replay only when the context is closed, stalls for 1 s or can't resume; `devicechange` alone doesn't rebuild, since browsers follow the default output themselves. |
 | Tab hidden, Tauri window minimised | Frame batches stop, so the core finishes every ramp at its target and keeps streams pull-driven. A project setting chooses mute, pause or keep playing in the background (default: mute). |
 | Underruns, late commands | Counted from `currentFrame` against `Date.now()`, and shown in `Audio.debug()` and the editor from M1. |
 | Decode error, truncated stream | The decoder posts a typed error; the voice fades out; one warning names the asset. |
@@ -136,7 +136,7 @@ Audio becomes a **first-party plugin**, as 0133 already lists it:
 
 ### Public API at M1
 
-Every existing call keeps working: `AudioSource`, `AudioListener`, `Audio.playOneShot`, `Audio.bus`, `Audio.snapshot`, `Audio.volume`, `Audio.muted`. The samples (`samples/flappy`, `samples/pirates`) running unchanged is an acceptance test. Additions are all optional with defaults, so no project needs migrating:
+Every existing call keeps working: `AudioSource`, `AudioListener`, `Audio.playOneShot`, `Audio.bus`, `Audio.snapshot`, `Audio.masterVolume` (with `Audio.volume` added as an alias), `Audio.muted`. The samples (`samples/flappy`, `samples/pirates`) running unchanged is an acceptance test. Additions are all optional with defaults, so no project needs migrating:
 
 | Addition | Default |
 |---|---|
@@ -157,13 +157,15 @@ A handle's `reason` says why a sound isn't audible: `virtual`, `stolen`, `busMut
 | What | Before | After |
 |---|---|---|
 | `stream` import setting (0040) | HTML5 audio: no effects, no spatial, bus gain only | M1b: decoded incrementally on the worker. Routable, spatial and gapless; the warning is removed |
-| Effects (0097) | Web Audio biquad, compressor and convolver | The core's own. Same parameters; the sound matches within a tolerance in dB, not bit for bit |
-| `audio.backend` | `"howler"` or `"fmod"` | During M1: `"howler"` (default) or `"core"`. After M1: ignored with a warning |
-| Sounds before the first gesture | Queued by Howler | Queued (32, 1 s), then dropped |
+| Effects (0097) | Web Audio biquad, compressor and convolver | Ported from Chromium's Web Audio code, so they match by construction (to float rounding) |
+| Spatial panning (0074) | Web Audio HRTF panner | A port of Chromium's HRTF panner for the nearest 16 spatial voices (`audio.voices.hrtf`), equal-power for the rest; `audio.spatial: "equalPower"` turns it off. If no HRIR data licence clears, equal-power everywhere |
+| A World that loses the view | its voices keep sounding | its voices go virtual (silent, keeping time) |
+| `audio.backend` | `"howler"` or `"fmod"` | `"babylon"` or `"core"`; `"babylon"` is the default until M1b passes. Old `"howler"` maps to `"babylon"`, and `"fmod"` to the default, each with a warning |
+| Sounds before the first gesture | Queued by Howler | One-shots queued (32, 1 s), then dropped; `AudioSource`-owned and looping sounds start on unlock |
 
 ### M1 iterations
 
-Estimates are for one engineer who knows the repo and Rust, from the senior engineer's review. Plan 16–18 person-weeks for browser and Tauri quirks.
+The iterations below are the RFC-round sketch. The approved plan is the task table in `docs/design/0149-audio-core/api-and-models.md` §9: **155 person-days (about 31 person-weeks) including a 10% reserve**, roughly 15–17 calendar weeks with one senior, two mid-level and one junior engineer. It grew from the sketch's 16–18 weeks with the platform checks, the two-Engine lifecycle, the parity harness, crash recovery, the metered CI build, HRTF in M1 and the Babylon backend.
 
 | Iteration | Content | Weeks |
 |---|---|---|
@@ -172,9 +174,9 @@ Estimates are for one engineer who knows the repo and Rust, from the senior engi
 | M1a.2 | 0097 buses, solo, mute, snapshots, ducking, effects; bus meters; `Audio.debug()` | 2.5 |
 | M1a.3 | Virtual voices, priority, bus limits, clock and `at`, adaptive voice cap | 1.5 |
 | M1b | Decoder worker (symphonia), clip arena, streaming, seek, gapless loops; `decodeAudioData` removed | 3 |
-| M1c | Golden tests, benchmarks, sound-lab and stress samples, docs, soak gate, then Howler, FMOD and `busGraph.ts` deleted | 2 |
+| M1c | Golden tests, the metered CI benchmark, sound-lab and stress samples, docs, soak gate | 2 |
 
-M1a ships behind `audio.backend: "core"`, replacing `"fmod"` as the second backend through 0098's seam. The default flips to `"core"` once M1b passes. Howler is deleted one release after that, and only once the soak gate passes.
+M1a ships behind `audio.backend: "core"`. The **Babylon backend** (Babylon's AudioEngineV2, internal behind 0098, never public per 0010) replaces Howler as the other backend, and Howler is deleted when it lands. The default flips to `"core"` once M1b passes; Babylon remains the automatic fallback for engines that can't load the core.
 
 ### Gates
 
@@ -183,7 +185,7 @@ M1a ships behind `audio.backend: "core"`, replacing `"fmod"` as the second backe
 - Linux on WebKitGTK;
 - one low-end machine (a 4-core laptop CPU on battery).
 
-macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, not for deleting Howler, and until it passes macOS desktop builds keep the Howler backend.
+macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, and until it passes macOS desktop builds default to the Babylon backend.
 
 **Performance budgets.**
 - **Re-measured first.** In M1a.3, with real content: a 4-point (or windowed-sinc) resampler and at least 64 MB of distinct clip data. The table below is then frozen.
@@ -202,7 +204,7 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, n
   - command batch ≤ 0.1 ms;
   - voice bookkeeping ≤ 0.25 ms;
   - later, occlusion ≤ 6% of a frame.
-- **CI benchmarks count work units** (instruction-count style, deterministic), not wall time. A rise of more than 10% fails the build.
+- **CI benchmarks count instructions** with a metered test build of the wasm (landing in M1c; benchmarks before that are informational), not wall time. A rise of more than 10% fails the build.
 
 **Sizes** (lazy, never loaded by servers):
 - mixer core ≤ 150 KB;
@@ -257,7 +259,7 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, n
   - Editor authoring in the plugin's editor half.
   - The curve format is shared with the planned animation system and is not frozen here.
 - **M3: spatial.**
-  - HRTF (SADIE II, Apache-2.0) for the nearest voices; a 3rd-order ambisonic bed for the rest.
+  - A 3rd-order ambisonic bed for distant voices (per-voice HRTF moved into M1).
   - Occlusion through physics ray queries under a frame-share budget.
   - Reverb zones; non-uniform convolution; Doppler.
 - **M4: interactive music.**
@@ -279,6 +281,7 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, n
     - deterministic headless tests;
     - a native path.
   - Doing M1 on Web Audio would build the bus graph twice.
+- **Babylon's AudioEngineV2 as the main engine.** It's already in the bundle and covers playback, buses, spatial and unlock: parity in weeks, not months. But it has no effects, voice management, events or diagnostics, and runs on browser nodes that differ per engine, so the goal would still need a core later. It's kept as the fallback backend instead (revision 3).
 - **Adopt Firewheel or Kira.** Their web backends need nightly Rust, threads and COOP/COEP, or run on the main thread. We'll borrow their designs: Firewheel's node and parameter model, Kira's clocks and tweens.
 - **C/C++ (miniaudio, SoLoud) through Emscripten.** It works, but adds a second native toolchain beside navigation's Rust.
 - **Native audio only, in Tauri.** Desktop only. IPC round trips of 1.3 ms, with 10–30 ms outliers, rule out frame-accurate sync, and web builds would need a second engine.
@@ -290,10 +293,10 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, n
 - A reason to choose the engine: priority and virtual voices, a sample-accurate clock and routable streaming at M1, then events, HRTF, occlusion, interactive music and live mixing, with no licence, on web and desktop.
 - Audio leaves the main thread; game-frame hitches don't glitch audio, and streams survive main-thread stalls.
 - Deterministic output, testable headless in Node and `cargo test`.
-- Howler stays available until the soak gate passes, so there's always a way back during M1.
+- The Babylon backend gives a way back during M1, and basic sound on engines that can't run the core afterwards.
 
 **Negative / costs**
-- 16–18 person-weeks for M1 alone. M2–M5 are each a project; the authoring UI is likely bigger than the DSP.
+- About 31 person-weeks (155 person-days with reserve) for M1 alone, per the approved design. M2–M5 are each a project; the authoring UI is likely bigger than the DSP.
 - We own DSP quality. Every effect and preset needs a listening pass by someone with the ear for it (open question).
 - Audio contributors need Rust; the committed wasm keeps everyone else Rust-free, as with navigation.
 - Browser output latency stays ~50 ms.
@@ -301,10 +304,10 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, n
 
 ## Deprecates
 
-- **0006** is superseded. Howler and `howlerBackend.ts` are deleted in M1c, one release after the default flips, once the soak gate passes.
+- **0006** is superseded. Howler, `howlerBackend.ts` and the `howler` dependency are deleted when the Babylon backend lands (design task BB2).
 - **0099** is superseded. In M1a, `fmodBackend.ts`, `tests/fmodBackend.test.ts`, `docs/guide/fmod.md` and the `"fmod"` backend value are removed, along with the FMOD wiring in `Engine.ts:13,177`.
 - **0148** is withdrawn and never built.
-- **0074, 0097, 0098** are amended (header). 0097's `busGraph.ts` is deleted in M1c. `implementation-status.md` rows and the decisions index are updated when this record is accepted.
+- **0074, 0097, 0098** are amended (header). 0097's `busGraph.ts` moves to a test-only Web Audio reference for the parity harness. `implementation-status.md` rows and the decisions index are updated when this record is accepted.
 
 ## Open questions
 
@@ -349,3 +352,22 @@ Reviews by an architect, a senior engineer and a mid-level engineer are in `docs
 - `docs/rfc/0149/architect.md`, `senior-engineer.md`, `mid-junior-engineer.md`.
 - 0074, 0097, 0098 (the API and model kept); 0065 (the Rust → wasm pattern); 0133 (plugins); 0040 (`stream`).
 - symphonia https://github.com/pdeljanov/Symphonia; SADIE II https://www.york.ac.uk/sadie-project/database.html; Firewheel https://github.com/BillyDM/Firewheel; Kira https://github.com/tesselode/kira.
+
+## Revision 3 (2026-11-09): refinements from the approved technical design
+
+The technical design in `docs/design/0149-audio-core/` (an architect's and a senior engineer's documents, two review rounds, coordinator review), approved by the owner, refined this record. The decision is unchanged: an engine-owned Rust core in an AudioWorklet, M1 first. What changed:
+
+- **Fallback backend:** Babylon's AudioEngineV2 replaces Howler. It's chosen automatically when the core can't load, and kept after M1 for such engines. A core that loads and then exhausts its recoveries stays silent.
+- **Reused code:**
+  - ported from Chromium's Web Audio code (BSD, notices kept, listed in `native/audio/PORTS.md` and `THIRD_PARTY_NOTICES.md`): biquad, dynamics compressor, staged convolver, HRTF panner, equal-power panner, distance and cone;
+  - **microfft** (MIT) as the FFT; 14 KB of wasm for the sizes we need;
+  - designs borrowed from Kira, Firewheel and SoLoud.
+- **HRTF moves into M1:** a port of Chromium's HRTF panner with its Composite HRIR data, for the nearest 16 spatial voices, so 3D sound keeps today's character. It's gated on clearing the data's licence first; the fallbacks are SADIE II data with the same code, or equal-power.
+- **Clock:** plays apply *asap*; only stamped records use the lookahead.
+- **Status:** every 6 quanta, not once per frame.
+- **Recovery:** a hard rebuild with a chunked REPLAY. The worklet's memory is imported and initialised deterministically, so a soft recovery can be added later without an ABI change.
+- **Pre-unlock queue:** one-shots only; owned and looping voices wait.
+- **New settings:** `audio.clipMemoryMB`, `audio.clipFormat`, `audio.spatial`, `audio.voices.hrtf`.
+- **Behaviour changes added:** a World that loses the view goes virtual; effects match by construction.
+- **Estimate:** 155 person-days (about 31 person-weeks) with reserve, replacing 16–18 weeks.
+- **Still open:** who runs the manual listening pass, and the low-end soak machine.
