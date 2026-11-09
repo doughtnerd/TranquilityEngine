@@ -27,10 +27,44 @@ export interface HostClock {
   readonly fake: boolean;
 }
 
-/** A0.3/A1.7: the clock over a real AudioContext. A1.7 fills the body. */
+/** How long (ms) the frame sampler keeps itself alive after the last `rafTime()` call. */
+const RAF_IDLE_MS = 1_000;
+
+/** A0.3/A1.7: the clock over a real AudioContext (architecture §4.6). `rafTime()` samples `requestAnimationFrame` while it's being called. */
 export function browserHostClock(context: AudioContext): HostClock {
-  void context;
-  throw new Error("not implemented: A1.7 (browserHostClock)");
+  let frameTime = 0;
+  let inFrame = false;
+  let sampling = false;
+  let lastAsked = 0;
+  const hasRaf = typeof requestAnimationFrame === "function";
+  const sample = (t: number): void => {
+    frameTime = t;
+    inFrame = true;
+    setTimeout(() => (inFrame = false), 0);
+    if (performance.now() - lastAsked < RAF_IDLE_MS) requestAnimationFrame(sample);
+    else sampling = false;
+  };
+  return {
+    rafTime() {
+      lastAsked = performance.now();
+      if (hasRaf && !sampling) {
+        sampling = true;
+        requestAnimationFrame(sample);
+      }
+      return inFrame ? frameTime : lastAsked;
+    },
+    outputTimestamp() {
+      if (context.state !== "running" || typeof context.getOutputTimestamp !== "function") return null;
+      const t = context.getOutputTimestamp();
+      if (!t || t.contextTime === undefined || t.performanceTime === undefined) return null;
+      // Engines report zeros until the first render.
+      if (t.contextTime === 0 && t.performanceTime === 0) return null;
+      return { contextTime: t.contextTime, performanceTime: t.performanceTime };
+    },
+    currentTime: () => context.currentTime,
+    dateNow: () => Date.now(),
+    fake: false,
+  };
 }
 
 /** The controls a test has over a fake clock. */
@@ -41,8 +75,25 @@ export interface FakeHostClock extends HostClock {
   setRunning(running: boolean): void;
 }
 
-/** A fake clock starting at the given times. A1.7 fills the body. */
-export function fakeHostClock(start?: { rafTime?: number; currentTime?: number; dateNow?: number }): FakeHostClock {
-  void start;
-  throw new Error("not implemented: A1.7 (fakeHostClock)");
+/** A fake clock starting at the given times (defaults: rAF 1000 ms, context 0 s, wall clock 1,000,000 ms). */
+export function fakeHostClock(start: { rafTime?: number; currentTime?: number; dateNow?: number } = {}): FakeHostClock {
+  let raf = start.rafTime ?? 1_000;
+  let current = start.currentTime ?? 0;
+  let date = start.dateNow ?? 1_000_000;
+  let running = true;
+  return {
+    rafTime: () => raf,
+    outputTimestamp: () => (running ? { contextTime: current, performanceTime: raf } : null),
+    currentTime: () => current,
+    dateNow: () => date,
+    fake: true,
+    advance(ms) {
+      raf += ms;
+      date += ms;
+      if (running) current += ms / 1000;
+    },
+    setRunning(value) {
+      running = value;
+    },
+  };
 }
