@@ -1,6 +1,6 @@
 // The Navigation plugin's editor half (ADR 0065, 0134): the formation asset kind and format, and formations
 // edit through an asset document.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { defaultFormation, formatFormation, setFormationCell, type NavFormationAsset } from "../../engine/nav/formation";
 import { assetKind } from "../../editor/assetBrowser";
 import { _reset, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
@@ -10,7 +10,8 @@ import { kindIcon, kindLabel } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { inspectorSectionsFor, registeredInspectorSections } from "../../editor/ui/inspectorSections";
 import { assetFormats, assetKinds, panelExtensions, projectSettingsSections } from "../../editor/sdk/contributions";
-import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
+import { isPluginActive } from "../../editor/sdk/plugins";
+import { useEditorPlugins } from "../testEditorPlugins";
 import { currentProject } from "../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../editor/testing";
 import { EDITOR_PLUGINS } from "../editor";
@@ -31,10 +32,9 @@ async function open(files: Record<string, string>) {
 
 const mask = (): NavFormationAsset => ({ ...defaultFormation(), shape: "mask" });
 
-beforeEach(() => activatePlugins([navigationEditorPlugin]));
+const editorHalf = useEditorPlugins([navigationEditorPlugin], "each");
 afterEach(() => {
   _reset();
-  deactivatePlugin("myco.navigation");
   currentProject.value = null;
 });
 
@@ -108,7 +108,7 @@ describe("the Navigation plugin's editor half (ADR 0134)", () => {
   }, 60_000);
 
   it("removes everything when deactivated", () => {
-    deactivatePlugin("myco.navigation");
+    editorHalf.off();
     expect(isPluginActive("myco.navigation")).toBe(false);
     expect(kindLabel("formation")).toBeUndefined();
     expect(assetFormats.get("formation")).toBeUndefined();

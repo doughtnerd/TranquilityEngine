@@ -1,7 +1,7 @@
 // The Materials plugin (ADR 0133: Material and Shader together; ADR 0134): its editor half registers
 // the material, shader graph and sub-graph asset kinds, their formats and the Shader Graph panel,
 // and removes them all when deactivated.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { defaultMaterialSettings, formatMaterial, type MaterialSettings } from "../../engine/scene/material";
 import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph } from "../../engine/scene/shaderGraph";
 import { assetKind, opensInCodePanel } from "../../editor/assetBrowser";
@@ -12,7 +12,8 @@ import { kindIcon, kindLabel, kindOpens } from "../../editor/assetKindLookup";
 import { isKnownPanel, isOnDemand, panelBeside, panelTitle } from "../../editor/layout/model";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
-import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
+import { isPluginActive } from "../../editor/sdk/plugins";
+import { useEditorPlugins } from "../testEditorPlugins";
 import { currentProject } from "../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../editor/testing";
 import { previewKind } from "../../editor/thumbnails/keys";
@@ -27,10 +28,9 @@ const SUB = "shaders/ripple.shadersubgraph.json";
 const SHADER = "shaders/rim.shader.json";
 const KINDS = ["material", "shader", "shadergraph", "shadersubgraph"] as const;
 
-beforeEach(() => activatePlugins([materialsEditorPlugin]));
+const editorHalf = useEditorPlugins([materialsEditorPlugin], "each");
 afterEach(() => {
   _reset();
-  deactivatePlugin(materialsEditorPlugin.manifest.name);
   currentProject.value = null;
 });
 
@@ -112,7 +112,7 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
   });
 
   it("removes everything when deactivated", () => {
-    deactivatePlugin("myco.materials");
+    editorHalf.off();
     expect(isPluginActive("myco.materials")).toBe(false);
     for (const p of [MATERIAL, SHADER, GRAPH, SUB]) {
       expect(assetKind(p), p).toBe("json");

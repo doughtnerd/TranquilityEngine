@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { tilemapsEditorPlugin } from "../plugins/tilemaps/editor";
-import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
+import { useEditorPlugins } from "../plugins/testEditorPlugins";
 import { defaultImportSettings, formatImportSettings, sidecarPath } from "../engine/scene/importSettings";
 import { assetKind } from "./assetBrowser";
 import { blockStamp } from "../plugins/tilemaps/editor/palette";
@@ -18,8 +18,7 @@ async function projectWithSlices(rects: [number, number, number, number][]) {
   return { fs, project: await openFolderProject(fs, ROOT), settings };
 }
 
-beforeAll(() => activatePlugins([tilemapsEditorPlugin]));
-afterAll(() => deactivatePlugin(tilemapsEditorPlugin.manifest.name));
+useEditorPlugins([tilemapsEditorPlugin]);
 
 describe("tileset assets (ADR 0103)", () => {
   it("recognises tileset files before generic JSON", () => {
