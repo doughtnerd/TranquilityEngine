@@ -1,6 +1,6 @@
 // The Sky plugin (ADR 0134): its editor half registers the sky asset kind, format and panel, and
 // removes them all when deactivated.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { skyPreset } from "../../engine/sky/presets";
 import { formatSky, parseSky, type SkySettings } from "../../engine/sky/skyFormat";
 import { assetKind } from "../../editor/assetBrowser";
@@ -11,7 +11,8 @@ import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/ass
 import { isKnownPanel, isOnDemand, panelBeside, panelTitle } from "../../editor/layout/model";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
-import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
+import { isPluginActive } from "../../editor/sdk/plugins";
+import { useEditorPlugins } from "../testEditorPlugins";
 import { currentProject } from "../../editor/state";
 import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { previewKind } from "../../editor/thumbnails/keys";
@@ -34,10 +35,9 @@ async function open(files: Record<string, string>) {
   return { project, fs };
 }
 
-beforeEach(() => activatePlugins([skyEditorPlugin]));
+const editorHalf = useEditorPlugins([skyEditorPlugin], "each");
 afterEach(() => {
   _reset();
-  deactivatePlugin(skyEditorPlugin.manifest.name);
   currentProject.value = null;
 });
 
@@ -94,7 +94,7 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
   });
 
   it("removes everything when deactivated", () => {
-    deactivatePlugin("myco.sky");
+    editorHalf.off();
     expect(isPluginActive("myco.sky")).toBe(false);
     expect(assetKind(SKY)).toBe("json");
     expect(registeredKind("sky")).toBeUndefined();

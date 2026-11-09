@@ -12,11 +12,10 @@ afterEach(() => {
 describe("editorBoot", () => {
   it("restores a saved layout's Shader Graph and Sky tabs", async () => {
     const { activatePanel, defaultLayout, movePanel } = await import("../editor/layout/model");
-    const { activatePlugins, deactivatePlugin } = await import("../editor/sdk/plugins");
-    const { EDITOR_PLUGINS } = await import("./editor");
-    activatePlugins(EDITOR_PLUGINS);
+    const { applyEditorPlugins, pluginManifests } = await import("./editorPlugins");
+    applyEditorPlugins(undefined);
     const saved = JSON.stringify(activatePanel(movePanel(defaultLayout(), "shadergraph", { kind: "tab", group: "hierarchy" }), "sky"));
-    for (const p of EDITOR_PLUGINS) deactivatePlugin(p.manifest.name);
+    applyEditorPlugins(pluginManifests().map((m) => m.name)); // every plugin off again
     vi.resetModules();
 
     const storage = new Map([[KEY, saved]]);

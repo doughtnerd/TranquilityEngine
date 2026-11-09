@@ -76,7 +76,7 @@ describe("plugin import direction", () => {
     expect(bad).toEqual([]);
   });
 
-  it("only the player, the server, the editor's plugin application, Play, Vitest's setup file and myco.ts import the runtime plugin list", () => {
+  it("only the player, the server, the editor's plugin set, the tests' plugin set and myco.ts import the runtime plugin list", () => {
     const importers: string[] = [];
     for (const f of files(SRC)) {
       if (/\.test\.tsx?$/.test(f)) continue;
@@ -86,7 +86,7 @@ describe("plugin import direction", () => {
       }
     }
     // myco.ts: the default activation for games built on the engine library (ADR 0135).
-    expect(importers.sort()).toEqual(["editor/playMode.ts", "myco.ts", "player/main.ts", "plugins/editorApply.ts", "plugins/testSetup.ts", "server/run.ts"]);
+    expect(importers.sort()).toEqual(["myco.ts", "player/main.ts", "plugins/editorPlugins.ts", "plugins/testPlugins.ts", "server/run.ts"]);
   });
 
   it("lets a plugin reach another only through its public module (ADR 0133): `plugins/<other>/runtime`", () => {

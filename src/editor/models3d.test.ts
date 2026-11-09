@@ -1,7 +1,7 @@
 // Creating 3D nodes, adding models from the Assets panel, and fitting a 3D collider around a mesh (ADR 0044, 0045, 0088).
 // Split from the collider gizmo tests when those moved into the Physics editor half.
 import { readFileSync } from "node:fs";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { Assets, Engine, MeshRenderer } from "../myco";
 import { addAsset, assetKind, prepareAssets, whyNotAddable } from "./assetBrowser";
 import { newComponentEntry } from "./componentEdits";
@@ -10,11 +10,10 @@ import { openSceneFile } from "./project";
 import { openScene } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 import { meshesEditorPlugin } from "../plugins/meshes/editor";
-import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
+import { useEditorPlugins } from "../plugins/testEditorPlugins";
 
 // Models are the Meshes plugin's kind (ADR 0140).
-beforeAll(() => activatePlugins([meshesEditorPlugin]));
-afterAll(() => deactivatePlugin(meshesEditorPlugin.manifest.name));
+useEditorPlugins([meshesEditorPlugin]);
 
 describe("creating 3D nodes", () => {
   it("makes shapes with a mesh and matching collider, and lights aimed down", async () => {

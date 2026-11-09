@@ -9,10 +9,10 @@ export * from "./engine/index";
 // A game built on the engine library has no host to activate plugins: Engine.create turns on every
 // first-party runtime half unless the player, server or editor already chose a set (ADR 0135).
 import { Engine as _Engine } from "./engine/core/Engine";
-import { RUNTIME_PLUGINS as _RUNTIME_PLUGINS } from "./plugins/runtime";
-import { activateRuntimePlugins as _activate, runtimePluginsChosen as _chosen } from "./plugins/runtimeContext";
+import { activateGamePlugins as _activate } from "./plugins/runtime";
+import { runtimePluginsChosen as _chosen } from "./plugins/runtimeContext";
 _Engine._defaultPlugins = () => {
-  if (!_chosen()) _activate(_RUNTIME_PLUGINS);
+  if (!_chosen()) _activate([]);
 };
 
 // The Sky plugin (ADR 0112–0114, 0135).

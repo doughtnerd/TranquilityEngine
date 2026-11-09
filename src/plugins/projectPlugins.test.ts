@@ -12,10 +12,10 @@ import { editorSettings, joinPath, openFolderProject, useProjectAssets } from ".
 import { disabledPluginsOf, setDisabledPlugins, settingsProblems, settingsWarnings } from "../editor/projectSettingsModel";
 import { currentProject, openScene, sceneCamera } from "../editor/state";
 import { MemoryFileSystem, ROOT, demoFolder } from "../editor/testing";
-import { applyEnabledPlugins, pluginManifests } from "./editorApply";
+import { applyEditorPlugins, pluginManifests } from "./editorPlugins";
 import "./editorBoot";
 
-afterEach(() => applyEnabledPlugins(undefined));
+afterEach(() => void applyEditorPlugins(undefined));
 
 describe("the plugins setting", () => {
   it("validates: malformed values are problems, unknown names only warnings", () => {
@@ -71,7 +71,7 @@ describe("disabling a plugin in the editor", () => {
     expect(missing()).toEqual([]);
     expect(disabledPluginOf("engine.Sky")).toBeNull();
 
-    applyEnabledPlugins(["myco.sky"], { live: true });
+    expect(applyEditorPlugins(["myco.sky"], { layout: "live" }).problems).toEqual([]);
     openScene.value!.sync.build();
     expect(assetKind("a.sky.json")).not.toBe("sky");
     expect(getComponentClass("engine.Sky")).toBeUndefined();
@@ -81,7 +81,7 @@ describe("disabling a plugin in the editor", () => {
     expect(missingBadge("game.Gone")).toBe("missing script");
     expect(openScene.value!.doc.node("sky").components!.map((c) => c.type)).toContain("engine.Sky"); // data kept
 
-    applyEnabledPlugins(undefined, { live: true });
+    applyEditorPlugins(undefined, { layout: "live" });
     openScene.value!.sync.build();
     expect(assetKind("a.sky.json")).toBe("sky");
     expect(getComponentClass("engine.Sky")).toBeDefined();

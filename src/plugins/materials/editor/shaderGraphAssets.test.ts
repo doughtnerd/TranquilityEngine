@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph } from "../../../engine/scene/shaderGraph";
 import { _reset } from "../../../editor/assetDocuments";
-import { activatePlugins, deactivatePlugin } from "../../../editor/sdk/plugins";
+import { useEditorPlugins } from "../../testEditorPlugins";
 import { materialsEditorPlugin } from ".";
 import { moveAssets } from "../../../editor/assetOps";
 import { joinPath, openFolderProject, type EditorProject } from "../../../editor/projects";
@@ -28,10 +28,9 @@ beforeEach(async () => {
 });
 
 // The formats come from the Materials plugin (ADR 0134).
-beforeEach(() => activatePlugins([materialsEditorPlugin]));
+useEditorPlugins([materialsEditorPlugin], "each");
 afterEach(() => {
   _reset();
-  deactivatePlugin(materialsEditorPlugin.manifest.name);
   vi.useRealTimers();
   currentProject.value = null;
   status.value = null;

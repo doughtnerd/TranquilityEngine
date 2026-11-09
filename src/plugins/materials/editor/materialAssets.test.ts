@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { _reset, openAssetDocument } from "../../../editor/assetDocuments";
-import { activatePlugins, deactivatePlugin } from "../../../editor/sdk/plugins";
+import { useEditorPlugins } from "../../testEditorPlugins";
 import { materialsEditorPlugin } from ".";
 import { moveAssets } from "../../../editor/assetOps";
 import type { MaterialSettings } from "../../../engine/scene/material";
@@ -12,10 +12,9 @@ import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 
 
 // The formats come from the Materials plugin (ADR 0134).
-beforeEach(() => activatePlugins([materialsEditorPlugin]));
+useEditorPlugins([materialsEditorPlugin], "each");
 afterEach(() => {
   _reset();
-  deactivatePlugin(materialsEditorPlugin.manifest.name);
   vi.useRealTimers();
 });
 

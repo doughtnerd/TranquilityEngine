@@ -1,14 +1,14 @@
 // The Inspector follows the latest selection: selecting one asset it can show (a material, an
 // image, a particle effect…) deselects the scene's nodes, and selecting nodes deselects the
 // Assets panel's entries, whichever came first.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { materialsEditorPlugin } from "../plugins/materials/editor";
 import { navigationEditorPlugin } from "../plugins/navigation/editor";
 import { particlesEditorPlugin } from "../plugins/particles/editor";
 import { tilemapsEditorPlugin } from "../plugins/tilemaps/editor";
 import { inspectableAsset, inspectedAsset, inspectSelectedAsset, showAsset, showsAssetInspector } from "./assetImport";
 import { folderPath, resetAssetBrowser, select as selectAssets, selectedAssets } from "./assetSelection";
-import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
+import { useEditorPlugins } from "../plugins/testEditorPlugins";
 import { select as selectNodes, selectedKeys } from "./state";
 import { useCoreAssetKinds } from "./testing";
 
@@ -16,9 +16,8 @@ useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 // Materials and shader graphs have inspectors through the Materials plugin (ADR 0134).
 const PLUGINS = [materialsEditorPlugin, particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin];
-beforeEach(() => activatePlugins(PLUGINS));
+useEditorPlugins(PLUGINS, "each");
 afterEach(() => {
-  for (const p of PLUGINS) deactivatePlugin(p.manifest.name);
   selectNodes([]);
   resetAssetBrowser();
 });
