@@ -32,6 +32,8 @@ pub const MIXED_ENTRY_BYTES: usize = 4;
 /// One bus: gains, ramps, effect slots and its stereo quantum buffer (architecture §5.1: 3 KB).
 pub const BUS_BYTES: usize = 3 * 1024;
 /// The clip directory: 4,096 entries × 32 B plus 32 size-class list heads (architecture §5.1).
+/// A1.3b: the list-head bytes are unused. The arena has 80 classes and keeps its heads in the
+/// `Arena` struct (`arena.rs`); the bytes stay in the layout so addresses don't move.
 pub const CLIP_DIRECTORY_ENTRIES: usize = 4_096;
 pub const CLIP_DIRECTORY_ENTRY_BYTES: usize = 32;
 pub const CLIP_CLASS_LISTS: usize = 32;

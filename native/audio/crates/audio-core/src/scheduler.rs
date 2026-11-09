@@ -7,7 +7,11 @@
 //!   skipped. BATCH (1) and REPLAY (12) carry records; other kinds aren't handled here.
 //! - Every record head is validated before any record applies (lengths inside the message, at least
 //!   the head), so a malformed batch changes nothing. Unknown opcodes, and the ones later tasks
-//!   apply (SET_MIXED, SET_PAUSED, SEEK, BUS_*, MASTER, RESET), are skipped by their length.
+//!   apply (SET_MIXED, SET_PAUSED, SEEK, BUS_*, MASTER), are skipped by their length.
+//! - RESET (A1.3b) applies at once, in arrival order, whatever its `frameOffset`: every voice and
+//!   pending record is cleared, and with `keepClips = 0` every clip too and the arena reclaimed
+//!   ([`reset`]). It's the first record of a rebuild's REPLAY, and A1.4 sends `RESET 0` when the
+//!   last World is released.
 //! - `slack = firstFrame - currentFrame` is noted for STATUS `minSlackFrames`.
 //!
 //! **asap vs stamped** (architecture §4.3). `frameOffset == 0xFFFFFFFF` is asap: PLAY starts at
@@ -25,7 +29,7 @@
 //! the voices' area. `pop_due` (inside `process`) only moves the head; the queue is compacted when a
 //! record is inserted (in `submit`).
 
-use audio_wire::generated::{self as wire, BatchHeader, Envelope, Fade, Play, RecordHead, SetParams, Stop};
+use audio_wire::generated::{self as wire, BatchHeader, Envelope, Fade, Play, RecordHead, Reset, SetParams, Stop};
 
 use crate::core::{Core, Regions};
 use crate::counters::flag;
@@ -129,6 +133,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::STOP => Stop::FIXED_END,
             wire::op::SET_PARAMS => SetParams::FIXED_END,
             wire::op::FADE => Fade::FIXED_END,
+            wire::op::RESET => Reset::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -176,11 +181,34 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
                     schedule(core, record, at);
                 }
             }
+            wire::op::RESET => {
+                if let Ok((r, _)) = Reset::read(msg, off) {
+                    reset(core, r.keep_clips != 0);
+                }
+            }
             _ => {}
         }
         off += len;
     }
     wire::ERR_OK
+}
+
+/// RESET (api-and-models §4.2): frees every voice slot and drops every pending record; unless
+/// `keep_clips`, drops every clip and reclaims the arena (`clips::reset`). Ended voices aren't
+/// reported: main clears its own table with the RESET. `onmessage` only.
+pub fn reset(core: &mut Core, keep_clips: bool) {
+    let regions = core.regions_mut();
+    // All-zero bytes are free voice slots, an empty voices' area and an empty queue (the voices'
+    // and scheduler's invariants: their regions are zeroed at init).
+    regions.voices.fill(0);
+    let area_end = SCHEDULER_AREA_OFFSET + core::mem::size_of::<SchedulerArea>();
+    regions.core_state[voices::VOICE_AREA_OFFSET..area_end].fill(0);
+    let c = status::counters_mut(core);
+    c.live_voices = 0;
+    c.mixed_voices = 0;
+    if !keep_clips {
+        crate::clips::reset(core);
+    }
 }
 
 /// `firstFrame + frameOffset` as an absolute frame (a negative or fractional `firstFrame` rounds,
@@ -404,5 +432,39 @@ mod tests {
         assert_eq!((s.state, s.start_frame), (state::SCHEDULED, 10_005));
         assert_eq!(absolute(-3.0, 4), 4);
         assert_eq!(absolute(99.6, 0), 100);
+    }
+
+    fn reset_rec(keep_clips: u32) -> Vec<u8> {
+        let mut b = vec![0u8; Reset::FIXED_END];
+        Reset { voice_id: 0, frame_offset: wire::ASAP, keep_clips }.write(&mut b, 0).unwrap();
+        b
+    }
+
+    #[test]
+    fn reset_clears_every_voice_and_with_keep_clips_0_every_clip() {
+        use crate::clips::ClipFormat;
+        let mut core = voices::tests::core();
+        core.clips_mut().reserve(1, 4_096, 2, 48_000.0, ClipFormat::I16).unwrap();
+        core.clips_mut().reserve(2, 4_096, 2, 48_000.0, ClipFormat::I16).unwrap();
+        let msg = batch(0.0, &[play(0x0001_0001, wire::ASAP), play(0x0001_0002, wire::ASAP), stop(0x0001_0001, 50_000)]);
+        assert_eq!(submit(&mut core, &msg), wire::ERR_OK);
+        core.process(0);
+        assert_eq!(voices::live_count(&mut core), 2);
+        assert_eq!(pending_len(&mut core), 1);
+
+        // keepClips = 1: voices and pending records go, clips stay.
+        assert_eq!(submit(&mut core, &batch(128.0, &[reset_rec(1)])), wire::ERR_OK);
+        assert_eq!(voices::live_count(&mut core), 0);
+        assert_eq!(pending_len(&mut core), 0);
+        assert!(voices::slots(&core).iter().all(|s| s.state == state::FREE));
+        assert_eq!(core.clips().len(), 2);
+
+        // A REPLAY-like batch: RESET 0 first, then a PLAY that must survive it.
+        let msg = batch(256.0, &[reset_rec(0), play(0x0002_0003, wire::ASAP)]);
+        assert_eq!(submit(&mut core, &msg), wire::ERR_OK);
+        assert_eq!(core.clips().len(), 0);
+        assert_eq!(core.clips().arena().used_bytes(), 0, "the arena is reclaimed");
+        assert_eq!(status::counters(&core).arena_used_kb, 0);
+        assert_eq!(voices::live_count(&mut core), 1, "records after the RESET apply");
     }
 }
