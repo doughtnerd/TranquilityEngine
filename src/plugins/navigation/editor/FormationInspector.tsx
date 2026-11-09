@@ -3,7 +3,7 @@
 // paint (left drag paints, right drag or Shift+left erases), its size (Resize keeps the painted cells), Clear / Fill
 // all / Invert / Mirror, Import from an image and "Show fill order", which numbers the cells in the order members take
 // them. Every edit writes the file through the formation's asset document and can be undone (Ctrl+Z / Ctrl+Shift+Z
-// over the inspector, or the Undo / Redo buttons).
+// or Edit > Undo with the inspector focused, its document then being the active history (ADR 0143), or the Undo / Redo buttons).
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import {
   FORMATION_SHAPES,
@@ -58,19 +58,9 @@ export function NavFormationInspector(props: { path: string }) {
   const undo = () => (doc.canUndo.peek() ? doc.undo() : (status.value = { kind: "info", text: "Nothing to undo in this formation." }));
   const redo = () => (doc.canRedo.peek() ? doc.redo() : (status.value = { kind: "info", text: "Nothing to redo in this formation." }));
 
-  const onKeyDown = (e: KeyboardEvent) => {
-    const t = e.target as HTMLElement;
-    if (!(e.ctrlKey || e.metaKey) || t.closest("input, select, textarea")) return;
-    const key = e.key.toLowerCase();
-    if (key !== "z" && key !== "y") return;
-    e.preventDefault();
-    e.stopPropagation(); // the formation's history, not the scene's
-    if (key === "y" || e.shiftKey) redo();
-    else undo();
-  };
 
   return (
-    <div class="inspector-body asset-inspector nav-formation" aria-label="Formation" data-asset-document={doc.path} tabIndex={-1} onKeyDown={onKeyDown}>
+    <div class="inspector-body asset-inspector nav-formation" aria-label="Formation" data-asset-document={doc.path} tabIndex={-1}>
       <div class="asset-inspector-head">
         <span class="asset-inspector-kind">Formation</span>
         <span class="asset-inspector-name" title={path}>

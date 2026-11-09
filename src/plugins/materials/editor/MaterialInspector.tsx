@@ -151,14 +151,7 @@ export function MaterialInspector(props: { path: string }) {
     <div
       class="inspector-body asset-inspector"
       aria-label="Material"
-      data-asset-document={doc.path}
-      onKeyDown={(e) => {
-        if (!(e.ctrlKey || e.metaKey) || (e.target as HTMLElement).tagName === "INPUT") return;
-        if (e.key.toLowerCase() === "z") (e.shiftKey ? redo : undo)();
-        else if (e.key.toLowerCase() === "y") redo();
-        else return;
-        e.preventDefault();
-      }}
+      data-asset-document={doc.path} // focused, Undo / Redo (Ctrl+Z…, the Edit menu) act on the material's document (ADR 0143)
     >
       <div class="asset-inspector-head">
         <span class="asset-inspector-kind">Material</span>

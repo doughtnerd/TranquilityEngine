@@ -27,10 +27,20 @@ export interface Menu {
 
 export const SEPARATOR: MenuEntry = { label: "", separator: true };
 
+/** What Edit's Undo and Redo show about the active history. */
+export interface HistoryInfo {
+  undoLabel: string | null;
+  redoLabel: string | null;
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
 /** What the menus depend on, read from the editor's state. */
 export interface MenuState {
   project: { name: string; canSave: boolean; hasRoot: boolean } | null;
-  scene: { path: string; dirty: boolean; undoLabel: string | null; redoLabel: string | null; canUndo: boolean; canRedo: boolean } | null;
+  scene: { path: string; dirty: boolean } | null;
+  /** The active history Undo and Redo act on (ADR 0143): the focused editor's, else the scene's; null with neither. */
+  history: HistoryInfo | null;
   /** The game is running (or starting): the scene can't be edited. */
   playing: boolean;
   canOpenFolders: boolean;
@@ -87,11 +97,11 @@ export const STOP_PLAYING = "stop playing to edit the scene";
 export const NO_FOLDER_ACCESS = "this browser can't open project folders; use the desktop editor or a Chromium browser";
 
 /** The Undo item's text: "Undo <what>", or just "Undo" when there's nothing to undo. */
-export function undoLabel(scene: MenuState["scene"]): string {
-  return scene?.canUndo && scene.undoLabel ? `Undo ${scene.undoLabel}` : "Undo";
+export function undoLabel(history: HistoryInfo | null): string {
+  return history?.canUndo && history.undoLabel ? `Undo ${history.undoLabel}` : "Undo";
 }
-export function redoLabel(scene: MenuState["scene"]): string {
-  return scene?.canRedo && scene.redoLabel ? `Redo ${scene.redoLabel}` : "Redo";
+export function redoLabel(history: HistoryInfo | null): string {
+  return history?.canRedo && history.redoLabel ? `Redo ${history.redoLabel}` : "Redo";
 }
 
 /** The whole menu bar for the current state. */
@@ -127,8 +137,8 @@ export const NOTHING_SELECTED = "nothing selected";
 
 function editMenu(s: MenuState, a: MenuActions): Menu {
   const items: MenuEntry[] = [
-    { label: undoLabel(s.scene), shortcut: "Ctrl+Z", disabled: !s.scene ? NO_SCENE : s.scene.canUndo ? null : "nothing to undo", run: a.undo },
-    { label: redoLabel(s.scene), shortcut: "Ctrl+Shift+Z", disabled: !s.scene ? NO_SCENE : s.scene.canRedo ? null : "nothing to redo", run: a.redo },
+    { label: undoLabel(s.history), shortcut: "Ctrl+Z", disabled: !s.history ? NO_SCENE : s.history.canUndo ? null : "nothing to undo", run: a.undo },
+    { label: redoLabel(s.history), shortcut: "Ctrl+Shift+Z", disabled: !s.history ? NO_SCENE : s.history.canRedo ? null : "nothing to redo", run: a.redo },
     SEPARATOR,
     ...clipboardItems(s, a),
     SEPARATOR,

@@ -1,9 +1,10 @@
 import { signal } from "@preact/signals";
-import { useEffect, useLayoutEffect, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { LinkConfig, WorldTag } from "../../engine";
 import { listSystemCatalog, type SystemCatalogEntry } from "../../engine/core/systems";
 import { listTransports } from "../../engine/net/Transport";
 import { liveLinks, type LiveLink } from "../../engine/editor";
+import { usePanelHistory, type UndoHistory } from "../activeHistory";
 import { playWorldSources } from "../netPlay";
 import { playing } from "../session";
 import { errorStatus } from "../messages";
@@ -159,8 +160,24 @@ function afterJump(s: PanelState): void {
   persist(s);
 }
 
-const isTextField = (el: EventTarget | null) =>
-  el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && !["checkbox", "radio", "button"].includes(el.type));
+/** The panel's undo list, the active history while the panel has the focus (ADR 0143): Ctrl+Z and Edit > Undo step it. */
+const worldsHistory: UndoHistory = {
+  name: "Worlds",
+  get canUndo() {
+    return (version.value, !!state?.project.canSave && !!state.history?.canUndo);
+  },
+  get canRedo() {
+    return (version.value, !!state?.project.canSave && !!state.history?.canRedo);
+  },
+  get undoLabel() {
+    return (version.value, state?.history?.undoLabel ?? null);
+  },
+  get redoLabel() {
+    return (version.value, state?.history?.redoLabel ?? null);
+  },
+  undo: () => state && undo(state),
+  redo: () => state && redo(state),
+};
 
 /**
  * The project's start-up Worlds, Spawnable Worlds (`templates` in project.json) and links (ADR 0032,
@@ -169,6 +186,8 @@ const isTextField = (el: EventTarget | null) =>
  * section when they leave it valid; Ctrl/Cmd+Z undoes them while the panel has focus.
  */
 export function WorldsPanel() {
+  const root = useRef<HTMLDivElement>(null);
+  usePanelHistory(root, worldsHistory);
   version.value;
   scriptsVersion.value; // scripts define systems
   const project = currentProject.value;
@@ -201,18 +220,8 @@ export function WorldsPanel() {
   let selected = s.selected;
   if (selected && !configOf(model, selected)) selected = model.worlds.length ? { kind: "world", index: 0 } : null;
 
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (!(e.ctrlKey || e.metaKey) || e.altKey || isTextField(e.target)) return;
-    const key = (e.key ?? "").toLowerCase();
-    if (key !== "z" && key !== "y") return;
-    e.preventDefault();
-    e.stopPropagation(); // not the scene's undo
-    if (key === "y" || e.shiftKey) redo(s);
-    else undo(s);
-  };
-
   return (
-    <div class="worlds-panel" tabIndex={-1} onKeyDown={onKeyDown}>
+    <div class="worlds-panel" tabIndex={-1} ref={root}>
       <div class="worlds-toolbar">
         <button disabled={!editable} title="Add a start-up World" onClick={() => edit(s, "Add World", addWorld(model), { kind: "world", index: model.worlds.length })}>
           + World

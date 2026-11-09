@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteAssets } from "./assetDelete";
-import { _reset, focusedAssetDocument, openAssetDocument, type AssetDocument } from "./assetDocuments";
+import { _reset, focusedAssetDocument, KEEPS_HISTORY_FOCUS, openAssetDocument, type AssetDocument } from "./assetDocuments";
 import { ASSET_HISTORY_DIR, _useAssetHistoryPlatform, assetHistorySettled } from "./assetHistory";
 import { moveAssets } from "./assetOps";
 import { MemoryStorage } from "../engine/platform/Storage";
@@ -515,7 +515,7 @@ describe("the focused asset document (for the History panel)", () => {
       expect(focusedAssetDocument.value).toBeNull();
       fire("focusin", "[data-asset-document]");
       expect(focusedAssetDocument.value).toBe(doc);
-      fire("pointerdown", ".history-panel");
+      fire("pointerdown", KEEPS_HISTORY_FOCUS); // the History panel or the menu bar
       expect(focusedAssetDocument.value).toBe(doc);
       fire("pointerdown", null); // the viewport
       expect(focusedAssetDocument.value).toBeNull();

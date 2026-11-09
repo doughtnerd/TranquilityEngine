@@ -160,14 +160,7 @@ function SkyEditor({ path }: { path: string }) {
     <div
       class="sky-panel"
       aria-label="Sky"
-      data-asset-document={doc.path}
-      onKeyDown={(e) => {
-        if (!(e.ctrlKey || e.metaKey) || (e.target as HTMLElement).tagName === "INPUT") return;
-        if (e.key.toLowerCase() === "z") (e.shiftKey ? redo : undo)();
-        else if (e.key.toLowerCase() === "y") redo();
-        else return;
-        e.preventDefault();
-      }}
+      data-asset-document={doc.path} // focused, Undo / Redo (Ctrl+Z…, the Edit menu) act on the sky's document (ADR 0143)
     >
       <div class="sky-panel-side">
         <div class="asset-inspector-head">

@@ -12,6 +12,7 @@ import type { ContextKind, GraphGroup, GraphNode, GraphProblem, ParticleGraph, V
 import type { PortType } from "../../../../../engine/scene/particleNodes";
 import { assetKind, fileName, listedFiles } from "../../../../../editor/assetBrowser";
 import { NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, writeGraphClipboard, type CanvasNode, type DraftWire, type Point } from "../../../../../editor/graph";
+import { usePanelHistory, type UndoHistory } from "../../../../../editor/sdk";
 import { createParticleSubgraph, particleDocument, readEffect } from "../../particleAssets";
 import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
 import {
@@ -226,18 +227,57 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     for (const s of restored.systems) g = setSystemCollapsed(g, s.id, now.has(s.id));
     return g;
   };
-  const undo = () => {
-    if (readOnly || !doc.canUndo.peek()) return;
+  /** Move through the document's history, keeping the frames as they are. */
+  const step = (move: () => void) => {
+    if (readOnly) return;
     const now = doc.value.peek();
-    doc.undo();
+    move();
     doc.edit(keepView(doc.value.peek(), now), { history: false });
   };
-  const redo = () => {
-    if (readOnly || !doc.canRedo.peek()) return;
-    const now = doc.value.peek();
-    doc.redo();
-    doc.edit(keepView(doc.value.peek(), now), { history: false });
-  };
+  const undo = () => doc.canUndo.peek() && step(() => doc.undo());
+  const redo = () => doc.canRedo.peek() && step(() => doc.redo());
+  // While the panel has the focus, this is the active history (ADR 0143): Ctrl+Z, Edit > Undo and the
+  // History panel act on the document through it, so they keep the frames too.
+  const panelHistory = useMemo<UndoHistory>(
+    () => ({
+      get name() {
+        return doc.path;
+      },
+      get canUndo() {
+        return !doc.readOnly && doc.canUndo.value;
+      },
+      get canRedo() {
+        return !doc.readOnly && doc.canRedo.value;
+      },
+      get undoLabel() {
+        return doc.undoLabel.value;
+      },
+      get redoLabel() {
+        return doc.redoLabel.value;
+      },
+      undo: () => void latest.current.undo(),
+      redo: () => void latest.current.redo(),
+      back: () => latest.current.step(() => doc.history.back()),
+      forward: () => latest.current.step(() => doc.history.forward()),
+      tree: {
+        version: doc.history.version,
+        get states() {
+          return doc.history.states;
+        },
+        get current() {
+          return doc.history.current;
+        },
+        get saved() {
+          return doc.history.saved;
+        },
+        jumpTo: (seq) => latest.current.step(() => doc.history.jumpTo(seq)),
+      },
+    }),
+    [doc],
+  );
+  const latest = useRef({ undo, redo, step });
+  latest.current = { undo, redo, step };
+  usePanelHistory(root, panelHistory);
 
   // --- search ----------------------------------------------------------------------------------------
 
@@ -547,9 +587,8 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     const key = (e.key ?? "").toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
     let handled = true;
-    if (mod && key === "z" && !e.altKey) e.shiftKey ? redo() : undo();
-    else if (mod && key === "y") redo();
-    else if (mod && key === "d") {
+    // Ctrl/Cmd+Z / Shift+Z / Y reach the editor's shortcuts, which undo the active history: the panel's (below, ADR 0143).
+    if (mod && key === "d") {
       const made = duplicateItems(live.current.graph, selection);
       commit(made.graph);
       setSelection(new Set(made.ids));
