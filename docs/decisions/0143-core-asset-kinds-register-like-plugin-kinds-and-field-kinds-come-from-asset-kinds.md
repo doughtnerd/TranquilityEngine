@@ -62,8 +62,8 @@ We will register core asset kinds through the same `AssetKindContribution` plugi
 
 ## Open questions
 
-- Whether `folder` should register too, so the Assets panel has no special case at all.
-- Moving `rendertexture` into a plugin (implementation status lists it as not yet moved).
+- ~~Whether `folder` should register too, so the Assets panel has no special case at all.~~ *Answered (2026-11-09, Chris Carlson):* no. A folder is Core and not a plugin: it is part of asset loading and tracking, not a type of asset file. The asset kind module keeps answering `folder` itself.
+- ~~Moving `rendertexture` into a plugin.~~ *Answered (2026-11-09, Chris Carlson):* a render texture is only a texture a camera draws into, so it shouldn't be an asset kind at all. Removing the kind (and the `.rendertexture.json` file of ADR 0109) needs its own record superseding 0109's render texture assets; until then the core `rendertexture` registration stays.
 
 ## References
 
