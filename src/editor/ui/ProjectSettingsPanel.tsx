@@ -1,32 +1,30 @@
-import { signal } from "@preact/signals";
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { ANTIALIAS_MODES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
 import { allPluginManifests } from "../../plugins/thirdPartyEditor";
 import { RENAMED_PLUGINS } from "../../plugins/enabled";
-import { usePanelHistory, type UndoHistory } from "../activeHistory";
+import { usePanelHistory } from "../activeHistory";
 import { reloadGraphics } from "../graphicsPreview";
-import { errorStatus } from "../messages";
 import { projectSettingsCategory } from "../preferences";
 import { projectSettingsSections, type ProjectSettingsSectionContribution, type ProjectSettingsSectionProps } from "../sdk/contributions";
-import { PROJECT_FILE, queueProjectFileWrite } from "../projectFile";
+import { PROJECT_FILE } from "../projectFile";
+import type { ProjectSectionSession } from "../projectSection";
+import { createProjectSettingsSection } from "../projectSettingsSection";
 import {
   addAutoload,
   addSortingLayer,
   addTier,
   autoloadsOf,
-  disabledPluginsOf,
   graphicsOf,
   moveAutoload,
   moveSortingLayer,
   moveTier,
-  readDraft,
   removeAutoload,
   removeSortingLayer,
   removeTier,
+  renameSortingLayer,
   renameTier,
-  sectionsKey,
   setAutoDetect,
   setDefaultTier,
   setPlatformDefault,
@@ -37,127 +35,38 @@ import {
   settingsWarnings,
   setValue,
   sortingLayersOf,
-  withSettings,
   type SettingsDraft,
   type SettingsProblem,
   type TierValueKey,
 } from "../projectSettingsModel";
 import type { EditorProject } from "../projects";
-import { currentProject, docVersion, status } from "../state";
+import { currentProject, docVersion } from "../state";
 import { reapplyPlugins } from "../session";
-import { layerRenamesBetween, type LayerKind } from "../layerRename";
-import { EditHistory } from "../worldsConfig";
 import { AudioSettingsSection } from "./AudioSettingsSection";
 import { PluginsSection } from "./PluginsSection";
 import { lazyComponent, type LazyComponent } from "./lazy";
 import { NumberField, TextField } from "./settingsControls";
 import { NameList, ProblemList, Row } from "./settingsControls";
-import { renameLayerEdit as renameLayer_, updateLayerReferences } from "../layerRenameEdit";
+import { renameLayerEdit } from "../layerRenameEdit";
 import "./projectSettings.css";
 
-/** The panel's state for the open project. Kept outside the component, since a hidden tab unmounts. */
-interface PanelState {
-  project: EditorProject;
-  /** `project.json`'s text when the panel last read or wrote it. */
-  fileText: string | undefined;
-  /** The panel's sections as last read or written, to tell its own keys' changes from others' (the Worlds panel's). */
-  savedKey: string;
-  /** The text a save in progress is writing: until it's done, the project may already hold it. */
-  writingText?: string;
-  history: EditHistory<SettingsDraft>;
-  saving: boolean;
-  error: string | null;
-}
+/** The panel's state for the open project: its project section's session (ADR 0151), kept outside the component. */
+type PanelState = ProjectSectionSession<SettingsDraft>;
 
-let state: PanelState | null = null;
-const version = signal(0);
-
-/** The state for `project`, started again when the panel's keys of `project.json` changed elsewhere (the Code panel). */
-function stateFor(project: EditorProject): PanelState {
-  const text = project.textOf(PROJECT_FILE);
-  if (state && state.project === project) {
-    if (state.fileText === text || (state.writingText !== undefined && state.writingText === text)) return state;
-    if (state.writingText === undefined && sectionsKey(readDraft(project.settings)) === state.savedKey) {
-      state.fileText = text; // another panel's key changed: keep the draft and its undo history
-      return state;
-    }
-  }
-  const draft = readDraft(project.settings);
-  state = { project, fileText: text, savedKey: sectionsKey(draft), history: new EditHistory(draft), saving: false, error: null };
-  return state;
-}
-
-/** Write the current draft into `project.json` if it's valid and differs from the file. Writes are queued with the Worlds panel's. */
-function persist(s: PanelState): void {
-  void queueProjectFileWrite(async () => {
-    if (state !== s || !s.project.canSave) return;
-    const draft = s.history.current;
-    if (settingsProblems(draft, s.project.files).length > 0) return;
-    if (sectionsKey(draft) === sectionsKey(readDraft(s.project.settings))) return;
-    const text = withSettings(s.project.textOf(PROJECT_FILE) ?? "{}\n", draft, s.project.settings);
-    const pluginsBefore = JSON.stringify(disabledPluginsOf(readDraft(s.project.settings)));
-    s.saving = true;
-    s.writingText = text;
-    version.value++;
-    try {
-      await s.project.writeText(PROJECT_FILE, text);
-      s.fileText = text;
-      s.savedKey = sectionsKey(draft);
-      s.error = null;
-      reloadGraphics(graphicsOf(draft)); // the running editor uses the new tiers
-      if (JSON.stringify(disabledPluginsOf(draft)) !== pluginsBefore) reapplyPlugins(); // plugins turned on or off take effect live (ADR 0133)
-      docVersion.value++; // the toolbar shows the project's name
-    } catch (err) {
-      s.error = errorStatus(`Couldn't save the project settings to ${PROJECT_FILE}`, err).text;
-      status.value = errorStatus(`Couldn't save the project settings to ${PROJECT_FILE}`, err);
-    } finally {
-      s.writingText = undefined;
-      s.saving = false;
-      version.value++;
-    }
-  });
-}
+/**
+ * The `project.json` keys the built-in categories and the registered sections own: the draft,
+ * its undo, saving and outside changes (ADR 0151). Saves reload the editor's graphics tiers and re-apply
+ * plugins turned on or off.
+ */
+const settings = createProjectSettingsSection({ graphicsSaved: reloadGraphics, pluginsChanged: reapplyPlugins });
 
 function edit(s: PanelState, label: string, draft: SettingsDraft): void {
-  if (!s.project.canSave || sectionsKey(draft) === sectionsKey(s.history.current)) return;
-  s.history.push(label, draft);
-  version.value++;
-  persist(s);
+  void s.edit(label, draft);
 }
 
-function jump(s: PanelState, redo: boolean): void {
-  const before = s.history.current;
-  if (redo ? s.history.redo() : s.history.undo()) {
-    version.value++;
-    persist(s);
-    // Undoing or redoing a layer rename moves the scenes' references with it.
-    const renames = layerRenamesBetween(before, s.history.current);
-    if (renames.length > 0) void updateLayerReferences(s.project, renames);
-  }
-}
-
-/** Rename a layer: one undo step of the panel. */
-const renameLayerEdit = (s: PanelState, kind: LayerKind, draft: SettingsDraft, index: number, name: string) =>
-  renameLayer_({ project: s.project, set: (label, next) => edit(s, label, next), refresh: () => void version.value++ }, kind, draft, index, name);
-
-/** The panel's undo list, the active history while the panel has the focus (ADR 0145): Ctrl+Z and Edit > Undo step it. */
-const settingsHistory: UndoHistory = {
-  name: "Project Settings",
-  get canUndo() {
-    return (version.value, !!state?.project.canSave && state.history.canUndo);
-  },
-  get canRedo() {
-    return (version.value, !!state?.project.canSave && state.history.canRedo);
-  },
-  get undoLabel() {
-    return (version.value, state?.history.undoLabel ?? null);
-  },
-  get redoLabel() {
-    return (version.value, state?.history.redoLabel ?? null);
-  },
-  undo: () => state && jump(state, false),
-  redo: () => state && jump(state, true),
-};
+/** Rename a sorting layer: one undo step of the panel. */
+const renameSortingLayerEdit = (s: PanelState, draft: SettingsDraft, index: number, name: string) =>
+  renameLayerEdit({ project: s.project, set: (label, next) => edit(s, label, next), refresh: settings.refresh }, "sorting", sortingLayersOf(draft), index, name, renameSortingLayer(draft, index, name));
 
 /**
  * The Project panel (ADR 0038): `project.json`'s settings other than the Worlds (name, display,
@@ -166,18 +75,18 @@ const settingsHistory: UndoHistory = {
  */
 export function ProjectSettingsPanel() {
   const root = useRef<HTMLDivElement>(null);
-  usePanelHistory(root, settingsHistory);
-  version.value;
-  void projectSettingsSections.version.value; // a plugin's category (de)registered
+  usePanelHistory(root, settings.history);
+  settings.version.value;
+  void projectSettingsSections.version.value; // a plugin's category (de)registered, with the keys it owns
   docVersion.value; // files added (autoload choices)
   const project = currentProject.value;
   if (!project) return <p class="empty">No project open</p>;
-  const s = stateFor(project);
-  const draft = s.history.current;
+  const s = settings.open(project);
+  const draft = s.draft;
   const editable = project.canSave;
   const problems = settingsProblems(draft, project.files);
   const warnings = settingsWarnings(draft, [...allPluginManifests().map((m) => m.name), ...Object.keys(RENAMED_PLUGINS)]); // old names still work (ADR 0137)
-  const unsaved = sectionsKey(draft) !== sectionsKey(readDraft(project.settings));
+  const unsaved = s.unsaved;
   const problemsAt = (field: string) => problems.filter((p) => p.field === field || p.field.startsWith(`${field}.`));
   const set = (label: string, next: SettingsDraft) => edit(s, label, next);
 
@@ -189,10 +98,10 @@ export function ProjectSettingsPanel() {
   return (
     <div class="project-settings" tabIndex={-1} ref={root}>
       <div class="project-settings-toolbar">
-        <button disabled={!editable || !s.history.undoLabel} title={s.history.undoLabel ? `Undo ${s.history.undoLabel} (Ctrl+Z)` : "Nothing to undo"} onClick={() => jump(s, false)}>
+        <button disabled={!editable || !s.undoLabel} title={s.undoLabel ? `Undo ${s.undoLabel} (Ctrl+Z)` : "Nothing to undo"} onClick={() => void s.undo()}>
           Undo
         </button>
-        <button disabled={!editable || !s.history.redoLabel} title={s.history.redoLabel ? `Redo ${s.history.redoLabel} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => jump(s, true)}>
+        <button disabled={!editable || !s.redoLabel} title={s.redoLabel ? `Redo ${s.redoLabel} (Ctrl+Shift+Z)` : "Nothing to redo"} onClick={() => void s.redo()}>
           Redo
         </button>
         <SaveMarker editable={editable} saving={s.saving} error={s.error} problems={problems.length} unsaved={unsaved} />
@@ -258,7 +167,7 @@ export function ProjectSettingsPanel() {
               problems={problems}
               item="sorting layer"
               onAdd={() => set("Add sorting layer", addSortingLayer(draft))}
-              onRename={(i, v) => void renameLayerEdit(s, "sorting", draft, i, v)}
+              onRename={(i, v) => void renameSortingLayerEdit(s, draft, i, v)}
               onRemove={(i) => set("Remove sorting layer", removeSortingLayer(draft, i))}
               onMove={(i, by) => set("Reorder sorting layers", moveSortingLayer(draft, i, by))}
             />
@@ -308,7 +217,7 @@ export function ProjectSettingsPanel() {
             const View = lazySection(c);
             return (
               <Section key={c.id} title={c.title}>
-                <View draft={draft} problems={problemsAt(c.id).map((p) => p.message)} fieldProblems={problemsAt(c.id)} refresh={() => void version.value++} set={set} project={project} />
+                <View draft={draft} problems={problemsAt(c.id).map((p) => p.message)} fieldProblems={problemsAt(c.id)} refresh={settings.refresh} set={set} project={project} />
               </Section>
             );
           })}

@@ -1,7 +1,8 @@
 // The asset kind module (ADR 0133, 0134, 0143): what a project file is and what it can do, answered
 // from the registered asset kinds alone. Core kinds register from `assetKinds.builtin.ts`, plugins'
 // through their context; nothing here knows a kind by name except the three it answers itself:
-// `folder` (a folder entry), `sprite` (a `#slice` entry of an image) and `other` (no match).
+// `folder` (a folder entry), `sprite` (a `#slice` entry of a kind with `slices`, ADR 0149) and `other`
+// (no match), and `image` for the panorama field rule below.
 // Light on imports (no editor state), so `assetBrowser.ts` and `thumbnails/keys.ts` can both use it.
 import { isSidecarPath } from "../engine/scene/importSettings";
 import { assetKinds, type AssetKindContribution, type AssetSceneNodes, type ImportSettingsContribution, type LoadComponent } from "./sdk/contributions";
@@ -13,8 +14,8 @@ export type AssetKind = CoreAssetKind | (string & {});
 /** Which built-in thumbnail renderer draws a kind's preview (closed: renderers stay first-party, ADR 0133). */
 export type PreviewKind = NonNullable<AssetKindContribution["preview"]>;
 
-/** The kind whose `#slice` entries are sprites, and which a sprite asks for what it can do. */
-const SLICED_KIND = "image";
+/** The core image kind, for the one field rule that takes some of its files (panoramas). */
+const IMAGE_KIND = "image";
 /** Endings that are no kind even though a shorter ending is: type declarations aren't scripts. */
 const NOT_A_KIND: readonly string[] = [".d.ts"];
 
@@ -40,7 +41,7 @@ export function registeredKind(id: string): AssetKindContribution | undefined {
  */
 export function assetKind(path: string): AssetKind {
   const hash = path.indexOf("#");
-  if (hash >= 0) return assetKind(path.slice(0, hash)) === SLICED_KIND ? "sprite" : "other";
+  if (hash >= 0) return hasSlices(assetKind(path.slice(0, hash))) ? "sprite" : "other";
   void assetKinds.version.value;
   const p = path.toLowerCase();
   const nameLength = p.length - p.lastIndexOf("/") - 1;
@@ -57,8 +58,20 @@ export function assetKind(path: string): AssetKind {
   return best?.id ?? "other";
 }
 
-/** The registered kind a kind asks for what it can do: its own, or for a sprite its image's. */
-const behaviourOf = (kind: AssetKind | "folder"): AssetKindContribution | undefined => registeredKind(kind === "sprite" ? SLICED_KIND : kind);
+/** True if a kind's files can be cut into slices (its `slices` capability, ADR 0040, 0149): their `#slice` entries are sprites. */
+export const hasSlices = (kind: AssetKind | "folder"): boolean => registeredKind(kind)?.slices === true;
+
+/** The registered kind the entry at `path` asks for what it can do: its own, or for a slice its file's. */
+function behaviourAt(path: string): AssetKindContribution | undefined {
+  const hash = path.indexOf("#");
+  return registeredKind(assetKind(hash >= 0 ? path.slice(0, hash) : path));
+}
+/** The registered kind a kind asks for what it can do: its own, or for `sprite` the first kind with slices (use `behaviourAt` when the path is known). */
+function behaviourOf(kind: AssetKind | "folder"): AssetKindContribution | undefined {
+  if (kind !== "sprite") return registeredKind(kind);
+  void assetKinds.version.value;
+  return assetKinds.list().find((k) => k.slices);
+}
 
 /** A kind's label in the Assets panel ("Scene", "Particle Effect"; "File" for `other`). */
 export function kindLabel(kind: AssetKind | "folder"): string {
@@ -80,14 +93,14 @@ export function opensInCodePanel(kind: AssetKind | "folder"): boolean {
 
 /** True if opening (double-clicking) the file at `path` does something: its kind has `open`, opens in the Code panel, or it is a slice of an image that opens. */
 export function kindOpens(path: string): boolean {
-  const k = behaviourOf(assetKind(path));
+  const k = behaviourAt(path);
   return k?.open !== undefined || (!path.includes("#") && opensInCodePanel(assetKind(path)));
 }
 
 /** Open the file at `path` as its kind says (a slice opens its image). False when its kind doesn't open. */
 export function openAsset(path: string): boolean {
   const kind = assetKind(path);
-  const k = behaviourOf(kind);
+  const k = behaviourAt(path);
   const file = kind === "sprite" ? path.slice(0, path.indexOf("#")) : path;
   if (k?.open) {
     k.open(file);
@@ -103,8 +116,28 @@ export function openAsset(path: string): boolean {
 /** What adding a file of this kind to a scene makes, if anything (a sprite adds as its image does). */
 export const sceneNodesOf = (kind: AssetKind): AssetSceneNodes | undefined => behaviourOf(kind)?.addToScene;
 
+/** What adding the entry at `path` to a scene makes, if anything (a slice adds as its file does). */
+export const sceneNodesAt = (path: string): AssetSceneNodes | undefined => behaviourAt(path)?.addToScene;
+
 /** True if the file at `path` has a scene node to become. */
-export const canAddToScene = (path: string): boolean => sceneNodesOf(assetKind(path)) !== undefined;
+export const canAddToScene = (path: string): boolean => sceneNodesAt(path) !== undefined;
+
+/** An entry of the Assets panel's New… menu: a registered kind's `create` (ADR 0149). */
+export interface KindCreator {
+  /** The kind that creates. */
+  readonly kind: string;
+  readonly label: string;
+  create(folder: string): Promise<string | null>;
+}
+
+/**
+ * The New… menu's file entries (ADR 0149): every registered kind's `create`, in registration order
+ * (the core kinds first). A disabled plugin's kinds, and so its entries, are gone.
+ */
+export function kindCreators(): KindCreator[] {
+  void assetKinds.version.value;
+  return assetKinds.list().flatMap((k) => (k.create ? [{ kind: k.id, label: k.create.label, create: (folder: string) => k.create!.create(folder) }] : []));
+}
 
 /** A kind's own Inspector view, if it has one. */
 export const kindInspector = (kind: AssetKind): LoadComponent<{ path: string }> | undefined => registeredKind(kind)?.inspector;
@@ -135,7 +168,7 @@ export function fieldKindsOf(kind: AssetKind): readonly string[] {
  */
 const CORE_FIELD_RULES: Readonly<Record<string, (path: string, kind: AssetKind) => boolean>> = {
   mesh: (_, kind) => fieldKindsOf(kind).includes("model"),
-  environment: (path, kind) => kind === SLICED_KIND && /\.(png|jpe?g)$/i.test(path),
+  environment: (path, kind) => kind === IMAGE_KIND && /\.(png|jpe?g)$/i.test(path),
   envmap: (path, kind) => kind === "environment" && /\.env$/i.test(path),
   font: (path) => /\.(ttf|otf|woff2?)$/i.test(path),
   navbake: (path) => /\.nav\.bin$/i.test(path),

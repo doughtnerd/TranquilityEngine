@@ -20,7 +20,7 @@ function sampleFiles(dir = SAMPLE): Record<string, string> {
 }
 
 type SkyState = { active: boolean; drawn: boolean; bakes: number; baked: boolean; time: number; lastBakeMs: number };
-type Hooks = { engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { sky: SkyState; lighting: { environment: string } } } } } };
+type Hooks = { engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { features: { sky?: SkyState }; lighting: { environment: string } } } } } };
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -29,7 +29,7 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-const sky = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().sky);
+const sky = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().features.sky ?? { active: false, drawn: false, bakes: 0, baked: false, time: 0, lastBakeMs: 0 }); // no entry until the Sky plugin's feature loads (ADR 0154)
 const assets = (page: Page) => page.locator(".assets");
 
 async function openPlayground(page: Page, extra: Record<string, string> = {}): Promise<void> {

@@ -507,6 +507,12 @@ export class EditHistory<T> {
     this.current = entry.state;
     return this.current;
   }
+
+  /** Rewrite every state, past and future too, keeping the labels (a project section adopting a key, ADR 0151). */
+  map(fn: (state: T) => T): void {
+    this.current = fn(this.current);
+    for (const list of [this.past, this.future]) for (const entry of list) entry.state = fn(entry.state);
+  }
 }
 
 // --- writing project.json -----------------------------------------------------------------------

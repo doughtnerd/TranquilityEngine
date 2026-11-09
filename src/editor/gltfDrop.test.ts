@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Engine } from "../engine";
 import { clearModelCache } from "../engine/scene/models";
 import { carGltf, dataUrl } from "../engine/tests/fixtures/gltf/carGltf";
-import { addAsset, prepareAssets } from "./assetBrowser";
+import { addAssets } from "./addAssets";
 import { messageLog } from "./messages";
 import { openSceneFile } from "./project";
 import { openScene } from "./state";
@@ -24,8 +24,7 @@ async function dropCar(sidecar?: Record<string, unknown>) {
   Assets.addSource(extra);
   openSceneFile(engine, DEMO_SCENE);
   const scene = openScene.value!;
-  await prepareAssets(["models/car.gltf"]);
-  const root = addAsset(scene, "models/car.gltf");
+  const root = (await addAssets(["models/car.gltf"], { kind: "slot", parent: null })).ids[0]!; // prepares, adds, logs the kind's note
   const child = (name: string) => scene.doc.children(root).map((id) => scene.doc.node(id)).find((n) => n.name === name)!;
   const component = (name: string, type: string) => child(name).components!.find((c) => c.type === type);
   cleanups.push(() => {

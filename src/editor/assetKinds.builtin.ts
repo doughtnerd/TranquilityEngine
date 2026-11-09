@@ -3,15 +3,25 @@
 // `ui/inspectorSections.builtin.ts` registers the built-in Inspector sections. They are Core, not a
 // plugin (GLOSSARY.md): they can't be disabled and appear in no manifest. `main.tsx` registers them
 // at boot; tests that resolve kinds call `useCoreAssetKinds()` (`testing/coreAssetKinds.ts`).
-// Views load on first use (ADR 0083); scene switching loads with the session.
+// Views load on first use (ADR 0083); scene switching and creating files load with the session.
+// Scenes and render textures declare their New… entries here, as plugins' kinds do (ADR 0149).
 import { audioNodeEntry, prefabInstanceEntry, spriteNodeEntry } from "./assetBrowser";
 import { openSpriteEditor } from "./assetImport";
-import { assetKinds, type AssetKindContribution } from "./sdk/contributions";
+import type { SceneDocument } from "./document";
+import { wouldNest } from "./prefabs";
+import { assetKinds, type AssetKindContribution, type AssetSceneNodes } from "./sdk/contributions";
 
 const CODE_ICON = "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12";
 const FILE_ICON = "M7 3h7l5 5v13H7zM14 3v5h5";
 
 const switchScene = (path: string) => void import("./session").then((m) => m.switchScene(path));
+
+/** Scene and prefab instances: placed only by a drop on the scene view, and never inside themselves. */
+const instanceNodes: AssetSceneNodes = {
+  keepsOwnPosition: true,
+  nodes: (doc, path, position) => [prefabInstanceEntry(doc, path, position)],
+  whyNot: (doc: SceneDocument, path: string) => (wouldNest(path, doc.path) ? "it would end up inside itself" : null),
+};
 
 /** Every core kind, in the order they register. */
 export const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
@@ -23,7 +33,8 @@ export const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     open: switchScene,
     referencedAs: ["scene"],
     preview: "scene",
-    addToScene: { keepsOwnPosition: true, nodes: (doc, path, position) => [prefabInstanceEntry(doc, path, position)] },
+    create: { label: "New Scene", create: (folder) => import("./newScene").then((m) => m.createScene(folder)) },
+    addToScene: instanceNodes,
   },
   {
     id: "prefab",
@@ -34,7 +45,7 @@ export const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     inspector: () => import("./ui/PrefabInspector").then((m) => m.PrefabInspector),
     referencedAs: ["prefab"],
     preview: "prefab",
-    addToScene: { keepsOwnPosition: true, nodes: (doc, path, position) => [prefabInstanceEntry(doc, path, position)] },
+    addToScene: instanceNodes,
   },
   {
     id: "image",
@@ -43,6 +54,7 @@ export const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     icon: FILE_ICON, // images show themselves; the icon shows only while one loads
     open: (path) => openSpriteEditor(path),
     referencedAs: ["texture", "sprite"],
+    slices: true,
     addToScene: { nodes: (doc, path, position) => [spriteNodeEntry(doc, path, position)] },
     importSettings: {
       preview: () => import("./ui/ImageImportSettings").then((m) => m.ImagePreview),
@@ -63,13 +75,14 @@ export const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     },
   },
   {
-    // Here until it moves to a plugin (ADR 0143 open question).
+    // Core, as Unity's render texture asset (ADR 0143).
     id: "rendertexture",
     extensions: [".rendertexture.json"],
     label: "Render Texture",
     icon: "M4 5h16v14H4zM8 9h8v6H8zM4 5l4 4M20 5l-4 4M4 19l4-4M20 19l-4-4",
     inspector: () => import("./ui/RenderTextureInspector").then((m) => m.RenderTextureInspector),
     referencedAs: ["rendertexture"],
+    create: { label: "New Render Texture", create: (folder) => import("./renderTextureAssets").then((m) => m.createRenderTexture(folder)) },
   },
   { id: "json", extensions: [".json"], label: "JSON", icon: "M9 4H8a2 2 0 0 0-2 2v3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3a2 2 0 0 1-2 2h-1", codeEditor: true },
   { id: "xml", extensions: [".xml"], label: "XML", icon: CODE_ICON, codeEditor: true },

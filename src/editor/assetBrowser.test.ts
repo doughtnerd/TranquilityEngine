@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../engine";
 import { SpriteRenderer } from "../engine/render/components";
 import {
-  addAssetToScene,
+  addAsset,
   assetKind,
   buildFolderTree,
   findFolder,
@@ -125,6 +125,10 @@ describe("asset browser: adding to the scene (ADR 0026)", () => {
     // A node inside a prefab instance (a path key): add beside the instance.
     expect(parentForAdd(doc, "bg-a/inner")).toBeNull();
   });
+
+  /** The low-level add under a selection (the + button goes through `addAssets`, addAssets.test.ts). */
+  const addAssetToScene = (scene: NonNullable<typeof openScene.value>, path: string, selected: string | null, position?: readonly [number, number, number]) =>
+    addAsset(scene, path, { parent: parentForAdd(scene.doc, selected), position });
 
   it("adds a prefab instance as one undoable step, twice with distinct ids", () => {
     const scene = openScene.value!;

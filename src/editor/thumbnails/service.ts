@@ -1,6 +1,7 @@
 // The thumbnail service (ADR 0061): finds an asset's thumbnail in memory, then in the store, and
 // otherwise renders it (through the frame queue) and stores it. Keys are content hashes, worked
 // out lazily and remembered while the files behind them are unchanged.
+import { hasOwnReferences } from "../assetReferences";
 import { type AudioSummary, decodeSummary, encodeSummary } from "./audio";
 import { contentKey, keyOfFile, previewDependencies, previewKind, type PreviewKind } from "./keys";
 import { FrameQueue } from "./queue";
@@ -9,7 +10,7 @@ import type { ThumbnailExt, ThumbnailStore } from "./store";
 /** The project, as the service sees it. */
 export interface ThumbnailProject {
   readonly files: readonly string[];
-  /** A text file's text (JSON, .obj, .mtl), or undefined. */
+  /** A text file's text (JSON, or a format an asset kind reads references from), or undefined. */
   text(path: string): string | undefined;
   /** A file's bytes. */
   bytes(path: string): Promise<Uint8Array>;
@@ -91,23 +92,23 @@ export class ThumbnailService {
     return key;
   }
 
-  /** Texts of .obj and .mtl files (which the project serves as URLs, not text), by path and stamp. */
-  private readonly wavefront = new Map<string, { stamp: string; text: string }>();
+  /** Texts of files whose kind reads references from them (ADR 0148: .obj, .mtl, .gltf), which the project serves as URLs, not text, by path and stamp. */
+  private readonly ownFormatTexts = new Map<string, { stamp: string; text: string }>();
 
-  /** The preview's dependencies, reading the .obj and .mtl files on the way (their texts name more files). */
+  /** The preview's dependencies, reading files whose kind names more files in their text on the way (`hasOwnReferences`). */
   private async dependencies(path: string): Promise<string[]> {
     const source = {
       files: this.project.files,
-      text: (p: string) => this.project.text(p) ?? this.wavefront.get(p)?.text,
+      text: (p: string) => this.project.text(p) ?? this.ownFormatTexts.get(p)?.text,
     };
     for (let round = 0; round < 8; round++) {
       const deps = previewDependencies(path, source);
-      const missing = [path, ...deps].filter((p) => /\.(obj|mtl)$/i.test(p) && this.project.text(p) === undefined && this.wavefront.get(p)?.stamp !== this.project.stamp(p));
+      const missing = [path, ...deps].filter((p) => hasOwnReferences(p) && this.project.text(p) === undefined && this.ownFormatTexts.get(p)?.stamp !== this.project.stamp(p));
       if (!missing.length) return deps;
       for (const p of missing) {
         const stamp = this.project.stamp(p) ?? "";
         const text = await this.project.bytes(p).then((b) => new TextDecoder().decode(b), () => "");
-        this.wavefront.set(p, { stamp, text });
+        this.ownFormatTexts.set(p, { stamp, text });
       }
     }
     return previewDependencies(path, source);

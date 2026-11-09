@@ -5,6 +5,7 @@
  */
 import type { Component } from "../core/Component";
 import type { World } from "../core/World";
+import type { WarmContent } from "../scene/warmUp";
 
 /**
  * When a feature syncs each frame, in this order. Between phases the renderer does its own steps:
@@ -37,6 +38,11 @@ export interface RenderFeatureSpec {
   needed?(world: World): boolean;
   /** Lazy only: while it's loading, a World's first frame stays on the clear colour (ADR 0120). */
   holdsFirstFrame?: boolean;
+  /**
+   * Lazy only: whether it has warm items for `content` (ADR 0080, 0154), so a warm-up loads it (or its
+   * registration's `loadWarm`) before it's needed, and then asks it for them. Default: never.
+   */
+  warms?(content: WarmContent): boolean;
   /**
    * Features of the same phase that sync before this one (ADR 0135): `["sky"]` for the lights, since the
    * sky may drive the sun. Names of absent features, or of other phases, are ignored.
@@ -92,6 +98,11 @@ export function byPhase(specs: readonly RenderFeatureSpec[]): number[] {
 export interface RenderFeatureRegistration<Host = never, Feature = unknown> {
   readonly spec: RenderFeatureSpec;
   load(): Promise<(host: Host) => Feature>;
+  /**
+   * A lighter loader for what warms the feature's content before the feature itself has loaded (ADR
+   * 0154; the spec's `warms` says when). Without it, a warm-up loads the feature.
+   */
+  loadWarm?(): Promise<(host: Host) => unknown>;
 }
 
 const registered: RenderFeatureRegistration[] = [];

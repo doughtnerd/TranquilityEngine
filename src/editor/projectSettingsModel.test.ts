@@ -2,10 +2,8 @@ import { describe, expect, it } from "vitest";
 import { queueProjectFileWrite } from "./projectFile";
 import {
   addAutoload,
-  addLayer,
   addSortingLayer,
   addTier,
-  collides,
   graphicsOf,
   moveTier,
   removeTier,
@@ -18,10 +16,6 @@ import {
   moveAutoload,
   moveSortingLayer,
   readDraft,
-  removeLayer,
-  renameLayer,
-  setCollides,
-  setGravity,
   setName,
   settingsProblems,
   settingsWarnings,
@@ -61,57 +55,16 @@ describe("the Project panel's settings", () => {
     expect(messages(setName(flappy(), "  "))).toEqual([]); // empty name: falls back to the folder name
   });
 
-  it("reports duplicate and empty layer names, too many layers, and unknown autoloads", () => {
-    let d = flappy();
-    d = renameLayer(d, 2, "Player");
-    expect(messages(d)).toContain('Physics layers: "Player" is listed twice.');
-    d = setValue(flappy(), "render", "sortingLayers", ["Default", ""]);
+  it("reports duplicate and empty sorting layer names and unknown autoloads", () => {
+    let d = setValue(flappy(), "render", "sortingLayers", ["Default", ""]);
     expect(fields(d)).toEqual(["render.sortingLayers.1"]);
-    d = flappy();
-    for (let i = 0; i < 11; i++) d = addLayer(d);
-    expect(messages(d)).toContain("There can be at most 16 physics layers.");
     d = addAutoload(flappy(), "prefabs/gone.prefab.json");
     expect(fields(d, ["prefabs/music.prefab.json"])).toEqual(["autoload.1"]);
     expect(messages(addAutoload(flappy(), "prefabs/music.prefab.json"), ["prefabs/music.prefab.json"])).toEqual(["prefabs/music.prefab.json is autoloaded twice."]);
     expect(settingsWarnings(setValue(flappy(), "render", "sortingLayers", ["Back"]))).toHaveLength(1);
-    expect(messages(readDraft({ physics: { layers: ["Default"], collisionMatrix: { Default: ["Ghost"] } } }))).toEqual([expect.stringContaining('"Ghost"')]);
   });
 
-  it("edits the collision matrix as symmetric pairs, written under the earlier layer", () => {
-    let d = flappy();
-    expect(collides(d, "Player", "Ground")).toBe(true);
-    expect(collides(d, "Ground", "Player")).toBe(true);
-    expect(collides(d, "Player", "Player")).toBe(false);
-    expect(collides(d, "Default", "Default")).toBe(false);
-    d = setCollides(d, "Ground", "Player", false);
-    d = setCollides(d, "Obstacle", "Obstacle", true);
-    expect(d.physics!.collisionMatrix).toEqual({ Player: ["Obstacle", "Score", "Bounds"], Obstacle: ["Obstacle"] });
-  });
-
-  it("with no matrix every layer collides; unchecking one pair writes the rest out, checking it back removes the matrix", () => {
-    let d: SettingsDraft = { physics: { layers: ["Default", "A"] } };
-    expect(collides(d, "A", "Default")).toBe(true);
-    d = setCollides(d, "A", "A", false);
-    expect(d.physics!.collisionMatrix).toEqual({ Default: ["Default", "A"] });
-    d = setCollides(d, "A", "A", true);
-    expect(d.physics).toEqual({ layers: ["Default", "A"] });
-  });
-
-  it("keeps the matrix in step when layers are added, renamed and removed", () => {
-    let d = flappy();
-    d = addLayer(d);
-    expect(d.physics!.layers!.at(-1)).toBe("Layer");
-    expect(collides(d, "Layer", "Player")).toBe(false); // with a matrix, a new layer collides with nothing
-    d = renameLayer(d, 1, "Hero");
-    expect(d.physics!.collisionMatrix).toEqual({ Hero: ["Obstacle", "Score", "Ground", "Bounds"] });
-    d = removeLayer(d, 4); // Ground
-    expect(d.physics!.collisionMatrix).toEqual({ Hero: ["Obstacle", "Score", "Bounds"] });
-    expect(removeLayer({ physics: { layers: ["Default"] } }, 0)).toEqual({ physics: { layers: ["Default"] } });
-    const open = addLayer({});
-    expect(open.physics).toEqual({ layers: ["Default", "Layer"] }); // no matrix: the new layer collides with everything
-  });
-
-  it("reorders sorting layers and autoloads, and edits gravity", () => {
+  it("reorders sorting layers and autoloads", () => {
     let d = moveSortingLayer(flappy(), 0, 1);
     expect(d.render!.sortingLayers).toEqual(["Pipes", "Background", "Default", "Foreground", "Player"]);
     expect(moveSortingLayer(d, 0, -1).render!.sortingLayers).toEqual(d.render!.sortingLayers);
@@ -119,7 +72,6 @@ describe("the Project panel's settings", () => {
     expect(d.render!.sortingLayers!.at(-1)).toBe("Layer");
     d = moveAutoload(addAutoload(flappy(), "a.prefab.json"), 1, -1);
     expect(d.autoload).toEqual(["a.prefab.json", "prefabs/music.prefab.json"]);
-    expect(setGravity({}, 1, -20).physics!.gravity).toEqual([0, -20]);
     expect(setValue({ display: { width: 3 } }, "display", "width", undefined).display).toBeUndefined();
   });
 

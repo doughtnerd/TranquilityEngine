@@ -3,11 +3,12 @@
 import { isSkyPath } from "../../engine/sky/skyFormat";
 import { assetKind } from "../assetBrowser";
 import { registeredKind } from "../assetKindLookup";
+import { assetRefTarget } from "../assetReferences";
 import { currentProject } from "../state";
 import { sectionField, type InspectorSectionProps } from "./inspectorSections";
 
 export function EnvironmentSection({ info }: InspectorSectionProps) {
-  const path = String(sectionField(info, "map") ?? "").replace(/^asset:/, "");
+  const path = assetRefTarget(String(sectionField(info, "map") ?? ""));
   if (!isSkyPath(path) || !currentProject.value?.files.includes(path)) return null;
   const kind = registeredKind(assetKind(path));
   if (!kind?.open) return null;

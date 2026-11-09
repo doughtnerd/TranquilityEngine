@@ -23,28 +23,18 @@ import {
   type ViewRay,
   type WorldBox,
 } from "./editorViewport";
-import type { ParticlePreviewSettings, RenderDiagnostics, RenderSurface } from "./RenderSurface";
+import { appliedPixelRatio, noRenderDiagnostics, type PixelGrid, type RenderDiagnostics, type RenderSurface } from "./RenderSurface";
 import { GAME_POLICY, type RenderPolicy, type RenderPolicyPort } from "./renderPolicy";
 
 /** @internal A render policy port that records what the editor asked for (ADR 0129). */
 export class FakeRenderPolicyPort implements RenderPolicyPort {
-  /** Calls in order (setPolicy, setParticlePreview, restartParticlePreview). */
+  /** Calls in order. */
   readonly calls: string[] = [];
   policy: RenderPolicy = { ...GAME_POLICY };
-  particlePreview: Partial<ParticlePreviewSettings> = {};
-  restarts = 0;
 
   setPolicy(change: Partial<RenderPolicy>): void {
     this.calls.push("setPolicy");
     Object.assign(this.policy, change);
-  }
-  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
-    this.calls.push("setParticlePreview");
-    Object.assign(this.particlePreview, preview);
-  }
-  restartParticlePreview(): void {
-    this.calls.push("restartParticlePreview");
-    this.restarts++;
   }
 }
 
@@ -189,10 +179,15 @@ export class FakeRenderSurface implements RenderSurface {
   loaded: boolean;
   syncs = 0;
   diagnosticsSnapshot: Partial<RenderDiagnostics> = {};
+  /** The screen's pixel ratio and the tier's render scale the fake's pixel grid applies (`pixelGrid`). */
+  devicePixelRatio: number;
+  renderScale: number;
   private viewport: ViewportHandle | null = null;
 
-  constructor(options: { loaded?: boolean } = {}) {
+  constructor(options: { loaded?: boolean; devicePixelRatio?: number; renderScale?: number } = {}) {
     this.loaded = options.loaded ?? true;
+    this.devicePixelRatio = options.devicePixelRatio ?? 1;
+    this.renderScale = options.renderScale ?? 1;
     this.canvas = fakeCanvas(this.adapter);
   }
 
@@ -211,21 +206,13 @@ export class FakeRenderSurface implements RenderSurface {
     return (this.viewport ??= new ViewportHandle(() => (this.loaded ? this.adapter : null), this.policyPort));
   }
 
+  /** The device-pixel grid (ADR 0154): the adapter's canvas size at `appliedPixelRatio(renderScale, devicePixelRatio)`. */
+  pixelGrid(): PixelGrid {
+    return { width: this.adapter.width, height: this.adapter.height, pixelRatio: appliedPixelRatio(this.renderScale, this.devicePixelRatio) };
+  }
+
+  /** Draws nothing: the empty diagnostics (ADR 0154), with whatever the test put in `diagnosticsSnapshot`. */
   diagnostics(): RenderDiagnostics {
-    return {
-      started: true,
-      quality: { tier: "High", pixelRatio: 1, shadows: true, shadowMapSize: 2048, msaa: true },
-      lighting: { cascades: false, environment: "", environmentLoaded: false, skybox: false },
-      sky: { active: false, drawn: false, bakes: 0, baked: false, time: 0, lastBakeMs: 0 },
-      post: { composed: false, loaded: true, toneMapping: "none", effects: null, composedCameras: 0 },
-      water: { surfaces: 0 },
-      probes: { captured: 0, probes: 0, reflecting: 0 },
-      renderTextures: {},
-      particles: null,
-      stats: { drawCalls: 0, triangles: 0, lines: 0, points: 0, geometries: 0, textures: 0, programs: 0 },
-      cameras: [],
-      drawn: { meshes: [], sprites: [] },
-      ...this.diagnosticsSnapshot,
-    };
+    return { ...noRenderDiagnostics(), ...this.diagnosticsSnapshot };
   }
 }

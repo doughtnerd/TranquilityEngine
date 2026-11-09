@@ -1,6 +1,6 @@
 # 0140. Sprites, Meshes and models, Water and UI register their render features from plugins; Environment and Post-processing become plugins over core render services; lights, fog, probes and cameras stay core
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0154 (the renderer asks particle and UI features through generic hooks; their private hosts are built in the plugins' factories)
 - **Date:** 2026-11-08
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

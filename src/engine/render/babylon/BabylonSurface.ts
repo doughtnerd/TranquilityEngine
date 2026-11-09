@@ -17,26 +17,9 @@ import type { World, WorldKind } from "../../core/World";
 import { CanvasCssSize } from "../canvasCssSize";
 import { fitCanvas } from "../canvasFit";
 import { ViewportHandle, type EditorViewport } from "../editorViewport";
-import type { ParticlePreviewSettings, RenderDiagnostics, RenderSurface } from "../RenderSurface";
+import { appliedPixelRatio, noRenderDiagnostics, type PixelGrid, type RenderDiagnostics, type RenderSurface } from "../RenderSurface";
 import { GAME_POLICY, type RenderPolicy, type RenderPolicyPort } from "../renderPolicy";
 import type { BabylonRenderer } from "./BabylonRenderer";
-
-/** What a surface reports before its renderer has started. */
-function nothingYet(): Omit<RenderDiagnostics, "quality"> {
-  return {
-    started: false,
-    lighting: { cascades: false, environment: "", environmentLoaded: false, skybox: false },
-    sky: { active: false, drawn: false, bakes: 0, baked: false, time: 0, lastBakeMs: 0 },
-    post: { composed: false, loaded: false, toneMapping: "none", effects: null, composedCameras: 0 },
-    water: { surfaces: 0 },
-    probes: { captured: 0, probes: 0, reflecting: 0 },
-    renderTextures: {},
-    particles: null,
-    stats: { drawCalls: 0, triangles: 0, lines: 0, points: 0, geometries: 0, textures: 0, programs: 0 },
-    cameras: [],
-    drawn: { meshes: [], sprites: [] },
-  };
-}
 
 /** @internal The Babylon.js render surface (ADR 0075). */
 export class BabylonSurface implements RenderSurface {
@@ -54,21 +37,22 @@ export class BabylonSurface implements RenderSurface {
   private owner: World | null = null;
   /** The editor's viewport handle, once something asked (games never do). */
   private viewport: ViewportHandle | null = null;
-  /** Render policy (ADR 0129) the viewport handle set, kept for the renderer until it has loaded. */
+  /** The device-pixel grid last handed out (`pixelGrid`), kept while the size and ratio stay the same. */
+  private grid: PixelGrid = { width: 0, height: 0, pixelRatio: 1 };
+  /**
+   * Render policy (ADR 0129) the viewport handle set, the particle preview included (ADR 0154): kept for
+   * the renderer until it has loaded, then handed over once.
+   */
   private policy: RenderPolicy = { ...GAME_POLICY };
-  private readonly particlePreview: Partial<ParticlePreviewSettings> = {};
   /** What the viewport handle sets render policy through: live from the start. */
   private readonly policyPort: RenderPolicyPort = {
     setPolicy: (change) => {
       this.policy = { ...this.policy, ...change };
-      this.renderer?.setPolicy(change);
+      this.starting?.setPolicy(change);
     },
-    setParticlePreview: (preview) => {
-      Object.assign(this.particlePreview, preview);
-      this.renderer?.setParticlePreview(preview);
-    },
-    restartParticlePreview: () => this.renderer?.restartParticlePreview(),
   };
+  /** The renderer from the moment it exists (while its editor tools load, before it draws): policy changes go straight to it. */
+  private starting: BabylonRenderer | null = null;
   /** Resolves once the renderer has loaded and started (true), or couldn't (false). */
   readonly started: Promise<boolean>;
 
@@ -92,15 +76,18 @@ export class BabylonSurface implements RenderSurface {
     this.started = import("./BabylonRenderer")
       .then((m) => m.BabylonRenderer.create(this.canvas, settings))
       .then(async (r) => {
-        // Policy first (ADR 0129): the editor tools read it as they build (an editor World's grid).
+        // Policy first (ADR 0129): the editor tools read it as they build (an editor World's grid). Handed
+        // over once, the particle preview with it (ADR 0154); later changes reach the renderer directly.
         r.setPolicy(this.policy);
-        r.setParticlePreview({ ...this.particlePreview });
+        this.starting = r;
+        r.setPixelGrid(() => this.pixelGrid());
         // An editor World draws its grid and outlines from the first frame: wait for the editor tools too.
         if (this.fill) await r.loadEditorTools();
         return r;
       })
       .then((r) => {
         if (this.disposed) {
+          this.starting = null;
           r.dispose();
           return false;
         }
@@ -112,7 +99,6 @@ export class BabylonSurface implements RenderSurface {
           (g.__mycoBabylonSurfaces ??= []).push(this);
         }
         r.setClearColor(settings.display.backgroundColor);
-        r.setPolicy(this.policy); // anything the handle set while the tools loaded
         r.setVariantReport(this.variantReport);
         this.viewport?.poll(); // hand the editor's state over before the first frame
         this.applyQuality();
@@ -136,14 +122,18 @@ export class BabylonSurface implements RenderSurface {
     this.renderer?.resize(this.pixelRatio);
   }
 
-  canvasCssSize(): { readonly width: number; readonly height: number } {
-    return this.cssSize.get();
+  /** The view's device-pixel grid (ADR 0154): the canvas's CSS size at the pixel ratio the drawing buffer follows. */
+  pixelGrid(): PixelGrid {
+    const size = this.cssSize.get();
+    const g = this.grid;
+    if (g.width !== size.width || g.height !== size.height || g.pixelRatio !== this.pixelRatio) this.grid = { width: size.width, height: size.height, pixelRatio: this.pixelRatio };
+    return this.grid;
   }
 
   /** The tier's render scale (ADR 0050); the rest of the tier arrives with later stages. */
   private applyQuality(): void {
     this.appliedQuality = Graphics._version;
-    this.pixelRatio = Math.min(window.devicePixelRatio || 1, 2) * Graphics.tier.renderScale;
+    this.pixelRatio = appliedPixelRatio(Graphics.tier.renderScale);
     this.resize();
   }
 
@@ -167,7 +157,7 @@ export class BabylonSurface implements RenderSurface {
   diagnostics(): RenderDiagnostics {
     const tier = Graphics.tier;
     const quality = { tier: tier.name, pixelRatio: this.pixelRatio, shadows: tier.shadows !== "off", shadowMapSize: SHADOW_MAP_SIZE[tier.shadows], msaa: tier.antialias === "msaa" };
-    return { ...(this.renderer ? { started: true, ...this.renderer.diagnostics() } : nothingYet()), quality };
+    return { ...(this.renderer ? { started: true, ...this.renderer.diagnostics() } : noRenderDiagnostics()), quality };
   }
 
   render(world: World): void {
@@ -191,6 +181,7 @@ export class BabylonSurface implements RenderSurface {
     this.cssSize.dispose();
     this.renderer?.dispose();
     this.renderer = null;
+    this.starting = null;
     this.canvas.remove();
   }
 

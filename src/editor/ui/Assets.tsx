@@ -1,9 +1,10 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addAssetToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, searchEntries, sliceEntry, splitSliceEntry } from "../assetBrowser";
-import { assetKind, canAddToScene, kindLabel, kindOpens, openAsset, type AssetKind } from "../assetKindLookup";
-import { assetActions, assetKinds, type AssetActionTarget } from "../sdk/contributions";
+import { addAssets, whyNotAddAssets } from "../addAssets";
+import { fileName, folderOf, isSliceEntry, listedFiles, searchEntries, sliceEntry, splitSliceEntry } from "../assetBrowser";
+import { assetKind, canAddToScene, hasSlices, kindCreators, kindLabel, kindOpens, openAsset, type AssetKind } from "../assetKindLookup";
+import { assetActions, type AssetActionTarget } from "../sdk/contributions";
 import { inspectSelectedAsset, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { deleteAssets, entryPath, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "../assetDelete";
@@ -30,12 +31,9 @@ import {
 } from "../assetSelection";
 import { installOsDrop, osDragFolder, osDragOver } from "../osDrop";
 import { newScript, scriptFolderFor } from "../newScript";
-import { createScene } from "../newScene";
-import { createRenderTexture } from "../renderTextureAssets";
-import { createUIDocument } from "../uiDocumentEdits";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
-import { currentProject, docVersion, openScene, playState, sceneCamera, scriptsVersion, selection, status } from "../state";
+import { currentProject, docVersion, openScene, sceneCamera, scriptsVersion, selection, status } from "../state";
 import { TileThumbnail } from "./AssetPreview";
 import "./assets.css";
 import "./assetSlices.css";
@@ -54,8 +52,8 @@ const menu = signal<{ x: number; y: number; items: MenuItem[] } | null>(null);
 /** Images whose slices are listed under them (ADR 0040). */
 const expandedImages = signal<ReadonlySet<string>>(new Set());
 
-/** The slices of an image, from its sidecar (ADR 0040). */
-const slicesOf = (project: EditorProject, image: string) => (assetKind(image) === "image" ? readImportSettings(project, image).settings.sprites : []);
+/** The slices of a file whose kind has slices (an image), from its sidecar (ADR 0040, 0149). */
+const slicesOf = (project: EditorProject, image: string) => (hasSlices(assetKind(image)) ? readImportSettings(project, image).settings.sprites : []);
 
 /** Entries that are files or folders: slices are listed, but they aren't files to rename, move, copy or delete. */
 const fileEntries = (entries: readonly string[]) => entries.filter((e) => !isSliceEntry(e));
@@ -143,11 +141,8 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
   };
   const newItems: MenuItem[] = [
     { label: "New Folder", disabled: readOnly, run: () => void makeFolder(pasteFolder(entries)) },
-    { label: "New Scene", disabled: readOnly, run: () => void createScene(pasteFolder(entries)) },
-    { label: "New UI Document", disabled: readOnly, run: () => void createUIDocument(pasteFolder(entries)).then((made) => made && select([made])) },
-    { label: "New Render Texture", disabled: readOnly, run: () => void createRenderTexture(pasteFolder(entries)).then((made) => made && select([made])) },
-    // Registered kinds with `create` add their own entries (ADR 0133).
-    ...assetKinds.list().flatMap((k) => (k.create ? [{ label: k.create.label, disabled: readOnly, run: () => void k.create!.create(pasteFolder(entries)).then((made) => made && select([made])) }] : [])),
+    // Every file entry is a registered kind's `create`, core kinds' (scenes, render textures) first (ADR 0149).
+    ...kindCreators().map((c) => ({ label: c.label, disabled: readOnly, run: () => void c.create(pasteFolder(entries)).then((made) => made && select([made])) })),
     ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),
   ];
   if (entries.length === 0) {
@@ -168,7 +163,7 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
   }
   entries = fileEntries(entries);
   const editable = whyNotEditable(project, entries);
-  const sliceable = entries.length === 1 && assetKind(entries[0]) === "image";
+  const sliceable = entries.length === 1 && hasSlices(assetKind(entries[0]));
   return [
     ...(entries.length === 1 && opens(entries[0]) ? [{ label: sliceable ? "Sprite Editor…" : "Open", shortcut: "Enter", run: () => openEntry(entries[0]) }] : []),
     ...actionItems(
@@ -510,12 +505,13 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
   const slice = isSliceEntry(entry) ? splitSliceEntry(entry) : null;
   const url = isFolderEntry(entry) ? undefined : project.assets.get(slice ? slice.image : path);
   const sliceRect = slice ? slicesOf(project, slice.image).find((s) => s.name === slice.slice)?.rect : undefined;
-  const sliceCount = kind === "image" ? slicesOf(project, path).length : 0;
+  const sliceCount = hasSlices(kind) ? slicesOf(project, path).length : 0;
   const expanded = expandedImages.value.has(path);
   const open = openScene.value?.path === entry;
   const cut = !!assetClipboard.value?.cut && assetClipboard.value.entries.includes(entry);
   const addable = !isFolderEntry(entry) && canAddToScene(entry);
-  const canAdd = addable && !!openScene.value && playState.value === "edit" && openScene.value.path !== entry;
+  const whyNotAdd = addable ? whyNotAddAssets([entry]) : null;
+  const canAdd = addable && whyNotAdd === null;
   const press = useRef<{ x: number; y: number } | null>(null);
   const list = assetView.value === "list";
   return (
@@ -558,7 +554,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
       }}
     >
       <div class="asset-thumb">
-        {kind === "image" && typeof url === "string" ? (
+        {hasSlices(kind) && typeof url === "string" ? (
           <img src={url} alt="" draggable={false} />
         ) : slice && sliceRect && typeof url === "string" ? (
           <SliceThumb url={url} rect={sliceRect} />
@@ -592,7 +588,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         <button
           class="asset-add"
           disabled={!canAdd}
-          title={canAdd ? `Add ${nameOf(entry)} to the scene` : "Open a scene (and stop playing) to add assets"}
+          title={canAdd ? `Add ${nameOf(entry)} to the scene` : `Can't add ${nameOf(entry)}: ${whyNotAdd}`}
           aria-label={`Add ${nameOf(entry)} to the scene`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
@@ -728,17 +724,10 @@ function ContextMenu() {
   );
 }
 
+/** The tile's +: add the asset under the selected node at the scene camera's focus (`addAssets`, ADR 0149). */
 async function addToScene(path: string): Promise<void> {
-  if (!openScene.value) return;
-  await prepareAssets([path]); // a model's meshes
-  const scene = openScene.value;
-  if (!scene) return;
-  try {
-    const focus = sceneCamera.value?.focusPoint;
-    const id = addAssetToScene(scene, path, selection.value, focus ? [focus.x, focus.y, focus.z] : [0, 0, 0]);
-    selection.value = id;
-    status.value = { kind: "info", text: `Added ${fileName(path)} to ${fileName(scene.path)}` };
-  } catch (err) {
-    status.value = errorStatus(`Couldn't add ${fileName(path)}`, err);
-  }
+  const focus = sceneCamera.peek()?.focusPoint;
+  const { ids, message } = await addAssets([path], { kind: "selection", selected: selection.peek(), position: focus ? [focus.x, focus.y, focus.z] : [0, 0, 0] });
+  if (ids[0]) selection.value = ids[0];
+  status.value = message;
 }

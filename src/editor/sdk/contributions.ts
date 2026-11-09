@@ -15,6 +15,7 @@ import type { ComponentEntry, NodeEntry, NodePath, SceneDocument } from "../docu
 import type { GameObject } from "../../engine/scene/GameObject";
 import type { ComponentInfo } from "../../engine/editor";
 import type { ImportSettings } from "../../engine/scene/importSettings";
+import type { FieldChoice } from "../../engine/core/registry";
 
 /** A component loaded on first use (ADR 0083). */
 export type LoadComponent<P extends object> = () => Promise<FunctionComponent<P>>;
@@ -37,8 +38,17 @@ export interface AssetKindContribution {
   open?(path: string): void;
   /** The Inspector's view of a selected file of this kind, loaded on first use. */
   readonly inspector?: LoadComponent<{ path: string }>;
-  /** An entry in the Assets panel's New… menu. `create` returns the new file's path, or null. */
+  /**
+   * An entry in the Assets panel's New… menu, the only source of its file entries (ADR 0149): core kinds
+   * (scenes, render textures) declare theirs here as plugins do. `create` returns the new file's path, or null.
+   */
   readonly create?: { readonly label: string; create(folder: string): Promise<string | null> };
+  /**
+   * Capability (ADR 0149): files of this kind are images that can be cut into slices (ADR 0040). A
+   * `#slice` entry of one is a `sprite` that adds and opens as its file does, the Assets panel shows the
+   * file itself as its thumbnail and lists its slices under it, and Open is "Sprite Editor…".
+   */
+  readonly slices?: boolean;
   /** Policy: the field asset kinds (0131 `@field(AssetRef, { kind })`) that accept files of this kind, e.g. sky → ["environment"] (ADR 0143: any name, so a plugin's Components can reference its own kind). */
   readonly referencedAs?: readonly string[];
   /** Which built-in thumbnail renderer draws its preview (internal tier: renderers stay first-party, ADR 0133). */
@@ -53,6 +63,20 @@ export interface AssetKindContribution {
    * Ignored when `inspector` is set.
    */
   readonly importSettings?: ImportSettingsContribution;
+  /**
+   * The project files a file of this kind names in its own format (ADR 0148), such as a model's
+   * material libraries, textures and buffers. Absent: a JSON file's dependencies are its reference
+   * strings; other files depend on nothing.
+   */
+  readonly references?: AssetReferenceExtractor;
+}
+
+/** How an asset kind reads the files its own format names (ADR 0148). */
+export interface AssetReferenceExtractor {
+  /** The endings (lower case, with the dot) whose files are text `read` understands; absent: all of the kind's. Binary files (`.glb`, `.fbx`) are left out so they are never read as text. */
+  readonly extensions?: readonly string[];
+  /** Project paths `text` (the file at `path`) names, resolved against the file's folder. Paths that aren't project files are ignored. */
+  read(path: string, text: string): readonly string[];
 }
 
 /** What an import settings view is given: the shell owns the sidecar, the draft, Apply and Revert (ADR 0143). */
@@ -90,6 +114,16 @@ export interface AssetSceneNodes {
    * when the add places them (a drop on the scene view), not from the Assets panel's +.
    */
   readonly keepsOwnPosition?: boolean;
+  /**
+   * Why `path` can't be added to `doc` though the kind adds to scenes, or null (ADR 0149): a scene or
+   * prefab that would end up inside itself. Checked before every add and while dragging.
+   */
+  whyNot?(doc: SceneDocument, path: string): string | null;
+  /**
+   * Something to tell the user about what an add made, or null (ADR 0149): a model's cameras arriving
+   * turned off (ADR 0118). Logged as an info message after the add, as "<path>: <note>".
+   */
+  note?(path: string, entries: readonly NodeEntry[]): string | null;
 }
 
 /** A problem found reading an asset file. */
@@ -135,10 +169,24 @@ export interface ProjectSettingsSectionProps {
   project: EditorProject;
 }
 
-/** A category of the Project settings panel a plugin adds (ADR 0133; built-in categories keep their own code). */
+/**
+ * A category of the Project settings panel a plugin adds (ADR 0133; built-in categories keep their own code):
+ * the `project.json` keys it owns (ADR 0151), their view, and what keeps them from being saved.
+ */
 export interface ProjectSettingsSectionContribution {
   /** Also the settings field head its problems are found under (`project.json`'s `navigation`). */
   readonly id: string;
+  /**
+   * The top-level `project.json` keys it owns (`["navigation"]`; `[]` for a section that only edits core
+   * keys). While it is registered they are in the panel's draft (`props.draft[key]`), saved, undone and
+   * reconciled with outside edits like the core keys; unregistered, the file keeps them untouched.
+   */
+  readonly keys: readonly string[];
+  /**
+   * What's wrong with its keys in `draft`, by field (`"navigation.agentTypes.0"`, starting with `id` so
+   * the category shows them). Any problem keeps the whole draft from being saved until fixed or undone.
+   */
+  problems?(draft: SettingsDraft): readonly { field: string; message: string }[];
   /** The category's name in the list and its heading. */
   readonly title: string;
   readonly view: LoadComponent<ProjectSettingsSectionProps>;
@@ -350,6 +398,30 @@ export interface IdlePrefetchContribution {
   load(): Promise<unknown>;
 }
 
+/**
+ * Choices for a Component field that depend on more than its declaration (ADR 0152): the Meshes plugin
+ * offers `engine.MeshRenderer`'s `variant` as a dropdown of the referenced model's material variants. The
+ * Inspector shows the field as a dropdown of `none` (when there are choices) then the choices. With no
+ * choices it hides the row while the field is unset on every selected node, and otherwise offers `none`
+ * alone, so a stale value can be cleared. A field's static `choices` option (ADR 0042) needs none of this.
+ */
+export interface FieldChoicesContribution {
+  readonly id: string;
+  /** The Component type, e.g. "engine.MeshRenderer". */
+  readonly type: string;
+  /** The field's name, e.g. "variant". */
+  readonly field: string;
+  /** The choice that clears the field, listed first (e.g. `{ label: "Default", value: "" }`). */
+  readonly none?: FieldChoice;
+  /**
+   * What the choices depend on, from the active node's copy of the component (the MeshRenderer's mesh
+   * reference): they're asked for again when it changes.
+   */
+  key(info: ComponentInfo): string;
+  /** The choices for the component as `key` describes it; empty when there's nothing to choose. A rejection counts as none. */
+  choices(info: ComponentInfo): readonly FieldChoice[] | Promise<readonly FieldChoice[]>;
+}
+
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const assetFormats = createRegistry<AssetFormatContribution<any>>("Asset format"); // eslint-disable-line @typescript-eslint/no-explicit-any -- formats differ in T
@@ -364,3 +436,4 @@ export const assetActions = createRegistry<AssetActionContribution>("Asset actio
 export const playStatsCounters = createRegistry<PlayStatsCounterContribution>("Play stats counter");
 export const sceneOpenMigrations = createRegistry<SceneOpenMigrationContribution>("Scene open migration");
 export const idlePrefetches = createRegistry<IdlePrefetchContribution>("Idle prefetch");
+export const fieldChoices = createRegistry<FieldChoicesContribution>("Field choices");

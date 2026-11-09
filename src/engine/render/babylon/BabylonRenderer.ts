@@ -18,9 +18,11 @@
  * overlay is a utility layer the frame graph draws after the view camera. The camera preview inset is
  * one more camera in the frame graph, drawn last.
  *
- * Game UI (stage 9, ADR 0076): the renderer-neutral `UICore` lays out and routes, `ui.ts` draws it
- * with Babylon GUI (both loaded on demand), and the frame graph draws the screen UI after the game's
- * camera (in the editor, over its overlay).
+ * Render features (ADR 0130, 0135, 0140, 0154) draw everything else. The renderer runs them by phase and
+ * asks them things only through `BabylonFeature`'s optional hooks (warm items, describing a drawn
+ * object, diagnostics, the UI core), so it names no particle, UI, sky or water feature: the UI plugin's
+ * feature, for one, hands the frame graph its screen layer, drawn after the game's camera (in the
+ * editor, over its overlay).
  */
 import "./register";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
@@ -39,16 +41,14 @@ import type { BabylonEditorTools } from "./editorTools";
 import type { Component } from "../../core/Component";
 import type { ProjectSettings } from "../../core/settings";
 import type { World } from "../../core/World";
-import { _worldRaycast } from "../../core/worldServices";
 import type { Color } from "../../core/math";
 import type { GraphShared } from "./graphMaterial";
-import { Camera, PostProcessing, ReflectionProbe, SpriteRenderer, Text } from "../components";
+import { Camera, PostProcessing, ReflectionProbe, SpriteRenderer } from "../components";
 import type { UICore } from "../../ui/UICore";
 import { BabylonProbes } from "./probes";
 import { BabylonRenderTextures } from "./renderTextures";
 import type { GameObject } from "../../scene/GameObject";
-import type { ParticlePreviewSettings, RenderDiagnostics } from "../RenderSurface";
-import { PARTICLE_SCALE } from "../../core/graphics";
+import type { PixelGrid, RenderDiagnostics, RenderFeatureDiagnostics } from "../RenderSurface";
 import { Graphics } from "../Graphics";
 import type { PostSettings } from "../postEffects";
 import { canvasCameras, planFrame, type FrameCamera, type PlannedView, type Rgb, type ViewRect } from "../framePlan";
@@ -57,17 +57,15 @@ import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { BabylonMaterialLibrary } from "./materialLibrary";
-import { eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type FeatureSlot, type FeatureSyncContext, type MeshesFeatureApi, type ParticlesFeatureApi, type SpritesFeatureApi, type UIFeatureApi } from "./feature";
+import { eagerFeature, lazyFeature, type BabylonFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext, type MeshesFeatureApi, type SpritesFeatureApi } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonQuadBatches } from "./quadBatches";
 import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PROBES_SPEC, ProbesFeature } from "./features";
 import { FogFeature } from "./fog";
-import type { BabylonUIHost } from "./uiFeature";
 import { sortingOrder, unknownLayerMessage } from "../sortOrder";
-import type { BabylonParticleHost } from "./particles";
-import { pixelCenterOffset, snapToGrid } from "../pixelPerfect";
+import { snapToGrid } from "../pixelPerfect";
 import { AsyncPipelines, FirstFrames } from "./asyncPipelines";
-import { effectClock, PipelineWarmer, VariantReport, WARM_PREFIX, type ParticleSystemLike, type WarmCustom, type WarmItem } from "./warmUp";
+import { effectClock, PipelineWarmer, VariantReport, type WarmItem } from "./warmUp";
 import type { WarmContent } from "../../scene/warmUp";
 import type { QualityTier } from "../../core/graphics";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
@@ -84,9 +82,6 @@ const tmpScale = new Vector3();
 const tmpQuat = new Quaternion();
 const tmpPos = new Vector3();
 
-
-/** World-space UI canvases' planes are named with this (`ui.ts`). */
-const CANVAS_PREFIX = "myco.canvas.";
 
 /**
  * @internal The tier settings that change the pipelines draws need (ADR 0080): the sample count, the
@@ -164,8 +159,8 @@ export class BabylonRenderer {
   private readonly renderTextures: BabylonRenderTextures;
   /**
    * Every render feature, in registration order (ADR 0130): the built-ins (the lighting rig and probes),
-   * then plugins' (ADR 0135, 0140): sprites, meshes, tilemaps, sky, particles, water, UI. The renderer
-   * reaches the ones it asks things of by name (`feature(name)`).
+   * then plugins' (ADR 0135, 0140) in their registration order. The renderer asks them things through
+   * their optional hooks (ADR 0154); only the sprite and mesh features' content APIs are read by name (ADR 0140).
    */
   private readonly slots: FeatureSlot[];
   /** Their specs, in the same order (for `ownerOf`). */
@@ -176,11 +171,14 @@ export class BabylonRenderer {
   private readonly syncCtx: FeatureSyncContext = { view: null, viewCamera: null, ready: false, probeMeshes: [] };
   /** Meshes drawn with a probe's map last frame, for tests. */
   private reflecting = 0;
-  /** The UI drawing module, loaded alone for a world canvas's warm-up before the UI feature (`loadUIDraw`). */
-  private uiDrawModule: typeof import("./ui") | null = null;
-  private uiDrawLoading: Promise<unknown> | null = null;
-  /** Editor preview settings, handed to the particles when they load. */
-  private readonly particlePreview: Partial<ParticlePreviewSettings> = {};
+  /** The core services plugin features are built from (ADR 0135, 0154). */
+  private readonly host: BabylonFeatureHost;
+  /** Plugin features' registered warm loaders (ADR 0154 `loadWarm`), by slot, and what they loaded. */
+  private readonly warmLoaders = new Map<FeatureSlot, () => Promise<unknown>>();
+  private readonly warmSources = new Map<FeatureSlot, Promise<Pick<BabylonFeature, "warm"> | null>>();
+  /** The pixel ratio the drawing buffer follows (`resize`), and the surface's device-pixel grid once it gives one. */
+  private pixelRatio = 1;
+  private gridSource: (() => PixelGrid) | null = null;
   /** What this World's renderer does beyond game rules (ADR 0129); the editor sets it through its viewport handle. */
   private policy: RenderPolicy = { ...GAME_POLICY };
   /** The last frame's plan (ADR 0129), for diagnostics. */
@@ -261,14 +259,19 @@ export class BabylonRenderer {
     // Order inside a phase is registration order adjusted by the specs' `after` constraints (ADR 0130,
     // 0135, 0140): the sky (the Sky plugin's) before lights (it may drive the sun), lights before fog, fog
     // before the environment (the skybox fades with the sky fog); sprites, tilemaps, then meshes.
-    const host = this.featureHost();
+    const host = (this.host = this.featureHost());
     this.slots = [
       eagerFeature(LIGHTS_SPEC, this.lights),
       eagerFeature(FOG_SPEC, this.fog),
       eagerFeature(ENVIRONMENT_SPEC, new EnvironmentFeature(this.lighting)),
       eagerFeature(PROBES_SPEC, new ProbesFeature(this.probes, { reflecting: () => this.reflecting })),
-      ...plugged.flatMap((p) => pluginSlot(p, host)),
     ];
+    for (const p of plugged) {
+      for (const slot of pluginSlot(p, host)) {
+        this.slots.push(slot);
+        if (p.registration.loadWarm) this.warmLoaders.set(slot, p.registration.loadWarm);
+      }
+    }
     this.specs = this.slots.map((f) => f.spec);
     for (const i of byPhase(this.specs)) {
       const slot = this.slots[i];
@@ -301,55 +304,35 @@ export class BabylonRenderer {
    */
   warmUp(set: WarmContent): Promise<void> {
     const items: WarmItem[] = [...set.meshes];
-    // Each lazy feature builds its own warm items once it has loaded (ADR 0130); asking loads it.
-    for (const e of set.effects) {
-      const name = `${WARM_PREFIX}particles:${typeof e === "string" ? e : "embedded"}`;
-      const particles = this.particlesSlot();
-      if (particles) items.push(this.deferredWarm(particles, { meshes: [], effects: [e], worldUI: false }, typeof e === "string" ? name : `${name}:${JSON.stringify(e)}`));
+    const later: Promise<void>[] = [];
+    // Each feature builds its own warm items (ADR 0130); a lazy one that hasn't loaded is loaded for the
+    // content its spec `warms` (or its registration's lighter `loadWarm`), then asked (ADR 0154).
+    for (const slot of this.slots) {
+      const feature = slot.feature;
+      if (feature) items.push(...(feature.warm?.(set) ?? []));
+      else if (slot.spec.warms?.(set)) later.push(this.warmSource(slot).then((w) => (w?.warm && !this.disposed ? this.warmer.add(w.warm(set)) : undefined)));
     }
-    if (set.worldUI) items.push(this.warmWorldCanvas());
-    const done = this.warmer.add(items);
+    const done = Promise.all([this.warmer.add(items), ...later]).then(() => undefined);
     return performance.now() - this.lastRenderAt < 500 ? done : Promise.resolve();
   }
 
-  /**
-   * A world-space UI canvas's plane to warm (ADR 0076): the UI feature's, once it has loaded; until then
-   * only the UI drawing module loads for it, not the whole UI (Yoga, the font, a live GUI layer), since
-   * the canvas may be in a prefab that hasn't spawned yet.
-   */
-  private warmWorldCanvas(): WarmCustom {
-    return {
-      key: "worldUI",
-      build: (at, position, camera) => {
-        const item = this.uiFeature()?.warm?.({ meshes: [], effects: [], worldUI: true })[0];
-        if (item && "build" in item) return item.build(at, position, camera);
-        const ui = this.slot("ui") ? this.loadUIDraw() : null; // nothing to warm without the UI plugin
-        return ui ? ui.warmWorldCanvas(this.scene, `${WARM_PREFIX}canvas`, at) : null;
-      },
-    };
-  }
-
-  /** The UI drawing module for the warm-up, or null while it loads (the first call starts loading it). */
-  private loadUIDraw(): typeof import("./ui") | null {
-    this.uiDrawLoading ??= import("./ui").then(
-      (m) => (this.uiDrawModule = m),
-      (err) => {
-        this.uiDrawLoading = null;
-        console.error("[myco] the UI couldn't load for the warm-up:", err);
-      },
-    );
-    return this.uiDrawModule;
-  }
-
-  /** A warm item a lazy feature builds once loaded (the warmer asks again until it does). */
-  private deferredWarm(slot: FeatureSlot, content: WarmContent, key: string): WarmCustom {
-    return {
-      key,
-      build: (at, position, camera) => {
-        const item = slot.ensure()?.warm?.(content)[0];
-        return item && "build" in item ? item.build(at, position, camera) : null;
-      },
-    };
+  /** What warms a lazy feature's content before it has loaded: its registration's warm factory (loaded once), else the feature. */
+  private warmSource(slot: FeatureSlot): Promise<Pick<BabylonFeature, "warm"> | null> {
+    const load = this.warmLoaders.get(slot);
+    if (!load) return slot.whenLoaded();
+    let source = this.warmSources.get(slot);
+    if (!source) {
+      source = load().then(
+        (factory) => (this.disposed ? null : (factory as BabylonWarmFactory)(this.host)),
+        (err) => {
+          this.warmSources.delete(slot); // try again at the next warm-up
+          console.error(`[myco] the ${slot.spec.name} render feature's warm-up couldn't load:`, err);
+          return null;
+        },
+      );
+      this.warmSources.set(slot, source);
+    }
+    return source;
   }
 
   /** The tier changed what draws need (MSAA, passes, shadows, shader level): draw what this World warmed again in the new passes. */
@@ -367,19 +350,19 @@ export class BabylonRenderer {
     this.report = on ? new VariantReport(this.engine, this.scene, (m) => this.describeMesh(m)) : null;
   }
 
-  /** The node (and prefab) a renderer's mesh belongs to, for the variant report; null for other meshes. */
-  private describeMesh(drawn: AbstractMesh | ParticleSystemLike): { what: string; prefab?: string } | null {
-    const of = (node: GameObject, what: string, asset?: string) => {
+  /**
+   * What a drawn object is, for the variant report: the first feature that knows it says (ADR 0154
+   * `describe`), and the node's prefab, if it came from one, is named; null for other objects.
+   */
+  private describeMesh(drawn: object): { what: string; prefab?: string } | null {
+    for (const slot of this.slots) {
+      const d = slot.feature?.describe?.(drawn);
+      if (!d) continue;
       let prefab: string | undefined;
-      for (let n: GameObject | null = node; n && !prefab; n = n.parent) prefab = _instantiatedPrefabOf(n);
-      if (prefab) return { what: `${what} (from ${prefab})`, prefab };
-      return asset ? { what, prefab: asset } : { what };
-    };
-    const owner = this.meshesFeature()?.ownerOf(drawn as AbstractMesh);
-    if (owner) return of(owner.node, `"${owner.node.name}"`);
-    const system = this.particles()?.ownerOf(drawn);
-    if (system) return of(system.node, `The particle effect of "${system.node.name}"`, system.effect ? system.effect.replace(/^asset:/, "") : undefined);
-    if (drawn.name.startsWith(CANVAS_PREFIX)) return { what: `The world-space UI canvas "${drawn.name.slice(CANVAS_PREFIX.length)}"` };
+      for (let n: GameObject | null = d.node ?? null; n && !prefab; n = n.parent) prefab = _instantiatedPrefabOf(n);
+      if (prefab) return { what: `${d.what} (from ${prefab})`, prefab };
+      return d.asset ? { what: d.what, prefab: d.asset } : { what: d.what };
+    }
     return null;
   }
 
@@ -433,7 +416,7 @@ export class BabylonRenderer {
         setClearColor: (color) => this.setClearColor(color),
         cameraPreviewDrawn: () => this.cameraPreviewDrawn,
         spriteSize: (sprite) => this.spriteSize(sprite),
-        ui: () => this.uiFeature()?.core() ?? null,
+        ui: () => this.uiState(),
         bakeReflectionProbe: (probe) => this.bakeReflectionProbe(probe),
       },
     };
@@ -464,14 +447,14 @@ export class BabylonRenderer {
     return { x, top, width: w, height: h };
   }
 
-  /** The frame plan's preview input (ADR 0129): the inset from the bottom-left, its aspect ratio, and whether its UI is ready. */
+  /** The frame plan's preview input (ADR 0129): the inset from the bottom-left, its aspect ratio, and whether its overlay layer is set. */
   private previewInput(): { camera: Camera; rect: { x: number; y: number; width: number; height: number }; aspect: number; ui: boolean } | null {
     const p = this.policy.cameraPreview;
     const rect = p ? this.previewRect() : null;
     if (!p || !rect) return null;
     const r = p.frame.getBoundingClientRect();
     const y = Math.min(1, Math.max(0, 1 - rect.top - rect.height));
-    return { camera: p.camera, rect: { x: rect.x, y, width: rect.width, height: rect.height }, aspect: r.width / r.height, ui: this.uiFeature()?.hasPreviewUI() ?? false };
+    return { camera: p.camera, rect: { x: rect.x, y, width: rect.width, height: rect.height }, aspect: r.width / r.height, ui: this.frame.previewUI !== null };
   }
 
   /** Sets the editor background (editor Worlds) and clear colour. */
@@ -481,8 +464,21 @@ export class BabylonRenderer {
 
   /** The drawing buffer follows the canvas's CSS size times `pixelRatio`. */
   resize(pixelRatio: number): void {
+    this.pixelRatio = pixelRatio;
     this.engine.setHardwareScalingLevel(1 / Math.max(0.01, pixelRatio));
     this.engine.resize();
+  }
+
+  /** The surface's device-pixel grid (ADR 0154), which features (the UI) read: the same answer the camera's maths reads. */
+  setPixelGrid(source: () => PixelGrid): void {
+    this.gridSource = source;
+  }
+
+  /** The view's device-pixel grid: the surface's, else (tests) the canvas's size, or the reference resolution, at the pixel ratio `resize` applied. */
+  private pixelGrid(): PixelGrid {
+    if (this.gridSource) return this.gridSource();
+    const canvas = this.engine.getRenderingCanvas();
+    return { width: canvas?.clientWidth || this.settings.display.width, height: canvas?.clientHeight || this.settings.display.height, pixelRatio: this.pixelRatio };
   }
 
   // --- Textures ---------------------------------------------------------------------------------
@@ -538,19 +534,18 @@ export class BabylonRenderer {
     }
   }
 
-  /** @internal Tests and the editor: the UI core (layout and routing), once loaded. */
+  /** @internal Tests and the editor: the UI core (layout and routing) a loaded feature runs (ADR 0154 `uiCore`), or null. */
   uiState(): UICore | null {
-    return this.uiFeature()?.core() ?? null;
+    for (const slot of this.slots) {
+      const core = slot.feature?.uiCore?.();
+      if (core) return core;
+    }
+    return null;
   }
 
-  /** A registered feature's slot by its spec's name, or null (its plugin is off). */
-  private slot(name: string): FeatureSlot | null {
-    return this.slots.find((s) => s.spec.name === name) ?? null;
-  }
-
-  /** A named feature once it exists (ADR 0140: the plugins' features the renderer asks things of). */
+  /** A named feature once it exists (ADR 0140: the sprite and mesh features, whose content the renderer's own steps read). */
   private feature<F>(name: string): F | null {
-    return (this.slot(name)?.feature as F | null | undefined) ?? null;
+    return (this.slots.find((s) => s.spec.name === name)?.feature as F | null | undefined) ?? null;
   }
 
   private spritesFeature(): SpritesFeatureApi | null {
@@ -561,49 +556,37 @@ export class BabylonRenderer {
     return this.feature<MeshesFeatureApi>("meshes");
   }
 
-  private uiFeature(): UIFeatureApi | null {
-    return this.feature<UIFeatureApi>("ui");
-  }
-
   /** @internal Tests and e2e: the Meshes plugin's feature (`meshRenderers`, `batchStats()`), or null without it. */
   get meshes(): MeshesFeatureApi | null {
     return this.meshesFeature();
   }
 
-  /** The shared services plugin render features are built from (ADR 0135). */
+  /** The core services plugin render features are built from (ADR 0135, 0154): nothing here is one feature's. */
   private featureHost(): BabylonFeatureHost {
+    const probes = this.probes;
     return {
       scene: this.scene,
       lighting: this.lighting,
       materials: this.materials,
-      probeLookup: (x, y, z) => this.probes.lookup(x, y, z),
-      probes: this.probes,
-      reflected: () => void this.reflecting++,
+      probeLookup: (x, y, z) => probes.lookup(x, y, z),
+      probes: {
+        get any() {
+          return probes.any;
+        },
+        lookup: (x, y, z) => probes.lookup(x, y, z),
+        reflected: () => void this.reflecting++,
+      },
       settings: this.settings,
       drawPolicy: () => this.policy.drawPolicy,
-      uiHost: () => this.uiHost(),
+      policy: () => this.policy,
+      world: () => this.owner,
+      viewCamera: () => (this.owner ? (this.viewCameras(this.owner)[0] ?? null) : null),
+      previewRect: () => this.previewRect(),
+      pixelGrid: () => this.pixelGrid(),
+      setScreenLayer: (draw) => (this.frame.ui = draw),
+      setPreviewLayer: (draw) => (this.frame.previewUI = draw),
       quads: this.quads,
       warnOnce: (key, message) => this.warnOnce(key, message),
-      particleHost: () => this.particleHost(),
-      particlePreview: () => this.particlePreview,
-    };
-  }
-
-  /** The UI feature's host (ADR 0130). */
-  private uiHost(): BabylonUIHost {
-    return {
-      scene: this.scene,
-      texture: (ref) => this.materials.texture(ref),
-      viewCamera: () => (this.owner ? (this.viewCameras(this.owner)[0] ?? null) : null),
-      interactive: () => !this.policy.sceneView, // the editor's scene view: clicks select, they don't press buttons
-      previewRect: () => this.previewRect(),
-      canvasSize: () => {
-        const canvas = this.engine.getRenderingCanvas();
-        const cssW = canvas?.clientWidth || this.settings.display.width, cssH = canvas?.clientHeight || this.settings.display.height;
-        return { cssW, cssH, pixelRatio: this.engine.getRenderWidth() / Math.max(1, cssW) };
-      },
-      setFrameUI: (draw) => (this.frame.ui = draw),
-      setFramePreviewUI: (draw) => (this.frame.previewUI = draw),
     };
   }
 
@@ -728,48 +711,6 @@ export class BabylonRenderer {
     return out;
   }
 
-  // --- Particles (ADR 0057, 0060; stage 5) -------------------------------------------------------
-
-  /** The particles feature's slot (the Particles plugin registers it, ADR 0135), or null without the plugin. */
-  private particlesSlot(): FeatureSlot | null {
-    return this.slot("particles");
-  }
-
-  /** The particles feature once loaded, or null. */
-  private particles(): ParticlesFeatureApi | null {
-    return (this.particlesSlot()?.feature as ParticlesFeatureApi | null | undefined) ?? null;
-  }
-
-  /** The particle player's host (ADR 0130's model). */
-  private particleHost(): BabylonParticleHost {
-    return {
-      scene: this.scene,
-      particlePreview: () => this.policy.particlePreview,
-      worldMatrix: (c) => {
-        const e = c.node.entity;
-        return this.owner!.worldMatrix(e).subarray(e * 16, e * 16 + 16);
-      },
-      texture: (path, sheet) => this.materials.texture(path, sheet ? "sheet" : "color"),
-      tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
-      material: (path) => this.materials.material(path), // shared with MeshRenderers; null while missing
-      materialCopy: (path, name) => this.materials.copy(path, name), // soft and kernel particles (ADR 0126)
-      // A World service that answers ray queries (3D physics, ADR 0135); null while the World has none
-      raycast: (ox, oy, oz, dx, dy, dz, maxDistance) => {
-        const hit = this.owner && _worldRaycast(this.owner, { x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz }, maxDistance);
-        return hit ? { point: [hit.point.x, hit.point.y, hit.point.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance } : null;
-      },
-    };
-  }
-
-  setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {
-    Object.assign(this.particlePreview, preview);
-    this.particles()?.setPreview(preview);
-  }
-
-  restartParticlePreview(): void {
-    this.particles()?.restartAll();
-  }
-
   /** Editor (ADR 0110): a probe's current capture as a prefiltered `.env` file. */
   bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer> {
     return this.probes.bake(probe);
@@ -839,10 +780,9 @@ export class BabylonRenderer {
     // Each camera renders into its own texture the size of its rectangle (frameGraph.ts), so its own viewport is the whole texture.
     camera.viewport = new Viewport(0, 0, 1, 1);
     entry.rect = { x, y, width: w, height: h };
-    const canvas = this.engine.getRenderingCanvas();
-    const cw = canvas?.clientWidth || this.settings.display.width, ch = canvas?.clientHeight || this.settings.display.height;
     const target = c.targetTexture ? this.renderTextures.target(c.targetTexture) : null;
-    const aspect = target ? target.width / target.height : (cw * w) / (ch * h); // a render texture's own shape (ADR 0109)
+    // A render texture's own shape (ADR 0109), else the camera's rectangle on the view's pixel grid, as its maths reads it (ADR 0154).
+    const aspect = target ? target.width / target.height : c.aspect;
     if (c.projection === "orthographic") {
       camera.mode = BabylonCamera.ORTHOGRAPHIC_CAMERA;
       const s = c._effectiveOrthographicSize(); // a pixel-perfect camera's whole-number zoom (ADR 0108)
@@ -860,13 +800,11 @@ export class BabylonRenderer {
     const e = c.node.entity;
     Matrix.FromArrayToRef(world.worldMatrix(e) as unknown as ArrayLike<number> as number[], e * 16, tmpMatrix);
     tmpMatrix.decompose(tmpScale, tmpQuat, tmpPos);
-    if (c.pixelPerfect && c.projection === "orthographic") {
-      // On the screen-pixel grid (half a pixel off for an odd number of pixels, so pixel centres line up).
-      const dpr = typeof window !== "undefined" && window.devicePixelRatio > 0 ? window.devicePixelRatio : 1;
-      const wPx = Math.round(cw * w * dpr), hPx = Math.round(ch * h * dpr);
-      const unit = (2 * c._effectiveOrthographicSize()) / Math.max(1, hPx);
-      tmpPos.x = snapToGrid(tmpPos.x, unit) + pixelCenterOffset(wPx, unit);
-      tmpPos.y = snapToGrid(tmpPos.y, unit) + pixelCenterOffset(hPx, unit);
+    const snap = c._pixelSnap();
+    if (snap) {
+      // On the view's device-pixel grid (half a pixel off for an odd number of pixels, so pixel centres line up).
+      tmpPos.x = snapToGrid(tmpPos.x, snap.unit) + snap.offsetX;
+      tmpPos.y = snapToGrid(tmpPos.y, snap.unit) + snap.offsetY;
     }
     camera.position.copyFrom(tmpPos);
     camera.rotationQuaternion!.copyFrom(tmpQuat);
@@ -935,22 +873,27 @@ export class BabylonRenderer {
       }
     }
     const post = this.lastPost;
+    const features: RenderFeatureDiagnostics = {};
     const out: Omit<RenderDiagnostics, "started" | "quality"> = {
       lighting: this.lighting.state(),
-      sky: NO_SKY, // the sky feature's state replaces it when the Sky plugin is active
       // Composed only once the frame graph with the composer's passes has built: until then it hasn't drawn.
       post: { composed: !!post?.composed && this.frame.ready, loaded: this.frame.ready, toneMapping: post?.toneMapping ?? "none", effects: post?.effects ?? null, composedCameras: this.frame.ready ? (post?.composedCameras ?? 0) : 0 },
-      water: { surfaces: 0 },
       probes: this.probes.state(this.reflecting),
       renderTextures: this.renderTextures.state(),
-      particles: null,
       // Babylon counts the draw calls of the frame being drawn and resets at the next frame's start, so between frames this is the last frame's (0 on NullEngine).
       // Programs: the shader effects the engine has compiled and holds (on WebGPU, each makes its pipelines).
       stats: { drawCalls: this.engine._drawCalls?.current ?? 0, triangles: 0, lines: 0, points: 0, geometries: this.scene.geometries.length, textures: this.scene.textures.length, programs: compiledEffects(this.engine) },
       cameras,
       drawn: { meshes: this.meshesFeature()?.drawn() ?? [], sprites: this.spritesFeature()?.drawnNodes() ?? [] },
+      features,
     };
-    for (const slot of this.slots) Object.assign(out, slot.feature?.state?.()); // each loaded feature's part (ADR 0130)
+    for (const slot of this.slots) {
+      const feature = slot.feature;
+      if (!feature) continue;
+      Object.assign(out, feature.state?.()); // a built-in feature's core part (ADR 0130)
+      const own = feature.diagnostics?.(); // any feature's own part, by its name (ADR 0154)
+      if (own !== undefined) features[slot.spec.name] = own;
+    }
     return out;
   }
 
@@ -960,8 +903,6 @@ export class BabylonRenderer {
     console.warn(`[myco] ${message}`);
   }
 }
-
-const NO_SKY: RenderDiagnostics["sky"] = { active: false, drawn: false, bakes: 0, baked: false, time: 0, lastBakeMs: 0 };
 
 /** @internal How a thumbnail renderer differs from a World's (ADR 0153). */
 export interface ThumbnailPolicy {

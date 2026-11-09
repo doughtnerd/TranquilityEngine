@@ -19,6 +19,7 @@ import type { LinesMesh } from "@babylonjs/core/Meshes/linesMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { ParticleProgram } from "../../../scene/particleCompile";
 import type { ParticleEffectPreviewApi, PreviewBackground } from "../../previewTypes";
+import { appliedPixelRatio } from "../../RenderSurface";
 import type { GraphShared } from "../graphMaterial";
 import { EffectPlayer, EffectResources, libraryEffectHost } from "../effectPlayer";
 import { addPreviewLights, aimCamera, createPreviewEngine, createPreviewScene, previewMaterials, renderFrame } from "./common";
@@ -185,7 +186,7 @@ export class ParticleEffectPreview implements ParticleEffectPreviewApi {
   }
 
   resize(w = this.container.clientWidth, h = this.container.clientHeight): void {
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    const ratio = appliedPixelRatio(); // the World surface's pixel ratio, at render scale 1 (ADR 0154)
     this.engine?.setSize(Math.max(1, Math.round(w * ratio)), Math.max(1, Math.round(h * ratio)));
   }
 
