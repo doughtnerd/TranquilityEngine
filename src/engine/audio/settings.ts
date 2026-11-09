@@ -203,20 +203,33 @@ export function parseAudioSettings(input: unknown): { settings: AudioSettings; p
       settings.ducking.push({ target: raw.target, trigger: raw.trigger, amount: num(raw.amount, 0.4, 0, 1), attack: num(raw.attack, 0.1, 0, 10), release: num(raw.release, 0.5, 0, 10) });
     }
   }
-  // A0.4-L1: the backend and fmod lines up to the `return` are replaced by `parseCoreKeys`; delete them.
-  if (input.backend === "fmod") settings.backend = "fmod";
-  else if (input.backend !== undefined && input.backend !== "howler") problems.push(`audio.backend must be "howler" or "fmod".`);
-  if (isRecord(input.fmod) && typeof input.fmod.sdkPath === "string") {
-    settings.fmod = { sdkPath: input.fmod.sdkPath, banks: Array.isArray(input.fmod.banks) ? input.fmod.banks.filter((b): b is string => typeof b === "string") : [] };
-  }
-  if (settings.backend === "fmod" && !settings.fmod) problems.push(`audio.backend "fmod" needs audio.fmod.sdkPath.`);
-  // A0.4-L1: delete `CORE_KEYS_PARSED` and this `if` (call `parseCoreKeys` unconditionally) once it is filled in.
-  if (CORE_KEYS_PARSED) parseCoreKeys(input, settings, problems);
+  parseCoreKeys(input, settings, problems);
   return { settings, problems };
 }
 
-/** A0.4-L1: false while `parseCoreKeys` is a stub, so the section still parses as before. */
-const CORE_KEYS_PARSED = false;
+/**
+ * Integer `min`..`max`: a finite number is rounded then clamped (a problem only when clamping changed it).
+ * `undefined` gives `undefined` with no problem; a non-number, NaN or Infinity gives `undefined` plus a problem.
+ */
+function wholeNumber(raw: unknown, key: string, min: number, max: number, problems: string[]): number | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    problems.push(`${key}: must be a whole number from ${min} to ${max}.`);
+    return undefined;
+  }
+  const rounded = Math.round(raw);
+  const clamped = Math.min(max, Math.max(min, rounded));
+  if (clamped !== rounded) problems.push(`${key}: ${rounded} is outside ${min}..${max}; using ${clamped}.`);
+  return clamped;
+}
+
+/** An enum: `undefined` gives `fallback`; any other value outside `options` gives `fallback` plus a problem. */
+function pick<T extends string>(raw: unknown, key: string, options: readonly T[], fallback: T, problems: string[]): T {
+  if (raw === undefined) return fallback;
+  if (typeof raw === "string" && (options as readonly string[]).includes(raw)) return raw as T;
+  problems.push(`${key}: must be one of ${options.join(", ")}; using "${fallback}".`);
+  return fallback;
+}
 
 /**
  * §2, K13: parse every key the core adds, leniently, into `settings` (which already holds the parsed buses,
@@ -224,6 +237,46 @@ const CORE_KEYS_PARSED = false;
  * `settings.buses` is the final list. Keys the playing backend doesn't use yet stay inert.
  */
 function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, problems: string[]): void {
-  void input; void settings; void problems;
-  throw new Error("not implemented: A0.4-L1");
+  if (input.voices !== undefined) {
+    if (!isRecord(input.voices)) problems.push("audio.voices must be an object.");
+    else {
+      const v = input.voices;
+      const mixed = wholeNumber(v.mixed, "audio.voices.mixed", 8, 512, problems) ?? DEFAULT_VOICES.mixed;
+      const logical = wholeNumber(v.logical, "audio.voices.logical", mixed, 8192, problems) ?? DEFAULT_VOICES.logical;
+      const hrtf = wholeNumber(v.hrtf, "audio.voices.hrtf", 0, 32, problems) ?? DEFAULT_VOICES.hrtf;
+      settings.voices = { mixed, logical, hrtf };
+    }
+  }
+  settings.background = pick(input.background, "audio.background", ["mute", "pause", "play"] as const, "mute", problems);
+  const clipMemoryMB = wholeNumber(input.clipMemoryMB, "audio.clipMemoryMB", 16, 1024, problems);
+  if (clipMemoryMB !== undefined) settings.clipMemoryMB = clipMemoryMB;
+  settings.clipFormat = pick(input.clipFormat, "audio.clipFormat", ["i16", "f32"] as const, "i16", problems);
+  if (input.codecs !== undefined) {
+    if (!isRecord(input.codecs)) problems.push("audio.codecs must be an object.");
+    else {
+      const aac = input.codecs.aac;
+      if (aac !== undefined && typeof aac !== "boolean") problems.push("audio.codecs.aac: must be true or false; using false.");
+      settings.codecs = { aac: aac === true };
+    }
+  }
+  settings.spatial = pick(input.spatial, "audio.spatial", ["hrtf", "equalPower"] as const, "hrtf", problems);
+  if (input.backend !== undefined) {
+    if (input.backend === "babylon" || input.backend === "core") settings.backend = input.backend;
+    else if (input.backend === "howler") problems.push(`audio.backend "howler" was replaced by "babylon" (ADR 0157); using "babylon".`);
+    else if (input.backend === "fmod") problems.push(`audio.backend "fmod" was removed (ADR 0157); using "babylon".`);
+    else problems.push(`audio.backend must be "babylon" or "core".`);
+  }
+  // `settings.voices` is parsed above, so `voices.logical` is the bound. Only the first valid entry per name counts,
+  // the same entry the bus parse kept.
+  if (Array.isArray(input.buses)) {
+    const named = new Set<string>();
+    for (const [i, raw] of input.buses.entries()) {
+      if (!isRecord(raw) || typeof raw.name !== "string" || raw.name.trim() === "" || named.has(raw.name)) continue;
+      named.add(raw.name);
+      const bus = settings.buses.find((b) => b.name === raw.name);
+      if (!bus || raw.maxVoices === undefined || raw.maxVoices === null) continue;
+      const maxVoices = wholeNumber(raw.maxVoices, `audio.buses[${i}].maxVoices`, 1, settings.voices.logical, problems);
+      if (maxVoices !== undefined) bus.maxVoices = maxVoices;
+    }
+  }
 }
