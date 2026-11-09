@@ -74,12 +74,20 @@ describe("viewport handle render policy (ADR 0129)", () => {
     handle.setParticlePreview({ playing: false });
     handle.setParticlePreview({ speed: 3 });
     handle.restartParticlePreview();
-    expect(port.particlePreview).toEqual({ playing: false, speed: 3 });
-    expect(port.restarts).toBe(1);
+    // ADR 0154: the playback and restarts are render policy, the one route to the renderer.
+    expect(port.policy.particlePreview).toMatchObject({ playing: false, speed: 3, simulateAll: false, restarts: 1 });
     expect(handle.ready).toBe(false);
     load();
     handle.poll();
     expect(handle.ready).toBe(true);
     expect(adapter.calls).toEqual(["setSelection", "setOverlay"]); // no preview replay
+  });
+
+  it("a non-eager handle keeps the particle playback without turning preview mode on (game rules)", () => {
+    const { port, handle } = setup(false);
+    handle.setParticlePreview({ simulateAll: true });
+    handle.restartParticlePreview();
+    expect(port.calls).toEqual([]);
+    expect(port.policy.particlePreview).toBeNull();
   });
 });

@@ -15,9 +15,9 @@ import { isUIComponent } from "../../ui/components";
 import { loadBundledFont } from "../../ui/fonts";
 import { UICore } from "../../ui/UICore";
 import { Text, type Camera } from "../components";
-import type { FeatureSyncContext, UIFeatureApi } from "./feature";
-import { BabylonUI, measureText, warmWorldCanvas } from "./ui";
-import { WARM_PREFIX, type WarmItem } from "./warmUp";
+import type { BabylonFeature, DrawnDescription, FeatureSyncContext } from "./feature";
+import { BabylonUI, CANVAS_PREFIX, measureText, worldCanvasWarm } from "./ui";
+import type { WarmItem } from "./warmUp";
 
 /** What the UI feature takes from the renderer (ADR 0130). */
 export interface BabylonUIHost {
@@ -51,9 +51,9 @@ function frameHook(draw: BabylonUI): () => Layer | null {
 }
 
 /** @internal The game UI. */
-export class BabylonUIFeature implements UIFeatureApi {
+export class BabylonUIFeature implements BabylonFeature {
   private readonly draw: BabylonUI;
-  private readonly uiCore: UICore;
+  private readonly mainCore: UICore;
   private preview: { core: UICore; draw: BabylonUI } | null = null;
   private disposed = false;
 
@@ -70,7 +70,7 @@ export class BabylonUIFeature implements UIFeatureApi {
 
   private constructor(private readonly host: BabylonUIHost) {
     this.draw = new BabylonUI(host.scene, { texture: (ref) => host.texture(ref) });
-    this.uiCore = new UICore({
+    this.mainCore = new UICore({
       interactive: host.interactive(),
       host: { viewCamera: () => host.viewCamera(), measureText },
     });
@@ -79,7 +79,7 @@ export class BabylonUIFeature implements UIFeatureApi {
 
   /** The layout and routing core (the surface's `uiState()` and the editor read it). */
   core(): UICore {
-    return this.uiCore;
+    return this.mainCore;
   }
 
   /** Whether the editor's preview inset has its UI built (the frame plan's `preview.ui`). */
@@ -90,7 +90,7 @@ export class BabylonUIFeature implements UIFeatureApi {
   sync(world: World, _ctx?: FeatureSyncContext): void {
     if (this.disposed) return;
     const { cssW, cssH, pixelRatio } = this.host.canvasSize();
-    const core = this.uiCore;
+    const core = this.mainCore;
     core.setInteractive(this.host.interactive());
     core.sync(world, cssW, cssH, world.time.unscaledDeltaTime);
     this.draw.sync(world, core, { caretOf: (c) => core.caretOf(c) }, cssW, cssH, pixelRatio);
@@ -127,7 +127,7 @@ export class BabylonUIFeature implements UIFeatureApi {
 
   release(c: Component): void {
     if (isUIComponent(c)) {
-      this.uiCore.release(c);
+      this.mainCore.release(c);
       this.draw.release(c);
       this.preview?.core.release(c);
       this.preview?.draw.release(c);
@@ -139,8 +139,18 @@ export class BabylonUIFeature implements UIFeatureApi {
 
   /** ADR 0076: a world-space UI canvas's plane to warm, the GUI's material on a plane. */
   warm(content: WarmContent): WarmItem[] {
-    if (!content.worldUI) return [];
-    return [{ key: "worldUI", build: (at) => warmWorldCanvas(this.host.scene, `${WARM_PREFIX}canvas`, at) }];
+    return worldCanvasWarm(this.host.scene, content);
+  }
+
+  /** ADR 0154: the renderer's UI core hook (the editor's UI queries). */
+  uiCore(): UICore {
+    return this.mainCore;
+  }
+
+  /** ADR 0154: a world-space canvas's plane, for the variant report. */
+  describe(drawn: object): DrawnDescription | null {
+    const name = (drawn as { name?: unknown }).name;
+    return typeof name === "string" && name.startsWith(CANVAS_PREFIX) ? { what: `The world-space UI canvas "${name.slice(CANVAS_PREFIX.length)}"` } : null;
   }
 
   dispose(): void {
@@ -148,7 +158,7 @@ export class BabylonUIFeature implements UIFeatureApi {
     this.disposed = true;
     this.host.setFrameUI(null);
     this.host.setFramePreviewUI(null);
-    this.uiCore.dispose();
+    this.mainCore.dispose();
     this.draw.dispose();
     this.preview?.core.dispose();
     this.preview?.draw.dispose();

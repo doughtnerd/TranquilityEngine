@@ -63,16 +63,20 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     engine.dispose();
   });
 
+  /** Each editor player's preview policy (ADR 0154: the playback settings are part of it). */
+  const previews = new Map<BabylonParticles, { playing: boolean; speed: number; simulateAll: boolean }>();
   function make(editor = false, selected = true, host: Partial<BabylonParticleHost> = {}) {
+    const preview = { playing: true, speed: 1, simulateAll: false, restarts: 0, selected: () => selected };
     const player = new BabylonParticles({
       scene,
-      particlePreview: () => (editor ? { selected: () => selected } : null),
+      particlePreview: () => (editor ? preview : null),
       worldMatrix: () => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
       texture: () => Promise.reject(new Error("no textures here")),
       tierScale: () => 1,
       ...host,
     });
     players.push(player);
+    previews.set(player, preview);
     return player;
   }
   /** The scene's Babylon particle systems. */
@@ -229,10 +233,10 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     const b = fakeSystem(steady(60));
     frames(hidden, b, 30, 0, 1 / 60);
     expect(b._state.count).toBe(0);
-    hidden.preview.simulateAll = true;
+    previews.get(hidden)!.simulateAll = true;
     frames(hidden, b, 30, 0, 1 / 60);
     expect(b._state.count).toBeGreaterThan(20);
-    hidden.preview.playing = false;
+    previews.get(hidden)!.playing = false;
     const n = b._state.count;
     frames(hidden, b, 30, 0, 1 / 60);
     expect(b._state.count).toBe(n);

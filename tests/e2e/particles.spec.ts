@@ -12,8 +12,8 @@ test.describe.configure({ timeout: 60_000 });
 
 type ParticleState = { systems: number; emitters: number; particles: number; batches: number; previewed: { time: number; count: number } | null };
 type Hooks = {
-  engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { particles: ParticleState | null } } } };
-  playEngine?: { world: { time: { frameCount: number }; render: { diagnostics(): { particles: ParticleState | null } } } } | null;
+  engine?: { world: { time: { frameCount: number }; render: { diagnostics(): { features: { particles?: ParticleState } } } } };
+  playEngine?: { world: { time: { frameCount: number }; render: { diagnostics(): { features: { particles?: ParticleState } } } } } | null;
 };
 
 function trackErrors(page: Page): string[] {
@@ -23,8 +23,8 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-const editorParticles = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().particles);
-const playParticles = (page: Page) => page.evaluate(() => (window as unknown as Hooks).playEngine?.world.render.diagnostics().particles ?? null);
+const editorParticles = (page: Page) => page.evaluate(() => (window as unknown as Hooks).engine!.world.render.diagnostics().features.particles ?? null);
+const playParticles = (page: Page) => page.evaluate(() => (window as unknown as Hooks).playEngine?.world.render.diagnostics().features.particles ?? null);
 const waitForEngine = (page: Page) => page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 
 const SAMPLE = "samples/playground3d";

@@ -16,7 +16,7 @@ import { drawnVariant, materialSlots, meshesIfLoaded, type MaterialSlot, type Mo
 import { MeshRenderer } from "../components";
 import type { DrawnMaterial } from "../RenderSurface";
 import type { EditorMesh } from "./editorContext";
-import type { FeatureSyncContext, MeshesFeatureApi } from "./feature";
+import type { DrawnDescription, FeatureSyncContext, MeshesFeatureApi } from "./feature";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import { MeshBatches, sameDraw, type DrawKey, type Drawable } from "./meshBatches";
 import type { ProbeHit } from "./probes";
@@ -136,6 +136,12 @@ export class BabylonMeshes implements MeshesFeatureApi {
       if (e.meshes.includes(drawn as AbstractMesh) || e.drawables.some((d) => d.source === drawn)) return r;
     }
     return null;
+  }
+
+  /** ADR 0154: a drawn mesh's node, for the variant report. */
+  describe(drawn: object): DrawnDescription | null {
+    const owner = this.ownerOf(drawn);
+    return owner ? { node: owner.node, what: `"${owner.node.name}"` } : null;
   }
 
   /** Each node's drawn (enabled) mesh materials, for the diagnostics (ADR 0128). */

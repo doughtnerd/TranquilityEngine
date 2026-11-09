@@ -18,7 +18,15 @@ export { ParticleSystem, type ParticlePropertyValue } from "../../../engine/rend
  * @internal Plays ParticleSystems; loaded the first time a World has one (ADR 0083). The only feature
  * of the `effects` phase, which runs after content and lighting and before probes capture.
  */
-export const PARTICLES_SPEC: RenderFeatureSpec = { name: "particles", phase: "effects", types: [ParticleSystem], lazy: true, holdsFirstFrame: false };
+export const PARTICLES_SPEC: RenderFeatureSpec = {
+  name: "particles",
+  phase: "effects",
+  types: [ParticleSystem],
+  lazy: true,
+  holdsFirstFrame: false,
+  // A warm set's particle effects (ADR 0080): the warm-up loads the player for them (ADR 0154).
+  warms: (content) => content.effects.length > 0,
+};
 
 export const particlesRuntimePlugin: RuntimePlugin = {
   manifest: particlesManifest,
