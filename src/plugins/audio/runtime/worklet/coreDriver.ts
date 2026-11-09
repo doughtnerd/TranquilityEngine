@@ -4,11 +4,27 @@
 //
 // It instantiates the core over an imported `WebAssembly.Memory` (always `MEMORY_INITIAL_PAGES` initial pages,
 // and `myco_audio_init` before anything that could grow memory, so init is deterministic), takes messages from
-// the host (TIME_PING, RECYCLE, and returns every other buffer), renders one quantum per `process`, runs the
-// underrun probe, and posts STATUS from a pool of 8 buffers every 6 quanta (every 48 after 250 ms without a
-// batch), skipping the post when the pool is empty.
+// the host (TIME_PING, RECYCLE, BATCH/REPLAY into the inbox, CLIP_BEGIN/CHUNK/UNLOAD into the arena, and returns
+// every other buffer), renders one quantum per `process`, runs the underrun probe, and posts STATUS from a pool of
+// 8 buffers every 6 quanta (every 48 after 250 ms without a batch), skipping the post when the pool is empty.
 import { createStatusPool, type BufferPool } from "../core/bufferPool";
-import { Kind, MAGIC, QUANTUM_FRAMES, SCHEMA_HASH, STATUS_EVERY_QUANTA, STATUS_IDLE_AFTER_MS, STATUS_IDLE_EVERY_QUANTA, VERSION_MAJOR } from "../wire.generated";
+import {
+  CLIP_BEGIN_FIXED_END,
+  CLIP_CHUNK_FIXED_END,
+  CLIP_UNLOAD_FIXED_END,
+  ClipFormat,
+  Kind,
+  MAGIC,
+  QUANTUM_FRAMES,
+  readClipBegin,
+  readClipChunk,
+  readClipUnload,
+  SCHEMA_HASH,
+  STATUS_EVERY_QUANTA,
+  STATUS_IDLE_AFTER_MS,
+  STATUS_IDLE_EVERY_QUANTA,
+  VERSION_MAJOR,
+} from "../wire.generated";
 
 /** @internal The name `processor.ts` registers and the host creates its node with. */
 export const PROCESSOR_NAME = "myco-audio-core";
@@ -56,6 +72,10 @@ export interface CoreExports {
   myco_audio_inbox_ptr(): number;
   myco_audio_inbox_cap(): number;
   myco_audio_submit(len: number): number;
+  myco_audio_clip_reserve(clip: number, frames: number, channels: number, srcRate: number, format: number): number;
+  myco_audio_clip_chunk_ptr(clip: number, frameOffset: number, bytes: number): number;
+  myco_audio_clip_commit(clip: number, frameOffset: number, bytes: number): number;
+  myco_audio_clip_free(clip: number): number;
   myco_audio_process(frameLo: number, frameHi: number): number;
   myco_audio_status_take(): number;
   myco_audio_status_ptr(): number;
@@ -208,6 +228,16 @@ export interface CoreDriverStats {
   recycled: number;
   /** Non-RECYCLE buffers returned to the host. */
   returned: number;
+  /** CLIP_CHUNK bytes copied into the arena. */
+  clipBytes: number;
+}
+
+/** @internal Most clip bytes the shell copies per quantum (architecture §3.5, api-and-models §5: 256 KB). */
+export const CLIP_BYTES_PER_QUANTUM = 256 * 1024;
+
+/** What the shell remembers of a reserved clip: enough to size its chunks. */
+interface ClipShape {
+  readonly frameBytes: number;
 }
 
 const OUTPUT_SAMPLES = 2 * QUANTUM_FRAMES;
@@ -215,7 +245,7 @@ const TWO_PI = 2 * Math.PI;
 
 /** @internal The shell's logic over one core instance. */
 export class CoreDriver {
-  readonly stats: CoreDriverStats = { quanta: 0, posted: 0, skipped: 0, recycled: 0, returned: 0 };
+  readonly stats: CoreDriverStats = { quanta: 0, posted: 0, skipped: 0, recycled: 0, returned: 0, clipBytes: 0 };
   /** The STATUS pool (§4.3: 8 × 16 KB). */
   readonly pool: BufferPool = createStatusPool();
   /** The underrun probe (§4.7); its counts go into every STATUS. */
@@ -236,6 +266,11 @@ export class CoreDriver {
   private tonePhase = 0;
   private u8: Uint8Array;
   private f32: Float32Array;
+  /** Reserved clips by id (CLIP_BEGIN accepted, no CLIP_UNLOAD yet). */
+  private readonly clips = new Map<number, ClipShape>();
+  /** Clip messages waiting for this quantum's copy budget, in arrival order. */
+  private readonly clipQueue: ArrayBuffer[] = [];
+  private clipBudget = CLIP_BYTES_PER_QUANTUM;
 
   /** `dateNow` is the wall clock at construction: the idle cadence counts 250 ms from it until a batch arrives. */
   constructor(
@@ -265,8 +300,9 @@ export class CoreDriver {
   /**
    * A buffer from the host (api-and-models §4.1). TIME_PING: remember `pingSeq` and the low 32 bits of
    * `currentFrame`, echoed in every later STATUS. RECYCLE: back into the STATUS pool. BATCH or REPLAY: note the
-   * time (the idle cadence) and return it (A1.2 applies it). Anything else, unreadable buffers included, is
-   * returned to the host untouched.
+   * time (the idle cadence), submit it and return it. CLIP_BEGIN, CLIP_CHUNK and CLIP_UNLOAD: into the clip queue
+   * (reserve, chunk copy and commit, free; at most 256 KB copied per quantum), not returned. Anything else,
+   * unreadable buffers included, is returned to the host untouched.
    */
   onMessage(buffer: ArrayBuffer, currentFrame: number, dateNow: number): void {
     if (buffer.byteLength < 16) return this.giveBack(buffer);
@@ -296,9 +332,83 @@ export class CoreDriver {
         }
         return this.giveBack(buffer);
       }
+      case Kind.CLIP_BEGIN:
+      case Kind.CLIP_CHUNK:
+      case Kind.CLIP_UNLOAD:
+        this.clipQueue.push(buffer);
+        this.drainClips();
+        return;
       default:
         return this.giveBack(buffer);
     }
+  }
+
+  /** Clip messages still waiting for a quantum's copy budget. */
+  get pendingClipMessages(): number {
+    return this.clipQueue.length;
+  }
+
+  /**
+   * Applies queued clip messages in order while this quantum's budget (`CLIP_BYTES_PER_QUANTUM`) lasts; `process`
+   * resets the budget and drains again. The main side already paces its chunks to the same budget, so the queue is
+   * normally empty. Clip buffers aren't returned: the main side allocates each one (A1.3a's registry), and none
+   * belongs to the host's BATCH pool.
+   */
+  private drainClips(): void {
+    while (this.clipQueue.length > 0) {
+      const buffer = this.clipQueue[0]!;
+      const view = new DataView(buffer);
+      const kind = view.getUint16(6, true);
+      if (kind === Kind.CLIP_CHUNK) {
+        const bytes = this.chunkBytes(view);
+        // A chunk larger than a whole budget is refused by the core anyway; let it through on a fresh budget.
+        if (bytes > this.clipBudget && this.clipBudget < CLIP_BYTES_PER_QUANTUM) return;
+        this.clipBudget -= Math.min(bytes, this.clipBudget);
+      }
+      this.clipQueue.shift();
+      if (kind === Kind.CLIP_BEGIN) this.clipBegin(view);
+      else if (kind === Kind.CLIP_CHUNK) this.clipChunk(view);
+      else this.clipUnload(view);
+    }
+  }
+
+  /** A chunk's sample bytes: `frames * channels * bytesPerSample`, never the (padded) body size; 0 when unusable. */
+  private chunkBytes(view: DataView): number {
+    if (view.byteLength < CLIP_CHUNK_FIXED_END) return 0;
+    const chunk = readClipChunk(view, 0);
+    const shape = this.clips.get(chunk.clipId);
+    return shape ? chunk.frames * shape.frameBytes : 0;
+  }
+
+  /** CLIP_BEGIN → `myco_audio_clip_reserve` (may grow memory: the views are re-created before the next copy). */
+  private clipBegin(view: DataView): void {
+    if (view.byteLength < CLIP_BEGIN_FIXED_END) return;
+    const begin = readClipBegin(view, 0);
+    const code = this.core.exports.myco_audio_clip_reserve(begin.clipId, begin.frames, begin.channels, begin.sampleRate, begin.format);
+    this.views();
+    // A refusal is reported by the core as a STATUS clip event (refusedCeiling / refusedGrow).
+    if (code === 0) this.clips.set(begin.clipId, { frameBytes: begin.channels * (begin.format === ClipFormat.F32 ? 4 : 2) });
+  }
+
+  /** CLIP_CHUNK → `clip_chunk_ptr`, one copy from the message, `clip_commit`; the last range makes the clip resident. */
+  private clipChunk(view: DataView): void {
+    const bytes = this.chunkBytes(view);
+    if (bytes === 0 || CLIP_CHUNK_FIXED_END + bytes > view.byteLength) return;
+    const chunk = readClipChunk(view, 0);
+    const { exports } = this.core;
+    const ptr = exports.myco_audio_clip_chunk_ptr(chunk.clipId, chunk.frameOffset, bytes);
+    if (ptr === 0) return;
+    this.views();
+    this.u8.set(new Uint8Array(view.buffer, CLIP_CHUNK_FIXED_END, bytes), ptr);
+    if (exports.myco_audio_clip_commit(chunk.clipId, chunk.frameOffset, bytes) === 0) this.stats.clipBytes += bytes;
+  }
+
+  /** CLIP_UNLOAD → `myco_audio_clip_free`. */
+  private clipUnload(view: DataView): void {
+    if (view.byteLength < CLIP_UNLOAD_FIXED_END) return;
+    const { clipId } = readClipUnload(view, 0);
+    this.clips.delete(clipId);
+    this.core.exports.myco_audio_clip_free(clipId);
   }
 
   /** A dev-only control (`debugTone`). */
@@ -317,6 +427,8 @@ export class CoreDriver {
   process(currentFrame: number, dateNow: number): Float32Array {
     this.stats.quanta++;
     this.probe.step(currentFrame, dateNow);
+    this.clipBudget = CLIP_BYTES_PER_QUANTUM;
+    if (this.clipQueue.length > 0) this.drainClips();
     let ptr = 0;
     try {
       ptr = this.core.exports.myco_audio_process(currentFrame % 4_294_967_296 >>> 0, Math.floor(currentFrame / 4_294_967_296));
