@@ -4,11 +4,10 @@
 // tracks it, as reading the signal would.
 import type { ImportSettings } from "../../engine/scene/importSettings";
 import { readImportSettings, showAsset } from "../assetImport";
-import { assetKind, type AssetKind } from "../assetKinds";
-import { fileName } from "../assetNodeEntries";
+import { assetKind, type AssetKind } from "../assetKindLookup";
 import { freePath } from "../freePath";
 import { openScript } from "../code/codeState";
-import { folderOf, listedFiles } from "../assetBrowser";
+import { fileName, folderOf, listedFiles } from "../assetBrowser";
 import { joinPath } from "../projectPaths";
 import { isScenePath, type EditorProject } from "../projects";
 import { currentProject, docVersion } from "../state";

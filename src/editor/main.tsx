@@ -8,6 +8,7 @@
 // load behind it; its buttons wait for the session if they are clicked first. Then the panels the
 // layout shows load (ADR 0083), and once idle the rest of the panels and the engine's chunks.
 import "../plugins/editorBoot"; // first: registers plugin contributions before the layout store loads (ADR 0133)
+import { registerCoreAssetKinds } from "./assetKinds.builtin";
 import { render } from "preact";
 import { isTauri } from "../engine/platform/FileSystem";
 import { installCloseGuard } from "./dialogs";
@@ -23,6 +24,9 @@ import "./ui/editor.css";
 import "./ui/fonts";
 import { NewProjectDialog } from "./ui/NewProjectDialog";
 import { StartScreen } from "./ui/StartScreen";
+
+// The core asset kinds (ADR 0143): every per-kind question is answered from the registered kinds.
+registerCoreAssetKinds();
 
 const session = () => import("./session");
 

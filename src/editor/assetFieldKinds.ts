@@ -1,41 +1,42 @@
 /**
- * Asset field kinds in the editor (ADR 0131): which project files an `AssetRef` field offers,
+ * Asset field kinds in the editor (ADR 0131, 0143): which project files an `AssetRef` field offers,
  * from the `kind` its Component declares (`@field(AssetRef, { kind: "material" })`).
  *
- * The engine names what a field needs (`AssetFieldKind`); each asset kind's `referencedAs` names the
- * field kinds that accept it, and the few file-name filters here cover files of no particular kind.
+ * The engine names what a field needs (`AssetFieldKind`, any name); the asset kinds whose
+ * `referencedAs` names it supply the files (`satisfiesFieldKind` in the asset kind module). Here:
+ * the values that aren't files (the built-in meshes), and a warning for a name nothing satisfies.
  */
 import { ASSET_FIELD_KINDS, AssetRef, isListType, type AssetFieldKind } from "../engine/core/registry";
 import type { FieldValue } from "../engine/editor";
 import { BUILTIN_MESHES } from "../engine/scene/models";
-import { assetKind, assetKindFor } from "./assetKinds";
-
-/**
- * Files a field kind accepts that no asset kind's `referencedAs` names: panoramas, fonts and baked
- * navigation, which are only told apart by their file names. Everything else (images and sprites,
- * audio, scenes, prefabs, render textures: the core asset kinds; models, materials, effects…: plugins')
- * is accepted through its kind's `referencedAs` (ADR 0133).
- */
-const FILTERS: Partial<Record<AssetFieldKind, (file: string) => boolean>> = {
-  environment: (f) => /\.(png|jpe?g)$/i.test(f), // panoramas; environment maps and cubemaps (Environment plugin) and skies (Sky) by `referencedAs`
-  envmap: (f) => /\.env$/i.test(f) && assetKind(f) === "environment", // a prefiltered map of the Environment plugin's kind
-  font: (f) => /\.(ttf|otf|woff2?)$/i.test(f),
-  navbake: (f) => /\.nav\.bin$/i.test(f),
-};
+import { fieldKindKnown, satisfiesFieldKind } from "./assetKindLookup";
+import { logMessage } from "./messages";
 
 /** Values a kind offers that aren't project files: the built-in meshes for `mesh`. */
 const BUILTINS: Partial<Record<AssetFieldKind, readonly string[]>> = {
   mesh: BUILTIN_MESHES.map((m) => `builtin:${m}`),
 };
 
-/** Whether a file suits field kind `k`: its asset kind declares `referencedAs` it (ADR 0133), or a file-name filter above. */
-export function acceptsFile(k: AssetFieldKind, file: string): boolean {
-  return assetKindFor(file)?.referencedAs?.includes(k) === true || FILTERS[k]?.(file) === true;
+/** Whether a file suits field kind `k`: an asset kind that declares `referencedAs` it, or a core rule (ADR 0143). */
+export const acceptsFile = (k: AssetFieldKind, file: string): boolean => satisfiesFieldKind(k, file);
+
+/** Field kinds already warned about. */
+const warned = new Set<string>();
+
+/**
+ * Warn once about a field kind no registered asset kind satisfies (ADR 0143: a typo is no type error
+ * any more). Only names outside the engine's own: their kinds may belong to a disabled plugin.
+ */
+function warnUnknown(k: AssetFieldKind): void {
+  if (warned.has(k) || (ASSET_FIELD_KINDS as readonly string[]).includes(k) || fieldKindKnown(k)) return;
+  warned.add(k);
+  logMessage("warning", `No asset kind is referenced as "${k}": fields of that kind offer no files. Is the plugin that adds it enabled, or is the name misspelled?`);
 }
 
 /** What an asset field of these kinds offers from `files`: built-in values first, then matching files. Empty `kinds` offers every file. */
 export function assetsForKinds(kinds: readonly AssetFieldKind[], files: readonly string[]): string[] {
   if (kinds.length === 0) return [...files];
+  kinds.forEach(warnUnknown);
   const builtins = [...new Set(kinds.flatMap((k) => BUILTINS[k] ?? []))];
   return [...builtins, ...files.filter((f) => kinds.some((k) => acceptsFile(k, f)))];
 }
@@ -47,7 +48,7 @@ export function assetKindsOf(field: FieldValue): AssetFieldKind[] {
   if (item !== AssetRef) return [];
   const kind = field.options?.kind;
   if (kind === undefined) return [];
-  return (typeof kind === "string" ? [kind] : [...kind]).filter((k) => (ASSET_FIELD_KINDS as readonly string[]).includes(k));
+  return typeof kind === "string" ? [kind] : [...kind];
 }
 
 /** The id of the `<datalist>` an asset field suggests from (`AssetLists` in the Inspector renders one per kind, plus `asset-list-all`). */

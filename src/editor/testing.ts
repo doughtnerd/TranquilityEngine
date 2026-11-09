@@ -1,7 +1,9 @@
 // Test helpers for editor tests (not part of the editor build): the Flappy sample's files, with
-// its types registered (sampleTypes.ts).
+// its types registered (sampleTypes.ts), and the core asset kinds (`useCoreAssetKinds`).
 import type { AssetSource, ProjectSettingsInput } from "../engine";
+import { afterAll, beforeAll } from "vitest";
 import "./sampleTypes";
+import { registerCoreAssetKinds } from "./assetKinds.builtin";
 import { MemoryFileSystem } from "./memoryFs";
 import { editorSettings, joinPath, openFolderProject, readOnlyProject, type EditorProject } from "./projects";
 import { currentProject, select, status } from "./state";
@@ -78,4 +80,19 @@ export function closeTestProject(): void {
   currentProject.value = null;
   status.value = null;
   select([]);
+}
+
+/**
+ * Register the core asset kinds (ADR 0143) for every test in the calling file, as `main.tsx` does
+ * at boot: call it at the top of a test file (or a `describe`) that resolves kinds.
+ */
+export function useCoreAssetKinds(): void {
+  let undo: (() => void) | null = null;
+  beforeAll(() => {
+    undo = registerCoreAssetKinds();
+  });
+  afterAll(() => {
+    undo?.();
+    undo = null;
+  });
 }

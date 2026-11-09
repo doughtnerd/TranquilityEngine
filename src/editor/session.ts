@@ -27,7 +27,7 @@ import { startPlay, type PlaySession } from "./playMode";
 import { applyKept, endLiveInspection, takeKept, type KeptValues } from "./runtimeInspect";
 import { openSceneFile, saveOpenScene } from "./project";
 import { sceneOpenMigrations } from "./sdk/contributions";
-import { applyEnabledPlugins } from "../plugins/editorApply";
+import { applyEditorPlugins, reportPluginProblems } from "../plugins/editorPlugins";
 import { loadProjectCode, projectPlugins, unloadThirdPartyPlugins } from "../plugins/thirdPartyEditor";
 import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { currentProject, docVersion, openScene, openScenes, playing, playState, sceneCamera, scriptProblems, scriptsVersion, select, selectedKeys, selection, setViewMode, status, viewMode, type OpenScene } from "./state";
@@ -115,8 +115,10 @@ export async function loadProject(project: EditorProject): Promise<void> {
   pendingReload = false;
   closeAllScripts();
   resetAssetBrowser();
-  applyEnabledPlugins(project.settings.plugins?.disabled); // before the scripts and scenes: a disabled plugin's Components are gone (ADR 0133)
-  const scripts = await loadProjectCode(project); // scripts and third-party plugins (ADR 0139)
+  // The first-party plugins before the scripts and scenes: a disabled plugin's Components are gone (ADR 0133),
+  // and the previous project's third-party plugins go. Problems are reported with the script problems below.
+  applyEditorPlugins(project.settings.plugins?.disabled, { thirdParty: [], layout: "reload" });
+  const scripts = await loadProjectCode(project); // scripts and third-party plugins, then first- and third-party applied together (ADR 0139, 0144)
   scriptProblems.value = scripts.problems;
   scriptsVersion.value++;
   void setUpScripting(project);
@@ -577,7 +579,7 @@ export function reapplyPlugins(): void {
     return;
   }
   pendingPlugins = false;
-  applyEnabledPlugins(project.settings.plugins?.disabled, { live: true });
+  reportPluginProblems(applyEditorPlugins(project.settings.plugins?.disabled, { layout: "live" }).problems);
   openScene.value?.sync.build();
   docVersion.value++; // panels, outlines, asset kinds and the Inspector pick up the change
   // Third-party plugins' code loads with the scripts (ADR 0139): reload it with the new set.

@@ -1,13 +1,15 @@
 // Runtime halves of plugins (ADR 0135): `{ manifest, activate(context) }`. The context records every
 // registration, so deactivating a plugin undoes them all, as the editor half's does (ADR 0134).
-// The player, the dedicated server and the editor (its own World and Play) activate the first-party
-// halves (`RUNTIME_PLUGINS`) before `Engine.create`; `src/engine/` never imports `src/plugins/`.
+// Hosts (the player, the dedicated server, the editor) make plugins active through a plugin set
+// (`pluginSet.ts`, ADR 0144), which drives this module through `runtimeActivator`, before
+// `Engine.create`; `src/engine/` never imports `src/plugins/`.
 import { _unregisterComponent, getComponentClass, getComponentId, getComponentOptions, registerComponent, type ComponentClass } from "../engine/core/registry";
 import { _undefineBuiltinSystem, _undefineSystem, defineBuiltinSystem, defineSystem, type BuiltinSystem, type SystemDef } from "../engine/core/systems";
 import { _registerWorldService, type WorldServiceDef } from "../engine/core/worldServices";
 import { _registerRenderFeature, type RenderFeatureRegistration, type RenderFeatureSpec } from "../engine/render/renderFeatures";
 import type { PluginManifest } from "./manifest";
 import { orderPlugins } from "./order";
+import type { HalfActivator } from "./pluginSet";
 
 /** A render feature a first-party plugin contributes (ADR 0135). */
 export interface RenderFeatureContribution {
@@ -76,11 +78,11 @@ const claimedIds = new WeakMap<ComponentClass, string>();
 /** Component type id → the plugin that claims it, kept while the plugin is disabled too (for "missing (plugin X is disabled)"). */
 const componentPlugins = new Map<string, string>();
 
-/** The name of the plugin whose runtime half claims the Component `id` (once that half has run), if any. */
 /** Manifests of the runtime halves that have run (active or disabled), by name. */
 const manifests = new Map<string, PluginManifest>();
 export const runtimePluginManifest = (name: string): PluginManifest | undefined => manifests.get(name);
 
+/** The name of the plugin whose runtime half claims the Component `id` (once that half has run), if any. */
 export const pluginOfComponent = (id: string): string | undefined => componentPlugins.get(id);
 
 function idOf(cls: ComponentClass, plugin: string): string {
@@ -108,75 +110,81 @@ function unclaim(cls: ComponentClass, id: string): () => void {
 }
 
 /**
- * Activate runtime halves in dependency order (ADR 0134's `orderPlugins`). Already-active plugins are
- * skipped. A plugin that throws is rolled back and the error rethrown.
+ * Run a disabled plugin's runtime half against a context that only unregisters its Components (their
+ * decorators registered them), so scenes load them as missing (ADR 0133). Once per plugin until it is
+ * activated; nothing happens for an active plugin.
  */
-export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], options: ActivateOptions = {}): void {
-  const enabled = options.enabled ? new Set(options.enabled) : null;
-  for (const plugin of orderPlugins(plugins, options.provided)) {
-    const name = plugin.manifest.name;
-    if (active.has(name)) continue;
-    manifests.set(name, plugin.manifest);
-    const on = (!enabled || enabled.has(name)) && !(options.server && plugin.manifest.server === false);
-    if (!on) {
-      if (disabled.has(name)) continue;
-      // Run it against a context that only unregisters its Components (their decorators registered them).
-      const undo: Array<() => void> = [];
-      disabled.set(name, undo);
-      plugin.activate({
-        registerComponents: (classes) => void classes.forEach((cls) => undo.push(unclaim(cls, idOf(cls, name)))),
-        registerSystems: () => {},
-        registerEngineSystems: () => {},
-        registerWorldService: () => {},
-        registerRenderFeature: () => {},
-        contribute: () => {},
-      });
-      continue;
-    }
-    for (const u of (disabled.get(name) ?? []).reverse()) u();
-    disabled.delete(name);
-    const undo: Array<() => void> = [];
-    active.set(name, undo);
-    const context: RuntimePluginContext = {
-      registerComponents: (classes) => {
-        for (const cls of classes) undo.push(claim(cls, idOf(cls, name)));
-      },
-      registerSystems: (defs) => {
-        for (const def of defs) {
-          defineSystem(def);
-          undo.push(() => _undefineSystem(def.name));
-        }
-      },
-      registerEngineSystems: (defs) => {
-        for (const def of defs) {
-          defineBuiltinSystem(def);
-          undo.push(() => _undefineBuiltinSystem(def));
-        }
-      },
-      registerWorldService: (service) => void undo.push(_registerWorldService(service)),
-      registerRenderFeature: (f) => {
-        const after = [...(f.spec.after ?? []), ...(f.after ?? [])];
-        undo.push(_registerRenderFeature({ spec: after.length ? { ...f.spec, after } : f.spec, load: f.load }));
-      },
-      contribute: (point, value) => void undo.push(point.register(value)),
-    };
-    try {
-      plugin.activate(context);
-    } catch (err) {
-      deactivateRuntimePlugin(name);
-      throw err;
-    }
+export function disableRuntimePlugin(plugin: RuntimePlugin): void {
+  const name = plugin.manifest.name;
+  manifests.set(name, plugin.manifest);
+  if (active.has(name) || disabled.has(name)) return;
+  const undo: Array<() => void> = [];
+  disabled.set(name, undo);
+  plugin.activate({
+    registerComponents: (classes) => void classes.forEach((cls) => undo.push(unclaim(cls, idOf(cls, name)))),
+    registerSystems: () => {},
+    registerEngineSystems: () => {},
+    registerWorldService: () => {},
+    registerRenderFeature: () => {},
+    contribute: () => {},
+  });
+}
+
+/**
+ * Activate one runtime half (its dependencies must be active). Nothing happens when it already is. A
+ * half that throws is rolled back and the error rethrown.
+ */
+export function activateRuntimePlugin(plugin: RuntimePlugin): void {
+  const name = plugin.manifest.name;
+  if (active.has(name)) return;
+  manifests.set(name, plugin.manifest);
+  for (const u of (disabled.get(name) ?? []).reverse()) u();
+  disabled.delete(name);
+  const undo: Array<() => void> = [];
+  active.set(name, undo);
+  const context: RuntimePluginContext = {
+    registerComponents: (classes) => {
+      for (const cls of classes) undo.push(claim(cls, idOf(cls, name)));
+    },
+    registerSystems: (defs) => {
+      for (const def of defs) {
+        defineSystem(def);
+        undo.push(() => _undefineSystem(def.name));
+      }
+    },
+    registerEngineSystems: (defs) => {
+      for (const def of defs) {
+        defineBuiltinSystem(def);
+        undo.push(() => _undefineBuiltinSystem(def));
+      }
+    },
+    registerWorldService: (service) => void undo.push(_registerWorldService(service)),
+    registerRenderFeature: (f) => {
+      const after = [...(f.spec.after ?? []), ...(f.after ?? [])];
+      undo.push(_registerRenderFeature({ spec: after.length ? { ...f.spec, after } : f.spec, load: f.load }));
+    },
+    contribute: (point, value) => void undo.push(point.register(value)),
+  };
+  try {
+    plugin.activate(context);
+  } catch (err) {
+    deactivateRuntimePlugin(name);
+    throw err;
   }
 }
 
 /**
- * Make exactly `enabled` active: the others are deactivated (dependents first), then the rest
- * activate. For hosts that apply a project's plugin settings to an already-running set (the editor).
+ * Activate runtime halves in dependency order (ADR 0134's `orderPlugins`). Already-active plugins are
+ * skipped. A plugin that throws is rolled back and the error rethrown. Low level: hosts go through a
+ * plugin set (`pluginSet.ts`, ADR 0144), which drives `runtimeActivator`.
  */
-export function syncRuntimePlugins(plugins: readonly RuntimePlugin[], enabled: Iterable<string>, options: Omit<ActivateOptions, "enabled"> = {}): void {
-  const on = new Set(enabled);
-  for (const plugin of orderPlugins(plugins).reverse()) if (!on.has(plugin.manifest.name)) deactivateRuntimePlugin(plugin.manifest.name);
-  activateRuntimePlugins(plugins, { ...options, enabled: on });
+export function activateRuntimePlugins(plugins: readonly RuntimePlugin[], options: ActivateOptions = {}): void {
+  const enabled = options.enabled ? new Set(options.enabled) : null;
+  for (const plugin of orderPlugins(plugins, options.provided)) {
+    const on = (!enabled || enabled.has(plugin.manifest.name)) && !(options.server && plugin.manifest.server === false);
+    if (on) activateRuntimePlugin(plugin);
+    else if (!active.has(plugin.manifest.name)) disableRuntimePlugin(plugin);
+  }
 }
 
 /**
@@ -195,3 +203,11 @@ export function deactivateRuntimePlugin(name: string): void {
 export const runtimePluginsChosen = (): boolean => active.size > 0 || disabled.size > 0;
 
 export const isRuntimePluginActive = (name: string): boolean => active.has(name);
+
+/** The plugin set's runtime adapter (ADR 0144): activates, disables (the stub above) and deactivates runtime halves. */
+export const runtimeActivator: HalfActivator<RuntimePlugin> = {
+  activate: activateRuntimePlugin,
+  deactivate: deactivateRuntimePlugin,
+  disable: disableRuntimePlugin,
+  isActive: isRuntimePluginActive,
+};

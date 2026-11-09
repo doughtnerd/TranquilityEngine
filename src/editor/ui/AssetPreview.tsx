@@ -3,7 +3,7 @@
 // larger previews. Thumbnails come from `../thumbnails` (rendered once, cached by content).
 import { effect, signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { assetKindInfo, type AssetKind } from "../assetKinds";
+import { kindIcon, type AssetKind } from "../assetKindLookup";
 import { autoPlayAudio } from "../preferences";
 import { animateThumbnail, audioSummaryFor, canAnimate, contentKeyFor, previewAsset, previewKind, thumbnailFor, holdThumbnail, type AssetPreviewHandle, type AudioSummary } from "../thumbnails";
 import { currentProject, docVersion } from "../state";
@@ -107,7 +107,7 @@ export function TileThumbnail(props: { path: string; kind: AssetKind | "folder";
   const visible = useVisible(host);
   const url = useThumbnail(path, visible);
   const animating = useHoverAnimation(path, host, canvas);
-  const audio = kind !== "folder" && assetKindInfo(kind)?.preview === "audio"; // a waveform, not a rendered thumbnail
+  const audio = kind === "audio";
   return (
     <div ref={host} class={`asset-preview${url || audio ? " has-preview" : ""}`}>
       {url ? <img class="asset-rendered" src={url} alt="" draggable={false} /> : audio ? <TileWaveform path={path} active={visible} /> : <KindIcon kind={kind} />}
@@ -120,16 +120,13 @@ export function TileThumbnail(props: { path: string; kind: AssetKind | "folder";
 
 /** An icon for kinds without a rendered preview (or while one loads). */
 export function KindIcon(props: { kind: AssetKind | "folder" }) {
-  // The kind's own icon (ADR 0134); a kind since unregistered draws as a plain file.
-  const d = props.kind === "folder" ? FOLDER_ICON : (assetKindInfo(props.kind) ?? assetKindInfo("other"))?.icon;
+  const d = kindIcon(props.kind); // the asset kind module's (ADR 0143)
   return (
     <svg class="asset-icon" viewBox="0 0 24 24" aria-hidden="true">
       <path d={d} />
     </svg>
   );
 }
-
-const FOLDER_ICON = "M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z";
 
 // --- audio ----------------------------------------------------------------------------------------
 

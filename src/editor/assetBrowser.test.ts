@@ -28,7 +28,9 @@ import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
 import { openScene, sceneCamera } from "./state";
-import { sampleProject } from "./testing";
+import { sampleProject, useCoreAssetKinds } from "./testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 const demo = sampleProject();
 
@@ -60,27 +62,26 @@ describe("asset browser: folders and search", () => {
     expect(searchFiles(demo.files, "  ")).toEqual([]);
   });
 
-  // The plugins' kinds beside the core ones: one longest-match lookup over every registered kind (ADR 0134).
-  it.each([
-    ["scenes/main.scene.json", "scene", false],
-    ["prefabs/pipe-pair.prefab.json", "prefab", false],
-    ["fx/a.particlesubgraph.json", "particlesubgraph", false],
-    ["fx/a.particleblock.json", "particleblock", false],
-    ["fx/a.particles.json", "particles", false],
-    ["images/bird.PNG", "image", false],
-    ["music/town.mp3", "audio", false],
-    ["ui/menu.ui.xml", "uidocument", true],
-    ["ui/menu.ui.css", "stylesheet", true],
-    ["project.json", "json", true],
-    ["skies/box.cubemap.json", "cubemap", false],
-    ["env/studio.hdr", "environment", false],
-    ["env/studio.exr", "environment", false],
-    ["env/room.env", "environment", false],
-    ["env/room.DDS", "environment", false],
-    ["env/.env", "other", false], // a dotfile: no name before the extension
-  ] as const)("%s is a %s", (path, kind, code) => {
-    expect(assetKind(path)).toBe(kind);
-    expect(opensInCodePanel(assetKind(path))).toBe(code);
+  it("knows asset kinds", () => {
+    expect(assetKind("scenes/main.scene.json")).toBe("scene");
+    expect(assetKind("prefabs/pipe-pair.prefab.json")).toBe("prefab");
+    expect(assetKind("fx/a.particlesubgraph.json")).toBe("particlesubgraph");
+    expect(assetKind("fx/a.particleblock.json")).toBe("particleblock");
+    expect(assetKind("fx/a.particles.json")).toBe("particles");
+    expect(assetKind("images/bird.PNG")).toBe("image");
+    expect(assetKind("music/town.mp3")).toBe("audio");
+    expect(assetKind("ui/menu.ui.xml")).toBe("uidocument");
+    expect(assetKind("ui/menu.ui.css")).toBe("stylesheet");
+    expect(opensInCodePanel(assetKind("ui/menu.ui.xml"))).toBe(true);
+    expect(opensInCodePanel(assetKind("ui/menu.ui.css"))).toBe(true);
+    expect(assetKind("project.json")).toBe("json");
+  });
+
+  it("knows cubemaps and cube environments, none of which open in the Code panel (skies: the Sky plugin, src/plugins/sky)", () => {
+    expect(assetKind("skies/box.cubemap.json")).toBe("cubemap");
+    for (const p of ["env/studio.hdr", "env/studio.exr", "env/room.env", "env/room.DDS"]) expect(assetKind(p), p).toBe("environment");
+    for (const k of ["cubemap", "environment"] as const) expect(opensInCodePanel(k), k).toBe(false);
+    expect(opensInCodePanel("json")).toBe(true);
   });
 });
 

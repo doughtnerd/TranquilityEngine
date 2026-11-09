@@ -1,12 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { tilemapsEditorPlugin } from ".";
-import { activatePlugins, deactivatePlugin } from "../../../editor/sdk/plugins";
+import { useEditorPlugins } from "../../testEditorPlugins";
 import { defaultImportSettings, formatImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
 import { assetKind } from "../../../editor/assetBrowser";
 import { blockStamp } from "./palette";
 import { joinPath, openFolderProject } from "../../../editor/projects";
 import { formatTileset, readTileset, splitSprite, tilesetFromSlices, tilesForSlices } from "./tilesetAssets";
-import { MemoryFileSystem, ROOT } from "../../../editor/testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../../editor/testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 async function projectWithSlices(rects: [number, number, number, number][]) {
   const fs = new MemoryFileSystem();
@@ -18,8 +20,7 @@ async function projectWithSlices(rects: [number, number, number, number][]) {
   return { fs, project: await openFolderProject(fs, ROOT), settings };
 }
 
-beforeAll(() => activatePlugins([tilemapsEditorPlugin]));
-afterAll(() => deactivatePlugin(tilemapsEditorPlugin.manifest.name));
+useEditorPlugins([tilemapsEditorPlugin]);
 
 describe("tileset assets (ADR 0103)", () => {
   it("recognises tileset files before generic JSON", () => {

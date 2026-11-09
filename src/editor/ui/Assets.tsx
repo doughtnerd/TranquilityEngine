@@ -1,7 +1,8 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addAssetToScene, assetKind, assetKindFor, assetKindInfo, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, searchEntries, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
+import { addAssetToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, searchEntries, sliceEntry, splitSliceEntry } from "../assetBrowser";
+import { assetKind, canAddToScene, kindLabel, kindOpens, openAsset, type AssetKind } from "../assetKindLookup";
 import { assetActions, assetKinds, type AssetActionTarget } from "../sdk/contributions";
 import { inspectSelectedAsset, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
@@ -27,7 +28,6 @@ import {
   selectedAssets,
   type Modifiers,
 } from "../assetSelection";
-import { openScript } from "../code/codeState";
 import { installOsDrop, osDragFolder, osDragOver } from "../osDrop";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
@@ -70,8 +70,8 @@ const dropTarget = (path: string) => {
   return t?.kind === "folder" && t.folder === path;
 };
 
-/** A kind's label, from its contribution (ADR 0134). */
-const labelOf = (kind: AssetKind | "folder"): string => (kind === "folder" ? "Folder" : (assetKindInfo(kind)?.label ?? kind));
+/** A kind's label, from the asset kind module (ADR 0143). */
+const labelOf = (kind: AssetKind | "folder"): string => kindLabel(kind);
 const kindOf = (entry: string): AssetKind | "folder" => (isFolderEntry(entry) ? "folder" : assetKind(entry));
 const nameOf = (entry: string) => (isSliceEntry(entry) ? splitSliceEntry(entry).slice : fileName(entryPath(entry)));
 const toggleKey = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.metaKey;
@@ -88,19 +88,13 @@ function listedEntries(project: EditorProject, folder: string, query: string): s
   return [...subfolders.map((f) => `${f}/`), ...withSlices];
 }
 
-/** Open an entry: a folder shows; a file opens as its kind says (`open`: scenes and prefabs in the scene view, images in the Sprite Editor; `codeEditor`: the Code panel). */
+/** Open an entry: a folder shows; a file opens as its kind says (ADR 0143): scenes and prefabs in the scene view, images and slices in the Sprite Editor, code files in the Code panel. */
 function openEntry(entry: string): void {
   if (isFolderEntry(entry)) return openFolder(entryPath(entry));
-  const kind = assetKindFor(entry);
-  if (kind?.open) kind.open(entry);
-  else if (kind?.codeEditor) openScript(entry);
+  openAsset(entry);
 }
 
-const opens = (entry: string) => {
-  if (isFolderEntry(entry)) return true;
-  const kind = assetKindFor(entry);
-  return kind?.open !== undefined || kind?.codeEditor === true;
-};
+const opens = (entry: string) => isFolderEntry(entry) || kindOpens(entry);
 
 /** Why `entries` can't be changed (renamed, moved, deleted), or null. */
 function whyNotEditable(project: EditorProject, entries: readonly string[]): string | null {

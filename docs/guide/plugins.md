@@ -203,6 +203,11 @@ name:
 A plugin that needs a refused one is refused too. Exports and the server stop on any refused plugin;
 the editor loads the rest.
 
+If a plugin's `activate` throws, everything both of its halves registered is removed again, and the
+plugins that need it are left off ("needs X, which failed to activate"). The editor reports this in
+the status bar and runs the rest; an exported game and the dedicated server stop with the message, as
+for a script that doesn't load.
+
 ## Limits
 
 - **Custom render passes:** third-party plugins can't draw them. Draw with meshes, materials, shader graphs, sprites, particles, UI and lines (ADR 0133).

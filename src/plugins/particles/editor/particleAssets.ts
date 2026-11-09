@@ -9,7 +9,7 @@ import type { GraphProblem, ParticleGraph } from "../../../engine/scene/particle
 import { defaultParticleGraph, formatParticleGraph } from "../../../engine/scene/particleGraphFormat";
 import { assetDocKind, blockTemplate, formatAsset, subgraphTemplate } from "./particleGraph/assetDocs";
 import { parseAssetDoc, parseEffect } from "./particleFormat";
-import { editor, openAssetDocument, type AssetDocument, type EditorProject } from "../../../editor/sdk";
+import { editor, openAssetDocument, type AssetDocument, type EditorProject, type NodeEntry, type SceneDocument } from "../../../editor/sdk";
 
 
 /** The effect open in the Particle Graph panel, or null. */
@@ -79,3 +79,16 @@ export const createParticleSubgraph = (folder: string, asset: Record<string, unk
 
 /** Create `New Particle Block.particleblock.json` (one input driving a Set Size block). Returns its path, or null. */
 export const createParticleBlock = (folder: string) => createAssetFile(folder, "New Particle Block.particleblock.json", formatAsset(blockTemplate()), "particle blocks");
+
+/** A node playing a particle effect asset (ADR 0057), named after the file: what adding an effect to a scene makes (ADR 0143). */
+export function particleNodeEntry(doc: SceneDocument, effectPath: string, position: readonly [number, number, number] = [0, 0, 0]): NodeEntry {
+  const name = editor.assets.fileName(effectPath).replace(/\.particles\.json$/i, "");
+  return {
+    id: editor.scene.uniqueId(doc, editor.scene.idBase(effectPath)),
+    name: name.charAt(0).toUpperCase() + name.slice(1),
+    components: [
+      { type: "engine.Transform", data: { position: [...position] } },
+      { type: "engine.ParticleSystem", data: { effect: `asset:${effectPath}` } },
+    ],
+  };
+}

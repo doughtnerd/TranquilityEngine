@@ -2,22 +2,22 @@
 // Create Particle System keep their places in the Create menu, Create Tileset from Slices is an asset action, the
 // Play Stats agent count, the particle preview, the embedded-effect migration and the physics prefetch are
 // registered by their plugins, and all of them go when their plugin does.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { defaultImportSettings, formatImportSettings, sidecarPath } from "../engine/scene/importSettings";
 import { NEW_NODE_KINDS, newNodeKinds, newNodeEntry } from "../editor/nodeCreate";
 import { joinPath, openFolderProject } from "../editor/projects";
 import { assetActions, hierarchyCreateEntries, idlePrefetches, panelExtensions, playStatsCounters, sceneOpenMigrations, viewportTools } from "../editor/sdk/contributions";
-import { activatePlugins, deactivatePlugin } from "../editor/sdk/plugins";
 import { SceneDocument } from "../editor/document";
-import { MemoryFileSystem, ROOT } from "../editor/testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../editor/testing";
+import { useEditorPlugins } from "./testEditorPlugins";
 import { navigationEditorPlugin } from "./navigation/editor";
 import { particlesEditorPlugin } from "./particles/editor";
 import { physicsEditorPlugin } from "./physics/editor";
 import { tilemapsEditorPlugin } from "./tilemaps/editor";
 
 const PLUGINS = [particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin, physicsEditorPlugin];
-beforeEach(() => activatePlugins(PLUGINS));
-afterEach(() => PLUGINS.forEach((p) => deactivatePlugin(p.manifest.name)));
+useCoreAssetKinds();
+const halves = useEditorPlugins(PLUGINS, "each");
 
 describe("the Hierarchy's Create menu (ADR 0144)", () => {
   it("lists plugins' kinds where they have always been", () => {
@@ -41,8 +41,7 @@ describe("the Hierarchy's Create menu (ADR 0144)", () => {
   });
 
   it("drops a disabled plugin's kinds", () => {
-    deactivatePlugin(tilemapsEditorPlugin.manifest.name);
-    deactivatePlugin(particlesEditorPlugin.manifest.name);
+    halves.off(); // Tilemaps and Particles among them
     expect(newNodeKinds().map((k) => k.kind)).toEqual(NEW_NODE_KINDS.map((k) => k.kind));
     const doc = new SceneDocument({ format: "myco.scene@1", nodes: [] } as never, "a.scene.json");
     expect(() => newNodeEntry(doc, "tilemap", null)).toThrow(/plugin disabled/);
@@ -79,7 +78,7 @@ describe("the plugins' other shell contributions (ADR 0144)", () => {
       assetActions.get("myco.tilemaps.tileset-from-slices")?.id,
     ];
     expect(ids()).toEqual(["nav agents", "myco.particles.preview", "scene", "move the embedded particle effects out of", "myco.physics", "myco.tilemaps.tileset-from-slices"]);
-    PLUGINS.forEach((p) => deactivatePlugin(p.manifest.name));
+    halves.off();
     expect(ids()).toEqual([undefined, undefined, undefined, undefined, undefined, undefined]);
   });
 });

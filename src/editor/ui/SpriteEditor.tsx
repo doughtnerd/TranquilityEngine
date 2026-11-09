@@ -28,7 +28,7 @@ import {
   type Rect,
 } from "../spriteSlicing";
 import { currentProject, docVersion, status } from "../state";
-import { PivotRow } from "./AssetInspector";
+import { PivotRow } from "./ImageImportSettings";
 import { confirmInEditor } from "./ConfirmDialog";
 import "./spriteEditor.css";
 

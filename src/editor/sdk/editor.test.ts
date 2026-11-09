@@ -3,9 +3,11 @@
 import { computed } from "@preact/signals";
 import { afterEach, describe, expect, it } from "vitest";
 import { status } from "../state";
-import { closeTestProject, openTestProject, sampleProject } from "../testing";
+import { closeTestProject, openTestProject, sampleProject, useCoreAssetKinds } from "../testing";
 import { editor } from "./index";
 import * as sdk from "./index";
+
+useCoreAssetKinds();
 
 afterEach(closeTestProject);
 

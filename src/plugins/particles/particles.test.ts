@@ -3,7 +3,7 @@
 // runtime half claims the ParticleSystem component and the particles render feature. Deactivating
 // either half removes what it registered.
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../../engine/core/registry";
 import { ParticleSystem } from "../../engine/render/components";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
@@ -12,23 +12,27 @@ import { assetKind } from "../../editor/assetBrowser";
 import { _reset } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
+import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
 import { allPanels, isKnownPanel, isOnDemand, panelBeside, panelTitle, PANELS } from "../../editor/layout/model";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
-import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
+import { isPluginActive } from "../../editor/sdk/plugins";
+import { useEditorPlugins } from "../testEditorPlugins";
 import { currentProject } from "../../editor/state";
-import { MemoryFileSystem, ROOT } from "../../editor/testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { previewKind } from "../../editor/thumbnails/keys";
 import { registeredInspectorSections } from "../../editor/ui/inspectorSections";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
-import { activateRuntimePlugins, deactivateRuntimePlugin, isRuntimePluginActive } from "../runtimeContext";
+import { deactivateRuntimePlugin, isRuntimePluginActive } from "../runtimeContext";
+import { applyTestPlugins } from "../testPlugins";
 import { particlesEditorPlugin } from "./editor";
 import { openParticleGraph, readEffect } from "./editor/particleAssets";
 import { particleBlockFormat, particlesFormat, particleSubgraphFormat } from "./editor/particleFormat";
 import { blockTemplate, formatAsset, subgraphTemplate } from "./editor/particleGraph/assetDocs";
 import { PARTICLES_SPEC, particlesRuntimePlugin } from "./runtime";
-import { assetKindFor, assetKindInfo } from "../../editor/assetKinds";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 const FX = "effects/fire.particles.json";
 const SUB = "effects/noise.particlesubgraph.json";
@@ -43,10 +47,9 @@ async function open(files: Record<string, string>) {
   return { project, fs };
 }
 
-beforeEach(() => activatePlugins([particlesEditorPlugin]));
+const editorHalf = useEditorPlugins([particlesEditorPlugin], "each");
 afterEach(() => {
   _reset();
-  deactivatePlugin(particlesEditorPlugin.manifest.name);
   currentProject.value = null;
   openParticleGraph.value = null;
 });
@@ -64,13 +67,15 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
     expect(assetKind("effects/Fire.PARTICLES.json")).toBe("particles");
     expect(assetKind(SUB)).toBe("particlesubgraph");
     expect(assetKind(BLOCK)).toBe("particleblock");
-    expect([assetKindInfo("particles")?.label, assetKindInfo("particlesubgraph")?.label, assetKindInfo("particleblock")?.label]).toEqual(["Particle Effect", "Particle Sub-graph", "Particle Block"]);
-    for (const k of ["particles", "particlesubgraph", "particleblock"]) expect(assetKindInfo(k)?.icon).toMatch(/^M/);
+    expect([kindLabel("particles"), kindLabel("particlesubgraph"), kindLabel("particleblock")]).toEqual(["Particle Effect", "Particle Sub-graph", "Particle Block"]);
+    for (const k of ["particles", "particlesubgraph", "particleblock"]) expect(kindIcon(k)).toMatch(/^M/);
     expect(previewKind(FX)).toBe("particles");
     for (const p of [FX, SUB, BLOCK]) {
-      expect(assetKindFor(p)?.open !== undefined).toBe(true);
+      expect(kindOpens(p)).toBe(true);
       expect(inspectableAsset(p)).toBe(p);
     }
+    expect(canAddToScene(FX)).toBe(true); // a ParticleSystem node (ADR 0143)
+    expect(canAddToScene(SUB)).toBe(false);
     expect(["particles", "particlesubgraph", "particleblock"].map((k) => assetKinds.get(k)?.create?.label)).toEqual(["New Particle Effect", "New Particle Sub-graph", "New Particle Block"]);
   });
 
@@ -137,13 +142,14 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
   });
 
   it("removes everything when deactivated", () => {
-    deactivatePlugin("myco.particles");
+    editorHalf.off();
     expect(isPluginActive("myco.particles")).toBe(false);
     for (const k of ["particles", "particlesubgraph", "particleblock"]) {
-      expect(assetKindInfo(k)?.label).toBeUndefined();
+      expect(registeredKind(k)).toBeUndefined();
       expect(assetFormats.get(k)).toBeUndefined();
     }
-    expect(assetKindFor(FX)?.open !== undefined).toBe(false);
+    expect(assetKind(FX)).toBe("json"); // a generic file again: it opens in the Code panel and adds to no scene
+    expect(canAddToScene(FX)).toBe(false);
     expect(panels.get("particlegraph")).toBeUndefined();
     expect(isKnownPanel("particlegraph")).toBe(false);
     expect(registeredInspectorSections("engine.ParticleSystem")).toHaveLength(0);
@@ -151,7 +157,7 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
 });
 
 describe("the Particles plugin's runtime half (ADR 0135)", () => {
-  afterEach(() => activateRuntimePlugins(RUNTIME_PLUGINS)); // as Vitest's setup file leaves it
+  afterEach(() => applyTestPlugins()); // as Vitest's setup file leaves it
 
   it("claims the ParticleSystem component and the lazy particles render feature", () => {
     expect(isRuntimePluginActive("myco.particles")).toBe(true);

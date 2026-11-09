@@ -76,7 +76,7 @@ describe("plugin import direction", () => {
     expect(bad).toEqual([]);
   });
 
-  it("only the player, the server, the editor's plugin application, Play, Vitest's setup file and myco.ts import the runtime plugin list", () => {
+  it("only the player, the server, the editor's plugin set, the tests' plugin set and myco.ts import the runtime plugin list", () => {
     const importers: string[] = [];
     for (const f of files(SRC)) {
       if (/\.test\.tsx?$/.test(f)) continue;
@@ -86,7 +86,7 @@ describe("plugin import direction", () => {
       }
     }
     // myco.ts: the default activation for games built on the engine library (ADR 0135).
-    expect(importers.sort()).toEqual(["editor/playMode.ts", "myco.ts", "player/main.ts", "plugins/editorApply.ts", "plugins/testSetup.ts", "server/run.ts"]);
+    expect(importers.sort()).toEqual(["myco.ts", "player/main.ts", "plugins/editorPlugins.ts", "plugins/testPlugins.ts", "server/run.ts"]);
   });
 
   it("lets a plugin reach another only through its public module (ADR 0133): `plugins/<other>/runtime`", () => {
@@ -109,7 +109,7 @@ describe("plugin import direction", () => {
   it("keeps the editor core free of plugins' code: it reaches them through contribution points (ADR 0144; only main.tsx loads them, through editorBoot.ts)", () => {
     // The plugin host modules directly under src/plugins/ (manifests, ordering, enabling, the runtime list, third-party
     // loading) are the plugin system itself, which the shell drives; every file in a plugin's folder is off limits.
-    const HOST = new Set(["manifest", "order", "enabled", "runtime", "runtimeContext", "thirdParty", "thirdPartyEditor", "editorApply"]);
+    const HOST = new Set(["manifest", "order", "enabled", "runtime", "runtimeContext", "thirdParty", "thirdPartyEditor", "pluginSet", "editorPlugins", "editorActivator"]);
     const bad: string[] = [];
     for (const f of files(join(SRC, "editor"))) {
       if (/\.test\.tsx?$/.test(f)) continue;
@@ -149,6 +149,9 @@ describe("plugin editor halves reach the editor through its SDK (ADR 0145)", () 
     // and the project-wide layer rename read them, ADR 0116); the Physics section edits them in place.
     "plugins/physics/editor/PhysicsSettingsSection.tsx -> editor/projectSettingsModel",
     "plugins/physics/editor/PhysicsSettingsSection.tsx -> editor/layerRenameEdit",
+    // Extract Materials (ADR 0089) writes material assets and the model's sidecar through the shell's import
+    // settings writer, which the SDK doesn't offer; the model import settings moved here with ADR 0143.
+    "plugins/meshes/editor/ModelImportSettings.tsx -> editor/materialExtract",
     // Shared stylesheets (class names, no code): the asset Inspector's, the bake sections' and the graph view's.
     "plugins/materials/editor/MaterialInspector.tsx -> editor/ui/assetInspector.css",
     "plugins/navigation/editor/FormationInspector.tsx -> editor/ui/assetInspector.css",
@@ -180,7 +183,7 @@ describe("plugin editor halves reach the editor through its SDK (ADR 0145)", () 
 
   it("keeps the SDK's own imports clear of the plugins: no cycle leaves an editor half reading an unfinished `myco/editor`", () => {
     // Plugin modules call the SDK at load (`persisted(…)`); if `editor/sdk` reached the plugin list
-    // (through session.ts → editorApply.ts), they would run while it is still loading.
+    // (through session.ts → editorPlugins.ts), they would run while it is still loading.
     const asFile = (p: string) => [p, `${p}.ts`, `${p}.tsx`, join(p, "index.ts"), join(p, "index.tsx")].find((c) => { try { return statSync(c).isFile(); } catch { return false; } });
     const seen = new Set<string>();
     const queue = [join(SRC, "editor/sdk/index.ts")];

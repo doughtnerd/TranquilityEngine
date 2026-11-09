@@ -140,6 +140,18 @@ describe("myco-server (T14)", () => {
     await expect(second).rejects.toThrow(`Port ${first.listeners[0].port} is already in use`);
   });
 
+  it("stops with the plugin's message when a plugin fails to activate, as for a broken script (ADR 0139, 0144)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
+    temps.push(dir);
+    writeFileSync(join(dir, "project.json"), JSON.stringify({ bootstrap: { worlds: [{ name: "Arena", tags: ["server"] }] } }));
+    mkdirSync(join(dir, "plugins/broken/runtime"), { recursive: true });
+    writeFileSync(join(dir, "plugins/broken/plugin.json"), JSON.stringify({ name: "acme.broken", version: "1.0.0", sdk: "^1.0.0", runtime: "runtime/index.ts" }));
+    writeFileSync(join(dir, "plugins/broken/runtime/index.ts"), 'export function activate(): void {\n  throw new Error("no backend here");\n}\n');
+    const started = start({ projectDir: dir });
+    await expect(started).rejects.toBeInstanceOf(ServerError);
+    await expect(started).rejects.toThrow("acme.broken failed to activate: no backend here");
+  });
+
   it("uses the bootstrap link's port and options unless the command line overrides them", async () => {
     const dir = mkdtempSync(join(tmpdir(), "myco-server-"));
     temps.push(dir);

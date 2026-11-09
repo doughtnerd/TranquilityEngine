@@ -9,17 +9,14 @@ import {
   sidecarPath,
   type ImportSettings,
 } from "../engine/scene/importSettings";
-import { folderOf, isSliceEntry, splitSliceEntry } from "./assetBrowser";
-import { assetKindFor } from "./assetKinds";
-import type { ImportSettingsSection } from "./sdk/contributions";
+import { assetKind, folderOf, isSliceEntry, splitSliceEntry } from "./assetBrowser";
+import { kindImportSettings, kindInspector } from "./assetKindLookup";
 import { openFolder, select as selectAssets, selectedAssets } from "./assetSelection";
 import type { EditorProject } from "./projects";
 import { select as selectNodes, selectedKeys } from "./state";
 
-/** The kind of import settings an asset has (its kind's `importSettings`: images, audio, models), or null if it has none. */
-export function importKind(path: string): ImportSettingsSection | null {
-  return assetKindFor(path)?.importSettings ?? null;
-}
+/** True if an asset has import settings: its kind brings an import settings view (ADR 0143: images and audio, models from the Meshes plugin). */
+export const hasImportSettings = (path: string): boolean => kindImportSettings(assetKind(path)) !== undefined;
 
 export interface ReadSettings {
   settings: ImportSettings;
@@ -52,8 +49,8 @@ export const sameSettings = (a: ImportSettings, b: ImportSettings) => formatImpo
 /** The file the Asset Inspector shows for an Assets panel entry (a slice shows its image), or null if it has no inspector. */
 export function inspectableAsset(entry: string): string | null {
   const file = isSliceEntry(entry) ? splitSliceEntry(entry).image : entry;
-  // Files with import settings, and kinds with their own `inspector` (ADR 0133).
-  return importKind(file) || assetKindFor(file)?.inspector !== undefined ? file : null;
+  // Its kind's own Inspector view, or its import settings (ADR 0133, 0143).
+  return kindInspector(assetKind(file)) !== undefined || hasImportSettings(file) ? file : null;
 }
 
 /**

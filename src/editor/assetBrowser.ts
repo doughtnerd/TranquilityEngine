@@ -1,16 +1,15 @@
 // Asset browser logic (ADR 0022): the project's files as a folder tree, search, and the scene
-// nodes that adding an asset creates (its kind's `addToScene` policy). No UI here; `ui/Assets.tsx`
-// renders it. Which kind a file is: `assetKinds.ts`, re-exported here.
+// nodes that adding an asset creates. No UI here; `ui/Assets.tsx` renders it.
 import { isSidecarPath } from "../engine/scene/importSettings";
-import { assetKind, assetKindFor } from "./assetKinds";
-import { fileName } from "./assetNodeEntries";
+import { assetKind, canAddToScene, sceneNodesOf } from "./assetKindLookup";
 import { logMessage } from "./messages";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-export { assetKind, assetKindFor, assetKindInfo, opensInCodePanel, type AssetKind, type CoreAssetKind } from "./assetKinds";
-export { audioNodeEntry, fileName, idBase, prefabInstanceEntry, spriteNodeEntry, uniqueId } from "./assetNodeEntries";
+// The kind of a file and what it can do are the asset kind module's (ADR 0143); re-exported for the
+// many callers that have always imported them from here.
+export { assetKind, canAddToScene, opensInCodePanel, type AssetKind, type CoreAssetKind } from "./assetKindLookup";
 
 /** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
 export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
@@ -23,6 +22,9 @@ export function splitSliceEntry(entry: string): { image: string; slice: string }
 }
 /** Files the Assets panel lists: everything but import settings sidecars, which travel with their files. */
 export const listedFiles = (files: readonly string[]) => files.filter((f) => !isSidecarPath(f));
+
+/** The file name of a project path: `images/bird.png` → `bird.png`. */
+export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /** The folder of a project path: `images/bird.png` → `images`, `project.json` → `""` (the root). */
 export const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
@@ -97,6 +99,23 @@ export function searchEntries(files: readonly string[], query: string, sliceName
   return out.sort((a, b) => key(a).localeCompare(key(b)) || (isSliceEntry(a) ? 1 : 0) - (isSliceEntry(b) ? 1 : 0));
 }
 
+/** A node id from a file name: `pipe-pair.prefab.json` → `pipe-pair`, `flappyBird.png` → `flappy-bird`. */
+export function idBase(path: string): string {
+  const base = fileName(path).replace(/\.(scene|prefab)\.json$/i, "").replace(/\.[^.]+$/, "");
+  const id = base
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return id || "node";
+}
+
+/** `base`, or `base-2`, `base-3`… whichever isn't used in the document yet. */
+export function uniqueId(doc: SceneDocument, base: string): string {
+  if (!doc.has(base)) return base;
+  for (let n = 2; ; n++) if (!doc.has(`${base}-${n}`)) return `${base}-${n}`;
+}
+
 /**
  * Where an added node goes: under the selected node, or beside it when the selection is a prefab
  * instance (its contents come from the prefab file); top level when nothing is selected.
@@ -110,21 +129,55 @@ export function parentForAdd(doc: SceneDocument, selected: string | null): strin
 
 type Vec3 = readonly [number, number, number];
 
+/**
+ * The scene entry for an instance of a prefab or scene file. With `position`, the instance gets
+ * a Transform override placing it there (a prefab's own position applies otherwise).
+ */
+export function prefabInstanceEntry(doc: SceneDocument, prefabPath: string, position?: Vec3): NodeEntry {
+  const entry: NodeEntry = { id: uniqueId(doc, idBase(prefabPath)), prefab: prefabPath };
+  if (position) entry.overrides = [{ component: "engine.Transform", field: "position", value: [...position] }];
+  return entry;
+}
+
+/** An audio node: a Transform at `position` and an AudioSource playing the clip. */
+export function audioNodeEntry(doc: SceneDocument, audioPath: string, position: Vec3 = [0, 0, 0]): NodeEntry {
+  const name = fileName(audioPath).replace(/\.[^.]+$/, "");
+  return {
+    id: uniqueId(doc, idBase(audioPath)),
+    name: name.charAt(0).toUpperCase() + name.slice(1),
+    components: [
+      { type: "engine.Transform", data: { position: [...position] } },
+      { type: "engine.AudioSource", data: { clip: `asset:${audioPath}` } },
+    ],
+  };
+}
+
+/**
+ * A sprite node showing an image, or a slice of one (`images/sheet.png#walk_0`, named after the
+ * slice): a Transform at `position` and a SpriteRenderer sized by pixels per unit.
+ */
+export function spriteNodeEntry(doc: SceneDocument, imagePath: string, position: readonly [number, number, number] = [0, 0, 0]): NodeEntry {
+  const slice = imagePath.includes("#") ? splitSliceEntry(imagePath).slice : null;
+  const name = slice ?? fileName(imagePath).replace(/\.[^.]+$/, "");
+  return {
+    id: uniqueId(doc, slice !== null ? idBase(`${slice}.x`) : idBase(imagePath)),
+    name: name.charAt(0).toUpperCase() + name.slice(1),
+    components: [
+      { type: "engine.Transform", data: { position: [...position] } },
+      { type: "engine.SpriteRenderer", data: { sprite: `asset:${imagePath}` } },
+    ],
+  };
+}
+
 /** The cameras a model's drop adds turned off (ADR 0118), for the message saying so. */
 export function disabledModelCameras(entries: readonly NodeEntry[]): number {
   return entries.filter((e) => e.components?.some((c) => c.type === "engine.Camera" && c.enabled === false)).length;
 }
 
-/** What adding a file of `path`'s kind to a scene makes: its kind's `addToScene` policy (ADR 0140), or undefined. */
-const sceneNodesOf = (path: string) => assetKindFor(path)?.addToScene;
-
-/** Load what adding these assets needs to know first (a kind's `addToScene.prepare`: models' meshes). Never rejects (a model that fails adds as one node). */
+/** Load what adding these assets needs to know first (a registered kind's `addToScene.prepare`: models' meshes). Never rejects (a model that fails adds as one node). */
 export async function prepareAssets(paths: readonly string[]): Promise<void> {
-  await Promise.all(paths.map((p) => sceneNodesOf(p)?.prepare?.(p).catch(() => undefined)));
+  await Promise.all(paths.map((p) => sceneNodesOf(assetKind(p))?.prepare?.(p).catch(() => undefined)));
 }
-
-/** True for assets that have a scene node to become: kinds with an `addToScene` policy (prefabs and scenes, images, audio, models, particle effects). */
-export const canAddToScene = (path: string) => sceneNodesOf(path) !== undefined;
 
 /**
  * Why `path` can't be added to the document, or null if it can: assets with no node type, and
@@ -132,7 +185,8 @@ export const canAddToScene = (path: string) => sceneNodesOf(path) !== undefined;
  */
 export function whyNotAddable(doc: SceneDocument, path: string): string | null {
   if (!canAddToScene(path)) return "no kind of scene node fits this file";
-  if (sceneNodesOf(path)?.instance && wouldNest(path, doc.path)) return "it would end up inside itself";
+  const kind = assetKind(path);
+  if ((kind === "scene" || kind === "prefab") && wouldNest(path, doc.path)) return "it would end up inside itself";
   return null;
 }
 
@@ -147,17 +201,16 @@ export interface AddOptions {
   placeInstances?: boolean;
 }
 
-/** The scene entry an asset becomes: an instance (prefab, scene), a sprite (image) or an audio source (audio). */
+/** The scene entry an asset becomes: an instance (prefab, scene), a sprite (image), an audio source (audio), or what a plugin's kind makes. */
 export function nodeForAsset(doc: SceneDocument, path: string, options: AddOptions = {}): NodeEntry | null {
   return sceneEntriesForAsset(doc, path, options)[0] ?? null;
 }
 
-/** Every entry adding `path` makes: the root first (`nodeForAsset`), then any descendants (a model's node tree). */
+/** Every entry adding `path` makes, from its kind's `addToScene` (ADR 0140, 0143): the root first (`nodeForAsset`), then any descendants (a model's node tree). */
 function sceneEntriesForAsset(doc: SceneDocument, path: string, options: AddOptions): NodeEntry[] {
-  const nodes = sceneNodesOf(path);
-  if (!nodes) return [];
-  // Instances keep their own position unless placed (viewport drops).
-  return nodes.nodes(doc, path, nodes.instance && !options.placeInstances ? undefined : options.position);
+  const add = sceneNodesOf(assetKind(path));
+  if (!add) return [];
+  return add.nodes(doc, path, add.keepsOwnPosition && !options.placeInstances ? undefined : options.position);
 }
 
 /** Add an asset to the open scene as one undoable command. Returns the new node's id; throws if it can't be added. */

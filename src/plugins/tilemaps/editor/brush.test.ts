@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, onTestFinished } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine, type AssetSource } from "../../../engine";
 import { FLIP_X, FLIP_Y, FLIP_DIAGONAL, Tilemap } from "../runtime";
 import { cellValue } from "../runtime/format";
 import { createNode } from "../../../editor/nodeCreate";
-import { activatePlugins, deactivatePlugin } from "../../../editor/sdk/plugins";
+import { useEditorPlugins } from "../../testEditorPlugins";
 import { tilemapsEditorPlugin } from ".";
 import { openSceneFile } from "../../../editor/project";
 import { openScene } from "../../../editor/state";
@@ -47,6 +47,8 @@ describe("tilemap brushes (ADR 0103)", () => {
 });
 
 describe("painting a tilemap in the editor (ADR 0103)", () => {
+  // Create Tilemap is the plugin's Hierarchy create entry (ADR 0144).
+  useEditorPlugins([tilemapsEditorPlugin]);
   let engine: Engine;
   let tiles: AssetSource;
   beforeEach(async () => {
@@ -66,9 +68,6 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
   });
 
   function newMap() {
-    // Create Tilemap is the plugin's Hierarchy create entry (ADR 0144).
-    activatePlugins([tilemapsEditorPlugin]);
-    onTestFinished(() => deactivatePlugin(tilemapsEditorPlugin.manifest.name));
     const scene = openScene.value!;
     const id = createNode(scene, "tilemap", { effect: "asset:t.tileset.json" });
     const map = scene.sync.nodeFor([id])!.getBehavior(Tilemap)!;

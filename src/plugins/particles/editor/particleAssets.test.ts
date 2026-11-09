@@ -6,7 +6,7 @@ import { defaultParticleGraph, formatParticleGraph } from "../../../engine/scene
 import { _reset } from "../../../editor/assetDocuments";
 import { moveAssets } from "../../../editor/assetOps";
 import { joinPath, openFolderProject, type EditorProject } from "../../../editor/projects";
-import { activatePlugins, deactivatePlugin } from "../../../editor/sdk/plugins";
+import { useEditorPlugins } from "../../testEditorPlugins";
 import { currentProject, status } from "../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 import { particlesEditorPlugin } from ".";
@@ -20,8 +20,8 @@ let fs: MemoryFileSystem;
 let project: EditorProject;
 const onDisk = (path: string) => fs.files.get(joinPath(ROOT, path));
 
+useEditorPlugins([particlesEditorPlugin], "each");
 beforeEach(async () => {
-  activatePlugins([particlesEditorPlugin]);
   fs = new MemoryFileSystem();
   fs.files.set(joinPath(ROOT, "project.json"), "{}");
   fs.files.set(joinPath(ROOT, FX), formatParticleGraph(defaultParticleGraph()));
@@ -31,7 +31,6 @@ beforeEach(async () => {
 });
 afterEach(() => {
   _reset();
-  deactivatePlugin(particlesEditorPlugin.manifest.name);
   currentProject.value = null;
   status.value = null;
 });

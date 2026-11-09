@@ -10,7 +10,9 @@ import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAsset
 import { loadOrder, loadScripts, replaceScripts } from "./scriptLoader";
 import { reloadScripts, saveCodeFile } from "./session";
 import { currentProject, sceneCamera, status } from "./state";
-import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
+import { MemoryFileSystem, ROOT, demoFolder, useCoreAssetKinds } from "./testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 const LEVELS = `{ "speed": 4, "names": ["one", "two"] }`;
 const RACER = `import { GameBehavior, behavior, field } from "myco";

@@ -1,5 +1,5 @@
 // ADR 0118: dropping a glTF builds its node tree with node pivots (opt-in), lights and cameras.
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Engine } from "../engine";
 import { clearModelCache } from "../engine/scene/models";
 import { carGltf, dataUrl } from "../engine/tests/fixtures/gltf/carGltf";
@@ -9,11 +9,10 @@ import { openSceneFile } from "./project";
 import { openScene } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "./testing";
 import { meshesEditorPlugin } from "../plugins/meshes/editor";
-import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
+import { useEditorPlugins } from "../plugins/testEditorPlugins";
 
 // Models are the Meshes plugin's kind (ADR 0140).
-beforeAll(() => activatePlugins([meshesEditorPlugin]));
-afterAll(() => deactivatePlugin(meshesEditorPlugin.manifest.name));
+useEditorPlugins([meshesEditorPlugin]);
 
 async function dropCar(sidecar?: Record<string, unknown>) {
   clearModelCache();

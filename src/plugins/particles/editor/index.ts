@@ -6,11 +6,10 @@
 // assets when a scene opens.
 import type { EditorPlugin } from "../../../editor/sdk";
 import { particlesManifest } from "../manifest";
-import { createParticleBlock, createParticleEffect, createParticleSubgraph, openParticleGraphAsset } from "./particleAssets";
+import { createParticleBlock, createParticleEffect, createParticleSubgraph, openParticleGraphAsset, particleNodeEntry } from "./particleAssets";
 import { migrateEmbeddedEffects } from "./particleMigration";
 import { installParticlePreview } from "./particlePreview";
 import { particleBlockFormat, particlesFormat, particleSubgraphFormat } from "./particleFormat";
-import { particleNodeEntry } from "./particleNode";
 
 /** A page with a folded corner: the file icon effects have always shown until their thumbnail renders. */
 const EFFECT_ICON = "M7 3h7l5 5v13H7zM14 3v5h5";

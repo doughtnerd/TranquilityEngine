@@ -1,7 +1,7 @@
 // Extracting a model's materials (ADR 0089): each of the model's own materials becomes a material
 // asset in a folder beside it, its embedded textures become image files, and the model's import
 // settings map each material's name to its new asset, so renderers draw the extracted assets and
-// they can be edited like any other material. ui/AssetInspector.tsx offers it for models.
+// they can be edited like any other material. The Meshes plugin's model import settings offer it.
 import { Color } from "../engine/core/math";
 import { Assets } from "../engine/scene/Assets";
 import { MATERIAL_MAPS, defaultMaterialSettings, formatMaterial, type MaterialMapKey, type MaterialSettings } from "../engine/scene/material";

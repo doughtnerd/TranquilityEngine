@@ -9,10 +9,11 @@
 // The engine is the build's myco.js (a separate entry of the player bundle), which the compiled
 // scripts import too, so the game and its scripts share one engine.
 import * as engine from "../myco";
-import { activateRuntimePlugins, enabledRuntimePlugins, RUNTIME_PLUGINS } from "../plugins/runtime";
+import { activateGamePlugins } from "../plugins/runtime";
 import { Assets, Engine, type Bootstrap, type ProjectSettingsInput } from "../engine";
 import { engineWorld, engineWorldConfig, setScriptAssetRefs } from "../engine/editor";
 import { toRuntimePlugin } from "../plugins/thirdParty";
+import type { RuntimePlugin } from "../plugins/runtimeContext";
 import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, type GameManifest } from "../export/format";
 
 /** A build file's URL, from its "/"-separated path. */
@@ -44,20 +45,18 @@ async function boot(): Promise<void> {
   );
   Assets.addSource({ has: (p) => values.has(p), get: (p) => values.get(p) });
 
-  // First-party plugins' runtime halves (ADR 0135), minus the ones project.json turns off (ADR 0133).
   const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput;
-  activateRuntimePlugins(RUNTIME_PLUGINS, { enabled: enabledRuntimePlugins(settings.plugins?.disabled) });
   setScriptAssetRefs(manifest.assetRefs ?? []); // warmed up with every scene (ADR 0080)
   for (const script of manifest.scripts) await import(/* @vite-ignore */ urlOf(script.module));
   // Third-party plugins' runtime halves (ADR 0139): the build holds only enabled ones, in dependency order.
-  const thirdParty = [];
+  const thirdParty: RuntimePlugin[] = [];
   for (const p of manifest.plugins ?? []) {
     const module = (await import(/* @vite-ignore */ urlOf(p.module))) as Record<string, unknown>;
     thirdParty.push(toRuntimePlugin({ manifest: p.manifest, source: { kind: "project", folder: "" }, where: p.module, runtime: p.module }, module));
   }
-  if (thirdParty.length > 0) {
-    activateRuntimePlugins([...RUNTIME_PLUGINS, ...thirdParty], { enabled: [...enabledRuntimePlugins(settings.plugins?.disabled), ...thirdParty.map((p) => p.manifest.name)] });
-  }
+  // The plugin set (ADR 0144): first-party runtime halves (ADR 0135) and the third-party ones, minus what
+  // project.json turns off (ADR 0133). A plugin that fails to activate stops the game, like a broken script.
+  activateGamePlugins(thirdParty, { disabled: settings.plugins?.disabled });
   const moduleOf = (path: string) => manifest.scripts.find((s) => s.source === path.replace(/^\.?\//, ""))?.module;
   const loadScript = async (path: string): Promise<Bootstrap> => {
     const module = moduleOf(path);

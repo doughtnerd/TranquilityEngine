@@ -1,12 +1,13 @@
 // The Tilemaps plugin (ADR 0103, 0134, 0135, 0136): its runtime half claims the Tilemap Component and the tile
 // render feature; its editor half registers the tileset kind and format, and tilesets edit through an asset document.
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../../engine/core/registry";
 import { byPhase } from "../../engine/render/renderFeatures";
 import { assetKind } from "../../editor/assetBrowser";
 import { _reset, assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
+import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
 import { registeredInspectorSections } from "../../editor/ui/inspectorSections";
@@ -15,12 +16,14 @@ import type { Engine } from "../../engine";
 import type { World } from "../../engine/core/World";
 import { PAINT_TOOL_ID, PAINT_TOOL_KEYS } from "./editor/paintTool";
 import { brushTool, pickBrushTool } from "./editor/brush";
-import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
+import { isPluginActive } from "../../editor/sdk/plugins";
+import { useEditorPlugins } from "../testEditorPlugins";
 import { activeViewportTool, currentProject, pickTool } from "../../editor/state";
-import { MemoryFileSystem, ROOT } from "../../editor/testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { formatTileset } from "./editor/tilesetAssets";
 import { EDITOR_PLUGINS } from "../editor";
-import { RUNTIME_PLUGINS, activateRuntimePlugins, deactivateRuntimePlugin, isRuntimePluginActive } from "../runtime";
+import { RUNTIME_PLUGINS, isRuntimePluginActive } from "../runtime";
+import { applyTestPlugins } from "../testPlugins";
 import { MESHES_SPEC } from "../meshes/runtime";
 import { SPRITES_SPEC } from "../sprites/runtime";
 import { tilemapsEditorPlugin } from "./editor";
@@ -28,7 +31,8 @@ import { parsePolygon } from "./editor/TilesetInspector";
 import { TILEMAPS_SPEC, Tilemap, tilemapsRuntimePlugin } from "./runtime";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { newTileset, type TilesetData } from "./runtime/tileset";
-import { assetKindInfo } from "../../editor/assetKinds";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 const TILESET = "tiles/ground.tileset.json";
 
@@ -66,22 +70,21 @@ describe("the Tilemaps plugin's runtime half (ADR 0135)", () => {
   });
 
   it("unregisters the Component when deactivated, and registers it again when activated", () => {
-    deactivateRuntimePlugin("myco.tilemaps");
+    applyTestPlugins(["myco.tilemaps"]);
     try {
       expect(getComponentClass("engine.Tilemap")).toBeUndefined();
       expect(_registeredRenderFeatures().some((r) => r.spec.name === "tilemaps")).toBe(false);
     } finally {
-      activateRuntimePlugins([tilemapsRuntimePlugin]);
+      applyTestPlugins();
     }
     expect(getComponentClass("engine.Tilemap")).toBe(Tilemap);
   });
 });
 
 describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
-  beforeEach(() => activatePlugins([tilemapsEditorPlugin]));
+  const editorHalf = useEditorPlugins([tilemapsEditorPlugin], "each");
   afterEach(() => {
     _reset();
-    deactivatePlugin("myco.tilemaps");
     currentProject.value = null;
   });
 
@@ -89,7 +92,7 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(panels.get("tilepalette")).toMatchObject({ title: "Tile Palette", beside: "code" });
     expect(viewportTools.get(PAINT_TOOL_ID)).toBeDefined();
     expect(registeredInspectorSections("engine.Tilemap")).toHaveLength(1);
-    deactivatePlugin("myco.tilemaps");
+    editorHalf.off();
     expect(panels.get("tilepalette")).toBeUndefined();
     expect(viewportTools.get(PAINT_TOOL_ID)).toBeUndefined();
     expect(registeredInspectorSections("engine.Tilemap")).toHaveLength(0);
@@ -121,8 +124,8 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(assetKind(TILESET)).toBe("tileset");
     expect(assetKind("Ground.TILESET.JSON")).toBe("tileset");
     expect(assetKind("tiles/data.json")).toBe("json");
-    expect(assetKindInfo("tileset")?.label).toBe("Tileset");
-    expect(assetKindInfo("tileset")?.icon).toMatch(/^M/);
+    expect(kindLabel("tileset")).toBe("Tileset");
+    expect(kindIcon("tileset")).toMatch(/^M/);
     expect(inspectableAsset(TILESET)).toBe(TILESET);
     expect(acceptsFile("tileset", TILESET)).toBe(true);
     expect(acceptsFile("material", TILESET)).toBe(false);
@@ -211,9 +214,9 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
   });
 
   it("removes everything when deactivated", () => {
-    deactivatePlugin("myco.tilemaps");
+    editorHalf.off();
     expect(isPluginActive("myco.tilemaps")).toBe(false);
-    expect(assetKindInfo("tileset")?.label).toBeUndefined();
+    expect(registeredKind("tileset")).toBeUndefined();
     expect(assetFormats.get("tileset")).toBeUndefined();
     expect(inspectableAsset(TILESET)).toBeNull(); // a disabled plugin's files show as generic files
   });

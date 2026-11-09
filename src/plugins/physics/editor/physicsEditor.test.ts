@@ -1,18 +1,18 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { componentNotes, projectSettingsSections } from "../../../editor/sdk/contributions";
-import { activatePlugins, deactivatePlugin, isPluginActive } from "../../../editor/sdk";
+import { isPluginActive } from "../../../editor/sdk";
+import { useEditorPlugins } from "../../testEditorPlugins";
 import { physicsEditorPlugin } from "./index";
 import { backendOf, backendOptions, componentDimension, DEFAULT_BACKEND_LABEL, NO_BACKEND_NOTE, noBackendNote, setBackend } from "./physicsEditorModel";
 
-afterEach(() => deactivatePlugin("myco.physics"));
-
 describe("physics editor half", () => {
+  const editorHalf = useEditorPlugins([physicsEditorPlugin], "each");
+
   it("registers its Project settings section after Time and the no-backend note, and removes them on deactivation", () => {
-    activatePlugins([physicsEditorPlugin]);
     expect(isPluginActive("myco.physics")).toBe(true);
     expect(projectSettingsSections.get("physics")).toMatchObject({ title: "Physics", after: "Time" });
     expect(componentNotes.get("physics.no-backend")).toBeDefined();
-    deactivatePlugin("myco.physics");
+    editorHalf.off();
     expect(projectSettingsSections.get("physics")).toBeUndefined();
     expect(componentNotes.get("physics.no-backend")).toBeUndefined();
   });
