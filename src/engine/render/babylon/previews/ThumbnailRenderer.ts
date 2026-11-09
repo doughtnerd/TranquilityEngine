@@ -744,9 +744,11 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       sync();
     }
     if (!world._componentsOfType(ParticleSystem).length) return;
-    world.time.deltaTime = world.time.unscaledDeltaTime = PARTICLE_DT;
-    for (let t = 0; t < PARTICLE_TIME; t += PARTICLE_DT) sync();
-    world.time.deltaTime = world.time.unscaledDeltaTime = 0;
+    for (let t = 0; t < PARTICLE_TIME; t += PARTICLE_DT) {
+      world.advanceClock(PARTICLE_DT); // the World never steps: only its clock moves (ADR 0160)
+      sync();
+    }
+    world.advanceClock(0);
   }
 
   /** The studio room, once per renderer: ready for every scene, or not at all (thumbnails then have no reflections). */

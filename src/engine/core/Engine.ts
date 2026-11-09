@@ -1,26 +1,19 @@
 import { Input } from "../input/Input";
-import { MemoryStorage, Storage, type StorageBackend } from "../platform/Storage";
-import { BrowserStorage } from "../platform/BrowserStorage";
-import { getFileSystem, isTauri } from "../platform/FileSystem";
-import { TauriStorage } from "../platform/TauriStorage";
+import type { StorageBackend } from "../platform/Storage";
 import { createRenderSurface } from "../render/createRenderSurface";
-import type { RenderSurface } from "../render/RenderSurface";
-import { Assets, type AssetSource } from "../scene/Assets";
+import type { AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
-import { connectWorlds, netSession } from "../net/session";
 import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
-import { mixer } from "../audio/backend";
-import { useFmodBackendIfConfigured } from "../audio/fmodBackend";
-import { parseAudioSettings } from "../audio/settings";
-import { navigationSettingsProblems, physicsBackendProblems, resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
-import { parseGraphics } from "./graphics";
-import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
-import { FrameMonitor } from "../render/qualityDetect";
+import { resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
+import { Graphics } from "../render/Graphics";
+import type { FrameMonitor } from "../render/qualityDetect";
+import { LinkApplier } from "./linkApplier";
+import { bootProject } from "./projectBoot";
+import { ViewAllocator } from "./viewAllocator";
 import { listSystemCatalog } from "./systems";
-import { _interpolateWorldServices } from "./worldServices";
 import { World, type WorldKind } from "./World";
 import { WorldHandleImpl } from "./WorldHandle";
-import { DEFAULT_WORLD_TAGS, type Bootstrap, type BootstrapEngine, type BootstrapSetting, type LinkConfig, type WorldConfig, type WorldHandle } from "./worlds";
+import { DEFAULT_WORLD_TAGS, type Bootstrap, type BootstrapEngine, type BootstrapSetting, type WorldConfig, type WorldHandle } from "./worlds";
 
 export interface EngineOptions {
   /** Project settings (usually the game's `project.json`). */
@@ -103,43 +96,14 @@ export class Engine implements BootstrapEngine {
   /** Live Worlds, in creation (and step) order. */
   private readonly list: World[] = [];
   private readonly handles = new Map<World, WorldHandleImpl>();
-  private readonly container: HTMLElement | null;
-  private render: RenderSurface | null = null;
-  /**
-   * The World that has the view (the canvas, when there's a container) and, unless its config
-   * says otherwise, local input. When it's destroyed, the view passes to the next World that
-   * wants it (ADR 0032, 0034).
-   */
-  private viewWorld: World | null = null;
-  /** Per World: whether it wants the view, and its `input` setting (undefined: input follows the view). */
-  private readonly viewWishes = new Map<World, { renders: boolean; input: boolean | undefined }>();
+  /** Which surface and which input target each World has (ADR 0034, 0068, 0159). */
+  private readonly views: ViewAllocator;
   /** Each World's config as it was created (for editor tools). */
   private readonly configs = new Map<World, WorldConfig>();
-  /**
-   * Editor: Worlds drawn to a surface of their own besides the main view (tiled play mode), each
-   * by its own backend, since a backend draws exactly one World (ADR 0032).
-   */
-  private readonly extraViews = new Map<World, RenderSurface>();
-  /** Editor: the World `_focusInput` gave local input to; null: input follows the main view. */
-  private inputWorld: World | null = null;
-  /**
-   * Main-view hand-overs (`_handView`), innermost last: the World that gave the view up (null once
-   * destroyed) with its surface, kept hidden so it comes back as it was, and the World given it.
-   */
-  private readonly handedViews: ViewHandOver[] = [];
-  /** The canvas Input listens to: the input World's, when it has one. */
-  private inputCanvas: HTMLCanvasElement | null = null;
   /** Scene loads of the start-up Worlds, which `Engine.create` waits for; null once it's done. */
   private starting: Promise<void>[] | null = [];
-  /** The declarative bootstrap's links (ADR 0033, 0062), set once the start-up Worlds exist. */
-  private links: readonly LinkConfig[] = [];
-  /**
-   * The connection a link made for each client World: its server, and the client's server peer
-   * once connected (`pending` while the server is still starting to listen).
-   */
-  private readonly linkedServers = new WeakMap<World, { server: World; peer: unknown; pending: boolean }>();
-  /** Links waiting for a client's old connection to close (its server was destroyed and created again in one frame). */
-  private deferredLinks: LinkConfig[] = [];
+  /** The declarative bootstrap's links (ADR 0033, 0062). */
+  private readonly links = new LinkApplier({ find: (name) => this._world(name), alive: (world) => this.handles.has(world) });
   private rafId = 0;
   /** Automatic quality (ADR 0055): watches the first seconds of play and steps the tier down if they're slow. */
   private qualityMonitor: FrameMonitor | null = null;
@@ -148,12 +112,14 @@ export class Engine implements BootstrapEngine {
   private running = false;
   /** @internal Editor: gets timings while set (play mode's Stats); null costs one check per phase. */
   private timing: EngineTiming | null = null;
-  /** ADR 0080: whether new render surfaces log shader variants compiled after loading (editor play mode). */
-  private variantReport = false;
 
   private constructor(private readonly options: EngineOptions) {
     this.settings = resolveSettings(options.project ?? {});
-    this.container = options.headless ? null : (options.container ?? null);
+    this.views = new ViewAllocator({
+      container: options.headless ? null : (options.container ?? null),
+      createSurface: (element, world) => createRenderSurface(element, world.settings, world.kind),
+      input: Input,
+    });
   }
 
   /** @internal Set by the public `myco` module (ADR 0135): turns on the first-party plugins when no host (player, server, editor) has activated any. */
@@ -162,34 +128,17 @@ export class Engine implements BootstrapEngine {
   static async create(options: EngineOptions = {}): Promise<Engine> {
     Engine._defaultPlugins?.();
     const engine = new Engine(options);
-    for (const source of ([] as AssetSource[]).concat(options.assets ?? [])) Assets.addSource(source);
-    Storage.use(options.storage ?? (await defaultStorage(engine.settings.name, !engine.container)));
-    // Graphics quality (ADR 0050): the project's tiers, and the player's saved choice; with
-    // `autoDetect`, a detected tier until the player picks one (ADR 0055).
-    for (const p of parseGraphics(options.project?.graphics).problems) console.warn(`[myco] project.json ${p}`);
-    // Navigation (ADR 0065): a bad section falls back to defaults, so say what was replaced.
-    if (options.project?.navigation !== undefined) for (const p of navigationSettingsProblems(options.project.navigation)) console.warn(`[myco] project.json ${p}`);
-    // Physics backends (ADR 0137): a bad id is ignored (the only enabled backend is used).
-    for (const p of physicsBackendProblems(options.project?.physics)) console.warn(`[myco] project.json ${p}`);
-    // Audio (ADR 0097): the project's mixer buses; one shared mixer, like the one audio context.
-    for (const p of parseAudioSettings(options.project?.audio).problems) console.warn(`[myco] project.json ${p}`);
-    mixer.configure(engine.settings.audio);
-    if (engine.settings.audio.backend === "fmod" && (options.kind ?? "runtime") === "runtime") await useFmodBackendIfConfigured(engine.settings.audio);
-    if ((options.quality ?? "player") === "player") {
-      const graphics = engine.settings.graphics;
-      const saved = await Storage.load(QUALITY_KEY, "settings").catch(() => undefined);
-      const auto = graphics.autoDetect ? await Storage.load(AUTO_QUALITY_KEY, "settings").catch(() => undefined) : undefined;
-      Graphics._configure(graphics, saved, auto);
-      const detect = graphics.autoDetect && !!engine.container && (options.kind ?? "runtime") === "runtime" && (saved === undefined || Graphics.autoDetected);
-      if (detect) {
-        if (!Graphics.autoDetected) Graphics._applyDetected(Graphics.detectQuality());
-        engine.qualityMonitor = new FrameMonitor({ targetFps: graphics.targetFrameRate });
-        engine.qualityMonitor.setAtLowest(Graphics.tiers.indexOf(Graphics.quality) <= 0);
-      }
-    }
+    const kind = options.kind ?? "runtime";
+    engine.qualityMonitor = await bootProject(engine.settings, {
+      project: options.project,
+      assets: options.assets,
+      storage: options.storage,
+      draws: !options.headless && !!options.container,
+      kind,
+      quality: options.quality ?? "player",
+    });
 
     // The editor's Engine holds just the Editor World unless it's told otherwise (ADR 0022).
-    const kind = options.kind ?? "runtime";
     const ownWorld = kind !== "runtime" && options.bootstrap === undefined;
     const setting = options.bootstrap ?? engine.settings.bootstrap;
     const bootstrap: Bootstrap = ownWorld ? (e) => void e.createWorld(KIND_WORLDS[kind]) : await resolveBootstrap(setting, { loadScript: options.loadScript });
@@ -200,18 +149,7 @@ export class Engine implements BootstrapEngine {
       if (!engine.defaultWorld) throw new Error("The bootstrap created no Worlds.");
       // A declarative bootstrap's links (ADR 0033, 0062): each `from` World connects to its `to`
       // World once both exist. Links naming a Spawnable World (a template) apply when it's created.
-      engine.links = ownWorld ? [] : bootstrapLinks(setting);
-      for (const link of engine.links) {
-        const client = engine._world(link.from);
-        const server = engine._world(link.to);
-        // Skipped if a script created a Spawnable World while an earlier link waited, and that applied it.
-        if (!client || !server || engine.linkedServers.get(client)?.server === server) continue;
-        const record = { server, peer: null as unknown, pending: true };
-        engine.linkedServers.set(client, record);
-        await connectWorlds(client, server, link.transport, link.options ?? {});
-        record.peer = netSession(client)?.serverPeer ?? null;
-        record.pending = false;
-      }
+      await engine.links.startUp(ownWorld ? [] : bootstrapLinks(setting));
       await Promise.all(starting);
     } catch (err) {
       engine.dispose(); // no half-made Engine left holding a canvas and input listeners
@@ -269,8 +207,6 @@ export class Engine implements BootstrapEngine {
     for (const name of c.systems?.include ?? []) world.addSystem(name);
     for (const name of c.systems?.exclude ?? []) world.removeSystem(name);
 
-    // A server World doesn't want the view unless it asks; any other World does unless it says no.
-    this.viewWishes.set(world, { renders: c.renders ?? !tags.includes("server"), input: c.input });
     this.configs.set(world, c);
 
     const handle = new WorldHandleImpl(world, this);
@@ -278,7 +214,8 @@ export class Engine implements BootstrapEngine {
     this.list.push(world);
     const first = !this.defaultWorld;
     if (first) this.defaultWorld = world;
-    this.assignView();
+    // A server World doesn't want the view unless it asks; any other World does unless it says no.
+    this.views.add(world, { renders: c.renders ?? !tags.includes("server"), input: c.input });
 
     // Autoloads are game-wide nodes (a GameManager, say): they go in the default World only.
     if (first) World._runIn(world, () => SceneManager.loadAutoloads(world));
@@ -288,57 +225,9 @@ export class Engine implements BootstrapEngine {
     });
     if (this.starting) this.starting.push(loading);
     else loading.catch((err) => console.error(`[myco] World "${c.name}" couldn't load its scenes:`, err));
-    this.applyLinks(world);
+    // Links this World completes (ADR 0062); the start-up Worlds' are applied by `Engine.create`, once they all exist.
+    if (!this.starting) this.links.worldCreated(world);
     return handle;
-  }
-
-  /**
-   * Links that `world` completes (ADR 0062): for each link naming it whose other World is alive,
-   * the client connects to the server, as if the script had called `connect` right after creating
-   * it. Start-up Worlds' links are applied by `Engine.create`, once they all exist.
-   */
-  private applyLinks(world: World): void {
-    if (this.starting) return;
-    for (const link of this.links) {
-      if ((link.from === world.name || link.to === world.name) && !this.applyLink(link)) this.deferredLinks.push(link);
-    }
-  }
-
-  /**
-   * Connect one link's client to its server if both are alive and it isn't already. False to try
-   * again next frame: the client still holds its connection to a server World that was destroyed
-   * (a match restarted with `destroy()` then `createWorld()` in one frame), which closes during
-   * its next step.
-   */
-  private applyLink(link: LinkConfig): boolean {
-    const client = this._world(link.from);
-    const server = this._world(link.to);
-    if (!client || !server) return true;
-    const existing = this.linkedServers.get(client);
-    if (existing?.server === server) return true;
-    if (netSession(client)?.serverPeer) {
-      if (existing && !this.handles.has(existing.server)) return false;
-      console.warn(`[myco] Link ${link.from} → ${link.to} not applied: World "${link.from}" is already connected to another server.`);
-      return true;
-    }
-    const record = { server, peer: null as unknown, pending: true };
-    try {
-      const connected = connectWorlds(client, server, link.transport, link.options ?? {});
-      this.linkedServers.set(client, record);
-      const settle = () => {
-        record.peer = netSession(client)?.serverPeer ?? null;
-        record.pending = false;
-      };
-      settle();
-      record.pending = record.peer === null; // still listening (WebSocket): the peer comes later
-      connected.then(settle, (err) => {
-        if (this.linkedServers.get(client) === record) this.linkedServers.delete(client);
-        console.error(`[myco] Link ${link.from} → ${link.to} over "${link.transport}" failed:`, err);
-      });
-    } catch (err) {
-      console.warn(`[myco] Link ${link.from} → ${link.to} not applied: ${(err as Error).message}`);
-    }
-    return true;
   }
 
   /**
@@ -346,11 +235,7 @@ export class Engine implements BootstrapEngine {
    * still being made (`WorldHandle.connect` skips connecting them again).
    */
   _linkedServer(client: World): World | null {
-    const record = this.linkedServers.get(client);
-    if (!record || !this.handles.has(record.server)) return null;
-    if (record.pending) return record.server;
-    const peer = netSession(client)?.serverPeer;
-    return peer && peer === record.peer ? record.server : null;
+    return this.links.linkedServer(client);
   }
 
   /** A handle on one of this Engine's Worlds, by name, or null. */
@@ -393,71 +278,15 @@ export class Engine implements BootstrapEngine {
     this.list.splice(index, 1);
     this.handles.delete(world);
     if (this.defaultWorld === world) this.defaultWorld = this.list[0];
-    if (world._inFrame) world._sceneOps.push(() => this.tearDown(world));
-    else this.tearDown(world);
-    if (World.active === world && !world._inFrame) World.active = this.defaultWorld;
+    this.views.retire(world);
+    world.atFrameEnd(() => this.tearDown(world));
+    if (World.active === world && !world.inFrame) World.active = this.defaultWorld;
   }
 
   private tearDown(world: World): void {
-    World._runIn(world, () => world._destroyAll()); // releases its objects from the render surface
-    this.viewWishes.delete(world);
+    world._destroyAll(); // releases its objects from the render surface (`atFrameEnd` runs this with the World current)
     this.configs.delete(world);
-    this.extraViews.get(world)?.dispose();
-    this.extraViews.delete(world);
-    if (world === this.inputWorld) this.inputWorld = null;
-    // A World that handed its view away goes with its hidden surface; one given the view hands it back.
-    for (const h of this.handedViews) {
-      if (h.from !== world) continue;
-      h.backend?.dispose();
-      h.backend = null;
-      h.from = null;
-    }
-    const given = this.handedViews.findIndex((h) => h.to === world);
-    if (given >= 0) this.unwindViews(given);
-    if (world === this.viewWorld) {
-      world.render = null;
-      this.render?.releaseWorld();
-      this.viewWorld = null;
-    }
-    this.assignView();
-  }
-
-  /**
-   * Give the view to the first World that wants it, if no World has it (ADR 0034): the canvas and
-   * render surface when there's a container, and local input unless the World's config sets
-   * `input`. Called when a World is created and when one is destroyed, so a menu World that
-   * creates a match World and destroys itself hands the screen over.
-   */
-  private assignView(): void {
-    if (!this.viewWorld || !this.list.includes(this.viewWorld)) {
-      const next = this.list.find((w) => this.viewWishes.get(w)?.renders) ?? null;
-      this.viewWorld = next;
-      if (next && this.container) {
-        // A World drawn to a surface of its own (an editor tile) gives it up for the main view.
-        this.extraViews.get(next)?.dispose();
-        this.extraViews.delete(next);
-        this.render ??= this.newSurface(this.container, next.settings, next.kind);
-        next.render = this.render;
-      }
-    }
-    this.applyInput();
-  }
-
-  /**
-   * Local input goes to one World (ADR 0034): the one `_focusInput` picked, while it lives, else
-   * the World with the main view. A World whose config sets `input` keeps that. Input listens to
-   * the chosen World's canvas, if it has one.
-   */
-  private applyInput(): void {
-    const target = this.inputWorld ?? this.viewWorld;
-    for (const world of this.list) world._takesInput = this.viewWishes.get(world)?.input ?? world === target;
-    const canvas = !target ? null : target === this.viewWorld ? this.render?.canvas : this.extraViews.get(target)?.canvas;
-    if (canvas && canvas !== this.inputCanvas) {
-      // Moving to another canvas keeps what's held: it's the same keyboard and mouse.
-      if (this.inputCanvas) Input.retarget(canvas);
-      else Input.attach(canvas);
-      this.inputCanvas = canvas;
-    }
+    this.views.release(world);
   }
 
   /** @internal Editor: the live World named `name`, or null. For editor tools; game code goes through handles. */
@@ -473,15 +302,7 @@ export class Engine implements BootstrapEngine {
 
   /** @internal Editor: every World's view and input state, in creation order. */
   _viewStates(): WorldViewState[] {
-    return this.list.map((w) => ({
-      name: w.name,
-      renders: this.viewWishes.get(w)?.renders ?? false,
-      mainView: w === this.viewWorld,
-      extraView: this.extraViews.has(w),
-      takesInput: w._takesInput,
-      paused: w._paused,
-      viewHanded: this.handedViews.some((h) => h.from === w),
-    }));
+    return this.list.map((w) => ({ name: w.name, ...this.views.state(w), takesInput: w._takesInput, paused: w._paused }));
   }
 
   /**
@@ -494,54 +315,7 @@ export class Engine implements BootstrapEngine {
    * back an outer one hands back the ones over it too.
    */
   _handView(name: string): () => void {
-    const world = this._world(name);
-    if (!world) throw new Error(`There's no World named "${name}" in this Engine.`);
-    if (!this.viewWishes.get(world)?.renders) throw new Error(`World "${name}" doesn't render, so it can't take the view.`);
-    if (world === this.viewWorld) return () => {};
-    if (this.handedViews.some((h) => h.from === world)) throw new Error(`World "${name}" handed its view to another World; hand that one back first.`);
-    // A surface of its own (an editor tile) gives way to the main view, as in `assignView`.
-    const tile = this.extraViews.get(world);
-    if (tile) {
-      this.extraViews.delete(world);
-      tile.dispose(); // Input moves off its canvas below, keeping what's held
-    }
-    const from = this.viewWorld;
-    let backend: RenderSurface | null = null;
-    if (from) {
-      from.render = null;
-      backend = this.render;
-      if (backend) backend.canvas.style.display = "none";
-      this.render = null;
-    }
-    const handOver: ViewHandOver = { from, backend, to: world };
-    this.handedViews.push(handOver);
-    this.viewWorld = world;
-    if (this.container) {
-      this.render ??= this.newSurface(this.container, world.settings, world.kind);
-      world.render = this.render;
-    }
-    this.inputWorld = null; // input follows the view
-    this.applyInput();
-    return () => {
-      const at = this.handedViews.indexOf(handOver);
-      if (at >= 0) this.unwindViews(at);
-    };
-  }
-
-  /** Hand back the main view of every hand-over from index `at` on, innermost first. */
-  private unwindViews(at: number): void {
-    while (this.handedViews.length > at) {
-      const h = this.handedViews.pop()!;
-      if (!h.from) continue; // the World that gave the view up is gone: the one given it keeps it
-      if (h.to.render === this.render) h.to.render = null;
-      this.render?.dispose(); // the given World's three.js objects live in it and go with it
-      this.render = h.backend;
-      if (this.render) this.render.canvas.style.display = "block";
-      h.from.render = this.render;
-      this.viewWorld = h.from;
-      this.inputWorld = null;
-    }
-    this.applyInput();
+    return this.views.handView(this.requireWorld(name));
   }
 
   /**
@@ -551,25 +325,7 @@ export class Engine implements BootstrapEngine {
    * Engine is disposed. The main view (ADR 0034) stays as it is: its World can't have a second.
    */
   _attachView(name: string, element: HTMLElement): () => void {
-    const world = this._world(name);
-    if (!world) throw new Error(`There's no World named "${name}" in this Engine.`);
-    if (world === this.viewWorld) throw new Error(`World "${name}" has the main view already.`);
-    if (this.handedViews.some((h) => h.from === world)) throw new Error(`World "${name}" handed its view to another World.`);
-    if (this.extraViews.has(world)) throw new Error(`World "${name}" has a view already.`);
-    const backend = this.newSurface(element, world.settings, world.kind);
-    this.extraViews.set(world, backend);
-    world.render = backend;
-    this.applyInput(); // if it has input, Input listens to its canvas now
-    return () => {
-      if (this.extraViews.get(world) !== backend) return; // gone with its World, or replaced
-      this.extraViews.delete(world);
-      // Its three.js objects live in this backend and go with it; the World runs on without a surface.
-      world.render = null;
-      backend.dispose();
-      if (this.inputCanvas === backend.canvas) this.inputCanvas = null;
-      if (this.inputWorld === world) this.inputWorld = null; // no surface to point at: input goes back to the main view
-      this.applyInput();
-    };
+    return this.views.attachView(this.requireWorld(name), element);
   }
 
   /**
@@ -577,10 +333,13 @@ export class Engine implements BootstrapEngine {
    * except Worlds whose config sets `input` (ADR 0034). Null gives it back to the main view's World.
    */
   _focusInput(name: string | null): void {
-    const world = name === null ? null : this._world(name);
-    if (name !== null && !world) throw new Error(`There's no World named "${name}" in this Engine.`);
-    this.inputWorld = world;
-    this.applyInput();
+    this.views.focusInput(name === null ? null : this.requireWorld(name));
+  }
+
+  private requireWorld(name: string): World {
+    const world = this._world(name);
+    if (!world) throw new Error(`There's no World named "${name}" in this Engine.`);
+    return world;
   }
 
   /** True while the requestAnimationFrame loop is running. */
@@ -640,7 +399,7 @@ export class Engine implements BootstrapEngine {
     const timing = this.timing;
     const begun = timing ? performance.now() : 0;
     this.watchQuality(dt);
-    if (this.deferredLinks.length) this.deferredLinks = this.deferredLinks.filter((link) => !this.applyLink(link));
+    this.links.retryDeferred();
     // 2. Input snapshot: once per Engine frame, shared by the Worlds that take input
     Input.beginFrame();
     for (const world of [...this.list]) {
@@ -651,18 +410,9 @@ export class Engine implements BootstrapEngine {
     timing?.frame(dt * 1000, performance.now() - begun);
   }
 
-  /** A render surface for a World, with the Engine's diagnostics applied. */
-  private newSurface(...args: Parameters<typeof createRenderSurface>): ReturnType<typeof createRenderSurface> {
-    const surface = createRenderSurface(...args);
-    if (this.variantReport) surface._setVariantReport?.(true);
-    return surface;
-  }
-
   /** @internal Editor play mode (ADR 0080): every surface, now and later, logs shader variants compiled after loading. */
   _setVariantReport(on: boolean): void {
-    this.variantReport = on;
-    this.render?._setVariantReport?.(on);
-    for (const s of this.extraViews.values()) s._setVariantReport?.(on);
+    this.views.setVariantReport(on);
   }
 
   /** @internal Editor: report frame and per-World phase timings to `timing` from now on (null stops). */
@@ -675,9 +425,7 @@ export class Engine implements BootstrapEngine {
    * Step), paused or not. Input isn't snapshotted again, so keys pressed meanwhile show next frame.
    */
   _stepWorld(name: string, dt: number): void {
-    const world = this._world(name);
-    if (!world) throw new Error(`There's no World named "${name}" in this Engine.`);
-    this.stepWorld(world, dt);
+    this.stepWorld(this.requireWorld(name), dt);
     if (this.defaultWorld) World.active = this.defaultWorld;
   }
 
@@ -687,86 +435,19 @@ export class Engine implements BootstrapEngine {
    */
   _redraw(): void {
     for (const world of this.list) {
-      const surface = world === this.viewWorld ? this.render : this.extraViews.get(world);
-      if (!surface) continue;
-      World._runIn(world, () => {
-        world._propagateTransforms();
-        surface.sync(world);
-        surface.render(world);
-      });
+      const surface = this.views.surfaceOf(world);
+      if (surface) world.redraw(surface);
     }
     if (this.defaultWorld) World.active = this.defaultWorld;
   }
 
-  /** One World's frame, with it as the current World. Order follows ADR 0011. */
+  /** One World's frame (ADR 0011, 0160): to the surface it has, reporting timings while play mode's Stats show. */
   private stepWorld(world: World, dt: number): void {
-    const time = world.time;
-    const settings = world.settings.time;
-    World.active = world;
-    world._inFrame = true;
     const timing = this.timing;
-    let mark = timing ? performance.now() : 0, fixedMs = 0, updateMs = 0, renderMs = 0;
-    try {
-      // 1. Begin frame
-      time.realtimeSinceStartup += dt;
-      time.unscaledDeltaTime = Math.min(Math.max(dt, 0), settings.maxFrameTime);
-      time.deltaTime = time.unscaledDeltaTime * time.timeScale;
-      time.time += time.deltaTime;
-      time.frameCount++;
-
-      // 3. start() for newly enabled behaviors
-      world._runPendingStarts();
-
-      // 4. Fixed steps, at this World's own rate
-      const fdt = time.fixedDeltaTime;
-      if (time.timeScale > 0) {
-        world._accumulator += time.deltaTime;
-        let steps = 0;
-        while (world._accumulator >= fdt && steps < settings.maxSubSteps) {
-          time.fixedStepCount++;
-          time.fixedTime += fdt;
-          world._resolveWaits("fixed");
-          world.scheduler.run("fixedUpdate", fdt);
-          world._accumulator -= fdt;
-          steps++;
-        }
-        if (steps === settings.maxSubSteps) world._accumulator = Math.min(world._accumulator, fdt);
-      }
-      time.fixedAlpha = fdt > 0 ? world._accumulator / fdt : 0;
-      const surface = world === this.viewWorld ? this.render : this.extraViews.get(world);
-      if (surface) {
-        // Rendered Worlds show interpolating bodies between their last two fixed steps (ADR 0093).
-        _interpolateWorldServices(world, time.fixedAlpha);
-      }
-      if (timing) [fixedMs, mark] = [performance.now() - mark, performance.now()];
-
-      // 5–6. update and lateUpdate
-      world._resolveWaits("update");
-      world.scheduler.run("update", time.deltaTime);
-      world.scheduler.run("lateUpdate", time.deltaTime);
-
-      // 7. Transform propagation
-      world._propagateTransforms();
-      if (timing) [updateMs, mark] = [performance.now() - mark, performance.now()];
-
-      // 8–9. Render sync and render: to the main view, or to the World's own surface (editor tiles)
-      if (surface) {
-        surface.sync(world);
-        surface.render(world);
-      }
-      if (timing) {
-        renderMs = performance.now() - mark;
-        timing.world(world.name, fixedMs, updateMs, renderMs);
-      }
-    } finally {
-      // 10. End of frame: deferred destroys, buffers, then scene loads
-      world._flushDestroyed();
-      world._clearBuffers();
-      const ops = world._sceneOps;
-      world._sceneOps = [];
-      world._inFrame = false;
-      for (const op of ops) op();
-    }
+    world.step(dt, {
+      surface: this.views.surfaceOf(world),
+      timings: timing ? (fixedMs, updateMs, renderMs) => timing.world(world.name, fixedMs, updateMs, renderMs) : undefined,
+    });
   }
 
   /** Stop the loop, destroy every World's nodes (scripts get onDestroy, audio stops) and release GPU resources. */
@@ -779,26 +460,10 @@ export class Engine implements BootstrapEngine {
       world._destroyAll();
     }
     this.handles.clear();
-    this.viewWishes.clear();
     this.configs.clear();
-    for (const backend of this.extraViews.values()) backend.dispose();
-    this.extraViews.clear();
-    for (const h of this.handedViews.splice(0)) h.backend?.dispose();
-    this.render?.dispose();
-    this.render = null;
-    this.viewWorld = null;
-    this.inputWorld = null;
-    this.inputCanvas = null;
-    Input.detach();
+    this.views.dispose();
     if (World.active && worlds.includes(World.active)) World.active = null;
   }
-}
-
-/** One `Engine._handView`: the World that gave the main view up (null once destroyed), its hidden surface, and the World given it. */
-interface ViewHandOver {
-  from: World | null;
-  backend: RenderSurface | null;
-  readonly to: World;
 }
 
 /** The one World an editor or server Engine gets when it's given no bootstrap. */
@@ -806,11 +471,3 @@ const KIND_WORLDS: Record<Exclude<WorldKind, "runtime">, WorldConfig> = {
   editor: { name: "Editor", tags: ["editor"] },
   server: { name: "Server", tags: ["server"] },
 };
-
-/** Platform storage (ADR 0024): files in the app data folder under Tauri, IndexedDB in a browser, memory when headless. */
-async function defaultStorage(gameName: string, headless: boolean): Promise<StorageBackend> {
-  if (headless) return new MemoryStorage();
-  if (isTauri()) return TauriStorage.create(await getFileSystem());
-  if (typeof indexedDB !== "undefined") return new BrowserStorage(gameName);
-  return new MemoryStorage();
-}

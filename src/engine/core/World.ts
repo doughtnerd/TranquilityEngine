@@ -18,9 +18,17 @@ import { resolveSettings, type ProjectSettings, type ProjectSettingsInput } from
 import type { RenderSurface } from "../render/RenderSurface";
 import type { NetworkTime } from "../net/time";
 import type { WorldTag } from "./worlds";
-import { _disposeWorldServices, _onComponentAttached, _worldServiceOf } from "./worldServices";
+import { _disposeWorldServices, _interpolateWorldServices, _onComponentAttached, _worldServiceOf } from "./worldServices";
 
 export type WorldKind = "runtime" | "editor" | "server";
+
+/** @internal What one `World.step` draws to and reports (ADR 0160). */
+export interface WorldFrame {
+  /** The surface the World draws to this frame (its view); none: it runs without drawing. */
+  surface?: RenderSurface | null;
+  /** Gets the fixed (with start()), update (with lateUpdate and transform propagation) and render phases' durations, in milliseconds. */
+  timings?: (fixedMs: number, updateMs: number, renderMs: number) => void;
+}
 
 export interface TimeState {
   /** Scaled game time in seconds since the world started. */
@@ -130,10 +138,10 @@ export class World {
   /** @internal A paused World skips its frames (`WorldHandle.pause`). */
   _paused = false;
   /** @internal */ render: RenderSurface | null = null;
-  /** @internal True while the Engine is running a frame; structural scene changes wait for its end. */
-  _inFrame = false;
-  /** @internal Scene loads/unloads deferred to the end of the frame (ADR 0011 step 10). */
-  _sceneOps: (() => void)[] = [];
+  /** True while this World's frame runs (`step`); structural scene changes wait for its end. */
+  private framing = false;
+  /** Work deferred to the end of the frame (ADR 0011 step 10): scene loads and unloads, World tear-down. */
+  private frameEndOps: (() => void)[] = [];
 
   // --- entity storage -------------------------------------------------------------------
   private capacity = 0;
@@ -613,7 +621,128 @@ export class World {
     return result;
   }
 
-  // --- frame steps (called by the Engine, ADR 0011) -------------------------------------------
+  // --- the frame (ADR 0011, 0160) ---------------------------------------------------------------
+
+  /**
+   * @internal Run one frame of this World by `dt` real seconds, with it as the current World, in
+   * ADR 0011's order: begin frame (the clock), start() for new behaviors, fixed steps at the World's
+   * own rate, update and lateUpdate, transform propagation, render sync and render to `surface`
+   * (if any), then the end of frame: deferred destroys, buffers, and the work `atFrameEnd` queued.
+   * The input snapshot (step 2) is the Engine's: one per Engine frame, shared by its Worlds.
+   * `timings`, when given, gets the fixed, update and render phases' durations in milliseconds.
+   */
+  step(dt: number, frame: WorldFrame = {}): void {
+    const { surface, timings } = frame;
+    const time = this.time;
+    const settings = this.settings.time;
+    const previous = World.active;
+    World.active = this;
+    this.framing = true;
+    let mark = timings ? performance.now() : 0, fixedMs = 0, updateMs = 0;
+    try {
+      // 1. Begin frame
+      this.advanceClock(dt);
+
+      // 3. start() for newly enabled behaviors
+      this._runPendingStarts();
+
+      // 4. Fixed steps, at this World's own rate
+      const fdt = time.fixedDeltaTime;
+      if (time.timeScale > 0) {
+        this._accumulator += time.deltaTime;
+        let steps = 0;
+        while (this._accumulator >= fdt && steps < settings.maxSubSteps) {
+          time.fixedStepCount++;
+          time.fixedTime += fdt;
+          this._resolveWaits("fixed");
+          this.scheduler.run("fixedUpdate", fdt);
+          this._accumulator -= fdt;
+          steps++;
+        }
+        if (steps === settings.maxSubSteps) this._accumulator = Math.min(this._accumulator, fdt);
+      }
+      time.fixedAlpha = fdt > 0 ? this._accumulator / fdt : 0;
+      // Rendered Worlds show interpolating bodies between their last two fixed steps (ADR 0093).
+      if (surface) _interpolateWorldServices(this, time.fixedAlpha);
+      if (timings) [fixedMs, mark] = [performance.now() - mark, performance.now()];
+
+      // 5–6. update and lateUpdate
+      this._resolveWaits("update");
+      this.scheduler.run("update", time.deltaTime);
+      this.scheduler.run("lateUpdate", time.deltaTime);
+
+      // 7. Transform propagation
+      this._propagateTransforms();
+      if (timings) [updateMs, mark] = [performance.now() - mark, performance.now()];
+
+      // 8–9. Render sync and render
+      if (surface) {
+        surface.sync(this);
+        surface.render(this);
+      }
+      timings?.(fixedMs, updateMs, performance.now() - mark);
+    } finally {
+      // 10. End of frame: deferred destroys, buffers, then scene loads and other deferred work
+      this._flushDestroyed();
+      this._clearBuffers();
+      const ops = this.frameEndOps;
+      this.frameEndOps = [];
+      this.framing = false;
+      try {
+        for (const op of ops) op();
+      } finally {
+        World.active = previous;
+      }
+    }
+  }
+
+  /**
+   * @internal Step 1 alone: advance the clock by `dt` real seconds (clamped to `maxFrameTime`, scaled
+   * by `timeScale`) without running anything. `step` does this first; a World that's drawn but never
+   * stepped (a thumbnail's) uses it so time-driven drawing (particles) moves.
+   */
+  advanceClock(dt: number): void {
+    const time = this.time;
+    time.realtimeSinceStartup += dt;
+    time.unscaledDeltaTime = Math.min(Math.max(dt, 0), this.settings.time.maxFrameTime);
+    time.deltaTime = time.unscaledDeltaTime * time.timeScale;
+    time.time += time.deltaTime;
+    time.frameCount++;
+  }
+
+  /**
+   * @internal Draw this World to `surface` again without stepping (an edit while the game is paused):
+   * transforms are propagated, then the surface is synced and rendered, with this World current.
+   */
+  redraw(surface: RenderSurface): void {
+    World._runIn(this, () => {
+      this._propagateTransforms();
+      surface.sync(this);
+      surface.render(this);
+    });
+  }
+
+  /** @internal True while this World's frame runs: structural changes made now wait for its end. */
+  get inFrame(): boolean {
+    return this.framing;
+  }
+
+  /**
+   * @internal Run `op` at the end of this World's frame (step 10, after deferred destroys) if its frame
+   * is running, else now, with this World current. Scene loads, World tear-down.
+   */
+  atFrameEnd(op: () => void): void {
+    if (this.framing) this.frameEndOps.push(op);
+    else World._runIn(this, op);
+  }
+
+  /**
+   * @internal Apply the deferred destroys and component removals requested so far: now outside a frame
+   * (the editor, tests, between frames), at the end of the frame inside one, where step 10 applies them.
+   */
+  applyDestroys(): void {
+    if (!this.framing) this._flushDestroyed();
+  }
 
   /** @internal Step 3: call start() on behaviors enabled since the last frame. */
   _runPendingStarts(): void {
