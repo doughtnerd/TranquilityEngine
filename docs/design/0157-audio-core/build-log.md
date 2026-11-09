@@ -187,3 +187,30 @@ Ready for the owner's approval to merge to master. Merged: master is at `8214a93
 - **HRIR (H0, #51):** option (a) confirmed, and no courtesy letter. Our copy comes from Chromium's Blink resources at `cbba46fd` (see `tools/hrir/PROVENANCE.json`). `Ircam-RnD/m4dp-audio-modules` (ISC) is not the source and holds no IRC_Composite data. Recorded in `hrir-licence.md`. The owner still checks IRCAM's terms page before B7.
 - **HRTF memory:** the panner's about 300–315 KB at 16 voices is accepted. A3.5 raises architecture §5.1's 140 KB figure to the measured value instead of cutting voices. Shrinking it (fewer partitions, a shared spectrum cache, int16 kernels) is a follow-up for after the roadmap, not an M1 gate.
 - **`npm audit` (DOMPurify via monaco-editor):** it was already in the tree before this work, so it doesn't block audio milestones.
+
+## MS3 (BB1, BB2): Babylon replaces Howler
+
+Run as two sequential waves, one Sonnet lead each, in their own worktrees (no Agent tool for the leads, so they wrote their leaves L1–L3 themselves). The coordinator gave BB2 the single-writer edits it needed (`package.json`, `package-lock.json`, `vite.engine.config.ts`, `Engine.ts`'s import, the Howler line in `THIRD_PARTY_NOTICES.md`); nothing else wrote them that wave.
+
+**Landed**
+- BB1 (#71): `src/plugins/audio/runtime/babylonBackend.ts`. AudioEngineV2 is created on the first play through a dynamic import of `AudioV2/webAudio/webAudioEngine`, with `resumeOnInteraction`, `resumeOnPause` and the unmute UI off. It runs on the core host's context when one exists ("core" that failed to load), else on one page context with the host's `Unlock` layer watching it. Mixer buses map to `AudioBus` (parents first, roots on the main bus); one `StaticSound` per voice over a per-URL shared buffer, `StreamingSound` for `stream` clips; setters before the sound is ready are applied when it is; `at` maps to `waitTime`; `maxVoices` is per-sound `maxInstances` plus a per-bus cap that stops the oldest voice. Pure mappings in `babylonMapping.ts` (bus plan, spatial settings, the listener quaternion, checked against Babylon's own matrix maths); AudioV2 mocks in `src/plugins/audio/testing/babylonMocks.ts`. `babylonImports.test.ts` now allows the audio backend, limited to `@babylonjs/core/AudioV2/*`.
+- BB2 (#72): `applyMix` puts each bus's resolved gain (volume, mute, solo, snapshot, ducking) on its `AudioBus` with a 15 ms ramp; voice counts are exact for every way a voice ends, so ducking works. `howlerBackend.ts`, `howler` and `@types/howler` are gone. `busGraph.ts` is now the test-only `src/plugins/audio/testing/webAudioReference.ts` (for A2.2c's parity harness). `backend.ts` lives in `src/plugins/audio/runtime/`; `Engine.ts` imports `mixer` from `../audio/mixer`, and the engine still imports no plugins. Guide: the fallback's limits under Limits in `docs/guide/audio-mixer.md`. New `@slow` spec `tests/e2e/audio-babylon.spec.ts`.
+
+**MS3 exit check:** `npm run build` green with no Howler (the only "howler" strings in `dist/` are the settings migration's problem text); `audioMixer.test.ts` ducking passes; flappy (the new spec) and pirates (the same check run against its menu's play-on-awake source) play on the default backend in Chromium: backend `babylon`, context running, a voice on its bus, no console errors. A0.6's fallback now lands on Babylon.
+
+**Numbers:** `npm test` 340 files, 3,460 passed, no failures; Chromium e2e 193 passed, 4 skipped, 0 failed (BB2's run); `npm run build` green after a clean `npm ci`.
+
+**Deviations and limits of the fallback (documented in the guide)**
+- No stereo pan: nothing in `PlayRequest` or `AudioVoice` carries one.
+- Streamed clips have no pitch (`StreamingSound` has no playback rate).
+- A voice stopped by the bus cap reports `reason` null (the fallback has no "stolen").
+- No bus effects and no snapshot low-pass: Babylon exposes bus nodes only through underscore internals.
+- The host context is shielded from `engine.dispose()`'s `close()` while the backend tears down.
+- A container restart stopped BB2's first lead; its uncommitted work was saved as a WIP commit, finished and verified by a second lead, and squashed into one commit.
+- Fixed in passing: double-encoded `§` in `core/unlock.ts` comments.
+
+**Reserve used:** none.
+
+## MS3 complete (2026-11-09)
+
+Ready for the owner's approval to merge to master.
