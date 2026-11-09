@@ -37,7 +37,7 @@ pub mod panner;
 
 pub use database::{HrirDatabase, HrirError, HrirHeader};
 pub use kernel::HrtfScratch;
-pub use panner::{HrtfPanner, UnsupportedSampleRate};
+pub use panner::{partitions_for_sample_rate, HrtfPanner, HrtfPannerN, UnsupportedSampleRate};
 
 /// Frames per render quantum, which is also the partition length.
 pub const QUANTUM_FRAMES: usize = 128;

@@ -4,33 +4,32 @@
 //! 256-frame blocks) and is Myco's own code, not a port.
 //!
 //! Each ear keeps an [`EarInput`]: the previous input block and a frequency-domain delay line of
-//! the last `MAX_PARTITIONS` input spectra. Pushing a quantum costs one 256-point FFT; convolving
-//! it with a kernel costs `partitions` complex multiply-adds over 128 bins and one inverse FFT.
-//! Both kernel sets of a panner share their ear's delay line, so a set that resumes after sitting
-//! idle filters the true input history. Output frame `n` is the linear convolution of the input
-//! with the kernel at frame `n`: no latency. Nothing here allocates.
+//! the last `P` input spectra. Pushing a quantum costs one 256-point FFT; convolving it with a
+//! kernel costs `partitions` complex multiply-adds over 128 bins and one inverse FFT. Both kernel
+//! sets of a panner share their ear's delay line, so a set that resumes after sitting idle filters
+//! the true input history. Output frame `n` is the linear convolution of the input with the kernel
+//! at frame `n`: no latency. Nothing here allocates.
 
 use microfft::Complex32;
 
-use super::kernel::{HrtfScratch, KernelSpectra};
-use super::{MAX_PARTITIONS, PARTITION_BINS, QUANTUM_FRAMES};
+use super::fft::{irfft, rfft};
+use super::kernel::HrtfScratch;
+use super::{MAX_PARTITIONS, PARTITION_BINS, PARTITION_FFT_SIZE, QUANTUM_FRAMES};
 
-/// One ear's input history.
+const ZERO_BIN: Complex32 = Complex32 { re: 0.0, im: 0.0 };
+
+/// One ear's input history for kernels of up to `P` partitions.
 #[derive(Clone, Copy)]
-pub struct EarInput {
-    /// Spectra of the input frames `[block - 1, block]` for the newest `MAX_PARTITIONS` blocks,
-    /// in a ring; `newest` indexes the latest.
-    spectra: [[Complex32; PARTITION_BINS]; MAX_PARTITIONS],
+pub struct EarInput<const P: usize = MAX_PARTITIONS> {
+    /// Spectra of the input frames `[block - 1, block]` for the newest `P` blocks, in a ring;
+    /// `newest` indexes the latest.
+    spectra: [[Complex32; PARTITION_BINS]; P],
     newest: usize,
     previous: [f32; QUANTUM_FRAMES],
 }
 
-impl EarInput {
-    pub const ZERO: Self = Self {
-        spectra: [[Complex32 { re: 0.0, im: 0.0 }; PARTITION_BINS]; MAX_PARTITIONS],
-        newest: 0,
-        previous: [0.0; QUANTUM_FRAMES],
-    };
+impl<const P: usize> EarInput<P> {
+    pub const ZERO: Self = Self { spectra: [[ZERO_BIN; PARTITION_BINS]; P], newest: 0, previous: [0.0; QUANTUM_FRAMES] };
 
     /// Clears the history (silence before now).
     pub fn reset(&mut self) {
@@ -39,20 +38,89 @@ impl EarInput {
 
     /// Appends one quantum of input: transforms `[previous, block]` into the newest slot.
     pub fn push(&mut self, block: &[f32; QUANTUM_FRAMES], scratch: &mut HrtfScratch) {
-        let _ = (block, scratch, &self.spectra, self.newest, &self.previous);
-        todo!("H1-core")
+        if P == 0 {
+            return;
+        }
+        scratch.block[..QUANTUM_FRAMES].copy_from_slice(&self.previous);
+        scratch.block[QUANTUM_FRAMES..].copy_from_slice(block);
+        self.previous = *block;
+        self.newest = (self.newest + 1) % P;
+        self.spectra[self.newest].copy_from_slice(rfft(&mut scratch.block));
     }
 }
 
-impl Default for EarInput {
+impl<const P: usize> Default for EarInput<P> {
     fn default() -> Self {
         Self::ZERO
     }
 }
 
 /// Convolves the latest quantum: `sum over k < partitions of spectra[newest - k] * kernel[k]`,
-/// inverse-transformed, last 128 frames into `out`.
-pub fn convolve(input: &EarInput, kernel: &KernelSpectra, partitions: usize, scratch: &mut HrtfScratch, out: &mut [f32; QUANTUM_FRAMES]) {
-    let _ = (input, kernel, partitions, scratch, out);
-    todo!("H1-core")
+/// inverse-transformed, last 128 frames into `out`. `partitions` is capped at `P` and
+/// `kernel.len()`.
+pub fn convolve<const P: usize>(
+    input: &EarInput<P>,
+    kernel: &[[Complex32; PARTITION_BINS]],
+    partitions: usize,
+    scratch: &mut HrtfScratch,
+    out: &mut [f32; QUANTUM_FRAMES],
+) {
+    let HrtfScratch { spectrum, time_a, work, twiddles, .. } = scratch;
+    let acc = &mut spectrum[..PARTITION_BINS];
+    acc.fill(ZERO_BIN);
+    for (k, h) in kernel.iter().take(partitions.min(P)).enumerate() {
+        let x = &input.spectra[(input.newest + P - k) % P];
+        // Bin 0 packs two real values: DC in re, Nyquist in im.
+        acc[0].re += x[0].re * h[0].re;
+        acc[0].im += x[0].im * h[0].im;
+        for b in 1..PARTITION_BINS {
+            acc[b] += x[b] * h[b];
+        }
+    }
+    irfft(acc, &mut time_a[..PARTITION_FFT_SIZE], &mut work[..PARTITION_BINS], twiddles);
+    out.copy_from_slice(&time_a[QUANTUM_FRAMES..PARTITION_FFT_SIZE]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hrtf::kernel::partition_response;
+
+    fn noise(n: usize, mut s: u32) -> Vec<f32> {
+        (0..n)
+            .map(|_| {
+                s ^= s << 13;
+                s ^= s >> 17;
+                s ^= s << 5;
+                (s as f32 / u32::MAX as f32) * 2.0 - 1.0
+            })
+            .collect()
+    }
+
+    fn check(taps: usize) {
+        let mut scratch = HrtfScratch::new();
+        let h = noise(taps, 7);
+        let mut kernel = [[ZERO_BIN; PARTITION_BINS]; MAX_PARTITIONS];
+        let parts = partition_response(&h, &mut scratch, &mut kernel);
+        let x = noise(QUANTUM_FRAMES * 9, 99);
+        let mut input = EarInput::<MAX_PARTITIONS>::ZERO;
+        let mut out = [0.0f32; QUANTUM_FRAMES];
+        for q in 0..9 {
+            let block: &[f32; QUANTUM_FRAMES] = x[q * QUANTUM_FRAMES..(q + 1) * QUANTUM_FRAMES].try_into().unwrap();
+            input.push(block, &mut scratch);
+            convolve(&input, &kernel, parts, &mut scratch, &mut out);
+            for (i, got) in out.iter().enumerate() {
+                let n = q * QUANTUM_FRAMES + i;
+                let want: f64 = (0..taps.min(n + 1)).map(|m| h[m] as f64 * x[n - m] as f64).sum();
+                assert!((*got as f64 - want).abs() < 1e-4, "taps {taps} n {n}: {got} vs {want}");
+            }
+        }
+    }
+
+    #[test]
+    fn matches_direct_convolution() {
+        for taps in [16, 128, 256, 512] {
+            check(taps);
+        }
+    }
 }
