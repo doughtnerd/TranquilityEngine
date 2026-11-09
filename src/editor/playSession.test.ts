@@ -173,6 +173,30 @@ describe("work deferred to Stop", () => {
     expect(scene.stack.undoLabel).toBe("Keep play-mode changes");
   });
 
+  it("a Stop while a reload into the game loads still reloads the editor's scripts", async () => {
+    await play.start();
+    fs.files.set(file("scripts/Wheel.ts"), wheel(`@field(Number) power = 5;`));
+    const reloading = play.reloadScripts(); // waits on reading the scripts
+    await play.stop(); // nothing is queued yet
+    await reloading;
+    expect(playState.value).toBe("edit");
+    expect(editorValue("power")).toBe(5); // the Editor World has the new type
+  });
+
+  it("a script saved while the game was starting reloads when the start fails", async () => {
+    currentProject.value = withSettings({ bootstrap: "scripts/Missing.ts" });
+    const off = playState.subscribe((s) => {
+      if (s === "starting") void play.reloadScripts(); // queued: the game isn't running yet
+    });
+    fs.files.set(file("scripts/Wheel.ts"), wheel(`@field(Number) power = 5;`));
+    await play.start();
+    off();
+    expect(playState.value).toBe("edit");
+    expect(editorValue("power")).toBe(5); // reloaded into the editor, not left for a Stop that never comes
+    expect(status.value?.text).toMatch(/^Couldn't play scenes\/main\.scene\.json/); // the failure stays the message
+    currentProject.value = project;
+  });
+
   it("a project switch drops the queued work", async () => {
     const before = getComponentClass("game.Wheel");
     let reloading: Promise<void> | null = null;

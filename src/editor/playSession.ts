@@ -138,7 +138,12 @@ export function createPlaySession(ports: PlaySessionPorts): PlayController {
     scriptProblems.value = result.problems;
     scriptsVersion.value++;
     queued.scripts = true; // the Editor World rebuilds from its document on Stop
-    if (play !== game) return; // stopped meanwhile: Stop's reload covers it
+    if (play !== game) {
+      // Stopped while the code loaded: that Stop saw nothing queued, so reload into the editor now (the code
+      // above was loaded without runtime halves). If another game is starting, its Stop reloads instead.
+      if (playState.value === "edit") await reloadScripts();
+      return;
+    }
     let swap: ScriptSwap;
     try {
       swap = swapScriptTypes(game.engine, before);
@@ -180,6 +185,7 @@ export function createPlaySession(ports: PlaySessionPorts): PlayController {
       });
     } catch (err) {
       playState.value = "edit";
+      await runQueued(); // a script saved while the game was starting reloads now, as Stop would have
       status.value = errorStatus(`Couldn't play ${scene.path}`, err);
       return;
     }
@@ -197,6 +203,7 @@ export function createPlaySession(ports: PlaySessionPorts): PlayController {
   }
 
   async function stop(options: { discardQueued?: boolean } = {}): Promise<void> {
+    if (options.discardQueued && !play) queued.scripts = queued.plugins = false; // a project switch with no game running
     if (!play) return;
     const keptValues = takeKept(); // "Keep values" from the live Inspector (runtimeInspect.ts)
     endLiveInspection();
@@ -219,6 +226,11 @@ export function createPlaySession(ports: PlaySessionPorts): PlayController {
       queued.scripts = queued.plugins = false;
       return;
     }
+    await runQueued();
+  }
+
+  /** Back in edit: apply the plugin settings and reload the scripts that changed while a game ran or started. */
+  async function runQueued(): Promise<void> {
     const project = currentProject.value;
     const reload = queued.scripts || (queued.plugins && project !== null && applyPlugins(project));
     queued.plugins = false;

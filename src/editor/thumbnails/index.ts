@@ -123,8 +123,7 @@ function service(): ThumbnailService | null {
   const project = currentProject.peek();
   if (current?.project !== project) {
     current?.service.dispose();
-    // Another project: the same path can be a different file, so the renderer loads textures afresh.
-    void renderer?.then((r) => r.clearCaches(), () => undefined);
+    warnedStage.clear(); // another project: the same path can be another file, worth its own warning
     current = project
       ? {
           project,

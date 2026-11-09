@@ -146,10 +146,9 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
     });
   });
 
-  it("forgets nothing to clear, and refuses work once the context is lost", async () => {
+  it("refuses work once the context is lost", async () => {
     const lost = vi.fn();
     renderer.onContextLost(lost);
-    renderer.clearCaches();
     engine.onContextLostObservable.notifyObservers(engine);
     expect(renderer.lost).toBe(true);
     expect(lost).toHaveBeenCalledTimes(1);

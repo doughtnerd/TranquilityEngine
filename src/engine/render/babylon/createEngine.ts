@@ -23,12 +23,18 @@ export interface EngineOptions {
 export async function createBabylonEngine(canvas: HTMLCanvasElement, options: EngineOptions = {}): Promise<AbstractEngine> {
   const antialias = options.antialias ?? true;
   if (await WebGPUEngine.IsSupportedAsync) {
+    let gpu: WebGPUEngine | null = null;
     try {
-      const gpu = new WebGPUEngine(canvas, { antialias, adaptToDeviceRatio: false, setMaximumLimits: true });
+      gpu = new WebGPUEngine(canvas, { antialias, adaptToDeviceRatio: false, setMaximumLimits: true });
       await gpu.initAsync();
       return gpu;
     } catch (err) {
       console.warn("[myco] WebGPU couldn't start; using WebGL2:", err);
+      try {
+        gpu?.dispose(); // its listeners and canvas hooks
+      } catch {
+        // a half-started engine may not dispose cleanly; the WebGL2 engine replaces it either way
+      }
     }
   }
   const { Engine } = await import("@babylonjs/core/Engines/engine.js");

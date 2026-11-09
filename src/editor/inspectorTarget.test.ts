@@ -13,7 +13,7 @@ import { runAsset } from "./assetActions";
 import { dropAssets } from "./assetDrag";
 import { assetClipboard } from "./assetOps";
 import { folderPath, resetAssetBrowser, selectedAssets } from "./assetSelection";
-import { inspectableAsset, inspectorTarget, select, selectAssets, selectUIElement, showAsset, showSceneSettings } from "./inspectorTarget";
+import { inspectableAsset, inspectorTarget, previewAssets, select, selectAssets, selectUIElement, showAsset, showSceneSettings } from "./inspectorTarget";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
@@ -134,6 +134,19 @@ describe("assets (the Assets panel)", () => {
       expect(selectedUIElement.value, path).toBeNull();
       expect(kind(), path).toBe("asset");
     }
+  });
+
+  it("a box drag previews in the panel only, so Escape gives the nodes back", () => {
+    select(["bird"]);
+    const path = INSPECTED[0];
+    previewAssets([path]); // the box covers one inspectable asset
+    expect(selectedAssets.value).toEqual([path]);
+    expect(selectedKeys.value).toEqual(["bird"]);
+    previewAssets([]); // Escape: the selection the drag started from
+    expect(kind()).toBe("nodes");
+    previewAssets([path]);
+    selectAssets(selectedAssets.peek()); // let go: the Inspector follows
+    expect(inspectorTarget.value).toEqual({ kind: "asset", path });
   });
 
   it("a slice shows its image", () => {

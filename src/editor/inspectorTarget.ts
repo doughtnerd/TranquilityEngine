@@ -92,6 +92,15 @@ export function selectAssets(entries: readonly string[], focus: string | null = 
   });
 }
 
+/**
+ * Show `entries` as selected in the Assets panel while a box drag is under way, without touching the other
+ * selections: the drag ends with {@link selectAssets} (kept) or with the selection it started from (Escape),
+ * so a cancelled box never deselects the scene's nodes.
+ */
+export function previewAssets(entries: readonly string[]): void {
+  setPanelSelection(entries);
+}
+
 /** Select a UI document element (null clears it). Clears the nodes and the Assets panel's entries. */
 export function selectUIElement(ref: UIElementRef | null): void {
   batch(() => {

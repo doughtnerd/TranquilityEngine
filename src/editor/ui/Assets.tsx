@@ -33,7 +33,7 @@ import { currentProject, docVersion, openScene, sceneCamera, scriptsVersion, sel
 import { TileThumbnail } from "./AssetPreview";
 import "./assets.css";
 import "./assetSlices.css";
-import { select, selectAssets } from "../inspectorTarget";
+import { previewAssets, select, selectAssets } from "../inspectorTarget";
 
 /** The open context menu: where, and its items. */
 interface MenuItem {
@@ -338,15 +338,16 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
           return b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
         })
         .map((item) => item.dataset.entry!);
-      selectAssets(boxSelection(before, hits, mods));
+      previewAssets(boxSelection(before, hits, mods)); // the Inspector follows once the box is let go
     };
     const finish = (keep: boolean) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("keydown", key, true);
       box.value = null;
-      if (!keep) selectAssets(before);
+      if (!keep) previewAssets(before);
       else if (!moved && !mods.shift && !mods.toggle) selectAssets([]);
+      else if (moved) selectAssets(selectedAssets.peek());
     };
     const up = () => finish(true);
     const key = (k: KeyboardEvent) => {

@@ -371,12 +371,6 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     };
   }
 
-  /**
-   * Forget every loaded texture (another project opened: the same path can be another file). Textures
-   * live in each thumbnail's own scene and are freed with it, so there is nothing kept to forget.
-   */
-  clearCaches(): void {}
-
   dispose(): void {
     this.disposed = true;
     this.live?.stop();

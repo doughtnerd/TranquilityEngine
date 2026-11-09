@@ -82,8 +82,6 @@ export interface ThumbnailRendererApi {
   animate(stage: ThumbnailStage, target: HTMLCanvasElement, onFrame?: () => void): () => void;
   /** An orbitable preview of a (live) stage in `target`; it keeps drawing when the stage animates. */
   preview(stage: ThumbnailStage, target: HTMLCanvasElement): ThumbnailPreview;
-  /** Forget every loaded texture (another project opened). */
-  clearCaches(): void;
   dispose(): void;
 }
 
