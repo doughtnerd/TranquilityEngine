@@ -12,13 +12,13 @@ import { assetKind } from "../../editor/assetBrowser";
 import { _reset } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel, kindOpens } from "../../editor/assetKindLookup";
+import { canAddToScene, kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
 import { allPanels, isKnownPanel, isOnDemand, panelBeside, panelTitle, PANELS } from "../../editor/layout/model";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
 import { currentProject } from "../../editor/state";
-import { MemoryFileSystem, ROOT } from "../../editor/testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { previewKind } from "../../editor/thumbnails/keys";
 import { registeredInspectorSections } from "../../editor/ui/inspectorSections";
 import { EDITOR_PLUGINS } from "../editor";
@@ -29,6 +29,8 @@ import { openParticleGraph, readEffect } from "./editor/particleAssets";
 import { particleBlockFormat, particlesFormat, particleSubgraphFormat } from "./editor/particleFormat";
 import { blockTemplate, formatAsset, subgraphTemplate } from "./editor/particleGraph/assetDocs";
 import { PARTICLES_SPEC, particlesRuntimePlugin } from "./runtime";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 const FX = "effects/fire.particles.json";
 const SUB = "effects/noise.particlesubgraph.json";
@@ -71,6 +73,8 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
       expect(kindOpens(p)).toBe(true);
       expect(inspectableAsset(p)).toBe(p);
     }
+    expect(canAddToScene(FX)).toBe(true); // a ParticleSystem node (ADR 0143)
+    expect(canAddToScene(SUB)).toBe(false);
     expect(["particles", "particlesubgraph", "particleblock"].map((k) => assetKinds.get(k)?.create?.label)).toEqual(["New Particle Effect", "New Particle Sub-graph", "New Particle Block"]);
   });
 
@@ -140,10 +144,11 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
     deactivatePlugin("myco.particles");
     expect(isPluginActive("myco.particles")).toBe(false);
     for (const k of ["particles", "particlesubgraph", "particleblock"]) {
-      expect(kindLabel(k)).toBeUndefined();
+      expect(registeredKind(k)).toBeUndefined();
       expect(assetFormats.get(k)).toBeUndefined();
     }
-    expect(kindOpens(FX)).toBe(false);
+    expect(assetKind(FX)).toBe("json"); // a generic file again: it opens in the Code panel and adds to no scene
+    expect(canAddToScene(FX)).toBe(false);
     expect(panels.get("particlegraph")).toBeUndefined();
     expect(isKnownPanel("particlegraph")).toBe(false);
     expect(registeredInspectorSections("engine.ParticleSystem")).toHaveLength(0);

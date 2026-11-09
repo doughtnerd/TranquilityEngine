@@ -1,12 +1,12 @@
 // The Particles plugin's editor half (ADR 0133: effects, sub-graphs and custom blocks together; ADR
 // 0134): the `particles`, `particlesubgraph` and `particleblock` asset kinds (New… entries, Inspector
-// views, opening in the Particle Graph, accepted by effect fields, thumbnails), their asset formats,
+// views, opening in the Particle Graph, accepted by effect fields, thumbnails, adding an effect to a scene), their asset formats,
 // the Particle Graph panel and the ParticleSystem's Inspector section. Creating effects stays in core
 // (`src/editor/particleAssets.ts`), as do the scene view's particle preview and the embedded-effect
 // migration, which core code drives.
 import type { EditorPlugin } from "../../../editor/sdk";
 import { particlesManifest } from "../manifest";
-import { createParticleBlock, createParticleEffect, createParticleSubgraph, openParticleGraphAsset } from "./particleAssets";
+import { createParticleBlock, createParticleEffect, createParticleSubgraph, openParticleGraphAsset, particleNodeEntry } from "./particleAssets";
 import { particleBlockFormat, particlesFormat, particleSubgraphFormat } from "./particleFormat";
 
 /** A page with a folded corner: the file icon effects have always shown until their thumbnail renders. */
@@ -31,6 +31,7 @@ export const particlesEditorPlugin: EditorPlugin = {
       create: { label: "New Particle Effect", create: (folder) => createParticleEffect(folder) },
       referencedAs: ["particles"],
       preview: "particles",
+      addToScene: { nodes: (doc, path, position) => [particleNodeEntry(doc, path, position)] },
     });
     context.registerAssetKind({
       id: "particlesubgraph",

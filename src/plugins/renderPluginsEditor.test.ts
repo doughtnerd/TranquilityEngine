@@ -12,6 +12,9 @@ import { environmentEditorPlugin } from "./environment/editor";
 import { meshesEditorPlugin } from "./meshes/editor";
 import { postProcessingEditorPlugin } from "./post-processing/editor";
 import { uiEditorPlugin } from "./ui/editor";
+import { useCoreAssetKinds } from "../editor/testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 const PLUGINS = [meshesEditorPlugin, environmentEditorPlugin, postProcessingEditorPlugin, uiEditorPlugin];
 beforeAll(() => activatePlugins(PLUGINS));
@@ -58,6 +61,7 @@ describe("the render plugins' asset kinds (ADR 0140)", () => {
     expect(inspectableAsset("env/studio.hdr")).toBe("env/studio.hdr");
     expect(inspectableAsset("skies/box.cubemap.json")).toBe("skies/box.cubemap.json");
     expect(registeredKind("model")?.inspector).toBeUndefined(); // the shell's import Inspector (ADR 0040) shows models
+    expect(registeredKind("model")?.importSettings).toBeDefined(); // with the Meshes plugin's rows (ADR 0143)
     expect(inspectableAsset("models/ship.glb")).toBe("models/ship.glb");
     expect(acceptsFile("mesh", "models/ship.glb")).toBe(true);
     expect(acceptsFile("model", "models/ship.glb")).toBe(true);

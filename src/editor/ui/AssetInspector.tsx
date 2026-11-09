@@ -1,131 +1,44 @@
 import { useEffect, useState } from "preact/hooks";
-import { DEFAULT_SLOT, loadMeshes, materialSlots } from "../../engine/scene/models";
-import { IMPORT_PLATFORMS, TEXTURE_COMPRESSIONS, withPlatformOverride, type ImportPlatform, type ImportSettings, type PlatformOverrides } from "../../engine/scene/importSettings";
-import { assetKind, fileName } from "../assetBrowser";
-import { registeredKind } from "../assetKindLookup";
-import type { AssetKindContribution } from "../sdk/contributions";
+import type { ImportSettings } from "../../engine/scene/importSettings";
+import { fileName } from "../assetBrowser";
+import { assetKind, kindImportSettings, kindInspector, kindLabel } from "../assetKindLookup";
+import type { ImportSettingsContribution, ImportSettingsViewProps, LoadComponent } from "../sdk/contributions";
 import { lazyComponent, type LazyComponent } from "./lazy";
-import { extractModelMaterials } from "../materialExtract";
-import { AudioPreview, LargePreview } from "./AssetPreview";
-import { RenderTextureInspector } from "./RenderTextureInspector";
-import { importKind, inspectedAsset, openSpriteEditor, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
+import { inspectedAsset, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
 import { errorStatus } from "../messages";
-import { PIVOT_PRESETS, pivotLabel } from "../spriteSlicing";
 import { currentProject, docVersion, status } from "../state";
 import "./assetInspector.css";
 
-/** The project's pixels per unit (100 by default, ADR 0014). */
-const projectPPU = (settings: { render?: { pixelsPerUnit?: number } }) => settings.render?.pixelsPerUnit ?? 100;
-
-/** One lazy Inspector view per registered kind (ADR 0133): created on first use, so the module loads then. */
-const pluginInspectors = new WeakMap<AssetKindContribution, LazyComponent<{ path: string }>>();
-function pluginInspector(kind: AssetKindContribution): LazyComponent<{ path: string }> | null {
-  if (!kind.inspector) return null;
-  let view = pluginInspectors.get(kind);
-  if (!view) pluginInspectors.set(kind, (view = lazyComponent(kind.inspector, null)));
+/** One lazy view per loader (ADR 0083): created on first use, so its module loads then. */
+const lazyViews = new WeakMap<LoadComponent<never>, LazyComponent<never>>();
+function lazyView<P extends object>(load: LoadComponent<P>): LazyComponent<P> {
+  let view = lazyViews.get(load as LoadComponent<never>) as LazyComponent<P> | undefined;
+  if (!view) lazyViews.set(load as LoadComponent<never>, (view = lazyComponent(load, null)) as LazyComponent<never>);
   return view;
 }
 
-/** The selected asset in the Inspector: a registered kind's own view (materials and shader graphs: the Materials plugin), a built-in kind's, or a file's import settings. */
+/** A kind's import settings views, loaded lazily. */
+function importViews(views: ImportSettingsContribution | undefined): { preview: LazyComponent<{ path: string }> | null; view: LazyComponent<ImportSettingsViewProps> } | null {
+  if (!views) return null;
+  return { preview: views.preview ? lazyView(views.preview) : null, view: lazyView(views.view) };
+}
+
+/** The selected asset in the Inspector (ADR 0143): its kind's own view (materials, prefabs, render textures…), else its import settings. */
 export function AssetInspector() {
   const path = inspectedAsset.value;
-  const kind = path ? assetKind(path) : null;
-  const Plugin = path && kind ? (registeredKind(kind) ? pluginInspector(registeredKind(kind)!) : null) : null;
-  if (path && Plugin) return <Plugin path={path} />;
-  if (path && kind === "rendertexture") return <RenderTextureInspector path={path} />;
-  if (path && kind === "prefab") return <PreviewInspector path={path} />;
+  const inspector = path ? kindInspector(assetKind(path)) : undefined;
+  if (path && inspector) {
+    const View = lazyView(inspector);
+    return <View path={path} />;
+  }
   return <ImportInspector />;
 }
 
-const COMPRESSION_LABELS = { none: "None", low: "Low quality (smallest)", normal: "Normal quality", high: "High quality" } as const;
-const PLATFORM_LABELS: Record<ImportPlatform, string> = { web: "Web", desktop: "Desktop" };
-const parseMaxSize = (text: string) => {
-  const v = Math.round(Number(text));
-  return Number.isFinite(v) && v > 0 ? v : 0;
-};
-
-/** Per-platform overrides of an image's settings (ADR 0115): "Same" inherits the value above; the current platform's are the ones used at load. */
-function PlatformOverridesEditor(props: { draft: ImportSettings; onChange: (s: ImportSettings) => void }) {
-  const { draft, onChange } = props;
-  const put = <K extends keyof PlatformOverrides>(platform: ImportPlatform, key: K, value: PlatformOverrides[K] | undefined) => onChange(withPlatformOverride(draft, platform, key, value));
-  const choice = <K extends "filter" | "wrap" | "compression">(platform: ImportPlatform, key: K, label: string, options: readonly (readonly [string, string])[]) => (
-    <label class="import-row import-override">
-      <span>{label}</span>
-      <select
-        aria-label={`${PLATFORM_LABELS[platform]} ${label}`}
-        value={draft.platforms[platform]?.[key] ?? ""}
-        onChange={(e) => put(platform, key, ((e.currentTarget as HTMLSelectElement).value || undefined) as PlatformOverrides[K] | undefined)}
-      >
-        <option value="">Same</option>
-        {options.map(([value, text]) => (
-          <option key={value} value={value}>
-            {text}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-  return (
-    <details class="import-platforms" open={Object.keys(draft.platforms).length > 0}>
-      <summary>Platform Overrides</summary>
-      {IMPORT_PLATFORMS.map((platform) => {
-        const o = draft.platforms[platform];
-        return (
-          <fieldset key={platform} class="import-platform" aria-label={`${PLATFORM_LABELS[platform]} overrides`}>
-            <legend>{PLATFORM_LABELS[platform]}</legend>
-            {choice(platform, "filter", "Filter Mode", [["linear", "Linear"], ["point", "Point"]])}
-            {choice(platform, "wrap", "Wrap Mode", [["clamp", "Clamp"], ["repeat", "Repeat"], ["mirror", "Mirror"]])}
-            <label class="import-row import-override">
-              <span>Mipmaps</span>
-              <select
-                aria-label={`${PLATFORM_LABELS[platform]} Mipmaps`}
-                value={o?.mipmaps === undefined ? "" : o.mipmaps ? "on" : "off"}
-                onChange={(e) => put(platform, "mipmaps", ({ "": undefined, on: true, off: false } as const)[(e.currentTarget as HTMLSelectElement).value as "" | "on" | "off"])}
-              >
-                <option value="">Same</option>
-                <option value="on">On</option>
-                <option value="off">Off</option>
-              </select>
-            </label>
-            <label class="import-row import-override">
-              <span>Max Size</span>
-              <input
-                type="number"
-                min={0}
-                aria-label={`${PLATFORM_LABELS[platform]} Max Size`}
-                placeholder="Same"
-                value={o?.maxSize ?? ""}
-                onChange={(e) => {
-                  const text = (e.currentTarget as HTMLInputElement).value;
-                  put(platform, "maxSize", text.trim() === "" ? undefined : parseMaxSize(text));
-                }}
-              />
-            </label>
-            {choice(platform, "compression", "Compression", TEXTURE_COMPRESSIONS.map((c) => [c, COMPRESSION_LABELS[c]] as const))}
-          </fieldset>
-        );
-      })}
-    </details>
-  );
-}
-
-const KIND_TITLES = { image: "Image", audio: "Audio", model: "Model" } as const;
-
-/** Prefabs: no settings to edit here, just a look at them (ADR 0061). Environment maps and cubemaps: the Environment plugin's view (ADR 0140). */
-function PreviewInspector(props: { path: string }) {
-  return (
-    <div class="asset-inspector">
-      <h3>{fileName(props.path)}</h3>
-      <p class="hint">Prefab. Drag it into the Hierarchy or the scene view to place a copy.</p>
-      <LargePreview path={props.path} />
-    </div>
-  );
-}
-
 /**
- * The selected image, audio file or model's import settings (ADR 0040, 0044), stored in its
- * sidecar `<file>.meta.json`. Edits are a draft until Apply writes the sidecar; Revert drops them,
- * as does selecting something else. Images open the Sprite Editor to slice them.
+ * The selected file's import settings (ADR 0040, 0044), stored in its sidecar `<file>.meta.json`.
+ * Edits are a draft until Apply writes the sidecar; Revert drops them, as does selecting something
+ * else. The preview and the card's rows are its kind's `importSettings` (ADR 0143): images and audio
+ * from the shell, models from the Meshes plugin.
  */
 function ImportInspector() {
   docVersion.value; // the sidecar may be rewritten (Sprite Editor, moves)
@@ -136,7 +49,10 @@ function ImportInspector() {
   const [draft, setDraft] = useState<ImportSettings | null>(saved?.settings ?? null);
   useEffect(() => setDraft(saved ? structuredClone(saved.settings) : null), [path, savedKey]);
   if (!project || !path || !saved || !draft) return <p class="empty">Nothing selected</p>;
-  const kind = importKind(path)!;
+  const kind = assetKind(path);
+  const views = importViews(kindImportSettings(kind));
+  const Preview = views?.preview ?? null;
+  const Rows = views?.view ?? null;
   const dirty = !sameSettings(draft, saved.settings);
   const set = (patch: Partial<ImportSettings>) => setDraft({ ...draft, ...patch });
   const readOnly = project.canSave ? null : "This project is read-only.";
@@ -154,14 +70,12 @@ function ImportInspector() {
   return (
     <div class="inspector-body asset-inspector" aria-label="Import settings">
       <div class="asset-inspector-head">
-        <span class="asset-inspector-kind">{KIND_TITLES[kind]}</span>
+        <span class="asset-inspector-kind">{kindLabel(kind)}</span>
         <span class="asset-inspector-name" title={path}>
           {fileName(path)}
         </span>
       </div>
-      {kind === "image" && <ImagePreview url={project.assets.get(path)} />}
-      {kind === "model" && <LargePreview path={path} />}
-      {kind === "audio" && <AudioPreview path={path} />}
+      {Preview && <Preview path={path} />}
       {saved.problems.length > 0 && (
         <ul class="asset-inspector-problems">
           {saved.problems.map((p) => (
@@ -171,147 +85,7 @@ function ImportInspector() {
       )}
       <div class="component asset-import-card">
         <h3>Import Settings</h3>
-        {kind === "image" ? (
-          <>
-            <label class="import-row">
-              <span>Pixels Per Unit</span>
-              <input
-                type="number"
-                min={0}
-                aria-label="Pixels Per Unit"
-                placeholder={`Project (${projectPPU(project.settings)})`}
-                value={draft.pixelsPerUnit > 0 ? draft.pixelsPerUnit : ""}
-                onChange={(e) => {
-                  const v = Number((e.currentTarget as HTMLInputElement).value);
-                  set({ pixelsPerUnit: Number.isFinite(v) && v > 0 ? v : 0 });
-                }}
-              />
-            </label>
-            <label class="import-row">
-              <span>Filter Mode</span>
-              <select aria-label="Filter Mode" value={draft.filter} onChange={(e) => set({ filter: (e.currentTarget as HTMLSelectElement).value as ImportSettings["filter"] })}>
-                <option value="linear">Linear (smooth)</option>
-                <option value="point">Point (pixel art)</option>
-              </select>
-            </label>
-            <label class="import-row">
-              <span>Wrap Mode</span>
-              <select aria-label="Wrap Mode" value={draft.wrap} onChange={(e) => set({ wrap: (e.currentTarget as HTMLSelectElement).value as ImportSettings["wrap"] })}>
-                <option value="clamp">Clamp</option>
-                <option value="repeat">Repeat</option>
-                <option value="mirror">Mirror</option>
-              </select>
-            </label>
-            <label class="import-row">
-              <span>Generate Mipmaps</span>
-              <input type="checkbox" aria-label="Generate Mipmaps" checked={draft.mipmaps} onChange={(e) => set({ mipmaps: (e.currentTarget as HTMLInputElement).checked })} />
-            </label>
-            <label class="import-row">
-              <span>Max Size</span>
-              <input
-                type="number"
-                min={0}
-                step={1}
-                aria-label="Max Size"
-                title="Largest side in pixels (0 = no limit). Applied by game exports (ADR 0119): the build ships the image resized; the editor and play mode use the original."
-                placeholder="No limit"
-                value={draft.maxSize > 0 ? draft.maxSize : ""}
-                onChange={(e) => set({ maxSize: parseMaxSize((e.currentTarget as HTMLInputElement).value) })}
-              />
-            </label>
-            <label class="import-row">
-              <span>Compression</span>
-              <select
-                aria-label="Compression"
-                title="Applied by game exports (ADR 0119): low, normal and high re-encode the image as WebP (quality 90, 75, 50; lossless for point-filtered images). It shrinks the download, not GPU memory."
-                value={draft.compression}
-                onChange={(e) => set({ compression: (e.currentTarget as HTMLSelectElement).value as ImportSettings["compression"] })}
-              >
-                {TEXTURE_COMPRESSIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {COMPRESSION_LABELS[c]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <PlatformOverridesEditor draft={draft} onChange={setDraft} />
-            <PivotRow pivot={draft.pivot} onChange={(pivot) => set({ pivot })} />
-            <div class="import-row">
-              <span>Sprites</span>
-              <span class="import-sprites">
-                <span class="import-count">{draft.sprites.length === 0 ? "Whole image" : `${draft.sprites.length} slice${draft.sprites.length === 1 ? "" : "s"}`}</span>
-                <button
-                  disabled={dirty}
-                  title={dirty ? "Apply or revert these settings first" : "Slice the image into named sprites"}
-                  onClick={() => openSpriteEditor(path)}
-                >
-                  Sprite Editor…
-                </button>
-              </span>
-            </div>
-          </>
-        ) : kind === "model" ? (
-          <>
-            <label class="import-row">
-              <span>Scale</span>
-              <input
-                type="number"
-                min={0}
-                step={0.01}
-                aria-label="Scale"
-                title="Multiplies the model's size: 0.01 turns centimetres into metres"
-                value={draft.scale}
-                onChange={(e) => {
-                  const v = Number((e.currentTarget as HTMLInputElement).value);
-                  set({ scale: Number.isFinite(v) && v > 0 ? v : 1 });
-                }}
-              />
-            </label>
-            <label class="import-row">
-              <span>Up Axis</span>
-              <select aria-label="Up Axis" value={draft.upAxis} onChange={(e) => set({ upAxis: (e.currentTarget as HTMLSelectElement).value as ImportSettings["upAxis"] })}>
-                <option value="y">Y up</option>
-                <option value="z">Z up (Blender, 3ds Max…)</option>
-              </select>
-            </label>
-            <label class="import-row">
-              <span>Normals</span>
-              <select aria-label="Normals" value={draft.normals} onChange={(e) => set({ normals: (e.currentTarget as HTMLSelectElement).value as ImportSettings["normals"] })}>
-                <option value="import">From the file</option>
-                <option value="calculate">Calculate</option>
-              </select>
-            </label>
-            <label class="import-row" title="Where a dropped model's parts turn: about the model's origin, or about their own node in the file (ADR 0118)">
-              <span>Pivots</span>
-              <select aria-label="Pivots" value={draft.pivots} onChange={(e) => set({ pivots: (e.currentTarget as HTMLSelectElement).value as ImportSettings["pivots"] })}>
-                <option value="model">Model origin</option>
-                <option value="node">Node</option>
-              </select>
-            </label>
-            <ModelMaterialRows path={path} materials={draft.materials} dirty={dirty} readOnly={readOnly} onChange={(materials) => set({ materials })} />
-          </>
-        ) : (
-          <>
-            <label class="import-row">
-              <span>Volume</span>
-              <input
-                type="number"
-                min={0}
-                step={0.05}
-                aria-label="Volume"
-                value={draft.volume}
-                onChange={(e) => {
-                  const v = Number((e.currentTarget as HTMLInputElement).value);
-                  set({ volume: Number.isFinite(v) && v >= 0 ? v : 1 });
-                }}
-              />
-            </label>
-            <label class="import-row">
-              <span>Stream</span>
-              <input type="checkbox" aria-label="Stream" title="Play through HTML5 audio while loading, for long music" checked={draft.stream} onChange={(e) => set({ stream: (e.currentTarget as HTMLInputElement).checked })} />
-            </label>
-          </>
-        )}
+        {Rows && <Rows path={path} project={project} draft={draft} set={set} replace={setDraft} dirty={dirty} readOnly={readOnly} />}
       </div>
       <div class="asset-inspector-actions">
         <button disabled={!dirty} onClick={() => setDraft(structuredClone(saved.settings))}>
@@ -328,139 +102,3 @@ function ImportInspector() {
   );
 }
 
-/**
- * A model's material slots (ADR 0089): a material asset to draw in place of each of the model's own
- * materials (empty: its own), and Extract Materials, which writes them out as material assets.
- */
-function ModelMaterialRows(props: { path: string; materials: Record<string, string>; dirty: boolean; readOnly: string | null; onChange: (materials: Record<string, string>) => void }) {
-  const { path, materials } = props;
-  const [slots, setSlots] = useState<string[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const project = currentProject.value;
-  useEffect(() => {
-    let live = true;
-    setSlots(null);
-    loadMeshes(`asset:${path}`)
-      .then((meshes) => live && setSlots(materialSlots(meshes).filter((s) => s.surface !== DEFAULT_SLOT).map((s) => s.name)))
-      .catch(() => live && setSlots([]));
-    return () => {
-      live = false;
-    };
-  }, [path, docVersion.value]);
-  const extract = async () => {
-    if (!project) return;
-    setBusy(true);
-    try {
-      const result = await extractModelMaterials(project, path);
-      docVersion.value++;
-      const count = Object.keys(result.materials).length;
-      const lost = result.lost.length ? ` Not kept: ${result.lost.join("; ")}.` : "";
-      status.value = { kind: "info", text: `Extracted ${count} material${count === 1 ? "" : "s"} from ${fileName(path)}.${lost}` };
-    } catch (err) {
-      status.value = errorStatus(`Couldn't extract the materials of ${fileName(path)}`, err);
-    } finally {
-      setBusy(false);
-    }
-  };
-  const files = (project?.files ?? []).filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph");
-  return (
-    <>
-      <div class="import-row">
-        <span>Materials</span>
-        <span class="import-sprites">
-          <span class="import-count">{slots === null ? "Loading…" : slots.length === 0 ? "None" : `${slots.length} slot${slots.length === 1 ? "" : "s"}`}</span>
-          <button
-            disabled={busy || props.dirty || !!props.readOnly || !slots?.length}
-            title={props.readOnly ?? (props.dirty ? "Apply or revert these settings first" : "Write each material out as a material asset and use them")}
-            onClick={() => void extract()}
-          >
-            Extract Materials
-          </button>
-        </span>
-      </div>
-      <datalist id="model-material-list">
-        {files.map((f) => (
-          <option key={f} value={`asset:${f}`} />
-        ))}
-      </datalist>
-      {(slots ?? []).map((name) => (
-        <label class="import-row import-slot" key={name}>
-          <span title={name}>{name}</span>
-          <input
-            type="text"
-            list="model-material-list"
-            aria-label={`Material ${name}`}
-            placeholder="The model's own"
-            value={materials[name] ?? ""}
-            onChange={(e) => {
-              const v = (e.currentTarget as HTMLInputElement).value.trim();
-              const next = { ...materials };
-              if (v) next[name] = v;
-              else delete next[name];
-              props.onChange(next);
-            }}
-          />
-        </label>
-      ))}
-    </>
-  );
-}
-
-function PivotRow(props: { pivot: [number, number]; onChange: (pivot: [number, number]) => void }) {
-  const { pivot, onChange } = props;
-  const label = pivotLabel(pivot);
-  const axis = (i: 0 | 1) => (
-    <input
-      type="number"
-      step={0.05}
-      aria-label={`Pivot ${i === 0 ? "X" : "Y"}`}
-      value={pivot[i]}
-      onChange={(e) => {
-        const v = Number((e.currentTarget as HTMLInputElement).value);
-        if (!Number.isFinite(v)) return;
-        onChange(i === 0 ? [v, pivot[1]] : [pivot[0], v]);
-      }}
-    />
-  );
-  return (
-    <div class="import-row">
-      <span>Pivot</span>
-      <span class="import-pivot">
-        <select
-          aria-label="Pivot"
-          value={label}
-          onChange={(e) => {
-            const preset = PIVOT_PRESETS.find((p) => p.label === (e.currentTarget as HTMLSelectElement).value);
-            if (preset) onChange([...preset.pivot]);
-          }}
-        >
-          {PIVOT_PRESETS.map((p) => (
-            <option key={p.label} value={p.label}>
-              {p.label}
-            </option>
-          ))}
-          {label === "Custom" && <option value="Custom">Custom</option>}
-        </select>
-        {axis(0)}
-        {axis(1)}
-      </span>
-    </div>
-  );
-}
-
-export { PivotRow };
-
-function ImagePreview(props: { url: unknown }) {
-  const [size, setSize] = useState<[number, number] | null>(null);
-  if (typeof props.url !== "string") return null;
-  return (
-    <div class="asset-inspector-preview">
-      <img src={props.url} alt="" draggable={false} onLoad={(e) => setSize([(e.currentTarget as HTMLImageElement).naturalWidth, (e.currentTarget as HTMLImageElement).naturalHeight])} />
-      {size && (
-        <span class="asset-inspector-size">
-          {size[0]} × {size[1]} px
-        </span>
-      )}
-    </div>
-  );
-}

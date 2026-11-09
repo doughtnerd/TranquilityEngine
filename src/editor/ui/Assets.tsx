@@ -1,8 +1,8 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { addAssetToScene, assetKind, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, opensInCodePanel, searchEntries, sliceEntry, splitSliceEntry, type AssetKind, type BuiltinAssetKind } from "../assetBrowser";
-import { kindLabel, matchRegisteredKind, registeredKindOpens } from "../assetKindLookup";
+import { addAssetToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, searchEntries, sliceEntry, splitSliceEntry } from "../assetBrowser";
+import { assetKind, canAddToScene, kindLabel, kindOpens, openAsset, type AssetKind } from "../assetKindLookup";
 import { assetKinds } from "../sdk/contributions";
 import { inspectSelectedAsset, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
@@ -28,7 +28,6 @@ import {
   selectedAssets,
   type Modifiers,
 } from "../assetSelection";
-import { openScript } from "../code/codeState";
 import { installOsDrop, osDragFolder, osDragOver } from "../osDrop";
 import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
@@ -37,28 +36,10 @@ import { createUIDocument } from "../uiDocumentEdits";
 import { createTilesetFromSlices, hasSlices } from "../tilesetAssets";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
-import { switchScene } from "../session";
 import { currentProject, docVersion, openScene, playState, sceneCamera, scriptsVersion, selection, status } from "../state";
 import { TileThumbnail } from "./AssetPreview";
 import "./assets.css";
 import "./assetSlices.css";
-
-const KIND_LABELS: Record<BuiltinAssetKind | "folder", string> = {
-  folder: "Folder",
-  scene: "Scene",
-  prefab: "Prefab",
-  image: "Image",
-  sprite: "Sprite",
-  audio: "Audio",
-  rendertexture: "Render Texture",
-  json: "JSON",
-  script: "Script",
-  javascript: "JS",
-  typescript: "TS Module",
-  text: "Text",
-  xml: "XML",
-  other: "File",
-};
 
 /** The open context menu: where, and its items. */
 interface MenuItem {
@@ -90,8 +71,8 @@ const dropTarget = (path: string) => {
   return t?.kind === "folder" && t.folder === path;
 };
 
-/** A kind's label: a registered kind's own (ADR 0133), else the built-in table. */
-const labelOf = (kind: AssetKind | "folder"): string => kindLabel(kind) ?? KIND_LABELS[kind as BuiltinAssetKind | "folder"] ?? kind;
+/** A kind's label, from the asset kind module (ADR 0143). */
+const labelOf = (kind: AssetKind | "folder"): string => kindLabel(kind);
 const kindOf = (entry: string): AssetKind | "folder" => (isFolderEntry(entry) ? "folder" : assetKind(entry));
 const nameOf = (entry: string) => (isSliceEntry(entry) ? splitSliceEntry(entry).slice : fileName(entryPath(entry)));
 const toggleKey = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.metaKey;
@@ -108,19 +89,13 @@ function listedEntries(project: EditorProject, folder: string, query: string): s
   return [...subfolders.map((f) => `${f}/`), ...withSlices];
 }
 
-/** Open an entry: a folder shows, scenes and prefabs open in the scene view, code files in the Code panel. */
+/** Open an entry: a folder shows; a file opens as its kind says (ADR 0143): scenes and prefabs in the scene view, images and slices in the Sprite Editor, code files in the Code panel. */
 function openEntry(entry: string): void {
   if (isFolderEntry(entry)) return openFolder(entryPath(entry));
-  if (isSliceEntry(entry)) return openSpriteEditor(splitSliceEntry(entry).image);
-  const kind = assetKind(entry);
-  const registered = matchRegisteredKind(entry)?.kind;
-  if (registered?.id === kind && registered.open) return registered.open(entry); // ADR 0133
-  if (kind === "image") return openSpriteEditor(entry);
-  if (opensInCodePanel(kind)) openScript(entry);
-  else if (kind === "scene" || kind === "prefab") void switchScene(entry);
+  openAsset(entry);
 }
 
-const opens = (entry: string) => isFolderEntry(entry) || registeredKindOpens(assetKind(entry)) || opensInCodePanel(assetKind(entry)) || ["scene", "prefab", "image", "sprite"].includes(assetKind(entry));
+const opens = (entry: string) => isFolderEntry(entry) || kindOpens(entry);
 
 /** Why `entries` can't be changed (renamed, moved, deleted), or null. */
 function whyNotEditable(project: EditorProject, entries: readonly string[]): string | null {

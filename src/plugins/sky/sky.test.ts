@@ -7,19 +7,21 @@ import { assetKind } from "../../editor/assetBrowser";
 import { _reset, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel, kindOpens } from "../../editor/assetKindLookup";
+import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
 import { isKnownPanel, isOnDemand, panelBeside, panelTitle } from "../../editor/layout/model";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
 import { currentProject } from "../../editor/state";
-import { MemoryFileSystem, ROOT } from "../../editor/testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { previewKind } from "../../editor/thumbnails/keys";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { skyEditorPlugin } from "./editor";
 import { createSky } from "./editor/skyAssets";
 import { skyRuntimePlugin } from "./runtime";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 const SKY = "skies/a.sky.json";
 
@@ -95,7 +97,7 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
     deactivatePlugin("myco.sky");
     expect(isPluginActive("myco.sky")).toBe(false);
     expect(assetKind(SKY)).toBe("json");
-    expect(kindLabel("sky")).toBeUndefined();
+    expect(registeredKind("sky")).toBeUndefined();
     expect(previewKind(SKY)).toBeNull();
     expect(acceptsFile("environment", SKY)).toBe(false);
     expect(inspectableAsset(SKY)).toBeNull();

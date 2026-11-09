@@ -10,6 +10,9 @@ import { contentKey, keyOfFile, previewDependencies, previewKind } from "./keys"
 import { FrameQueue } from "./queue";
 import { ThumbnailService, type Thumbnail, type ThumbnailMaker, type ThumbnailProject } from "./service";
 import { memoryStore, projectStore } from "./store";
+import { useCoreAssetKinds } from "../testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 // Materials and shader graphs get their previews through the Materials plugin's kinds (ADR 0134).
 // Models and environments: the Meshes and Environment plugins' kinds (ADR 0140).

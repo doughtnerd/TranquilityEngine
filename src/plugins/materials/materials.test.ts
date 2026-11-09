@@ -8,18 +8,20 @@ import { assetKind, opensInCodePanel } from "../../editor/assetBrowser";
 import { _reset, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel, kindOpens } from "../../editor/assetKindLookup";
+import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
 import { isKnownPanel, isOnDemand, panelBeside, panelTitle } from "../../editor/layout/model";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
 import { currentProject } from "../../editor/state";
-import { MemoryFileSystem, ROOT } from "../../editor/testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { previewKind } from "../../editor/thumbnails/keys";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { materialsEditorPlugin } from "./editor";
 import { materialsRuntimePlugin } from "./runtime";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 const MATERIAL = "materials/hull.material.json";
 const GRAPH = "shaders/glow.shadergraph.json";
@@ -121,7 +123,7 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
       expect(acceptsFile("material", p), p).toBe(false);
     }
     for (const k of KINDS) {
-      expect(kindLabel(k), k).toBeUndefined();
+      expect(registeredKind(k), k).toBeUndefined();
       expect(assetFormats.get(k), k).toBeUndefined();
     }
     expect(panels.get("shadergraph")).toBeUndefined();

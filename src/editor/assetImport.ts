@@ -10,18 +10,13 @@ import {
   type ImportSettings,
 } from "../engine/scene/importSettings";
 import { assetKind, folderOf, isSliceEntry, splitSliceEntry } from "./assetBrowser";
-import { registeredKind } from "./assetKindLookup";
+import { kindImportSettings, kindInspector } from "./assetKindLookup";
 import { openFolder, select as selectAssets, selectedAssets } from "./assetSelection";
 import type { EditorProject } from "./projects";
 import { select as selectNodes, selectedKeys } from "./state";
 
-export type ImportKind = "image" | "audio" | "model";
-
-/** The kind of import settings an asset has, or null if it has none. */
-export function importKind(path: string): ImportKind | null {
-  const kind = assetKind(path);
-  return kind === "image" || kind === "audio" || kind === "model" ? (kind as ImportKind) : null;
-}
+/** True if an asset has import settings: its kind brings an import settings view (ADR 0143: images and audio, models from the Meshes plugin). */
+export const hasImportSettings = (path: string): boolean => kindImportSettings(assetKind(path)) !== undefined;
 
 export interface ReadSettings {
   settings: ImportSettings;
@@ -51,14 +46,11 @@ export async function writeImportSettings(project: EditorProject, path: string, 
 /** True if two settings would write the same sidecar. */
 export const sameSettings = (a: ImportSettings, b: ImportSettings) => formatImportSettings(a) === formatImportSettings(b);
 
-/** Built-in asset kinds the Inspector has an editor or preview for, besides files with import settings (registered kinds bring their own `inspector`). */
-const INSPECTED_KINDS: readonly string[] = ["prefab"];
-
 /** The file the Asset Inspector shows for an Assets panel entry (a slice shows its image), or null if it has no inspector. */
 export function inspectableAsset(entry: string): string | null {
   const file = isSliceEntry(entry) ? splitSliceEntry(entry).image : entry;
-  // Registered kinds with an `inspector` count too (ADR 0133).
-  return importKind(file) || INSPECTED_KINDS.includes(assetKind(file)) || registeredKind(assetKind(file))?.inspector !== undefined ? file : null;
+  // Its kind's own Inspector view, or its import settings (ADR 0133, 0143).
+  return kindInspector(assetKind(file)) !== undefined || hasImportSettings(file) ? file : null;
 }
 
 /**

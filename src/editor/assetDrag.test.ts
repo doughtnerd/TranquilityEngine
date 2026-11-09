@@ -8,7 +8,9 @@ import { innerNodes } from "./prefabs";
 import { openSceneFile } from "./project";
 import { editorSettings, useProjectAssets } from "./projects";
 import { openScene, sceneCamera } from "./state";
-import { sampleProject } from "./testing";
+import { sampleProject, useCoreAssetKinds } from "./testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 let engine: Engine;
 
