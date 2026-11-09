@@ -6,16 +6,15 @@
  * that use Time), plus the Inspector's orbitable preview. Every asset gets a Scene of its own on the shared
  * engine; the studio environment is made once, in a host scene, and handed to each.
  *
+ * Prefabs and scenes (ADR 0153) load into a headless World of their own and are drawn by a thumbnail
+ * `BabylonRenderer` with the real render features, as a World draws them; particle effects play through
+ * the effect player. What's left here is framing (`thumbnailMath`) and capture.
+ *
  * Reached through `src/engine/editor`, which loads this file only when the Babylon renderer is chosen.
  */
-import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
-import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
-import { PointLight } from "@babylonjs/core/Lights/pointLight.js";
-import { SpotLight } from "@babylonjs/core/Lights/spotLight.js";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
-import type { Material } from "@babylonjs/core/Materials/material.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { EquiRectangularCubeTexture } from "@babylonjs/core/Materials/Textures/equiRectangularCubeTexture.js";
@@ -24,17 +23,21 @@ import { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTextur
 import "../prefilterGuard";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
-import { Matrix, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
+import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { CreateBox } from "@babylonjs/core/Meshes/Builders/boxBuilder.js";
-import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
-import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../../scene/Assets";
 import { materialGraph } from "../../../scene/material";
-import { loadMeshes, meshesIfLoaded, type ModelMesh } from "../../../scene/models";
-import { flattenSceneNodes } from "../../sceneFlatten";
+import { loadMeshes, meshesIfLoaded } from "../../../scene/models";
+import type { SceneFile } from "../../../scene/SceneLoader";
+import { World } from "../../../core/World";
+import type { ProjectSettings, ProjectSettingsInput } from "../../../core/settings";
+import { instantiateDocument } from "../../../editor";
+import { MeshRenderer, ParticleSystem } from "../../components";
+import { BabylonRenderer, loadPluginFeatures } from "../BabylonRenderer";
 import { EffectPlayer, EffectResources, libraryEffectHost } from "../effectPlayer";
-import { colorFromHex, frameView, moveOrbit, orbitOf, orbitPosition, previewPixels, seededRandom, type Bounds, type Orbit } from "../../thumbnailMath";
+import { frameView, moveOrbit, orbitOf, orbitPosition, previewPixels, type Bounds, type Orbit } from "../../thumbnailMath";
 import type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi } from "../../previewTypes";
 import type { GraphShared } from "../graphMaterial";
 import { environmentKind, ENV_SIZE } from "../lighting";
@@ -76,8 +79,6 @@ const PARTICLE_DT = 1 / 30;
 const PARTICLE_SEED = 1;
 /** A hovered effect that finished plays again after this many seconds. */
 const PARTICLE_REPEAT_GAP = 0.5;
-/** Sprites without a size: pixels per unit (the project default, ADR 0014). */
-const SPRITE_PPU = 100;
 /** Previews draw at most this many pixels across, so a large Inspector doesn't cost a large buffer. */
 const MAX_PREVIEW_PIXELS = 768;
 const FOV = 30;
@@ -98,6 +99,8 @@ export interface Prepared {
   camera: TargetCamera;
   /** What a preview orbits around. */
   target: [number, number, number];
+  /** Before each draw with `camera` (a thumbnail renderer's sky box fits it). */
+  beforeDraw?: (camera: TargetCamera) => void;
   /** Advance by `dt` seconds (time-based graphs, particles) and refresh what draws. */
   step?: (dt: number) => void;
   /**
@@ -114,6 +117,11 @@ export interface ThumbnailOptions {
   studio?: boolean;
   /** Longest wait, in ms, for a scene's shaders and textures before drawing it anyway (default: a few seconds per kind). */
   readyTimeout?: number;
+  /**
+   * The project settings prefabs and scenes load with (pixels per unit, sorting layers). Default: the
+   * active World's, which in the editor are the open project's.
+   */
+  settings?: () => ProjectSettingsInput | ProjectSettings;
 }
 
 export class ThumbnailRenderer implements ThumbnailRendererApi {
@@ -134,6 +142,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   lost = false;
 
   private readonly readyTimeout: number | undefined;
+  private readonly settings: () => ProjectSettingsInput | ProjectSettings;
 
   /** A renderer on its own offscreen engine (WebGPU where there is, else WebGL2). Rejects if no engine starts. */
   static async create(size = THUMBNAIL_SIZE, options: ThumbnailOptions = {}): Promise<ThumbnailRenderer> {
@@ -154,6 +163,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     options: ThumbnailOptions,
   ) {
     this.readyTimeout = options.readyTimeout;
+    this.settings = options.settings ?? (() => World.active?.settings ?? {});
     this.host = createPreviewScene(engine);
     this.studio = options.studio === false ? null : createStudioTexture(this.host);
     engine.onContextLostObservable.add(() => {
@@ -176,7 +186,14 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
    */
   private draw(prepared: Prepared, w: number, h: number, target: HTMLCanvasElement | null, frames = 1): void {
     ensureCanvasSize(this.engine, w, h);
-    prepared.scene.activeCamera = prepared.camera;
+    const camera = prepared.camera;
+    prepared.scene.activeCamera = camera;
+    if (camera.mode === Camera.ORTHOGRAPHIC_CAMERA) {
+      // A scene's orthographic camera: its full height, as wide as the target is.
+      camera.orthoLeft = -camera.orthoTop! * (w / h);
+      camera.orthoRight = camera.orthoTop! * (w / h);
+    }
+    prepared.beforeDraw?.(camera);
     const source = this.engine.getRenderingCanvas();
     const ctx = target?.getContext("2d");
     if (prepared.matte && target && ctx && source) return this.drawMatted(prepared, w, h, target, ctx, source, frames);
@@ -666,148 +683,70 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     return this.prepareNodes(path, true);
   }
 
-  /** The meshes and sprites of a prefab's or scene's nodes (instances expanded), drawn as a prefab or from the scene's camera. */
+  /**
+   * A prefab's or scene's nodes (instances expanded), loaded into a headless World of their own and drawn
+   * by a thumbnail renderer with the render features of the enabled plugins, as a World draws them
+   * (sprite sizes and slices, lights, cameras, materials, particle effects). A prefab is framed by its
+   * bounds; a scene is seen from its main camera, framed like a prefab when it has none (ADR 0117).
+   */
   private async prepareNodes(path: string, asScene: boolean): Promise<Prepared> {
-    const nodes: PrefabNode[] = flattenSceneNodes(path, (p) => {
-      try {
-        return Assets.json(p.replace(/^asset:/, ""));
-      } catch {
-        return undefined;
-      }
-    });
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    const worlds = new Map<string, number[]>();
-    const worldOf = (n: PrefabNode, depth = 0): number[] => {
-      const have = worlds.get(n.id);
-      if (have) return have;
-      const local = localMatrix(n);
-      const parent = n.parent ? byId.get(n.parent) : undefined;
-      const m = parent && depth < 64 ? multiply(worldOf(parent, depth + 1), local) : local;
-      worlds.set(n.id, m);
-      return m;
+    const file = Assets.json(path) as SceneFile;
+    const world = new World("editor", this.settings());
+    const root = World._runIn(world, () => instantiateDocument(world, file, path, { onProblem: () => undefined }));
+    // The nodes are the World's own, so its cameras are canvas cameras; nothing runs, as the World never steps.
+    world.setEditMode(root.entity, false);
+    const renderer = BabylonRenderer.forThumbnail(this.engine, world.settings, await loadPluginFeatures(world), { studio: this.studioOk ? this.studio : null });
+    const dispose = () => {
+      renderer.dispose();
+      world._destroyAll();
     };
-    const scene = this.litScene();
-    const box = new BoundsBox();
-    let meshes = 0;
-    let sprites = 0;
     try {
-      const library = previewMaterials(scene, { time: 0, resolution: [this.size, this.size] }, true);
-      for (const n of nodes) {
-        for (const c of n.components ?? []) {
-          const data = (c.data ?? {}) as Record<string, unknown>;
-          if (c.type === "engine.MeshRenderer") {
-            const ref = typeof data.mesh === "string" ? data.mesh : "builtin:cube";
-            const parts: readonly ModelMesh[] = await loadMeshes(ref).catch(() => []);
-            const list = Array.isArray(data.materials) ? data.materials.map((m) => (typeof m === "string" ? m : "")) : [];
-            // Slots as the World renderer resolves them (ADR 0089): `materials[i]`, `material`, the model's import settings, its own.
-            const drawn = library.slotMaterials({ mesh: ref, material: typeof data.material === "string" ? data.material : "", materials: list }, parts);
-            for (const part of parts) {
-              const mesh = meshOf(scene, `prefab:${n.id}:${part.name}`, part);
-              mesh.material = drawn(part, mesh);
-              const world = worldOf(n);
-              mesh.freezeWorldMatrix(Matrix.FromArray(world));
-              box.add(part.data.positions, world);
-              meshes++;
-            }
-          } else if (c.type === "engine.SpriteRenderer" && typeof data.sprite === "string" && data.sprite) {
-            const texture = await library.texture(data.sprite.split("#")[0].replace(/^asset:/, "")).catch(() => null);
-            if (!texture) continue;
-            const image = texture.getBaseSize();
-            const size = Array.isArray(data.size) ? (data.size as number[]) : [(image.width || SPRITE_PPU) / SPRITE_PPU, (image.height || SPRITE_PPU) / SPRITE_PPU];
-            const world = worldOf(n);
-            const sprite = spriteMesh(scene, size[0], size[1], texture, typeof data.color === "string" ? colorFromHex(data.color) : 0xffffff);
-            sprite.freezeWorldMatrix(Matrix.FromArray(world));
-            box.add(Float32Array.from([-size[0] / 2, -size[1] / 2, 0, size[0] / 2, size[1] / 2, 0]), world);
-            sprites++;
-          }
-        }
+      renderer.setPolicy({ drawPolicy: "perObject" }); // a mesh per MeshRenderer and sprite, framed by their bounds
+      await this.settle(world, renderer);
+      const scene = renderer.scene;
+      scene.clearColor = new Color4(0, 0, 0, 0); // tiles follow the editor theme
+      const drawn = renderer.contentMeshes();
+      const particles = world._componentsOfType(ParticleSystem).some((c) => c.isActiveAndEnabled);
+      if (!drawn.length && !particles) throw new Error("it has nothing to draw.");
+      const view = asScene ? renderer.mainView() : null;
+      let framed: { camera: TargetCamera; target: [number, number, number] };
+      if (view) {
+        // Seen as its main camera sees it (the renderer set it up from the Camera), over its background.
+        const camera = view.babylon;
+        const bg = view.camera.backgroundColor;
+        if (bg) scene.clearColor = new Color4(bg.r, bg.g, bg.b, 1);
+        const forward = new Vector3(0, 0, -1).applyRotationQuaternion(camera.rotationQuaternion ?? Quaternion.Identity());
+        const p = camera.position;
+        framed = { camera, target: [p.x + forward.x * 10, p.y + forward.y * 10, p.z + forward.z * 10] };
+      } else {
+        // From three-quarters above, or the front when it draws only sprites.
+        const meshes = world._componentsOfType(MeshRenderer).some((c) => c.isActiveAndEnabled);
+        framed = this.camera(scene, meshBounds(drawn), meshes || !drawn.length ? DIRECTION_3D : DIRECTION_FRONT, UNIT);
       }
-      if (!meshes && !sprites) throw new Error("it has nothing to draw.");
-      await library.settled();
-      const view = asScene ? this.sceneView(scene, nodes, worldOf) : null;
       await this.ready(scene, 3000);
-      // A scene is seen from its camera; otherwise (and for prefabs) from three-quarters above, or the front for sprites only.
-      return { scene, ...(view ?? this.camera(scene, box.bounds(), meshes ? DIRECTION_3D : DIRECTION_FRONT, UNIT)), dispose: () => scene.dispose() };
+      return { scene, ...framed, beforeDraw: (camera) => renderer.beforeStill(camera), dispose };
     } catch (err) {
-      scene.dispose();
+      dispose();
       throw err;
     }
   }
 
   /**
-   * Put the scene's own lights in `scene` (replacing the default ones, if it has any) and aim a camera
-   * like its main one: the lowest depth, the first in the file on a tie. Null when it has no camera.
+   * Sync `world` into `renderer` until what it draws with has loaded (at most the ready timeout), then, if
+   * it has particle effects, a second more of frames, as an effect's own thumbnail shows it.
    */
-  private sceneView(scene: Scene, nodes: readonly PrefabNode[], worldOf: (n: PrefabNode) => number[]): { camera: TargetCamera; target: [number, number, number] } | null {
-    const lights = nodes.flatMap((n) => (n.components ?? []).filter((c) => c.type === "engine.Light").map((c) => ({ n, data: (c.data ?? {}) as Record<string, unknown> })));
-    if (lights.length) {
-      for (const l of [...scene.lights]) l.dispose();
-      for (const { n, data } of lights) {
-        const m = worldOf(n);
-        const type = typeof data.type === "string" ? data.type : "directional";
-        const rgb = colorOfData(data.color) ?? [1, 1, 1];
-        const intensity = typeof data.intensity === "number" ? Math.max(0, data.intensity) : 1;
-        const range = typeof data.range === "number" && data.range > 0 ? data.range : Number.MAX_VALUE;
-        const color = new Color3(rgb[0], rgb[1], rgb[2]).toLinearSpace();
-        const position = new Vector3(m[12], m[13], m[14]);
-        const direction = new Vector3(-m[8], -m[9], -m[10]).normalize(); // -Z, where cameras look too
-        let light;
-        if (type === "ambient") {
-          const h = new HemisphericLight("scene.ambient", new Vector3(0, 1, 0), scene);
-          h.groundColor = color.clone();
-          h.specular = Color3.Black();
-          light = h;
-        } else if (type === "point") {
-          const pl = new PointLight("scene.point", position, scene);
-          pl.range = range;
-          light = pl;
-        } else if (type === "spot") {
-          const angle = (Math.min(Math.max(typeof data.spotAngle === "number" ? data.spotAngle : 30, 1), 179) * Math.PI) / 180;
-          const sl = new SpotLight("scene.spot", position, direction, angle, 2, scene);
-          sl.range = range;
-          light = sl;
-        } else light = new DirectionalLight("scene.sun", direction, scene);
-        light.diffuse = color;
-        if (!(light instanceof HemisphericLight)) light.specular = color;
-        light.intensity = intensity;
-      }
+  private async settle(world: World, renderer: BabylonRenderer): Promise<void> {
+    const sync = () => World._runIn(world, () => renderer.sync(world));
+    sync();
+    const deadline = Date.now() + (this.readyTimeout ?? 3000);
+    while (!renderer.contentReady() && Date.now() < deadline && !this.disposed) {
+      await new Promise((r) => setTimeout(r, 16));
+      sync();
     }
-    let best: { n: PrefabNode; data: Record<string, unknown>; depth: number } | null = null;
-    for (const n of nodes) {
-      for (const c of n.components ?? []) {
-        if (c.type !== "engine.Camera") continue;
-        const data = (c.data ?? {}) as Record<string, unknown>;
-        const depth = typeof data.depth === "number" ? data.depth : 0;
-        if (!best || depth < best.depth) best = { n, data, depth };
-      }
-    }
-    if (!best) return null;
-    const { n, data } = best;
-    const m = worldOf(n);
-    const eye: [number, number, number] = [m[12], m[13], m[14]];
-    const target: [number, number, number] = [eye[0] - m[8] * 10, eye[1] - m[9] * 10, eye[2] - m[10] * 10];
-    const camera = new TargetCamera("scene.camera", Vector3.Zero(), scene, false);
-    const near = typeof data.near === "number" && data.near > 0 ? data.near : 0.1;
-    const far = typeof data.far === "number" && data.far > near ? data.far : 1000;
-    camera.minZ = near;
-    camera.maxZ = far;
-    if (data.projection === "perspective") {
-      camera.fov = (((typeof data.fieldOfView === "number" ? data.fieldOfView : 60) as number) * Math.PI) / 180;
-      camera.fovMode = Camera.FOVMODE_VERTICAL_FIXED;
-    } else {
-      // The thumbnail is square: show the camera's full height, as wide.
-      const half = typeof data.orthographicSize === "number" && data.orthographicSize > 0 ? data.orthographicSize : 5;
-      camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
-      camera.orthoLeft = -half;
-      camera.orthoRight = half;
-      camera.orthoTop = half;
-      camera.orthoBottom = -half;
-    }
-    aimCamera(camera, eye, target);
-    scene.activeCamera = camera;
-    const bg = colorOfData(data.backgroundColor);
-    if (bg) scene.clearColor = new Color4(bg[0], bg[1], bg[2], 1).toLinearSpace();
-    return { camera, target };
+    if (!world._componentsOfType(ParticleSystem).length) return;
+    world.time.deltaTime = world.time.unscaledDeltaTime = PARTICLE_DT;
+    for (let t = 0; t < PARTICLE_TIME; t += PARTICLE_DT) sync();
+    world.time.deltaTime = world.time.unscaledDeltaTime = 0;
   }
 
   /** The studio room, once per renderer: ready for every scene, or not at all (thumbnails then have no reflections). */
@@ -832,22 +771,6 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
 }
 
 // --- helpers ------------------------------------------------------------------------------------------
-
-/** A colour field's `[r, g, b(, a)]` (0 to 1) or `#rrggbb`, as 0 to 1 sRGB components; null when it is neither. */
-function colorOfData(v: unknown): [number, number, number] | null {
-  if (Array.isArray(v) && v.length >= 3 && v.every((x) => typeof x === "number")) return [v[0], v[1], v[2]];
-  if (typeof v === "string") {
-    const hex = colorFromHex(v);
-    return [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
-  }
-  return null;
-}
-
-interface PrefabNode {
-  id: string;
-  parent?: string;
-  components?: { type: string; data?: unknown }[];
-}
 
 const padded = (b: Bounds, by: number): Bounds => ({ min: [b.min[0] - by, b.min[1] - by, b.min[2] - by], max: [b.max[0] + by, b.max[1] + by, b.max[2] + by] });
 
@@ -881,62 +804,15 @@ class BoundsBox {
   }
 }
 
-/** A textured quad (`w` x `h`, facing +Z, centred) drawn unlit, tinted by an sRGB `0xRRGGBB` colour. */
-function spriteMesh(scene: Scene, w: number, h: number, texture: Texture, color: number): Mesh {
-  const mesh = new Mesh("preview.sprite", scene);
-  const data = new VertexData();
-  data.positions = [-w / 2, -h / 2, 0, w / 2, -h / 2, 0, w / 2, h / 2, 0, -w / 2, h / 2, 0];
-  data.normals = [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1];
-  data.uvs = [0, 0, 1, 0, 1, 1, 0, 1];
-  data.indices = [0, 1, 2, 0, 2, 3];
-  data.applyToMesh(mesh, false);
-  const material: PBRMaterial = pbr("preview.sprite", scene);
-  material.unlit = true;
-  material.backFaceCulling = false;
-  texture.hasAlpha = true; // Babylon reads a texture's alpha only when told it has one
-  material.albedoTexture = texture;
-  material.useAlphaFromAlbedoTexture = true;
-  material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-  material.albedoColor = Color3.FromInts((color >> 16) & 255, (color >> 8) & 255, color & 255).toLinearSpace();
-  mesh.material = material;
-  return mesh;
-}
-
-/** A node's local matrix (column-major) from its Transform data: position, rotation (Euler degrees, or a quaternion) and scale. */
-function localMatrix(n: PrefabNode): number[] {
-  const t = n.components?.find((c) => c.type === "engine.Transform")?.data as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
-  const p = t?.position ?? [0, 0, 0];
-  const r = t?.rotation ?? [0, 0, 0];
-  const s = t?.scale ?? [1, 1, 1];
-  const q = r.length === 4 ? [r[0], r[1], r[2], r[3]] : quaternionOf(((r[0] ?? 0) * Math.PI) / 180, ((r[1] ?? 0) * Math.PI) / 180, ((r[2] ?? 0) * Math.PI) / 180);
-  return compose([p[0] ?? 0, p[1] ?? 0, p[2] ?? 0], q, [s[0] ?? 1, s[1] ?? 1, s[2] ?? 1]);
-}
-
-/** A rotation from Euler angles in radians, applied in three.js's default XYZ order, as [x, y, z, w]. */
-function quaternionOf(x: number, y: number, z: number): number[] {
-  const c1 = Math.cos(x / 2), s1 = Math.sin(x / 2);
-  const c2 = Math.cos(y / 2), s2 = Math.sin(y / 2);
-  const c3 = Math.cos(z / 2), s3 = Math.sin(z / 2);
-  return [s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 + s1 * s2 * c3, c1 * c2 * c3 - s1 * s2 * s3];
-}
-
-/** A column-major matrix from a position, a quaternion [x, y, z, w] and a scale. */
-function compose(p: number[], q: number[], s: number[]): number[] {
-  const [x, y, z, w] = q;
-  const xx = x * x, yy = y * y, zz = z * z, xy = x * y, xz = x * z, yz = y * z, wx = w * x, wy = w * y, wz = w * z;
-  return [
-    (1 - 2 * (yy + zz)) * s[0], 2 * (xy + wz) * s[0], 2 * (xz - wy) * s[0], 0,
-    2 * (xy - wz) * s[1], (1 - 2 * (xx + zz)) * s[1], 2 * (yz + wx) * s[1], 0,
-    2 * (xz + wy) * s[2], 2 * (yz - wx) * s[2], (1 - 2 * (xx + yy)) * s[2], 0,
-    p[0], p[1], p[2], 1,
-  ];
-}
-
-/** `a` times `b` (column-major). */
-function multiply(a: number[], b: number[]): number[] {
-  const out = new Array<number>(16).fill(0);
-  for (let col = 0; col < 4; col++) for (let row = 0; row < 4; row++) for (let k = 0; k < 4; k++) out[col * 4 + row] += a[k * 4 + row] * b[col * 4 + k];
-  return out;
+/** The world-space box around Babylon meshes (each one's own box, moved by its world matrix). */
+function meshBounds(meshes: readonly AbstractMesh[]): Bounds | null {
+  const box = new BoundsBox();
+  for (const m of meshes) {
+    const { minimum: a, maximum: b } = m.getBoundingInfo().boundingBox;
+    const corners = [a.x, a.y, a.z, b.x, a.y, a.z, a.x, b.y, a.z, b.x, b.y, a.z, a.x, a.y, b.z, b.x, a.y, b.z, a.x, b.y, b.z, b.x, b.y, b.z];
+    box.add(corners, Array.from(m.computeWorldMatrix(true).asArray()));
+  }
+  return box.bounds();
 }
 
 /** Resolve true once `done()` holds (polled each frame), false after `ms`. */

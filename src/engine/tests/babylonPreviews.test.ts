@@ -156,11 +156,12 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       expect(await count()).toEqual(await count());
     });
 
-    it("draws a prefab's meshes at their world transforms, with a child's offset and scale", async () => {
+    it("draws a prefab's meshes at their world transforms, with a child's offset and scale (through the Meshes feature, ADR 0153)", async () => {
       const p = (await renderer.prepare("prefab", "p.prefab.json", false))!;
-      expect(p.scene.meshes).toHaveLength(2);
-      const cube = p.scene.meshes.find((m) => m.name.includes(":a:"))!;
-      const ball = p.scene.meshes.find((m) => m.name.includes(":b:"))!;
+      const drawn = p.scene.meshes.filter((m) => m.name.startsWith("mesh:") && m.isEnabled());
+      expect(drawn).toHaveLength(2);
+      const cube = drawn.find((m) => m.name.startsWith("mesh:A"))!;
+      const ball = drawn.find((m) => m.name.startsWith("mesh:B"))!;
       expect(cube.getAbsolutePosition().x).toBeCloseTo(4);
       // B sits 2 up in A's space, which A turned 90° about Y: still 2 up, and at A's position.
       expect(ball.getAbsolutePosition().x).toBeCloseTo(4);
@@ -171,11 +172,12 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       p.dispose();
     });
 
-    it("draws a scene from its main camera, with its own lights and its prefab instances (ADR 0117)", async () => {
+    it("draws a scene from its main camera, with its own lights and its prefab instances (ADR 0117, 0153)", async () => {
       const p = (await renderer.prepare("scene", "s.scene.json", false))!;
-      expect(p.scene.meshes).toHaveLength(2); // the instance's two meshes
-      expect(p.scene.lights).toHaveLength(1); // the scene's sun replaced the defaults
-      expect(p.scene.lights[0]!.intensity).toBeCloseTo(2);
+      expect(p.scene.meshes.filter((m) => m.name.startsWith("mesh:") && m.isEnabled())).toHaveLength(2); // the instance's two meshes
+      const lit = p.scene.lights.filter((l) => l.isEnabled() && l.intensity > 0);
+      expect(lit).toHaveLength(1); // the scene's sun replaced the default lights
+      expect(lit[0]!.intensity).toBeCloseTo(2);
       // The lowest-depth camera: orthographic, at x = 3, looking down -Z.
       expect(p.camera.mode).toBe(1);
       expect(p.camera.position.x).toBeCloseTo(3);

@@ -27,6 +27,7 @@ import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
 import { Camera as BabylonCamera } from "@babylonjs/core/Cameras/camera.js";
 import { WebGPUEngine } from "@babylonjs/core/Engines/webgpuEngine.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
+import type { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { Viewport } from "@babylonjs/core/Maths/math.viewport.js";
@@ -57,7 +58,7 @@ import { BabylonFrame, type CameraView } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { BabylonMaterialLibrary } from "./materialLibrary";
 import { eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type FeatureSlot, type FeatureSyncContext, type MeshesFeatureApi, type ParticlesFeatureApi, type SpritesFeatureApi, type UIFeatureApi } from "./feature";
-import { _registeredRenderFeatures, byPhase, ownerOf, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
+import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonQuadBatches } from "./quadBatches";
 import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PROBES_SPEC, ProbesFeature } from "./features";
 import { FogFeature } from "./fog";
@@ -220,6 +221,8 @@ export class BabylonRenderer {
     readonly engine: AbstractEngine,
     private readonly settings: ProjectSettings,
     plugged: readonly PluginFeature[] = [],
+    /** Thumbnails (ADR 0153): not a World's surface; null for every other renderer. */
+    private readonly thumbnail: ThumbnailPolicy | null = null,
   ) {
     const scene = new Scene(engine);
     scene.useRightHandedSystem = true; // the engine's convention (ADR 0014)
@@ -229,6 +232,7 @@ export class BabylonRenderer {
     this.scene = scene;
 
     this.lighting = new BabylonLighting(scene);
+    if (thumbnail) this.lighting.shareStudio(thumbnail.studio);
     this.graphShared.mainLight = this.lighting.mainLight;
     this.frame = new BabylonFrame(scene);
     this.frame.beforeView = (camera) => {
@@ -276,8 +280,8 @@ export class BabylonRenderer {
     // Before the warmer, which asks whether compiles are async. Only while it's busy: everywhere else a
     // missing pipeline is made as Babylon makes it, so what's drawn never skips a frame.
     // A World's first frames (ADR 0120) use it for every draw of the frame graph.
-    this.asyncPipelines = AsyncPipelines.install(this.engine, () => (this.warmer?.drawing ?? false) || this.firstFrameDrawing, () => !(this.warmer?.drawing ?? false));
-    this.effects = effectClock(this.engine);
+    this.asyncPipelines = thumbnail ? null : AsyncPipelines.install(this.engine, () => (this.warmer?.drawing ?? false) || this.firstFrameDrawing, () => !(this.warmer?.drawing ?? false));
+    this.effects = thumbnail ? { ms: () => 0, dispose: () => undefined } : effectClock(this.engine); // a shared thumbnail engine is never wrapped
     this.warmer = new PipelineWarmer({
       scene,
       materials: this.materials,
@@ -805,7 +809,7 @@ export class BabylonRenderer {
     this.renderTextures.dispose();
     this.frame.dispose();
     this.scene.dispose();
-    this.engine.dispose();
+    if (!this.thumbnail) this.engine.dispose(); // a thumbnail's engine is the thumbnail renderer's
   }
 
   private claim(world: World): void {
@@ -878,6 +882,44 @@ export class BabylonRenderer {
     this.meshesFeature()?.sync(world, this.syncCtx);
   }
 
+  // --- Thumbnails (ADR 0153) -------------------------------------------------------------------
+
+  /**
+   * @internal Asset thumbnails: a renderer that draws a headless World's nodes with the real render
+   * features (`plugged`) into a scene of its own on the thumbnail engine, which it doesn't own (disposing
+   * it leaves the engine). It runs without the warm-up machinery (no async pipelines, no held first
+   * frames, ADR 0080, 0120) and lights with the thumbnails' shared studio room. Only `sync` is used: the
+   * thumbnail frames the result and draws the scene with its own camera.
+   */
+  static forThumbnail(engine: AbstractEngine, settings: ProjectSettings, plugged: readonly PluginFeature[], policy: ThumbnailPolicy): BabylonRenderer {
+    return new BabylonRenderer(engine, settings, plugged, policy);
+  }
+
+  /** @internal Thumbnails: whether the World's textures and models had all loaded at the last sync. */
+  contentReady(): boolean {
+    return this.contentLoaded;
+  }
+
+  /** @internal Thumbnails: the main view after the last sync (the first canvas camera, ADR 0129) and its Babylon camera, or null. */
+  mainView(): { camera: Camera; babylon: TargetCamera } | null {
+    const { view, viewCamera } = this.syncCtx;
+    return view && viewCamera ? { camera: view, babylon: viewCamera } : null;
+  }
+
+  /** @internal Thumbnails: the Babylon meshes the content features drew for the World's MeshRenderers and SpriteRenderers (one each under a `perObject` draw policy). */
+  contentMeshes(): AbstractMesh[] {
+    const out: AbstractMesh[] = [];
+    for (const m of this.meshesFeature()?.editorMeshes() ?? []) if (m.component.isActiveAndEnabled) out.push(...m.meshes);
+    for (const s of this.spritesFeature()?.editorSprites() ?? []) if (s.component.isActiveAndEnabled && s.mesh.isEnabled()) out.push(s.mesh);
+    return out;
+  }
+
+  /** @internal Thumbnails: what a frame does before drawing a view, for a still drawn with `camera` outside the frame graph (the sky box fits it; the sky bakes). */
+  beforeStill(camera: TargetCamera): void {
+    this.frame.beforeView?.(camera);
+    for (const slot of this.slots) slot.feature?.beforeFrame?.();
+  }
+
   // --- Diagnostics (ADR 0128) ------------------------------------------------------------------
 
   /** The renderer's state as engine facts (the surface adds the quality tier). */
@@ -921,17 +963,28 @@ export class BabylonRenderer {
 
 const NO_SKY: RenderDiagnostics["sky"] = { active: false, drawn: false, bakes: 0, baked: false, time: 0, lastBakeMs: 0 };
 
+/** @internal How a thumbnail renderer differs from a World's (ADR 0153). */
+export interface ThumbnailPolicy {
+  /** The studio room every thumbnail shares (made once by the thumbnail renderer), or null for none. */
+  readonly studio: HDRCubeTexture | null;
+}
+
 /** A plugin's render feature (ADR 0135): an eager one's factory is loaded before the renderer starts; a lazy one's on first need. */
 export interface PluginFeature {
   readonly registration: RenderFeatureRegistration;
   readonly factory: BabylonFeatureFactory | null;
 }
 
-/** @internal Load the factories of the registered eager features; one that fails to load is logged and left out. Tests pass them to the constructor. */
-export async function loadPluginFeatures(): Promise<PluginFeature[]> {
+/**
+ * @internal Load the factories of the registered eager features; one that fails to load is logged and left
+ * out. Tests pass them to the constructor. With `world` (thumbnails, ADR 0153), the lazy features that
+ * World needs are loaded now too, so they start with the renderer, and the ones it doesn't are left out.
+ */
+export async function loadPluginFeatures(world?: World): Promise<PluginFeature[]> {
   const loaded = await Promise.all(
     _registeredRenderFeatures().map(async (registration): Promise<PluginFeature | null> => {
-      if (registration.spec.lazy) return { registration, factory: null };
+      if (registration.spec.lazy && world && !specNeeded(registration.spec, world)) return null;
+      if (registration.spec.lazy && !world) return { registration, factory: null };
       try {
         return { registration, factory: (await registration.load()) as BabylonFeatureFactory };
       } catch (err) {

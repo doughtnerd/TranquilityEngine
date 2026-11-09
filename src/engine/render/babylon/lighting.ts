@@ -153,6 +153,8 @@ export class BabylonLighting {
   private readonly defaults: BabylonLight[];
   private envMap: EnvMap | null = null;
   private studio: HDRCubeTexture | null = null;
+  /** The studio room is someone else's (`shareStudio`): never made or disposed here. */
+  private studioShared = false;
   private skybox: Mesh | null = null;
   private skyMaterial: PBRMaterial | null = null;
   private readonly warned = new Set<string>();
@@ -469,11 +471,11 @@ export class BabylonLighting {
     if (procedural) path = ""; // drawn and baked by the sky (ADR 0112); its bake comes in through `setSkyEnvironment`
     if (path !== (this.envMap?.path ?? "")) this.loadEnvironmentMap(path);
     const map = procedural ? this.skyEnvironment : this.envMap?.texture && cubemapReady(this.envMap.texture) ? this.envMap.texture : null;
-    this.studio ??= createStudioTexture(this.scene);
+    if (!this.studioShared) this.studio ??= createStudioTexture(this.scene);
     const turn = env ? (env.rotation * Math.PI) / 180 : 0;
     // Only a ready texture goes to the scene: prefiltering swaps a cube's GPU texture when it finishes,
     // and materials that bound the first one on WebGPU would keep drawing with it once destroyed.
-    const lighting = map ?? (this.studio.isReady() ? this.studio : null);
+    const lighting = map ?? (this.studio?.isReady() ? this.studio : null);
     if (lighting && "rotationY" in lighting) (lighting as { rotationY: number }).rotationY = turn;
     if (this.scene.environmentTexture !== lighting) this.scene.environmentTexture = lighting;
     this.scene.environmentIntensity = env ? Math.max(0, env.intensity) * (map ? 1 : 0.4) : 0.4;
@@ -514,6 +516,16 @@ export class BabylonLighting {
     if ("rotationY" in sky) (sky as { rotationY: number }).rotationY = turn;
     mat.microSurface = 1 - Math.min(1, Math.max(0, env!.skyboxBlur));
     mat.environmentIntensity = Math.max(0, env!.skyboxIntensity) * (1 - this.skyFog);
+  }
+
+  /**
+   * Light with `studio` instead of making a studio room (the asset thumbnails share one across their
+   * scenes, ADR 0153), or with none when it's null. The lighting never disposes it.
+   */
+  shareStudio(studio: HDRCubeTexture | null): void {
+    if (!this.studioShared) this.studio?.dispose();
+    this.studioShared = true;
+    this.studio = studio;
   }
 
   /** Centre and size the skybox for the camera about to draw: its corners stay inside the far plane. */
@@ -632,7 +644,7 @@ export class BabylonLighting {
     this.envMap?.sky?.dispose();
     this.envMap = null;
     if (this.scene.environmentTexture === this.studio) this.scene.environmentTexture = null;
-    this.studio?.dispose();
+    if (!this.studioShared) this.studio?.dispose();
     this.studio = null;
     this.skybox?.dispose();
     this.skybox = null;
