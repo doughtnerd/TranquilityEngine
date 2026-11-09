@@ -1,0 +1,674 @@
+// The core's `AudioBackend` (ADR 0157 K3; api-and-models §3 "Mixer counting", §6 "AudioBackend changes"; architecture
+// §3.2): plays through the voice table and the command writer, reads the core through the status mirror, loads
+// clips through the clip registry (K9), and keeps time with the clock map. `service.ts` registers a factory for it
+// (`registerCoreBackend`) once the core has loaded.
+//
+// Frame flow (`update(dt)`, called by the audio system once per frame): clock.beginFrame, mirror.beginFrame, free ended
+// voices, apply clip events to the registry, start voices that were waiting for the unlock, move spatial voices, drain
+// the table's STOP and FADE commands into the writer, flush the batch at `clock.nextFirstFrame()`. Everything the
+// mirror does happens in `onmessage`, separately.
+//
+// Until A3.1 (selection) every voice is mixed. Spatial voices get their listener-space direction and distance gain
+// here (A1.5's `spatial.ts`); A3.1 moves that into the per-frame selection.
+//
+// A1.6 adds `volume, pitch, priority, oneShot, at, attenuation, position` to `PlayRequest` and `id, reason, fade,
+// setPriority, stop(fadeSeconds)` to `AudioVoice` (§6); until then `CorePlayRequest` and `CoreVoice` carry them as
+// optional extras, so this class implements today's `AudioBackend` and A1.6's change is a rename.
+import type { Vec3Like } from "../../../../engine/core/math";
+import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
+import type { BusEffect } from "../../../../engine/audio/settings";
+import { Assets } from "../../../../engine/scene/Assets";
+import type { Attenuation, AudioBackend, AudioVoice, ListenerPose, PlayRequest } from "../backend";
+import {
+  BUS_LP_OFF_HZ,
+  BUS_ROOT,
+  PLAY_FLAGS_LOOP,
+  PLAY_FLAGS_MIXED,
+  PLAY_FLAGS_SPATIAL,
+  readStatus,
+  SET_PARAMS_MASK_BUS,
+  SET_PARAMS_MASK_DIR,
+  SET_PARAMS_MASK_GAIN,
+  SET_PARAMS_MASK_PITCH,
+  type BusConfigBuses,
+  type BusConfigBusesEffects,
+  type BusMixBuses,
+} from "../wire.generated";
+import { AudioHandle, type AudioReason } from "./handle";
+import { ClockMap } from "./clock";
+import { CommandWriter, type PlayArgs } from "./commandWriter";
+import { createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
+import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink } from "./context";
+import { buildDebugInfo, type AudioDebugInfo } from "./debug";
+import { browserHostClock, type HostClock } from "./hostClock";
+import { decodeClip } from "./loader";
+import { StatusMirror } from "./mirror";
+import { DistanceEffect, listenerSpaceDirection, type Vec3 } from "./spatial";
+import { StatusReader } from "./statusReader";
+import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
+
+/** §1 `OneShotOptions`, as `PlayRequest` will carry them (A1.6). */
+export interface CorePlayRequest extends PlayRequest {
+  volume?: number;
+  pitch?: number;
+  priority?: number;
+  oneShot?: boolean;
+  /** Start at this audio-clock time (seconds, `Audio.time`'s base). Past, non-finite or omitted: as soon as possible. */
+  at?: number;
+  attenuation?: Attenuation;
+  position?: Vec3Like;
+  /** The World key of the playing World (0 or omitted: none). */
+  world?: number;
+}
+
+/** One voice as `AudioVoice` (today's members) plus §6's additions. */
+export interface CoreVoice extends AudioVoice {
+  readonly id: number;
+  readonly reason: AudioReason | null;
+  readonly handle: AudioHandle;
+  fade(to: number, seconds: number): void;
+  setPriority(priority: number): void;
+  stop(fadeSeconds?: number): void;
+}
+
+/** What the backend needs of the host (an `AudioHost`, or a fake in tests). */
+export interface CoreBackendHost {
+  readonly link: Pick<CoreLink, "batchPool" | "nextSeq" | "post" | "onStatus"> & { statusDecoder: CoreLink["statusDecoder"] };
+  readonly status: "locked" | "running" | "failed";
+  readonly preset: { readonly maxLogical: number };
+  /** Worlds holding a share (an idle host has none). */
+  readonly worldCount: number;
+  readonly sampleRate: number;
+  addLifecycleListener: AudioHost["addLifecycleListener"];
+}
+
+/** What `createCoreBackend` takes beyond the host (tests inject fakes). */
+export interface CoreBackendDeps {
+  /** The registry for clips; defaults to one wired to the host (CoreLink, `fetch`, `decodeAudioData`). */
+  clips?: ClipRegistry;
+  clock?: HostClock;
+  mixer?: Mixer;
+  /** The table; defaults to one of `host.preset.maxLogical` slots. */
+  table?: VoiceTable;
+}
+
+const DIR_EPSILON = 0.005;
+const GAIN_EPSILON = 0.001;
+const MAX_PITCH = 16;
+const MIN_PITCH = 0.0625;
+const MAX_BUS = 32;
+const ROLLOFF_NAMES = ["linear", "inverse", "exponential"] as const;
+
+const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
+
+/** Maps a `BusEffect` to its wire record (§4.2 BUS_CONFIG: q in dB, p unused = 0). */
+function wireEffect(e: BusEffect): BusConfigBusesEffects {
+  const p = [0, 0, 0, 0, 0, 0, 0];
+  switch (e.type) {
+    case "lowpass":
+      p[0] = e.frequency;
+      p[1] = e.q;
+      return { type: 0, p };
+    case "highpass":
+      p[0] = e.frequency;
+      p[1] = e.q;
+      return { type: 1, p };
+    case "compressor":
+      p[0] = e.threshold;
+      p[1] = e.knee;
+      p[2] = e.ratio;
+      p[3] = e.attack;
+      p[4] = e.release;
+      return { type: 2, p };
+    case "reverb":
+      p[0] = e.send;
+      return { type: 3, p };
+  }
+}
+
+export class CoreBackend implements AudioBackend {
+  readonly name = "core";
+  readonly table: VoiceTable;
+  readonly mirror: StatusMirror;
+  readonly writer: CommandWriter;
+  readonly clockMap: ClockMap;
+  readonly clips: ClipRegistry;
+  readonly mixer: Mixer;
+
+  private readonly clock: HostClock;
+  private readonly reader = new StatusReader();
+  private readonly cleanups: (() => void)[] = [];
+  private names: string[] = [];
+  private readonly busIndexByName = new Map<string, number>();
+  private lockedIds: number[] = [];
+  private spatialCount = 0;
+  private readonly spatialDirty: Uint8Array;
+  private listenerDirty = true;
+  private readonly listenerPos: [number, number, number] = [0, 0, 0];
+  private readonly listenerFwd: [number, number, number] = [0, 0, -1];
+  private readonly listenerUp: [number, number, number] = [0, 1, 0];
+  private readonly distance = new DistanceEffect();
+  private readonly playArgs: PlayArgs = { voiceId: 0, clip: 0, bus: 0, flags: 0, group: 0, gain: 1, pitch: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: BUS_LP_OFF_HZ, score: 0, startOffsetFrames: 0 };
+  private readonly mixPool: BusMixBuses[] = [];
+  private readonly mixView: BusMixBuses[] = [];
+  private idlePending = false;
+  private master = 1;
+  private isMuted = false;
+  private disposed = false;
+  private readonly clipSink: { event(id: number, code: number): void };
+
+  constructor(
+    readonly host: CoreBackendHost,
+    deps: CoreBackendDeps & { clock: HostClock; clips: ClipRegistry },
+  ) {
+    this.mixer = deps.mixer ?? defaultMixer;
+    this.clock = deps.clock;
+    this.clips = deps.clips;
+    this.table = deps.table ?? new VoiceTable(host.preset.maxLogical);
+    this.spatialDirty = new Uint8Array(this.table.capacity);
+    this.mirror = new StatusMirror(this.table);
+    this.writer = new CommandWriter(host.link, host.sampleRate);
+    this.clockMap = new ClockMap(this.clock, host.sampleRate);
+    for (let i = 0; i < MAX_BUS; i++) this.mixPool.push({ gain: 1, lpHz: BUS_LP_OFF_HZ });
+    this.clipSink = { event: (id, code) => this.clips.applyClipEvent(id, code) };
+
+    // STATUS: decode into one block, apply in onmessage.
+    host.link.statusDecoder = (buffer) => this.reader.read(buffer);
+    this.cleanups.push(this.mirror.attach(host.link));
+    // Voice ends free the slot's clip reference and the bus count (api §3 "Mixer counting").
+    this.table.onFree = (id, bus) => this.onFree(id, bus);
+    this.cleanups.push(connectVoiceTable(this.table, host));
+    this.cleanups.push(
+      host.addLifecycleListener({
+        onBusRemap: () => this.configureBuses(this.mixer),
+        onIdle: () => {
+          this.idlePending = true;
+        },
+        onClose: () => this.dispose(),
+      }),
+    );
+    this.cleanups.push(this.mixer.onChange(() => this.applyMix(this.mixer.resolveAll())));
+    this.configureBuses(this.mixer);
+  }
+
+  /** §1 `Audio.time`. */
+  get time(): number {
+    return this.clockMap.audioTime();
+  }
+
+  /** §1 `Audio.status`. */
+  get status(): "locked" | "running" | "failed" {
+    return this.host.status;
+  }
+
+  /** The bus names by index (root first), as last configured. */
+  get busNames(): readonly string[] {
+    return this.names;
+  }
+
+  /** Starts a clip. Returns null only when the backend can't play at all (the host failed). */
+  play(req: CorePlayRequest): CoreVoice | null {
+    if (this.disposed || this.host.status === "failed") return null;
+    const world = req.world ?? 0;
+    const clip = this.clips.acquire(req.path, world);
+    const bus = this.busIndex(req.bus);
+    const priority = req.priority ?? 128;
+    const running = this.host.status === "running";
+    const id = this.table.allocate(bus, priority, world, running ? VoiceState.WAITING_FOR_DATA : VoiceState.LOCKED);
+    if (id === 0) {
+      this.clips.release(clip);
+      return null;
+    }
+    const t = this.table;
+    const i = id & 0xffff;
+    t.clip[i] = clip;
+    t.volume[i] = req.volume !== undefined && Number.isFinite(req.volume) ? Math.max(0, req.volume) : 1;
+    t.pitch[i] = req.pitch !== undefined && Number.isFinite(req.pitch) ? clamp(req.pitch, MIN_PITCH, MAX_PITCH) : 1;
+    t.flags[i] = (req.loop ? VoiceFlag.LOOP : 0) | (req.oneShot ? VoiceFlag.ONE_SHOT : 0);
+    t.lpHz[i] = BUS_LP_OFF_HZ;
+    t.dirX[i] = 0;
+    t.dirY[i] = 0;
+    t.dirZ[i] = -1;
+    if (req.attenuation) this.applyAttenuation(i, req.attenuation);
+    if (req.position) this.applyPosition(i, req.position);
+    this.refreshGain(i);
+    const at = req.at;
+    t.startFrame[i] = at !== undefined && Number.isFinite(at) && running ? Math.round(at * this.host.sampleRate) : 0;
+    this.mixer.voiceStarted(this.names[bus] ?? "");
+    if (running) this.launch(id);
+    else this.lockedIds.push(id);
+    return new Voice(this, id);
+  }
+
+  setListener(pose: ListenerPose): void {
+    const p = pose.position;
+    const f = pose.forward;
+    const u = pose.up;
+    const pos = this.listenerPos;
+    const fwd = this.listenerFwd;
+    const up = this.listenerUp;
+    if (pos[0] !== p.x || pos[1] !== p.y || pos[2] !== p.z || fwd[0] !== f.x || fwd[1] !== f.y || fwd[2] !== f.z || up[0] !== u.x || up[1] !== u.y || up[2] !== u.z) {
+      pos[0] = p.x;
+      pos[1] = p.y;
+      pos[2] = p.z;
+      fwd[0] = f.x;
+      fwd[1] = f.y;
+      fwd[2] = f.z;
+      up[0] = u.x;
+      up[1] = u.y;
+      up[2] = u.z;
+      this.listenerDirty = true;
+    }
+  }
+
+  /** BUS_MIX from the resolved buses: each bus's own gain (the core multiplies down the tree) and snapshot low-pass. */
+  applyMix(buses: readonly ResolvedBus[]): void {
+    if (this.disposed) return;
+    const view = this.mixView;
+    view.length = 0;
+    const n = Math.min(buses.length, MAX_BUS);
+    for (let b = 0; b < n; b++) {
+      const item = this.mixPool[b]!;
+      item.gain = buses[b]!.gain;
+      item.lpHz = buses[b]!.snapshotLowpass ?? BUS_LP_OFF_HZ;
+      view.push(item);
+    }
+    this.writer.busMix(view, this.clockMap.rampFrames());
+  }
+
+  /** Rebuilds the core's bus tree: BUS_CONFIG, the table's per-bus limits, and BUS_MIX. */
+  configureBuses(mixer: Mixer): void {
+    const settings = mixer.audioSettings.buses;
+    this.names = settings.map((b) => b.name);
+    this.busIndexByName.clear();
+    this.names.forEach((n, i) => this.busIndexByName.set(n, i));
+    const wire: BusConfigBuses[] = settings.map((b) => ({
+      parent: b.parent === undefined ? BUS_ROOT : (this.busIndexByName.get(b.parent) ?? 0),
+      effects: b.effects.map(wireEffect),
+    }));
+    this.writer.busConfig(wire);
+    this.table.setBusLimits(settings.map((b) => b.maxVoices ?? 0));
+    this.applyMix(mixer.resolveAll());
+  }
+
+  get masterVolume(): number {
+    return this.master;
+  }
+
+  set masterVolume(v: number) {
+    this.master = clamp(Number.isFinite(v) ? v : 1, 0, 1);
+    this.writer.master(this.master, this.isMuted, this.clockMap.rampFrames());
+  }
+
+  get muted(): boolean {
+    return this.isMuted;
+  }
+
+  set muted(m: boolean) {
+    this.isMuted = m;
+    this.writer.master(this.master, m, this.clockMap.rampFrames());
+  }
+
+  /** The per-frame step; see the header. */
+  update(dt: number): void {
+    void dt;
+    if (this.disposed) return;
+    const clockMap = this.clockMap;
+    clockMap.beginFrame();
+    if (this.mirror.blocks > 0) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
+    this.mirror.beginFrame();
+    this.table.freeEnded();
+    this.mirror.drainClipEvents(this.clipSink);
+    if (this.lockedIds.length > 0 && this.host.status === "running") this.unlock();
+    if (this.spatialCount > 0) this.moveSpatial();
+    if (this.idlePending) this.checkIdle();
+    this.table.drainCommands(this.writer);
+    if (this.writer.pending > 0) this.writer.flush(clockMap.nextFirstFrame());
+  }
+
+  /** `Audio.debug()` (K10): delegates to `debug.ts`. */
+  debug(): AudioDebugInfo {
+    return buildDebugInfo(this);
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const c of this.cleanups.splice(0)) c();
+    this.table.onFree = null;
+    this.host.link.statusDecoder = readStatus;
+    this.writer.clear();
+  }
+
+  // --- Voice operations (`Voice` calls these) ---
+
+  /** @internal */
+  _setVolume(id: number, v: number): void {
+    const i = this.slot(id);
+    if (i < 0 || !Number.isFinite(v)) return;
+    this.table.volume[i] = Math.max(0, v);
+    this.refreshGain(i);
+    this.sendGain(id, i);
+  }
+
+  /** @internal */
+  _setPitch(id: number, rate: number): void {
+    const i = this.slot(id);
+    if (i < 0 || !Number.isFinite(rate)) return;
+    this.table.pitch[i] = clamp(rate, MIN_PITCH, MAX_PITCH);
+    if (this.onCore(i)) this.writer.setParams(id, SET_PARAMS_MASK_PITCH, 0, this.table.pitch[i]!, 0, 0, 0, 0, this.clockMap.rampFrames());
+  }
+
+  /** @internal */
+  _setPriority(id: number, priority: number): void {
+    const i = this.slot(id);
+    if (i < 0 || !Number.isFinite(priority)) return;
+    this.table.priority[i] = clamp(Math.round(priority), 0, 255);
+    this.refreshGain(i);
+  }
+
+  /** @internal */
+  _setAttenuation(id: number, a: Attenuation): void {
+    const i = this.slot(id);
+    if (i < 0) return;
+    this.applyAttenuation(i, a);
+    this.spatialDirty[i] = 1;
+  }
+
+  /** @internal */
+  _setPosition(id: number, p: Vec3Like): void {
+    const i = this.slot(id);
+    if (i < 0) return;
+    this.applyPosition(i, p);
+    this.spatialDirty[i] = 1;
+  }
+
+  /** @internal */
+  _setBus(id: number, bus: string): void {
+    const i = this.slot(id);
+    if (i < 0) return;
+    const t = this.table;
+    const old = t.bus[i]!;
+    const next = this.busIndex(bus);
+    if (old === next) return;
+    t.bus[i] = next;
+    if (t.busLive[old]! > 0) t.busLive[old]!--;
+    t.busLive[next]!++;
+    this.mixer.voiceEnded(this.names[old] ?? "");
+    this.mixer.voiceStarted(this.names[next] ?? "");
+    if (this.onCore(i)) this.writer.setParams(id, SET_PARAMS_MASK_BUS, 0, 0, 0, 0, 0, 0, 0, next);
+  }
+
+  /** @internal */
+  _setPaused(id: number, paused: boolean): void {
+    const i = this.slot(id);
+    if (i < 0) return;
+    const t = this.table;
+    t.flags[i] = paused ? t.flags[i]! | VoiceFlag.PAUSED : t.flags[i]! & ~VoiceFlag.PAUSED;
+    if (this.onCore(i)) this.writer.setPaused(id, paused);
+  }
+
+  // --- Internals ---
+
+  private slot(id: number): number {
+    return this.table.isLive(id) ? id & 0xffff : -1;
+  }
+
+  private onCore(i: number): boolean {
+    const s = this.table.state[i]!;
+    return s === VoiceState.PLAYING || s === VoiceState.VIRTUAL;
+  }
+
+  private busIndex(name: string): number {
+    return this.busIndexByName.get(name) ?? 0;
+  }
+
+  private applyAttenuation(i: number, a: Attenuation): void {
+    this.table.minDist[i] = a.minDistance;
+    this.table.maxDist[i] = a.maxDistance;
+    this.table.rolloff[i] = a.rolloff === "linear" ? VoiceRolloff.LINEAR : a.rolloff === "exponential" ? VoiceRolloff.EXPONENTIAL : VoiceRolloff.INVERSE;
+  }
+
+  private applyPosition(i: number, p: Vec3Like): void {
+    const t = this.table;
+    t.posX[i] = p.x;
+    t.posY[i] = p.y;
+    t.posZ[i] = p.z;
+    if ((t.flags[i]! & VoiceFlag.SPATIAL) === 0) {
+      t.flags[i]! |= VoiceFlag.SPATIAL;
+      this.spatialCount++;
+    }
+  }
+
+  /** `gain` = volume times the distance gain (spatial), and the direction for a spatial voice; audibility from both and priority. */
+  private refreshGain(i: number): void {
+    const t = this.table;
+    let gain = t.volume[i]!;
+    if ((t.flags[i]! & VoiceFlag.SPATIAL) !== 0) {
+      const src: Vec3 = [t.posX[i]!, t.posY[i]!, t.posZ[i]!];
+      const { direction, distance } = listenerSpaceDirection(src, this.listenerPos, this.listenerFwd, this.listenerUp);
+      const d = this.distance;
+      d.model = ROLLOFF_NAMES[t.rolloff[i]!] ?? "inverse";
+      d.refDistance = t.minDist[i]!;
+      d.maxDistance = t.maxDist[i]!;
+      gain *= Math.max(0, d.gain(distance));
+      t.dirX[i] = direction[0];
+      t.dirY[i] = direction[1];
+      t.dirZ[i] = direction[2];
+    }
+    t.gain[i] = gain;
+    t.audibility[i] = gain * (1 + t.priority[i]! / 255);
+  }
+
+  private sendGain(id: number, i: number): void {
+    if (this.onCore(i)) this.writer.setParams(id, SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, this.table.gain[i]!, 0, this.table.dirX[i]!, this.table.dirY[i]!, this.table.dirZ[i]!, 0, this.clockMap.rampFrames());
+  }
+
+  /** The voice's clip decides what happens next: play now, wait for the data, or fail. */
+  private launch(id: number): void {
+    const t = this.table;
+    const i = id & 0xffff;
+    const clip = t.clip[i]!;
+    const state = this.clips.state(clip);
+    if (state === "ready") {
+      t.state[i] = VoiceState.PLAYING;
+      t.reason[i] = VoiceReason.NONE;
+      this.sendPlay(id, i);
+    } else if (state === "failed") {
+      t.free(id, VoiceReason.FAILED);
+    } else {
+      t.state[i] = VoiceState.WAITING_FOR_DATA;
+      t.reason[i] = VoiceReason.WAITING_FOR_DATA;
+      this.clips.onResident(clip, (info: ClipInfo) => {
+        if (!t.isLive(id) || t.state[i] !== VoiceState.WAITING_FOR_DATA) return;
+        if (info.state === "ready") this.launch(id);
+        else t.free(id, VoiceReason.FAILED);
+      });
+    }
+  }
+
+  private sendPlay(id: number, i: number): void {
+    const t = this.table;
+    const a = this.playArgs;
+    a.voiceId = id;
+    a.clip = t.clip[i]!;
+    a.bus = t.bus[i]!;
+    const f = t.flags[i]!;
+    a.flags = PLAY_FLAGS_MIXED | (f & VoiceFlag.LOOP ? PLAY_FLAGS_LOOP : 0) | (f & VoiceFlag.SPATIAL ? PLAY_FLAGS_SPATIAL : 0);
+    a.gain = t.gain[i]!;
+    a.pitch = t.pitch[i]!;
+    a.dirX = t.dirX[i]!;
+    a.dirY = t.dirY[i]!;
+    a.dirZ = t.dirZ[i]!;
+    a.lpHz = BUS_LP_OFF_HZ;
+    a.score = t.audibility[i]!;
+    const start = t.startFrame[i]!;
+    // A start already in the past is dropped to asap (§1 `at`).
+    this.writer.play(a, start > 0 && start > this.clockMap.framesNow() ? start : undefined);
+    if (start > 0) t.startFrame[i] = 0;
+    this.spatialDirty[i] = 0;
+  }
+
+  /** The context started running: voices that waited for it start now. */
+  private unlock(): void {
+    const ids = this.lockedIds;
+    this.lockedIds = [];
+    for (const id of ids) {
+      const i = id & 0xffff;
+      if (this.table.isLive(id) && this.table.state[i] === VoiceState.LOCKED) {
+        this.table.startFrame[i] = 0;
+        this.refreshGain(i);
+        this.launch(id);
+      }
+    }
+  }
+
+  /** Spatial voices whose source or the listener moved: new gain and direction when they changed beyond epsilon. */
+  private moveSpatial(): void {
+    const t = this.table;
+    const all = this.listenerDirty;
+    this.listenerDirty = false;
+    const ramp = this.clockMap.rampFrames();
+    for (let i = 0; i < t.capacity; i++) {
+      if ((t.flags[i]! & VoiceFlag.SPATIAL) === 0 || t.state[i] === VoiceState.FREE) continue;
+      if (!all && this.spatialDirty[i] === 0) continue;
+      if (!this.onCore(i)) continue;
+      this.spatialDirty[i] = 0;
+      const g = t.gain[i]!;
+      const x = t.dirX[i]!;
+      const y = t.dirY[i]!;
+      const z = t.dirZ[i]!;
+      this.refreshGain(i);
+      if (Math.abs(t.gain[i]! - g) > GAIN_EPSILON || Math.abs(t.dirX[i]! - x) > DIR_EPSILON || Math.abs(t.dirY[i]! - y) > DIR_EPSILON || Math.abs(t.dirZ[i]! - z) > DIR_EPSILON) {
+        const id = ((t.gen[i]! << 16) | i) >>> 0;
+        this.writer.setParams(id, SET_PARAMS_MASK_GAIN | SET_PARAMS_MASK_DIR, t.gain[i]!, 0, t.dirX[i]!, t.dirY[i]!, t.dirZ[i]!, 0, ramp);
+      } else {
+        t.gain[i] = g;
+        t.dirX[i] = x;
+        t.dirY[i] = y;
+        t.dirZ[i] = z;
+      }
+    }
+  }
+
+  /** `onIdle`: RESET 0 once no voice is live and no clip is resident (the registry unloads one frame after the World left). */
+  private checkIdle(): void {
+    if (this.host.worldCount > 0) {
+      this.idlePending = false;
+      return;
+    }
+    if (this.table.liveCount > 0 || this.clips.residentIds().length > 0) return;
+    this.idlePending = false;
+    this.writer.reset(false);
+  }
+
+  private onFree(id: number, bus: number): void {
+    const i = id & 0xffff;
+    const t = this.table;
+    this.clips.release(t.clip[i]!);
+    this.mixer.voiceEnded(this.names[bus] ?? "");
+    if ((t.flags[i]! & VoiceFlag.SPATIAL) !== 0) this.spatialCount--;
+    t.flags[i] = 0;
+    this.spatialDirty[i] = 0;
+  }
+}
+
+/** One voice; every call checks the id is still live. */
+class Voice implements CoreVoice {
+  readonly handle: AudioHandle;
+
+  constructor(
+    private readonly backend: CoreBackend,
+    readonly id: number,
+  ) {
+    this.handle = new AudioHandle(backend.table, id);
+  }
+
+  get playing(): boolean {
+    return this.handle.playing;
+  }
+
+  get reason(): AudioReason | null {
+    return this.handle.reason;
+  }
+
+  setVolume(v: number): void {
+    this.backend._setVolume(this.id, v);
+  }
+
+  setPitch(rate: number): void {
+    this.backend._setPitch(this.id, rate);
+  }
+
+  setAttenuation(a: Attenuation): void {
+    this.backend._setAttenuation(this.id, a);
+  }
+
+  setPosition(p: Vec3Like): void {
+    this.backend._setPosition(this.id, p);
+  }
+
+  setBus(bus: string): void {
+    this.backend._setBus(this.id, bus);
+  }
+
+  setPriority(priority: number): void {
+    this.backend._setPriority(this.id, priority);
+  }
+
+  pause(): void {
+    this.backend._setPaused(this.id, true);
+  }
+
+  resume(): void {
+    this.backend._setPaused(this.id, false);
+  }
+
+  fade(to: number, seconds: number): void {
+    this.handle.fade(to, seconds);
+  }
+
+  stop(fadeSeconds = 0): void {
+    this.handle.stop(fadeSeconds);
+  }
+}
+
+/**
+ * The factory `service.ts` registers with `registerCoreBackend`: wires the registry to the host (its messages go
+ * through `CoreLink.post` with the link's `seq`, clips are fetched from the project's asset URLs and decoded on the
+ * host's context) and the clock to the context.
+ */
+export function createCoreBackend(host: AudioHost, deps: CoreBackendDeps = {}): CoreBackend {
+  const settings = (deps.mixer ?? defaultMixer).audioSettings;
+  const link = host.link;
+  const clips =
+    deps.clips ??
+    createClipRegistry({
+      // `seq` is per sender on one port: the registry shares the link's counter.
+      send: (message) => link.post(message),
+      nextSeq: () => link.nextSeq(),
+      fetchBytes: async (path) => {
+        const response = await fetch(Assets.url(path));
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.arrayBuffer();
+      },
+      decode: (encoded) => decodeClip(host.context, encoded),
+      clipFormat: settings.clipFormat === "f32" ? 0 : 1,
+      ceilingBytes: (settings.clipMemoryMB ?? DEFAULT_CLIP_CEILING_MB) * (1 << 20),
+    });
+  const backendHost: CoreBackendHost = {
+    link,
+    get status() {
+      return host.status;
+    },
+    get preset() {
+      return host.preset;
+    },
+    get worldCount() {
+      return host.worldCount;
+    },
+    sampleRate: host.context.sampleRate,
+    addLifecycleListener: (listener) => host.addLifecycleListener(listener),
+  };
+  return new CoreBackend(backendHost, { ...deps, clips, clock: deps.clock ?? browserHostClock(host.context) });
+}

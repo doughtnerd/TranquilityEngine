@@ -9,6 +9,7 @@ import type { AudioSettings } from "../../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../../engine/core/audioConfigure";
 import type { World } from "../../../../engine/core/World";
 import type { WorldServiceDef } from "../../../../engine/core/worldServices";
+import { registerCoreBackend } from "../backend";
 import type { AudioHost, WorldKey, WorldShare } from "./context";
 
 export const AUDIO = "myco.audio";
@@ -105,6 +106,9 @@ export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> 
       const { startAudioHost } = await import("./context");
       const host = await startAudioHost(mixer.audioSettings);
       connectHostToEngines(host);
+      // A1.4: the core backend, made on first use by `audioBackend()` (the registry and voice table belong to it).
+      const { createCoreBackend } = await import("./coreBackend");
+      registerCoreBackend(() => createCoreBackend(host));
       return { ready: true, host };
     } catch (error) {
       return { ready: false, reason: error instanceof Error ? error.message : String(error) };
