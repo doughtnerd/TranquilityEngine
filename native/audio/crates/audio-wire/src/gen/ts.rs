@@ -11,7 +11,7 @@
 //!   write their 12-byte head (opcode, words), bodies write only the body at the spec's absolute offsets
 //!   (so `off` is the message start); `writeEnvelope` defaults `magic` and `version`.
 //! * `read<Name>(view: DataView, off: number): Name`. A record shorter than its head says, or a group
-//!   that overruns, throws `RangeError`; nothing reads outside the view.
+//!   that overruns, throws `WireError` (with an `ErrorCode`); nothing reads outside the view.
 //! * `writeStatus(view, off, block, seq): number` and `readStatus(buf): StatusBlock`.
 
 use super::layout::*;
@@ -132,7 +132,7 @@ fn emit_item(o: &mut String, it: &Item, head: Option<&Head>, text: &str, env: bo
     }
     if let Some(h) = head {
         o.push_str(&format!(
-            "  const total = cur - off;\n  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError(\"{n}: record too long\");\n  view.setUint16(off + {}, {}, true);\n  view.setUint16(off + {}, total / 4, true);\n  view.setUint32(off + {}, rec.voiceId, true);\n  view.setUint32(off + {}, rec.frameOffset, true);\n",
+            "  const total = cur - off;\n  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, \"{n}: record too long\");\n  view.setUint16(off + {}, {}, true);\n  view.setUint16(off + {}, total / 4, true);\n  view.setUint32(off + {}, rec.voiceId, true);\n  view.setUint32(off + {}, rec.frameOffset, true);\n",
             h.opcode_at, h.id, h.words_at, h.voice_at, h.frame_at
         ));
     }
@@ -141,7 +141,7 @@ fn emit_item(o: &mut String, it: &Item, head: Option<&Head>, text: &str, env: bo
     // read
     o.push_str(&format!("function _read{n}(view: DataView, off: number, limit: number): [{n}, number] {{\n"));
     o.push_str(&format!(
-        "  if (off + {} > limit) throw new RangeError(\"{n}: truncated\");\n",
+        "  if (off + {} > limit) throw new WireError(ErrorCode.TRUNCATED, \"{n}: truncated\");\n",
         it.fixed_end
     ));
     for p in &it.fields {
@@ -150,13 +150,13 @@ fn emit_item(o: &mut String, it: &Item, head: Option<&Head>, text: &str, env: bo
     o.push_str(&format!("  let cur = off + {};\n", it.fixed_end));
     if let Some(g) = &it.group {
         o.push_str(&format!(
-            "  if ({} * {} > limit - cur) throw new RangeError(\"{n}: {} overrun\");\n  const {}: {}[] = [];\n  for (let i = 0; i < {}; i++) {{\n    const [item, used] = _read{}(view, cur, limit);\n    cur += used;\n    {}.push(item);\n  }}\n",
+            "  if ({} * {} > limit - cur) throw new WireError(ErrorCode.TRUNCATED, \"{n}: {} overrun\");\n  const {}: {}[] = [];\n  for (let i = 0; i < {}; i++) {{\n    const [item, used] = _read{}(view, cur, limit);\n    cur += used;\n    {}.push(item);\n  }}\n",
             g.count_field, g.item.fixed_end, g.name, g.name, g.item.name, g.count_field, g.item.name, g.name
         ));
     }
     if let Some(h) = head {
         o.push_str(&format!(
-            "  if (cur > limit) throw new RangeError(\"{n}: malformed\");\n  cur = limit;\n  const voiceId = view.getUint32(off + {}, true);\n  const frameOffset = view.getUint32(off + {}, true);\n",
+            "  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, \"{n}: malformed\");\n  cur = limit;\n  const voiceId = view.getUint32(off + {}, true);\n  const frameOffset = view.getUint32(off + {}, true);\n",
             h.voice_at, h.frame_at
         ));
     }
@@ -177,7 +177,7 @@ fn emit_item(o: &mut String, it: &Item, head: Option<&Head>, text: &str, env: bo
     o.push_str(&format!("export function read{n}(view: DataView, off: number): {n} {{\n"));
     if let Some(h) = head {
         o.push_str(&format!(
-            "  if (off + {} > view.byteLength) throw new RangeError(\"{n}: truncated\");\n  if (view.getUint16(off + {}, true) !== {}) throw new RangeError(\"{n}: wrong opcode\");\n  const limit = off + view.getUint16(off + {}, true) * 4;\n  if (limit > view.byteLength) throw new RangeError(\"{n}: truncated\");\n",
+            "  if (off + {} > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, \"{n}: truncated\");\n  if (view.getUint16(off + {}, true) !== {}) throw new WireError(ErrorCode.MALFORMED, \"{n}: wrong opcode\");\n  const limit = off + view.getUint16(off + {}, true) * 4;\n  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, \"{n}: truncated\");\n",
             12, h.opcode_at, h.id, h.words_at
         ));
     } else {
@@ -215,7 +215,20 @@ pub fn emit(schema: &Schema, hash_hex: &str) -> Result<String, String> {
     for e in schema.errors {
         o.push_str(&format!("  {}: {},\n", e.name, e.value));
     }
-    o.push_str("} as const;\n\nexport const Kind = {\n");
+    o.push_str("} as const;
+
+/** Thrown by every generated reader and by writer cap checks; never a raw RangeError from a DataView. */
+export class WireError extends Error {
+  readonly code: number;
+  constructor(code: number, message: string) {
+    super(message);
+    this.name = \"WireError\";
+    this.code = code;
+  }
+}
+
+export const Kind = {
+");
     for k in schema.kinds {
         o.push_str(&format!("  {}: {},\n", k.name, k.id));
     }
@@ -288,7 +301,7 @@ fn emit_status(o: &mut String, schema: &Schema) -> Result<(), String> {
     for p in &placed {
         if let Some(s) = st.sections.iter().find(|s| s.count_field == p.field.name) {
             o.push_str(&format!(
-                "  if (rec.{n}.length > {m}) throw new RangeError(\"STATUS: {n} over its cap {m}\");\n  view.set{t}(off + {off}, rec.{n}.length{l});\n",
+                "  if (rec.{n}.length > {m}) throw new WireError(ErrorCode.OVERSIZE, \"STATUS: {n} over its cap {m}\");\n  view.set{t}(off + {off}, rec.{n}.length{l});\n",
                 n = s.name,
                 m = s.max,
                 t = dv(p.field.ty),
@@ -313,9 +326,9 @@ fn emit_status(o: &mut String, schema: &Schema) -> Result<(), String> {
     o.push_str("/** Read a whole STATUS message; the buffer's first byte is the envelope. */\n");
     o.push_str("export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {\n");
     o.push_str("  const view = buf instanceof ArrayBuffer ? new DataView(buf) : new DataView(buf.buffer, buf.byteOffset, buf.byteLength);\n  const off = 0;\n");
-    o.push_str(&format!("  if ({} > view.byteLength) throw new RangeError(\"STATUS: truncated\");\n", st.header_bytes));
-    o.push_str("  const env = readEnvelope(view, 0);\n  if (env.magic !== MAGIC) throw new RangeError(\"STATUS: bad magic\");\n  if (((env.version ?? 0) >> 8) !== VERSION_MAJOR) throw new RangeError(\"STATUS: version mismatch\");\n  if (env.kind !== Kind.STATUS) throw new RangeError(\"STATUS: wrong kind\");\n");
-    o.push_str("  const limit = 16 + env.bodyBytes;\n  if (limit > view.byteLength) throw new RangeError(\"STATUS: truncated\");\n");
+    o.push_str(&format!("  if ({} > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, \"STATUS: truncated\");\n", st.header_bytes));
+    o.push_str("  const env = readEnvelope(view, 0);\n  if (env.magic !== MAGIC) throw new WireError(ErrorCode.BAD_MAGIC, \"STATUS: bad magic\");\n  if (((env.version ?? 0) >> 8) !== VERSION_MAJOR) throw new WireError(ErrorCode.VERSION_MISMATCH, \"STATUS: version mismatch\");\n  if (env.kind !== Kind.STATUS) throw new WireError(ErrorCode.MALFORMED, \"STATUS: wrong kind\");\n");
+    o.push_str(&format!("  const limit = 16 + env.bodyBytes;\n  if (limit > view.byteLength || limit < {}) throw new WireError(ErrorCode.TRUNCATED, \"STATUS: truncated\");\n", st.header_bytes));
     for p in &placed {
         o.push_str(&format!("  const {} = {};\n", p.field.name, get_expr(p)));
     }
@@ -323,7 +336,7 @@ fn emit_status(o: &mut String, schema: &Schema) -> Result<(), String> {
     for s in st.sections {
         let isz: u32 = s.item.iter().map(|f| f.bytes()).sum();
         o.push_str(&format!(
-            "  if ({c} > {m} || {c} * {isz} > limit - cur) throw new RangeError(\"STATUS: {n} overrun\");\n  const {n}: {t}[] = [];\n",
+            "  if ({c} > {m} || {c} * {isz} > limit - cur) throw new WireError(ErrorCode.OVERSIZE, \"STATUS: {n} overrun\");\n  const {n}: {t}[] = [];\n",
             c = s.count_field,
             m = s.max,
             n = s.name,

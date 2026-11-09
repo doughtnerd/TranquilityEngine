@@ -91,6 +91,16 @@ export const ErrorCode = {
   MALFORMED: -16,
 } as const;
 
+/** Thrown by every generated reader and by writer cap checks; never a raw RangeError from a DataView. */
+export class WireError extends Error {
+  readonly code: number;
+  constructor(code: number, message: string) {
+    super(message);
+    this.name = "WireError";
+    this.code = code;
+  }
+}
+
 export const Kind = {
   BATCH: 1,
   CLIP_BEGIN: 2,
@@ -193,7 +203,7 @@ export function writeEnvelope(view: DataView, off: number, rec: Envelope): numbe
 }
 
 function _readEnvelope(view: DataView, off: number, limit: number): [Envelope, number] {
-  if (off + 16 > limit) throw new RangeError("Envelope: truncated");
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "Envelope: truncated");
   const magic = view.getUint32(off + 0, true);
   const version = view.getUint16(off + 4, true);
   const kind = view.getUint16(off + 6, true);
@@ -231,7 +241,7 @@ export function writeRecordHead(view: DataView, off: number, rec: RecordHead): n
 }
 
 function _readRecordHead(view: DataView, off: number, limit: number): [RecordHead, number] {
-  if (off + 12 > limit) throw new RangeError("RecordHead: truncated");
+  if (off + 12 > limit) throw new WireError(ErrorCode.TRUNCATED, "RecordHead: truncated");
   const opcode = view.getUint16(off + 0, true);
   const words = view.getUint16(off + 2, true);
   const voiceId = view.getUint32(off + 4, true);
@@ -265,7 +275,7 @@ export function writeBatchHeader(view: DataView, off: number, rec: BatchHeader):
 }
 
 function _readBatchHeader(view: DataView, off: number, limit: number): [BatchHeader, number] {
-  if (off + 32 > limit) throw new RangeError("BatchHeader: truncated");
+  if (off + 32 > limit) throw new WireError(ErrorCode.TRUNCATED, "BatchHeader: truncated");
   const firstFrame = view.getFloat64(off + 16, true);
   const count = view.getUint32(off + 24, true);
   const flags = view.getUint32(off + 28, true);
@@ -308,7 +318,7 @@ export function writeHrirHeader(view: DataView, off: number, rec: HrirHeader): n
 }
 
 function _readHrirHeader(view: DataView, off: number, limit: number): [HrirHeader, number] {
-  if (off + 16 > limit) throw new RangeError("HrirHeader: truncated");
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "HrirHeader: truncated");
   const elevations = view.getUint32(off + 0, true);
   const azimuths = view.getUint32(off + 4, true);
   const irLength = view.getUint32(off + 8, true);
@@ -355,7 +365,7 @@ export function writeClipBegin(view: DataView, off: number, rec: ClipBegin): num
 }
 
 function _readClipBegin(view: DataView, off: number, limit: number): [ClipBegin, number] {
-  if (off + 36 > limit) throw new RangeError("ClipBegin: truncated");
+  if (off + 36 > limit) throw new WireError(ErrorCode.TRUNCATED, "ClipBegin: truncated");
   const clipId = view.getUint32(off + 16, true);
   const frames = view.getUint32(off + 20, true);
   const channels = view.getUint32(off + 24, true);
@@ -394,7 +404,7 @@ export function writeClipChunk(view: DataView, off: number, rec: ClipChunk): num
 }
 
 function _readClipChunk(view: DataView, off: number, limit: number): [ClipChunk, number] {
-  if (off + 32 > limit) throw new RangeError("ClipChunk: truncated");
+  if (off + 32 > limit) throw new WireError(ErrorCode.TRUNCATED, "ClipChunk: truncated");
   const clipId = view.getUint32(off + 16, true);
   const frameOffset = view.getUint32(off + 20, true);
   const frames = view.getUint32(off + 24, true);
@@ -423,7 +433,7 @@ export function writeClipUnload(view: DataView, off: number, rec: ClipUnload): n
 }
 
 function _readClipUnload(view: DataView, off: number, limit: number): [ClipUnload, number] {
-  if (off + 20 > limit) throw new RangeError("ClipUnload: truncated");
+  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "ClipUnload: truncated");
   const clipId = view.getUint32(off + 16, true);
   let cur = off + 20;
   return [{ clipId }, cur - off];
@@ -475,7 +485,7 @@ export function writeStreamOpen(view: DataView, off: number, rec: StreamOpen): n
 }
 
 function _readStreamOpen(view: DataView, off: number, limit: number): [StreamOpen, number] {
-  if (off + 52 > limit) throw new RangeError("StreamOpen: truncated");
+  if (off + 52 > limit) throw new WireError(ErrorCode.TRUNCATED, "StreamOpen: truncated");
   const streamId = view.getUint32(off + 16, true);
   const channels = view.getUint32(off + 20, true);
   const sampleRate = view.getFloat32(off + 24, true);
@@ -525,7 +535,7 @@ export function writeStreamChunk(view: DataView, off: number, rec: StreamChunk):
 }
 
 function _readStreamChunk(view: DataView, off: number, limit: number): [StreamChunk, number] {
-  if (off + 36 > limit) throw new RangeError("StreamChunk: truncated");
+  if (off + 36 > limit) throw new WireError(ErrorCode.TRUNCATED, "StreamChunk: truncated");
   const streamId = view.getUint32(off + 16, true);
   const chunkSeq = view.getUint32(off + 20, true);
   const frames = view.getUint32(off + 24, true);
@@ -555,7 +565,7 @@ export function writeStreamClose(view: DataView, off: number, rec: StreamClose):
 }
 
 function _readStreamClose(view: DataView, off: number, limit: number): [StreamClose, number] {
-  if (off + 20 > limit) throw new RangeError("StreamClose: truncated");
+  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "StreamClose: truncated");
   const streamId = view.getUint32(off + 16, true);
   let cur = off + 20;
   return [{ streamId }, cur - off];
@@ -581,7 +591,7 @@ export function writeTimePing(view: DataView, off: number, rec: TimePing): numbe
 }
 
 function _readTimePing(view: DataView, off: number, limit: number): [TimePing, number] {
-  if (off + 20 > limit) throw new RangeError("TimePing: truncated");
+  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "TimePing: truncated");
   const pingSeq = view.getUint32(off + 16, true);
   let cur = off + 20;
   return [{ pingSeq }, cur - off];
@@ -616,7 +626,7 @@ export function writeStreamCredit(view: DataView, off: number, rec: StreamCredit
 }
 
 function _readStreamCredit(view: DataView, off: number, limit: number): [StreamCredit, number] {
-  if (off + 32 > limit) throw new RangeError("StreamCredit: truncated");
+  if (off + 32 > limit) throw new WireError(ErrorCode.TRUNCATED, "StreamCredit: truncated");
   const streamId = view.getUint32(off + 16, true);
   const epoch = view.getUint32(off + 20, true);
   const consumedFrames = view.getUint32(off + 24, true);
@@ -688,7 +698,7 @@ export function writePlay(view: DataView, off: number, rec: Play): number {
   view.setUint32(off + 52, rec.startOffsetFrames, true);
   let cur = off + 56;
   const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError("Play: record too long");
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Play: record too long");
   view.setUint16(off + 0, 1, true);
   view.setUint16(off + 2, total / 4, true);
   view.setUint32(off + 4, rec.voiceId, true);
@@ -697,7 +707,7 @@ export function writePlay(view: DataView, off: number, rec: Play): number {
 }
 
 function _readPlay(view: DataView, off: number, limit: number): [Play, number] {
-  if (off + 56 > limit) throw new RangeError("Play: truncated");
+  if (off + 56 > limit) throw new WireError(ErrorCode.TRUNCATED, "Play: truncated");
   const clip = view.getUint32(off + 12, true);
   const bus = view.getUint16(off + 16, true);
   const flags = view.getUint16(off + 18, true);
@@ -712,7 +722,7 @@ function _readPlay(view: DataView, off: number, limit: number): [Play, number] {
   const score = view.getFloat32(off + 48, true);
   const startOffsetFrames = view.getUint32(off + 52, true);
   let cur = off + 56;
-  if (cur > limit) throw new RangeError("Play: malformed");
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Play: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
@@ -720,10 +730,10 @@ function _readPlay(view: DataView, off: number, limit: number): [Play, number] {
 }
 
 export function readPlay(view: DataView, off: number): Play {
-  if (off + 12 > view.byteLength) throw new RangeError("Play: truncated");
-  if (view.getUint16(off + 0, true) !== 1) throw new RangeError("Play: wrong opcode");
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Play: truncated");
+  if (view.getUint16(off + 0, true) !== 1) throw new WireError(ErrorCode.MALFORMED, "Play: wrong opcode");
   const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new RangeError("Play: truncated");
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Play: truncated");
   return _readPlay(view, off, limit)[0];
 }
 
@@ -743,7 +753,7 @@ export function writeStop(view: DataView, off: number, rec: Stop): number {
   view.setUint32(off + 16, rec.reason, true);
   let cur = off + 20;
   const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError("Stop: record too long");
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Stop: record too long");
   view.setUint16(off + 0, 2, true);
   view.setUint16(off + 2, total / 4, true);
   view.setUint32(off + 4, rec.voiceId, true);
@@ -752,11 +762,11 @@ export function writeStop(view: DataView, off: number, rec: Stop): number {
 }
 
 function _readStop(view: DataView, off: number, limit: number): [Stop, number] {
-  if (off + 20 > limit) throw new RangeError("Stop: truncated");
+  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "Stop: truncated");
   const fadeFrames = view.getUint32(off + 12, true);
   const reason = view.getUint32(off + 16, true);
   let cur = off + 20;
-  if (cur > limit) throw new RangeError("Stop: malformed");
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Stop: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
@@ -764,10 +774,10 @@ function _readStop(view: DataView, off: number, limit: number): [Stop, number] {
 }
 
 export function readStop(view: DataView, off: number): Stop {
-  if (off + 12 > view.byteLength) throw new RangeError("Stop: truncated");
-  if (view.getUint16(off + 0, true) !== 2) throw new RangeError("Stop: wrong opcode");
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Stop: truncated");
+  if (view.getUint16(off + 0, true) !== 2) throw new WireError(ErrorCode.MALFORMED, "Stop: wrong opcode");
   const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new RangeError("Stop: truncated");
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Stop: truncated");
   return _readStop(view, off, limit)[0];
 }
 
@@ -832,7 +842,7 @@ export function writeSetParams(view: DataView, off: number, rec: SetParams): num
   view.setUint32(off + 52, rec.flags, true);
   let cur = off + 56;
   const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError("SetParams: record too long");
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "SetParams: record too long");
   view.setUint16(off + 0, 3, true);
   view.setUint16(off + 2, total / 4, true);
   view.setUint32(off + 4, rec.voiceId, true);
@@ -841,7 +851,7 @@ export function writeSetParams(view: DataView, off: number, rec: SetParams): num
 }
 
 function _readSetParams(view: DataView, off: number, limit: number): [SetParams, number] {
-  if (off + 56 > limit) throw new RangeError("SetParams: truncated");
+  if (off + 56 > limit) throw new WireError(ErrorCode.TRUNCATED, "SetParams: truncated");
   const mask = view.getUint32(off + 12, true);
   const gain = view.getFloat32(off + 16, true);
   const pitch = view.getFloat32(off + 20, true);
@@ -854,7 +864,7 @@ function _readSetParams(view: DataView, off: number, limit: number): [SetParams,
   const rampFrames = view.getUint32(off + 48, true);
   const flags = view.getUint32(off + 52, true);
   let cur = off + 56;
-  if (cur > limit) throw new RangeError("SetParams: malformed");
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "SetParams: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
@@ -862,10 +872,10 @@ function _readSetParams(view: DataView, off: number, limit: number): [SetParams,
 }
 
 export function readSetParams(view: DataView, off: number): SetParams {
-  if (off + 12 > view.byteLength) throw new RangeError("SetParams: truncated");
-  if (view.getUint16(off + 0, true) !== 3) throw new RangeError("SetParams: wrong opcode");
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SetParams: truncated");
+  if (view.getUint16(off + 0, true) !== 3) throw new WireError(ErrorCode.MALFORMED, "SetParams: wrong opcode");
   const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new RangeError("SetParams: truncated");
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SetParams: truncated");
   return _readSetParams(view, off, limit)[0];
 }
 
@@ -888,7 +898,7 @@ export function writeFade(view: DataView, off: number, rec: Fade): number {
   view.setUint32(off + 20, rec.flags, true);
   let cur = off + 24;
   const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError("Fade: record too long");
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Fade: record too long");
   view.setUint16(off + 0, 4, true);
   view.setUint16(off + 2, total / 4, true);
   view.setUint32(off + 4, rec.voiceId, true);
@@ -897,12 +907,12 @@ export function writeFade(view: DataView, off: number, rec: Fade): number {
 }
 
 function _readFade(view: DataView, off: number, limit: number): [Fade, number] {
-  if (off + 24 > limit) throw new RangeError("Fade: truncated");
+  if (off + 24 > limit) throw new WireError(ErrorCode.TRUNCATED, "Fade: truncated");
   const target = view.getFloat32(off + 12, true);
   const frames = view.getUint32(off + 16, true);
   const flags = view.getUint32(off + 20, true);
   let cur = off + 24;
-  if (cur > limit) throw new RangeError("Fade: malformed");
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Fade: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
@@ -910,10 +920,10 @@ function _readFade(view: DataView, off: number, limit: number): [Fade, number] {
 }
 
 export function readFade(view: DataView, off: number): Fade {
-  if (off + 12 > view.byteLength) throw new RangeError("Fade: truncated");
-  if (view.getUint16(off + 0, true) !== 4) throw new RangeError("Fade: wrong opcode");
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Fade: truncated");
+  if (view.getUint16(off + 0, true) !== 4) throw new WireError(ErrorCode.MALFORMED, "Fade: wrong opcode");
   const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new RangeError("Fade: truncated");
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Fade: truncated");
   return _readFade(view, off, limit)[0];
 }
 
@@ -941,7 +951,7 @@ export function writeSetMixed(view: DataView, off: number, rec: SetMixed): numbe
   view.setFloat32(off + 32, rec.lpHz, true);
   let cur = off + 36;
   const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError("SetMixed: record too long");
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "SetMixed: record too long");
   view.setUint16(off + 0, 5, true);
   view.setUint16(off + 2, total / 4, true);
   view.setUint32(off + 4, rec.voiceId, true);
@@ -950,7 +960,7 @@ export function writeSetMixed(view: DataView, off: number, rec: SetMixed): numbe
 }
 
 function _readSetMixed(view: DataView, off: number, limit: number): [SetMixed, number] {
-  if (off + 36 > limit) throw new RangeError("SetMixed: truncated");
+  if (off + 36 > limit) throw new WireError(ErrorCode.TRUNCATED, "SetMixed: truncated");
   const mixed = view.getUint32(off + 12, true);
   const gain = view.getFloat32(off + 16, true);
   const dirX = view.getFloat32(off + 20, true);
@@ -958,7 +968,7 @@ function _readSetMixed(view: DataView, off: number, limit: number): [SetMixed, n
   const dirZ = view.getFloat32(off + 28, true);
   const lpHz = view.getFloat32(off + 32, true);
   let cur = off + 36;
-  if (cur > limit) throw new RangeError("SetMixed: malformed");
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "SetMixed: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
@@ -966,10 +976,10 @@ function _readSetMixed(view: DataView, off: number, limit: number): [SetMixed, n
 }
 
 export function readSetMixed(view: DataView, off: number): SetMixed {
-  if (off + 12 > view.byteLength) throw new RangeError("SetMixed: truncated");
-  if (view.getUint16(off + 0, true) !== 5) throw new RangeError("SetMixed: wrong opcode");
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SetMixed: truncated");
+  if (view.getUint16(off + 0, true) !== 5) throw new WireError(ErrorCode.MALFORMED, "SetMixed: wrong opcode");
   const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new RangeError("SetMixed: truncated");
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SetMixed: truncated");
   return _readSetMixed(view, off, limit)[0];
 }
 
@@ -986,7 +996,7 @@ export function writeSetPaused(view: DataView, off: number, rec: SetPaused): num
   view.setUint32(off + 12, rec.paused, true);
   let cur = off + 16;
   const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError("SetPaused: record too long");
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "SetPaused: record too long");
   view.setUint16(off + 0, 6, true);
   view.setUint16(off + 2, total / 4, true);
   view.setUint32(off + 4, rec.voiceId, true);
@@ -995,10 +1005,10 @@ export function writeSetPaused(view: DataView, off: number, rec: SetPaused): num
 }
 
 function _readSetPaused(view: DataView, off: number, limit: number): [SetPaused, number] {
-  if (off + 16 > limit) throw new RangeError("SetPaused: truncated");
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "SetPaused: truncated");
   const paused = view.getUint32(off + 12, true);
   let cur = off + 16;
-  if (cur > limit) throw new RangeError("SetPaused: malformed");
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "SetPaused: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
@@ -1006,10 +1016,10 @@ function _readSetPaused(view: DataView, off: number, limit: number): [SetPaused,
 }
 
 export function readSetPaused(view: DataView, off: number): SetPaused {
-  if (off + 12 > view.byteLength) throw new RangeError("SetPaused: truncated");
-  if (view.getUint16(off + 0, true) !== 6) throw new RangeError("SetPaused: wrong opcode");
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SetPaused: truncated");
+  if (view.getUint16(off + 0, true) !== 6) throw new WireError(ErrorCode.MALFORMED, "SetPaused: wrong opcode");
   const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new RangeError("SetPaused: truncated");
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "SetPaused: truncated");
   return _readSetPaused(view, off, limit)[0];
 }
 
@@ -1029,7 +1039,7 @@ export function writeSeek(view: DataView, off: number, rec: Seek): number {
   view.setUint32(off + 16, rec.epoch, true);
   let cur = off + 20;
   const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError("Seek: record too long");
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Seek: record too long");
   view.setUint16(off + 0, 7, true);
   view.setUint16(off + 2, total / 4, true);
   view.setUint32(off + 4, rec.voiceId, true);
@@ -1038,11 +1048,11 @@ export function writeSeek(view: DataView, off: number, rec: Seek): number {
 }
 
 function _readSeek(view: DataView, off: number, limit: number): [Seek, number] {
-  if (off + 20 > limit) throw new RangeError("Seek: truncated");
+  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "Seek: truncated");
   const clipFrame = view.getUint32(off + 12, true);
   const epoch = view.getUint32(off + 16, true);
   let cur = off + 20;
-  if (cur > limit) throw new RangeError("Seek: malformed");
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Seek: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
@@ -1050,10 +1060,10 @@ function _readSeek(view: DataView, off: number, limit: number): [Seek, number] {
 }
 
 export function readSeek(view: DataView, off: number): Seek {
-  if (off + 12 > view.byteLength) throw new RangeError("Seek: truncated");
-  if (view.getUint16(off + 0, true) !== 7) throw new RangeError("Seek: wrong opcode");
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Seek: truncated");
+  if (view.getUint16(off + 0, true) !== 7) throw new WireError(ErrorCode.MALFORMED, "Seek: wrong opcode");
   const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new RangeError("Seek: truncated");
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Seek: truncated");
   return _readSeek(view, off, limit)[0];
 }
 
@@ -1074,7 +1084,7 @@ export function writeBusConfigBusesEffects(view: DataView, off: number, rec: Bus
 }
 
 function _readBusConfigBusesEffects(view: DataView, off: number, limit: number): [BusConfigBusesEffects, number] {
-  if (off + 32 > limit) throw new RangeError("BusConfigBusesEffects: truncated");
+  if (off + 32 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusConfigBusesEffects: truncated");
   const type = view.getUint32(off + 0, true);
   const p = Array.from({ length: 7 }, (_, i) => view.getFloat32(off + 4 + i * 4, true));
   let cur = off + 32;
@@ -1103,11 +1113,11 @@ export function writeBusConfigBuses(view: DataView, off: number, rec: BusConfigB
 }
 
 function _readBusConfigBuses(view: DataView, off: number, limit: number): [BusConfigBuses, number] {
-  if (off + 4 > limit) throw new RangeError("BusConfigBuses: truncated");
+  if (off + 4 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusConfigBuses: truncated");
   const parent = view.getUint16(off + 0, true);
   const effectCount = view.getUint16(off + 2, true);
   let cur = off + 4;
-  if (effectCount * 32 > limit - cur) throw new RangeError("BusConfigBuses: effects overrun");
+  if (effectCount * 32 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusConfigBuses: effects overrun");
   const effects: BusConfigBusesEffects[] = [];
   for (let i = 0; i < effectCount; i++) {
     const [item, used] = _readBusConfigBusesEffects(view, cur, limit);
@@ -1136,7 +1146,7 @@ export function writeBusConfig(view: DataView, off: number, rec: BusConfig): num
   let cur = off + 16;
   for (const item of rec.buses) cur += writeBusConfigBuses(view, cur, item);
   const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError("BusConfig: record too long");
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BusConfig: record too long");
   view.setUint16(off + 0, 16, true);
   view.setUint16(off + 2, total / 4, true);
   view.setUint32(off + 4, rec.voiceId, true);
@@ -1145,17 +1155,17 @@ export function writeBusConfig(view: DataView, off: number, rec: BusConfig): num
 }
 
 function _readBusConfig(view: DataView, off: number, limit: number): [BusConfig, number] {
-  if (off + 16 > limit) throw new RangeError("BusConfig: truncated");
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusConfig: truncated");
   const busCount = view.getUint32(off + 12, true);
   let cur = off + 16;
-  if (busCount * 4 > limit - cur) throw new RangeError("BusConfig: buses overrun");
+  if (busCount * 4 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusConfig: buses overrun");
   const buses: BusConfigBuses[] = [];
   for (let i = 0; i < busCount; i++) {
     const [item, used] = _readBusConfigBuses(view, cur, limit);
     cur += used;
     buses.push(item);
   }
-  if (cur > limit) throw new RangeError("BusConfig: malformed");
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BusConfig: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
@@ -1163,10 +1173,10 @@ function _readBusConfig(view: DataView, off: number, limit: number): [BusConfig,
 }
 
 export function readBusConfig(view: DataView, off: number): BusConfig {
-  if (off + 12 > view.byteLength) throw new RangeError("BusConfig: truncated");
-  if (view.getUint16(off + 0, true) !== 16) throw new RangeError("BusConfig: wrong opcode");
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusConfig: truncated");
+  if (view.getUint16(off + 0, true) !== 16) throw new WireError(ErrorCode.MALFORMED, "BusConfig: wrong opcode");
   const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new RangeError("BusConfig: truncated");
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusConfig: truncated");
   return _readBusConfig(view, off, limit)[0];
 }
 
@@ -1186,7 +1196,7 @@ export function writeBusMixBuses(view: DataView, off: number, rec: BusMixBuses):
 }
 
 function _readBusMixBuses(view: DataView, off: number, limit: number): [BusMixBuses, number] {
-  if (off + 8 > limit) throw new RangeError("BusMixBuses: truncated");
+  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusMixBuses: truncated");
   const gain = view.getFloat32(off + 0, true);
   const lpHz = view.getFloat32(off + 4, true);
   let cur = off + 8;
@@ -1214,7 +1224,7 @@ export function writeBusMix(view: DataView, off: number, rec: BusMix): number {
   let cur = off + 20;
   for (const item of rec.buses) cur += writeBusMixBuses(view, cur, item);
   const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError("BusMix: record too long");
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "BusMix: record too long");
   view.setUint16(off + 0, 17, true);
   view.setUint16(off + 2, total / 4, true);
   view.setUint32(off + 4, rec.voiceId, true);
@@ -1223,18 +1233,18 @@ export function writeBusMix(view: DataView, off: number, rec: BusMix): number {
 }
 
 function _readBusMix(view: DataView, off: number, limit: number): [BusMix, number] {
-  if (off + 20 > limit) throw new RangeError("BusMix: truncated");
+  if (off + 20 > limit) throw new WireError(ErrorCode.TRUNCATED, "BusMix: truncated");
   const busCount = view.getUint32(off + 12, true);
   const rampFrames = view.getUint32(off + 16, true);
   let cur = off + 20;
-  if (busCount * 8 > limit - cur) throw new RangeError("BusMix: buses overrun");
+  if (busCount * 8 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "BusMix: buses overrun");
   const buses: BusMixBuses[] = [];
   for (let i = 0; i < busCount; i++) {
     const [item, used] = _readBusMixBuses(view, cur, limit);
     cur += used;
     buses.push(item);
   }
-  if (cur > limit) throw new RangeError("BusMix: malformed");
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "BusMix: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
@@ -1242,10 +1252,10 @@ function _readBusMix(view: DataView, off: number, limit: number): [BusMix, numbe
 }
 
 export function readBusMix(view: DataView, off: number): BusMix {
-  if (off + 12 > view.byteLength) throw new RangeError("BusMix: truncated");
-  if (view.getUint16(off + 0, true) !== 17) throw new RangeError("BusMix: wrong opcode");
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusMix: truncated");
+  if (view.getUint16(off + 0, true) !== 17) throw new WireError(ErrorCode.MALFORMED, "BusMix: wrong opcode");
   const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new RangeError("BusMix: truncated");
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "BusMix: truncated");
   return _readBusMix(view, off, limit)[0];
 }
 
@@ -1266,7 +1276,7 @@ export function writeMaster(view: DataView, off: number, rec: Master): number {
   view.setUint32(off + 20, rec.rampFrames, true);
   let cur = off + 24;
   const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError("Master: record too long");
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Master: record too long");
   view.setUint16(off + 0, 18, true);
   view.setUint16(off + 2, total / 4, true);
   view.setUint32(off + 4, rec.voiceId, true);
@@ -1275,12 +1285,12 @@ export function writeMaster(view: DataView, off: number, rec: Master): number {
 }
 
 function _readMaster(view: DataView, off: number, limit: number): [Master, number] {
-  if (off + 24 > limit) throw new RangeError("Master: truncated");
+  if (off + 24 > limit) throw new WireError(ErrorCode.TRUNCATED, "Master: truncated");
   const volume = view.getFloat32(off + 12, true);
   const muted = view.getUint32(off + 16, true);
   const rampFrames = view.getUint32(off + 20, true);
   let cur = off + 24;
-  if (cur > limit) throw new RangeError("Master: malformed");
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Master: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
@@ -1288,10 +1298,10 @@ function _readMaster(view: DataView, off: number, limit: number): [Master, numbe
 }
 
 export function readMaster(view: DataView, off: number): Master {
-  if (off + 12 > view.byteLength) throw new RangeError("Master: truncated");
-  if (view.getUint16(off + 0, true) !== 18) throw new RangeError("Master: wrong opcode");
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Master: truncated");
+  if (view.getUint16(off + 0, true) !== 18) throw new WireError(ErrorCode.MALFORMED, "Master: wrong opcode");
   const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new RangeError("Master: truncated");
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Master: truncated");
   return _readMaster(view, off, limit)[0];
 }
 
@@ -1309,7 +1319,7 @@ export function writeReset(view: DataView, off: number, rec: Reset): number {
   view.setUint32(off + 12, rec.keepClips, true);
   let cur = off + 16;
   const total = cur - off;
-  if (total % 4 !== 0 || total / 4 > 0xffff) throw new RangeError("Reset: record too long");
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Reset: record too long");
   view.setUint16(off + 0, 48, true);
   view.setUint16(off + 2, total / 4, true);
   view.setUint32(off + 4, rec.voiceId, true);
@@ -1318,10 +1328,10 @@ export function writeReset(view: DataView, off: number, rec: Reset): number {
 }
 
 function _readReset(view: DataView, off: number, limit: number): [Reset, number] {
-  if (off + 16 > limit) throw new RangeError("Reset: truncated");
+  if (off + 16 > limit) throw new WireError(ErrorCode.TRUNCATED, "Reset: truncated");
   const keepClips = view.getUint32(off + 12, true);
   let cur = off + 16;
-  if (cur > limit) throw new RangeError("Reset: malformed");
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Reset: malformed");
   cur = limit;
   const voiceId = view.getUint32(off + 4, true);
   const frameOffset = view.getUint32(off + 8, true);
@@ -1329,10 +1339,10 @@ function _readReset(view: DataView, off: number, limit: number): [Reset, number]
 }
 
 export function readReset(view: DataView, off: number): Reset {
-  if (off + 12 > view.byteLength) throw new RangeError("Reset: truncated");
-  if (view.getUint16(off + 0, true) !== 48) throw new RangeError("Reset: wrong opcode");
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Reset: truncated");
+  if (view.getUint16(off + 0, true) !== 48) throw new WireError(ErrorCode.MALFORMED, "Reset: wrong opcode");
   const limit = off + view.getUint16(off + 2, true) * 4;
-  if (limit > view.byteLength) throw new RangeError("Reset: truncated");
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Reset: truncated");
   return _readReset(view, off, limit)[0];
 }
 
@@ -1364,7 +1374,7 @@ export function writeStatusPlayheadsItem(view: DataView, off: number, rec: Statu
 }
 
 function _readStatusPlayheadsItem(view: DataView, off: number, limit: number): [StatusPlayheadsItem, number] {
-  if (off + 8 > limit) throw new RangeError("StatusPlayheadsItem: truncated");
+  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "StatusPlayheadsItem: truncated");
   const id = view.getUint32(off + 0, true);
   const clipFrame = view.getUint32(off + 4, true);
   let cur = off + 8;
@@ -1392,7 +1402,7 @@ export function writeStatusClipEventsItem(view: DataView, off: number, rec: Stat
 }
 
 function _readStatusClipEventsItem(view: DataView, off: number, limit: number): [StatusClipEventsItem, number] {
-  if (off + 8 > limit) throw new RangeError("StatusClipEventsItem: truncated");
+  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "StatusClipEventsItem: truncated");
   const clipId = view.getUint32(off + 0, true);
   const code = view.getUint32(off + 4, true);
   let cur = off + 8;
@@ -1420,7 +1430,7 @@ export function writeStatusStreamEventsItem(view: DataView, off: number, rec: St
 }
 
 function _readStatusStreamEventsItem(view: DataView, off: number, limit: number): [StatusStreamEventsItem, number] {
-  if (off + 8 > limit) throw new RangeError("StatusStreamEventsItem: truncated");
+  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "StatusStreamEventsItem: truncated");
   const id = view.getUint32(off + 0, true);
   const code = view.getUint32(off + 4, true);
   let cur = off + 8;
@@ -1448,7 +1458,7 @@ export function writeStatusPeaksItem(view: DataView, off: number, rec: StatusPea
 }
 
 function _readStatusPeaksItem(view: DataView, off: number, limit: number): [StatusPeaksItem, number] {
-  if (off + 8 > limit) throw new RangeError("StatusPeaksItem: truncated");
+  if (off + 8 > limit) throw new WireError(ErrorCode.TRUNCATED, "StatusPeaksItem: truncated");
   const l = view.getFloat32(off + 0, true);
   const r = view.getFloat32(off + 4, true);
   let cur = off + 8;
@@ -1513,19 +1523,19 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
   view.setUint16(off + 56, rec.mixedVoices, true);
   view.setUint16(off + 58, rec.liveVoices, true);
   view.setUint32(off + 60, rec.flags, true);
-  if (rec.ended.length > 1024) throw new RangeError("STATUS: ended over its cap 1024");
+  if (rec.ended.length > 1024) throw new WireError(ErrorCode.OVERSIZE, "STATUS: ended over its cap 1024");
   view.setUint16(off + 64, rec.ended.length, true);
-  if (rec.demoted.length > 1024) throw new RangeError("STATUS: demoted over its cap 1024");
+  if (rec.demoted.length > 1024) throw new WireError(ErrorCode.OVERSIZE, "STATUS: demoted over its cap 1024");
   view.setUint16(off + 66, rec.demoted.length, true);
-  if (rec.starved.length > 1024) throw new RangeError("STATUS: starved over its cap 1024");
+  if (rec.starved.length > 1024) throw new WireError(ErrorCode.OVERSIZE, "STATUS: starved over its cap 1024");
   view.setUint16(off + 68, rec.starved.length, true);
-  if (rec.playheads.length > 256) throw new RangeError("STATUS: playheads over its cap 256");
+  if (rec.playheads.length > 256) throw new WireError(ErrorCode.OVERSIZE, "STATUS: playheads over its cap 256");
   view.setUint16(off + 70, rec.playheads.length, true);
-  if (rec.peaks.length > 32) throw new RangeError("STATUS: peaks over its cap 32");
+  if (rec.peaks.length > 32) throw new WireError(ErrorCode.OVERSIZE, "STATUS: peaks over its cap 32");
   view.setUint16(off + 72, rec.peaks.length, true);
-  if (rec.clipEvents.length > 64) throw new RangeError("STATUS: clipEvents over its cap 64");
+  if (rec.clipEvents.length > 64) throw new WireError(ErrorCode.OVERSIZE, "STATUS: clipEvents over its cap 64");
   view.setUint16(off + 74, rec.clipEvents.length, true);
-  if (rec.streamEvents.length > 64) throw new RangeError("STATUS: streamEvents over its cap 64");
+  if (rec.streamEvents.length > 64) throw new WireError(ErrorCode.OVERSIZE, "STATUS: streamEvents over its cap 64");
   view.setUint16(off + 76, rec.streamEvents.length, true);
   view.setUint16(off + 78, rec.mixedCap, true);
   view.setUint16(off + 80, rec.loadPermille, true);
@@ -1563,13 +1573,13 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
 export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
   const view = buf instanceof ArrayBuffer ? new DataView(buf) : new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   const off = 0;
-  if (112 > view.byteLength) throw new RangeError("STATUS: truncated");
+  if (112 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
   const env = readEnvelope(view, 0);
-  if (env.magic !== MAGIC) throw new RangeError("STATUS: bad magic");
-  if (((env.version ?? 0) >> 8) !== VERSION_MAJOR) throw new RangeError("STATUS: version mismatch");
-  if (env.kind !== Kind.STATUS) throw new RangeError("STATUS: wrong kind");
+  if (env.magic !== MAGIC) throw new WireError(ErrorCode.BAD_MAGIC, "STATUS: bad magic");
+  if (((env.version ?? 0) >> 8) !== VERSION_MAJOR) throw new WireError(ErrorCode.VERSION_MISMATCH, "STATUS: version mismatch");
+  if (env.kind !== Kind.STATUS) throw new WireError(ErrorCode.MALFORMED, "STATUS: wrong kind");
   const limit = 16 + env.bodyBytes;
-  if (limit > view.byteLength) throw new RangeError("STATUS: truncated");
+  if (limit > view.byteLength || limit < 112) throw new WireError(ErrorCode.TRUNCATED, "STATUS: truncated");
   const currentFrame = view.getFloat64(off + 16, true);
   const dateMs = view.getFloat64(off + 24, true);
   const pingSeq = view.getUint32(off + 32, true);
@@ -1600,43 +1610,43 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
   const hrtfVoices = view.getUint16(off + 108, true);
   const hrtfLoadFailure = view.getUint16(off + 110, true);
   let cur = 112;
-  if (endedCount > 1024 || endedCount * 4 > limit - cur) throw new RangeError("STATUS: ended overrun");
+  if (endedCount > 1024 || endedCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: ended overrun");
   const ended: number[] = [];
   for (let i = 0; i < endedCount; i++) {
     ended.push(view.getUint32(cur, true));
     cur += 4;
   }
-  if (demotedCount > 1024 || demotedCount * 4 > limit - cur) throw new RangeError("STATUS: demoted overrun");
+  if (demotedCount > 1024 || demotedCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: demoted overrun");
   const demoted: number[] = [];
   for (let i = 0; i < demotedCount; i++) {
     demoted.push(view.getUint32(cur, true));
     cur += 4;
   }
-  if (starvedCount > 1024 || starvedCount * 4 > limit - cur) throw new RangeError("STATUS: starved overrun");
+  if (starvedCount > 1024 || starvedCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: starved overrun");
   const starved: number[] = [];
   for (let i = 0; i < starvedCount; i++) {
     starved.push(view.getUint32(cur, true));
     cur += 4;
   }
-  if (playheadCount > 256 || playheadCount * 8 > limit - cur) throw new RangeError("STATUS: playheads overrun");
+  if (playheadCount > 256 || playheadCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: playheads overrun");
   const playheads: StatusPlayheadsItem[] = [];
   for (let i = 0; i < playheadCount; i++) {
     playheads.push(readStatusPlayheadsItem(view, cur));
     cur += 8;
   }
-  if (clipEventCount > 64 || clipEventCount * 8 > limit - cur) throw new RangeError("STATUS: clipEvents overrun");
+  if (clipEventCount > 64 || clipEventCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: clipEvents overrun");
   const clipEvents: StatusClipEventsItem[] = [];
   for (let i = 0; i < clipEventCount; i++) {
     clipEvents.push(readStatusClipEventsItem(view, cur));
     cur += 8;
   }
-  if (streamEventCount > 64 || streamEventCount * 8 > limit - cur) throw new RangeError("STATUS: streamEvents overrun");
+  if (streamEventCount > 64 || streamEventCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: streamEvents overrun");
   const streamEvents: StatusStreamEventsItem[] = [];
   for (let i = 0; i < streamEventCount; i++) {
     streamEvents.push(readStatusStreamEventsItem(view, cur));
     cur += 8;
   }
-  if (busCount > 32 || busCount * 8 > limit - cur) throw new RangeError("STATUS: peaks overrun");
+  if (busCount > 32 || busCount * 8 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: peaks overrun");
   const peaks: StatusPeaksItem[] = [];
   for (let i = 0; i < busCount; i++) {
     peaks.push(readStatusPeaksItem(view, cur));

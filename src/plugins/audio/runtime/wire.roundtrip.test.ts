@@ -170,10 +170,12 @@ function writeMessage(kind: number, seq: number, firstFrame: number, flags: numb
   return bytesOf(view, off);
 }
 
+/** Kinds with no body: the envelope is the whole message (RECYCLE). */
+const EMPTY_KINDS = new Set(["RECYCLE"]);
+
 function encodeKind(name: string, values: Rec): Uint8Array {
-  const codec = codecFor(KIND_BODIES, name, "kind body");
   const view = newView();
-  const bodyEnd = codec.write(view, 0, values as never);
+  const bodyEnd = EMPTY_KINDS.has(name) ? wire.ENVELOPE_BYTES : codecFor(KIND_BODIES, name, "kind body").write(view, 0, values as never);
   const payload = values.payload === undefined ? [] : numbers(values.payload, "payload");
   payload.forEach((b, i) => view.setUint8(bodyEnd + i, b));
   const total = bodyEnd + payload.length;
@@ -230,8 +232,8 @@ function walkRecords(view: DataView, start: number, end: number): Walked[] {
   let off = start;
   while (off < end) {
     const head = wire.readRecordHead(view, off);
-    if (head.words * 4 < wire.RECORD_HEAD_BYTES) throw new RangeError("record: words below the head size");
-    if (off + head.words * 4 > end) throw new RangeError("record: runs past the end");
+    if (head.words * 4 < wire.RECORD_HEAD_BYTES) throw new wire.WireError(wire.ErrorCode.MALFORMED, "record: words below the head size");
+    if (off + head.words * 4 > end) throw new wire.WireError(wire.ErrorCode.TRUNCATED, "record: runs past the end");
     out.push({ opcode: head.opcode, words: head.words, off });
     off += head.words * 4;
   }
@@ -268,8 +270,9 @@ function expectReadBack(v: Vector, bytes: Uint8Array): void {
     }
     case "Kind": {
       const name = subjectName(v);
-      const codec = codecFor(KIND_BODIES, name, "kind body");
       expectEnvelope(view, codeOf(wire.Kind, name, "kind"), num(v.values.seq, "seq"), bytes.length, label);
+      if (EMPTY_KINDS.has(name)) return;
+      const codec = codecFor(KIND_BODIES, name, "kind body");
       const body: Rec = { ...v.values };
       delete body.seq;
       delete body.payload;
@@ -546,7 +549,7 @@ describe("wire round trip", () => {
     const oversize = full.slice();
     viewOf(oversize).setUint16(32 + 2, 0xffff, true);
     expect(() => wire.readPlay(viewOf(oversize), 32)).toThrow(/truncated/);
-    expect(() => walkRecords(viewOf(oversize), 32, oversize.length)).toThrow(RangeError);
+    expect(() => walkRecords(viewOf(oversize), 32, oversize.length)).toThrow(wire.WireError);
 
     // Unknown opcode 0x7F: the walker skips it by its length, and the typed reader refuses it.
     const unknown = newView();
@@ -559,7 +562,7 @@ describe("wire round trip", () => {
     // A record with words below its own head would not advance: the walker refuses it.
     const zeroWords = newView();
     wire.writeRecordHead(zeroWords, 0, { opcode: wire.Op.STOP, words: 0, voiceId: 0, frameOffset: 0 });
-    expect(() => walkRecords(zeroWords, 0, 12)).toThrow(RangeError);
+    expect(() => walkRecords(zeroWords, 0, 12)).toThrow(wire.WireError);
 
     // A STATUS shorter than its header is refused.
     expect(() => wire.readStatus(new Uint8Array(100))).toThrow(/truncated/);
@@ -604,8 +607,8 @@ describe("wire round trip", () => {
         accepted++;
       } catch (error) {
         refused++;
-        expect(error, `case ${i}`).toBeInstanceOf(RangeError);
-        expect((error as RangeError).message, `case ${i}`).not.toMatch(/outside the bounds/i);
+        expect(error, `case ${i}`).toBeInstanceOf(wire.WireError);
+        expect((error as InstanceType<typeof wire.WireError>).code, `case ${i}`).toBeLessThan(0);
       }
     }
     expect(accepted + refused).toBe(1000);
