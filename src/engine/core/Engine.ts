@@ -11,6 +11,7 @@ import { connectWorlds, netSession } from "../net/session";
 import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
 import { mixer } from "../audio/backend";
 import { parseAudioSettings, type AudioSettings } from "../audio/settings";
+import { notifyAudioConfigured, onAudioConfigured } from "./audioConfigure";
 import { navigationSettingsProblems, physicsBackendProblems, resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";
 import { parseGraphics } from "./graphics";
 import { AUTO_QUALITY_KEY, Graphics, QUALITY_KEY } from "../render/Graphics";
@@ -158,27 +159,14 @@ export class Engine implements BootstrapEngine {
   /** @internal Set by the public `myco` module (ADR 0135): turns on the first-party plugins when no host (player, server, editor) has activated any. */
   static _defaultPlugins: (() => void) | null = null;
 
-  private static readonly audioConfigureListeners = new Set<(settings: AudioSettings) => void>();
-
   /**
    * @internal ADR 0157 (A0.8): called with the project's `audio` settings each time an `Engine.create` reconfigures
    * the one mixer (the editor's Engine, then play mode's), so the audio core's page host can remap live voices'
    * buses. Only the core registers (once its host loaded); the `"babylon"` path has no listener. Returns the removal.
+   * The registry lives in `./audioConfigure` so the audio plugin can listen without importing this file.
    */
   static _onAudioConfigured(listener: (settings: AudioSettings) => void): () => void {
-    Engine.audioConfigureListeners.add(listener);
-    return () => void Engine.audioConfigureListeners.delete(listener);
-  }
-
-  /** Tells the `_onAudioConfigured` listeners; one that throws is logged and doesn't stop `create`. */
-  private static audioConfigured(settings: AudioSettings): void {
-    for (const listener of [...Engine.audioConfigureListeners]) {
-      try {
-        listener(settings);
-      } catch (err) {
-        console.error("[myco] audio reconfigure failed:", err);
-      }
-    }
+    return onAudioConfigured(listener);
   }
 
   static async create(options: EngineOptions = {}): Promise<Engine> {
@@ -196,7 +184,7 @@ export class Engine implements BootstrapEngine {
     // Audio (ADR 0097): the project's mixer buses; one shared mixer, like the one audio context.
     for (const p of parseAudioSettings(options.project?.audio).problems) console.warn(`[myco] project.json ${p}`);
     mixer.configure(engine.settings.audio);
-    Engine.audioConfigured(engine.settings.audio);
+    notifyAudioConfigured(engine.settings.audio);
     if ((options.quality ?? "player") === "player") {
       const graphics = engine.settings.graphics;
       const saved = await Storage.load(QUALITY_KEY, "settings").catch(() => undefined);

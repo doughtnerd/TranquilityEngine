@@ -6,7 +6,7 @@
 // Engine's mixer reconfigure (`Engine._onAudioConfigured`).
 import { mixer } from "../../../../engine/audio/mixer";
 import type { AudioSettings } from "../../../../engine/audio/settings";
-import { Engine } from "../../../../engine/core/Engine";
+import { onAudioConfigured } from "../../../../engine/core/audioConfigure";
 import type { World } from "../../../../engine/core/World";
 import type { WorldServiceDef } from "../../../../engine/core/worldServices";
 import type { AudioHost, WorldKey, WorldShare } from "./context";
@@ -61,7 +61,7 @@ export class AudioWorldService {
  */
 export function connectHostToEngines(
   host: AudioHost,
-  onConfigured: (listener: (settings: AudioSettings) => void) => () => void = (l) => Engine._onAudioConfigured(l),
+  onConfigured: (listener: (settings: AudioSettings) => void) => () => void = onAudioConfigured,
 ): () => void {
   const existing = connections.get(host);
   if (existing) return existing;
