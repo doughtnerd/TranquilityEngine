@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Audio core tone</title>
+    <style>
+      body { font: 14px system-ui, sans-serif; margin: 24px; background: #111; color: #ddd; }
+      pre { background: #000; padding: 12px; }
+      button { font: inherit; padding: 6px 12px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import { main } from "./devTone.ts";
+      main(document.getElementById("root"));
+    </script>
+  </body>
+</html>
