@@ -98,8 +98,8 @@ export class CommandWriter implements VoiceCommandSink {
   /** True while a dropped record's flag waits for the next posted batch. */
   overflowed = false;
 
-  private stage = new Uint8Array(STAGING_BYTES);
-  private spare: Uint8Array | null = null;
+  private stage: Uint8Array<ArrayBuffer> = new Uint8Array(STAGING_BYTES);
+  private spare: Uint8Array<ArrayBuffer> | null = null;
   private view = new DataView(this.stage.buffer);
   private used = 0;
   private count = 0;

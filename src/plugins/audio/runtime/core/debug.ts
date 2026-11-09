@@ -17,6 +17,30 @@ export interface AudioDebugInfo {
 
 /** The stub: the header fields and counters the backend already has, with empty `buses` and `voices`. A2.5 fills the rest. */
 export function buildDebugInfo(backend: CoreBackend): AudioDebugInfo {
-  void backend;
-  throw new Error("not implemented: A2.5 (buildDebugInfo)");
+  const m = backend.mirror;
+  return {
+    status: backend.status,
+    sampleRate: backend.host.sampleRate,
+    time: backend.time,
+    background: "mute",
+    counters: {
+      underruns: m.underruns,
+      lateCommands: m.lateCommands,
+      minSlackFrames: m.minSlackFrames,
+      workUnits: m.workUnits,
+      workUnitsMax: m.workUnitsMax,
+      mixedVoices: m.mixedVoices,
+      mixedCap: m.mixedCap,
+      logicalVoices: backend.table.liveCount,
+      queuedPlays: 0,
+      droppedPlays: backend.table.refusedCount,
+      traps: m.traps,
+      refusedLoads: 0,
+      hrtfVoices: m.hrtfVoices,
+      hrtfLoadFailure: m.hrtfLoadFailure,
+    },
+    buses: [],
+    voices: [],
+    core: {},
+  };
 }
