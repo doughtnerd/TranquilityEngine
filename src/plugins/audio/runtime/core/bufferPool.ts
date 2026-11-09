@@ -10,6 +10,11 @@ export const BATCH_POOL_BUFFERS = 4;
 
 /** @internal A fixed pool of `count` buffers of exactly `bytes` bytes each. */
 export class BufferPool {
+  /** The buffers not currently taken out; preallocated, so `acquire`/`release` never grow it past `count`. */
+  private readonly free: ArrayBuffer[];
+  /** The one transfer-list array, reused by every `transferList` call (§4.3). */
+  private readonly list: [ArrayBuffer];
+
   /**
    * Allocates all `count` buffers up front (so `available === count`). `count` and `bytes` are positive integers;
    * anything else throws a `RangeError`.
@@ -18,17 +23,22 @@ export class BufferPool {
     readonly count: number,
     readonly bytes: number,
   ) {
-    throw new Error("not implemented: A0.3-L1");
+    if (!Number.isInteger(count) || count <= 0 || !Number.isInteger(bytes) || bytes <= 0) {
+      throw new RangeError(`BufferPool needs a positive integer count and bytes (got ${count} and ${bytes})`);
+    }
+    this.free = [];
+    for (let i = 0; i < count; i++) this.free.push(new ArrayBuffer(bytes));
+    this.list = [new ArrayBuffer(0)];
   }
 
   /** How many buffers are in the pool now (0..count). */
   get available(): number {
-    throw new Error("not implemented: A0.3-L1");
+    return this.free.length;
   }
 
   /** Takes a buffer out of the pool, or `null` when it's empty (the caller skips its post, §4.3). Never allocates. */
   acquire(): ArrayBuffer | null {
-    throw new Error("not implemented: A0.3-L1");
+    return this.free.pop() ?? null;
   }
 
   /**
@@ -38,7 +48,14 @@ export class BufferPool {
    * holds `count` buffers.
    */
   release(buffer: ArrayBuffer): boolean {
-    throw new Error("not implemented: A0.3-L1");
+    // A detached buffer has byteLength 0, which never equals `bytes` (a positive integer), so one size check covers it.
+    if (buffer.byteLength !== this.bytes) return false;
+    if (this.free.length >= this.count) return false;
+    for (const held of this.free) {
+      if (held === buffer) return false;
+    }
+    this.free.push(buffer);
+    return true;
   }
 
   /**
@@ -46,7 +63,8 @@ export class BufferPool {
    * (§4.3: "a preallocated transfer-list array"), so posting allocates nothing; use it before the next call.
    */
   transferList(buffer: ArrayBuffer): [ArrayBuffer] {
-    throw new Error("not implemented: A0.3-L1");
+    this.list[0] = buffer;
+    return this.list;
   }
 }
 
