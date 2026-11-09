@@ -97,16 +97,8 @@ describe("thumbnail kinds and dependencies (ADR 0061)", () => {
     for (const p of ["images/bird.png", "images/sheet.png#walk", "data.json", "models/robot.fbx.meta.json"]) expect(previewKind(p), p).toBeNull();
   });
 
-  it("follows a .gltf's external buffers and images (ADR 0088)", () => {
-    const src = project({
-      "models/car/car.gltf": JSON.stringify({ buffers: [{ uri: "car.bin" }, { uri: "data:application/octet-stream;base64,AA==" }], images: [{ uri: "./tex/paint%20red.png" }, { uri: "missing.png" }] }),
-      "models/car/car.bin": new Uint8Array([1]),
-      "models/car/tex/paint red.png": new Uint8Array([1]),
-    });
-    expect(previewDependencies("models/car/car.gltf", src)).toEqual(["models/car/car.bin", "models/car/tex/paint red.png"]);
-  });
-
-  it("follows JSON references transitively, with or without asset:, and ignores strings that aren't files", () => {
+  // What each file names (JSON, and models through the Meshes plugin's kinds) is tested in assetReferences.test.ts (ADR 0148).
+  it("follows references transitively, through JSON and model formats, with or without asset:, and ignores strings that aren't files", () => {
     const src = project({
       "prefabs/crate.prefab.json": JSON.stringify({ nodes: [{ components: [{ data: { mesh: "asset:models/crate.obj", material: "materials/wood.material.json", note: "hello" } }] }] }),
       "materials/wood.material.json": JSON.stringify({ shader: "asset:shaders/grain.shadergraph.json", texture: "asset:images/wood.png" }),

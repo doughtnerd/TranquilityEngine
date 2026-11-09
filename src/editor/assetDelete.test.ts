@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, getComponentClass } from "../engine";
 import { listComponents } from "../engine/editor";
-import { assetUsers, deleteAsset, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
+import { deleteAsset, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
+import { assetUsers } from "./assetReferences";
 import { OrbitCamera } from "./OrbitCamera";
 import { askBeforeDeletingAssets } from "./preferences";
 import { openSceneFile } from "./project";
@@ -37,6 +38,7 @@ afterEach(async () => {
   await replaceScripts(new Map());
 });
 
+// The rule itself is tested in assetReferences.test.ts; this checks it on the Flappy sample.
 describe("what uses an asset", () => {
   it("finds prefabs and scenes, project settings and scripts that refer to it", () => {
     expect(assetUsers(project, "images/background.png")).toEqual(["prefabs/background.prefab.json"]);
@@ -44,10 +46,6 @@ describe("what uses an asset", () => {
     expect(assetUsers(project, "prefabs/pipe-pair.prefab.json")).toEqual(["scripts/Spawner2.ts"]);
     expect(assetUsers(project, "prefabs/background.prefab.json")).toEqual(["scenes/main.scene.json"]);
     expect(assetUsers(project, "music/town.mp3")).toEqual(["prefabs/music.prefab.json"]);
-  });
-
-  it("includes the open scene's unsaved edits", () => {
-    expect(assetUsers(project, "images/gone.png", { path: "scenes/main.scene.json", text: '{"x":"asset:images/gone.png"}' })).toEqual(["scenes/main.scene.json (unsaved edits)"]);
   });
 });
 

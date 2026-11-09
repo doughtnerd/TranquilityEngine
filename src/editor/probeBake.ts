@@ -4,6 +4,7 @@ import { ReflectionProbe } from "../engine";
 import { viewport, type EditorViewport } from "../engine/editor";
 import type { GameObject } from "../engine/scene/GameObject";
 import { freePath } from "./assetOps";
+import { assetRefTarget } from "./assetReferences";
 import { SetField } from "./document";
 import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";
@@ -11,7 +12,7 @@ import { status, type OpenScene } from "./state";
 
 export const REFLECTION_PROBE = "engine.ReflectionProbe";
 
-const assetPathOf = (ref: unknown) => (typeof ref === "string" ? ref.replace(/^asset:/, "").replace(/^\.?\//, "") : "");
+const assetPathOf = (ref: unknown) => (typeof ref === "string" ? assetRefTarget(ref) : "");
 
 /** The scene file's name without its folder and `.scene.json`/`.prefab.json`. */
 const sceneBase = (scenePath: string) => (scenePath.split("/").pop() ?? scenePath).replace(/\.(scene|prefab)\.json$/i, "").replace(/\.[^.]*$/, "");

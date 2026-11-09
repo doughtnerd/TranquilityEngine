@@ -53,6 +53,20 @@ export interface AssetKindContribution {
    * Ignored when `inspector` is set.
    */
   readonly importSettings?: ImportSettingsContribution;
+  /**
+   * The project files a file of this kind names in its own format (ADR 0148), such as a model's
+   * material libraries, textures and buffers. Absent: a JSON file's dependencies are its reference
+   * strings; other files depend on nothing.
+   */
+  readonly references?: AssetReferenceExtractor;
+}
+
+/** How an asset kind reads the files its own format names (ADR 0148). */
+export interface AssetReferenceExtractor {
+  /** The endings (lower case, with the dot) whose files are text `read` understands; absent: all of the kind's. Binary files (`.glb`, `.fbx`) are left out so they are never read as text. */
+  readonly extensions?: readonly string[];
+  /** Project paths `text` (the file at `path`) names, resolved against the file's folder. Paths that aren't project files are ignored. */
+  read(path: string, text: string): readonly string[];
 }
 
 /** What an import settings view is given: the shell owns the sidecar, the draft, Apply and Revert (ADR 0143). */
