@@ -58,9 +58,30 @@ export interface ClipRegistry {
   releaseWorld(key: number): void;
   /** Called from the STATUS mirror for each clip event (wire `ClipEvent`: 1 resident, 2 refusedCeiling, 3 refusedGrow, 4 hrtfReady). */
   applyClipEvent(id: number, code: number): void;
-  /** Ids of every clip that is ready, for a rebuild's re-send (A3.4a). */
+  /** Ids of every clip that is ready, for a rebuild's re-send (A3.4a). Includes ready reserved (HRIR) clips. */
   residentIds(): readonly number[];
+  /**
+   * H2: loads an HRIR table (wire format 2) under a reserved id in 0xFFFF0000..0xFFFF00FF (anything else throws).
+   * No fetch or decode: `bytes` is the finished blob (api-and-models 4.1), sent as CLIP_BEGIN (`channels` 1, `frames`
+   * = bytes / 2 int16 samples, `format` 2) and paced CLIP_CHUNKs like any clip. It completes on the core's clip event
+   * 4 (hrtfReady) or 1, is never counted in the ceiling (`clipMemoryMB`), is listed by `residentIds()` once ready so a
+   * rebuild re-sends it, and stays loaded until `release(id)`. A second call for an id already held is ignored.
+   */
+  acquireReserved(id: number, data: ReservedClipData): void;
 }
+
+/** What `acquireReserved` takes. */
+export interface ReservedClipData {
+  /** The finished format = 2 blob; its length must be even. */
+  readonly bytes: ArrayBuffer;
+  /** The rate the blob's responses are at (the context rate). */
+  readonly sampleRate: number;
+  readonly format: 2;
+}
+
+/** The reserved HRIR clip id range (api-and-models 4.1). */
+export const RESERVED_CLIP_FIRST = 0xffff0000;
+export const RESERVED_CLIP_LAST = 0xffff00ff;
 
 /** The decoded clip the loader hands the registry (`decodeAudioData`'s result, planar). */
 export interface DecodedClip {
@@ -140,6 +161,17 @@ interface Slot {
   readonly listeners: Set<ClipResidentListener>;
 }
 
+/** A reserved (HRIR) clip: its blob stays here for paced sending and for a rebuild's re-send. */
+interface ReservedSlot {
+  readonly id: number;
+  state: ClipState;
+  readonly data: ReservedClipData;
+  readonly samples: number;
+  /** True while CLIP_BEGIN has gone out and no CLIP_UNLOAD has. */
+  begun: boolean;
+  readonly listeners: Set<ClipResidentListener>;
+}
+
 const defaultNextFrame = (cb: () => void): void => {
   if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => cb());
   else setTimeout(cb, 16);
@@ -178,6 +210,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
 
   const byPath = new Map<string, Slot>();
   const byId = new Map<number, Slot>();
+  const reserved = new Map<number, ReservedSlot>();
   const freeIndices: number[] = [];
   const generations: number[] = [];
   let nextIndex = 0;
@@ -229,6 +262,29 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     notify(slot);
   };
 
+  const beginReserved = (res: ReservedSlot): void => {
+    res.begun = true;
+    post(CLIP_BEGIN_FIXED_END, (view) => {
+      envelope(view, Kind.CLIP_BEGIN, CLIP_BEGIN_FIXED_END);
+      writeClipBegin(view, 0, { clipId: res.id, frames: res.samples, channels: 1, sampleRate: res.data.sampleRate, format: ClipFormat.HRIR });
+    });
+    pacer.enqueue(res.id, planChunks(res.samples, 1, 2), 1, 2);
+    schedulePump();
+  };
+
+  const reservedInfo = (res: ReservedSlot): ClipInfo => ({
+    id: res.id,
+    path: "",
+    state: res.state,
+    refs: 1,
+    frames: res.samples,
+    channels: 1,
+    sampleRate: res.data.sampleRate,
+    format: ClipFormat.HRIR,
+    bytes: 0,
+    failure: null,
+  });
+
   const loadedBytes = (): number => {
     let total = 0;
     for (const slot of byPath.values()) if (slot.state === "copying" || slot.state === "ready") total += slot.bytes;
@@ -239,6 +295,17 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     pumping = false;
     const chunks = pacer.take(CLIP_BYTES_PER_QUANTUM);
     for (const chunk of chunks) {
+      const res = reserved.get(chunk.clipId);
+      if (res) {
+        // Raw int16 words of the blob (channels 1), word aligned: the blob's length is even, padded to 4 on the wire.
+        const total = CLIP_CHUNK_FIXED_END + ((chunk.bytes + 3) & ~3);
+        post(total, (view) => {
+          envelope(view, Kind.CLIP_CHUNK, total);
+          writeClipChunk(view, 0, { clipId: chunk.clipId, frameOffset: chunk.frameOffset, frames: chunk.frames, reserved: 0 });
+          new Uint8Array(view.buffer, CLIP_CHUNK_FIXED_END, chunk.bytes).set(new Uint8Array(res.data.bytes, chunk.frameOffset * 2, chunk.bytes));
+        });
+        continue;
+      }
       const slot = byId.get(chunk.clipId);
       if (!slot || slot.dead || !slot.pcm) continue;
       const samples = chunk.frames * slot.channels;
@@ -374,20 +441,45 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       return idOf(slot);
     },
     release(id) {
+      const res = reserved.get(id);
+      if (res) {
+        reserved.delete(id);
+        pacer.cancel(id);
+        if (res.begun) {
+          post(CLIP_UNLOAD_FIXED_END, (view) => {
+            envelope(view, Kind.CLIP_UNLOAD, CLIP_UNLOAD_FIXED_END);
+            writeClipUnload(view, 0, { clipId: id });
+          });
+        }
+        return;
+      }
       const slot = byId.get(id);
       if (!slot || slot.refs === 0) return;
       slot.refs--;
       maybeUnload(slot);
     },
     state(id) {
+      const res = reserved.get(id);
+      if (res) return res.state;
       const slot = byId.get(id);
       return slot ? infoOf(slot).state : "idle";
     },
     info(id) {
+      const res = reserved.get(id);
+      if (res) return reservedInfo(res);
       const slot = byId.get(id);
       return slot ? infoOf(slot) : null;
     },
     onResident(id, listener) {
+      const res = reserved.get(id);
+      if (res) {
+        if (res.state === "ready") {
+          listener(reservedInfo(res));
+          return () => {};
+        }
+        res.listeners.add(listener);
+        return () => void res.listeners.delete(listener);
+      }
       const slot = byId.get(id);
       if (!slot) return () => {};
       if (slot.state === "ready" || slot.state === "failed") {
@@ -403,6 +495,26 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       }
     },
     applyClipEvent(id, code) {
+      const res = reserved.get(id);
+      if (res) {
+        if ((code === ClipEvent.HrtfReady || code === ClipEvent.Resident) && res.state === "copying") {
+          res.state = "ready";
+          const info = reservedInfo(res);
+          const listeners = [...res.listeners];
+          res.listeners.clear();
+          for (const l of listeners) {
+            try {
+              l(info);
+            } catch (err) {
+              console.error("[myco] clip listener failed:", err);
+            }
+          }
+        } else if (code === ClipEvent.RefusedCeiling || code === ClipEvent.RefusedGrow) {
+          res.state = "failed";
+          warn("audio: the HRIR table was refused by the core");
+        }
+        return;
+      }
       const slot = byId.get(id);
       if (!slot || slot.dead) return;
       if (code === ClipEvent.Resident) {
@@ -412,8 +524,17 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       } else if (code === ClipEvent.RefusedCeiling) fail(slot, "refusedCeiling", "the core refused it: over the clip memory ceiling");
       else if (code === ClipEvent.RefusedGrow) fail(slot, "refusedGrow", "the core could not grow its clip memory");
     },
+    acquireReserved(id, data) {
+      if (!(Number.isInteger(id) && id >= RESERVED_CLIP_FIRST && id <= RESERVED_CLIP_LAST)) throw new Error(`audio: ${id} is not a reserved clip id`);
+      if (data.format !== ClipFormat.HRIR || data.bytes.byteLength === 0 || data.bytes.byteLength % 2 !== 0) throw new Error("audio: a reserved clip needs an even-length format 2 blob");
+      if (reserved.has(id)) return;
+      const res: ReservedSlot = { id, state: "copying", data, samples: data.bytes.byteLength / 2, begun: false, listeners: new Set() };
+      reserved.set(id, res);
+      beginReserved(res);
+    },
     residentIds() {
       const ids: number[] = [];
+      for (const res of reserved.values()) if (res.state === "ready") ids.push(res.id);
       for (const slot of byPath.values()) if (slot.state === "ready") ids.push(idOf(slot));
       return ids;
     },

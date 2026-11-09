@@ -67,6 +67,7 @@ class FakeRegistry implements ClipRegistry {
   residentIds(): readonly number[] {
     return this.resident;
   }
+  acquireReserved(): void {}
   settle(id: number, state: ClipState): void {
     this.states.set(id, state);
     for (const l of this.listeners.get(id) ?? []) l(this.info(id)!);

@@ -1,0 +1,1470 @@
+{
+  "chromiumCommit": "cbba46fd94646232cfd2318ac962138c2a98c1f9",
+  "urlPattern": "https://chromium.googlesource.com/chromium/src/+/cbba46fd94646232cfd2318ac962138c2a98c1f9/third_party/blink/renderer/platform/audio/resources/<name>?format=TEXT",
+  "date": "2026-11-09",
+  "licence": "docs/design/0157-audio-core/hrir-licence.md",
+  "format": {
+    "number": 2,
+    "elevations": 10,
+    "azimuths": 24,
+    "irLength": 256,
+    "rate": 44100
+  },
+  "sources": [
+    {
+      "name": "IRC_Composite_C_R0195_T000_P315.wav",
+      "directionIndex": 0,
+      "bytes": 1068,
+      "sha256": "4386d9e079ecfb9c4e161c53ca657c3efd37671c284d283ff750d2ad31af323f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T000_P330.wav",
+      "directionIndex": 1,
+      "bytes": 1068,
+      "sha256": "024d53aba19ca29855140e06c4b4b130e6f8c3fb4b64cbd6f8cb4da85d86e579"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T000_P345.wav",
+      "directionIndex": 2,
+      "bytes": 1068,
+      "sha256": "55f7a7b0121a7755dde12fbb4ac5ccf56e15575b12aaca8b6bd384276761f6e3"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T000_P000.wav",
+      "directionIndex": 3,
+      "bytes": 1068,
+      "sha256": "3a422af65b2960302916cbed3227de2eb4bc817f397261a2958f2f61e47c59a5"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T000_P015.wav",
+      "directionIndex": 4,
+      "bytes": 1068,
+      "sha256": "0742f44863bd1f381492ecf902a1113de6166e0e62d478614267db197d9aad03"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T000_P030.wav",
+      "directionIndex": 5,
+      "bytes": 1068,
+      "sha256": "7a54c2a0c5eb1ebf3bf7eee456c8c963704dc4ad91ae3e2ed5877000c59a91ce"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T000_P045.wav",
+      "directionIndex": 6,
+      "bytes": 1068,
+      "sha256": "5ec4f63d544d87d2eea0d0d9353b6627777832cf0698c42ee110105e9260c2d5"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T000_P060.wav",
+      "directionIndex": 7,
+      "bytes": 1068,
+      "sha256": "46b4ec84fa11d3433b51561fe46cc45f38e029d89fa980d45780b636a23f21ac"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T000_P075.wav",
+      "directionIndex": 8,
+      "bytes": 1068,
+      "sha256": "0f6e34cfe200673a21462f56d00d11005e7c76d9f80c7ca7c9e37fba9ecb3510"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T000_P090.wav",
+      "directionIndex": 9,
+      "bytes": 1068,
+      "sha256": "d98595e8fddfa26c914fd12ab939604b42e619eb2f0b59c5bb8afc7255cd336e"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T015_P315.wav",
+      "directionIndex": 10,
+      "bytes": 1068,
+      "sha256": "8a17d7611396ff70642bbd0a6a6e5ec2cde385bf8b245d338d709cc57331dd55"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T015_P330.wav",
+      "directionIndex": 11,
+      "bytes": 1068,
+      "sha256": "f6e7c26de6c84ec51d337785d7bd410f37e0eed3ead8f703ce3966b634344480"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T015_P345.wav",
+      "directionIndex": 12,
+      "bytes": 1068,
+      "sha256": "b89642093717580dce957d3a87bc3bc58ee06b39a87871650ccf2b96f04dee5b"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T015_P000.wav",
+      "directionIndex": 13,
+      "bytes": 1068,
+      "sha256": "941520e694200c3dfbd36b502d99d300e3b5f8864b3cf66d8ca38d9c64ed663b"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T015_P015.wav",
+      "directionIndex": 14,
+      "bytes": 1068,
+      "sha256": "e6387a18a905ef1a8e480ebe680fb03cb85dd227ac4dccb5ca74099ce693f1e8"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T015_P030.wav",
+      "directionIndex": 15,
+      "bytes": 1068,
+      "sha256": "13093e23d031a9362e9b23df1346058a1d7bd0f003d50d844ef615597710c46b"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T015_P045.wav",
+      "directionIndex": 16,
+      "bytes": 1068,
+      "sha256": "a8f616f1d29468b5ffe4dfa6b8ecf5fd2ede0cf41a1b61ffb314064be6612226"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T015_P060.wav",
+      "directionIndex": 17,
+      "bytes": 1068,
+      "sha256": "a8f616f1d29468b5ffe4dfa6b8ecf5fd2ede0cf41a1b61ffb314064be6612226"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T015_P075.wav",
+      "directionIndex": 18,
+      "bytes": 1068,
+      "sha256": "a8f616f1d29468b5ffe4dfa6b8ecf5fd2ede0cf41a1b61ffb314064be6612226"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T015_P090.wav",
+      "directionIndex": 19,
+      "bytes": 1068,
+      "sha256": "a8f616f1d29468b5ffe4dfa6b8ecf5fd2ede0cf41a1b61ffb314064be6612226"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T030_P315.wav",
+      "directionIndex": 20,
+      "bytes": 1068,
+      "sha256": "db29f0055ad7664f0c23f056efe5f5e4781927d52b776c215277d578eb7d381e"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T030_P330.wav",
+      "directionIndex": 21,
+      "bytes": 1068,
+      "sha256": "526abe2af9d5a263ca3febb89ec3e17c0556ae55c1e2bbc00e32c22ab4dec47f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T030_P345.wav",
+      "directionIndex": 22,
+      "bytes": 1068,
+      "sha256": "db2b210dd4cf055b35f68f688728b03d2fd71a93021d290130713c0cf455e724"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T030_P000.wav",
+      "directionIndex": 23,
+      "bytes": 1068,
+      "sha256": "ff071f371b84ca96305f2cdff43b7c94d59143d9e5113b6c9e009831a763f9a5"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T030_P015.wav",
+      "directionIndex": 24,
+      "bytes": 1068,
+      "sha256": "73e114727e8595deeed177dfe4c5e415ac4b5c13b4ec07b41aa0240ed7ddc4fa"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T030_P030.wav",
+      "directionIndex": 25,
+      "bytes": 1068,
+      "sha256": "12ddb5dc3409191efa4046080a3691cca055be7eb2c193597f46dbd95166a520"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T030_P045.wav",
+      "directionIndex": 26,
+      "bytes": 1068,
+      "sha256": "b689c00c23e28852e93260049cb03c5dd87c9e6bf14d273bf6fae7250863f1d4"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T030_P060.wav",
+      "directionIndex": 27,
+      "bytes": 1068,
+      "sha256": "b8eb6ed044dacceeb12df847aec555bd6768990f4b8f98a15b5ccc7e5697c91e"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T030_P075.wav",
+      "directionIndex": 28,
+      "bytes": 1068,
+      "sha256": "b8eb6ed044dacceeb12df847aec555bd6768990f4b8f98a15b5ccc7e5697c91e"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T030_P090.wav",
+      "directionIndex": 29,
+      "bytes": 1068,
+      "sha256": "b8eb6ed044dacceeb12df847aec555bd6768990f4b8f98a15b5ccc7e5697c91e"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T045_P315.wav",
+      "directionIndex": 30,
+      "bytes": 1068,
+      "sha256": "ce316e6f3d4f39ff925c1621c2878dde68e0126afe68b55dade575cac9b7ae3b"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T045_P330.wav",
+      "directionIndex": 31,
+      "bytes": 1068,
+      "sha256": "83eadedbca7de5f3ef867a7fb8740709e5d396452843465a5515acbd777bdf0c"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T045_P345.wav",
+      "directionIndex": 32,
+      "bytes": 1068,
+      "sha256": "dfea856644a92132cb573adfe20529746f72de43fe198ae94027064e7eaa21eb"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T045_P000.wav",
+      "directionIndex": 33,
+      "bytes": 1068,
+      "sha256": "839efe3a8082f6a4a27f0c85270ea26f3b478480b64cb11b58d018592e9ebef0"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T045_P015.wav",
+      "directionIndex": 34,
+      "bytes": 1068,
+      "sha256": "2f22cf472e443ada9c934dc4eaddb6e93ec0c2c5f18004fa4159175563616d0b"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T045_P030.wav",
+      "directionIndex": 35,
+      "bytes": 1068,
+      "sha256": "b81cde43a111e2d4e3ca77697238b670c1d53d17eee84d88f6c4a4a3d2219054"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T045_P045.wav",
+      "directionIndex": 36,
+      "bytes": 1068,
+      "sha256": "2b82bd404ff94191ee5d90cb077e697556e0b7ddf1561f20ed34bb5f8d3f75a2"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T045_P060.wav",
+      "directionIndex": 37,
+      "bytes": 1068,
+      "sha256": "2b82bd404ff94191ee5d90cb077e697556e0b7ddf1561f20ed34bb5f8d3f75a2"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T045_P075.wav",
+      "directionIndex": 38,
+      "bytes": 1068,
+      "sha256": "2b82bd404ff94191ee5d90cb077e697556e0b7ddf1561f20ed34bb5f8d3f75a2"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T045_P090.wav",
+      "directionIndex": 39,
+      "bytes": 1068,
+      "sha256": "2b82bd404ff94191ee5d90cb077e697556e0b7ddf1561f20ed34bb5f8d3f75a2"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T060_P315.wav",
+      "directionIndex": 40,
+      "bytes": 1068,
+      "sha256": "f2f2cf92285cb02125035292b52ddb12b5f9a3ea6d832b74b9fd5cbce1dc90ca"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T060_P330.wav",
+      "directionIndex": 41,
+      "bytes": 1068,
+      "sha256": "cb08fa341bc94a16be003ab8dcfc720b3ba551ddcdfa3a636f57ca3250f31183"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T060_P345.wav",
+      "directionIndex": 42,
+      "bytes": 1068,
+      "sha256": "9ea4c5da16593ab903aaa26e96b01560649673ecc8774dd90f2be862844761c4"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T060_P000.wav",
+      "directionIndex": 43,
+      "bytes": 1068,
+      "sha256": "43a1543433885545068117b9a42753e7a8a9cafe8dde59c7bd14f2cb0860c662"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T060_P015.wav",
+      "directionIndex": 44,
+      "bytes": 1068,
+      "sha256": "43101a40af78dc748cf7c3a992fba9251e18f0b0c053dd33ecf730ae35dcba1a"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T060_P030.wav",
+      "directionIndex": 45,
+      "bytes": 1068,
+      "sha256": "5a885ee9e571be0a71af726622cd06853a40cba9c250a92a248bd21b4e9b4cba"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T060_P045.wav",
+      "directionIndex": 46,
+      "bytes": 1068,
+      "sha256": "c4fc591e496bb82a3945571c46a3047856719db7c044666d20fa617360f63cd5"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T060_P060.wav",
+      "directionIndex": 47,
+      "bytes": 1068,
+      "sha256": "31a93c86141aaad68045b3084d320fc640a14649826b100df475f45605295b21"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T060_P075.wav",
+      "directionIndex": 48,
+      "bytes": 1068,
+      "sha256": "84dbd93b08a84d3ab38b813f2c19137f3e59a4b133d28cb4b69712a3a6bfa506"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T060_P090.wav",
+      "directionIndex": 49,
+      "bytes": 1068,
+      "sha256": "84dbd93b08a84d3ab38b813f2c19137f3e59a4b133d28cb4b69712a3a6bfa506"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T075_P315.wav",
+      "directionIndex": 50,
+      "bytes": 1068,
+      "sha256": "bc7772c084f136fa6f57fa953cb3d1f966031483db16c1f181715ed5d59bdf78"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T075_P330.wav",
+      "directionIndex": 51,
+      "bytes": 1068,
+      "sha256": "a4f7b52e52f956479c31d35a1222bb24b4d1052b41389ed31da91447346abc36"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T075_P345.wav",
+      "directionIndex": 52,
+      "bytes": 1068,
+      "sha256": "f682bc8db79c92390e4c6a3a3bd937b55ed85836f6682923d435f4a6b4ef50e7"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T075_P000.wav",
+      "directionIndex": 53,
+      "bytes": 1068,
+      "sha256": "5ba498229d4a153cc1379cbb74f7e198d374a6af4374aa99ed9d22c2841a8427"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T075_P015.wav",
+      "directionIndex": 54,
+      "bytes": 1068,
+      "sha256": "c934d2fe7f551260a5e68dbecedb6b76447d0bd08e950cae96401bd6b41c69b5"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T075_P030.wav",
+      "directionIndex": 55,
+      "bytes": 1068,
+      "sha256": "ac0600c57790e1567dbd5aeb8c09196fcdfe12cbf473de756c8cac3e54e4ac21"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T075_P045.wav",
+      "directionIndex": 56,
+      "bytes": 1068,
+      "sha256": "848b9676d2a83d7be57613cc80235512b495f57424ab51a20ad1a0d850e1b397"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T075_P060.wav",
+      "directionIndex": 57,
+      "bytes": 1068,
+      "sha256": "848b9676d2a83d7be57613cc80235512b495f57424ab51a20ad1a0d850e1b397"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T075_P075.wav",
+      "directionIndex": 58,
+      "bytes": 1068,
+      "sha256": "848b9676d2a83d7be57613cc80235512b495f57424ab51a20ad1a0d850e1b397"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T075_P090.wav",
+      "directionIndex": 59,
+      "bytes": 1068,
+      "sha256": "848b9676d2a83d7be57613cc80235512b495f57424ab51a20ad1a0d850e1b397"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T090_P315.wav",
+      "directionIndex": 60,
+      "bytes": 1068,
+      "sha256": "075d881a241accfea3d16ee33ca93f2c45bc9a9d5647dbbc7b0b00565052575f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T090_P330.wav",
+      "directionIndex": 61,
+      "bytes": 1068,
+      "sha256": "0908144fc434ca3a735aca1e90aac2dcf2a28d4bdf3ac579731ac5f6d2e4b5fa"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T090_P345.wav",
+      "directionIndex": 62,
+      "bytes": 1068,
+      "sha256": "06235d14a58b0fa8e2fa70016a28b83b8d6d731381e0da1465cd912b3a577bae"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T090_P000.wav",
+      "directionIndex": 63,
+      "bytes": 1068,
+      "sha256": "5dde501592621ce4e16d1653e314914da305d94395a0d27beefdf3999cf9ede0"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T090_P015.wav",
+      "directionIndex": 64,
+      "bytes": 1068,
+      "sha256": "85ef6d046bbf08cd51edadbaecd5eba8f7ae44f15f31469214eb6c50ea13f2be"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T090_P030.wav",
+      "directionIndex": 65,
+      "bytes": 1068,
+      "sha256": "2ca1365df4757c08470fa3b2eb339418114638e47ee944903cda28e12917a218"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T090_P045.wav",
+      "directionIndex": 66,
+      "bytes": 1068,
+      "sha256": "8a694fc3efb908f5793bb709eab5a6331f7301d5c18d675f981fbba3f9914125"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T090_P060.wav",
+      "directionIndex": 67,
+      "bytes": 1068,
+      "sha256": "944899e426bd33c0fcc079d48f5cf08c329eeb63b2a9e41eb8045ef88865e046"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T090_P075.wav",
+      "directionIndex": 68,
+      "bytes": 1068,
+      "sha256": "944899e426bd33c0fcc079d48f5cf08c329eeb63b2a9e41eb8045ef88865e046"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T090_P090.wav",
+      "directionIndex": 69,
+      "bytes": 1068,
+      "sha256": "944899e426bd33c0fcc079d48f5cf08c329eeb63b2a9e41eb8045ef88865e046"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T105_P315.wav",
+      "directionIndex": 70,
+      "bytes": 1068,
+      "sha256": "ff5bf12d56aa0cda20131b942e415c182c6081d5eec15fee6f25ae2d855b4029"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T105_P330.wav",
+      "directionIndex": 71,
+      "bytes": 1068,
+      "sha256": "51c99eec40d3280cf12f921e0ee04ea41fb36c51fef73c50abb95886018ada1a"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T105_P345.wav",
+      "directionIndex": 72,
+      "bytes": 1068,
+      "sha256": "53b059dbd895f8a515746eebd92f9c450f4e348318abb1f9c613a7465bf78718"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T105_P000.wav",
+      "directionIndex": 73,
+      "bytes": 1068,
+      "sha256": "497455d752271984a0ed2a9b6d82ace9c172da1425b1d728d6c2ea56dbee1b86"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T105_P015.wav",
+      "directionIndex": 74,
+      "bytes": 1068,
+      "sha256": "807cfa51e0655683684d1c674d3cb5084f94bc085ef4b88d4513f5d63803a814"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T105_P030.wav",
+      "directionIndex": 75,
+      "bytes": 1068,
+      "sha256": "3c8ab4e14e35ea9e3122437975a47c42b899028a4652ebbdda0ddab5b6ffdd69"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T105_P045.wav",
+      "directionIndex": 76,
+      "bytes": 1068,
+      "sha256": "ea8a3453897a50f676600247b168fae2121aaa80f22724389d810d52de977691"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T105_P060.wav",
+      "directionIndex": 77,
+      "bytes": 1068,
+      "sha256": "ea8a3453897a50f676600247b168fae2121aaa80f22724389d810d52de977691"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T105_P075.wav",
+      "directionIndex": 78,
+      "bytes": 1068,
+      "sha256": "ea8a3453897a50f676600247b168fae2121aaa80f22724389d810d52de977691"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T105_P090.wav",
+      "directionIndex": 79,
+      "bytes": 1068,
+      "sha256": "ea8a3453897a50f676600247b168fae2121aaa80f22724389d810d52de977691"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T120_P315.wav",
+      "directionIndex": 80,
+      "bytes": 1068,
+      "sha256": "7ff0938193cc791368ae25787cd25f3a7df7b537e41183268a6c8690a0c7598f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T120_P330.wav",
+      "directionIndex": 81,
+      "bytes": 1068,
+      "sha256": "78a4e4612ec0291605154f26216e2050387d2e0f3dfdb0da0435806589488863"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T120_P345.wav",
+      "directionIndex": 82,
+      "bytes": 1068,
+      "sha256": "1d7e45a07dcd329f9957e361dc7a1a4c6d4f1b3a73901098c751a83d94cb5dbd"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T120_P000.wav",
+      "directionIndex": 83,
+      "bytes": 1068,
+      "sha256": "e39ef253e9228220b666d0d021a10cfa639d337d4b5ff278b0fdde591c8b773e"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T120_P015.wav",
+      "directionIndex": 84,
+      "bytes": 1068,
+      "sha256": "0c9a7944bcda1efa68e027f172d6270699f2cc3ba2b9e1600a6d511bbd15edda"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T120_P030.wav",
+      "directionIndex": 85,
+      "bytes": 1068,
+      "sha256": "f44d1d66eb11b2c977a90582bb3ef9a1f0f4868a6da4760b26109dc29dd10390"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T120_P045.wav",
+      "directionIndex": 86,
+      "bytes": 1068,
+      "sha256": "e06a03bebc17dc0c99ffe346509bafb00430c82933762850e75df27aec16f97b"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T120_P060.wav",
+      "directionIndex": 87,
+      "bytes": 1068,
+      "sha256": "fc3beda77711938c72f160cffd5e09bd9cf73410c1e1303e717d2c011d935ca3"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T120_P075.wav",
+      "directionIndex": 88,
+      "bytes": 1068,
+      "sha256": "4d1867c3cff34ed6360a4482f03204037f7f9f8771ab8d0c9d152a603357f39b"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T120_P090.wav",
+      "directionIndex": 89,
+      "bytes": 1068,
+      "sha256": "4d1867c3cff34ed6360a4482f03204037f7f9f8771ab8d0c9d152a603357f39b"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T135_P315.wav",
+      "directionIndex": 90,
+      "bytes": 1068,
+      "sha256": "ebbe00b7d8a3e24b96c8ba0c9755d0835da3e3f91c5fb3b6f0c0ea90f697fc7d"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T135_P330.wav",
+      "directionIndex": 91,
+      "bytes": 1068,
+      "sha256": "f6d285b781c7aad647bb852caf5e5b5ae10d18dce4245108612e35150ba8a1bb"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T135_P345.wav",
+      "directionIndex": 92,
+      "bytes": 1068,
+      "sha256": "77eab2696a95a89e887b95cf304f20d156569ce5e9095ec8cd233e570fa06005"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T135_P000.wav",
+      "directionIndex": 93,
+      "bytes": 1068,
+      "sha256": "c5d91e5b3dc25b9b7ad9ca1669cc431ae8cd30238a6e27787e89b2609211327e"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T135_P015.wav",
+      "directionIndex": 94,
+      "bytes": 1068,
+      "sha256": "700ac0b873e7bce1caad6eac12f4a4c8927efbb1d3d395e5734c72959d2f4cda"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T135_P030.wav",
+      "directionIndex": 95,
+      "bytes": 1068,
+      "sha256": "4d88190f7b13474ce1096b108c8a9c46cc1964058c0b59968753ed4148756c10"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T135_P045.wav",
+      "directionIndex": 96,
+      "bytes": 1068,
+      "sha256": "4940587a4c3acf67e74e1c0b2c4c4721847190159abe08c6090242c8b5c1d35f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T135_P060.wav",
+      "directionIndex": 97,
+      "bytes": 1068,
+      "sha256": "4940587a4c3acf67e74e1c0b2c4c4721847190159abe08c6090242c8b5c1d35f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T135_P075.wav",
+      "directionIndex": 98,
+      "bytes": 1068,
+      "sha256": "4940587a4c3acf67e74e1c0b2c4c4721847190159abe08c6090242c8b5c1d35f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T135_P090.wav",
+      "directionIndex": 99,
+      "bytes": 1068,
+      "sha256": "4940587a4c3acf67e74e1c0b2c4c4721847190159abe08c6090242c8b5c1d35f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T150_P315.wav",
+      "directionIndex": 100,
+      "bytes": 1068,
+      "sha256": "45a7ebe8d89b471cb5aa27f7659507145ba2c50e7dc7362807e720569c708b88"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T150_P330.wav",
+      "directionIndex": 101,
+      "bytes": 1068,
+      "sha256": "aa2d289c3607fcfeca3060829b38f59a7b937ddec5b8616163bc9c188790b9d0"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T150_P345.wav",
+      "directionIndex": 102,
+      "bytes": 1068,
+      "sha256": "92d2665604b3d6b86f37c63a55cb4ac246cf967333856622966e9c2c65a8053f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T150_P000.wav",
+      "directionIndex": 103,
+      "bytes": 1068,
+      "sha256": "50f4aced5a4130d7ab732006818ca75d0e5de1a09d0ef6b2dfac65e042b34876"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T150_P015.wav",
+      "directionIndex": 104,
+      "bytes": 1068,
+      "sha256": "65850d6605c46b4bcd08ecd18c404050f9928266f415bd2f81b512b4e809e42f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T150_P030.wav",
+      "directionIndex": 105,
+      "bytes": 1068,
+      "sha256": "373654e331d763d49ffb32ce71b0c268e141379b36e6da5d8e941789a3862e22"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T150_P045.wav",
+      "directionIndex": 106,
+      "bytes": 1068,
+      "sha256": "e74e6504761da1e26ff1709bfce5c6a62b638e8f623e4299b2147401147e64ba"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T150_P060.wav",
+      "directionIndex": 107,
+      "bytes": 1068,
+      "sha256": "7a3fd5a65ef930e5c6004e2c01b41462baa8089ae0ef49497abd7b44eb315469"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T150_P075.wav",
+      "directionIndex": 108,
+      "bytes": 1068,
+      "sha256": "7a3fd5a65ef930e5c6004e2c01b41462baa8089ae0ef49497abd7b44eb315469"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T150_P090.wav",
+      "directionIndex": 109,
+      "bytes": 1068,
+      "sha256": "7a3fd5a65ef930e5c6004e2c01b41462baa8089ae0ef49497abd7b44eb315469"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T165_P315.wav",
+      "directionIndex": 110,
+      "bytes": 1068,
+      "sha256": "07abcd35086d1394877b6d71f776b166c9f4f32452a1e3022661fef214abaf74"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T165_P330.wav",
+      "directionIndex": 111,
+      "bytes": 1068,
+      "sha256": "cf287c2f6e37019c9e7d5489f7720c52a9d9464148dc4614b7b2d40b5504cf74"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T165_P345.wav",
+      "directionIndex": 112,
+      "bytes": 1068,
+      "sha256": "4a3afaed3517b9cdcbface8b7661f729bb4247fbdc45b4577beb41c546db4876"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T165_P000.wav",
+      "directionIndex": 113,
+      "bytes": 1068,
+      "sha256": "6014e7b8dc5865bc34b7fbf92508f151f8939e5c2ab5661f540a12b23e8c0a23"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T165_P015.wav",
+      "directionIndex": 114,
+      "bytes": 1068,
+      "sha256": "cb375ed28c9d900fc2a240632f8ffab76e2b2c2eeb38243a44aeb9a476871d85"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T165_P030.wav",
+      "directionIndex": 115,
+      "bytes": 1068,
+      "sha256": "3943bb2147e8415c362f07f4e293adca028711aad2044dd32f39f3cbb5e2ff76"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T165_P045.wav",
+      "directionIndex": 116,
+      "bytes": 1068,
+      "sha256": "2f016dc4936a26f3fe0b8b6db954f881c61bf90102308ea3552aa1f8392008e6"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T165_P060.wav",
+      "directionIndex": 117,
+      "bytes": 1068,
+      "sha256": "2f016dc4936a26f3fe0b8b6db954f881c61bf90102308ea3552aa1f8392008e6"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T165_P075.wav",
+      "directionIndex": 118,
+      "bytes": 1068,
+      "sha256": "2f016dc4936a26f3fe0b8b6db954f881c61bf90102308ea3552aa1f8392008e6"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T165_P090.wav",
+      "directionIndex": 119,
+      "bytes": 1068,
+      "sha256": "2f016dc4936a26f3fe0b8b6db954f881c61bf90102308ea3552aa1f8392008e6"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T180_P315.wav",
+      "directionIndex": 120,
+      "bytes": 1068,
+      "sha256": "4a4be7c801c6e52a1c00b93fdc2082fa6d1aa79417be2612d6b24509588fc595"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T180_P330.wav",
+      "directionIndex": 121,
+      "bytes": 1068,
+      "sha256": "33c3b03ea036e25317d9bb435c7e8f86ac4de47fa6d889f0065189f2c2d0f8a8"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T180_P345.wav",
+      "directionIndex": 122,
+      "bytes": 1068,
+      "sha256": "ea443e259482fff473ed65abbe49597f6e3bc38e06ee6356f4a57028bbf8ef4d"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T180_P000.wav",
+      "directionIndex": 123,
+      "bytes": 1068,
+      "sha256": "fb747c3f053fc5bbb16bd1a81e39f51918bf59ab3395521a9033daf01b83c978"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T180_P015.wav",
+      "directionIndex": 124,
+      "bytes": 1068,
+      "sha256": "4208e635ce6ef6c1f298bb48f980a79f2e5cafd41226c81211091ae8029d3359"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T180_P030.wav",
+      "directionIndex": 125,
+      "bytes": 1068,
+      "sha256": "ed025fe6dda50c9d9504dcadaa73a38499c4d643f0f97a3515cba8fae3192526"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T180_P045.wav",
+      "directionIndex": 126,
+      "bytes": 1068,
+      "sha256": "dcce147f316aac5ac8fe4c09b97aa2bcbe216cc82eba1a1f51ef21b445abab84"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T180_P060.wav",
+      "directionIndex": 127,
+      "bytes": 1068,
+      "sha256": "0a12bddc0becfbb1238acc5c134fc83a68a3145d2605e03c71b17943e7472f18"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T180_P075.wav",
+      "directionIndex": 128,
+      "bytes": 1068,
+      "sha256": "3dc90b2865a77f660eadc19bc52a62b006217ea86da840789acb8f0ae7c13f3c"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T180_P090.wav",
+      "directionIndex": 129,
+      "bytes": 1068,
+      "sha256": "3dc90b2865a77f660eadc19bc52a62b006217ea86da840789acb8f0ae7c13f3c"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T195_P315.wav",
+      "directionIndex": 130,
+      "bytes": 1068,
+      "sha256": "aac5aeaea1fac9b19f2119a6fa66fd2ed4e4a1909925776a08fc2f8584b77a21"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T195_P330.wav",
+      "directionIndex": 131,
+      "bytes": 1068,
+      "sha256": "ef5eab112a5bdb9caeab832d42cf9676511a090fba95c9e29e411f5b10119b90"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T195_P345.wav",
+      "directionIndex": 132,
+      "bytes": 1068,
+      "sha256": "ebf6cc23fafda063cdc67a9032e657c0d248846bc2f3221fe58bb53f80d6ffe5"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T195_P000.wav",
+      "directionIndex": 133,
+      "bytes": 1068,
+      "sha256": "11747c0b77166b51613bfb7bd62ddb975f3b90b764b725eb036b364c2b72872e"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T195_P015.wav",
+      "directionIndex": 134,
+      "bytes": 1068,
+      "sha256": "0cb7b551bec312dfa9b10c1c630f383c1aa3ac2d6f0657c49e765454d4af7376"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T195_P030.wav",
+      "directionIndex": 135,
+      "bytes": 1068,
+      "sha256": "848270cb478affd611b617f8240bcb15987f31920a7fe61f26d21e6a596b70df"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T195_P045.wav",
+      "directionIndex": 136,
+      "bytes": 1068,
+      "sha256": "994821f58bd41a4149a65f9ff669e64ff9e27f6d768839e8547e41b8393cf4d0"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T195_P060.wav",
+      "directionIndex": 137,
+      "bytes": 1068,
+      "sha256": "994821f58bd41a4149a65f9ff669e64ff9e27f6d768839e8547e41b8393cf4d0"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T195_P075.wav",
+      "directionIndex": 138,
+      "bytes": 1068,
+      "sha256": "994821f58bd41a4149a65f9ff669e64ff9e27f6d768839e8547e41b8393cf4d0"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T195_P090.wav",
+      "directionIndex": 139,
+      "bytes": 1068,
+      "sha256": "994821f58bd41a4149a65f9ff669e64ff9e27f6d768839e8547e41b8393cf4d0"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T210_P315.wav",
+      "directionIndex": 140,
+      "bytes": 1068,
+      "sha256": "7ada291343875ee898a0ce344432506c6eec6def1f4459e70fa3e131e727184a"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T210_P330.wav",
+      "directionIndex": 141,
+      "bytes": 1068,
+      "sha256": "01467365227fa4b1e08ef2732d13ea4de8e2a07c7298de480f18729054f7e472"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T210_P345.wav",
+      "directionIndex": 142,
+      "bytes": 1068,
+      "sha256": "feb5c0a5d680fd563e4e7be624c8a836b470d75061ed192d5a4339ad7106e967"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T210_P000.wav",
+      "directionIndex": 143,
+      "bytes": 1068,
+      "sha256": "c54d4a87513156206e10c27e4f07182ec98e27703edb22ae7d4aaf3a5c96704b"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T210_P015.wav",
+      "directionIndex": 144,
+      "bytes": 1068,
+      "sha256": "6329adbc8ccf5a92ab82850ed60662b226c8a4a903e996dd333fdc2d4e5b71e3"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T210_P030.wav",
+      "directionIndex": 145,
+      "bytes": 1068,
+      "sha256": "16aa1182b4588fd87b05ee4d63094f1fc94a44e1046346127347e04fc49f7175"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T210_P045.wav",
+      "directionIndex": 146,
+      "bytes": 1068,
+      "sha256": "16b64bab7e90cb08382baf0afd7d32ba9727d5b570b612c43253ec7468acdb8a"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T210_P060.wav",
+      "directionIndex": 147,
+      "bytes": 1068,
+      "sha256": "c5ae8e43d18d05c1289260116c74876f03c70c882c2f15746b4e79a0368de15d"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T210_P075.wav",
+      "directionIndex": 148,
+      "bytes": 1068,
+      "sha256": "c5ae8e43d18d05c1289260116c74876f03c70c882c2f15746b4e79a0368de15d"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T210_P090.wav",
+      "directionIndex": 149,
+      "bytes": 1068,
+      "sha256": "c5ae8e43d18d05c1289260116c74876f03c70c882c2f15746b4e79a0368de15d"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T225_P315.wav",
+      "directionIndex": 150,
+      "bytes": 1068,
+      "sha256": "a03834bb2738a6b8ba067cc02e4081397de7ade20523ff21a065cc10ad2d7ece"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T225_P330.wav",
+      "directionIndex": 151,
+      "bytes": 1068,
+      "sha256": "564e437047fb32c42de18b1fe316fc95a87750a22e959bc8acdaf7fabc77165a"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T225_P345.wav",
+      "directionIndex": 152,
+      "bytes": 1068,
+      "sha256": "00535d7a04d925f0f63e2fcb44105d763a73b40e0952ab944fe3850b61cc00bf"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T225_P000.wav",
+      "directionIndex": 153,
+      "bytes": 1068,
+      "sha256": "8eeb1de40e78cd6eadf2b04ade30ea428e1296ea7da2d6f8c132d5ae757625f2"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T225_P015.wav",
+      "directionIndex": 154,
+      "bytes": 1068,
+      "sha256": "a5a9bccf76de1b9190261460f4e73173c0f3b41327aa81125938e3f546540417"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T225_P030.wav",
+      "directionIndex": 155,
+      "bytes": 1068,
+      "sha256": "50f8a875cc38beaf695ae7594e5ff27ff8edcb0dd26058025197dbccb56aa8e2"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T225_P045.wav",
+      "directionIndex": 156,
+      "bytes": 1068,
+      "sha256": "2c80b3ac2269fa2cf4f32b4769ac356fbdea542f7e101e4d74cd08f8be372c93"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T225_P060.wav",
+      "directionIndex": 157,
+      "bytes": 1068,
+      "sha256": "2c80b3ac2269fa2cf4f32b4769ac356fbdea542f7e101e4d74cd08f8be372c93"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T225_P075.wav",
+      "directionIndex": 158,
+      "bytes": 1068,
+      "sha256": "2c80b3ac2269fa2cf4f32b4769ac356fbdea542f7e101e4d74cd08f8be372c93"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T225_P090.wav",
+      "directionIndex": 159,
+      "bytes": 1068,
+      "sha256": "2c80b3ac2269fa2cf4f32b4769ac356fbdea542f7e101e4d74cd08f8be372c93"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T240_P315.wav",
+      "directionIndex": 160,
+      "bytes": 1068,
+      "sha256": "61efd354422d68059d8d8db630e1dbfd5094e23d5568a5206749837e9fe9df30"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T240_P330.wav",
+      "directionIndex": 161,
+      "bytes": 1068,
+      "sha256": "f7bc84123fe9d2bf23fa44fbea897f368ac9dc2983cf8f876fd0d527ed21f61c"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T240_P345.wav",
+      "directionIndex": 162,
+      "bytes": 1068,
+      "sha256": "f50c12f83f49d8aa0c179a05c364ec20692cc73269ada7186597687461215b39"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T240_P000.wav",
+      "directionIndex": 163,
+      "bytes": 1068,
+      "sha256": "e5b2cca5d412c5be61590009e113abbe1da39e88475c64fc70c1f5f5273f58d4"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T240_P015.wav",
+      "directionIndex": 164,
+      "bytes": 1068,
+      "sha256": "9b0453ba996e7bddc96e8847131db172001f384289de96d7b78be9f23fceed7c"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T240_P030.wav",
+      "directionIndex": 165,
+      "bytes": 1068,
+      "sha256": "f4b932c91ea9a9c1eb0bb05f64aeb06cbddacd9effeff3ec511d56da1f73667a"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T240_P045.wav",
+      "directionIndex": 166,
+      "bytes": 1068,
+      "sha256": "edea69bac5dac87ccc4091b8f8564b8bfed9f381edea9e02622ffce5eec795ba"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T240_P060.wav",
+      "directionIndex": 167,
+      "bytes": 1068,
+      "sha256": "17e445851b76c3a0c201e3fe6b00b82e98e83d85755e02cbabc8583e1bad0a3d"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T240_P075.wav",
+      "directionIndex": 168,
+      "bytes": 1068,
+      "sha256": "e9d59c9ebb90c23d1f78184e0aad654743c0fb93ce0d6af9ea47dbff8d611143"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T240_P090.wav",
+      "directionIndex": 169,
+      "bytes": 1068,
+      "sha256": "e9d59c9ebb90c23d1f78184e0aad654743c0fb93ce0d6af9ea47dbff8d611143"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T255_P315.wav",
+      "directionIndex": 170,
+      "bytes": 1068,
+      "sha256": "c49dc5e5bebee23ae3dd6736fdfee0b7b5fdc3a3485fae5aa9d10d7d8c61569b"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T255_P330.wav",
+      "directionIndex": 171,
+      "bytes": 1068,
+      "sha256": "1c40849cf1b3f9625de953637a2cce61092131baf078e864f206a3fe8a5d3ac1"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T255_P345.wav",
+      "directionIndex": 172,
+      "bytes": 1068,
+      "sha256": "e3d9d286ac13ff1e5f783cead9be58a500293a6f1793f41d229ae50cefb43777"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T255_P000.wav",
+      "directionIndex": 173,
+      "bytes": 1068,
+      "sha256": "bc462bf0dd8aa0d041d14f1021030ac76ebd95476982c13d82f818482f93d032"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T255_P015.wav",
+      "directionIndex": 174,
+      "bytes": 1068,
+      "sha256": "cb774a6c75b1670ccd11720770157960287847fe08989a5380aa1aaf74d4d2a2"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T255_P030.wav",
+      "directionIndex": 175,
+      "bytes": 1068,
+      "sha256": "401058e800561033e1eec59fac549f7d8001aa4634a8895b9ed7a342b2624f3a"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T255_P045.wav",
+      "directionIndex": 176,
+      "bytes": 1068,
+      "sha256": "5e19a3873a34d3b9732a5759a75fe2c9a2a28c78783ea5affe3447c650e99f35"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T255_P060.wav",
+      "directionIndex": 177,
+      "bytes": 1068,
+      "sha256": "5e19a3873a34d3b9732a5759a75fe2c9a2a28c78783ea5affe3447c650e99f35"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T255_P075.wav",
+      "directionIndex": 178,
+      "bytes": 1068,
+      "sha256": "5e19a3873a34d3b9732a5759a75fe2c9a2a28c78783ea5affe3447c650e99f35"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T255_P090.wav",
+      "directionIndex": 179,
+      "bytes": 1068,
+      "sha256": "5e19a3873a34d3b9732a5759a75fe2c9a2a28c78783ea5affe3447c650e99f35"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T270_P315.wav",
+      "directionIndex": 180,
+      "bytes": 1068,
+      "sha256": "b60c5dd9074a70b4d240125608d8d3e9798d84474a0f36c07378e863165a2f29"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T270_P330.wav",
+      "directionIndex": 181,
+      "bytes": 1068,
+      "sha256": "a3883152932fde272bafd2be050e96fcd5195d3d452a0a4188f6feab630919bd"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T270_P345.wav",
+      "directionIndex": 182,
+      "bytes": 1068,
+      "sha256": "17797e44237fcbef3fadab86fca260937ea89d56ca6cab3b00fb3578b74293c0"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T270_P000.wav",
+      "directionIndex": 183,
+      "bytes": 1068,
+      "sha256": "98e203c2a9dbf1887fe1cdc66fe4c11bc4b32f6c2a38c864f1ea363071de059f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T270_P015.wav",
+      "directionIndex": 184,
+      "bytes": 1068,
+      "sha256": "104ee1a7affaed39e8f9576f031eef40a75de1547c7e26885e992ebf73e7a4d5"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T270_P030.wav",
+      "directionIndex": 185,
+      "bytes": 1068,
+      "sha256": "b4ba0bc2608487d642b80614c009247893a390715299942649b90640dbd2d553"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T270_P045.wav",
+      "directionIndex": 186,
+      "bytes": 1068,
+      "sha256": "b5660aa6d6ab2adcea71c7a73de6b8005824da91b8d7c65b4ec51ad2afc101d8"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T270_P060.wav",
+      "directionIndex": 187,
+      "bytes": 1068,
+      "sha256": "e3c4341e586160d6493b172caae8fdec3a3a00dd3c1a7631df45ac7c34d1becf"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T270_P075.wav",
+      "directionIndex": 188,
+      "bytes": 1068,
+      "sha256": "e3c4341e586160d6493b172caae8fdec3a3a00dd3c1a7631df45ac7c34d1becf"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T270_P090.wav",
+      "directionIndex": 189,
+      "bytes": 1068,
+      "sha256": "e3c4341e586160d6493b172caae8fdec3a3a00dd3c1a7631df45ac7c34d1becf"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T285_P315.wav",
+      "directionIndex": 190,
+      "bytes": 1068,
+      "sha256": "9942ce1a886e3cfc8f28062ae85d9667d26d77f1900b4517fcd15adc929b50a3"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T285_P330.wav",
+      "directionIndex": 191,
+      "bytes": 1068,
+      "sha256": "305f904591c3c1949360146cfd19b7da87cdf67ffd008014718d9c8b72a5d820"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T285_P345.wav",
+      "directionIndex": 192,
+      "bytes": 1068,
+      "sha256": "ae98a5dd0824d170715c6274dcfd92b2b2577d4bf8310415806c62c4994809a6"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T285_P000.wav",
+      "directionIndex": 193,
+      "bytes": 1068,
+      "sha256": "1abed41bc5ae24bbb06ccacdb5cbd3a7480f817e2885a79adcf40a4b289f2c65"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T285_P015.wav",
+      "directionIndex": 194,
+      "bytes": 1068,
+      "sha256": "38ab45368165ad5850ff5495d38faa4146230b071eb33acdda9a9737fb8e2307"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T285_P030.wav",
+      "directionIndex": 195,
+      "bytes": 1068,
+      "sha256": "e19383c47bb1ecdd9906168722ccac9211d4e8d97aa5b908118039a713805ce8"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T285_P045.wav",
+      "directionIndex": 196,
+      "bytes": 1068,
+      "sha256": "0323b55e0d6c923f7bd7fce26b96e5a121432aaf0273dc6d60cf85d7a3d57610"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T285_P060.wav",
+      "directionIndex": 197,
+      "bytes": 1068,
+      "sha256": "0323b55e0d6c923f7bd7fce26b96e5a121432aaf0273dc6d60cf85d7a3d57610"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T285_P075.wav",
+      "directionIndex": 198,
+      "bytes": 1068,
+      "sha256": "0323b55e0d6c923f7bd7fce26b96e5a121432aaf0273dc6d60cf85d7a3d57610"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T285_P090.wav",
+      "directionIndex": 199,
+      "bytes": 1068,
+      "sha256": "0323b55e0d6c923f7bd7fce26b96e5a121432aaf0273dc6d60cf85d7a3d57610"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T300_P315.wav",
+      "directionIndex": 200,
+      "bytes": 1068,
+      "sha256": "17a839ed51131e81bcc3565eb95276d4cf57a47edd29da414739b89ac79db94d"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T300_P330.wav",
+      "directionIndex": 201,
+      "bytes": 1068,
+      "sha256": "e2468ed39028354f26cabab2710553282bf5e521b4f8f43e3400996942cb2cbc"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T300_P345.wav",
+      "directionIndex": 202,
+      "bytes": 1068,
+      "sha256": "d1266a3afa2399044086329bca0c79d5478179ae8c29ea407b7aa4d8dff6e055"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T300_P000.wav",
+      "directionIndex": 203,
+      "bytes": 1068,
+      "sha256": "adec4a9c180d093b2316cd852e20e23c6eba484a0601a11f206f0f08fa5d45f0"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T300_P015.wav",
+      "directionIndex": 204,
+      "bytes": 1068,
+      "sha256": "acdeb91e55edbde7e2f4ce4649671eb9366ab9d133e43a53ae5fa1e68d7fe234"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T300_P030.wav",
+      "directionIndex": 205,
+      "bytes": 1068,
+      "sha256": "46d5565fcf7534b7250026a6aa269f814b85ebe3570b34426477010389a1dde9"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T300_P045.wav",
+      "directionIndex": 206,
+      "bytes": 1068,
+      "sha256": "7d530f31934db9d43afe88edf1e12e5ce93176881240919f547a6e08bbb94680"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T300_P060.wav",
+      "directionIndex": 207,
+      "bytes": 1068,
+      "sha256": "6d44af452e4d2ee73f144df82bbafaee628481996aac05a39e30a421dc1ac51d"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T300_P075.wav",
+      "directionIndex": 208,
+      "bytes": 1068,
+      "sha256": "02d8a80c03324ab110e406f3ade0f86e421317a152894d74e59bb9c6ac8f058f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T300_P090.wav",
+      "directionIndex": 209,
+      "bytes": 1068,
+      "sha256": "02d8a80c03324ab110e406f3ade0f86e421317a152894d74e59bb9c6ac8f058f"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T315_P315.wav",
+      "directionIndex": 210,
+      "bytes": 1068,
+      "sha256": "16415ab23be73b449186bd335bdaead031a70a221a73a4bfad412e56859855cd"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T315_P330.wav",
+      "directionIndex": 211,
+      "bytes": 1068,
+      "sha256": "783803f15e32026f6d8e8de04b63c6e42a4ded34d2909cbf797bed74d68891f4"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T315_P345.wav",
+      "directionIndex": 212,
+      "bytes": 1068,
+      "sha256": "d671d8917f77d7f689c11d44aea9a2e9e7f8a75e609dd29cc1a7f552fc611897"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T315_P000.wav",
+      "directionIndex": 213,
+      "bytes": 1068,
+      "sha256": "9bfb445683df1ea24150353032807bf2ce24e50d659f637646cc26e8ef57d4ec"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T315_P015.wav",
+      "directionIndex": 214,
+      "bytes": 1068,
+      "sha256": "543eb709712e1b1ded15776f9a8094a3db758c918e8681f3fec64f1ffb63ba53"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T315_P030.wav",
+      "directionIndex": 215,
+      "bytes": 1068,
+      "sha256": "a7dd3f2ea5811a3a5f4809a1a0d7f1b6ae9416e869c05d83eabe938ef8dd73dc"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T315_P045.wav",
+      "directionIndex": 216,
+      "bytes": 1068,
+      "sha256": "53905ff8c7d3bc315b2550b4c5e0e8f4b69d78bcb2134c138b8cc4d647956552"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T315_P060.wav",
+      "directionIndex": 217,
+      "bytes": 1068,
+      "sha256": "53905ff8c7d3bc315b2550b4c5e0e8f4b69d78bcb2134c138b8cc4d647956552"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T315_P075.wav",
+      "directionIndex": 218,
+      "bytes": 1068,
+      "sha256": "53905ff8c7d3bc315b2550b4c5e0e8f4b69d78bcb2134c138b8cc4d647956552"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T315_P090.wav",
+      "directionIndex": 219,
+      "bytes": 1068,
+      "sha256": "53905ff8c7d3bc315b2550b4c5e0e8f4b69d78bcb2134c138b8cc4d647956552"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T330_P315.wav",
+      "directionIndex": 220,
+      "bytes": 1068,
+      "sha256": "bdbad5056e039b7c1192c796db983f125d89d394e4544f598a41da7efb982670"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T330_P330.wav",
+      "directionIndex": 221,
+      "bytes": 1068,
+      "sha256": "953fcf5dbce681c52fd8de234cf1a7bb191993e87556f345cd768417d7c2d8e5"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T330_P345.wav",
+      "directionIndex": 222,
+      "bytes": 1068,
+      "sha256": "62ff0412975d68cc579ce6008a7a0562a30a7f32e9b0880be92b0631662dbb2e"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T330_P000.wav",
+      "directionIndex": 223,
+      "bytes": 1068,
+      "sha256": "7edcf45451296b1eca656c5356653e9f7d6af7184885a70323ba7fe627046c59"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T330_P015.wav",
+      "directionIndex": 224,
+      "bytes": 1068,
+      "sha256": "b9f8bc62146fc61e7423a10d5f4f62df8668c38c5ac14443f703ea8ba450b066"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T330_P030.wav",
+      "directionIndex": 225,
+      "bytes": 1068,
+      "sha256": "37a553d17cb6213101cca5b79638b56ad091f5a96e898dcf729fdef15ca4bfa6"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T330_P045.wav",
+      "directionIndex": 226,
+      "bytes": 1068,
+      "sha256": "b97828bfa7bd37d3ab1df26c2eea1acd9f43067b988a18d7094d36ad8bfd36b3"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T330_P060.wav",
+      "directionIndex": 227,
+      "bytes": 1068,
+      "sha256": "296e885955d09e290f6a59c40dc2082026ef33a67b85e093ddb5a99e3a7d55f8"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T330_P075.wav",
+      "directionIndex": 228,
+      "bytes": 1068,
+      "sha256": "296e885955d09e290f6a59c40dc2082026ef33a67b85e093ddb5a99e3a7d55f8"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T330_P090.wav",
+      "directionIndex": 229,
+      "bytes": 1068,
+      "sha256": "296e885955d09e290f6a59c40dc2082026ef33a67b85e093ddb5a99e3a7d55f8"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T345_P315.wav",
+      "directionIndex": 230,
+      "bytes": 1068,
+      "sha256": "d7385ce8cfde072795d8b9b840be5f87426b9fcf7a8b9dfa1cd83beab471c2e1"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T345_P330.wav",
+      "directionIndex": 231,
+      "bytes": 1068,
+      "sha256": "4c9c3ab8809b7d29cd78c97ba96cc9c4f033e30f60a26247ee8e2a7b9bf14dde"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T345_P345.wav",
+      "directionIndex": 232,
+      "bytes": 1068,
+      "sha256": "fb63e523cca2d43d05e95d931718447d2c9d2aaf3166377289fb22da3cbaf095"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T345_P000.wav",
+      "directionIndex": 233,
+      "bytes": 1068,
+      "sha256": "356a388e29d55daa575468f7011f3bfebaec0f9662513e579d9ede7191b7d8f3"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T345_P015.wav",
+      "directionIndex": 234,
+      "bytes": 1068,
+      "sha256": "3fd9df1ae3a48265cf6ed77ac0306155355a17d18363029f67ce329bbd0698d6"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T345_P030.wav",
+      "directionIndex": 235,
+      "bytes": 1068,
+      "sha256": "1b5fb58fc865c0583209a2e08643392f6335dbb202a39508dfa85b2f701c1d24"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T345_P045.wav",
+      "directionIndex": 236,
+      "bytes": 1068,
+      "sha256": "6c9787b86d35b68c06965762866fef02e3e0adb6935b57fb3d4283fb28e3e01a"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T345_P060.wav",
+      "directionIndex": 237,
+      "bytes": 1068,
+      "sha256": "6c9787b86d35b68c06965762866fef02e3e0adb6935b57fb3d4283fb28e3e01a"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T345_P075.wav",
+      "directionIndex": 238,
+      "bytes": 1068,
+      "sha256": "6c9787b86d35b68c06965762866fef02e3e0adb6935b57fb3d4283fb28e3e01a"
+    },
+    {
+      "name": "IRC_Composite_C_R0195_T345_P090.wav",
+      "directionIndex": 239,
+      "bytes": 1068,
+      "sha256": "6c9787b86d35b68c06965762866fef02e3e0adb6935b57fb3d4283fb28e3e01a"
+    }
+  ],
+  "blob": {
+    "path": "src/plugins/audio/runtime/wasm/myco_hrir.bin",
+    "bytes": 247696,
+    "sha256": "fe530cffc1dd11a9e3ae85350e5cc3840c01a490112b6a807e901d4fa04d1064"
+  },
+  "peak": {
+    "rawWavAbs": 0.88873291015625,
+    "delayRemovedAbs": 0.8351528146038705,
+    "blobAbs": 0.83514404296875
+  },
+  "scaling": {
+    "factor": 1,
+    "rule": "1.0 unless the delay-removed peak exceeds 1.0; then every IR is scaled by 0.999 / peak before quantising"
+  },
+  "delayRemoval": "extractAverageGroupDelay (kernel.rs port), f64, 256-point FFT, 20-frame headroom; quantise = round(x * 32768) clamped"
+}

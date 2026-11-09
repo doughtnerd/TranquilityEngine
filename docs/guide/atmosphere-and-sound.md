@@ -43,3 +43,5 @@ Audio.playOneShot("sfx/cannon.wav", { position: ship.worldPosition, volume: 0.8,
 ```
 
 Only the World that has the view plays sound. Clips imported with `stream` (HTML5 audio) can't be spatial; they play flat with a warning.
+
+3D sound over headphones uses the IRCAM Listen HRTF database (IRC_Composite_C, Copyright 2002 IRCAM). We thank IRCAM for making it available.

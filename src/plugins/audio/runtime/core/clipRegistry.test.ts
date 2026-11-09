@@ -264,3 +264,64 @@ describe("clipRegistry (A1.3a)", () => {
     expect(makeClipId(CLIP_INDEX_LIMIT, 0xff)).toBe(0xffff0000);
   });
 });
+
+describe("clipRegistry acquireReserved (H2)", () => {
+  const ID = 0xffff0000;
+  const blob = (n: number) => new Uint8Array(n).map((_, i) => i & 0xff).buffer;
+
+  it("accepts only reserved ids and even-length format 2 blobs", () => {
+    const h = harness();
+    expect(() => h.registry.acquireReserved(5, { bytes: blob(8), sampleRate: 48_000, format: 2 })).toThrow();
+    expect(() => h.registry.acquireReserved(0xffff0100, { bytes: blob(8), sampleRate: 48_000, format: 2 })).toThrow();
+    expect(() => h.registry.acquireReserved(ID, { bytes: blob(7), sampleRate: 48_000, format: 2 })).toThrow();
+    expect(h.sent).toHaveLength(0);
+  });
+
+  it("sends CLIP_BEGIN format 2 then paced chunks that carry the blob, without fetch or decode", () => {
+    const h = harness();
+    const bytes = blob(600_000);
+    h.registry.acquireReserved(ID, { bytes, sampleRate: 48_000, format: 2 });
+    expect(h.fetchBytes).not.toHaveBeenCalled();
+    expect(h.decode).not.toHaveBeenCalled();
+    expect(readClipBegin(new DataView(h.sent[0]!), 0)).toEqual({ clipId: ID, frames: 300_000, channels: 1, sampleRate: 48_000, format: ClipFormat.HRIR });
+    expect(h.registry.state(ID)).toBe("copying");
+    const received = new Uint8Array(600_000);
+    for (let tick = 0; tick < 10 && h.quantumQueue.length > 0; tick++) {
+      const before = h.sent.length;
+      h.runQuantum();
+      for (const m of h.sent.slice(before)) {
+        expect(h.kind(m)).toBe(Kind.CLIP_CHUNK);
+        const c = readClipChunk(new DataView(m), 0);
+        expect(c.clipId).toBe(ID);
+        received.set(new Uint8Array(m, 16 + 16, c.frames * 2), c.frameOffset * 2);
+      }
+    }
+    expect(Buffer.from(received).equals(Buffer.from(bytes))).toBe(true);
+  });
+
+  it("completes on hrtfReady, is listed for re-send once ready, and is not counted in the ceiling", async () => {
+    const h = harness({ ceilingBytes: 1_000_000 }, { frames: 100_000 });
+    h.registry.acquireReserved(ID, { bytes: blob(900_000), sampleRate: 48_000, format: 2 });
+    const listener = vi.fn();
+    h.registry.onResident(ID, listener);
+    expect(h.registry.residentIds()).not.toContain(ID);
+    h.registry.applyClipEvent(ID, ClipEvent.HrtfReady);
+    expect(h.registry.state(ID)).toBe("ready");
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(h.registry.residentIds()).toContain(ID);
+    expect(h.registry.info(ID)?.bytes).toBe(0);
+    const id = h.registry.acquire("a.wav");
+    await settle();
+    expect(h.registry.state(id)).toBe("copying");
+  });
+
+  it("release sends CLIP_UNLOAD and forgets it; a second acquire for a held id is ignored", () => {
+    const h = harness();
+    h.registry.acquireReserved(ID, { bytes: blob(64), sampleRate: 48_000, format: 2 });
+    h.registry.acquireReserved(ID, { bytes: blob(64), sampleRate: 48_000, format: 2 });
+    expect(h.sent.filter((m) => h.kind(m) === Kind.CLIP_BEGIN)).toHaveLength(1);
+    h.registry.release(ID);
+    expect(h.kind(h.sent[h.sent.length - 1]!)).toBe(Kind.CLIP_UNLOAD);
+    expect(h.registry.state(ID)).toBe("idle");
+  });
+});
