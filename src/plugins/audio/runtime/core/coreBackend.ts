@@ -11,14 +11,13 @@
 // Until A3.1 (selection) every voice is mixed. Spatial voices get their listener-space direction and distance gain
 // here (A1.5's `spatial.ts`); A3.1 moves that into the per-frame selection.
 //
-// A1.6 adds `volume, pitch, priority, oneShot, at, attenuation, position` to `PlayRequest` and `id, reason, fade,
-// setPriority, stop(fadeSeconds)` to `AudioVoice` (§6); until then `CorePlayRequest` and `CoreVoice` carry them as
-// optional extras, so this class implements today's `AudioBackend` and A1.6's change is a rename.
+// A1.6 added `volume, pitch, priority, oneShot, at, attenuation, position` to `PlayRequest` and `id, reason, fade,
+// setPriority, stop(fadeSeconds)` to `AudioVoice` (§6). `CorePlayRequest` and `CoreVoice` keep only what the core adds.
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import type { BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioVoice, ListenerPose, PlayRequest } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioStatus, AudioVoice, ListenerPose, PlayRequest } from "../backend";
 import {
   BUS_LP_OFF_HZ,
   BUS_ROOT,
@@ -47,21 +46,13 @@ import { DistanceEffect, listenerSpaceDirection, type Vec3 } from "./spatial";
 import { StatusReader } from "./statusReader";
 import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
 
-/** §1 `OneShotOptions`, as `PlayRequest` will carry them (A1.6). */
+/** `PlayRequest` plus the core's World key. */
 export interface CorePlayRequest extends PlayRequest {
-  volume?: number;
-  pitch?: number;
-  priority?: number;
-  oneShot?: boolean;
-  /** Start at this audio-clock time (seconds, `Audio.time`'s base). Past, non-finite or omitted: as soon as possible. */
-  at?: number;
-  attenuation?: Attenuation;
-  position?: Vec3Like;
   /** The World key of the playing World (0 or omitted: none). */
   world?: number;
 }
 
-/** One voice as `AudioVoice` (today's members) plus §6's additions. */
+/** One voice as `AudioVoice`, with §6's optional members required, plus the handle. */
 export interface CoreVoice extends AudioVoice {
   readonly id: number;
   readonly reason: AudioReason | null;
@@ -197,8 +188,20 @@ export class CoreBackend implements AudioBackend {
   }
 
   /** §1 `Audio.status`. */
-  get status(): "locked" | "running" | "failed" {
+  get status(): AudioStatus {
     return this.host.status;
+  }
+
+  private background: AudioBackground = "mute";
+
+  /** §6 `setBackground`: what the host does when the page is hidden. A3.4b acts on it; until then it is kept for `debug()`. */
+  setBackground(mode: AudioBackground): void {
+    this.background = mode;
+  }
+
+  /** @internal The mode last set. */
+  get backgroundMode(): AudioBackground {
+    return this.background;
   }
 
   /** The bus names by index (root first), as last configured. */

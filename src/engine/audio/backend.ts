@@ -12,6 +12,38 @@ import type { AudioSettings } from "./settings";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
 
+/** Why a sound isn't audible right now; null while it is (api-and-models §1). */
+export type AudioReason = "virtual" | "stolen" | "busMuted" | "locked" | "failed" | "waitingForData";
+/** `Audio.status` (§1). */
+export type AudioStatus = "locked" | "running" | "failed";
+/** `audio.background` (§2): what the host does when the page is hidden. */
+export type AudioBackground = "mute" | "pause" | "play";
+
+/** One sound started with `Audio.playOneShot` (§1). A value, safe to keep: once the voice ends or its slot is reused, every call is a no-op. */
+export interface AudioHandle {
+  /** True from the call to `playOneShot` until the sound ends or is stopped. Virtual, bus-muted, locked and waiting-for-data sounds are playing (they exist and keep time). Stolen and failed sounds are not. Natural ends are seen up to one frame late. */
+  readonly playing: boolean;
+  /** Why it isn't audible (while `playing`) or why it ended early ("stolen", "failed"); null when audible, or finished or stopped normally. */
+  readonly reason: AudioReason | null;
+  /** Stop now, or fade to silence over `fadeSeconds` (default 0) and stop. A second call is a no-op. */
+  stop(fadeSeconds?: number): void;
+  /** Ease this sound's own gain multiplier to `to` (linear, 0..4) over `seconds` (0 = at once). */
+  fade(to: number, seconds: number): void;
+}
+
+/** A copy of the audio state for tools and "why is there no sound?" (§1, architecture §8). */
+export interface AudioDebugInfo {
+  status: AudioStatus;
+  sampleRate: number;
+  time: number;
+  background: AudioBackground;
+  counters: { underruns: number; lateCommands: number; minSlackFrames: number; workUnits: number; workUnitsMax: number; mixedVoices: number; mixedCap: number; logicalVoices: number; queuedPlays: number; droppedPlays: number; traps: number; refusedLoads: number; hrtfVoices: number; hrtfLoadFailure: number };
+  buses: { name: string; gain: number; effectiveGain: number; peakL: number; peakR: number; voices: number; maxVoices: number | null }[];
+  voices: { id: number; clip: string; bus: string; world: string | null; state: "playing" | "virtual" | "stolen" | "waitingForData" | "busMuted" | "locked"; priority: number; gain: number; pitch: number; audibility: number; playheadSeconds: number | null; owner: string | null }[];
+  /** Architecture 8: context state, latencies, lookahead, transport, memory and health groups. */
+  core: Record<string, number | string | boolean>;
+}
+
 export interface Attenuation {
   minDistance: number;
   maxDistance: number;
@@ -27,11 +59,30 @@ export interface PlayRequest {
   stream: boolean;
   /** Mixer bus name (already resolved to an existing bus). */
   bus: string;
+  /** Linear gain, default 1. (§6; optional so the fakes and tests that build requests keep compiling.) */
+  volume?: number;
+  /** Ratio, default 1. */
+  pitch?: number;
+  /** 0..255, default 128. */
+  priority?: number;
+  /** A fire-and-forget `playOneShot` sound (the locked queue may drop these, D5). */
+  oneShot?: boolean;
+  /** Start at this audio-clock time (seconds, `Audio.time`'s base). Past, non-finite or omitted: as soon as possible. */
+  at?: number;
+  attenuation?: Attenuation;
+  position?: Vec3Like;
 }
 
 /** One playing sound. */
 export interface AudioVoice {
   readonly playing: boolean;
+  /** §6 additions, optional until `testing.ts`'s fake voice implements them (then required). */
+  readonly id?: number;
+  /** Why it isn't audible, or why it ended early (§1); null otherwise. */
+  readonly reason?: AudioReason | null;
+  /** Ease the voice's own gain to `to` (linear, 0..4) over `seconds`. */
+  fade?(to: number, seconds: number): void;
+  setPriority?(priority: number): void;
   setVolume(v: number): void;
   setPitch(rate: number): void;
   setAttenuation(a: Attenuation): void;
@@ -40,7 +91,8 @@ export interface AudioVoice {
   setBus(bus: string): void;
   pause(): void;
   resume(): void;
-  stop(): void;
+  /** Stop now, or fade to silence over `fadeSeconds` (default 0) and stop. */
+  stop(fadeSeconds?: number): void;
 }
 
 export interface ListenerPose {
@@ -60,7 +112,13 @@ export interface AudioBackend {
   configureBuses(mixer: Mixer): void;
   masterVolume: number;
   muted: boolean;
-  /** Per-frame hook. */
+  /** §6 additions, optional until `testing.ts`'s fake backend and `probe.test.ts` implement them (then required). */
+  readonly status?: AudioStatus;
+  /** The heard audio clock, seconds. */
+  readonly time?: number;
+  debug?(): AudioDebugInfo;
+  setBackground?(mode: AudioBackground): void;
+  /** Per-frame hook (required once the fakes catch up). */
   update?(dt: number): void;
   dispose?(): void;
 }

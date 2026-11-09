@@ -10,6 +10,7 @@ import { AUDIO_SERVICE } from "./core/service";
 import { AUDIO_SYSTEMS } from "./audioSystem";
 
 export { Audio, type OneShotOptions } from "./Audio";
+export type { AudioDebugInfo, AudioHandle, AudioReason, AudioStatus } from "./backend";
 export { AudioSource, type Rolloff } from "./AudioSource";
 export { AudioListener } from "./AudioListener";
 export type { Bus } from "../../../engine/audio/mixer";
