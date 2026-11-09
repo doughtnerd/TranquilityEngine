@@ -11,7 +11,11 @@ import { meshesEditorPlugin } from "../plugins/meshes/editor";
 import { postProcessingEditorPlugin } from "../plugins/post-processing/editor";
 import { uiEditorPlugin } from "../plugins/ui/editor";
 import { assetKindsOf, assetListId, assetsForKinds, isHiddenField } from "./assetFieldKinds";
+import { messageLog } from "./messages";
 import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
+import { useCoreAssetKinds } from "./testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 // Sky assets are the Sky plugin's (ADR 0134), its kind `referencedAs` environment; materials and
 // shader graphs are the Materials plugin's, `referencedAs` material.
@@ -89,6 +93,16 @@ describe("assetKindsOf", () => {
     expect(assetKindsOf({ name: "m", type: AssetRef, value: "", options: { kind: "material" } })).toEqual(["material"]);
     expect(assetKindsOf({ name: "m[0]", type: AssetRef, value: "", options: { kind: ["texture", "sprite"] } })).toEqual(["texture", "sprite"]);
     expect(assetKindsOf({ name: "m", type: [AssetRef], value: [], options: { kind: "audio" } })).toEqual(["audio"]);
+  });
+
+  it("keeps a kind outside the engine's own (a plugin's, ADR 0143), and warns once when no asset kind satisfies it", () => {
+    expect(assetKindsOf({ name: "s", type: AssetRef, value: "", options: { kind: "spin" } })).toEqual(["spin"]);
+    const before = messageLog.peek().length;
+    expect(assetsForKinds(["spin"], ["a/x.spin.json"])).toEqual([]);
+    expect(assetsForKinds(["spin"], ["a/x.spin.json"])).toEqual([]);
+    expect(messageLog.peek().slice(before).map((m) => m.kind)).toEqual(["warning"]);
+    expect(assetsForKinds(["lut"], [])).toEqual([]); // the engine's own names never warn: their plugin may be disabled
+    expect(messageLog.peek().length).toBe(before + 1);
   });
 
   it("is empty for an undeclared kind or a field that isn't an asset", () => {

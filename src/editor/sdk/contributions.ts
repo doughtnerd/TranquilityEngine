@@ -13,14 +13,15 @@ import type { OpenScene } from "../state";
 import type { NodeEntry, NodePath, SceneDocument } from "../document";
 import type { GameObject } from "../../engine/scene/GameObject";
 import type { ComponentInfo } from "../../engine/editor";
+import type { ImportSettings } from "../../engine/scene/importSettings";
 
 /** A component loaded on first use (ADR 0083). */
 export type LoadComponent<P extends object> = () => Promise<FunctionComponent<P>>;
 
 /**
- * One type of asset file and how the editor treats it (ADR 0133 "asset kind").
- * Built-in kinds not yet moved to a plugin still live in `assetBrowser.ts`'s tables; a registered
- * kind wins over them.
+ * One type of asset file and how the editor treats it (ADR 0133 "asset kind"). Core kinds (scenes,
+ * prefabs, images, audio, scripts, text…) register through this too, from `assetKinds.builtin.ts`
+ * (ADR 0143); `assetKindLookup.ts` answers every per-kind question from the registered kinds.
  */
 export interface AssetKindContribution {
   /** The kind's id, e.g. "sky". Also what `assetKind(path)` returns. */
@@ -37,7 +38,7 @@ export interface AssetKindContribution {
   readonly inspector?: LoadComponent<{ path: string }>;
   /** An entry in the Assets panel's New… menu. `create` returns the new file's path, or null. */
   readonly create?: { readonly label: string; create(folder: string): Promise<string | null> };
-  /** Policy: the field asset kinds (0131 `@field(AssetRef, { kind })`) that also accept this kind, e.g. sky → ["environment"]. */
+  /** Policy: the field asset kinds (0131 `@field(AssetRef, { kind })`) that accept files of this kind, e.g. sky → ["environment"] (ADR 0143: any name, so a plugin's Components can reference its own kind). */
   readonly referencedAs?: readonly string[];
   /** Which built-in thumbnail renderer draws its preview (internal tier: renderers stay first-party, ADR 0133). */
   readonly preview?: "sky" | "material" | "shadergraph" | "particles" | "environment" | "model" | "prefab" | "scene" | "audio";
@@ -45,6 +46,36 @@ export interface AssetKindContribution {
   readonly codeEditor?: boolean;
   /** Policy (ADR 0133, 0140): what adding a file of this kind to a scene makes (a drop on the Hierarchy or the scene view, the Assets panel's +). */
   readonly addToScene?: AssetSceneNodes;
+  /**
+   * The import settings (ADR 0040) the Inspector edits for a selected file of this kind, stored in its
+   * sidecar `<file>.meta.json` (ADR 0143): images and audio from the shell, models from the Meshes plugin.
+   * Ignored when `inspector` is set.
+   */
+  readonly importSettings?: ImportSettingsContribution;
+}
+
+/** What an import settings view is given: the shell owns the sidecar, the draft, Apply and Revert (ADR 0143). */
+export interface ImportSettingsViewProps {
+  readonly path: string;
+  readonly project: EditorProject;
+  /** The settings being edited (unsaved until Apply). */
+  readonly draft: ImportSettings;
+  /** Merge a change into the draft. */
+  set(patch: Partial<ImportSettings>): void;
+  /** Replace the draft. */
+  replace(next: ImportSettings): void;
+  /** True when the draft differs from the saved sidecar. */
+  readonly dirty: boolean;
+  /** Why the project can't be written, or null. */
+  readonly readOnly: string | null;
+}
+
+/** A kind's import settings in the Inspector, loaded on first use (ADR 0143). */
+export interface ImportSettingsContribution {
+  /** A look at the file above its settings (the image, the model's render, the clip's player). */
+  readonly preview?: LoadComponent<{ path: string }>;
+  /** The rows of the Import Settings card. */
+  readonly view: LoadComponent<ImportSettingsViewProps>;
 }
 
 /** What a file of an asset kind becomes in a scene (ADR 0140): node entries, the first one the root. */
@@ -53,6 +84,11 @@ export interface AssetSceneNodes {
   prepare?(path: string): Promise<void>;
   /** The entries to add, at `position` in the parent's space; the first is the root (selected), the rest its descendants. */
   nodes(doc: SceneDocument, path: string, position?: readonly [number, number, number]): NodeEntry[];
+  /**
+   * Instances keep their own position (ADR 0143: prefabs and scenes): `nodes` gets a position only
+   * when the add places them (a drop on the scene view), not from the Assets panel's +.
+   */
+  readonly keepsOwnPosition?: boolean;
 }
 
 /** A problem found reading an asset file. */

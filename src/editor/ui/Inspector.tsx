@@ -844,7 +844,7 @@ function AssetLists() {
   }, [project, version, scripts, project?.files]);
 }
 
-/** Each combination of several asset kinds a registered component's field declares (`{ kind: ["texture", "rendertexture"] }`). */
+/** Each combination of several asset kinds a registered component's field declares (`{ kind: ["texture", "rendertexture"] }`), and each kind outside the engine's own (a plugin's, ADR 0143). */
 function declaredKindCombinations(): AssetFieldKind[][] {
   const combos: AssetFieldKind[][] = [];
   for (const id of listComponentIds()) {
@@ -854,7 +854,7 @@ function declaredKindCombinations(): AssetFieldKind[][] {
       const item = isListType(f.type) ? f.type[0] : f.type;
       if (item !== AssetRef) continue;
       const kinds = assetKindsOf({ name: f.name, type: f.type, value: undefined, options: f.options });
-      if (kinds.length > 1) combos.push(kinds);
+      if (kinds.length > 1 || (kinds.length === 1 && !(ASSET_FIELD_KINDS as readonly string[]).includes(kinds[0]))) combos.push(kinds);
     }
   }
   return combos;

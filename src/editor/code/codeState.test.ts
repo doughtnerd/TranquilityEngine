@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { assetKind } from "../assetBrowser";
 import { layout, resetLayout } from "../layout/store";
 import { activeScript, closeAllScripts, closeScript, dirtyScripts, openScript, openScripts, scriptFor, setDirty } from "./codeState";
+import { useCoreAssetKinds } from "../testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 beforeEach(() => {
   closeAllScripts();

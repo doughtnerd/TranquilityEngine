@@ -10,6 +10,9 @@ import { inspectableAsset, inspectedAsset, inspectSelectedAsset, showAsset, show
 import { folderPath, resetAssetBrowser, select as selectAssets, selectedAssets } from "./assetSelection";
 import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
 import { select as selectNodes, selectedKeys } from "./state";
+import { useCoreAssetKinds } from "./testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 // Materials and shader graphs have inspectors through the Materials plugin (ADR 0134).
 const PLUGINS = [materialsEditorPlugin, particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin];

@@ -6,17 +6,19 @@ import { assetKind } from "../../editor/assetBrowser";
 import { _reset, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel } from "../../editor/assetKindLookup";
+import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { inspectorSectionsFor, registeredInspectorSections } from "../../editor/ui/inspectorSections";
 import { assetFormats, assetKinds, panelExtensions, projectSettingsSections } from "../../editor/sdk/contributions";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
 import { currentProject } from "../../editor/state";
-import { MemoryFileSystem, ROOT } from "../../editor/testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { navigationEditorPlugin } from "./editor";
 import { navigationRuntimePlugin } from "./runtime";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 const FORMATION = "navigation/wedge.formation.json";
 
@@ -110,7 +112,7 @@ describe("the Navigation plugin's editor half (ADR 0134)", () => {
   it("removes everything when deactivated", () => {
     deactivatePlugin("myco.navigation");
     expect(isPluginActive("myco.navigation")).toBe(false);
-    expect(kindLabel("formation")).toBeUndefined();
+    expect(registeredKind("formation")).toBeUndefined();
     expect(assetFormats.get("formation")).toBeUndefined();
     expect(projectSettingsSections.list()).toEqual([]);
     expect(panelExtensions.list()).toEqual([]);

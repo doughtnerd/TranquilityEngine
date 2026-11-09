@@ -7,7 +7,7 @@ import { assetKind } from "../../editor/assetBrowser";
 import { _reset, assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel } from "../../editor/assetKindLookup";
+import { kindIcon, kindLabel, registeredKind } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
 import { registeredInspectorSections } from "../../editor/ui/inspectorSections";
@@ -18,7 +18,7 @@ import { PAINT_TOOL_ID, PAINT_TOOL_KEYS } from "./editor/paintTool";
 import { brushTool, pickBrushTool } from "./editor/brush";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
 import { activeViewportTool, currentProject, pickTool } from "../../editor/state";
-import { MemoryFileSystem, ROOT } from "../../editor/testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { formatTileset } from "../../editor/tilesetAssets";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS, activateRuntimePlugins, deactivateRuntimePlugin, isRuntimePluginActive } from "../runtime";
@@ -29,6 +29,8 @@ import { parsePolygon } from "./editor/TilesetInspector";
 import { TILEMAPS_SPEC, Tilemap, tilemapsRuntimePlugin } from "./runtime";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { newTileset, type TilesetData } from "./runtime/tileset";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 const TILESET = "tiles/ground.tileset.json";
 
@@ -213,7 +215,7 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
   it("removes everything when deactivated", () => {
     deactivatePlugin("myco.tilemaps");
     expect(isPluginActive("myco.tilemaps")).toBe(false);
-    expect(kindLabel("tileset")).toBeUndefined();
+    expect(registeredKind("tileset")).toBeUndefined();
     expect(assetFormats.get("tileset")).toBeUndefined();
     expect(inspectableAsset(TILESET)).toBeNull(); // a disabled plugin's files show as generic files
   });

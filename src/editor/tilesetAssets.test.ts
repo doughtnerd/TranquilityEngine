@@ -6,7 +6,9 @@ import { assetKind } from "./assetBrowser";
 import { blockStamp } from "../plugins/tilemaps/editor/palette";
 import { joinPath, openFolderProject } from "./projects";
 import { formatTileset, readTileset, splitSprite, tilesetFromSlices, tilesForSlices } from "./tilesetAssets";
-import { MemoryFileSystem, ROOT } from "./testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "./testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 async function projectWithSlices(rects: [number, number, number, number][]) {
   const fs = new MemoryFileSystem();

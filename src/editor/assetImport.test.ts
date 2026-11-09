@@ -14,7 +14,9 @@ import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { replaceScripts } from "./scriptLoader";
 import { currentProject, openScene, sceneCamera, select } from "./state";
-import { MemoryFileSystem, ROOT, demoFolder } from "./testing";
+import { MemoryFileSystem, ROOT, demoFolder, useCoreAssetKinds } from "./testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 let fs: MemoryFileSystem;
 let project: EditorProject;

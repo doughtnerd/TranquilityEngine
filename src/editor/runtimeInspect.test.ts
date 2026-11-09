@@ -11,8 +11,10 @@ import { editorSettings, useProjectAssets, type EditorProject } from "./projects
 import { applyKept, docPathFor, forgetKept, keepComponent, keepNode, kept, liveRows, takeKept } from "./runtimeInspect";
 import { replaceScripts } from "./scriptLoader";
 import { openScene, sceneCamera } from "./state";
-import { sampleProject } from "./testing";
+import { sampleProject, useCoreAssetKinds } from "./testing";
 import { shortcutFor } from "./shortcuts";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 // Inspecting the running game (ADR 0022): mapping live nodes back to the edited document, "Keep
 // values" written on Stop as one undo step, the live tree, and pausing and stepping the session.

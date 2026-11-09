@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { assetKind } from "./assetBrowser";
 import { joinPath, openFolderProject } from "./projects";
 import { readRenderTexture, writeRenderTexture } from "./renderTextureAssets";
-import { MemoryFileSystem, ROOT } from "./testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "./testing";
+
+useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 describe("render texture assets (ADR 0109)", () => {
   it("is its own asset kind, ahead of generic json", () => {

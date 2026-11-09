@@ -1,7 +1,7 @@
 // The Meshes and models plugin's editor half (ADR 0140): the `model` asset kind (OBJ, FBX, glTF):
 // its label, icon and rendered preview, the MeshRenderer fields that take it, and what adding one to a
-// scene makes (the model's node tree, once its meshes have loaded). Its import settings stay in the
-// editor shell's import Inspector, shared with images and audio (ADR 0040), which keys on the id `model`.
+// scene makes (the model's node tree, once its meshes have loaded), and its import settings (scale,
+// up axis, normals, pivots, material slots), which the shell's import Inspector shows (ADR 0040, 0143).
 import { loadModel } from "../../../engine/scene/models";
 import { modelNodeEntries } from "../../../editor/assetBrowser";
 import type { EditorPlugin } from "../../../editor/sdk";
@@ -23,6 +23,10 @@ export const meshesEditorPlugin: EditorPlugin = {
       addToScene: {
         prepare: (path) => loadModel(path).then(() => undefined),
         nodes: (doc, path, position) => modelNodeEntries(doc, path, position),
+      },
+      importSettings: {
+        preview: () => import("../../../editor/ui/AssetPreview").then((m) => m.LargePreview),
+        view: () => import("./ModelImportSettings").then((m) => m.ModelImportSettings),
       },
     });
   },
