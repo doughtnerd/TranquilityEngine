@@ -15,7 +15,6 @@ import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
-import { HDRCubeTexture } from "@babylonjs/core/Materials/Textures/hdrCubeTexture.js";
 import "../prefilterGuard";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix, Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector.js";
@@ -25,7 +24,6 @@ import { parseMaterial, type MaterialSettings } from "../../../scene/material";
 import { parseShaderGraph, type ShaderGraph } from "../../../scene/shaderGraph";
 import type { GraphShared } from "../graphMaterial";
 import { BabylonMaterialLibrary } from "../materialLibrary";
-import { studioHdrUrl } from "../studioEnvironment";
 
 /** What a thumbnail's lights are (the editor's default scene: soft ambient, a sun, the studio room). */
 export const LIGHT_AMBIENT = 0.45;
@@ -71,9 +69,7 @@ export function addPreviewLights(scene: Scene, ambient: number, sun: number): { 
 }
 
 /** The studio room's prefiltered cube, made in `scene` (see {@link useWhenReady}). */
-export function createStudioTexture(scene: Scene): HDRCubeTexture {
-  return new HDRCubeTexture(studioHdrUrl(), scene, 128, false, true, false, true);
-}
+export { createStudioTexture } from "../studioCube";
 
 /**
  * Give `scene` an environment texture once it's ready: prefiltering swaps a cube's GPU texture when it

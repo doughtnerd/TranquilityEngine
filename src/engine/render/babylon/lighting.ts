@@ -39,7 +39,7 @@ const DEFAULT_SUN = new Vector3(-4, -10, -6).normalize();
 
 /** Scratch vector for `fitShadowArea`. */
 const tmpBack = new Vector3();
-import { studioHdrUrl } from "./studioEnvironment";
+import { createStudioTexture } from "./studioCube";
 import { cubemapReady, loadCubemap } from "./sky/cubemaps";
 
 interface LightEntry {
@@ -469,7 +469,7 @@ export class BabylonLighting {
     if (procedural) path = ""; // drawn and baked by the sky (ADR 0112); its bake comes in through `setSkyEnvironment`
     if (path !== (this.envMap?.path ?? "")) this.loadEnvironmentMap(path);
     const map = procedural ? this.skyEnvironment : this.envMap?.texture && cubemapReady(this.envMap.texture) ? this.envMap.texture : null;
-    this.studio ??= new HDRCubeTexture(studioHdrUrl(), this.scene, 128, false, true, false, true);
+    this.studio ??= createStudioTexture(this.scene);
     const turn = env ? (env.rotation * Math.PI) / 180 : 0;
     // Only a ready texture goes to the scene: prefiltering swaps a cube's GPU texture when it finishes,
     // and materials that bound the first one on WebGPU would keep drawing with it once destroyed.

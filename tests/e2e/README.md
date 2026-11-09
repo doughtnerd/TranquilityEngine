@@ -51,7 +51,9 @@ and the CPU is what limits the suite. For that case (the last three apply on the
   gzipped every script for every test's fresh browser context).
 
 In a 4-core cloud container this took the default run from 29.5 minutes (91 of 216 tests failing,
-mostly timeouts) to 9.5; the `@slow` specs take 2 minutes. The default test timeout is 45 s with
+mostly timeouts) to 9.5; the `@slow` specs take 2 minutes. Prefiltering the default studio environment with 256 samples a texel instead of Babylon's 4096
+(`src/engine/render/babylon/studioCube.ts`) then took it to about 5.3 minutes: at 4096 it cost each project open
+about 6.5 s of CPU. The default test timeout is 45 s with
 software GL (30 s on the GPU).
 
 Each project a page opens costs seconds of CPU (its renderer starts, compiling pipelines), so specs
