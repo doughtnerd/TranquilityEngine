@@ -3,7 +3,7 @@
 // file and npm package's declarations), for each script's errors. With errors, a dialog lists
 // them: clicking one opens the script at that line, Play anyway starts the game, and a checkbox
 // turns the check off (Settings > General has it too).
-import { codeFiles, dirtyScripts, loadMonaco, openScript } from "./code/codeState";
+import { codeFiles, dirtyScripts, loadMonaco, loadedMonaco, openScript } from "./code/codeState";
 import type { ScriptDiagnostic } from "./code/monaco";
 import { packageTypes } from "./packages";
 import { checkScriptsBeforePlay } from "./preferences";
@@ -35,6 +35,12 @@ export async function refreshPackageTypes(project: EditorProject): Promise<void>
   if (!source || specifiers.length === 0) return m.setPackageTypes(new Map(), []);
   const { files, untyped } = await packageTypes(specifiers, source.files);
   m.setPackageTypes(files, untyped);
+}
+
+/** The Code panel's TypeScript service learns the npm packages the scripts import (ADR 0125); loads Monaco only when there are some. */
+export function syncPackageTypes(project: EditorProject): void {
+  if (typeof document === "undefined" || (loadedPackageSpecifiers().length === 0 && !loadedMonaco)) return;
+  refreshPackageTypes(project).catch((err: unknown) => console.warn("[editor] couldn't read the npm packages' types:", err));
 }
 
 /** Forget which package declarations the TypeScript service has, so the next check reads them again (an `npm install`, say). */
