@@ -20,7 +20,7 @@ const pin = hasAudio ? (readFileSync(portsPath, "utf8").match(/`([0-9a-f]{40})`/
 // The problems with one file's header, or none. A file is "ported" when it has a `// Ported from chromium` line.
 function portedHeaderProblems(text: string, commit: string): string[] {
   const problems: string[] = [];
-  const lines = text.split("\n");
+  const lines = text.split(/\r?\n/); // Windows checkouts get CRLF (autocrlf)
   if (!lines.some((l) => /SPDX-License-Identifier:.*BSD-3-Clause/.test(l))) problems.push("no SPDX line naming BSD-3-Clause");
   if (!lines.some((l) => /Copyright.*Google/.test(l))) problems.push("no Chromium (Google) copyright line");
   const ported = lines.filter((l) => /^\s*\/\/ Ported from chromium\//.test(l));
@@ -51,7 +51,7 @@ function rsFiles(dir: string): string[] {
 // The module paths named in PORTS.md's table rows (backticked .rs or .ts paths).
 function tableModules(ports: string): string[] {
   return ports
-    .split("\n")
+    .split(/\r?\n/)
     .filter((l) => l.startsWith("|"))
     .flatMap((l) => [...l.matchAll(/`([^`]+\.(?:rs|ts))`/g)].map((m) => m[1]));
 }
@@ -75,7 +75,7 @@ describe.skipIf(!hasAudio)("ported Chromium files (real tree)", () => {
 
   it("every staged file in third_party/blink is listed in PROVENANCE.md with its SHA-256", () => {
     const listed = new Map<string, string>();
-    for (const line of readFileSync(provenancePath, "utf8").split("\n")) {
+    for (const line of readFileSync(provenancePath, "utf8").split(/\r?\n/)) {
       const m = line.match(/^\|\s*`([^`]+)`\s*\|.*\|\s*`([0-9a-f]{64})`\s*\|\s*$/);
       if (m) listed.set(m[1], m[2]);
     }
