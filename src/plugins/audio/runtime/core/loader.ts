@@ -18,10 +18,17 @@ export function coreWasmUrl(): URL {
 
 /** @internal Fetches and compiles the core. Throws on a fetch or compile failure (the host falls back, architecture §2.1). */
 export async function loadCoreWasm(fetchImpl: typeof fetch = fetch): Promise<CoreWasm> {
-  throw new Error("not implemented: A0.3");
+  const response = await fetchImpl(coreWasmUrl());
+  if (!response.ok) throw new Error(`audio core: fetching myco_audio.wasm failed (HTTP ${response.status})`);
+  const bytes = await response.arrayBuffer();
+  const module = await WebAssembly.compile(bytes);
+  return { bytes, module };
 }
 
 /** @internal The URL of the bundled worklet module (`worklet/processor.ts` with `coreDriver.ts`) for `audioWorklet.addModule`. */
 export async function workletModuleUrl(): Promise<string> {
-  throw new Error("not implemented: A0.3");
+  // Vite bundles the processor and what it imports as one ES module (the worker pipeline); dynamic, so Node
+  // tests that import this file never resolve it.
+  const { default: url } = await import("../worklet/processor.ts?worker&url");
+  return url;
 }

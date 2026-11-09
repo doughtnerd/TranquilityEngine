@@ -83,8 +83,9 @@ pub struct StatusArea {
     pub writer: WriterState,
 }
 
-/// Bytes of the core-state region the status area takes, rounded to a region alignment. A later
-/// task that carves the core-state region starts at this offset.
+/// Bytes of the core-state region the status area takes, rounded to a region alignment.
+/// **`core_state[..STATUS_AREA_BYTES]` belongs to this module**: a later task that carves the
+/// core-state region (`layout.rs`, `CoreState`) starts at this offset, never before it.
 pub const STATUS_AREA_BYTES: usize = (core::mem::size_of::<StatusArea>() + REGION_ALIGN - 1) / REGION_ALIGN * REGION_ALIGN;
 
 const _: () = assert!(STATUS_AREA_BYTES <= CORE_STATE_BYTES / 2, "the status area leaves half the core-state region");
@@ -244,34 +245,206 @@ fn put_f64(out: &mut [u8], at: usize, v: f64) {
 
 #[cfg(test)]
 mod tests {
-    #[allow(unused_imports)]
     use super::*;
+    use crate::counters::{Event, Peak, Playhead, CLIP_EVENTS_CAP, ENDED_CAP, PEAKS_CAP, PLAYHEADS_CAP};
+    use crate::layout::{Layout, PAGE_BYTES};
+    use crate::params::InitParams;
+
+    fn core() -> Core {
+        let params = InitParams { sample_rate: 48_000.0, max_logical: 256, max_mixed: 32, max_buses: 8, arena_initial_bytes: 1 << 20 };
+        let layout = Layout::new(&params);
+        let alloc = std::alloc::Layout::from_size_align(layout.total(), PAGE_BYTES).unwrap();
+        // SAFETY: non-zero size; zeroed; leaked on purpose ('static).
+        let base = unsafe { std::alloc::alloc_zeroed(alloc) };
+        // SAFETY: as Core::new requires.
+        unsafe { Core::new(params, layout, base) }
+    }
+
+    fn u16_at(b: &[u8], at: usize) -> u16 {
+        u16::from_le_bytes(b[at..at + 2].try_into().unwrap())
+    }
+    fn u32_at(b: &[u8], at: usize) -> u32 {
+        u32::from_le_bytes(b[at..at + 4].try_into().unwrap())
+    }
+    fn i32_at(b: &[u8], at: usize) -> i32 {
+        i32::from_le_bytes(b[at..at + 4].try_into().unwrap())
+    }
+    fn f32_at(b: &[u8], at: usize) -> f32 {
+        f32::from_le_bytes(b[at..at + 4].try_into().unwrap())
+    }
+    fn f64_at(b: &[u8], at: usize) -> f64 {
+        f64::from_le_bytes(b[at..at + 8].try_into().unwrap())
+    }
 
     #[test]
     #[ignore = "A0.3 core: needs A0.3-L2's counters"]
-    fn an_empty_block_is_the_bare_header_with_ready_and_abi() {}
+    fn an_empty_block_is_the_bare_header_with_ready_and_abi() {
+        let mut core = core();
+        let mut out = [0u8; BUFFER_BYTES];
+        assert_eq!(take(&mut core, &mut out, 0x100), HEADER_BYTES);
+        assert_eq!(u32_at(&out, off::MAGIC), MAGIC);
+        assert_eq!(u16_at(&out, off::VERSION), 0x0100);
+        assert_eq!(u16_at(&out, off::KIND), KIND_STATUS);
+        assert_eq!(u32_at(&out, off::SEQ), 0);
+        assert_eq!(u32_at(&out, off::BODY_BYTES), (HEADER_BYTES - 16) as u32);
+        assert_eq!(u32_at(&out, off::FLAGS), flag::READY);
+        assert_eq!(u32_at(&out, off::ABI_VERSION), 0x100);
+    }
 
     #[test]
     #[ignore = "A0.3 core: needs A0.3-L2's counters"]
-    fn abi_version_goes_in_the_first_block_only() {}
+    fn abi_version_goes_in_the_first_block_only() {
+        let mut core = core();
+        let mut out = [0u8; BUFFER_BYTES];
+        take(&mut core, &mut out, 0x100);
+        take(&mut core, &mut out, 0x100);
+        assert_eq!(u32_at(&out, off::ABI_VERSION), 0);
+        assert_eq!(u32_at(&out, off::SEQ), 1);
+        assert_eq!(u32_at(&out, off::FLAGS) & flag::READY, flag::READY);
+    }
 
     #[test]
     #[ignore = "A0.3 core: needs A0.3-L2's counters"]
-    fn every_field_lands_at_its_offset() {}
+    fn every_field_lands_at_its_offset() {
+        let mut c = Counters::default();
+        c.current_frame = 1_234_567.0;
+        c.date_ms = 9.5;
+        c.ping_seq = 3;
+        c.ping_frame_lo = 4;
+        c.underruns = 5;
+        c.late_commands = 6;
+        c.work_units = 7;
+        c.work_units_max = 8;
+        c.mixed_voices = 9;
+        c.live_voices = 10;
+        c.flags = flag::ARENA_FULL;
+        c.mixed_cap = 11;
+        c.load_permille = 12;
+        c.traps = 13;
+        c.note_slack(-14);
+        c.underrun_frames = 15;
+        c.arena_used_kb = 16;
+        c.arena_largest_free_kb = 17;
+        c.abi_version = 18;
+        c.max_lateness_frames = 19;
+        c.hrtf_voices = 20;
+        c.hrtf_load_failure = 2;
+        let mut out = [0u8; BUFFER_BYTES];
+        assert_eq!(write(&c, 77, &mut out), HEADER_BYTES);
+        assert_eq!(u32_at(&out, off::SEQ), 77);
+        assert_eq!(f64_at(&out, off::CURRENT_FRAME), 1_234_567.0);
+        assert_eq!(f64_at(&out, off::DATE_MS), 9.5);
+        assert_eq!(u32_at(&out, off::PING_SEQ), 3);
+        assert_eq!(u32_at(&out, off::PING_FRAME_LO), 4);
+        assert_eq!(u32_at(&out, off::UNDERRUNS), 5);
+        assert_eq!(u32_at(&out, off::LATE_COMMANDS), 6);
+        assert_eq!(u32_at(&out, off::WORK_UNITS), 7);
+        assert_eq!(u32_at(&out, off::WORK_UNITS_MAX), 8);
+        assert_eq!(u16_at(&out, off::MIXED_VOICES), 9);
+        assert_eq!(u16_at(&out, off::LIVE_VOICES), 10);
+        assert_eq!(u32_at(&out, off::FLAGS), flag::ARENA_FULL);
+        assert_eq!(u16_at(&out, off::MIXED_CAP), 11);
+        assert_eq!(u16_at(&out, off::LOAD_PERMILLE), 12);
+        assert_eq!(u16_at(&out, off::TRAPS), 13);
+        assert_eq!(i32_at(&out, off::MIN_SLACK_FRAMES), -14);
+        assert_eq!(u32_at(&out, off::UNDERRUN_FRAMES), 15);
+        assert_eq!(u32_at(&out, off::ARENA_USED_KB), 16);
+        assert_eq!(u32_at(&out, off::ARENA_LARGEST_FREE_KB), 17);
+        assert_eq!(u32_at(&out, off::ABI_VERSION), 18);
+        assert_eq!(u32_at(&out, off::MAX_LATENESS_FRAMES), 19);
+        assert_eq!(u16_at(&out, off::HRTF_VOICES), 20);
+        assert_eq!(u16_at(&out, off::HRTF_LOAD_FAILURE), 2);
+    }
 
     #[test]
     #[ignore = "A0.3 core: needs A0.3-L2's counters"]
-    fn sections_follow_the_header_in_order_and_are_drained() {}
+    fn sections_follow_the_header_in_order_and_are_drained() {
+        let mut core = core();
+        {
+            let c = counters_mut(&mut core);
+            c.ended.push(1);
+            c.ended.push(2);
+            c.demoted.push(3);
+            c.starved.push(4);
+            c.playheads.push(Playhead { id: 5, clip_frame: 6 });
+            c.clip_events.push(Event { id: 7, code: 1 });
+            c.stream_events.push(Event { id: 8, code: 2 });
+            c.set_bus_count(2);
+            c.set_peak(0, 0.25, 0.5);
+            c.set_peak(1, 0.75, 1.0);
+        }
+        let mut out = [0u8; BUFFER_BYTES];
+        let n = take(&mut core, &mut out, 0x100);
+        assert_eq!(n, HEADER_BYTES + 4 * 4 + 8 * 3 + 8 * 2);
+        assert_eq!(u16_at(&out, off::ENDED_COUNT), 2);
+        assert_eq!(u16_at(&out, off::DEMOTED_COUNT), 1);
+        assert_eq!(u16_at(&out, off::STARVED_COUNT), 1);
+        assert_eq!(u16_at(&out, off::PLAYHEAD_COUNT), 1);
+        assert_eq!(u16_at(&out, off::BUS_COUNT), 2);
+        assert_eq!(u16_at(&out, off::CLIP_EVENT_COUNT), 1);
+        assert_eq!(u16_at(&out, off::STREAM_EVENT_COUNT), 1);
+        let words: Vec<u32> = (0..10).map(|i| u32_at(&out, HEADER_BYTES + 4 * i)).collect();
+        assert_eq!(words, [1, 2, 3, 4, 5, 6, 7, 1, 8, 2]);
+        let p = HEADER_BYTES + 40;
+        assert_eq!([f32_at(&out, p), f32_at(&out, p + 4), f32_at(&out, p + 8), f32_at(&out, p + 12)], [0.25, 0.5, 0.75, 1.0]);
+        // Drained: the next block has no list entries but keeps the peaks.
+        assert_eq!(take(&mut core, &mut out, 0x100), HEADER_BYTES + 16);
+        assert_eq!(u16_at(&out, off::ENDED_COUNT), 0);
+    }
 
     #[test]
     #[ignore = "A0.3 core: needs A0.3-L2's counters"]
-    fn a_short_buffer_writes_nothing_and_keeps_the_block() {}
+    fn a_short_buffer_writes_nothing_and_keeps_the_block() {
+        let mut core = core();
+        counters_mut(&mut core).ended.push(42);
+        let mut short = [0u8; HEADER_BYTES];
+        assert_eq!(take(&mut core, &mut short, 0x100), 0);
+        let mut out = [0u8; BUFFER_BYTES];
+        assert_eq!(take(&mut core, &mut out, 0x100), HEADER_BYTES + 4);
+        assert_eq!(u32_at(&out, off::SEQ), 0, "the refused take used no seq");
+        assert_eq!(u32_at(&out, off::ABI_VERSION), 0x100, "still the first block");
+        assert_eq!(u32_at(&out, HEADER_BYTES), 42);
+    }
 
     #[test]
     #[ignore = "A0.3 core: needs A0.3-L2's counters"]
-    fn the_worst_case_fits_the_buffer() {}
+    fn the_worst_case_fits_the_buffer() {
+        let mut c = Counters::default();
+        for i in 0..ENDED_CAP as u32 {
+            assert!(c.ended.push(i) && c.demoted.push(i) && c.starved.push(i));
+        }
+        for i in 0..PLAYHEADS_CAP as u32 {
+            c.playheads.push(Playhead { id: i, clip_frame: i });
+        }
+        for i in 0..CLIP_EVENTS_CAP as u32 {
+            c.clip_events.push(Event { id: i, code: 1 });
+            c.stream_events.push(Event { id: i, code: 1 });
+        }
+        c.set_bus_count(PEAKS_CAP);
+        for b in 0..PEAKS_CAP {
+            c.set_peak(b, 1.0, 1.0);
+        }
+        assert_eq!(c.peaks[PEAKS_CAP - 1], Peak { l: 1.0, r: 1.0 });
+        assert_eq!(message_bytes(&c), 15_728, "api-and-models §4.3's worst case");
+        let mut out = [0u8; BUFFER_BYTES];
+        assert_eq!(write(&c, 0, &mut out), 15_728);
+    }
 
     #[test]
     #[ignore = "A0.3 core: needs A0.3-L2's counters"]
-    fn after_quantum_sets_current_frame_and_work_units() {}
+    fn after_quantum_sets_current_frame_and_work_units() {
+        let mut core = core();
+        core.process(256);
+        after_quantum(&mut core);
+        let c = counters(&core);
+        assert_eq!(c.current_frame, 384.0);
+        assert_eq!(c.work_units, 0);
+    }
+
+    #[test]
+    fn the_status_area_starts_the_core_state_region() {
+        let core = core();
+        assert!(core.regions().core_state.len() >= STATUS_AREA_BYTES);
+        assert_eq!(area(&core) as *const StatusArea as usize, core.regions().core_state.as_ptr() as usize);
+    }
 }
