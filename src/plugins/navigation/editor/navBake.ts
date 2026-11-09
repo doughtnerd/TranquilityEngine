@@ -22,12 +22,10 @@ import {
 } from "../../../engine/nav/geometry";
 import { parseNavigationSettings, type NavigationSettings } from "../../../engine/nav/settings";
 import type { GameObject } from "../../../engine/scene/GameObject";
-import { SetField } from "../../../editor/document";
 import type { SceneFile } from "../../../engine/scene/SceneLoader";
-import { errorStatus } from "../../../editor/messages";
-import { editorSettings, isScenePath, joinPath, type EditorProject } from "../../../editor/projects";
-import { openScene, openScenes, status, type OpenScene } from "../../../editor/state";
+import { editorSettings } from "../../../editor/projects";
 import { assetPathOf, chunkIdOf, navAssetFor, navBakeRecord, navBakeSummary, navRecordPath, withBakeReference, type NavBakeRecord } from "./navBakeFiles";
+import { editor, SetField, type EditorProject, type OpenScene } from "../../../editor/sdk";
 
 export { navBakeSummary, navPolyCount, type NavBakeRecord } from "./navBakeFiles";
 
@@ -188,7 +186,7 @@ async function readRecord(project: EditorProject, asset: string): Promise<NavBak
   let record: NavBakeRecord | null = null;
   if (project.fileSystem && project.root) {
     try {
-      const path = joinPath(project.root, navRecordPath(asset));
+      const path = editor.project.joinPath(project.root, navRecordPath(asset));
       if (await project.fileSystem.exists(path)) {
         const parsed = JSON.parse(await project.fileSystem.readText(path)) as NavBakeRecord;
         if (parsed?.format === "myco.navbake@1") record = parsed;
@@ -205,10 +203,10 @@ async function writeRecord(project: EditorProject, record: NavBakeRecord): Promi
   recordCache.set(record.asset, record);
   if (!project.fileSystem || !project.root) return;
   const path = navRecordPath(record.asset);
-  const folder = joinPath(project.root, path.slice(0, path.lastIndexOf("/")));
+  const folder = editor.project.joinPath(project.root, path.slice(0, path.lastIndexOf("/")));
   try {
     if (!(await project.fileSystem.exists(folder))) await project.fileSystem.mkdir(folder);
-    await project.fileSystem.writeText(joinPath(project.root, path), `${JSON.stringify(record, null, 2)}\n`);
+    await project.fileSystem.writeText(editor.project.joinPath(project.root, path), `${JSON.stringify(record, null, 2)}\n`);
   } catch (err) {
     console.warn(`[editor] couldn't keep the bake record ${path}: ${String(err)}`);
   }
@@ -297,9 +295,9 @@ export async function bakeOpenSceneChunk(scene: OpenScene, nodeId: string, proje
   try {
     const outcome = await bakeNavChunk(project, scene.path, scene.sync.world, node);
     if (outcome.needsReference && scene.doc.has(nodeId)) scene.stack.execute(new SetField(nodeId, NAV_CHUNK, "bake", `asset:${outcome.asset}`));
-    status.value = { kind: "info", text: `Baked ${node.name}: ${outcome.asset} (${navBakeSummary(outcome.record)}).` };
+    editor.messages.info(`Baked ${node.name}: ${outcome.asset} (${navBakeSummary(outcome.record)}).`);
   } catch (err) {
-    status.value = errorStatus(`Couldn't bake ${node.name}`, err);
+    editor.messages.failed(`Couldn't bake ${node.name}`, err);
   }
 }
 
@@ -318,14 +316,14 @@ export function scratchSceneWorld(project: EditorProject, path: string, file: Sc
  * chunks were baked and the failures.
  */
 export async function bakeAllNavigation(project: EditorProject): Promise<{ baked: number; failed: string[] }> {
-  const scenes = project.files.filter((f) => isScenePath(f) && f.endsWith(".scene.json"));
+  const scenes = project.files.filter((f) => editor.assets.isScene(f) && f.endsWith(".scene.json"));
   const failed: string[] = [];
   let baked = 0;
   try {
     for (const [i, path] of scenes.entries()) {
       navBakeAllProgress.value = `${i + 1} of ${scenes.length}: ${path}`;
-      const active = openScene.peek();
-      const open = openScenes.peek().find((s) => s.path === path) ?? null;
+      const active = editor.scene.peekOpen();
+      const open = editor.scene.tabs.find((s) => s.path === path) ?? null;
       let world: World, root: GameObject | null, scratch: GameObject | null = null;
       if (active && active.path === path && active.sync.sceneNode) {
         world = active.sync.world;
@@ -371,10 +369,10 @@ export async function bakeAllNavigation(project: EditorProject): Promise<{ baked
 /** Bake All from the Project panel, reported in the status bar. */
 export async function bakeAllFromPanel(project: EditorProject): Promise<void> {
   if (!project.canSave) {
-    status.value = { kind: "error", text: `${project.name} is read-only: open a project folder to bake navigation.` };
+    editor.messages.error(`${project.name} is read-only: open a project folder to bake navigation.`);
     return;
   }
   const { baked, failed } = await bakeAllNavigation(project);
-  if (failed.length) status.value = { kind: "error", text: `Baked ${baked} navigation chunk${baked === 1 ? "" : "s"}; ${failed.length} failed.`, detail: failed.join("\n") };
-  else status.value = { kind: "info", text: baked === 0 ? "No scene has a NavChunk to bake." : `Baked ${baked} navigation chunk${baked === 1 ? "" : "s"}.` };
+  if (failed.length) editor.messages.error(`Baked ${baked} navigation chunk${baked === 1 ? "" : "s"}; ${failed.length} failed.`, failed.join("\n"));
+  else editor.messages.info(baked === 0 ? "No scene has a NavChunk to bake." : `Baked ${baked} navigation chunk${baked === 1 ? "" : "s"}.`);
 }

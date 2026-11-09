@@ -35,7 +35,7 @@ import { newGraphId, systemTemplate } from "../../../../engine/scene/particleGra
 import { nodeDef, type PortType } from "../../../../engine/scene/particleNodes";
 import { outputTypeResolved, whyNotConnectResolved, type AssetResolver } from "../../../../engine/scene/particleSubgraphs";
 import { blockInputs, editorNodeDef, wireRulesGraph } from "./assetDocs";
-import { parseGraphClipboard } from "../../../../editor/graph/clipboard";
+import { parseGraphClipboard } from "../../../../editor/sdk";
 
 const clone = <T>(v: T): T => structuredClone(v);
 const round = (p: Vec2 | readonly number[]): Vec2 => [Math.round(p[0]), Math.round(p[1])];

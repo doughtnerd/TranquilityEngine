@@ -6,13 +6,13 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { ContextKind, OutputContext, OutputSettings, OutputSort, ParticleGraphSystem, SimulationChoice } from "../../../../../engine/scene/particleGraph";
 import { OUTPUT_TYPES } from "../../../../../engine/scene/particleGraph";
 import { BUILTIN_MESHES } from "../../../../../engine/scene/models";
-import { NO_DRAG } from "../../../../../editor/graph";
 import { contextOf, outputCount, removeOutput, setOutputSettings, setOutputSoftness, setOutputSort, setOutputType, setSeed, setSimulation, setSpawnSettings, setSystemSettings } from "../../particleGraph/graphEdit";
 import { NumField } from "../particles/valueInputs";
 import { BlockView, Port } from "./BlockView";
 import { useGraphEditor } from "./editorContext";
 import { CONTEXT_TITLES, OUTPUT_LABELS } from "./layout";
 import { AssetValue, BoolValue, ChoiceValue } from "./valueFields";
+import { NO_DRAG } from "../../../../../editor/sdk";
 
 const SORTS: OutputSort[] = ["auto", "on", "off"];
 const SORT_LABELS: Record<string, string> = { auto: "Auto", on: "On", off: "Off" };

@@ -6,12 +6,11 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { GraphInputValue } from "../../../../../engine/scene/particleGraph";
 import { colorKind, hexColor, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../../engine/scene/particles";
-import { fileName } from "../../../../../editor/assetBrowser";
-import { NO_DRAG, NO_PAN, NO_WHEEL } from "../../../../../editor/graph";
 import { convertColor, convertNumber } from "../../particles/curveEdit";
 import { CurveEditor, CurvePreview } from "../particles/CurveEditor";
 import { GradientEditor, GradientPreview } from "../particles/GradientEditor";
 import { NumField } from "../particles/valueInputs";
+import { editor, NO_DRAG, NO_PAN, NO_WHEEL } from "../../../../../editor/sdk";
 
 const CTRL = `${NO_DRAG} ${NO_WHEEL}`;
 
@@ -257,7 +256,7 @@ export function BoolValue(props: { value: boolean; label: string; readOnly?: boo
 export function AssetValue(props: { value: string; assets: readonly string[]; builtins?: readonly string[]; none: string; label: string; readOnly?: boolean; onChange(v: string): void }) {
   const { value } = props;
   const known = new Set([...(props.builtins ?? []), ...props.assets]);
-  const label = (ref: string) => (ref.startsWith("builtin:") ? choiceLabel(ref.slice(8)) : fileName(ref.replace(/^asset:/, "")));
+  const label = (ref: string) => (ref.startsWith("builtin:") ? choiceLabel(ref.slice(8)) : editor.assets.fileName(ref.replace(/^asset:/, "")));
   return (
     <select class={`pg-select ${CTRL}`} aria-label={props.label} title={value ? value.replace(/^asset:/, "") : props.none} disabled={props.readOnly} value={value} onChange={(e) => props.onChange((e.currentTarget as HTMLSelectElement).value)}>
       <option value="">{props.none}</option>

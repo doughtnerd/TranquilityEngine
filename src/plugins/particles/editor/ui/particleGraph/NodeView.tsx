@@ -5,16 +5,15 @@
 import { useRef } from "preact/hooks";
 import type { GraphNode } from "../../../../../engine/scene/particleGraph";
 import type { NodeSettingDef } from "../../../../../engine/scene/particleNodes";
-import { NO_DRAG, NO_PAN, NO_WHEEL, px, type Point } from "../../../../../editor/graph";
 import { ASSET_INPUT, ASSET_OUTPUT, editorNodeDef, whyNotPortName } from "../../particleGraph/assetDocs";
 import { setNodeInput, setNodeSetting } from "../../particleGraph/graphEdit";
-import { status } from "../../../../../editor/state";
 import { NumField } from "../particles/valueInputs";
 import { Port, ProblemBadge } from "./BlockView";
 import { useGraphEditor } from "./editorContext";
 import { NODE_WIDTH } from "./layout";
 import { useCanvasDrag, type DragHooks } from "./SystemView";
 import { AssetValue, ChoiceValue, ColorSwatch, CurveValue, GradientValue, InlineValue, VectorValue, asGradient, asKeys } from "./valueFields";
+import { editor, NO_DRAG, NO_PAN, NO_WHEEL, px, type Point } from "../../../../../editor/sdk";
 
 function SettingField(props: { node: GraphNode; setting: NodeSettingDef }) {
   const { graph, readOnly, commit, assets } = useGraphEditor();
@@ -58,7 +57,7 @@ function SettingField(props: { node: GraphNode; setting: NodeSettingDef }) {
               const el = e.currentTarget as HTMLInputElement;
               const why = whyNotPortName(graph, node.id, el.value);
               if (why) {
-                status.value = { kind: "info", text: why };
+                editor.messages.info(why);
                 el.value = String(value ?? "");
               } else set(el.value.trim());
             }}

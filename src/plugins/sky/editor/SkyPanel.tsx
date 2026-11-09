@@ -7,10 +7,7 @@ import { useEffect, useMemo } from "preact/hooks";
 import { SKY_PRESETS, skyPreset, type SkyPresetId } from "../../../engine/sky/presets";
 import { cloneSky, defaultCloudLayer, MAX_CLOUD_LAYERS, type SkySettings } from "../../../engine/sky/skyFormat";
 import { skyLight, sunAngles } from "../../../engine/sky/skyMath";
-import { assetKind, fileName, listedFiles } from "../../../editor/assetBrowser";
-import { openAssetDocument } from "../../../editor/sdk";
-import { currentProject, docVersion } from "../../../editor/state";
-import { LargePreview } from "../../../editor/ui/AssetPreview";
+import { openAssetDocument, editor, LargePreview } from "../../../editor/sdk";
 import { openSky } from "./skyAssets";
 import "./skyPanel.css";
 
@@ -131,15 +128,15 @@ function set<T>(o: T, path: Path, value: unknown): T {
 
 export function SkyPanel() {
   const path = openSky.value;
-  const project = currentProject.value;
-  docVersion.value; // the file list changes with it
+  const project = editor.project.current;
+  editor.project.version; // the file list changes with it
   if (!project || !path) return <p class="empty">Double-click a sky asset (.sky.json) in the Assets panel, or create one with New Sky.</p>;
   if (!project.files.includes(path)) return <p class="empty">{path} isn't in the project any more.</p>;
   return <SkyEditor key={path} path={path} />;
 }
 
 function SkyEditor({ path }: { path: string }) {
-  const project = currentProject.value!;
+  const project = editor.project.current!;
   const doc = openAssetDocument<SkySettings>(project, path, "sky");
   const readOnly = doc.readOnly;
   const draft = doc.value.value;
@@ -152,7 +149,7 @@ function SkyEditor({ path }: { path: string }) {
   const redo = () => doc.redo();
   const applyPreset = (id: SkyPresetId) => doc.edit(skyPreset(id));
 
-  const images = useMemo(() => listedFiles(project.files).filter((f) => assetKind(f) === "image"), [project.files]);
+  const images = useMemo(() => editor.assets.listed(project.files).filter((f) => editor.assets.kindOf(f) === "image"), [project.files]);
   const sun = sunAngles(draft);
   const light = skyLight(draft);
 
@@ -166,7 +163,7 @@ function SkyEditor({ path }: { path: string }) {
         <div class="asset-inspector-head">
           <span class="asset-inspector-kind">Sky</span>
           <span class="asset-inspector-name" title={path}>
-            {fileName(path)}
+            {editor.assets.fileName(path)}
           </span>
         </div>
         <LargePreview path={path} />

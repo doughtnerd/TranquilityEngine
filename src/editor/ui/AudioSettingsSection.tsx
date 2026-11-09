@@ -28,7 +28,7 @@ import {
   setSnapshotVolume,
 } from "../audioSettingsModel";
 import type { SettingsDraft } from "../projectSettingsModel";
-import { TextField } from "./WorldsPanel";
+import { TextField } from "./settingsControls";
 import "./audioSettings.css";
 
 type Set = (label: string, next: SettingsDraft) => void;

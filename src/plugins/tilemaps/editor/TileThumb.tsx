@@ -3,9 +3,8 @@
 import { useEffect, useState } from "preact/hooks";
 import type { TileDef } from "../runtime/tileset";
 import { findSlice } from "../../../engine/scene/importSettings";
-import { readImportSettings } from "../../../editor/assetImport";
 import { splitSprite } from "./tilesetAssets";
-import type { EditorProject } from "../../../editor/projects";
+import { editor, type EditorProject } from "../../../editor/sdk";
 import "./tileThumb.css";
 
 const sizes = new Map<string, [number, number]>();
@@ -38,7 +37,7 @@ function spriteView(project: EditorProject, tile: TileDef, size: [number, number
   const image = ref?.image ?? tile.sprite.replace(/^asset:/, "");
   const url = image ? project.assets.get(image) : null;
   if (typeof url !== "string") return null;
-  const slice = ref ? findSlice(readImportSettings(project, image).settings, ref.slice) : undefined;
+  const slice = ref ? findSlice(editor.assets.importSettings(project, image).settings, ref.slice) : undefined;
   if (slice) return { url, rect: slice.rect };
   return size ? { url, rect: [0, 0, size[0], size[1]] } : null;
 }

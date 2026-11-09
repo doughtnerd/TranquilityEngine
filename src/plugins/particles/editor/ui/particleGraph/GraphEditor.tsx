@@ -10,9 +10,7 @@ import { expandParticleGraph, outputTypeResolved, portRateResolved } from "../..
 import { compileParticleGraph } from "../../../../../engine/scene/particleCompile";
 import type { ContextKind, GraphGroup, GraphNode, GraphProblem, ParticleGraph, Vec2 } from "../../../../../engine/scene/particleGraph";
 import type { PortType } from "../../../../../engine/scene/particleNodes";
-import { assetKind, fileName, listedFiles } from "../../../../../editor/assetBrowser";
-import { NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, writeGraphClipboard, type CanvasNode, type DraftWire, type Point } from "../../../../../editor/graph";
-import { usePanelHistory, type UndoHistory } from "../../../../../editor/sdk";
+import { usePanelHistory, type UndoHistory, editor, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type EditorProject } from "../../../../../editor/sdk";
 import { createParticleSubgraph, particleDocument, readEffect } from "../../particleAssets";
 import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
 import {
@@ -44,8 +42,6 @@ import {
   type ParticleClipboard,
 } from "../../particleGraph/graphEdit";
 import { indexProblems, locateProblem } from "../../particleGraph/problems";
-import type { EditorProject } from "../../../../../editor/projects";
-import { docVersion, status } from "../../../../../editor/state";
 import { Blackboard, PROPERTY_DRAG } from "./Blackboard";
 import { GraphEditorContext, type BlockDrop, type GraphEditorApi } from "./editorContext";
 import { NODE_WIDTH, SYSTEM_WIDTH, canvasNode, measureCanvas, sameMeasure, type Measured } from "./layout";
@@ -68,13 +64,13 @@ let previewSize = { w: 300, h: 220 };
 type Pending = { side: "output" | "input"; ref: string } | null;
 type SearchTarget = { kind: "canvas" } | { kind: "context"; system: string; context: ContextKind; output: number };
 
-const effectName = (path: string) => fileName(path).replace(/\.(particles|particlesubgraph|particleblock)\.json$/i, "");
+const effectName = (path: string) => editor.assets.fileName(path).replace(/\.(particles|particlesubgraph|particleblock)\.json$/i, "");
 
 export function ParticleGraphEditor(props: { project: EditorProject; path: string }) {
   const { project, path } = props;
   const doc = particleDocument(project, path);
   const readOnly = doc.readOnly;
-  const version = docVersion.value; // sub-graph and block assets this graph uses may change on disk or elsewhere in the editor
+  const version = editor.project.version; // sub-graph and block assets this graph uses may change on disk or elsewhere in the editor
   const graph = doc.value.value;
   // Its parse problems: `GraphProblem`s (they say where), as the plugin's formats report them.
   const parseProblems = doc.problems.value as readonly GraphProblem[];
@@ -540,7 +536,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     if (readOnly) return;
     const probe = extractSubgraph(live.current.graph, selection, "asset:", resolve);
     if (!probe) {
-      status.value = { kind: "info", text: "Select operator nodes to save as a sub-graph (property and event nodes can't move into one)." };
+      editor.messages.info("Select operator nodes to save as a sub-graph (property and event nodes can't move into one).");
       return;
     }
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
@@ -623,14 +619,14 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
 
   // --- drawing ---------------------------------------------------------------------------------------
 
-  const files = listedFiles(project.files);
+  const files = editor.assets.listed(project.files);
   const assets = useMemo(
     () => ({
-      images: files.filter((f) => assetKind(f) === "image").map((f) => `asset:${f}`),
-      materials: files.filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph").map((f) => `asset:${f}`),
-      meshes: files.filter((f) => assetKind(f) === "model").map((f) => `asset:${f}`),
-      subgraphs: files.filter((f) => assetKind(f) === "particlesubgraph" && f !== path).map((f) => `asset:${f}`),
-      blocks: files.filter((f) => assetKind(f) === "particleblock").map((f) => `asset:${f}`),
+      images: files.filter((f) => editor.assets.kindOf(f) === "image").map((f) => `asset:${f}`),
+      materials: files.filter((f) => editor.assets.kindOf(f) === "material" || editor.assets.kindOf(f) === "shadergraph").map((f) => `asset:${f}`),
+      meshes: files.filter((f) => editor.assets.kindOf(f) === "model").map((f) => `asset:${f}`),
+      subgraphs: files.filter((f) => editor.assets.kindOf(f) === "particlesubgraph" && f !== path).map((f) => `asset:${f}`),
+      blocks: files.filter((f) => editor.assets.kindOf(f) === "particleblock").map((f) => `asset:${f}`),
     }),
     [project.files],
   );

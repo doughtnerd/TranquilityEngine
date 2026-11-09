@@ -53,6 +53,7 @@ import {
 import { PROJECT_FILE, queueProjectFileWrite } from "../projectFile";
 import { DEFAULT_LAYOUT, layoutGraph, type LayoutLinkIn, type LayoutNodeIn } from "../worldsLayout";
 import "./worlds.css";
+import { NumberField, TextField } from "./settingsControls";
 
 /** An undoable panel state: the model, and whether it's written out (false: the project has no bootstrap and runs the default one). */
 interface Draft {
@@ -877,70 +878,3 @@ function TriState(props: { id: string; value: boolean | undefined; defaultLabel:
   );
 }
 
-/** Text that commits on Enter or blur and reverts on Escape (an empty value field clears itself after committing). */
-export function TextField(props: { value: string; label: string; class?: string; placeholder?: string; onCommit: (v: string) => void }) {
-  const [draft, setDraft] = useState(props.value);
-  useLayoutEffect(() => setDraft(props.value), [props.value]); // in the same commit: a mount effect run after paint would overwrite typing that came first
-  const commit = () => {
-    if (draft !== props.value) props.onCommit(draft);
-    if (props.value === "") setDraft("");
-  };
-  return (
-    <input
-      type="text"
-      class={props.class}
-      aria-label={props.label}
-      placeholder={props.placeholder}
-      value={draft}
-      onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          if (props.value === "") commit(); // keep focus to type the next one
-          else (e.currentTarget as HTMLInputElement).blur();
-        }
-        if (e.key === "Escape") {
-          setDraft(props.value);
-          (e.currentTarget as HTMLInputElement).blur();
-        }
-      }}
-    />
-  );
-}
-
-/** An optional number: empty means the default (shown as the placeholder); text that isn't a number reverts. */
-export function NumberField(props: { id: string; value: number | undefined; placeholder: string; label: string; suffix?: string; onCommit: (v: number | undefined) => void }) {
-  const shown = props.value === undefined ? "" : String(props.value);
-  const [draft, setDraft] = useState(shown);
-  useLayoutEffect(() => setDraft(shown), [shown]);
-  const commit = () => {
-    const text = draft.trim();
-    if (text === shown) return;
-    if (text === "") return props.onCommit(undefined);
-    const n = Number(text);
-    if (Number.isFinite(n)) props.onCommit(n);
-    else setDraft(shown);
-  };
-  return (
-    <span class="worlds-number">
-      <input
-        id={props.id}
-        type="text"
-        inputMode="decimal"
-        aria-label={props.label}
-        placeholder={props.placeholder}
-        value={draft}
-        onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
-          if (e.key === "Escape") {
-            setDraft(shown);
-            (e.currentTarget as HTMLInputElement).blur();
-          }
-        }}
-      />
-      {props.suffix && <span class="worlds-hint">{props.suffix}</span>}
-    </span>
-  );
-}

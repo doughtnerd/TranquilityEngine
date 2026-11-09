@@ -2,12 +2,11 @@
 // that edits tiles, terrains and collision, accepted by Tilemap's tileset field; New Tileset is its `create`) and
 // its asset format, the Tile Palette panel, the scene-view paint tool, the Tilemap's Inspector section, the
 // Hierarchy's Create Tilemap and the Assets panel's Create Tileset from Slices.
-import { assetKind, folderOf } from "../../../editor/assetBrowser";
-import type { EditorPlugin } from "../../../editor/sdk";
 import { createTileset, createTilesetFromSlices, hasSlices } from "./tilesetAssets";
 import { tilemapsManifest } from "../manifest";
 import { paintTool } from "./paintTool";
 import { tilesetFormat } from "./tilesetFormat";
+import { type EditorPlugin, editor } from "../../../editor/sdk";
 
 /** Four tiles in a 2 × 2 grid, stroked in a 24×24 box (the icon tilesets have always had). */
 const TILESET_ICON = "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z";
@@ -49,10 +48,10 @@ export const tilemapsEditorPlugin: EditorPlugin = {
       label: "Create Tileset from Slices",
       writes: true,
       appliesTo: (project, targets) =>
-        targets.length > 0 && (targets.every((t) => t.slice !== undefined) || (targets.length === 1 && assetKind(targets[0].path) === "image" && hasSlices(project, targets[0].path))),
+        targets.length > 0 && (targets.every((t) => t.slice !== undefined) || (targets.length === 1 && editor.assets.kindOf(targets[0].path) === "image" && hasSlices(project, targets[0].path))),
       run: async (_project, targets) => {
         const image = targets[0].path;
-        const made = await createTilesetFromSlices(folderOf(image), image);
+        const made = await createTilesetFromSlices(editor.assets.folderOf(image), image);
         return made ? [made] : [];
       },
     });

@@ -4,8 +4,8 @@
 // Delete removes it.
 import type { ParticleGraph } from "../../../../../engine/scene/particleGraph";
 import { nodeDef } from "../../../../../engine/scene/particleNodes";
-import { wirePath, type CanvasNode, type DraftWire, type Point } from "../../../../../editor/graph";
 import { portPoint, portTypeClass } from "./layout";
+import { wirePath, type CanvasNode, type DraftWire, type Point } from "../../../../../editor/sdk";
 
 export type WireSelection = { kind: "edge"; to: string } | { kind: "event"; from: string; to: string };
 

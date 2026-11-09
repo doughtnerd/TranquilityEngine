@@ -4,12 +4,7 @@
 import { defaultMaterialSettings, formatMaterial, parseMaterial, type MaterialSettings } from "../../../engine/scene/material";
 import { defaultShaderAsset, parseShaderAsset, type ShaderAsset } from "../../../engine/scene/shaderAsset";
 import type { KeywordValue, ShaderKeyword } from "../../../engine/scene/shaderKeywords";
-import { fileName } from "../../../editor/assetBrowser";
-import { freePath } from "../../../editor/assetOps";
-import { openAssetDocument, type EditOptions } from "../../../editor/assetDocuments";
-import { errorStatus } from "../../../editor/messages";
-import type { EditorProject } from "../../../editor/projects";
-import { currentProject, docVersion, status } from "../../../editor/state";
+import { editor, openAssetDocument, type EditOptions, type EditorProject } from "../../../editor/sdk";
 
 export interface ReadMaterial {
   settings: MaterialSettings;
@@ -55,7 +50,7 @@ export async function editMaterial(project: EditorProject, path: string, patch: 
 
 /** Where New Material goes by default: `materials/` if the project has it, else the folder given. */
 export function materialFolder(folder: string): string {
-  return folder === "" && currentProject.value?.folders.includes("materials") ? "materials" : folder;
+  return folder === "" && editor.project.current?.folders.includes("materials") ? "materials" : folder;
 }
 
 /**
@@ -63,22 +58,7 @@ export function materialFolder(folder: string): string {
  * material. Returns its path, or null if the project is read-only or writing failed.
  */
 export async function createMaterial(folder: string): Promise<string | null> {
-  const project = currentProject.value;
-  if (!project) return null;
-  if (!project.canSave) {
-    status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to add materials.` };
-    return null;
-  }
-  const path = freePath(project, materialFolder(folder), "New Material.material.json");
-  try {
-    await writeMaterial(project, path, defaultMaterialSettings());
-  } catch (err) {
-    status.value = errorStatus(`Couldn't create ${path}`, err);
-    return null;
-  }
-  docVersion.value++;
-  status.value = { kind: "info", text: `Created ${fileName(path)}.` };
-  return path;
+  return editor.project.createFile({ folder: materialFolder(folder), name: "New Material.material.json", what: "materials", write: (project, path) => writeMaterial(project, path, defaultMaterialSettings()) });
 }
 
 /** A shader asset (`*.shader.json`, ADR 0106) as its file holds it now; the default one if it can't be read. */

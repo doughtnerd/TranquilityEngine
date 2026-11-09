@@ -127,6 +127,84 @@ describe("plugin import direction", () => {
   });
 });
 
+describe("plugin editor halves reach the editor through its SDK (ADR 0145)", () => {
+  /**
+   * The internal tier (ADR 0133): shell modules first-party editor halves may still import, as
+   * `<file under src/plugins/> -> <module under src/editor/>`. Nothing may be added; an entry is
+   * removed once its import goes (the test fails on stale entries), so the list only shrinks.
+   */
+  const INTERNAL = new Set([
+    // The play session's Worlds, for Navigation's debug overlays and panel. Internal like viewport tools,
+    // which are handed the World (ADR 0138): a play World is engine internals.
+    "plugins/navigation/editor/NavDebugPanel.tsx -> editor/session",
+    "plugins/navigation/editor/navGizmo.ts -> editor/playMode",
+    "plugins/navigation/editor/navGizmo.ts -> editor/state",
+    // Baking builds a hidden editor World from the project's settings (ADR 0065): same reason.
+    "plugins/navigation/editor/navBake.ts -> editor/projects",
+    // The collider gizmo snaps like the transform gizmo (ADR 0142): the scene view's snapping is viewport-tool internals.
+    "plugins/physics/editor/colliderGizmo.ts -> editor/sceneTools",
+    // Polygon area and hit tests, shared with the shell's marquee selection: geometry, not editor API.
+    "plugins/physics/editor/colliderMath.ts -> editor/polygonMath",
+    // Physics layers and their collision matrix are core project.json keys the shell owns (the Worlds panel
+    // and the project-wide layer rename read them, ADR 0116); the Physics section edits them in place.
+    "plugins/physics/editor/PhysicsSettingsSection.tsx -> editor/projectSettingsModel",
+    "plugins/physics/editor/PhysicsSettingsSection.tsx -> editor/layerRenameEdit",
+    // Shared stylesheets (class names, no code): the asset Inspector's, the bake sections' and the graph view's.
+    "plugins/materials/editor/MaterialInspector.tsx -> editor/ui/assetInspector.css",
+    "plugins/navigation/editor/FormationInspector.tsx -> editor/ui/assetInspector.css",
+    "plugins/navigation/editor/NavGroupSection.tsx -> editor/ui/assetInspector.css",
+    "plugins/particles/editor/ui/ParticleInspector.tsx -> editor/ui/assetInspector.css",
+    "plugins/tilemaps/editor/TilesetInspector.tsx -> editor/ui/assetInspector.css",
+    "plugins/navigation/editor/NavChunkInspector.tsx -> editor/ui/bake.css",
+    "plugins/navigation/editor/NavComponentInspectors.tsx -> editor/ui/bake.css",
+    "plugins/materials/editor/ShaderGraphPanel.tsx -> editor/graph/graph.css",
+    "plugins/particles/editor/ui/particleGraph/GraphEditor.tsx -> editor/graph/graph.css",
+  ]);
+  const editorHalves = files(join(SRC, "plugins")).filter((f) => /^plugins\/[^/]+\/editor\//.test(rel(f)) && !/\.test\.tsx?$/.test(f));
+  const shellImports = editorHalves.flatMap((f) =>
+    specifiers(f)
+      .map(({ spec }) => resolved(f, spec))
+      .filter((t) => t.startsWith("/") && /^editor\//.test(rel(t)))
+      .map((t) => ({ file: rel(f), module: rel(t).replace(/\.tsx?$/, "") })),
+  );
+
+  it("finds the editor halves (the scan works)", () => {
+    expect(editorHalves.length).toBeGreaterThan(50);
+    expect(shellImports.some((i) => i.module === "editor/sdk")).toBe(true);
+  });
+
+  it("imports src/editor only through `editor/sdk` (what `myco/editor` resolves to), apart from the internal tier", () => {
+    const bad = shellImports.filter((i) => !/^editor\/sdk(\/index)?$/.test(i.module) && !INTERNAL.has(`${i.file} -> ${i.module}`)).map((i) => `${i.file} -> ${i.module}`);
+    expect(bad).toEqual([]);
+  });
+
+  it("keeps the SDK's own imports clear of the plugins: no cycle leaves an editor half reading an unfinished `myco/editor`", () => {
+    // Plugin modules call the SDK at load (`persisted(…)`); if `editor/sdk` reached the plugin list
+    // (through session.ts → editorApply.ts), they would run while it is still loading.
+    const asFile = (p: string) => [p, `${p}.ts`, `${p}.tsx`, join(p, "index.ts"), join(p, "index.tsx")].find((c) => { try { return statSync(c).isFile(); } catch { return false; } });
+    const seen = new Set<string>();
+    const queue = [join(SRC, "editor/sdk/index.ts")];
+    while (queue.length) {
+      const f = queue.shift()!;
+      if (seen.has(f)) continue;
+      seen.add(f);
+      // Static value imports only: `import type` is erased and `import()` loads later.
+      for (const m of readFileSync(f, "utf8").matchAll(/^\s*(?:import|export)\s+(?!type\s)(?:[^'"`;]*?\sfrom\s+)?["'](\.[^"']+)["']/gm)) {
+        const spec = m[1]!;
+        if (spec.endsWith(".css")) continue;
+        const next = asFile(resolved(f, spec));
+        if (next && /\.tsx?$/.test(next)) queue.push(next);
+      }
+    }
+    expect([...seen].map(rel).filter((r) => /^plugins\//.test(r) && !/^plugins\/(manifest|order)\.ts$/.test(r))).toEqual([]);
+  });
+
+  it("keeps the internal tier's list current: an entry goes once its import does", () => {
+    const used = new Set(shellImports.map((i) => `${i.file} -> ${i.module}`));
+    expect([...INTERNAL].filter((e) => !used.has(e))).toEqual([]);
+  });
+});
+
 describe("plugin to plugin imports (ADR 0133, 0136)", () => {
   /** The plugin folders: each has a manifest. */
   const pluginDirs = readdirSync(join(SRC, "plugins")).filter((d) => {

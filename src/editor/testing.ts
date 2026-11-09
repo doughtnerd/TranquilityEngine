@@ -3,7 +3,8 @@
 import type { AssetSource, ProjectSettingsInput } from "../engine";
 import "./sampleTypes";
 import { MemoryFileSystem } from "./memoryFs";
-import { editorSettings, joinPath, readOnlyProject, type EditorProject } from "./projects";
+import { editorSettings, joinPath, openFolderProject, readOnlyProject, type EditorProject } from "./projects";
+import { currentProject, select, status } from "./state";
 
 export { MemoryFileSystem };
 
@@ -57,3 +58,24 @@ export function demoSettings(): ProjectSettingsInput {
 }
 
 export const DEMO_SCENE = "scenes/main.scene.json";
+
+/**
+ * A writable project in memory holding `files` (project-relative paths; an empty `project.json`
+ * unless given), opened as the editor's project, so `editor.project.current` (ADR 0145) is it.
+ * Pair it with `closeTestProject` in `afterEach`.
+ */
+export async function openTestProject(files: Readonly<Record<string, string | Uint8Array>> = {}): Promise<{ project: EditorProject; fs: MemoryFileSystem }> {
+  const fs = new MemoryFileSystem();
+  fs.files.set(joinPath(ROOT, "project.json"), "{}");
+  for (const [path, data] of Object.entries(files)) fs.files.set(joinPath(ROOT, path), data);
+  const project = await openFolderProject(fs, ROOT);
+  currentProject.value = project;
+  return { project, fs };
+}
+
+/** Close the editor's project and clear the status bar and the node selection (the editor state tests share). */
+export function closeTestProject(): void {
+  currentProject.value = null;
+  status.value = null;
+  select([]);
+}

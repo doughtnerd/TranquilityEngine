@@ -61,11 +61,8 @@ import {
   type Pose2D,
   type V2,
 } from "./colliderMath";
-import { SetField } from "../../../editor/document";
 import { cleanSnap, snapActive, snapSettings, snapTo } from "../../../editor/sceneTools";
-import type { ViewportDrag, ViewportPointer, ViewportToolContribution } from "../../../editor/sdk";
-import { openScene, selectedNodes, selectedWorldNode, selection, status, type OpenScene } from "../../../editor/state";
-import { theme, viewportColors } from "../../../editor/theme";
+import { type ViewportDrag, type ViewportPointer, type ViewportToolContribution, editor, SetField, type OpenScene, theme, viewportColors } from "../../../editor/sdk";
 
 /** The collider tool's id: also its overlay id and its active-tool id. */
 export const COLLIDER_TOOL_ID = "myco.physics.colliders";
@@ -139,8 +136,8 @@ export const EDITABLE_COLLIDERS: ReadonlySet<string> = new Set(Object.keys(CLASS
 /** The collider being edited, if it's still there. */
 function editedCollider(): { node: GameObject; collider: EditableCollider; editing: EditingCollider } | null {
   const editing = editingCollider.value;
-  const node = selectedWorldNode();
-  if (!editing || !node?.transform || selection.value !== editing.key) return null;
+  const node = editor.scene.selection.node();
+  if (!editing || !node?.transform || editor.scene.selection.active !== editing.key) return null;
   const collider = node.getBehaviors(CLASSES[editing.type] as typeof Collider2D)[editing.index] as unknown as EditableCollider | undefined;
   return collider ? { node, collider, editing } : null;
 }
@@ -217,7 +214,7 @@ export function handles3D(node: GameObject, c: EditableCollider3D): Record<strin
 /** What to draw this frame: outlines for every collider in the edited scene, handles for the one being edited. */
 export function colliderOverlay(engine: Engine): EditorOverlay {
   const overlay: EditorOverlay = { lines: [], handles: [] };
-  const selected = new Set(selectedNodes().map((s) => s.node));
+  const selected = new Set(editor.scene.selection.nodes().map((s) => s.node));
   for (const { node, points, closed } of colliderShapes(engine)) {
     if (points.length > 1) overlay.lines.push({ points, closed, color: selected.has(node) ? COLOR_SELECTED : COLOR });
   }
@@ -270,12 +267,12 @@ export const colliderTool: ViewportToolContribution = {
     });
     // Edit mode ends when the selection moves elsewhere or another scene opens.
     const stopWatch = effect(() => {
-      const key = selection.value, editing = editingCollider.peek();
+      const key = editor.scene.selection.active, editing = editingCollider.peek();
       if (editing && editing.key !== key) editingCollider.value = null;
     });
-    let scene = openScene.peek();
+    let scene = editor.scene.peekOpen();
     const stopScene = effect(() => {
-      const next = openScene.value;
+      const next = editor.scene.open;
       if (next === scene) return;
       scene = next;
       editingCollider.value = null;
@@ -284,7 +281,7 @@ export const colliderTool: ViewportToolContribution = {
     view.onPress((p) => {
       if (p.button !== 0) return null;
       const edited = editedCollider();
-      const scene = openScene.peek();
+      const scene = editor.scene.peekOpen();
       if (!edited || !scene) return null;
       const handle = viewport(world).pickOverlayHandle(p.x, p.y);
       if (!handle) return null;
@@ -348,7 +345,7 @@ function drag2D(world: World, scene: OpenScene, press: ViewportPointer, handle: 
     // Ctrl+click removes the vertex: one step, no drag.
     const next = removePoint(points, parsed.index, closed);
     if (!next) {
-      status.value = { kind: "info", text: `A ${closed ? "polygon" : "edge"} collider needs at least ${closed ? 3 : 2} points.` };
+      editor.messages.info(`A ${closed ? "polygon" : "edge"} collider needs at least ${closed ? 3 : 2} points.`);
       return null;
     }
     scene.stack.beginGroup("Remove collider vertex");

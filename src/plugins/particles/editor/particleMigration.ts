@@ -2,9 +2,8 @@
 // 0060: effects are always assets). Done when the editor opens a scene in a project it can save to: the
 // Particles plugin's scene-open migration (ADR 0144).
 import { parseParticleGraph } from "../../../engine/scene/particleGraphFormat";
-import { SetField, type SceneDocument } from "../../../editor/document";
 import { createParticleEffect } from "./particleAssets";
-import { currentProject, status, type OpenScene } from "../../../editor/state";
+import { editor, SetField, type SceneDocument, type OpenScene } from "../../../editor/sdk";
 
 const TYPE = "engine.ParticleSystem";
 
@@ -44,7 +43,7 @@ export const migrationMessage = (count: number): string => `Moved ${count} embed
  * effects). Returns how many were moved.
  */
 export async function migrateEmbeddedEffects(scene: OpenScene): Promise<number> {
-  const project = currentProject.value;
+  const project = editor.project.current;
   if (!project?.canSave) return 0;
   const found = findEmbeddedEffects(scene.doc);
   if (found.length === 0) return 0;
@@ -72,6 +71,6 @@ export async function migrateEmbeddedEffects(scene: OpenScene): Promise<number> 
   } finally {
     scene.stack.endGroup();
   }
-  status.value = { kind: "info", text: migrationMessage(live.length) };
+  editor.messages.info(migrationMessage(live.length));
   return live.length;
 }

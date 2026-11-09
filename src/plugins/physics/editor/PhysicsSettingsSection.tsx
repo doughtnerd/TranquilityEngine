@@ -1,13 +1,11 @@
 // The Project panel's Physics category (ADR 0038, 0116, 0137): gravity, the 2D and 3D physics backend, the
 // physics layers, and which layers collide as a triangle of checkboxes. Edits go through the panel's undo history.
 import { defaultSettings } from "../../../engine/core/settings";
-import { collides, addLayer, layersOf, MAX_LAYERS, removeLayer, setCollides, setGravity, type SettingsDraft, type SettingsProblem } from "../../../editor/projectSettingsModel";
+import { collides, addLayer, layersOf, MAX_LAYERS, removeLayer, setCollides, setGravity } from "../../../editor/projectSettingsModel";
 import { renameLayerEdit } from "../../../editor/layerRenameEdit";
-import { NameList, ProblemList, Row } from "../../../editor/ui/settingsControls";
-import { NumberField } from "../../../editor/ui/WorldsPanel";
-import type { ProjectSettingsSectionProps } from "../../../editor/sdk";
 import { physicsBackends, type PhysicsDimension } from "../runtime";
 import { backendOf, backendOptions, setBackend } from "./physicsEditorModel";
+import { type ProjectSettingsSectionProps, type SettingsDraft, type SettingsProblem, NameList, ProblemList, Row, NumberField } from "../../../editor/sdk";
 import "./physicsSettings.css";
 
 export function PhysicsSettingsSection(props: ProjectSettingsSectionProps) {

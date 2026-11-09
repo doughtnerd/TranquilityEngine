@@ -34,9 +34,7 @@ import {
   setNavAreaValue,
   setNavValue,
 } from "./navSettingsModel";
-import type { SettingsDraft } from "../../../editor/projectSettingsModel";
-import type { EditorProject } from "../../../editor/projects";
-import { TextField } from "../../../editor/ui/WorldsPanel";
+import { type SettingsDraft, type EditorProject, TextField } from "../../../editor/sdk";
 import "./navSettings.css";
 
 type Set = (label: string, next: SettingsDraft) => void;

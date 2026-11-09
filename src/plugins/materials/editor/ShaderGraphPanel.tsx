@@ -3,8 +3,6 @@ import { MaterialPreview, NodePreviewRenderer } from "../../../engine/editor";
 import { compileShaderGraph, nodePreviewGraph, shaderGraphListing, type CompiledShaderGraph } from "../../../engine/render/shaderGraph/compile";
 import { NODES, nodeDef, type PortDef, type SettingDef, type ValueType } from "../../../engine/render/shaderGraph/nodes";
 import { GRAPH_PREVIEW_MESHES, GRAPH_PROPERTY_TYPES, NODE_PREVIEW_SHAPES, nodePreviewShape, type NodePreviewShape, isPortName, portRef, propertySize, splitPortRef, type CustomFunction, type FunctionPort, type GraphGroup, type GraphNode, type GraphPreviewMesh, type GraphPropertyType, type GraphValue, type InputValue, type ShaderGraph } from "../../../engine/scene/shaderGraph";
-import { assetKind, fileName } from "../../../editor/assetBrowser";
-import type { EditorProject } from "../../../editor/projects";
 import {
   addNode,
   addNote,
@@ -55,11 +53,10 @@ import {
   whyNotPropertyName,
 } from "./shaderGraph/graphEdit";
 import { HEADER, PREVIEW, ROW, inlineFields, nodeBox, nodeTitle, portOffset, settingValue, type NodeBox } from "./shaderGraph/nodeLayout";
-import { NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, wirePath, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type SearchItem, type View } from "../../../editor/graph";
 import { createMaterialForGraph, openShaderGraph, createShaderGraph, openShaderGraphAsset, shaderGraphDocument } from "./shaderGraphAssets";
-import { currentProject, docVersion, status } from "../../../editor/state";
 import { searchGraph, cycleIndex } from "./shaderGraph/graphSearch";
 import { PropertyValue, numberValue, toHex2 } from "./ShaderPropertyValue";
+import { editor, type EditorProject, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, createNodeDrag, handleProps, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, wirePath, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type SearchItem, type View } from "../../../editor/sdk";
 import "../../../editor/graph/graph.css";
 import "./shaderGraph.css";
 
@@ -72,7 +69,7 @@ type Pending = { side: "output" | "input"; ref: string; type: ValueType | "dynam
 /** The Shader Graph panel (ADR 0046): the graph open from the Assets panel, or how to open one. */
 export function ShaderGraphPanel() {
   const path = openShaderGraph.value;
-  const project = currentProject.value;
+  const project = editor.project.current;
   if (!project) return <p class="empty">No project open</p>;
   if (!path || !project.files.includes(path)) {
     return (
@@ -91,7 +88,7 @@ const cssType = (t: ValueType | "dynamic") => `t-${t === "dynamic" ? "float" : t
 
 function GraphEditor(props: { project: EditorProject; path: string }) {
   const { project, path } = props;
-  docVersion.value; // the file list changes with it
+  editor.project.version; // the file list changes with it
   // The graph's asset document (ADR 0134) owns saving, undo and redo, the read-only refusal and
   // changes made outside the panel; selection, the view and the previews stay here.
   const doc = shaderGraphDocument(project, path);
@@ -450,8 +447,8 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     return n && p ? { x: n.x + p.x, y: n.y + p.y } : null;
   };
 
-  const images = project.files.filter((f) => assetKind(f) === "image");
-  const subgraphs = project.files.filter((f) => assetKind(f) === "shadersubgraph" && f !== path);
+  const images = project.files.filter((f) => editor.assets.kindOf(f) === "image");
+  const subgraphs = project.files.filter((f) => editor.assets.kindOf(f) === "shadersubgraph" && f !== path);
   const problems = [...parseProblems, ...compiled.problems];
   const sub = !!graph.subgraph;
   const selectedNode = selection.size === 1 ? graph.nodes.find((n) => selection.has(n.id)) : undefined;
@@ -468,7 +465,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     <div class={`shader-graph${maximized ? " maximized" : ""}`} data-asset-document={doc.path} ref={root} tabIndex={0} onKeyDown={onKeyDown} aria-label="Shader Graph">
       <div class="sg-toolbar">
         <span class="sg-name" title={path}>
-          {fileName(path)}
+          {editor.assets.fileName(path)}
         </span>
         {sub && <span class="sg-kind">Sub Graph</span>}
         {!sub && (
@@ -870,11 +867,11 @@ function SettingField(props: { node: GraphNode; setting: SettingDef; graph: Shad
   let field;
   if (setting.kind === "select") field = select((setting.options ?? []).map((o) => ({ value: o, label: o[0].toUpperCase() + o.slice(1) })));
   else if (setting.kind === "subgraph")
-    field = select([{ value: "", label: "(pick a sub-graph)" }, ...props.subgraphs.map((f) => ({ value: `asset:${f}`, label: fileName(f) })), ...(value && !props.subgraphs.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
+    field = select([{ value: "", label: "(pick a sub-graph)" }, ...props.subgraphs.map((f) => ({ value: `asset:${f}`, label: editor.assets.fileName(f) })), ...(value && !props.subgraphs.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
   else if (setting.kind === "property") field = select([{ value: "", label: "(pick a property)" }, ...graph.properties.map((p) => ({ value: p.name, label: p.name }))]);
   else if (setting.kind === "keyword") field = select([{ value: "", label: "(pick a keyword)" }, ...(graph.keywords ?? []).map((k) => ({ value: k.name, label: k.name }))]);
   else if (setting.kind === "texture")
-    field = select([{ value: "", label: "White" }, ...props.images.map((f) => ({ value: `asset:${f}`, label: fileName(f) })), ...(value && !props.images.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
+    field = select([{ value: "", label: "White" }, ...props.images.map((f) => ({ value: `asset:${f}`, label: editor.assets.fileName(f) })), ...(value && !props.images.includes(value.replace(/^asset:/, "")) ? [{ value, label: `${value} (missing)` }] : [])]);
   else if (setting.kind === "color") field = <input type="color" class={NO_DRAG} aria-label={label} disabled={props.readOnly} value={value.slice(0, 7)} onChange={(e) => props.onValue((e.currentTarget as HTMLInputElement).value)} />;
   else field = <input type="text" class={NO_DRAG} aria-label={label} disabled={props.readOnly} value={value} onChange={(e) => props.onValue((e.currentTarget as HTMLInputElement).value)} />;
   return (
@@ -897,7 +894,7 @@ function NodeSearch(props: { graph: ShaderGraph; subgraphs: string[]; at: Point;
   const all: NodeItem[] = useMemo(() => {
     const items: NodeItem[] = graph.properties.map((p) => ({ key: `property:${p.name}`, type: "property", label: p.name, category: graph.subgraph ? "Inputs" : "Properties", keywords: `${p.name} property ${p.type}`, settings: { property: p.name } }));
     for (const f of props.subgraphs) {
-      const name = fileName(f).replace(/\.shadersubgraph\.json$/i, "");
+      const name = editor.assets.fileName(f).replace(/\.shadersubgraph\.json$/i, "");
       items.push({ key: `subgraph:${f}`, type: "subgraph", label: name, category: "Sub Graphs", keywords: `${name} sub graph subgraph`, settings: { subgraph: `asset:${f}` } });
     }
     for (const d of [...NODES].sort((a, b) => categoryRank(a.category) - categoryRank(b.category))) {
@@ -956,7 +953,7 @@ function Blackboard(props: { sub: boolean; graph: ShaderGraph; images: string[];
                 const name = (e.currentTarget as HTMLInputElement).value;
                 const why = whyNotPropertyName(graph, p.name, name);
                 if (why) {
-                  status.value = { kind: "error", text: `Can't rename ${p.name}: ${why}.` };
+                  editor.messages.error(`Can't rename ${p.name}: ${why}.`);
                   (e.currentTarget as HTMLInputElement).value = p.name;
                 } else commit(renameProperty(graph, p.name, name));
               }}
@@ -1019,7 +1016,7 @@ function KeywordList(props: { graph: ShaderGraph; readOnly: boolean; commit(g: S
                 const name = input.value.trim().toUpperCase().replace(/\s+/g, "_");
                 const why = whyNotKeywordName(graph, k.name, name);
                 if (why) {
-                  status.value = { kind: "error", text: `Can't rename the keyword: ${why}.` };
+                  editor.messages.error(`Can't rename the keyword: ${why}.`);
                   input.value = k.name;
                 } else commit(renameKeyword(graph, k.name, name));
               }}
@@ -1050,7 +1047,7 @@ function KeywordList(props: { graph: ShaderGraph; readOnly: boolean; commit(g: S
                   const values = input.value.split(",").map((v) => v.trim().toUpperCase()).filter((v) => v);
                   const next = setKeyword(graph, k.name, { values });
                   if (next === graph) {
-                    status.value = { kind: "error", text: "An enum keyword needs two or more distinct upper-case values (letters, digits, _)." };
+                    editor.messages.error("An enum keyword needs two or more distinct upper-case values (letters, digits, _).");
                     input.value = k.values!.join(", ");
                   } else commit(next);
                 }}
@@ -1102,7 +1099,7 @@ function PortList(props: {
               const name = (e.currentTarget as HTMLInputElement).value;
               const why = whyNotPortName(name, props.ports.map((q) => q.name).filter((n) => n !== p.name));
               if (why) {
-                status.value = { kind: "error", text: `Can't rename ${p.name}: ${why}.` };
+                editor.messages.error(`Can't rename ${p.name}: ${why}.`);
                 (e.currentTarget as HTMLInputElement).value = p.name;
               } else props.onRename(p.name, name);
             }}
@@ -1175,7 +1172,7 @@ function FunctionEditor(props: { node: GraphNode; graph: ShaderGraph; wgslFiles:
             const name = (e.currentTarget as HTMLInputElement).value;
             if (isPortName(name)) set({ ...f, name });
             else {
-              status.value = { kind: "error", text: `"${name}" isn't a valid function name (letters, digits and _, not starting with a digit).` };
+              editor.messages.error(`"${name}" isn't a valid function name (letters, digits and _, not starting with a digit).`);
               (e.currentTarget as HTMLInputElement).value = f.name;
             }
           }}

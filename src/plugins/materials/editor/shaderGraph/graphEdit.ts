@@ -1,7 +1,6 @@
 // Shader graph edits (ADR 0046): pure functions from one graph to the next, so the panel's undo
 // history is a list of graphs and every rule here is unit-tested. None of them change their input.
 import { canConnectTypes, nodeDef, nodePorts, type ValueType } from "../../../../engine/render/shaderGraph/nodes";
-import { parseGraphClipboard } from "../../../../editor/graph/clipboard";
 import {
   OUTPUT_NODE_TYPE,
   defaultPropertyValue,
@@ -21,6 +20,7 @@ import {
   type ShaderGraph,
 } from "../../../../engine/scene/shaderGraph";
 import { KEYWORD_NAME, type ShaderKeyword } from "../../../../engine/scene/shaderKeywords";
+import { parseGraphClipboard } from "../../../../editor/sdk";
 
 const clone = (g: ShaderGraph): ShaderGraph => structuredClone(g);
 

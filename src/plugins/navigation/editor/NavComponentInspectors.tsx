@@ -15,12 +15,10 @@ import type { NavigationSettings } from "../../../engine/nav/settings";
 import { projectNavigation } from "./navBake";
 import { navAvoidanceSummary, navObstacleSummary } from "./navSettingsModel";
 import { navPreviewStatus, navSurfaceBins } from "./navPreviews";
-import { currentProject, docVersion, type OpenScene } from "../../../editor/state";
+import { editor, type OpenScene, pathKey, sectionField, type InspectorSectionProps } from "../../../editor/sdk";
 import "../../../editor/ui/bake.css";
 import "./navBake.css";
 import "./navInspectors.css";
-import { pathKey } from "../../../editor/document";
-import { sectionField, type InspectorSectionProps } from "../../../editor/ui/inspectorSections";
 
 /** The open scene's NavChunk components, in node order. */
 function sceneChunks(scene: OpenScene): NavChunk[] {
@@ -31,8 +29,8 @@ const typeName = (settings: NavigationSettings, id: string) => settings.agentTyp
 
 /** NavAgent: whether any NavChunk in the scene bakes the agent's type. */
 export function NavAgentBakeNote(props: { scene: OpenScene; agentType: string }) {
-  docVersion.value;
-  const settings = projectNavigation(currentProject.value);
+  editor.project.version;
+  const settings = projectNavigation(editor.project.current);
   const type = resolveAgentType(settings, props.agentType);
   if (!type) {
     return (
@@ -53,7 +51,7 @@ export function NavAgentBakeNote(props: { scene: OpenScene; agentType: string })
 
 /** Foxfire's avoidance summary under a NavAgent (its type's "On / Avoids / Avoided by") or a NavAvoidanceObstacle. */
 export function NavAvoidanceNote(props: { agentType?: string; obstacleLayers?: number }) {
-  const settings = projectNavigation(currentProject.value);
+  const settings = projectNavigation(editor.project.current);
   let lines: string[];
   if (props.obstacleLayers !== undefined) lines = navObstacleSummary(settings, props.obstacleLayers);
   else {
@@ -75,8 +73,8 @@ export function NavAvoidanceNote(props: { agentType?: string; obstacleLayers?: n
 /** NavChunk: what it bakes for each agent type and what it shares, above the Bake button; the Surface bins toggle. */
 export function NavChunkPlanSummary(props: { scene: OpenScene; nodeId: string }) {
   const { scene, nodeId } = props;
-  const version = docVersion.value;
-  const project = currentProject.value;
+  const version = editor.project.version;
+  const project = editor.project.current;
   const settings = projectNavigation(project);
   const settingsKey = JSON.stringify(settings);
   const [plan, setPlan] = useState<{ plan: NavBakePlan; walkWarnings: string[] } | null>(null);
@@ -201,8 +199,8 @@ function SurfaceBinsSection(props: { settings: NavigationSettings; nodeKey: stri
 
 /** NavResolutionVolume: the cell size it gives each flying agent type, and where it does nothing. */
 export function NavResolutionSummary(props: { scene: OpenScene; nodeKey: string; cellSize: number; agents: string[] }) {
-  docVersion.value;
-  const settings = projectNavigation(currentProject.value);
+  editor.project.version;
+  const settings = projectNavigation(editor.project.current);
   const chunks = sceneChunks(props.scene);
   const status = navPreviewStatus.value;
   const preview = status?.kind === "resolution" && status.node === props.nodeKey ? <p class="nav-note">{status.text}</p> : null;
@@ -252,7 +250,7 @@ export function NavModifierPreviewNote(props: { nodeKey: string; appliesTo: stri
 
 /** NavCostVolume (ADR 0070): what it does at runtime, and agent types it can't affect. */
 export function NavCostVolumeNote(props: { cost: number; excluded: boolean; agents: string[]; domain: string }) {
-  const settings = projectNavigation(currentProject.value);
+  const settings = projectNavigation(editor.project.current);
   const { summary, warnings } = describeNavCostVolume(settings, props);
   return (
     <div class="nav-cost-volume" aria-label="Cost volume">

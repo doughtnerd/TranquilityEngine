@@ -1,7 +1,7 @@
 // The Physics plugin's editor-side logic, as pure functions (ADR 0137): which Components the Add
 // Component menu marks "(no physics backend)", and the Project panel's 2D and 3D backend dropdowns.
-import { setValue, type SettingsDraft } from "../../../editor/projectSettingsModel";
 import type { PhysicsDimension } from "../runtime";
+import { setValue, type SettingsDraft } from "../../../editor/sdk";
 
 /** The dimension a Physics Component works in: ids ending in "2D" are 2D (RigidBody2D, TilemapCollider2D…), the rest 3D. */
 export const componentDimension = (type: string): PhysicsDimension => (/2D$/.test(type) ? "2d" : "3d");

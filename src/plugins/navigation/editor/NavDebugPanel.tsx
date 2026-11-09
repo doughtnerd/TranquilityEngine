@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { navigationOf } from "../runtime/navigationSystems";
 import type { NavTickStats } from "../runtime/runtime";
 import { playing } from "../../../editor/session";
-import { playState } from "../../../editor/state";
+import { editor } from "../../../editor/sdk";
 import "./navdebug.css";
 
 /** Counters refresh this often while playing (not every frame). */
@@ -52,7 +52,7 @@ function sample(): Sample {
 /** Navigation counters while playing: agents, searches, slices, rebuilds, ms per stage, and the runtime's warnings (ADR 0065). */
 export function NavDebugPanel() {
   const [s, setS] = useState<Sample>({ stats: null, world: null });
-  const isPlaying = playState.value === "playing" && playing.value !== null;
+  const isPlaying = editor.scene.playState === "playing" && playing.value !== null;
   useEffect(() => {
     if (!isPlaying) return;
     setS(sample());

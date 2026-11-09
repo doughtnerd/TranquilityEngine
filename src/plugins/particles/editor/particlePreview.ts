@@ -5,16 +5,16 @@ import { computed, effect, signal } from "@preact/signals";
 import type { Engine, GameObject } from "../../../engine";
 import { ParticleSystem } from "../../../engine/render/components";
 import { renderDiagnostics, viewport } from "../../../engine/editor";
-import { docVersion, playState, selectedWorldNode } from "../../../editor/state";
+import { editor } from "../../../editor/sdk";
 
 /** Play or pause, speed, and whether every ParticleSystem plays (not only the selected one). */
 export const particlePreview = signal({ playing: true, speed: 1, simulateAll: false });
 
 /** The selected node with a ParticleSystem, in edit mode, or null. */
 export const selectedParticleSystem = computed<GameObject | null>(() => {
-  docVersion.value; // nodes are rebuilt by structural edits
-  if (playState.value !== "edit") return null;
-  const node = selectedWorldNode();
+  editor.project.version; // nodes are rebuilt by structural edits
+  if (editor.scene.playState !== "edit") return null;
+  const node = editor.scene.selection.node();
   return node && node.isValid && node.getBehavior(ParticleSystem) ? node : null;
 });
 

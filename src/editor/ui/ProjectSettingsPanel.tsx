@@ -50,7 +50,7 @@ import { EditHistory } from "../worldsConfig";
 import { AudioSettingsSection } from "./AudioSettingsSection";
 import { PluginsSection } from "./PluginsSection";
 import { lazyComponent, type LazyComponent } from "./lazy";
-import { NumberField, TextField } from "./WorldsPanel";
+import { NumberField, TextField } from "./settingsControls";
 import { NameList, ProblemList, Row } from "./settingsControls";
 import { renameLayerEdit as renameLayer_, updateLayerReferences } from "../layerRenameEdit";
 import "./projectSettings.css";

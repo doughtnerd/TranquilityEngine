@@ -3,16 +3,15 @@
 // changed since (its geometry, volumes, NavChunk fields or the project's navigation settings).
 import { useEffect } from "preact/hooks";
 import { navPolyCount, NAV_STAGE_LABELS, bakeOpenSceneChunk, checkNavInputs, isNavBakeStale, lookUpNavRecord, navBakeSummary, navBakeVersion, navChunkState } from "./navBake";
-import { currentProject, docVersion, type OpenScene } from "../../../editor/state";
+import { editor, type OpenScene, type InspectorSectionProps } from "../../../editor/sdk";
 import "../../../editor/ui/bake.css";
 import "./navBake.css";
-import type { InspectorSectionProps } from "../../../editor/ui/inspectorSections";
 
 export function NavChunkBake(props: { scene: OpenScene; nodeId: string }) {
   const { scene, nodeId } = props;
   navBakeVersion.value;
-  const version = docVersion.value;
-  const project = currentProject.value;
+  const version = editor.project.version;
+  const project = editor.project.current;
   const node = scene.sync.nodeFor([nodeId]);
   const chunkId = node ? node.id || node.name : nodeId;
   const s = navChunkState(scene.path, chunkId);

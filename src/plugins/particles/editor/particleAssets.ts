@@ -7,15 +7,9 @@
 import { signal } from "@preact/signals";
 import type { GraphProblem, ParticleGraph } from "../../../engine/scene/particleGraph";
 import { defaultParticleGraph, formatParticleGraph } from "../../../engine/scene/particleGraphFormat";
-import { fileName } from "../../../editor/assetBrowser";
-import { openAssetDocument, type AssetDocument } from "../../../editor/assetDocuments";
-import { freePath } from "../../../editor/assetOps";
-import { showPanel } from "../../../editor/layout/store";
-import { errorStatus } from "../../../editor/messages";
-import type { EditorProject } from "../../../editor/projects";
-import { currentProject, docVersion, status } from "../../../editor/state";
 import { assetDocKind, blockTemplate, formatAsset, subgraphTemplate } from "./particleGraph/assetDocs";
 import { parseAssetDoc, parseEffect } from "./particleFormat";
+import { editor, openAssetDocument, type AssetDocument, type EditorProject } from "../../../editor/sdk";
 
 
 /** The effect open in the Particle Graph panel, or null. */
@@ -24,7 +18,7 @@ export const openParticleGraph = signal<string | null>(null);
 /** Open an effect (or a sub-graph or block asset) in the Particle Graph panel and bring the panel forward. */
 export function openParticleGraphAsset(path: string): void {
   openParticleGraph.value = path;
-  showPanel("particlegraph");
+  editor.showPanel("particlegraph");
 }
 
 /** The format id of the file at `path`: an effect, a sub-graph or a custom block. */
@@ -64,7 +58,7 @@ export function writeEffect(project: EditorProject, path: string, graph: Particl
 
 /** Where New Particle Effect goes by default: `effects/` if the project has it, else the folder given. */
 export function effectFolder(folder: string): string {
-  return folder === "" && currentProject.value?.folders.includes("effects") ? "effects" : folder;
+  return folder === "" && editor.project.current?.folders.includes("effects") ? "effects" : folder;
 }
 
 /**
@@ -76,22 +70,7 @@ export const createParticleEffect = (folder: string, graph: ParticleGraph = defa
 
 /** Create a file of `name` in `folder` holding `text`, with the same read-only and error handling throughout. */
 async function createAssetFile(folder: string, name: string, text: string, what: string): Promise<string | null> {
-  const project = currentProject.value;
-  if (!project) return null;
-  if (!project.canSave) {
-    status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to add ${what}.` };
-    return null;
-  }
-  const path = freePath(project, effectFolder(folder), name);
-  try {
-    await project.writeText(path, text);
-  } catch (err) {
-    status.value = errorStatus(`Couldn't create ${path}`, err);
-    return null;
-  }
-  docVersion.value++;
-  status.value = { kind: "info", text: `Created ${fileName(path)}.` };
-  return path;
+  return editor.project.createFile({ folder: effectFolder(folder), name, what, write: (project, path) => project.writeText(path, text) });
 }
 
 /** Create `New Particle Sub-graph.particlesubgraph.json` (one number input wired to one number output), or one holding `asset`. Returns its path, or null. */

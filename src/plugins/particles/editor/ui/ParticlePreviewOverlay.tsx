@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { particlePreview, previewStats, restartPreview, selectedParticleSystem } from "../particlePreview";
-import { playState } from "../../../../editor/state";
+import { editor } from "../../../../editor/sdk";
 import "./particlePreview.css";
 
 const SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4];
@@ -14,7 +14,7 @@ export function ParticlePreviewOverlay() {
   const node = selectedParticleSystem.value;
   const p = particlePreview.value;
   const [stats, setStats] = useState<{ time: number; count: number } | null>(null);
-  const shown = playState.value === "edit" && (node !== null || p.simulateAll);
+  const shown = editor.scene.playState === "edit" && (node !== null || p.simulateAll);
   useEffect(() => {
     if (!shown) return;
     const timer = setInterval(() => setStats(previewStats()), 200);

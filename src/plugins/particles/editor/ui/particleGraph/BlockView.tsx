@@ -5,12 +5,12 @@
 import type { ContextKind, GraphBlock, GraphProblem, ParticleGraphSystem } from "../../../../../engine/scene/particleGraph";
 import { blockDef, type BlockInputDef } from "../../../../../engine/scene/particleBlocks";
 import { customBlockPorts } from "../../../../../engine/scene/particleSubgraphs";
-import { NO_DRAG, handleProps } from "../../../../../editor/graph";
 import { blockInputs } from "../../particleGraph/assetDocs";
 import { isWireableInput, removeBlock, setBlockEnabled, setBlockInput } from "../../particleGraph/graphEdit";
 import { useGraphEditor } from "./editorContext";
 import { portTypeClass } from "./layout";
 import { InlineValue } from "./valueFields";
+import { NO_DRAG, handleProps } from "../../../../../editor/sdk";
 
 /** A red or amber dot listing the problems about something. */
 export function ProblemBadge(props: { problems?: readonly GraphProblem[] }) {

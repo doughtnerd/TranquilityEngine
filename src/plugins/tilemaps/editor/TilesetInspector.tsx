@@ -6,12 +6,9 @@
 import { useEffect, useState } from "preact/hooks";
 import { missingBlobMasks } from "../runtime/autotile";
 import { ANY_PATTERN, type TileCollision, type TileDef, type TilesetData } from "../runtime/tileset";
-import { assetKind, fileName } from "../../../editor/assetBrowser";
-import { openAssetDocument } from "../../../editor/assetDocuments";
-import { readImportSettings } from "../../../editor/assetImport";
-import { currentProject, docVersion, status } from "../../../editor/state";
 import { tilesForSlices } from "./tilesetAssets";
 import { TileThumb } from "./TileThumb";
+import { editor, openAssetDocument } from "../../../editor/sdk";
 import "../../../editor/ui/assetInspector.css";
 import "./tilesetInspector.css";
 
@@ -41,9 +38,9 @@ const GLYPH_TITLE: Record<string, string> = { "*": "either", "1": "same terrain"
 
 /** The selected tileset asset (see the file comment). */
 export function TilesetInspector(props: { path: string }) {
-  docVersion.value; // rewritten by this inspector, or on disk
+  editor.project.version; // rewritten by this inspector, or on disk
   const { path } = props;
-  const project = currentProject.value;
+  const project = editor.project.current;
   const [selected, setSelected] = useState<number | null>(null);
   useEffect(() => setSelected(null), [path]);
   if (!project) return <p class="empty">Nothing selected</p>;
@@ -67,16 +64,16 @@ export function TilesetInspector(props: { path: string }) {
     });
     set({ tiles });
   };
-  const undo = () => (doc.canUndo.peek() ? doc.undo() : (status.value = { kind: "info", text: "Nothing to undo in this tileset." }));
-  const redo = () => (doc.canRedo.peek() ? doc.redo() : (status.value = { kind: "info", text: "Nothing to redo in this tileset." }));
+  const undo = () => (doc.canUndo.peek() ? doc.undo() : editor.messages.info("Nothing to undo in this tileset."));
+  const redo = () => (doc.canRedo.peek() ? doc.redo() : editor.messages.info("Nothing to redo in this tileset."));
 
   const usedSprites = new Set(data.tiles.map((t) => t.sprite));
-  const images = project.files.filter((f) => assetKind(f) === "image" && readImportSettings(project, f).settings.sprites.length > 0);
+  const images = project.files.filter((f) => editor.assets.kindOf(f) === "image" && editor.assets.importSettings(project, f).settings.sprites.length > 0);
   const addFrom = (image: string) => {
     const nextId = data.tiles.reduce((m, t) => Math.max(m, t.id), 0) + 1;
-    const added = tilesForSlices(readImportSettings(project, image).settings, image, nextId, usedSprites);
+    const added = tilesForSlices(editor.assets.importSettings(project, image).settings, image, nextId, usedSprites);
     if (added.length === 0) {
-      status.value = { kind: "info", text: `Every slice of ${fileName(image)} already has a tile.` };
+      editor.messages.info(`Every slice of ${editor.assets.fileName(image)} already has a tile.`);
       return;
     }
     set({ tiles: [...data.tiles, ...added] });
@@ -87,7 +84,7 @@ export function TilesetInspector(props: { path: string }) {
       <div class="asset-inspector-head">
         <span class="asset-inspector-kind">Tileset</span>
         <span class="asset-inspector-name" title={path}>
-          {fileName(path)}
+          {editor.assets.fileName(path)}
         </span>
       </div>
       {problems.length > 0 && (
@@ -219,7 +216,7 @@ function AddFromSlices(props: { images: string[]; defaultImage: string | undefin
   );
 }
 
-function TileEditor(props: { data: TilesetData; tile: TileDef; readOnly: boolean; project: NonNullable<typeof currentProject.value>; setTile: (patch: Partial<TileDef>) => void; onDelete: () => void }) {
+function TileEditor(props: { data: TilesetData; tile: TileDef; readOnly: boolean; project: NonNullable<typeof editor.project.current>; setTile: (patch: Partial<TileDef>) => void; onDelete: () => void }) {
   const { data, tile, readOnly, setTile } = props;
   const kind = collisionKind(tile.collision);
   const poly = typeof tile.collision === "object" ? tile.collision : null;

@@ -3,13 +3,8 @@
 // from Slices action and the Tile Palette use. Editing goes through the tileset's asset document (ADR 0134), made
 // by this plugin's `tileset` format (`tilesetFormat.ts`).
 import { newTileset, parseTileset, TILESET_SUFFIX, type TileDef, type TilesetData } from "../runtime/tileset";
-import { fileName } from "../../../editor/assetBrowser";
-import { readImportSettings } from "../../../editor/assetImport";
-import { freePath } from "../../../editor/assetOps";
-import { errorStatus } from "../../../editor/messages";
-import type { EditorProject } from "../../../editor/projects";
-import { currentProject, docVersion, status } from "../../../editor/state";
 import type { ImportSettings } from "../../../engine/scene/importSettings";
+import { editor, type EditorProject } from "../../../editor/sdk";
 
 export interface ReadTileset {
   tileset: TilesetData;
@@ -51,8 +46,8 @@ export function tilesForSlices(settings: ImportSettings, image: string, firstId 
 }
 
 /** A tileset with one tile per slice of an image (ids 1…n), sized by the first slice, or 16 × 16 for an image without slices. */
-export function tilesetFromSlices(imagePath: string, project: EditorProject | null = currentProject.value): TilesetData {
-  const settings = project ? readImportSettings(project, imagePath).settings : null;
+export function tilesetFromSlices(imagePath: string, project: EditorProject | null = editor.project.current): TilesetData {
+  const settings = project ? editor.assets.importSettings(project, imagePath).settings : null;
   const ts = newTileset();
   if (!settings || settings.sprites.length === 0) return ts;
   const [, , w, h] = settings.sprites[0].rect;
@@ -62,33 +57,18 @@ export function tilesetFromSlices(imagePath: string, project: EditorProject | nu
 }
 
 /** True if an image has slices to make tiles from. */
-export const hasSlices = (project: EditorProject, imagePath: string) => readImportSettings(project, imagePath).settings.sprites.length > 0;
+export const hasSlices = (project: EditorProject, imagePath: string) => editor.assets.importSettings(project, imagePath).settings.sprites.length > 0;
 
 /**
  * Create `New Tileset.tileset.json` (or `… 2`) in `folder`: empty, or `data`. Returns its path, or null if the
  * project is read-only or writing failed.
  */
 export async function createTileset(folder: string, data: TilesetData = newTileset(), name = "New Tileset"): Promise<string | null> {
-  const project = currentProject.value;
-  if (!project) return null;
-  if (!project.canSave) {
-    status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to add tilesets.` };
-    return null;
-  }
-  const path = freePath(project, folder, `${name}${TILESET_SUFFIX}`);
-  try {
-    await project.writeText(path, formatTileset(data));
-  } catch (err) {
-    status.value = errorStatus(`Couldn't create ${path}`, err);
-    return null;
-  }
-  docVersion.value++;
-  status.value = { kind: "info", text: `Created ${fileName(path)}.` };
-  return path;
+  return editor.project.createFile({ folder, name: `${name}${TILESET_SUFFIX}`, what: "tilesets", write: (project, path) => project.writeText(path, formatTileset(data)) });
 }
 
 /** Create a tileset named after an image from its slices (Create Tileset from Slices). */
 export function createTilesetFromSlices(folder: string, imagePath: string): Promise<string | null> {
-  const base = fileName(imagePath).replace(/\.[^.]+$/, "");
+  const base = editor.assets.fileName(imagePath).replace(/\.[^.]+$/, "");
   return createTileset(folder, tilesetFromSlices(imagePath), base);
 }

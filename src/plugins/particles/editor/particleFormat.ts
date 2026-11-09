@@ -6,7 +6,7 @@
 // Files in the old `myco.particles@1` format read as migrated graphs and are written as graphs on the first edit.
 import type { GraphProblem, ParticleGraph } from "../../../engine/scene/particleGraph";
 import { defaultParticleGraph, formatParticleGraph, parseParticleGraph } from "../../../engine/scene/particleGraphFormat";
-import type { AssetFormatContribution } from "../../../editor/sdk/contributions";
+import type { AssetFormatContribution } from "../../../editor/sdk";
 import { assetToDoc, docToAsset, formatAsset, type AssetDocKind } from "./particleGraph/assetDocs";
 
 /** What parsing found: the graph, its problems (`GraphProblem`s, which say where), and whether the file is in the old format. */

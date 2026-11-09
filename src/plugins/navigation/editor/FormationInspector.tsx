@@ -22,13 +22,8 @@ import {
   type FormationShape,
   type NavFormationAsset,
 } from "../../../engine/nav/formation";
-import { assetKind, fileName } from "../../../editor/assetBrowser";
-import { openAssetDocument } from "../../../editor/assetDocuments";
-import { errorStatus } from "../../../editor/messages";
-import type { EditorProject } from "../../../editor/projects";
-import { currentProject, docVersion, status } from "../../../editor/state";
-import { theme } from "../../../editor/theme";
 import { drawFormation } from "./NavGroupSection";
+import { editor, openAssetDocument, type EditorProject, theme } from "../../../editor/sdk";
 import "../../../editor/ui/assetInspector.css";
 import "./navFormation.css";
 
@@ -37,10 +32,10 @@ const MAX_CELL = 24;
 
 /** The selected formation asset (see the file comment). Edits go through the formation's asset document: one undo step each, one per paint stroke. */
 export function NavFormationInspector(props: { path: string }) {
-  docVersion.value; // the project's files (the import's image list)
+  editor.project.version; // the project's files (the import's image list)
   theme.value; // the grid's colours
   const { path } = props;
-  const project = currentProject.value;
+  const project = editor.project.current;
   const [showOrder, setShowOrder] = useState(false);
   if (!project) return <p class="empty">Nothing selected</p>;
   const doc = openAssetDocument<NavFormationAsset>(project, path, "formation");
@@ -55,8 +50,8 @@ export function NavFormationInspector(props: { path: string }) {
     doc.edit(next, coalesce ? { coalesce: true } : undefined);
   };
   const set = (patch: Partial<NavFormationAsset>) => apply({ ...formation, ...patch });
-  const undo = () => (doc.canUndo.peek() ? doc.undo() : (status.value = { kind: "info", text: "Nothing to undo in this formation." }));
-  const redo = () => (doc.canRedo.peek() ? doc.redo() : (status.value = { kind: "info", text: "Nothing to redo in this formation." }));
+  const undo = () => (doc.canUndo.peek() ? doc.undo() : editor.messages.info("Nothing to undo in this formation."));
+  const redo = () => (doc.canRedo.peek() ? doc.redo() : editor.messages.info("Nothing to redo in this formation."));
 
 
   return (
@@ -64,7 +59,7 @@ export function NavFormationInspector(props: { path: string }) {
       <div class="asset-inspector-head">
         <span class="asset-inspector-kind">Formation</span>
         <span class="asset-inspector-name" title={path}>
-          {fileName(path)}
+          {editor.assets.fileName(path)}
         </span>
       </div>
       {problems.length > 0 && (
@@ -254,7 +249,7 @@ function FormationImport(props: { project: EditorProject; formation: NavFormatio
   const [threshold, setThreshold] = useState(0.5);
   const [useAlpha, setUseAlpha] = useState(true);
   const [sizeToImage, setSizeToImage] = useState(false);
-  const images = project.files.filter((f) => assetKind(f) === "image");
+  const images = project.files.filter((f) => editor.assets.kindOf(f) === "image");
   const run = async () => {
     const url = project.assets.get(image);
     if (typeof url !== "string") return;
@@ -265,7 +260,7 @@ function FormationImport(props: { project: EditorProject; formation: NavFormatio
       const { pixels } = await imagePixels(url, w, h);
       props.apply(formationFromPixels(before, pixels, w, h, threshold, useAlpha));
     } catch (err) {
-      status.value = errorStatus(`Couldn't import ${fileName(image)}`, err);
+      editor.messages.failed(`Couldn't import ${editor.assets.fileName(image)}`, err);
     }
   };
   return (

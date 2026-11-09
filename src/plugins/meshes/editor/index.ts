@@ -3,7 +3,7 @@
 // scene makes (the model's node tree, once its meshes have loaded). Its import settings stay in the
 // editor shell's import Inspector, shared with images and audio (ADR 0040): its `importSettings` picks the section.
 import { loadModel } from "../../../engine/scene/models";
-import { modelNodeEntries } from "../../../editor/assetBrowser";
+import { modelNodeEntries } from "./modelNodes";
 import type { EditorPlugin } from "../../../editor/sdk";
 import { meshesManifest } from "../manifest";
 
