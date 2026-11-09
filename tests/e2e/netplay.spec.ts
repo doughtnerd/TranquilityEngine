@@ -95,7 +95,8 @@ test("multiplayer play: 2 clients + 1 thin client, live stats, latency raises th
   // Latency raises the round trip: 150 ms each way. Pings are answered in frames, so without added
   // latency the RTT is a frame or two: under 100 ms alone, more when the machine is loaded (WebKit
   // renders on the CPU), and one reading can catch a slow frame. So take the lowest of a few
-  // readings as the baseline, and expect the 300 ms added on top of it.
+  // readings as the baseline; with 300 ms added (and frame delays that vary on both sides) the RTT
+  // passes both 300 ms and the baseline plus half of that.
   await expect.poll(() => shownRtt(panel, "Client 1")).toBeLessThan(250);
   let before = Infinity;
   for (let i = 0; i < 4; i++) {
@@ -105,7 +106,7 @@ test("multiplayer play: 2 clients + 1 thin client, live stats, latency raises th
   }
   await slide(panel.getByRole("slider", { name: "Latency" }), 150);
   await expect(panel.locator(".network-slider-value").first()).toHaveText("150 ms");
-  await expect.poll(() => shownRtt(panel, "Client 1"), { timeout: 15_000 }).toBeGreaterThan(Math.max(250, before + 250));
+  await expect.poll(() => shownRtt(panel, "Client 1"), { timeout: 15_000 }).toBeGreaterThan(Math.max(300, before + 150));
   await expect.poll(() => shownRtt(panel, "Thin 1"), { timeout: 15_000 }).toBeGreaterThan(250);
 
   // Stop returns to editing; the panel explains itself again, and the slider keeps its value.

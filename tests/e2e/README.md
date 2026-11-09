@@ -30,15 +30,29 @@ a `test.describe`). Run `test:e2e:slow` before merging changes to what they cove
 
 Locally on Windows, Chromium renders on the GPU (`tests/e2e/gpu.ts`). Elsewhere, and in CI or with
 `E2E_SOFTWARE_GL=1`, it renders with SwiftShader, where every frame is CPU work in the GPU process
-and the CPU is what limits the suite. For that case:
+and the CPU is what limits the suite. For that case (the last three apply on the GPU too):
 
 - **Frame cap.** Specs import `test` and `expect` from `./fixtures`, whose init script caps render
-  loops (a `requestAnimationFrame` made inside a frame callback) at `E2E_FPS` frames a second,
-  default 10; one-off frame waits still run on the next real frame. `E2E_FPS=0` turns it off; a spec
-  that measures timing in frames raises its own cap with `test.use({ fps: fpsAtLeast(30) })`.
+  loops (a `requestAnimationFrame` callback requested again after it has run) at `E2E_FPS` frames
+  a second, default 10, in Play mode and outside the editor, and at `E2E_EDIT_FPS`, default 5, while
+  the editor edits. A new callback (an "after the next frame", such as Preact's effects) still runs
+  on the next real frame. Play keeps 10 because a World steps at most `maxFrameTime` (0.1 s) a
+  frame. `E2E_FPS=0` turns the cap off; a spec that measures timing in frames raises it with
+  `test.use({ fps: fpsAtLeast(30) })`.
 - **Half device scale.** Chromium renders at `deviceScaleFactor` 0.5 (`E2E_SCALE`): the layout is
   the same in CSS pixels, canvases have a quarter of the pixels.
 - **One worker per core**, up to 8.
+- **No trace per test.** Traces are recorded on CI's retry of a failure only; rerun a failure
+  locally with `--trace on`.
+- **No Code panel warm-up.** An open project doesn't load Monaco and its TypeScript worker in the
+  background (`codePreload: false`); opening a file or pressing Play loads it. A spec that tests the
+  warm-up sets `test.use({ codePreload: true })`.
+- **No compression.** `scripts/e2e-server.mjs` serves `dist/editor/` as it is (`vite preview`
+  gzipped every script for every test's fresh browser context).
+
+In a 4-core cloud container this took the default run from 29.5 minutes (91 of 216 tests failing,
+mostly timeouts) to 9.5; the `@slow` specs take 2 minutes. The default test timeout is 45 s with
+software GL (30 s on the GPU).
 
 Each project a page opens costs seconds of CPU (its renderer starts, compiling pipelines), so specs
 open as few as they need: `openTestProject(page, extra)` opens the writable Flappy folder straight
