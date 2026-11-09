@@ -1,10 +1,10 @@
 // Play mode (ADR 0022, 0032): run the open scene in a fresh Engine without touching what's being
 // edited. Play snapshots the scene document (unsaved edits included), pauses the Editor World and
-// builds an Engine from the project's bootstrap (the default one: a single World, unless the
-// project says otherwise), with the project's real settings (autoloads and all), in the game view.
-// Every start-up World whose config names no scenes plays the open scene (one that says
-// `scenes: []` starts empty, as in a build). Stop disposes the
-// Engine and resumes the editor exactly as it was.
+// launches the game as a build does (`launchGame`, ADR 0155): an Engine from the project's bootstrap
+// (the default one: a single World, unless the project says otherwise), with the project's real
+// settings (autoloads and all), in the game view. Every start-up World whose config names no scenes
+// plays the open scene (one that says `scenes: []` starts empty, as in a build). Stop disposes the
+// launch and resumes the editor exactly as it was.
 //
 // Multiplayer play (ADR 0033 §9, `netPlay.ts`): given `netPlay`, a project with a client/server
 // layout plays with N client Worlds plus T thin clients made from its client World instead, and
@@ -13,8 +13,9 @@
 // Debugging (ADR 0022): the whole session pauses (the Engine's loop stops, every World holds
 // still) and steps one frame at a time (`step`: one Engine frame of `STEP_SECONDS`, so a World's
 // fixed step runs when one is due); `stepWorld` steps a single World, paused or not.
-import { Assets, Engine, type AssetSource, type Bootstrap } from "../engine";
-import { engineWorld, engineWorldConfig, redrawEngine, resumeEditorWorld, setVariantReport, stepEngineWorld } from "../engine/editor";
+import type { AssetSource, Bootstrap, Engine } from "../engine";
+import { redrawEngine, resumeEditorWorld, stepEngineWorld } from "../engine/editor";
+import { launchGame, type LaunchedGame } from "../engine/launch";
 import { STEP_SECONDS, createGameView, type GameView } from "./gameView";
 import { applyNetConditions, conditionsOff, createThinInput, playBootstrap, withConditions, type NetConditionValues, type NetPlayBootstrap, type NetPlayOptions, type ThinInput, type ThinInputMode } from "./netPlay";
 import type { EditorProject } from "./projects";
@@ -77,7 +78,6 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
   // reloads the scene.
   const snapshot = structuredClone(scene.doc.toJSON());
   const overlay: AssetSource = { has: (p) => p === scene.path, get: () => structuredClone(snapshot) };
-  Assets.addSource(overlay);
   const editorWasRunning = editor.isRunning;
   editor.stop();
 
@@ -86,6 +86,7 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
   let conditions = initial && !conditionsOff(initial) ? initial : null;
   const bootstrap = withConditions(netPlay ? netPlay.bootstrap : project.settings.bootstrap, conditions);
   const settings = bootstrap === project.settings.bootstrap ? project.settings : { ...project.settings, bootstrap };
+  let game: LaunchedGame | null = null;
   let runtime: Engine | null = null;
   let view: GameView | null = null;
   let thin: ThinInput | null = null;
@@ -110,21 +111,26 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
   };
   const resume = () => {
     if (frame) cancelAnimationFrame(frame);
-    runtime?.dispose();
+    game?.dispose(); // the Engine, then the overlay
     view?.dispose();
-    Assets.removeSource(overlay);
     resumeEditorWorld(editor.world);
     if (editorWasRunning) editor.start();
   };
   try {
     view = container ? createGameView(container) : null;
-    applyEditorPlugins(project.settings.plugins?.disabled); // the plugins the project keeps on (ADR 0133, 0144); already so from the editor's boot and the project's opening (unchanged halves stay), unless a test skipped them
-    runtime = await Engine.create({ container: view?.main, headless: !container, project: settings, loadScript: loadBootstrapScript, quality: "keep" }); // keep the scene view's previewed tier
-    setVariantReport(runtime, true); // log shader variants compiled mid-game, naming their prefab (ADR 0080)
-    for (const handle of runtime.worlds()) {
-      const named = engineWorldConfig(runtime, handle.name)?.scenes !== undefined;
-      if (!named && engineWorld(runtime, handle.name)!.sceneNodes.length === 0) await handle.loadScene(scene.path);
-    }
+    // The editor's script loader already loaded the scripts and set their asset refs.
+    game = await launchGame({
+      assets: overlay,
+      activatePlugins: () => applyEditorPlugins(project.settings.plugins?.disabled), // the plugins the project keeps on (ADR 0133, 0144); already so from the editor's boot and the project's opening (unchanged halves stay), unless a test skipped them
+      project: settings,
+      loadScript: loadBootstrapScript,
+      entryScene: scene.path,
+      container: view?.main,
+      headless: !container,
+      quality: "keep", // keep the scene view's previewed tier
+      reportShaderVariants: true, // log shader variants compiled mid-game, naming their prefab (ADR 0080)
+    });
+    runtime = game.engine;
     if (netPlay && netPlay.thin.length > 0) thin = createThinInput(runtime, netPlay.thin, netOptions?.thinInput ?? "random");
     view?.attach(runtime, { thin: netPlay?.thin ?? [] });
     if (container) runtime.start(); // headless (tests): the caller steps the Engine

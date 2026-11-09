@@ -1,17 +1,17 @@
 // The game player (ADR 0041): a prebuilt page that runs whichever project is exported beside it.
 // It reads game.json, fetches the project's JSON files and points its binary assets at their
-// URLs (scene loading looks assets up synchronously), imports the compiled scripts so they
-// register their components and systems, then builds the Engine from the project's bootstrap,
-// full-window, as play mode does. Start-up Worlds whose bootstrap config names no scenes load the
-// manifest's main scene. Saves go to the platform's storage (ADR 0024): IndexedDB in a browser,
-// the app data folder in a desktop package.
+// URLs (scene loading looks assets up synchronously), and launches the game as play mode does
+// (`launchGame`, ADR 0155): the compiled scripts register their components and systems, the plugins
+// activate, the Engine is built full-window from the project's bootstrap, and start-up Worlds whose
+// bootstrap config names no scenes load the manifest's main scene. Saves go to the platform's
+// storage (ADR 0024): IndexedDB in a browser, the app data folder in a desktop package.
 //
 // The engine is the build's myco.js (a separate entry of the player bundle), which the compiled
 // scripts import too, so the game and its scripts share one engine.
 import * as engine from "../myco";
 import { activateGamePlugins } from "../plugins/runtime";
-import { Assets, Engine, type Bootstrap, type ProjectSettingsInput } from "../engine";
-import { engineWorld, engineWorldConfig, setScriptAssetRefs } from "../engine/editor";
+import { Engine, type Bootstrap, type ProjectSettingsInput } from "../engine";
+import { launchGame } from "../engine/launch";
 import { toRuntimePlugin } from "../plugins/thirdParty";
 import type { RuntimePlugin } from "../plugins/runtimeContext";
 import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, type GameManifest } from "../export/format";
@@ -43,36 +43,37 @@ async function boot(): Promise<void> {
       else values.set(path, urlOf(at));
     }),
   );
-  Assets.addSource({ has: (p) => values.has(p), get: (p) => values.get(p) });
-
   const settings = (values.get("project.json") ?? {}) as ProjectSettingsInput;
-  setScriptAssetRefs(manifest.assetRefs ?? []); // warmed up with every scene (ADR 0080)
-  for (const script of manifest.scripts) await import(/* @vite-ignore */ urlOf(script.module));
-  // Third-party plugins' runtime halves (ADR 0139): the build holds only enabled ones, in dependency order.
   const thirdParty: RuntimePlugin[] = [];
-  for (const p of manifest.plugins ?? []) {
-    const module = (await import(/* @vite-ignore */ urlOf(p.module))) as Record<string, unknown>;
-    thirdParty.push(toRuntimePlugin({ manifest: p.manifest, source: { kind: "project", folder: "" }, where: p.module, runtime: p.module }, module));
-  }
-  // The plugin set (ADR 0144): first-party runtime halves (ADR 0135) and the third-party ones, minus what
-  // project.json turns off (ADR 0133). A plugin that fails to activate stops the game, like a broken script.
-  activateGamePlugins(thirdParty, { disabled: settings.plugins?.disabled });
   const moduleOf = (path: string) => manifest.scripts.find((s) => s.source === path.replace(/^\.?\//, ""))?.module;
-  const loadScript = async (path: string): Promise<Bootstrap> => {
-    const module = moduleOf(path);
-    if (!module) throw new Error(`The bootstrap script "${path}" isn't in this build.`);
-    return ((await import(/* @vite-ignore */ urlOf(module))) as { bootstrap: Bootstrap }).bootstrap;
-  };
-
   document.body.style.background = settings.display?.backgroundColor ?? "#000";
   const container = document.getElementById("game")!;
-  const runtime = await Engine.create({ container, project: settings, loadScript });
-  if (manifest.mainScene) {
-    for (const handle of runtime.worlds()) {
-      const named = engineWorldConfig(runtime, handle.name)?.scenes !== undefined;
-      if (!named && engineWorld(runtime, handle.name)!.sceneNodes.length === 0) await handle.loadScene(manifest.mainScene);
-    }
-  }
+  // The launch (ADR 0155): the build's files, its scripts and plugins, then the Engine; start-up Worlds whose
+  // bootstrap config names no scenes load the manifest's main scene. The page never stops the game, so
+  // nothing disposes the launch here (a failed launch undoes itself).
+  const { engine: runtime } = await launchGame({
+    assets: { has: (p) => values.has(p), get: (p) => values.get(p) },
+    scriptAssetRefs: manifest.assetRefs ?? [], // warmed up with every scene (ADR 0080)
+    async loadScripts() {
+      for (const script of manifest.scripts) await import(/* @vite-ignore */ urlOf(script.module));
+      // Third-party plugins' runtime halves (ADR 0139): the build holds only enabled ones, in dependency order.
+      for (const p of manifest.plugins ?? []) {
+        const module = (await import(/* @vite-ignore */ urlOf(p.module))) as Record<string, unknown>;
+        thirdParty.push(toRuntimePlugin({ manifest: p.manifest, source: { kind: "project", folder: "" }, where: p.module, runtime: p.module }, module));
+      }
+    },
+    // The plugin set (ADR 0144): first-party runtime halves (ADR 0135) and the third-party ones, minus what
+    // project.json turns off (ADR 0133). A plugin that fails to activate stops the game, like a broken script.
+    activatePlugins: () => activateGamePlugins(thirdParty, { disabled: settings.plugins?.disabled }),
+    project: settings,
+    async loadScript(path: string): Promise<Bootstrap> {
+      const module = moduleOf(path);
+      if (!module) throw new Error(`The bootstrap script "${path}" isn't in this build.`);
+      return ((await import(/* @vite-ignore */ urlOf(module))) as { bootstrap: Bootstrap }).bootstrap;
+    },
+    entryScene: manifest.mainScene || null,
+    container,
+  });
   runtime.start();
   (window as { engine?: Engine }).engine = runtime;
   container.querySelector("canvas")?.focus(); // keyboard input without a click first
