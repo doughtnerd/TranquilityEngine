@@ -13,7 +13,6 @@ import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
 import { PointLight } from "@babylonjs/core/Lights/pointLight.js";
 import { SpotLight } from "@babylonjs/core/Lights/spotLight.js";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
-import { expandParticleGraph, projectAssets } from "../../../scene/particleSubgraphs";
 import { Camera } from "@babylonjs/core/Cameras/camera.js";
 import type { AbstractEngine } from "@babylonjs/core/Engines/abstractEngine.js";
 import type { Material } from "@babylonjs/core/Materials/material.js";
@@ -32,12 +31,9 @@ import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../../scene/Assets";
 import { materialGraph } from "../../../scene/material";
-import { compileParticleGraph } from "../../../scene/particleCompile";
-import { parseParticleGraph } from "../../../scene/particleGraphFormat";
 import { loadMeshes, meshesIfLoaded, type ModelMesh } from "../../../scene/models";
 import { flattenSceneNodes } from "../../sceneFlatten";
-import { ProgramRunner, playTimes } from "../../particles/programRunner";
-import { EffectSimulation } from "../../particles/simulation";
+import { EffectPlayer, EffectResources, libraryEffectHost } from "../effectPlayer";
 import { colorFromHex, frameView, moveOrbit, orbitOf, orbitPosition, previewPixels, seededRandom, type Bounds, type Orbit } from "../../thumbnailMath";
 import type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi } from "../../previewTypes";
 import type { GraphShared } from "../graphMaterial";
@@ -45,7 +41,6 @@ import { environmentKind, ENV_SIZE } from "../lighting";
 import { SkyBaker, SkyDrawable } from "../sky/BabylonSky";
 import { cubemapReady, loadCubemap } from "../sky/cubemaps";
 import { parseSky } from "../../../sky/skyFormat";
-import { copyParticles, createDotTexture, makeDraw, type Draw } from "../particleDraw";
 import { meshOf, pbr } from "../materials";
 import {
   addPreviewLights,
@@ -75,9 +70,12 @@ export const THUMBNAIL_SIZE = 256;
 /** Hover animation: frames per second, and the longest step a slow frame simulates. */
 const ANIMATION_FPS = 30;
 const MAX_STEP = 0.1;
-/** Particle effects are shown this many seconds in, simulated at this rate. */
+/** Particle effects are shown this many seconds in, simulated at this rate, with this random seed. */
 const PARTICLE_TIME = 1;
 const PARTICLE_DT = 1 / 30;
+const PARTICLE_SEED = 1;
+/** A hovered effect that finished plays again after this many seconds. */
+const PARTICLE_REPEAT_GAP = 0.5;
 /** Sprites without a size: pixels per unit (the project default, ADR 0014). */
 const SPRITE_PPU = 100;
 /** Previews draw at most this many pixels across, so a large Inspector doesn't cost a large buffer. */
@@ -88,8 +86,6 @@ const DIRECTION_3D: [number, number, number] = norm([1, 0.75, 1.15]);
 const DIRECTION_FRONT: [number, number, number] = [0, 0, 1];
 const DIRECTION_MATERIAL: [number, number, number] = norm([0, 0.35, 1]);
 const UNIT: Bounds = { min: [-0.5, -0.5, -0.5], max: [0.5, 0.5, 0.5] };
-const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-const WHITE: [number, number, number, number] = [1, 1, 1, 1];
 
 function norm(v: [number, number, number]): [number, number, number] {
   const l = Math.hypot(v[0], v[1], v[2]) || 1;
@@ -610,80 +606,53 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     }
   }
 
+  /** An effect one second in, played by an effect player (ADR 0153) seeded so every thumbnail of it is the same. */
   private async prepareParticles(path: string, live: boolean): Promise<Prepared> {
-    const program = compileParticleGraph(expandParticleGraph(parseParticleGraph(Assets.json(path), path).graph, projectAssets).graph);
     const scene = createPreviewScene(this.engine);
+    const shared: GraphShared = { time: 0, resolution: [this.size, this.size] };
+    const library = previewMaterials(scene, shared, true);
+    const resources = new EffectResources(libraryEffectHost(scene, library), () => undefined);
+    let player: EffectPlayer | null = null;
+    const dispose = () => {
+      player?.dispose();
+      resources.dispose();
+      library.dispose();
+      scene.dispose();
+    };
     try {
       addPreviewLights(scene, LIGHT_AMBIENT, LIGHT_SUN);
-      // Everything the emitters draw with, loaded first, so the build doesn't wait on a texture.
-      const textures = new Map<string, Texture | null>();
-      const materials = new Map<string, Material | null>();
-      const shared: GraphShared = { time: 0, resolution: [this.size, this.size] };
-      const library = previewMaterials(scene, shared, true);
-      for (const e of program.effect.emitters) {
-        const r = e.renderer;
-        if (r.texture && !textures.has(r.texture)) textures.set(r.texture, await library.texture(r.texture).catch(() => null));
-        if (r.mode === "mesh" && r.mesh) await loadMeshes(r.mesh).catch(() => undefined);
-        // A material asset draws instead of the texture (as in a World); one that can't be built falls back to the texture.
-        if (r.material && !materials.has(r.material)) materials.set(r.material, library.material(r.material));
-      }
+      const compiled = resources.compile(Assets.json(path), path);
+      if (!compiled) throw new Error("it isn't a particle effect that can be read.");
+      const program = compiled.program;
+      // Everything the emitters draw with, loaded first, so the effect is built once, with it.
+      await resources.preload(program);
       await library.settled();
-      const dot = createDotTexture(scene);
-      const random = seededRandom(1);
-      const runner = withRandom(random, () => new ProgramRunner(program, random));
-      const sim = new EffectSimulation(withRandom(random, () => runner.effect()), { live: runner.live, random });
-      const draws: Draw[] = sim.emitters.map((e) => {
-        const r = e.renderer;
-        const material = (r.material ? materials.get(r.material) : null) ?? null;
-        const tex = r.texture && !material ? textures.get(r.texture) : null;
-        const mesh = r.mode === "mesh" ? meshesIfLoaded(r.mesh)?.[0] : undefined;
-        return makeDraw(scene, `particles:${e.name}`, e, Math.max(1, Math.ceil(e.settings.maxParticles)), tex ?? dot, !tex, { material, mesh });
-      });
-      const autoStart = program.autoStart;
-      let time = 0;
-      const restart = () => {
-        time = 0;
-        sim.restart();
-        // Systems started by events (not On Play) wait for them.
-        for (const e of sim.emitters) {
-          const index = program.systems.indexOf(e.name);
-          if (index >= 0 && !autoStart[index]) sim.endEmit(e);
-        }
-      };
-      const mirror = () => draws.forEach(copyParticles);
+      const made = new EffectPlayer(resources, program, { name: "thumbnail", seed: PARTICLE_SEED });
+      player = made;
+      if (!made.build()) throw new Error("what it draws with didn't load.");
       const step = (dt: number) => {
-        time += dt;
         shared.time += dt; // graph materials' Time node
-        runner.update(time, dt, playTimes(program, time));
-        sim.step(dt, IDENTITY, 1, WHITE);
+        made.step(dt);
         // A finished one-shot effect starts again, so a hovered tile keeps showing something.
-        if (live && sim.count === 0 && !sim.emitting && time > 0.5) restart();
-        mirror();
+        if (live) made.repeatWhenFinished(dt, PARTICLE_REPEAT_GAP);
       };
-      withRandom(random, () => {
-        restart();
-        for (let t = 0; t < PARTICLE_TIME; t += PARTICLE_DT) step(PARTICLE_DT);
-      });
-      // Frame what's alive now (emitters sit at the origin, so local and world space agree).
+      for (let t = 0; t < PARTICLE_TIME; t += PARTICLE_DT) step(PARTICLE_DT);
+      // Frame what's alive now (the effect sits at the origin, so local and world space agree).
       const box = new BoundsBox();
       const pts: number[] = [];
-      for (const e of sim.emitters) for (let i = 0; i < e.count; i++) pts.push(e.pool[i].wx, e.pool[i].wy, e.pool[i].wz);
+      for (const e of made.sim?.emitters ?? []) for (let i = 0; i < e.count; i++) pts.push(e.pool[i].wx, e.pool[i].wy, e.pool[i].wz);
       box.add(Float32Array.from(pts), null);
       const bounds = box.bounds();
       await this.ready(scene, 3000);
       return {
         scene,
         ...this.camera(scene, bounds && padded(bounds, 0.4), DIRECTION_3D, { min: [-1, 0, -1], max: [1, 2, 1] }),
-        step: live ? (dt) => withRandom(random, () => step(dt)) : undefined,
+        step: live ? step : undefined,
         matte: true,
-        dispose: () => {
-          for (const d of draws) d.dispose();
-          library.dispose();
-          scene.dispose();
-        },
+        dispose,
       };
     } catch (err) {
-      scene.dispose();
+      dispose();
       throw err;
     }
   }
@@ -881,17 +850,6 @@ interface PrefabNode {
 }
 
 const padded = (b: Bounds, by: number): Bounds => ({ min: [b.min[0] - by, b.min[1] - by, b.min[2] - by], max: [b.max[0] + by, b.max[1] + by, b.max[2] + by] });
-
-/** Run `fn` with `Math.random` replaced, so particle effects simulate the same way every time. */
-function withRandom<T>(random: () => number, fn: () => T): T {
-  const original = Math.random;
-  Math.random = random;
-  try {
-    return fn();
-  } finally {
-    Math.random = original;
-  }
-}
 
 /** The box around points (optionally moved by a column-major matrix). */
 class BoundsBox {
