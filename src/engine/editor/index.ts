@@ -180,20 +180,20 @@ export function instantiateNodes(world: World, file: SceneFile, parent: GameObje
   return instantiateFile(world, file, parent, path, hooks);
 }
 
-/** Destroy a node and its subtree right away. Only call between frames (editor commands). */
+/** Destroy a node and its subtree right away (editor commands, between frames); inside a frame, at its end (ADR 0160). */
 export function destroyNow(node: GameObject): void {
   if (!node.isValid) return;
   node.world._destroyNode(node.entity);
-  node.world._flushDestroyed();
+  node.world.applyDestroys();
 }
 
 /**
  * Run `world`'s deferred destroys and component removals now (step 10 of a frame), so a node or
  * component the editor destroyed in a live World goes away while the session is paused (ADR 0124).
- * Only call between frames.
+ * Inside a frame they wait for its end, as step 10 applies them (ADR 0160).
  */
 export function applyDestroys(world: World): void {
-  world._flushDestroyed();
+  world.applyDestroys();
 }
 
 /** Reparent without changing the local transform, then move to `index` among the new siblings. */

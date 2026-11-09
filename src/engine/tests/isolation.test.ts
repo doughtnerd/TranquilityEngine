@@ -57,22 +57,9 @@ function inWorld<T>(world: World, fn: () => T): T {
   }
 }
 
-/** One frame of `world` (the parts of ADR 0011 these tests need), with it current. */
+/** One frame of `world` (ADR 0011, through `World.step`, ADR 0160): one fixed step at the default rate, with it current. */
 function frame(world: World, dt = 1 / 60): void {
-  inWorld(world, () => {
-    world._inFrame = true;
-    try {
-      world.time.fixedStepCount++;
-      world.scheduler.run("fixedUpdate", dt);
-      world._runPendingStarts();
-      world.scheduler.run("update", dt);
-      world._propagateTransforms();
-    } finally {
-      world._flushDestroyed();
-      world._clearBuffers();
-      world._inFrame = false;
-    }
-  });
+  world.step(dt);
 }
 
 beforeEach(() => {

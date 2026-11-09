@@ -11,7 +11,6 @@ import { LinkApplier } from "./linkApplier";
 import { bootProject } from "./projectBoot";
 import { ViewAllocator } from "./viewAllocator";
 import { listSystemCatalog } from "./systems";
-import { _interpolateWorldServices } from "./worldServices";
 import { World, type WorldKind } from "./World";
 import { WorldHandleImpl } from "./WorldHandle";
 import { DEFAULT_WORLD_TAGS, type Bootstrap, type BootstrapEngine, type BootstrapSetting, type WorldConfig, type WorldHandle } from "./worlds";
@@ -280,13 +279,12 @@ export class Engine implements BootstrapEngine {
     this.handles.delete(world);
     if (this.defaultWorld === world) this.defaultWorld = this.list[0];
     this.views.retire(world);
-    if (world._inFrame) world._sceneOps.push(() => this.tearDown(world));
-    else this.tearDown(world);
-    if (World.active === world && !world._inFrame) World.active = this.defaultWorld;
+    world.atFrameEnd(() => this.tearDown(world));
+    if (World.active === world && !world.inFrame) World.active = this.defaultWorld;
   }
 
   private tearDown(world: World): void {
-    World._runIn(world, () => world._destroyAll()); // releases its objects from the render surface
+    world._destroyAll(); // releases its objects from the render surface (`atFrameEnd` runs this with the World current)
     this.configs.delete(world);
     this.views.release(world);
   }
@@ -438,85 +436,18 @@ export class Engine implements BootstrapEngine {
   _redraw(): void {
     for (const world of this.list) {
       const surface = this.views.surfaceOf(world);
-      if (!surface) continue;
-      World._runIn(world, () => {
-        world._propagateTransforms();
-        surface.sync(world);
-        surface.render(world);
-      });
+      if (surface) world.redraw(surface);
     }
     if (this.defaultWorld) World.active = this.defaultWorld;
   }
 
-  /** One World's frame, with it as the current World. Order follows ADR 0011. */
+  /** One World's frame (ADR 0011, 0160): to the surface it has, reporting timings while play mode's Stats show. */
   private stepWorld(world: World, dt: number): void {
-    const time = world.time;
-    const settings = world.settings.time;
-    World.active = world;
-    world._inFrame = true;
     const timing = this.timing;
-    let mark = timing ? performance.now() : 0, fixedMs = 0, updateMs = 0, renderMs = 0;
-    try {
-      // 1. Begin frame
-      time.realtimeSinceStartup += dt;
-      time.unscaledDeltaTime = Math.min(Math.max(dt, 0), settings.maxFrameTime);
-      time.deltaTime = time.unscaledDeltaTime * time.timeScale;
-      time.time += time.deltaTime;
-      time.frameCount++;
-
-      // 3. start() for newly enabled behaviors
-      world._runPendingStarts();
-
-      // 4. Fixed steps, at this World's own rate
-      const fdt = time.fixedDeltaTime;
-      if (time.timeScale > 0) {
-        world._accumulator += time.deltaTime;
-        let steps = 0;
-        while (world._accumulator >= fdt && steps < settings.maxSubSteps) {
-          time.fixedStepCount++;
-          time.fixedTime += fdt;
-          world._resolveWaits("fixed");
-          world.scheduler.run("fixedUpdate", fdt);
-          world._accumulator -= fdt;
-          steps++;
-        }
-        if (steps === settings.maxSubSteps) world._accumulator = Math.min(world._accumulator, fdt);
-      }
-      time.fixedAlpha = fdt > 0 ? world._accumulator / fdt : 0;
-      const surface = this.views.surfaceOf(world);
-      if (surface) {
-        // Rendered Worlds show interpolating bodies between their last two fixed steps (ADR 0093).
-        _interpolateWorldServices(world, time.fixedAlpha);
-      }
-      if (timing) [fixedMs, mark] = [performance.now() - mark, performance.now()];
-
-      // 5–6. update and lateUpdate
-      world._resolveWaits("update");
-      world.scheduler.run("update", time.deltaTime);
-      world.scheduler.run("lateUpdate", time.deltaTime);
-
-      // 7. Transform propagation
-      world._propagateTransforms();
-      if (timing) [updateMs, mark] = [performance.now() - mark, performance.now()];
-
-      // 8–9. Render sync and render: to the main view, or to the World's own surface (editor tiles)
-      if (surface) {
-        surface.sync(world);
-        surface.render(world);
-      }
-      if (timing) {
-        renderMs = performance.now() - mark;
-        timing.world(world.name, fixedMs, updateMs, renderMs);
-      }
-    } finally {
-      // 10. End of frame: deferred destroys, buffers, then scene loads
-      world._flushDestroyed();
-      world._clearBuffers();
-      const ops = world._sceneOps;
-      world._sceneOps = [];
-      world._inFrame = false;
-      for (const op of ops) op();
-    }
+    world.step(dt, {
+      surface: this.views.surfaceOf(world),
+      timings: timing ? (fixedMs, updateMs, renderMs) => timing.world(world.name, fixedMs, updateMs, renderMs) : undefined,
+    });
   }
 
   /** Stop the loop, destroy every World's nodes (scripts get onDestroy, audio stops) and release GPU resources. */
