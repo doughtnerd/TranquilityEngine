@@ -42,9 +42,11 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Editor service:** the editor-side counterpart of a World service, a named, typed object a plugin publishes for other plugins to use if it is enabled.
 - **Core:** what is never a plugin. In the engine: World, ECS, GameObject and Transform, scene files, prefabs and overrides, assets, time, input, `Engine`, the renderer core and netcode. In the editor (the **editor shell**): panels and docking, Hierarchy, Viewport, the Inspector and Assets frames, undo, the scene document, the Code panel, Play, Export, and the graph view.
 
-## Rendering (ADR 0153)
+## Rendering (ADR 0153, 0156, 0163)
 
 - **Effect player:** one particle effect at one transform on the Babylon backend (`render/babylon/effectPlayer.ts`): its runner, CPU simulation and kernel systems, their draws and fallbacks, and how it plays (restart, event-started systems, events, emit, stop, seeding). A World's ParticleSystems (one player each, through `BabylonParticles`), the particle graph's preview and the particle thumbnails all play through it. The players of one scene share **effect resources** (texture cache, dot, scene depth, kernel host). _Avoid:_ particle player (for anything but `BabylonParticles`, the World adapter).
+- **Pipeline readiness:** a World's renderer module that warms shader pipelines, re-warms them on a tier change or new probe captures, and holds the World's first frames until what it draws is ready (`render/babylon/pipelineReadiness.ts`; ADR 0080, 0120, 0163). Thumbnail renderers have none.
+- **Preview inset:** where the editor's camera preview sits on the canvas, as fractions (`PreviewInset`, ADR 0163). The editor's viewport handle measures it once a frame; the renderer never reads the DOM for it.
 - **Thumbnail stage:** the made-up node set an asset kind supplies for one file's thumbnail (its `preview`, ADR 0156), with framing, whether it animates and its matte. The thumbnail renderer draws it through the enabled plugins' render features, as it draws prefabs and scenes.
 - **Thumbnail renderer:** a `BabylonRenderer` made with `forThumbnail` that draws a prefab's or scene's headless World with the real render features on the thumbnail engine, under the thumbnail policy (no warm-up machinery, a shared studio room, an engine it doesn't own). The thumbnail code only frames and captures.
 
