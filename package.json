@@ -22,6 +22,7 @@
     "bench": "vitest bench --run",
     "bench:memory": "node --expose-gc bench/memory.mjs",
     "build:nav": "node native/nav/build.mjs",
+    "build:audio": "node native/audio/build.mjs",
     "test:e2e": "playwright test --project=chromium",
     "test:e2e:slow": "playwright test --project=chromium-slow",
     "test:e2e:chromium": "playwright test --project=chromium --project=chromium-slow",
