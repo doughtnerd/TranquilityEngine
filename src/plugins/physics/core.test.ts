@@ -2,7 +2,7 @@
 // the fake through `physics.backend2d`, beside the Rapier backend the test setup registers.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, BoxCollider2D, Engine, GameBehavior, GameObject, HingeJoint2D, RigidBody2D, type Collision2D, type Joint2D } from "../../myco";
-import { activateRuntimePlugins, deactivateRuntimePlugin, RUNTIME_PLUGINS } from "../runtime";
+import { applyTestPlugins } from "../testPlugins";
 import type { BackendBody, BackendCollider, BodySettings, ColliderDesc, Dim2, JointDesc, PhysicsBackend2D, PhysicsWorld2DBackend, Pose } from "./runtime";
 import { registerPhysicsBackend } from "./runtime";
 import { wrapAngle } from "./runtime/core";
@@ -274,7 +274,7 @@ describe("the shared physics core over a fake backend (ADR 0137)", () => {
 
 describe("with no physics backend enabled (ADR 0137)", () => {
   it("leaves physics Components inert and warns once per World", async () => {
-    deactivateRuntimePlugin("myco.physics-rapier");
+    applyTestPlugins(["myco.physics-rapier"]);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       Assets.clearSources();
@@ -295,7 +295,7 @@ describe("with no physics backend enabled (ADR 0137)", () => {
       engine.dispose();
     } finally {
       warn.mockRestore();
-      activateRuntimePlugins(RUNTIME_PLUGINS);
+      applyTestPlugins();
     }
   });
 });

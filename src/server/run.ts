@@ -11,7 +11,7 @@ import type { World } from "../engine/core/World";
 import { listenWorld, netSession, setDefaultListenOptions, type NetPeer } from "../engine/net/session";
 import { loadProjectCode, readProject, scriptExports, ServerError, type ServerProject } from "./project";
 import { parseListenAddress } from "./websocketServer";
-import { activateRuntimePlugins, enabledRuntimePlugins, RUNTIME_PLUGINS } from "../plugins/runtime";
+import { activateGamePlugins } from "../plugins/runtime";
 
 export { ServerError } from "./project";
 
@@ -71,10 +71,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   Assets.addSource(project.assets);
   let engine: Engine;
   try {
-    // First-party runtime halves (ADR 0135), skipping drawing-only ones (`server: false`).
-    activateRuntimePlugins(RUNTIME_PLUGINS, { server: true, enabled: enabledRuntimePlugins(project.settings.plugins?.disabled) }); // and the project's disabled ones (ADR 0133)
-    // Third-party runtime halves after them (ADR 0139); `loadProjectCode` already left out disabled and `server: false` ones.
-    if (thirdParty.length > 0) activateRuntimePlugins([...RUNTIME_PLUGINS, ...thirdParty], { server: true, enabled: [...enabledRuntimePlugins(project.settings.plugins?.disabled), ...thirdParty.map((p) => p.manifest.name)] });
+    // The plugin set (ADR 0144): first-party runtime halves (ADR 0135) and the third-party ones (ADR 0139),
+    // minus drawing-only (`server: false`) and the project's disabled ones (ADR 0133). A plugin that fails
+    // to activate stops the server, like a broken script.
+    activateGamePlugins(thirdParty, { disabled: project.settings.plugins?.disabled, server: true });
     engine = await Engine.create({ headless: true, project: project.settings, bootstrap: plan.bootstrap });
   } catch (err) {
     Assets.removeSource(project.assets);

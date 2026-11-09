@@ -3,7 +3,7 @@
 // runtime half claims the ParticleSystem component and the particles render feature. Deactivating
 // either half removes what it registered.
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../../engine/core/registry";
 import { ParticleSystem } from "../../engine/render/components";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
@@ -16,14 +16,16 @@ import { kindIcon, kindLabel, kindOpens } from "../../editor/assetKindLookup";
 import { allPanels, isKnownPanel, isOnDemand, panelBeside, panelTitle, PANELS } from "../../editor/layout/model";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
-import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
+import { isPluginActive } from "../../editor/sdk/plugins";
+import { useEditorPlugins } from "../testEditorPlugins";
 import { currentProject } from "../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../editor/testing";
 import { previewKind } from "../../editor/thumbnails/keys";
 import { registeredInspectorSections } from "../../editor/ui/inspectorSections";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
-import { activateRuntimePlugins, deactivateRuntimePlugin, isRuntimePluginActive } from "../runtimeContext";
+import { deactivateRuntimePlugin, isRuntimePluginActive } from "../runtimeContext";
+import { applyTestPlugins } from "../testPlugins";
 import { particlesEditorPlugin } from "./editor";
 import { openParticleGraph, readEffect } from "./editor/particleAssets";
 import { particleBlockFormat, particlesFormat, particleSubgraphFormat } from "./editor/particleFormat";
@@ -43,10 +45,9 @@ async function open(files: Record<string, string>) {
   return { project, fs };
 }
 
-beforeEach(() => activatePlugins([particlesEditorPlugin]));
+const editorHalf = useEditorPlugins([particlesEditorPlugin], "each");
 afterEach(() => {
   _reset();
-  deactivatePlugin(particlesEditorPlugin.manifest.name);
   currentProject.value = null;
   openParticleGraph.value = null;
 });
@@ -137,7 +138,7 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
   });
 
   it("removes everything when deactivated", () => {
-    deactivatePlugin("myco.particles");
+    editorHalf.off();
     expect(isPluginActive("myco.particles")).toBe(false);
     for (const k of ["particles", "particlesubgraph", "particleblock"]) {
       expect(kindLabel(k)).toBeUndefined();
@@ -151,7 +152,7 @@ describe("the Particles plugin's editor half (ADR 0134)", () => {
 });
 
 describe("the Particles plugin's runtime half (ADR 0135)", () => {
-  afterEach(() => activateRuntimePlugins(RUNTIME_PLUGINS)); // as Vitest's setup file leaves it
+  afterEach(() => applyTestPlugins()); // as Vitest's setup file leaves it
 
   it("claims the ParticleSystem component and the lazy particles render feature", () => {
     expect(isRuntimePluginActive("myco.particles")).toBe(true);

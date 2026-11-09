@@ -36,36 +36,39 @@ export interface EditorPlugin {
 
 const active = new Map<string, Array<() => void>>();
 
+/** Activate one editor half (its dependencies must be active); nothing happens when it already is. A half that throws is rolled back and the error rethrown. */
+export function activatePlugin(plugin: EditorPlugin): void {
+  const name = plugin.manifest.name;
+  if (active.has(name)) return;
+  const undo: Array<() => void> = [];
+  active.set(name, undo);
+  const context: EditorPluginContext = {
+    registerAssetKind: (k) => void undo.push(assetKinds.register(k)),
+    registerAssetFormat: (f) => void undo.push(assetFormats.register(f)),
+    registerPanel: (p) => void undo.push(panels.register(p)),
+    registerProjectSettingsSection: (section) => void undo.push(projectSettingsSections.register(section)),
+    registerPanelExtension: (extension) => void undo.push(panelExtensions.register(extension)),
+    registerComponentNote: (n) => void undo.push(componentNotes.register(n)),
+    registerInspectorSection: (type, view, options) => void undo.push(registerInspectorSection(type, view, options)),
+    registerViewportTool: (t) => void undo.push(viewportTools.register(t)),
+    registerSceneToolbarItem: (item) => void undo.push(sceneToolbarItems.register(item)),
+    registerComponentHeaderAction: (action) => void undo.push(componentHeaderActions.register(action)),
+  };
+  try {
+    plugin.activate(context);
+  } catch (err) {
+    deactivatePlugin(name);
+    throw err;
+  }
+}
+
 /**
  * Activate editor halves in dependency order; already-active plugins are skipped. `provided` names
- * dependencies outside `plugins` that are already active (ADR 0139: a third-party half needing a
- * first-party plugin).
+ * dependencies outside `plugins` that are already active. Low level: the editor makes plugins active
+ * through its plugin set (`plugins/editorPlugins.ts`, ADR 0144), which drives `editorActivator`.
  */
 export function activatePlugins(plugins: readonly EditorPlugin[], options: { provided?: ReadonlySet<string> } = {}): void {
-  for (const plugin of orderPlugins(plugins, options.provided)) {
-    const name = plugin.manifest.name;
-    if (active.has(name)) continue;
-    const undo: Array<() => void> = [];
-    active.set(name, undo);
-    const context: EditorPluginContext = {
-      registerAssetKind: (k) => void undo.push(assetKinds.register(k)),
-      registerAssetFormat: (f) => void undo.push(assetFormats.register(f)),
-      registerPanel: (p) => void undo.push(panels.register(p)),
-      registerProjectSettingsSection: (section) => void undo.push(projectSettingsSections.register(section)),
-      registerPanelExtension: (extension) => void undo.push(panelExtensions.register(extension)),
-      registerComponentNote: (n) => void undo.push(componentNotes.register(n)),
-      registerInspectorSection: (type, view, options) => void undo.push(registerInspectorSection(type, view, options)),
-      registerViewportTool: (t) => void undo.push(viewportTools.register(t)),
-      registerSceneToolbarItem: (item) => void undo.push(sceneToolbarItems.register(item)),
-      registerComponentHeaderAction: (action) => void undo.push(componentHeaderActions.register(action)),
-    };
-    try {
-      plugin.activate(context);
-    } catch (err) {
-      deactivatePlugin(name);
-      throw err;
-    }
-  }
+  for (const plugin of orderPlugins(plugins, options.provided)) activatePlugin(plugin);
 }
 
 /** Remove everything a plugin registered. */
@@ -80,3 +83,4 @@ export const isPluginActive = (name: string): boolean => active.has(name);
 
 export type { PluginManifest };
 export { orderPlugins };
+

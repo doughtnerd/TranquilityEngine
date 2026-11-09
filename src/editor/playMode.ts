@@ -19,7 +19,7 @@ import { STEP_SECONDS, createGameView, type GameView } from "./gameView";
 import { applyNetConditions, conditionsOff, createThinInput, playBootstrap, withConditions, type NetConditionValues, type NetPlayBootstrap, type NetPlayOptions, type ThinInput, type ThinInputMode } from "./netPlay";
 import type { EditorProject } from "./projects";
 import { loadedScriptModule } from "./scriptLoader";
-import { enabledRuntimePlugins, RUNTIME_PLUGINS, syncRuntimePlugins } from "../plugins/runtime";
+import { applyEditorPlugins } from "../plugins/editorPlugins";
 import type { OpenScene } from "./state";
 
 export interface PlaySession {
@@ -118,7 +118,7 @@ export async function startPlay({ editor, scene, project, container, netPlay: ne
   };
   try {
     view = container ? createGameView(container) : null;
-    syncRuntimePlugins(RUNTIME_PLUGINS, enabledRuntimePlugins(project.settings.plugins?.disabled)); // first-party runtime halves (ADR 0135) the project keeps on (ADR 0133); already so from the editor's boot, unless a test skipped it
+    applyEditorPlugins(project.settings.plugins?.disabled); // the plugins the project keeps on (ADR 0133, 0144); already so from the editor's boot and the project's opening (unchanged halves stay), unless a test skipped them
     runtime = await Engine.create({ container: view?.main, headless: !container, project: settings, loadScript: loadBootstrapScript, quality: "keep" }); // keep the scene view's previewed tier
     setVariantReport(runtime, true); // log shader variants compiled mid-game, naming their prefab (ADR 0080)
     for (const handle of runtime.worlds()) {

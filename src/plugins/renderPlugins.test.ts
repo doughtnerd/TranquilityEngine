@@ -13,7 +13,9 @@ import { UIDocument } from "../engine/ui/UIDocument";
 import { environmentRuntimePlugin } from "./environment/runtime";
 import { MESHES_SPEC, meshesRuntimePlugin } from "./meshes/runtime";
 import { postProcessingRuntimePlugin } from "./post-processing/runtime";
-import { activateRuntimePlugins, deactivateRuntimePlugin, isRuntimePluginActive, RUNTIME_PLUGINS, type RuntimePlugin } from "./runtime";
+import { isRuntimePluginActive, RUNTIME_PLUGINS, type RuntimePlugin } from "./runtime";
+import { deactivateRuntimePlugin } from "./runtimeContext";
+import { applyTestPlugins } from "./testPlugins";
 import { SPRITES_SPEC, spritesRuntimePlugin } from "./sprites/runtime";
 import { TILEMAPS_SPEC } from "./tilemaps/runtime";
 import { UI_SPEC, uiRuntimePlugin } from "./ui/runtime";
@@ -27,7 +29,7 @@ const names = (specs: readonly RenderFeatureSpec[]) => byPhase(specs).map((i) =>
 /** The order before ADR 0140 (and 0135): what every frame must keep syncing in. */
 const TODAY = ["sprites", "tilemaps", "meshes", "sky", "lights", "fog", "environment", "particles", "probes", "water", "ui"];
 
-afterEach(() => activateRuntimePlugins(RUNTIME_PLUGINS)); // as Vitest's setup file leaves it
+afterEach(() => applyTestPlugins()); // as Vitest's setup file leaves it
 
 describe("render feature order with every first-party plugin (ADR 0140)", () => {
   it("keeps today's sync order: built-ins first, then the plugins' features as RUNTIME_PLUGINS registers them", () => {
@@ -101,18 +103,17 @@ describe.each(CASES)("the $plugin.manifest.name runtime half (ADR 0140)", ({ plu
   });
 
   it("removes its Components and feature when deactivated, and restores them", () => {
-    deactivateRuntimePlugin(name);
+    deactivateRuntimePlugin(name); // the runtime activator directly
     expect(isRuntimePluginActive(name)).toBe(false);
     for (const id of Object.keys(components)) expect(getComponentClass(id)).toBeUndefined();
     if (feature) expect(registered()).toHaveLength(0);
-    activateRuntimePlugins(RUNTIME_PLUGINS);
+    applyTestPlugins(); // the set activates what was deactivated outside it again
     for (const [id, cls] of Object.entries(components)) expect(getComponentClass(id)).toBe(cls);
     if (feature) expect(registered()).toHaveLength(1);
   });
 
   it("disabled, unregisters its Components and registers nothing", () => {
-    deactivateRuntimePlugin(name);
-    activateRuntimePlugins(RUNTIME_PLUGINS, { enabled: RUNTIME_PLUGINS.map((p) => p.manifest.name).filter((n) => n !== name) });
+    applyTestPlugins([name]);
     for (const id of Object.keys(components)) expect(getComponentClass(id)).toBeUndefined();
     if (feature) expect(registered()).toHaveLength(0);
   });
