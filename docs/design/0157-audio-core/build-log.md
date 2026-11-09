@@ -102,7 +102,13 @@ Leads: A0.8 Opus with one Haiku leaf (L1 `audioLifecycle.test.ts`); A0.6 Sonnet 
 
 ## MS1 complete (2026-11-09)
 
-Exit check met with `backend: "core"`: a tone after a click in Chromium (dev page), WebView2 and WebKitGTK (A0.7); STATUS flows with frames stopped (A0.3); FMOD gone (A0.5); an old engine gets one warning, then the fallback (A0.6). Typecheck, `npm test`, `npm run build`, `cargo test` and Chromium e2e are at the baseline, and the committed wasm matches its source hash. The default backend is unchanged (`"babylon"` is still Howler). Ready for the owner's approval to merge to master.
+Exit check met with `backend: "core"`: a tone after a click in Chromium (dev page), WebView2 and WebKitGTK (A0.7); STATUS flows with frames stopped (A0.3); FMOD gone (A0.5); an old engine gets one warning, then the fallback (A0.6). Typecheck, `npm test`, `npm run build`, `cargo test` and Chromium e2e are at the baseline, and the committed wasm matches its source hash. The default backend is unchanged (`"babylon"` is still Howler). Ready for the owner's approval to merge to master. Merged: master is at `8214a93`.
+
+## Owner decisions after MS2 (2026-11-09)
+
+- **HRIR (H0, #51):** option (a) confirmed, and no courtesy letter. Our copy comes from Chromium's Blink resources at `cbba46fd` (see `tools/hrir/PROVENANCE.json`). `Ircam-RnD/m4dp-audio-modules` (ISC) is not the source and holds no IRC_Composite data. Recorded in `hrir-licence.md`. The owner still checks IRCAM's terms page before B7.
+- **HRTF memory:** the panner's about 300–315 KB at 16 voices is accepted. A3.5 raises architecture §5.1's 140 KB figure to the measured value instead of cutting voices. Shrinking it (fewer partitions, a shared spectrum cache, int16 kernels) is a follow-up for after the roadmap, not an M1 gate.
+- **`npm audit` (DOMPurify via monaco-editor):** it was already in the tree before this work, so it doesn't block audio milestones.
 
 ## MS1 merged to master (2026-11-09)
 
@@ -174,4 +180,10 @@ Contracts K4 (`hostClock.ts`, the loopback host's signature in `testing.ts`) and
 
 ## MS2 complete (2026-11-09)
 
-Ready for the owner's approval to merge to master.
+Ready for the owner's approval to merge to master. Merged: master is at `8214a93`.
+
+## Owner decisions after MS2 (2026-11-09)
+
+- **HRIR (H0, #51):** option (a) confirmed, and no courtesy letter. Our copy comes from Chromium's Blink resources at `cbba46fd` (see `tools/hrir/PROVENANCE.json`). `Ircam-RnD/m4dp-audio-modules` (ISC) is not the source and holds no IRC_Composite data. Recorded in `hrir-licence.md`. The owner still checks IRCAM's terms page before B7.
+- **HRTF memory:** the panner's about 300–315 KB at 16 voices is accepted. A3.5 raises architecture §5.1's 140 KB figure to the measured value instead of cutting voices. Shrinking it (fewer partitions, a shared spectrum cache, int16 kernels) is a follow-up for after the roadmap, not an M1 gate.
+- **`npm audit` (DOMPurify via monaco-editor):** it was already in the tree before this work, so it doesn't block audio milestones.

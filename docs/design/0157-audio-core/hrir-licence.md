@@ -1,6 +1,14 @@
 # HRIR data licence decision (task H0)
 
-Status: decision for the owner to confirm. Written 2026-11-09 for ADR 0157 (task H0, GitHub issue #51). Nothing has been sent to anyone; the draft letter is in Appendix A for the owner to send or not.
+Status: confirmed by the owner on 2026-11-09 (see "Owner decision" below). Written 2026-11-09 for ADR 0157 (task H0, GitHub issue #51). No letter will be sent; Appendix A is kept for the record only.
+
+## Owner decision (2026-11-09)
+
+- Option (a) stands: the IRCAM Listen IRC_Composite_C data, as shipped in `myco_hrir.bin` (H2).
+- **No courtesy letter.** Appendix A is not sent.
+- The owner checks IRCAM's terms page before B7, as before (risk 1).
+- **Where our copy comes from.** H2's converter fetched the 240 `IRC_Composite_C_R0195_T###_P###.wav` files from Chromium's `third_party/blink/renderer/platform/audio/resources/` at commit `cbba46fd94646232cfd2318ac962138c2a98c1f9` (`tools/hrir/PROVENANCE.json` lists each URL and SHA-256). That directory has no licence file, so the rights come from IRCAM's own statement, not from Chromium (see "Chromium's Composite.flac").
+- **Not the source: `Ircam-RnD/m4dp-audio-modules`.** It is ISC-licensed in its `package.json`, which covers its JavaScript. Checked on 2026-11-09, it contains no IRC_Composite data: its `examples/hrtf/` holds SOFA files for other sets (`IRC_1147_C`, `OLPS_2042_C`, `OLPS_2044_C`). Its ISC licence therefore says nothing about our data.
 
 ## Decision
 
