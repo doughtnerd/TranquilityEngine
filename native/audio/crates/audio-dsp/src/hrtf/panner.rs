@@ -339,7 +339,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "needs H1-L1 (fft_size_for_sample_rate); un-ignored at the merge"]
     fn rates_map_to_partitions() {
         assert_eq!(partitions_for_sample_rate(48000.0), Some(2));
         assert_eq!(partitions_for_sample_rate(44100.0), Some(2));
@@ -351,13 +350,47 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "needs H1-L1 (fft_size_for_sample_rate); un-ignored at the merge"]
     fn new_checks_the_rate_against_the_partitions() {
         assert!(HrtfPanner::new(96000.0).is_ok());
         assert_eq!(HrtfPannerN::<2>::new(96000.0).err(), Some(UnsupportedSampleRate(96000.0)));
         let p = HrtfPannerN::<2>::new(48000.0).unwrap();
         assert_eq!((p.fft_size(), p.partitions()), (512, 2));
+        std::println!("HrtfPannerN<2> {} B, HrtfPanner {} B, HrtfScratch {} B", core::mem::size_of::<HrtfPannerN<2>>(), core::mem::size_of::<HrtfPanner>(), core::mem::size_of::<HrtfScratch>());
         assert!(core::mem::size_of::<HrtfPannerN<2>>() < 20 * 1024);
         assert!(core::mem::size_of::<HrtfPanner>() < 32 * 1024);
+    }
+    /// Every response an impulse of 0.5 at frame 0, delays 3 (left) and 7.5 (right) frames: any
+    /// direction gives the source delayed and halved, before and after a crossfade.
+    #[test]
+    fn impulse_table_gives_the_delays_at_any_direction() {
+        use crate::hrtf::database::{encode, HrirHeader};
+        let header = HrirHeader { elevations: 10, azimuths: 24, ir_length: 256, rate: 48000.0 };
+        let delays: std::vec::Vec<f32> = (0..480).map(|i| if i % 2 == 0 { 3.0 } else { 7.5 }).collect();
+        let mut irs = std::vec![0i16; 240 * 256 * 2];
+        for d in 0..240 {
+            irs[d * 512] = 16384;
+            irs[d * 512 + 1] = 16384;
+        }
+        let mut bytes = std::vec![0u8; header.byte_len()];
+        encode(&header, &delays, &irs, &mut bytes).unwrap();
+        let db = HrirDatabase::parse(&bytes).unwrap();
+        let mut scratch = HrtfScratch::new();
+        let mut panner = HrtfPannerN::<2>::new(48000.0).unwrap();
+        let mut src = [0.0f32; QUANTUM_FRAMES];
+        let (mut l, mut r) = ([0.0f32; QUANTUM_FRAMES], [0.0f32; QUANTUM_FRAMES]);
+        for (q, azimuth) in [(0, 10.0), (1, 10.0), (2, -77.0), (3, -77.0)] {
+            src.fill(0.0);
+            src[20] = 1.0;
+            panner.pan(&db, &mut scratch, azimuth, 5.0, &src, None, &mut l, &mut r);
+            assert!(panner.kernels_computed_last() <= 4);
+            if q == 0 {
+                assert_eq!(panner.kernels_computed_last(), 2);
+            }
+            assert!((l[23] - 0.5).abs() < 1e-4, "q {q}: l[23] = {}", l[23]);
+            assert!((r[27] - 0.25).abs() < 1e-4 && (r[28] - 0.25).abs() < 1e-4, "q {q}: r = {} {}", r[27], r[28]);
+            let energy: f32 = l.iter().chain(r.iter()).map(|v| v * v).sum();
+            assert!((energy - (0.25 + 0.125)).abs() < 1e-3, "q {q}: energy {energy}");
+        }
+        assert!(panner.is_crossfading());
     }
 }

@@ -23,8 +23,9 @@
 //!   Resampling and delay extraction happen before upload (H2); `kernel::extract_average_group_delay`
 //!   is the port of the extraction for that tool.
 //!
-//! Nothing in the process path allocates: the panner is a fixed-size value (sized for rates up to
-//! 176.4 kHz exclusive, 4 partitions), kernel-computation buffers live in a shared `HrtfScratch`,
+//! Nothing in the process path allocates: the panner is a fixed-size value sized by its partition
+//! count (`HrtfPannerN<P>`: `HrtfPanner`, 4 partitions, for every rate below 176.4 kHz;
+//! `HrtfPannerN<2>` below 88.2 kHz), kernel-computation buffers live in a shared `HrtfScratch`,
 //! and the database is a borrowed byte slice. Transcendentals go through `libm`.
 
 pub mod convolver;
