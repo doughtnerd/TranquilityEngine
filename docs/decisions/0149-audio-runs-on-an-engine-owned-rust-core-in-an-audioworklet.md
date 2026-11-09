@@ -228,6 +228,10 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, a
 ### Platforms and minimum versions
 
 - **Cross-platform is a requirement.** Every feature must work in the browser and in the desktop editor on Windows, macOS and Linux. Nothing may depend on one platform. Platform-specific paths (a SAB ring, native output) are optional speed-ups over a path that works everywhere.
+- **Who runs where (owner, 2026-11-09):**
+  - The **editor** targets desktop (Windows, macOS, Linux) and the web browser only.
+  - **Published games** run on the web, on desktop, and on **Android**: building games for Android through Tauri is intended, with its own export record still to come, extending 0041.
+  - On Android the core runs in the Android System WebView, the same AudioWorklet path as the browser. A native Android audio output (AAudio/Oboe) would be a later option like the desktop native-output note, not part of M1.
 - **The command transport defaults to postMessage on every platform.** The SAB ring is used only where the page is already cross-origin isolated and that has been verified on all three desktop webviews. It's never required.
 - **Minimum versions:** the lowest browser and webview versions that support everything the core needs: AudioWorklet, WebAssembly `simd128`, transferable `ArrayBuffer`s, `AudioContext.getOutputTimestamp`.
   - `simd128` is likely the binding constraint: Chromium/Edge/WebView2 91, Firefox 89, Safari 16.4, recalled and not yet checked.
@@ -373,4 +377,5 @@ The technical design in `docs/design/0149-audio-core/` (an architect's and a sen
 - **Settled after revision 3 (2026-11-09):**
   - The owner (Chris Carlson) runs the human listening pass.
   - The low-end soak device is an **Android phone** running the lowest Android version that Google Play currently accepts for publishing apps (the exact version is looked up when the soak is set up, since Google raises it over time), playing the web build in its Chrome and Android System WebView.
+  - The low end is a **starting point, not an absolute**. If the core shows significant performance gaps on it, the low end moves up to a more capable device class, rather than the design being squeezed to fit.
   - This makes Android's browser and WebView a runtime the core must serve at the "low" preset. If that Android version's WebView lacks AudioWorklet or `simd128`, the device gets the Babylon fallback, and the soak then measures the fallback. A0.6 checks which.

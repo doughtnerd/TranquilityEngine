@@ -687,7 +687,9 @@ Main allocates nothing per frame. The voice table and scratch are preallocated t
 
 Versions are recalled; **A0.6 confirms them**. The loader probes features, not versions.
 
-**Android (owner, 2026-11-09).** The low-end soak device is an Android phone on the lowest Android version Google Play accepts for publishing apps, playing the web build in Chrome and the Android System WebView. A0.6 checks whether that version's browser and WebView get AudioWorklet and `simd128` (Chromium 91+). If not, the device runs the Babylon fallback and the soak measures that. Expect a phone CPU several times slower than the reference machine, and higher output latency than desktop. The "low" preset is sized from it.
+**Platforms by product (owner, 2026-11-09).** The editor targets desktop and the web browser only. Published games also target Android through Tauri, whose export is a future record extending 0041; the core runs there in the Android System WebView, on the same AudioWorklet path.
+
+**Android (owner, 2026-11-09).** The low end is a starting point, not an absolute: significant gaps raise the low end to a more capable device class. The low-end soak device is an Android phone on the lowest Android version Google Play accepts for publishing apps, playing the web build in Chrome and the Android System WebView. A0.6 checks whether that version's browser and WebView get AudioWorklet and `simd128` (Chromium 91+). If not, the device runs the Babylon fallback and the soak measures that. Expect a phone CPU several times slower than the reference machine, and higher output latency than desktop. The "low" preset is sized from it.
 
 | | Chrome / Edge | Firefox | Safari | WebView2 | WKWebView | WebKitGTK |
 |---|---|---|---|---|---|---|
