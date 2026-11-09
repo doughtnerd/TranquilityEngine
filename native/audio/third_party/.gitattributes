@@ -1,0 +1,3 @@
+# Reference copies of upstream Chromium files: keep them byte-identical (no CRLF conversion),
+# so the SHA-256s in PROVENANCE.md match on every checkout.
+* -text
