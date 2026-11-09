@@ -27,8 +27,32 @@ export const SIMD_PROBE_MODULE: Uint8Array = new Uint8Array([
 
 /** @internal Names the required features (ADR 0157 Platforms "Minimum versions") the engine lacks; empty when none. */
 export function missingFeatures(env: ProbeEnv): readonly string[] {
-  void env;
-  return []; // A0.6-L1
+  const missing: string[] = [];
+  if (env.AudioWorkletNode === undefined) missing.push("AudioWorklet");
+  if (!hasSimd(env)) missing.push("WebAssembly simd128");
+  if (!hasOutputTimestamp(env)) missing.push("AudioContext.getOutputTimestamp");
+  if (env.MessageChannel === undefined) missing.push("transferable ArrayBuffers");
+  return missing;
+}
+
+/** Whether `WebAssembly.validate` accepts the simd128 probe module; a missing or throwing validator means no. */
+function hasSimd(env: ProbeEnv): boolean {
+  const wasm = env.WebAssembly;
+  if (wasm === undefined) return false;
+  try {
+    return wasm.validate(SIMD_PROBE_MODULE) === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the AudioContext prototype has `getOutputTimestamp` (own or inherited); reads no live context. */
+function hasOutputTimestamp(env: ProbeEnv): boolean {
+  const ctx = env.AudioContext;
+  if (ctx === undefined) return false;
+  const proto = ctx.prototype;
+  if (proto === undefined) return false;
+  return "getOutputTimestamp" in proto;
 }
 
 /**
@@ -36,8 +60,14 @@ export function missingFeatures(env: ProbeEnv): readonly string[] {
  * (docs/guide/audio-minimum-versions.md), and that sound falls back to the "babylon" backend.
  */
 export function refusalMessage(missing: readonly string[]): string {
-  void missing;
-  return ""; // A0.6-L1
+  const list = missing.join(", ");
+  return (
+    `Audio core unavailable: this engine lacks ${list}. ` +
+    "The core needs AudioWorklet (Chrome/Edge 66, Firefox 76, Safari 14.1), " +
+    "WebAssembly simd128 (Chrome/Edge/WebView2 91, Firefox 89, Safari 16.4) and " +
+    "AudioContext.getOutputTimestamp (Chrome/Edge 57, Firefox 70). " +
+    'Using the "babylon" backend: basic playback, no effects. See docs/guide/audio-minimum-versions.md.'
+  );
 }
 
 /**
