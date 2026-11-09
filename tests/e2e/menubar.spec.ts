@@ -31,7 +31,7 @@ test("the bar has File, Edit, Create, Window and Help, Play in the middle and th
   await expect(edit.getByRole("menuitem", { name: /^Undo/ })).toHaveAttribute("title", /nothing to undo/);
 });
 
-test("a menu opens on click, closes on a second click, Escape and a click outside; hovering switches; Escape gives the focus back", async ({ page }) => {
+test("a menu opens on click, closes on a second click, Escape and a click outside; hovering switches", async ({ page }) => {
   await openEditor(page);
   const file = menuTitle(page, "File"), edit = menuTitle(page, "Edit");
   await expect(page.getByRole("menu")).toHaveCount(0);
@@ -50,15 +50,6 @@ test("a menu opens on click, closes on a second click, Escape and a click outsid
   await file.click();
   await page.locator(".status-bar").click({ position: { x: 300, y: 5 } }); // outside the bar (the log toggles; fine)
   await expect(page.getByRole("menu")).toHaveCount(0);
-
-  // Closing a menu with Escape gives the focus back to where it was.
-  const search = page.getByPlaceholder(/Search/).first();
-  await search.focus();
-  await menuTitle(page, "Edit").click();
-  await expect(page.locator(".menubar-menu")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.locator(".menubar-menu")).toHaveCount(0);
-  await expect(search).toBeFocused();
 });
 
 test("the keyboard moves through the menus: Alt, arrows, Enter, Escape", async ({ page }) => {
@@ -187,3 +178,13 @@ test("the menu bar does nothing while a dialog is open", async ({ page }) => {
   await expect(page.locator(".menubar-menu")).toHaveCount(0);
 });
 
+test("closing a menu with Escape gives the focus back to where it was", async ({ page }) => {
+  await openEditor(page);
+  const search = page.getByPlaceholder(/Search/).first();
+  await search.focus();
+  await menuTitle(page, "Edit").click();
+  await expect(page.locator(".menubar-menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".menubar-menu")).toHaveCount(0);
+  await expect(search).toBeFocused();
+});

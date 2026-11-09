@@ -172,7 +172,7 @@ test("editing a graph updates the scene's meshes whose material uses it", async 
   await expect(node(page, "fresnel1")).toBeVisible();
   await panel.getByRole("combobox", { name: "Target" }).selectOption("unlit");
   await expect.poll(async () => (await graphFile(page, "Playground/shaders/pulse.shadergraph.json")).target).toBe("unlit");
-  await expect.poll(pillarMaterial).toBe("unlit");
+  await expect.poll(pillarMaterial, { timeout: 15_000 }).toBe("unlit"); // the material rebuilds from the graph: a shader compile
 
   // The material's own property values show in the Inspector beside the graph's.
   await showFolder(page, "materials");
