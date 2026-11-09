@@ -25,13 +25,36 @@ export interface UnlockOptions {
 
 /** @internal The gesture listener of §3.1: arm when locked, resume inside the gesture, disarm when running. */
 export class Unlock {
+  private readonly target: EventTarget;
+  private readonly context: UnlockContext;
+  private readonly onUnlocked: (() => void) | undefined;
+  private isArmed = false;
+  private isDisposed = false;
+
+  // Kept as fields so `addEventListener` and `removeEventListener` get the same function.
+  private readonly onGesture = (): void => {
+    if (!this.isArmed) return;
+    // Called synchronously inside the event: browsers allow resume() only there.
+    // A rejection is swallowed; the layer stays armed for the next gesture.
+    this.context.resume().then(
+      () => this.onResolved(),
+      () => {},
+    );
+  };
+
+  private readonly onStateChange = (): void => {
+    if (this.context.state === "running") this.unlock();
+  };
+
   constructor(options: UnlockOptions) {
-    throw new Error("not implemented: A0.3-L3");
+    this.target = options.target;
+    this.context = options.context;
+    this.onUnlocked = options.onUnlocked;
   }
 
   /** Whether the gesture listeners are attached. */
   get armed(): boolean {
-    throw new Error("not implemented: A0.3-L3");
+    return this.isArmed;
   }
 
   /**
@@ -46,16 +69,39 @@ export class Unlock {
    * `"running"`), the layer disarms and calls `onUnlocked` once.
    */
   arm(): void {
-    throw new Error("not implemented: A0.3-L3");
+    if (this.isArmed || this.isDisposed || this.context.state === "running") return;
+    this.isArmed = true;
+    for (const type of UNLOCK_EVENTS) {
+      this.target.addEventListener(type, this.onGesture, { capture: true, passive: true });
+    }
+    this.context.addEventListener("statechange", this.onStateChange);
   }
 
   /** Removes every listener `arm` attached (gesture listeners with `{ capture: true }`). Safe when not armed. */
   disarm(): void {
-    throw new Error("not implemented: A0.3-L3");
+    if (!this.isArmed) return;
+    this.isArmed = false;
+    for (const type of UNLOCK_EVENTS) {
+      this.target.removeEventListener(type, this.onGesture, { capture: true });
+    }
+    this.context.removeEventListener("statechange", this.onStateChange);
   }
 
   /** Disarms for good: later `arm()` calls do nothing. */
   dispose(): void {
-    throw new Error("not implemented: A0.3-L3");
+    this.isDisposed = true;
+    this.disarm();
+  }
+
+  /** A resume that resolved: unlocks only when the context reports `"running"`. */
+  private onResolved(): void {
+    if (this.context.state === "running") this.unlock();
+  }
+
+  /** Disarms, then reports once: a second trigger finds the layer already disarmed. */
+  private unlock(): void {
+    if (!this.isArmed) return;
+    this.disarm();
+    this.onUnlocked?.();
   }
 }
