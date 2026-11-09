@@ -60,3 +60,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 
 - **View allocator:** what decides which surface (the main view, a tile, or none after a hand-over) and which input target each World has (`core/viewAllocator.ts`, ADR 0159). The Engine asks it `surfaceOf(world)`.
 - **End of frame:** the last step of a World's frame (ADR 0011, 0160). Work queued with `World.atFrameEnd` runs there, after deferred destroys; outside a frame it runs at once. _Avoid:_ checking `_inFrame` by hand.
+
+## Play mode (ADR 0161)
+
+- **Play controller:** the editor's one play session (`createPlaySession` in `playSession.ts`, ADR 0161). It owns the edit, starting and playing states and the work deferred to Stop: kept values, plugin settings and script reloads. Not the same as `PlaySession` in `playMode.ts`, which is one running game.

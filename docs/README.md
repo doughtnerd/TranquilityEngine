@@ -197,6 +197,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0157](decisions/0157-the-assets-panel-commands-are-one-module-and-an-asset-entry-has-one-encoding.md) | The Assets panel's commands are one module (`assetActions.ts`), each with one `whyNotAsset` rule, shared by the panel's menu, its keys and the menu bar; an asset entry has one encoding (`assetEntry.ts`); the node builders move beside `addAssets` (`assetNodes.ts`) | Proposed |
 | [0159](decisions/0159-one-view-allocator-gives-worlds-their-surfaces-and-input-and-one-link-applier-connects-links.md) | A view allocator owns each World's surface and input target (main view, tiles, nested hand-overs, input follows the view); one link applier connects start-up and runtime links; project settings boot in one step | Proposed |
 | [0160](decisions/0160-a-world-runs-its-own-frame-and-owns-the-end-of-frame-rule.md) | A World runs its own frame (`step`, `redraw`, `advanceClock`) and owns the "now, or at the end of the frame" rule (`atFrameEnd`, `applyDestroys`); the Engine only schedules Worlds and the input snapshot | Proposed |
+| [0161](decisions/0161-one-play-session-module-owns-play-mode-and-the-work-deferred-to-stop.md) | One play-session module (`playSession.ts`) owns play mode's edit/starting/playing states and the work deferred to Stop (kept values, plugin settings, script reload), with the game view and the pre-play script check as ports; `session.ts` keeps the project lifecycle | Proposed |
 
 ## Working with decisions
 
