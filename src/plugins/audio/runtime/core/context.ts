@@ -165,23 +165,148 @@ export class CoreLink {
   }
 }
 
-/** @internal The page's audio host (M1a.0): context, node, link and unlock. */
+// --- Lifecycle (A0.8; architecture §1, §3.9; api-and-models §3 "Bus state serialisation", §7) -----------------
+
+/** @internal A World's key in the host: the voice table's `world` byte (api §3), 1..255; 0 means "no World". */
+export type WorldKey = number;
+/** @internal Keys 1..255 fit the voice table's `world: Uint8Array`. */
+export const MAX_WORLD_KEYS = 255;
+
+/** @internal One World's share of the page's host (§3.9): what `releaseWorld` frees. */
+export interface WorldShare {
+  readonly key: WorldKey;
+  /** The World (any object: the host never looks inside it). */
+  readonly owner: object;
+  /** Set by `releaseWorld`; a released share's key may already belong to another World. */
+  readonly released: boolean;
+}
+
+/**
+ * @internal A bus remap (api §3): the bus tree changed (`Engine.ts` reconfigured the one mixer for another
+ * Engine), so every live voice's `bus` index moves to the bus of the same name, unknown names to the root (0).
+ */
+export interface BusRemap {
+  /** The host's `busEpoch` after the change. */
+  readonly epoch: number;
+  /** Bus names before, by index (root first). */
+  readonly from: readonly string[];
+  /** Bus names after, by index (root first). */
+  readonly to: readonly string[];
+  /** `map[oldIndex]` is the new index; `map.length === from.length`. */
+  readonly map: Uint8Array;
+}
+
+/**
+ * @internal The host's lifecycle seams. Nothing on the core holds voices or clips yet, so these are the hooks the
+ * later owners attach to: A1.1's voice table (`onBusRemap`: `bus[i] = map[bus[i]]` for each live voice;
+ * `onWorldReleased`: STOP that World's voices with 10 ms fades), A1.3a's clip registry (`onWorldReleased`: drop the
+ * key from `holders`), A1.4's command writer (`onBusRemap`: send BUS_CONFIG; `onIdle`: `RESET 0` when no World
+ * holds clips). Listeners run synchronously, in the order they were added.
+ */
+export interface HostLifecycleListener {
+  /** The bus tree changed (`reconfigure` with different names). */
+  onBusRemap?(remap: BusRemap): void;
+  /** A World released its share; its key returns to the pool after every listener ran. */
+  onWorldReleased?(key: WorldKey, owner: object): void;
+  /** The last World released (play stopped and the editor's World gone too, or a lone game World torn down). */
+  onIdle?(): void;
+  /** The host closed (tests, or a future rebuild replacing it). */
+  onClose?(): void;
+}
+
+/**
+ * @internal The pure remap rule (api §3): for each old bus index, the index of the same name in `to`, else 0 (the
+ * root). Names are unique within a tree (the settings parse guarantees it).
+ */
+export function busRemap(from: readonly string[], to: readonly string[]): Uint8Array {
+  const map = new Uint8Array(from.length);
+  for (let i = 0; i < from.length; i++) {
+    const j = to.indexOf(from[i]!);
+    map[i] = j < 0 ? 0 : j;
+  }
+  return map;
+}
+
+const presetsEqual = (a: CorePreset, b: CorePreset): boolean =>
+  a.maxLogical === b.maxLogical && a.maxMixed === b.maxMixed && a.maxBuses === b.maxBuses && a.arenaInitialBytes === b.arenaInitialBytes && a.clipCeilingBytes === b.clipCeilingBytes;
+
+const sameNames = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((n, i) => n === b[i]);
+
+/** Runs `fn` for each listener; one that throws is logged and doesn't stop the others or the host. */
+function each(listeners: Iterable<HostLifecycleListener>, fn: (l: HostLifecycleListener) => void): void {
+  for (const l of [...listeners]) {
+    try {
+      fn(l);
+    } catch (err) {
+      console.error("[myco] audio host listener failed:", err);
+    }
+  }
+}
+
+/** A share whose `released` only the host sets. */
+interface MutableShare {
+  readonly key: WorldKey;
+  readonly owner: object;
+  released: boolean;
+}
+
+/** @internal What the host is made of: the browser's in `AudioHost._startNew`, fakes in Node tests. */
+export interface HostParts {
+  readonly context: AudioContext;
+  readonly node: AudioWorkletNode;
+  readonly link: CoreLink;
+  readonly unlock: Unlock;
+  /** The preset the core was initialised with. */
+  readonly preset: CorePreset;
+}
+
+/**
+ * @internal The page's audio host (M1a.0; architecture §1): context, node, link and unlock, shared by every Engine
+ * and World on the page. Worlds take a share (`attachWorld`) and give it back (`releaseWorld`); the context and core
+ * stay for the page (§3.9).
+ */
 export class AudioHost {
+  readonly context: AudioContext;
+  readonly node: AudioWorkletNode;
+  readonly link: CoreLink;
+  readonly unlock: Unlock;
+  /** True while the page's own background policy has suspended the context (A3.4b drives it); unlock won't re-arm then. */
+  pageSuspended = false;
+
   private timeout: ReturnType<typeof setTimeout> | null = null;
   private readonly onStateChange = () => this.startTimeout();
+  private isClosed = false;
+  private currentPreset: CorePreset;
+  private nextPreset: CorePreset | null = null;
+  private names: readonly string[] = [];
+  private epoch = 0;
+  private readonly shares = new Map<WorldKey, MutableShare>();
+  private readonly byOwner = new Map<object, MutableShare>();
+  private readonly listeners = new Set<HostLifecycleListener>();
 
-  private constructor(
-    readonly context: AudioContext,
-    readonly node: AudioWorkletNode,
-    readonly link: CoreLink,
-    readonly unlock: Unlock,
-  ) {
-    context.addEventListener("statechange", this.onStateChange);
+  private constructor(parts: HostParts) {
+    this.context = parts.context;
+    this.node = parts.node;
+    this.link = parts.link;
+    this.unlock = parts.unlock;
+    this.currentPreset = parts.preset;
+    this.context.addEventListener("statechange", this.onStateChange);
     this.startTimeout();
-    void link.ready.then(
+    void this.link.ready.then(
       () => this.clearTimeout(),
       () => this.clearTimeout(),
     );
+  }
+
+  /**
+   * @internal Builds a host from its parts (Node tests pass fakes). Arms the unlock layer when the context isn't
+   * running, and keeps it watching for `interrupted` and unrequested suspends (A0.9).
+   */
+  static _create(parts: HostParts): AudioHost {
+    const host = new AudioHost(parts);
+    if (parts.context.state !== "running") parts.unlock.arm();
+    parts.unlock.watch(() => host.pageSuspended); // true while the page's own background policy has suspended the context (A3.4b sets it)
+    return host;
   }
 
   /**
@@ -189,8 +314,11 @@ export class AudioHost {
    * worklet module, creates the node with the wasm bytes and the preset, connects it, and arms the unlock layer on
    * `unlockTarget` when the context isn't running. Resolves once the node exists, before the first STATUS (a
    * locked context renders nothing until the gesture).
+   *
+   * Every call makes a new AudioContext, so only `startAudioHost` calls it, through `acquireAudioHost` (the page's
+   * one host, architecture §1). Get the host with `startAudioHost` or `currentAudioHost`, never with this.
    */
-  static async start(wasm: CoreWasm, moduleUrl: string, preset: CorePreset, unlockTarget: EventTarget): Promise<AudioHost> {
+  static async _startNew(wasm: CoreWasm, moduleUrl: string, preset: CorePreset, unlockTarget: EventTarget): Promise<AudioHost> {
     const context = new AudioContext({ latencyHint: "interactive" });
     try {
       await context.audioWorklet.addModule(moduleUrl);
@@ -198,10 +326,9 @@ export class AudioHost {
       const node = new AudioWorkletNode(context, PROCESSOR_NAME, { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions });
       node.connect(context.destination);
       const link = new CoreLink(node.port as unknown as LinkPort);
-      // onUnlocked does nothing: the statechange listener above starts the first-STATUS clock.
+      // onUnlocked does nothing: the constructor's statechange listener starts the first-STATUS clock.
       const unlock = new Unlock({ target: unlockTarget, context });
-      if (context.state !== "running") unlock.arm();
-      return new AudioHost(context, node, link, unlock);
+      return AudioHost._create({ context, node, link, unlock, preset });
     } catch (error) {
       void context.close().catch(() => {});
       throw error;
@@ -215,6 +342,106 @@ export class AudioHost {
     return "running";
   }
 
+  /** Whether `close()` ran (the page singleton then starts a new host on the next acquire). */
+  get closed(): boolean {
+    return this.isClosed;
+  }
+
+  // --- Worlds (§3.9) ---
+
+  /**
+   * §3.9: a World registers with the host (its `myco.audio` service's `create`). Gives the lowest free key; the same
+   * owner attached twice gets its existing share. Throws when all 255 keys are taken, or after `close()`.
+   */
+  attachWorld(owner: object): WorldShare {
+    if (this.isClosed) throw new Error("audio core: the host is closed");
+    const existing = this.byOwner.get(owner);
+    if (existing) return existing;
+    let key = 1;
+    while (key <= MAX_WORLD_KEYS && this.shares.has(key)) key++;
+    if (key > MAX_WORLD_KEYS) throw new Error(`audio core: more than ${MAX_WORLD_KEYS} Worlds hold the audio host`);
+    const share: MutableShare = { key, owner, released: false };
+    this.shares.set(key, share);
+    this.byOwner.set(owner, share);
+    return share;
+  }
+
+  /**
+   * §3.9 / api §7: frees a World's share (its service's `dispose`, on play stop or World teardown). Marks the share
+   * released, runs every `onWorldReleased`, returns the key to the pool, then runs `onIdle` if no World is left.
+   * Returns false (and does nothing) for a key that isn't attached. The context and core stay alive.
+   */
+  releaseWorld(key: WorldKey): boolean {
+    const share = this.shares.get(key);
+    if (!share) return false;
+    share.released = true;
+    // The key stays taken while listeners run, so a listener attaching a World can't be handed it mid-release.
+    each(this.listeners, (l) => l.onWorldReleased?.(key, share.owner));
+    this.shares.delete(key);
+    this.byOwner.delete(share.owner);
+    if (this.shares.size === 0) each(this.listeners, (l) => l.onIdle?.());
+    return true;
+  }
+
+  /** The live share for `key`, or null. */
+  worldShare(key: WorldKey): WorldShare | null {
+    return this.shares.get(key) ?? null;
+  }
+
+  /** How many Worlds hold a share. */
+  get worldCount(): number {
+    return this.shares.size;
+  }
+
+  // --- Reconfigure (Engine.ts; api §3 "Bus state serialisation") ---
+
+  /** The bus names the core was last configured with, by index (root first). Empty before the first `reconfigure`. */
+  get busNames(): readonly string[] {
+    return this.names;
+  }
+
+  /** Bumped by every `reconfigure` that changes the bus names; 0 before the first. */
+  get busEpoch(): number {
+    return this.epoch;
+  }
+
+  /** The preset the running core was initialised with. */
+  get preset(): CorePreset {
+    return this.currentPreset;
+  }
+
+  /**
+   * A preset that differs from the running core's, set by `reconfigure`; null when they match. The core's memory is
+   * laid out at init, so it applies at the next rebuild (A3.4a), never mid-session.
+   */
+  get pendingPreset(): CorePreset | null {
+    return this.nextPreset;
+  }
+
+  /**
+   * `Engine.ts` reconfigured the one mixer (each Engine's `create`: the editor's, then play mode's). Takes the bus
+   * names from `settings.buses`; if they differ from `busNames`, bumps `busEpoch`, runs every `onBusRemap` with
+   * `busRemap(old, new)` and returns the remap (the first call, from no names, remaps nothing but still bumps). Returns
+   * null when the names are unchanged. Also sets `pendingPreset` from `presetFromSettings(settings)`.
+   */
+  reconfigure(settings: AudioSettings): BusRemap | null {
+    const preset = presetFromSettings(settings);
+    this.nextPreset = presetsEqual(preset, this.currentPreset) ? null : preset;
+    const to = settings.buses.map((b) => b.name);
+    if (this.epoch > 0 && sameNames(this.names, to)) return null;
+    const from = this.names;
+    const remap: BusRemap = { epoch: ++this.epoch, from, to, map: busRemap(from, to) };
+    this.names = to;
+    each(this.listeners, (l) => l.onBusRemap?.(remap));
+    return remap;
+  }
+
+  /** Adds lifecycle hooks (the seams for A1.1, A1.3a, A1.4); returns the removal. */
+  addLifecycleListener(listener: HostLifecycleListener): () => void {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  }
+
   /** §4.7 Starting timeout: counted only while the context runs, since a locked context renders nothing. */
   private startTimeout(): void {
     if (this.timeout !== null || this.link.readyState !== "pending" || this.context.state !== "running") return;
@@ -226,8 +453,18 @@ export class AudioHost {
     this.timeout = null;
   }
 
-  /** Closes the context and stops listening. */
+  /**
+   * Closes the context and stops listening. Marks the host closed, runs every `onClose` and drops every share
+   * (without `onWorldReleased`: nothing is left to stop). A second call does nothing.
+   */
   async close(): Promise<void> {
+    if (this.isClosed) return;
+    this.isClosed = true;
+    for (const share of this.shares.values()) share.released = true;
+    this.shares.clear();
+    this.byOwner.clear();
+    each(this.listeners, (l) => l.onClose?.());
+    this.listeners.clear();
     this.clearTimeout();
     this.context.removeEventListener("statechange", this.onStateChange);
     this.unlock.dispose();
@@ -237,10 +474,57 @@ export class AudioHost {
   }
 }
 
-/** @internal Loads the core and starts the host for `settings` (the `myco.audio` service's `load`). */
+// --- The page singleton (architecture §1: one host per page serves every Engine and World) ---
+
+/**
+ * @internal The page's host: returns the live one, or the start already under way, else calls `start` and keeps
+ * what it resolves. A failed start isn't kept (the next acquire tries again), nor is a closed host. This holds even
+ * when the World service is registered again (plugin re-activation), whose fresh `load` would otherwise make a
+ * second AudioContext.
+ */
+export function acquireAudioHost(start: () => Promise<AudioHost>): Promise<AudioHost> {
+  if (pageHost && !pageHost.closed) return Promise.resolve(pageHost);
+  pageHost = null;
+  if (pageStart) return pageStart;
+  const pending: Promise<AudioHost> = start().then(
+    (host) => {
+      if (pageStart === pending) {
+        pageStart = null;
+        pageHost = host;
+      }
+      return host;
+    },
+    (error: unknown) => {
+      if (pageStart === pending) pageStart = null;
+      throw error;
+    },
+  );
+  pageStart = pending;
+  return pending;
+}
+
+/** @internal The page's live host, or null (none started, still starting, or closed). */
+export function currentAudioHost(): AudioHost | null {
+  return pageHost && !pageHost.closed ? pageHost : null;
+}
+
+/** @internal Tests: closes the page's host (if any) and forgets it and any pending start. */
+export async function _resetAudioHostForTests(): Promise<void> {
+  const host = pageHost;
+  pageHost = null;
+  pageStart = null;
+  if (host) await host.close();
+}
+
+let pageHost: AudioHost | null = null;
+let pageStart: Promise<AudioHost> | null = null;
+
+/** @internal Loads the core and starts the host for `settings` (the `myco.audio` service's `load`), once per page. */
 export async function startAudioHost(settings: AudioSettings, unlockTarget: EventTarget = document): Promise<AudioHost> {
-  const [wasm, moduleUrl] = await Promise.all([loadCoreWasm(), workletModuleUrl()]);
-  return AudioHost.start(wasm, moduleUrl, presetFromSettings(settings), unlockTarget);
+  return acquireAudioHost(async () => {
+    const [wasm, moduleUrl] = await Promise.all([loadCoreWasm(), workletModuleUrl()]);
+    return AudioHost._startNew(wasm, moduleUrl, presetFromSettings(settings), unlockTarget);
+  });
 }
 
 /** @internal Re-exported so the dev page and tests name one type. */
