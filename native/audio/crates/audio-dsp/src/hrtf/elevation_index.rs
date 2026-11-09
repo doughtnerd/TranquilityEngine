@@ -135,15 +135,39 @@ pub struct AzimuthPair {
 /// truncated `azimuth / (360 / 192)`, clamped to 0..=191; the blend is the fractional part. NaN
 /// gives `(0, 0.0)`.
 pub fn calculate_desired_azimuth_index_and_blend(azimuth: f64) -> (usize, f64) {
-    let _ = azimuth;
-    todo!("H1-L1")
+    if azimuth.is_nan() {
+        return (0, 0.0);
+    }
+    // Beyond this the index has no fractional part in f64; saturate instead of truncating.
+    const LIMIT: f64 = 4_503_599_627_370_496.0; // 2^52
+    let last = NUMBER_OF_TOTAL_AZIMUTHS - 1;
+    let mut azimuth = azimuth;
+    if azimuth < 0.0 {
+        azimuth += 360.0;
+    }
+    let angle_between_azimuths = 360.0 / NUMBER_OF_TOTAL_AZIMUTHS as f64;
+    let index_float = azimuth / angle_between_azimuths;
+    if !(index_float.abs() < LIMIT) {
+        return (if index_float > 0.0 { last } else { 0 }, 0.0);
+    }
+    if index_float < 0.0 {
+        // Only reached for azimuths below -360, which the index clamp maps to 0 anyway.
+        return (0, 0.0);
+    }
+    let index = index_float as usize;
+    let blend = index_float - index as f64;
+    (index.min(last), blend)
 }
 
 /// `IndexFromElevationAngle` (hrtf_database.cc): the elevation index 0..10 for an angle in degrees,
 /// clamped to -45..=90 first, then `(int)((angle + 45) / 15)`. NaN gives 0.
 pub fn index_from_elevation_angle(elevation_angle: f64) -> usize {
-    let _ = elevation_angle;
-    todo!("H1-L1")
+    if elevation_angle.is_nan() {
+        return 0;
+    }
+    let clamped = elevation_angle.max(MIN_ELEVATION as f64).min(MAX_ELEVATION as f64);
+    let index = (clamped - MIN_ELEVATION as f64) / RAW_ELEVATION_ANGLE_SPACING as f64;
+    index as usize
 }
 
 /// The elevation index whose data a raw azimuth actually uses for elevation index
@@ -152,15 +176,23 @@ pub fn index_from_elevation_angle(elevation_angle: f64) -> usize {
 /// index. `elevation_index` must be below 10 and `raw_azimuth` below 24 (larger values are clamped
 /// to the last valid index).
 pub fn raw_elevation_index(elevation_index: usize, raw_azimuth: usize) -> usize {
-    let _ = (elevation_index, raw_azimuth);
-    todo!("H1-L1")
+    let elevation_index = elevation_index.min(NUMBER_OF_RAW_ELEVATIONS - 1);
+    let raw_azimuth = raw_azimuth.min(NUMBER_OF_RAW_AZIMUTHS - 1);
+    let angle = MIN_ELEVATION + RAW_ELEVATION_ANGLE_SPACING * elevation_index as i32;
+    let capped = angle.min(MAX_ELEVATIONS[raw_azimuth]);
+    let index = (capped - MIN_ELEVATION) / RAW_ELEVATION_ANGLE_SPACING;
+    index.max(0) as usize
 }
 
 /// The raw pair and weight for an azimuth index 0..192 (see [`AzimuthPair`]). An index of 192 or
 /// more is taken modulo 192.
 pub fn azimuth_pair(azimuth_index: usize) -> AzimuthPair {
-    let _ = azimuth_index;
-    todo!("H1-L1")
+    let index = azimuth_index % NUMBER_OF_TOTAL_AZIMUTHS;
+    let raw1 = index / AZIMUTH_INTERPOLATION_FACTOR;
+    let raw2 = (raw1 + 1) % NUMBER_OF_RAW_AZIMUTHS;
+    let step = index % AZIMUTH_INTERPOLATION_FACTOR;
+    let x = step as f32 / AZIMUTH_INTERPOLATION_FACTOR as f32;
+    AzimuthPair { raw1, raw2, step, x }
 }
 
 /// `HRTFPanner::FftSizeForSampleRate`: the kernel FFT size for a context rate. The 256-frame
@@ -169,41 +201,104 @@ pub fn azimuth_pair(azimuth_index: usize) -> AzimuthPair {
 /// (at least `FFTFrame::MinFFTSize()` = 2), and the result is twice the analysis size. 512 at
 /// 44.1 and 48 kHz, 1024 at 88.2 and 96 kHz.
 pub fn fft_size_for_sample_rate(sample_rate: f32) -> usize {
-    let _ = sample_rate;
-    todo!("H1-L1")
+    const TRUNCATED_IMPULSE_LENGTH: f64 = 256.0;
+    const MIN_FFT_SIZE: usize = 2; // FFTFrame::MinFFTSize()
+    // `sample_rate / 44100` divides a float by an int, so the ratio is computed in f32.
+    let sample_rate_ratio = sample_rate / 44100.0_f32;
+    let resampled_length = TRUNCATED_IMPULSE_LENGTH * sample_rate_ratio as f64;
+    // Saturating float-to-int casts keep NaN and negative inputs at exponent 0, and the cap keeps
+    // the shift in range for infinite or huge rates.
+    let exponent = (libm::log2(resampled_length) as u32).min(usize::BITS - 2);
+    let analysis_fft_size = (1usize << exponent).max(MIN_FFT_SIZE);
+    2 * analysis_fft_size
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn assert_blend(actual: f64, expected: f64) {
+        assert!((actual - expected).abs() < 1e-12, "blend {actual} != {expected}");
+    }
+
     #[test]
-    #[ignore = "H1-L1"]
     fn azimuth_index_and_blend_match_chromium() {
-        let _ = calculate_desired_azimuth_index_and_blend(0.0);
+        assert_eq!(calculate_desired_azimuth_index_and_blend(0.0), (0, 0.0));
+        assert_eq!(calculate_desired_azimuth_index_and_blend(1.875), (1, 0.0));
+        let (i, b) = calculate_desired_azimuth_index_and_blend(10.0);
+        assert_eq!(i, 5);
+        assert_blend(b, 1.0 / 3.0);
+        let (i, b) = calculate_desired_azimuth_index_and_blend(-10.0);
+        assert_eq!(i, 186);
+        assert_blend(b, 2.0 / 3.0);
+        assert_eq!(calculate_desired_azimuth_index_and_blend(180.0), (96, 0.0));
+        assert_eq!(calculate_desired_azimuth_index_and_blend(-180.0), (96, 0.0));
+        let (i, b) = calculate_desired_azimuth_index_and_blend(-1e-9);
+        assert_eq!(i, 191);
+        assert!(b > 0.99 && b < 1.0, "blend {b}");
+        assert_eq!(calculate_desired_azimuth_index_and_blend(f64::NAN), (0, 0.0));
+        // Infinities and huge values stay in range and never panic.
+        assert_eq!(calculate_desired_azimuth_index_and_blend(f64::INFINITY), (191, 0.0));
+        assert_eq!(calculate_desired_azimuth_index_and_blend(f64::NEG_INFINITY), (0, 0.0));
+        let (i, b) = calculate_desired_azimuth_index_and_blend(1e300);
+        assert_eq!(i, 191);
+        assert_eq!(b, 0.0);
     }
 
     #[test]
-    #[ignore = "H1-L1"]
     fn elevation_index_matches_chromium() {
-        let _ = index_from_elevation_angle(0.0);
+        assert_eq!(index_from_elevation_angle(-90.0), 0);
+        assert_eq!(index_from_elevation_angle(-45.0), 0);
+        assert_eq!(index_from_elevation_angle(-44.9), 0);
+        assert_eq!(index_from_elevation_angle(0.0), 3);
+        assert_eq!(index_from_elevation_angle(14.99), 3);
+        assert_eq!(index_from_elevation_angle(15.0), 4);
+        assert_eq!(index_from_elevation_angle(89.9), 8);
+        assert_eq!(index_from_elevation_angle(90.0), 9);
+        assert_eq!(index_from_elevation_angle(400.0), 9);
+        assert_eq!(index_from_elevation_angle(f64::NAN), 0);
     }
 
     #[test]
-    #[ignore = "H1-L1"]
     fn raw_elevation_index_applies_max_elevations() {
-        let _ = raw_elevation_index(9, 1);
+        assert_eq!(raw_elevation_index(9, 0), 9);
+        assert_eq!(raw_elevation_index(9, 1), 6);
+        assert_eq!(raw_elevation_index(5, 1), 5);
+        assert_eq!(raw_elevation_index(8, 2), 7);
+        assert_eq!(raw_elevation_index(7, 4), 7);
+        assert_eq!(raw_elevation_index(8, 4), 8);
+        assert_eq!(raw_elevation_index(0, 13), 0);
+        // Out-of-range inputs clamp instead of panicking.
+        assert_eq!(raw_elevation_index(usize::MAX, usize::MAX), raw_elevation_index(9, 23));
     }
 
     #[test]
-    #[ignore = "H1-L1"]
     fn azimuth_pair_matches_create_for_subject() {
-        let _ = azimuth_pair(0);
+        let check = |a: usize, raw1, raw2, step, x: f32| {
+            let p = azimuth_pair(a);
+            assert_eq!((p.raw1, p.raw2, p.step), (raw1, raw2, step), "index {a}");
+            assert_eq!(p.x, x, "index {a}");
+        };
+        check(0, 0, 1, 0, 0.0);
+        check(8, 1, 2, 0, 0.0);
+        check(13, 1, 2, 5, 0.625);
+        check(191, 23, 0, 7, 0.875);
+        check(192, 0, 1, 0, 0.0);
     }
 
     #[test]
-    #[ignore = "H1-L1"]
     fn fft_size_matches_chromium() {
-        let _ = fft_size_for_sample_rate(48000.0);
+        assert_eq!(fft_size_for_sample_rate(3000.0), 32);
+        assert_eq!(fft_size_for_sample_rate(8000.0), 64);
+        assert_eq!(fft_size_for_sample_rate(16000.0), 128);
+        assert_eq!(fft_size_for_sample_rate(22050.0), 256);
+        assert_eq!(fft_size_for_sample_rate(44100.0), 512);
+        assert_eq!(fft_size_for_sample_rate(48000.0), 512);
+        assert_eq!(fft_size_for_sample_rate(88200.0), 1024);
+        assert_eq!(fft_size_for_sample_rate(96000.0), 1024);
+        assert_eq!(fft_size_for_sample_rate(176400.0), 2048);
+        // Degenerate rates give the minimum size and never panic.
+        assert_eq!(fft_size_for_sample_rate(f32::NAN), 4);
+        assert_eq!(fft_size_for_sample_rate(f32::INFINITY), 1usize << (usize::BITS - 1));
     }
 }
