@@ -1,13 +1,18 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { appIdentifier, desktopProjectFiles, slug } from "./desktop";
 import { modulePath, relativeSpecifier, type GameManifest } from "./format";
 import { exportProject } from "./node";
 import { ExportError, isExportedFile, isOutputInsideProject, planWebBuild, type BuildSource } from "./webBuild";
+import { typescript } from "../editor/moduleImports";
 
 const SAMPLES = join(__dirname, "..", "..", "samples");
+
+// The TypeScript compiler loads once per file, on the first script compiled: seconds when the
+// machine is busy (the full suite in parallel), which is set-up, not the build a test times.
+beforeAll(() => typescript().then(() => undefined), 60_000);
 
 function source(extra: Partial<BuildSource> & { scriptFiles?: Record<string, string>; jsonFiles?: Record<string, string> } = {}): BuildSource {
   const scripts = new Map(Object.entries(extra.scriptFiles ?? {}));
@@ -165,14 +170,23 @@ describe("exportProject (Node)", () => {
     expect(manifest).toMatchObject({ name: "flappy", mainScene: "scenes/main.scene.json" });
     expect(manifest.scripts.map((s) => s.source)).toContain("scripts/behaviors/GameManager.ts");
     expect(result.plan.manifest).toEqual(manifest);
+  });
 
-    // Exporting again replaces the earlier build; a folder holding something else is refused.
+  it("replaces an earlier build, and refuses a folder holding something else", async () => {
+    // A project with no scripts, images or models: what's checked is the output folder, not the build.
+    const project = temp();
+    mkdirSync(join(project, "scenes"));
+    writeFileSync(join(project, "project.json"), '{ "name": "Tiny" }');
+    writeFileSync(join(project, "scenes", "main.scene.json"), "{}");
+    const out = join(temp(), "web");
+    await exportProject({ projectDir: project, out, playerDir: fakePlayer() });
     writeFileSync(join(out, "stale.txt"), "old");
-    await exportProject({ projectDir: join(SAMPLES, "flappy"), out, playerDir: fakePlayer() });
+    await exportProject({ projectDir: project, out, playerDir: fakePlayer() });
+    expect(existsSync(join(out, "game.json"))).toBe(true);
     expect(existsSync(join(out, "stale.txt"))).toBe(false);
     const other = temp();
     writeFileSync(join(other, "notes.txt"), "mine");
-    await expect(exportProject({ projectDir: join(SAMPLES, "flappy"), out: other, playerDir: fakePlayer() })).rejects.toThrow(/isn't empty/);
+    await expect(exportProject({ projectDir: project, out: other, playerDir: fakePlayer() })).rejects.toThrow(/isn't empty/);
     expect(readFileSync(join(other, "notes.txt"), "utf8")).toBe("mine");
   });
 

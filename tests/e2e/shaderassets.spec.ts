@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // Hand-written shader assets (ADR 0106) and instancing (ADR 0108) in a real browser: the 3D
 // Playground's rim-light shader (WGSL on WebGPU, GLSL on the WebGL2 fallback) compiles and draws on a
@@ -31,8 +31,10 @@ test("the rim shader asset compiles and draws on a mesh, and meshes draw instanc
   await page.goto("/editor.html?sample=playground3d");
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 
+  // The renderer starts asynchronously, possibly after the World's first frames, and models load after it.
+  const drawables = () => page.evaluate(() => (window as unknown as { engine?: { world: { render: { renderer: Renderer | null } } } }).engine?.world.render.renderer?.meshes.batchStats().drawables ?? 0);
+  await expect.poll(drawables, { timeout: 20_000 }).toBeGreaterThan(0);
   const stats = await page.evaluate(() => (window as unknown as Hooks).engine!.world.render.renderer.meshes.batchStats());
-  expect(stats.drawables).toBeGreaterThan(0);
   expect(stats.instanced).toBe(stats.batches); // the editor's scene view never thin-instances
 
   // Point the first MeshRenderer at the rim material.
@@ -51,8 +53,6 @@ test("the rim shader asset compiles and draws on a mesh, and meshes draw instanc
     name,
     { timeout: 30_000 },
   );
-  // The renderer starts asynchronously, possibly after the World's first frames.
-  await page.waitForFunction(() => !!(window as unknown as { engine?: { world: { render: { renderer: unknown } } } }).engine?.world.render.renderer);
   const webgpu = await page.evaluate(() => (window as unknown as Hooks).engine!.world.render.renderer.engine.isWebGPU);
   test.info().annotations.push({ type: "engine", description: webgpu ? "WebGPU (WGSL)" : "WebGL2 (GLSL)" });
   const shaderErrors = errors.filter((e) => /shader|effect|compil|wgsl|glsl/i.test(e));

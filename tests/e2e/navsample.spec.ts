@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, play, test } from "./fixtures";
 
 // The navigation sample (ADR 0065, samples/navigation: Foxfire's Streaming Demo on the built-in navigation): listed
 // on the start screen, played with Play. The streamer loads the chunk scenes around the agents (additively), the
@@ -70,14 +70,13 @@ test("the start screen lists Navigation", async ({ page }) => {
   await expect(page.locator(".inspector .component.missing")).toHaveCount(0);
 });
 
-test("Play: chunks stream in round the agents, agents of every kind move, the Nav overlay draws the live navigation", async ({ page }) => {
+test("Play: chunks stream in round the agents, agents of every kind move, the Nav overlay draws the live navigation", { tag: "@slow" }, async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto(`${START}?sample=navigation`);
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
   await expect(page.locator(".project-name")).toHaveText("Navigation (sample, read-only)");
 
-  await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  await play(page);
 
   // The streamer loads the chunks the agents stand in or near (the centre, the south, the west with its courses),
   // and each chunk's bake joins the navigation runtime.

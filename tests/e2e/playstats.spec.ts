@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, play, test } from "./fixtures";
 
 // Play mode's play bar tools: the Stats overlay (frame rate, timings, render counters, nodes) and
 // the Gizmos toggle, which hides the editor's drawing on the play Worlds (overlays and the live
@@ -80,8 +80,7 @@ test("Gizmos off hides every gizmo and debug drawing in the play view; the menu 
   const errors = trackErrors(page);
   await page.goto(FLAPPY);
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  await play(page);
 
   // Something to hide: the live selection outline around the bird (World picker, live Hierarchy).
   const hierarchy = page.locator(".panel.hierarchy");

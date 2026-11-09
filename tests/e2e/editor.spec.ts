@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { afterFrames, expect, type Page, play, test } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
@@ -27,17 +27,12 @@ async function openEditor(page: Page): Promise<void> {
 
 const selectedRow = (page: Page) => page.locator(".tree .row.selected .name");
 
-test("opens the demo scene with its node tree", async ({ page }) => {
+test("opens the demo scene with its node tree; clicking in the viewport selects, cycles through overlaps, and clears on empty space", async ({ page }) => {
   const errors = trackErrors(page);
   await openEditor(page);
   await expect(page.locator(".tree .row .name")).toContainText(["Camera", "bg-a", "Bird", "Sprite", "GameManager"]);
   await expect(page.getByRole("button", { name: "2D" })).toHaveAttribute("aria-pressed", "true");
-  expect(errors).toEqual([]);
-});
 
-test("clicking in the viewport selects, cycles through overlaps, and clears on empty space", async ({ page }) => {
-  const errors = trackErrors(page);
-  await openEditor(page);
   const canvas = page.locator("#viewport canvas");
   const box = (await canvas.boundingBox())!;
   const centre = { x: box.width / 2, y: box.height / 2 };
@@ -46,6 +41,7 @@ test("clicking in the viewport selects, cycles through overlaps, and clears on e
   await page.keyboard.press("q");
   // Centre the view on the bird, then click it: inside its collider, so the Bird node is selected.
   await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
+  await afterFrames(page);
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Bird");
   await expect(page.locator(".inspector .node-name")).toHaveValue("Bird"); // the name is an editable field
@@ -56,13 +52,17 @@ test("clicking in the viewport selects, cycles through overlaps, and clears on e
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("bg-a");
 
-  // F frames the selection.
+  // F frames the selection. The view looks elsewhere first, so the check below sees F's effect
+  // (and F, read by the camera on its next frame, has landed before the view moves again).
   await page.getByText("Bird", { exact: true }).click();
+  await page.evaluate(() => window.orbit!.focus([0, 0, 0]));
+  await afterFrames(page);
   await page.keyboard.press("f");
   await expect.poll(() => page.evaluate(() => window.orbit!.focusPoint.toArray())).toEqual([-4, 1, 0]);
 
   // Far from the scene there's nothing under the pointer: the selection clears.
   await page.evaluate(() => window.orbit!.focus([80, 80, 0]));
+  await afterFrames(page);
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveCount(0);
   await expect(page.locator(".inspector .panel-body")).toContainText("Nothing selected") // the Inspector also lists the scene settings now;
@@ -75,6 +75,7 @@ test("a camera drag doesn't change the selection", async ({ page }) => {
   const canvas = page.locator("#viewport canvas");
   const box = (await canvas.boundingBox())!;
   await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
+  await afterFrames(page);
   await canvas.click({ position: { x: box.width / 2, y: box.height / 2 } });
   await expect(selectedRow(page)).toHaveText("Bird");
 
@@ -111,6 +112,7 @@ test("with the Move tool, clicking the gizmo on the selection keeps it selected"
   const centre = { x: box.width / 2, y: box.height / 2 };
   await expect(page.getByRole("button", { name: "Move", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.evaluate(() => window.orbit!.focus([-4, 1, 0]));
+  await afterFrames(page);
   await canvas.click({ position: centre });
   await expect(selectedRow(page)).toHaveText("Bird");
   // The gizmo loads on first use; wait until it's showing on the selection.
@@ -138,8 +140,7 @@ test("Play runs the scene in a game view, Stop returns to the unchanged editor",
   await expect(page.getByRole("textbox", { name: "position y" })).toHaveValue("1");
 
   // The exact name: the Inspector's tag chips (e.g. "Remove tag Player") would match /Play/ too.
-  await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  await play(page);
   const game = page.locator("#game-view canvas");
   await expect(game).toBeVisible();
   await expect(page.locator(".status-bar")).toContainText("Playing scenes/main.scene.json");

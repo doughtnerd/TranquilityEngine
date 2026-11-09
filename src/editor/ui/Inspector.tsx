@@ -1,6 +1,6 @@
 import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Color, GameObject, Quaternion } from "../../engine";
 import type { FieldChoice } from "../../engine/core/registry";
 import { loadModel } from "../../engine/scene/models";
@@ -862,7 +862,7 @@ function declaredKindCombinations(): AssetFieldKind[][] {
 
 function TextInput(props: { value: string; label: string; class?: string; placeholder?: string; list?: string; onCommit: (v: string) => void }) {
   const [draft, setDraft] = useState(props.value);
-  useEffect(() => setDraft(props.value), [props.value]);
+  useLayoutEffect(() => setDraft(props.value), [props.value]);
   const commit = () => draft !== props.value && props.onCommit(draft);
   return (
     <input
@@ -892,7 +892,7 @@ function TextInput(props: { value: string; label: string; class?: string; placeh
 function NumberInput(props: { value: number | null; integer?: boolean; label: string; onCommit: (v: number) => void }) {
   const shown = props.value === null ? MIXED : formatNumber(props.value);
   const [draft, setDraft] = useState(shown);
-  useEffect(() => setDraft(shown), [shown]);
+  useLayoutEffect(() => setDraft(shown), [shown]);
   const commit = () => {
     const n = parseNumber(draft);
     if (n === null) return setDraft(shown);

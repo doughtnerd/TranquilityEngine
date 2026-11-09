@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, openTestProject, type Page, test } from "./fixtures";
 
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
 /** The editor's debug hooks on `window` (see session.ts). Page callbacks are serialized, so each casts `window` itself. */
 type Hooks = {
@@ -30,9 +29,7 @@ export function spin(t: Transform, degrees: number): void {
 
 /** Open the demo as a project folder with two scripts, and the Assets panel's scripts folder. */
 async function openProject(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.evaluate(([wheel, util]) => (window as unknown as Hooks).openTestProject({ "scripts/Wheel.ts": wheel, "scripts/util.ts": util }), [WHEEL, UTIL]);
+  await openTestProject(page, { "scripts/Wheel.ts": WHEEL, "scripts/util.ts": UTIL });
   await page.locator(".asset-folder", { hasText: /^scripts$/ }).click();
 }
 

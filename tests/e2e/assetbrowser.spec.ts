@@ -1,8 +1,7 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, openTestProject, type Page, test } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
 
 // The Assets panel as a file browser, on a writable in-memory copy of the demo project.
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
@@ -11,9 +10,7 @@ type Hooks = {
 };
 
 async function openProject(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject({}));
+  await openTestProject(page);
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
 }
 
@@ -166,8 +163,7 @@ test("the list view shows kind and size; the view and tile size are remembered",
   await expect(row.locator(".asset-col-kind")).toHaveText("Prefab");
   await expect(row.locator(".asset-col-size")).toHaveText(/\d+ B$/);
 
-  await page.reload();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
+  await openTestProject(page); // a fresh page load
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   await expect(panel(page).getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "true");
 });
@@ -206,10 +202,8 @@ test("several selected images drag into the hierarchy together, as one undo step
 });
 
 test("the Inspector follows the latest selection, between the Hierarchy and the Assets panel", async ({ page }) => {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
   const material = JSON.stringify({ format: "myco.material@1", shader: "lit", color: "#ffffff" });
-  await page.evaluate((m) => (window as unknown as Hooks).openTestProject({ "materials/sail.material.json": m }), material);
+  await openTestProject(page, { "materials/sail.material.json": material });
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   const inspector = page.locator(".panel.inspector .inspector-body");
   const assetInspector = page.locator(".panel.inspector .asset-inspector");

@@ -1,12 +1,12 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, requireWebGPU, test, type Locator, type Page } from "./fixtures";
 import { NODES } from "../../src/engine/render/shaderGraph/nodes";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // The Shader Graph panel (ADR 0046, 0047): creating a graph from the Assets panel, adding a
 // property and nodes, wiring them to the output, undo and redo, the live preview, materials that
-// draw with a graph in the scene, and every node type compiling in WebGL. The 3D Playground's
+// draw with a graph in the scene, and every node type compiling in the preview (WebGPU only). The 3D Playground's
 // files are all text, so a writable copy is seeded as an in-memory folder (fakeFolders.ts).
 
 test.describe.configure({ timeout: 60_000 }); // WebKit renders on the CPU
@@ -52,14 +52,6 @@ async function openPlayground(page: Page, writable: boolean): Promise<void> {
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 }
 
-/** Shader graphs compile to WGSL alone (ADR 0081): on the WebGL2 fallback (software GL) they draw plain PBR. */
-async function requireWebGPU(page: Page): Promise<void> {
-  // The renderer starts asynchronously, possibly after the World's first frames.
-  await page.waitForFunction(() => !!(window as unknown as { engine?: { world: { render: { renderer: unknown } } } }).engine?.world.render.renderer);
-  const webgpu = await page.evaluate(() => (window as unknown as { engine: { world: { render: { renderer: { engine: { isWebGPU: boolean } } } } } }).engine.world.render.renderer.engine.isWebGPU);
-  test.skip(!webgpu, "shader graphs need WebGPU; the WebGL2 fallback draws plain PBR (ADR 0081)");
-}
-
 const box = async (l: Locator) => (await l.boundingBox())!;
 const showFolder = (page: Page, name: string) => page.locator(".asset-folder", { hasText: new RegExp(`^${name}$`) }).click();
 const node = (page: Page, id: string) => page.locator(`.sg-node[data-node="${id}"]`);
@@ -77,11 +69,11 @@ async function wire(page: Page, from: Locator, to: Locator): Promise<void> {
   await page.mouse.up();
 }
 
-test("create a shader graph, wire a colour property to the output, and see the preview change; undo and redo", async ({ page, browserName }) => {
+test("create a shader graph, wire a colour property to the output, and see the preview change; undo and redo", async ({ page, browserName, webgpu }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
+  requireWebGPU(webgpu);
   const errors = trackErrors(page);
   await openPlayground(page, true);
-  await requireWebGPU(page);
 
   // New Shader Graph from the Assets panel's menu; double-clicking it opens the panel.
   await showFolder(page, "shaders");
@@ -180,7 +172,7 @@ test("editing a graph updates the scene's meshes whose material uses it", async 
   await expect(node(page, "fresnel1")).toBeVisible();
   await panel.getByRole("combobox", { name: "Target" }).selectOption("unlit");
   await expect.poll(async () => (await graphFile(page, "Playground/shaders/pulse.shadergraph.json")).target).toBe("unlit");
-  await expect.poll(pillarMaterial).toBe("unlit");
+  await expect.poll(pillarMaterial, { timeout: 15_000 }).toBe("unlit"); // the material rebuilds from the graph: a shader compile
 
   // The material's own property values show in the Inspector beside the graph's.
   await showFolder(page, "materials");
@@ -194,7 +186,8 @@ test("editing a graph updates the scene's meshes whose material uses it", async 
   expect(errors).toEqual([]);
 });
 
-test("the read-only sample shows its graph and every node type compiles in WebGL", async ({ page }) => {
+test("the read-only sample shows its graph and every node type compiles and draws in the preview", async ({ page, webgpu }) => {
+  requireWebGPU(webgpu); // the preview draws graphs as WGSL alone (ADR 0081)
   const errors = trackErrors(page);
   await openPlayground(page, false);
   await showFolder(page, "shaders");

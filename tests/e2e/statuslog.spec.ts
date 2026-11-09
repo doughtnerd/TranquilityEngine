@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, openTestProject, type Page, test } from "./fixtures";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -16,8 +16,7 @@ async function openEditor(page: Page): Promise<void> {
 const log = (page: Page) => page.getByRole("log", { name: "Message log" });
 
 test("clicking the status bar opens a log of full messages with their details", async ({ page }) => {
-  await openEditor(page);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject({ "scripts/Broken.ts": "export const = 1;\n", "scripts/Throws.ts": 'throw new Error("bad setup");\n' }));
+  await openTestProject(page, { "scripts/Broken.ts": "export const = 1;\n", "scripts/Throws.ts": 'throw new Error("bad setup");\n' });
   await expect(page.locator(".status-bar")).toHaveClass(/error/);
   await page.locator(".status-text").click();
   await expect(log(page)).toBeVisible();
@@ -50,8 +49,7 @@ test("uncaught errors are logged with their stack, and flagged in the status bar
 });
 
 test("deleting an asset asks first, listing what uses it; Don't ask again skips the question next time", async ({ page }) => {
-  await openEditor(page);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject({}));
+  await openTestProject(page);
   await page.locator(".asset-folder", { hasText: /^images$/ }).click();
   const background = page.locator(".asset-tile", { hasText: "background.png" });
   await background.click();
@@ -81,8 +79,7 @@ test("deleting an asset asks first, listing what uses it; Don't ask again skips 
 });
 
 test("the open scene and project.json can't be deleted", async ({ page }) => {
-  await openEditor(page);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject({}));
+  await openTestProject(page);
   await page.locator(".asset-tile", { hasText: "project.json" }).click();
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toHaveAttribute("title", /defines the project/);

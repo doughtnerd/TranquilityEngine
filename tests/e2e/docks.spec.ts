@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "./fixtures";
 
 // Collapsing docks to their edge, and tabs that don't fit a header going behind "» N" (the
 // editor UX pass, docs/plans/2026-11-editor-ux-pass.md items 2 and 3).
@@ -20,7 +20,8 @@ async function box(locator: Locator) {
   return b;
 }
 
-const tab = (page: Page, name: string) => page.getByRole("tab", { name: new RegExp(`^${name}`) });
+/** A dock's tab (not a tab inside a panel, such as the Project panel's settings categories). */
+const tab = (page: Page, name: string) => page.locator(".dock-tab").and(page.getByRole("tab", { name: new RegExp(`^${name}`) }));
 
 test("the Assets dock collapses to its header row from its chevron, and a tab click opens it again", async ({ page }) => {
   await openEditor(page);

@@ -335,6 +335,8 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     this.live = handle;
     const draw = () => {
       queued = false;
+      if (timer !== null) clearTimeout(timer); // one chain of redraws, whoever asked
+      timer = null;
       if (stopped || !prepared) return;
       if (!target.isConnected) return stop();
       const [w, h] = previewPixels(target.width, target.height, MAX_PREVIEW_PIXELS);
@@ -346,8 +348,10 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       if (animates) prepared.step?.(Math.min(MAX_STEP, (now - last) / 1000));
       last = now;
       this.draw(prepared, w, h, target);
-      // Animated assets keep drawing; others wait for the next change.
-      if (animates) timer = setTimeout(draw, 1000 / ANIMATION_FPS);
+      // Animated assets keep drawing; others wait for the next change, or, if the scene wasn't ready
+      // yet (its readiness wait gave up on a slow machine), draw again until it is, so the preview
+      // isn't left with a blank or half-loaded frame.
+      if (animates || !prepared.scene.isReady()) timer = setTimeout(draw, 1000 / ANIMATION_FPS);
     };
     const request = () => {
       if (queued || stopped || !prepared || animates) return; // animating: the next frame picks it up

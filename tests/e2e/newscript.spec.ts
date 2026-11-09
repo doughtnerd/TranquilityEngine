@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, openTestProject, type Page, test } from "./fixtures";
 
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
@@ -16,9 +15,7 @@ export class Wheel extends GameBehavior {
 `;
 
 async function openProject(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.evaluate((wheel) => (window as unknown as Hooks).openTestProject({ "scripts/Wheel.ts": wheel }), WHEEL);
+  await openTestProject(page, { "scripts/Wheel.ts": WHEEL });
 }
 
 const dialog = (page: Page) => page.getByRole("dialog", { name: "New script" });

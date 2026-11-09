@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, openTestProject, type Page, test } from "./fixtures";
 import { showTab } from "./tabs";
 import { menu } from "./menus";
 import { pickCategory } from "./projectCategory";
@@ -24,8 +24,7 @@ async function waitForEditor(page: Page): Promise<void> {
 }
 
 async function openProject(page: Page): Promise<void> {
-  await waitForEditor(page);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject({}));
+  await openTestProject(page);
   await showTab(page, /^Project/);
 }
 

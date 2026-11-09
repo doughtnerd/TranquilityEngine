@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, requireWebGPU, test, type Page } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // Physical materials (ADR 0052): the Material inspector's physical fields save to the file and the
@@ -62,7 +62,8 @@ test("a physical material's fields save to its file and the mesh draws with clea
   expect(errors).toEqual([]);
 });
 
-test("a physical shader graph with every feature compiles in WebGL", async ({ page }) => {
+test("a physical shader graph with every feature compiles and draws in the preview", async ({ page, webgpu }) => {
+  requireWebGPU(webgpu); // the preview draws graphs as WGSL alone (ADR 0081)
   const errors = trackErrors(page);
   await page.goto("/editor.html?sample=playground3d");
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);

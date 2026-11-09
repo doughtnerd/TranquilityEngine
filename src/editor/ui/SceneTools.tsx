@@ -171,7 +171,7 @@ function SnapSettingsForm(props: { settings: SnapSettings }) {
 /** A positive number field that commits on Enter or blur and reverts on Escape or bad input. */
 function StepInput(props: { value: number; label: string; onCommit: (v: number) => void }) {
   const [draft, setDraft] = useState(String(props.value));
-  useEffect(() => setDraft(String(props.value)), [props.value]);
+  useLayoutEffect(() => setDraft(String(props.value)), [props.value]);
   const commit = () => {
     const n = Number(draft);
     if (Number.isFinite(n) && n > 0) {

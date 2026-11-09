@@ -1,6 +1,6 @@
 import { signal } from "@preact/signals";
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { ANTIALIAS_MODES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
 import { allPluginManifests } from "../../plugins/thirdPartyEditor";
@@ -456,7 +456,7 @@ function Section(props: { title: string; children: ComponentChildren }) {
 /** A colour: the picker, and a hex text box (empty: the default). */
 function ColorField(props: { value: string | undefined; fallback: string; onCommit: (v: string | undefined) => void }) {
   const [text, setText] = useState(props.value ?? "");
-  useEffect(() => setText(props.value ?? ""), [props.value]);
+  useLayoutEffect(() => setText(props.value ?? ""), [props.value]); // in the same commit: a mount effect run after paint would overwrite typing that came first
   const commit = () => {
     const t = text.trim();
     if (t === (props.value ?? "")) return;

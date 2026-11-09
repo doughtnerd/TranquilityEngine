@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // Particles (ADR 0057, 0060): effects are graph assets authored in the Particle Graph. A Particle
@@ -49,6 +49,20 @@ async function openWritablePlayground(page: Page, files = sampleFiles()): Promis
 
 const effectFile = async (page: Page, path: string) => JSON.parse((await readFile(page, `Playground/${path}`)) ?? "{}");
 
+/**
+ * Search the node (or block) search that just opened and pick the first match. Its box takes the
+ * keyboard in an effect after it renders, so typing straight after the click could land elsewhere;
+ * and Enter picks from the filtered list, so wait for the list to show the match first.
+ */
+async function pickFromSearch(page: Page, query: string): Promise<void> {
+  const search = page.getByRole("dialog", { name: /^Add (node|block)$/ });
+  const box = search.getByRole("searchbox");
+  await expect(box).toBeFocused();
+  await box.fill(query);
+  await expect(search.getByRole("option").first()).toContainText(query);
+  await box.press("Enter");
+}
+
 test("a Particle System from the Create menu gets an effect asset; the Particle Graph edits it live and undoes", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
   const errors = trackErrors(page);
@@ -82,8 +96,7 @@ test("a Particle System from the Create menu gets an effect asset; the Particle 
   // A block added from the context's search lands in the file (the preview card hidden: it floats over the canvas).
   await graph.getByRole("button", { name: "Preview", exact: true }).click();
   await system.getByRole("button", { name: "Add block to Update Particle" }).click();
-  await page.keyboard.type("Gravity");
-  await page.keyboard.press("Enter");
+  await pickFromSearch(page, "Gravity");
   await expect(system.getByLabel("Block Gravity", { exact: true })).toBeVisible();
   await expect.poll(async () => (await effectFile(page, path)).systems[0].update.blocks.map((b: { type: string }) => b.type)).toContain("update.gravity");
 
@@ -175,8 +188,7 @@ test("a particle sub-graph is created from the Assets menu, opens as a graph, sh
   await expect(graph.getByLabel("Node Input", { exact: true })).toBeVisible();
   await expect(graph.getByLabel("Node Output", { exact: true })).toBeVisible();
   await graph.getByRole("button", { name: "Add", exact: true }).click();
-  await page.keyboard.type("Sine");
-  await page.keyboard.press("Enter");
+  await pickFromSearch(page, "Sine");
   await expect(graph.getByLabel("Node Sine", { exact: true })).toBeVisible();
   await expect.poll(async () => (await effectFile(page, subPath)).nodes.map((n: { type: string }) => n.type)).toEqual(["sine"]);
   await graph.getByRole("button", { name: "Undo", exact: true }).click();
@@ -188,8 +200,7 @@ test("a particle sub-graph is created from the Assets menu, opens as a graph, sh
   await expect(system).toBeVisible({ timeout: 20_000 });
   await graph.getByRole("button", { name: "Preview", exact: true }).click(); // the card floats over the canvas
   await graph.getByRole("button", { name: "Add", exact: true }).click();
-  await page.keyboard.type("Sub-graph");
-  await page.keyboard.press("Enter");
+  await pickFromSearch(page, "Sub-graph");
   const subNode = graph.getByLabel("Node Sub-graph", { exact: true });
   await expect(subNode).toContainText("No asset");
   await subNode.getByRole("combobox", { name: "Asset" }).selectOption({ label: "New Particle Sub-graph.particlesubgraph.json" });

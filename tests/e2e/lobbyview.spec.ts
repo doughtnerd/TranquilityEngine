@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 
 // A lobby match takes the screen (ADR 0068): in King of Pirates, "Practice against bots" starts a
 // match, the Engine hands its main view and input from the paused menu World to the match client
@@ -20,7 +20,7 @@ const frames = (page: Page, world: string) => page.evaluate((w) => (window as un
 const state = (page: Page, world: string) =>
   page.evaluate((w) => (window as unknown as Hooks).playEngine?._viewStates().find((s) => s.name === w) ?? null, world);
 
-test("a lobby match takes the whole game view and input, and gives them back to the menu", async ({ page, browserName }) => {
+test("a lobby match takes the whole game view and input, and gives them back to the menu", { tag: "@slow" }, async ({ page, browserName }) => {
   test.skip(browserName === "webkit", "a 3D sample in software rendering is too slow on WebKit");
   test.setTimeout(240_000);
   const errors: string[] = [];

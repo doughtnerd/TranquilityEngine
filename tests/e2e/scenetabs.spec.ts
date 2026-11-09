@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, openTestProject, type Page, PLAY_START, test } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
@@ -16,8 +16,7 @@ async function openEditor(page: Page): Promise<void> {
 
 /** The Flappy sample as a writable project folder in memory. */
 async function openProject(page: Page): Promise<void> {
-  await openEditor(page);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject());
+  await openTestProject(page);
   await expect(page.locator(".scene-tab")).toHaveCount(1);
 }
 
@@ -127,5 +126,5 @@ test("Play plays the active tab", async ({ page }) => {
   await openEditor(page);
   await openPipePair(page);
   await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.locator(".status-bar")).toContainText("Playing prefabs/pipe-pair.prefab.json");
+  await expect(page.locator(".status-bar")).toContainText("Playing prefabs/pipe-pair.prefab.json", { timeout: PLAY_START });
 });

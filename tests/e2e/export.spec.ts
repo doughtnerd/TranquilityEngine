@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { menu } from "./menus";
 
 // Game builds (ADR 0041): `npm run export` turns a sample into a static web build, served here by
@@ -72,7 +72,7 @@ const findScript = (page: Page, id: string, field: string) =>
     [id, field],
   );
 
-test.describe("Flappy web build", () => {
+test.describe("Flappy web build", { tag: "@slow" }, () => {
   let served: Served | undefined;
   test.beforeAll(async () => {
     served = await exportAndServe("flappy");
@@ -84,7 +84,7 @@ test.describe("Flappy web build", () => {
     await page.goto(served!.url);
     await expect(page).toHaveTitle("flappy");
     await expect.poll(() => findScript(page, "game.GameManager", "state"), { timeout: 20_000 }).toBe("ready");
-    await expect.poll(() => frames(page)).toBeGreaterThan(10);
+    await expect.poll(() => frames(page), { timeout: 15_000 }).toBeGreaterThan(10); // the renderer's first frames compile its pipelines
 
     // The canvas fills the window at the project's aspect ratio (720×680), letterboxed.
     const box = (await page.locator("#game canvas").boundingBox())!;
@@ -103,7 +103,7 @@ test.describe("Flappy web build", () => {
   });
 });
 
-test("the editor's Export… dialog: the player ships beside the editor; a browser editor without folder access explains, and shows the desktop command", async ({ page, browserName }) => {
+test("the editor's Export… dialog: the player ships beside the editor; a browser editor without folder access explains, and shows the desktop command", { tag: "@slow" }, async ({ page, browserName }) => {
   const errors = trackErrors(page);
   await page.goto("/editor.html?sample=flappy"); // relative to baseURL (E2E_PORT)
   await expect(page.locator(".project-name")).toHaveText("Flappy Bird (sample, read-only)");
@@ -128,7 +128,7 @@ test("the editor's Export… dialog: the player ships beside the editor; a brows
   expect(errors).toEqual([]);
 });
 
-test.describe("Arena web build", () => {
+test.describe("Arena web build", { tag: "@slow" }, () => {
   let served: Served | undefined;
   test.beforeAll(async () => {
     served = await exportAndServe("arena");
@@ -140,7 +140,7 @@ test.describe("Arena web build", () => {
     await page.goto(served!.url);
     await expect.poll(() => findScript(page, "arena.Menu", "serverUrl"), { timeout: 20_000 }).toBeTruthy();
     expect(await worldNames(page)).toEqual(["Client"]);
-    await expect.poll(() => frames(page)).toBeGreaterThan(10);
+    await expect.poll(() => frames(page), { timeout: 15_000 }).toBeGreaterThan(10); // the renderer's first frames compile its pipelines
 
     await page.keyboard.press("h");
     await expect.poll(() => worldNames(page), { timeout: 15_000 }).toEqual(["Client", "Server"]);
@@ -148,7 +148,7 @@ test.describe("Arena web build", () => {
   });
 });
 
-test.describe("3D Playground web build", () => {
+test.describe("3D Playground web build", { tag: "@slow" }, () => {
   let served: Served | undefined;
   test.beforeAll(async () => {
     served = await exportAndServe("playground3d");

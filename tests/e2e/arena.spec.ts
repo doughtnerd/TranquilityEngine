@@ -1,11 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, PLAY_START, test } from "./fixtures";
 import { showTab } from "./tabs";
 
 // The Arena sample (T16, ADR 0032/0033): listed on the start screen, played with Play. Its
 // bootstrap starts one client World on a menu; Host creates the Server World (a Spawnable World),
 // which the bootstrap's link connects the client to over loopback (ADR 0062), P adds a second client World (a second tile), players move with input
 // (predicted on their owners), and a hit scores for the shooter on the server, shown on clients.
+test.describe.configure({ timeout: 60_000 }); // several Worlds play at once; each new renderer is seconds of CPU with software GL
+
 const START = "/editor.html"; // relative to baseURL (E2E_PORT)
 
 type Hooks = {
@@ -58,7 +60,6 @@ const scoreboard = (page: Page, world: string) =>
 const myX = async (page: Page, world: string) => (await playersIn(page, world)).find((p) => p.mine)?.x ?? NaN;
 
 /** How long Play may take to start: it type-checks the scripts first (ADR 0125), loading Monaco's TypeScript worker the first time. */
-const PLAY_START = 20_000;
 
 const tile = (page: Page, world: string) => page.locator(`#game-view .game-tile[data-world="${world}"]`);
 
@@ -80,7 +81,7 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
 
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: PLAY_START });
-  await expect.poll(() => worldNames(page)).toEqual(["Client"]);
+  await expect.poll(() => worldNames(page), { timeout: PLAY_START }).toEqual(["Client"]); // the play Engine's Worlds start after the button shows
 
   // Host: the Server World is created from its template; the bootstrap's link connects this client, which gets a player.
   await tile(page, "Client").click();
@@ -97,18 +98,19 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
   await expect(page.locator("#game-view .game-tile")).toHaveCount(2);
   await expect.poll(async () => (await playersIn(page, "Server")).length, { timeout: 15_000 }).toBe(2);
   await expect.poll(async () => (await playersIn(page, "Client 2")).map((p) => p.mine), { timeout: 15_000 }).toEqual([false, true]);
-  await expect.poll(async () => (await playersIn(page, "Client")).length).toBe(2);
+  await expect.poll(async () => (await playersIn(page, "Client")).length, { timeout: 15_000 }).toBe(2); // replicated from the server, like the two above
 
   // Input moves the World's own player: Client has the keyboard, then Client 2 after a click.
   const x1 = await myX(page, "Client");
   await page.keyboard.down("d");
-  await expect.poll(() => myX(page, "Client")).toBeGreaterThan(x1 + 1);
+  // A World steps at most maxFrameTime a frame, so when frames come slowly (a loaded machine) the game runs slower than the clock.
+  await expect.poll(() => myX(page, "Client"), { timeout: 15_000 }).toBeGreaterThan(x1 + 1);
   await page.keyboard.up("d");
   await tile(page, "Client 2").click();
   await expect(tile(page, "Client 2")).toHaveClass(/has-input/);
   const x2 = await myX(page, "Client 2");
   await page.keyboard.down("a");
-  await expect.poll(() => myX(page, "Client 2")).toBeLessThan(x2 - 1);
+  await expect.poll(() => myX(page, "Client 2"), { timeout: 15_000 }).toBeLessThan(x2 - 1);
   await page.keyboard.up("a");
   // The server moved them too, and Client sees Client 2's player (interpolated) where the server has it.
   await expect.poll(async () => (await playersIn(page, "Server"))[1].x).toBeLessThan(x2 - 1);
@@ -192,7 +194,7 @@ test("Play: Join connects to a dedicated server, which spawns a player the keybo
 
     const x = await myX(page, "Client");
     await page.keyboard.down("d");
-    await expect.poll(() => myX(page, "Client")).toBeGreaterThan(x + 1);
+    await expect.poll(() => myX(page, "Client"), { timeout: 15_000 }).toBeGreaterThan(x + 1);
     await page.keyboard.up("d");
 
     await page.getByRole("button", { name: /Stop/ }).click();

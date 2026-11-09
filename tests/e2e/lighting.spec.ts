@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { installFakeFolders, nextFolder } from "./fakeFolders";
 
 // HDR environments and cascaded shadows (ADR 0053): an Environment component with an .hdr map
@@ -55,7 +55,7 @@ test("cascaded shadows follow the quality tier", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test("an Environment component with an HDR map lights the scene and draws the sky", async ({ page, browserName }) => {
+test("an Environment component with an HDR map lights the scene and draws the sky", { tag: "@slow" }, async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
   const errors = trackErrors(page);
   await installFakeFolders(page, { Playground: { ...sampleFiles(), "environments/sky.hdr": TINY_HDR } });
@@ -79,7 +79,8 @@ test("an Environment component with an HDR map lights the scene and draws the sk
   const map = env.getByRole("combobox", { name: "map" });
   await map.fill("environments/sky.hdr");
   await map.press("Enter");
-  await expect.poll(async () => await lighting(page), { timeout: 15_000 }).toMatchObject({ environment: "environments/sky.hdr", environmentLoaded: true, skybox: true });
+  // The HDR map is prefiltered on the GPU: with software GL that's seconds of CPU, more while other specs render.
+  await expect.poll(async () => await lighting(page), { timeout: 30_000 }).toMatchObject({ environment: "environments/sky.hdr", environmentLoaded: true, skybox: true });
 
   // Turning the skybox off keeps the lighting but drops the sky.
   await env.getByRole("checkbox", { name: "skybox" }).uncheck();

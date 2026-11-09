@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, type Page, play, PLAY_START, test } from "./fixtures";
 import { showTab } from "./tabs";
 import { menu } from "./menus";
 
@@ -63,8 +63,7 @@ test("the World picker shows the running game; live edits; Keep values writes th
   await selectSceneBird();
   const sceneX = await sceneBirdX.inputValue();
 
-  await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  await play(page);
   const picker = hierarchy.getByRole("combobox", { name: "Inspect World" });
   await expect(picker).toBeVisible();
   const worldName = await page.evaluate(() => (window as unknown as Hooks).playEngine!.world.name);
@@ -132,8 +131,7 @@ test("the live Hierarchy creates, renames, reparents and deletes nodes; the live
   await open(page, FLAPPY);
   const hierarchy = page.locator(".panel.hierarchy");
   const inspector = page.locator(".panel.inspector");
-  await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
+  await play(page);
   const worldName = await page.evaluate(() => (window as unknown as Hooks).playEngine!.world.name);
   await hierarchy.getByRole("combobox", { name: "Inspect World" }).selectOption(worldName);
   await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click(); // edits apply while paused too
@@ -205,19 +203,23 @@ test("Pause, Step and the shortcuts hold and advance the whole game; a World ste
   await open(page, FLAPPY);
   const pause = page.getByRole("button", { name: "❚❚ Pause", exact: true });
   await expect(pause).toBeDisabled(); // editing
-  await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible();
-  await expect.poll(() => frames(page)).toBeGreaterThan(5);
+  await play(page);
+  await expect.poll(() => frames(page), { timeout: PLAY_START }).toBeGreaterThan(5); // the game's renderer starts after the button shows
 
   await pause.click();
   const resume = page.getByRole("button", { name: "▶ Resume", exact: true });
   await expect(resume).toHaveAttribute("aria-pressed", "true");
-  const held = await frames(page);
-  await page.waitForTimeout(200);
-  expect(await frames(page)).toBe(held);
+  // A frame already under way when Pause was pressed may still finish: read the count once it holds.
+  let held = -1;
+  await expect.poll(async () => {
+    const before = await frames(page);
+    await page.waitForTimeout(250);
+    held = await frames(page);
+    return held - before;
+  }).toBe(0);
 
   await page.getByRole("button", { name: "Step", exact: true }).click();
-  expect(await frames(page)).toBe(held + 1);
+  await expect.poll(() => frames(page)).toBe(held + 1);
   await page.locator(".toolbar").click({ position: { x: 2, y: 2 } }); // focus outside text fields
   await page.keyboard.press("F10");
   await expect.poll(() => frames(page)).toBe(held + 2);
@@ -227,7 +229,7 @@ test("Pause, Step and the shortcuts hold and advance the whole game; a World ste
   // The strip's Step advances just its World, even while the session is paused.
   const world = await page.evaluate(() => (window as unknown as Hooks).playEngine!.world.name);
   await page.getByRole("toolbar", { name: "Worlds" }).getByRole("button", { name: `Step ${world}` }).click();
-  expect(await frames(page)).toBe(held + 4);
+  await expect.poll(() => frames(page)).toBe(held + 4);
 
   // Ctrl+Shift+P resumes.
   await page.keyboard.press("Control+Shift+p");

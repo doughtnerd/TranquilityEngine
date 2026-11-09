@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { afterFrames, expect, type Locator, type Page, test } from "./fixtures";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -125,7 +125,7 @@ test("dragging several selected rows moves them all in one undo step", async ({ 
 test("hidden nodes don't draw in the Scene view and locked ones can't be picked; both are remembered", async ({ page }) => {
   await openEditor(page);
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus([0, 0, 0], 14));
-  await page.waitForTimeout(100);
+  await afterFrames(page); // the camera moves on the next frame
   await expect.poll(() => page.evaluate(() => (window as unknown as Hooks).nodeRect("bird-sprite"))).not.toBeNull();
 
   // Lock Bird: clicking its sprite in the viewport no longer selects it (or its child).

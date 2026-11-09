@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./fixtures";
 import { installFakeFolders, listFolder, nextFolder, readFile, removeFile, removeFolderPicker } from "./fakeFolders";
 import { closeMenus, menu, menuItemOf, openMenu } from "./menus";
 

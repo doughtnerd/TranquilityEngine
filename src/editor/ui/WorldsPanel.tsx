@@ -1,5 +1,5 @@
 import { signal } from "@preact/signals";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useState } from "preact/hooks";
 import type { LinkConfig, WorldTag } from "../../engine";
 import { listSystemCatalog, type SystemCatalogEntry } from "../../engine/core/systems";
 import { listTransports } from "../../engine/net/Transport";
@@ -871,7 +871,7 @@ function TriState(props: { id: string; value: boolean | undefined; defaultLabel:
 /** Text that commits on Enter or blur and reverts on Escape (an empty value field clears itself after committing). */
 export function TextField(props: { value: string; label: string; class?: string; placeholder?: string; onCommit: (v: string) => void }) {
   const [draft, setDraft] = useState(props.value);
-  useEffect(() => setDraft(props.value), [props.value]);
+  useLayoutEffect(() => setDraft(props.value), [props.value]); // in the same commit: a mount effect run after paint would overwrite typing that came first
   const commit = () => {
     if (draft !== props.value) props.onCommit(draft);
     if (props.value === "") setDraft("");
@@ -903,7 +903,7 @@ export function TextField(props: { value: string; label: string; class?: string;
 export function NumberField(props: { id: string; value: number | undefined; placeholder: string; label: string; suffix?: string; onCommit: (v: number | undefined) => void }) {
   const shown = props.value === undefined ? "" : String(props.value);
   const [draft, setDraft] = useState(shown);
-  useEffect(() => setDraft(shown), [shown]);
+  useLayoutEffect(() => setDraft(shown), [shown]);
   const commit = () => {
     const text = draft.trim();
     if (text === shown) return;

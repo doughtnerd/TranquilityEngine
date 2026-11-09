@@ -1,8 +1,7 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, type Locator, openTestProject, type Page, test } from "./fixtures";
 
 // Import settings (ADR 0040): the Asset Inspector, the Sprite Editor, and slices in the Assets
 // panel and the scene, on a writable in-memory copy of the Flappy sample.
-const EDITOR = "/editor.html?sample=flappy"; // relative to baseURL (E2E_PORT)
 
 type Rect = { left: number; top: number; right: number; bottom: number };
 type Hooks = {
@@ -13,9 +12,7 @@ type Hooks = {
 };
 
 async function openProject(page: Page, extra: Record<string, string> = {}): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.evaluate((files) => (window as unknown as Hooks).openTestProject(files), extra);
+  await openTestProject(page, extra);
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   await panel(page).locator(".asset-folder", { hasText: /^images$/ }).click();
 }
@@ -132,9 +129,11 @@ test("the Sprite Editor slices by grid, renames a slice, and the slice drags int
     const r = (window as unknown as Hooks).nodeRect(k);
     return r ? [r.right - r.left, r.bottom - r.top] : null;
   }, key);
-  await expect.poll(() => size("wing")).not.toBeNull();
-  const [w, h] = (await size("wing"))!;
-  expect(w / h).toBeCloseTo(0.5, 1);
+  // The node is there at once; its rectangle has a size once the sprite's image has loaded.
+  await expect.poll(async () => {
+    const [w, h] = (await size("wing")) ?? [0, 0];
+    return h > 0 ? w / h : null;
+  }).toBeCloseTo(0.5, 1);
 });
 
 test("slices are drawn, moved and resized by hand; automatic slicing finds the opaque area", async ({ page }) => {
