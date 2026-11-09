@@ -10,6 +10,7 @@
 //! Rules for every module: transcendentals go through `libm` (never `f32::sin` and friends), so
 //! native tests and the wasm build give bit-identical results; nothing allocates while processing.
 
+pub mod hrtf;
 pub mod pan;
 pub mod ramp;
 pub mod resample;
