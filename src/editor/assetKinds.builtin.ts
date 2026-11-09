@@ -5,7 +5,7 @@
 // at boot; tests that resolve kinds call `useCoreAssetKinds()` (`testing/coreAssetKinds.ts`).
 // Views load on first use (ADR 0083); scene switching and creating files load with the session.
 // Scenes and render textures declare their New… entries here, as plugins' kinds do (ADR 0149).
-import { audioNodeEntry, prefabInstanceEntry, spriteNodeEntry } from "./assetBrowser";
+import { audioNodeEntry, prefabInstanceEntry, spriteNodeEntry } from "./assetNodes";
 import { openSpriteEditor } from "./assetImport";
 import type { SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";

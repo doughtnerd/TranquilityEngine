@@ -4,12 +4,13 @@ import { signal } from "@preact/signals";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { isTauri } from "../../engine/platform/FileSystem";
 import { activeHistory, redo, undo } from "../activeHistory";
+import { panelTarget, runAsset, whyNotAsset, type AssetCommandId } from "../assetActions";
 import { deleteSelected } from "../deleteSelection";
 import { copySelection, cutSelection, duplicateSelection, nodeClipboard, pasteClipboard, whyNotPasteHere } from "../hierarchyActions";
 import { isInsidePrefab } from "../hierarchyEdit";
 import { layout, resetLayout, showPanel } from "../layout/store";
 import type { PanelId } from "../layout/model";
-import { buildMenus, DOCS_URL, SEPARATOR, type Menu, type MenuActions, type MenuEntry, type MenuState } from "../menuBar";
+import { buildMenus, DOCS_URL, SEPARATOR, type AssetClipboardReasons, type Menu, type MenuActions, type MenuEntry, type MenuState } from "../menuBar";
 import { logOpen, unseenErrors } from "../messages";
 import { createScene } from "../newScene";
 import { canOpenFolders } from "../projectFs";
@@ -52,14 +53,27 @@ function restoreFocus(): boolean {
 const inAssets = () => !!(document.activeElement as Element | null)?.closest?.(".asset-browser");
 
 /**
- * Run a clipboard command where its shortcut would go: in the Assets panel, by sending that panel
- * the shortcut (so it uses its own selection and checks), otherwise on the Hierarchy's nodes.
+ * Run a clipboard command where its shortcut would go: in the Assets panel, the Assets command on
+ * the panel's selection (ADR 0157), otherwise on the Hierarchy's nodes.
  */
-function clipboardAction(key: string, ctrl: boolean, nodes: () => void): () => void {
+function clipboardAction(command: AssetCommandId, nodes: () => void): () => void {
   return () => {
-    const el = document.activeElement;
-    if (el && inAssets()) el.dispatchEvent(new KeyboardEvent("keydown", { key, ctrlKey: ctrl, bubbles: true, cancelable: true }));
+    const target = inAssets() ? panelTarget() : null;
+    if (target) void runAsset(command, target);
     else nodes();
+  };
+}
+
+/** Why Edit's clipboard items can't act on the Assets panel's selection (the panel's own rules). */
+function assetReasons(): AssetClipboardReasons | null {
+  const target = panelTarget();
+  if (!target) return null;
+  return {
+    cut: whyNotAsset("cut", target),
+    copy: whyNotAsset("copy", target),
+    paste: whyNotAsset("paste", target),
+    duplicate: whyNotAsset("duplicate", target),
+    delete: whyNotAsset("delete", target),
   };
 }
 
@@ -98,11 +112,11 @@ const ACTIONS: MenuActions = {
   exit: () => void exit(),
   undo: () => void undo(),
   redo: () => void redo(),
-  cut: clipboardAction("x", true, () => void cutSelection()),
-  copy: clipboardAction("c", true, () => void copySelection()),
-  paste: clipboardAction("v", true, () => void pasteClipboard(false)),
-  duplicate: clipboardAction("d", true, () => void duplicateSelection()),
-  remove: clipboardAction("Delete", false, () => void deleteSelected()),
+  cut: clipboardAction("cut", () => void cutSelection()),
+  copy: clipboardAction("copy", () => void copySelection()),
+  paste: clipboardAction("paste", () => void pasteClipboard(false)),
+  duplicate: clipboardAction("duplicate", () => void duplicateSelection()),
+  remove: clipboardAction("delete", () => void deleteSelected()),
   openSettings: () => (settingsOpen.value = true),
   openDocs: () => void openDocs(),
   openLog: () => {
@@ -156,7 +170,7 @@ function liveMenus(): Menu[] {
     pasteBlocked: nodeClipboard.value ? whyNotPasteHere() : "nothing copied",
     selectionInPrefab: selectedKeys.value.some(isInsidePrefab),
     hasSelection: selectedKeys.value.length > 0 || selectedUIElement.value !== null,
-    clipboard: returnTo?.closest(".asset-browser") ? "assets" : "nodes",
+    assets: returnTo?.closest(".asset-browser") ? assetReasons() : null,
     createItems: createEntries(),
   };
   return buildMenus(state, ACTIONS);

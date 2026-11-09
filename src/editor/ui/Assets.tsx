@@ -1,15 +1,31 @@
-import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { addAssets, whyNotAddAssets } from "../addAssets";
-import { fileName, folderOf, isSliceEntry, listedFiles, searchEntries, sliceEntry, splitSliceEntry } from "../assetBrowser";
-import { assetKind, canAddToScene, hasSlices, kindCreators, kindLabel, kindOpens, openAsset, type AssetKind } from "../assetKindLookup";
-import { assetActions, type AssetActionTarget } from "../sdk/contributions";
-import { inspectSelectedAsset, openSpriteEditor, readImportSettings } from "../assetImport";
-import { assetDrag, startAssetDrag } from "../assetDrag";
-import { deleteAssets, entryPath, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "../assetDelete";
-import { assetClipboard, duplicateAssets, newFolder, pasteAssets, renameAsset, splitExtension } from "../assetOps";
 import {
+  assetCommandLabel,
+  assetCreateItems,
+  assetKeyCommand,
+  assetPluginItems,
+  assetShortcut,
+  expandedImages,
+  listedEntries,
+  makeFolder,
+  runAsset,
+  shownFolder,
+  slicesOf,
+  whyNotAsset,
+  type AssetCommandId,
+  type AssetMenuItem,
+  type AssetTarget,
+} from "../assetActions";
+import { fileName, folderOf } from "../assetBrowser";
+import { entryFolder, entryKind, entryName, entryPath, fileEntries, folderEntry, isFolderEntry, isSliceEntry, splitSliceEntry } from "../assetEntry";
+import { canAddToScene, hasSlices, kindLabel, type AssetKind } from "../assetKindLookup";
+import { inspectSelectedAsset } from "../assetImport";
+import { assetDrag, startAssetDrag } from "../assetDrag";
+import { assetClipboard, renameAsset, splitExtension } from "../assetOps";
+import {
+  arrowSelection,
   assetAnchor,
   assetCursor,
   assetQuery,
@@ -21,7 +37,6 @@ import {
   goBack,
   goForward,
   historyVersion,
-  moveCursor,
   openFolder,
   parentFolder,
   renamingAsset,
@@ -29,6 +44,7 @@ import {
   selectedAssets,
   type Modifiers,
 } from "../assetSelection";
+import { errorStatus } from "../messages";
 import { installOsDrop, osDragFolder, osDragOver } from "../osDrop";
 import { newScript, scriptFolderFor } from "../newScript";
 import { assetTileSize, assetView } from "../preferences";
@@ -49,15 +65,6 @@ interface MenuItem {
 }
 const menu = signal<{ x: number; y: number; items: MenuItem[] } | null>(null);
 
-/** Images whose slices are listed under them (ADR 0040). */
-const expandedImages = signal<ReadonlySet<string>>(new Set());
-
-/** The slices of a file whose kind has slices (an image), from its sidecar (ADR 0040, 0149). */
-const slicesOf = (project: EditorProject, image: string) => (hasSlices(assetKind(image)) ? readImportSettings(project, image).settings.sprites : []);
-
-/** Entries that are files or folders: slices are listed, but they aren't files to rename, move, copy or delete. */
-const fileEntries = (entries: readonly string[]) => entries.filter((e) => !isSliceEntry(e));
-
 /** The selection box while dragging on empty space, in client pixels. */
 const box = signal<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
@@ -70,117 +77,53 @@ const dropTarget = (path: string) => {
 
 /** A kind's label, from the asset kind module (ADR 0143). */
 const labelOf = (kind: AssetKind | "folder"): string => kindLabel(kind);
-const kindOf = (entry: string): AssetKind | "folder" => (isFolderEntry(entry) ? "folder" : assetKind(entry));
-const nameOf = (entry: string) => (isSliceEntry(entry) ? splitSliceEntry(entry).slice : fileName(entryPath(entry)));
 const toggleKey = (e: { ctrlKey: boolean; metaKey: boolean }) => e.ctrlKey || e.metaKey;
 
-/** What the panel lists: the folder's subfolders then its files, or the search results. */
-function listedEntries(project: EditorProject, folder: string, query: string): string[] {
-  // Sidecars (`*.meta.json`) travel with their files and aren't listed (ADR 0040).
-  const files = [...listedFiles(project.files), ...project.scripts.keys()];
-  if (query.trim()) return searchEntries(files.sort(), query, (image) => slicesOf(project, image).map((s) => s.name));
-  const subfolders = project.folders.filter((f) => parentFolder(f) === folder).sort((a, b) => fileName(a).localeCompare(fileName(b)));
-  const here = files.filter((f) => folderOf(f) === folder).sort((a, b) => fileName(a).localeCompare(fileName(b)));
-  // An expanded image's slices follow it.
-  const withSlices = here.flatMap((f) => (expandedImages.value.has(f) ? [f, ...slicesOf(project, f).map((s) => sliceEntry(f, s.name))] : [f]));
-  return [...subfolders.map((f) => `${f}/`), ...withSlices];
+/** True if double-clicking `entry` opens it (a folder shows, a file opens as its kind says). */
+const opens = (project: EditorProject, entry: string) => whyNotAsset("open", { project, entries: [entry] }) === null;
+
+/** Open `entry` if it opens (a double-click does nothing on a file that doesn't). */
+function openEntry(project: EditorProject, entry: string): void {
+  const target = { project, entries: [entry] };
+  if (!whyNotAsset("open", target)) void runAsset("open", target);
 }
 
-/** Open an entry: a folder shows; a file opens as its kind says (ADR 0143): scenes and prefabs in the scene view, images and slices in the Sprite Editor, code files in the Code panel. */
-function openEntry(entry: string): void {
-  if (isFolderEntry(entry)) return openFolder(entryPath(entry));
-  openAsset(entry);
-}
+/** A command as a menu item: its label, key and reason come from the command module (ADR 0157). */
+const commandItem = (id: AssetCommandId, target: AssetTarget): MenuItem => ({
+  label: assetCommandLabel(id, target),
+  shortcut: assetShortcut(id),
+  disabled: whyNotAsset(id, target),
+  run: () => void runAsset(id, target),
+});
+const toMenu = (items: readonly AssetMenuItem[]): MenuItem[] => items.map((i) => ({ label: i.label, disabled: i.whyNot, run: i.run }));
+const SEP: MenuItem = { label: "", separator: true };
 
-const opens = (entry: string) => isFolderEntry(entry) || kindOpens(entry);
-
-/** Why `entries` can't be changed (renamed, moved, deleted), or null. */
-function whyNotEditable(project: EditorProject, entries: readonly string[]): string | null {
-  const open = openScene.value?.path ?? null;
-  for (const e of entries) {
-    const reason = isFolderEntry(e) ? whyNotDeletableFolder(project, entryPath(e), open) : whyNotDeletableAsset(project, e, open);
-    if (reason) return reason;
-  }
-  return entries.length === 0 ? "select something first" : null;
-}
-
-/** The folder a paste goes to: a single selected folder, else the folder showing. */
-const pasteFolder = (entries: readonly string[]) => (entries.length === 1 && isFolderEntry(entries[0]) ? entryPath(entries[0]) : folderPath.value);
-
-function startRename(entry: string): void {
-  select([entry]);
-  renamingAsset.value = entry;
-}
-
-async function makeFolder(parent: string): Promise<void> {
-  const path = await newFolder(parent);
-  if (path === null) return;
-  if (parent !== folderPath.value) openFolder(parent);
-  startRename(`${path}/`);
-}
-
-/** Plugins' entries for the selected files or slices (ADR 0146: Create Tileset from Slices), after Open. */
-function actionItems(project: EditorProject, targets: readonly AssetActionTarget[], readOnly: string | null): MenuItem[] {
-  return assetActions
-    .list()
-    .filter((a) => a.appliesTo(project, targets))
-    .map((a) => ({ label: a.label, disabled: a.writes ? readOnly : null, run: () => void a.run(project, targets).then((made) => made.length > 0 && select([...made])) }));
-}
-
-/** The menu for `entries` (empty: the folder showing's background). */
+/** The menu for `entries` (empty: the folder showing's background). Its layout; the commands' rules are the command module's. */
 function menuItems(project: EditorProject, entries: readonly string[]): MenuItem[] {
-  const readOnly = project.canSave ? null : "this project is read-only";
+  const target: AssetTarget = { project, entries };
   const fs = project.fileSystem;
   const reveal = (path: string) => () => void fs!.reveal!(joinPath(project.root!, path)).catch((err) => (status.value = errorStatus(`Couldn't show ${path}`, err)));
-  const clip = assetClipboard.value;
-  const paste: MenuItem = {
-    label: "Paste",
-    shortcut: "Ctrl+V",
-    disabled: readOnly ?? (clip ? null : "nothing copied"),
-    run: () => void pasteAssets(pasteFolder(entries)).then((made) => made.length > 0 && select(made)),
-  };
-  const newItems: MenuItem[] = [
-    { label: "New Folder", disabled: readOnly, run: () => void makeFolder(pasteFolder(entries)) },
-    // Every file entry is a registered kind's `create`, core kinds' (scenes, render textures) first (ADR 0149).
-    ...kindCreators().map((c) => ({ label: c.label, disabled: readOnly, run: () => void c.create(pasteFolder(entries)).then((made) => made && select([made])) })),
-    ...(project.root !== null ? [{ label: "New Script…", disabled: readOnly, run: () => void newScript({ assetFolder: pasteFolder(entries) }) }] : []),
-  ];
+  const newItems = toMenu(assetCreateItems(target));
   if (entries.length === 0) {
-    return [
-      ...newItems,
-      { label: "", separator: true },
-      paste,
-      ...(fs?.reveal && project.root ? [{ label: "Show in File Manager", run: reveal(folderPath.value) }] : []),
-    ];
+    return [...newItems, SEP, commandItem("paste", target), ...(fs?.reveal && project.root ? [{ label: "Show in File Manager", run: reveal(folderPath.value) }] : [])];
   }
-  if (entries.every(isSliceEntry)) {
-    const image = splitSliceEntry(entries[0]).image;
-    const targets = entries.map((e) => {
-      const { image: path, slice } = splitSliceEntry(e);
-      return { path, slice };
-    });
-    return [{ label: "Sprite Editor…", shortcut: "Enter", run: () => openSpriteEditor(image) }, ...actionItems(project, targets, readOnly)];
-  }
-  entries = fileEntries(entries);
-  const editable = whyNotEditable(project, entries);
-  const sliceable = entries.length === 1 && hasSlices(assetKind(entries[0]));
+  // Open (or Sprite Editor…) when it applies, then plugins' actions (ADR 0146).
+  const head = [...(whyNotAsset("open", target) ? [] : [commandItem("open", target)]), ...toMenu(assetPluginItems(target))];
+  if (entries.every(isSliceEntry)) return head;
+  const files = fileEntries(entries);
+  const single = files.length === 1 ? files[0] : null;
   return [
-    ...(entries.length === 1 && opens(entries[0]) ? [{ label: sliceable ? "Sprite Editor…" : "Open", shortcut: "Enter", run: () => openEntry(entries[0]) }] : []),
-    ...actionItems(
-      project,
-      entries.map((path) => ({ path })),
-      readOnly,
-    ),
-    { label: "Rename", shortcut: "F2", disabled: entries.length > 1 ? "rename one at a time" : editable, run: () => startRename(entries[0]) },
-    { label: "Duplicate", shortcut: "Ctrl+D", disabled: readOnly, run: () => void duplicateAssets(entries).then((made) => made.length > 0 && select(made)) },
-    { label: "", separator: true },
-    { label: "Copy", shortcut: "Ctrl+C", run: () => (assetClipboard.value = { entries: [...entries], cut: false }) },
-    { label: "Cut", shortcut: "Ctrl+X", disabled: editable, run: () => (assetClipboard.value = { entries: [...entries], cut: true }) },
-    paste,
-    { label: "", separator: true },
-    { label: "Delete", shortcut: "Del", disabled: editable, run: () => void deleteAssets(entries) },
-    ...(entries.length === 1 && isFolderEntry(entries[0]) ? [{ label: "", separator: true }, ...newItems] : []),
-    ...(entries.length === 1 && fs?.reveal && project.root ? [{ label: "", separator: true }, { label: "Show in File Manager", run: reveal(entryPath(entries[0])) }] : []),
+    ...head,
+    commandItem("rename", target),
+    commandItem("duplicate", target),
+    SEP,
+    commandItem("copy", target),
+    commandItem("cut", target),
+    commandItem("paste", target),
+    SEP,
+    commandItem("delete", target),
+    ...(single && isFolderEntry(single) ? [SEP, ...newItems] : []),
+    ...(single && fs?.reveal && project.root ? [SEP, { label: "Show in File Manager", run: reveal(entryPath(single)) }] : []),
   ];
 }
 
@@ -201,7 +144,7 @@ export function AssetsPanel() {
   const project = currentProject.value;
   if (!project) return <p class="empty">No project open</p>;
   // A folder that's gone (deleted, moved) shows the root instead.
-  const folder = folderPath.value === "" || project.folders.includes(folderPath.value) ? folderPath.value : "";
+  const folder = shownFolder(project);
   const query = assetQuery.value;
   const searching = query.trim() !== "";
   const entries = listedEntries(project, folder, query);
@@ -321,7 +264,7 @@ function FolderItem(props: { project: EditorProject; folders: readonly string[];
         onClick={() => openFolder(path)}
         onContextMenu={(e) => {
           e.preventDefault();
-          const items = path === "" ? menuItems(project, []) : menuItems(project, [`${path}/`]);
+          const items = path === "" ? menuItems(project, []) : menuItems(project, [folderEntry(path)]);
           menu.value = { x: e.clientX, y: e.clientY, items };
         }}
       >
@@ -340,12 +283,12 @@ function FolderItem(props: { project: EditorProject; folders: readonly string[];
 
 /** Delete the selection (asking first); disabled, with the reason, when it can't be. */
 function DeleteButton(props: { project: EditorProject; selected: readonly string[] }) {
-  const { project } = props;
+  const target: AssetTarget = { project: props.project, entries: props.selected };
   const selected = fileEntries(props.selected);
-  const reason = whyNotEditable(project, selected);
+  const reason = whyNotAsset("delete", target);
   const what = selected.length === 1 ? entryPath(selected[0]) : `${selected.length} items`;
   return (
-    <button class="delete-asset-button" disabled={reason !== null} title={reason ? `Can't delete: ${reason}` : `Delete ${what} from disk (Delete)`} onClick={() => void deleteAssets(selected)}>
+    <button class="delete-asset-button" disabled={reason !== null} title={reason ? `Can't delete: ${reason}` : `Delete ${what} from disk (Delete)`} onClick={() => void runAsset("delete", target)}>
       Delete
     </button>
   );
@@ -368,7 +311,6 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
   const onKeyDown = (e: KeyboardEvent) => {
     if ((e.target as HTMLElement).closest("input, textarea")) return;
     const listed = selectedAssets.value.filter((x) => entries.includes(x));
-    const sel = fileEntries(listed);
     const handled = () => {
       e.preventDefault();
       e.stopPropagation(); // not the editor's shortcuts (Delete would delete the scene's selection)
@@ -380,27 +322,19 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
       else if (folderPath.value !== "") openFolder(parentFolder(folderPath.value) ?? "");
       return;
     }
-    const next = moveCursor(entries, assetCursor.value, e.key, columns());
-    if (next !== null) {
+    const moved = arrowSelection(entries, assetCursor.value, assetAnchor.value, e.key, columns(), e.shiftKey);
+    if (moved) {
       handled();
-      if (e.shiftKey && assetAnchor.value) select(clickSelection(entries, sel, assetAnchor.value, next, { shift: true, toggle: false }).selected, next, assetAnchor.value);
-      else select([next]);
+      select(moved.selected, moved.focus, moved.anchor);
       inspectSelectedAsset();
-      list.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(next)}"]`)?.focus();
+      list.current?.querySelector<HTMLElement>(`[data-entry="${CSS.escape(moved.focus)}"]`)?.focus();
       return;
     }
-    const key = (e.key ?? "").toLowerCase();
-    if (toggleKey(e) && !e.altKey) {
-      if (key === "a") return (handled(), select(entries, assetCursor.value));
-      if (key === "c" && sel.length > 0) return (handled(), (assetClipboard.value = { entries: sel, cut: false }));
-      if (key === "x" && sel.length > 0 && !whyNotEditable(project, sel)) return (handled(), (assetClipboard.value = { entries: sel, cut: true }));
-      if (key === "v" && assetClipboard.value && project.canSave) return (handled(), void pasteAssets(pasteFolder(sel)).then((made) => made.length > 0 && select(made)));
-      if (key === "d" && sel.length > 0 && project.canSave) return (handled(), void duplicateAssets(sel).then((made) => made.length > 0 && select(made)));
-      return;
-    }
-    if ((e.key === "Delete" || e.key === "Backspace") && !e.shiftKey && sel.length > 0) return (handled(), void deleteAssets(sel));
-    if (e.key === "F2" && sel.length === 1 && !whyNotEditable(project, sel)) return (handled(), startRename(sel[0]));
-    if (e.key === "Enter" && listed.length === 1) return (handled(), openEntry(listed[0]));
+    // A command's key always stays in the panel (a refused Delete mustn't delete the scene's selected node); a refusal says why.
+    const command = assetKeyCommand(e);
+    if (command === "open" && (e.target as HTMLElement).closest("button")) return; // Enter presses a tile's own button (+, slices)
+    if (command) return (handled(), void runAsset(command, { project, entries: listed }));
+    if (toggleKey(e) && !e.altKey && (e.key ?? "").toLowerCase() === "a") return (handled(), select(entries, assetCursor.value));
     if (e.key === "Escape" && listed.length > 0) return (handled(), select([]));
   };
 
@@ -500,7 +434,7 @@ const formatSize = (bytes: number | undefined) =>
 
 function AssetItem(props: { project: EditorProject; entry: string; entries: string[]; selected: boolean; showFolder: boolean }) {
   const { project, entry, entries, selected, showFolder } = props;
-  const kind = kindOf(entry);
+  const kind = entryKind(entry);
   const path = entryPath(entry);
   const slice = isSliceEntry(entry) ? splitSliceEntry(entry) : null;
   const url = isFolderEntry(entry) ? undefined : project.assets.get(slice ? slice.image : path);
@@ -521,7 +455,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
       aria-selected={selected}
       data-entry={entry}
       {...(isFolderEntry(entry) ? { "data-drop-folder": path } : {})}
-      title={`${path}${opens(entry) ? " (double-click to open)" : ""}${addable ? "; drag into the viewport or hierarchy to add" : ""}`}
+      title={`${path}${opens(project, entry) ? " (double-click to open)" : ""}${addable ? "; drag into the viewport or hierarchy to add" : ""}`}
       tabIndex={selected || (assetCursor.value === entry) ? 0 : -1}
       onPointerDown={(e) => {
         press.current = { x: e.clientX, y: e.clientY };
@@ -546,7 +480,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         // Selecting one asset with an inspector shows it, in place of the selected node (ADR 0040).
         inspectSelectedAsset();
       }}
-      onDblClick={() => openEntry(entry)}
+      onDblClick={() => openEntry(project, entry)}
       onContextMenu={(e) => {
         e.preventDefault();
         const sel = selectedAssets.value.filter((x) => entries.includes(x));
@@ -559,14 +493,14 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         ) : slice && sliceRect && typeof url === "string" ? (
           <SliceThumb url={url} rect={sliceRect} />
         ) : (
-          <TileThumbnail path={path} kind={kind} label={labelOf(kind)} name={nameOf(entry)} />
+          <TileThumbnail path={path} kind={kind} label={labelOf(kind)} name={entryName(entry)} />
         )}
       </div>
       {sliceCount > 0 && (
         <button
           class={`asset-expand${expanded ? " expanded" : ""}`}
           aria-expanded={expanded}
-          aria-label={`${expanded ? "Hide" : "Show"} the slices of ${nameOf(entry)}`}
+          aria-label={`${expanded ? "Hide" : "Show"} the slices of ${entryName(entry)}`}
           title={`${sliceCount} slice${sliceCount === 1 ? "" : "s"}`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
@@ -580,7 +514,7 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
           {expanded ? "▾" : "▸"} {sliceCount}
         </button>
       )}
-      {renamingAsset.value === entry ? <RenameInput entry={entry} /> : <span class="asset-name">{nameOf(entry)}</span>}
+      {renamingAsset.value === entry ? <RenameInput entry={entry} /> : <span class="asset-name">{entryName(entry)}</span>}
       {list && <span class="asset-col-kind">{labelOf(kind)}</span>}
       {list && <span class="asset-col-size">{isFolderEntry(entry) ? "" : formatSize(project.sizeOf(path))}</span>}
       {showFolder && !list && <span class="asset-folder-hint">{folderOf(path) || "/"}</span>}
@@ -588,8 +522,8 @@ function AssetItem(props: { project: EditorProject; entry: string; entries: stri
         <button
           class="asset-add"
           disabled={!canAdd}
-          title={canAdd ? `Add ${nameOf(entry)} to the scene` : `Can't add ${nameOf(entry)}: ${whyNotAdd}`}
-          aria-label={`Add ${nameOf(entry)} to the scene`}
+          title={canAdd ? `Add ${entryName(entry)} to the scene` : `Can't add ${entryName(entry)}: ${whyNotAdd}`}
+          aria-label={`Add ${entryName(entry)} to the scene`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
@@ -637,7 +571,7 @@ function SliceThumb(props: { url: string; rect: readonly [number, number, number
 function RenameInput(props: { entry: string }) {
   const { entry } = props;
   const input = useRef<HTMLInputElement>(null);
-  const name = nameOf(entry);
+  const name = entryName(entry);
   useEffect(() => {
     const el = input.current!;
     el.focus();
@@ -653,8 +587,8 @@ function RenameInput(props: { entry: string }) {
     if (!apply || value === name) return;
     void renameAsset(entry, value).then((ok) => {
       if (!ok) return;
-      const to = `${folderOf(entryPath(entry)) ? `${folderOf(entryPath(entry))}/` : ""}${value}${isFolderEntry(entry) ? "/" : ""}`;
-      select([to]);
+      const path = entryFolder(entry) ? `${entryFolder(entry)}/${value}` : value;
+      select([isFolderEntry(entry) ? folderEntry(path) : path]);
     });
   };
   return (

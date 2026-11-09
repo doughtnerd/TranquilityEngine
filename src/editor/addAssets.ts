@@ -4,7 +4,9 @@
 // be added, adds them all as one undo step, logs what their kinds have to say about the add, and
 // returns the new nodes' ids and the status message. Kinds supply their refusals (`addToScene.whyNot`)
 // and notes (`addToScene.note`); nothing here knows a kind by name.
-import { addAssetEntries, fileName, parentForAdd, prepareAssets, whyNotAddable, type AddOptions } from "./assetBrowser";
+import { fileName } from "./assetBrowser";
+import { isFolderEntry } from "./assetEntry";
+import { addAssetEntries, parentForAdd, prepareAssets, whyNotAddable, type AddOptions } from "./assetNodes";
 import { sceneNodesAt } from "./assetKindLookup";
 import type { NodeEntry } from "./document";
 import { errorStatus, logMessage } from "./messages";
@@ -39,7 +41,7 @@ export function whyNotAddAssets(paths: readonly string[], scene: OpenScene | nul
   if (!scene) return "Open a scene first";
   if (playState.value !== "edit") return "Stop playing to add assets";
   if (paths.length === 0) return "nothing to add";
-  if (paths.some((p) => p.endsWith("/"))) return "folders can't be added to a scene";
+  if (paths.some(isFolderEntry)) return "folders can't be added to a scene";
   for (const path of paths) {
     const reason = whyNotAddable(scene.doc, path);
     if (reason) return paths.length === 1 ? reason : `${fileName(path)}: ${reason}`;

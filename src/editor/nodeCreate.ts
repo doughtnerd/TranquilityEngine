@@ -2,7 +2,7 @@
 // text, a 3D shape (with a matching collider, as in Unity), a light (ADR 0043), a UI element (ADR 0069) or a kind
 // a plugin adds (ADR 0146: Particle System, Tilemap), at the top of the scene, beside a node or under it. Each is
 // one undo step.
-import { uniqueId } from "./assetBrowser";
+import { uniqueId } from "./assetNodes";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { addInnerNode } from "./prefabs";
 import { hierarchyCreateEntries, type HierarchyCreateContribution } from "./sdk/contributions";

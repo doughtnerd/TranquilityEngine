@@ -9,7 +9,8 @@ import {
   sidecarPath,
   type ImportSettings,
 } from "../engine/scene/importSettings";
-import { assetKind, folderOf, isSliceEntry, splitSliceEntry } from "./assetBrowser";
+import { assetKind, folderOf } from "./assetBrowser";
+import { isSliceEntry, splitSliceEntry } from "./assetEntry";
 import { kindImportSettings, kindInspector } from "./assetKindLookup";
 import { openFolder, select as selectAssets, selectedAssets } from "./assetSelection";
 import type { EditorProject } from "./projects";

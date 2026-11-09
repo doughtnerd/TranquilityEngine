@@ -3,7 +3,7 @@
 // track like the signals do. `peek…` reads without tracking. Editing a scene goes through its
 // `stack` with the document commands (`SetField`, ADR 0026).
 import type { GameObject } from "../../engine/scene/GameObject";
-import { idBase, uniqueId } from "../assetBrowser";
+import { idBase, uniqueId } from "../assetNodes";
 import type { NodePath, SceneDocument } from "../document";
 import { openScene, openScenes, playState, select, selectedKeys, selectedNodes, selectedPath, selectedWorldNode, selection, type OpenScene } from "../state";
 

@@ -11,7 +11,8 @@ import { isSidecarPath, sidecarAsset } from "../engine/scene/importSettings";
 import { fileName, folderOf } from "./assetBrowser";
 import { assetDocumentsMoved } from "./assetDocuments";
 import { movedPath, rewriteReferences } from "./assetReferences";
-import { entryPath, filesIn, isFolderEntry, openScenePaths, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
+import { filesIn, openScenePaths, whyNotDeletableAsset, whyNotDeletableFolder } from "./assetDelete";
+import { entryPath, folderEntry, isFolderEntry } from "./assetEntry";
 import { activeScript, dirtyScripts, openScripts } from "./code/codeState";
 import { errorStatus } from "./messages";
 import { isWithin, type EditorProject } from "./projects";
@@ -37,13 +38,27 @@ export function whyNotValidName(name: string): string | null {
 }
 
 /** Why `entry` can't be moved or renamed right now, or null if it can. */
-function whyNotMovable(project: EditorProject, entry: string): string | null {
+function whyNotMovableEntry(project: EditorProject, entry: string): string | null {
   const openPath = openScenePaths();
   const path = entryPath(entry);
   const reason = isFolderEntry(entry) ? whyNotDeletableFolder(project, path, openPath) : whyNotDeletableAsset(project, path, openPath);
   if (reason) return reason.replace("open another scene first", "open another scene to move it");
   const unsaved = [...dirtyScripts.value].find((p) => isWithin(p, path));
   if (unsaved) return `${unsaved} has unsaved changes in the Code panel; save or close it first`;
+  return null;
+}
+
+/**
+ * Why the file and folder entries can't be moved or renamed right now, or null if they can: the
+ * check `moveAssets` makes (every open scene tab, play mode, unsaved scripts), for the Assets
+ * panel's Rename and Cut (ADR 0157). With several entries, the reason names the one refused.
+ */
+export function whyNotMovable(project: EditorProject, entries: readonly string[]): string | null {
+  if (entries.length === 0) return "select something first";
+  for (const entry of entries) {
+    const reason = whyNotMovableEntry(project, entry);
+    if (reason) return entries.length === 1 ? reason : `${fileName(entryPath(entry))}: ${reason}`;
+  }
   return null;
 }
 
@@ -72,7 +87,7 @@ export async function moveAssets(moves: readonly (readonly [string, string])[], 
     return false;
   };
   for (const [from, to] of moves) {
-    const reason = whyNotMovable(project, project.folders.includes(from) ? `${from}/` : from);
+    const reason = whyNotMovableEntry(project, project.folders.includes(from) ? folderEntry(from) : from);
     if (reason) return fail(`Can't move ${fileName(from)}: ${reason}.`);
     if (isWithin(to, from)) return fail(`Can't move ${fileName(from)} into itself.`);
     if (taken(project, to)) return fail(`Can't move ${fileName(from)}: ${to} already exists.`);
@@ -207,7 +222,7 @@ export async function copyAssets(entries: readonly string[], folder: string): Pr
         await project.createFolder(target);
         for (const f of project.folders.filter((d) => isWithin(d, path) && d !== path)) await project.createFolder(target + f.slice(path.length));
         for (const f of inside) await project.copyFile(f, target + f.slice(path.length));
-        made.push(`${target}/`);
+        made.push(folderEntry(target));
       } else {
         const target = freePath(project, folder, fileName(path), true);
         if (project.scripts.has(path) && !isScriptPath(target)) throw new Error(`${path} is a script, and scripts live under scripts/`);
@@ -234,18 +249,32 @@ export async function duplicateAssets(entries: readonly string[]): Promise<strin
   return made;
 }
 
+/**
+ * Why the clipboard can't be pasted into `folder` now, or null if it can: a read-only project,
+ * nothing copied, a folder copied into itself, or after a cut, what moving there refuses
+ * (`whyNotMoveTarget`, `whyNotMovable`). The rule `pasteAssets` and the Assets panel's Paste use.
+ */
+export function whyNotPaste(project: EditorProject, folder: string): string | null {
+  const clip = assetClipboard.value;
+  if (!project.canSave) return "this project is read-only";
+  if (!clip || clip.entries.length === 0) return "nothing copied";
+  if (clip.cut) return whyNotMoveTarget(clip.entries, folder) ?? whyNotMovable(project, clip.entries);
+  const into = clip.entries.find((e) => isFolderEntry(e) && isWithin(folder, entryPath(e)));
+  return into ? `${fileName(entryPath(into))} can't go inside itself` : null;
+}
+
 /** Paste the clipboard into `folder`: copies, or moves after a cut. Returns the pasted entries. */
 export async function pasteAssets(folder: string): Promise<string[]> {
   const clip = assetClipboard.value;
   const project = currentProject.value;
   if (!clip || !project) return [];
-  if (!clip.cut) return copyAssets(clip.entries, folder);
-  const reason = whyNotMoveTarget(clip.entries, folder);
+  const reason = whyNotPaste(project, folder);
   if (reason) {
     status.value = { kind: "info", text: `Can't paste here: ${reason}.` };
     return [];
   }
+  if (!clip.cut) return copyAssets(clip.entries, folder);
   if (!(await moveAssetsTo(clip.entries, folder))) return [];
   assetClipboard.value = null;
-  return clip.entries.map((e) => `${join(folder, fileName(entryPath(e)))}${isFolderEntry(e) ? "/" : ""}`);
+  return clip.entries.map((e) => (isFolderEntry(e) ? folderEntry(join(folder, fileName(entryPath(e)))) : join(folder, fileName(e))));
 }
