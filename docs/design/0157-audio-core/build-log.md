@@ -42,3 +42,33 @@ Leads: A0.1 Opus, A0.2 and A0.4 Sonnet. Haiku leaves: A0.1 L1 (`build.mjs`) and 
 **Bugs the leaves caught:** L4's hand-derived vectors found a codec offset bug (each body written over its header). It was fixed in `gen/codec.rs`; the generated readers and writers never had it. The coordinator's review found that the first fuzz couldn't tell a refusal from a bounds error, which led to `WireError`.
 
 **Reserve used:** none.
+
+## Owner decisions (2026-11-09)
+
+- One-shots get **no completion `Promise`** in M1: scripts poll `handle.playing`. Recorded in ADR 0157's open questions, and #69 is closed.
+- H0: no letter for now. The owner handles the licence follow-ups (the letter, and checking IRCAM's page before B7). #51 is closed.
+- A0.7's WebKitGTK check runs in a **Docker container** (Xvfb, a PulseAudio null sink, the monitor recorded and the tone checked in the signal) rather than on an owner machine. Docker Desktop with the Linux engine is available on the build machine.
+
+## MS1 wave 2 (A0.3, A0.10, A0.5)
+
+Leads: A0.3 Opus with three Haiku leaves (L1 `bufferPool.ts`, L2 `counters.rs`, L3 `unlock.ts`). A0.10 ran as one Haiku worker and A0.5 as one Sonnet worker, each reporting to the coordinator. No merge conflicts.
+
+**Landed**
+- A0.3 (#55): the loader (compile on main, a 64-page imported memory, schema-hash and ABI checks, `CoreLoadError`), the worklet `processor.ts` and the `coreDriver` it shares with Node tests, the host and `CoreLink` in `context.ts`, the unlock layer, the buffer pools (8 × 16 KB STATUS, 4 × 64 KB BATCH), and the status writer in `audio-core` serialising every K1 field from `counters.rs` (K12). `probe.ts` is a stub returning "supported" that `service.ts` calls (K8). There's a dev-only tone page at `src/plugins/audio/runtime/worklet/devTone.html` (in `npm run dev`, click to hear 440 Hz). The tone is a sine mixed by the shell, since voices land in A1.2.
+- A0.10 (#56): the Blink sources §5 lists, staged byte-identical under `native/audio/third_party/blink/` from Chromium `cbba46fd94646232cfd2318ac962138c2a98c1f9`, with `PROVENANCE.md` (SHA-256 per file), `PORTS.md` with the header template, the notices (Blink BSD-3-Clause, microfft MIT, libm MIT), and `portsNotices.test.ts`.
+- A0.5 (#57): FMOD is removed (backend, test, guide, Engine wiring, editor fields, types). `"fmod"` and `"howler"` remain only as parser inputs that report problems.
+- Coordinator: the engine library build ships `myco_audio.wasm` beside its chunks (`BESIDE_BUNDLE`, which now resolves `../` paths). The player, editor and engine builds all carry the wasm and the worklet processor chunk.
+
+**Numbers**
+- Mixer wasm 28,621 B (28.0 KB) against the 150 KB gate. Source hash `a04e02aa…`.
+- `cargo test` 62 passed. `npm test`: 3,034 passed, and only the 3 baseline `plugins.test.ts` cases fail. `npm run build` green.
+- Proved headlessly with the real wasm: identical init addresses; a STATUS block every 6 quanta; the ping echoed; 8 buffers circulating for 10,000 quanta with immediate RECYCLE; STATUS still flowing (every 48 quanta) with no batches; a trap giving silence plus a flag. In a real Chromium AudioWorklet: about 7.8 STATUS blocks/s with no rAF loop, the ready flag set, the ping echoed, 0 underruns. **Not yet heard:** the browser pane has no audio output. A0.7 checks the tone in the signal.
+
+**Deviations**
+- The status writer's state lives in the first `STATUS_AREA_BYTES` (about 16 KB) of the core-state region. Later carvers of that region start after it.
+- `audio-core` keeps its own copy of the §4.3 offsets, because it doesn't depend on `audio-wire`. Two drift tests read the writer's output back through the generated readers, one in Rust and one in TS.
+- The upstream file `reverb_input_buffer.*` doesn't exist at the pinned commit, and `reverb_convolver` doesn't need it. Helper headers (`audio_bus`, `vector_math`, `fft_frame`, `direct_convolver`…) aren't staged; each port fetches what it needs from the same commit (noted on #87).
+- `THIRD_PARTY_NOTICES.md` and the design had libm as "MIT OR Apache-2.0". Its 0.2.16 `Cargo.toml` says MIT; corrected.
+- `autocrlf` rewrote the staged Chromium files on checkout and broke their hashes. `native/audio/third_party/.gitattributes` (`* -text`) keeps them byte-exact.
+
+**Reserve used:** none.
