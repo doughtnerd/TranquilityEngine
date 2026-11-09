@@ -1,0 +1,21 @@
+# Self-contained on purpose (task A0.2): native/audio/Cargo.toml lists this crate as a member,
+# but no key here is inherited from the workspace, so the crate builds on its own with
+#   cargo test --manifest-path native/audio/crates/audio-wire/Cargo.toml
+[package]
+name = "audio-wire"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+publish = false
+description = "Myco audio core wire format (ADR 0157 section 4): one schema, generated Rust and TypeScript code."
+
+[lib]
+name = "audio_wire"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gen_wire"
+path = "src/bin/gen_wire.rs"
+
+# No dependencies: SHA-256 and the generators are written here (std only).
+[dependencies]
