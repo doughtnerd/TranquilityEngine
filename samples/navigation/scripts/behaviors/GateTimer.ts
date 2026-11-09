@@ -6,7 +6,7 @@ import { GameBehavior, GameObject, Input, NavGate, Time, behavior, field } from 
  * a gate's "Barrier" child stands in the opening while it's closed and rises `lift` metres when it opens.
  *
  * It lives in the always-loaded main scene and keeps the state itself, so a gate whose chunk streams back in
- * takes the current state.
+ * takes the current state (its `Gate` behaviour asks for it as soon as the chunk scene is in).
  */
 @behavior("navdemo.GateTimer")
 export class GateTimer extends GameBehavior {
@@ -45,14 +45,16 @@ export class GateTimer extends GameBehavior {
     this.toggles++;
   }
 
+  /** Gives one gate the current state: the NavGate opens or closes and its barrier rises or drops. */
+  applyTo(gate: NavGate): void {
+    if (gate.open !== this.open) gate.open = this.open;
+    const t = gate.node.children.find((c) => c.name === "Barrier")?.transform;
+    if (!t) return;
+    const y = this.open ? 0.5 + this.lift : 0.5;
+    if (Math.abs(t.position.y - y) > 1e-3) t.position.y = y;
+  }
+
   private applyToGates(): void {
-    for (const gate of GameObject.findObjectsOfType(NavGate)) {
-      if (gate.open !== this.open) gate.open = this.open;
-      const barrier = gate.node.children.find((c) => c.name === "Barrier");
-      const t = barrier?.transform;
-      if (!t) continue;
-      const y = this.open ? 0.5 + this.lift : 0.5;
-      if (Math.abs(t.position.y - y) > 1e-3) t.position.y = y;
-    }
+    for (const gate of GameObject.findObjectsOfType(NavGate)) this.applyTo(gate);
   }
 }
