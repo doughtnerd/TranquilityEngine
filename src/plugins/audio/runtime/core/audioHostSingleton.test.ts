@@ -22,6 +22,10 @@ class FakeAudioContext extends EventTarget {
   close = vi.fn(async () => {
     this.state = "closed";
   });
+  /** On the prototype, where A0.6's probe looks for it (a required feature). */
+  getOutputTimestamp() {
+    return { contextTime: 0, performanceTime: 0 };
+  }
 }
 
 class FakeAudioWorkletNode {
