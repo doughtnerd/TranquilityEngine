@@ -13,7 +13,7 @@ ADR 0157, api-and-models §5 ("Ports and dependencies"), task A0.10.
 | `reverb_convolver.cc`, `.h`; `reverb_convolver_stage.cc`, `.h`; `reverb_accumulation_buffer.cc`, `.h`; `fft_convolver.cc`, `.h` | `native/audio/crates/audio-dsp/src/convolver.rs` | A2.2b | staged non-uniform convolver; FFT from `microfft`, not Chromium's FFT code |
 | `equal_power_panner.cc`, `.h` | `native/audio/crates/audio-dsp/src/pan.rs` | A1.2 | |
 | `distance_effect.cc`, `.h`; `cone_effect.cc`, `.h` | `src/plugins/audio/runtime/core/spatial.ts` (TypeScript, main thread, not Rust) | A1.5 | the cone is ported but unused until `AudioSource` gains cone fields |
-| `hrtf_panner.cc`, `.h`; `hrtf_kernel.cc`, `.h`; `hrtf_elevation.cc`, `.h`; `hrtf_database.cc`, `.h` | `native/audio/crates/audio-dsp/src/hrtf.rs` | H1 (data: H2) | the convolution is redone in uniform 128-frame partitions on a 256-point `microfft` FFT; the HRIR resources are not staged (H2, see `native/audio/third_party/blink/` notes in PROVENANCE.md) |
+| `hrtf_panner.cc`, `.h`; `hrtf_kernel.cc`, `.h`; `hrtf_elevation.cc`, `.h`; `hrtf_database.cc`, `.h` | `native/audio/crates/audio-dsp/src/hrtf/` (every ported file under it carries the header) | H1 (data: H2) | the convolution is redone in uniform 128-frame partitions on a 256-point `microfft` FFT; the HRIR resources are not staged (H2, see `native/audio/third_party/blink/` notes in PROVENANCE.md) |
 
 Crate dependencies (not ports, but in the same licence picture): `microfft` 0.6.0 (MIT) and `libm` 0.2.16 (MIT, per its Cargo.toml).
 
