@@ -47,3 +47,26 @@ fn all_opcodes_and_kinds_are_exposed() {
         assert!(ts.contains(&format!("  {}: {},", k.name, k.id)));
     }
 }
+
+#[test]
+fn generated_rust_round_trips() {
+    use crate::generated::*;
+    let mut buf = vec![0u8; 4096];
+    let play = Play { voice_id: 7, frame_offset: ASAP, clip: 3, bus: 1, flags: PLAY_FLAGS_LOOP | (1 << PLAY_FLAGS_PANNER_SHIFT), gain: 0.5, ..Default::default() };
+    let n = play.write(&mut buf, 8).unwrap();
+    assert_eq!(n, 56);
+    let (back, used) = Play::read(&buf, 8).unwrap();
+    assert_eq!((back, used), (play, 56));
+    // truncated and wrong-opcode records are refused
+    assert_eq!(Play::read(&buf[..40], 8).unwrap_err(), ERR_TRUNCATED);
+    assert_eq!(Stop::read(&buf, 8).unwrap_err(), ERR_MALFORMED);
+
+    let cfg = BusConfig { voice_id: 0, frame_offset: ASAP, buses: vec![BusConfigBuses { parent: 0xFFFF, effects: vec![BusConfigBusesEffects { type_: 2, p: [1.0; 7] }] }, BusConfigBuses { parent: 0, effects: vec![] }] };
+    let n = cfg.write(&mut buf, 0).unwrap();
+    assert_eq!(BusConfig::read(&buf, 0).unwrap(), (cfg, n));
+    assert_eq!(BusConfig::read(&buf[..n - 4], 0).unwrap_err(), ERR_TRUNCATED);
+
+    let st = StatusBlock { current_frame: 1.5, min_slack_frames: -3, flags: STATUS_FLAGS_READY, ended: vec![1, 2], peaks: vec![StatusPeaksItem { l: 0.25, r: 0.5 }], ..Default::default() };
+    let n = st.write(&mut buf, 0, 9).unwrap();
+    assert_eq!(StatusBlock::read(&buf[..n], 0).unwrap(), (st, n));
+}

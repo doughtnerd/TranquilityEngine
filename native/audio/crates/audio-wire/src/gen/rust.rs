@@ -150,6 +150,9 @@ fn emit_item(out: &mut String, it: &Item, head: Option<(u16, &str)>, text: &str)
     out.push_str("        Self::read_to(buf, base, limit)\n    }\n");
     out.push_str("    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {\n");
     out.push_str("        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {\n            return Err(ERR_TRUNCATED);\n        }\n");
+    if head.is_some() {
+        out.push_str("        let (head, _) = RecordHead::read(buf, base)?;\n");
+    }
     for p in &it.fields {
         out.push_str(&format!("        let {} = {};\n", ident(p.field.name), read_expr(p)));
     }

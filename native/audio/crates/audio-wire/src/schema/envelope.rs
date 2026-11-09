@@ -16,10 +16,10 @@ const STREAM_CHUNK_FLAGS: &[Bits] = &[
 ];
 
 const CLIP_ID: Field =
-    Field::new("clip_id", Ty::U32).doc("Clip id; for format 2 (HRIR) 0xFFFF0000..=0xFFFF00FF are reserved.");
+    Field::new("clipId", Ty::U32).doc("Clip id; for format 2 (HRIR) 0xFFFF0000..=0xFFFF00FF are reserved.");
 const CHANNELS: Field = Field::new("channels", Ty::U32).doc("Interleaved channel count.");
-const SAMPLE_RATE: Field = Field::new("sample_rate", Ty::F32).doc("Sample rate in Hz.");
-const STREAM_ID: Field = Field::new("stream_id", Ty::U32).doc("Stream id, named in stream messages.");
+const SAMPLE_RATE: Field = Field::new("sampleRate", Ty::F32).doc("Sample rate in Hz.");
+const STREAM_ID: Field = Field::new("streamId", Ty::U32).doc("Stream id, named in stream messages.");
 const EPOCH: Field =
     Field::new("epoch", Ty::U32).doc("Stream epoch; a restart bumps it, so older-epoch messages are stale.");
 
@@ -32,7 +32,7 @@ pub const ENVELOPE: &[Field] = &[
         .doc("Protocol version: high byte major, low byte minor (1.0 is 0x0100)."),
     Field::new("kind", Ty::U16).at(6).doc("Message kind, one of `KINDS` (1..=12)."),
     Field::new("seq", Ty::U32).at(8).doc("Per-sender sequence number; wraps at 2^32."),
-    Field::new("body_bytes", Ty::U32).at(12).doc("Bytes of body after the 16-byte envelope."),
+    Field::new("bodyBytes", Ty::U32).at(12).doc("Bytes of body after the 16-byte envelope."),
 ];
 
 /// Every kind 1..=12 with its body (fixed fields and tail), in id order.
@@ -65,7 +65,7 @@ pub const KINDS: &[Kind] = &[
         body: Body::with_tail(
             &[
                 CLIP_ID,
-                Field::new("frame_offset", Ty::U32).doc("First frame of this chunk within the clip."),
+                Field::new("frameOffset", Ty::U32).doc("First frame of this chunk within the clip."),
                 Field::new("frames", Ty::U32).doc("Sample frames in this chunk."),
                 Field::new("reserved", Ty::U32).doc("Reserved; 0."),
             ],
@@ -89,12 +89,12 @@ pub const KINDS: &[Kind] = &[
             STREAM_ID,
             CHANNELS,
             SAMPLE_RATE,
-            Field::new("total_frames", Ty::U32).doc("Total sample frames; 0xFFFFFFFF if unknown."),
-            Field::new("loop_start", Ty::U32).doc("Loop start frame."),
-            Field::new("loop_end", Ty::U32).doc("Loop end frame; 0 means the whole stream."),
+            Field::new("totalFrames", Ty::U32).doc("Total sample frames; 0xFFFFFFFF if unknown."),
+            Field::new("loopStart", Ty::U32).doc("Loop start frame."),
+            Field::new("loopEnd", Ty::U32).doc("Loop end frame; 0 means the whole stream."),
             Field::new("flags", Ty::U32).flags(STREAM_OPEN_FLAGS).doc("Flag bits, see `flags`."),
             EPOCH,
-            Field::new("start_frame", Ty::U32).doc("Frame the stream starts playing from."),
+            Field::new("startFrame", Ty::U32).doc("Frame the stream starts playing from."),
         ]),
         doc: "Opens a worker-fed stream.",
     },
@@ -105,7 +105,7 @@ pub const KINDS: &[Kind] = &[
         body: Body::with_tail(
             &[
                 STREAM_ID,
-                Field::new("chunk_seq", Ty::U32).doc("Chunk sequence number within the stream."),
+                Field::new("chunkSeq", Ty::U32).doc("Chunk sequence number within the stream."),
                 Field::new("frames", Ty::U32).doc("Sample frames in this chunk."),
                 Field::new("flags", Ty::U32).flags(STREAM_CHUNK_FLAGS).doc("Flag bits, see `flags`."),
                 EPOCH,
@@ -125,7 +125,7 @@ pub const KINDS: &[Kind] = &[
         id: 8,
         name: "TIME_PING",
         dir: Dir::MainToWorklet,
-        body: Body::fixed(&[Field::new("ping_seq", Ty::U32).doc("Ping sequence number, chosen by main.")]),
+        body: Body::fixed(&[Field::new("pingSeq", Ty::U32).doc("Ping sequence number, chosen by main.")]),
         doc: "Time ping from main.",
     },
     Kind {
@@ -149,8 +149,8 @@ pub const KINDS: &[Kind] = &[
         body: Body::fixed(&[
             STREAM_ID,
             EPOCH,
-            Field::new("consumed_frames", Ty::U32).doc("Sample frames the worklet has consumed."),
-            Field::new("returned_buffers", Ty::U32).doc("Chunk buffers returned to the worker."),
+            Field::new("consumedFrames", Ty::U32).doc("Sample frames the worklet has consumed."),
+            Field::new("returnedBuffers", Ty::U32).doc("Chunk buffers returned to the worker."),
         ]),
         doc: "Flow-control credit from the worklet to the worker.",
     },
@@ -168,7 +168,7 @@ pub const KINDS: &[Kind] = &[
 pub const HRIR_HEADER: &[Field] = &[
     Field::new("elevations", Ty::U32).doc("Elevation count of the HRIR grid."),
     Field::new("azimuths", Ty::U32).doc("Azimuth count per elevation."),
-    Field::new("ir_length", Ty::U32).doc("Frames per impulse response."),
+    Field::new("irLength", Ty::U32).doc("Frames per impulse response."),
     Field::new("rate", Ty::F32).doc("Sample rate of the impulse responses in Hz."),
 ];
 

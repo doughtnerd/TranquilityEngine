@@ -314,7 +314,7 @@ fn emit_status(o: &mut String, schema: &Schema) -> Result<(), String> {
     o.push_str("export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {\n");
     o.push_str("  const view = buf instanceof ArrayBuffer ? new DataView(buf) : new DataView(buf.buffer, buf.byteOffset, buf.byteLength);\n  const off = 0;\n");
     o.push_str(&format!("  if ({} > view.byteLength) throw new RangeError(\"STATUS: truncated\");\n", st.header_bytes));
-    o.push_str("  const env = readEnvelope(view, 0);\n  if (env.magic !== MAGIC) throw new RangeError(\"STATUS: bad magic\");\n  if ((env.version >> 8) !== VERSION_MAJOR) throw new RangeError(\"STATUS: version mismatch\");\n  if (env.kind !== Kind.STATUS) throw new RangeError(\"STATUS: wrong kind\");\n");
+    o.push_str("  const env = readEnvelope(view, 0);\n  if (env.magic !== MAGIC) throw new RangeError(\"STATUS: bad magic\");\n  if (((env.version ?? 0) >> 8) !== VERSION_MAJOR) throw new RangeError(\"STATUS: version mismatch\");\n  if (env.kind !== Kind.STATUS) throw new RangeError(\"STATUS: wrong kind\");\n");
     o.push_str("  const limit = 16 + env.bodyBytes;\n  if (limit > view.byteLength) throw new RangeError(\"STATUS: truncated\");\n");
     for p in &placed {
         o.push_str(&format!("  const {} = {};\n", p.field.name, get_expr(p)));

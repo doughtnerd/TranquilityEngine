@@ -21,8 +21,7 @@ function schemaHash(): string {
 }
 
 describe.skipIf(!existsSync(new URL("src/schema.rs", crateDir)))("wire schema hash", () => {
-  // A0.2-GEN: un-skip when the generator has written wire.generated.ts.
-  it.skip("the generated TypeScript matches the schema sources", () => {
+  it("the generated TypeScript matches the schema sources", () => {
     expect(WIRE_GENERATED).toBe(true);
     expect(SCHEMA_HASH, "wire.generated.ts is stale: run `npm run build:audio`").toBe(schemaHash());
   });
