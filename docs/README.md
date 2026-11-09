@@ -19,7 +19,6 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
 | [Audio mixer](guide/audio-mixer.md) | Buses, effects, snapshots, ducking, `AudioSource.output`, `Audio.bus(...)` |
 | [Writing a plugin](guide/plugins.md) | Third-party plugins: the folder layout, `plugin.json`, runtime and editor halves, a physics backend, enabling, reloading, npm packages, what refuses a plugin, trust |
-| [FMOD backend](guide/fmod.md) | Experimental, untested: dropping the FMOD HTML5 SDK in and wiring it up |
 | [Materials, shaders and batching](guide/materials-and-shaders.md) | Hand-written shader assets (WGSL/GLSL), keywords and variants, changing materials from scripts, GPU instancing and sprite batching, pixel-perfect cameras |
 | [Skies](guide/skies.md) | Procedural sky assets and the Sky panel, presets, time of day and the sun-driven light, the `Sky` component, cubemap environments (`.env`, `.dds`, six images), cost |
 
