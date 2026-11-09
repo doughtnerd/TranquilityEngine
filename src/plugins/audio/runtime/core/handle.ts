@@ -102,6 +102,9 @@ export class AudioHandle {
    * "stolen" or "failed" if that is the slot's reason, else null. Once the id isn't current: the table's
    * `endedReason(id)`, of which only "stolen" and "failed" show (anything else reads null); the first answer read
    * after the end is cached and returned from then on, so a later reuse of the slot can't change it.
+   *
+   * Edge: the table remembers a slot's end reason for one generation only. A handle never read until its slot has
+   * been freed twice (the stealer, or the next voice there, ended too) reads null instead of "stolen" or "failed".
    */
   get reason(): AudioReason | null {
     const t = this.table;
