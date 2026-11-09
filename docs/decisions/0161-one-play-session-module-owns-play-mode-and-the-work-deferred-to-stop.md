@@ -77,6 +77,12 @@ Found by the new tests: values kept on a script component whose script was saved
 World's nodes still held the old class. Stop now rebuilds the open scene before writing kept values when a reload
 is queued, so they land (the queued full reload still follows).
 
+**Work queued for Stop never waits for a Stop that won't come** (found in review after the build): a game
+that fails to start runs the work queued while it was starting (`runQueued`, as Stop does) before showing the
+error; a Stop that lands while a reload into the game is still loading its code leaves that reload to finish
+into the editor (a full edit-mode reload) instead of queuing it for a later Stop; and `stop({ discardQueued })`
+drops queued work even when no game is running.
+
 ## Alternatives considered
 
 - **Keep the state in `session.ts` and export a test hook to set `play`** — tests would still re-state Stop's

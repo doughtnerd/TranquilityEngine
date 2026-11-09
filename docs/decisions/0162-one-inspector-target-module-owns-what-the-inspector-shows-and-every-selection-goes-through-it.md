@@ -39,7 +39,7 @@ type InspectorTarget =
 **Selecting goes through it.** Every selection source calls one of its functions, which applies the rule; no caller makes a follow-up call:
 
 - `select(keys, active?)`: nodes (the Hierarchy, the viewport, commands, the editor SDK's `selection.set`, an asset drop: `assetDrag.ts` releases through an exported `dropAssets(paths, target)`, testable without pointer events). Clears the UI element; non-empty, also clears the Assets panel's selection.
-- `selectAssets(entries, focus?, anchor?)`: the Assets panel (clicks, the press that may start a drag, arrow keys, box, every command that selects what it made). If the result is one entry the Inspector can show (`inspectableAsset`), the nodes and the UI element are cleared; otherwise they stay (two materials, a scene file or a script don't take the Inspector from the node).
+- `selectAssets(entries, focus?, anchor?)`: the Assets panel (clicks, the press that may start a drag, arrow keys, the end of a box drag, every command that selects what it made). If the result is one entry the Inspector can show (`inspectableAsset`), the nodes and the UI element are cleared; otherwise they stay (two materials, a scene file or a script don't take the Inspector from the node).
 - `selectUIElement(ref)`: clears the nodes and the assets.
 - `showSceneSettings()`: clears all three (the Hierarchy's scene row).
 - `showAsset(path)`: opens its folder and selects it alone (the SDK's `editor.project.reveal`, Select Asset buttons).
@@ -49,6 +49,8 @@ The live World stays an overlay rather than a selection: `runtimeInspect.ts` kee
 **Moves.** `select` leaves `state.ts` and `selectUIElement` leaves `uiDocuments.ts` for this module. `state.selection` becomes read-only (`value`, `peek()`); writers call `select`. `assetSelection.ts`'s setter is renamed `setPanelSelection` and documented as this module's (the panel uses it only to clear, which needs no rule); `select` there is gone. `inspectableAsset` moves here; `inspectedAsset`, `showsAssetInspector` and `inspectSelectedAsset` are deleted. `assetImport.ts` keeps the sidecar read/write (`readImportSettings`, `writeImportSettings`, `sameSettings`, `hasImportSettings`) and the Sprite Editor's open image (`spriteEditorImage`, `openSpriteEditor`), since the Sprite Editor edits a sidecar's slices; `spriteSlicing.ts` stays pure.
 
 **The SDK.** `editor.scene.selection` (0147) keeps its contract: `set` calls `select`, the readers are unchanged.
+
+- `previewAssets(entries)`: the Assets panel's selection only, while a box drag is under way. The box ends with `selectAssets` when it's let go, or with the selection it started from on Escape, so a cancelled box never deselects the scene's nodes.
 
 ## Alternatives considered
 

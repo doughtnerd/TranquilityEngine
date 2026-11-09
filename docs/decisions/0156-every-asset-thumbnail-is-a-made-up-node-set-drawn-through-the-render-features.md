@@ -153,6 +153,9 @@ already the World's (0127, 0153).
 - Should a third-party plugin's kind be allowed to supply a stage (public tier)? It would need `SceneFile` and a
   public `ThumbnailStage`.
 - Stills still don't run the frame graph (0153's open question).
+- The WebGL2 fallback reuses the canvas. The failed WebGPU engine is disposed, but if `initAsync` failed after
+  taking the canvas's `webgpu` context, `getContext("webgl2")` on it returns null and the fallback throws too.
+  Probing WebGPU on a throwaway canvas first, or letting the surface swap its canvas, would cover that case.
 
 ## References
 
