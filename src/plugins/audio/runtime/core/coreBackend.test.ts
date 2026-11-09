@@ -503,10 +503,9 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
 });
 
 describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
-  // Skipped until A1.7 (`createLoopbackHost`) and A1.3b's shell (CLIP_BEGIN / CLIP_CHUNK routed to the core, so the
-  // clip turns resident) are both merged; the wave review un-skips it. Verified so far: with A1.7 merged the host
-  // builds, and the registry streams the clip but it stays `copying` because the shell ignores clip messages.
-  it.skip("plays a WAV: the rendered output carries the clip's samples", async (ctx) => {
+  // MS2's acceptance check (api-and-models §9, A1.4: "loopback plays a WAV"): the real wasm, the real clip registry and
+  // shell routing, the real coreBackend.
+  it("plays a WAV: the rendered output carries the clip's samples", async (ctx) => {
     const testing = await import("../testing");
     // A1.7 adds `link` to K4's LoopbackHost; this branch's declaration doesn't have it yet.
     let loop: Awaited<ReturnType<typeof testing.createLoopbackHost>> & { link: CoreLink };
@@ -554,10 +553,10 @@ describe("CoreBackend on the loopback host (A1.7's createLoopbackHost)", () => {
         break;
       }
     }
-    // A flat voice is centred: 0.5 at equal power is 0.5 * cos(pi / 4) in each channel.
-    expect(peakL).toBeGreaterThan(0.3);
-    expect(peakL).toBeCloseTo(peakR, 3);
-    expect(peakL).toBeLessThan(0.5);
+    // A flat (non-spatial) mono voice plays at full level on both channels, as Web Audio upmixes mono with no panner
+    // (A1.2's goldens): the constant 0.5 comes out as 0.5 in each channel.
+    expect(peakL).toBeCloseTo(0.5, 5);
+    expect(peakR).toBeCloseTo(0.5, 5);
     expect(ended).toBe(true);
     backend.dispose();
   });
