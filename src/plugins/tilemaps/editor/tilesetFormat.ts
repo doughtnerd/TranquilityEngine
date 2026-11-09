@@ -1,6 +1,6 @@
 // The `tileset` asset format (ADR 0103, 0134): `*.tileset.json` as TilesetData, for asset documents
 // (assetDocuments.ts). Built from the runtime's parse function and the editor's pretty-JSON formatter.
-import { formatTileset } from "../../../editor/tilesetAssets";
+import { formatTileset } from "./tilesetAssets";
 import type { AssetFormatContribution } from "../../../editor/sdk/contributions";
 import { newTileset, parseTileset, type TilesetData } from "../runtime/tileset";
 

@@ -2,7 +2,7 @@ import { errorStatus } from "../messages";
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { addAssetToScene, assetKind, assetKindFor, assetKindInfo, canAddToScene, prepareAssets, fileName, folderOf, isSliceEntry, listedFiles, searchEntries, sliceEntry, splitSliceEntry, type AssetKind } from "../assetBrowser";
-import { assetKinds } from "../sdk/contributions";
+import { assetActions, assetKinds, type AssetActionTarget } from "../sdk/contributions";
 import { inspectSelectedAsset, openSpriteEditor, readImportSettings } from "../assetImport";
 import { assetDrag, startAssetDrag } from "../assetDrag";
 import { deleteAssets, entryPath, isFolderEntry, whyNotDeletableAsset, whyNotDeletableFolder } from "../assetDelete";
@@ -33,7 +33,6 @@ import { newScript, scriptFolderFor } from "../newScript";
 import { createScene } from "../newScene";
 import { createRenderTexture } from "../renderTextureAssets";
 import { createUIDocument } from "../uiDocumentEdits";
-import { createTilesetFromSlices, hasSlices } from "../tilesetAssets";
 import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { currentProject, docVersion, openScene, playState, sceneCamera, scriptsVersion, selection, status } from "../state";
@@ -128,6 +127,14 @@ async function makeFolder(parent: string): Promise<void> {
   startRename(`${path}/`);
 }
 
+/** Plugins' entries for the selected files or slices (ADR 0144: Create Tileset from Slices), after Open. */
+function actionItems(project: EditorProject, targets: readonly AssetActionTarget[], readOnly: string | null): MenuItem[] {
+  return assetActions
+    .list()
+    .filter((a) => a.appliesTo(project, targets))
+    .map((a) => ({ label: a.label, disabled: a.writes ? readOnly : null, run: () => void a.run(project, targets).then((made) => made.length > 0 && select([...made])) }));
+}
+
 /** The menu for `entries` (empty: the folder showing's background). */
 function menuItems(project: EditorProject, entries: readonly string[]): MenuItem[] {
   const readOnly = project.canSave ? null : "this project is read-only";
@@ -159,18 +166,22 @@ function menuItems(project: EditorProject, entries: readonly string[]): MenuItem
   }
   if (entries.every(isSliceEntry)) {
     const image = splitSliceEntry(entries[0]).image;
-    return [
-      { label: "Sprite Editor…", shortcut: "Enter", run: () => openSpriteEditor(image) },
-      { label: "Create Tileset from Slices", disabled: readOnly, run: () => void createTilesetFromSlices(folderOf(image), image).then((made) => made && select([made])) },
-    ];
+    const targets = entries.map((e) => {
+      const { image: path, slice } = splitSliceEntry(e);
+      return { path, slice };
+    });
+    return [{ label: "Sprite Editor…", shortcut: "Enter", run: () => openSpriteEditor(image) }, ...actionItems(project, targets, readOnly)];
   }
   entries = fileEntries(entries);
   const editable = whyNotEditable(project, entries);
   const sliceable = entries.length === 1 && assetKind(entries[0]) === "image";
-  const tileable = sliceable && hasSlices(project, entries[0]);
   return [
     ...(entries.length === 1 && opens(entries[0]) ? [{ label: sliceable ? "Sprite Editor…" : "Open", shortcut: "Enter", run: () => openEntry(entries[0]) }] : []),
-    ...(tileable ? [{ label: "Create Tileset from Slices", disabled: readOnly, run: () => void createTilesetFromSlices(folderOf(entries[0]), entries[0]).then((made) => made && select([made])) }] : []),
+    ...actionItems(
+      project,
+      entries.map((path) => ({ path })),
+      readOnly,
+    ),
     { label: "Rename", shortcut: "F2", disabled: entries.length > 1 ? "rename one at a time" : editable, run: () => startRename(entries[0]) },
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: readOnly, run: () => void duplicateAssets(entries).then((made) => made.length > 0 && select(made)) },
     { label: "", separator: true },

@@ -18,7 +18,7 @@ import { brushTool, pickBrushTool } from "./editor/brush";
 import { activatePlugins, deactivatePlugin, isPluginActive } from "../../editor/sdk/plugins";
 import { activeViewportTool, currentProject, pickTool } from "../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../editor/testing";
-import { formatTileset } from "../../editor/tilesetAssets";
+import { formatTileset } from "./editor/tilesetAssets";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS, activateRuntimePlugins, deactivateRuntimePlugin, isRuntimePluginActive } from "../runtime";
 import { MESHES_SPEC } from "../meshes/runtime";

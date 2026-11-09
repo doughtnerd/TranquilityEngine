@@ -1,6 +1,7 @@
-// The editor contribution points the Sky pilot builds (ADR 0134): asset kinds, asset formats
-// (what an asset document is made from) and panels. Each is a registry; plugins add to them
-// through `EditorPluginContext` so their entries are removed when the plugin is.
+// The editor contribution points (ADR 0134 onwards): asset kinds, asset formats (what an asset
+// document is made from), panels, and the smaller points later records add (0138, 0142, 0144). Each
+// is a registry; plugins add to them through `EditorPluginContext` so their entries are removed when
+// the plugin is.
 import type { FunctionComponent } from "preact";
 import type { SettingsDraft } from "../projectSettingsModel";
 import type { EditorProject } from "../projects";
@@ -10,7 +11,7 @@ import type { Engine } from "../../engine";
 import type { World } from "../../engine/core/World";
 import type { EditorOverlay, EditorOverlayKind } from "../../engine/editor";
 import type { OpenScene } from "../state";
-import type { NodeEntry, NodePath, SceneDocument } from "../document";
+import type { ComponentEntry, NodeEntry, NodePath, SceneDocument } from "../document";
 import type { GameObject } from "../../engine/scene/GameObject";
 import type { ComponentInfo } from "../../engine/editor";
 
@@ -253,6 +254,80 @@ export interface ComponentHeaderActionContribution {
   onRemove?(props: ComponentHeaderActionProps): void;
 }
 
+/**
+ * An entry of the Hierarchy's Create menu (and the menu bar's Create menu) a plugin adds (ADR 0144): the
+ * Particles plugin's Particle System, the Tilemaps plugin's Tilemap. Listed among the built-in kinds after
+ * `after`; the menu item reads `Create ${label}` (`… Child` under a node).
+ */
+export interface HierarchyCreateContribution {
+  /** The node kind's id, e.g. "particle-system": also what `createNode(scene, id)` takes. */
+  readonly id: string;
+  /** The menu label ("Particle System"). */
+  readonly label: string;
+  /** The new node's base name ("Particle System", then "Particle System (1)"…). */
+  readonly name: string;
+  /** The id of the entry (built-in or contributed) it follows; absent, or not found: last. */
+  readonly after?: string;
+  /**
+   * Write the asset the new node uses first (a new particle effect); resolves to its path, or null when
+   * it couldn't (the node is then made without one, with the status the function set kept). Not called
+   * when the creator passes an asset.
+   */
+  createAsset?(): Promise<string | null>;
+  /** The node's components at `position` (in the parent's space), `asset` an `asset:<path>` reference or "". Transform included. */
+  components(position: [number, number, number], asset: string): ComponentEntry[];
+}
+
+/** What an asset action is offered for: a file, or a slice of an image (`slice` its name). */
+export interface AssetActionTarget {
+  readonly path: string;
+  readonly slice?: string;
+}
+
+/**
+ * An entry of the Assets panel's context menu for selected files or slices (ADR 0144), after Open (or
+ * Sprite Editor…): the Tilemaps plugin's Create Tileset from Slices.
+ */
+export interface AssetActionContribution {
+  readonly id: string;
+  readonly label: string;
+  /** Whether it's offered for the selection (one target per selected file or slice). */
+  appliesTo(project: EditorProject, targets: readonly AssetActionTarget[]): boolean;
+  /** It writes files: unavailable in a read-only project. */
+  readonly writes?: boolean;
+  /** Do it; resolves to the files it made, which are selected. */
+  run(project: EditorProject, targets: readonly AssetActionTarget[]): Promise<readonly string[]>;
+}
+
+/** A count the Play Stats panel shows on a World's Nodes row (ADR 0144): the Navigation plugin's "nav agents". */
+export interface PlayStatsCounterContribution {
+  readonly id: string;
+  /** Shown before the number ("nav agents"). */
+  readonly label: string;
+  /** The World's count, or null when it has none to show (a World without navigation). Internal tier: it is given the World. */
+  count(world: World): number | null;
+}
+
+/**
+ * Work done on a scene when the editor opens it, after its nodes are in the scene view (ADR 0144): the
+ * Particles plugin moves embedded effects into assets. Run in registration order, one at a time.
+ */
+export interface SceneOpenMigrationContribution {
+  readonly id: string;
+  /** Completes `Couldn't … <scene path>` when it fails ("move the embedded particle effects out of"). */
+  readonly failure: string;
+  migrate(scene: OpenScene): Promise<unknown>;
+}
+
+/**
+ * Code fetched once the editor is idle and the engine's own chunks are in (ADR 0082, 0144), so a project that
+ * needs it doesn't wait: the Physics plugin's core and its backends. Never rejects (a real load reports it).
+ */
+export interface IdlePrefetchContribution {
+  readonly id: string;
+  load(): Promise<unknown>;
+}
+
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const assetFormats = createRegistry<AssetFormatContribution<any>>("Asset format"); // eslint-disable-line @typescript-eslint/no-explicit-any -- formats differ in T
@@ -262,3 +337,8 @@ export const panelExtensions = createRegistry<PanelExtensionContribution>("Panel
 export const viewportTools = createRegistry<ViewportToolContribution>("Viewport tool");
 export const sceneToolbarItems = createRegistry<SceneToolbarItemContribution>("Scene toolbar item");
 export const componentHeaderActions = createRegistry<ComponentHeaderActionContribution>("Component header action");
+export const hierarchyCreateEntries = createRegistry<HierarchyCreateContribution>("Hierarchy create entry");
+export const assetActions = createRegistry<AssetActionContribution>("Asset action");
+export const playStatsCounters = createRegistry<PlayStatsCounterContribution>("Play stats counter");
+export const sceneOpenMigrations = createRegistry<SceneOpenMigrationContribution>("Scene open migration");
+export const idlePrefetches = createRegistry<IdlePrefetchContribution>("Idle prefetch");

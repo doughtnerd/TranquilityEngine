@@ -2,22 +2,21 @@
 // the Particle Graph panel has open, reading effects, sub-graphs and custom blocks, and creating the
 // last two. Editing (the write queue, undo and redo, outside changes, renames) goes through each
 // file's asset document, `particleDocument(project, path)`, over the formats the plugin registers.
-// Creating effects stays in core (`src/editor/particleAssets.ts`): the Hierarchy's Create menu and
-// the embedded-effect migration make them too.
+// Creating effects is here too (ADR 0144): the plugin's Hierarchy Create entry and its embedded-effect
+// migration make them.
 import { signal } from "@preact/signals";
 import type { GraphProblem, ParticleGraph } from "../../../engine/scene/particleGraph";
+import { defaultParticleGraph, formatParticleGraph } from "../../../engine/scene/particleGraphFormat";
 import { fileName } from "../../../editor/assetBrowser";
 import { openAssetDocument, type AssetDocument } from "../../../editor/assetDocuments";
 import { freePath } from "../../../editor/assetOps";
 import { showPanel } from "../../../editor/layout/store";
 import { errorStatus } from "../../../editor/messages";
-import { effectFolder } from "../../../editor/particleAssets";
 import type { EditorProject } from "../../../editor/projects";
 import { currentProject, docVersion, status } from "../../../editor/state";
 import { assetDocKind, blockTemplate, formatAsset, subgraphTemplate } from "./particleGraph/assetDocs";
 import { parseAssetDoc, parseEffect } from "./particleFormat";
 
-export { createParticleEffect, effectFolder } from "../../../editor/particleAssets";
 
 /** The effect open in the Particle Graph panel, or null. */
 export const openParticleGraph = signal<string | null>(null);
@@ -63,7 +62,19 @@ export function writeEffect(project: EditorProject, path: string, graph: Particl
   return doc.flush();
 }
 
-/** Create a file of `name` in `folder` holding `text`, with the same read-only and error handling as New Particle Effect. */
+/** Where New Particle Effect goes by default: `effects/` if the project has it, else the folder given. */
+export function effectFolder(folder: string): string {
+  return folder === "" && currentProject.value?.folders.includes("effects") ? "effects" : folder;
+}
+
+/**
+ * Create `New Particle Effect.particles.json` (or `… 2`) in `folder`, holding `graph` (the Simple
+ * Loop template when omitted). Returns its path, or null if the project is read-only or writing failed.
+ */
+export const createParticleEffect = (folder: string, graph: ParticleGraph = defaultParticleGraph(), name = "New Particle Effect"): Promise<string | null> =>
+  createAssetFile(folder, `${name}.particles.json`, formatParticleGraph(graph), "particle effects");
+
+/** Create a file of `name` in `folder` holding `text`, with the same read-only and error handling throughout. */
 async function createAssetFile(folder: string, name: string, text: string, what: string): Promise<string | null> {
   const project = currentProject.value;
   if (!project) return null;

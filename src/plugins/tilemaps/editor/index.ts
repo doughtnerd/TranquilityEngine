@@ -1,10 +1,10 @@
-// The Tilemaps plugin's editor half (ADR 0103, 0134, 0138): the `tileset` asset kind (the Inspector view that
-// edits tiles, terrains and collision, accepted by Tilemap's tileset field) and its asset format, the Tile
-// Palette panel, the scene-view paint tool and the Tilemap's Inspector section. The Assets panel's Create
-// Tileset from Slices entry still lives in core (`src/editor/tilesetAssets.ts`, no asset-menu contribution
-// point yet); New Tileset is this kind's `create`.
+// The Tilemaps plugin's editor half (ADR 0103, 0134, 0138, 0144): the `tileset` asset kind (the Inspector view
+// that edits tiles, terrains and collision, accepted by Tilemap's tileset field; New Tileset is its `create`) and
+// its asset format, the Tile Palette panel, the scene-view paint tool, the Tilemap's Inspector section, the
+// Hierarchy's Create Tilemap and the Assets panel's Create Tileset from Slices.
+import { assetKind, folderOf } from "../../../editor/assetBrowser";
 import type { EditorPlugin } from "../../../editor/sdk";
-import { createTileset } from "../../../editor/tilesetAssets";
+import { createTileset, createTilesetFromSlices, hasSlices } from "./tilesetAssets";
 import { tilemapsManifest } from "../manifest";
 import { paintTool } from "./paintTool";
 import { tilesetFormat } from "./tilesetFormat";
@@ -30,5 +30,31 @@ export const tilemapsEditorPlugin: EditorPlugin = {
     context.registerViewportTool(paintTool);
     // A Tilemap's layers are painted in the Tile Palette.
     context.registerInspectorSection("engine.Tilemap", () => import("./TilemapInspector").then((m) => m.TilemapSection), { single: true });
+    // A Tilemap with one layer and its collider (ADR 0103, 0105), after Sprite as it has always been; the asset
+    // is a tileset to paint with, or "".
+    context.registerHierarchyCreateEntry({
+      id: "tilemap",
+      label: "Tilemap",
+      name: "Tilemap",
+      after: "sprite",
+      components: (position, tileset) => [
+        { type: "engine.Transform", data: { position } },
+        { type: "engine.Tilemap", data: tileset ? { tileset } : {} },
+        { type: "engine.TilemapCollider2D", data: {} },
+      ],
+    });
+    // Slices of an image (or an image with slices) become a tileset beside the image, named after it.
+    context.registerAssetAction({
+      id: "myco.tilemaps.tileset-from-slices",
+      label: "Create Tileset from Slices",
+      writes: true,
+      appliesTo: (project, targets) =>
+        targets.length > 0 && (targets.every((t) => t.slice !== undefined) || (targets.length === 1 && assetKind(targets[0].path) === "image" && hasSlices(project, targets[0].path))),
+      run: async (_project, targets) => {
+        const image = targets[0].path;
+        const made = await createTilesetFromSlices(folderOf(image), image);
+        return made ? [made] : [];
+      },
+    });
   },
 };

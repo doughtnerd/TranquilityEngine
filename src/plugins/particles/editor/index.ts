@@ -1,12 +1,14 @@
 // The Particles plugin's editor half (ADR 0133: effects, sub-graphs and custom blocks together; ADR
 // 0134): the `particles`, `particlesubgraph` and `particleblock` asset kinds (New… entries, Inspector
 // views, opening in the Particle Graph, accepted by effect fields, thumbnails; an effect added to a scene is a node playing it), their asset formats,
-// the Particle Graph panel and the ParticleSystem's Inspector section. Creating effects stays in core
-// (`src/editor/particleAssets.ts`), as do the scene view's particle preview and the embedded-effect
-// migration, which core code drives.
+// the Particle Graph panel and the ParticleSystem's Inspector section; and (ADR 0144) the Hierarchy's Create
+// Particle System, the scene view's particle preview with its overlay, and moving embedded effects into
+// assets when a scene opens.
 import type { EditorPlugin } from "../../../editor/sdk";
 import { particlesManifest } from "../manifest";
 import { createParticleBlock, createParticleEffect, createParticleSubgraph, openParticleGraphAsset } from "./particleAssets";
+import { migrateEmbeddedEffects } from "./particleMigration";
+import { installParticlePreview } from "./particlePreview";
 import { particleBlockFormat, particlesFormat, particleSubgraphFormat } from "./particleFormat";
 import { particleNodeEntry } from "./particleNode";
 
@@ -64,5 +66,24 @@ export const particlesEditorPlugin: EditorPlugin = {
     });
     // A ParticleSystem's effect is edited below its fields, not as raw JSON (ADR 0057).
     context.registerInspectorSection("engine.ParticleSystem", () => import("./ui/ParticleInspector").then((m) => m.ParticleSystemSection), { single: true });
+    // Effects are assets (ADR 0060): Create Particle System writes a new one first, then adds the node
+    // playing it. After Reflection Probe, as it has always been.
+    context.registerHierarchyCreateEntry({
+      id: "particle-system",
+      label: "Particle System",
+      name: "Particle System",
+      after: "reflection-probe",
+      createAsset: () => createParticleEffect("", undefined, "Particle System"),
+      components: (position, effect) => [
+        { type: "engine.Transform", data: { position } },
+        { type: "engine.ParticleSystem", data: effect ? { effect } : {} },
+      ],
+    });
+    // The scene view's preview of the selected system (ADR 0057): kept in step on each scene view; its
+    // controls float over the scene view.
+    context.registerViewportTool({ id: "myco.particles.preview", install: (view) => installParticlePreview(view.engine) });
+    context.registerPanelExtension({ id: "myco.particles.preview", panel: "scene", view: () => import("./ui/ParticlePreviewOverlay").then((m) => m.ParticlePreviewOverlay) });
+    // Embedded effects (ADR 0057) move into assets when a scene opens in a project that can save (ADR 0060).
+    context.registerSceneOpenMigration({ id: "myco.particles.embedded-effects", failure: "move the embedded particle effects out of", migrate: migrateEmbeddedEffects });
   },
 };

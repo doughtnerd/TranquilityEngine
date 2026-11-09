@@ -4,7 +4,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { TileDef } from "../runtime/tileset";
 import { findSlice } from "../../../engine/scene/importSettings";
 import { readImportSettings } from "../../../editor/assetImport";
-import { splitSprite } from "../../../editor/tilesetAssets";
+import { splitSprite } from "./tilesetAssets";
 import type { EditorProject } from "../../../editor/projects";
 import "./tileThumb.css";
 

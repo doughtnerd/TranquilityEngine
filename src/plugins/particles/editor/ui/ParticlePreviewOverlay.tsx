@@ -1,11 +1,12 @@
 import { useEffect, useState } from "preact/hooks";
 import { particlePreview, previewStats, restartPreview, selectedParticleSystem } from "../particlePreview";
-import { playState } from "../state";
+import { playState } from "../../../../editor/state";
+import "./particlePreview.css";
 
 const SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4];
 
 /**
- * The scene view's particle controls (ADR 0057), shown while a ParticleSystem node is selected (or
+ * The scene view's particle controls (ADR 0057; a Scene panel extension of the Particles plugin, ADR 0144), shown while a ParticleSystem node is selected (or
  * Simulate All is on) in edit mode: play or pause, restart, speed, Simulate All, and the previewed
  * effect's time and particle count.
  */

@@ -3,6 +3,7 @@
 // in the desktop app, while the hidden editor window waits for the Projects window to hand it a
 // project; in the browser, while the start screen shows. A project opening also starts the engine's
 // chunks at once, so they load while its scripts compile instead of after.
+import { idlePrefetches } from "./sdk/contributions";
 import { whenIdle } from "./ui/lazy";
 
 let engine: Promise<void> | null = null;
@@ -22,12 +23,15 @@ export function prefetchEngine(): Promise<void> {
   return engine;
 }
 
-/** Once the editor is idle: the engine's chunks, then the script compiler and the physics engines a project is likely to need. */
+/**
+ * Once the editor is idle: the engine's chunks, then the script compiler and what plugins ask for (ADR 0144:
+ * the Physics plugin's core and its backends, which a project is likely to need).
+ */
 export function prefetchWhenIdle(): void {
   whenIdle(() => {
     void prefetchEngine().then(() =>
       whenIdle(() => {
-        void Promise.allSettled([import("typescript"), import("../plugins/physics/runtime/core/index"), import("../plugins/physics-rapier/runtime/rapier2d"), import("../plugins/physics-rapier/runtime/rapier3d")]);
+        void Promise.allSettled([import("typescript"), ...idlePrefetches.list().map((p) => p.load())]);
       }),
     );
   });

@@ -1,10 +1,11 @@
 // The scene view's particle preview (ADR 0057): with a ParticleSystem node selected in edit mode, its
-// effect plays in the scene view, steered by a small overlay (ui/ParticlePreviewOverlay.tsx).
+// effect plays in the scene view, steered by a small overlay (ui/ParticlePreviewOverlay.tsx). Installed on
+// each scene view as the Particles plugin's viewport tool `myco.particles.preview` (ADR 0138, 0144).
 import { computed, effect, signal } from "@preact/signals";
-import type { Engine, GameObject } from "../engine";
-import { ParticleSystem } from "../engine/render/components";
-import { renderDiagnostics, viewport } from "../engine/editor";
-import { docVersion, playState, selectedWorldNode } from "./state";
+import type { Engine, GameObject } from "../../../engine";
+import { ParticleSystem } from "../../../engine/render/components";
+import { renderDiagnostics, viewport } from "../../../engine/editor";
+import { docVersion, playState, selectedWorldNode } from "../../../editor/state";
 
 /** Play or pause, speed, and whether every ParticleSystem plays (not only the selected one). */
 export const particlePreview = signal({ playing: true, speed: 1, simulateAll: false });

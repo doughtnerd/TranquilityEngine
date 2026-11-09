@@ -1,15 +1,15 @@
-// Tileset assets in the editor (ADR 0103): creating `*.tileset.json` files (empty, or one tile per slice of an
-// image), reading them, and the slice helpers the Assets panel and the Tile Palette use. Editing goes through the
-// tileset's asset document (ADR 0134), made by the Tilemaps plugin's `tileset` format
-// (`src/plugins/tilemaps/editor/`).
-import { newTileset, parseTileset, TILESET_SUFFIX, type TileDef, type TilesetData } from "../plugins/tilemaps/runtime/tileset";
-import { fileName } from "./assetBrowser";
-import { readImportSettings } from "./assetImport";
-import { freePath } from "./assetOps";
-import { errorStatus } from "./messages";
-import type { EditorProject } from "./projects";
-import { currentProject, docVersion, status } from "./state";
-import type { ImportSettings } from "../engine/scene/importSettings";
+// Tileset assets in the editor (ADR 0103; the Tilemaps plugin's since 0144): creating `*.tileset.json` files
+// (empty, or one tile per slice of an image), reading them, and the slice helpers the Assets panel's Create Tileset
+// from Slices action and the Tile Palette use. Editing goes through the tileset's asset document (ADR 0134), made
+// by this plugin's `tileset` format (`tilesetFormat.ts`).
+import { newTileset, parseTileset, TILESET_SUFFIX, type TileDef, type TilesetData } from "../runtime/tileset";
+import { fileName } from "../../../editor/assetBrowser";
+import { readImportSettings } from "../../../editor/assetImport";
+import { freePath } from "../../../editor/assetOps";
+import { errorStatus } from "../../../editor/messages";
+import type { EditorProject } from "../../../editor/projects";
+import { currentProject, docVersion, status } from "../../../editor/state";
+import type { ImportSettings } from "../../../engine/scene/importSettings";
 
 export interface ReadTileset {
   tileset: TilesetData;

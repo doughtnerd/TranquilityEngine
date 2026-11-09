@@ -48,26 +48,3 @@
   font-size: 11px;
 }
 .editor.playing .camera-preview { display: none; }
-
-/* The scene view's particle preview controls (ADR 0057). */
-.particle-preview {
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  max-width: calc(100% - 16px);
-  padding: 4px 8px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  box-shadow: 0 1px 4px var(--shadow);
-  font-size: 12px;
-  color: var(--text);
-}
-.particle-preview button { padding: 1px 8px; font-size: 12px; }
-.particle-preview label { display: flex; align-items: center; gap: 4px; }
-.particle-preview-title { font-weight: 600; }
-.particle-preview-stats { color: var(--muted); font-variant-numeric: tabular-nums; }

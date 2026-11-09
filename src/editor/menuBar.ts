@@ -2,7 +2,7 @@
 // the rules for which items are enabled, and what they say, are unit-tested; MenuBar.tsx reads the
 // live state into a `MenuState`, wires the `MenuActions`, and draws the result.
 import { allPanels, panelTitle, type PanelId } from "./layout/model";
-import { NEW_NODE_KINDS } from "./nodeCreate";
+import { newNodeKinds } from "./nodeCreate";
 
 export interface MenuEntry {
   label: string;
@@ -172,7 +172,7 @@ function clipboardItems(s: MenuState, a: MenuActions): MenuEntry[] {
 
 function createMenu(s: MenuState): Menu {
   if (!s.scene) {
-    return { id: "create", label: "Create", items: NEW_NODE_KINDS.map((k) => ({ label: k.label, disabled: NO_SCENE })) };
+    return { id: "create", label: "Create", items: newNodeKinds().map((k) => ({ label: k.label, disabled: NO_SCENE })) };
   }
   return { id: "create", label: "Create", items: s.createItems };
 }

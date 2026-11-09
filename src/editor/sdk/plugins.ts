@@ -3,7 +3,7 @@
 // plugin removes them all.
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
-import { assetFormats, assetKinds, componentHeaderActions, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type AssetFormatContribution, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
+import { assetActions, assetFormats, assetKinds, componentHeaderActions, hierarchyCreateEntries, idlePrefetches, playStatsCounters, sceneOpenMigrations, type AssetActionContribution, type HierarchyCreateContribution, type IdlePrefetchContribution, type PlayStatsCounterContribution, type SceneOpenMigrationContribution, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type AssetFormatContribution, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import type { LoadComponent } from "./contributions";
 
@@ -26,6 +26,16 @@ export interface EditorPluginContext {
   registerSceneToolbarItem(item: SceneToolbarItemContribution): void;
   /** A control in Inspector component cards' headers for some Component types (ADR 0142). */
   registerComponentHeaderAction(action: ComponentHeaderActionContribution): void;
+  /** An entry of the Hierarchy's Create menu (ADR 0144). */
+  registerHierarchyCreateEntry(entry: HierarchyCreateContribution): void;
+  /** An Assets panel context-menu entry for selected files or slices (ADR 0144). */
+  registerAssetAction(action: AssetActionContribution): void;
+  /** A count on the Play Stats panel's Nodes row (ADR 0144). */
+  registerPlayStatsCounter(counter: PlayStatsCounterContribution): void;
+  /** Work done on a scene when the editor opens it (ADR 0144). */
+  registerSceneOpenMigration(migration: SceneOpenMigrationContribution): void;
+  /** Code fetched once the editor is idle (ADR 0144). */
+  registerIdlePrefetch(prefetch: IdlePrefetchContribution): void;
 }
 
 /** A plugin's editor half. */
@@ -58,6 +68,11 @@ export function activatePlugins(plugins: readonly EditorPlugin[], options: { pro
       registerViewportTool: (t) => void undo.push(viewportTools.register(t)),
       registerSceneToolbarItem: (item) => void undo.push(sceneToolbarItems.register(item)),
       registerComponentHeaderAction: (action) => void undo.push(componentHeaderActions.register(action)),
+      registerHierarchyCreateEntry: (entry) => void undo.push(hierarchyCreateEntries.register(entry)),
+      registerAssetAction: (action) => void undo.push(assetActions.register(action)),
+      registerPlayStatsCounter: (counter) => void undo.push(playStatsCounters.register(counter)),
+      registerSceneOpenMigration: (migration) => void undo.push(sceneOpenMigrations.register(migration)),
+      registerIdlePrefetch: (prefetch) => void undo.push(idlePrefetches.register(prefetch)),
     };
     try {
       plugin.activate(context);

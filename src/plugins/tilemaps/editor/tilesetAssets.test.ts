@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { tilemapsEditorPlugin } from "../plugins/tilemaps/editor";
-import { activatePlugins, deactivatePlugin } from "./sdk/plugins";
-import { defaultImportSettings, formatImportSettings, sidecarPath } from "../engine/scene/importSettings";
-import { assetKind } from "./assetBrowser";
-import { blockStamp } from "../plugins/tilemaps/editor/palette";
-import { joinPath, openFolderProject } from "./projects";
+import { tilemapsEditorPlugin } from ".";
+import { activatePlugins, deactivatePlugin } from "../../../editor/sdk/plugins";
+import { defaultImportSettings, formatImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
+import { assetKind } from "../../../editor/assetBrowser";
+import { blockStamp } from "./palette";
+import { joinPath, openFolderProject } from "../../../editor/projects";
 import { formatTileset, readTileset, splitSprite, tilesetFromSlices, tilesForSlices } from "./tilesetAssets";
-import { MemoryFileSystem, ROOT } from "./testing";
+import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 
 async function projectWithSlices(rects: [number, number, number, number][]) {
   const fs = new MemoryFileSystem();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SceneDocument } from "./document";
+import { SceneDocument } from "../../../editor/document";
 import { findEmbeddedEffects, migrationMessage } from "./particleMigration";
 
 const doc = () =>

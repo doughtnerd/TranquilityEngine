@@ -1,10 +1,12 @@
 // Play mode's Stats (like Unity's Game view Stats): frame rate over the last second, the Engine's
-// per-World phase timings, render counters, node and navigation agent counts, and the JS heap.
+// per-World phase timings, render counters, node counts and plugins' counters (ADR 0144: navigation
+// agents), and the JS heap.
 // The collector is the Engine's timing hook (`setEngineTiming`) only while the panel shows, so a
 // hidden panel costs nothing.
 import type { Engine } from "../engine";
+import type { World } from "../engine/core/World";
 import { type EngineTiming, engineWorld, nodeCount, renderDiagnostics, type RenderStats } from "../engine/editor";
-import { navAgentCount } from "../plugins/navigation/runtime";
+import { playStatsCounters } from "./sdk/contributions";
 
 /** Frame rate figures over a window of recent frames. */
 export interface FrameSummary {
@@ -122,8 +124,8 @@ export interface WorldStats {
   /** Null when the World doesn't render (headless, a server). */
   readonly render: RenderStats | null;
   readonly nodes: number;
-  /** Null when the World has no navigation. */
-  readonly agents: number | null;
+  /** Plugins' counts for the World (ADR 0144), in registration order; a counter with nothing to show (null) is left out. */
+  readonly counters: readonly { readonly label: string; readonly value: number }[];
 }
 
 export interface StatsSnapshot {
@@ -141,6 +143,16 @@ export function jsHeap(): { used: number; limit: number } | null {
   return m && typeof m.usedJSHeapSize === "number" ? { used: m.usedJSHeapSize, limit: m.jsHeapSizeLimit } : null;
 }
 
+/** The registered play stats counters' values for `world`. */
+function counters(world: World): { label: string; value: number }[] {
+  const out: { label: string; value: number }[] = [];
+  for (const c of playStatsCounters.list()) {
+    const value = c.count(world);
+    if (value !== null) out.push({ label: c.label, value });
+  }
+  return out;
+}
+
 /** Read everything the panel shows, now. */
 export function takeSnapshot(engine: Engine, collector: StatsCollector): StatsSnapshot {
   const { step, worlds: phases } = collector.takePhases();
@@ -148,7 +160,7 @@ export function takeSnapshot(engine: Engine, collector: StatsCollector): StatsSn
   for (const h of engine.worlds()) {
     const world = engineWorld(engine, h.name);
     if (!world) continue;
-    worlds.push({ name: h.name, paused: h.paused, phases: phases.get(h.name) ?? null, render: renderDiagnostics(world)?.stats ?? null, nodes: nodeCount(world), agents: navAgentCount(world) });
+    worlds.push({ name: h.name, paused: h.paused, phases: phases.get(h.name) ?? null, render: renderDiagnostics(world)?.stats ?? null, nodes: nodeCount(world), counters: counters(world) });
   }
   return { frame: collector.frames.summary(collector.now()), stepMs: step, heap: jsHeap(), worlds };
 }

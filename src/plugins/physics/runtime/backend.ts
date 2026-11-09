@@ -298,10 +298,13 @@ export type PhysicsWorld3DBackend = PhysicsWorldBackend<Dim3>;
 
 export type PhysicsDimension = "2d" | "3d";
 
-/** A backend a plugin contributes. `load` is a dynamic import, so the backend (and its WebAssembly) loads only when a World needs it. */
+/**
+ * A backend a plugin contributes. `load` is a dynamic import, so the backend (and its WebAssembly) loads only when a
+ * World needs it. `prefetch`, if given, fetches that code without starting it (the editor calls it once idle, ADR 0144).
+ */
 export type PhysicsBackendRegistration =
-  | { readonly id: string; readonly dimension: "2d"; readonly title?: string; load(): Promise<PhysicsBackend2D> }
-  | { readonly id: string; readonly dimension: "3d"; readonly title?: string; load(): Promise<PhysicsBackend3D> };
+  | { readonly id: string; readonly dimension: "2d"; readonly title?: string; load(): Promise<PhysicsBackend2D>; prefetch?(): Promise<unknown> }
+  | { readonly id: string; readonly dimension: "3d"; readonly title?: string; load(): Promise<PhysicsBackend3D>; prefetch?(): Promise<unknown> };
 
 // --- The registry -------------------------------------------------------------------------------
 

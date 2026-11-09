@@ -106,14 +106,21 @@ describe("plugin import direction", () => {
     expect(bad).toEqual([]);
   });
 
-  it("keeps the editor core free of plugins' editor halves (only main.tsx loads them, through editorBoot.ts)", () => {
+  it("keeps the editor core free of plugins' code: it reaches them through contribution points (ADR 0144; only main.tsx loads them, through editorBoot.ts)", () => {
+    // The plugin host modules directly under src/plugins/ (manifests, ordering, enabling, the runtime list, third-party
+    // loading) are the plugin system itself, which the shell drives; every file in a plugin's folder is off limits.
+    const HOST = new Set(["manifest", "order", "enabled", "runtime", "runtimeContext", "thirdParty", "thirdPartyEditor", "editorApply"]);
     const bad: string[] = [];
     for (const f of files(join(SRC, "editor"))) {
       if (/\.test\.tsx?$/.test(f)) continue;
       for (const { spec } of specifiers(f)) {
         const target = resolved(f, spec);
         const r = target.startsWith("/") ? rel(target) : target;
-        if (/^plugins\/[^/]+\/editor(\/|$)/.test(r) || (/^plugins\/(editor|editorBoot)(\.ts)?$/.test(r) && rel(f) !== "editor/main.tsx")) bad.push(`${rel(f)} imports ${spec}`);
+        if (!r.startsWith("plugins/")) continue;
+        const host = /^plugins\/([^/]+?)(\.ts)?$/.exec(r)?.[1];
+        if (host && HOST.has(host)) continue;
+        if (host === "editorBoot" && rel(f) === "editor/main.tsx") continue;
+        bad.push(`${rel(f)} imports ${spec}`);
       }
     }
     expect(bad).toEqual([]);

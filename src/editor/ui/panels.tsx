@@ -13,24 +13,10 @@
 // preload), and an entry here: `lazyComponent(() => import("./MyPanel").then((m) => m.MyPanel))`.
 import type { ComponentChildren } from "preact";
 import { isOnDemand, PANELS, type BuiltinPanelId, type Layout, type PanelId } from "../layout/model";
-import { panelExtensions, panels as panelRegistry, type PanelContribution, type PanelExtensionContribution } from "../sdk/contributions";
+import { panels as panelRegistry, type PanelContribution } from "../sdk/contributions";
+import { extensionsOf, lazyExtension, PanelExtensions } from "./panelExtensions";
 import { lazyComponent, whenIdle, type LazyComponent } from "./lazy";
 import { ScenePanel } from "./ScenePanel";
-
-// Plugins' extensions to a built-in panel (ADR 0133): one lazy wrapper per contribution object; no placeholder, as they show nothing until they have something to say.
-const extensionViews = new WeakMap<PanelExtensionContribution, LazyComponent>();
-const lazyExtension = (e: PanelExtensionContribution): LazyComponent => {
-  let lazy = extensionViews.get(e);
-  if (!lazy) extensionViews.set(e, (lazy = lazyComponent(e.view, null)));
-  return lazy;
-};
-const extensionsOf = (panel: string) => panelExtensions.list().filter((e) => e.panel === panel);
-
-/** What plugins registered for a built-in panel, in registration order (a live view of the registry). */
-function PanelExtensions(props: { panel: string }) {
-  void panelExtensions.version.value;
-  return <>{extensionsOf(props.panel).map((e) => lazyExtension(e)())}</>;
-}
 
 const LAZY: Record<Exclude<BuiltinPanelId, "scene">, LazyComponent> = {
   hierarchy: lazyComponent(() => import("./Hierarchy").then((m) => m.Hierarchy)),
