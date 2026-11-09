@@ -3,12 +3,12 @@
 // folder (in the folder tree, the grid or the path bar) to move them there. Several selected
 // files drag together. Built on pointer events rather than HTML drag and drop, which Tauri's
 // webview takes over on Windows for its own file drops.
-import { errorStatus } from "./messages";
 import { signal } from "@preact/signals";
 import { viewport } from "../engine/editor";
 import type { SceneDocument } from "./document";
-import { addAsset, fileName, prepareAssets, whyNotAddable } from "./assetBrowser";
-import { entryPath, isFolderEntry } from "./assetDelete";
+import { addAssets, whyNotAddAssets, type AssetAddTarget } from "./addAssets";
+import { fileName } from "./assetBrowser";
+import { entryPath } from "./assetDelete";
 import { moveAssetsTo, whyNotMoveTarget } from "./assetOps";
 import { currentProject, openScene, playState, sceneCamera, selectedKeys, status, viewMode } from "./state";
 
@@ -102,21 +102,9 @@ export function viewportDropPoint(x: number, y: number): [number, number, number
   return hit ?? (camera.focusPoint.toArray() as [number, number, number]);
 }
 
-/** Add the dragged assets at `target` (one undo step). Returns the new nodes' ids. */
-function drop(paths: readonly string[], target: Exclude<AssetDropTarget, { kind: "folder" }>, point: [number, number, number]): string[] {
-  const scene = openScene.value!;
-  const ids: string[] = [];
-  scene.stack.beginGroup(paths.length === 1 ? `Add ${fileName(paths[0])}` : `Add ${paths.length} assets`);
-  try {
-    if (target.kind === "viewport") {
-      for (const path of paths) ids.push(addAsset(scene, path, { parent: null, position: point, placeInstances: true }));
-    } else {
-      paths.forEach((path, i) => ids.push(addAsset(scene, path, { parent: target.parent, index: target.index === undefined ? undefined : target.index + i })));
-    }
-  } finally {
-    scene.stack.endGroup();
-  }
-  return ids;
+/** Where a scene drop adds the assets (`addAssets`, ADR 0149). */
+function addTarget(target: Exclude<AssetDropTarget, { kind: "folder" }>, point: readonly [number, number, number]): AssetAddTarget {
+  return target.kind === "viewport" ? { kind: "point", position: point } : { kind: "slot", parent: target.parent, index: target.index };
 }
 
 /** Why the dragged entries can't go to `target`, or null if they can. */
@@ -127,21 +115,13 @@ function problemFor(paths: readonly string[], target: AssetDropTarget): string |
     if (paths.some((p) => p.includes("#"))) return "slices live in their image; move the image instead"; // ADR 0040
     return whyNotMoveTarget(paths, target.folder);
   }
-  const scene = openScene.value;
-  if (!scene) return "Open a scene first";
-  if (playState.value !== "edit") return "Stop playing to add assets";
-  if (paths.some(isFolderEntry)) return "folders can't be added to a scene";
-  for (const path of paths) {
-    const reason = whyNotAddable(scene.doc, path);
-    if (reason) return paths.length === 1 ? reason : `${fileName(path)}: ${reason}`;
-  }
-  return null;
+  return whyNotAddAssets(paths);
 }
 
 /**
  * Press on an asset tile: past the threshold this drags `paths` (the selection). The ghost label
  * follows the pointer and says what will happen; releasing over a valid spot adds the assets to
- * the scene (one undoable step, selecting them) or moves them to a folder; anywhere else, or
+ * the scene (`addAssets`: one undoable step, selecting them) or moves them to a folder; anywhere else, or
  * Escape, does nothing.
  */
 export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void {
@@ -176,18 +156,11 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
       void moveAssetsTo(paths, target.folder);
       return;
     }
-    const name = paths.length === 1 ? fileName(paths[0]) : `${paths.length} assets`;
-    const point = target.kind === "viewport" ? viewportDropPoint(target.x, target.y) : ([0, 0, 0] as [number, number, number]);
-    const scene = openScene.value;
-    // Models load first, to know their meshes (ADR 0044).
-    void prepareAssets(paths).then(() => {
-      if (openScene.value !== scene || !scene) return;
-      try {
-        selectedKeys.value = drop(paths, target, point);
-        status.value = { kind: "info", text: `Added ${name}` };
-      } catch (err) {
-        status.value = errorStatus(`Couldn't add ${name}`, err);
-      }
+    const point = target.kind === "viewport" ? viewportDropPoint(target.x, target.y) : ([0, 0, 0] as const);
+    // One operation (ADR 0149): prepares (a model's meshes), adds to the scene open now or to none, one undo step.
+    void addAssets(paths, addTarget(target, point)).then(({ ids, message }) => {
+      if (ids.length > 0) selectedKeys.value = [...ids];
+      status.value = message;
     });
   };
   const up = (m: PointerEvent) => {

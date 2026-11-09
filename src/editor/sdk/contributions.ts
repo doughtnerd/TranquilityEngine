@@ -38,8 +38,17 @@ export interface AssetKindContribution {
   open?(path: string): void;
   /** The Inspector's view of a selected file of this kind, loaded on first use. */
   readonly inspector?: LoadComponent<{ path: string }>;
-  /** An entry in the Assets panel's New… menu. `create` returns the new file's path, or null. */
+  /**
+   * An entry in the Assets panel's New… menu, the only source of its file entries (ADR 0149): core kinds
+   * (scenes, render textures) declare theirs here as plugins do. `create` returns the new file's path, or null.
+   */
   readonly create?: { readonly label: string; create(folder: string): Promise<string | null> };
+  /**
+   * Capability (ADR 0149): files of this kind are images that can be cut into slices (ADR 0040). A
+   * `#slice` entry of one is a `sprite` that adds and opens as its file does, the Assets panel shows the
+   * file itself as its thumbnail and lists its slices under it, and Open is "Sprite Editor…".
+   */
+  readonly slices?: boolean;
   /** Policy: the field asset kinds (0131 `@field(AssetRef, { kind })`) that accept files of this kind, e.g. sky → ["environment"] (ADR 0143: any name, so a plugin's Components can reference its own kind). */
   readonly referencedAs?: readonly string[];
   /** Which built-in thumbnail renderer draws its preview (internal tier: renderers stay first-party, ADR 0133). */
@@ -105,6 +114,16 @@ export interface AssetSceneNodes {
    * when the add places them (a drop on the scene view), not from the Assets panel's +.
    */
   readonly keepsOwnPosition?: boolean;
+  /**
+   * Why `path` can't be added to `doc` though the kind adds to scenes, or null (ADR 0149): a scene or
+   * prefab that would end up inside itself. Checked before every add and while dragging.
+   */
+  whyNot?(doc: SceneDocument, path: string): string | null;
+  /**
+   * Something to tell the user about what an add made, or null (ADR 0149): a model's cameras arriving
+   * turned off (ADR 0118). Logged as an info message after the add, as "<path>: <note>".
+   */
+  note?(path: string, entries: readonly NodeEntry[]): string | null;
 }
 
 /** A problem found reading an asset file. */

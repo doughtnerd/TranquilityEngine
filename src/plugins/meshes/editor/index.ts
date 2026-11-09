@@ -5,8 +5,8 @@
 // and the choices of MeshRenderer's `variant` field (ADR 0118, 0152).
 // Both the model kind and the `.mtl` kind name the files they use in their own formats (ADR 0148).
 import { loadModel } from "../../../engine/scene/models";
-import { modelNodeEntries } from "./modelNodes";
 import { materialLibraryReferences, modelReferences } from "./modelReferences";
+import { disabledCamerasNote, modelNodeEntries } from "./modelNodes";
 import { LargePreview, type EditorPlugin } from "../../../editor/sdk";
 import { meshesManifest } from "../manifest";
 import type { ComponentInfo } from "../../../engine/editor";
@@ -29,6 +29,7 @@ export const meshesEditorPlugin: EditorPlugin = {
       addToScene: {
         prepare: (path) => loadModel(path).then(() => undefined),
         nodes: (doc, path, position) => modelNodeEntries(doc, path, position),
+        note: (_path, entries) => disabledCamerasNote(entries),
       },
       importSettings: {
         preview: async () => LargePreview,
