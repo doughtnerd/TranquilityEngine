@@ -167,7 +167,7 @@ Days are §9's focused days. "Leaf days" are an estimate of the work moved to Ha
 | Task (days) | Lead | Lead keeps | Haiku leaves | Leaf days |
 |---|---|---|---|---|
 | H1 (5) | Opus | partitioned convolution on the 256-point FFT, two-kernel crossfade, interaural delay, the size gate | **L1** `hrtf/elevation_index.rs`: port of the azimuth/elevation index and interpolation weights, checked against Chromium's values · **L2** `hrtf/database.rs`: the HRIR table layout from the `format = 2` header · **L3** `tests/ports_hrtf.rs`: fixed-direction sweep references | 2 |
-| H2 (3) | Sonnet | `hrir.ts` loader through the clip registry, `hrtfReady`, resampling at load | **L1** `tools/hrir/convert.mjs`: the dataset to an int16 blob with the §4.1 kind-5 header · **L2** attribution text for the guide and notices (to the coordinator) | 1.25 |
+| H2 (3) | Sonnet | `hrir.ts` loader through the clip registry, `hrtfReady`, resampling at load | **L1** `tools/hrir/convert.mjs`: the dataset to an int16 blob with the §4.1 HRIR header (`format = 2` CLIP_CHUNK) · **L2** attribution text for the guide and notices (to the coordinator) | 1.25 |
 | H3 (3) | Opus | the panner switch and 45 ms crossfade in `panner.rs`, counters | **L1** `hrtfPick.ts`: top N by audibility with 1.2× hysteresis + tests | 0.5 |
 | H4 (3) | Sonnet | the HRTF spec on A2.2c's harness, the moving-source golden | **L1** fixed-direction null-test scenes · **L2** ITD and level check helpers + tests | 1 |
 

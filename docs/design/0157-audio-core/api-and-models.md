@@ -205,8 +205,7 @@ Every message to or from the worklet is one `ArrayBuffer` with a 16-byte envelop
 | 2 | CLIP_BEGIN | main (M1a) or worker (M1b) to worklet | below |
 | 3 | CLIP_CHUNK | same | below |
 | 4 | CLIP_UNLOAD | main to worklet | `u32 clipId` |
-| 5 | CLIP_CHUNK, HRIR | for `format = 2`, clip ids `0xFFFF0000..0xFFFF00FF` are reserved; the first chunk begins with a header `u32 elevations; u32 azimuths; u32 irLength; f32 rate;` then the per-direction ear-delay table `f32[elevations * azimuths * 2]`, then the int16 impulse responses. The core reports clip event code 4 `hrtfReady` when complete |
-| STREAM_OPEN | worker to worklet | below |
+| 5 | STREAM_OPEN | worker to worklet | below |
 | 6 | STREAM_CHUNK | worker to worklet | below |
 | 7 | STREAM_CLOSE | main or worker to worklet | `u32 streamId` |
 | 8 | TIME_PING | main to worklet | `u32 pingSeq` |
@@ -214,6 +213,8 @@ Every message to or from the worklet is one `ArrayBuffer` with a 16-byte envelop
 | 10 | RECYCLE | main to worklet (a returned STATUS buffer; the transfer is the message) | none |
 | 11 | STREAM_CREDIT | worklet to worker | `u32 streamId; u32 epoch; u32 consumedFrames; u32 returnedBuffers` (the buffers ride in the transfer list) |
 | 12 | REPLAY | main to worklet | 4.2 |
+
+**HRIR clips (CLIP_BEGIN/CLIP_CHUNK with `format = 2`, not a kind of their own):** for `format = 2`, clip ids `0xFFFF0000..0xFFFF00FF` are reserved; the first chunk begins with a header `u32 elevations; u32 azimuths; u32 irLength; f32 rate;` then the per-direction ear-delay table `f32[elevations * azimuths * 2]`, then the int16 impulse responses. The core reports clip event code 4 `hrtfReady` when complete.
 
 A core refuses a different `version` major (counted, one STATUS flag) and skips an unknown `kind` or opcode of the same major (records carry their length). New opcodes or appended payload words are minor; changing a field's meaning is major.
 
