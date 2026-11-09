@@ -473,12 +473,9 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
 
   /** Move a live stage's World on by `dt` seconds, as a frame would, and sync what draws. */
   private advance(world: World, renderer: BabylonRenderer, dt: number): void {
-    const time = world.time;
-    time.deltaTime = time.unscaledDeltaTime = dt;
-    time.time += dt;
-    time.realtimeSinceStartup += dt;
+    world.advanceClock(dt); // the World never steps: only its clock moves (ADR 0160)
     World._runIn(world, () => renderer.sync(world));
-    time.deltaTime = time.unscaledDeltaTime = 0;
+    world.advanceClock(0);
   }
 
   /**

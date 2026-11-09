@@ -45,6 +45,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 ## Rendering (ADR 0153)
 
 - **Effect player:** one particle effect at one transform on the Babylon backend (`render/babylon/effectPlayer.ts`): its runner, CPU simulation and kernel systems, their draws and fallbacks, and how it plays (restart, event-started systems, events, emit, stop, seeding). A World's ParticleSystems (one player each, through `BabylonParticles`), the particle graph's preview and the particle thumbnails all play through it. The players of one scene share **effect resources** (texture cache, dot, scene depth, kernel host). _Avoid:_ particle player (for anything but `BabylonParticles`, the World adapter).
+- **Thumbnail stage:** the made-up node set an asset kind supplies for one file's thumbnail (its `preview`, ADR 0156), with framing, whether it animates and its matte. The thumbnail renderer draws it through the enabled plugins' render features, as it draws prefabs and scenes.
 - **Thumbnail renderer:** a `BabylonRenderer` made with `forThumbnail` that draws a prefab's or scene's headless World with the real render features on the thumbnail engine, under the thumbnail policy (no warm-up machinery, a shared studio room, an engine it doesn't own). The thumbnail code only frames and captures.
 
 ## Hosts (ADR 0155)
