@@ -44,6 +44,7 @@ import { decodeClip } from "./loader";
 import { StatusMirror } from "./mirror";
 import { DistanceEffect, listenerSpaceDirection, type Vec3 } from "./spatial";
 import { StatusReader } from "./statusReader";
+import { UnlockQueue } from "./unlockQueue";
 import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
 
 /** `PlayRequest` plus the core's World key. */
@@ -131,7 +132,12 @@ export class CoreBackend implements AudioBackend {
   private readonly cleanups: (() => void)[] = [];
   private names: string[] = [];
   private readonly busIndexByName = new Map<string, number>();
-  private lockedIds: number[] = [];
+  /** D5: voices played while locked. One-shots are capped (32 for 1 s); owned and looping voices wait. */
+  readonly lockedQueue = new UnlockQueue<number>({
+    onDrop: (id) => {
+      if (this.table.isLive(id) && this.table.state[id & 0xffff] === VoiceState.LOCKED) this.table.free(id, VoiceReason.NONE);
+    },
+  });
   private spatialCount = 0;
   private readonly spatialDirty: Uint8Array;
   private listenerDirty = true;
@@ -239,7 +245,8 @@ export class CoreBackend implements AudioBackend {
     t.startFrame[i] = at !== undefined && Number.isFinite(at) && running ? Math.round(at * this.host.sampleRate) : 0;
     this.mixer.voiceStarted(this.names[bus] ?? "");
     if (running) this.launch(id);
-    else this.lockedIds.push(id);
+    else if (req.oneShot && !req.loop) this.lockedQueue.pushOneShot(id, performance.now());
+    else this.lockedQueue.pushOwned(id);
     return new Voice(this, id);
   }
 
@@ -322,7 +329,7 @@ export class CoreBackend implements AudioBackend {
     this.mirror.beginFrame();
     this.table.freeEnded();
     this.mirror.drainClipEvents(this.clipSink);
-    if (this.lockedIds.length > 0 && this.host.status === "running") this.unlock();
+    if (this.lockedQueue.size > 0 && this.host.status === "running") this.unlock();
     if (this.spatialCount > 0) this.moveSpatial();
     if (this.idlePending) this.checkIdle();
     this.table.drainCommands(this.writer);
@@ -337,6 +344,7 @@ export class CoreBackend implements AudioBackend {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.lockedQueue.clear();
     for (const c of this.cleanups.splice(0)) c();
     this.table.onFree = null;
     this.host.link.statusDecoder = readStatus;
@@ -514,16 +522,14 @@ export class CoreBackend implements AudioBackend {
 
   /** The context started running: voices that waited for it start now. */
   private unlock(): void {
-    const ids = this.lockedIds;
-    this.lockedIds = [];
-    for (const id of ids) {
+    this.lockedQueue.drain(performance.now(), (id) => {
       const i = id & 0xffff;
       if (this.table.isLive(id) && this.table.state[i] === VoiceState.LOCKED) {
         this.table.startFrame[i] = 0;
         this.refreshGain(i);
         this.launch(id);
       }
-    }
+    });
   }
 
   /** Spatial voices whose source or the listener moved: new gain and direction when they changed beyond epsilon. */

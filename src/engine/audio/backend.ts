@@ -59,7 +59,7 @@ export interface PlayRequest {
   stream: boolean;
   /** Mixer bus name (already resolved to an existing bus). */
   bus: string;
-  /** Linear gain, default 1. (§6; optional so the fakes and tests that build requests keep compiling.) */
+  /** Linear gain, default 1. */
   volume?: number;
   /** Ratio, default 1. */
   pitch?: number;
@@ -76,13 +76,12 @@ export interface PlayRequest {
 /** One playing sound. */
 export interface AudioVoice {
   readonly playing: boolean;
-  /** §6 additions, optional until `testing.ts`'s fake voice implements them (then required). */
-  readonly id?: number;
+  readonly id: number;
   /** Why it isn't audible, or why it ended early (§1); null otherwise. */
-  readonly reason?: AudioReason | null;
+  readonly reason: AudioReason | null;
   /** Ease the voice's own gain to `to` (linear, 0..4) over `seconds`. */
-  fade?(to: number, seconds: number): void;
-  setPriority?(priority: number): void;
+  fade(to: number, seconds: number): void;
+  setPriority(priority: number): void;
   setVolume(v: number): void;
   setPitch(rate: number): void;
   setAttenuation(a: Attenuation): void;
@@ -112,14 +111,13 @@ export interface AudioBackend {
   configureBuses(mixer: Mixer): void;
   masterVolume: number;
   muted: boolean;
-  /** §6 additions, optional until `testing.ts`'s fake backend and `probe.test.ts` implement them (then required). */
-  readonly status?: AudioStatus;
+  readonly status: AudioStatus;
   /** The heard audio clock, seconds. */
-  readonly time?: number;
-  debug?(): AudioDebugInfo;
-  setBackground?(mode: AudioBackground): void;
-  /** Per-frame hook (required once the fakes catch up). */
-  update?(dt: number): void;
+  readonly time: number;
+  debug(): AudioDebugInfo;
+  setBackground(mode: AudioBackground): void;
+  /** Per-frame hook. */
+  update(dt: number): void;
   dispose?(): void;
 }
 

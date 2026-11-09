@@ -9,13 +9,13 @@ import { Component } from "../../../engine/core/Component";
 import { AssetRef, component, field } from "../../../engine/core/registry";
 import type { World } from "../../../engine/core/World";
 import { Assets } from "../../../engine/scene/Assets";
-import { audioBackend, type AudioVoice, type Rolloff } from "./backend";
+import { audioBackend, type AudioVoice, type PlayRequest, type Rolloff } from "./backend";
 
 export type { Rolloff } from "./backend";
 
 /** @internal Start a clip on the active backend, on `output` (a mixer bus name; empty or unknown: Master). */
-export function startClip(path: string, loop: boolean, output: string | undefined): AudioVoice | null {
-  return audioBackend().play({ path, url: Assets.url(path), loop, stream: Assets.importSettings(path).stream, bus: mixer.resolveOutput(output) });
+export function startClip(path: string, loop: boolean, output: string | undefined, extra?: Partial<PlayRequest>): AudioVoice | null {
+  return audioBackend().play({ path, url: Assets.url(path), loop, stream: Assets.importSettings(path).stream, bus: mixer.resolveOutput(output), ...extra });
 }
 
 /** @internal The clip's import volume (ADR 0040), which scales every playback of it. */
@@ -27,6 +27,8 @@ export function warnStream(path: string): void {
   warnedStream.add(path);
   console.warn(`[myco] "${path}" streams (HTML5 audio), which can't be spatial; it plays flat. Turn off "stream" in its import settings for positional sound.`);
 }
+
+const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math.max(0, Math.round(p))) : 128);
 
 /** Whether the active World has the view: only it plays sound (ADR 0074). */
 export const worldPlays = (world: World | null): boolean => !!world?.render;
@@ -54,6 +56,8 @@ export class AudioSource extends Component {
 
   /** The mixer bus this sound plays on (ADR 0097): a bus name from the project's Audio settings. Empty is Master. */
   @field(String, { choices: (s) => s.audio.buses.map((b) => b.name) }) output = "";
+  /** 0..255. Mostly decides who is stolen when a voice limit is hit. */
+  @field(Number) priority = 128;
 
   private voice: AudioVoice | null = null;
   /** What was last applied to the playing sound, so a frame only touches the backend for changes. */
@@ -67,7 +71,7 @@ export class AudioSource extends Component {
     if (!this.clip || !worldPlays(this._world)) return;
     this.stop();
     const path = this.clip.replace(/^asset:/, "");
-    this.voice = startClip(path, this.loop, this.output);
+    this.voice = startClip(path, this.loop, this.output, { priority: clamp255(this.priority) });
     this.applied = "";
     if (this.voice) this.apply(path);
   }
@@ -96,10 +100,11 @@ export class AudioSource extends Component {
     const stream = Assets.importSettings(path).stream;
     const spatial = this.spatial && !stream;
     if (this.spatial && stream) warnStream(path);
-    const signature = `${this.volume}|${this.pitch}|${spatial}|${this.minDistance}|${this.maxDistance}|${this.rolloff}|${this.output}`;
+    const signature = `${this.priority}|${this.volume}|${this.pitch}|${spatial}|${this.minDistance}|${this.maxDistance}|${this.rolloff}|${this.output}`;
     if (signature !== this.applied) {
       this.applied = signature;
       voice.setBus(mixer.resolveOutput(this.output));
+      voice.setPriority(clamp255(this.priority));
       voice.setVolume(this.volume * clipVolume(path));
       voice.setPitch(this.pitch);
       if (spatial) voice.setAttenuation(this);

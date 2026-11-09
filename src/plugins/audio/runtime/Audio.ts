@@ -8,7 +8,7 @@ import type { Vec3Like } from "../../../engine/core/math";
 import { World } from "../../../engine/core/World";
 import { Assets } from "../../../engine/scene/Assets";
 import { clipVolume, startClip, warnStream, worldPlays } from "./AudioSource";
-import { audioBackend, type AudioDebugInfo, type AudioHandle, type AudioStatus } from "./backend";
+import { audioBackend, type AudioDebugInfo, type AudioHandle, type AudioReason, type AudioStatus, type AudioVoice, type PlayRequest } from "./backend";
 
 /** Options for `Audio.playOneShot` (ADR 0074, api-and-models §1). */
 export interface OneShotOptions {
@@ -33,27 +33,77 @@ export interface OneShotOptions {
 /** A handle for a play that didn't happen: `playing` false, every call a no-op. */
 const INERT: AudioHandle = Object.freeze({ playing: false, reason: null, stop() {}, fade() {} });
 
+/** The public handle over a backend voice: only the four §1 members, none of the voice's setters. */
+class VoiceHandle implements AudioHandle {
+  constructor(private readonly voice: AudioVoice) {}
+  get playing(): boolean { try { return this.voice.playing; } catch { return false; } }
+  get reason(): AudioReason | null { try { return this.voice.reason; } catch { return null; } }
+  stop(fadeSeconds = 0): void { try { this.voice.stop(Number.isFinite(fadeSeconds) ? Math.max(0, fadeSeconds) : 0); } catch { /* a voice already gone */ } }
+  fade(to: number, seconds: number): void {
+    try { this.voice.fade(Number.isFinite(to) ? Math.min(4, Math.max(0, to)) : 1, Number.isFinite(seconds) ? Math.max(0, seconds) : 0); } catch { /* a voice already gone */ }
+  }
+}
+
+const warned = new Set<string>();
+function warnOnce(key: string, message: string): void {
+  if (warned.has(key)) return;
+  warned.add(key);
+  console.warn(`[myco] ${message}`);
+}
+/** @internal Test hook: forget the warn-once state. */
+export function resetAudioApiWarnings(): void { warned.clear(); }
+
+const MIN_PITCH = 0.0625;
+const MAX_PITCH = 16;
+
+/** A finite number, else `fallback` with a warning that names the option. */
+function finiteOr(name: string, value: unknown, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  warnOnce(`${name}:nonfinite`, `Audio.playOneShot: ${name} must be a finite number; using ${fallback}.`);
+  return fallback;
+}
+
+function clampWarn(name: string, value: number, min: number, max: number): number {
+  if (value >= min && value <= max) return value;
+  warnOnce(`${name}:clamp`, `Audio.playOneShot: ${name} ${value} is outside ${min}..${max}; clamped.`);
+  return Math.min(max, Math.max(min, value));
+}
+
 /** One-shot and global audio helpers. */
 export const Audio = {
   /** Start a clip once. A bare number is the volume. Always returns a handle (refused or failed plays give an inert one with `playing` false); never throws. */
-  playOneShot(clip: string, options: number | OneShotOptions = {}): AudioHandle {
-    // Skeleton: the pre-A1.6 body. The core (clamps, warnings, the handle from the voice) replaces it.
-    if (!worldPlays(World.active)) return INERT;
-    const o = typeof options === "number" ? { volume: options } : options;
-    const path = clip.replace(/^asset:/, "");
-    const v = startClip(path, false, o.bus);
-    if (!v) return INERT;
-    v.setVolume((o.volume ?? 1) * clipVolume(path));
-    if (o.pitch !== undefined) v.setPitch(o.pitch);
-    if (o.position) {
-      if (Assets.importSettings(path).stream) {
-        warnStream(path);
-        return INERT;
+  playOneShot(clip: string, options?: number | OneShotOptions): AudioHandle {
+    try {
+      if (!worldPlays(World.active)) return INERT;
+      const o: OneShotOptions = typeof options === "number" ? { volume: options } : options !== null && typeof options === "object" ? options : {};
+      const path = String(clip).replace(/^asset:/, "");
+      const extra: Partial<PlayRequest> = { oneShot: true };
+      extra.volume = clampWarn("volume", finiteOr("volume", o.volume, 1), 0, Infinity) * clipVolume(path);
+      extra.pitch = clampWarn("pitch", finiteOr("pitch", o.pitch, 1), MIN_PITCH, MAX_PITCH);
+      extra.priority = Math.round(clampWarn("priority", finiteOr("priority", o.priority, 128), 0, 255));
+      if (o.at !== undefined) {
+        if (typeof o.at === "number" && Number.isFinite(o.at)) extra.at = o.at;
+        else warnOnce("at:nonfinite", "Audio.playOneShot: at must be a finite number of seconds; playing now.");
       }
-      v.setAttenuation({ minDistance: o.minDistance ?? 1, maxDistance: o.maxDistance ?? 100, rolloff: "inverse" });
-      v.setPosition(o.position);
+      if (o.position) {
+        const p = o.position;
+        if (Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z)) {
+          if (Assets.importSettings(path).stream) warnStream(path);
+          else {
+            const min = Math.max(0, finiteOr("minDistance", o.minDistance, 1));
+            const max = Math.max(min, finiteOr("maxDistance", o.maxDistance, 100));
+            extra.attenuation = { minDistance: min, maxDistance: max, rolloff: "inverse" };
+            extra.position = p;
+          }
+        } else warnOnce("position:nonfinite", "Audio.playOneShot: position must be finite; playing flat.");
+      }
+      const v = startClip(path, false, o.bus, extra);
+      return v ? new VoiceHandle(v) : INERT;
+    } catch (e) {
+      warnOnce("playOneShot:threw", `Audio.playOneShot failed (${e instanceof Error ? e.message : String(e)}); no sound.`);
+      return INERT;
     }
-    return INERT;
   },
 
   /** A mixer bus by name (ADR 0097): `Audio.bus("Music").volume = 0.5`. */
@@ -102,22 +152,16 @@ export const Audio = {
 
   /** The heard audio clock in seconds: 0 before the context runs; independent of game pause and `Time.scale`; updated once per frame. */
   get time(): number {
-    return audioBackend().time ?? 0;
+    return audioBackend().time;
   },
 
   /** "locked" until the browser allows audio, "running", or "failed". */
   get status(): AudioStatus {
-    return audioBackend().status ?? "running";
+    return audioBackend().status;
   },
 
   /** A copy of the state for tools and "why is there no sound?". Allocates; never per frame. */
   debug(): AudioDebugInfo {
-    const b = audioBackend();
-    if (b.debug) return b.debug();
-    return {
-      status: b.status ?? "running", sampleRate: 0, time: b.time ?? 0, background: "mute",
-      counters: { underruns: 0, lateCommands: 0, minSlackFrames: 0, workUnits: 0, workUnitsMax: 0, mixedVoices: 0, mixedCap: 0, logicalVoices: 0, queuedPlays: 0, droppedPlays: 0, traps: 0, refusedLoads: 0, hrtfVoices: 0, hrtfLoadFailure: 0 },
-      buses: [], voices: [], core: { backend: b.name },
-    };
+    return audioBackend().debug();
   },
 };

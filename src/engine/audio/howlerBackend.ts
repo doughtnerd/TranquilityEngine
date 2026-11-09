@@ -116,6 +116,10 @@ export class HowlerBackend implements AudioBackend {
     this.ensureGraph(); // Howler's AudioContext exists once the first Howl has
     const id = howl.play();
     const voice = new HowlerVoice(this, howl, id, req, req.bus);
+    if (req.volume !== undefined) voice.setVolume(req.volume);
+    if (req.pitch !== undefined) voice.setPitch(req.pitch);
+    if (req.attenuation) voice.setAttenuation(req.attenuation);
+    if (req.position) voice.setPosition(req.position);
     this.voices.add(voice);
     if (typeof howl.once === "function") howl.once("end", () => this.voices.delete(voice), id);
     return voice;

@@ -15,6 +15,7 @@ const oldEngine = (): ProbeEnv => ({});
 
 const fakeBackend = (name: string): AudioBackend => ({
   name, play: () => null, setListener() {}, applyMix() {}, configureBuses() {}, masterVolume: 1, muted: false,
+  status: "running", time: 0, debug: () => ({}) as never, setBackground() {}, update() {},
 });
 
 const FEATURES = ["AudioWorklet", "WebAssembly simd128", "AudioContext.getOutputTimestamp", "transferable ArrayBuffers"];
