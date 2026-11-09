@@ -31,6 +31,6 @@ export function buildDebugInfo(backend: CoreBackend): AudioDebugInfo {
     },
     buses: [],
     voices: [],
-    core: {},
+    core: { hrtfReady: backend.hrtfReady },
   };
 }

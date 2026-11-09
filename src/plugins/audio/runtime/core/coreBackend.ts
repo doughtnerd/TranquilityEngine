@@ -36,6 +36,7 @@ import {
 import { AudioHandle, type AudioReason } from "./handle";
 import { ClockMap } from "./clock";
 import { CommandWriter, type PlayArgs } from "./commandWriter";
+import { createHrirLoader, type HrirLoader } from "./hrir";
 import { createClipRegistry, type ClipInfo, type ClipRegistry } from "./clipRegistry";
 import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink } from "./context";
 import { buildDebugInfo, type AudioDebugInfo } from "./debug";
@@ -82,6 +83,8 @@ export interface CoreBackendDeps {
   mixer?: Mixer;
   /** The table; defaults to one of `host.preset.maxLogical` slots. */
   table?: VoiceTable;
+  /** The HRTF table loader (H2); defaults to one on `clips` at the host rate. Tests inject a fake. */
+  hrir?: HrirLoader;
 }
 
 const DIR_EPSILON = 0.005;
@@ -152,6 +155,7 @@ export class CoreBackend implements AudioBackend {
   private master = 1;
   private isMuted = false;
   private disposed = false;
+  private readonly hrir: HrirLoader;
   private readonly clipSink: { event(id: number, code: number): void };
 
   constructor(
@@ -161,6 +165,7 @@ export class CoreBackend implements AudioBackend {
     this.mixer = deps.mixer ?? defaultMixer;
     this.clock = deps.clock;
     this.clips = deps.clips;
+    this.hrir = deps.hrir ?? createHrirLoader({ clips: deps.clips, sampleRate: host.sampleRate });
     this.table = deps.table ?? new VoiceTable(host.preset.maxLogical);
     this.spatialDirty = new Uint8Array(this.table.capacity);
     this.mirror = new StatusMirror(this.table);
@@ -336,6 +341,11 @@ export class CoreBackend implements AudioBackend {
     if (this.writer.pending > 0) this.writer.flush(clockMap.nextFirstFrame());
   }
 
+  /** True once the core reported hrtfReady for the HRIR table (spatial voices stay equal-power until then). */
+  get hrtfReady(): boolean {
+    return this.hrir.ready;
+  }
+
   /** `Audio.debug()` (K10): delegates to `debug.ts`. */
   debug(): AudioDebugInfo {
     return buildDebugInfo(this);
@@ -448,6 +458,7 @@ export class CoreBackend implements AudioBackend {
     if ((t.flags[i]! & VoiceFlag.SPATIAL) === 0) {
       t.flags[i]! |= VoiceFlag.SPATIAL;
       this.spatialCount++;
+      this.hrir.ensure(); // lazy: the first spatial voice starts the fetch (once)
     }
   }
 

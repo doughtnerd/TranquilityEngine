@@ -23,6 +23,7 @@ import {
 import type { AudioHost, BusRemap, HostLifecycleListener } from "./context";
 import { CoreLink, type LinkPort } from "./context";
 import type { ClipInfo, ClipRegistry, ClipResidentListener, ClipState } from "./clipRegistry";
+import type { HrirLoader } from "./hrir";
 import { CoreBackend, type CoreBackendHost } from "./coreBackend";
 import { makeStatusBlock } from "./mirror";
 import { VoiceReason, VoiceState } from "./voiceTable";
@@ -75,7 +76,7 @@ class FakeRegistry implements ClipRegistry {
   }
 }
 
-function rig(options: { status?: "locked" | "running" | "failed"; settings?: AudioSettings } = {}) {
+function rig(options: { status?: "locked" | "running" | "failed"; settings?: AudioSettings; hrir?: HrirLoader } = {}) {
   const sent: ArrayBuffer[] = [];
   const port: LinkPort = { onmessage: null, postMessage: (m) => sent.push(m as ArrayBuffer) };
   const link = new CoreLink(port);
@@ -99,7 +100,7 @@ function rig(options: { status?: "locked" | "running" | "failed"; settings?: Aud
   const clock = fakeClock();
   const mixer = new Mixer(options.settings ?? defaultAudioSettings());
   const clips = new FakeRegistry();
-  const backend = new CoreBackend(host, { clips, clock, mixer });
+  const backend = new CoreBackend(host, { clips, clock, mixer, hrir: options.hrir });
   /** Batches posted since the last call, as record lists. */
   const batches = () => {
     const out: ReturnType<typeof decode>[] = [];
@@ -364,6 +365,24 @@ describe("CoreBackend (api-and-models §3, §6)", () => {
     r.backend.play({ ...req(), at: 0.0001 });
     r.frame();
     expect(only(r.ops(), Op.PLAY)[0]!.frameOffset).toBe(ASAP);
+  });
+
+  it("asks for the HRIR on spatial plays (the loader dedupes the fetch), never for flat plays, and reports ready", () => {
+    let ensured = 0;
+    let ready = false;
+    const r = rig({ hrir: { ensure: () => void ensured++, get ready() { return ready; } } });
+    r.backend.play(req());
+    r.frame();
+    expect(ensured).toBe(0);
+    r.backend.play({ ...req(), position: { x: 1, y: 0, z: 0 } });
+    r.backend.play({ ...req(), position: { x: 2, y: 0, z: 0 } });
+    r.frame();
+    expect(ensured).toBeGreaterThanOrEqual(1);
+    expect(r.backend.hrtfReady).toBe(false);
+    expect(r.backend.debug().core["hrtfReady"]).toBe(false);
+    ready = true;
+    expect(r.backend.hrtfReady).toBe(true);
+    expect(r.backend.debug().core["hrtfReady"]).toBe(true);
   });
 
   it("spatial play sends the listener-space direction and the distance gain, and a moved listener sends SET_PARAMS", () => {
