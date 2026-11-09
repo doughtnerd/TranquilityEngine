@@ -313,7 +313,7 @@ Workspace, resolver 2, edition 2021, Apache-2.0 OR MIT, release profile as `nati
 | Dependency | Licence | Notes |
 |---|---|---|
 | `microfft` | MIT | real FFTs of 256 and 4,096 points and the complex 4,096 inverse: 14 KB of wasm (built by the coordinator); replaces the hand-written FFT planned for A2.2b |
-| `libm` | MIT/Apache-2.0 | |
+| `libm` | MIT (0.2.16's Cargo.toml) | |
 | symphonia 0.6.1 (M1b) | MPL-2.0 | file-level, as the ADR says |
 
 Borrowed as designs only, no code: Kira (command queue, clocks, tweens), Firewheel (processor and context split, pools), SoLoud (virtual voices).

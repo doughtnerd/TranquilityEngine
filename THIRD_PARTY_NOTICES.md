@@ -60,4 +60,4 @@ Code from these projects is compiled into Myco Engine's own modules. Libraries u
   > OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 - **microfft** (real and complex FFTs for the convolver and HRTF ports) — MIT. Version 0.6.0. https://crates.io/crates/microfft
-- **libm** (transcendental functions, so native and wasm builds give identical results) — MIT OR Apache-2.0. Version 0.2.16. https://crates.io/crates/libm
+- **libm** (transcendental functions, so native and wasm builds give identical results) — MIT. Version 0.2.16. https://crates.io/crates/libm

@@ -15,7 +15,7 @@ ADR 0157, api-and-models §5 ("Ports and dependencies"), task A0.10.
 | `distance_effect.cc`, `.h`; `cone_effect.cc`, `.h` | `src/plugins/audio/runtime/core/spatial.ts` (TypeScript, main thread, not Rust) | A1.5 | the cone is ported but unused until `AudioSource` gains cone fields |
 | `hrtf_panner.cc`, `.h`; `hrtf_kernel.cc`, `.h`; `hrtf_elevation.cc`, `.h`; `hrtf_database.cc`, `.h` | `native/audio/crates/audio-dsp/src/hrtf.rs` | H1 (data: H2) | the convolution is redone in uniform 128-frame partitions on a 256-point `microfft` FFT; the HRIR resources are not staged (H2, see `native/audio/third_party/blink/` notes in PROVENANCE.md) |
 
-Crate dependencies (not ports, but in the same licence picture): `microfft` 0.6.0 (MIT) and `libm` 0.2.16 (MIT OR Apache-2.0).
+Crate dependencies (not ports, but in the same licence picture): `microfft` 0.6.0 (MIT) and `libm` 0.2.16 (MIT, per its Cargo.toml).
 
 **Licence expression of `audio-dsp`:** `(Apache-2.0 OR MIT) AND BSD-3-Clause`. The Apache-2.0 OR MIT part is the crate's own code; the BSD-3-Clause part is every ported module.
 
