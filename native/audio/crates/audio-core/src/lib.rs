@@ -9,6 +9,7 @@
 //! `process` that renders silence. Later tasks add modules beside these (A0.3 `status`/`counters`,
 //! A1.2 `voices`/`scheduler`/`panner`/`clips`, A1.3b `arena`, A2.1 `bus`/`fx`), each in its own file.
 
+pub mod arena;
 pub mod clips;
 pub mod core;
 pub mod counters;
