@@ -1,0 +1,204 @@
+//! The audio wire schema as data (ADR 0157 section 4; contract K1). One definition for Rust and
+//! TypeScript: `gen_wire` turns it into `src/generated.rs` and `wire.generated.ts`.
+//!
+//! This file (lead-owned) holds the constants, enums and **error codes** (section 5), and assembles
+//! the three transcribed tables: `envelope` (4.1), `batch` (4.2), `status` (4.3).
+//!
+//! **Schema hash.** First 16 bytes of SHA-256 over `SCHEMA_SOURCES` (see `schema_hash`). The generated
+//! TypeScript embeds it, the wasm exports `myco_audio_schema_hash()`, and `wire.schemaHash.test.ts`
+//! recomputes it from these files with `node:crypto`. Adding a file under `schema/` means adding it
+//! to `SCHEMA_SOURCES` (a unit test fails otherwise).
+
+pub mod batch;
+pub mod envelope;
+pub mod status;
+
+use crate::model::{Const, Enum, ErrorCode, Schema};
+
+/// Files hashed into the schema hash, as `(path relative to the crate dir, contents)`, sorted by path.
+pub const SCHEMA_SOURCES: &[(&str, &str)] = &[
+    ("src/model.rs", include_str!("model.rs")),
+    ("src/schema.rs", include_str!("schema.rs")),
+    ("src/schema/batch.rs", include_str!("schema/batch.rs")),
+    ("src/schema/envelope.rs", include_str!("schema/envelope.rs")),
+    ("src/schema/status.rs", include_str!("schema/status.rs")),
+];
+
+/// `SHA-256( for each file in SCHEMA_SOURCES: path, 0x00, contents with CRLF turned into LF, 0x00 )`,
+/// first 16 bytes. The TypeScript test builds the same byte string.
+pub fn schema_hash() -> [u8; 16] {
+    let mut data = Vec::new();
+    for (path, text) in SCHEMA_SOURCES {
+        data.extend_from_slice(path.as_bytes());
+        data.push(0);
+        data.extend_from_slice(text.replace("\r\n", "\n").as_bytes());
+        data.push(0);
+    }
+    let full = crate::sha256::sha256(&data);
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&full[..16]);
+    out
+}
+
+/// Lower-case hex of `schema_hash()`.
+pub fn schema_hash_hex() -> String {
+    schema_hash().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+macro_rules! c {
+    ($name:literal, $value:expr, $doc:literal) => {
+        Const { name: $name, value: $value as u64, doc: $doc }
+    };
+}
+
+/// Constants from section 4 and 5 that code on both sides needs.
+pub const CONSTANTS: &[Const] = &[
+    c!("MAGIC", 0x4D59_4131u32, "envelope magic, 'MYA1'"),
+    c!("VERSION_MAJOR", 1, "a core refuses a different major"),
+    c!("VERSION_MINOR", 0, "new opcodes or appended payload words are minor"),
+    c!("ENVELOPE_BYTES", 16, "envelope size"),
+    c!("BATCH_HEADER_BYTES", 16, "f64 firstFrame; u32 count; u32 flags"),
+    c!("RECORD_HEAD_BYTES", 12, "u16 opcode; u16 words; u32 voiceId; u32 frameOffset"),
+    c!("ASAP", 0xFFFF_FFFFu32, "frameOffset: apply on arrival at the next quantum, never counted late"),
+    c!("BATCH_MAX_BYTES", 64 * 1024, "a BATCH is capped at 64 KB; the excess carries over"),
+    c!("INBOX_BYTES", 1024 * 1024, "the fixed 1 MiB inbox"),
+    c!("REPLAY_CHUNK_MAX_BYTES", 1024 * 1024 - 32, "each REPLAY message: 1 MiB minus 32 bytes"),
+    c!("STATUS_HEADER_BYTES", 112, "STATUS header, envelope included"),
+    c!("STATUS_POOL_BUFFERS", 8, "the shell's pool of STATUS buffers"),
+    c!("STATUS_BUFFER_BYTES", 16384, "size of each STATUS buffer"),
+    c!("STATUS_WORST_CASE_BYTES", 15728, "112 + 4096*3 + 2048 + 512 + 512 + 256"),
+    c!("STATUS_EVERY_QUANTA", 6, "STATUS cadence"),
+    c!("STATUS_IDLE_EVERY_QUANTA", 48, "cadence when no batch arrived for 250 ms"),
+    c!("STATUS_IDLE_AFTER_MS", 250, "idle threshold"),
+    c!("QUANTUM_FRAMES", 128, "frames per process() call"),
+    c!("BUS_ROOT", 0xFFFF, "BUS_CONFIG parent of the root bus"),
+    c!("BUS_LP_OFF_HZ", 24000, "BUS_MIX lpHz meaning off"),
+    c!("STREAM_TOTAL_FRAMES_UNKNOWN", 0xFFFF_FFFFu32, "STREAM_OPEN totalFrames"),
+    c!("HRIR_CLIP_ID_FIRST", 0xFFFF_0000u32, "reserved clip ids for format = 2"),
+    c!("HRIR_CLIP_ID_LAST", 0xFFFF_00FFu32, "reserved clip ids for format = 2"),
+    c!("CLIP_ID_RESERVED_FIRST", 0xFFFF_0000u32, "ids from here up are not allocated to ordinary clips"),
+    c!("STREAM_RING_FRAMES", 32768, "stream ring size (section 5)"),
+    c!("MAX_ENDED_PER_BLOCK", 1024, "STATUS ended section cap"),
+    c!("MAX_DEMOTED_PER_BLOCK", 1024, "STATUS demoted section cap"),
+    c!("MAX_STARVED_PER_BLOCK", 1024, "STATUS starved section cap"),
+    c!("MAX_PLAYHEADS_PER_BLOCK", 256, "STATUS playheads section cap, round-robin"),
+    c!("MAX_CLIP_EVENTS_PER_BLOCK", 64, "STATUS clipEvents cap"),
+    c!("MAX_STREAM_EVENTS_PER_BLOCK", 64, "STATUS streamEvents cap"),
+    c!("ERR_OK", 0, "i32 result: ok"),
+];
+
+macro_rules! en {
+    ($name:literal, $doc:literal, [$(($v:literal, $n:expr, $d:literal)),* $(,)?]) => {
+        Enum { name: $name, doc: $doc, variants: &[$(($v, $n, $d)),*] }
+    };
+}
+
+/// Enumerations used by field values.
+pub const ENUMS: &[Enum] = &[
+    en!("ClipFormat", "CLIP_BEGIN format", [
+        ("F32", 0, "float samples"),
+        ("I16", 1, "int16 samples"),
+        ("HRIR", 2, "HRIR: int16, already at the context rate; ids 0xFFFF0000..0xFFFF00FF"),
+    ]),
+    en!("ClipEvent", "STATUS clipEvents code", [
+        ("Resident", 1, "the last range was committed"),
+        ("RefusedCeiling", 2, "clipMemoryMB ceiling"),
+        ("RefusedGrow", 3, "the arena could not grow"),
+        ("HrtfReady", 4, "the HRIR load completed"),
+    ]),
+    en!("StreamEvent", "STATUS streamEvents code", [
+        ("Starved", 1, "the ring ran dry"),
+        ("Eos", 2, "end of stream"),
+        ("Error", 3, "decode error"),
+    ]),
+    en!("HrtfLoadFailure", "STATUS hrtfLoadFailure", [
+        ("None", 0, "no failure"),
+        ("Fetch", 1, "the HRIR asset could not be fetched"),
+        ("Data", 2, "the HRIR data was invalid"),
+    ]),
+    en!("Panner", "PLAY and SET_PARAMS flags bits 5-6", [
+        ("EqualPower", 0, "equal-power"),
+        ("Hrtf", 1, "HRTF"),
+        ("Reserved2", 2, "reserved for M3's ambisonic bed"),
+        ("Reserved3", 3, "reserved for M3's ambisonic bed"),
+    ]),
+    en!("EffectType", "BUS_CONFIG effect type", [
+        ("Lowpass", 0, "p0 frequency Hz, p1 q in dB"),
+        ("Highpass", 1, "p0 frequency Hz, p1 q in dB"),
+        ("Compressor", 2, "threshold dB, knee dB, ratio, attack s, release s"),
+        ("ReverbSend", 3, "p0 send"),
+    ]),
+];
+
+macro_rules! er {
+    ($name:literal, $v:expr, $doc:literal) => {
+        ErrorCode { name: $name, value: $v, doc: $doc }
+    };
+}
+
+/// Negative `i32` results of the C ABI (section 5: "negative codes in `schema.rs`"). `0` is ok.
+/// A0.1's stubs return `NOT_IMPLEMENTED`. Appending a code is minor; never renumber one.
+pub const ERRORS: &[ErrorCode] = &[
+    er!("NOT_IMPLEMENTED", -1, "K2 stub: the export exists but does nothing yet"),
+    er!("BAD_ARG", -2, "an argument is out of range"),
+    er!("BAD_MAGIC", -3, "envelope magic mismatch"),
+    er!("VERSION_MISMATCH", -4, "a different major version (counted, STATUS flag bit0)"),
+    er!("TRUNCATED", -5, "the message or a record is shorter than its header says"),
+    er!("OVERSIZE", -6, "length over the inbox, BATCH or record cap"),
+    er!("BAD_STATE", -7, "not initialised, or called in the wrong state"),
+    er!("INBOX_OVERFLOW", -8, "the inbox could not take the message (STATUS flag bit2)"),
+    er!("ARENA_FULL", -9, "no slab of the class and the arena cannot grow (STATUS flag bit1)"),
+    er!("CEILING", -10, "clip memory ceiling reached"),
+    er!("UNKNOWN_CLIP", -11, "no such clip id"),
+    er!("STALE_ID", -12, "id generation mismatch (stale handle or chunk)"),
+    er!("STALE_EPOCH", -13, "stream chunk of an old epoch, dropped"),
+    er!("UNKNOWN_STREAM", -14, "no such stream id"),
+    er!("BAD_FORMAT", -15, "unsupported clip format, or an HRIR header that does not fit"),
+    er!("MALFORMED", -16, "a record's fields are inconsistent (count versus length)"),
+];
+
+/// The assembled schema. Cheap (static slices); the generator and tests call it freely.
+pub fn schema() -> Schema {
+    Schema {
+        envelope: envelope::ENVELOPE,
+        kinds: envelope::KINDS,
+        batch_header: batch::BATCH_HEADER,
+        record_head: batch::RECORD_HEAD,
+        opcodes: batch::OPCODES,
+        status: status::STATUS,
+        hrir_header: envelope::HRIR_HEADER,
+        constants: CONSTANTS,
+        enums: ENUMS,
+        errors: ERRORS,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every `*.rs` under `src/schema/` plus `schema.rs` and `model.rs` is in `SCHEMA_SOURCES`.
+    #[test]
+    fn schema_sources_are_complete_and_sorted() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/schema");
+        let mut found: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| format!("src/schema/{}", e.unwrap().file_name().to_string_lossy()))
+            .filter(|p| p.ends_with(".rs"))
+            .collect();
+        found.push("src/model.rs".into());
+        found.push("src/schema.rs".into());
+        found.sort();
+        let listed: Vec<String> = SCHEMA_SOURCES.iter().map(|(p, _)| p.to_string()).collect();
+        assert_eq!(found, listed);
+    }
+
+    #[test]
+    fn error_codes_are_negative_and_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for e in ERRORS {
+            assert!(e.value < 0, "{}", e.name);
+            assert!(seen.insert(e.value), "duplicate {}", e.value);
+        }
+    }
+}
