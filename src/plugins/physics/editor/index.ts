@@ -12,15 +12,18 @@ import { colliderTool } from "./colliderGizmo";
 import { editColliderAction } from "./EditColliderButton";
 import { jointTool } from "./jointGizmo";
 import { noBackendNote } from "./physicsEditorModel";
+import { physicsSettingsProblems } from "./physicsSettingsModel";
 
 export const physicsEditorPlugin: EditorPlugin = {
   manifest: physicsManifest,
   activate(context) {
-    // Project settings > Physics, between Time and Rendering as it has always been.
+    // Project settings > Physics, between Time and Rendering as it has always been; it owns project.json's `physics` (ADR 0151).
     context.registerProjectSettingsSection({
       id: "physics",
       title: "Physics",
       after: "Time",
+      keys: ["physics"],
+      problems: physicsSettingsProblems,
       view: () => import("./PhysicsSettingsSection").then((m) => m.PhysicsSettingsSection),
     });
     context.registerComponentNote({ id: "physics.no-backend", note: (type) => noBackendNote(type, { pluginOf: pluginOfComponent, backendCount: (d) => physicsBackends(d).length }) });

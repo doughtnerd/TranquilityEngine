@@ -153,6 +153,26 @@ Reading `editor.project.current` or `editor.project.version` in a component re-r
 change. `myco/editor` also has the Inspector and settings fields (`TextField`, `NumberField`, `Row`),
 the editor theme (`theme`) and the graph view the Shader and Particle Graphs are built on.
 
+A Project settings category stores its settings in `project.json` under top-level keys it declares:
+
+```ts
+import type { EditorPluginContext } from "myco/editor";
+
+export function activate(context: EditorPluginContext): void {
+  context.registerProjectSettingsSection({
+    id: "acme",
+    title: "Acme",
+    keys: ["acme"],
+    problems: (draft) => (typeof (draft.acme as { speed?: unknown } | undefined)?.speed === "string" ? [{ field: "acme.speed", message: "Speed must be a number." }] : []),
+    view: () => import("./AcmeSettings").then((m) => m.AcmeSettings),
+  });
+}
+```
+
+The view gets `draft` (with `draft.acme`), `set(label, next)` (one undo step), its `problems` and the
+project. Edits save as they're made unless a problem is listed; Ctrl/Cmd+Z undoes them. A key Myco or
+another plugin owns is refused. While the plugin is off, its keys stay in `project.json` untouched.
+
 `openAssetDocument` gives an asset kind load, save, undo and redo. An asset kind the editor half
 registers replaces the `plugin.json` entry with the same id.
 
@@ -211,4 +231,4 @@ for a script that doesn't load.
 ## Limits
 
 - **Custom render passes:** third-party plugins can't draw them. Draw with meshes, materials, shader graphs, sprites, particles, UI and lines (ADR 0133).
-- **Settings storage:** there's no per-plugin settings storage in `project.json` yet.
+- **Settings storage:** a plugin stores settings only through a Project settings category's declared keys (ADR 0151); there's no storage for a plugin without one.

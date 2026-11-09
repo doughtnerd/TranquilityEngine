@@ -169,10 +169,24 @@ export interface ProjectSettingsSectionProps {
   project: EditorProject;
 }
 
-/** A category of the Project settings panel a plugin adds (ADR 0133; built-in categories keep their own code). */
+/**
+ * A category of the Project settings panel a plugin adds (ADR 0133; built-in categories keep their own code):
+ * the `project.json` keys it owns (ADR 0151), their view, and what keeps them from being saved.
+ */
 export interface ProjectSettingsSectionContribution {
   /** Also the settings field head its problems are found under (`project.json`'s `navigation`). */
   readonly id: string;
+  /**
+   * The top-level `project.json` keys it owns (`["navigation"]`; `[]` for a section that only edits core
+   * keys). While it is registered they are in the panel's draft (`props.draft[key]`), saved, undone and
+   * reconciled with outside edits like the core keys; unregistered, the file keeps them untouched.
+   */
+  readonly keys: readonly string[];
+  /**
+   * What's wrong with its keys in `draft`, by field (`"navigation.agentTypes.0"`, starting with `id` so
+   * the category shows them). Any problem keeps the whole draft from being saved until fixed or undone.
+   */
+  problems?(draft: SettingsDraft): readonly { field: string; message: string }[];
   /** The category's name in the list and its heading. */
   readonly title: string;
   readonly view: LoadComponent<ProjectSettingsSectionProps>;
