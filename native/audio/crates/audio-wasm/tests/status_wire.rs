@@ -7,7 +7,6 @@ use audio_core::status::{write, BUFFER_BYTES};
 use audio_wire::generated::StatusBlock;
 
 #[test]
-#[ignore = "A0.3 core: needs A0.3-L2's counters"]
 fn every_counter_reads_back_through_the_generated_reader() {
     let mut c = Counters::default();
     c.current_frame = 98_765_432.0;
@@ -63,7 +62,6 @@ fn every_counter_reads_back_through_the_generated_reader() {
 }
 
 #[test]
-#[ignore = "A0.3 core: needs A0.3-L2's counters"]
 fn full_sections_read_back_in_order() {
     let mut c = Counters::default();
     for i in 0..ENDED_CAP as u32 {

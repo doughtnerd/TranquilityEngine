@@ -277,7 +277,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "A0.3 core: needs A0.3-L2's counters"]
     fn an_empty_block_is_the_bare_header_with_ready_and_abi() {
         let mut core = core();
         let mut out = [0u8; BUFFER_BYTES];
@@ -292,7 +291,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "A0.3 core: needs A0.3-L2's counters"]
     fn abi_version_goes_in_the_first_block_only() {
         let mut core = core();
         let mut out = [0u8; BUFFER_BYTES];
@@ -304,7 +302,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "A0.3 core: needs A0.3-L2's counters"]
     fn every_field_lands_at_its_offset() {
         let mut c = Counters::default();
         c.current_frame = 1_234_567.0;
@@ -357,7 +354,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "A0.3 core: needs A0.3-L2's counters"]
     fn sections_follow_the_header_in_order_and_are_drained() {
         let mut core = core();
         {
@@ -393,7 +389,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "A0.3 core: needs A0.3-L2's counters"]
     fn a_short_buffer_writes_nothing_and_keeps_the_block() {
         let mut core = core();
         counters_mut(&mut core).ended.push(42);
@@ -407,7 +402,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "A0.3 core: needs A0.3-L2's counters"]
     fn the_worst_case_fits_the_buffer() {
         let mut c = Counters::default();
         for i in 0..ENDED_CAP as u32 {
@@ -431,7 +425,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "A0.3 core: needs A0.3-L2's counters"]
     fn after_quantum_sets_current_frame_and_work_units() {
         let mut core = core();
         core.process(256);

@@ -232,9 +232,11 @@ describe("UnderrunProbe", () => {
     expect(probe.underruns).toBe(0);
   });
 
-  it("stalls during the 1 s warm-up don't count", () => {
+  it("nothing counts during the 1 s warm-up; a lag still in the window counts once it ends (§4.7)", () => {
     const probe = new UnderrunProbe(RATE);
-    drive(probe, 2_000, 100, 100);
+    const at = drive(probe, 300, 100, 100); // 300 quanta ≈ 0.9 s, inside the warm-up
     expect(probe.underruns).toBe(0);
+    drive(probe, 200, -1, 0, at);
+    expect(probe.underruns).toBe(1);
   });
 });
