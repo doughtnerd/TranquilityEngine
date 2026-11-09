@@ -79,7 +79,8 @@ test("an Environment component with an HDR map lights the scene and draws the sk
   const map = env.getByRole("combobox", { name: "map" });
   await map.fill("environments/sky.hdr");
   await map.press("Enter");
-  await expect.poll(async () => await lighting(page), { timeout: 15_000 }).toMatchObject({ environment: "environments/sky.hdr", environmentLoaded: true, skybox: true });
+  // The HDR map is prefiltered on the GPU: with software GL that's seconds of CPU, more while other specs render.
+  await expect.poll(async () => await lighting(page), { timeout: 30_000 }).toMatchObject({ environment: "environments/sky.hdr", environmentLoaded: true, skybox: true });
 
   // Turning the skybox off keeps the lighting but drops the sky.
   await env.getByRole("checkbox", { name: "skybox" }).uncheck();

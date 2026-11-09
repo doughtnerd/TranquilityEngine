@@ -259,12 +259,24 @@ test("a writable project caches thumbnails in .myco/thumbnails/ and reads them b
   for (const m of ["glow", "ground", "metal"]) await expect.poll(() => renderedWidth(page, `${m}.material.json`), { timeout: 30_000 }).toBeGreaterThan(0);
   await expect.poll(async () => (await listFolder(page, "Playground")).filter((f) => /^\.myco\/thumbnails\/[0-9a-f]+\.(webp|png)$/.test(f)).length, { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
 
-  // Reopened (a fresh service), the same thumbnails come from the cache: nothing renders.
-  const before = await page.evaluate(() => (window as unknown as Hooks).thumbnails!.renders());
+  // Reopened (a fresh service), the same thumbnails come from the cache: nothing renders. The
+  // folder's other materials render (and cache) after these three, so wait until rendering stops.
+  const renders = () => page.evaluate(() => (window as unknown as Hooks).thumbnails!.renders());
+  let before = -1;
+  await expect
+    .poll(
+      async () => {
+        const previous = before;
+        before = await renders();
+        return before === previous;
+      },
+      { timeout: 30_000, intervals: [1_000] },
+    )
+    .toBe(true);
   await page.evaluate(() => (window as unknown as Hooks).thumbnails!.reset());
   await page.locator(".asset-folder").first().click(); // the project's root: folders, no previews
   await page.locator(".asset-folder", { hasText: /^materials$/ }).click();
   for (const m of ["glow", "ground", "metal"]) await expect.poll(() => renderedWidth(page, `${m}.material.json`), { timeout: 30_000 }).toBeGreaterThan(0);
-  expect(await page.evaluate(() => (window as unknown as Hooks).thumbnails!.renders())).toBe(before);
+  expect(await renders()).toBe(before);
   expect(errors).toEqual([]);
 });

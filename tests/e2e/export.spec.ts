@@ -84,7 +84,7 @@ test.describe("Flappy web build", { tag: "@slow" }, () => {
     await page.goto(served!.url);
     await expect(page).toHaveTitle("flappy");
     await expect.poll(() => findScript(page, "game.GameManager", "state"), { timeout: 20_000 }).toBe("ready");
-    await expect.poll(() => frames(page)).toBeGreaterThan(10);
+    await expect.poll(() => frames(page), { timeout: 15_000 }).toBeGreaterThan(10); // the renderer's first frames compile its pipelines
 
     // The canvas fills the window at the project's aspect ratio (720×680), letterboxed.
     const box = (await page.locator("#game canvas").boundingBox())!;
@@ -140,7 +140,7 @@ test.describe("Arena web build", { tag: "@slow" }, () => {
     await page.goto(served!.url);
     await expect.poll(() => findScript(page, "arena.Menu", "serverUrl"), { timeout: 20_000 }).toBeTruthy();
     expect(await worldNames(page)).toEqual(["Client"]);
-    await expect.poll(() => frames(page)).toBeGreaterThan(10);
+    await expect.poll(() => frames(page), { timeout: 15_000 }).toBeGreaterThan(10); // the renderer's first frames compile its pipelines
 
     await page.keyboard.press("h");
     await expect.poll(() => worldNames(page), { timeout: 15_000 }).toEqual(["Client", "Server"]);
