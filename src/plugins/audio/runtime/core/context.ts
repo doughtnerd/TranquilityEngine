@@ -250,7 +250,7 @@ interface MutableShare {
   released: boolean;
 }
 
-/** @internal What the host is made of: the browser's in `AudioHost.start`, fakes in Node tests. */
+/** @internal What the host is made of: the browser's in `AudioHost._startNew`, fakes in Node tests. */
 export interface HostParts {
   readonly context: AudioContext;
   readonly node: AudioWorkletNode;
@@ -314,8 +314,11 @@ export class AudioHost {
    * worklet module, creates the node with the wasm bytes and the preset, connects it, and arms the unlock layer on
    * `unlockTarget` when the context isn't running. Resolves once the node exists, before the first STATUS (a
    * locked context renders nothing until the gesture).
+   *
+   * Every call makes a new AudioContext, so only `startAudioHost` calls it, through `acquireAudioHost` (the page's
+   * one host, architecture §1). Get the host with `startAudioHost` or `currentAudioHost`, never with this.
    */
-  static async start(wasm: CoreWasm, moduleUrl: string, preset: CorePreset, unlockTarget: EventTarget): Promise<AudioHost> {
+  static async _startNew(wasm: CoreWasm, moduleUrl: string, preset: CorePreset, unlockTarget: EventTarget): Promise<AudioHost> {
     const context = new AudioContext({ latencyHint: "interactive" });
     try {
       await context.audioWorklet.addModule(moduleUrl);
@@ -520,7 +523,7 @@ let pageStart: Promise<AudioHost> | null = null;
 export async function startAudioHost(settings: AudioSettings, unlockTarget: EventTarget = document): Promise<AudioHost> {
   return acquireAudioHost(async () => {
     const [wasm, moduleUrl] = await Promise.all([loadCoreWasm(), workletModuleUrl()]);
-    return AudioHost.start(wasm, moduleUrl, presetFromSettings(settings), unlockTarget);
+    return AudioHost._startNew(wasm, moduleUrl, presetFromSettings(settings), unlockTarget);
   });
 }
 
