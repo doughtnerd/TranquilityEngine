@@ -23,7 +23,6 @@ import {
   setBusValue,
   setDuckingValue,
   setEffectValue,
-  setFmod,
   setSnapshotLowpass,
   setSnapshotVolume,
 } from "../audioSettingsModel";
@@ -278,26 +277,11 @@ export function AudioSettingsSection(props: { draft: SettingsDraft; problems: re
         <span>Backend</span>
       </div>
       <div class="audio-row">
-        <select aria-label="Audio backend" value={a.backend} onChange={(e) => set("Set audio backend", setBackend(draft, (e.currentTarget as HTMLSelectElement).value as "howler" | "fmod"))}>
-          <option value="howler">howler</option>
-          <option value="fmod">fmod</option>
+        <select aria-label="Audio backend" value={a.backend} onChange={(e) => set("Set audio backend", setBackend(draft, (e.currentTarget as HTMLSelectElement).value as "babylon" | "core"))}>
+          <option value="babylon">babylon</option>
+          <option value="core">core</option>
         </select>
       </div>
-      {a.backend === "fmod" && (
-        <>
-          <div class="audio-row">
-            <label class="audio-grow">
-              SDK path
-              <TextField class="audio-grow" value={a.fmod?.sdkPath ?? ""} label="FMOD SDK path" onCommit={(v) => set("Set FMOD SDK path", setFmod(draft, v.trim(), a.fmod?.banks ?? []))} />
-            </label>
-            <label class="audio-grow">
-              Banks
-              <TextField class="audio-grow" value={(a.fmod?.banks ?? []).join(", ")} label="FMOD banks" placeholder="Master.bank, Master.strings.bank" onCommit={(v) => set("Set FMOD banks", setFmod(draft, a.fmod?.sdkPath ?? "", v.split(",").map((b) => b.trim()).filter((b) => b !== "")))} />
-            </label>
-          </div>
-          <p class="project-settings-hint">Experimental (ADR 0099): see docs/guide/fmod.md; the FMOD SDK isn't bundled.</p>
-        </>
-      )}
     </div>
   );
 }

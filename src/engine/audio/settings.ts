@@ -74,10 +74,8 @@ export interface AudioSettings {
   codecs: { aac: boolean };
   /** Default `"hrtf"`. */
   spatial: AudioSpatialMode;
-  /** `"babylon"` (default; resolves to the Howler backend until BB2) or `"core"` (K3). Once A0.4-L1 lands the parse never gives `"howler"` or `"fmod"`. */
+  /** `"babylon"` (default; resolves to the Howler backend until BB2) or `"core"` (K3). The parse never gives the pre-0157 values (it reports them as problems). */
   backend: AudioBackendSetting;
-  /** @deprecated A0.5 removes it with the FMOD backend. Once A0.4-L1 lands the parse drops it. */
-  fmod?: { sdkPath: string; banks: string[] };
 }
 
 /** §2 `voices`: how many sounds the core mixes at once, tracks logically, and spatialises with HRTF. */
@@ -94,11 +92,8 @@ export type AudioBackground = "mute" | "pause" | "play";
 export type AudioClipFormat = "i16" | "f32";
 export type AudioSpatialMode = "hrtf" | "equalPower";
 
-/**
- * Which backend plays sound (§2, K3). `"howler"` and `"fmod"` are pre-ADR-0157 values the parse maps away;
- * they stay in the type only until A0.5 removes the FMOD and editor code that names them.
- */
-export type AudioBackendSetting = "babylon" | "core" | "howler" | "fmod";
+/** Which backend plays sound (§2, K3). Pre-ADR-0157 values are accepted as input only, where the parse reports them. */
+export type AudioBackendSetting = "babylon" | "core";
 
 export const MASTER = "Master";
 export const MAX_BUSES = 32;

@@ -2,8 +2,8 @@
  * The internal audio backend interface (ADR 0098) and the `audio.backend` selector (K3). `AudioSource` and
  * `Audio` talk to this, never to a library. Not part of the public API.
  *
- * ADR 0157 §6 moves this file to `src/plugins/audio/runtime/backend.ts`. Until A0.5 (FMOD) and BB2 (Howler)
- * remove `fmodBackend.ts` and `howlerBackend.ts`, and `Engine.ts` stops importing `mixer` from here, the
+ * ADR 0157 §6 moves this file to `src/plugins/audio/runtime/backend.ts`. Until BB2 (Howler)
+ * removes `howlerBackend.ts`, and `Engine.ts` stops importing `mixer` from here, the
  * code stays in `src/engine/audio/` (the engine must not import plugins) and the plugin path re-exports it.
  */
 import type { Vec3Like } from "../core/math";
@@ -60,7 +60,7 @@ export interface AudioBackend {
   configureBuses(mixer: Mixer): void;
   masterVolume: number;
   muted: boolean;
-  /** Per-frame hook (FMOD needs `system.update()`). */
+  /** Per-frame hook. */
   update?(dt: number): void;
   dispose?(): void;
 }
@@ -83,7 +83,7 @@ export function registerCoreBackend(make: () => AudioBackend): () => void {
 
 /**
  * K3: which backend `audio.backend` picks. `"babylon"` is the default backend (Howler until BB2); `"core"`
- * is the core. The pre-0157 values `"howler"` and `"fmod"` behave as `"babylon"` (the settings parse reports them).
+ * is the core. The settings parse reports pre-0157 values as problems and uses `"babylon"`.
  */
 export function resolveBackendKind(configured: AudioSettings["backend"]): "babylon" | "core" {
   return configured === "core" ? "core" : "babylon";
@@ -107,7 +107,7 @@ export function audioBackend(): AudioBackend {
   return backend;
 }
 
-/** Swap the backend (the FMOD adapter, or a test double). Sounds on the old one are stopped by its `dispose`. */
+/** Swap the backend (a test double). Sounds on the old one are stopped by its `dispose`. */
 export function setAudioBackend(next: AudioBackend | null): void {
   backend?.dispose?.();
   backend = next;
@@ -120,5 +120,5 @@ export function setAudioBackend(next: AudioBackend | null): void {
 /** @internal Whether a backend exists yet (the audio system skips work before first sound). */
 export const hasAudioBackend = (): boolean => backend !== null;
 
-/** The one mixer lives in `./mixer` (ADR 0157 §6); re-exported for `Engine.ts` and the Howler and FMOD backends until A0.5 and BB2 remove their imports. */
+/** The one mixer lives in `./mixer` (ADR 0157 §6); re-exported for `Engine.ts` and the Howler backend until BB2 removes its import. */
 export { mixer } from "./mixer";

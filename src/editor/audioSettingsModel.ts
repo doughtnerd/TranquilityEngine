@@ -153,11 +153,7 @@ export function setDuckingValue(d: SettingsDraft, index: number, key: keyof Duck
   return withAudio(d, { ...a, ducking: a.ducking.map((r, i) => (i === index ? ({ ...r, [key]: value } as DuckingRule) : r)) });
 }
 
-export function setBackend(d: SettingsDraft, backend: "howler" | "fmod"): SettingsDraft {
+export function setBackend(d: SettingsDraft, backend: "babylon" | "core"): SettingsDraft {
   const a = audioOf(d);
   return withAudio(d, { ...a, backend });
-}
-export function setFmod(d: SettingsDraft, sdkPath: string, banks: string[]): SettingsDraft {
-  const a = audioOf(d);
-  return withAudio(d, { ...a, fmod: { sdkPath, banks } });
 }
