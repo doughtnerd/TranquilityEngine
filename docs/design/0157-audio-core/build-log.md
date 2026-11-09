@@ -72,3 +72,34 @@ Leads: A0.3 Opus with three Haiku leaves (L1 `bufferPool.ts`, L2 `counters.rs`, 
 - `autocrlf` rewrote the staged Chromium files on checkout and broke their hashes. `native/audio/third_party/.gitattributes` (`* -text`) keeps them byte-exact.
 
 **Reserve used:** none.
+
+## MS1 wave 3 (A0.7, A0.8, A0.6, A0.9)
+
+Leads: A0.8 Opus with one Haiku leaf (L1 `audioLifecycle.test.ts`); A0.6 Sonnet with two (L1 `probe.ts`, L2 `probe.test.ts`). A0.7 and A0.9 ran as single Sonnet workers. No merge conflicts.
+
+**Landed**
+- A0.7 (#58), the MS1 → MS2 gate, **passed**:
+  - **WebKitGTK 2.52.6** in Docker (`tools/audio-smoke/`, one script: Xvfb, a PulseAudio null sink, the monitor recorded): after an `xdotool` click, 440.0 Hz at RMS 0.0707 (-23 dBFS), exactly the dev tone's 0.1-amplitude sine. **With no gesture the context stays `interrupted`**, and `media-playback-requires-user-gesture` off doesn't lift that. A construct-only website autoplay policy of ALLOW does, but wry/Tauri doesn't expose it, so on Linux the unlock layer's first gesture starts audio. AudioWorklet and SIMD are present.
+  - **WebView2** (Chromium 157, the Tauri dev shell): **running at load with no gesture**. The tone was confirmed by a WASAPI loopback capture at 440 Hz, and was silent with the tone off. The loopback level is 2.3× the expected RMS, probably Windows audio processing (not verified).
+  - **Second World:** in Chromium, two Worlds get one host and one AudioContext.
+- A0.8 (#59): the host is a page singleton reached only through `acquireAudioHost`; World shares (keys 1..255); `releaseWorld`, then `onIdle`; `reconfigure` bumps `busEpoch` and remaps buses by name, unknown names to the root; `pendingPreset` for the rebuild; `connectHostToEngines`, with `Engine._onAudioConfigured` carried by a small `src/engine/core/audioConfigure.ts` registry so the plugin doesn't import Engine. 23 lifecycle tests, and a singleton test running the real `load()`.
+- A0.6 (#60): `probe.ts` checks AudioWorklet, `simd128`, `getOutputTimestamp` and MessageChannel, then gives one warning and falls back to `"babylon"` (12 tests). `docs/guide/audio-minimum-versions.md`. In Playwright WebKit and Firefox, `addModule` and node creation work on a suspended context, so the "create the context in the gesture" fallback isn't needed. `getOutputTimestamp` is Safari 14.1 (below the `simd128` floor). Android System WebView matches Chrome (AudioWorklet 66, SIMD 91), so a never-updated WebView on Android 7–8 gets the fallback. At C3, record the phone's WebView version; Google Play sets no minimum OS.
+- A0.9 (#61): `Unlock.watch()` re-arms on `interrupted`, and on `suspended` unless the page suspended on purpose (the host's `pageSuspended` flag, which A3.4b drives). 15 tests.
+- Coordinator: the architecture §9 matrix filled from these measurements; A0.8's seams noted on #63, #65, #66, #84 and #86.
+
+**Integration fixes at the merge**
+- A0.8's singleton test was written against the probe stub. With A0.6's real probe merged, its fake context lacked `getOutputTimestamp` and the core was refused. Added to the fake.
+- A0.9 saved `unlock.ts` with a cp1252 `§`. Vitest and tsc accepted it, but rolldown refused it, so `npm run build` failed. Re-encoded as UTF-8, and no other non-UTF-8 source remains. **For future briefs:** check `npm run build`, not only typecheck and vitest, on any task that adds non-ASCII text.
+
+**Numbers:** wasm unchanged (28.0 KB). `cargo test` 62 passed. `npm test`: 3,075 passed, with the 3 baseline failures plus `piratesSample` (a known timeout that passes alone). `npm run build` green. Chromium e2e: 194 passed, 2 failed (`selection.spec.ts:48` is in the baseline; `physical.spec.ts:41` is the known flake).
+
+**Deviations**
+- A0.6 linked its guide page from `docs/README.md`, a coordinator file. Kept.
+- A0.8 added `src/engine/core/audioConfigure.ts`, outside its file list, to keep the renderer out of `service.ts`'s imports.
+- The owner's machine wasn't needed for A0.7 (Docker), but container timing isn't a soak: C3 still needs real Linux hardware or the owner's decision.
+
+**Reserve used:** none.
+
+## MS1 complete (2026-11-09)
+
+Exit check met with `backend: "core"`: a tone after a click in Chromium (dev page), WebView2 and WebKitGTK (A0.7); STATUS flows with frames stopped (A0.3); FMOD gone (A0.5); an old engine gets one warning, then the fallback (A0.6). Typecheck, `npm test`, `npm run build`, `cargo test` and Chromium e2e are at the baseline, and the committed wasm matches its source hash. The default backend is unchanged (`"babylon"` is still Howler). Ready for the owner's approval to merge to master.
