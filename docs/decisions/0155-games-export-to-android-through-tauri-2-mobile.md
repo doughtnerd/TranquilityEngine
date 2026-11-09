@@ -1,6 +1,6 @@
 # 0155. Games export to Android through Tauri 2's mobile support, as the web build in a generated Tauri project
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-09
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
