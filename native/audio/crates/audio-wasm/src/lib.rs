@@ -172,16 +172,36 @@ pub extern "C" fn myco_audio_stream_commit(_stream: u32, _frames: u32, _epoch: u
 /// stereo `[L; 128][R; 128]`, or null before `init`. Never allocates or grows memory.
 #[no_mangle]
 pub extern "C" fn myco_audio_process(frame_lo: u32, frame_hi: u32) -> *const f32 {
-    instance().process(((frame_hi as u64) << 32) | frame_lo as u64)
+    // A0.3: render, then let the status writer note the quantum (currentFrame, work units).
+    let frame = ((frame_hi as u64) << 32) | frame_lo as u64;
+    match instance().core_mut() {
+        Some(core) => {
+            let out = core.process(frame).as_ptr();
+            audio_core::status::after_quantum(core);
+            out
+        }
+        None => core::ptr::null(),
+    }
 }
 
-/// Writes the STATUS body at `myco_audio_status_ptr` and returns its length in bytes.
-/// TODO(A0.3): the status writer; 0 (nothing to send) until then.
+/// Writes the whole STATUS message (envelope included, api-and-models §4.3) at
+/// `myco_audio_status_ptr`, ends the block, and returns its length in bytes; 0 before `init`.
+/// The shell calls it only when it has a pooled buffer to post (§4.3), so a skipped post keeps the
+/// block for the next take. Never allocates or grows memory.
 #[no_mangle]
 pub extern "C" fn myco_audio_status_take() -> u32 {
-    0
+    let abi = myco_audio_abi_version();
+    match instance().core_mut() {
+        Some(core) => {
+            // SAFETY: single-threaded (see `Global`); nothing else holds the staging buffer.
+            let out: &mut [u8] = unsafe { &mut (&mut *STATUS.get()).0 };
+            audio_core::status::take(core, out, abi) as u32
+        }
+        None => 0,
+    }
 }
 
+/// The 16 KB STATUS staging buffer (architecture §5.1), 64-byte aligned, at a fixed address.
 #[no_mangle]
 pub extern "C" fn myco_audio_status_ptr() -> *const u8 {
     STATUS.get() as *const u8

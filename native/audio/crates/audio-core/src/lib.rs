@@ -10,8 +10,10 @@
 //! A1.2 `voices`/`scheduler`/`panner`/`clips`, A1.3b `arena`, A2.1 `bus`/`fx`), each in its own file.
 
 pub mod core;
+pub mod counters;
 pub mod layout;
 pub mod params;
+pub mod status;
 
 pub use crate::core::Core;
 pub use crate::layout::{Layout, Region, RegionKind, REGION_ALIGN, REGION_ORDER};
