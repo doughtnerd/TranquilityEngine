@@ -1,4 +1,5 @@
 import { isFieldOverride, type ComponentEntry, type NodeEntry, type NodePath, type OverrideEntry, type SceneDocument, type SceneFile } from "./SceneDocument";
+import { normalizeAssetPath } from "../../engine/scene/Assets";
 
 /**
  * What a command changed, so the Editor World can catch up incrementally (see `WorldSync`).
@@ -196,7 +197,7 @@ export class SetScenePreload implements Command {
   private before: SceneFile | null = null;
   readonly paths: readonly string[];
   constructor(paths: readonly string[], label = "Change Preload List") {
-    this.paths = [...new Set(paths.map((p) => p.trim().replace(/^asset:/, "")).filter(Boolean))];
+    this.paths = [...new Set(paths.map((p) => normalizeAssetPath(p.trim())).filter(Boolean))];
     this.label = label;
   }
 

@@ -1,21 +1,19 @@
 // Deleting assets and scripts from the Assets panel. The file goes from disk for good, so the
 // editor asks first (unless told not to), listing what refers to it: scenes and prefabs (by
-// `asset:` path or prefab path), scripts that mention it, the project settings (autoloads), and
-// the open scene. Scenes, prefabs and project.json are then cleaned of it (assetCleanup.ts):
+// `asset:` path or prefab path), other JSON files and scripts that quote it, the project settings (autoloads), and
+// the open scene. Scenes, prefabs and project.json are then cleaned of it (assetReferences.ts):
 // files on disk are rewritten, and the open scene is edited as one undo step (save to keep it).
 // Scripts can't be cleaned automatically and are listed as still referring to it.
 import { fileName } from "./assetBrowser";
 import { closeScript, openScripts } from "./code/codeState";
-import { sceneWithoutAsset, settingsWithoutAsset } from "./assetCleanup";
+import { assetUsers, removeReferences } from "./assetReferences";
 import { assetDocumentsDeleted } from "./assetDocuments";
-import { ReplaceDocument, type SceneFile } from "./document";
 import { errorStatus } from "./messages";
-import { instancesOf } from "./prefabs";
-import { writeSceneFile } from "./project";
 import { askBeforeDeletingAssets } from "./preferences";
 import { isWithin, type EditorProject } from "./projects";
 import { reloadScripts } from "./session";
 import { currentProject, docVersion, openScene, openScenes, playState, scriptsVersion, status } from "./state";
+import { confirmInEditor } from "./ui/ConfirmDialog";
 
 /** The scenes open in tabs, the active one first: none of them may be deleted or moved out from under the editor. */
 export function openScenePaths(): string[] {
@@ -29,49 +27,6 @@ function openPaths(openPath: string | readonly string[] | null): string[] {
   if (openPath === null) return [];
   return typeof openPath === "string" ? [openPath] : [...openPath];
 }
-import { confirmInEditor } from "./ui/ConfirmDialog";
-
-const isSceneFile = (json: Record<string, unknown>): json is SceneFile & Record<string, unknown> =>
-  typeof json.format === "string" && /^(myco|tranquility)\.scene@/.test(json.format) && Array.isArray(json.nodes);
-
-/**
- * Take the deleted `path` out of the project's scenes, prefabs and settings: files on disk are
- * rewritten (keeping their layout), the open scene is edited as one undo step, and instances in
- * the open scene of a prefab that changed are rebuilt. Returns the files cleaned (the open scene
- * as "<path> (unsaved)").
- */
-export async function removeReferences(project: EditorProject, path: string): Promise<string[]> {
-  const scene = openScene.value;
-  const cleaned: string[] = [];
-  // Slice references (`"asset:images/sheet.png#walk_0"`, ADR 0040) count too.
-  const mentions = (text: string | undefined) => !!text && [`"${path}"`, `"asset:${path}"`, `"${path}#`, `"asset:${path}#`].some((q) => text.includes(q));
-  for (const file of project.files) {
-    if (!file.endsWith(".json") || file === scene?.path || !mentions(project.textOf(file))) continue;
-    const json = JSON.parse(project.textOf(file)!) as Record<string, unknown>;
-    if (isSceneFile(json)) {
-      // Scenes and prefabs share the format.
-      const result = sceneWithoutAsset(json, path);
-      if (!result.changed) continue;
-      await writeSceneFile(project, file, result.file);
-      cleaned.push(file);
-      // Instances of a changed prefab in the open scene show its new contents.
-      if (scene) scene.sync.apply(instancesOf(scene.doc, file).map((node) => ({ kind: "rebuild", node }) as const));
-    } else if (file === "project.json") {
-      const result = settingsWithoutAsset(json, path);
-      if (!result.changed) continue;
-      await project.writeText(file, `${JSON.stringify(result.settings, null, 2)}\n`);
-      cleaned.push(file);
-    }
-  }
-  if (scene) {
-    const result = sceneWithoutAsset(scene.doc.toJSON(), path);
-    if (result.changed) {
-      scene.stack.execute(new ReplaceDocument(result.file, `Remove references to ${fileName(path)}`));
-      cleaned.push(`${scene.path} (unsaved)`);
-    }
-  }
-  return cleaned;
-}
 
 /** Why `path` can't be deleted from `project` right now, or null if it can. */
 export function whyNotDeletableAsset(project: EditorProject, path: string, openPath: string | readonly string[] | null): string | null {
@@ -83,20 +38,6 @@ export function whyNotDeletableAsset(project: EditorProject, path: string, openP
   if (playState.peek() !== "edit") return "stop playing first";
   if (!project.files.includes(path) && !project.scripts.has(path)) return "it's gone already";
   return null;
-}
-
-/**
- * The files that still refer to `path`: JSON files (scenes, prefabs, settings) and scripts whose
- * text contains it as a quoted path (`"images/a.png"`, `"asset:images/a.png"`), plus the open
- * scene's unsaved document, if it does.
- */
-export function assetUsers(project: EditorProject, path: string, openDocument?: { path: string; text: string } | null): string[] {
-  const quoted = [`"${path}"`, `"asset:${path}"`, `'${path}'`, `'asset:${path}'`, `"${path}#`, `"asset:${path}#`, `'${path}#`, `'asset:${path}#`]; // with slices (ADR 0040)
-  const mentions = (text: string | undefined) => !!text && quoted.some((q) => text.includes(q));
-  const users = project.files.filter((f) => f !== path && f.endsWith(".json") && mentions(project.textOf(f)));
-  for (const [script, text] of project.scripts) if (script !== path && mentions(text)) users.push(script);
-  if (openDocument && openDocument.path !== path && mentions(openDocument.text) && !users.includes(openDocument.path)) users.push(`${openDocument.path} (unsaved edits)`);
-  return users;
 }
 
 /** Folder entries in an asset selection end in "/" (`images/`); files don't. */
@@ -188,7 +129,7 @@ export async function deleteAssets(entries: readonly string[]): Promise<boolean>
   const stack = openScene.value?.stack;
   stack?.beginGroup(`Remove references to ${name}`);
   try {
-    for (const path of deleting) for (const f of await removeReferences(project, path)) cleaned.add(f);
+    for (const path of deleting) for (const f of await removeReferences(project, path, `Remove references to ${fileName(path)}`)) cleaned.add(f);
   } catch (err) {
     status.value = errorStatus(`Deleted ${name}, but couldn't remove references to it`, err);
     return true;

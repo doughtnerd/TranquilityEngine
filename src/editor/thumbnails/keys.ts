@@ -1,8 +1,10 @@
-// Asset thumbnails (ADR 0061): which assets get a rendered preview, what each preview depends on,
-// and the content key that names its cached file. Pure apart from hashing (WebCrypto), so the
-// rules are unit-tested.
+// Asset thumbnails (ADR 0061): which assets get a rendered preview, what each preview depends on
+// (an asset's dependencies from the asset reference module, ADR 0148, followed transitively, plus
+// import settings sidecars), and the content key that names its cached file. Pure apart from
+// hashing (WebCrypto), so the rules are unit-tested.
 import { previewOf, type PreviewKind } from "../assetKindLookup";
 import { sidecarPath } from "../../engine/scene/importSettings";
+import { assetDependencies, type ReferenceSource } from "../assetReferences";
 
 export type { PreviewKind };
 
@@ -13,73 +15,7 @@ export const THUMBNAIL_FORMAT = 2;
 export const previewKind = (path: string): PreviewKind | null => previewOf(path);
 
 /** What a dependency walk can read: the project's files and the text of its text files. */
-export interface DependencySource {
-  readonly files: readonly string[];
-  /** A text file's text (JSON, .obj, .mtl), or undefined for binaries and missing files. */
-  text(path: string): string | undefined;
-}
-
-const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
-const join = (folder: string, name: string) => (folder ? `${folder}/${name}` : name).replace(/\\/g, "/");
-
-/** Paths named in an asset's JSON: every string that is a project file (with or without `asset:`). */
-function jsonReferences(text: string, files: ReadonlySet<string>): string[] {
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    return [];
-  }
-  const out = new Set<string>();
-  const walk = (v: unknown) => {
-    if (typeof v === "string") {
-      const p = v.replace(/^asset:/, "").split("#")[0];
-      if (files.has(p)) out.add(p);
-    } else if (Array.isArray(v)) v.forEach(walk);
-    else if (v && typeof v === "object") Object.values(v).forEach(walk);
-  };
-  walk(value);
-  return [...out];
-}
-
-/** An .obj's material libraries, and an .mtl's texture maps, relative to the file. */
-function wavefrontReferences(path: string, text: string, files: ReadonlySet<string>): string[] {
-  const out: string[] = [];
-  const folder = folderOf(path);
-  for (const line of text.split(/\r?\n/)) {
-    const m = /^\s*(mtllib|map_\w+|bump|disp|norm)\s+(.+?)\s*$/i.exec(line);
-    if (!m) continue;
-    // Options (`-bm 1 file.png`) come first; the file is the last token.
-    const name = m[2].split(/\s+/).pop()!;
-    const p = join(folder, name);
-    if (files.has(p)) out.push(p);
-  }
-  return out;
-}
-
-/** A .gltf's external buffers and images, relative to the file (ADR 0088). */
-function gltfReferences(path: string, text: string, files: ReadonlySet<string>): string[] {
-  let json: { buffers?: { uri?: unknown }[]; images?: { uri?: unknown }[] };
-  try {
-    json = JSON.parse(text);
-  } catch {
-    return [];
-  }
-  const folder = folderOf(path);
-  const out: string[] = [];
-  for (const item of [...(json.buffers ?? []), ...(json.images ?? [])]) {
-    if (typeof item?.uri !== "string" || item.uri.startsWith("data:")) continue;
-    let name = item.uri;
-    try {
-      name = decodeURIComponent(name);
-    } catch {
-      // kept as written
-    }
-    const p = join(folder, name.replace(/^\.\//, ""));
-    if (files.has(p)) out.push(p);
-  }
-  return out;
-}
+export type DependencySource = ReferenceSource;
 
 /**
  * Every file an asset's preview depends on, besides the asset itself, sorted: textures, shader
@@ -92,12 +28,7 @@ export function previewDependencies(path: string, source: DependencySource): str
   const stack = [path];
   while (stack.length) {
     const p = stack.pop()!;
-    const refs: string[] = [];
-    const text = source.text(p);
-    const lower = p.toLowerCase();
-    if (text !== undefined && lower.endsWith(".json")) refs.push(...jsonReferences(text, files));
-    else if (text !== undefined && /\.(obj|mtl)$/.test(lower)) refs.push(...wavefrontReferences(p, text, files));
-    else if (text !== undefined && lower.endsWith(".gltf")) refs.push(...gltfReferences(p, text, files));
+    const refs = assetDependencies(source, p);
     const sidecar = sidecarPath(p);
     if (files.has(sidecar)) refs.push(sidecar);
     for (const r of refs) {
