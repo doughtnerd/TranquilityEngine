@@ -80,30 +80,34 @@ impl<T: Copy, const N: usize> List<T, N> {
 
     /// Appends `item`; `false` (and no change) when the list holds `N` items already.
     pub fn push(&mut self, item: T) -> bool {
-        let _ = item;
-        todo!("A0.3-L2")
+        if self.is_full() {
+            return false;
+        }
+        self.items[self.len as usize] = item;
+        self.len += 1;
+        true
     }
 
     /// The items pushed since the last `clear`, oldest first.
     pub fn as_slice(&self) -> &[T] {
-        todo!("A0.3-L2")
+        &self.items[..self.len as usize]
     }
 
     pub fn len(&self) -> usize {
-        todo!("A0.3-L2")
+        self.len as usize
     }
 
     pub fn is_empty(&self) -> bool {
-        todo!("A0.3-L2")
+        self.len == 0
     }
 
     pub fn is_full(&self) -> bool {
-        todo!("A0.3-L2")
+        self.len as usize >= N
     }
 
     /// Empties the list (the items' bytes may stay; only `len` matters).
     pub fn clear(&mut self) {
-        todo!("A0.3-L2")
+        self.len = 0;
     }
 }
 
@@ -186,49 +190,62 @@ impl Counters {
     /// Records the work units of the quantum just rendered: sets `work_units` and raises
     /// `work_units_max`.
     pub fn note_work_units(&mut self, units: u32) {
-        let _ = units;
-        todo!("A0.3-L2")
+        self.work_units = units;
+        self.work_units_max = self.work_units_max.max(units);
     }
 
     /// Counts one late stamped record (architecture §4.4): `late_commands` + 1 (wrapping) and
     /// raises `max_lateness_frames` to `lateness_frames`.
     pub fn note_late(&mut self, lateness_frames: u32) {
-        let _ = lateness_frames;
-        todo!("A0.3-L2")
+        self.late_commands = self.late_commands.wrapping_add(1);
+        self.max_lateness_frames = self.max_lateness_frames.max(lateness_frames);
     }
 
     /// Lowers the block's minimum slack to `frames` (the first note in a block sets it).
     pub fn note_slack(&mut self, frames: i32) {
-        let _ = frames;
-        todo!("A0.3-L2")
+        if self.slack_noted == 0 {
+            self.min_slack = frames;
+            self.slack_noted = 1;
+        } else {
+            self.min_slack = self.min_slack.min(frames);
+        }
     }
 
     /// The block's minimum slack, or 0 when `note_slack` wasn't called since the last block.
     pub fn min_slack_frames(&self) -> i32 {
-        todo!("A0.3-L2")
+        if self.slack_noted != 0 {
+            self.min_slack
+        } else {
+            0
+        }
     }
 
     /// Sets (`on`) or clears the [`flag`] bits in `bits`.
     pub fn set_flag(&mut self, bits: u32, on: bool) {
-        let _ = (bits, on);
-        todo!("A0.3-L2")
+        if on {
+            self.flags |= bits;
+        } else {
+            self.flags &= !bits;
+        }
     }
 
     /// Sets bus `bus`'s peak; `false` (and no change) when `bus >= PEAKS_CAP`.
     pub fn set_peak(&mut self, bus: usize, l: f32, r: f32) -> bool {
-        let _ = (bus, l, r);
-        todo!("A0.3-L2")
+        if bus >= PEAKS_CAP {
+            return false;
+        }
+        self.peaks[bus] = Peak { l, r };
+        true
     }
 
     /// Sets `bus_count`, clamped to `PEAKS_CAP`.
     pub fn set_bus_count(&mut self, count: usize) {
-        let _ = count;
-        todo!("A0.3-L2")
+        self.bus_count = count.min(PEAKS_CAP) as u16;
     }
 
     /// The peaks that are sent: `peaks[..bus_count]`.
     pub fn sent_peaks(&self) -> &[Peak] {
-        todo!("A0.3-L2")
+        &self.peaks[..self.bus_count as usize]
     }
 
     /// Called by the writer after it serialised a block: clears the six section lists and resets
@@ -236,7 +253,17 @@ impl Counters {
     /// to 0, `abi_version` to 0). Cumulative counts, instant values, `flags`, `bus_count` and
     /// `peaks` are kept.
     pub fn end_block(&mut self) {
-        todo!("A0.3-L2")
+        self.ended.clear();
+        self.demoted.clear();
+        self.starved.clear();
+        self.playheads.clear();
+        self.clip_events.clear();
+        self.stream_events.clear();
+        self.work_units_max = 0;
+        self.slack_noted = 0;
+        self.min_slack = 0;
+        self.max_lateness_frames = 0;
+        self.abi_version = 0;
     }
 }
 
@@ -254,38 +281,152 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "A0.3-L2"]
-    fn a_zeroed_list_is_empty() {}
+    fn a_zeroed_list_is_empty() {
+        let c = Counters::default();
+        assert_eq!(c.ended.len(), 0);
+        assert!(c.ended.is_empty());
+        assert!(!c.ended.is_full());
+        assert!(c.ended.as_slice().is_empty());
+        assert!(c.playheads.is_empty());
+        assert_eq!(List::<Event, CLIP_EVENTS_CAP>::CAPACITY, CLIP_EVENTS_CAP);
+    }
 
     #[test]
-    #[ignore = "A0.3-L2"]
-    fn push_fills_to_capacity_then_refuses() {}
+    fn push_fills_to_capacity_then_refuses() {
+        let mut c = Counters::default();
+        for i in 0..ENDED_CAP as u32 {
+            assert!(c.ended.push(i));
+        }
+        assert!(c.ended.is_full());
+        assert_eq!(c.ended.len(), ENDED_CAP);
+        assert!(!c.ended.push(9_999));
+        assert_eq!(c.ended.len(), ENDED_CAP);
+        let items = c.ended.as_slice();
+        assert_eq!(items.first(), Some(&0));
+        assert_eq!(items.last(), Some(&(ENDED_CAP as u32 - 1)));
+    }
 
     #[test]
-    #[ignore = "A0.3-L2"]
-    fn clear_empties_a_list() {}
+    fn clear_empties_a_list() {
+        let mut c = Counters::default();
+        for i in 0..3 {
+            assert!(c.playheads.push(Playhead { id: i, clip_frame: i * 10 }));
+        }
+        assert_eq!(c.playheads.len(), 3);
+        c.playheads.clear();
+        assert!(c.playheads.is_empty());
+        assert!(c.playheads.as_slice().is_empty());
+        assert!(c.playheads.push(Playhead { id: 7, clip_frame: 70 }));
+        assert_eq!(c.playheads.as_slice(), &[Playhead { id: 7, clip_frame: 70 }]);
+    }
 
     #[test]
-    #[ignore = "A0.3-L2"]
-    fn work_units_keep_the_last_and_the_max() {}
+    fn work_units_keep_the_last_and_the_max() {
+        let mut c = Counters::default();
+        c.note_work_units(5);
+        c.note_work_units(3);
+        assert_eq!(c.work_units, 3);
+        assert_eq!(c.work_units_max, 5);
+        c.note_work_units(9);
+        assert_eq!((c.work_units, c.work_units_max), (9, 9));
+        c.note_work_units(2);
+        assert_eq!((c.work_units, c.work_units_max), (2, 9));
+    }
 
     #[test]
-    #[ignore = "A0.3-L2"]
-    fn late_records_count_and_keep_the_max_lateness() {}
+    fn late_records_count_and_keep_the_max_lateness() {
+        let mut c = Counters::default();
+        c.note_late(10);
+        c.note_late(4);
+        assert_eq!(c.late_commands, 2);
+        assert_eq!(c.max_lateness_frames, 10);
+        c.late_commands = u32::MAX;
+        c.note_late(0);
+        assert_eq!(c.late_commands, 0, "the count wraps");
+    }
 
     #[test]
-    #[ignore = "A0.3-L2"]
-    fn slack_is_the_block_minimum_and_zero_when_unnoted() {}
+    fn slack_is_the_block_minimum_and_zero_when_unnoted() {
+        let mut c = Counters::default();
+        assert_eq!(c.min_slack_frames(), 0);
+        c.note_slack(7);
+        assert_eq!(c.min_slack_frames(), 7);
+        c.note_slack(9);
+        assert_eq!(c.min_slack_frames(), 7);
+        c.note_slack(-3);
+        assert_eq!(c.min_slack_frames(), -3);
+        c.end_block();
+        assert_eq!(c.min_slack_frames(), 0, "unnoted again after a block");
+        c.note_slack(5);
+        assert_eq!(c.min_slack_frames(), 5, "the new block's first note sets it, not the old -3");
+    }
 
     #[test]
-    #[ignore = "A0.3-L2"]
-    fn flags_set_and_clear_only_their_bits() {}
+    fn flags_set_and_clear_only_their_bits() {
+        let mut c = Counters::default();
+        c.set_flag(flag::ARENA_FULL | flag::READY, true);
+        assert_eq!(c.flags, flag::ARENA_FULL | flag::READY);
+        c.set_flag(flag::ARENA_FULL, false);
+        assert_eq!(c.flags, flag::READY);
+        c.set_flag(flag::READY, false);
+        c.set_flag(flag::TRAP_CAUGHT, false);
+        assert_eq!(c.flags, 0);
+    }
 
     #[test]
-    #[ignore = "A0.3-L2"]
-    fn peaks_past_the_cap_are_refused_and_bus_count_clamps() {}
+    fn peaks_past_the_cap_are_refused_and_bus_count_clamps() {
+        let mut c = Counters::default();
+        assert!(c.set_peak(PEAKS_CAP - 1, 0.5, 0.25));
+        assert!(!c.set_peak(PEAKS_CAP, 1.0, 1.0));
+        assert_eq!(c.peaks[PEAKS_CAP - 1], Peak { l: 0.5, r: 0.25 });
+
+        c.set_bus_count(100);
+        assert_eq!(c.bus_count as usize, PEAKS_CAP);
+        assert_eq!(c.sent_peaks().len(), PEAKS_CAP);
+
+        assert!(c.set_peak(1, 0.1, 0.2));
+        c.set_bus_count(2);
+        assert_eq!(c.sent_peaks(), &[Peak::default(), Peak { l: 0.1, r: 0.2 }]);
+    }
 
     #[test]
-    #[ignore = "A0.3-L2"]
-    fn end_block_clears_sections_and_per_block_fields_only() {}
+    fn end_block_clears_sections_and_per_block_fields_only() {
+        let mut c = Counters::default();
+        assert!(c.ended.push(1));
+        assert!(c.demoted.push(2));
+        assert!(c.starved.push(3));
+        assert!(c.playheads.push(Playhead { id: 4, clip_frame: 5 }));
+        assert!(c.clip_events.push(Event { id: 6, code: 1 }));
+        assert!(c.stream_events.push(Event { id: 7, code: 2 }));
+        c.note_work_units(8);
+        c.note_late(3);
+        c.note_slack(2);
+        c.set_flag(flag::READY, true);
+        c.underruns = 4;
+        c.current_frame = 1.0;
+        c.abi_version = 99;
+        c.set_bus_count(2);
+        assert!(c.set_peak(0, 0.5, 0.5));
+
+        c.end_block();
+
+        assert!(c.ended.is_empty());
+        assert!(c.demoted.is_empty());
+        assert!(c.starved.is_empty());
+        assert!(c.playheads.is_empty());
+        assert!(c.clip_events.is_empty());
+        assert!(c.stream_events.is_empty());
+        assert_eq!(c.work_units_max, 0);
+        assert_eq!(c.min_slack_frames(), 0);
+        assert_eq!(c.max_lateness_frames, 0);
+        assert_eq!(c.abi_version, 0);
+
+        assert_eq!(c.late_commands, 1);
+        assert_eq!(c.underruns, 4);
+        assert_eq!(c.current_frame, 1.0);
+        assert_eq!(c.work_units, 8);
+        assert_eq!(c.flags, flag::READY);
+        assert_eq!(c.bus_count, 2);
+        assert_eq!(c.peaks[0], Peak { l: 0.5, r: 0.5 });
+    }
 }
