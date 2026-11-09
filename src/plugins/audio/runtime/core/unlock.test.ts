@@ -202,4 +202,87 @@ describe("Unlock", () => {
     target.dispatchEvent(new Event("pointerdown"));
     expect(context.resume).not.toHaveBeenCalled();
   });
+
+  describe("watch (re-arm)", () => {
+    it("a simulated interrupt after unlock re-arms, and the next gesture resumes", async () => {
+      const { target, context, onUnlocked, unlock } = setup();
+      unlock.watch();
+      expect(unlock.armed).toBe(true);
+      context.state = "running";
+      context.fireStateChange();
+      expect(unlock.armed).toBe(false);
+      expect(onUnlocked).toHaveBeenCalledTimes(1);
+      expect(context.listenerCount()).toBe(1);
+
+      const add = vi.spyOn(target, "addEventListener");
+      context.state = "interrupted";
+      context.fireStateChange();
+      expect(unlock.armed).toBe(true);
+      expect(add).toHaveBeenCalledWith("pointerdown", expect.any(Function), captureOptions);
+      expect(add).toHaveBeenCalledWith("keydown", expect.any(Function), captureOptions);
+
+      context.resume.mockImplementation(async () => {
+        context.state = "running";
+      });
+      target.dispatchEvent(new Event("pointerdown"));
+      expect(context.resume).toHaveBeenCalledTimes(1);
+      await settle();
+      expect(unlock.armed).toBe(false);
+      expect(onUnlocked).toHaveBeenCalledTimes(2);
+    });
+
+    it("an unrequested suspend re-arms; a page-requested one doesn't", () => {
+      const { context, unlock } = setup("running");
+      let byPage = true;
+      unlock.watch(() => byPage);
+      expect(unlock.armed).toBe(false);
+
+      context.state = "suspended";
+      context.fireStateChange();
+      expect(unlock.armed).toBe(false);
+
+      byPage = false;
+      context.state = "running";
+      context.fireStateChange();
+      context.state = "suspended";
+      context.fireStateChange();
+      expect(unlock.armed).toBe(true);
+    });
+
+    it("interrupted re-arms even when the page asked for a suspend", () => {
+      const { context, unlock } = setup("running");
+      unlock.watch(() => true);
+      context.state = "interrupted";
+      context.fireStateChange();
+      expect(unlock.armed).toBe(true);
+    });
+
+    it("a rejected or non-running resume leaves it armed for the next gesture", async () => {
+      const { target, context, unlock } = setup("interrupted");
+      unlock.watch();
+      context.resume.mockImplementationOnce(() => Promise.reject(new Error("no")));
+      target.dispatchEvent(new Event("keydown"));
+      await settle();
+      expect(unlock.armed).toBe(true);
+      target.dispatchEvent(new Event("keydown"));
+      await settle();
+      expect(unlock.armed).toBe(true);
+      expect(context.resume).toHaveBeenCalledTimes(2);
+      expect(unhandled).not.toHaveBeenCalled();
+    });
+
+    it("dispose removes everything; no re-arm afterwards", () => {
+      const { target, context, unlock } = setup("running");
+      unlock.watch();
+      expect(context.listenerCount()).toBe(1);
+      unlock.dispose();
+      expect(context.listenerCount()).toBe(0);
+      context.state = "interrupted";
+      context.fireStateChange();
+      unlock.watch();
+      expect(unlock.armed).toBe(false);
+      target.dispatchEvent(new Event("pointerdown"));
+      expect(context.resume).not.toHaveBeenCalled();
+    });
+  });
 });
