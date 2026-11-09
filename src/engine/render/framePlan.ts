@@ -50,7 +50,8 @@ export interface FrameInput {
   overlay: boolean;
   /**
    * The camera-preview inset (ADR 0022), or null: its camera, its rectangle on the canvas (measured by
-   * the renderer), the inset's width/height ratio, and whether its own screen UI is ready to draw.
+   * the editor's viewport handle, ADR 0163), the inset's width/height ratio, and whether its own screen
+   * UI is ready to draw.
    */
   preview: { camera: Camera; rect: ViewRect; aspect: number; ui: boolean } | null;
 }

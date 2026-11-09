@@ -20,7 +20,7 @@ import type { Camera, ReflectionProbe } from "./components";
 import { SpriteRenderer } from "./components";
 import type { LocalPose } from "./gizmoMath";
 import type { ParticlePreviewSettings } from "./RenderSurface";
-import type { ParticlePreview, RenderPolicyPort } from "./renderPolicy";
+import { sameInset, type ParticlePreview, type PreviewInset, type RenderPolicyPort } from "./renderPolicy";
 
 /** @internal Editor gizmo settings (ADR 0022). */
 export interface GizmoOptions {
@@ -234,15 +234,20 @@ export class ViewportHandle implements EditorViewport {
   /** Whether this handle put the renderer in particle preview mode (an editor World's scene view). */
   private previewing = false;
   private perObjectSet = false;
+  /** The camera preview the editor asked for, and what was last handed to the policy (ADR 0163). */
+  private preview: { camera: Camera; frame: HTMLElement } | null = null;
+  private previewShown: { camera: Camera; inset: PreviewInset } | null = null;
 
   /**
    * `policy` is the surface's render policy port. An eager handle (an editor World) sets the scene
-   * view policy at once, before the editor tools exist.
+   * view policy at once, before the editor tools exist. `measure` says where the camera preview's
+   * frame lies on the surface's canvas (ADR 0163); without it (headless) no preview is drawn.
    */
   constructor(
     private readonly connect: () => ViewportAdapter | null,
     private readonly policy: RenderPolicyPort,
     eager = false,
+    private readonly measure: ((frame: HTMLElement) => PreviewInset | null) | null = null,
   ) {
     this.wanted = eager;
     if (eager) {
@@ -322,7 +327,22 @@ export class ViewportHandle implements EditorViewport {
   }
 
   setCameraPreview(camera: Camera | null, frame: HTMLElement | null): void {
-    this.policy.setPolicy({ cameraPreview: camera && frame ? { camera, frame } : null });
+    this.preview = camera && frame ? { camera, frame } : null;
+    this.measurePreview();
+  }
+
+  /**
+   * The surface calls this every frame, before the renderer's sync (ADR 0163): measure the camera
+   * preview's frame once and hand the renderer its inset when it changed. The renderer never reads the DOM.
+   */
+  measurePreview(): void {
+    const p = this.preview;
+    const inset = p && this.measure ? this.measure(p.frame) : null;
+    const next = p && inset ? { camera: p.camera, inset } : null;
+    const was = this.previewShown;
+    if (next ? was?.camera === next.camera && sameInset(was.inset, next.inset) : !was) return;
+    this.previewShown = next;
+    this.policy.setPolicy({ cameraPreview: next });
   }
 
   setParticlePreview(preview: Partial<ParticlePreviewSettings>): void {

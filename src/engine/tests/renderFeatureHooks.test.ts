@@ -70,7 +70,7 @@ describe("render feature hooks (ADR 0154)", () => {
     expect(renderer.diagnostics().features).toEqual({ fake: { count: 3 } });
     expect(renderer.uiState()).toBe(f.core);
 
-    const add = vi.spyOn((renderer as unknown as { warmer: { add(items: unknown[]): Promise<void> } }).warmer, "add");
+    const add = vi.spyOn((renderer as unknown as { readiness: { warmer: { add(items: unknown[]): Promise<void> } } }).readiness.warmer, "add");
     void renderer.warmUp(EFFECTS);
     expect(add).toHaveBeenCalledWith([expect.objectContaining({ key: "fake:fx.particles.json" })]);
   });
@@ -95,7 +95,7 @@ describe("render feature hooks (ADR 0154)", () => {
     const load = vi.fn(async () => factory);
     const spec: RenderFeatureSpec = { name: "lazyFx", phase: "effects", types: [], lazy: true, warms: (c) => c.effects.length > 0 };
     make([{ registration: { spec, load }, factory: null }]);
-    const add = vi.spyOn((renderer as unknown as { warmer: { add(items: unknown[]): Promise<void> } }).warmer, "add");
+    const add = vi.spyOn((renderer as unknown as { readiness: { warmer: { add(items: unknown[]): Promise<void> } } }).readiness.warmer, "add");
     await renderer.warmUp(NOTHING);
     expect(load).not.toHaveBeenCalled();
     void renderer.warmUp(EFFECTS);
@@ -110,7 +110,7 @@ describe("render feature hooks (ADR 0154)", () => {
     const loadWarm = vi.fn(async () => warmFactory);
     const spec: RenderFeatureSpec = { name: "lazyUI", phase: "overlay", types: [], lazy: true, warms: (c) => c.worldUI };
     make([{ registration: { spec, load, loadWarm }, factory: null }]);
-    const add = vi.spyOn((renderer as unknown as { warmer: { add(items: unknown[]): Promise<void> } }).warmer, "add");
+    const add = vi.spyOn((renderer as unknown as { readiness: { warmer: { add(items: unknown[]): Promise<void> } } }).readiness.warmer, "add");
     void renderer.warmUp({ ...NOTHING, worldUI: true });
     void renderer.warmUp({ ...NOTHING, worldUI: true });
     await vi.waitFor(() => expect(add).toHaveBeenCalledWith([expect.objectContaining({ key: "canvas" })]));

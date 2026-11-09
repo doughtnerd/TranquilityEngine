@@ -84,10 +84,12 @@ rectangle. A camera rig module would move those lines, not concentrate them (del
 
 ## Deprecates
 
-- `BabylonRenderer.warmSource`, `rewarmOnTierChange`, `previewInput`'s DOM reads, its twelve readiness fields and
-  `ThumbnailPolicy`-gated null branches: removed. `FirstFrames` and `pipelineTierKey` move from
-  `asyncPipelines.ts` / `BabylonRenderer.ts` to `pipelineReadiness.ts`.
-- `RenderPolicy.cameraPreview.frame`: replaced by `inset`.
+- `BabylonRenderer.warmSource`, `rewarmOnTierChange`, the DOM reads in `previewRect` / `previewInput`, its twelve
+  readiness fields and the thumbnail branches for the async pipelines and effect clock: removed (977 → 891 lines).
+  The thumbnail flag stays for the shared studio room, graph Time on sync, and not disposing the engine.
+  `FirstFrames` and `pipelineTierKey` move from `asyncPipelines.ts` / `BabylonRenderer.ts` to `pipelineReadiness.ts`.
+- `RenderPolicy.cameraPreview.frame`: replaced by `inset`. The canvas's size in the arithmetic is now its client
+  rect's (it was `clientWidth`/`clientHeight`, the same for a canvas without borders).
 
 ## Open questions
 
@@ -98,4 +100,5 @@ rectangle. A camera rig module would move those lines, not concentrate them (del
 - `src/engine/render/babylon/pipelineReadiness.ts`, `asyncPipelines.ts`, `warmUp.ts`, `BabylonRenderer.ts`,
   `feature.ts` (`warmSource`), `BabylonSurface.ts`.
 - `src/engine/render/renderPolicy.ts` (`PreviewInset`, `previewInset`), `src/engine/render/editorViewport.ts`.
-- Tests: `src/engine/tests/pipelineReadiness.test.ts`, `asyncPipelines.test.ts`, `viewportPolicy.test.ts`.
+- Tests: `src/engine/tests/pipelineReadiness.test.ts`, `asyncPipelines.test.ts`, `viewportPolicy.test.ts`,
+  `babylonEditorViewport.test.ts` (the preview planned from the policy's inset), `renderFeatureHooks.test.ts`.

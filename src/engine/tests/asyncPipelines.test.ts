@@ -3,7 +3,7 @@
 // the members it reads: a miss while active starts one async compile per state and skips that draw,
 // the compiled pipeline then comes from the cache, and the clear quad's lookups pass straight through.
 import { describe, expect, it } from "vitest";
-import { AsyncPipelines, FirstFrames } from "../render/babylon/asyncPipelines";
+import { AsyncPipelines } from "../render/babylon/asyncPipelines";
 
 function fakes() {
   const stored = new Map<string, object>();
@@ -87,7 +87,7 @@ describe("async warm-up pipelines (ADR 0080)", () => {
   });
 });
 
-describe("a World's first frames (ADR 0120)", () => {
+describe("skipped draws a held first frame would have shown (ADR 0120)", () => {
   it("counts skipped draws that would have shown apart from the warmer's own", () => {
     const f = fakes();
     let warm = true;
@@ -99,30 +99,5 @@ describe("a World's first frames (ADR 0120)", () => {
     expect(a.skipped).toBe(2);
     expect(a.skippedShown).toBe(1);
     a.dispose();
-  });
-
-  it("holds every frame until the content has loaded and a frame draws complete, then never again", () => {
-    const ff = new FirstFrames(3000);
-    expect(ff.begin(false, 0)).toBe(false); // the graph isn't ready: the view shows the clear colour anyway
-    expect(ff.begin(true, 100)).toBe(true);
-    expect(ff.end(true, true, 100)).toBe(true); // a draw was skipped: held
-    expect(ff.begin(true, 116)).toBe(true);
-    expect(ff.end(false, false, 116)).toBe(true); // complete, but textures are still loading: held
-    expect(ff.begin(true, 132)).toBe(true);
-    expect(ff.end(false, true, 132)).toBe(false); // complete and loaded: shown
-    expect(ff.done).toBe(true);
-    expect(ff.begin(true, 148)).toBe(false); // later frames (a rebuilt graph) compile as they draw
-    expect(ff.end(true, true, 148)).toBe(false);
-  });
-
-  it("stops holding after its time limit, counted from the first frame", () => {
-    const ff = new FirstFrames(1000);
-    ff.begin(false, 0);
-    expect(ff.begin(true, 900)).toBe(true);
-    expect(ff.end(true, false, 900)).toBe(true);
-    expect(ff.begin(true, 1001)).toBe(true);
-    expect(ff.end(true, false, 1001)).toBe(true); // this frame is still missing draws: covered
-    expect(ff.done).toBe(true);
-    expect(ff.begin(true, 1017)).toBe(false);
   });
 });

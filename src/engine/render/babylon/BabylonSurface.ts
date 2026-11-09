@@ -18,7 +18,7 @@ import { CanvasCssSize } from "../canvasCssSize";
 import { fitCanvas } from "../canvasFit";
 import { ViewportHandle, type EditorViewport } from "../editorViewport";
 import { appliedPixelRatio, noRenderDiagnostics, type PixelGrid, type RenderDiagnostics, type RenderSurface } from "../RenderSurface";
-import { GAME_POLICY, type RenderPolicy, type RenderPolicyPort } from "../renderPolicy";
+import { GAME_POLICY, previewInset, type RenderPolicy, type RenderPolicyPort } from "../renderPolicy";
 import type { BabylonRenderer } from "./BabylonRenderer";
 
 /** @internal The Babylon.js render surface (ADR 0075). */
@@ -146,12 +146,13 @@ export class BabylonSurface implements RenderSurface {
     this.claim(world);
     if (!this.renderer) return;
     if (Graphics._version !== this.appliedQuality) this.applyQuality();
+    this.viewport?.measurePreview(); // the camera preview inset, measured once a frame (ADR 0163)
     this.renderer.sync(world);
     this.viewport?.poll(); // hand the editor's state over once the tools have loaded
   }
 
   editorViewport(): EditorViewport {
-    return (this.viewport ??= new ViewportHandle(() => this.renderer?.editorTools() ?? null, this.policyPort, this.fill));
+    return (this.viewport ??= new ViewportHandle(() => this.renderer?.editorTools() ?? null, this.policyPort, this.fill, (frame) => previewInset(this.canvas.getBoundingClientRect(), frame.getBoundingClientRect())));
   }
 
   diagnostics(): RenderDiagnostics {
