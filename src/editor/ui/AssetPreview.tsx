@@ -3,8 +3,7 @@
 // larger previews. Thumbnails come from `../thumbnails` (rendered once, cached by content).
 import { effect, signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { AssetKind, BuiltinAssetKind } from "../assetBrowser";
-import { kindIcon } from "../assetKindLookup";
+import { assetKindInfo, type AssetKind } from "../assetKinds";
 import { autoPlayAudio } from "../preferences";
 import { animateThumbnail, audioSummaryFor, canAnimate, contentKeyFor, previewAsset, previewKind, thumbnailFor, holdThumbnail, type AssetPreviewHandle, type AudioSummary } from "../thumbnails";
 import { currentProject, docVersion } from "../state";
@@ -108,7 +107,7 @@ export function TileThumbnail(props: { path: string; kind: AssetKind | "folder";
   const visible = useVisible(host);
   const url = useThumbnail(path, visible);
   const animating = useHoverAnimation(path, host, canvas);
-  const audio = kind === "audio";
+  const audio = kind !== "folder" && assetKindInfo(kind)?.preview === "audio"; // a waveform, not a rendered thumbnail
   return (
     <div ref={host} class={`asset-preview${url || audio ? " has-preview" : ""}`}>
       {url ? <img class="asset-rendered" src={url} alt="" draggable={false} /> : audio ? <TileWaveform path={path} active={visible} /> : <KindIcon kind={kind} />}
@@ -121,7 +120,8 @@ export function TileThumbnail(props: { path: string; kind: AssetKind | "folder";
 
 /** An icon for kinds without a rendered preview (or while one loads). */
 export function KindIcon(props: { kind: AssetKind | "folder" }) {
-  const d = kindIcon(props.kind) ?? ICONS[props.kind as BuiltinAssetKind | "folder"] ?? ICONS.other; // a registered kind's icon first (ADR 0133)
+  // The kind's own icon (ADR 0134); a kind since unregistered draws as a plain file.
+  const d = props.kind === "folder" ? FOLDER_ICON : (assetKindInfo(props.kind) ?? assetKindInfo("other"))?.icon;
   return (
     <svg class="asset-icon" viewBox="0 0 24 24" aria-hidden="true">
       <path d={d} />
@@ -129,20 +129,7 @@ export function KindIcon(props: { kind: AssetKind | "folder" }) {
   );
 }
 
-const ICONS: Partial<Record<BuiltinAssetKind | "folder", string>> & { other: string } = {
-  folder: "M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z",
-  scene: "M4 5h16v14H4zM4 15l4.5-4.5 3.5 3.5 2.5-2.5L20 17M15.5 8.5h.01",
-  prefab: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM12 12l8-4.5M12 12v9M12 12L4 7.5",
-  script: "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12",
-  javascript: "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12",
-  typescript: "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12",
-  xml: "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12",
-  text: "M7 3h7l5 5v13H7zM14 3v5h5M10 12h6M10 15h6M10 18h4",
-  json: "M9 4H8a2 2 0 0 0-2 2v3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3a2 2 0 0 1-2 2h-1",
-  audio: "M9 17V6l10-2v11M9 17a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM19 15a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z",
-  rendertexture: "M4 5h16v14H4zM8 9h8v6H8zM4 5l4 4M20 5l-4 4M4 19l4-4M20 19l-4-4",
-  other: "M7 3h7l5 5v13H7zM14 3v5h5",
-};
+const FOLDER_ICON = "M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2h8.5A1.5 1.5 0 0 1 21 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z";
 
 // --- audio ----------------------------------------------------------------------------------------
 

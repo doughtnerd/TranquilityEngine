@@ -1,25 +1,20 @@
 // Asset thumbnails (ADR 0061): which assets get a rendered preview, what each preview depends on,
 // and the content key that names its cached file. Pure apart from hashing (WebCrypto), so the
 // rules are unit-tested.
-import { matchRegisteredKind } from "../assetKindLookup";
+import { assetKindFor } from "../assetKinds";
+import type { AssetPreviewRenderer } from "../sdk/contributions";
 import { isSidecarPath, sidecarPath } from "../../engine/scene/importSettings";
 
 /** Bumped when the renderer's look changes, so every cached thumbnail is rendered again. */
 export const THUMBNAIL_FORMAT = 2;
 
-/** Assets with a rendered preview (images and sprite slices are shown as they are). */
-export type PreviewKind = "model" | "material" | "shadergraph" | "environment" | "sky" | "particles" | "prefab" | "scene" | "audio";
+/** Assets with a rendered preview (images and sprite slices are shown as they are): a kind's `preview` renderer. */
+export type PreviewKind = AssetPreviewRenderer;
 
-/** The preview an asset gets, or null for none. */
+/** The preview an asset gets (its kind's `preview`, ADR 0133), or null for none. */
 export function previewKind(path: string): PreviewKind | null {
-  const p = path.toLowerCase();
-  if (p.includes("#") || isSidecarPath(p)) return null;
-  const registered = matchRegisteredKind(p)?.kind.preview; // a registered kind's renderer (ADR 0133)
-  if (registered) return registered;
-  if (p.endsWith(".prefab.json")) return "prefab";
-  if (p.endsWith(".scene.json")) return "scene";
-  if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";
-  return null;
+  if (path.includes("#") || isSidecarPath(path)) return null;
+  return assetKindFor(path)?.preview ?? null;
 }
 
 /** What a dependency walk can read: the project's files and the text of its text files. */

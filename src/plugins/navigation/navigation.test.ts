@@ -6,7 +6,6 @@ import { assetKind } from "../../editor/assetBrowser";
 import { _reset, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { inspectorSectionsFor, registeredInspectorSections } from "../../editor/ui/inspectorSections";
 import { assetFormats, assetKinds, panelExtensions, projectSettingsSections } from "../../editor/sdk/contributions";
@@ -17,6 +16,7 @@ import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { navigationEditorPlugin } from "./editor";
 import { navigationRuntimePlugin } from "./runtime";
+import { assetKindInfo } from "../../editor/assetKinds";
 
 const FORMATION = "navigation/wedge.formation.json";
 
@@ -48,8 +48,8 @@ describe("the Navigation plugin's editor half (ADR 0134)", () => {
   it("registers the formation asset kind: matching, label, icon, inspector and formation fields", () => {
     expect(assetKind(FORMATION)).toBe("formation");
     expect(assetKind("Wedge.FORMATION.json")).toBe("formation");
-    expect(kindLabel("formation")).toBe("Formation");
-    expect(kindIcon("formation")).toMatch(/^M/);
+    expect(assetKindInfo("formation")?.label).toBe("Formation");
+    expect(assetKindInfo("formation")?.icon).toMatch(/^M/);
     expect(inspectableAsset(FORMATION)).toBe(FORMATION);
     expect(acceptsFile("formation", FORMATION)).toBe(true);
     expect(acceptsFile("tileset", FORMATION)).toBe(false);
@@ -110,7 +110,7 @@ describe("the Navigation plugin's editor half (ADR 0134)", () => {
   it("removes everything when deactivated", () => {
     deactivatePlugin("myco.navigation");
     expect(isPluginActive("myco.navigation")).toBe(false);
-    expect(kindLabel("formation")).toBeUndefined();
+    expect(assetKindInfo("formation")?.label).toBeUndefined();
     expect(assetFormats.get("formation")).toBeUndefined();
     expect(projectSettingsSections.list()).toEqual([]);
     expect(panelExtensions.list()).toEqual([]);

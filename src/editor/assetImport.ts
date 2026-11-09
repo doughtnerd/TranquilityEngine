@@ -9,18 +9,16 @@ import {
   sidecarPath,
   type ImportSettings,
 } from "../engine/scene/importSettings";
-import { assetKind, folderOf, isSliceEntry, splitSliceEntry } from "./assetBrowser";
-import { registeredKind } from "./assetKindLookup";
+import { folderOf, isSliceEntry, splitSliceEntry } from "./assetBrowser";
+import { assetKindFor } from "./assetKinds";
+import type { ImportSettingsSection } from "./sdk/contributions";
 import { openFolder, select as selectAssets, selectedAssets } from "./assetSelection";
 import type { EditorProject } from "./projects";
 import { select as selectNodes, selectedKeys } from "./state";
 
-export type ImportKind = "image" | "audio" | "model";
-
-/** The kind of import settings an asset has, or null if it has none. */
-export function importKind(path: string): ImportKind | null {
-  const kind = assetKind(path);
-  return kind === "image" || kind === "audio" || kind === "model" ? (kind as ImportKind) : null;
+/** The kind of import settings an asset has (its kind's `importSettings`: images, audio, models), or null if it has none. */
+export function importKind(path: string): ImportSettingsSection | null {
+  return assetKindFor(path)?.importSettings ?? null;
 }
 
 export interface ReadSettings {
@@ -51,14 +49,11 @@ export async function writeImportSettings(project: EditorProject, path: string, 
 /** True if two settings would write the same sidecar. */
 export const sameSettings = (a: ImportSettings, b: ImportSettings) => formatImportSettings(a) === formatImportSettings(b);
 
-/** Built-in asset kinds the Inspector has an editor or preview for, besides files with import settings (registered kinds bring their own `inspector`). */
-const INSPECTED_KINDS: readonly string[] = ["prefab"];
-
 /** The file the Asset Inspector shows for an Assets panel entry (a slice shows its image), or null if it has no inspector. */
 export function inspectableAsset(entry: string): string | null {
   const file = isSliceEntry(entry) ? splitSliceEntry(entry).image : entry;
-  // Registered kinds with an `inspector` count too (ADR 0133).
-  return importKind(file) || INSPECTED_KINDS.includes(assetKind(file)) || registeredKind(assetKind(file))?.inspector !== undefined ? file : null;
+  // Files with import settings, and kinds with their own `inspector` (ADR 0133).
+  return importKind(file) || assetKindFor(file)?.inspector !== undefined ? file : null;
 }
 
 /**

@@ -7,7 +7,6 @@ import { assetKind } from "../../editor/assetBrowser";
 import { _reset, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel, kindOpens } from "../../editor/assetKindLookup";
 import { isKnownPanel, isOnDemand, panelBeside, panelTitle } from "../../editor/layout/model";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
@@ -20,6 +19,7 @@ import { RUNTIME_PLUGINS } from "../runtime";
 import { skyEditorPlugin } from "./editor";
 import { createSky } from "./editor/skyAssets";
 import { skyRuntimePlugin } from "./runtime";
+import { assetKindFor, assetKindInfo } from "../../editor/assetKinds";
 
 const SKY = "skies/a.sky.json";
 
@@ -50,10 +50,10 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
   it("registers the sky asset kind: matching, label, icon, preview, opening, inspector and Environment fields", () => {
     expect(assetKind(SKY)).toBe("sky");
     expect(assetKind("skies/Day.SKY.json")).toBe("sky");
-    expect(kindLabel("sky")).toBe("Sky");
-    expect(kindIcon("sky")).toMatch(/^M/);
+    expect(assetKindInfo("sky")?.label).toBe("Sky");
+    expect(assetKindInfo("sky")?.icon).toMatch(/^M/);
     expect(previewKind(SKY)).toBe("sky");
-    expect(kindOpens(SKY)).toBe(true);
+    expect(assetKindFor(SKY)?.open !== undefined).toBe(true);
     expect(inspectableAsset(SKY)).toBe(SKY);
     expect(acceptsFile("environment", SKY)).toBe(true);
     expect(acceptsFile("material", SKY)).toBe(false);
@@ -95,7 +95,7 @@ describe("the Sky plugin's editor half (ADR 0134)", () => {
     deactivatePlugin("myco.sky");
     expect(isPluginActive("myco.sky")).toBe(false);
     expect(assetKind(SKY)).toBe("json");
-    expect(kindLabel("sky")).toBeUndefined();
+    expect(assetKindInfo("sky")?.label).toBeUndefined();
     expect(previewKind(SKY)).toBeNull();
     expect(acceptsFile("environment", SKY)).toBe(false);
     expect(inspectableAsset(SKY)).toBeNull();

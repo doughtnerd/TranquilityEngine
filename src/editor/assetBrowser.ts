@@ -1,22 +1,18 @@
 // Asset browser logic (ADR 0022): the project's files as a folder tree, search, and the scene
-// nodes that adding an asset creates. No UI here; `ui/Assets.tsx` renders it.
+// nodes that adding an asset creates (its kind's `addToScene` policy). No UI here; `ui/Assets.tsx`
+// renders it. Which kind a file is: `assetKinds.ts`, re-exported here.
 import { isSidecarPath } from "../engine/scene/importSettings";
 import { composeMatrix, localPoseFromMatrix } from "../engine/render/gizmoMath";
 import { modelTreeIfLoaded, type NodePose } from "../engine/scene/models";
-import { matchRegisteredKind, registeredKindInCode, registeredSceneNodes } from "./assetKindLookup";
+import { assetKind, assetKindFor } from "./assetKinds";
+import { fileName, idBase, uniqueId } from "./assetNodeEntries";
 import { logMessage } from "./messages";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
 import type { OpenScene } from "./state";
 
-/**
- * The kinds the editor itself knows; plugins add more (ADR 0133): among them `model` (Meshes and
- * models), `environment` and `cubemap` (Environment), `lut` (Post-processing), `uidocument` and
- * `stylesheet` (UI) since ADR 0140.
- */
-export type BuiltinAssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "rendertexture" | "json" | "script" | "javascript" | "typescript" | "text" | "xml" | "other";
-/** A built-in kind or a registered one's id. */
-export type AssetKind = BuiltinAssetKind | (string & {});
+export { assetKind, assetKindFor, assetKindInfo, opensInCodePanel, type AssetKind, type CoreAssetKind } from "./assetKinds";
+export { audioNodeEntry, fileName, idBase, prefabInstanceEntry, spriteNodeEntry, uniqueId } from "./assetNodeEntries";
 
 /** A slice of an image as an asset entry (ADR 0040): `images/sheet.png#walk_0`. */
 export const sliceEntry = (image: string, slice: string) => `${image}#${slice}`;
@@ -29,50 +25,6 @@ export function splitSliceEntry(entry: string): { image: string; slice: string }
 }
 /** Files the Assets panel lists: everything but import settings sidecars, which travel with their files. */
 export const listedFiles = (files: readonly string[]) => files.filter((f) => !isSidecarPath(f));
-
-export function assetKind(path: string): AssetKind {
-  const hash = path.indexOf("#");
-  if (hash >= 0) return assetKind(path.slice(0, hash)) === "image" ? "sprite" : "other";
-  const p = path.toLowerCase();
-  // A registered kind wins when its extension is at least as long as the built-in rule's (ADR 0133).
-  const registered = matchRegisteredKind(p);
-  if (registered) {
-    const builtin = builtinKind(p);
-    if (builtin === "other" || registered.length >= builtinExtensionLength(p)) return registered.kind.id;
-    return builtin;
-  }
-  return builtinKind(p);
-}
-
-/** The length of the ending a built-in rule matched: a compound one (`.scene.json`) or the last extension. Used so a registered kind with a longer extension wins. */
-function builtinExtensionLength(p: string): number {
-  const name = p.slice(p.lastIndexOf("/") + 1);
-  const compound = /\.(scene|prefab|rendertexture)\.json$/.exec(name);
-  return compound ? compound[0].length : name.length - Math.max(name.lastIndexOf("."), 0);
-}
-
-function builtinKind(p: string): BuiltinAssetKind {
-  if (p.endsWith(".scene.json")) return "scene";
-  if (p.endsWith(".prefab.json")) return "prefab";
-  if (/\.(png|jpe?g|gif|webp|svg)$/.test(p)) return "image";
-  if (/\.(mp3|ogg|wav)$/.test(p)) return "audio";
-  if (p.endsWith(".rendertexture.json")) return "rendertexture";
-  if (p.endsWith(".json")) return "json";
-  if (p.endsWith(".xml")) return "xml";
-  if (p.endsWith(".ts") && !p.endsWith(".d.ts")) return "script";
-  if (/\.(js|mjs|cjs)$/.test(p)) return "javascript";
-  if (/\.(mts|cts)$/.test(p)) return "typescript";
-  if (/\.(md|txt)$/.test(p)) return "text";
-  return "other";
-}
-
-/** Kinds that open in the Code panel: scripts, plain JSON, JavaScript and TypeScript modules, XML and text (scenes, prefabs and graphs open in their own views). */
-const CODE_KINDS: ReadonlySet<AssetKind> = new Set(["script", "json", "javascript", "typescript", "text", "xml"]);
-/** True if an asset kind opens in the Code panel: a built-in code kind, or a registered kind with `codeEditor` (UI documents, stylesheets; ADR 0140). */
-export const opensInCodePanel = (kind: AssetKind | "folder") => CODE_KINDS.has(kind as AssetKind) || registeredKindInCode(kind);
-
-/** The file name of a project path: `images/bird.png` → `bird.png`. */
-export const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
 /** The folder of a project path: `images/bird.png` → `images`, `project.json` → `""` (the root). */
 export const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
@@ -147,23 +99,6 @@ export function searchEntries(files: readonly string[], query: string, sliceName
   return out.sort((a, b) => key(a).localeCompare(key(b)) || (isSliceEntry(a) ? 1 : 0) - (isSliceEntry(b) ? 1 : 0));
 }
 
-/** A node id from a file name: `pipe-pair.prefab.json` → `pipe-pair`, `flappyBird.png` → `flappy-bird`. */
-export function idBase(path: string): string {
-  const base = fileName(path).replace(/\.(scene|prefab)\.json$/i, "").replace(/\.[^.]+$/, "");
-  const id = base
-    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return id || "node";
-}
-
-/** `base`, or `base-2`, `base-3`… whichever isn't used in the document yet. */
-export function uniqueId(doc: SceneDocument, base: string): string {
-  if (!doc.has(base)) return base;
-  for (let n = 2; ; n++) if (!doc.has(`${base}-${n}`)) return `${base}-${n}`;
-}
-
 /**
  * Where an added node goes: under the selected node, or beside it when the selection is a prefab
  * instance (its contents come from the prefab file); top level when nothing is selected.
@@ -176,59 +111,6 @@ export function parentForAdd(doc: SceneDocument, selected: string | null): strin
 }
 
 type Vec3 = readonly [number, number, number];
-
-/**
- * The scene entry for an instance of a prefab or scene file. With `position`, the instance gets
- * a Transform override placing it there (a prefab's own position applies otherwise).
- */
-export function prefabInstanceEntry(doc: SceneDocument, prefabPath: string, position?: Vec3): NodeEntry {
-  const entry: NodeEntry = { id: uniqueId(doc, idBase(prefabPath)), prefab: prefabPath };
-  if (position) entry.overrides = [{ component: "engine.Transform", field: "position", value: [...position] }];
-  return entry;
-}
-
-/** An audio node: a Transform at `position` and an AudioSource playing the clip. */
-export function audioNodeEntry(doc: SceneDocument, audioPath: string, position: Vec3 = [0, 0, 0]): NodeEntry {
-  const name = fileName(audioPath).replace(/\.[^.]+$/, "");
-  return {
-    id: uniqueId(doc, idBase(audioPath)),
-    name: name.charAt(0).toUpperCase() + name.slice(1),
-    components: [
-      { type: "engine.Transform", data: { position: [...position] } },
-      { type: "engine.AudioSource", data: { clip: `asset:${audioPath}` } },
-    ],
-  };
-}
-
-/** A node playing a particle effect asset (ADR 0057), named after the file. */
-export function particleNodeEntry(doc: SceneDocument, effectPath: string, position: Vec3 = [0, 0, 0]): NodeEntry {
-  const name = fileName(effectPath).replace(/\.particles\.json$/i, "");
-  return {
-    id: uniqueId(doc, idBase(effectPath)),
-    name: name.charAt(0).toUpperCase() + name.slice(1),
-    components: [
-      { type: "engine.Transform", data: { position: [...position] } },
-      { type: "engine.ParticleSystem", data: { effect: `asset:${effectPath}` } },
-    ],
-  };
-}
-
-/**
- * A sprite node showing an image, or a slice of one (`images/sheet.png#walk_0`, named after the
- * slice): a Transform at `position` and a SpriteRenderer sized by pixels per unit.
- */
-export function spriteNodeEntry(doc: SceneDocument, imagePath: string, position: readonly [number, number, number] = [0, 0, 0]): NodeEntry {
-  const slice = imagePath.includes("#") ? splitSliceEntry(imagePath).slice : null;
-  const name = slice ?? fileName(imagePath).replace(/\.[^.]+$/, "");
-  return {
-    id: uniqueId(doc, slice !== null ? idBase(`${slice}.x`) : idBase(imagePath)),
-    name: name.charAt(0).toUpperCase() + name.slice(1),
-    components: [
-      { type: "engine.Transform", data: { position: [...position] } },
-      { type: "engine.SpriteRenderer", data: { sprite: `asset:${imagePath}` } },
-    ],
-  };
-}
 
 /**
  * A model's node (ADR 0044): a Transform at `position` and a MeshRenderer drawing the whole
@@ -351,13 +233,16 @@ export function disabledModelCameras(entries: readonly NodeEntry[]): number {
   return entries.filter((e) => e.components?.some((c) => c.type === "engine.Camera" && c.enabled === false)).length;
 }
 
-/** Load what adding these assets needs to know first (a registered kind's `addToScene.prepare`: models' meshes). Never rejects (a model that fails adds as one node). */
+/** What adding a file of `path`'s kind to a scene makes: its kind's `addToScene` policy (ADR 0140), or undefined. */
+const sceneNodesOf = (path: string) => assetKindFor(path)?.addToScene;
+
+/** Load what adding these assets needs to know first (a kind's `addToScene.prepare`: models' meshes). Never rejects (a model that fails adds as one node). */
 export async function prepareAssets(paths: readonly string[]): Promise<void> {
-  await Promise.all(paths.map((p) => registeredSceneNodes(assetKind(p))?.prepare?.(p).catch(() => undefined)));
+  await Promise.all(paths.map((p) => sceneNodesOf(p)?.prepare?.(p).catch(() => undefined)));
 }
 
-/** True for assets that have a scene node to become: prefabs and scenes, images, audio, particle effects, and registered kinds with `addToScene` (models, ADR 0140). */
-export const canAddToScene = (path: string) => ["prefab", "scene", "image", "sprite", "audio", "particles"].includes(assetKind(path)) || registeredSceneNodes(assetKind(path)) !== undefined;
+/** True for assets that have a scene node to become: kinds with an `addToScene` policy (prefabs and scenes, images, audio, models, particle effects). */
+export const canAddToScene = (path: string) => sceneNodesOf(path) !== undefined;
 
 /**
  * Why `path` can't be added to the document, or null if it can: assets with no node type, and
@@ -365,8 +250,7 @@ export const canAddToScene = (path: string) => ["prefab", "scene", "image", "spr
  */
 export function whyNotAddable(doc: SceneDocument, path: string): string | null {
   if (!canAddToScene(path)) return "no kind of scene node fits this file";
-  const kind = assetKind(path);
-  if ((kind === "scene" || kind === "prefab") && wouldNest(path, doc.path)) return "it would end up inside itself";
+  if (sceneNodesOf(path)?.instance && wouldNest(path, doc.path)) return "it would end up inside itself";
   return null;
 }
 
@@ -388,27 +272,10 @@ export function nodeForAsset(doc: SceneDocument, path: string, options: AddOptio
 
 /** Every entry adding `path` makes: the root first (`nodeForAsset`), then any descendants (a model's node tree). */
 function sceneEntriesForAsset(doc: SceneDocument, path: string, options: AddOptions): NodeEntry[] {
-  const registered = registeredSceneNodes(assetKind(path));
-  if (registered) return registered.nodes(doc, path, options.position);
-  const entry = builtinNodeForAsset(doc, path, options);
-  return entry ? [entry] : [];
-}
-
-function builtinNodeForAsset(doc: SceneDocument, path: string, options: AddOptions): NodeEntry | null {
-  switch (assetKind(path)) {
-    case "prefab":
-    case "scene":
-      return prefabInstanceEntry(doc, path, options.placeInstances ? options.position : undefined);
-    case "image":
-    case "sprite":
-      return spriteNodeEntry(doc, path, options.position);
-    case "audio":
-      return audioNodeEntry(doc, path, options.position);
-    case "particles":
-      return particleNodeEntry(doc, path, options.position);
-    default:
-      return null;
-  }
+  const nodes = sceneNodesOf(path);
+  if (!nodes) return [];
+  // Instances keep their own position unless placed (viewport drops).
+  return nodes.nodes(doc, path, nodes.instance && !options.placeInstances ? undefined : options.position);
 }
 
 /** Add an asset to the open scene as one undoable command. Returns the new node's id; throws if it can't be added. */

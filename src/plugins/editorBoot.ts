@@ -4,7 +4,11 @@
 // `layout/store.ts` (to show its panel) before this body runs, so the layout is read again after
 // activation. A plugin that throws is rolled back by `activatePlugins`; it must not stop the editor,
 // so the rest still start.
+import { registerCoreAssetKinds } from "../editor/assetKinds";
 import { applyEnabledPlugins } from "./editorApply";
+
+// The editor's own asset kinds first (ADR 0134): plugins' kinds join them.
+registerCoreAssetKinds();
 
 // Every plugin on: the project isn't known yet. Opening a project applies its `plugins.disabled`
 // (`session.ts`, ADR 0133).

@@ -8,7 +8,6 @@ import { assetKind, opensInCodePanel } from "../../editor/assetBrowser";
 import { _reset, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel, kindOpens } from "../../editor/assetKindLookup";
 import { isKnownPanel, isOnDemand, panelBeside, panelTitle } from "../../editor/layout/model";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
@@ -20,6 +19,7 @@ import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
 import { materialsEditorPlugin } from "./editor";
 import { materialsRuntimePlugin } from "./runtime";
+import { assetKindFor, assetKindInfo } from "../../editor/assetKinds";
 
 const MATERIAL = "materials/hull.material.json";
 const GRAPH = "shaders/glow.shadergraph.json";
@@ -53,13 +53,13 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
   });
 
   it("gives them labels, icons, previews, inspectors, open behaviour and New… entries", () => {
-    expect(KINDS.map((k) => kindLabel(k))).toEqual(["Material", "Shader", "Shader Graph", "Sub Graph"]);
-    for (const k of KINDS) expect(kindIcon(k), k).toMatch(/^M/);
+    expect(KINDS.map((k) => assetKindInfo(k)?.label)).toEqual(["Material", "Shader", "Shader Graph", "Sub Graph"]);
+    for (const k of KINDS) expect(assetKindInfo(k)?.icon, k).toMatch(/^M/);
     expect([previewKind(MATERIAL), previewKind(SHADER), previewKind(GRAPH), previewKind(SUB)]).toEqual(["material", null, "shadergraph", null]);
     for (const p of [MATERIAL, GRAPH, SUB]) expect(inspectableAsset(p), p).toBe(p);
     expect(inspectableAsset(SHADER)).toBeNull();
     // A material only selects; shaders open in the Code panel and graphs in the Shader Graph panel.
-    expect([kindOpens(MATERIAL), kindOpens(SHADER), kindOpens(GRAPH), kindOpens(SUB)]).toEqual([false, true, true, true]);
+    expect([assetKindFor(MATERIAL)?.open !== undefined, assetKindFor(SHADER)?.open !== undefined, assetKindFor(GRAPH)?.open !== undefined, assetKindFor(SUB)?.open !== undefined]).toEqual([false, true, true, true]);
     expect(KINDS.map((k) => assetKinds.get(k)?.create?.label)).toEqual(["New Material", "New Shader", "New Shader Graph", "New Shader Sub Graph"]);
   });
 
@@ -121,7 +121,7 @@ describe("the Materials plugin's editor half (ADR 0134)", () => {
       expect(acceptsFile("material", p), p).toBe(false);
     }
     for (const k of KINDS) {
-      expect(kindLabel(k), k).toBeUndefined();
+      expect(assetKindInfo(k)?.label, k).toBeUndefined();
       expect(assetFormats.get(k), k).toBeUndefined();
     }
     expect(panels.get("shadergraph")).toBeUndefined();

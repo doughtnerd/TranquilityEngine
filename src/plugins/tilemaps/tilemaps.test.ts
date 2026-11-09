@@ -7,7 +7,6 @@ import { assetKind } from "../../editor/assetBrowser";
 import { _reset, assetDocumentsDeleted, assetDocumentsMoved, openAssetDocument } from "../../editor/assetDocuments";
 import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
-import { kindIcon, kindLabel } from "../../editor/assetKindLookup";
 import { joinPath, openFolderProject } from "../../editor/projects";
 import { assetFormats, assetKinds, panels, viewportTools } from "../../editor/sdk/contributions";
 import { registeredInspectorSections } from "../../editor/ui/inspectorSections";
@@ -29,6 +28,7 @@ import { parsePolygon } from "./editor/TilesetInspector";
 import { TILEMAPS_SPEC, Tilemap, tilemapsRuntimePlugin } from "./runtime";
 import { _registeredRenderFeatures } from "../../engine/render/renderFeatures";
 import { newTileset, type TilesetData } from "./runtime/tileset";
+import { assetKindInfo } from "../../editor/assetKinds";
 
 const TILESET = "tiles/ground.tileset.json";
 
@@ -121,8 +121,8 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
     expect(assetKind(TILESET)).toBe("tileset");
     expect(assetKind("Ground.TILESET.JSON")).toBe("tileset");
     expect(assetKind("tiles/data.json")).toBe("json");
-    expect(kindLabel("tileset")).toBe("Tileset");
-    expect(kindIcon("tileset")).toMatch(/^M/);
+    expect(assetKindInfo("tileset")?.label).toBe("Tileset");
+    expect(assetKindInfo("tileset")?.icon).toMatch(/^M/);
     expect(inspectableAsset(TILESET)).toBe(TILESET);
     expect(acceptsFile("tileset", TILESET)).toBe(true);
     expect(acceptsFile("material", TILESET)).toBe(false);
@@ -213,7 +213,7 @@ describe("the Tilemaps plugin's editor half (ADR 0134)", () => {
   it("removes everything when deactivated", () => {
     deactivatePlugin("myco.tilemaps");
     expect(isPluginActive("myco.tilemaps")).toBe(false);
-    expect(kindLabel("tileset")).toBeUndefined();
+    expect(assetKindInfo("tileset")?.label).toBeUndefined();
     expect(assetFormats.get("tileset")).toBeUndefined();
     expect(inspectableAsset(TILESET)).toBeNull(); // a disabled plugin's files show as generic files
   });

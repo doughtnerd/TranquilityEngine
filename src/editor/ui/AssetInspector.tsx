@@ -1,13 +1,13 @@
 import { useEffect, useState } from "preact/hooks";
 import { DEFAULT_SLOT, loadMeshes, materialSlots } from "../../engine/scene/models";
 import { IMPORT_PLATFORMS, TEXTURE_COMPRESSIONS, withPlatformOverride, type ImportPlatform, type ImportSettings, type PlatformOverrides } from "../../engine/scene/importSettings";
-import { assetKind, fileName } from "../assetBrowser";
-import { registeredKind } from "../assetKindLookup";
+import { fileName } from "../assetBrowser";
+import { acceptsFile } from "../assetFieldKinds";
+import { assetKindFor } from "../assetKinds";
 import type { AssetKindContribution } from "../sdk/contributions";
 import { lazyComponent, type LazyComponent } from "./lazy";
 import { extractModelMaterials } from "../materialExtract";
 import { AudioPreview, LargePreview } from "./AssetPreview";
-import { RenderTextureInspector } from "./RenderTextureInspector";
 import { importKind, inspectedAsset, openSpriteEditor, readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
 import { errorStatus } from "../messages";
 import { PIVOT_PRESETS, pivotLabel } from "../spriteSlicing";
@@ -17,23 +17,20 @@ import "./assetInspector.css";
 /** The project's pixels per unit (100 by default, ADR 0014). */
 const projectPPU = (settings: { render?: { pixelsPerUnit?: number } }) => settings.render?.pixelsPerUnit ?? 100;
 
-/** One lazy Inspector view per registered kind (ADR 0133): created on first use, so the module loads then. */
-const pluginInspectors = new WeakMap<AssetKindContribution, LazyComponent<{ path: string }>>();
-function pluginInspector(kind: AssetKindContribution): LazyComponent<{ path: string }> | null {
-  if (!kind.inspector) return null;
-  let view = pluginInspectors.get(kind);
-  if (!view) pluginInspectors.set(kind, (view = lazyComponent(kind.inspector, null)));
+/** One lazy Inspector view per kind (ADR 0133): created on first use, so the module loads then. */
+const kindInspectors = new WeakMap<AssetKindContribution, LazyComponent<{ path: string }>>();
+function kindInspector(kind: AssetKindContribution | undefined): LazyComponent<{ path: string }> | null {
+  if (!kind?.inspector) return null;
+  let view = kindInspectors.get(kind);
+  if (!view) kindInspectors.set(kind, (view = lazyComponent(kind.inspector, null)));
   return view;
 }
 
-/** The selected asset in the Inspector: a registered kind's own view (materials and shader graphs: the Materials plugin), a built-in kind's, or a file's import settings. */
+/** The selected asset in the Inspector: its kind's own view (prefabs, render textures; materials and shader graphs: the Materials plugin), or a file's import settings. */
 export function AssetInspector() {
   const path = inspectedAsset.value;
-  const kind = path ? assetKind(path) : null;
-  const Plugin = path && kind ? (registeredKind(kind) ? pluginInspector(registeredKind(kind)!) : null) : null;
-  if (path && Plugin) return <Plugin path={path} />;
-  if (path && kind === "rendertexture") return <RenderTextureInspector path={path} />;
-  if (path && kind === "prefab") return <PreviewInspector path={path} />;
+  const View = path ? kindInspector(assetKindFor(path)) : null;
+  if (path && View) return <View path={path} />;
   return <ImportInspector />;
 }
 
@@ -109,10 +106,8 @@ function PlatformOverridesEditor(props: { draft: ImportSettings; onChange: (s: I
   );
 }
 
-const KIND_TITLES = { image: "Image", audio: "Audio", model: "Model" } as const;
-
-/** Prefabs: no settings to edit here, just a look at them (ADR 0061). Environment maps and cubemaps: the Environment plugin's view (ADR 0140). */
-function PreviewInspector(props: { path: string }) {
+/** Prefabs (the core kind's `inspector`): no settings to edit here, just a look at them (ADR 0061). */
+export function PreviewInspector(props: { path: string }) {
   return (
     <div class="asset-inspector">
       <h3>{fileName(props.path)}</h3>
@@ -136,7 +131,7 @@ function ImportInspector() {
   const [draft, setDraft] = useState<ImportSettings | null>(saved?.settings ?? null);
   useEffect(() => setDraft(saved ? structuredClone(saved.settings) : null), [path, savedKey]);
   if (!project || !path || !saved || !draft) return <p class="empty">Nothing selected</p>;
-  const kind = importKind(path)!;
+  const section = importKind(path)!; // its kind's `importSettings`
   const dirty = !sameSettings(draft, saved.settings);
   const set = (patch: Partial<ImportSettings>) => setDraft({ ...draft, ...patch });
   const readOnly = project.canSave ? null : "This project is read-only.";
@@ -154,14 +149,14 @@ function ImportInspector() {
   return (
     <div class="inspector-body asset-inspector" aria-label="Import settings">
       <div class="asset-inspector-head">
-        <span class="asset-inspector-kind">{KIND_TITLES[kind]}</span>
+        <span class="asset-inspector-kind">{assetKindFor(path)?.label}</span>
         <span class="asset-inspector-name" title={path}>
           {fileName(path)}
         </span>
       </div>
-      {kind === "image" && <ImagePreview url={project.assets.get(path)} />}
-      {kind === "model" && <LargePreview path={path} />}
-      {kind === "audio" && <AudioPreview path={path} />}
+      {section === "image" && <ImagePreview url={project.assets.get(path)} />}
+      {section === "model" && <LargePreview path={path} />}
+      {section === "audio" && <AudioPreview path={path} />}
       {saved.problems.length > 0 && (
         <ul class="asset-inspector-problems">
           {saved.problems.map((p) => (
@@ -171,7 +166,7 @@ function ImportInspector() {
       )}
       <div class="component asset-import-card">
         <h3>Import Settings</h3>
-        {kind === "image" ? (
+        {section === "image" ? (
           <>
             <label class="import-row">
               <span>Pixels Per Unit</span>
@@ -250,7 +245,7 @@ function ImportInspector() {
               </span>
             </div>
           </>
-        ) : kind === "model" ? (
+        ) : section === "model" ? (
           <>
             <label class="import-row">
               <span>Scale</span>
@@ -362,7 +357,7 @@ function ModelMaterialRows(props: { path: string; materials: Record<string, stri
       setBusy(false);
     }
   };
-  const files = (project?.files ?? []).filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph");
+  const files = (project?.files ?? []).filter((f) => acceptsFile("material", f)); // the kinds `material` fields take: materials and shader graphs
   return (
     <>
       <div class="import-row">

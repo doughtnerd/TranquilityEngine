@@ -17,15 +17,21 @@ import type { ComponentInfo } from "../../engine/editor";
 /** A component loaded on first use (ADR 0083). */
 export type LoadComponent<P extends object> = () => Promise<FunctionComponent<P>>;
 
+/** The built-in thumbnail renderers a kind's preview can use (internal tier: renderers stay first-party, ADR 0133). */
+export type AssetPreviewRenderer = "sky" | "material" | "shadergraph" | "particles" | "environment" | "model" | "prefab" | "scene" | "audio";
+
+/** The sections of the shell's import settings Inspector (ADR 0040), which stay core until an importer contribution point exists (ADR 0140). */
+export type ImportSettingsSection = "image" | "audio" | "model";
+
 /**
- * One type of asset file and how the editor treats it (ADR 0133 "asset kind").
- * Built-in kinds not yet moved to a plugin still live in `assetBrowser.ts`'s tables; a registered
- * kind wins over them.
+ * One type of asset file and how the editor treats it (ADR 0133 "asset kind"). Every kind is one of
+ * these: the editor's own (the core asset kinds, `assetKinds.ts`) and plugins' alike, and every
+ * question about a kind is asked of its contribution (ADR 0134).
  */
 export interface AssetKindContribution {
   /** The kind's id, e.g. "sky". Also what `assetKind(path)` returns. */
   readonly id: string;
-  /** File-name endings, lower case with the dot, e.g. [".sky.json"]. The longest match over all kinds wins. */
+  /** File-name endings, lower case with the dot, e.g. [".sky.json"]. The longest match over all kinds wins; of equal ones, the kind registered last (so a plugin can take over a core extension). Empty for a kind no file name gives (sprite slices). */
   readonly extensions: readonly string[];
   /** Shown in the Assets panel ("Sky"). */
   readonly label: string;
@@ -40,11 +46,13 @@ export interface AssetKindContribution {
   /** Policy: the field asset kinds (0131 `@field(AssetRef, { kind })`) that also accept this kind, e.g. sky → ["environment"]. */
   readonly referencedAs?: readonly string[];
   /** Which built-in thumbnail renderer draws its preview (internal tier: renderers stay first-party, ADR 0133). */
-  readonly preview?: "sky" | "material" | "shadergraph" | "particles" | "environment" | "model" | "prefab" | "scene" | "audio";
+  readonly preview?: AssetPreviewRenderer;
   /** Policy (ADR 0140): files of this kind open in the Code panel (UI documents, stylesheets). Ignored when `open` is set. */
   readonly codeEditor?: boolean;
   /** Policy (ADR 0133, 0140): what adding a file of this kind to a scene makes (a drop on the Hierarchy or the scene view, the Assets panel's +). */
   readonly addToScene?: AssetSceneNodes;
+  /** Policy (ADR 0040): the import settings section its sidecar is edited in (images, audio, models). Absent: no import settings. */
+  readonly importSettings?: ImportSettingsSection;
 }
 
 /** What a file of an asset kind becomes in a scene (ADR 0140): node entries, the first one the root. */
@@ -53,6 +61,12 @@ export interface AssetSceneNodes {
   prepare?(path: string): Promise<void>;
   /** The entries to add, at `position` in the parent's space; the first is the root (selected), the rest its descendants. */
   nodes(doc: SceneDocument, path: string, position?: readonly [number, number, number]): NodeEntry[];
+  /**
+   * The entries are an instance of the file (prefabs, scenes): it can't be added to a document it would
+   * end up inside, and it keeps its own position unless the add places instances (a viewport drop), so
+   * `nodes` is then given no `position`.
+   */
+  readonly instance?: boolean;
 }
 
 /** A problem found reading an asset file. */
