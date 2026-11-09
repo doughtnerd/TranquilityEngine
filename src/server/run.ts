@@ -4,10 +4,11 @@
  * closed. `main.ts` is the command line around it; tests call `startServer` directly.
  */
 import "./websocketServer"; // registers the Node "websocket" transport, which can listen
-import { Assets, Engine, type Bootstrap, type BootstrapConfig, type BootstrapEngine, type LinkConfig, type WorldConfig, type WorldHandle } from "../engine";
+import { type Bootstrap, type Engine, type BootstrapConfig, type BootstrapEngine, type LinkConfig, type WorldConfig, type WorldHandle } from "../engine";
 import { BootstrapError, assertValidBootstrap } from "../engine/core/bootstrap";
 import { DEFAULT_WORLD_TAGS } from "../engine/core/worlds";
 import type { World } from "../engine/core/World";
+import { launchGame, type LaunchedGame } from "../engine/launch";
 import { listenWorld, netSession, setDefaultListenOptions, type NetPeer } from "../engine/net/session";
 import { loadProjectCode, readProject, scriptExports, ServerError, type ServerProject } from "./project";
 import { parseListenAddress } from "./websocketServer";
@@ -68,26 +69,31 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   log(`[server] Project "${project.settings.name ?? project.root}" (${project.root}): ${loaded.length} script${loaded.length === 1 ? "" : "s"} loaded.`);
 
   const plan = await serverBootstrap(project);
-  Assets.addSource(project.assets);
-  let engine: Engine;
+  let game: LaunchedGame;
   try {
-    // The plugin set (ADR 0144): first-party runtime halves (ADR 0135) and the third-party ones (ADR 0139),
-    // minus drawing-only (`server: false`) and the project's disabled ones (ADR 0133). A plugin that fails
-    // to activate stops the server, like a broken script.
-    activateGamePlugins(thirdParty, { disabled: project.settings.plugins?.disabled, server: true });
-    engine = await Engine.create({ headless: true, project: project.settings, bootstrap: plan.bootstrap });
+    // The launch (ADR 0155), with the scripts loaded above (the bootstrap plan needs them) and the filtered bootstrap.
+    game = await launchGame({
+      assets: project.assets,
+      // The plugin set (ADR 0144): first-party runtime halves (ADR 0135) and the third-party ones (ADR 0139),
+      // minus drawing-only (`server: false`) and the project's disabled ones (ADR 0133). A plugin that fails
+      // to activate stops the server, like a broken script.
+      activatePlugins: () => activateGamePlugins(thirdParty, { disabled: project.settings.plugins?.disabled, server: true }),
+      project: project.settings,
+      bootstrap: plan.bootstrap,
+      // A dedicated server runs a project folder, not a build: it has no main scene, so empty server Worlds stay
+      // empty (their scenes come from the bootstrap, or their code loads them at runtime, as a lobby's do).
+      entryScene: null,
+      headless: true,
+    });
   } catch (err) {
-    Assets.removeSource(project.assets);
     if (err instanceof BootstrapError) throw new ServerError(`The project's bootstrap is invalid:\n${err.problems.map((p) => `  - ${p}`).join("\n")}`);
     if (err instanceof ServerError) throw err;
     throw new ServerError(`The project's server Worlds couldn't start: ${(err as Error).message}`);
   }
   // After the bootstrap ran: a code bootstrap's skipped Worlds are known only then.
   for (const name of plan.skipped) log(`[server] Skipping World "${name}": it isn't tagged "server".`);
-  const shutDown = () => {
-    engine.dispose();
-    Assets.removeSource(project.assets);
-  };
+  const engine = game.engine;
+  const shutDown = () => game.dispose(); // the Engine, then the project's assets
 
   const listeners: ServerListener[] = [];
   try {
