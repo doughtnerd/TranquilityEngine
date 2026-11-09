@@ -1,0 +1,24 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Audio core: two Worlds</title></head>
+<body><pre id="out">running…</pre>
+<script type="module">
+  // Starts the real `myco.audio` service in two stand-in Worlds (A0.7 check 3) and compares what they got.
+  import { _registerWorldService, _startWorldService } from "../../src/engine/core/worldServices.ts";
+  import { AUDIO_SERVICE } from "../../src/plugins/audio/runtime/core/service.ts";
+  import { mixer } from "../../src/engine/audio/mixer.ts";
+  import { defaultAudioSettings } from "../../src/engine/audio/settings.ts";
+  mixer.configure({ ...defaultAudioSettings(), backend: "core" });
+  let contexts = 0;
+  const Orig = window.AudioContext;
+  window.AudioContext = class extends Orig { constructor(...a) { super(...a); contexts++; } };
+  _registerWorldService(AUDIO_SERVICE);
+  const world = () => ({ render: {}, kind: "game", worldTags: [] });
+  const w1 = world(), w2 = world();
+  const a = await _startWorldService(w1, "myco.audio");
+  const b = await _startWorldService(w2, "myco.audio");
+  const r = { ready: a?.core.ready, reason: a?.core.reason, instancesDistinct: a !== b,
+    sameHost: !!a && a.core.host === b?.core.host, sameContext: !!a && a.core.host?.context === b?.core.host?.context, audioContextsCreated: contexts,
+    state: a?.core.host?.context.state };
+  document.getElementById("out").textContent = JSON.stringify(r);
+  window.__result = r;
+</script></body></html>

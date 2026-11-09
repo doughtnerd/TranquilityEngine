@@ -1,0 +1,4 @@
+{
+  "build": { "devUrl": "http://localhost:3107", "beforeDevCommand": "" },
+  "app": { "windows": [ { "label": "projects", "title": "Audio smoke (WebView2)", "url": "src/plugins/audio/runtime/worklet/devTone.html", "width": 800, "height": 600, "x": 100, "y": 100, "decorations": true, "resizable": true } ] }
+}
