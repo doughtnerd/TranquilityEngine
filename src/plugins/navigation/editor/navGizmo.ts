@@ -33,11 +33,9 @@ import {
 } from "../../../engine/nav/debugGeometry";
 import { bakeAgentGroups, debugBakeLines } from "../runtime/runtime";
 import { projectNavigation } from "./navBake";
-import { persisted } from "../../../editor/preferences";
 import type { PlaySession } from "../../../editor/playMode";
-import type { ViewportToolContext, ViewportToolContribution } from "../../../editor/sdk";
-import { currentProject, docVersion, openScene, playing as playSession, playState } from "../../../editor/state";
-import { mix, parseHex, theme, type ThemeTokens } from "../../../editor/theme";
+import { playing as playSession } from "../../../editor/state";
+import { type ViewportToolContext, type ViewportToolContribution, editor, persisted, mix, parseHex, theme, type ThemeTokens } from "../../../editor/sdk";
 
 /** The scene view's navigation toggles (and the group whose bake is drawn), remembered per user. */
 export interface NavOverlaySettings extends NavDebugFlags {
@@ -233,12 +231,12 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
 }
 
 function openSceneBakes(): { paths: string[]; urlOf: (path: string) => string | null; token: unknown; version: number } | null {
-  const scene = openScene.peek(), project = currentProject.peek();
+  const scene = editor.scene.peekOpen(), project = editor.project.peek();
   if (!scene || !project) return null;
   return {
     paths: bakePathsOf(scene.doc),
     token: scene,
-    version: docVersion.peek(),
+    version: editor.project.peekVersion(),
     urlOf: (path) => {
       if (!project.assets.has(path)) return null;
       const v = project.assets.get(path);
@@ -287,7 +285,7 @@ export function openSceneBakeKey(): string {
  * without a project (or with an unreadable table) the index itself is used.
  */
 async function agentGroupsOf(bytes: Uint8Array, typeIndex: number): Promise<{ walk: number; fly: number }> {
-  const project = currentProject.peek();
+  const project = editor.project.peek();
   const id = project ? projectNavigation(project).agentTypes[typeIndex]?.id : undefined;
   if (id) {
     try {
@@ -321,7 +319,7 @@ export function runtimeNavProvider(world: World, settings: () => NavDebugFlags =
       overlay = new RuntimeNavOverlay(
         nav.runtime as unknown as NavDebugSource,
         () => chunkIdsOf(nav.loadedChunks?.()),
-        () => projectNavigation(currentProject.peek()).agentTypes.map((t) => t.id),
+        () => projectNavigation(editor.project.peek()).agentTypes.map((t) => t.id),
         () => orFlags(settings(), readNavDebugFlags(nav.debug)),
         () => navDebugColors(theme.peek()),
       );
@@ -339,7 +337,7 @@ export function installNavGizmo(view: Pick<ViewportToolContext, "overlay">, play
     () => cleanNavOverlay(navOverlaySettings.peek()),
     () => navDebugColors(theme.peek()),
   );
-  view.overlay(() => (playState.peek() === "edit" ? { lines: [], handles: [], segments: bake.segments() } : { lines: [], handles: [] }), { kind: "navigation" });
+  view.overlay(() => (editor.scene.peekPlayState() === "edit" ? { lines: [], handles: [], segments: bake.segments() } : { lines: [], handles: [] }), { kind: "navigation" });
 
   let playWorlds: World[] = [];
   const stopPlay = effect(() => {

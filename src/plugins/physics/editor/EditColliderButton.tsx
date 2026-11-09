@@ -1,8 +1,7 @@
 // The Inspector's Edit Collider button (ADR 0022, 0142), in the header of each collider's card: shows the
 // collider's handles in the scene view (the collider tool becomes active) or hides them again.
-import type { ComponentHeaderActionContribution, ComponentHeaderActionProps } from "../../../editor/sdk";
-import { pathKey } from "../../../editor/document";
 import { EDITABLE_COLLIDERS, editingCollider, type EditingCollider } from "./colliderGizmo";
+import { type ComponentHeaderActionContribution, type ComponentHeaderActionProps, pathKey } from "../../../editor/sdk";
 
 const isEditing = (props: ComponentHeaderActionProps): boolean => {
   const e = editingCollider.value;

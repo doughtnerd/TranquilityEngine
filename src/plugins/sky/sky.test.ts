@@ -9,12 +9,11 @@ import { acceptsFile } from "../../editor/assetFieldKinds";
 import { inspectableAsset } from "../../editor/assetImport";
 import { kindIcon, kindLabel, kindOpens, registeredKind } from "../../editor/assetKindLookup";
 import { isKnownPanel, isOnDemand, panelBeside, panelTitle } from "../../editor/layout/model";
-import { joinPath, openFolderProject } from "../../editor/projects";
+import { joinPath } from "../../editor/projects";
 import { assetFormats, assetKinds, panels } from "../../editor/sdk/contributions";
 import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
-import { currentProject } from "../../editor/state";
-import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
+import { closeTestProject, openTestProject, ROOT, useCoreAssetKinds } from "../../editor/testing";
 import { previewKind } from "../../editor/thumbnails/keys";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS } from "../runtime";
@@ -26,19 +25,12 @@ useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 const SKY = "skies/a.sky.json";
 
-async function open(files: Record<string, string>) {
-  const fs = new MemoryFileSystem();
-  fs.files.set(joinPath(ROOT, "project.json"), "{}");
-  for (const [p, text] of Object.entries(files)) fs.files.set(joinPath(ROOT, p), text);
-  const project = await openFolderProject(fs, ROOT);
-  currentProject.value = project;
-  return { project, fs };
-}
+const open = (files: Record<string, string>) => openTestProject(files);
 
 const editorHalf = useEditorPlugins([skyEditorPlugin], "each");
 afterEach(() => {
   _reset();
-  currentProject.value = null;
+  closeTestProject();
 });
 
 describe("the Sky plugin's editor half (ADR 0134)", () => {

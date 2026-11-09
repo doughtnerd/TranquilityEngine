@@ -12,7 +12,7 @@ export const RAPIER_BACKEND = "rapier";
 export const physicsRapierRuntimePlugin: RuntimePlugin = {
   manifest: physicsRapierManifest,
   activate(context) {
-    context.contribute(PHYSICS_BACKENDS, { id: RAPIER_BACKEND, dimension: "2d", title: "Rapier 2D", load: () => import("./rapier2d").then(async (m) => (await m.initRapier2D(), m.rapier2DBackend)) });
-    context.contribute(PHYSICS_BACKENDS, { id: RAPIER_BACKEND, dimension: "3d", title: "Rapier 3D", load: () => import("./rapier3d").then(async (m) => (await m.initRapier3D(), m.rapier3DBackend)) });
+    context.contribute(PHYSICS_BACKENDS, { id: RAPIER_BACKEND, dimension: "2d", title: "Rapier 2D", load: () => import("./rapier2d").then(async (m) => (await m.initRapier2D(), m.rapier2DBackend)), prefetch: () => import("./rapier2d") });
+    context.contribute(PHYSICS_BACKENDS, { id: RAPIER_BACKEND, dimension: "3d", title: "Rapier 3D", load: () => import("./rapier3d").then(async (m) => (await m.initRapier3D(), m.rapier3DBackend)), prefetch: () => import("./rapier3d") });
   },
 };

@@ -1,13 +1,18 @@
 // Creating new nodes from the hierarchy (ADR 0022, 0026): an empty node, a sprite, a camera, a
-// text, a 3D shape (with a matching collider, as in Unity), a light (ADR 0043) or a UI element (ADR 0069), at the top of
-// the scene, beside a node or under it. Each is one undo step.
+// text, a 3D shape (with a matching collider, as in Unity), a light (ADR 0043), a UI element (ADR 0069) or a kind
+// a plugin adds (ADR 0146: Particle System, Tilemap), at the top of the scene, beside a node or under it. Each is
+// one undo step.
 import { uniqueId } from "./assetBrowser";
 import { AddNode, type NodeEntry, type SceneDocument } from "./document";
 import { addInnerNode } from "./prefabs";
+import { hierarchyCreateEntries, type HierarchyCreateContribution } from "./sdk/contributions";
 import type { OpenScene } from "./state";
 import { WATER_PRESET } from "../engine/render/water/gerstner";
 
-export type NewNodeKind = "empty" | "sprite" | "tilemap" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "particle-system" | "water" | `ui-${UIKind}` | "ui-document";
+/** The editor's own node kinds. */
+export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "water" | `ui-${UIKind}` | "ui-document";
+/** A built-in node kind, or the id of a plugin's Hierarchy create entry (ADR 0146). */
+export type NodeKind = NewNodeKind | (string & {});
 type Shape3D = "cube" | "sphere" | "capsule" | "cylinder" | "plane";
 type LightKind = "directional" | "point" | "spot" | "ambient";
 type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input-field";
@@ -24,11 +29,10 @@ const UI_ELEMENTS: Record<UIKind, { type: string; data: Record<string, unknown> 
 
 type Vec3 = readonly [number, number, number];
 
-/** The kinds the Create menu offers, in menu order, with their base names. */
+/** The editor's own kinds, in menu order, with their base names. Plugins' kinds join them in `newNodeKinds()`. */
 export const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: string }[] = [
   { kind: "empty", label: "Empty", name: "Node" },
   { kind: "sprite", label: "Sprite", name: "Sprite" },
-  { kind: "tilemap", label: "Tilemap", name: "Tilemap" },
   { kind: "camera", label: "Camera", name: "Camera" },
   { kind: "text", label: "Text", name: "Text" },
   { kind: "cube", label: "Cube", name: "Cube" },
@@ -42,7 +46,6 @@ export const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: 
   { kind: "ambient-light", label: "Ambient Light", name: "Ambient Light" },
   { kind: "fog", label: "Fog", name: "Fog" },
   { kind: "reflection-probe", label: "Reflection Probe", name: "Reflection Probe" },
-  { kind: "particle-system", label: "Particle System", name: "Particle System" },
   { kind: "water", label: "Water", name: "Water" },
   { kind: "ui-canvas", label: "UI Canvas", name: "Canvas" },
   { kind: "ui-panel", label: "UI Panel", name: "Panel" },
@@ -52,6 +55,25 @@ export const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: 
   { kind: "ui-input-field", label: "UI Input Field", name: "Input Field" },
   { kind: "ui-document", label: "UI Document", name: "UI Document" },
 ];
+
+/**
+ * The kinds the Create menu offers, in menu order: the built-in ones, with each plugin's entry (registration
+ * order) after the entry its `after` names, or last. Reads the registry's version, so menus follow plugins.
+ */
+export function newNodeKinds(): readonly { kind: NodeKind; label: string; name: string }[] {
+  void hierarchyCreateEntries.version.value;
+  const out: { kind: NodeKind; label: string; name: string }[] = [...NEW_NODE_KINDS];
+  for (const c of hierarchyCreateEntries.list()) {
+    const at = c.after === undefined ? -1 : out.findIndex((k) => k.kind === c.after);
+    out.splice(at < 0 ? out.length : at + 1, 0, { kind: c.id, label: c.label, name: c.name });
+  }
+  return out;
+}
+
+/** A plugin's create entry for `kind`, if `kind` isn't built in. */
+export function contributedKind(kind: NodeKind): HierarchyCreateContribution | undefined {
+  return NEW_NODE_KINDS.some((k) => k.kind === kind) ? undefined : hierarchyCreateEntries.get(kind);
+}
 
 /** The collider each 3D shape comes with. */
 const SHAPE_COLLIDERS: Record<Shape3D, { type: string; data: Record<string, unknown> }> = {
@@ -77,27 +99,20 @@ export function uniqueName(doc: SceneDocument, parent: string | null, base: stri
 }
 
 /** The scene entry for a new node of `kind` under `parent`, at `position` in the parent's space. */
-export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: string | null, position: Vec3 = [0, 0, 0], effect = ""): NodeEntry {
-  const info = NEW_NODE_KINDS.find((k) => k.kind === kind)!;
+export function newNodeEntry(doc: SceneDocument, kind: NodeKind, parent: string | null, position: Vec3 = [0, 0, 0], effect = ""): NodeEntry {
+  const contributed = contributedKind(kind);
+  const info = contributed ?? NEW_NODE_KINDS.find((k) => k.kind === kind);
+  if (!info) throw new Error(`there is no "${kind}" node kind (is its plugin disabled?)`);
   const id = uniqueId(doc, info.name.toLowerCase().replace(/ /g, "-"));
   const name = uniqueName(doc, parent, info.name);
-  const at = [...position];
-  switch (kind) {
+  const at: [number, number, number] = [position[0], position[1], position[2]];
+  if (contributed) return { id, name, components: contributed.components(at, effect) };
+  const builtin = kind as NewNodeKind;
+  switch (builtin) {
     case "empty":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }] };
     case "sprite":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.SpriteRenderer", data: {} }] };
-    case "tilemap":
-      // A Tilemap with one layer and its collider (ADR 0103, 0105); `effect` is a tileset to paint with, or empty.
-      return {
-        id,
-        name,
-        components: [
-          { type: "engine.Transform", data: { position: at } },
-          { type: "engine.Tilemap", data: effect ? { tileset: effect } : {} },
-          { type: "engine.TilemapCollider2D", data: {} },
-        ],
-      };
     case "camera":
       // In front of the sprite plane, looking down -z like the sample scenes' cameras.
       return {
@@ -118,7 +133,7 @@ export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: stri
       return {
         id,
         name,
-        components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.MeshRenderer", data: { mesh: `builtin:${kind}` } }, structuredClone(SHAPE_COLLIDERS[kind])],
+        components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.MeshRenderer", data: { mesh: `builtin:${builtin}` } }, structuredClone(SHAPE_COLLIDERS[builtin])],
       };
     case "fog":
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.Fog", data: {} }] };
@@ -127,9 +142,6 @@ export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: stri
     case "water":
       // A WaterSurface with the four-wave preset written out, so the inspector's wave list shows it (ADR 0072).
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.WaterSurface", data: { waves: WATER_PRESET.map((w) => ({ ...w })) } }] };
-    case "particle-system":
-      // Effects are assets (ADR 0060): `effect` is a new one `createParticleSystemNode` made, or empty.
-      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.ParticleSystem", data: effect ? { effect } : {} }] };
     case "ui-document":
       // A markup document (ADR 0077): `effect` is the new `.ui.xml` `createNodeIn` made, or empty.
       return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.UIDocument", data: effect ? { document: effect } : {} }] };
@@ -139,10 +151,10 @@ export function newNodeEntry(doc: SceneDocument, kind: NewNodeKind, parent: stri
     case "ui-image":
     case "ui-button":
     case "ui-input-field":
-      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, structuredClone(UI_ELEMENTS[kind.slice(3) as UIKind])] };
+      return { id, name, components: [{ type: "engine.Transform", data: { position: at } }, structuredClone(UI_ELEMENTS[builtin.slice(3) as UIKind])] };
     default: {
       // A light: directional and spot lights point down and away, like a sun in the afternoon.
-      const type = kind.replace(/-light$/, "");
+      const type = builtin.replace(/-light$/, "");
       const aimed = type === "directional" || type === "spot";
       const position = type === "directional" && parent === null ? [at[0], at[1] + 5, at[2]] : at;
       return {
@@ -164,7 +176,7 @@ export interface CreateOptions {
   index?: number;
   /** Where the node goes in its parent's space. */
   position?: Vec3;
-  /** Particle System: the effect asset it plays; UI Document: its markup (`asset:<path>`). */
+  /** The asset the node uses (`asset:<path>`): a UI Document's markup, a plugin kind's asset (a Particle System's effect). */
   effect?: string;
 }
 
@@ -176,7 +188,7 @@ export function whyNotCreatable(doc: SceneDocument, parent: string | null): stri
 }
 
 /** Add a new node of `kind` to the open scene as one undo step. Returns its id. */
-export function createNode(scene: OpenScene, kind: NewNodeKind, options: CreateOptions = {}): string {
+export function createNode(scene: OpenScene, kind: NodeKind, options: CreateOptions = {}): string {
   const parent = options.parent ?? null;
   const reason = whyNotCreatable(scene.doc, parent);
   if (reason) throw new Error(reason);

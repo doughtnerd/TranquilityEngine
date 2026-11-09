@@ -4,12 +4,12 @@
 import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { CONTEXT_KINDS, type ParticleGraphSystem } from "../../../../../engine/scene/particleGraph";
-import { NO_DRAG, NO_PAN, createNodeDrag, px, type CanvasNode, type Point, type View } from "../../../../../editor/graph";
 import { addOutput, outputCount, renameSystem, setSystemEnabled } from "../../particleGraph/graphEdit";
 import { ProblemBadge } from "./BlockView";
 import { ContextView } from "./ContextView";
 import { useGraphEditor } from "./editorContext";
 import { SYSTEM_WIDTH } from "./layout";
+import { NO_DRAG, NO_PAN, createNodeDrag, px, type CanvasNode, type Point, type View } from "../../../../../editor/sdk";
 
 /** What a draggable canvas item needs from the editor (xyflow drags selected items together). */
 export interface DragHooks {

@@ -2,10 +2,10 @@
 // each ParticleSystem as per-instance overrides and scripts set them with `setProperty`. Drag a
 // property onto the canvas (or click Place) to read it with a Property node.
 import { GRAPH_PROPERTY_TYPES, type GraphProperty, type GraphPropertyType } from "../../../../../engine/scene/particleGraph";
-import { status } from "../../../../../editor/state";
 import { PROPERTY_LABELS, addProperty, moveProperty, removeProperty, renameProperty, setPropertyExposed, setPropertyValue, whyNotPropertyName } from "../../particleGraph/graphEdit";
 import { useGraphEditor } from "./editorContext";
 import { AssetValue, ColorSwatch, CurveValue, GradientValue, NumberValue, VectorValue, asGradient, asKeys, fieldOf } from "./valueFields";
+import { editor } from "../../../../../editor/sdk";
 
 /** The drag data type of a property dragged from the Blackboard. */
 export const PROPERTY_DRAG = "application/x-myco-particle-property";
@@ -96,7 +96,7 @@ export function Blackboard(props: { collapsed: boolean; onCollapse(collapsed: bo
                 const name = (e.currentTarget as HTMLInputElement).value;
                 const why = whyNotPropertyName(graph, p.name, name);
                 if (why) {
-                  status.value = { kind: "error", text: `Can't rename ${p.name}: ${why}.` };
+                  editor.messages.error(`Can't rename ${p.name}: ${why}.`);
                   (e.currentTarget as HTMLInputElement).value = p.name;
                 } else commit(renameProperty(graph, p.name, name));
               }}

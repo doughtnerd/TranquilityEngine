@@ -3,8 +3,7 @@
 import type { Tilemap } from "../runtime";
 import type { Stamp } from "../runtime/brushes";
 import type { TilemapLayerData } from "../runtime/format";
-import { SetField } from "../../../editor/document";
-import type { OpenScene } from "../../../editor/state";
+import { SetField, type OpenScene } from "../../../editor/sdk";
 
 /**
  * The stamp for the block of the palette grid between tile positions `a` and `b` (indices into `ids`, laid out

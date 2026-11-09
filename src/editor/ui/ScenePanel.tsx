@@ -5,7 +5,7 @@ import { cleanSnap, snapSettings } from "../sceneTools";
 import { openScene, pickTool, playState, sceneCamera, setViewMode, snapping, tool, viewMode, type Tool } from "../state";
 import { ViewportDropHighlight } from "./AssetDragOverlay";
 import { CameraPreviewFrame, SceneToolButtons } from "./SceneTools";
-import { ParticlePreviewOverlay } from "./ParticlePreviewOverlay";
+import { PanelExtensions } from "./panelExtensions";
 import { SceneTabs } from "./SceneTabs";
 
 /** The elements the engines render into: kept for the whole session, whichever dock shows the scene. */
@@ -71,7 +71,7 @@ export function ScenePanel() {
         <div ref={host} class="viewport-host" />
         <ViewportHint />
         <CameraPreviewFrame />
-        <ParticlePreviewOverlay />
+        <PanelExtensions panel="scene" />
         <ViewportDropHighlight />
       </div>
     </div>

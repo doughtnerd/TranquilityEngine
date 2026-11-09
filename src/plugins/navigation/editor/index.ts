@@ -4,9 +4,11 @@
 // counters under the Worlds panel while playing; and the Inspector sections of the NavChunk (bake plan, Bake), NavAgent,
 // NavAvoidanceObstacle, NavGroup (formation preview) and the three volume components; the bake runner (`navBake.ts`,
 // in a worker); the scene view's navigation drawing and selection previews (`navGizmo.ts`, `navPreviews.ts`, viewport
-// tools, ADR 0138) and the Scene toolbar's Nav popover that switches them (a toolbar item, ADR 0142).
+// tools, ADR 0138) and the Scene toolbar's Nav popover that switches them (a toolbar item, ADR 0142); and the Play
+// Stats panel's agent count (a play stats counter, ADR 0146).
 import type { EditorPlugin } from "../../../editor/sdk";
 import { navigationManifest } from "../manifest";
+import { navAgentCount } from "../runtime";
 import { createFormation } from "./formationAssets";
 import { formationFormat } from "./formationFormat";
 import { navOverlayTool } from "./navGizmo";
@@ -36,6 +38,8 @@ export const navigationEditorPlugin: EditorPlugin = {
       view: () => import("./NavSettingsSection").then((m) => m.NavSettingsSection),
     });
     // The play-mode counters below the Worlds panel.
+    // Play Stats: each World's agent count, on its Nodes row (none for a World without navigation).
+    context.registerPlayStatsCounter({ id: "myco.navigation.agents", label: "nav agents", count: navAgentCount });
     context.registerPanelExtension({ id: "navigation-debug", panel: "worlds", view: () => import("./NavDebugPanel").then((m) => m.NavDebugPanel) });
     context.registerInspectorSection("engine.NavChunk", () => import("./NavComponentInspectors").then((m) => m.NavChunkPlanSection), { rootOnly: true });
     context.registerInspectorSection("engine.NavChunk", () => import("./NavChunkInspector").then((m) => m.NavChunkBakeSection), { rootOnly: true });

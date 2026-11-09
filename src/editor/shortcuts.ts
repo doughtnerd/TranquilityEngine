@@ -1,4 +1,5 @@
 // Editor keyboard shortcuts. Text fields keep their own keys (and undo), so shortcuts skip them.
+import { activeHistory, redo, stepBack, stepForward, trackHistoryFocus, undo } from "./activeHistory";
 import { deleteSelected } from "./deleteSelection";
 import { copySelection, cutSelection, duplicateSelection, pasteClipboard } from "./hierarchyActions";
 import { closeScene, save, togglePlaying } from "./session";
@@ -9,6 +10,9 @@ import { isEditable } from "./editable";
 export { isEditable };
 
 export type Shortcut = "undo" | "redo" | "back" | "forward" | "save" | "play" | "pause" | "step" | "delete" | "copy" | "cut" | "paste" | "paste-child" | "duplicate" | "close-tab" | `tool:${Tool}`;
+
+/** Undo, redo and stepping through history: they act on the active history (ADR 0145), whichever editor has the focus. */
+const HISTORY_SHORTCUTS: readonly Shortcut[] = ["undo", "redo", "back", "forward"];
 
 /** Node clipboard shortcuts: the Assets panel and text fields keep their own Ctrl/Cmd+C/X/V/D. */
 const CLIPBOARD_SHORTCUTS: readonly Shortcut[] = ["copy", "cut", "paste", "paste-child", "duplicate"];
@@ -47,7 +51,7 @@ export function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey"
 
 /**
  * Ctrl/Cmd + C/X/V/D copy, cut, paste and duplicate the selected nodes (+ Shift + V pastes as a child);
- * Delete or Backspace deletes the selected node; Ctrl/Cmd + P plays or stops; Ctrl/Cmd + Shift + P pauses or resumes the game and F10 or Ctrl/Cmd + Alt + P steps it one frame; Ctrl/Cmd + S saves; Ctrl/Cmd + W closes the scene tab; Ctrl/Cmd + Z undoes; Ctrl/Cmd + Shift + Z or Ctrl + Y redoes; Ctrl/Cmd + Alt + Z / + Shift step back / forward through history in creation order; Q/W/E/R pick the select, move,
+ * Delete or Backspace deletes the selected node; Ctrl/Cmd + P plays or stops; Ctrl/Cmd + Shift + P pauses or resumes the game and F10 or Ctrl/Cmd + Alt + P steps it one frame; Ctrl/Cmd + S saves; Ctrl/Cmd + W closes the scene tab; Ctrl/Cmd + Z undoes and Ctrl/Cmd + Shift + Z or Ctrl + Y redoes in the active history (the focused editor's, else the scene's); Ctrl/Cmd + Alt + Z / + Shift step back / forward through history in creation order; Q/W/E/R pick the select, move,
  * rotate and scale tools; holding Ctrl/Cmd snaps gizmo drags. Returns a function that removes
  * the listeners.
  */
@@ -56,9 +60,10 @@ export function installShortcuts(target: Window = window): () => void {
     if (e.key === "Control" || e.key === "Meta") snapping.value = true;
     const action = shortcutFor(e);
     // The Code panel's editor has its own keys (Ctrl/Cmd+S saves the script, Ctrl/Cmd+Z undoes typing), and the
-    // Shader Graph panel its own undo, delete and duplicate (ADR 0046); only Play and Save pass through.
+    // Shader Graph panel its own delete, duplicate and clipboard (ADR 0046); only Play and Save pass through, and
+    // there undo and redo too (the active history is the graph's document).
     if (action !== "play" && (e.target as Element | null)?.closest?.(".monaco-editor")) return;
-    if (action !== "play" && action !== "save" && (e.target as Element | null)?.closest?.(".shader-graph")) return;
+    if (action !== "play" && action !== "save" && !(action && HISTORY_SHORTCUTS.includes(action)) && (e.target as Element | null)?.closest?.(".shader-graph")) return;
     if (action === "play") {
       e.preventDefault(); // not the browser's print dialog
       togglePlaying();
@@ -103,14 +108,15 @@ export function installShortcuts(target: Window = window): () => void {
       pickTool(action.slice(5) as Tool);
       return;
     }
-    const stack = openScene.value?.stack;
-    if (!stack) return;
+    // Text fields kept their own undo above (isEditable); everything else undoes the active history.
+    if (!HISTORY_SHORTCUTS.includes(action) || !activeHistory.peek()) return;
     e.preventDefault();
-    if (action === "undo") stack.undo();
-    else if (action === "redo") stack.redo();
-    else if (action === "back") stack.back();
-    else if (action === "forward") stack.forward();
+    if (action === "undo") undo();
+    else if (action === "redo") redo();
+    else if (action === "back") stepBack();
+    else stepForward();
   };
+  trackHistoryFocus();
   const onKeyUp = (e: KeyboardEvent) => {
     if (e.key === "Control" || e.key === "Meta") snapping.value = false;
   };

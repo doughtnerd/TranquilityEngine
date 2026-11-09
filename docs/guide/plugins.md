@@ -131,6 +131,28 @@ export function activate(context: EditorPluginContext): void {
 - Project settings categories, panel extensions and Component notes;
 - Inspector sections and viewport tools.
 
+The `editor` object reaches the rest of the editor from anywhere in the editor half, not only in
+`activate`:
+
+```ts
+import { editor } from "myco/editor";
+
+export function createNote(folder: string): Promise<string | null> {
+  // Refuses in a read-only project, picks a free name, reports "Created …" or the error.
+  return editor.project.createFile({ folder, name: "New Note.json", what: "notes", write: (project, path) => project.writeText(path, "{}\n") });
+}
+```
+
+- `editor.project`: the open project (`current`), a `version` that changes with its files and the open
+  scene, `createFile`, `freePath`.
+- `editor.assets`: a path's kind (`kindOf`), `fileName`, `folderOf`, import settings, `reveal`.
+- `editor.messages`: `info`, `error` and `failed(context, err)` in the status bar.
+- `editor.scene`: the open scene (`open`), its tabs, the selection and the play state.
+
+Reading `editor.project.current` or `editor.project.version` in a component re-renders it when they
+change. `myco/editor` also has the Inspector and settings fields (`TextField`, `NumberField`, `Row`),
+the editor theme (`theme`) and the graph view the Shader and Particle Graphs are built on.
+
 `openAssetDocument` gives an asset kind load, save, undo and redo. An asset kind the editor half
 registers replaces the `plugin.json` entry with the same id.
 

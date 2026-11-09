@@ -36,6 +36,9 @@ export interface AssetHistoryView {
   readonly saved: number;
   /** Go to a state (undoing to the common ancestor, then redoing down); written like an undo. */
   jumpTo(seq: number): void;
+  /** The previous / next state in creation order (Vim's g- / g+, Ctrl/Cmd+Alt(+Shift)+Z); written like an undo. */
+  back(): void;
+  forward(): void;
 }
 
 export interface AssetDocument<T> {
@@ -48,6 +51,9 @@ export interface AssetDocument<T> {
   readonly readOnly: boolean;
   readonly canUndo: ReadonlySignal<boolean>;
   readonly canRedo: ReadonlySignal<boolean>;
+  /** The name of the step undo / redo would revert or make (null when there's none), for the Edit menu. */
+  readonly undoLabel: ReadonlySignal<string | null>;
+  readonly redoLabel: ReadonlySignal<string | null>;
   /**
    * Replace the value: one undo step (or merged, see coalesce); queued write. On a read-only
    * project: says so in the status bar and changes nothing.
@@ -71,6 +77,8 @@ class Document<T> implements AssetDocument<T> {
   readonly problems;
   readonly canUndo: ReadonlySignal<boolean>;
   readonly canRedo: ReadonlySignal<boolean>;
+  readonly undoLabel: ReadonlySignal<string | null>;
+  readonly redoLabel: ReadonlySignal<string | null>;
   readonly history: AssetHistoryView;
   /** The history: one state per step, its text the file's text in that state. */
   private readonly tree: TextHistory;
@@ -107,6 +115,8 @@ class Document<T> implements AssetDocument<T> {
     this.values.set(this.tree.current, read.value);
     this.canUndo = computed(() => (this.historyVersion.value, this.tree.canUndo || this.burst !== null));
     this.canRedo = computed(() => (this.historyVersion.value, this.burst === null && this.tree.canRedo));
+    this.undoLabel = computed(() => (this.historyVersion.value, this.burst ? this.burst.label : this.tree.undoLabel));
+    this.redoLabel = computed(() => (this.historyVersion.value, this.burst === null ? this.tree.redoLabel : null));
     const doc = this;
     this.history = {
       version: this.historyVersion,
@@ -120,6 +130,8 @@ class Document<T> implements AssetDocument<T> {
         return doc.tree.saved;
       },
       jumpTo: (seq) => this.go(() => this.tree.jumpTo(seq)),
+      back: () => this.go(() => this.tree.back()),
+      forward: () => this.go(() => this.tree.forward()),
     };
     this.persistence = project.canSave
       ? new AssetHistoryPersistence({
@@ -340,12 +352,19 @@ function dropAll(write: boolean): void {
 }
 
 const focused = signal<Document<unknown> | null>(null);
+
+/**
+ * Clicks and focus inside these keep whichever editor's history was focused (ADR 0145): the History
+ * panel showing it, and the menu bar whose Edit > Undo acts on it.
+ */
+export const KEEPS_HISTORY_FOCUS = '.history-panel, [role="menubar"], [role="menu"]';
 let stopTrackingFocus: (() => void) | null = null;
 
 /**
  * The asset document whose editor was last focused or clicked (its root carries
  * `data-asset-document` with the document's path), or null once something else was: the History
- * panel shows its tree instead of the scene's. Clicks in the History panel itself keep it.
+ * panel shows its tree instead of the scene's, and Undo / Redo act on it (activeHistory.ts, ADR 0145).
+ * Clicks in the History panel and the menu bar keep it.
  */
 export const focusedAssetDocument: ReadonlySignal<AssetDocument<unknown> | null> = focused;
 
@@ -357,7 +376,7 @@ function trackFocus(): void {
     if (!el?.closest) return;
     const host = el.closest("[data-asset-document]");
     if (host) focused.value = documents.get(host.getAttribute("data-asset-document") ?? "") ?? null;
-    else if (!el.closest(".history-panel")) focused.value = null;
+    else if (!el.closest(KEEPS_HISTORY_FOCUS)) focused.value = null;
   };
   document.addEventListener("focusin", onFocus, true);
   document.addEventListener("pointerdown", onFocus, true);

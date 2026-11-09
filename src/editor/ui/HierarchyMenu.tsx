@@ -5,7 +5,7 @@ import { signal } from "@preact/signals";
 import { useEffect, useLayoutEffect, useRef } from "preact/hooks";
 import { deleteSelected } from "../deleteSelection";
 import { copySelection, createNodeIn, cutSelection, duplicateSelection, nodeClipboard, pasteClipboardAt, whyNotPasteAt } from "../hierarchyActions";
-import { NEW_NODE_KINDS, whyNotCreatable } from "../nodeCreate";
+import { newNodeKinds, whyNotCreatable } from "../nodeCreate";
 import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisibility";
 import { isInsidePrefab } from "../hierarchyEdit";
 import { openScene, playState, selectedKeys, selection, type OpenScene } from "../state";
@@ -30,7 +30,7 @@ const SEPARATOR: MenuItem = { label: "", separator: true };
 /** "Create X" items adding under `parent` at `index` (`suffix` tells child variants apart). */
 function createItems(scene: OpenScene, parent: string | null, index: number | undefined, suffix: string): MenuItem[] {
   const reason = playState.value !== "edit" ? "stop playing to edit the scene" : whyNotCreatable(scene.doc, parent);
-  return NEW_NODE_KINDS.map((k) => ({ label: `Create ${k.label}${suffix}`, disabled: reason, run: () => void createNodeIn(k.kind, parent, index) }));
+  return newNodeKinds().map((k) => ({ label: `Create ${k.label}${suffix}`, disabled: reason, run: () => void createNodeIn(k.kind, parent, index) }));
 }
 
 /** Where a new sibling of the row `key` goes: right after it (after its instance, inside a prefab). */

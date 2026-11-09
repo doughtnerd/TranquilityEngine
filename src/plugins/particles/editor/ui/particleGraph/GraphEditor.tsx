@@ -10,8 +10,7 @@ import { expandParticleGraph, outputTypeResolved, portRateResolved } from "../..
 import { compileParticleGraph } from "../../../../../engine/scene/particleCompile";
 import type { ContextKind, GraphGroup, GraphNode, GraphProblem, ParticleGraph, Vec2 } from "../../../../../engine/scene/particleGraph";
 import type { PortType } from "../../../../../engine/scene/particleNodes";
-import { assetKind, fileName, listedFiles } from "../../../../../editor/assetBrowser";
-import { NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, writeGraphClipboard, type CanvasNode, type DraftWire, type Point } from "../../../../../editor/graph";
+import { usePanelHistory, type UndoHistory, editor, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, isFieldTarget, px, startBoxSelect, startConnection, startPointerDrag, toGraph, useGraphCanvas, writeGraphClipboard, type CanvasNode, type DraftWire, type Point, type EditorProject } from "../../../../../editor/sdk";
 import { createParticleSubgraph, particleDocument, readEffect } from "../../particleAssets";
 import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
 import {
@@ -43,8 +42,6 @@ import {
   type ParticleClipboard,
 } from "../../particleGraph/graphEdit";
 import { indexProblems, locateProblem } from "../../particleGraph/problems";
-import type { EditorProject } from "../../../../../editor/projects";
-import { docVersion, status } from "../../../../../editor/state";
 import { Blackboard, PROPERTY_DRAG } from "./Blackboard";
 import { GraphEditorContext, type BlockDrop, type GraphEditorApi } from "./editorContext";
 import { NODE_WIDTH, SYSTEM_WIDTH, canvasNode, measureCanvas, sameMeasure, type Measured } from "./layout";
@@ -67,13 +64,13 @@ let previewSize = { w: 300, h: 220 };
 type Pending = { side: "output" | "input"; ref: string } | null;
 type SearchTarget = { kind: "canvas" } | { kind: "context"; system: string; context: ContextKind; output: number };
 
-const effectName = (path: string) => fileName(path).replace(/\.(particles|particlesubgraph|particleblock)\.json$/i, "");
+const effectName = (path: string) => editor.assets.fileName(path).replace(/\.(particles|particlesubgraph|particleblock)\.json$/i, "");
 
 export function ParticleGraphEditor(props: { project: EditorProject; path: string }) {
   const { project, path } = props;
   const doc = particleDocument(project, path);
   const readOnly = doc.readOnly;
-  const version = docVersion.value; // sub-graph and block assets this graph uses may change on disk or elsewhere in the editor
+  const version = editor.project.version; // sub-graph and block assets this graph uses may change on disk or elsewhere in the editor
   const graph = doc.value.value;
   // Its parse problems: `GraphProblem`s (they say where), as the plugin's formats report them.
   const parseProblems = doc.problems.value as readonly GraphProblem[];
@@ -226,18 +223,57 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     for (const s of restored.systems) g = setSystemCollapsed(g, s.id, now.has(s.id));
     return g;
   };
-  const undo = () => {
-    if (readOnly || !doc.canUndo.peek()) return;
+  /** Move through the document's history, keeping the frames as they are. */
+  const step = (move: () => void) => {
+    if (readOnly) return;
     const now = doc.value.peek();
-    doc.undo();
+    move();
     doc.edit(keepView(doc.value.peek(), now), { history: false });
   };
-  const redo = () => {
-    if (readOnly || !doc.canRedo.peek()) return;
-    const now = doc.value.peek();
-    doc.redo();
-    doc.edit(keepView(doc.value.peek(), now), { history: false });
-  };
+  const undo = () => doc.canUndo.peek() && step(() => doc.undo());
+  const redo = () => doc.canRedo.peek() && step(() => doc.redo());
+  // While the panel has the focus, this is the active history (ADR 0145): Ctrl+Z, Edit > Undo and the
+  // History panel act on the document through it, so they keep the frames too.
+  const panelHistory = useMemo<UndoHistory>(
+    () => ({
+      get name() {
+        return doc.path;
+      },
+      get canUndo() {
+        return !doc.readOnly && doc.canUndo.value;
+      },
+      get canRedo() {
+        return !doc.readOnly && doc.canRedo.value;
+      },
+      get undoLabel() {
+        return doc.undoLabel.value;
+      },
+      get redoLabel() {
+        return doc.redoLabel.value;
+      },
+      undo: () => void latest.current.undo(),
+      redo: () => void latest.current.redo(),
+      back: () => latest.current.step(() => doc.history.back()),
+      forward: () => latest.current.step(() => doc.history.forward()),
+      tree: {
+        version: doc.history.version,
+        get states() {
+          return doc.history.states;
+        },
+        get current() {
+          return doc.history.current;
+        },
+        get saved() {
+          return doc.history.saved;
+        },
+        jumpTo: (seq) => latest.current.step(() => doc.history.jumpTo(seq)),
+      },
+    }),
+    [doc],
+  );
+  const latest = useRef({ undo, redo, step });
+  latest.current = { undo, redo, step };
+  usePanelHistory(root, panelHistory);
 
   // --- search ----------------------------------------------------------------------------------------
 
@@ -500,7 +536,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     if (readOnly) return;
     const probe = extractSubgraph(live.current.graph, selection, "asset:", resolve);
     if (!probe) {
-      status.value = { kind: "info", text: "Select operator nodes to save as a sub-graph (property and event nodes can't move into one)." };
+      editor.messages.info("Select operator nodes to save as a sub-graph (property and event nodes can't move into one).");
       return;
     }
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
@@ -547,9 +583,8 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     const key = (e.key ?? "").toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
     let handled = true;
-    if (mod && key === "z" && !e.altKey) e.shiftKey ? redo() : undo();
-    else if (mod && key === "y") redo();
-    else if (mod && key === "d") {
+    // Ctrl/Cmd+Z / Shift+Z / Y reach the editor's shortcuts, which undo the active history: the panel's (below, ADR 0145).
+    if (mod && key === "d") {
       const made = duplicateItems(live.current.graph, selection);
       commit(made.graph);
       setSelection(new Set(made.ids));
@@ -584,14 +619,14 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
 
   // --- drawing ---------------------------------------------------------------------------------------
 
-  const files = listedFiles(project.files);
+  const files = editor.assets.listed(project.files);
   const assets = useMemo(
     () => ({
-      images: files.filter((f) => assetKind(f) === "image").map((f) => `asset:${f}`),
-      materials: files.filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph").map((f) => `asset:${f}`),
-      meshes: files.filter((f) => assetKind(f) === "model").map((f) => `asset:${f}`),
-      subgraphs: files.filter((f) => assetKind(f) === "particlesubgraph" && f !== path).map((f) => `asset:${f}`),
-      blocks: files.filter((f) => assetKind(f) === "particleblock").map((f) => `asset:${f}`),
+      images: files.filter((f) => editor.assets.kindOf(f) === "image").map((f) => `asset:${f}`),
+      materials: files.filter((f) => editor.assets.kindOf(f) === "material" || editor.assets.kindOf(f) === "shadergraph").map((f) => `asset:${f}`),
+      meshes: files.filter((f) => editor.assets.kindOf(f) === "model").map((f) => `asset:${f}`),
+      subgraphs: files.filter((f) => editor.assets.kindOf(f) === "particlesubgraph" && f !== path).map((f) => `asset:${f}`),
+      blocks: files.filter((f) => editor.assets.kindOf(f) === "particleblock").map((f) => `asset:${f}`),
     }),
     [project.files],
   );

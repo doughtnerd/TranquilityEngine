@@ -5,6 +5,7 @@ import { ANTIALIAS_MODES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER
 import { defaultSettings } from "../../engine/core/settings";
 import { allPluginManifests } from "../../plugins/thirdPartyEditor";
 import { RENAMED_PLUGINS } from "../../plugins/enabled";
+import { usePanelHistory, type UndoHistory } from "../activeHistory";
 import { reloadGraphics } from "../graphicsPreview";
 import { errorStatus } from "../messages";
 import { projectSettingsCategory } from "../preferences";
@@ -49,7 +50,7 @@ import { EditHistory } from "../worldsConfig";
 import { AudioSettingsSection } from "./AudioSettingsSection";
 import { PluginsSection } from "./PluginsSection";
 import { lazyComponent, type LazyComponent } from "./lazy";
-import { NumberField, TextField } from "./WorldsPanel";
+import { NumberField, TextField } from "./settingsControls";
 import { NameList, ProblemList, Row } from "./settingsControls";
 import { renameLayerEdit as renameLayer_, updateLayerReferences } from "../layerRenameEdit";
 import "./projectSettings.css";
@@ -139,8 +140,24 @@ function jump(s: PanelState, redo: boolean): void {
 const renameLayerEdit = (s: PanelState, kind: LayerKind, draft: SettingsDraft, index: number, name: string) =>
   renameLayer_({ project: s.project, set: (label, next) => edit(s, label, next), refresh: () => void version.value++ }, kind, draft, index, name);
 
-const isTextField = (el: EventTarget | null) =>
-  el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && !["checkbox", "radio", "button", "color"].includes(el.type));
+/** The panel's undo list, the active history while the panel has the focus (ADR 0145): Ctrl+Z and Edit > Undo step it. */
+const settingsHistory: UndoHistory = {
+  name: "Project Settings",
+  get canUndo() {
+    return (version.value, !!state?.project.canSave && state.history.canUndo);
+  },
+  get canRedo() {
+    return (version.value, !!state?.project.canSave && state.history.canRedo);
+  },
+  get undoLabel() {
+    return (version.value, state?.history.undoLabel ?? null);
+  },
+  get redoLabel() {
+    return (version.value, state?.history.redoLabel ?? null);
+  },
+  undo: () => state && jump(state, false),
+  redo: () => state && jump(state, true),
+};
 
 /**
  * The Project panel (ADR 0038): `project.json`'s settings other than the Worlds (name, display,
@@ -148,6 +165,8 @@ const isTextField = (el: EventTarget | null) =>
  * made; problems are listed and keep the file at its last valid settings. Ctrl/Cmd+Z undoes.
  */
 export function ProjectSettingsPanel() {
+  const root = useRef<HTMLDivElement>(null);
+  usePanelHistory(root, settingsHistory);
   version.value;
   void projectSettingsSections.version.value; // a plugin's category (de)registered
   docVersion.value; // files added (autoload choices)
@@ -162,22 +181,13 @@ export function ProjectSettingsPanel() {
   const problemsAt = (field: string) => problems.filter((p) => p.field === field || p.field.startsWith(`${field}.`));
   const set = (label: string, next: SettingsDraft) => edit(s, label, next);
 
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (!(e.ctrlKey || e.metaKey) || e.altKey || isTextField(e.target)) return;
-    const key = (e.key ?? "").toLowerCase();
-    if (key !== "z" && key !== "y") return;
-    e.preventDefault();
-    e.stopPropagation(); // not the scene's undo
-    jump(s, key === "y" || e.shiftKey);
-  };
-
   const display = draft.display ?? {};
   const time = draft.time ?? {};
   const render = draft.render ?? {};
   const folder = project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name;
 
   return (
-    <div class="project-settings" tabIndex={-1} onKeyDown={onKeyDown}>
+    <div class="project-settings" tabIndex={-1} ref={root}>
       <div class="project-settings-toolbar">
         <button disabled={!editable || !s.history.undoLabel} title={s.history.undoLabel ? `Undo ${s.history.undoLabel} (Ctrl+Z)` : "Nothing to undo"} onClick={() => jump(s, false)}>
           Undo

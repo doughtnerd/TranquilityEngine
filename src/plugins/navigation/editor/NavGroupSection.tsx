@@ -3,15 +3,10 @@
 // asset's own Inspector view (painting the mask and so on) is the Navigation plugin's (`src/plugins/navigation/editor/`).
 import { useLayoutEffect, useRef } from "preact/hooks";
 import { defaultFormation, formationSlotCount, formationFillOrder, type NavFormationAsset } from "../../../engine/nav/formation";
-import { fileName } from "../../../editor/assetBrowser";
-import { showAsset } from "../../../editor/assetImport";
-import { SetField } from "../../../editor/document";
 import { createFormation, readFormation } from "./formationAssets";
-import { currentProject, docVersion, type OpenScene } from "../../../editor/state";
-import { theme } from "../../../editor/theme";
+import { editor, SetField, type OpenScene, theme, sectionField, type InspectorSectionProps } from "../../../editor/sdk";
 import "../../../editor/ui/assetInspector.css";
 import "./navFormation.css";
-import { sectionField, type InspectorSectionProps } from "../../../editor/ui/inspectorSections";
 
 const MAX_NUMBERED = 64;
 
@@ -69,8 +64,8 @@ function FormationThumb(props: { formation: NavFormationAsset }) {
  * and Edit, or Create formation asset (which assigns the new asset to the group).
  */
 export function NavGroupFormation(props: { scene: OpenScene; nodeId: string; index: number; formation: string; formationAsset: string }) {
-  docVersion.value;
-  const project = currentProject.value;
+  editor.project.version;
+  const project = editor.project.current;
   if (!project) return null;
   const ref = props.formationAsset.replace(/^asset:/, "");
   if (!ref && props.formation !== "mask") return null;
@@ -81,20 +76,20 @@ export function NavGroupFormation(props: { scene: OpenScene; nodeId: string; ind
     const made = await createFormation("", { ...defaultFormation(), shape: "mask" }, name ? `${name} Formation` : "New Formation");
     if (!made) return;
     props.scene.stack.execute(new SetField(props.nodeId, "engine.NavGroup", "formationAsset", `asset:${made}`, { index: props.index }));
-    showAsset(made);
+    editor.assets.reveal(made);
   };
   return (
     <div class="nav-group-formation" aria-label="Group formation">
       {asset ? (
         <>
           <div class="nav-group-formation-head">
-            <span title={ref}>{fileName(ref)}</span>
+            <span title={ref}>{editor.assets.fileName(ref)}</span>
             <span class="nav-group-formation-meta">
               {asset.shape === "mask" ? `${asset.width} × ${asset.height}, ${formationSlotCount(asset)} slots` : `preset: ${asset.shape}`}
             </span>
           </div>
           {asset.shape === "mask" && <FormationThumb formation={asset} />}
-          <button onClick={() => showAsset(ref)} title="Select the formation asset to paint it">
+          <button onClick={() => editor.assets.reveal(ref)} title="Select the formation asset to paint it">
             Edit
           </button>
         </>

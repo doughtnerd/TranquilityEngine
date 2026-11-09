@@ -3,11 +3,8 @@
 // Inspector owns the sidecar, Apply and Revert.
 import { useEffect, useState } from "preact/hooks";
 import { DEFAULT_SLOT, loadMeshes, materialSlots } from "../../../engine/scene/models";
-import { assetKind, fileName } from "../../../editor/assetBrowser";
 import { extractModelMaterials } from "../../../editor/materialExtract";
-import { errorStatus } from "../../../editor/messages";
-import type { ImportSettingsViewProps } from "../../../editor/sdk";
-import { currentProject, docVersion, status } from "../../../editor/state";
+import { editor, type ImportSettingsViewProps } from "../../../editor/sdk";
 import type { ImportSettings } from "../../../engine/scene/importSettings";
 
 /** The Import Settings card's rows for a model. */
@@ -64,7 +61,7 @@ function ModelMaterialRows(props: { path: string; materials: Record<string, stri
   const { path, materials } = props;
   const [slots, setSlots] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const project = currentProject.value;
+  const project = editor.project.current;
   useEffect(() => {
     let live = true;
     setSlots(null);
@@ -74,23 +71,23 @@ function ModelMaterialRows(props: { path: string; materials: Record<string, stri
     return () => {
       live = false;
     };
-  }, [path, docVersion.value]);
+  }, [path, editor.project.version]);
   const extract = async () => {
     if (!project) return;
     setBusy(true);
     try {
       const result = await extractModelMaterials(project, path);
-      docVersion.value++;
+      editor.project.changed();
       const count = Object.keys(result.materials).length;
       const lost = result.lost.length ? ` Not kept: ${result.lost.join("; ")}.` : "";
-      status.value = { kind: "info", text: `Extracted ${count} material${count === 1 ? "" : "s"} from ${fileName(path)}.${lost}` };
+      editor.messages.info(`Extracted ${count} material${count === 1 ? "" : "s"} from ${editor.assets.fileName(path)}.${lost}`);
     } catch (err) {
-      status.value = errorStatus(`Couldn't extract the materials of ${fileName(path)}`, err);
+      editor.messages.failed(`Couldn't extract the materials of ${editor.assets.fileName(path)}`, err);
     } finally {
       setBusy(false);
     }
   };
-  const files = (project?.files ?? []).filter((f) => assetKind(f) === "material" || assetKind(f) === "shadergraph");
+  const files = (project?.files ?? []).filter((f) => editor.assets.kindOf(f) === "material" || editor.assets.kindOf(f) === "shadergraph");
   return (
     <>
       <div class="import-row">

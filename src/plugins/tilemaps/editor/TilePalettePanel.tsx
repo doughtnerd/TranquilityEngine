@@ -4,26 +4,25 @@
 import { useRef, useState } from "preact/hooks";
 import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, newLayer, tileIdOf } from "../runtime/format";
 import type { TileDef } from "../runtime/tileset";
-import { assetKind } from "../../../editor/assetBrowser";
 import { activeLayer, BRUSH_TOOLS, brushFlags, brushRandom, brushStamp, brushTerrain, brushTile, brushTool, flipBrush, pickBrushTool, tilemapOf } from "./brush";
 import { blockStamp, commitLayers, commitTileset, editedLayers } from "./palette";
-import { currentProject, docVersion, openScene, playState, selectedPath, selectedWorldNode, selection } from "../../../editor/state";
 import { TileThumb } from "./TileThumb";
+import { editor } from "../../../editor/sdk";
 import "./tilePalette.css";
 
 const MIN_COLUMNS = 1, MAX_COLUMNS = 32;
 
 /** The Tile Palette panel (see the file comment). */
 export function TilePalettePanel() {
-  docVersion.value;
-  selection.value;
-  const scene = openScene.value, path = selectedPath(), project = currentProject.value;
-  const map = playState.value === "edit" ? tilemapOf(selectedWorldNode()) : null;
+  editor.project.version;
+  editor.scene.selection.active;
+  const scene = editor.scene.open, path = editor.scene.selection.path(), project = editor.project.current;
+  const map = editor.scene.playState === "edit" ? tilemapOf(editor.scene.selection.node()) : null;
   if (!scene || !path || !project || !map) return <p class="empty">Select a node with a Tilemap to paint.</p>;
   const readOnly = !project.canSave;
   const layers = map.toLayerData();
   const tileset = map.tilesetAsset;
-  const tilesets = project.files.filter((f) => assetKind(f) === "tileset");
+  const tilesets = project.files.filter((f) => editor.assets.kindOf(f) === "tileset");
   const sortingLayers = project.settings.render?.sortingLayers ?? ["Default"];
   const active = Math.min(activeLayer.value, layers.length - 1);
 
@@ -197,7 +196,7 @@ function BrushBar() {
  * The tiles in id order. Click picks one; dragging (or Shift-dragging) picks the block of tiles it covers as a
  * stamp; Ctrl/⌘-click adds or removes tiles from a set for the random brush.
  */
-function TileGridView(props: { tiles: readonly TileDef[]; project: NonNullable<typeof currentProject.value> }) {
+function TileGridView(props: { tiles: readonly TileDef[]; project: NonNullable<typeof editor.project.current> }) {
   const [columns, setColumns] = useState(8);
   const anchor = useRef<number | null>(null);
   const dragged = useRef(false);

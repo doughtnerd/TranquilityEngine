@@ -2,11 +2,7 @@
 // them (the Assets panel and a NavGroup's inspector section use these). Editing goes through the formation's asset
 // document (ADR 0134), made by the Navigation plugin's `formation` format (`src/plugins/navigation/editor/`).
 import { defaultFormation, formatFormation, parseFormation, type NavFormationAsset } from "../../../engine/nav/formation";
-import { fileName } from "../../../editor/assetBrowser";
-import { freePath } from "../../../editor/assetOps";
-import { errorStatus } from "../../../editor/messages";
-import type { EditorProject } from "../../../editor/projects";
-import { currentProject, docVersion, status } from "../../../editor/state";
+import { editor, type EditorProject } from "../../../editor/sdk";
 
 export interface ReadFormation {
   formation: NavFormationAsset;
@@ -25,7 +21,7 @@ export function readFormation(project: EditorProject, path: string): ReadFormati
 
 /** Where New Formation goes by default: `navigation/` if the project has it, else the folder given. */
 export function formationFolder(folder: string): string {
-  return folder === "" && currentProject.value?.folders.includes("navigation") ? "navigation" : folder;
+  return folder === "" && editor.project.current?.folders.includes("navigation") ? "navigation" : folder;
 }
 
 /**
@@ -34,20 +30,5 @@ export function formationFolder(folder: string): string {
  * writing failed.
  */
 export async function createFormation(folder: string, formation: NavFormationAsset = defaultFormation(), name = "New Formation"): Promise<string | null> {
-  const project = currentProject.value;
-  if (!project) return null;
-  if (!project.canSave) {
-    status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to add formations.` };
-    return null;
-  }
-  const path = freePath(project, formationFolder(folder), `${name}.formation.json`);
-  try {
-    await project.writeText(path, formatFormation(formation));
-  } catch (err) {
-    status.value = errorStatus(`Couldn't create ${path}`, err);
-    return null;
-  }
-  docVersion.value++;
-  status.value = { kind: "info", text: `Created ${fileName(path)}.` };
-  return path;
+  return editor.project.createFile({ folder: formationFolder(folder), name: `${name}.formation.json`, what: "formations", write: (project, path) => project.writeText(path, formatFormation(formation)) });
 }

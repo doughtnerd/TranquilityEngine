@@ -7,9 +7,8 @@ import { Quat } from "../../../engine/core/math";
 import { viewport } from "../../../engine/editor";
 import type { EditorOverlay } from "../../../engine/editor";
 import type { Cell } from "../runtime/brushes";
-import type { ViewportToolContribution } from "../../../editor/sdk";
-import { activeViewportTool, openScene, playState, selectedPath, selectedWorldNode, selection } from "../../../editor/state";
 import { activeLayer, brushStamp, brushTerrain, brushTool, commitTilemap, fillAt, flipBrush, paintCells, pickBrushTool, pickFromMap, strokeCells, tilemapOf, type BrushTool } from "./brush";
+import { type ViewportToolContribution, editor, activeViewportTool } from "../../../editor/sdk";
 
 /** The paint tool's id: also its overlay id and its active-tool id. */
 export const PAINT_TOOL_ID = "myco.tilemaps.paint";
@@ -23,8 +22,8 @@ const GRID_REACH = 12;
 
 /** The selected node's Tilemap while painting is possible. */
 export function paintTarget(): Tilemap | null {
-  if (playState.value !== "edit") return null;
-  return tilemapOf(selectedWorldNode());
+  if (editor.scene.playState !== "edit") return null;
+  return tilemapOf(editor.scene.selection.node());
 }
 
 /** The cell under a canvas point on the map's plane. */
@@ -67,9 +66,9 @@ export const paintTool: ViewportToolContribution = {
       if (activeViewportTool.value !== PAINT_TOOL_ID && brushTool.peek()) pickBrushTool(null);
     });
     // Selecting something that isn't a tilemap ends painting.
-    let lastKey = selection.peek();
+    let lastKey = editor.scene.selection.peekActive();
     const stopSelection = effect(() => {
-      const key = selection.value;
+      const key = editor.scene.selection.active;
       if (key === lastKey) return;
       lastKey = key;
       if (brushTool.peek() && !paintTarget()) pickBrushTool(null);
@@ -105,8 +104,8 @@ export const paintTool: ViewportToolContribution = {
       if (p.button !== 0) return null;
       const current = brushTool.peek();
       const map = current ? paintTarget() : null;
-      const scene = openScene.peek();
-      const path = selectedPath();
+      const scene = editor.scene.peekOpen();
+      const path = editor.scene.selection.path();
       if (!current || !map || !scene || !path) return null;
       const cell = cellAt(map, p.x, p.y);
       if (!cell) return null;

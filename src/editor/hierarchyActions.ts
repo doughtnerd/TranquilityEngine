@@ -4,8 +4,7 @@
 // pastes into any of them; copies also go on the system clipboard as JSON.
 import { signal } from "@preact/signals";
 import { errorStatus } from "./messages";
-import { createNode, type NewNodeKind } from "./nodeCreate";
-import { createParticleEffect } from "./particleAssets";
+import { contributedKind, createNode, type NodeKind } from "./nodeCreate";
 import {
   clipboardText,
   copyNodes,
@@ -167,13 +166,15 @@ function focusPosition(): [number, number, number] {
  * Create a node of `kind` under `parent` (null: the top level, at the scene view's focus point)
  * at `index` among its children (undefined: last), and select it.
  */
-export function createNodeIn(kind: NewNodeKind, parent: string | null, index?: number, effect?: string): string | null {
+export function createNodeIn(kind: NodeKind, parent: string | null, index?: number, effect?: string): string | null {
   const scene = editableScene("add nodes");
   if (!scene) return null;
-  if (kind === "particle-system" && effect === undefined) {
-    // Effects are assets (ADR 0060): write a new one first, then add the node playing it. A
-    // read-only project gets the node with no effect (createParticleEffect says why in the status).
-    void createParticleEffect("", undefined, "Particle System").then((made) => {
+  const contributed = contributedKind(kind);
+  if (contributed?.createAsset && effect === undefined) {
+    // A plugin's kind whose node uses a new asset (ADR 0146; a Particle System's effect, ADR 0060): write it
+    // first, then add the node using it. A read-only project gets the node with none (`createAsset` says why
+    // in the status).
+    void contributed.createAsset().then((made) => {
       const note = status.peek();
       if (openScene.peek() !== scene) return;
       createNodeIn(kind, parent, index, made ? `asset:${made}` : "");

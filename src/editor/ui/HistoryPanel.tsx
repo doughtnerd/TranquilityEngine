@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { focusedAssetDocument } from "../assetDocuments";
+import { activeHistory } from "../activeHistory";
 import { layoutHistory, relativeTime } from "../historyLayout";
-import { docVersion, openScene } from "../state";
+import { docVersion } from "../state";
 import "./history.css";
 
 const ROW = 22;
@@ -11,31 +11,33 @@ const PAD = 10;
 /**
  * The open scene's edit history as a tree (ADR 0027), like the undotree plugin: newest state at
  * the top, a column per branch, the current state filled, the saved state marked. Click a state
- * to jump to it; nothing is lost when you then edit, since edits start a new branch. While an
- * asset editor is focused (Sky, a material, a graph…), it shows that asset document's tree
- * instead (ADR 0133).
+ * to jump to it; nothing is lost when you then edit, since edits start a new branch. It shows the
+ * active history's tree (ADR 0145): while an asset editor is focused (Sky, a material, a graph…),
+ * that asset document's (ADR 0133).
  */
 export function HistoryPanel() {
   docVersion.value; // re-render on every history change
-  const scene = openScene.value;
-  const asset = focusedAssetDocument.value;
-  asset?.history.version.value; // and on every change to the asset's tree
+  const active = activeHistory.value;
+  const asset = active?.kind === "scene" ? null : active;
+  const tree = active?.history.tree;
+  tree?.version?.value; // and on every change to an asset's tree
   const list = useRef<HTMLDivElement>(null);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 10_000);
     return () => clearInterval(t);
   }, []);
-  const stack = asset
-    ? { allStates: asset.history.states, current: asset.history.current, saved: asset.history.saved, jumpTo: (seq: number) => asset.history.jumpTo(seq) }
-    : scene?.stack;
+  const stack = tree;
   const current = stack?.current;
   useEffect(() => {
     list.current?.querySelector(".history-row.current")?.scrollIntoView({ block: "nearest" });
   }, [current, docVersion.value, asset]);
-  if (!stack) return <p class="empty">No scene open</p>;
+  if (!active) return <p class="empty">No scene open</p>;
+  if (!stack) return <p class="empty">{active.history.name ?? "This editor"} keeps a short undo list rather than a tree: Ctrl+Z / Ctrl+Shift+Z or its Undo and Redo buttons step through it.</p>;
 
-  const states = stack.allStates;
+  const states = stack.states;
+  /** The file (or editor) whose tree this is, when it isn't the scene's. */
+  const what = asset?.path ?? asset?.history.name ?? "";
   const layout = layoutHistory(states);
   const rowOf = new Map(layout.rows.map((r, i) => [r.seq, i]));
   const byseq = new Map(states.map((s) => [s.seq, s]));
@@ -47,15 +49,15 @@ export function HistoryPanel() {
   return (
     <div class="history-panel">
       {asset ? (
-        <div class="history-hint history-asset" title={asset.path}>
-          {asset.path.slice(asset.path.lastIndexOf("/") + 1)} · Click a state to go there
+        <div class="history-hint history-asset" title={what}>
+          {what.slice(what.lastIndexOf("/") + 1)} · Click a state to go there
         </div>
       ) : (
         <div class="history-hint" title="Ctrl/Cmd+Alt+Z and Ctrl/Cmd+Alt+Shift+Z step back and forward through states in the order they were made (like Vim's g- / g+)">
           Click a state to go there · Ctrl+Alt+Z / Ctrl+Alt+Shift+Z: step by time
         </div>
       )}
-      <div class="history-list" ref={list} role="list" aria-label={asset ? `Edit history of ${asset.path}` : "Edit history"}>
+      <div class="history-list" ref={list} role="list" aria-label={asset ? `Edit history of ${what}` : "Edit history"}>
         <svg class="history-gutter" width={width} height={layout.rows.length * ROW} aria-hidden="true">
           {layout.rows.map((r) => {
             const pRow = rowOf.get(r.parent);

@@ -12,7 +12,6 @@
 // What the preview found ("rebake to see flight cells"…) is in `navPreviewStatus`, which the inspectors show.
 // The Navigation plugin's always-on viewport tool `myco.navigation.previews` (ADR 0138, 0142).
 import { signal } from "@preact/signals";
-import type { ViewportToolContribution } from "../../../editor/sdk";
 import { NavChunk, NavModifierVolume, NavResolutionVolume } from "../runtime/components";
 import { leafSegments, type DebugSegments } from "../../../engine/nav/debugGeometry";
 import { collectNavGeometry, loadNavGeometryMeshes } from "../../../engine/nav/geometry";
@@ -22,9 +21,7 @@ import type { NavigationSettings } from "../../../engine/nav/settings";
 import type { GameObject } from "../../../engine/scene/GameObject";
 import { projectNavigation } from "./navBake";
 import { openSceneBakeBytes, openSceneBakeKey } from "./navGizmo";
-import { persisted } from "../../../editor/preferences";
-import { currentProject, docVersion, openScene, playState, selectedKeys } from "../../../editor/state";
-import { parseHex, theme } from "../../../editor/theme";
+import { type ViewportToolContribution, editor, persisted, parseHex, theme } from "../../../editor/sdk";
 
 /** Outlines per preview (Foxfire's MaxCells). */
 export const MAX_PREVIEW_CELLS = 5000;
@@ -168,8 +165,8 @@ export function walkableTriangles(meshes: readonly { positions: Float32Array; in
 
 /** The selected node, its selection key and the navigation component the preview draws for, if any. */
 function selectedTarget(): { key: string; node: GameObject } | null {
-  const scene = openScene.peek();
-  const keys = selectedKeys.peek();
+  const scene = editor.scene.peekOpen();
+  const keys = editor.scene.selection.peekKeys();
   if (!scene || keys.length !== 1) return null;
   const node = scene.sync.nodeFor(keys[0].split("/"));
   return node ? { key: keys[0], node } : null;
@@ -185,7 +182,7 @@ export class NavSelectionPreview {
   private pending = "";
 
   segments(): DebugSegments[] {
-    if (playState.peek() !== "edit") return [];
+    if (editor.scene.peekPlayState() !== "edit") return [];
     const target = selectedTarget();
     if (!target) return [];
     const { key: nodeKey, node } = target;
@@ -193,7 +190,7 @@ export class NavSelectionPreview {
     const mod = node.getComponent(NavModifierVolume);
     const chunk = navSurfaceBins.peek() ? node.getComponent(NavChunk) : null;
     if (!res && !(mod && mod.appliesTo !== "ground" && mod.area) && !chunk) return [];
-    const settings = projectNavigation(currentProject.peek());
+    const settings = projectNavigation(editor.project.peek());
     const t = theme.peek();
     let key = `${nodeKey}|${openSceneBakeKey()}`;
     let run: (() => Promise<{ segments: DebugSegments[]; status: { kind: "resolution" | "modifier" | "bins"; text: string } | null }>) | null = null;
@@ -225,7 +222,7 @@ export class NavSelectionPreview {
         };
       };
     } else if (chunk) {
-      key += `|bins|${docVersion.peek()}|${JSON.stringify(settings.orientation)}|${JSON.stringify(settings.surfaceRings)}|${t.success}|${t.accent2}`;
+      key += `|bins|${editor.project.peekVersion()}|${JSON.stringify(settings.orientation)}|${JSON.stringify(settings.surfaceRings)}|${t.success}|${t.accent2}`;
       run = () => surfaceBinsPreview(node, settings, t);
     }
     if (!run) return [];

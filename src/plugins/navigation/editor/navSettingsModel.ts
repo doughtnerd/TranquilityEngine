@@ -20,8 +20,7 @@ import {
   type NavArea,
   type NavigationSettings,
 } from "../../../engine/nav/settings";
-import type { SettingsDraft } from "../../../editor/projectSettingsModel";
-import { uniqueName } from "../../../editor/worldsConfig";
+import type { SettingsDraft } from "../../../editor/sdk";
 
 /** The draft's navigation settings (the defaults when there's no section). */
 export const navigationOf = (d: SettingsDraft): NavigationSettings => parseNavigationSettings(d.navigation).settings;
@@ -392,4 +391,10 @@ export function navHexColor(hex: string, alpha = 1): [number, number, number, nu
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
   if (!m) return [1, 1, 1, alpha];
   return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255, alpha];
+}
+
+/** `base`, or "<base> 2", "<base> 3"… whichever isn't taken. */
+function uniqueName(base: string, taken: readonly string[]): string {
+  if (!taken.includes(base)) return base;
+  for (let i = 2; ; i++) if (!taken.includes(`${base} ${i}`)) return `${base} ${i}`;
 }

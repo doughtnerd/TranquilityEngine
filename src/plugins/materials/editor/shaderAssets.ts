@@ -1,10 +1,7 @@
 // New Shader (ADR 0106): a `*.shader.json` shader asset with its WGSL and GLSL code beside it.
 // The `shader` asset kind's `create` (ADR 0134): the Materials plugin owns `.shader.json`.
 import { defaultShaderAsset, formatShaderAsset, type ShaderAsset } from "../../../engine/scene/shaderAsset";
-import { fileName } from "../../../editor/assetBrowser";
-import { freePath } from "../../../editor/assetOps";
-import { errorStatus } from "../../../editor/messages";
-import { currentProject, docVersion, status } from "../../../editor/state";
+import { editor } from "../../../editor/sdk";
 
 /** WGSL starter for New Shader: a `Tint` property sets the base colour. */
 export const NEW_SHADER_WGSL = `// Properties are uniforms.<Name>. Keywords are #ifdef KW_<NAME>.
@@ -22,7 +19,7 @@ void surface(MycoSurfaceInput s, inout MycoSurface o) {
 
 /** Where New Shader goes by default: `shaders/` if the project has it, else the folder given. */
 export function shaderFolder(folder: string): string {
-  return folder === "" && currentProject.value?.folders.includes("shaders") ? "shaders" : folder;
+  return folder === "" && editor.project.current?.folders.includes("shaders") ? "shaders" : folder;
 }
 
 /**
@@ -31,15 +28,11 @@ export function shaderFolder(folder: string): string {
  * null if the project is read-only or writing failed.
  */
 export async function createShader(folder: string): Promise<string | null> {
-  const project = currentProject.value;
-  if (!project) return null;
-  if (!project.canSave) {
-    status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to add shaders.` };
-    return null;
-  }
+  const project = editor.project.current;
+  if (!project || editor.project.refuseReadOnly(project, "shaders")) return null;
   const dir = shaderFolder(folder);
   const at = (stem: string, ext: string) => (dir ? `${dir}/${stem}${ext}` : `${stem}${ext}`);
-  const free = (stem: string) => [".shader.json", ".wgsl", ".glsl"].every((ext) => freePath(project, dir, `${stem}${ext}`) === at(stem, ext));
+  const free = (stem: string) => [".shader.json", ".wgsl", ".glsl"].every((ext) => editor.project.freePath(project, dir, `${stem}${ext}`) === at(stem, ext));
   let stem = "New Shader";
   for (let n = 2; !free(stem); n++) stem = `New Shader ${n}`;
   const path = at(stem, ".shader.json");
@@ -54,10 +47,10 @@ export async function createShader(folder: string): Promise<string | null> {
     await project.writeFile(at(stem, ".glsl"), NEW_SHADER_GLSL);
     await project.writeText(path, formatShaderAsset(shader));
   } catch (err) {
-    status.value = errorStatus(`Couldn't create ${path}`, err);
+    editor.messages.failed(`Couldn't create ${path}`, err);
     return null;
   }
-  docVersion.value++;
-  status.value = { kind: "info", text: `Created ${fileName(path)} with its WGSL and GLSL code.` };
+  editor.project.changed();
+  editor.messages.info(`Created ${editor.assets.fileName(path)} with its WGSL and GLSL code.`);
   return path;
 }

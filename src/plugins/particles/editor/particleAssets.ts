@@ -2,23 +2,15 @@
 // the Particle Graph panel has open, reading effects, sub-graphs and custom blocks, and creating the
 // last two. Editing (the write queue, undo and redo, outside changes, renames) goes through each
 // file's asset document, `particleDocument(project, path)`, over the formats the plugin registers.
-// Creating effects stays in core (`src/editor/particleAssets.ts`): the Hierarchy's Create menu and
-// the embedded-effect migration make them too.
+// Creating effects is here too (ADR 0146): the plugin's Hierarchy Create entry and its embedded-effect
+// migration make them.
 import { signal } from "@preact/signals";
 import type { GraphProblem, ParticleGraph } from "../../../engine/scene/particleGraph";
-import { fileName, idBase, uniqueId } from "../../../editor/assetBrowser";
-import type { NodeEntry, SceneDocument } from "../../../editor/document";
-import { openAssetDocument, type AssetDocument } from "../../../editor/assetDocuments";
-import { freePath } from "../../../editor/assetOps";
-import { showPanel } from "../../../editor/layout/store";
-import { errorStatus } from "../../../editor/messages";
-import { effectFolder } from "../../../editor/particleAssets";
-import type { EditorProject } from "../../../editor/projects";
-import { currentProject, docVersion, status } from "../../../editor/state";
+import { defaultParticleGraph, formatParticleGraph } from "../../../engine/scene/particleGraphFormat";
 import { assetDocKind, blockTemplate, formatAsset, subgraphTemplate } from "./particleGraph/assetDocs";
 import { parseAssetDoc, parseEffect } from "./particleFormat";
+import { editor, openAssetDocument, type AssetDocument, type EditorProject, type NodeEntry, type SceneDocument } from "../../../editor/sdk";
 
-export { createParticleEffect, effectFolder } from "../../../editor/particleAssets";
 
 /** The effect open in the Particle Graph panel, or null. */
 export const openParticleGraph = signal<string | null>(null);
@@ -26,7 +18,7 @@ export const openParticleGraph = signal<string | null>(null);
 /** Open an effect (or a sub-graph or block asset) in the Particle Graph panel and bring the panel forward. */
 export function openParticleGraphAsset(path: string): void {
   openParticleGraph.value = path;
-  showPanel("particlegraph");
+  editor.showPanel("particlegraph");
 }
 
 /** The format id of the file at `path`: an effect, a sub-graph or a custom block. */
@@ -64,24 +56,21 @@ export function writeEffect(project: EditorProject, path: string, graph: Particl
   return doc.flush();
 }
 
-/** Create a file of `name` in `folder` holding `text`, with the same read-only and error handling as New Particle Effect. */
+/** Where New Particle Effect goes by default: `effects/` if the project has it, else the folder given. */
+export function effectFolder(folder: string): string {
+  return folder === "" && editor.project.current?.folders.includes("effects") ? "effects" : folder;
+}
+
+/**
+ * Create `New Particle Effect.particles.json` (or `… 2`) in `folder`, holding `graph` (the Simple
+ * Loop template when omitted). Returns its path, or null if the project is read-only or writing failed.
+ */
+export const createParticleEffect = (folder: string, graph: ParticleGraph = defaultParticleGraph(), name = "New Particle Effect"): Promise<string | null> =>
+  createAssetFile(folder, `${name}.particles.json`, formatParticleGraph(graph), "particle effects");
+
+/** Create a file of `name` in `folder` holding `text`, with the same read-only and error handling throughout. */
 async function createAssetFile(folder: string, name: string, text: string, what: string): Promise<string | null> {
-  const project = currentProject.value;
-  if (!project) return null;
-  if (!project.canSave) {
-    status.value = { kind: "info", text: `${project.name} is read-only. Open a project folder (or copy the sample) to add ${what}.` };
-    return null;
-  }
-  const path = freePath(project, effectFolder(folder), name);
-  try {
-    await project.writeText(path, text);
-  } catch (err) {
-    status.value = errorStatus(`Couldn't create ${path}`, err);
-    return null;
-  }
-  docVersion.value++;
-  status.value = { kind: "info", text: `Created ${fileName(path)}.` };
-  return path;
+  return editor.project.createFile({ folder: effectFolder(folder), name, what, write: (project, path) => project.writeText(path, text) });
 }
 
 /** Create `New Particle Sub-graph.particlesubgraph.json` (one number input wired to one number output), or one holding `asset`. Returns its path, or null. */
@@ -93,9 +82,9 @@ export const createParticleBlock = (folder: string) => createAssetFile(folder, "
 
 /** A node playing a particle effect asset (ADR 0057), named after the file: what adding an effect to a scene makes (ADR 0143). */
 export function particleNodeEntry(doc: SceneDocument, effectPath: string, position: readonly [number, number, number] = [0, 0, 0]): NodeEntry {
-  const name = fileName(effectPath).replace(/\.particles\.json$/i, "");
+  const name = editor.assets.fileName(effectPath).replace(/\.particles\.json$/i, "");
   return {
-    id: uniqueId(doc, idBase(effectPath)),
+    id: editor.scene.uniqueId(doc, editor.scene.idBase(effectPath)),
     name: name.charAt(0).toUpperCase() + name.slice(1),
     components: [
       { type: "engine.Transform", data: { position: [...position] } },

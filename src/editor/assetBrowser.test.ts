@@ -174,6 +174,18 @@ describe("asset browser: adding to the scene (ADR 0026)", () => {
     expect(whyNotAddable(doc, "scenes/main.scene.json")).toMatch(/inside itself/); // the open scene
     expect(whyNotAddable(doc, "prefabs/pipe-pair.prefab.json")).toBeNull();
   });
+
+  it("adds a particle effect through the Particles plugin's addToScene policy", () => {
+    const { doc } = openScene.value!;
+    expect(nodeForAsset(doc, "fx/smoke-puff.particles.json", { position: [1, 2, 0] })).toEqual({
+      id: "smoke-puff-particles", // idBase drops only the last extension
+      name: "Smoke-puff",
+      components: [
+        { type: "engine.Transform", data: { position: [1, 2, 0] } },
+        { type: "engine.ParticleSystem", data: { effect: "asset:fx/smoke-puff.particles.json" } },
+      ],
+    });
+  });
 });
 
 describe("searching slices (ADR 0115)", () => {

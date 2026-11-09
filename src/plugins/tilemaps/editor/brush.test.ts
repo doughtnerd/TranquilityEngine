@@ -3,6 +3,8 @@ import { Assets, Engine, type AssetSource } from "../../../engine";
 import { FLIP_X, FLIP_Y, FLIP_DIAGONAL, Tilemap } from "../runtime";
 import { cellValue } from "../runtime/format";
 import { createNode } from "../../../editor/nodeCreate";
+import { useEditorPlugins } from "../../testEditorPlugins";
+import { tilemapsEditorPlugin } from ".";
 import { openSceneFile } from "../../../editor/project";
 import { openScene } from "../../../editor/state";
 import { DEMO_SCENE, demoAssets, demoSettings } from "../../../editor/testing";
@@ -45,6 +47,8 @@ describe("tilemap brushes (ADR 0103)", () => {
 });
 
 describe("painting a tilemap in the editor (ADR 0103)", () => {
+  // Create Tilemap is the plugin's Hierarchy create entry (ADR 0146).
+  useEditorPlugins([tilemapsEditorPlugin]);
   let engine: Engine;
   let tiles: AssetSource;
   beforeEach(async () => {

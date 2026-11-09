@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
+import { usePanelHistory, type UndoHistory } from "../activeHistory";
 import { whyNotSliceName, type SpriteFill, type SpriteSlice } from "../../engine/scene/importSettings";
 import { fileName } from "../assetBrowser";
 import { readImportSettings, spriteEditorImage, writeImportSettings } from "../assetImport";
@@ -132,6 +133,10 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
     setHistory(h);
     keepSelection(h);
   };
+  // The editor's snapshots are the active history while it's open and focused (ADR 0145): Ctrl+Z reaches
+  // the editor's shortcuts, which undo them. Made anew for each history, so the Edit menu follows.
+  const panelHistory = useMemo<UndoHistory>(() => ({ name: "Sprite Editor", canUndo: canUndo(history), canRedo: canRedo(history), undo: stepBack, redo: stepForward }), [history]);
+  usePanelHistory(dialog, panelHistory);
   const remove = (key: number) => {
     setSlices((all) => all.filter((s) => s.key !== key));
     if (selected === key) setSelected(null);
@@ -284,20 +289,13 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
       else void close();
       return;
     }
-    e.stopPropagation(); // keep the editor's shortcuts (Delete, Ctrl+Z…) away from the scene
-    if (inField) return;
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key.toLowerCase() === "z") {
-      e.preventDefault();
-      if (e.shiftKey) stepForward();
-      else stepBack();
-      return;
-    }
-    if (mod && e.key.toLowerCase() === "y") {
-      e.preventDefault();
-      stepForward();
-      return;
-    }
+    const key = (e.key ?? "").toLowerCase();
+    // Undo and redo go on to the editor's shortcuts: the active history is this editor's (above), and a
+    // text field keeps its own.
+    if (mod && (key === "z" || key === "y")) return;
+    e.stopPropagation(); // keep the editor's other shortcuts (Delete, Ctrl+D…) away from the scene
+    if (inField) return;
     if ((e.key === "Delete" || e.key === "Backspace") && current) {
       e.preventDefault();
       remove(current.key);

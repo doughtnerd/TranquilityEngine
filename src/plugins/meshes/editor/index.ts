@@ -3,8 +3,8 @@
 // scene makes (the model's node tree, once its meshes have loaded), and its import settings (scale,
 // up axis, normals, pivots, material slots), which the shell's import Inspector shows (ADR 0040, 0143).
 import { loadModel } from "../../../engine/scene/models";
-import { modelNodeEntries } from "../../../editor/assetBrowser";
-import type { EditorPlugin } from "../../../editor/sdk";
+import { modelNodeEntries } from "./modelNodes";
+import { LargePreview, type EditorPlugin } from "../../../editor/sdk";
 import { meshesManifest } from "../manifest";
 
 /** A cube in three-quarter view, stroked in a 24×24 box. */
@@ -25,7 +25,7 @@ export const meshesEditorPlugin: EditorPlugin = {
         nodes: (doc, path, position) => modelNodeEntries(doc, path, position),
       },
       importSettings: {
-        preview: () => import("../../../editor/ui/AssetPreview").then((m) => m.LargePreview),
+        preview: async () => LargePreview,
         view: () => import("./ModelImportSettings").then((m) => m.ModelImportSettings),
       },
     });

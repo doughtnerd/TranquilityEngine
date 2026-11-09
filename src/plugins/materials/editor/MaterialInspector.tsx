@@ -6,13 +6,10 @@ import { MATERIAL_MAPS, colorHex, materialGraph, type MaterialAlphaMode, type Ma
 import { isShaderAssetPath } from "../../../engine/scene/shaderAsset";
 import type { GraphProperty, GraphValue } from "../../../engine/scene/shaderGraph";
 import type { ShaderKeyword } from "../../../engine/scene/shaderKeywords";
-import { assetKind, fileName } from "../../../editor/assetBrowser";
-import { openAssetDocument } from "../../../editor/assetDocuments";
 import { readShaderAsset, sameMaterial, withKeywordValue } from "./materialAssets";
 import { createMaterialForGraph, openShaderGraphAsset, readShaderGraph } from "./shaderGraphAssets";
-import { currentProject, docVersion } from "../../../editor/state";
 import { PropertyValue } from "./ShaderPropertyValue";
-import { LargePreview } from "../../../editor/ui/AssetPreview";
+import { editor, openAssetDocument, LargePreview } from "../../../editor/sdk";
 import "../../../editor/ui/assetInspector.css";
 
 const withAlpha = (c: Color, a: number) => new Color(c.r, c.g, c.b, a);
@@ -22,17 +19,17 @@ const withAlpha = (c: Color, a: number) => new Color(c.r, c.g, c.b, a);
  * mesh drawing with the material shows it straight away.
  */
 export function MaterialInspector(props: { path: string }) {
-  docVersion.value; // rewritten by this inspector, or on disk
+  editor.project.version; // rewritten by this inspector, or on disk
   const { path } = props;
-  const project = currentProject.value;
+  const project = editor.project.current;
   if (!project) return <p class="empty">Nothing selected</p>;
   const doc = openAssetDocument<MaterialSettings>(project, path, "material");
   const settings = doc.value.value;
   const problems = doc.problems.value.map((p) => p.message);
   const readOnly = doc.readOnly;
   useEffect(() => () => void doc.flush(), [doc]); // write a pending slider change when the inspector closes
-  const images = project.files.filter((f) => assetKind(f) === "image" || assetKind(f) === "rendertexture");
-  const graphs = project.files.filter((f) => assetKind(f) === "shadergraph");
+  const images = project.files.filter((f) => editor.assets.kindOf(f) === "image" || editor.assets.kindOf(f) === "rendertexture");
+  const graphs = project.files.filter((f) => editor.assets.kindOf(f) === "shadergraph");
   const physical = settings.shader === "physical";
   const lit = settings.shader === "lit" || physical;
   const graphPath = materialGraph(settings);
@@ -151,19 +148,12 @@ export function MaterialInspector(props: { path: string }) {
     <div
       class="inspector-body asset-inspector"
       aria-label="Material"
-      data-asset-document={doc.path}
-      onKeyDown={(e) => {
-        if (!(e.ctrlKey || e.metaKey) || (e.target as HTMLElement).tagName === "INPUT") return;
-        if (e.key.toLowerCase() === "z") (e.shiftKey ? redo : undo)();
-        else if (e.key.toLowerCase() === "y") redo();
-        else return;
-        e.preventDefault();
-      }}
+      data-asset-document={doc.path} // focused, Undo / Redo (Ctrl+Z…, the Edit menu) act on the material's document (ADR 0145)
     >
       <div class="asset-inspector-head">
         <span class="asset-inspector-kind">Material</span>
         <span class="asset-inspector-name" title={path}>
-          {fileName(path)}
+          {editor.assets.fileName(path)}
         </span>
         <span class="material-pair" style={{ marginLeft: "auto", flex: "none" }}>
           <button onClick={undo} disabled={readOnly || !doc.canUndo.value} title="Undo (Ctrl+Z)">
@@ -192,12 +182,12 @@ export function MaterialInspector(props: { path: string }) {
             <option value="unlit">Unlit</option>
             {graphs.map((f) => (
               <option key={f} value={`asset:${f}`}>
-                Shader Graph: {fileName(f)}
+                Shader Graph: {editor.assets.fileName(f)}
               </option>
             ))}
             {shaders.map((f) => (
               <option key={f} value={`asset:${f}`}>
-                Shader: {fileName(f)}
+                Shader: {editor.assets.fileName(f)}
               </option>
             ))}
             {graphFile && !graphs.includes(graphFile) && !shaders.includes(graphFile) && <option value={settings.shader}>{graphFile} (missing)</option>}
@@ -379,8 +369,8 @@ export function MaterialInspector(props: { path: string }) {
 
 /** A shader graph asset in the Inspector (ADR 0047): what it is, its problems, and buttons to edit it or make a material. */
 export function ShaderGraphInspector(props: { path: string }) {
-  docVersion.value;
-  const project = currentProject.value;
+  editor.project.version;
+  const project = editor.project.current;
   if (!project) return <p class="empty">Nothing selected</p>;
   const { graph, problems } = readShaderGraph(project, props.path);
   const all = [...problems, ...compileShaderGraph(graph).problems];
@@ -390,7 +380,7 @@ export function ShaderGraphInspector(props: { path: string }) {
       <div class="asset-inspector-head">
         <span class="asset-inspector-kind">{sub ? "Sub Graph" : "Shader Graph"}</span>
         <span class="asset-inspector-name" title={props.path}>
-          {fileName(props.path)}
+          {editor.assets.fileName(props.path)}
         </span>
       </div>
       {!sub && <LargePreview path={props.path} />}

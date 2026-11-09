@@ -26,6 +26,7 @@ import { OrbitCamera } from "./OrbitCamera";
 import { startPlay, type PlaySession } from "./playMode";
 import { applyKept, endLiveInspection, takeKept, type KeptValues } from "./runtimeInspect";
 import { openSceneFile, saveOpenScene } from "./project";
+import { sceneOpenMigrations } from "./sdk/contributions";
 import { applyEditorPlugins, reportPluginProblems } from "../plugins/editorPlugins";
 import { loadProjectCode, projectPlugins, unloadThirdPartyPlugins } from "../plugins/thirdPartyEditor";
 import { editorSettings, joinPath, jsonFiles, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
@@ -46,7 +47,6 @@ import { installUIElementOutline } from "./uiOutline";
 import { installUIHandles } from "./uiHandles";
 import { loadUIDocumentSupport } from "../engine/ui/UIDocument";
 import { reloadGraphics } from "./graphicsPreview";
-import { migrateEmbeddedEffects } from "./particleMigration";
 
 let session: { engine: Engine; dispose(): void } | null = null;
 let play: PlaySession | null = null;
@@ -199,11 +199,24 @@ function openScene_(path: string): void {
   }
   const scene = openScene.peek()!;
   openScenes.value = [...openScenes.peek().filter((s) => s !== scene), scene];
-  void attachToOpenScene(scene)
-    .then(() => (openScenes.peek().includes(scene) ? migrateEmbeddedEffects(scene) : 0))
-    .catch((err) => {
-      status.value = errorStatus(`Couldn't move the embedded particle effects out of ${path}`, err);
-    });
+  void attachToOpenScene(scene).then(
+    () => runSceneOpenMigrations(scene, path),
+    (err) => {
+      status.value = errorStatus(`Couldn't load the edit history for ${path}`, err);
+    },
+  );
+}
+
+/** Plugins' work on a scene that just opened (ADR 0146: the Particles plugin's embedded effects), one at a time, while it stays open. */
+async function runSceneOpenMigrations(scene: OpenScene, path: string): Promise<void> {
+  for (const m of sceneOpenMigrations.list()) {
+    if (!openScenes.peek().includes(scene)) return;
+    try {
+      await m.migrate(scene);
+    } catch (err) {
+      status.value = errorStatus(`Couldn't ${m.failure} ${path}`, err);
+    }
+  }
 }
 
 /** What a tab remembers while another is active: its selection and the scene view's camera. */

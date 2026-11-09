@@ -3,7 +3,7 @@
 // measured from the DOM after each render, in graph units relative to their own top-left, and fed
 // to xyflow (wiring, snapping) and to the wires.
 import type { ContextKind, OutputType } from "../../../../../engine/scene/particleGraph";
-import type { CanvasNode, Point } from "../../../../../editor/graph";
+import type { CanvasNode, Point } from "../../../../../editor/sdk";
 
 export const SYSTEM_WIDTH = 330;
 export const NODE_WIDTH = 210;

@@ -4,7 +4,6 @@
 import { computed, effect, signal } from "@preact/signals";
 import { Camera, type Engine, type GameObject } from "../engine";
 import { viewport } from "../engine/editor";
-import { installParticlePreview } from "./particlePreview";
 import { cameraPreviewEnabled, cleanSnap, installSceneToolKeys, snapSettings } from "./sceneTools";
 import { docVersion, playState, selectedWorldNode } from "./state";
 
@@ -30,14 +29,12 @@ export function installSceneView(engine: Engine): () => void {
     viewport(world).setGrid({ cellSize: s.grid, visible: s.showGrid });
   });
   const stopPreview = effect(() => viewport(world).setCameraPreview(previewCamera.value?.getBehavior(Camera) ?? null, previewFrame.value));
-  const stopParticles = installParticlePreview(engine);
   const stopKeys = typeof window === "undefined" ? () => {} : installSceneToolKeys(window);
   // Debug and end-to-end test hooks.
   if (typeof window !== "undefined") Object.assign(window, { sceneView: { grid: () => viewport(world).grid(), previewDrawn: () => viewport(world).drawn().cameraPreview } });
   return () => {
     stopGrid();
     stopPreview();
-    stopParticles();
     stopKeys();
     viewport(world).setCameraPreview(null, null);
   };

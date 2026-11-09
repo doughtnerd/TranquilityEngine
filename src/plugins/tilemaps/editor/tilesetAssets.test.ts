@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { tilemapsEditorPlugin } from "../plugins/tilemaps/editor";
-import { useEditorPlugins } from "../plugins/testEditorPlugins";
-import { defaultImportSettings, formatImportSettings, sidecarPath } from "../engine/scene/importSettings";
-import { assetKind } from "./assetBrowser";
-import { blockStamp } from "../plugins/tilemaps/editor/palette";
-import { joinPath, openFolderProject } from "./projects";
+import { tilemapsEditorPlugin } from ".";
+import { useEditorPlugins } from "../../testEditorPlugins";
+import { defaultImportSettings, formatImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
+import { assetKind } from "../../../editor/assetBrowser";
+import { blockStamp } from "./palette";
+import { joinPath, openFolderProject } from "../../../editor/projects";
 import { formatTileset, readTileset, splitSprite, tilesetFromSlices, tilesForSlices } from "./tilesetAssets";
-import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "./testing";
+import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../../editor/testing";
 
 useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 

@@ -5,9 +5,9 @@ import type { ContextKind, ParticleGraph } from "../../../../../engine/scene/par
 import { blocksFor } from "../../../../../engine/scene/particleBlocks";
 import { ASSET_BLOCK, ASSET_INPUT, ASSET_OUTPUT, type AssetMeta } from "../../particleGraph/assetDocs";
 import { NODES, type NodeCategory } from "../../../../../engine/scene/particleNodes";
-import type { SearchItem } from "../../../../../editor/graph";
 import type { TemplateKind } from "../../particleGraph/graphEdit";
 import { CONTEXT_TITLES } from "./layout";
+import type { SearchItem } from "../../../../../editor/sdk";
 
 export type SearchPick = { kind: "block"; type: string } | { kind: "node"; type: string; settings?: Record<string, unknown> } | { kind: "system"; template: TemplateKind };
 

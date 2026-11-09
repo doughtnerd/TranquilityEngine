@@ -2,7 +2,7 @@
 // or `*.shadersubgraph.json` file becomes a `ShaderGraph` and back, for their asset documents
 // (`openAssetDocument(project, path, "shadergraph" | "shadersubgraph")`).
 import { defaultShaderGraph, defaultShaderSubGraph, formatShaderGraph, parseShaderGraph, type ShaderGraph } from "../../../engine/scene/shaderGraph";
-import type { AssetFormatContribution, AssetProblem } from "../../../editor/sdk/contributions";
+import type { AssetFormatContribution, AssetProblem } from "../../../editor/sdk";
 
 /** Parse a graph file's JSON; never throws. A missing or unreadable file is `fallback()` with the reason as a problem. */
 function parseGraph(raw: unknown, path: string, fallback: () => ShaderGraph): { value: ShaderGraph; problems: readonly AssetProblem[] } {

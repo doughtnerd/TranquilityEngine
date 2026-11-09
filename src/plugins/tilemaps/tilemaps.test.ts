@@ -20,7 +20,7 @@ import { isPluginActive } from "../../editor/sdk/plugins";
 import { useEditorPlugins } from "../testEditorPlugins";
 import { activeViewportTool, currentProject, pickTool } from "../../editor/state";
 import { MemoryFileSystem, ROOT, useCoreAssetKinds } from "../../editor/testing";
-import { formatTileset } from "../../editor/tilesetAssets";
+import { formatTileset } from "./editor/tilesetAssets";
 import { EDITOR_PLUGINS } from "../editor";
 import { RUNTIME_PLUGINS, isRuntimePluginActive } from "../runtime";
 import { applyTestPlugins } from "../testPlugins";

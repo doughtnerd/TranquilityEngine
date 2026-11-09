@@ -196,7 +196,7 @@ function WorldRows(props: { w: WorldStats; ms: (v: number | null | undefined) =>
       <tr>
         <th>Nodes</th>
         <td data-stat="nodes">{w.nodes.toLocaleString()}</td>
-        <td class="sub">{w.agents !== null ? `nav agents ${w.agents}` : ""}</td>
+        <td class="sub">{w.counters.map((c) => `${c.label} ${c.value}`).join(" · ")}</td>
       </tr>
     </tbody>
   );

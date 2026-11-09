@@ -7,8 +7,7 @@ import { Tilemap } from "../runtime";
 import { floodCells, lineCells, rectCells, type Cell, type Stamp } from "../runtime/brushes";
 import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, cellValue, flagsOf, rotateFlagsClockwise, tileIdOf } from "../runtime/format";
 import { pickWeighted } from "../runtime/tileset";
-import { SetField } from "../../../editor/document";
-import type { OpenScene } from "../../../editor/state";
+import { SetField, type OpenScene } from "../../../editor/sdk";
 
 export type BrushTool = "pencil" | "rect" | "fill" | "erase" | "pick";
 

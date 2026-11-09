@@ -6,13 +6,12 @@
 import { GameObject, type Engine } from "../../../engine";
 import { Joint, Joint2D, AxisJoint, AxisJoint2D, BallJoint, FixedJoint, FixedJoint2D, HingeJoint, HingeJoint2D, RopeJoint, RopeJoint2D, SliderJoint, SliderJoint2D, SpringJoint, SpringJoint2D } from "../runtime";
 import type { EditorOverlay } from "../../../engine/editor";
-import type { ViewportToolContribution } from "../../../editor/sdk";
 import { worldCenter } from "./collider3dMath";
 import { toWorld } from "./colliderMath";
 import { jointWire, type JointKind, type JointShape, type V3 } from "./jointMath";
 import { poseOf, pose3DOf } from "./colliderGizmo";
 import { rotate } from "./collider3dMath";
-import { selectedNodes } from "../../../editor/state";
+import { type ViewportToolContribution, editor } from "../../../editor/sdk";
 
 const COLOR = 0xe8a33d;
 const COLOR_SELECTED = 0xffcf70;
@@ -79,7 +78,7 @@ export function joint2DShape(j: Joint2D): JointShape | null {
 /** What to draw this frame: every joint in the edited scene. */
 export function jointOverlay(engine: Engine): EditorOverlay {
   const overlay: EditorOverlay = { lines: [], handles: [] };
-  const selected = new Set(selectedNodes().map((s) => s.node));
+  const selected = new Set(editor.scene.selection.nodes().map((s) => s.node));
   const draw = (node: GameObject, shape: JointShape | null) => {
     if (!shape) return;
     const color = selected.has(node) ? COLOR_SELECTED : COLOR;
