@@ -316,13 +316,15 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, a
 ## Open questions
 
 - macOS real-time behaviour (low priority; a gate for macOS releases).
-- A completion callback for one-shots without an event system: is a `Promise` on `AudioHandle` acceptable, or is polling enough?
 - User-written DSP (custom effects as wasm modules), later.
 
 Settled at acceptance (2026-11-09):
 - **Sound quality:** manual listening backed by automated objective checks (see Sound quality).
 - **COOP/COEP:** postMessage is the default everywhere; the SAB ring is optional and only where isolation already works on every desktop platform (see Platforms).
 - **Minimum versions:** the lowest that support all required features, confirmed in M1a.0.
+
+Settled during M1 (2026-11-09):
+- **One-shot completion:** no `Promise` in M1 (owner). Scripts poll `handle.playing` and `handle.reason` once per frame, as the engine does everywhere else. A `Promise` can be added later without breaking anything.
 
 ## RFC round
 

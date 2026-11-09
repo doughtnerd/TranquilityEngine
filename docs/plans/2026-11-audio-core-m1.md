@@ -77,10 +77,10 @@ The requested order is A0.1 → A0.3 → A0.7 → A1.2 → A1.3b → A2.1 → A2
 - **Isolation.** Each worker gets its own worktree, cut from master after the previous wave merged (check the merge-base). Workers touch only the files their task lists. Concurrent e2e runs each get their own `E2E_PORT`.
 - **The owner** (needs people, hardware or sign-off):
   - **H0:** sends any letter to the rights holders. Claude drafts it but doesn't send it.
-  - **A0.7:** a Linux machine or VM with WebKitGTK and audio output (Linux containers have no audio device).
+  - ~~**A0.7:** a Linux machine with WebKitGTK and audio output.~~ The owner chose a Docker container instead (2026-11-09): WebKitGTK under Xvfb with a PulseAudio null sink. The check records the sink's monitor and confirms the tone in the signal, rather than relying on a listener.
   - **C3:** the low-end Android phone and the Linux soak machine.
   - **C4:** the listening pass.
-  - **Before MS2 wave 3 (A1.6):** the one-shot completion question below.
+  - ~~**Before MS2 wave 3 (A1.6):** the one-shot completion question below.~~ Decided 2026-11-09: no `Promise` in M1 (ADR 0157, open questions).
 
 ### Single-writer files
 
@@ -167,7 +167,7 @@ A0.5 and A0.4 both touch settings, so A0.5 branches after A0.4's merge.
 
 | Task | Who | Files |
 |---|---|---|
-| **A0.7** WebView2 and WebKitGTK smoke: tone, autoplay policy per webview, second Engine shares the host | M + owner (Linux) | `src-tauri/` autoplay flags only if needed; findings in `build-log.md` |
+| **A0.7** WebView2 and WebKitGTK smoke: tone, autoplay policy per webview, second Engine shares the host | M (WebKitGTK in Docker: Xvfb, a PulseAudio null sink, the monitor recorded and the tone checked in the signal) | `src-tauri/` autoplay flags only if needed; findings in `build-log.md` |
 | A0.8 host and World-service lifecycle across two Engines, `releaseWorld`, reconfigure with live voices | S | `runtime/core/service.ts` (lifecycle part), `src/engine/Engine.ts` |
 | A0.6 feature probes, refusal message, Babylon fallback trigger, minimum versions doc, suspended `addModule` in WebKit and Firefox; check Android's WebView for AudioWorklet and `simd128` | M | `runtime/core/probe.ts` (fills A0.3's stub), the trigger in `backend.ts`, `docs/guide/` minimum versions |
 | A0.9 unlock re-arm after `interrupted` and resume failure | M | `runtime/core/unlock.ts` |
@@ -214,7 +214,7 @@ Five tasks are too many for two mid-level engineers at once. With human staff, r
 
 A1.6 declares the **whole** §1 surface (K10), including `Audio.debug()`, which delegates to `backend.debug()`, and `Bus.peak`, which returns 0 until A2.3. A1.4's `coreBackend.debug()` calls a `debug.ts` stub. MS4 then fills `debug.ts` (A2.5) and the peak (A2.3) without touching `Audio.ts` or `coreBackend.ts`.
 
-**Decide before A1.6:** whether one-shots get a completion `Promise`. Recommendation: **not in M1.** `handle.playing` and `handle.reason` already answer "has it ended?", and are polled once per frame like everything else in the engine. A `Promise` is an event channel the engine otherwise avoids, and it can be added later without breaking anything. Record the answer in ADR 0157's open questions.
+**Decided (owner, 2026-11-09): no completion `Promise` in M1.** The reasoning was: `handle.playing` and `handle.reason` already answer "has it ended?", and are polled once per frame like everything else in the engine. A `Promise` is an event channel the engine otherwise avoids, and it can be added later without breaking anything. Record the answer in ADR 0157's open questions.
 
 **Exit:** loopback plays a WAV through the real wasm. `audioBackend`, `spatialAudio` and `audioHandle` run green on the fake and loopback hosts. Sound-lab isn't built yet, so check by hand that flappy plays with `backend: "core"` in Chromium.
 
