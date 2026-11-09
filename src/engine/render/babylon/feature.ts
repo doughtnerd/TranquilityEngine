@@ -172,6 +172,11 @@ export interface FeatureSlot<F extends BabylonFeature = BabylonFeature> {
   ensure(world?: World): F | null;
   /** Start loading a lazy feature; resolves with it once loaded, or null (the load failed, the slot was disposed). */
   whenLoaded(): Promise<F | null>;
+  /**
+   * What warms this feature's content before it has loaded (ADR 0154, 0163): its registration's lighter
+   * warm factory (`loadWarm`, loaded once), else the feature itself (`whenLoaded`).
+   */
+  warmSource(): Promise<Pick<BabylonFeature, "warm"> | null>;
   dispose(): void;
 }
 
@@ -186,6 +191,7 @@ export function eagerFeature<F extends BabylonFeature>(spec: RenderFeatureSpec, 
     loading: false,
     ensure: () => (disposed ? null : feature),
     whenLoaded: () => Promise.resolve(disposed ? null : feature),
+    warmSource: () => Promise.resolve(disposed ? null : feature),
     dispose() {
       if (disposed) return;
       disposed = true;
@@ -197,12 +203,19 @@ export function eagerFeature<F extends BabylonFeature>(spec: RenderFeatureSpec, 
 /**
  * @internal A feature loaded on first need (ADR 0083), once. `load` gets `cancelled()`: true once the
  * slot was disposed, so it can skip building the feature (return null); a feature that arrives anyway
- * is disposed. A failed load is logged and tried again at the next need.
+ * is disposed. A failed load is logged and tried again at the next need. `loadWarm`, when given, builds
+ * what warms the feature's content without loading all of it (ADR 0154): loaded once, tried again after
+ * a failure.
  */
-export function lazyFeature<F extends BabylonFeature>(spec: RenderFeatureSpec, load: (cancelled: () => boolean) => Promise<F | null>): FeatureSlot<F> {
+export function lazyFeature<F extends BabylonFeature>(
+  spec: RenderFeatureSpec,
+  load: (cancelled: () => boolean) => Promise<F | null>,
+  loadWarm?: (cancelled: () => boolean) => Promise<Pick<BabylonFeature, "warm"> | null>,
+): FeatureSlot<F> {
   let feature: F | null = null;
   let pending: Promise<void> | null = null;
   let disposed = false;
+  let warmSource: Promise<Pick<BabylonFeature, "warm"> | null> | null = null;
   const start = (): void => {
     if (feature || pending || disposed) return;
     pending = load(() => disposed)
@@ -228,6 +241,15 @@ export function lazyFeature<F extends BabylonFeature>(spec: RenderFeatureSpec, l
     whenLoaded() {
       start();
       return pending ? pending.then(() => feature) : Promise.resolve(feature);
+    },
+    warmSource() {
+      if (!loadWarm) return this.whenLoaded();
+      warmSource ??= loadWarm(() => disposed).catch((err) => {
+        warmSource = null; // try again at the next warm-up
+        console.error(`[myco] the ${spec.name} render feature's warm-up couldn't load:`, err);
+        return null;
+      });
+      return warmSource;
     },
     dispose() {
       if (disposed) return;

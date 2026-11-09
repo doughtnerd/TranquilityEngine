@@ -203,6 +203,26 @@ describe("the Babylon renderer's diagnostics (ADR 0128)", () => {
     expect(d.stats.geometries).toBeGreaterThan(0);
   });
 
+  it("plans the camera preview from the policy's inset, without the DOM (ADR 0163)", () => {
+    const main = GameObject.create("main").addBehavior(Camera);
+    const shown = GameObject.create("shown").addBehavior(Camera);
+    world.setEditMode(shown.node.entity, true); // a scene being edited: its camera only shows in the inset
+    renderer.setPolicy({ cameraPreview: { camera: shown, inset: { x: 0.75, top: 0.5, width: 0.2, height: 0.25, aspect: 1.6 } } });
+    // NullEngine can't make the studio room or run the frame graph: the plan is made before the graph runs.
+    const internals = renderer as unknown as { lighting: { shareStudio(s: null): void }; frame: { render(): void } };
+    internals.lighting.shareStudio(null);
+    internals.frame.render = () => undefined;
+    renderer.sync(world);
+    renderer.render(world);
+    const plan = (renderer as unknown as { lastPlan: { camera: Camera; output: { kind: string; rect?: unknown; aspect?: number } }[] }).lastPlan;
+    expect(plan.find((v) => v.camera === main)?.output.kind).toBe("canvas");
+    expect(plan.find((v) => v.output.kind === "preview")).toMatchObject({ camera: shown, output: { rect: { x: 0.75, y: 0.25, width: 0.2, height: 0.25 }, aspect: 1.6 } });
+    shown.enabled = false; // a disabled camera has no preview
+    renderer.sync(world);
+    renderer.render(world);
+    expect((renderer as unknown as { lastPlan: { output: { kind: string } }[] }).lastPlan.some((v) => v.output.kind === "preview")).toBe(false);
+  });
+
   it("loads the editor tools once, and they are the viewport adapter", async () => {
     const tools = await renderer.loadEditorTools();
     expect(tools).toBeInstanceOf(BabylonEditorTools);

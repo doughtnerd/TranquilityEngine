@@ -13,7 +13,7 @@ import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defaultGraphics } from "../core/graphics";
 import { Assets } from "../index";
-import { pipelineTierKey } from "../render/babylon/BabylonRenderer";
+import { pipelineTierKey } from "../render/babylon/pipelineReadiness";
 import type { InstanceDraw, QuadDraw } from "../render/babylon/particleMeshes";
 import { BabylonParticles } from "../render/babylon/particles";
 import { warmWorldCanvas } from "../render/babylon/ui";

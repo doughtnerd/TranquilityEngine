@@ -14,6 +14,9 @@
  * properties, probe copies) are built by the scene's `BabylonMaterialLibrary` (`materialLibrary.ts`,
  * ADR 0127) from the renderer-neutral resolution in `render/materialResolution.ts`.
  *
+ * Pipeline readiness (the warm-up, re-warms, variant report and held first frames, ADR 0080, 0120) is
+ * `pipelineReadiness.ts`, called before and after each frame (ADR 0163).
+ *
  * Editor helpers (stage 8) are in `editorTools.ts` (loaded on demand) over the context below; their
  * overlay is a utility layer the frame graph draws after the view camera. The camera preview inset is
  * one more camera in the frame graph, drawn last.
@@ -52,22 +55,21 @@ import type { PixelGrid, RenderDiagnostics, RenderFeatureDiagnostics } from "../
 import { Graphics } from "../Graphics";
 import type { PostSettings } from "../postEffects";
 import { canvasCameras, planFrame, type FrameCamera, type PlannedView, type Rgb, type ViewRect } from "../framePlan";
-import { GAME_POLICY, type RenderPolicy } from "../renderPolicy";
+import { GAME_POLICY, type PreviewInset, type RenderPolicy } from "../renderPolicy";
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
 import { BabylonMaterialLibrary } from "./materialLibrary";
-import { eagerFeature, lazyFeature, type BabylonFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext, type MeshesFeatureApi, type SpritesFeatureApi } from "./feature";
+import { eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext, type MeshesFeatureApi, type SpritesFeatureApi } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonQuadBatches } from "./quadBatches";
 import { ENVIRONMENT_SPEC, EnvironmentFeature, FOG_SPEC, LIGHTS_SPEC, LightsFeature, PROBES_SPEC, ProbesFeature } from "./features";
 import { FogFeature } from "./fog";
 import { sortingOrder, unknownLayerMessage } from "../sortOrder";
 import { snapToGrid } from "../pixelPerfect";
-import { AsyncPipelines, FirstFrames } from "./asyncPipelines";
-import { effectClock, PipelineWarmer, VariantReport, type WarmItem } from "./warmUp";
+import { PipelineReadiness } from "./pipelineReadiness";
+import type { WarmItem } from "./warmUp";
 import type { WarmContent } from "../../scene/warmUp";
-import type { QualityTier } from "../../core/graphics";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
 
 interface CameraEntry {
@@ -82,15 +84,6 @@ const tmpScale = new Vector3();
 const tmpQuat = new Quaternion();
 const tmpPos = new Vector3();
 
-
-/**
- * @internal The tier settings that change the pipelines draws need (ADR 0080): the sample count, the
- * passes (post-processing, ambient occlusion, depth of field, bloom), shadow maps and cascades, the
- * shader level graph materials compile for, and probe captures. Not the render scale or particle budget.
- */
-export function pipelineTierKey(t: Readonly<QualityTier>): string {
-  return [t.antialias, t.shadows, t.shadowCascades, t.shaderLevel, t.postProcessing, t.bloom, t.ambientOcclusion, t.depthOfField, t.reflectionProbes].join("|");
-}
 
 /** The whole camera texture (each camera renders into a texture its rectangle's size, frameGraph.ts). */
 const FULL_VIEW: ViewRect = Object.freeze({ x: 0, y: 0, width: 1, height: 1 });
@@ -129,26 +122,10 @@ export class BabylonRenderer {
   private readonly warned = new Set<string>();
   /** Time and drawing-buffer size, read by every graph material. */
   private readonly graphShared: GraphShared = { time: 0, resolution: [1, 1] }; // `mainLight` is the lighting's, set once it exists
-  /** ADR 0080: draws queued meshes once, hidden, so their shader pipelines exist before they're shown. */
-  private readonly warmer: PipelineWarmer;
-  /** A World's first frames, held while their pipelines compile asynchronously (ADR 0120). */
-  private readonly firstFrames = new FirstFrames();
-  /** True while the frame graph runs in a held first frame: `AsyncPipelines` skips any draw then, not just the warmer's. */
-  private firstFrameDrawing = false;
-  /** Whether the World's textures and models had all loaded at the last sync (a held first frame waits for them). */
+  /** Warm-up, re-warms, the variant report and the held first frames (ADR 0080, 0120, 0163); null for a thumbnail renderer, which never draws through `render`. */
+  private readonly readiness: PipelineReadiness | null;
+  /** Whether the World's textures and models had all loaded at the last sync (a held first frame and a thumbnail wait for them). */
   private contentLoaded = false;
-  /** WebGPU: the warm-up's pipelines compile asynchronously while the warmer is busy (no frame waits for them); null elsewhere. */
-  private readonly asyncPipelines: AsyncPipelines | null;
-  /** Time spent creating effects, which sizes the warm-up's batches. */
-  private readonly effects: { ms(): number; dispose(): void };
-  /** ADR 0080: editor play mode's log of shader variants compiled after loading; null when off. */
-  private report: VariantReport | null = null;
-  /** The tier settings the warmed pipelines were made for (`pipelineTierKey`). */
-  private warmedTier = pipelineTierKey(Graphics.tier);
-  /** How many probes had captured when the warm-up last covered their copies. */
-  private warmedProbes = 0;
-  /** When `render` last drew a frame: a warm-up only waits while frames are being drawn. */
-  private lastRenderAt = -Infinity;
   /** Shared by the sky, lights and environment features, and the frame's sky fit. */
   private readonly lighting: BabylonLighting;
   private readonly lights: LightsFeature;
@@ -171,11 +148,6 @@ export class BabylonRenderer {
   private readonly syncCtx: FeatureSyncContext = { view: null, viewCamera: null, ready: false, probeMeshes: [] };
   /** Meshes drawn with a probe's map last frame, for tests. */
   private reflecting = 0;
-  /** The core services plugin features are built from (ADR 0135, 0154). */
-  private readonly host: BabylonFeatureHost;
-  /** Plugin features' registered warm loaders (ADR 0154 `loadWarm`), by slot, and what they loaded. */
-  private readonly warmLoaders = new Map<FeatureSlot, () => Promise<unknown>>();
-  private readonly warmSources = new Map<FeatureSlot, Promise<Pick<BabylonFeature, "warm"> | null>>();
   /** The pixel ratio the drawing buffer follows (`resize`), and the surface's device-pixel grid once it gives one. */
   private pixelRatio = 1;
   private gridSource: (() => PixelGrid) | null = null;
@@ -249,19 +221,14 @@ export class BabylonRenderer {
     // Order inside a phase is registration order adjusted by the specs' `after` constraints (ADR 0130,
     // 0135, 0140): the sky (the Sky plugin's) before lights (it may drive the sun), lights before fog, fog
     // before the environment (the skybox fades with the sky fog); sprites, tilemaps, then meshes.
-    const host = (this.host = this.featureHost());
+    const host = this.featureHost(); // the core services plugin features are built from (ADR 0135, 0154)
     this.slots = [
       eagerFeature(LIGHTS_SPEC, this.lights),
       eagerFeature(FOG_SPEC, this.fog),
       eagerFeature(ENVIRONMENT_SPEC, new EnvironmentFeature(this.lighting)),
       eagerFeature(PROBES_SPEC, new ProbesFeature(this.probes, { reflecting: () => this.reflecting })),
     ];
-    for (const p of plugged) {
-      for (const slot of pluginSlot(p, host)) {
-        this.slots.push(slot);
-        if (p.registration.loadWarm) this.warmLoaders.set(slot, p.registration.loadWarm);
-      }
-    }
+    for (const p of plugged) this.slots.push(...pluginSlot(p, host));
     this.specs = this.slots.map((f) => f.spec);
     for (const i of byPhase(this.specs)) {
       const slot = this.slots[i];
@@ -270,19 +237,14 @@ export class BabylonRenderer {
       this.phases.set(slot.spec.phase, list);
     }
 
-    // Before the warmer, which asks whether compiles are async. Only while it's busy: everywhere else a
-    // missing pipeline is made as Babylon makes it, so what's drawn never skips a frame.
-    // A World's first frames (ADR 0120) use it for every draw of the frame graph.
-    this.asyncPipelines = thumbnail ? null : AsyncPipelines.install(this.engine, () => (this.warmer?.drawing ?? false) || this.firstFrameDrawing, () => !(this.warmer?.drawing ?? false));
-    this.effects = thumbnail ? { ms: () => 0, dispose: () => undefined } : effectClock(this.engine); // a shared thumbnail engine is never wrapped
-    this.warmer = new PipelineWarmer({
-      scene,
-      materials: this.materials,
-      ...(this.asyncPipelines ? { compiling: () => this.asyncPipelines!.settled() } : {}),
-      effectMs: () => this.effects.ms(),
-      probeVariants: (base) => this.probes.warmHits().map((hit) => this.materials.probeCopy(base, hit)),
-    });
-    this.warmer.onDrained = () => this.report?.quiet();
+    // A shared thumbnail engine is never wrapped (no async pipelines, no effect clock).
+    this.readiness = thumbnail
+      ? null
+      : PipelineReadiness.forScene(engine, scene, {
+          materials: this.materials,
+          probeVariants: (base) => this.probes.warmHits().map((hit) => this.materials.probeCopy(base, hit)),
+          describe: (m) => this.describeMesh(m),
+        });
   }
 
   // --- Warm-up (ADR 0080) -----------------------------------------------------------------------
@@ -293,51 +255,22 @@ export class BabylonRenderer {
    * first scene, loaded before the engine starts): they're drawn over the first frames instead.
    */
   warmUp(set: WarmContent): Promise<void> {
+    if (!this.readiness) return Promise.resolve();
     const items: WarmItem[] = [...set.meshes];
-    const later: Promise<void>[] = [];
+    const later: Promise<readonly WarmItem[] | null>[] = [];
     // Each feature builds its own warm items (ADR 0130); a lazy one that hasn't loaded is loaded for the
     // content its spec `warms` (or its registration's lighter `loadWarm`), then asked (ADR 0154).
     for (const slot of this.slots) {
       const feature = slot.feature;
       if (feature) items.push(...(feature.warm?.(set) ?? []));
-      else if (slot.spec.warms?.(set)) later.push(this.warmSource(slot).then((w) => (w?.warm && !this.disposed ? this.warmer.add(w.warm(set)) : undefined)));
+      else if (slot.spec.warms?.(set)) later.push(slot.warmSource().then((w) => (w?.warm && !this.disposed ? w.warm(set) : null)));
     }
-    const done = Promise.all([this.warmer.add(items), ...later]).then(() => undefined);
-    return performance.now() - this.lastRenderAt < 500 ? done : Promise.resolve();
-  }
-
-  /** What warms a lazy feature's content before it has loaded: its registration's warm factory (loaded once), else the feature. */
-  private warmSource(slot: FeatureSlot): Promise<Pick<BabylonFeature, "warm"> | null> {
-    const load = this.warmLoaders.get(slot);
-    if (!load) return slot.whenLoaded();
-    let source = this.warmSources.get(slot);
-    if (!source) {
-      source = load().then(
-        (factory) => (this.disposed ? null : (factory as BabylonWarmFactory)(this.host)),
-        (err) => {
-          this.warmSources.delete(slot); // try again at the next warm-up
-          console.error(`[myco] the ${slot.spec.name} render feature's warm-up couldn't load:`, err);
-          return null;
-        },
-      );
-      this.warmSources.set(slot, source);
-    }
-    return source;
-  }
-
-  /** The tier changed what draws need (MSAA, passes, shadows, shader level): draw what this World warmed again in the new passes. */
-  private rewarmOnTierChange(): void {
-    const key = pipelineTierKey(Graphics.tier);
-    if (key === this.warmedTier) return;
-    this.warmedTier = key;
-    void this.warmer.rewarm();
+    return this.readiness.warm(items, later);
   }
 
   /** Editor play mode: log shader variants compiled after loading, naming their node and prefab (ADR 0080). */
   setVariantReport(on: boolean): void {
-    if (on === !!this.report) return;
-    this.report?.dispose();
-    this.report = on ? new VariantReport(this.engine, this.scene, (m) => this.describeMesh(m)) : null;
+    this.readiness?.setVariantReport(on);
   }
 
   /**
@@ -418,33 +351,20 @@ export class BabylonRenderer {
   }
 
   /**
-   * The camera preview inset as fractions of the canvas (x and width from the left, top and height from
-   * the top), or null when there's none to draw.
+   * The camera preview inset the editor measured (ADR 0163: fractions of the canvas, from its top-left),
+   * or null when there's none to draw (no preview, or its camera is gone, disabled or not synced yet).
    */
-  private previewRect(): { x: number; top: number; width: number; height: number } | null {
+  private previewRect(): PreviewInset | null {
     const p = this.policy.cameraPreview;
-    const entry = p && p.camera.node.isValid && p.camera.isActiveAndEnabled ? this.cameras.get(p.camera) : undefined;
-    if (!p || !entry) return null;
-    const canvas = this.engine.getRenderingCanvas();
-    if (!canvas) return null;
-    const c = canvas.getBoundingClientRect(), r = p.frame.getBoundingClientRect();
-    const cw = canvas.clientWidth, ch = canvas.clientHeight;
-    if (r.width < 2 || r.height < 2 || cw <= 0 || ch <= 0) return null;
-    const clamp = (n: number) => Math.min(1, Math.max(0, n));
-    const x = clamp((r.left - c.left) / cw), top = clamp((r.top - c.top) / ch);
-    const w = Math.min(clamp(r.width / cw), 1 - x), h = Math.min(clamp(r.height / ch), 1 - top);
-    if (w <= 0.001 || h <= 0.001) return null;
-    return { x, top, width: w, height: h };
+    return p && p.camera.node.isValid && p.camera.isActiveAndEnabled && this.cameras.has(p.camera) ? p.inset : null;
   }
 
   /** The frame plan's preview input (ADR 0129): the inset from the bottom-left, its aspect ratio, and whether its overlay layer is set. */
   private previewInput(): { camera: Camera; rect: { x: number; y: number; width: number; height: number }; aspect: number; ui: boolean } | null {
-    const p = this.policy.cameraPreview;
-    const rect = p ? this.previewRect() : null;
-    if (!p || !rect) return null;
-    const r = p.frame.getBoundingClientRect();
-    const y = Math.min(1, Math.max(0, 1 - rect.top - rect.height));
-    return { camera: p.camera, rect: { x: rect.x, y, width: rect.width, height: rect.height }, aspect: r.width / r.height, ui: this.frame.previewUI !== null };
+    const r = this.previewRect();
+    if (!r) return null;
+    const y = Math.min(1, Math.max(0, 1 - r.top - r.height));
+    return { camera: this.policy.cameraPreview!.camera, rect: { x: r.x, y, width: r.width, height: r.height }, aspect: r.aspect, ui: this.frame.previewUI !== null };
   }
 
   /** Sets the editor background (editor Worlds) and clear colour. */
@@ -523,9 +443,7 @@ export class BabylonRenderer {
       ctx.probeMeshes = this.probeMeshes;
     } else if (phase === "capture") {
       // Probes capture after the scene loads, after its warm-up: warm their material copies once they exist (ADR 0080).
-      const captured = this.probes.textures().length;
-      if (captured > this.warmedProbes) void this.warmer.rewarm();
-      this.warmedProbes = captured;
+      this.readiness?.probesCaptured(this.probes.textures().length);
     }
   }
 
@@ -587,7 +505,6 @@ export class BabylonRenderer {
 
   render(world: World): void {
     this.claim(world);
-    this.rewarmOnTierChange();
     this.graphShared.time = world.time.time;
     this.graphShared.resolution = [this.engine.getRenderWidth(), this.engine.getRenderHeight()];
     const engine = this.engine;
@@ -619,29 +536,25 @@ export class BabylonRenderer {
     this.cameraPreviewDrawn = previewShown && this.frame.ready;
     for (const slot of this.slots) slot.feature?.beforeFrame?.(); // the sky's bake: before the frame graph runs, like probe captures
     if (views.length) this.probes.capture(views[0].camera); // before the frame graph runs
-    this.warmer.beforeRender(views[0]?.camera ?? null, this.casters);
+    const readiness = this.readiness!; // a thumbnail renderer is only synced
+    readiness.beforeFrame(views[0]?.camera ?? null, this.casters);
     let held = false;
     if (views.length) {
-      // A World's first frames (ADR 0120): every missing pipeline compiles asynchronously, and a frame missing a draw is held on the clear colour.
-      const first = !!this.asyncPipelines && this.firstFrames.begin(this.frame.ready, performance.now());
-      const skipped = this.asyncPipelines?.skippedShown ?? 0;
-      this.firstFrameDrawing = first;
-      try {
-        this.frame.render(views, this.lights.shadows(), this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
-      } finally {
-        this.firstFrameDrawing = false;
-      }
+      // A World's first frames (ADR 0120): held on the clear colour while a draw is missing or content loads.
       // A layout change rebuilds the graph instead of running it: that frame shows the clear colour and doesn't count.
-      if (first && this.frame.ready) held = this.firstFrames.end(this.asyncPipelines!.skippedShown > skipped, this.contentLoaded && !this.slots.some((f) => f.loading && f.spec.holdsFirstFrame), performance.now());
+      held = readiness.drawFrame(
+        this.frame.ready,
+        () => {
+          this.frame.render(views, this.lights.shadows(), this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
+          return this.frame.ready;
+        },
+        () => this.contentLoaded && !this.slots.some((f) => f.loading && f.spec.holdsFirstFrame),
+      );
       if (held) engine.restoreDefaultFramebuffer();
     }
     if (!views.length || !this.frame.ready || held) engine.clear(this.clearColor, true, true, true);
     engine.endFrame();
-    if (views.length && this.frame.ready) {
-      this.warmer.afterRender();
-      this.report?.afterRender();
-      this.lastRenderAt = performance.now();
-    }
+    if (views.length && this.frame.ready) readiness.afterFrame();
   }
 
   /** A planned view as a frame-graph camera view (ADR 0129), or null when its render texture isn't ready. */
@@ -730,10 +643,7 @@ export class BabylonRenderer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    this.warmer.dispose();
-    this.asyncPipelines?.dispose();
-    this.effects.dispose();
-    this.report?.dispose();
+    this.readiness?.dispose();
     this.tools?.dispose();
     this.frame.overlay = null;
     this.overlayLayer?.dispose();
@@ -967,7 +877,11 @@ export async function loadPluginFeatures(world?: World): Promise<PluginFeature[]
 
 function pluginSlot(p: PluginFeature, host: BabylonFeatureHost): FeatureSlot[] {
   const { spec } = p.registration;
-  if (!p.factory) return [lazyFeature(spec, (cancelled) => p.registration.load().then((f) => (cancelled() ? null : (f as BabylonFeatureFactory)(host))))];
+  const { load, loadWarm } = p.registration;
+  if (!p.factory) {
+    const warm = loadWarm && ((cancelled: () => boolean) => loadWarm().then((f) => (cancelled() ? null : (f as BabylonWarmFactory)(host))));
+    return [lazyFeature(spec, (cancelled) => load().then((f) => (cancelled() ? null : (f as BabylonFeatureFactory)(host))), warm)];
+  }
   try {
     return [eagerFeature(spec, p.factory(host))];
   } catch (err) {
