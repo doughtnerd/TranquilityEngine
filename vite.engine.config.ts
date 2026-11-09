@@ -10,6 +10,7 @@ import { typescriptTranspile } from "./vite.shared.ts";
 const BESIDE_BUNDLE = [
   { module: "src/engine/nav/loader.ts", path: "./wasm/myco_nav_bg.wasm" }, // ADR 0065
   { module: "src/engine/ui/fonts.ts", path: "./fonts/Inter-latin-wght.woff2" }, // ADR 0076
+  { module: "src/plugins/audio/runtime/core/loader.ts", path: "../wasm/myco_audio.wasm" }, // ADR 0157
 ];
 
 /**
@@ -34,7 +35,7 @@ function assetsBesideBundle(): Plugin {
     generateBundle() {
       for (const e of BESIDE_BUNDLE) {
         const dir = e.module.slice(0, e.module.lastIndexOf("/") + 1);
-        this.emitFile({ type: "asset", fileName: fileName(e.path), source: readFileSync(new URL(`./${dir}${e.path.slice(2)}`, import.meta.url)) });
+        this.emitFile({ type: "asset", fileName: fileName(e.path), source: readFileSync(new URL(e.path, new URL(`./${dir}`, import.meta.url))) });
       }
     },
   };
