@@ -70,3 +70,8 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 ## Tilemaps (ADR 0103)
 
 - **Orientation:** one of a tile's 8 flips and turns, its flip flags read as a transform of the cell, diagonal first, then X, then Y (as Tiled). `runtime/tileFlips.ts` is the one place that convention lives: `compose`, `inverse`, `rotateClockwise`, `flipPoint`, `sourceCorner`.
+
+## Hosts (ADR 0155)
+
+- **Launch:** the ordered start of a game every host shares, through `launchGame` (`src/engine/launch.ts`): the asset source, scripts, plugin activation (passed in by the host), the Engine, then the entry scene; `dispose()` undoes it in reverse. The player, the dedicated server and play mode are its adapters. _Avoid:_ boot, bootstrap (that is a World's start-up plan, ADR 0032).
+- **Entry scene:** the scene that empty start-up Worlds (no `scenes` key and no nodes) load at launch: a build's main scene, or play mode's open scene. The dedicated server has none.
