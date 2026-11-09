@@ -9,7 +9,7 @@ import type { AudioSettings } from "../../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../../engine/core/audioConfigure";
 import type { World } from "../../../../engine/core/World";
 import type { WorldServiceDef } from "../../../../engine/core/worldServices";
-import { registerCoreBackend } from "../backend";
+import { noteCoreUnavailable, registerCoreBackend } from "../backend";
 import type { AudioHost, WorldKey, WorldShare } from "./context";
 
 export const AUDIO = "myco.audio";
@@ -83,6 +83,8 @@ export function connectHostToEngines(
   return disconnect;
 }
 
+const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
 /** Hosts connected to the Engines, with their disconnect. */
 const connections = new WeakMap<AudioHost, () => void>();
 
@@ -95,8 +97,9 @@ export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> 
    * Probes the engine (K8: `probe.ts`, which A0.6 fills), then dynamic-imports the host and starts it: the wasm is
    * fetched and compiled, the context created (suspended while autoplay is blocked) and the worklet node made, so
    * the first gesture only resumes (architecture §3.1). The host is the page's one (`acquireAudioHost`), and it is
-   * connected to the Engines' reconfigure once. Resolving, not throwing, keeps scene loads working:
-   * `audioBackend()` falls back to "babylon" until a core backend registers (A1.4), and A0.6 warns with `reason`.
+   * connected to the Engines' reconfigure once. Resolving, not throwing, keeps scene loads working. Until the core
+   * answers, `audioBackend()` is a pending stand-in whose plays wait as locked voices; they move to the core when it
+   * registers, or to "babylon" (with A0.6's one warning) when the load fails.
    */
   load: async (): Promise<AudioCoreModule> => {
     const { probeCoreSupport } = await import("./probe");
@@ -106,12 +109,22 @@ export const AUDIO_SERVICE: WorldServiceDef<AudioCoreModule, AudioWorldService> 
       const { startAudioHost } = await import("./context");
       const host = await startAudioHost(mixer.audioSettings);
       connectHostToEngines(host);
-      // A1.4: the core backend, made on first use by `audioBackend()` (the registry and voice table belong to it).
+      // A1.4: the core backend, made by `audioBackend()` (the registry and voice table belong to it). It registers once
+      // the core has answered (the first STATUS with the ready flag and this ABI, §3.1); until then `audioBackend()` is
+      // the pending stand-in whose plays wait as locked voices, so sound never settles on "babylon" just because the
+      // core was slower than the first play. An ABI mismatch, a shell error or no first STATUS in 5 s is a failed load
+      // (§2.1 fallback rule): one warning, then "babylon" for the page. Not awaited: a locked context answers only after
+      // the gesture, and scene loads mustn't wait for it.
       const { createCoreBackend } = await import("./coreBackend");
-      registerCoreBackend(() => createCoreBackend(host));
+      host.link.ready.then(
+        () => registerCoreBackend(() => createCoreBackend(host)),
+        (error: unknown) => noteCoreUnavailable(`audio core couldn't start (${errorText(error)}); using "babylon".`),
+      );
       return { ready: true, host };
     } catch (error) {
-      return { ready: false, reason: error instanceof Error ? error.message : String(error) };
+      const reason = errorText(error);
+      noteCoreUnavailable(`audio core couldn't load (${reason}); using "babylon".`);
+      return { ready: false, reason };
     }
   },
   create: (world, core) => new AudioWorldService(world, core),
