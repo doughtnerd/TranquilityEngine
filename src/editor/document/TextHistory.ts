@@ -63,6 +63,17 @@ export class TextHistory {
     return this.redoTarget() !== null;
   }
 
+  /** Label of the step `undo()` would revert, or null. */
+  get undoLabel(): string | null {
+    return this.canUndo ? this.state(this.currentSeq).label : null;
+  }
+
+  /** Label of the step `redo()` would make, or null. */
+  get redoLabel(): string | null {
+    const t = this.redoTarget();
+    return t === null ? null : this.state(t).label;
+  }
+
   /** Every state, oldest first (for the History panel). */
   get allStates(): readonly HistoryState[] {
     return this.sortedSeqs().map((s) => this.state(s));

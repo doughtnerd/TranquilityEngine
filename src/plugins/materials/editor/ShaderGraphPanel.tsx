@@ -325,9 +325,8 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     }
     if (isFieldTarget(e.target)) return;
     let handled = true;
-    if (mod && key === "z" && !e.altKey) e.shiftKey ? redo() : undo();
-    else if (mod && key === "y") redo();
-    else if (mod && key === "d") {
+    // Ctrl/Cmd+Z / Shift+Z / Y reach the editor's shortcuts, which undo the active history: this graph's document (ADR 0143).
+    if (mod && key === "d") {
       const made = duplicateNodes(graph, selection);
       commit(made.graph);
       setSelection(new Set(made.ids));

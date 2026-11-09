@@ -8,10 +8,13 @@ const actions = (): MenuActions => {
   return new Proxy(fns, { get: (t, name: string) => (t[name] ??= vi.fn()) }) as unknown as MenuActions;
 };
 
-const scene = { path: "main.scene.json", dirty: false, undoLabel: null, redoLabel: null, canUndo: false, canRedo: false };
+const scene = { path: "main.scene.json", dirty: false };
+const history = { undoLabel: null, redoLabel: null, canUndo: false, canRedo: false };
+/** With a scene open, the scene's history is the active one unless the test says otherwise. */
 const state = (over: Partial<MenuState> = {}): MenuState => ({
   project: null,
   scene: null,
+  history: over.scene ? history : null,
   playing: false,
   canOpenFolders: true,
   isDesktop: false,
@@ -99,11 +102,17 @@ describe("menu bar", () => {
 
   it("Undo and Redo say what they do", () => {
     expect(undoLabel(null)).toBe("Undo");
-    expect(undoLabel({ ...scene, canUndo: true, undoLabel: "Set position" })).toBe("Undo Set position");
-    expect(redoLabel({ ...scene, canRedo: true, redoLabel: "Add node" })).toBe("Redo Add node");
-    const m = buildMenus(state({ project, scene: { ...scene, canUndo: true, undoLabel: "Add node" } }), actions());
+    expect(undoLabel({ ...history, canUndo: true, undoLabel: "Set position" })).toBe("Undo Set position");
+    expect(redoLabel({ ...history, canRedo: true, redoLabel: "Add node" })).toBe("Redo Add node");
+    const m = buildMenus(state({ project, scene, history: { ...history, canUndo: true, undoLabel: "Add node" } }), actions());
     expect(item(m, "edit", "Undo Add node").disabled).toBeNull();
     expect(item(m, "edit", "Redo").disabled).toBe("nothing to redo");
+  });
+
+  it("Undo and Redo follow the active history, even with no scene open (a focused asset editor)", () => {
+    const m = buildMenus(state({ project, history: { ...history, canRedo: true, redoLabel: "Edit" } }), actions());
+    expect(item(m, "edit", "Undo").disabled).toBe("nothing to undo");
+    expect(item(m, "edit", "Redo Edit").disabled).toBeNull();
   });
 
   it("editing commands need a scene, and not while playing", () => {

@@ -3,6 +3,7 @@
 import { signal } from "@preact/signals";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { isTauri } from "../../engine/platform/FileSystem";
+import { activeHistory, redo, undo } from "../activeHistory";
 import { deleteSelected } from "../deleteSelection";
 import { copySelection, cutSelection, duplicateSelection, nodeClipboard, pasteClipboard, whyNotPasteHere } from "../hierarchyActions";
 import { isInsidePrefab } from "../hierarchyEdit";
@@ -95,8 +96,8 @@ const ACTIONS: MenuActions = {
   resetLayout,
   closeProject: () => void closeProject(),
   exit: () => void exit(),
-  undo: () => openScene.value?.stack.undo(),
-  redo: () => openScene.value?.stack.redo(),
+  undo: () => void undo(),
+  redo: () => void redo(),
   cut: clipboardAction("x", true, () => void cutSelection()),
   copy: clipboardAction("c", true, () => void copySelection()),
   paste: clipboardAction("v", true, () => void pasteClipboard(false)),
@@ -135,10 +136,12 @@ function liveMenus(): Menu[] {
   const project = currentProject.value;
   const scene = openScene.value;
   const stack = scene?.stack;
+  const history = activeHistory.value?.history;
   const folders = canOpenFolders();
   const state: MenuState = {
     project: project ? { name: project.name, canSave: project.canSave, hasRoot: project.root != null } : null,
-    scene: scene && stack ? { path: scene.path, dirty: stack.dirty, undoLabel: stack.undoLabel, redoLabel: stack.redoLabel, canUndo: stack.canUndo, canRedo: stack.canRedo } : null,
+    scene: scene && stack ? { path: scene.path, dirty: stack.dirty } : null,
+    history: history ? { undoLabel: history.undoLabel ?? null, redoLabel: history.redoLabel ?? null, canUndo: history.canUndo, canRedo: history.canRedo } : null,
     playing: playState.value !== "edit",
     canOpenFolders: folders,
     isDesktop: isTauri(),

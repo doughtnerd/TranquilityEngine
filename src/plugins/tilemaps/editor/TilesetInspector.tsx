@@ -69,16 +69,6 @@ export function TilesetInspector(props: { path: string }) {
   };
   const undo = () => (doc.canUndo.peek() ? doc.undo() : (status.value = { kind: "info", text: "Nothing to undo in this tileset." }));
   const redo = () => (doc.canRedo.peek() ? doc.redo() : (status.value = { kind: "info", text: "Nothing to redo in this tileset." }));
-  const onKeyDown = (e: KeyboardEvent) => {
-    const t = e.target as HTMLElement;
-    if (!(e.ctrlKey || e.metaKey) || t.closest("input, select, textarea")) return;
-    const key = e.key.toLowerCase();
-    if (key !== "z" && key !== "y") return;
-    e.preventDefault();
-    e.stopPropagation(); // the tileset's history, not the scene's
-    if (key === "y" || e.shiftKey) redo();
-    else undo();
-  };
 
   const usedSprites = new Set(data.tiles.map((t) => t.sprite));
   const images = project.files.filter((f) => assetKind(f) === "image" && readImportSettings(project, f).settings.sprites.length > 0);
@@ -93,7 +83,7 @@ export function TilesetInspector(props: { path: string }) {
   };
 
   return (
-    <div class="inspector-body asset-inspector tileset-inspector" aria-label="Tileset" data-asset-document={doc.path} tabIndex={-1} onKeyDown={onKeyDown}>
+    <div class="inspector-body asset-inspector tileset-inspector" aria-label="Tileset" data-asset-document={doc.path} tabIndex={-1}>
       <div class="asset-inspector-head">
         <span class="asset-inspector-kind">Tileset</span>
         <span class="asset-inspector-name" title={path}>

@@ -5,10 +5,8 @@
 // - xyflow: the `@xyflow/system` adapter: pan and zoom, node drags, wiring from ports, wire curves.
 // - canvas: `useGraphCanvas` (the pane and its view), `startBoxSelect` and `SelectionBox`,
 //   `startPointerDrag` (group and note drags), `NoteView`, `Minimap` and `NodeSearchPopup`.
-// - history: `createGraphHistory`, per-asset undo and redo of whole-graph snapshots.
 // - clipboard: copying a tagged JSON payload through the system clipboard as text.
 // Styles are in graph.css (import it from the panel).
 export * from "./xyflow";
 export * from "./canvas";
-export * from "./history";
 export * from "./clipboard";
