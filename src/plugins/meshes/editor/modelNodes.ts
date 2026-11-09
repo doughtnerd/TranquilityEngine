@@ -121,5 +121,15 @@ export function modelNodeEntries(doc: SceneDocument, modelPath: string, position
   return entries;
 }
 
-const vec = (v: readonly number[]) => ({ x: v[0], y: v[1], z: v[2] });
+/**
+ * The note after adding a model (ADR 0118, 0149; the `model` kind's `addToScene.note`): its cameras
+ * arrive with the Camera component turned off, so say so and how to look through one. Null when it has none.
+ */
+export function disabledCamerasNote(entries: readonly NodeEntry[]): string | null {
+  const cameras = entries.filter((e) => e.components?.some((c) => c.type === "engine.Camera" && c.enabled === false)).length;
+  if (!cameras) return null;
+  return `its ${cameras === 1 ? "camera was" : `${cameras} cameras were`} added with the Camera component turned off, so it doesn't take over the view; enable it to look through it.`;
+}
+
+const vec =(v: readonly number[]) => ({ x: v[0], y: v[1], z: v[2] });
 const quat = (q: readonly number[]) => ({ x: q[0], y: q[1], z: q[2], w: q[3] });

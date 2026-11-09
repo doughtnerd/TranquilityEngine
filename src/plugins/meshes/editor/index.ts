@@ -3,7 +3,7 @@
 // scene makes (the model's node tree, once its meshes have loaded), and its import settings (scale,
 // up axis, normals, pivots, material slots), which the shell's import Inspector shows (ADR 0040, 0143).
 import { loadModel } from "../../../engine/scene/models";
-import { modelNodeEntries } from "./modelNodes";
+import { disabledCamerasNote, modelNodeEntries } from "./modelNodes";
 import { LargePreview, type EditorPlugin } from "../../../editor/sdk";
 import { meshesManifest } from "../manifest";
 
@@ -23,6 +23,7 @@ export const meshesEditorPlugin: EditorPlugin = {
       addToScene: {
         prepare: (path) => loadModel(path).then(() => undefined),
         nodes: (doc, path, position) => modelNodeEntries(doc, path, position),
+        note: (_path, entries) => disabledCamerasNote(entries),
       },
       importSettings: {
         preview: async () => LargePreview,
