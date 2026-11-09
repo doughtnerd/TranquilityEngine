@@ -1,6 +1,6 @@
 # 0099. FMOD as an optional audio backend: spike, recommendation and stub adapter
 
-- **Status:** Proposed
+- **Status:** Superseded by 0149 (FMOD is not shipped; an engine-owned core instead)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

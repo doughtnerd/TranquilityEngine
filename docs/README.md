@@ -45,7 +45,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0003](decisions/0003-tauri-platform-browser-runtime.md) | Tauri platform, browser runtime | Accepted |
 | [0004](decisions/0004-threejs-render-pipeline.md) | three.js owns the render pipeline | Superseded by 0075 |
 | [0005](decisions/0005-physics-backend.md) | Physics: Rapier now, PhysX for 3D later, behind an engine interface | Accepted |
-| [0006](decisions/0006-audio-howler-and-three.md) | Audio: Howler + three.js positional audio | Accepted, amended by 0074 (spatial audio through Howler) |
+| [0006](decisions/0006-audio-howler-and-three.md) | Audio: Howler + three.js positional audio | Superseded by 0149 |
 | [0007](decisions/0007-hidden-ecs-with-lifecycle-scripting.md) | Hidden ECS core, lifecycle-method scripting | Accepted, amended by 0017 |
 | [0008](decisions/0008-gameobjects-as-node-graph.md) | GameObjects are entities arranged as a node graph | Accepted |
 | [0009](decisions/0009-components-attached-or-as-child-nodes.md) | Components attach to a node or live as child nodes | Accepted |
@@ -113,7 +113,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0071](decisions/0071-fog.md) | A Fog component sets a World's distance fog, honoured by every engine material | Accepted |
 | [0072](decisions/0072-water-surfaces-and-buoyancy.md) | Water surfaces with Gerstner waves, sampled the same on the CPU for buoyancy | Accepted |
 | [0073](decisions/0073-camera-rays-and-screen-points.md) | Cameras convert between screen points and world rays; `Ray` and `Plane` are public maths types | Accepted |
-| [0074](decisions/0074-spatial-audio-with-howler.md) | Spatial audio through Howler's spatial API, with an AudioListener component | Accepted, extended by 0097 (proposed) |
+| [0074](decisions/0074-spatial-audio-with-howler.md) | Spatial audio through Howler's spatial API, with an AudioListener component | Accepted, amended by 0149 |
 | [0075](decisions/0075-babylonjs-render-backend.md) | Babylon.js replaces three.js as the render backend (WebGPU, plain WGSL, frame graph), from upstream with module-by-module imports and copied subsystems instead of a fork | Accepted; stage 10 superseded by 0078, then restored for the renderer by 0081 |
 | [0076](decisions/0076-ui-yoga-layout-babylon-gui-drawing.md) | Game UI: Yoga lays out, Babylon GUI draws, the engine routes input; partly supersedes 0069 (uikit) | Accepted |
 | [0077](decisions/0077-ui-documents-markup-styles-scripts.md) | UI is authored as markup documents with stylesheets, driven by scripts on a data-oriented core, and edited in the scene view | Accepted |
@@ -135,9 +135,9 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0094](decisions/0094-gpu-particle-simulation-backends.md) | Particle systems compile to per-particle kernels run on WebGPU compute, WebGL2 textures or JavaScript, chosen per system (auto/cpu/gpu); resolves O16 | Proposed |
 | [0095](decisions/0095-particle-attributes-subgraphs-and-custom-blocks.md) | Particle graphs gain Particle attribute nodes, Set Attribute blocks, and sub-graph and custom block assets inlined before compiling | Proposed |
 | [0096](decisions/0096-soft-particles-collisions-seed-and-particle-materials.md) | Soft particles, depth-buffer (GPU) and collider (CPU) collisions, deterministic seeds, a shader-graph Particle Color node; quarks.art import dropped | Proposed |
-| [0097](decisions/0097-audio-mixer-buses.md) | Audio mixer buses, snapshots and ducking over one shared AudioContext | Proposed |
-| [0098](decisions/0098-audio-backend-interface.md) | An internal audio backend interface, with Howler as the default implementation | Proposed |
-| [0099](decisions/0099-fmod-spike.md) | FMOD as an optional audio backend: spike, recommendation and stub adapter | Proposed |
+| [0097](decisions/0097-audio-mixer-buses.md) | Audio mixer buses, snapshots and ducking over one shared AudioContext | Proposed, amended by 0149 |
+| [0098](decisions/0098-audio-backend-interface.md) | An internal audio backend interface, with Howler as the default implementation | Proposed, amended by 0149 |
+| [0099](decisions/0099-fmod-spike.md) | FMOD as an optional audio backend: spike, recommendation and stub adapter | Superseded by 0149 |
 | [0100](decisions/0100-replicate-node-structure-and-a-string-table.md) | Replication sends each ghost's active flag and parent as a versioned structure, and spawn strings through a per-connection string table | Proposed |
 | [0101](decisions/0101-replication-settings-on-world-configs.md) | A server World's snapshot rate and budget are set by `replication` on its World config | Proposed |
 | [0102](decisions/0102-in-page-websocket-links-use-loopback.md) | A link between two Worlds of one page over a transport that can't listen there connects them over loopback | Proposed |
@@ -186,6 +186,8 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0145](decisions/0145-undo-and-redo-act-on-one-active-history-resolved-by-focus.md) | Undo and Redo (Edit menu, shortcuts, History panel) act on one active history resolved by focus: a panel-local history a panel registers, else the focused asset document's, else the scene's; the per-panel Ctrl+Z handlers and `graph/history.ts` go | Proposed |
 | [0146](decisions/0146-the-editor-shell-reaches-plugins-only-through-contribution-points.md) | The editor shell names no plugin: new Hierarchy create entries, asset actions, play stats counters, scene-open migrations and idle prefetches (plus the viewport tool and Scene panel extension points) carry Tilemap, Create Tileset from Slices, Particle System, the particle preview and migration, the nav agent count and the physics prefetch; tileset and particle modules move into their plugins; a test forbids shell imports from plugin folders | Proposed |
 | [0147](decisions/0147-the-editor-sdk-gives-plugins-the-project-status-and-scene-through-one-editor-object.md) | `myco/editor` gains one `editor` object (`project`: current, version, createFile, freePath; `assets`: kindOf, fileName, folderOf, importSettings, reveal; `messages`: info, error, failed; `scene`: open tabs, selection, play state) over the hidden `state.ts` signals, plus the fields, theme and graph view; every first-party editor half imports the shell only through it, apart from a listed, shrinking internal tier a test enforces | Proposed |
+| [0148](decisions/0148-fmod-backend-uses-the-npm-package-pthreads-build-under-cross-origin-isolation.md) | The FMOD backend uses FMOD 2.04's npm package (unpacked into git-ignored `vendor/fmod/`, resolved by a Vite plugin, lazily loaded), the pthreads `fmodstudioPL` build with a single-threaded fallback, banks and clips loaded from memory, and the editor, dev server and exports served cross-origin isolated (COOP/COEP) | Withdrawn in favour of 0149 (proposed) |
+| [0149](decisions/0149-audio-runs-on-an-engine-owned-rust-core-in-an-audioworklet.md) | Audio runs on an engine-owned Rust core (`native/audio/`, wasm, plain C ABI) in an AudioWorklet, as a first-party plugin: the main thread owns intent (typed-array voice table, one versioned command batch per frame), the audio thread owns playback and posts a status block back; symphonia decodes and streams on a worker. Commits to M1 (behind `audio.backend: "core"`, gated by a soak test and re-measured worst-case budgets, then Howler removed); events, spatial, interactive music and the profiler are a roadmap | Accepted |
 
 ## Working with decisions
 

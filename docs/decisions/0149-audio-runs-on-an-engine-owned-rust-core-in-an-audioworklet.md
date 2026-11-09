@@ -1,0 +1,351 @@
+# 0149. Audio runs on an engine-owned Rust core in an AudioWorklet, replacing Howler
+
+- **Status:** Accepted (revision 2, after the RFC round in `docs/rfc/0149/`)
+- **Date:** 2026-11-09
+- **Deciders:** Chris Carlson
+- **Supersedes:** 0006, 0099
+- **Amends:** 0074 (spatial audio is no longer through Howler; its fields and behaviour are kept), 0097 (its model is kept; the Web Audio bus graph is replaced), 0098 (the interface gains a status channel, handles and priority)
+- **Related:** 0148 (withdrawn), 0065, 0133, 0040, 0010, 0011, 0034
+
+## Context
+
+The owner's goal is **AAA-quality mixing and control built into the engine**, as a reason to choose an engine meant for fully open-source use.
+
+**Today:**
+- Audio is Howler plus a Web Audio bus graph (0006, 0074, 0097) behind an internal backend interface (0098).
+- It plays clips, spatial sources through Howler's panner, buses with a few effects, snapshots and voice-activity ducking.
+- It has no voice priority or limits, no events or parameters, no HRTF, no occlusion, no routable streaming (streamed clips are HTML5 audio: no effects, no spatial) and no profiler.
+- Howler also does the unlocking after the first user gesture (`AudioSource.ts:2-3`). There is no unlock step outside it.
+
+FMOD was considered (0099, then 0148). It's proprietary and licensed per title, so an open-source engine can't ship it. "AAA audio built in" would really mean "AAA audio if you buy FMOD".
+
+**Spikes** in `spikes/audio-worklet/` (README there) tested an engine-owned core: a Rust mixer compiled to wasm, running in the browser's AudioWorklet. All were measured 2026-11-09 on one AMD Ryzen AI Max+ 395 core, mostly single runs.
+
+| Finding | Number |
+|---|---|
+| Mixer speed, wasm vs native | within ±3% in V8, JavaScriptCore and SpiderMonkey; ~1.15 µs per mixed voice per quantum (linear-interpolation resampling, 4 one-second test clips, so cache-warm) |
+| Mixed voices | 256: 0.31 ms (12% of a quantum). 1,024: 1.2 ms (44%) |
+| Virtual voices | 4,096 logical, 256 mixed: +0.03 ms |
+| Runs inside AudioWorklet | Chromium on Windows (also real-time on real hardware), Chromium/WebKitGTK/Firefox 157 on Linux in containers with no audio device; same output RMS in all three; worklet overhead 1–7%. macOS not run |
+| HRTF (FFT, 256 taps) | ~5 µs per voice; 32 voices 5–7% |
+| 3rd-order ambisonics + binaural decode | 256 voices 7–13% (`simd128` halves the encode) |
+| Convolution reverb, 4 s stereo | uniform 1.0–1.2 ms; non-uniform with work spread over 16 quanta 0.09–0.12 ms average, max 0.19 ms native, rare maxima up to 1.67 ms in Node wasm |
+| Commands main → worklet | one transferable `Float32Array` per frame: ~0.1 ms main thread at 1,024 voices, applied in 1 quantum typically, 3–5 at the tail; at 1,024 voices one 0.55–0.86 ms GC scavenge on the worklet. A SAB ring is 5–10× cheaper, no worklet GC, but needs COOP/COEP |
+| Streaming | decoder worker → worklet through a `MessagePort`: 0 underruns under main-thread jank (relayed via main: 23–83 lost quanta); 32k frames buffered survive a 300 ms decoder stall |
+| Decoding (symphonia 0.6.1, wasm) | MP3/Vorbis/FLAC/WAV/AAC at 440–830× realtime, 1.5–3× faster than `decodeAudioData`; 4096-frame chunk p99 ≤0.37 ms; seek ≤0.28 ms; MP3+Vorbis+FLAC+WAV 840 KB |
+| Main-thread voice bookkeeping | 4,096 logical voices: 0.08 ms p50 / 0.22 ms p99 with typed arrays + quickselect; 0.9 / 1.7 ms with objects + sort |
+| Occlusion rays (Rapier, main thread) | `castRay` 1.5–4.3 µs; ~1 ms buys 150–250 rays |
+| Start-up | wasm compile 0.5–15 ms; worklet ready 2–23 ms after node creation; first `AudioContext` on Windows 250–490 ms |
+| Output latency | browser ~50 ms (measured); custom WASAPI exclusive ≈ 5–10 ms (estimated; takes the device) |
+| Worklet scope | has `Date.now`, `currentFrame`, `Atomics`, `WebAssembly`; lacks `performance`, `TextDecoder`, `setTimeout`, `fetch` |
+
+**Libraries that didn't fit:**
+- Firewheel's and cpal's web backends need nightly Rust, threads and COOP/COEP.
+- Kira's web path runs on the main thread.
+- Steam Audio has no wasm build.
+- fundsp 0.23's `no_std` mode doesn't compile.
+
+### Terms
+
+- **Quantum:** the 128 frames the browser asks the audio thread for at a time, 2.667 ms at 48 kHz. Everything mixed must finish inside it.
+- **AudioWorklet:** a script the browser runs on its own high-priority audio thread.
+- **Voice:** one playing sound.
+  - **Mixed voice:** actually rendered this quantum.
+  - **Virtual voice:** tracked and kept in time but silent and nearly free; it becomes mixed when it's among the most audible.
+- **HRTF:** filters that make a sound seem to come from a direction, over headphones.
+- **Ambisonic bed:** a cheap shared sound field that many distant sounds are placed into, then rendered once.
+- **Partitioned convolution:** reverb from a recorded room response, with its work split across quanta so no single one spikes.
+- **Ducking:** lowering one bus while another plays. **Snapshot:** a saved set of bus levels to fade to. See `docs/guide/audio-mixer.md`.
+- **LUFS:** perceived loudness.
+
+## Decision
+
+We will replace Howler with an **engine-owned audio core**, written in Rust and compiled to WebAssembly, that mixes on the browser's audio thread. The public audio API stays engine-native (0010): no Rust, wasm, Web Audio or library types in it.
+
+This record commits to **M1 (the core reaching parity, then replacing Howler)**. The later milestones are a roadmap: each needs its own record.
+
+### Placement
+
+Audio becomes a **first-party plugin**, as 0133 already lists it:
+- the runtime half is in `src/plugins/audio/runtime/`;
+- the editor half (Project Settings > Audio, meters, later authoring) is in `src/plugins/audio/editor/`;
+- `Audio`, `AudioSource`, `AudioListener` and `Bus` keep their `myco` exports, as physics and navigation do (`src/myco.ts`);
+- the Rust crate lives in `native/audio/`, like `native/nav/` (0065);
+- occlusion (later) queries rays through the physics plugin's public ray API, never Rapier directly.
+
+### Threads and data
+
+- **Crate and build.** `native/audio/`, a Cargo workspace on a pinned stable toolchain (`rust-toolchain.toml`). `npm run build:audio` compiles it for `wasm32-unknown-unknown` with `simd128` only, since every target engine accepts it. The output goes to `src/plugins/audio/runtime/wasm/`, committed so the engine builds without Rust.
+  - **Plain `extern "C"` exports, no wasm-bindgen:** the worklet lacks the `TextDecoder` and `fetch` the glue needs.
+  - **A source-hash check:** the wasm embeds a hash of its sources, and `npm test` fails when the committed wasm is stale.
+  - **No threads.** `SharedArrayBuffer` isn't required.
+  - **The same crate compiles natively** for `cargo test`, benchmarks and any later native output.
+- **One `AudioContext` and one core per page,** created by the audio plugin. Worlds (0034), the editor viewport and play mode are namespaces in it, so clips are decoded once. Only the World with the view is audible, as today. Servers and headless Worlds never load the core.
+- **Main thread: intent.** The audio system (a built-in system in the frame loop, 0011):
+  - keeps the **voice table in typed arrays**, one per field;
+  - computes attenuation, priority and (later) occlusion;
+  - chooses which voices are mixed. **The main thread owns virtual-voice selection.**
+  - writes **one command batch per frame**.
+- **Audio thread: playback.** The core:
+  - owns playheads, voice lifetime, buses, effects and the clock;
+  - renders one quantum per call;
+  - never allocates inside `process()`.
+- **Status channel (audio → main).** At most once per frame, the worklet posts a compact status block:
+  - ended voice ids;
+  - playheads, for voices that asked for them;
+  - stolen and starved voices;
+  - peak levels per bus;
+  - counters: underruns, late commands, work units per quantum.
+
+  `AudioVoice.playing` and handle state read a **main-thread mirror, up to one frame stale**. The record states this, and tests depend on it. 0097's ducking counts voices from the mirror.
+- **Command format.** A versioned, fixed-stride binary layout, defined once in Rust, with TypeScript constants generated from it. A round-trip test keeps the two in step.
+  - Batch header: `{version, firstFrame, count}`.
+  - Records: `{opcode, voiceId, frame, payload…}`.
+  - **Voice ids are index + generation**, so a script handle held after its voice is reused becomes a no-op.
+  - **Transport:** postMessage with transferable buffers, recycled by sending them back. When the page is cross-origin isolated, a SAB ring carries the same format.
+  - Nothing ever waits on a reply.
+- **Clock.** Commands carry an **audio-frame timestamp**. The main thread maps game time to audio frames from `getOutputTimestamp()`/`currentTime` plus a scheduling lookahead of two frames. A late command runs at once and is counted. `Audio.time` is seconds on the audio clock, separate from game time, which pauses and scales.
+- **Clip memory.** The worklet's wasm memory is private, so clip PCM is copied into it.
+  - It goes into a **reserved, pooled clip arena**.
+  - Copies arrive in chunks, under a per-quantum byte budget of 256 KB.
+  - Growth happens in `onmessage`, never in `process()`.
+  - Clips unload when their asset is released, and between editor play sessions.
+  - Each preset has a memory ceiling. A load past it is refused with a warning, and playback continues.
+  - Clips can be stored as int16 to halve memory.
+- **Decoding and streaming.** In **M1a**, clips decode with the browser's `decodeAudioData`, as today. In **M1b**, a decoder worker running symphonia 0.6.1 becomes the single decode path:
+  - streams go **straight to the worklet through a `MessagePort`**, in 4096-frame chunks, with about 0.7 s buffered;
+  - a stream voice starts in a "waiting for data" state until its first chunk;
+  - loops are gapless.
+
+  `decodeAudioData` is then removed, not kept as a second path.
+- **Sample rate.** The context runs at the device's rate. Each voice's resampler, which already exists for pitch, absorbs the clip's rate. A device or rate change rebuilds the context and replays state.
+
+### Failure handling
+
+| Failure | Handling |
+|---|---|
+| Before the first user gesture | The plugin's **unlock layer** (new in M1; Howler did this) listens for the first `pointerdown` or `keydown` and creates or resumes the context, then the core loads. Until then `play()` calls queue, at most 32 and for at most 1 s; older ones are dropped. `Audio.status` reads `locked`. |
+| Wasm trap or panic in `process()` | `panic = "abort"`. On `processorerror` the plugin recreates the node and core and replays from the main-thread voice table, at most 3 times a minute, then stays silent with `Audio.status = "failed"` and one warning. |
+| Core fails to load | One warning; silent with `Audio.status = "failed"`. During M1 the Howler backend remains selectable as the fallback. |
+| Device change, sample-rate change, `interrupted` (WebKit) | On `statechange` and `devicechange`, rebuild the context and replay. |
+| Tab hidden, Tauri window minimised | Frame batches stop, so the core finishes every ramp at its target and keeps streams pull-driven. A project setting chooses mute, pause or keep playing in the background (default: mute). |
+| Underruns, late commands | Counted from `currentFrame` against `Date.now()`, and shown in `Audio.debug()` and the editor from M1. |
+| Decode error, truncated stream | The decoder posts a typed error; the voice fades out; one warning names the asset. |
+| Clip memory ceiling or failed `memory.grow` | Refuse the load, keep playing, warn once. |
+| Unknown codec (e.g. `.m4a` without AAC) | One warning naming the clip and the setting that enables it. |
+
+### Public API at M1
+
+Every existing call keeps working: `AudioSource`, `AudioListener`, `Audio.playOneShot`, `Audio.bus`, `Audio.snapshot`, `Audio.volume`, `Audio.muted`. The samples (`samples/flappy`, `samples/pirates`) running unchanged is an acceptance test. Additions are all optional with defaults, so no project needs migrating:
+
+| Addition | Default |
+|---|---|
+| `Audio.playOneShot(…)` returns an `AudioHandle` (`stop()`, `fade(to, seconds)`, `playing`, `reason`) instead of `void` | — |
+| `AudioSource.priority`, `OneShotOptions.priority` (0–255) | 128 |
+| `buses[].maxVoices` in `project.json` | unlimited |
+| `audio.voices: { mixed, logical }` | 128 mixed, 4,096 logical |
+| `Audio.time`, `OneShotOptions.at` (play at an audio-clock time) | now |
+| `Audio.status`: `"locked" \| "running" \| "failed"` | — |
+| `Audio.muted` getter (only a setter exists today) | — |
+| `Audio.debug()`: lists voices with state (playing, virtual, stolen, waiting for data, bus muted, locked) | — |
+| `audio.background: "mute" \| "pause" \| "play"` | `"mute"` |
+
+A handle's `reason` says why a sound isn't audible: `virtual`, `stolen`, `busMuted`, `locked`, `failed`, `waitingForData`. There's no event system, so scripts poll `playing`, as with `AudioSource` today.
+
+**Behaviour changes:**
+
+| What | Before | After |
+|---|---|---|
+| `stream` import setting (0040) | HTML5 audio: no effects, no spatial, bus gain only | M1b: decoded incrementally on the worker. Routable, spatial and gapless; the warning is removed |
+| Effects (0097) | Web Audio biquad, compressor and convolver | The core's own. Same parameters; the sound matches within a tolerance in dB, not bit for bit |
+| `audio.backend` | `"howler"` or `"fmod"` | During M1: `"howler"` (default) or `"core"`. After M1: ignored with a warning |
+| Sounds before the first gesture | Queued by Howler | Queued (32, 1 s), then dropped |
+
+### M1 iterations
+
+Estimates are for one engineer who knows the repo and Rust, from the senior engineer's review. Plan 16–18 person-weeks for browser and Tauri quirks.
+
+| Iteration | Content | Weeks |
+|---|---|---|
+| M1a.0 | Crate, `build:audio`, hash check, loader, worklet, context, unlock layer, status channel, command format. **Riskiest; first** | 1.5 |
+| M1a.1 | Voice table, handles, clips, pitch, pan, 0074 distance models; `decodeAudioData` loading | 2.5 |
+| M1a.2 | 0097 buses, solo, mute, snapshots, ducking, effects; bus meters; `Audio.debug()` | 2.5 |
+| M1a.3 | Virtual voices, priority, bus limits, clock and `at`, adaptive voice cap | 1.5 |
+| M1b | Decoder worker (symphonia), clip arena, streaming, seek, gapless loops; `decodeAudioData` removed | 3 |
+| M1c | Golden tests, benchmarks, sound-lab and stress samples, docs, soak gate, then Howler, FMOD and `busGraph.ts` deleted | 2 |
+
+M1a ships behind `audio.backend: "core"`, replacing `"fmod"` as the second backend through 0098's seam. The default flips to `"core"` once M1b passes. Howler is deleted one release after that, and only once the soak gate passes.
+
+### Gates
+
+**Soak gate.** 30 minutes of the stress sample with zero underruns on real hardware:
+- Windows on WebView2 and on Chromium;
+- Linux on WebKitGTK;
+- one low-end machine (a 4-core laptop CPU on battery).
+
+macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, not for deleting Howler, and until it passes macOS desktop builds keep the Howler backend.
+
+**Performance budgets.**
+- **Re-measured first.** In M1a.3, with real content: a 4-point (or windowed-sinc) resampler and at least 64 MB of distinct clip data. The table below is then frozen.
+- **Worst case, not averages:** p99.9 over ≥5 runs. Convolvers stagger their tail work so two never land in the same quantum.
+
+| Item (per quantum, 2.667 ms) | "High" preset | Budget (p99.9) |
+|---|---|---|
+| Mixed voices | 256 of 4,096 logical | 0.6 ms (re-measure) |
+| Buses, effects, limiter, meters | 8–32 buses | 0.2 ms |
+| Reserve (M2 layers, M3 spatial, M4 stems) | | 0.5 ms |
+| **Total** | | **≤ 1.3 ms** |
+
+- **Presets by measured device class,** not assumed headroom: "high" for the reference class, and "low" (64 voices, one reverb) defined by the low-end soak machine.
+- **Adaptive voice cap.** When the core's work units per quantum pass 70% of budget, the mixed-voice cap drops, and it recovers slowly.
+- **Main thread, as a share of frame time:**
+  - command batch ≤ 0.1 ms;
+  - voice bookkeeping ≤ 0.25 ms;
+  - later, occlusion ≤ 6% of a frame.
+- **CI benchmarks count work units** (instruction-count style, deterministic), not wall time. A rise of more than 10% fails the build.
+
+**Sizes** (lazy, never loaded by servers):
+- mixer core ≤ 150 KB;
+- decoder ≤ 900 KB (MP3, Vorbis, FLAC, WAV);
+- AAC opt-in, +370 KB;
+- spatial (M3) is a separate lazy module, and HRTF data is an asset with its size stated in M3's record.
+
+**Testing.**
+- `cargo test` for DSP units.
+- Golden-output tests in Vitest: load the committed wasm in Node, render N quanta, compare digests. They are **bit-identical across wasm engines and within a tolerance on native** (`libm` differs).
+- The command-format round trip.
+- Updated fake backends (`audioBackend.test.ts`, `spatialAudio.test.ts`).
+- One `@slow` Playwright spec that plays the sound-lab sample offline and checks levels.
+- WebKit and Firefox runs use the Playwright Docker image (`mcr.microsoft.com/playwright`); the README says which tests need it.
+
+**Docs.**
+- A "Playing sound" guide page and a "Why is there no sound?" checklist.
+- A contributor note: the TypeScript side needs no Rust; the Rust side needs the pinned toolchain, `wasm32-unknown-unknown`, `npm run build:audio` and `cargo test`.
+- `spikes/` is reference only, not a starting point.
+
+### Platforms and minimum versions
+
+- **Cross-platform is a requirement.** Every feature must work in the browser and in the desktop editor on Windows, macOS and Linux. Nothing may depend on one platform. Platform-specific paths (a SAB ring, native output) are optional speed-ups over a path that works everywhere.
+- **The command transport defaults to postMessage on every platform.** The SAB ring is used only where the page is already cross-origin isolated and that has been verified on all three desktop webviews. It's never required.
+- **Minimum versions:** the lowest browser and webview versions that support everything the core needs: AudioWorklet, WebAssembly `simd128`, transferable `ArrayBuffer`s, `AudioContext.getOutputTimestamp`.
+  - `simd128` is likely the binding constraint: Chromium/Edge/WebView2 91, Firefox 89, Safari 16.4, recalled and not yet checked.
+  - M1a.0 confirms these, finds the matching WebKitGTK version, and documents them. The loader refuses older engines with one clear message and stays silent with `Audio.status = "failed"`.
+
+### Sound quality
+
+- **The listening pass is manual,** a checklist per effect, preset and resampler mode, before each milestone ships.
+- **Automated objective checks back it:**
+  - frequency-response sweeps for filters and EQ;
+  - aliasing and THD+N measurements for the resampler and pitch;
+  - null tests against reference implementations;
+  - loudness checks on presets;
+  - golden digests.
+
+  Regressions are caught by CI; people judge taste.
+
+### Licences
+
+- Dependencies are MIT/Apache-2.0.
+- symphonia is MPL-2.0, file-level: its files stay as published. It's listed in `THIRD_PARTY_NOTICES.md`.
+
+### Roadmap (not decided here; each gets its own record)
+
+- **M2: events and parameters.**
+  - Event assets with random, sequence, switch, blend and layer containers.
+  - Game parameters driving properties through curves; states.
+  - `Audio.play(event, params)` returning an `AudioHandle`.
+  - Editor authoring in the plugin's editor half.
+  - The curve format is shared with the planned animation system and is not frozen here.
+- **M3: spatial.**
+  - HRTF (SADIE II, Apache-2.0) for the nearest voices; a 3rd-order ambisonic bed for the rest.
+  - Occlusion through physics ray queries under a frame-share budget.
+  - Reverb zones; non-uniform convolution; Doppler.
+- **M4: interactive music.**
+  - Tempo and bar grid, and transitions quantised to beats or bars.
+  - Stingers: short phrases played over the music.
+  - Stems: layers faded in and out.
+- **M5: profiler and live mix.** A voice and CPU view built on the status channel, LUFS metering, and live mix editing in play mode on web and desktop.
+- **Native output.** An opt-in WASAPI exclusive mode in Tauri (~5–10 ms) takes the device from every other app. It's a note, not a milestone, revisited if latency-critical games need it.
+
+## Alternatives considered
+
+- **FMOD (0099, 0148).** It has the best authoring tool today, but it's proprietary and licensed per title. It has no Live Update on web, and its threaded build needs COOP/COEP. It stays possible as a third-party plugin behind 0098.
+- **Keep Howler, extend the Web Audio graph; or M1 on plain Web Audio and the core from M3.**
+  - Cheapest, and Web Audio *is* sample-accurate: `AudioBufferSourceNode.start(when)` and `AudioParam` automation.
+  - Virtual voices and priority are main-thread bookkeeping that would work over it too.
+  - Rejected because the goal needs what Web Audio can't give:
+    - one DSP implementation whose output matches in every browser (HRTF and compressor quality vary by engine);
+    - custom DSP (non-uniform convolution, ambisonics, LUFS), which would need a worklet anyway;
+    - deterministic headless tests;
+    - a native path.
+  - Doing M1 on Web Audio would build the bus graph twice.
+- **Adopt Firewheel or Kira.** Their web backends need nightly Rust, threads and COOP/COEP, or run on the main thread. We'll borrow their designs: Firewheel's node and parameter model, Kira's clocks and tweens.
+- **C/C++ (miniaudio, SoLoud) through Emscripten.** It works, but adds a second native toolchain beside navigation's Rust.
+- **Native audio only, in Tauri.** Desktop only. IPC round trips of 1.3 ms, with 10–30 ms outliers, rule out frame-accurate sync, and web builds would need a second engine.
+- **Steam Audio.** No wasm build.
+
+## Consequences
+
+**Positive**
+- A reason to choose the engine: priority and virtual voices, a sample-accurate clock and routable streaming at M1, then events, HRTF, occlusion, interactive music and live mixing, with no licence, on web and desktop.
+- Audio leaves the main thread; game-frame hitches don't glitch audio, and streams survive main-thread stalls.
+- Deterministic output, testable headless in Node and `cargo test`.
+- Howler stays available until the soak gate passes, so there's always a way back during M1.
+
+**Negative / costs**
+- 16–18 person-weeks for M1 alone. M2–M5 are each a project; the authoring UI is likely bigger than the DSP.
+- We own DSP quality. Every effect and preset needs a listening pass by someone with the ear for it (open question).
+- Audio contributors need Rust; the committed wasm keeps everyone else Rust-free, as with navigation.
+- Browser output latency stays ~50 ms.
+- Main-thread state mirrors are up to a frame stale, which scripts must tolerate.
+
+## Deprecates
+
+- **0006** is superseded. Howler and `howlerBackend.ts` are deleted in M1c, one release after the default flips, once the soak gate passes.
+- **0099** is superseded. In M1a, `fmodBackend.ts`, `tests/fmodBackend.test.ts`, `docs/guide/fmod.md` and the `"fmod"` backend value are removed, along with the FMOD wiring in `Engine.ts:13,177`.
+- **0148** is withdrawn and never built.
+- **0074, 0097, 0098** are amended (header). 0097's `busGraph.ts` is deleted in M1c. `implementation-status.md` rows and the decisions index are updated when this record is accepted.
+
+## Open questions
+
+- macOS real-time behaviour (low priority; a gate for macOS releases).
+- A completion callback for one-shots without an event system: is a `Promise` on `AudioHandle` acceptable, or is polling enough?
+- User-written DSP (custom effects as wasm modules), later.
+
+Settled at acceptance (2026-11-09):
+- **Sound quality:** manual listening backed by automated objective checks (see Sound quality).
+- **COOP/COEP:** postMessage is the default everywhere; the SAB ring is optional and only where isolation already works on every desktop platform (see Platforms).
+- **Minimum versions:** the lowest that support all required features, confirmed in M1a.0.
+
+## RFC round
+
+Reviews by an architect, a senior engineer and a mid-level engineer are in `docs/rfc/0149/`. Revision 2 took:
+- the status channel and state ownership;
+- the unlock layer;
+- the clip-memory design;
+- the clock time base;
+- the failure table;
+- splitting M1 behind a flag, with estimates, the soak gate, and Howler kept as a fallback;
+- re-measuring and worst-case budgets, presets by device class and the adaptive cap;
+- split size budgets;
+- work-unit CI benchmarks;
+- the command format with generation ids, and recycled buffers;
+- the `AudioHandle`, priority, limits and diagnostics in M1;
+- the behaviour-change table, the glossary and docs;
+- marking 0074, 0097 and 0098 as amended;
+- correcting the Web Audio sample-accuracy claim;
+- `simd128` only;
+- M2–M5 as a roadmap, and native output as a note;
+- a single decode path after M1b.
+
+**Not taken:**
+- **The architect's suggestion to keep audio in the engine core:** 0133 (accepted) already lists Audio as a plugin, and navigation shows the pattern.
+- **A macOS gate for deleting Howler:** the owner rates macOS low priority. It gates macOS releases instead, and macOS desktop builds keep Howler until it passes.
+- **A completion callback:** it stays an open question, because the engine avoids event systems.
+
+## References
+
+- `spikes/audio-worklet/README.md` and its sub-READMEs: `spatial/`, `decode/`, `messaging/`, `native-out/`, `wasapi/`, `tauri-ipc/`, `occlusion/`, `bookkeeping/`.
+- `docs/rfc/0149/architect.md`, `senior-engineer.md`, `mid-junior-engineer.md`.
+- 0074, 0097, 0098 (the API and model kept); 0065 (the Rust → wasm pattern); 0133 (plugins); 0040 (`stream`).
+- symphonia https://github.com/pdeljanov/Symphonia; SADIE II https://www.york.ac.uk/sadie-project/database.html; Firewheel https://github.com/BillyDM/Firewheel; Kira https://github.com/tesselode/kira.
