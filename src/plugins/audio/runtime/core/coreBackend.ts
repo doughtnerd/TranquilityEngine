@@ -11,14 +11,13 @@
 // Until A3.1 (selection) every voice is mixed. Spatial voices get their listener-space direction and distance gain
 // here (A1.5's `spatial.ts`); A3.1 moves that into the per-frame selection.
 //
-// A1.6 adds `volume, pitch, priority, oneShot, at, attenuation, position` to `PlayRequest` and `id, reason, fade,
-// setPriority, stop(fadeSeconds)` to `AudioVoice` (§6); until then `CorePlayRequest` and `CoreVoice` carry them as
-// optional extras, so this class implements today's `AudioBackend` and A1.6's change is a rename.
+// A1.6 added `volume, pitch, priority, oneShot, at, attenuation, position` to `PlayRequest` and `id, reason, fade,
+// setPriority, stop(fadeSeconds)` to `AudioVoice` (§6). `CorePlayRequest` and `CoreVoice` keep only what the core adds.
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type ResolvedBus } from "../../../../engine/audio/mixer";
 import type { BusEffect } from "../../../../engine/audio/settings";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioVoice, ListenerPose, PlayRequest } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioStatus, AudioVoice, ListenerPose, PlayRequest } from "../backend";
 import {
   BUS_LP_OFF_HZ,
   BUS_ROOT,
@@ -45,23 +44,16 @@ import { decodeClip } from "./loader";
 import { StatusMirror } from "./mirror";
 import { DistanceEffect, listenerSpaceDirection, type Vec3 } from "./spatial";
 import { StatusReader } from "./statusReader";
+import { UnlockQueue } from "./unlockQueue";
 import { connectVoiceTable, VoiceFlag, VoiceReason, VoiceRolloff, VoiceState, VoiceTable } from "./voiceTable";
 
-/** §1 `OneShotOptions`, as `PlayRequest` will carry them (A1.6). */
+/** `PlayRequest` plus the core's World key. */
 export interface CorePlayRequest extends PlayRequest {
-  volume?: number;
-  pitch?: number;
-  priority?: number;
-  oneShot?: boolean;
-  /** Start at this audio-clock time (seconds, `Audio.time`'s base). Past, non-finite or omitted: as soon as possible. */
-  at?: number;
-  attenuation?: Attenuation;
-  position?: Vec3Like;
   /** The World key of the playing World (0 or omitted: none). */
   world?: number;
 }
 
-/** One voice as `AudioVoice` (today's members) plus §6's additions. */
+/** One voice as `AudioVoice`, with §6's optional members required, plus the handle. */
 export interface CoreVoice extends AudioVoice {
   readonly id: number;
   readonly reason: AudioReason | null;
@@ -140,7 +132,12 @@ export class CoreBackend implements AudioBackend {
   private readonly cleanups: (() => void)[] = [];
   private names: string[] = [];
   private readonly busIndexByName = new Map<string, number>();
-  private lockedIds: number[] = [];
+  /** D5: voices played while locked. One-shots are capped (32 for 1 s); owned and looping voices wait. */
+  readonly lockedQueue = new UnlockQueue<number>({
+    onDrop: (id) => {
+      if (this.table.isLive(id) && this.table.state[id & 0xffff] === VoiceState.LOCKED) this.table.free(id, VoiceReason.NONE);
+    },
+  });
   private spatialCount = 0;
   private readonly spatialDirty: Uint8Array;
   private listenerDirty = true;
@@ -197,8 +194,20 @@ export class CoreBackend implements AudioBackend {
   }
 
   /** §1 `Audio.status`. */
-  get status(): "locked" | "running" | "failed" {
+  get status(): AudioStatus {
     return this.host.status;
+  }
+
+  private background: AudioBackground = "mute";
+
+  /** §6 `setBackground`: what the host does when the page is hidden. A3.4b acts on it; until then it is kept for `debug()`. */
+  setBackground(mode: AudioBackground): void {
+    this.background = mode;
+  }
+
+  /** @internal The mode last set. */
+  get backgroundMode(): AudioBackground {
+    return this.background;
   }
 
   /** The bus names by index (root first), as last configured. */
@@ -236,7 +245,8 @@ export class CoreBackend implements AudioBackend {
     t.startFrame[i] = at !== undefined && Number.isFinite(at) && running ? Math.round(at * this.host.sampleRate) : 0;
     this.mixer.voiceStarted(this.names[bus] ?? "");
     if (running) this.launch(id);
-    else this.lockedIds.push(id);
+    else if (req.oneShot && !req.loop) this.lockedQueue.pushOneShot(id, performance.now());
+    else this.lockedQueue.pushOwned(id);
     return new Voice(this, id);
   }
 
@@ -319,7 +329,7 @@ export class CoreBackend implements AudioBackend {
     this.mirror.beginFrame();
     this.table.freeEnded();
     this.mirror.drainClipEvents(this.clipSink);
-    if (this.lockedIds.length > 0 && this.host.status === "running") this.unlock();
+    if (this.lockedQueue.size > 0 && this.host.status === "running") this.unlock();
     if (this.spatialCount > 0) this.moveSpatial();
     if (this.idlePending) this.checkIdle();
     this.table.drainCommands(this.writer);
@@ -334,6 +344,7 @@ export class CoreBackend implements AudioBackend {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.lockedQueue.clear();
     for (const c of this.cleanups.splice(0)) c();
     this.table.onFree = null;
     this.host.link.statusDecoder = readStatus;
@@ -511,16 +522,14 @@ export class CoreBackend implements AudioBackend {
 
   /** The context started running: voices that waited for it start now. */
   private unlock(): void {
-    const ids = this.lockedIds;
-    this.lockedIds = [];
-    for (const id of ids) {
+    this.lockedQueue.drain(performance.now(), (id) => {
       const i = id & 0xffff;
       if (this.table.isLive(id) && this.table.state[i] === VoiceState.LOCKED) {
         this.table.startFrame[i] = 0;
         this.refreshGain(i);
         this.launch(id);
       }
-    }
+    });
   }
 
   /** Spatial voices whose source or the listener moved: new gain and direction when they changed beyond epsilon. */

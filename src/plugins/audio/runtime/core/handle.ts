@@ -4,11 +4,8 @@
 import { VoiceReason, VoiceState } from "./voiceTable";
 import type { VoiceTableHandleApi } from "./voiceTable";
 
-/**
- * @internal §1: "Why a sound isn't audible right now; null while it is." Declared here until A1.6 declares the
- * public surface (K10) and re-exports it from `src/myco.ts`.
- */
-export type AudioReason = "virtual" | "stolen" | "busMuted" | "locked" | "failed" | "waitingForData";
+import type { AudioReason } from "../../../../engine/audio/backend";
+export type { AudioReason };
 
 /**
  * @internal §1's `AudioReason` for each `VoiceReason` code (index = code); `null` for NONE (0).

@@ -23,7 +23,9 @@ export type FakeVoiceEvent =
   | { readonly kind: "bus"; readonly value: string }
   | { readonly kind: "pause" }
   | { readonly kind: "resume" }
-  | { readonly kind: "stop" };
+  | { readonly kind: "stop"; readonly fadeSeconds?: number }
+  | { readonly kind: "fade"; readonly to: number; readonly seconds: number }
+  | { readonly kind: "priority"; readonly value: number };
 
 /** A voice the fake handed out. Fields hold the latest value; `events` the whole history. */
 export interface FakeVoice extends AudioVoice {
@@ -76,6 +78,17 @@ export function makeFakeBackend(): FakeBackend {
     ready: true,
     masterVolume: 1,
     muted: false,
+    status: "running",
+    time: 0,
+    debug() {
+      return {
+        status: backend.status, sampleRate: 48_000, time: backend.time, background: "mute",
+        counters: { underruns: 0, lateCommands: 0, minSlackFrames: 0, workUnits: 0, workUnitsMax: 0, mixedVoices: 0, mixedCap: 0, logicalVoices: voices.length, queuedPlays: 0, droppedPlays: 0, traps: 0, refusedLoads: 0, hrtfVoices: 0, hrtfLoadFailure: 0 },
+        buses: [], voices: [], core: { backend: "fake" },
+      };
+    },
+    setBackground() {},
+    update() {},
     play(request) {
       plays.push(request);
       if (!backend.ready) return null;
@@ -103,6 +116,8 @@ export function makeFakeBackend(): FakeBackend {
   return backend;
 }
 
+let nextFakeVoiceId = 1;
+
 function makeFakeVoice(request: PlayRequest): FakeVoice {
   const events: FakeVoiceEvent[] = [];
   let counted = true;
@@ -112,8 +127,17 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
     counted = false;
   };
   mixer.voiceStarted(request.bus);
+  // The request's initial values are recorded like the setters' calls, only for what the request carries.
+  if (request.volume !== undefined) { state.volume = request.volume; events.push({ kind: "volume", value: request.volume }); }
+  if (request.pitch !== undefined) { state.pitch = request.pitch; events.push({ kind: "pitch", value: request.pitch }); }
+  if (request.attenuation) { state.attenuation = { ...request.attenuation }; events.push({ kind: "attenuation", value: state.attenuation }); }
+  if (request.position) { state.position = { x: request.position.x, y: request.position.y, z: request.position.z }; events.push({ kind: "position", value: state.position }); }
   return {
     request,
+    id: nextFakeVoiceId++,
+    reason: null,
+    fade(to, seconds) { events.push({ kind: "fade", to, seconds }); },
+    setPriority(value) { events.push({ kind: "priority", value }); },
     events,
     get volume() { return state.volume; },
     get pitch() { return state.pitch; },
@@ -143,7 +167,7 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
     },
     pause() { state.paused = true; events.push({ kind: "pause" }); },
     resume() { state.paused = false; events.push({ kind: "resume" }); },
-    stop() { state.stopped = true; state.playing = false; events.push({ kind: "stop" }); uncount(); },
+    stop(fadeSeconds) { state.stopped = true; state.playing = false; events.push(fadeSeconds ? { kind: "stop", fadeSeconds } : { kind: "stop" }); uncount(); },
     end() { state.playing = false; uncount(); },
   };
 }

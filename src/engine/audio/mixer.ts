@@ -27,6 +27,8 @@ interface BusState {
   lp: number; lpFrom: number; lpTo: number;
   duck: number;
   voices: number;
+  /** Newest peak (max of L and R, linear), from the backend's status (A2.3). */
+  peak: number;
 }
 
 const OFF_HZ = 24000;
@@ -48,6 +50,8 @@ export class Bus {
   set solo(m: boolean) { const s = this.s; if (s) { s.solo = m; this.mixer._dirty(); } }
   /** Sounds playing on this bus right now. */
   get activeVoices(): number { return this.s?.voices ?? 0; }
+  /** The newest peak level on this bus (max of L and R, linear, decayed for display); 0 while the audio is locked. Declared by A1.6 (K10); 0 until A2.3 feeds it. */
+  get peak(): number { return this.s?.peak ?? 0; }
   /** The level reaching the speakers from this bus (all gains up the tree multiplied). */
   get effectiveGain(): number { return this.mixer.resolve(this.name)?.effectiveGain ?? 0; }
   /** Ease the volume to `v` over `seconds`. */
@@ -75,7 +79,7 @@ export class Mixer {
     this.snapshotName = null;
     this.order = settings.buses.map((b) => b.name);
     for (const b of settings.buses) {
-      this.buses.set(b.name, { settings: b, volume: b.volume, mute: b.mute, solo: false, snap: 1, snapFrom: 1, snapTo: 1, lp: OFF_HZ, lpFrom: OFF_HZ, lpTo: OFF_HZ, duck: 1, voices: 0 });
+      this.buses.set(b.name, { settings: b, volume: b.volume, mute: b.mute, solo: false, snap: 1, snapFrom: 1, snapTo: 1, lp: OFF_HZ, lpFrom: OFF_HZ, lpTo: OFF_HZ, duck: 1, voices: 0, peak: 0 });
     }
     this._dirty();
   }
@@ -90,6 +94,8 @@ export class Mixer {
   _state(name: string): BusState | undefined { return this.buses.get(name); }
   /** @internal */
   _dirty(): void { this.changed = true; }
+  /** @internal A2.3: the backend reports a bus's peak. */
+  _setPeak(name: string, peak: number): void { const s = this.buses.get(name); if (s) s.peak = peak; }
 
   bus(name: string = MASTER): Bus {
     if (!this.buses.has(name) && !this.warned.has(name)) {
