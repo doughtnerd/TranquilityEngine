@@ -1,5 +1,7 @@
 # Audio core (ADR 0149): handoff for milestone planning
 
+> **Done.** The milestone plan is [2026-11-audio-core-m1.md](2026-11-audio-core-m1.md). The records were renumbered to 0156 and 0157 in `919ac1d`; references to 0149 below are historical.
+
 Written 2026-11-09 at the end of the design session. **Next step:** break M1 into shippable milestones and waves of parallel tasks.
 
 ## Where things are
