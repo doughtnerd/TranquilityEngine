@@ -26,3 +26,38 @@ Code from these projects is compiled into Myco Engine's own modules. Libraries u
 ## Fonts (`src/engine/ui/fonts/`; ADR 0076)
 
 - **Inter** (variable, weights 100–900, the Latin subset as Google Fonts publishes it through `@fontsource-variable/inter` 5.3.0) — SIL Open Font License 1.1, copyright 2016 The Inter Project Authors. https://github.com/rsms/inter. The licence text is `src/engine/ui/fonts/Inter-OFL.txt`; in builds the font file carries its copyright and licence notice in its own name table, as the OFL allows. 230 characters, 48 KB as WOFF2.
+
+## Audio core (`native/audio`; ADR 0157)
+
+- **Chromium Blink audio** (`native/audio/third_party/blink/`, reference copies of the files the audio core ports, listed in `native/audio/PORTS.md`) — BSD-3-Clause. The files carry Google Inc. copyright notices (2010, 2011) and the BSD clauses as WebKit's Blink audio code has them, clause 3 naming Apple Computer, Inc. Upstream: `third_party/blink/renderer/platform/audio/` in https://chromium.googlesource.com/chromium/src at commit `cbba46fd94646232cfd2318ac962138c2a98c1f9`. The repository licence, from Chromium's LICENSE file at that commit:
+
+  > Copyright 2015 The Chromium Authors
+  >
+  > Redistribution and use in source and binary forms, with or without
+  > modification, are permitted provided that the following conditions are
+  > met:
+  >
+  >    * Redistributions of source code must retain the above copyright
+  > notice, this list of conditions and the following disclaimer.
+  >    * Redistributions in binary form must reproduce the above
+  > copyright notice, this list of conditions and the following disclaimer
+  > in the documentation and/or other materials provided with the
+  > distribution.
+  >    * Neither the name of Google LLC nor the names of its
+  > contributors may be used to endorse or promote products derived from
+  > this software without specific prior written permission.
+  >
+  > THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  > "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+  > LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+  > A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+  > OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+  > SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+  > LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+  > DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+  > THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  > (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  > OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+- **microfft** (real and complex FFTs for the convolver and HRTF ports) — MIT. Version 0.6.0. https://crates.io/crates/microfft
+- **libm** (transcendental functions, so native and wasm builds give identical results) — MIT OR Apache-2.0. Version 0.2.16. https://crates.io/crates/libm
