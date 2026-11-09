@@ -2,8 +2,8 @@
 // particles render feature, registered when the plugin activates. `myco` (`src/myco.ts`) exports the
 // public parts from here.
 // The component class, the effect format and compiler (`src/engine/scene/particle*.ts`) and the
-// particle player (`src/engine/render/babylon/particles.ts`, `render/particles/`) stay in core: the
-// asset thumbnails' effect previews, the editor's overlays and preview, and the warm-up use them too
+// effect player (`src/engine/render/babylon/effectPlayer.ts`, `render/particles/`, ADR 0153) stay in core:
+// the asset thumbnails, the particle graph's preview, the editor's overlays and the warm-up use them too
 // (renderers stay first-party, ADR 0133).
 // Runtime code: never imports from `src/editor/` or the plugin's `editor/` folder; never imports
 // Babylon (the feature's code loads on demand).

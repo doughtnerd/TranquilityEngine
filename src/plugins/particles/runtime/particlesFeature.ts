@@ -1,7 +1,8 @@
 // The Particles plugin's render feature (ADR 0057, 0130, 0135): plays a World's ParticleSystems. Its
 // own module, statically importing the particle player, so the renderer loads both together on first
-// need (ADR 0083) through the loader the plugin registers. The player itself, `BabylonParticles`,
-// stays in the renderer because the asset thumbnails' effect previews use it too.
+// need (ADR 0083) through the loader the plugin registers. Only this feature uses `BabylonParticles`
+// (the World adapter); it stays in the renderer folder because Babylon does (ADR 0075), and the effect
+// player under it (`effectPlayer.ts`, ADR 0153) also plays the particle graph's preview and the thumbnails.
 // ADR 0154: the renderer names nothing here. The factory builds the player's host from the renderer's
 // core host, the editor's preview arrives as render policy, and the feature answers the renderer's
 // generic hooks (warm items, a drawn object's description, its diagnostics).
