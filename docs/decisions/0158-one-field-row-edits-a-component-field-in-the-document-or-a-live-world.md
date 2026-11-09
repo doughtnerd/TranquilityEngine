@@ -24,7 +24,7 @@ interface FieldTarget {
   setAxis(field: FieldValue, axis: number, n: number): string | null; // one axis, each node's others kept
   revert(field: FieldValue): void;                    // prefab overrides only
   drag(label: string): () => void;                    // a scrub drag as one step; returns its end
-  readonly nodes: NodeRefs;                           // what a node reference can point to
+  readonly nodes: NodeRefs;                           // choices(): { key, label, depth }[], keyOf(value), missing
 }
 ```
 
@@ -35,11 +35,11 @@ Values arrive in the editors' form (numbers, strings, `Color`, axis arrays, a no
 
 **One field-row module.** New `src/editor/ui/fieldRows.tsx` renders a field row for any target: `FieldRow` (label that scrubs numbers, revert ↺, contributed choices from 0152), the value switch, and every input. Both inspectors render it; `TextInput` and `AssetLists` are exported for the node header and the live view. Inputs show the current value until focused and keep their draft while focused, so the live view's 250 ms refresh doesn't overwrite typing; a field is written only when its text changed (blurring an unedited `0.333` no longer rewrites a `0.33333`).
 
-**Live reach.** Live editing now covers every 0042 kind: numbers, booleans, strings, asset paths (with suggestions), colors, vectors (Set on an unset one), quaternions (as Euler degrees), node references, plain objects, choices (static, project-setting and plugin-supplied) and lists. Only fields the editor can't classify (`unknown`) stay read-only JSON, live as in the document; prefab override marks and revert don't apply to a live World.
+**Live reach.** Live editing now covers every 0042 kind: numbers, booleans, strings, asset paths (with suggestions), colors, vectors (Set on an unset one), quaternions (as Euler degrees), node references, plain objects, choices (static, project-setting and plugin-supplied) and lists. What stays read-only live, and why: fields the editor can't classify (`unknown`) show JSON, as in the document; fields another editor owns (0131's hidden fields, such as a ParticleSystem's embedded effect) show their value as JSON, because that editor (an inspector section) isn't shown live and the scene Inspector hides them; prefab override marks and revert don't apply to a live World. A reference can't point into another World (0032).
 
-**Worlds for several targets.** `inspectorEdits.setWorldsFor(scene, targets, next, label)` is the menu's operation: one undo step; a target whose inherited Worlds equal `next` loses its own setting, one that already has `next` is untouched, the others get `next`. `worldsSettingOf(doc, target)` replaces the card's inline computation. `ComponentMenu` only renders.
+**Worlds for several targets.** `inspectorEdits.setWorldsFor(scene, targets, next, label)` is the menu's operation: one undo step; a target whose inherited Worlds equal `next` loses its own setting, one that already has `next` (in any tag order, `sameWorlds`) is untouched, the others get `next`. It reads every target's setting before writing, since a write rebuilds an instance's live nodes. `worldsSettingOf(doc, target)` (with the `WorldsTarget` type) replaces the card's inline computation. `ComponentMenu` only renders.
 
-**Groups and prefab buttons.** `CommandStack.group(label, body)` runs `body` between `beginGroup` and `endGroup`; the two `inGroup` copies go. The prefab buttons move to `ui/PrefabActions.tsx` and share `PrefabButton`, whose `run` returns the status message (read-only tooltip, `try`, `errorStatus` in one place).
+**Groups and prefab buttons.** `CommandStack.group(label, body)` runs `body` between `beginGroup` and `endGroup`; the two `inGroup` copies go. The prefab buttons move to `ui/PrefabActions.tsx` and share `SavingButton`, whose `run(project)` returns the status message (read-only tooltip, `try`, info status and `errorStatus` in one place).
 
 ## Alternatives considered
 
@@ -52,11 +52,13 @@ Values arrive in the editors' form (numbers, strings, `Color`, axis arrays, a no
 **Positive**
 - Live editing reaches rotations, choices, lists and objects; live labels scrub, asset fields suggest, plugin choices appear.
 - One switch and one `humanize`; `Inspector.tsx` loses the widgets and prefab buttons.
-- Headless tests for both adapters (`fieldTarget.test.ts`) and the Worlds rule (`inspectorEditing.test.ts`).
+- Headless tests for both adapters (`fieldTarget.test.ts`), the Worlds rule (`inspectorFields.test.ts`) and `CommandStack.group` (`document/history.test.ts`); `playdebug.spec.ts` changes a choice field live.
+- `Inspector.tsx` goes from 1293 to about 600 lines, `RuntimeInspector.tsx` from 384 to about 190.
 
 **Negative / costs**
 - Live writes go through the scene-file form (`toSceneJSON` then `writeField`), a conversion per edit; edits are rare, so it doesn't matter.
 - An input no longer follows a value that changes while it has focus (an undo from the menu while typing); the draft wins until blur or Escape.
+- A value the editor can't classify now shows in a monospace JSON style in the scene Inspector too (`.field-json`).
 
 ## Deprecates
 
@@ -69,4 +71,4 @@ Values arrive in the editors' form (numbers, strings, `Color`, axis arrays, a no
 ## References
 
 - `src/editor/fieldTarget.ts`, `src/editor/ui/fieldRows.tsx`, `src/editor/ui/PrefabActions.tsx`, `src/editor/inspectorEdits.ts`, `src/editor/document/CommandStack.ts`
-- Tests: `src/editor/fieldTarget.test.ts`, `src/editor/inspectorEditing.test.ts`
+- Tests: `src/editor/fieldTarget.test.ts`, `src/editor/inspectorFields.test.ts`, `src/editor/document/history.test.ts`, `tests/e2e/playdebug.spec.ts`

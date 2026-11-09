@@ -87,6 +87,15 @@ test("the World picker shows the running game; live edits; Keep values writes th
   await expect.poll(() => liveX(page, "Bird")).toBe(-3.5);
   await expect(x).toHaveValue("-3.5");
 
+  // Choice fields are dropdowns live too (ADR 0158): a refresh later the dropdown reads the game's value.
+  const bodyType = inspector.locator('.component[data-type="engine.RigidBody2D"]').getByRole("combobox", { name: "bodyType" });
+  await bodyType.selectOption({ label: "kinematic" });
+  await page.waitForTimeout(400);
+  await expect(bodyType.locator("option:checked")).toHaveText("kinematic");
+  await bodyType.selectOption({ label: "dynamic" });
+  await page.waitForTimeout(400);
+  await expect(bodyType.locator("option:checked")).toHaveText("dynamic");
+
   // Keep the Transform's values; the header marks it kept.
   await transform.getByRole("button", { name: "Keep Transform values" }).click();
   await expect(page.locator(".status-text")).toContainText("Kept Bird's Transform values");
