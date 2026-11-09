@@ -63,7 +63,7 @@ The requested order is A0.1 → A0.3 → A0.7 → A1.2 → A1.3b → A2.1 → A2
 ## Who does what
 
 - **Coordinator** (Opus, this role): writes the shared contracts before each wave, reviews and merges every worker branch, runs the wave's checks, owns the single-writer files below, and updates `implementation-status.md` at each milestone.
-- **Levels to workers.** S tasks go to an Opus worker, M tasks to Sonnet, and J tasks to Haiku. Any J task that moves files across modules goes to Sonnet, because a missed import breaks the build. With human staff, read S/M/J as the table does. S tasks in the same wave then run back to back, critical path first.
+- **Levels to workers.** Each task has a lead: S tasks get an Opus lead, M tasks a Sonnet lead. A lead writes the task's skeleton and hands its well-defined pieces to **Haiku leaves**. [2026-11-audio-core-m1-tree.md](2026-11-audio-core-m1-tree.md) has the tree: who leads each task, which leaves it gets, and the rules that stop leaves from colliding or redoing each other's work. With human staff, read S/M/J as the table does. S tasks in the same wave then run back to back, critical path first.
 - **Isolation.** Each worker gets its own worktree, cut from master after the previous wave merged (check the merge-base). Workers touch only the files their task lists. Concurrent e2e runs each get their own `E2E_PORT`.
 - **The owner** (needs people, hardware or sign-off):
   - **H0:** sends any letter to the rights holders. Claude drafts it but doesn't send it.
@@ -95,13 +95,19 @@ These keep the files disjoint. Each one is committed before the wave that needs 
 
 | # | Contract | When | Lets |
 |---|---|---|---|
-| K1 | **The whole M1 wire.** A0.2 generates every kind, opcode and STATUS field in §4, including M1b's stream kinds, `mixedCap`, `hrtfVoices`, `hrtfLoadFailure` and the reserved `group`. Fields not yet produced stay zero | MS1 wave 2 | no later task edits the schema, so A3.3, H3 and B3 can run in parallel |
+| K1 | **The whole M1 wire.** A0.2 generates every kind, opcode and STATUS field in §4, including M1b's stream kinds, `mixedCap`, `hrtfVoices`, `hrtfLoadFailure` and the reserved `group`. Fields not yet produced stay zero | MS1 wave 1 | no later task edits the schema, so A3.3, H3 and B3 can run in parallel |
 | K2 | **The whole C ABI stubbed.** Every export in §5 exists in A0.1 and returns `NOT_IMPLEMENTED` | MS1 wave 1 | A0.3's TypeScript side, and later the decode and stream tasks, can build against stable symbols |
 | K3 | **Backend selection.** `"babylon"` resolves to `HowlerBackend` until BB2, and `"howler"` maps to `"babylon"` with a problem. `"core"` loads the core lazily through the `myco.audio` World service | MS1 wave 1 (A0.4) | master keeps sound through MS1–MS2 |
 | K4 | **`HostClock` and the loopback host.** The interface (`hostClock.ts`) and the `createLoopbackHost({clock}).renderQuanta(n)` signature | MS2, start of wave 2 | A1.4 and A1.7 in one wave; A1.4's loopback check runs at the wave review |
 | K5 | **Effect slots.** A2.1 leaves `audio-core`'s per-bus effect dispatch with `lowpass`, `highpass`, `compressor` and `reverbSend` wired to passthrough stubs in `audio-dsp` | end of MS4 wave 1 | A2.2a and A2.2b fill only their own `audio-dsp` modules |
 | K6 | **The rebuild entry point.** `recovery.ts` exports `rebuild(reason)` as a stub | MS5, start of wave 2 | A3.4a and A3.4b (`devicechange` close or stall calls the rebuild) in one wave |
 | K7 | **Decoder worker dispatch.** B2's `decoder.worker.ts` routes messages to `decoder/clips.ts` and `decoder/streams.ts` (stubs) | end of MS7 wave 2 | B3 and B5 in one wave |
+| K8 | **Probe hook.** A0.3's `service.ts` calls `probe.ts`, a stub returning "supported" | MS1 wave 2 | A0.6 and A0.8 in one wave |
+| K9 | **Clip registry interface.** `clipRegistry.ts` exports as stubs | MS2, start of wave 2 | A1.3a and A1.4 in one wave |
+| K10 | **The whole public surface.** A1.6 declares all of §1, including `Audio.debug()` and `Bus.peak`; `coreBackend.debug()` calls a `debug.ts` stub | MS2 wave 3 | A2.3 and A2.5 never touch `Audio.ts` or `coreBackend.ts` |
+| K11 | **Voice seams.** A1.2's `panner.rs` (per-voice panner state) and `clips.rs` (`ClipStore` API) | MS2 wave 1 | H3 edits only `panner.rs`; A1.3b replaces only the `ClipStore` body |
+| K12 | **Counters.** A0.3's `counters.rs` holds every K1 STATUS field, and the writer serialises all of them | MS1 wave 2 | A3.3, H3 and B3 report through counters without editing `status.rs` |
+| K13 | **Settings and controls complete early.** A0.4 parses every §2 key; A2.4 builds every §7 control | MS1 wave 1, MS4 wave 2 | H3, B4 and B7 never edit `settings.ts` or the editor section |
 
 ## Wave reviews
 
@@ -124,22 +130,26 @@ After every wave, before the next one branches, the coordinator:
 
 | Task | Who | Files |
 |---|---|---|
-| **A0.1** workspace, toolchain, `audio-core` skeleton, ABI with imported memory and deterministic init, `build.rs` hash, `build.mjs`, `microfft` | S | `native/audio/**` except `crates/audio-wire`; `src/plugins/audio/runtime/wasm/`; `build:audio` through the coordinator |
-| A0.4 plugin shell: manifest, activation, file moves, `mixer` singleton, `myco.ts` exports, plugin lists, `audio.backend` selector (K3) | M | `src/plugins/audio/{manifest.ts,runtime/index.ts,runtime/Audio*.ts,runtime/audioSystem.ts,runtime/backend.ts}`, `src/engine/audio/{mixer.ts,settings.ts}`, `src/engine/index.ts`, `src/myco.ts`, `src/plugins/{manifests,runtime,editorPlugins,testSetup}.ts`, the two test imports |
+| **A0.1** workspace, toolchain, `audio-core` skeleton, ABI with imported memory and deterministic init, `build.rs` hash, `build.mjs`, `microfft` | S | `native/audio/**` except `crates/audio-wire/**`; `src/plugins/audio/runtime/wasm/`; `sourceHash.test.ts`; `build:audio` through the coordinator |
+| A0.4 plugin shell: manifest, activation, file moves, `mixer` singleton, `myco.ts` exports, plugin lists, `audio.backend` selector (K3), a `service.ts` whose `load()` is a stub | M | `src/plugins/audio/{manifest.ts,runtime/index.ts,runtime/Audio*.ts,runtime/audioSystem.ts,runtime/backend.ts,runtime/core/service.ts}`, `src/engine/audio/{mixer.ts,settings.ts}`, `src/engine/index.ts`, `src/myco.ts`, `src/plugins/{manifests,runtime,editorPlugins,testSetup}.ts`, the two test imports |
+| A0.2 `audio-wire`: the whole schema (K1), generator, vectors, REPLAY, HRIR format, round-trip and hash tests | M | `native/audio/crates/audio-wire/**` (a crate dir A0.1's workspace lists as a member but never writes), `wire.generated.ts`, `wire.roundtrip.test.ts` |
 | H0 HRIR licence decision | M | `docs/design/0157-audio-core/hrir-licence.md` (new) |
 
-A0.4 depends on A0.1 in the table, but only nominally: the shell needs no wasm, because `"core"` loads lazily. Running it in wave 1 takes three days off the mid-level queue. If the reviewer disagrees, move it to wave 2.
+A0.4 and A0.2 depend on A0.1 in the table, but only nominally. The shell needs no wasm, because `"core"` loads lazily. And `audio-wire` is a crate dir of its own: A0.1 lists it in the workspace `members` and never writes inside it. Running both in wave 1 puts the generated wire (K1) in place before A0.3 needs STATUS, so A0.3 never writes a throwaway reader. A0.4 also parses **every** §2 setting, including `voices.hrtf`, `spatial`, `clipMemoryMB`, `clipFormat` and `codecs`, with the keys that aren't used yet left inert. That way no later task edits `settings.ts` (contract K13).
 
 **Wave 2** (K1 comes out of it)
 
 | Task | Who | Files |
 |---|---|---|
-| **A0.3** loader, worklet shell and `coreDriver`, context, unlock, STATUS with immediate RECYCLE and a pool of 8, `bufferPool` | S | `src/plugins/audio/runtime/core/{loader,context,unlock,bufferPool,service}.ts`, `runtime/worklet/*`, the status writer in `audio-core`, `audio-wasm` bodies of `status_take`/`status_ptr`/`process` |
-| A0.2 `audio-wire`: the whole schema (K1), generator, vectors, REPLAY, HRIR format, round-trip and hash tests | M | `native/audio/crates/audio-wire/**`, `wire.generated.ts`, `wire.roundtrip.test.ts`, `sourceHash.test.ts` |
+| **A0.3** loader, worklet shell and `coreDriver`, context, unlock, STATUS with immediate RECYCLE and a pool of 8, `bufferPool` | S | `src/plugins/audio/runtime/core/{loader,context,unlock,bufferPool,probe}.ts`, the `load()` body in `service.ts`, `runtime/worklet/*`, `audio-core/src/{status,counters}.rs`, `audio-wasm` bodies of `status_take`/`status_ptr`/`process` |
 | A0.10 ports intake: Blink files staged with provenance, `PORTS.md`, SPDX headers, notices, the header check | J | `native/audio/third_party/**`, `PORTS.md`, `THIRD_PARTY_NOTICES.md`, `portsNotices.test.ts` |
 | A0.5 remove FMOD | J (Sonnet) | `src/engine/audio/fmodBackend.ts`, `tests/fmodBackend.test.ts`, `docs/guide/fmod.md`, the fmod lines of `Engine.ts`, settings and editor model |
 
-A0.3 can use a hand-written STATUS reader until A0.2 merges, and the wave review swaps in the generated one. A0.5 and A0.4 both touch settings, so A0.5 branches after A0.4's merge.
+A0.3 sets up two seams for later tasks:
+- **`counters.rs`** holds every STATUS field in K1. The status writer serialises all of them from day one, so later tasks set a counter in their own module and never edit `status.rs` (K12).
+- **`probe.ts`** is a stub returning "supported", already called from `service.ts`. A0.6 fills it in without touching `service.ts`, which A0.8 owns in wave 3 (K8).
+
+A0.5 and A0.4 both touch settings, so A0.5 branches after A0.4's merge.
 
 **Wave 3**
 
@@ -147,7 +157,7 @@ A0.3 can use a hand-written STATUS reader until A0.2 merges, and the wave review
 |---|---|---|
 | **A0.7** WebView2 and WebKitGTK smoke: tone, autoplay policy per webview, second Engine shares the host | M + owner (Linux) | `src-tauri/` autoplay flags only if needed; findings in `build-log.md` |
 | A0.8 host and World-service lifecycle across two Engines, `releaseWorld`, reconfigure with live voices | S | `runtime/core/service.ts` (lifecycle part), `src/engine/Engine.ts` |
-| A0.6 feature probes, refusal message, Babylon fallback trigger, minimum versions doc, suspended `addModule` in WebKit and Firefox; check Android's WebView for AudioWorklet and `simd128` | M | `runtime/core/probe.ts` (new), the trigger in `backend.ts`, `docs/guide/` minimum versions |
+| A0.6 feature probes, refusal message, Babylon fallback trigger, minimum versions doc, suspended `addModule` in WebKit and Firefox; check Android's WebView for AudioWorklet and `simd128` | M | `runtime/core/probe.ts` (fills A0.3's stub), the trigger in `backend.ts`, `docs/guide/` minimum versions |
 | A0.9 unlock re-arm after `interrupted` and resume failure | M | `runtime/core/unlock.ts` |
 
 Until BB1, A0.6's fallback lands on the Howler-backed `"babylon"` value.
@@ -160,26 +170,37 @@ Until BB1, A0.6's fallback lands on the Howler-backed `"babylon"` value.
 
 | Task | Who | Files |
 |---|---|---|
-| **A1.2** core voices: PLAY/STOP/SET_PARAMS/FADE, slots, linear resampler, ramps, loop, port of `equal_power_panner`, asap vs stamped | S | `audio-core/src/{voices,scheduler}.rs`, `audio-dsp/src/{pan,resample,ramp}.rs`, `golden/` first scenarios |
-| A1.1 voice table, ids, `AudioHandle`, mirror | S (Opus worker 2, or after A1.2) | `runtime/core/{voiceTable,mirror}.ts`, `audioHandle.test.ts` |
+| **A1.2** core voices: PLAY/STOP/SET_PARAMS/FADE, slots, linear resampler, ramps, loop, port of `equal_power_panner`, asap vs stamped | S | `audio-core/src/{voices,scheduler,panner,clips}.rs`, `audio-dsp/src/{pan,resample,ramp}.rs`, `audio-core/tests/golden_native.rs` |
+| A1.1 voice table, ids, `AudioHandle`, mirror | S (Opus worker 2, or after A1.2) | `runtime/core/{voiceTable,ids,handle,mirror}.ts`, `audioHandle.test.ts` |
 
-**Wave 2** (K4 first)
+A1.2 sets up three seams (K11):
+- **`panner.rs`:** every voice pans through a per-voice panner state there, with equal-power only to start. H3 adds HRTF and the crossfade inside that file.
+- **`clips.rs`:** a `ClipStore` API (`reserve`, `frames(id)`, `free`) with a plain `Vec` behind it. A1.3b replaces only the body, with the slab arena. This is the plan's one deliberate stub replacement, and A1.2's brief says so.
+- **Native goldens:** A1.2 proves its renders with native `cargo` goldens. A2.7 later adds the Vitest wasm runner on A1.7's loopback host and doesn't replace A1.2's tests.
+
+**Wave 2** (K4 and K9 first)
 
 | Task | Who | Files |
 |---|---|---|
-| **A1.3b** slab arena, `chunk_ptr/commit`, clip events, ceiling refusal | S | `audio-core/src/arena.rs`, the `clip_*` ABI bodies |
+| **A1.3b** slab arena, `chunk_ptr/commit`, clip events, ceiling refusal | S | `audio-core/src/arena.rs`, the `ClipStore` body in `clips.rs` (K11), the `clip_*` ABI bodies |
 | A1.3a clip registry, `decodeAudioData` loader, int16, paced chunks, encoded-bytes cache | M | `runtime/core/clipRegistry.ts`, the decode path in `loader.ts` |
 | A1.4 command writer, status reader, `coreBackend` (with `voiceStarted/Ended`), clock map v1 | M | `runtime/core/{commandWriter,statusReader,coreBackend,clock}.ts` |
-| A1.5 distance and cone ports | M | `runtime/core/spatial.ts`, `spatialAudio.test.ts` (values) |
-| A1.7 fakes, `HostClock`, loopback host, rewrite of the backend and spatial tests | M | `runtime/testing.ts`, `runtime/core/hostClock.ts`, `audioBackend.test.ts`, `spatialAudio.test.ts` (structure), `audioLoopback.test.ts` |
+| A1.5 distance and cone ports | M | `runtime/core/spatial.ts`, `spatialDistance.test.ts` (new: Blink's values) |
+| A1.7 fakes, `HostClock`, loopback host, rewrite of the backend and spatial tests | M | `runtime/testing.ts`, `runtime/core/hostClock.ts`, `audioBackend.test.ts`, `spatialAudio.test.ts`, `audioLoopback.test.ts` |
 
-A1.5 and A1.7 share `spatialAudio.test.ts`, so A1.7 merges first and A1.5 rebases onto it. Five tasks are too many for two mid-level engineers at once: with human staff, run A1.4 and A1.7 first (A1.6 waits on A1.4), and leave A1.3a and A1.5 for wave 3.
+A1.5 writes its value checks in a new test file, so it never touches the `spatialAudio.test.ts` that A1.7 rewrites. Two contracts come first:
+- **K9:** `clipRegistry.ts` exports its interface (`acquire(path)`, `release(id)`, `state(id)`, `onResident`) as stubs, so A1.3a fills it while A1.4's `coreBackend` codes against it.
+- **K4:** the `HostClock` and loopback host interfaces.
+
+Five tasks are too many for two mid-level engineers at once. With human staff, run A1.4 and A1.7 first (A1.6 waits on A1.4), and leave A1.3a and A1.5 for wave 3.
 
 **Wave 3**
 
 | Task | Who | Files |
 |---|---|---|
-| A1.6 API surface, locked queue, warnings | M | `runtime/Audio.ts`, `runtime/core/unlock.ts` (queue), tests per §1 row |
+| A1.6 API surface, locked queue, warnings | M | `runtime/Audio.ts`, `src/engine/audio/mixer.ts` (`Bus.peak` declared), `runtime/core/unlockQueue.ts` (new), tests per §1 row |
+
+A1.6 declares the **whole** §1 surface (K10), including `Audio.debug()`, which delegates to `backend.debug()`, and `Bus.peak`, which returns 0 until A2.3. A1.4's `coreBackend.debug()` calls a `debug.ts` stub. MS4 then fills `debug.ts` (A2.5) and the peak (A2.3) without touching `Audio.ts` or `coreBackend.ts`.
 
 **Decide before A1.6:** whether one-shots get a completion `Promise`. Recommendation: **not in M1.** `handle.playing` and `handle.reason` already answer "has it ended?", and are polled once per frame like everything else in the engine. A `Promise` is an event channel the engine otherwise avoids, and it can be added later without breaking anything. Record the answer in ADR 0157's open questions.
 
@@ -207,7 +228,7 @@ Starts once A1.6 merges. Mid-level, one writer at a time on `backend.ts`.
 | **A2.2b** port of the staged convolver on `microfft`, seeded IR, shared return; **size gate** | S | `audio-dsp/src/convolver.rs`, the reverb-send stub from K5 |
 | A2.2a ports of `biquad.cc` and `dynamics_compressor.cc` | S (after A2.2b, or a second Opus worker) | `audio-dsp/src/{biquad,compressor}.rs` |
 | A2.3 ducking from mirror counts, `Bus.peak` | M | `src/engine/audio/mixer.ts`, `runtime/core/mirror.ts` (counts only) |
-| A2.4 editor settings section and meters | M | `src/plugins/audio/editor/{index.ts,AudioSettingsSection.tsx,audioSettingsModel.ts,BusMeters.tsx,audioSettings.css}`, the moves out of `src/editor/` |
+| A2.4 editor settings section and meters: **every** §7 control, including `spatial` and `voices.hrtf` (K13) | M | `src/plugins/audio/editor/{index.ts,AudioSettingsSection.tsx,audioSettingsModel.ts,BusMeters.tsx,audioSettings.css}`, the moves out of `src/editor/` |
 | A2.5 `Audio.debug()` and panel | J | `runtime/core/debug.ts` (new), `editor/AudioDebugPanel.tsx`; registration line handed to the coordinator |
 
 **Wave 3**
@@ -216,7 +237,7 @@ Starts once A1.6 merges. Mid-level, one writer at a time on `backend.ts`.
 |---|---|---|
 | A2.2c Web Audio parity harness | M | `tests/e2e/audio-parity.spec.ts` (`@slow`), committed reference renders |
 | A2.6 `samples/sound-lab` and its `@slow` spec | M | `samples/sound-lab/**`, `tests/e2e/audio-core.spec.ts` |
-| A2.7 quality harness and golden runner | M | `audio-dsp/tests/quality.rs`, `audioGolden.test.ts`, `golden/` |
+| A2.7 quality harness and the Vitest wasm golden runner (on A1.7's loopback host; A1.2's native goldens stay) | M | `audio-dsp/tests/quality_*.rs`, `audioGolden.test.ts`, `golden/` |
 
 **Exit:** the parity spec passes within the ADR's dB tolerance in Chromium, with WebKit and Firefox in Docker; the sound-lab spec passes; the mixer wasm is ≤ 150 KB; the editor shows meters and the debug panel during play with `backend: "core"`.
 
@@ -237,7 +258,7 @@ Starts once A1.6 merges. Mid-level, one writer at a time on `backend.ts`.
 | A3.3 adaptive cap | S (after A3.4a, or a second Opus worker) | `audio-core/src/cap.rs`, its STATUS field (already in K1) |
 | A3.4b background modes, `devicechange`, hidden tab | M | `runtime/core/background.ts` (new), the visibility hooks in `context.ts` |
 
-H3 (MS6) also lands here if H2 is ready. It touches `selection.ts` (the HRTF flag) after A3.1 merges, and nothing A3.3 or A3.4a own.
+H3 (MS6) also lands here if H2 is ready. It touches `selection.ts` (the HRTF flag, after A3.1 merges) and `panner.rs` (K11), and sets its counters in `counters.rs` (K12). None of those belong to A3.3, A3.4a or A3.4b.
 
 **Exit:** 4,096 voices select in ≤ 0.25 ms p99 in Node; `at` lands within one quantum in the loopback; the cap drops and recovers under load; a simulated trap restores voices, and the 4th in 60 s goes silent with one warning; mute, pause and play background modes are checked.
 
@@ -246,9 +267,9 @@ H3 (MS6) also lands here if H2 is ready. It touches `selection.ts` (the HRTF fla
 | Task | Who | Starts after | Files |
 |---|---|---|---|
 | H1 port of the HRTF panner on `microfft`'s 256-point FFT; size gate (a lazy `myco_audio_spatial.wasm` if it's over) | S | A1.2, A0.10 | `audio-dsp/src/hrtf/**` |
-| H2 HRIR asset (≈ 0.75 MB int16), lazy fetch, `format = 2` load, `hrtfReady`, re-send on rebuild, attribution | M | H0, H1 | `tools/` converter, the HRIR asset beside the wasm, `runtime/core/hrir.ts`; the acknowledgement handed to the coordinator |
-| H3 integration: top `voices.hrtf` by audibility, 1.2× hysteresis, 45 ms crossfade, counters, settings and editor controls | S | A3.1, H2 | `selection.ts` (HRTF flag), the panner switch in `audio-core/src/voices.rs`, settings parse; editor controls handed to the coordinator |
-| H4 parity and quality: null tests against `PannerNode` HRTF, ITD and level, moving-source golden | M | H3, A2.2c | `audio-parity.spec.ts` (an HRTF block), `golden/hrtf-*` |
+| H2 HRIR asset (≈ 0.75 MB int16), lazy fetch, `format = 2` load, `hrtfReady`, re-send on rebuild, attribution | M | H0, H1 | `tools/hrir/` converter, the HRIR asset beside the wasm, `runtime/core/hrir.ts`; the acknowledgement handed to the coordinator. The HRIR goes through `clipRegistry` under its reserved ids (`0xFFFF0000…`), so A3.4a's rebuild re-sends it with no edit to `recovery.ts` |
+| H3 integration: top `voices.hrtf` by audibility, 1.2× hysteresis, 45 ms crossfade, counters | S | A3.1, H2 | `selection.ts` (HRTF flag), `audio-core/src/panner.rs` (K11), its counters (K12). Settings and editor controls already exist (K13) |
+| H4 parity and quality: null tests against `PannerNode` HRTF, ITD and level, moving-source golden | M | H3, A2.2c | `tests/e2e/audio-parity-hrtf.spec.ts` (its own spec, reusing A2.2c's harness), `golden/hrtf-*` |
 
 **If H0 says Composite:** run as above. **If it says SADIE II:** same code, and H2 converts SADIE II instead; H4's null test compares against the SADIE render and the Chromium comparison drops to a listening note. **If it says equal-power:** H1, H2 and H4 are dropped (−11 days, back to the reserve). H3 shrinks to parsing `audio.spatial` and `voices.hrtf` with no effect, and ADR 0157's D4 row becomes a recorded regression.
 
