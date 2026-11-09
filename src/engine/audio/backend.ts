@@ -69,6 +69,7 @@ let backend: AudioBackend | null = null;
 let factory: (() => AudioBackend) | null = null;
 let coreFactory: (() => AudioBackend) | null = null;
 let warnedCore = false;
+let coreUnavailableReason: string | null = null;
 
 /** Register how the `"babylon"` backend is made (the Howler backend does this on import, until BB2 replaces it). */
 export function registerDefaultBackend(make: () => AudioBackend): void {
@@ -79,6 +80,21 @@ export function registerDefaultBackend(make: () => AudioBackend): void {
 export function registerCoreBackend(make: () => AudioBackend): () => void {
   coreFactory = make;
   return () => { if (coreFactory === make) coreFactory = null; };
+}
+
+/**
+ * @internal A0.6's fallback trigger: the probe (or a failed core load) says why the core can't run here. The
+ * next `audioBackend()` that wanted the core logs one warning carrying `reason`, then uses "babylon" (§2.1 fallback
+ * rule). Only the first reason is kept, so one failure gives one warning.
+ */
+export function noteCoreUnavailable(reason: string): void {
+  coreUnavailableReason ??= reason;
+}
+
+/** @internal Test hook: forget the warning state so each test starts clean. */
+export function resetCoreFallbackState(): void {
+  warnedCore = false;
+  coreUnavailableReason = null;
 }
 
 /**
@@ -96,7 +112,7 @@ export function audioBackend(): AudioBackend {
     if (resolveBackendKind(mixer.audioSettings.backend) === "core") {
       // The core's host loads through the `myco.audio` World service; until it has, sound falls back to "babylon" (§2 Fallback).
       if (coreFactory) make = coreFactory;
-      else if (!warnedCore) { warnedCore = true; console.warn(`[myco] audio.backend "core" isn't loaded; using "babylon".`); }
+      else if (!warnedCore) { warnedCore = true; console.warn(coreUnavailableReason ? `[myco] ${coreUnavailableReason}` : `[myco] audio.backend "core" isn't loaded; using "babylon".`); }
     }
     if (!make) throw new Error("No audio backend registered.");
     backend = make();
