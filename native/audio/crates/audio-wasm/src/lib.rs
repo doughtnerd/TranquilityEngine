@@ -60,8 +60,7 @@ static INSTANCE: Global<Instance<PlatformMemory>> = Global::new(Instance::new(PL
 /// The source hash `build.rs` computed (SHA-256 of the sources, first 16 bytes; api-and-models §5).
 static SOURCE_HASH: [u8; 16] = *include_bytes!(concat!(env!("OUT_DIR"), "/source_hash.bin"));
 
-/// TODO(A0.2): the schema hash from `audio-wire` (`schema.rs`); zeros until audio-wasm depends on it.
-static SCHEMA_HASH: [u8; 16] = [0; 16];
+static SCHEMA_HASH: [u8; 16] = audio_wire::generated::SCHEMA_HASH;
 
 #[allow(clippy::mut_from_ref)]
 fn instance() -> &'static mut Instance<PlatformMemory> {
@@ -76,7 +75,7 @@ pub extern "C" fn myco_audio_abi_version() -> u32 {
     (ABI_MAJOR << 8) | ABI_MINOR
 }
 
-/// 16 bytes. TODO(A0.2): the real schema hash.
+/// 16 bytes: the wire schema hash (`audio-wire`, contract K1); `wire.generated.ts` embeds the same.
 #[no_mangle]
 pub extern "C" fn myco_audio_schema_hash() -> *const u8 {
     SCHEMA_HASH.as_ptr()

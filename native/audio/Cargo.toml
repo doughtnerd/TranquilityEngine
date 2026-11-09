@@ -19,6 +19,7 @@ publish = false
 [workspace.dependencies]
 audio-dsp = { path = "crates/audio-dsp" }
 audio-core = { path = "crates/audio-core" }
+audio-wire = { path = "crates/audio-wire" }
 # Real FFTs of 256 and 4,096 points and the complex 4,096 inverse (convolver, HRTF).
 microfft = { version = "0.6", default-features = false, features = ["size-4096"] }
 # Transcendentals, so native and wasm results are bit-identical.
