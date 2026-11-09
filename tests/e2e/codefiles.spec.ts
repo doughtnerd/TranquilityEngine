@@ -1,6 +1,5 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, openTestProject, type Page, test } from "./fixtures";
 
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
@@ -24,13 +23,7 @@ writeFileSync("data/out.json", JSON.stringify({ ok: true }));
 `;
 
 async function openProject(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.evaluate(
-    ([levels, racer, tool]) =>
-      (window as unknown as Hooks).openTestProject({ "data/levels.json": levels, "scripts/Racer.ts": racer, "tools/build.js": "console.log('build');\n", "tools/generate.mjs": tool, "tools/README.md": "# Tools\n\nRun `node tools/generate.mjs`.\n" }),
-    [LEVELS, RACER, TOOL],
-  );
+  await openTestProject(page, { "data/levels.json": LEVELS, "scripts/Racer.ts": RACER, "tools/build.js": "console.log('build');\n", "tools/generate.mjs": TOOL, "tools/README.md": "# Tools\n\nRun `node tools/generate.mjs`.\n" });
 }
 
 const editor = (page: Page) => page.locator(".code-editor .monaco-editor");

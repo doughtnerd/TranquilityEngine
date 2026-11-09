@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, openTestProject, type Page, test } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
@@ -16,8 +16,7 @@ async function openEditor(page: Page): Promise<void> {
 
 /** The Flappy sample as a writable project folder in memory. */
 async function openProject(page: Page): Promise<void> {
-  await openEditor(page);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject());
+  await openTestProject(page);
   await expect(page.locator(".scene-tab")).toHaveCount(1);
 }
 

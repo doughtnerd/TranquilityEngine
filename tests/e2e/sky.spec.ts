@@ -45,7 +45,7 @@ async function openScene(page: Page, folder: string, file: string): Promise<void
   await assets(page).locator(".asset-tile").filter({ hasText: file }).dblclick();
 }
 
-test("a sky asset draws the sky, bakes lighting and rebakes when it changes", async ({ page, browserName }) => {
+test("a sky asset draws the sky, bakes lighting and rebakes when it changes", { tag: "@slow" }, async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
   const errors = trackErrors(page);
   await openPlayground(page);

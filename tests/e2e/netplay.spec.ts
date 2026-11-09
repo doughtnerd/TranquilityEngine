@@ -1,12 +1,16 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, type Locator, type Page, play, test } from "./fixtures";
+import { expect, fpsAtLeast, type Locator, openTestProject, type Page, play, test } from "./fixtures";
 import { showTab } from "./tabs";
 
 // Multiplayer play mode and the Network panel (ADR 0033 §9): a client/server project plays with
 // N clients plus thin clients chosen in the panel (project.json unchanged), the panel lists each
 // networked World's connections with RTT and traffic, and the latency slider applies live.
-const EDITOR = "/editor.html?sample=flappy"; // relative to baseURL (E2E_PORT)
+
+test.describe.configure({ timeout: 60_000 }); // several Worlds play at once; each new renderer is seconds of CPU with software GL
+// Pings are answered in frames, so the RTT this spec compares carries up to a frame of jitter each
+// way: at the default cap (fixtures.ts) that is 100 ms, as much as the latency it adds.
+test.use({ fps: fpsAtLeast(30) });
 
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
@@ -52,9 +56,7 @@ const slide = (slider: Locator, value: number) =>
 
 test("multiplayer play: 2 clients + 1 thin client, live stats, latency raises the RTT, Stop", async ({ page }) => {
   const errors = trackErrors(page);
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.evaluate((project) => (window as unknown as Hooks).openTestProject({ "project.json": project }), PROJECT);
+  await openTestProject(page, { "project.json": PROJECT });
   await expect(page.locator(".tree .row .name", { hasText: /^Bird$/ })).toHaveCount(1);
 
   // The Network panel is a tab beside Worlds; not playing, it explains itself and offers the setup.
@@ -92,12 +94,18 @@ test("multiplayer play: 2 clients + 1 thin client, live stats, latency raises th
 
   // Latency raises the round trip: 150 ms each way. Pings are answered in frames, so without added
   // latency the RTT is a frame or two: under 100 ms alone, more when the machine is loaded (WebKit
-  // renders on the CPU). Compare against what it was rather than a fixed figure.
+  // renders on the CPU), and one reading can catch a slow frame. So take the lowest of a few
+  // readings as the baseline, and expect the 300 ms added on top of it.
   await expect.poll(() => shownRtt(panel, "Client 1")).toBeLessThan(250);
-  const before = await shownRtt(panel, "Client 1");
+  let before = Infinity;
+  for (let i = 0; i < 4; i++) {
+    const rtt = await shownRtt(panel, "Client 1");
+    if (rtt < before) before = rtt;
+    await page.waitForTimeout(250);
+  }
   await slide(panel.getByRole("slider", { name: "Latency" }), 150);
   await expect(panel.locator(".network-slider-value").first()).toHaveText("150 ms");
-  await expect.poll(() => shownRtt(panel, "Client 1"), { timeout: 15_000 }).toBeGreaterThan(Math.max(250, before + 200));
+  await expect.poll(() => shownRtt(panel, "Client 1"), { timeout: 15_000 }).toBeGreaterThan(Math.max(250, before + 250));
   await expect.poll(() => shownRtt(panel, "Thin 1"), { timeout: 15_000 }).toBeGreaterThan(250);
 
   // Stop returns to editing; the panel explains itself again, and the slider keeps its value.

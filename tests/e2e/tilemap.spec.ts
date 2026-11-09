@@ -1,6 +1,6 @@
 // Tilemaps in the editor (ADR 0103): the platformer sample's level draws, the Tile Palette shows its
 // tileset, and painting in the scene view is one undoable step.
-import { expect, test, type Page } from "./fixtures";
+import { afterFrames, expect, type Page, test } from "./fixtures";
 import { menu, openMenu } from "./menus";
 
 const EDITOR = "/editor.html?sample=platformer";
@@ -29,7 +29,7 @@ test("paints tiles from the Tile Palette in the scene view, as one undo step", a
 
   // Frame an empty spot of sky and paint across it.
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus([30.5, 10.5, 0], 12));
-  await page.waitForTimeout(300);
+  await afterFrames(page); // the camera moves on the next frame
   const canvas = (await page.locator(".viewport canvas").boundingBox())!;
   const cx = canvas.x + canvas.width / 2, cy = canvas.y + canvas.height / 2;
   await page.mouse.move(cx - 60, cy);

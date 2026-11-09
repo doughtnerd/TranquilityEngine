@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, openTestProject, type Page, test } from "./fixtures";
 import { closeMenus, menu, menubar, menuTitle, openMenu } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
@@ -139,8 +139,7 @@ test("Help opens the log and About", async ({ page }) => {
 });
 
 test("File > Save writes the scene of a project folder and clears the unsaved mark", async ({ page }) => {
-  await openEditor(page);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject({}));
+  await openTestProject(page);
   await expect(page.locator(".menubar-right .readonly-badge")).toHaveCount(0);
   await page.locator('.tree .row[data-key="bird"]').click();
   const y = page.getByRole("textbox", { name: "position y" });

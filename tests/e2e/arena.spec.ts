@@ -1,11 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { expect, test, type Page } from "./fixtures";
+import { expect, type Page, PLAY_START, test } from "./fixtures";
 import { showTab } from "./tabs";
 
 // The Arena sample (T16, ADR 0032/0033): listed on the start screen, played with Play. Its
 // bootstrap starts one client World on a menu; Host creates the Server World (a Spawnable World),
 // which the bootstrap's link connects the client to over loopback (ADR 0062), P adds a second client World (a second tile), players move with input
 // (predicted on their owners), and a hit scores for the shooter on the server, shown on clients.
+test.describe.configure({ timeout: 60_000 }); // several Worlds play at once; each new renderer is seconds of CPU with software GL
+
 const START = "/editor.html"; // relative to baseURL (E2E_PORT)
 
 type Hooks = {
@@ -58,7 +60,6 @@ const scoreboard = (page: Page, world: string) =>
 const myX = async (page: Page, world: string) => (await playersIn(page, world)).find((p) => p.mine)?.x ?? NaN;
 
 /** How long Play may take to start: it type-checks the scripts first (ADR 0125), loading Monaco's TypeScript worker the first time. */
-const PLAY_START = 20_000;
 
 const tile = (page: Page, world: string) => page.locator(`#game-view .game-tile[data-world="${world}"]`);
 
@@ -80,7 +81,7 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
 
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: PLAY_START });
-  await expect.poll(() => worldNames(page)).toEqual(["Client"]);
+  await expect.poll(() => worldNames(page), { timeout: PLAY_START }).toEqual(["Client"]); // the play Engine's Worlds start after the button shows
 
   // Host: the Server World is created from its template; the bootstrap's link connects this client, which gets a player.
   await tile(page, "Client").click();
@@ -97,7 +98,7 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
   await expect(page.locator("#game-view .game-tile")).toHaveCount(2);
   await expect.poll(async () => (await playersIn(page, "Server")).length, { timeout: 15_000 }).toBe(2);
   await expect.poll(async () => (await playersIn(page, "Client 2")).map((p) => p.mine), { timeout: 15_000 }).toEqual([false, true]);
-  await expect.poll(async () => (await playersIn(page, "Client")).length).toBe(2);
+  await expect.poll(async () => (await playersIn(page, "Client")).length, { timeout: 15_000 }).toBe(2); // replicated from the server, like the two above
 
   // Input moves the World's own player: Client has the keyboard, then Client 2 after a click.
   const x1 = await myX(page, "Client");

@@ -1,9 +1,8 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, openTestProject, type Page, test } from "./fixtures";
 import { showTab } from "./tabs";
 
 // The Project panel's settings as a category list (left) with the selected category's settings
 // (right); a narrow panel swaps the list for a dropdown.
-const EDITOR = "/editor.html?sample=flappy";
 test.describe.configure({ timeout: 60_000 });
 
 type Hooks = { engine?: { world: { time: { frameCount: number } } }; openTestProject(extra: Record<string, string>): Promise<void> };
@@ -11,9 +10,7 @@ type Hooks = { engine?: { world: { time: { frameCount: number } } }; openTestPro
 const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Audio", "Plugins", "Autoloads", "Build"];
 
 async function openProject(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject({}));
+  await openTestProject(page);
   await showTab(page, /^Project/);
 }
 
@@ -50,9 +47,7 @@ test("the categories list, selection and keyboard", async ({ page }) => {
 
   // The choice is remembered (per user) across a reload.
   await list.getByRole("tab", { name: "Physics" }).click();
-  await page.reload();
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject({}));
+  await openTestProject(page); // a fresh page load
   await showTab(page, /^Project/);
   await expect(p.getByRole("tab", { name: "Physics" })).toHaveAttribute("aria-selected", "true");
 });

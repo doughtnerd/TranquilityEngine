@@ -1,7 +1,6 @@
 // Renaming and deactivating nodes inside a prefab instance, and Open Prefab from an instance (ADR 0122).
-import { expect, test, type Page } from "./fixtures";
+import { expect, openTestProject, type Page, test } from "./fixtures";
 
-const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
 type Hooks = {
   engine?: { world: { time: { frameCount: number } } };
@@ -11,9 +10,7 @@ type Hooks = {
 
 /** The Flappy sample as a writable project folder in memory, with a pipe-pair instance added and expanded. */
 async function openWithPipe(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject());
+  await openTestProject(page);
   await expect(page.locator(".scene-tab")).toHaveCount(1);
   const assets = page.locator(".panel.assets");
   await assets.getByRole("searchbox", { name: "Search assets" }).fill("pipe-pair");

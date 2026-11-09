@@ -55,7 +55,7 @@ test("cascaded shadows follow the quality tier", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test("an Environment component with an HDR map lights the scene and draws the sky", async ({ page, browserName }) => {
+test("an Environment component with an HDR map lights the scene and draws the sky", { tag: "@slow" }, async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "folders open writably through File System Access in Chromium only");
   const errors = trackErrors(page);
   await installFakeFolders(page, { Playground: { ...sampleFiles(), "environments/sky.hdr": TINY_HDR } });

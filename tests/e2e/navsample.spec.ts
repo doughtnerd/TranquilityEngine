@@ -70,7 +70,7 @@ test("the start screen lists Navigation", async ({ page }) => {
   await expect(page.locator(".inspector .component.missing")).toHaveCount(0);
 });
 
-test("Play: chunks stream in round the agents, agents of every kind move, the Nav overlay draws the live navigation", async ({ page }) => {
+test("Play: chunks stream in round the agents, agents of every kind move, the Nav overlay draws the live navigation", { tag: "@slow" }, async ({ page }) => {
   const errors = trackErrors(page);
   await page.goto(`${START}?sample=navigation`);
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);

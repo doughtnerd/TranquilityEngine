@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, openTestProject, type Page, test } from "./fixtures";
 import { showTab } from "./tabs";
 
 // The Worlds panel (ADR 0032) on a writable in-memory copy of the demo project: building a
@@ -12,9 +12,7 @@ type Hooks = {
 };
 
 async function openProject(page: Page): Promise<void> {
-  await page.goto(EDITOR);
-  await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
-  await page.evaluate(() => (window as unknown as Hooks).openTestProject({}));
+  await openTestProject(page);
   await showTab(page, /^Worlds/);
 }
 

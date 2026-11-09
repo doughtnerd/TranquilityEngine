@@ -18,8 +18,11 @@ import { gpuAngle } from "./gpu";
 
 export { expect, type Locator, type Page } from "@playwright/test";
 
-/** Frames a second each page may draw; 0 doesn't cap them. */
-export const fps = Number(process.env.E2E_FPS ?? (gpuAngle ? 0 : 10));
+/** Frames a second each page may draw by default; 0 doesn't cap them. */
+const fps = Number(process.env.E2E_FPS ?? (gpuAngle ? 0 : 10));
+
+/** A spec's own cap, `at least` frames a second, unless frames aren't capped at all. */
+export const fpsAtLeast = (atLeast: number): number => (fps === 0 ? 0 : Math.max(fps, atLeast));
 
 /** Runs in each page before its scripts (serialized: self-contained). */
 function capFrames(max: number): void {
@@ -69,8 +72,10 @@ function capFrames(max: number): void {
   };
 }
 
-export const test = base.extend<object, { webgpu: boolean }>({
-  context: async ({ context }, use) => {
+export const test = base.extend<{ fps: number }, { webgpu: boolean }>({
+  /** The frame cap for this spec's pages (`test.use({ fps })` raises it where timing is measured in frames). */
+  fps: [fps, { option: true }],
+  context: async ({ context, fps }, use) => {
     if (fps > 0) await context.addInitScript(capFrames, fps);
     await use(context);
   },
@@ -103,4 +108,27 @@ export const PLAY_START = 20_000;
 export async function play(page: Page): Promise<void> {
   await page.getByRole("button", { name: "▶ Play" }).click();
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: PLAY_START });
+}
+
+type FrameHooks = { engine?: { world: { time: { frameCount: number } } } };
+
+/** Wait until the editor's World has stepped `n` more frames: a camera move or an edit made from a test shows (and picks) from the next frame on. */
+export async function afterFrames(page: Page, n = 2): Promise<void> {
+  const start = await page.evaluate(() => (window as unknown as FrameHooks).engine?.world.time.frameCount ?? 0);
+  await page.waitForFunction((until) => ((window as unknown as FrameHooks).engine?.world.time.frameCount ?? 0) >= until, start + n);
+}
+
+type TestProjectHooks = FrameHooks & { openTestProject?(extra: Record<string, string>): Promise<void> };
+
+/**
+ * Open the Flappy sample as a writable project folder in memory, plus `extra` files (project path →
+ * text), through the editor's `openTestProject` hook; the folder is on `window.testFolder`. It
+ * opens from the start screen: opening the read-only sample first and then the folder would set up
+ * a project, and its renderer, twice (each costs seconds of CPU with software GL).
+ */
+export async function openTestProject(page: Page, extra: Record<string, string> = {}): Promise<void> {
+  await page.goto("/editor.html");
+  await page.waitForFunction(() => typeof (window as unknown as TestProjectHooks).openTestProject === "function");
+  await page.evaluate((files) => (window as unknown as TestProjectHooks).openTestProject!(files), extra);
+  await page.waitForFunction(() => ((window as unknown as TestProjectHooks).engine?.world.time.frameCount ?? 0) > 10);
 }

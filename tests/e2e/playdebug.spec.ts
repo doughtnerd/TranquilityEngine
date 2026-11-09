@@ -1,4 +1,4 @@
-import { expect, type Page, play, test } from "./fixtures";
+import { expect, type Page, play, PLAY_START, test } from "./fixtures";
 import { showTab } from "./tabs";
 import { menu } from "./menus";
 
@@ -204,7 +204,7 @@ test("Pause, Step and the shortcuts hold and advance the whole game; a World ste
   const pause = page.getByRole("button", { name: "❚❚ Pause", exact: true });
   await expect(pause).toBeDisabled(); // editing
   await play(page);
-  await expect.poll(() => frames(page)).toBeGreaterThan(5);
+  await expect.poll(() => frames(page), { timeout: PLAY_START }).toBeGreaterThan(5); // the game's renderer starts after the button shows
 
   await pause.click();
   const resume = page.getByRole("button", { name: "▶ Resume", exact: true });

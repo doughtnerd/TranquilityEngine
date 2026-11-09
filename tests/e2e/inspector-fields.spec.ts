@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { expect, openTestProject, type Page, test } from "./fixtures";
 
 // ADR 0042: list fields, dropdowns, Euler-angle quaternions, a component's Worlds and node tags in the Inspector.
 
@@ -28,8 +28,7 @@ async function openEditor(page: Page): Promise<void> {
 
 /** Open the sample as a project folder with the Route script, so its component can be added. */
 async function openProject(page: Page): Promise<void> {
-  await openEditor(page);
-  await page.evaluate((route) => (window as unknown as Hooks).openTestProject({ "scripts/Route.ts": route }), ROUTE);
+  await openTestProject(page, { "scripts/Route.ts": ROUTE });
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 }
 

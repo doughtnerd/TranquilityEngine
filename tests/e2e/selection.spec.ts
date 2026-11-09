@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./fixtures";
+import { afterFrames, expect, type Page, test } from "./fixtures";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
 
@@ -20,7 +20,7 @@ async function openEditor(page: Page): Promise<void> {
   await page.goto(EDITOR);
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus([0, 0, 0], 14));
-  await page.waitForTimeout(100); // a frame for the camera to move
+  await afterFrames(page); // the camera moves on the next frame
 }
 
 const selected = (page: Page) => page.locator(".tree .row.selected").evaluateAll((rows) => rows.map((r) => (r as HTMLElement).dataset.key!));
@@ -148,7 +148,7 @@ test("clicking anywhere inside a collider selects its node, before the sprites d
   await openEditor(page);
   await page.keyboard.press("q"); // no gizmo in the way of repeated clicks
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus([0, -10, 0], 14));
-  await page.waitForTimeout(100);
+  await afterFrames(page); // the camera moves on the next frame
   // GroundCollider draws nothing; its origin is the middle of its 40 × 10 box, under the ground sprites.
   const origin = await rectOf(page, "ground-collider", 0);
   await page.mouse.click(origin.left + 30, origin.top - 10);
