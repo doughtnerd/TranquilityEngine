@@ -18,7 +18,9 @@ pub struct Regions {
     pub reverb: &'static mut [u8],
     pub hrtf: &'static mut [u8],
     pub streams: &'static mut [u8],
+    /// Empty: the clip store owns the directory region (A1.3b).
     pub clip_directory: &'static mut [u8],
+    /// Empty: the clip store owns the arena region (A1.3b).
     pub arena: &'static mut [u8],
 }
 
@@ -54,7 +56,7 @@ impl Core {
         let out = layout.region(RegionKind::Output);
         // SAFETY: as above; the output region is 64-byte aligned and a whole number of f32s.
         let output = unsafe { core::slice::from_raw_parts_mut(base.add(out.offset) as *mut f32, out.len / 4) };
-        let regions = Regions {
+        let mut regions = Regions {
             output,
             core_state: bytes(RegionKind::CoreState),
             pending: bytes(RegionKind::Pending),
@@ -67,7 +69,9 @@ impl Core {
             clip_directory: bytes(RegionKind::ClipDirectory),
             arena: bytes(RegionKind::Arena),
         };
-        Core { params, layout, base: base as usize, regions, frame: 0, clips: ClipStore::new() }
+        // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
+        let clips = ClipStore::over(core::mem::take(&mut regions.clip_directory), core::mem::take(&mut regions.arena));
+        Core { params, layout, base: base as usize, regions, frame: 0, clips }
     }
 
     pub fn params(&self) -> &InitParams {
@@ -152,8 +156,10 @@ mod tests {
         let at = |p: *const u8| p as usize - base as usize;
         assert_eq!(at(r.output.as_ptr() as *const u8), layout.region(RegionKind::Output).offset);
         assert_eq!(at(r.voices.as_ptr()), layout.region(RegionKind::Voices).offset);
-        assert_eq!(at(r.arena.as_ptr()), layout.region(RegionKind::Arena).offset);
-        assert_eq!(r.arena.len(), 1 << 20);
+        let (arena_start, arena_len) = core.clips().arena().segments().next().unwrap();
+        assert_eq!(arena_start - base as usize, layout.region(RegionKind::Arena).offset);
+        assert_eq!(arena_len, 1 << 20);
+        assert!(r.arena.is_empty() && r.clip_directory.is_empty(), "the clip store owns them");
     }
 
     #[test]

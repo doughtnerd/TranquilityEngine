@@ -1,18 +1,38 @@
 //! The clip store (contract K11): where voices find their PCM.
 //!
-//! **This is the plan's one deliberate stub replacement.** The API below (`reserve`, `write`,
-//! `frames`, `free`) is the seam: A1.3b replaces only the *body* of [`ClipStore`] with the slab
-//! arena over the `ClipDirectory` and `Arena` regions (architecture §5.2), and nothing that calls
-//! it changes. Until then a plain `Vec` sits behind it, sorted by clip id.
+//! The API (`reserve`, `write`, `frames`, `free`, `clear`) is the seam A1.2's voices use. A1.3b
+//! replaced the body: a **clip directory** in the `ClipDirectory` region (fixed entries, sorted by
+//! clip id) over the **slab arena** ([`crate::arena`]) that starts in the `Arena` region
+//! (architecture §5.2). Each clip is one arena block holding its samples, interleaved, in its own
+//! format (the shell copies chunks straight in).
 //!
-//! Rules that hold for both bodies:
-//! - `reserve`, `write` and `free` run from `onmessage` only (the `clip_*` exports, `submit`), never
-//!   inside `process`; they may allocate (the `Vec` here) or grow memory (the arena).
-//! - `frames` runs inside `process`: it never allocates and is O(log n) or better.
+//! Rules:
+//! - `reserve`, `write`, `chunk_ptr`, `commit` and `free` run from `onmessage` only (the `clip_*`
+//!   exports, `submit`), never inside `process`. Only `reserve` may grow memory.
+//! - `frames` runs inside `process`: it never allocates and is O(log n).
 //! - Clips are interleaved, 1 or 2 channels, f32 or int16, each at its own sample rate.
+//! - Clip events (api-and-models §4.3: 1 resident, 2 refusedCeiling, 3 refusedGrow) queue in the
+//!   store; the core-level functions at the end of this file move them to the STATUS counters
+//!   (K12) with [`flush_events`], and the store keeps what a full block can't take.
+//! - **Ceiling.** The main-side clip registry is the primary ceiling check: it refuses a load past
+//!   `clipMemoryMB` before CLIP_BEGIN. In the core, a full arena (the Memory's `maximum`, which the
+//!   shell sizes as the fixed regions plus the clip ceiling) is refusedGrow; refusedCeiling comes
+//!   only from [`ClipStore::set_ceiling`] or a full directory (see [`crate::arena`]).
 
 use audio_dsp::resample::{Samples, Source};
 use audio_wire::generated as wire;
+
+use crate::arena::{Arena, Block, GrowFn, Refusal};
+use crate::core::Core;
+use crate::counters::{flag, Event};
+use crate::layout::CLIP_DIRECTORY_ENTRY_BYTES;
+use crate::status;
+
+/// Most bytes one `chunk_ptr`/`commit` takes (api-and-models §5: at most 256 KB per quantum).
+pub const MAX_CHUNK_BYTES: usize = 256 * 1024;
+
+/// Clip events the store keeps while STATUS blocks are full.
+pub const EVENT_QUEUE: usize = 256;
 
 /// A clip's sample format (CLIP_BEGIN `format`, api-and-models §4.1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,35 +68,108 @@ pub struct Clip<'a> {
     pub sample_rate: f32,
 }
 
-enum Pcm {
-    F32(Vec<f32>),
-    I16(Vec<i16>),
-}
-
+/// One directory entry. All-zero bytes are valid (the region is zeroed at init).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
 struct Entry {
     id: u32,
-    channels: u32,
     frames: u32,
     sample_rate: f32,
-    pcm: Pcm,
+    /// Frames committed from frame 0, in order.
+    committed: u32,
+    /// The block's address.
+    addr: usize,
+    channels: u8,
+    /// 0 f32, 1 int16 (the wire's values).
+    format: u8,
+    class: u8,
+    /// 1 once the resident event was queued.
+    resident: u8,
+}
+
+const _: () = assert!(core::mem::size_of::<Entry>() <= CLIP_DIRECTORY_ENTRY_BYTES, "an entry fits its layout size");
+const _: () = assert!(core::mem::align_of::<Entry>() <= crate::layout::REGION_ALIGN);
+
+impl Entry {
+    fn format(&self) -> ClipFormat {
+        if self.format == 1 {
+            ClipFormat::I16
+        } else {
+            ClipFormat::F32
+        }
+    }
+
+    fn frame_bytes(&self) -> usize {
+        self.channels as usize * self.format().sample_bytes()
+    }
+
+    fn block(&self) -> Block {
+        Block { addr: self.addr, class: self.class }
+    }
 }
 
 /// Every clip the core holds, by clip id (the main thread's registry id, api-and-models §3).
-#[derive(Default)]
 pub struct ClipStore {
-    /// Sorted by `id`. A1.3b: the slab arena replaces this.
-    entries: Vec<Entry>,
+    /// The directory: `len` entries in use, sorted by `id`.
+    entries: &'static mut [Entry],
+    len: usize,
+    arena: Arena,
+    /// Clip events not yet in a STATUS block (a ring).
+    events: [Event; EVENT_QUEUE],
+    events_head: usize,
+    events_len: usize,
+}
+
+impl Default for ClipStore {
+    fn default() -> ClipStore {
+        ClipStore::new()
+    }
 }
 
 impl ClipStore {
-    /// An empty store. Doesn't allocate.
+    /// A store with no directory: it refuses every reserve (refusedCeiling). Doesn't allocate.
+    /// `Core` builds its store with [`ClipStore::over`].
     pub const fn new() -> ClipStore {
-        ClipStore { entries: Vec::new() }
+        ClipStore { entries: &mut [], len: 0, arena: Arena::empty(), events: [Event { id: 0, code: 0 }; EVENT_QUEUE], events_head: 0, events_len: 0 }
+    }
+
+    /// A store over the `ClipDirectory` region (zeroed, 64-byte aligned) and the `Arena` region.
+    /// The directory holds `directory.len() / CLIP_DIRECTORY_ENTRY_BYTES` clips (4,096); the
+    /// region's size-class list heads aren't used (the arena keeps its heads itself).
+    pub fn over(directory: &'static mut [u8], arena: &'static mut [u8]) -> ClipStore {
+        let count = directory.len() / CLIP_DIRECTORY_ENTRY_BYTES;
+        debug_assert_eq!(directory.as_ptr() as usize % core::mem::align_of::<Entry>(), 0);
+        // SAFETY: the region is ours alone, aligned (Layout), zeroed, and holds `count` entries
+        // of at most CLIP_DIRECTORY_ENTRY_BYTES each; all-zero bytes are a valid Entry.
+        let entries = unsafe { core::slice::from_raw_parts_mut(directory.as_mut_ptr() as *mut Entry, count) };
+        ClipStore { entries, arena: Arena::over(arena), ..ClipStore::new() }
+    }
+
+    /// The arena under the store.
+    pub fn arena(&self) -> &Arena {
+        &self.arena
+    }
+
+    /// Installs the arena's growth function (tests).
+    pub fn set_grow(&mut self, grow: GrowFn) {
+        self.arena.set_grow(grow);
+    }
+
+    /// Sets a core-side class-byte ceiling (tests; see the module comment).
+    pub fn set_ceiling(&mut self, bytes: usize) {
+        self.arena.set_ceiling(bytes);
+    }
+
+    /// Clips the directory can hold.
+    pub fn capacity(&self) -> usize {
+        self.entries.len()
     }
 
     /// Reserves zeroed space for a clip of `frames` frames (`myco_audio_clip_reserve`).
     /// Refuses (`ERR_BAD_ARG`) an id that's already held, `channels` other than 1 or 2, zero
-    /// frames, or a rate that isn't positive and finite. `onmessage` only.
+    /// frames, or a rate that isn't positive and finite. A full directory or the arena's ceiling
+    /// gives `ERR_CEILING`, a failed growth `ERR_ARENA_FULL`; each queues its clip event.
+    /// `onmessage` only; may grow memory.
     pub fn reserve(&mut self, id: u32, frames: u32, channels: u32, sample_rate: f32, format: ClipFormat) -> Result<(), i32> {
         if !(channels == 1 || channels == 2) || frames == 0 || !(sample_rate > 0.0 && sample_rate.is_finite()) {
             return Err(wire::ERR_BAD_ARG);
@@ -85,98 +178,300 @@ impl ClipStore {
             Ok(_) => return Err(wire::ERR_BAD_ARG),
             Err(at) => at,
         };
-        let len = frames as usize * channels as usize;
-        let pcm = match format {
-            ClipFormat::F32 => Pcm::F32(vec![0.0; len]),
-            ClipFormat::I16 => Pcm::I16(vec![0; len]),
+        let bytes = (frames as usize).checked_mul(channels as usize * format.sample_bytes());
+        let block = match bytes {
+            _ if self.len == self.entries.len() => Err(Refusal::Ceiling),
+            None => Err(Refusal::Ceiling),
+            Some(bytes) => self.arena.alloc(bytes),
         };
-        self.entries.insert(at, Entry { id, channels, frames, sample_rate, pcm });
+        let block = match block {
+            Ok(block) => block,
+            Err(refusal) => {
+                self.queue_event(id, refusal.clip_event());
+                return Err(refusal.code());
+            }
+        };
+        let bytes = bytes.unwrap_or(0);
+        // SAFETY: the block is ours and at least `bytes` long (its class holds the request).
+        unsafe { core::ptr::write_bytes(block.addr as *mut u8, 0, bytes) };
+        self.entries.copy_within(at..self.len, at + 1);
+        self.entries[at] = Entry {
+            id,
+            frames,
+            sample_rate,
+            committed: 0,
+            addr: block.addr,
+            channels: channels as u8,
+            format: if format == ClipFormat::I16 { 1 } else { 0 },
+            class: block.class,
+            resident: 0,
+        };
+        self.len += 1;
         Ok(())
     }
 
-    /// Copies little-endian samples in the clip's format into the clip, starting at frame
-    /// `frame_offset` (`myco_audio_clip_write`, and the chunk path's copy). `bytes` must be whole
-    /// frames and fit inside the clip. `ERR_UNKNOWN_CLIP` for an id not reserved, `ERR_BAD_ARG`
-    /// for a range that doesn't fit.
-    pub fn write(&mut self, id: u32, frame_offset: u32, bytes: &[u8]) -> Result<(), i32> {
+    /// Checks a range of `bytes` at frame `frame_offset`: whole frames, non-empty, inside the clip.
+    /// Gives the entry's index and the range in frames.
+    fn range(&self, id: u32, frame_offset: u32, bytes: usize) -> Result<(usize, usize), i32> {
         let at = self.find(id).map_err(|_| wire::ERR_UNKNOWN_CLIP)?;
-        let e = &mut self.entries[at];
-        let channels = e.channels as usize;
-        let (sample_bytes, total) = match &e.pcm {
-            Pcm::F32(v) => (4, v.len()),
-            Pcm::I16(v) => (2, v.len()),
-        };
-        if bytes.len() % (sample_bytes * channels) != 0 {
+        let e = &self.entries[at];
+        let fb = e.frame_bytes();
+        if bytes % fb != 0 {
             return Err(wire::ERR_BAD_ARG);
         }
-        let first = frame_offset as usize * channels;
-        let count = bytes.len() / sample_bytes;
-        if first.checked_add(count).map_or(true, |end| end > total) {
+        let n = bytes / fb;
+        if (frame_offset as usize).checked_add(n).is_none_or(|end| end > e.frames as usize) {
             return Err(wire::ERR_BAD_ARG);
         }
-        match &mut e.pcm {
-            Pcm::F32(v) => {
-                for (dst, src) in v[first..first + count].iter_mut().zip(bytes.chunks_exact(4)) {
-                    *dst = f32::from_le_bytes([src[0], src[1], src[2], src[3]]);
-                }
-            }
-            Pcm::I16(v) => {
-                for (dst, src) in v[first..first + count].iter_mut().zip(bytes.chunks_exact(2)) {
-                    *dst = i16::from_le_bytes([src[0], src[1]]);
-                }
-            }
+        Ok((at, n))
+    }
+
+    /// Copies little-endian samples in the clip's format into the clip, starting at frame
+    /// `frame_offset` (`myco_audio_clip_write`, tests only), in any order, and commits the range
+    /// when it continues the committed frames. `bytes` must be
+    /// whole frames and fit inside the clip. `ERR_UNKNOWN_CLIP` for an id not reserved,
+    /// `ERR_BAD_ARG` for a range that doesn't fit.
+    pub fn write(&mut self, id: u32, frame_offset: u32, bytes: &[u8]) -> Result<(), i32> {
+        let (at, n) = self.range(id, frame_offset, bytes.len())?;
+        let e = self.entries[at];
+        // SAFETY: the range is inside the clip's block (checked); the source is a distinct slice.
+        // Wasm and every native test host are little-endian, so the bytes are the samples.
+        unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), (e.addr + frame_offset as usize * e.frame_bytes()) as *mut u8, bytes.len()) };
+        if frame_offset <= e.committed {
+            self.commit_frames(at, frame_offset, n)?;
         }
         Ok(())
+    }
+
+    /// Where the shell copies a chunk of `bytes` for frame `frame_offset` on
+    /// (`myco_audio_clip_chunk_ptr`): whole frames, at most [`MAX_CHUNK_BYTES`], inside the clip.
+    /// The shell passes `frames * channels * bytesPerSample`, never the padded body size.
+    pub fn chunk_ptr(&mut self, id: u32, frame_offset: u32, bytes: u32) -> Result<*mut u8, i32> {
+        let bytes = bytes as usize;
+        if bytes == 0 || bytes > MAX_CHUNK_BYTES {
+            return Err(wire::ERR_BAD_ARG);
+        }
+        let (at, _) = self.range(id, frame_offset, bytes)?;
+        let e = &self.entries[at];
+        Ok((e.addr + frame_offset as usize * e.frame_bytes()) as *mut u8)
+    }
+
+    /// Marks a range written (`myco_audio_clip_commit`); the same checks as `chunk_ptr`. Ranges
+    /// arrive in order: one that ends at or before the committed frames is a repeat (ok), one that
+    /// starts past them leaves a gap (`ERR_BAD_ARG`). The range that completes the clip queues the
+    /// `resident` event, once.
+    pub fn commit(&mut self, id: u32, frame_offset: u32, bytes: u32) -> Result<(), i32> {
+        let bytes = bytes as usize;
+        if bytes == 0 || bytes > MAX_CHUNK_BYTES {
+            return Err(wire::ERR_BAD_ARG);
+        }
+        let (at, n) = self.range(id, frame_offset, bytes)?;
+        self.commit_frames(at, frame_offset, n)
+    }
+
+    fn commit_frames(&mut self, at: usize, frame_offset: u32, n: usize) -> Result<(), i32> {
+        let e = &mut self.entries[at];
+        let end = frame_offset + n as u32;
+        if frame_offset > e.committed {
+            return Err(wire::ERR_BAD_ARG);
+        }
+        e.committed = e.committed.max(end);
+        if e.committed == e.frames && e.resident == 0 {
+            e.resident = 1;
+            let id = e.id;
+            self.queue_event(id, wire::clip_event::RESIDENT);
+        }
+        Ok(())
+    }
+
+    /// Whether every frame of the clip was committed.
+    pub fn is_resident(&self, id: u32) -> bool {
+        self.find(id).is_ok_and(|at| self.entries[at].resident != 0)
     }
 
     /// The clip's frames, or `None` when `id` isn't held. Never allocates (`process` calls it).
     pub fn frames(&self, id: u32) -> Option<Clip<'_>> {
         let e = &self.entries[self.find(id).ok()?];
-        let samples = match &e.pcm {
-            Pcm::F32(v) => Samples::F32(v),
-            Pcm::I16(v) => Samples::I16(v),
+        let len = e.frames as usize * e.channels as usize;
+        // SAFETY: the block holds `len` samples of the clip's format, aligned (blocks are at least
+        // 1024-byte aligned); only `onmessage` writes it, never while `process` reads.
+        let samples = unsafe {
+            match e.format() {
+                ClipFormat::F32 => Samples::F32(core::slice::from_raw_parts(e.addr as *const f32, len)),
+                ClipFormat::I16 => Samples::I16(core::slice::from_raw_parts(e.addr as *const i16, len)),
+            }
         };
-        Some(Clip { source: Source { samples, channels: e.channels, frames: e.frames }, sample_rate: e.sample_rate })
+        Some(Clip { source: Source { samples, channels: e.channels as u32, frames: e.frames }, sample_rate: e.sample_rate })
     }
 
-    /// Drops the clip (`myco_audio_clip_free`). `ERR_UNKNOWN_CLIP` when `id` isn't held. Voices
-    /// still on it end at their next quantum (main frees a clip only when no voice uses it).
+    /// Drops the clip (`myco_audio_clip_free`); its block goes back to the arena. `ERR_UNKNOWN_CLIP`
+    /// when `id` isn't held. Voices still on it end at their next quantum (main frees a clip only
+    /// when no voice uses it).
     pub fn free(&mut self, id: u32) -> Result<(), i32> {
         let at = self.find(id).map_err(|_| wire::ERR_UNKNOWN_CLIP)?;
-        self.entries.remove(at);
+        let block = self.entries[at].block();
+        self.entries.copy_within(at + 1..self.len, at);
+        self.len -= 1;
+        self.arena.free(block);
         Ok(())
     }
 
-    /// Drops every clip (RESET with `keepClips = 0`).
+    /// Drops every clip and reclaims the whole arena (RESET with `keepClips = 0`). Queued clip
+    /// events go too: main re-sends its clips after a reset.
     pub fn clear(&mut self) {
-        self.entries.clear();
+        self.len = 0;
+        self.arena.reset();
+        self.events_len = 0;
+        self.events_head = 0;
     }
 
     /// Clips held.
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.len
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+        self.len == 0
+    }
+
+    /// The oldest queued clip event.
+    pub fn peek_event(&self) -> Option<Event> {
+        (self.events_len > 0).then(|| self.events[self.events_head])
+    }
+
+    /// Drops the oldest queued clip event.
+    pub fn pop_event(&mut self) {
+        if self.events_len > 0 {
+            self.events_head = (self.events_head + 1) % EVENT_QUEUE;
+            self.events_len -= 1;
+        }
+    }
+
+    /// Queued clip events.
+    pub fn events_len(&self) -> usize {
+        self.events_len
+    }
+
+    fn queue_event(&mut self, id: u32, code: u32) {
+        if self.events_len == EVENT_QUEUE {
+            // Full: drop the oldest. Main still learns of a refusal from the call's result.
+            self.pop_event();
+        }
+        self.events[(self.events_head + self.events_len) % EVENT_QUEUE] = Event { id, code };
+        self.events_len += 1;
     }
 
     fn find(&self, id: u32) -> Result<usize, usize> {
-        self.entries.binary_search_by_key(&id, |e| e.id)
+        self.entries[..self.len].binary_search_by_key(&id, |e| e.id)
     }
+}
+
+// --- Core-level entry points (the `clip_*` exports) -------------------------------------------
+
+/// Moves queued clip events into the STATUS block's `clipEvents` until it's full (the rest wait
+/// for the next block), and updates `arenaUsedKB` and `arenaLargestFreeKB`. Never allocates;
+/// `myco_audio_process` calls it after each quantum.
+pub fn flush_events(core: &mut Core) {
+    while let Some(e) = core.clips().peek_event() {
+        if !status::counters_mut(core).clip_events.push(e) {
+            break;
+        }
+        core.clips_mut().pop_event();
+    }
+    let (used, largest) = (core.clips().arena().used_bytes(), core.clips().arena().largest_free_bytes());
+    let c = status::counters_mut(core);
+    c.arena_used_kb = (used / 1024) as u32;
+    c.arena_largest_free_kb = (largest / 1024) as u32;
+}
+
+/// Sets STATUS `arenaFull` after a refusal and clears it after a reserve that succeeded, a free or
+/// a reset, then flushes.
+fn report(core: &mut Core, full: Option<bool>) {
+    if let Some(full) = full {
+        status::counters_mut(core).set_flag(flag::ARENA_FULL, full);
+    }
+    flush_events(core);
+}
+
+/// `myco_audio_clip_reserve`. `format` is the wire's (0 f32, 1 int16; anything else
+/// `ERR_BAD_ARG`).
+pub fn reserve(core: &mut Core, id: u32, frames: u32, channels: u32, sample_rate: f32, format: u32) -> i32 {
+    let Some(format) = ClipFormat::from_wire(format) else { return wire::ERR_BAD_ARG };
+    let result = core.clips_mut().reserve(id, frames, channels, sample_rate, format);
+    let full = match result {
+        Ok(()) => Some(false),
+        Err(e) if e == wire::ERR_CEILING || e == wire::ERR_ARENA_FULL => Some(true),
+        Err(_) => None,
+    };
+    report(core, full);
+    result.err().unwrap_or(wire::ERR_OK)
+}
+
+/// `myco_audio_clip_chunk_ptr`: null when the range is refused.
+pub fn chunk_ptr(core: &mut Core, id: u32, frame_offset: u32, bytes: u32) -> *mut u8 {
+    core.clips_mut().chunk_ptr(id, frame_offset, bytes).unwrap_or(core::ptr::null_mut())
+}
+
+/// `myco_audio_clip_commit`.
+pub fn commit(core: &mut Core, id: u32, frame_offset: u32, bytes: u32) -> i32 {
+    let result = core.clips_mut().commit(id, frame_offset, bytes);
+    report(core, None);
+    result.err().unwrap_or(wire::ERR_OK)
+}
+
+/// `myco_audio_clip_free`.
+pub fn free(core: &mut Core, id: u32) -> i32 {
+    let result = core.clips_mut().free(id);
+    report(core, result.is_ok().then_some(false));
+    result.err().unwrap_or(wire::ERR_OK)
+}
+
+/// RESET with `keepClips = 0`: every clip dropped, the arena reclaimed.
+pub fn reset(core: &mut Core) {
+    core.clips_mut().clear();
+    report(core, Some(false));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arena::size_class::class_bytes;
+    use crate::layout::{Layout, PAGE_BYTES};
+    use crate::InitParams;
 
     fn f32_bytes(v: &[f32]) -> Vec<u8> {
         v.iter().flat_map(|s| s.to_le_bytes()).collect()
     }
 
+    /// A leaked, zeroed, page-aligned buffer.
+    fn leak(bytes: usize) -> &'static mut [u8] {
+        let l = std::alloc::Layout::from_size_align(bytes.max(1), PAGE_BYTES).unwrap();
+        // SAFETY: non-zero size; leaked on purpose.
+        unsafe { core::slice::from_raw_parts_mut(std::alloc::alloc_zeroed(l), bytes) }
+    }
+
+    /// A store with a 16-entry directory and a 64 KB arena that can't grow.
+    fn store() -> ClipStore {
+        let mut s = ClipStore::over(leak(16 * CLIP_DIRECTORY_ENTRY_BYTES), leak(PAGE_BYTES));
+        s.set_grow(|_| None);
+        s
+    }
+
+    fn core_with_arena(arena_bytes: u32) -> Core {
+        let p = InitParams { sample_rate: 48_000.0, max_logical: 16, max_mixed: 8, max_buses: 4, arena_initial_bytes: arena_bytes };
+        let layout = Layout::new(&p);
+        let base = leak(layout.total()).as_mut_ptr();
+        // SAFETY: a fresh, zeroed, page-aligned, leaked block of `layout.total()` bytes.
+        unsafe { Core::new(p, layout, base) }
+    }
+
+    fn events(core: &Core) -> Vec<(u32, u32)> {
+        status::counters(core).clip_events.as_slice().iter().map(|e| (e.id, e.code)).collect()
+    }
+
     #[test]
     fn reserve_write_read_free() {
-        let mut s = ClipStore::new();
+        let mut s = store();
         s.reserve(7, 4, 2, 44_100.0, ClipFormat::F32).unwrap();
         s.write(7, 1, &f32_bytes(&[0.5, -0.5, 0.25, -0.25])).unwrap();
         let clip = s.frames(7).unwrap();
@@ -193,7 +488,7 @@ mod tests {
 
     #[test]
     fn int16_clips_keep_their_samples() {
-        let mut s = ClipStore::new();
+        let mut s = store();
         s.reserve(1, 2, 1, 48_000.0, ClipFormat::I16).unwrap();
         s.write(1, 0, &[0x00, 0x40, 0x00, 0xC0]).unwrap();
         match s.frames(1).unwrap().source.samples {
@@ -204,7 +499,7 @@ mod tests {
 
     #[test]
     fn bad_reserves_and_writes_are_refused() {
-        let mut s = ClipStore::new();
+        let mut s = store();
         assert_eq!(s.reserve(1, 4, 3, 48_000.0, ClipFormat::F32), Err(wire::ERR_BAD_ARG));
         assert_eq!(s.reserve(1, 0, 1, 48_000.0, ClipFormat::F32), Err(wire::ERR_BAD_ARG));
         assert_eq!(s.reserve(1, 4, 1, f32::NAN, ClipFormat::F32), Err(wire::ERR_BAD_ARG));
@@ -217,7 +512,7 @@ mod tests {
 
     #[test]
     fn ids_stay_sorted() {
-        let mut s = ClipStore::new();
+        let mut s = store();
         for id in [9, 3, 6, 1] {
             s.reserve(id, 1, 1, 48_000.0, ClipFormat::F32).unwrap();
         }
@@ -225,5 +520,150 @@ mod tests {
             assert!(s.frames(id).is_some());
         }
         assert_eq!(s.len(), 4);
+        s.free(3).unwrap();
+        assert!(s.frames(3).is_none());
+        for id in [1, 6, 9] {
+            assert!(s.frames(id).is_some());
+        }
+    }
+
+    #[test]
+    fn a_reused_block_is_zeroed() {
+        let mut s = store();
+        s.reserve(1, 1024, 1, 48_000.0, ClipFormat::F32).unwrap();
+        s.reserve(2, 1, 1, 48_000.0, ClipFormat::F32).unwrap(); // keeps the arena from resetting
+        s.write(1, 0, &f32_bytes(&[1.0; 1024])).unwrap();
+        s.free(1).unwrap();
+        s.reserve(3, 1024, 1, 48_000.0, ClipFormat::F32).unwrap();
+        match s.frames(3).unwrap().source.samples {
+            Samples::F32(v) => assert!(v.iter().all(|x| *x == 0.0)),
+            Samples::I16(_) => panic!("f32 clip"),
+        }
+    }
+
+    #[test]
+    fn chunks_land_in_place_and_the_last_one_is_resident() {
+        let mut s = store();
+        s.reserve(5, 4, 2, 48_000.0, ClipFormat::I16).unwrap();
+        for (k, chunk) in [[1i16, 2, 3, 4], [5, 6, 7, 8]].iter().enumerate() {
+            let at = k as u32 * 2;
+            let p = s.chunk_ptr(5, at, 8).unwrap();
+            // SAFETY: 8 bytes at the pointer chunk_ptr returned.
+            unsafe { core::ptr::copy_nonoverlapping(chunk.as_ptr() as *const u8, p, 8) };
+            assert!(!s.is_resident(5));
+            s.commit(5, at, 8).unwrap();
+        }
+        assert!(s.is_resident(5));
+        assert_eq!(s.peek_event(), Some(Event { id: 5, code: wire::clip_event::RESIDENT }));
+        s.pop_event();
+        s.commit(5, 2, 8).unwrap();
+        assert_eq!(s.peek_event(), None, "resident is queued once");
+        match s.frames(5).unwrap().source.samples {
+            Samples::I16(v) => assert_eq!(v, &[1, 2, 3, 4, 5, 6, 7, 8]),
+            Samples::F32(_) => panic!("int16 clip"),
+        }
+    }
+
+    #[test]
+    fn an_odd_sample_int16_chunk_takes_only_its_samples() {
+        // A1.3a pads an int16 CLIP_CHUNK with an odd sample count to 4 bytes; the shell passes
+        // `frames * channels * 2`, so the padding never reaches the arena.
+        let mut s = store();
+        s.reserve(9, 3, 1, 48_000.0, ClipFormat::I16).unwrap();
+        s.reserve(10, 1, 1, 48_000.0, ClipFormat::I16).unwrap(); // the next clip's block
+        let p = s.chunk_ptr(9, 0, 6).unwrap();
+        // SAFETY: 6 bytes at the pointer chunk_ptr returned.
+        unsafe { core::ptr::copy_nonoverlapping([7i16, 8, 9].as_ptr() as *const u8, p, 6) };
+        s.commit(9, 0, 6).unwrap();
+        assert!(s.is_resident(9));
+        match s.frames(9).unwrap().source.samples {
+            Samples::I16(v) => assert_eq!(v, &[7, 8, 9]),
+            Samples::F32(_) => panic!("int16 clip"),
+        }
+        assert_eq!(s.chunk_ptr(9, 0, 8), Err(wire::ERR_BAD_ARG), "the padded size passes the clip's end");
+        assert_eq!(s.commit(9, 0, 8), Err(wire::ERR_BAD_ARG));
+        // Stereo int16 with an odd frame count: 3 frames x 2 x 2 = 12 bytes, padding 0.
+        s.reserve(11, 3, 2, 48_000.0, ClipFormat::I16).unwrap();
+        assert!(s.chunk_ptr(11, 0, 12).is_ok());
+        assert_eq!(s.chunk_ptr(11, 0, 14), Err(wire::ERR_BAD_ARG), "not whole frames");
+    }
+
+    #[test]
+    fn chunk_ranges_are_checked() {
+        let mut s = store();
+        s.reserve(1, 16 * 1024, 1, 48_000.0, ClipFormat::I16).unwrap();
+        assert_eq!(s.chunk_ptr(1, 0, 0), Err(wire::ERR_BAD_ARG), "empty");
+        assert_eq!(s.chunk_ptr(1, 0, MAX_CHUNK_BYTES as u32 + 2), Err(wire::ERR_BAD_ARG), "past 256 KB");
+        assert_eq!(s.chunk_ptr(2, 0, 2), Err(wire::ERR_UNKNOWN_CLIP));
+        assert_eq!(s.commit(1, 10, 2), Err(wire::ERR_BAD_ARG), "a gap");
+    }
+
+    #[test]
+    fn a_full_directory_refuses_with_refused_ceiling() {
+        let mut s = ClipStore::over(leak(2 * CLIP_DIRECTORY_ENTRY_BYTES), leak(PAGE_BYTES));
+        s.reserve(1, 1, 1, 48_000.0, ClipFormat::F32).unwrap();
+        s.reserve(2, 1, 1, 48_000.0, ClipFormat::F32).unwrap();
+        assert_eq!(s.reserve(3, 1, 1, 48_000.0, ClipFormat::F32), Err(wire::ERR_CEILING));
+        assert_eq!(s.peek_event(), Some(Event { id: 3, code: wire::clip_event::REFUSED_CEILING }));
+    }
+
+    #[test]
+    fn a_resident_event_reaches_status() {
+        let mut core = core_with_arena(0);
+        assert_eq!(reserve(&mut core, 4, 2, 1, 48_000.0, wire::clip_format::F32), wire::ERR_OK);
+        assert!(events(&core).is_empty());
+        let p = chunk_ptr(&mut core, 4, 0, 8);
+        assert!(!p.is_null());
+        assert_eq!(commit(&mut core, 4, 0, 8), wire::ERR_OK);
+        assert_eq!(events(&core), vec![(4, wire::clip_event::RESIDENT)]);
+        assert_eq!(status::counters(&core).arena_used_kb, 4, "one 4 KB block");
+    }
+
+    #[test]
+    fn a_refused_load_warns_through_status() {
+        let mut core = core_with_arena(64 * 1024);
+        core.clips_mut().set_grow(|_| None);
+        assert_eq!(reserve(&mut core, 1, 16 * 1024, 1, 48_000.0, wire::clip_format::F32), wire::ERR_OK); // 64 KB: all of it
+        assert_eq!(reserve(&mut core, 2, 1, 1, 48_000.0, wire::clip_format::F32), wire::ERR_ARENA_FULL);
+        assert_eq!(events(&core), vec![(2, wire::clip_event::REFUSED_GROW)]);
+        assert_ne!(status::counters(&core).flags & flag::ARENA_FULL, 0);
+        core.clips_mut().set_ceiling(64 * 1024);
+        assert_eq!(reserve(&mut core, 3, 1, 1, 48_000.0, wire::clip_format::F32), wire::ERR_CEILING);
+        assert_eq!(events(&core)[1], (3, wire::clip_event::REFUSED_CEILING));
+        assert_eq!(free(&mut core, 1), wire::ERR_OK);
+        assert_eq!(status::counters(&core).flags & flag::ARENA_FULL, 0, "cleared by a free");
+        assert_eq!(reserve(&mut core, 5, 1, 1, 48_000.0, 7), wire::ERR_BAD_ARG, "unknown format");
+    }
+
+    #[test]
+    fn events_past_a_full_block_wait_for_the_next() {
+        let mut core = core_with_arena(0);
+        core.clips_mut().set_ceiling(0);
+        for id in 0..70 {
+            reserve(&mut core, id, 1, 1, 48_000.0, wire::clip_format::F32);
+        }
+        assert_eq!(events(&core).len(), 64);
+        assert_eq!(core.clips().events_len(), 6);
+        status::counters_mut(&mut core).end_block();
+        flush_events(&mut core);
+        assert_eq!(events(&core).len(), 6);
+        assert_eq!(events(&core)[0].0, 64);
+    }
+
+    #[test]
+    fn reset_reclaims_every_clip() {
+        let mut core = core_with_arena(1 << 20);
+        for id in 1..=5 {
+            assert_eq!(reserve(&mut core, id, 10_000, 2, 48_000.0, wire::clip_format::I16), wire::ERR_OK);
+        }
+        assert_eq!(core.clips().len(), 5);
+        assert!(core.clips().arena().used_bytes() >= 5 * 40_000);
+        reset(&mut core);
+        assert_eq!(core.clips().len(), 0);
+        assert_eq!(core.clips().arena().used_bytes(), 0);
+        assert_eq!(core.clips().arena().largest_free_bytes(), 1 << 20);
+        assert_eq!(status::counters(&core).arena_used_kb, 0);
+        assert!(core.clips().frames(1).is_none());
+        assert_eq!(class_bytes(0), 4096);
     }
 }

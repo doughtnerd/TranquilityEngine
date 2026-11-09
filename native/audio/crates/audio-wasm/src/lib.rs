@@ -134,27 +134,37 @@ fn inbox(len: u32) -> Option<&'static [u8]> {
 
 // --- Clips (A1.3b) --------------------------------------------------------------------------
 
-/// `onmessage` only; may grow memory. TODO(A1.3b).
+/// Reserves an arena block for the clip (`audio_core::clips::reserve`). `onmessage` only; may grow
+/// memory, so the shell refreshes its views after. A refusal returns `ERR_CEILING` or
+/// `ERR_ARENA_FULL` and queues a refusedCeiling or refusedGrow clip event for STATUS.
 #[no_mangle]
-pub extern "C" fn myco_audio_clip_reserve(_clip: u32, _frames: u32, _channels: u32, _src_rate: f32, _format: u32) -> i32 {
-    codes::NOT_IMPLEMENTED
+pub extern "C" fn myco_audio_clip_reserve(clip: u32, frames: u32, channels: u32, src_rate: f32, format: u32) -> i32 {
+    let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
+    audio_core::clips::reserve(core, clip, frames, channels, src_rate, format)
 }
 
-/// Where the shell copies a chunk (at most 256 KB per quantum). TODO(A1.3b).
+/// Where the shell copies a chunk of `bytes` (whole frames, at most 256 KB, the data size
+/// `frames * channels * bytesPerSample` and never the padded body) for frame `frame_offset` on;
+/// null when refused or before `init`.
 #[no_mangle]
-pub extern "C" fn myco_audio_clip_chunk_ptr(_clip: u32, _frame_offset: u32, _bytes: u32) -> *mut u8 {
-    core::ptr::null_mut()
+pub extern "C" fn myco_audio_clip_chunk_ptr(clip: u32, frame_offset: u32, bytes: u32) -> *mut u8 {
+    match instance().core_mut() {
+        Some(core) => audio_core::clips::chunk_ptr(core, clip, frame_offset, bytes),
+        None => core::ptr::null_mut(),
+    }
 }
 
-/// Marks a range written; the last range emits a `resident` clip event. TODO(A1.3b).
+/// Marks a range written, in order; the range that completes the clip queues a `resident` clip
+/// event.
 #[no_mangle]
-pub extern "C" fn myco_audio_clip_commit(_clip: u32, _frame_offset: u32, _bytes: u32) -> i32 {
-    codes::NOT_IMPLEMENTED
+pub extern "C" fn myco_audio_clip_commit(clip: u32, frame_offset: u32, bytes: u32) -> i32 {
+    let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
+    audio_core::clips::commit(core, clip, frame_offset, bytes)
 }
 
 /// Copies `len` bytes of samples (the clip's format, little-endian, whole frames) from the inbox
 /// into a reserved clip at `frame_offset`; tests only (A1.2). `ERR_UNKNOWN_CLIP` for a clip not
-/// reserved (so always, until A1.3b fills `clip_reserve`).
+/// reserved.
 #[no_mangle]
 pub extern "C" fn myco_audio_clip_write(clip: u32, frame_offset: u32, len: u32) -> i32 {
     let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
@@ -165,10 +175,11 @@ pub extern "C" fn myco_audio_clip_write(clip: u32, frame_offset: u32, len: u32) 
     }
 }
 
-/// TODO(A1.3b).
+/// Drops the clip and returns its block to the arena; `ERR_UNKNOWN_CLIP` when not held.
 #[no_mangle]
-pub extern "C" fn myco_audio_clip_free(_clip: u32) -> i32 {
-    codes::NOT_IMPLEMENTED
+pub extern "C" fn myco_audio_clip_free(clip: u32) -> i32 {
+    let Some(core) = instance().core_mut() else { return codes::NOT_INITIALIZED };
+    audio_core::clips::free(core, clip)
 }
 
 // --- Streams (M1b, B3) ----------------------------------------------------------------------
@@ -197,6 +208,8 @@ pub extern "C" fn myco_audio_process(frame_lo: u32, frame_hi: u32) -> *const f32
         Some(core) => {
             let out = core.process(frame).as_ptr();
             audio_core::status::after_quantum(core);
+            // A1.3b: clip events a full STATUS block couldn't take move into the next one.
+            audio_core::clips::flush_events(core);
             out
         }
         None => core::ptr::null(),
@@ -259,11 +272,12 @@ mod tests {
     fn stubbed_exports_return_not_implemented() {
         use codes::NOT_IMPLEMENTED as NI;
         assert_eq!(myco_audio_submit(0), codes::NOT_INITIALIZED, "A1.2: before init");
-        assert_eq!(myco_audio_clip_reserve(1, 128, 2, 48_000.0, 0), NI);
+        let not_init = codes::NOT_INITIALIZED;
+        assert_eq!(myco_audio_clip_reserve(1, 128, 2, 48_000.0, 0), not_init, "A1.3b: before init");
         assert!(myco_audio_clip_chunk_ptr(1, 0, 4).is_null());
-        assert_eq!(myco_audio_clip_commit(1, 0, 4), NI);
-        assert_eq!(myco_audio_clip_write(1, 0, 4), codes::NOT_INITIALIZED, "A1.2: before init");
-        assert_eq!(myco_audio_clip_free(1), NI);
+        assert_eq!(myco_audio_clip_commit(1, 0, 4), not_init);
+        assert_eq!(myco_audio_clip_write(1, 0, 4), not_init, "A1.2: before init");
+        assert_eq!(myco_audio_clip_free(1), not_init);
         assert!(myco_audio_stream_chunk_ptr(0, 4_096).is_null());
         assert_eq!(myco_audio_stream_commit(0, 4_096, 0, 0), NI);
         assert_eq!(myco_audio_status_take(), 0);
