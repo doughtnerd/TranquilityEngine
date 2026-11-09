@@ -35,4 +35,13 @@ Unknown bus names warn once and are ignored. Script changes are runtime state: s
 
 ## Limits
 
-Clips with `stream` on in their import settings play through an HTML5 audio element, so they get their bus's volume but no effects and no spatial sound. Effects need Web Audio. The Howler routing is only covered by unit tests with Howler mocked: if a sound ignores its bus in a real browser, report it.
+Buses, volume, mute, solo, snapshots (their volumes) and ducking work on every backend. What differs is the **Babylon fallback**, the backend an engine uses when `audio.backend` is `"babylon"` or when the audio core can't run there (see [audio-minimum-versions.md](audio-minimum-versions.md)):
+
+- No bus effects. Reverb, filters and the compressor are skipped.
+- A snapshot's low-pass does nothing. Its volumes still apply.
+- No priorities and no virtual voices. Sounds are never stolen by priority.
+- `maxVoices` is approximate: when a bus is over its limit, the oldest sound on it is stopped.
+- Clips with `stream` on in their import settings play through a streaming source with no pitch change.
+- Spatial sound uses the browser's own panner, so 3D sound differs from browser to browser.
+
+Bus volume changes ramp over about 15 milliseconds, so a mute or a ducking step doesn't click.

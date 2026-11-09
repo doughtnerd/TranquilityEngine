@@ -1,6 +1,6 @@
 # Audio core: minimum browser and webview versions (ADR 0157)
 
-The audio core (`audio.backend: "core"`) runs in an `AudioWorklet` and uses WebAssembly SIMD. Before it loads, the engine probes for the features it needs (never version strings). An engine that lacks one logs **one warning** naming the missing feature and these minimums, then plays sound through the `"babylon"` backend instead: basic playback, no effects.
+The audio core (`audio.backend: "core"`) runs in an `AudioWorklet` and uses WebAssembly SIMD. Before it loads, the engine probes for the features it needs (never version strings). An engine that lacks one logs **one warning** naming the missing feature and these minimums, then plays sound through the `"babylon"` backend instead: basic playback, no effects (the other limits are listed in [audio-mixer.md](audio-mixer.md#limits)).
 
 ## What the core needs
 

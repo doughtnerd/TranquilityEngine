@@ -1,7 +1,7 @@
 /**
  * The mixer's model (ADR 0097): a bus tree with volume, mute and solo, snapshots and ducking. It is
  * pure state plus per-frame maths; a backend (ADR 0098) turns the resolved state into sound
- * (Web Audio nodes for Howler). Game code reaches it through `Audio.bus(name)`.
+ * (Babylon audio buses, or the core's mix graph). Game code reaches it through `Audio.bus(name)`.
  */
 import { defaultAudioSettings, MASTER, type AudioSettings, type BusEffect, type BusSettings } from "./settings";
 

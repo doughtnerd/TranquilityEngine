@@ -83,7 +83,7 @@ describe("BabylonBackend engine", () => {
     backend.play(req());
     await flush();
     expect(babylonMock.engines).toHaveLength(1);
-    expect(engine().options).toMatchObject({ audioContext: context, resumeOnInteraction: false, resumeOnPause: false, disableDefaultUI: true });
+    expect(engine().options).toMatchObject({ audioContext: context, resumeOnInteraction: false, resumeOnPause: false, disableDefaultUI: true, parameterRampDuration: 0.015 });
   });
 
   it("applies master volume and mute, from before the engine existed and after", async () => {
@@ -454,6 +454,107 @@ describe("BabylonBackend spatial sound", () => {
     expect(l.position).toMatchObject({ x: 7, y: 0, z: 0 });
     expect([l.rotationQuaternion.x, l.rotationQuaternion.y, l.rotationQuaternion.z, l.rotationQuaternion.w].map((v) => Math.abs(v))).toEqual([0, 0, 0, 1]);
     expect(l.updates).toBeGreaterThan(updates);
+  });
+});
+
+describe("BabylonBackend mixer features", () => {
+  const tick = (seconds: number) => mixer.update(seconds);
+  const mixConfig = {
+    buses: [{ name: "Master" }, { name: "SFX", parent: "Master" }, { name: "Music", parent: "Master" }],
+    snapshots: [{ name: "Quiet", volumes: { Music: 0.25 } }],
+    ducking: [{ trigger: "SFX", target: "Music", amount: 0.4, attack: 0.1, release: 0.1 }],
+  };
+
+  it("carries a snapshot's gain to the bus volume as the mixer fades to it", async () => {
+    mixer.configure(parseAudioSettings(mixConfig).settings);
+    const { backend } = rig();
+    backend.play(req({ bus: "Music" }));
+    await flush();
+    mixer.onChange(() => backend.applyMix(mixer.resolveAll()));
+    mixer.snapshot("Quiet", 0);
+    tick(0.016);
+    expect(bus("Music").volume).toBeCloseTo(0.25);
+    mixer.clearSnapshot(0);
+    tick(0.016);
+    expect(bus("Music").volume).toBeCloseTo(1);
+  });
+
+  it("ducks the target bus while a trigger-bus voice plays, for every way a voice can end", async () => {
+    mixer.configure(parseAudioSettings(mixConfig).settings);
+    const { backend } = rig();
+    mixer.onChange(() => backend.applyMix(mixer.resolveAll()));
+    const duck = () => {
+      tick(1);
+      return bus("Music").volume;
+    };
+    const first = backend.play(req())!;
+    await flush();
+    expect(duck()).toBeCloseTo(0.4);
+    first.stop();
+    expect(duck()).toBeCloseTo(1);
+    // A clip that ends on its own.
+    backend.play(req());
+    await flush();
+    expect(duck()).toBeCloseTo(0.4);
+    sound(1).finish();
+    expect(duck()).toBeCloseTo(1);
+    // A fade-out ends the voice's bookkeeping at once: the duck releases as it begins.
+    const faded = backend.play(req())!;
+    await flush();
+    expect(duck()).toBeCloseTo(0.4);
+    faded.stop(0.5);
+    expect(mixer.bus("SFX").activeVoices).toBe(0);
+    expect(duck()).toBeCloseTo(1);
+    // A voice moved onto the trigger bus ducks, and off it releases.
+    const mover = backend.play(req({ bus: "Music" }))!;
+    await flush();
+    expect(duck()).toBeCloseTo(1);
+    mover.setBus("SFX");
+    expect(duck()).toBeCloseTo(0.4);
+    mover.setBus("Music");
+    expect(duck()).toBeCloseTo(1);
+    // A failed load.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    babylonMock.failUrls.add("asset://bad.wav");
+    const bad = backend.play(req({ url: "asset://bad.wav" }))!;
+    expect(duck()).toBeCloseTo(0.4);
+    await flush();
+    expect(bad.reason).toBe("failed");
+    expect(duck()).toBeCloseTo(1);
+    // Dispose releases every bus.
+    backend.play(req());
+    expect(duck()).toBeCloseTo(0.4);
+    backend.dispose();
+    expect(mixer.bus("SFX").activeVoices).toBe(0);
+    tick(1);
+    expect(mixer.resolveAll().find((b) => b.name === "Music")!.gain).toBeCloseTo(1);
+  });
+
+  it("releases a trigger bus's count when the bus cap stops the oldest voice", async () => {
+    mixer.configure(parseAudioSettings({ ...mixConfig, buses: [{ name: "Master" }, { name: "SFX", parent: "Master", maxVoices: 1 }, { name: "Music", parent: "Master" }] }).settings);
+    const { backend } = rig();
+    backend.play(req());
+    backend.play(req());
+    backend.play(req());
+    expect(mixer.bus("SFX").activeVoices).toBe(1);
+    await flush();
+    sound().finish();
+    expect(mixer.bus("SFX").activeVoices).toBe(0);
+  });
+
+  it("applies only the resolved gain: a snapshot's low-pass and bus effects have no node on the fallback", async () => {
+    mixer.configure(parseAudioSettings({
+      buses: [{ name: "Master" }, { name: "SFX", parent: "Master", effects: [{ type: "lowpass", frequency: 800 }] }],
+      snapshots: [{ name: "Muffled", lowpass: { SFX: 500 } }],
+    }).settings);
+    const { backend } = rig();
+    backend.play(req());
+    await flush();
+    mixer.snapshot("Muffled", 0);
+    mixer.update(0.016);
+    backend.applyMix(mixer.resolveAll());
+    expect(bus("SFX").volume).toBe(1);
+    expect(Object.keys(bus("SFX").options).filter((k) => k !== "outBus" && k !== "volume")).toEqual([]);
   });
 });
 

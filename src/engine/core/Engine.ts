@@ -9,7 +9,7 @@ import { Assets, type AssetSource } from "../scene/Assets";
 import { SceneManager } from "../scene/SceneManager";
 import { connectWorlds, netSession } from "../net/session";
 import { BootstrapError, bootstrapLinks, resolveBootstrap, templateConfig, type ResolveBootstrapOptions } from "./bootstrap";
-import { mixer } from "../audio/backend";
+import { mixer } from "../audio/mixer";
 import { parseAudioSettings, type AudioSettings } from "../audio/settings";
 import { notifyAudioConfigured, onAudioConfigured } from "./audioConfigure";
 import { navigationSettingsProblems, physicsBackendProblems, resolveSettings, validateBootstrap, type ProjectSettings, type ProjectSettingsInput } from "./settings";

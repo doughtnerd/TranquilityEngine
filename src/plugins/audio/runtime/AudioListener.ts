@@ -1,6 +1,6 @@
 /**
  * The ears of a World (ADR 0074). The first enabled AudioListener in the World that has the view sets
- * Howler's listener position and orientation each frame from its node: forward is the node's -Z, up
+ * the audio backend's listener position and orientation each frame from its node: forward is the node's -Z, up
  * is +Y. Without one, the main camera is the listener.
  */
 import { Component } from "../../../engine/core/Component";

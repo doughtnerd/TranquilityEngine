@@ -38,7 +38,7 @@ export function AboutDialog() {
           <img src={art.foxfireIcon} alt="" width={40} height={40} />
           <div>
             <div class="about-studio-name">Made by {STUDIO_NAME}</div>
-            <div class="about-credits">Built with three.js, Rapier, Howler, Preact, Monaco and Tauri.</div>
+            <div class="about-credits">Built with three.js, Babylon.js, Rapier, Preact, Monaco and Tauri.</div>
           </div>
         </div>
         <div class="dialog-buttons">

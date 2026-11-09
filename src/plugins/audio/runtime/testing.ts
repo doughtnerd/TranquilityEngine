@@ -1,7 +1,7 @@
 // @internal test helpers for the audio plugin (api-and-models §6, "Fakes"). Contract K4 (coordinator, MS2 wave 2):
 // the loopback host's signature. A1.7 owns this file; A1.4's loopback check runs on it at the wave review.
 //
-// `makeFakeBackend()` replaces the per-test fakes and the Howler mock: an `AudioBackend` that records what the
+// `makeFakeBackend()` replaces the per-test fakes and the library mocks: an `AudioBackend` that records what the
 // engine tells it. `createLoopbackHost()` runs the real committed wasm in Node with no AudioContext.
 
 import type { AudioBackend, Attenuation, AudioVoice, ListenerPose, PlayRequest } from "./backend";

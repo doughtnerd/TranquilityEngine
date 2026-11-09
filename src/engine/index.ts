@@ -1,6 +1,6 @@
 /**
  * Myco Engine core API (ADR 0135): what the public `myco` module (`src/myco.ts`) re-exports, alongside
- * the first-party plugins' runtime halves. three.js, Rapier and Howler are never part of this surface
+ * the first-party plugins' runtime halves. three.js and Rapier are never part of this surface
  * (ADR 0010).
  */
 export { Engine, type EngineOptions } from "./core/Engine";
