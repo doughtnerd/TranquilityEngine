@@ -106,11 +106,14 @@ export const MAX_BUSES = 32;
 export const defaultBuses = (): BusSettings[] =>
   [MASTER, "Music", "SFX", "UI", "Voice"].map((name, i) => ({ name, ...(i > 0 ? { parent: MASTER } : {}), volume: 1, mute: false, effects: [] }));
 
+/** The backend a project gets without `audio.backend`: "babylon" until M1b passes, then "core" (B7 changes this one line). */
+export const DEFAULT_BACKEND: "babylon" | "core" = "babylon";
+
 export const DEFAULT_VOICES: Readonly<VoiceSettings> = { mixed: 128, logical: 4096, hrtf: 16 };
 
 export const defaultAudioSettings = (): AudioSettings => ({
   buses: defaultBuses(), snapshots: [], ducking: [],
-  voices: { ...DEFAULT_VOICES }, background: "mute", clipFormat: "i16", codecs: { aac: false }, spatial: "hrtf", backend: "babylon",
+  voices: { ...DEFAULT_VOICES }, background: "mute", clipFormat: "i16", codecs: { aac: false }, spatial: "hrtf", backend: DEFAULT_BACKEND,
 });
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -263,7 +266,7 @@ function parseCoreKeys(input: Record<string, unknown>, settings: AudioSettings, 
   if (input.backend !== undefined) {
     if (input.backend === "babylon" || input.backend === "core") settings.backend = input.backend;
     else if (input.backend === "howler") problems.push(`audio.backend "howler" was replaced by "babylon" (ADR 0157); using "babylon".`);
-    else if (input.backend === "fmod") problems.push(`audio.backend "fmod" was removed (ADR 0157); using "babylon".`);
+    else if (input.backend === "fmod") problems.push(`audio.backend "fmod" was removed (ADR 0157); using "${DEFAULT_BACKEND}".`);
     else problems.push(`audio.backend must be "babylon" or "core".`);
   }
   // `settings.voices` is parsed above, so `voices.logical` is the bound. Only the first valid entry per name counts,
