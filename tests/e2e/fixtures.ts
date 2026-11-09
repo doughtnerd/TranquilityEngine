@@ -5,8 +5,11 @@
 // process: a frame of the 3D Playground costs about 160 ms of CPU whatever the canvas size
 // (shadow cascades, probes), so four pages at full rate starve a four-core machine, clicks and
 // locators wait seconds, and specs time out. No spec needs 60 frames a second, only that frames
-// keep coming, so an init script caps render loops at E2E_FPS frames a second (default 10 with
-// software GL; 0, the default on the GPU, leaves them alone).
+// keep coming, so an init script caps render loops: at E2E_FPS frames a second (default 10 with
+// software GL; 0, the default on the GPU, leaves them alone) in Play mode and outside the editor,
+// and at E2E_EDIT_FPS (default 5) while the editor edits, where nothing runs on game time. Play
+// keeps 10 because a World clamps each frame's step (`maxFrameTime`, 0.1 s by default): at fewer
+// frames a second the game would run slower than the clock.
 //
 // Only loops are capped: a `requestAnimationFrame` made from inside a frame callback (the engine's
 // loop, previews, thumbnail renders) waits for the next capped tick, while one made from anywhere
@@ -18,17 +21,21 @@ import { gpuAngle } from "./gpu";
 
 export { expect, type Locator, type Page } from "@playwright/test";
 
-/** Frames a second each page may draw by default; 0 doesn't cap them. */
+/** Frames a second each page may draw in Play mode and outside the editor; 0 doesn't cap them. */
 const fps = Number(process.env.E2E_FPS ?? (gpuAngle ? 0 : 10));
+/** Frames a second while the editor edits (no play session). */
+const editFps = Number(process.env.E2E_EDIT_FPS ?? Math.min(fps, 5));
 
 /** A spec's own cap, `at least` frames a second, unless frames aren't capped at all. */
 export const fpsAtLeast = (atLeast: number): number => (fps === 0 ? 0 : Math.max(fps, atLeast));
 
 /** Runs in each page before its scripts (serialized: self-contained). */
-function capFrames(max: number): void {
+function capFrames({ play, edit }: { play: number; edit: number }): void {
   const realRequest = window.requestAnimationFrame.bind(window);
   const realCancel = window.cancelAnimationFrame.bind(window);
-  const interval = 1000 / max;
+  const editor = location.pathname.endsWith("/editor.html");
+  /** The editor's play session (its debug hook) is null while it edits. */
+  const interval = () => 1000 / (editor && !(window as unknown as { playEngine?: unknown }).playEngine ? edit : play);
   let capped = new Map<number, FrameRequestCallback>();
   const real = new Map<number, number>();
   let nextId = 1;
@@ -61,7 +68,7 @@ function capFrames(max: number): void {
       real.set(id, realRequest((now) => (real.delete(id), run(cb, now))));
     } else {
       capped.set(id, cb);
-      timer ??= setTimeout(tick, Math.max(0, last + interval - performance.now()));
+      timer ??= setTimeout(tick, Math.max(0, last + interval() - performance.now()));
     }
     return id;
   };
@@ -72,11 +79,13 @@ function capFrames(max: number): void {
   };
 }
 
-export const test = base.extend<{ fps: number }, { webgpu: boolean }>({
-  /** The frame cap for this spec's pages (`test.use({ fps })` raises it where timing is measured in frames). */
+export const test = base.extend<{ fps: number; editFps: number }, { webgpu: boolean }>({
+  /** The frame cap in Play mode and outside the editor (`test.use({ fps })` raises it where timing is measured in frames). */
   fps: [fps, { option: true }],
-  context: async ({ context, fps }, use) => {
-    if (fps > 0) await context.addInitScript(capFrames, fps);
+  /** The frame cap while the editor edits. */
+  editFps: [editFps, { option: true }],
+  context: async ({ context, fps, editFps }, use) => {
+    if (fps > 0) await context.addInitScript(capFrames, { play: fps, edit: editFps || fps });
     await use(context);
   },
   /**

@@ -50,9 +50,9 @@ test("the scene view's Quality menu previews a tier: resolution, shadows and tex
 
   await menu.selectOption("Low");
   await expect.poll(async () => (await quality(page)).tier).toBe("Low");
-  const low = await quality(page);
-  expect(low).toMatchObject({ shadows: true, shadowMapSize: 512 });
-  expect(low.pixelRatio).toBeCloseTo(high.pixelRatio * 0.75, 5);
+  // The tier switches at once; the render scale applies on the surface's next frame.
+  await expect.poll(async () => (await quality(page)).pixelRatio).toBeCloseTo(high.pixelRatio * 0.75, 5);
+  expect(await quality(page)).toMatchObject({ shadows: true, shadowMapSize: 512 });
 
   await menu.selectOption("Ultra");
   await expect.poll(async () => (await quality(page)).shadowMapSize).toBe(4096);

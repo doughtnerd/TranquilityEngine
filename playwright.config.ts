@@ -41,7 +41,9 @@ const slow = /@slow/;
 
 export default defineConfig({
   testDir: "tests/e2e",
-  timeout: 30_000,
+  // With software GL every worker competes for the CPU, and a spec that opens two projects can
+  // need more than 30 s while three others render beside it.
+  timeout: gpuAngle ? 30_000 : 45_000,
   fullyParallel: true,
   // Every test renders WebGL; too many at once starve headless pages of animation frames (WebKit
   // renders on the CPU). With Chromium on the GPU, 8 workers run cleanly: the suite took 153 s,

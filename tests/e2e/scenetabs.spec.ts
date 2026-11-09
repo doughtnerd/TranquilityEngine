@@ -1,4 +1,4 @@
-import { expect, openTestProject, type Page, test } from "./fixtures";
+import { expect, openTestProject, type Page, PLAY_START, test } from "./fixtures";
 import { closeMenus, undoItem } from "./menus";
 
 const EDITOR = "/editor.html?sample=flappy"; // opens the Flappy sample (ADR 0031); relative to baseURL (E2E_PORT)
@@ -126,5 +126,5 @@ test("Play plays the active tab", async ({ page }) => {
   await openEditor(page);
   await openPipePair(page);
   await page.getByRole("button", { name: "▶ Play" }).click();
-  await expect(page.locator(".status-bar")).toContainText("Playing prefabs/pipe-pair.prefab.json");
+  await expect(page.locator(".status-bar")).toContainText("Playing prefabs/pipe-pair.prefab.json", { timeout: PLAY_START });
 });

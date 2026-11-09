@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, openTestProject, type Page, play, test } from "./fixtures";
+import { expect, openTestProject, type Page, play, PLAY_START, test } from "./fixtures";
 
 // Play mode with several Worlds (ADR 0032, 0034): the Engine comes from the project's bootstrap,
 // the game view tiles the Worlds that render, clicking a tile gives its World input, and a strip
@@ -143,9 +143,10 @@ test("Play connects linked Worlds, and Stop and Play again reconnect them", asyn
 
   for (let round = 0; round < 2; round++) {
     await play(page);
-    await expect.poll(() => openConnections(page, "Server")).toBe(2);
-    expect(await openConnections(page, "P1")).toBe(1);
-    expect(await openConnections(page, "P2")).toBe(1);
+    await expect.poll(() => openConnections(page, "Server"), { timeout: PLAY_START }).toBe(2); // the Worlds connect as they start
+    // The server opens its side first; each client's opens when the server's answer arrives, a frame or more later.
+    await expect.poll(() => openConnections(page, "P1")).toBe(1);
+    await expect.poll(() => openConnections(page, "P2")).toBe(1);
     await page.getByRole("button", { name: /Stop/ }).click();
     await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
   }
