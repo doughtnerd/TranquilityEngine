@@ -79,6 +79,11 @@ export interface BabylonFeature {
   fit?(camera: TargetCamera): void;
   /** Once a frame, before the frame graph runs (the sky's bake, like probe captures). */
   beforeFrame?(): void;
+  /**
+   * ADR 0156: the world-space box around what it draws that isn't a content mesh (live particles), or null.
+   * Thumbnails frame it with the content meshes.
+   */
+  bounds?(): { min: number[]; max: number[] } | null;
   dispose(): void;
 }
 

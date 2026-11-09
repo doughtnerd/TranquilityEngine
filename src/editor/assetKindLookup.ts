@@ -5,14 +5,14 @@
 // (no match), and `image` for the panorama field rule below.
 // Light on imports (no editor state), so `assetBrowser.ts` and `thumbnails/keys.ts` can both use it.
 import { isSidecarPath } from "../engine/scene/importSettings";
-import { assetKinds, type AssetKindContribution, type AssetSceneNodes, type ImportSettingsContribution, type LoadComponent } from "./sdk/contributions";
+import { assetKinds, type AssetKindContribution, type AssetSceneNodes, type AssetThumbnail, type ImportSettingsContribution, type LoadComponent } from "./sdk/contributions";
 
 /** The kinds the editor shell registers (ADR 0143) and the ones this module answers itself. */
 export type CoreAssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "rendertexture" | "json" | "script" | "javascript" | "typescript" | "text" | "xml" | "other";
 /** A core kind or a registered one's id. */
 export type AssetKind = CoreAssetKind | (string & {});
-/** Which built-in thumbnail renderer draws a kind's preview (closed: renderers stay first-party, ADR 0133). */
-export type PreviewKind = NonNullable<AssetKindContribution["preview"]>;
+/** A preview by name: a rendered thumbnail's id (`AssetThumbnail.id`, ADR 0156), or `"audio"`. */
+export type PreviewKind = "audio" | (string & {});
 
 /** The core image kind, for the one field rule that takes some of its files (panoramas). */
 const IMAGE_KIND = "image";
@@ -148,10 +148,22 @@ export function kindImportSettings(kind: AssetKind): ImportSettingsContribution 
   return k?.inspector ? undefined : k?.importSettings;
 }
 
-/** The thumbnail renderer that draws the file at `path`, or null: slices and sidecars have none. */
+/** The preview the file at `path` gets (a rendered thumbnail's or `"audio"`), or undefined: slices and sidecars have none. */
+function previewAt(path: string): AssetKindContribution["preview"] {
+  if (path.includes("#") || isSidecarPath(path.toLowerCase())) return undefined;
+  return registeredKind(assetKind(path))?.preview;
+}
+
+/** The file at `path`'s preview: its thumbnail's id ("model", "sky"), `"audio"`, or null for none. */
 export function previewOf(path: string): PreviewKind | null {
-  if (path.includes("#") || isSidecarPath(path.toLowerCase())) return null;
-  return registeredKind(assetKind(path))?.preview ?? null;
+  const preview = previewAt(path);
+  return preview === undefined ? null : preview === "audio" ? "audio" : preview.id;
+}
+
+/** The rendered thumbnail of the file at `path` (its kind's stage, ADR 0156), or null: audio, slices and sidecars have none. */
+export function thumbnailOf(path: string): AssetThumbnail | null {
+  const preview = previewAt(path);
+  return preview && preview !== "audio" ? preview : null;
 }
 
 /** The field kinds (ADR 0131) a kind's files satisfy: its `referencedAs` (a sprite's are `sprite`). */

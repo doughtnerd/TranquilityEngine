@@ -3,6 +3,7 @@
 // view, and the Environment fields that take them.
 import type { EditorPlugin } from "../../../editor/sdk";
 import { environmentManifest } from "../manifest";
+import { environmentThumbnail } from "./thumbnail";
 
 /** A globe, stroked in a 24×24 box. */
 const ENVIRONMENT_ICON = "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18";
@@ -21,7 +22,7 @@ export const environmentEditorPlugin: EditorPlugin = {
       icon: ENVIRONMENT_ICON,
       inspector,
       referencedAs: ["environment"],
-      preview: "environment",
+      preview: environmentThumbnail,
     });
     context.registerAssetKind({
       id: "cubemap",
@@ -30,7 +31,7 @@ export const environmentEditorPlugin: EditorPlugin = {
       icon: CUBEMAP_ICON,
       inspector,
       referencedAs: ["environment"],
-      preview: "environment",
+      preview: environmentThumbnail,
     });
   },
 };

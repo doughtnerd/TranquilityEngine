@@ -6,6 +6,7 @@
 // assets when a scene opens.
 import type { EditorPlugin } from "../../../editor/sdk";
 import { particlesManifest } from "../manifest";
+import { particlesThumbnail } from "./thumbnail";
 import { createParticleBlock, createParticleEffect, createParticleSubgraph, openParticleGraphAsset, particleNodeEntry } from "./particleAssets";
 import { migrateEmbeddedEffects } from "./particleMigration";
 import { installParticlePreview } from "./particlePreview";
@@ -32,7 +33,7 @@ export const particlesEditorPlugin: EditorPlugin = {
       inspector: () => import("./ui/ParticleInspector").then((m) => m.ParticleEffectInspector),
       create: { label: "New Particle Effect", create: (folder) => createParticleEffect(folder) },
       referencedAs: ["particles"],
-      preview: "particles",
+      preview: particlesThumbnail,
       addToScene: { nodes: (doc, path, position) => [particleNodeEntry(doc, path, position)] },
     });
     context.registerAssetKind({

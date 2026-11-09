@@ -9,6 +9,7 @@ import { materialLibraryReferences, modelReferences } from "./modelReferences";
 import { disabledCamerasNote, modelNodeEntries } from "./modelNodes";
 import { LargePreview, type EditorPlugin } from "../../../editor/sdk";
 import { meshesManifest } from "../manifest";
+import { modelThumbnail } from "./thumbnail";
 import type { ComponentInfo } from "../../../engine/editor";
 
 /** A file with a swatch: an .obj's material library. */
@@ -25,7 +26,7 @@ export const meshesEditorPlugin: EditorPlugin = {
       label: "Model",
       icon: MODEL_ICON,
       referencedAs: ["model", "mesh"],
-      preview: "model",
+      preview: modelThumbnail,
       addToScene: {
         prepare: (path) => loadModel(path).then(() => undefined),
         nodes: (doc, path, position) => modelNodeEntries(doc, path, position),

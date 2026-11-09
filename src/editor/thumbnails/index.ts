@@ -2,11 +2,11 @@
 // One service per project, kept in `.myco/thumbnails/` for a writable project folder and in memory
 // otherwise; the engine's thumbnail renderer is loaded the first time something needs drawing.
 import { effect } from "@preact/signals";
-import { createThumbnailRenderer, type ThumbnailKind, type ThumbnailPreview, type ThumbnailRenderer } from "../../engine/editor";
+import { createThumbnailRenderer, type ThumbnailPreview, type ThumbnailRenderer, type ThumbnailStage } from "../../engine/editor";
+import { thumbnailOf } from "../assetKindLookup";
 import type { EditorProject } from "../projects";
 import { currentProject } from "../state";
 import { type AudioSummary, decodeAudioSummary } from "./audio";
-import { previewKind } from "./keys";
 import { ThumbnailService, type Thumbnail, type ThumbnailProject } from "./service";
 import { memoryStore, projectStore, type ThumbnailStore } from "./store";
 
@@ -41,6 +41,25 @@ function previewFailed(err: unknown): false {
     console.warn("[myco] live preview unavailable:", err);
   }
   return false;
+}
+
+const warnedStage = new Set<string>();
+/**
+ * The stage the file at `path` is drawn as (its asset kind's, ADR 0156), or null: no rendered thumbnail, or
+ * the kind can't show it (said once per file).
+ */
+function stageOf(path: string, live: boolean): ThumbnailStage | null {
+  const thumbnail = thumbnailOf(path);
+  if (!thumbnail) return null;
+  try {
+    return thumbnail.stage(path, live);
+  } catch (err) {
+    if (!warnedStage.has(path)) {
+      warnedStage.add(path);
+      console.warn(`[myco] thumbnail: couldn't draw ${path}:`, err);
+    }
+    return null;
+  }
 }
 
 let current: { project: EditorProject; service: ThumbnailService } | null = null;
@@ -110,9 +129,11 @@ function service(): ThumbnailService | null {
       ? {
           project,
           service: new ThumbnailService(adapt(project), storeFor(project), {
-            render: async (kind, path) => {
+            render: async (_kind, path) => {
+              const stage = stageOf(path, false);
+              if (!stage) return null;
               renders++;
-              return (await getRenderer()).render(kind, path);
+              return (await getRenderer()).render(stage);
             },
             decodeAudio: decodeAudioSummary,
           }),
@@ -148,12 +169,9 @@ export function contentKeyFor(path: string): Promise<string | null> {
   return service()?.keyFor(path).catch(() => null) ?? Promise.resolve(null);
 }
 
-/** Whether an asset's tile animates on hover (particle effects, shader graphs that use Time). */
+/** Whether an asset's tile animates on hover: its kind's live stage says so (particle effects, skies, graphs that use Time; ADR 0156). */
 export async function canAnimate(path: string): Promise<boolean> {
-  const kind = previewKind(path);
-  if (!kind || kind === "audio") return false;
-  if (kind !== "particles" && kind !== "shadergraph" && kind !== "material" && kind !== "sky") return false;
-  return (await getRenderer()).canAnimate(kind as ThumbnailKind, path);
+  return !!stageOf(path, true)?.animates;
 }
 
 /**
@@ -161,12 +179,12 @@ export async function canAnimate(path: string): Promise<boolean> {
  * animation starts, or the canvas leaves the page. One at a time.
  */
 export function animateThumbnail(path: string, canvas: HTMLCanvasElement, onFrame?: () => void): () => void {
-  const kind = previewKind(path);
-  if (!kind || kind === "audio") return () => undefined;
+  const stage = stageOf(path, true);
+  if (!stage) return () => undefined;
   let stop: (() => void) | null = null;
   let cancelled = false;
   void getRenderer().then((r) => {
-    if (!cancelled) stop = r.animate(kind as ThumbnailKind, path, canvas, () => !cancelled && onFrame?.());
+    if (!cancelled) stop = r.animate(stage, canvas, () => !cancelled && onFrame?.());
   });
   return () => {
     cancelled = true;
@@ -190,14 +208,14 @@ export interface AssetPreviewHandle {
  * while it's open, hovered tiles show their stills.
  */
 export function previewAsset(path: string, canvas: HTMLCanvasElement): AssetPreviewHandle {
-  const kind = previewKind(path);
-  if (!kind || kind === "audio") return { ready: Promise.resolve(false), orbit() {}, zoom() {}, reset() {}, redraw() {}, stop() {} };
+  const stage = stageOf(path, true);
+  if (!stage) return { ready: Promise.resolve(false), orbit() {}, zoom() {}, reset() {}, redraw() {}, stop() {} };
   let live: ThumbnailPreview | null = null;
   let stopped = false;
   const ready = getRenderer()
     .then((r) => {
       if (stopped) return false;
-      live = r.preview(kind as ThumbnailKind, path, canvas);
+      live = r.preview(stage, canvas);
       return live.ready;
     })
     .catch(previewFailed);

@@ -318,6 +318,25 @@ export class BabylonParticles {
     return this.instances.get(c)?.player?.draws ?? [];
   }
 
+  /** The world-space box around every live CPU-simulated particle, or null (thumbnails frame it, ADR 0156; kernel systems have no CPU positions). */
+  bounds(): { min: number[]; max: number[] } | null {
+    const min = [Infinity, Infinity, Infinity];
+    const max = [-Infinity, -Infinity, -Infinity];
+    for (const inst of this.instances.values()) {
+      for (const e of inst.player?.sim?.emitters ?? []) {
+        for (let i = 0; i < e.count; i++) {
+          const p = e.pool[i];
+          const at = [p.wx, p.wy, p.wz];
+          for (let k = 0; k < 3; k++) {
+            if (at[k] < min[k]) min[k] = at[k];
+            if (at[k] > max[k]) max[k] = at[k];
+          }
+        }
+      }
+    }
+    return min[0] > max[0] ? null : { min, max };
+  }
+
   /** Restart every previewed effect (the editor overlay's Restart). */
   restartAll(): void {
     for (const inst of this.instances.values()) if (inst.shown || !this.host.particlePreview()) inst.player?.restart();

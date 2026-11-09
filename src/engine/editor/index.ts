@@ -848,7 +848,7 @@ export function liveLinks(engine: Engine): LiveLink[] {
 
 // --- Asset thumbnails (ADR 0061) -------------------------------------------------------------------
 
-export type { ThumbnailKind, ThumbnailPreview, ThumbnailRendererApi as ThumbnailRenderer } from "../render/previewTypes";
+export type { ThumbnailPreview, ThumbnailRendererApi as ThumbnailRenderer, ThumbnailStage, ThumbnailView } from "../render/previewTypes";
 
 /** The editor's asset thumbnail renderer (one offscreen GPU context), loaded the first time it's needed. */
 export { createThumbnailRenderer } from "../render/previewRouting";

@@ -5,9 +5,44 @@
  */
 import type { ParticleProgram } from "../scene/particleCompile";
 import type { BuiltinMesh } from "../scene/models";
+import type { GameObject } from "../scene/GameObject";
+import type { SceneFile } from "../scene/SceneLoader";
+import type { Bounds } from "./thumbnailMath";
 
-/** What gets a rendered thumbnail. */
-export type ThumbnailKind = "model" | "material" | "shadergraph" | "environment" | "sky" | "particles" | "prefab" | "scene";
+/**
+ * What an asset's thumbnail draws (ADR 0156): a made-up node set, loaded into a headless World and drawn
+ * by the enabled plugins' render features as a World draws it, and how to frame it. Asset kinds supply
+ * one per file (`AssetThumbnail.stage` in the editor); a prefab's or scene's is the file itself.
+ */
+export interface ThumbnailStage {
+  /** The nodes, as a scene file has them. */
+  readonly scene: SceneFile;
+  /** The file the nodes come from (a prefab or scene): names the root and resolves its instances. */
+  readonly source?: string;
+  /** After the nodes load, before the first sync: what scene data can't say (a script Material, such as the chrome sphere's). */
+  readonly dress?: (root: GameObject) => void;
+  /** How the camera looks at what draws. */
+  readonly view?: ThumbnailView;
+  /** A hovered tile and the Inspector's preview keep drawing (particle effects, skies, graphs that use Time). */
+  readonly animates?: boolean;
+  /** Additive light: recover transparency by drawing over black and over white (particle effects). */
+  readonly matte?: boolean;
+}
+
+/** How a thumbnail frames its stage (ADR 0156). */
+export interface ThumbnailView {
+  /**
+   * Where the camera looks from: `above` (three-quarters, front-right-above), `front`, `level` (slightly
+   * above the front, for a material's sphere); `auto` (default) is `above`, or `front` when only sprites draw.
+   */
+  readonly from?: "auto" | "above" | "front" | "level";
+  /** Units of padding around what draws. */
+  readonly pad?: number;
+  /** The box framed when nothing drawn has bounds (a sky, an effect with no live particles); default a unit cube. */
+  readonly fallback?: Bounds;
+  /** Look through the stage's main camera when it has one, over its background (scenes, ADR 0117). */
+  readonly mainCamera?: boolean;
+}
 
 /** The particle effect preview's backdrop. */
 export type PreviewBackground = "dark" | "light" | "grid";
@@ -41,14 +76,12 @@ export interface ThumbnailRendererApi {
   lost: boolean;
   /** Run `f` once if the context is lost (the renderer is then useless: make another). */
   onContextLost(f: () => void): void;
-  /** A still image of the asset (WebP where the browser encodes it, else PNG), or null if it can't be shown. */
-  render(kind: ThumbnailKind, path: string): Promise<Blob | null>;
-  /** Whether the asset animates on hover: particle effects, and shader graphs (or their materials) that use Time. */
-  canAnimate(kind: ThumbnailKind, path: string): boolean;
-  /** Draw the asset live into `target` at about 30 fps, until the returned function is called. */
-  animate(kind: ThumbnailKind, path: string, target: HTMLCanvasElement, onFrame?: () => void): () => void;
-  /** An orbitable preview of the asset in `target`. */
-  preview(kind: ThumbnailKind, path: string, target: HTMLCanvasElement): ThumbnailPreview;
+  /** A still image of a stage (WebP where the browser encodes it, else PNG), or null if it can't be shown. */
+  render(stage: ThumbnailStage): Promise<Blob | null>;
+  /** Draw a (live) stage into `target` at about 30 fps, until the returned function is called. */
+  animate(stage: ThumbnailStage, target: HTMLCanvasElement, onFrame?: () => void): () => void;
+  /** An orbitable preview of a (live) stage in `target`; it keeps drawing when the stage animates. */
+  preview(stage: ThumbnailStage, target: HTMLCanvasElement): ThumbnailPreview;
   /** Forget every loaded texture (another project opened). */
   clearCaches(): void;
   dispose(): void;

@@ -25,16 +25,17 @@ import { meshOf } from "../materials";
 import type { BabylonMaterialLibrary } from "../materialLibrary";
 import { appliedPixelRatio } from "../../RenderSurface";
 import {
-  addPreviewLights,
+  addDefaultLights,
   aimCamera,
-  createPreviewEngine,
   createPreviewScene,
   createStudioTexture,
   previewMaterials,
   renderFrame,
   renderFrameChecked,
+  STUDIO_INTENSITY,
   useWhenReady,
 } from "./common";
+import { createBabylonEngine } from "../createEngine";
 
 export type PreviewMesh = Extract<BuiltinMesh, "sphere" | "cube" | "capsule" | "plane" | "quad">;
 
@@ -88,7 +89,7 @@ export class MaterialPreview {
 
   private async init(): Promise<void> {
     try {
-      const engine = await createPreviewEngine(this.canvas, true);
+      const engine = await createBabylonEngine(this.canvas, { transparent: true });
       if (this.disposed) {
         engine.dispose();
         return;
@@ -96,7 +97,7 @@ export class MaterialPreview {
       this.engine = engine;
       engine.setHardwareScalingLevel(1 / appliedPixelRatio()); // the World surface's pixel ratio, at render scale 1 (ADR 0154)
       const scene = createPreviewScene(engine);
-      addPreviewLights(scene, 0.35, 1);
+      addDefaultLights(scene);
       const camera = new TargetCamera("preview.camera", Vector3.Zero(), scene, false);
       camera.fov = (35 * Math.PI) / 180;
       camera.fovMode = Camera.FOVMODE_VERTICAL_FIXED;
@@ -107,7 +108,7 @@ export class MaterialPreview {
       this.scene = scene;
       this.camera = camera;
       this.studio = createStudioTexture(scene);
-      void useWhenReady(scene, this.studio, 0.4).catch(() => undefined); // no reflections until it's ready (or ever, if it can't)
+      void useWhenReady(scene, this.studio, STUDIO_INTENSITY).catch(() => undefined); // no reflections until it's ready (or ever, if it can't)
       this.resize();
       this.applyMesh();
       if (this.last) this.build(this.last.compiled, this.last.properties);
@@ -269,7 +270,7 @@ export class NodePreviewRenderer {
 
   private async init(): Promise<void> {
     try {
-      const engine = await createPreviewEngine(this.canvas, false);
+      const engine = await createBabylonEngine(this.canvas, { antialias: false, transparent: true });
       if (this.disposed) {
         engine.dispose();
         return;

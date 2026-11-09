@@ -9,12 +9,20 @@ import { audioNodeEntry, prefabInstanceEntry, spriteNodeEntry } from "./assetNod
 import { openSpriteEditor } from "./assetImport";
 import type { SceneDocument } from "./document";
 import { wouldNest } from "./prefabs";
-import { assetKinds, type AssetKindContribution, type AssetSceneNodes } from "./sdk/contributions";
+import { assetKinds, type AssetKindContribution, type AssetSceneNodes, type AssetThumbnail } from "./sdk/contributions";
+import { Assets } from "../engine/scene/Assets";
+import type { SceneFile } from "../engine/scene/SceneLoader";
 
 const CODE_ICON = "M9 8l-4 4 4 4M15 8l4 4-4 4M13 6l-2 12";
 const FILE_ICON = "M7 3h7l5 5v13H7zM14 3v5h5";
 
 const switchScene = (path: string) => void import("./session").then((m) => m.switchScene(path));
+
+/** A prefab's or scene's thumbnail (ADR 0153, 0156): its own nodes; a scene seen through its main camera when it has one (ADR 0117). */
+const documentThumbnail = (id: "scene" | "prefab"): AssetThumbnail => ({
+  id,
+  stage: (path) => ({ scene: Assets.json<SceneFile>(path), source: path, view: { mainCamera: id === "scene" } }),
+});
 
 /** Scene and prefab instances: placed only by a drop on the scene view, and never inside themselves. */
 const instanceNodes: AssetSceneNodes = {
@@ -32,7 +40,7 @@ export const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     icon: "M4 5h16v14H4zM4 15l4.5-4.5 3.5 3.5 2.5-2.5L20 17M15.5 8.5h.01",
     open: switchScene,
     referencedAs: ["scene"],
-    preview: "scene",
+    preview: documentThumbnail("scene"),
     create: { label: "New Scene", create: (folder) => import("./newScene").then((m) => m.createScene(folder)) },
     addToScene: instanceNodes,
   },
@@ -44,7 +52,7 @@ export const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     open: switchScene,
     inspector: () => import("./ui/PrefabInspector").then((m) => m.PrefabInspector),
     referencedAs: ["prefab"],
-    preview: "prefab",
+    preview: documentThumbnail("prefab"),
     addToScene: instanceNodes,
   },
   {
