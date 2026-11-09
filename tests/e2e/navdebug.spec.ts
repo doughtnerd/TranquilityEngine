@@ -3,7 +3,7 @@ import { installFakeFolders, nextFolder } from "./fakeFolders";
 
 // Navigation debug drawing (ADR 0065): a scene with a NavChunk over a floor is baked with the
 // chunk's Bake button; the scene view's Nav menu then draws the baked navmesh as overlay segments.
-// The test hook `window.navOverlay()` (src/editor/navGizmo.ts) reports what the scene view draws.
+// The test hook `window.navOverlay()` (src/plugins/navigation/editor/navGizmo.ts) reports what the scene view draws.
 //
 // NOT YET RUN. It needs the engine.NavChunk component and its Inspector "Bake" button (the editor
 // bake wave). Until the coordinator adds the navigation sample, the scene is built here as a fake

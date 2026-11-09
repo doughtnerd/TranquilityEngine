@@ -3,7 +3,7 @@ import { expect, type Page, play, test } from "./fixtures";
 // The navigation sample (ADR 0065, samples/navigation: Foxfire's Streaming Demo on the built-in navigation): listed
 // on the start screen, played with Play. The streamer loads the chunk scenes around the agents (additively), the
 // crowds walk, fly and hop to spots round the touring goal, and the Nav overlay draws the live navigation of the
-// play World (the test hook `window.navOverlay()`, src/editor/navGizmo.ts).
+// play World (the test hook `window.navOverlay()`, src/plugins/navigation/editor/navGizmo.ts).
 //
 // The play World is read through the editor's hooks: `window.playEngine` (the running game) and
 // `globalThis.__myco` (the engine module project scripts import as "myco").

@@ -8,8 +8,8 @@ test.describe.configure({ timeout: 60_000 }); // WebKit renders on the CPU
 
 type Renderer = {
   engine: { isWebGPU: boolean };
-  /** The mesh feature (ADR 0130). */
-  meshes: {
+  /** The mesh feature (ADR 0130): a getter, null while the Meshes plugin is off (ADR 0140). */
+  meshes: null | {
     meshRenderers: Map<{ material: string; node: { name: string } }, { meshes: { isReady(complete?: boolean): boolean; material: { name: string; isReady(mesh?: unknown, instances?: boolean): boolean } | null }[] }>;
     batchStats(): { batches: number; instanced: number; drawables: number };
   };
@@ -32,21 +32,21 @@ test("the rim shader asset compiles and draws on a mesh, and meshes draw instanc
   await page.waitForFunction(() => ((window as unknown as Hooks).engine?.world.time.frameCount ?? 0) > 10);
 
   // The renderer starts asynchronously, possibly after the World's first frames, and models load after it.
-  const drawables = () => page.evaluate(() => (window as unknown as { engine?: { world: { render: { renderer: Renderer | null } } } }).engine?.world.render.renderer?.meshes.batchStats().drawables ?? 0);
+  const drawables = () => page.evaluate(() => (window as unknown as { engine?: { world: { render: { renderer: Renderer | null } } } }).engine?.world.render.renderer?.meshes?.batchStats().drawables ?? 0);
   await expect.poll(drawables, { timeout: 20_000 }).toBeGreaterThan(0);
-  const stats = await page.evaluate(() => (window as unknown as Hooks).engine!.world.render.renderer.meshes.batchStats());
+  const stats = await page.evaluate(() => (window as unknown as Hooks).engine!.world.render.renderer.meshes!.batchStats());
   expect(stats.instanced).toBe(stats.batches); // the editor's scene view never thin-instances
 
   // Point the first MeshRenderer at the rim material.
   const name = await page.evaluate(() => {
-    const [r] = [...(window as unknown as Hooks).engine!.world.render.renderer.meshes.meshRenderers.keys()];
+    const [r] = [...(window as unknown as Hooks).engine!.world.render.renderer.meshes!.meshRenderers.keys()];
     r.material = "asset:materials/rim.material.json";
     return r.node.name;
   });
   await page.waitForFunction(
     (node) => {
       const render = (window as unknown as Hooks).engine!.world.render.renderer;
-      const entry = [...render.meshes.meshRenderers].find(([r]) => r.node.name === node)?.[1];
+      const entry = [...render.meshes!.meshRenderers].find(([r]) => r.node.name === node)?.[1];
       const mesh = entry?.meshes[0];
       return !!mesh?.material?.name.includes("rim.shader.json") && mesh.isReady(true);
     },

@@ -94,8 +94,19 @@ async function dragAsset(page: Page, file: string, x: number, y: number): Promis
   await page.mouse.up();
 }
 
-async function handles(page: Page): Promise<Record<string, Handle>> {
-  await page.waitForFunction(() => ((window as unknown as Hooks).overlayHandles?.() ?? []).length > 0);
+/**
+ * The overlay's handles in page coordinates, once there are some, or once they're exactly `ids`: the
+ * overlay syncs its handles each frame, so right after Edit Collider moves to another collider it can
+ * still list the previous one's for a frame.
+ */
+async function handles(page: Page, ids?: string[]): Promise<Record<string, Handle>> {
+  await page.waitForFunction(
+    (want) => {
+      const got = ((window as unknown as Hooks).overlayHandles?.() ?? []).map((h) => h.id).sort();
+      return want ? got.join() === [...want].sort().join() : got.length > 0;
+    },
+    ids ?? null,
+  );
   const canvas = await box(page.locator(".viewport canvas"));
   const list = await page.evaluate(() => (window as unknown as Hooks).overlayHandles!());
   return Object.fromEntries(list.map((h) => [h.id, { ...h, x: canvas.x + h.x, y: canvas.y + h.y }]));
@@ -233,7 +244,7 @@ test("sphere and capsule collider handles set the radius and height; lights from
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus(undefined, 4));
   const sphere = card(page, "SphereCollider");
   await sphere.locator(".edit-collider").click();
-  let h = await handles(page);
+  let h = await handles(page, ["center", "radius:x+", "radius:x-", "radius:y+", "radius:y-", "radius:z+", "radius:z-"]);
   const radius = sphere.getByRole("textbox", { name: "radius" });
   await expect(radius).toHaveValue("0.5");
   await drag(page, h["radius:y+"], 0, -50);
@@ -244,8 +255,7 @@ test("sphere and capsule collider handles set the radius and height; lights from
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus(undefined, 6));
   const capsule = card(page, "CapsuleCollider");
   await capsule.locator(".edit-collider").click();
-  h = await handles(page);
-  expect(Object.keys(h).sort()).toEqual(["center", "height+", "height-", "radius:u+", "radius:u-", "radius:v+", "radius:v-"]);
+  h = await handles(page, ["center", "height+", "height-", "radius:u+", "radius:u-", "radius:v+", "radius:v-"]);
   const height = capsule.getByRole("textbox", { name: "height" });
   await drag(page, h["height+"], 0, -40);
   expect(await num(height)).toBeGreaterThan(2.2);
