@@ -159,10 +159,11 @@ export class VoiceTable implements VoiceTableHandleApi {
 
   /** The reason each slot's previous voice was freed with (see `endedReason`). */
   private readonly freedReason: Uint8Array;
-  /** Slots that went ENDING since the last `freeEnded` (`endedTop` valid). */
+  /** Slots that went ENDING since the last `freeEnded` (`endedTop` valid); `endedListed[i]` is 1 while slot `i` is listed. */
   private readonly endedList: Uint16Array;
+  private readonly endedListed: Uint8Array;
   private endedTop = 0;
-  /** Queued commands per slot: bit 0 stop, bit 1 fade; slots with any bit set are listed once in `dirtyList`. */
+  /** Queued commands per slot (`DIRTY_STOP`, `DIRTY_FADE`); `DIRTY_LISTED` while the slot is in `dirtyList`, so it is listed once. */
   private readonly dirty: Uint8Array;
   private readonly dirtyList: Uint16Array;
   private dirtyTop = 0;
@@ -172,6 +173,7 @@ export class VoiceTable implements VoiceTableHandleApi {
 
   /** Allocates every array once (`capacity` = `voices.logical`, 1..65536) and fills the free list so slot 0 goes first. */
   constructor(capacity: number) {
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > MAX_VOICE_INDEX + 1) throw new RangeError(`audio core: voice table capacity ${capacity} is outside 1..65536`);
     this.capacity = capacity;
     this.gen = new Uint16Array(capacity);
     this.state = new Uint8Array(capacity);
@@ -207,6 +209,7 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.busMax = new Uint16Array(MAX_BUSES);
     this.freedReason = new Uint8Array(capacity);
     this.endedList = new Uint16Array(capacity);
+    this.endedListed = new Uint8Array(capacity);
     this.dirty = new Uint8Array(capacity);
     this.dirtyList = new Uint16Array(capacity);
     this.stopSeconds = new Float32Array(capacity);
@@ -215,9 +218,24 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.reset();
   }
 
-  /** Every slot FREE at generation 1, the free list full (slot 0 on top), counts and queues empty. */
+  /** Every slot FREE at generation 1, the free list full (slot 0 on top), counts, limits and queues empty. */
   reset(): void {
-    throw new Error("not implemented: A1.1");
+    const n = this.capacity;
+    this.gen.fill(MIN_GEN);
+    this.state.fill(VoiceState.FREE);
+    this.reason.fill(VoiceReason.NONE);
+    this.freedReason.fill(VoiceReason.NONE);
+    this.endedListed.fill(0);
+    this.dirty.fill(0);
+    for (let i = 0; i < n; i++) this.freeStack[i] = n - 1 - i;
+    this.freeTop = n;
+    this.busLive.fill(0);
+    this.busMax.fill(0);
+    this.liveCount = 0;
+    this.stolenCount = 0;
+    this.refusedCount = 0;
+    this.endedTop = 0;
+    this.dirtyTop = 0;
   }
 
   // --- Slots ---
@@ -230,15 +248,81 @@ export class VoiceTable implements VoiceTableHandleApi {
    * is the lowest priority, then the lowest `audibility`, unless every candidate's priority is at or above
    * `priority` (then the play is refused and `refusedCount` grows). A victim is freed with reason STOLEN and the new
    * voice takes its slot (a PLAY with the new id replaces it on the core). Every other field is reset to its default:
-   * volume, pitch and fadeGain 1, minDist 1, maxDist 100, owner -1, the rest 0.
+   * volume, pitch and fadeGain 1, minDist 1, maxDist 100, owner -1, `reason` matching the state (LOCKED, VIRTUAL,
+   * WAITING_FOR_DATA, or NONE for PLAYING), the rest 0. A bus index outside 0..31 is taken as the root (0).
    */
   allocate(bus: number, priority: number, world: WorldKey, state: VoiceStateCode): number {
-    throw new Error("not implemented: A1.1");
+    const b = bus >= 0 && bus < MAX_BUSES ? bus | 0 : 0;
+    const p = priority <= 0 ? 0 : priority >= 255 ? 255 : priority | 0;
+    const busFull = this.busMax[b]! > 0 && this.busLive[b]! >= this.busMax[b]!;
+    if (busFull || this.freeTop === 0) {
+      const victim = this.pickVictim(busFull ? b : -1, p);
+      if (victim < 0) {
+        this.refusedCount++;
+        return INVALID_VOICE_ID;
+      }
+      this.stolenCount++;
+      this.freeSlot(victim, VoiceReason.STOLEN); // pushed last, so the pop below takes it
+    }
+    const i = this.freeStack[--this.freeTop]!;
+    this.state[i] = state;
+    this.reason[i] =
+      state === VoiceState.LOCKED ? VoiceReason.LOCKED : state === VoiceState.VIRTUAL ? VoiceReason.VIRTUAL : state === VoiceState.WAITING_FOR_DATA ? VoiceReason.WAITING_FOR_DATA : VoiceReason.NONE;
+    this.panner[i] = 0;
+    this.flags[i] = 0;
+    this.bus[i] = b;
+    this.world[i] = world;
+    this.group[i] = 0;
+    this.clip[i] = 0;
+    this.priority[i] = p;
+    this.volume[i] = 1;
+    this.pitch[i] = 1;
+    this.fadeGain[i] = 1;
+    this.minDist[i] = 1;
+    this.maxDist[i] = 100;
+    this.rolloff[i] = 0;
+    this.posX[i] = 0;
+    this.posY[i] = 0;
+    this.posZ[i] = 0;
+    this.gain[i] = 0;
+    this.dirX[i] = 0;
+    this.dirY[i] = 0;
+    this.dirZ[i] = 0;
+    this.lpHz[i] = 0;
+    this.audibility[i] = 0;
+    this.startFrame[i] = 0;
+    this.playhead[i] = 0;
+    this.epoch[i] = 0;
+    this.owner[i] = -1;
+    this.busLive[b]!++;
+    this.liveCount++;
+    return this.idOf(i);
+  }
+
+  /** The steal victim among live voices (on `bus`, or all when `bus` is -1) for a play at `priority`, or -1 to refuse. */
+  private pickVictim(bus: number, priority: number): number {
+    let best = -1;
+    let bestPriority = 256;
+    let bestAudibility = Number.POSITIVE_INFINITY;
+    const state = this.state;
+    for (let i = 0; i < this.capacity; i++) {
+      const s = state[i]!;
+      if (s === VoiceState.FREE || (bus >= 0 && this.bus[i] !== bus)) continue;
+      if (s === VoiceState.STOPPING || s === VoiceState.ENDING) return i;
+      const p = this.priority[i]!;
+      const a = this.audibility[i]!;
+      if (p < bestPriority || (p === bestPriority && a < bestAudibility)) {
+        best = i;
+        bestPriority = p;
+        bestAudibility = a;
+      }
+    }
+    return best >= 0 && bestPriority < priority ? best : -1;
   }
 
   /** Whether `id` names a live voice: valid, its slot's generation matches and the slot isn't FREE. */
   isLive(id: number): boolean {
-    throw new Error("not implemented: A1.1");
+    return this.slotOf(id) >= 0;
   }
 
   /**
@@ -247,24 +331,41 @@ export class VoiceTable implements VoiceTableHandleApi {
    * free list. A stale or invalid id does nothing. Returns whether it freed.
    */
   free(id: number, reason: VoiceReasonCode): boolean {
-    throw new Error("not implemented: A1.1");
+    const i = this.slotOf(id);
+    if (i < 0) return false;
+    this.freeSlot(i, reason);
+    return true;
   }
 
   /** See `VoiceTableHandleApi.endedReason`. */
   endedReason(id: number): VoiceReasonCode {
-    throw new Error("not implemented: A1.1");
+    if (id >>> 0 !== id || id === 0) return VoiceReason.NONE;
+    const i = id & MAX_VOICE_INDEX;
+    const g = id >>> 16;
+    if (g === 0 || i >= this.capacity) return VoiceReason.NONE;
+    const next = g === MAX_GEN ? MIN_GEN : g + 1;
+    return this.gen[i] === next ? (this.freedReason[i] as VoiceReasonCode) : VoiceReason.NONE;
   }
 
   // --- Commands (`AudioHandle`, World release) ---
 
-  /** See `VoiceTableHandleApi.requestStop`. */
+  /** See `VoiceTableHandleApi.requestStop`. Sets `STOP_ON_FADE_END` on a voice that becomes STOPPING. */
   requestStop(id: number, fadeSeconds: number): void {
-    throw new Error("not implemented: A1.1");
+    const i = this.slotOf(id);
+    if (i < 0) return;
+    this.stopSlot(i, fadeSeconds);
   }
 
   /** See `VoiceTableHandleApi.requestFade`. */
   requestFade(id: number, to: number, seconds: number): void {
-    throw new Error("not implemented: A1.1");
+    const i = this.slotOf(id);
+    if (i < 0) return;
+    const s = this.state[i]!;
+    if (s === VoiceState.STOPPING || s === VoiceState.ENDING) return;
+    this.fadeGain[i] = to;
+    this.fadeTo[i] = to;
+    this.fadeSeconds[i] = seconds;
+    this.queue(i, DIRTY_FADE);
   }
 
   /**
@@ -272,7 +373,17 @@ export class VoiceTable implements VoiceTableHandleApi {
    * and/or `sink.fade` (a stop after its fade). Empties the queue. A1.4's command writer calls it once per frame.
    */
   drainCommands(sink: VoiceCommandSink): void {
-    throw new Error("not implemented: A1.1");
+    const n = this.dirtyTop;
+    this.dirtyTop = 0;
+    for (let k = 0; k < n; k++) {
+      const i = this.dirtyList[k]!;
+      const d = this.dirty[i]!;
+      this.dirty[i] = 0;
+      if (this.state[i] === VoiceState.FREE) continue;
+      const id = this.idOf(i);
+      if (d & DIRTY_FADE) sink.fade(id, this.fadeTo[i]!, this.fadeSeconds[i]!);
+      if (d & DIRTY_STOP) sink.stop(id, this.stopSeconds[i]!);
+    }
   }
 
   /** How many slots have queued commands. */
@@ -287,22 +398,41 @@ export class VoiceTable implements VoiceTableHandleApi {
    * for `freeEnded`. A stale id (its slot freed or reused since) is ignored. Returns whether it was applied.
    */
   markEnded(id: number): boolean {
-    throw new Error("not implemented: A1.1");
+    const i = this.slotOf(id);
+    if (i < 0 || this.state[i] === VoiceState.ENDING) return false;
+    this.state[i] = VoiceState.ENDING;
+    if (this.endedListed[i] === 0) {
+      this.endedListed[i] = 1;
+      this.endedList[this.endedTop++] = i;
+    }
+    return true;
   }
 
   /** STATUS `demoted` (the core's adaptive cap): a live PLAYING voice becomes VIRTUAL with reason VIRTUAL. Stale ids are ignored. */
   markDemoted(id: number): boolean {
-    throw new Error("not implemented: A1.1");
+    const i = this.slotOf(id);
+    if (i < 0 || this.state[i] !== VoiceState.PLAYING) return false;
+    this.state[i] = VoiceState.VIRTUAL;
+    this.reason[i] = VoiceReason.VIRTUAL;
+    return true;
   }
 
-  /** STATUS `starved`: a live voice on the core gets reason WAITING_FOR_DATA (its state stays). Stale ids are ignored. */
+  /** STATUS `starved`: a live voice on the core (PLAYING or VIRTUAL) gets reason WAITING_FOR_DATA (its state stays). Stale ids are ignored. */
   markStarved(id: number): boolean {
-    throw new Error("not implemented: A1.1");
+    const i = this.slotOf(id);
+    if (i < 0) return false;
+    const s = this.state[i]!;
+    if (s !== VoiceState.PLAYING && s !== VoiceState.VIRTUAL) return false;
+    this.reason[i] = VoiceReason.WAITING_FOR_DATA;
+    return true;
   }
 
   /** STATUS `playheads`: `playhead[index] = clipFrame` for a live id. Stale ids are ignored. */
   setPlayhead(id: number, clipFrame: number): boolean {
-    throw new Error("not implemented: A1.1");
+    const i = this.slotOf(id);
+    if (i < 0) return false;
+    this.playhead[i] = clipFrame;
+    return true;
   }
 
   /**
@@ -310,14 +440,30 @@ export class VoiceTable implements VoiceTableHandleApi {
    * it; `onmessage` calls it itself while the page is hidden (architecture §3.8). Returns how many it freed.
    */
   freeEnded(): number {
-    throw new Error("not implemented: A1.1");
+    let freed = 0;
+    const n = this.endedTop;
+    this.endedTop = 0;
+    for (let k = 0; k < n; k++) {
+      const i = this.endedList[k]!;
+      this.endedListed[i] = 0;
+      if (this.state[i] !== VoiceState.ENDING) continue;
+      this.freeSlot(i, VoiceReason.NONE);
+      freed++;
+    }
+    return freed;
   }
 
   // --- Lifecycle (A0.8's host listener) ---
 
-  /** `maxVoices` per bus index from the resolved buses (0 or absent = unlimited); indices past `limits.length` become unlimited. */
+  /**
+   * `maxVoices` per bus index from the resolved buses (0 or absent = unlimited); indices past `limits.length` become
+   * unlimited. A bus remap doesn't move limits: whoever reconfigures (A1.4) sets the new tree's limits.
+   */
   setBusLimits(limits: ArrayLike<number>): void {
-    throw new Error("not implemented: A1.1");
+    for (let b = 0; b < MAX_BUSES; b++) {
+      const v = b < limits.length ? limits[b]! : 0;
+      this.busMax[b] = Number.isFinite(v) && v > 0 ? Math.min(v, 0xffff) : 0;
+    }
   }
 
   /**
@@ -325,19 +471,99 @@ export class VoiceTable implements VoiceTableHandleApi {
    * past `map.length` goes to the root, 0), and `busLive` is recounted.
    */
   remapBuses(map: Uint8Array): void {
-    throw new Error("not implemented: A1.1");
+    this.busLive.fill(0);
+    for (let i = 0; i < this.capacity; i++) {
+      if (this.state[i] === VoiceState.FREE) continue;
+      const old = this.bus[i]!;
+      const b = old < map.length ? map[old]! : 0;
+      const nb = b < MAX_BUSES ? b : 0;
+      this.bus[i] = nb;
+      this.busLive[nb]!++;
+    }
   }
 
   /**
    * Architecture §3.9: World `key` was released. Its voices never sent to the core (LOCKED, WAITING_FOR_DATA) are
    * freed at once; every other live voice of that World that isn't STOPPING or ENDING becomes STOPPING with a queued
    * STOP of `WORLD_RELEASE_FADE_SECONDS`. The STOP record itself is A1.4's command writer's (`drainCommands`).
-   * Returns how many voices it stopped or freed.
+   * Stopped voices' `world` becomes 0, since the key returns to the pool and may go to another World at once. Key 0
+   * (no World) does nothing. Returns how many voices it stopped or freed.
    */
   releaseWorld(key: WorldKey): number {
-    throw new Error("not implemented: A1.1");
+    if (key === 0) return 0;
+    let count = 0;
+    for (let i = 0; i < this.capacity; i++) {
+      if (this.state[i] === VoiceState.FREE || this.world[i] !== key) continue;
+      const s = this.state[i]!;
+      this.world[i] = 0;
+      if (s === VoiceState.STOPPING || s === VoiceState.ENDING) continue;
+      this.stopSlot(i, WORLD_RELEASE_FADE_SECONDS);
+      count++;
+    }
+    return count;
+  }
+
+  // --- Internals ---
+
+  /** Slot `i`'s current id. */
+  private idOf(i: number): number {
+    return ((this.gen[i]! << 16) | i) >>> 0;
+  }
+
+  /** `id`'s slot if it is live (valid, same generation, not FREE), else -1. */
+  private slotOf(id: number): number {
+    if (id >>> 0 !== id) return -1;
+    const g = id >>> 16;
+    const i = id & MAX_VOICE_INDEX;
+    if (g === 0 || i >= this.capacity || this.gen[i] !== g || this.state[i] === VoiceState.FREE) return -1;
+    return i;
+  }
+
+  /** `requestStop`'s rule on a live slot. */
+  private stopSlot(i: number, fadeSeconds: number): void {
+    const s = this.state[i]!;
+    if (s === VoiceState.STOPPING || s === VoiceState.ENDING) return;
+    if (s === VoiceState.LOCKED || s === VoiceState.WAITING_FOR_DATA) {
+      this.freeSlot(i, VoiceReason.NONE);
+      return;
+    }
+    this.state[i] = VoiceState.STOPPING;
+    this.flags[i]! |= VoiceFlag.STOP_ON_FADE_END;
+    this.stopSeconds[i] = fadeSeconds;
+    this.queue(i, DIRTY_STOP);
+  }
+
+  /** Queues `bit` for slot `i`, listing the slot once. */
+  private queue(i: number, bit: number): void {
+    const d = this.dirty[i]!;
+    if ((d & DIRTY_LISTED) === 0) this.dirtyList[this.dirtyTop++] = i;
+    this.dirty[i] = d | DIRTY_LISTED | bit;
+  }
+
+  /** Frees live slot `i` (see `free`). Its list memberships stay; the drains skip what no longer applies. */
+  private freeSlot(i: number, reason: VoiceReasonCode): void {
+    const b = this.bus[i]!;
+    this.onFree?.(this.idOf(i), b);
+    this.state[i] = VoiceState.FREE;
+    this.reason[i] = VoiceReason.NONE;
+    this.freedReason[i] = reason;
+    this.dirty[i]! &= DIRTY_LISTED;
+    if (this.busLive[b]! > 0) this.busLive[b]!--;
+    this.liveCount--;
+    const g = this.gen[i]!;
+    this.gen[i] = g === MAX_GEN ? MIN_GEN : g + 1;
+    this.freeStack[this.freeTop++] = i;
   }
 }
+
+/** §3: generations run 1..65535 (`ids.ts` names them too; inlined here, where every call is hot). */
+const MIN_GEN = 1;
+const MAX_GEN = 0xffff;
+const MAX_VOICE_INDEX = 0xffff;
+const INVALID_VOICE_ID = 0;
+const DIRTY_STOP = 1;
+const DIRTY_FADE = 2;
+const DIRTY_LISTED = 0x80;
 
 /**
  * @internal Hooks `table` to the host's lifecycle (A0.8, `addLifecycleListener`): `onBusRemap` runs

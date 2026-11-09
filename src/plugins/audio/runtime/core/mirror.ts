@@ -96,7 +96,55 @@ export class StatusMirror {
    * the minimum; `framePair` the newest. Then, if `freeEndedInMessage`, `table.freeEnded()`. Allocates nothing.
    */
   apply(status: StatusBlock): void {
-    throw new Error("not implemented: A1.1");
+    const table = this.table;
+    this.blocks++;
+    // Voice sections, in §4.3's order. Indexed loops: no iterator objects.
+    const ended = status.ended;
+    for (let k = 0; k < ended.length; k++) table.markEnded(ended[k]!);
+    const demoted = status.demoted;
+    for (let k = 0; k < demoted.length; k++) table.markDemoted(demoted[k]!);
+    const starved = status.starved;
+    for (let k = 0; k < starved.length; k++) table.markStarved(starved[k]!);
+    const playheads = status.playheads;
+    for (let k = 0; k < playheads.length; k++) table.setPlayhead(playheads[k]!.id, playheads[k]!.clipFrame);
+    const clipEvents = status.clipEvents;
+    for (let k = 0; k < clipEvents.length; k++) this.pushClip(clipEvents[k]!.clipId, clipEvents[k]!.code);
+    const streamEvents = status.streamEvents;
+    for (let k = 0; k < streamEvents.length; k++) this.pushStream(streamEvents[k]!.id, streamEvents[k]!.code);
+    const peaks = status.peaks;
+    const n = peaks.length < MAX_BUSES ? peaks.length : MAX_BUSES;
+    for (let b = 0; b < n; b++) {
+      this.peakL[b] = peaks[b]!.l;
+      this.peakR[b] = peaks[b]!.r;
+    }
+    this.peakCount = n;
+    // Header: the newest block wins.
+    this.currentFrame = status.currentFrame;
+    this.dateMs = status.dateMs;
+    this.pingSeq = status.pingSeq;
+    this.pingFrameLo = status.pingFrameLo;
+    this.underruns = status.underruns;
+    this.lateCommands = status.lateCommands;
+    this.workUnits = status.workUnits;
+    this.workUnitsMax = status.workUnitsMax;
+    this.mixedVoices = status.mixedVoices;
+    this.liveVoices = status.liveVoices;
+    this.flags = status.flags;
+    this.mixedCap = status.mixedCap;
+    this.loadPermille = status.loadPermille;
+    this.traps = status.traps;
+    this.underrunFrames = status.underrunFrames;
+    this.arenaUsedKB = status.arenaUsedKB;
+    this.arenaLargestFreeKB = status.arenaLargestFreeKB;
+    this.maxLatenessFrames = status.maxLatenessFrames;
+    this.hrtfVoices = status.hrtfVoices;
+    this.hrtfLoadFailure = status.hrtfLoadFailure;
+    if (this.abiVersion === 0 && status.abiVersion !== 0) this.abiVersion = status.abiVersion;
+    this.minSlackFrames = status.minSlackFrames;
+    if (status.minSlackFrames < this.minSlackSinceFrame) this.minSlackSinceFrame = status.minSlackFrames;
+    this.frameAudio = status.currentFrame;
+    this.frameDateMs = status.dateMs;
+    if (this.freeEndedInMessage) table.freeEnded();
   }
 
   /**
@@ -104,17 +152,62 @@ export class StatusMirror {
    * minimum since the previous one (§3).
    */
   beginFrame(): number {
-    throw new Error("not implemented: A1.1");
+    const min = this.minSlackSinceFrame;
+    this.minSlackSinceFrame = Number.POSITIVE_INFINITY;
+    return min;
   }
 
   /** Sends every queued clip event, oldest first, to `sink` and empties the queue (A1.3a's registry, per frame). */
   drainClipEvents(sink: MirrorEventSink): number {
-    throw new Error("not implemented: A1.1");
+    const n = this.clipCount;
+    let head = this.clipHead;
+    // Emptied first (past the drained range), so an event pushed from inside the sink waits for the next drain.
+    this.clipCount = 0;
+    this.clipHead = (head + n) % MIRROR_EVENT_CAPACITY;
+    for (let k = 0; k < n; k++) {
+      sink.event(this.clipIds[head]!, this.clipCodes[head]!);
+      head = (head + 1) % MIRROR_EVENT_CAPACITY;
+    }
+    return n;
   }
 
   /** Sends every queued stream event, oldest first, to `sink` and empties the queue (M1b). */
   drainStreamEvents(sink: MirrorEventSink): number {
-    throw new Error("not implemented: A1.1");
+    const n = this.streamCount;
+    let head = this.streamHead;
+    this.streamCount = 0;
+    this.streamHead = (head + n) % MIRROR_EVENT_CAPACITY;
+    for (let k = 0; k < n; k++) {
+      sink.event(this.streamIds[head]!, this.streamCodes[head]!);
+      head = (head + 1) % MIRROR_EVENT_CAPACITY;
+    }
+    return n;
+  }
+
+  /** Queues a clip event; a full queue drops its oldest (counted in `droppedEvents`). */
+  private pushClip(id: number, code: number): void {
+    if (this.clipCount === MIRROR_EVENT_CAPACITY) {
+      this.clipHead = (this.clipHead + 1) % MIRROR_EVENT_CAPACITY;
+      this.clipCount--;
+      this.droppedEvents++;
+    }
+    const at = (this.clipHead + this.clipCount) % MIRROR_EVENT_CAPACITY;
+    this.clipIds[at] = id;
+    this.clipCodes[at] = code;
+    this.clipCount++;
+  }
+
+  /** Queues a stream event; a full queue drops its oldest (counted in `droppedEvents`). */
+  private pushStream(id: number, code: number): void {
+    if (this.streamCount === MIRROR_EVENT_CAPACITY) {
+      this.streamHead = (this.streamHead + 1) % MIRROR_EVENT_CAPACITY;
+      this.streamCount--;
+      this.droppedEvents++;
+    }
+    const at = (this.streamHead + this.streamCount) % MIRROR_EVENT_CAPACITY;
+    this.streamIds[at] = id;
+    this.streamCodes[at] = code;
+    this.streamCount++;
   }
 
   /** Queued clip events. */
