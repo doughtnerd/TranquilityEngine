@@ -3,7 +3,7 @@
 // plugin removes them all.
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
-import { assetActions, assetFormats, assetKinds, componentHeaderActions, hierarchyCreateEntries, idlePrefetches, playStatsCounters, sceneOpenMigrations, type AssetActionContribution, type HierarchyCreateContribution, type IdlePrefetchContribution, type PlayStatsCounterContribution, type SceneOpenMigrationContribution, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type AssetFormatContribution, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
+import { fieldChoices, type FieldChoicesContribution, assetActions, assetFormats, assetKinds, componentHeaderActions, hierarchyCreateEntries, idlePrefetches, playStatsCounters, sceneOpenMigrations, type AssetActionContribution, type HierarchyCreateContribution, type IdlePrefetchContribution, type PlayStatsCounterContribution, type SceneOpenMigrationContribution, componentNotes, panelExtensions, panels, projectSettingsSections, sceneToolbarItems, viewportTools, type AssetFormatContribution, type ComponentHeaderActionContribution, type SceneToolbarItemContribution, type ComponentNoteContribution, type AssetKindContribution, type PanelContribution, type PanelExtensionContribution, type ProjectSettingsSectionContribution, type ViewportToolContribution } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import type { LoadComponent } from "./contributions";
 
@@ -36,6 +36,8 @@ export interface EditorPluginContext {
   registerSceneOpenMigration(migration: SceneOpenMigrationContribution): void;
   /** Code fetched once the editor is idle (ADR 0146). */
   registerIdlePrefetch(prefetch: IdlePrefetchContribution): void;
+  /** Choices for a Component field that depend on its other values or on files (ADR 0152). */
+  registerFieldChoices(choices: FieldChoicesContribution): void;
 }
 
 /** A plugin's editor half. */
@@ -68,6 +70,7 @@ export function activatePlugin(plugin: EditorPlugin): void {
     registerPlayStatsCounter: (counter) => void undo.push(playStatsCounters.register(counter)),
     registerSceneOpenMigration: (migration) => void undo.push(sceneOpenMigrations.register(migration)),
     registerIdlePrefetch: (prefetch) => void undo.push(idlePrefetches.register(prefetch)),
+    registerFieldChoices: (choices) => void undo.push(fieldChoices.register(choices)),
   };
   try {
     plugin.activate(context);

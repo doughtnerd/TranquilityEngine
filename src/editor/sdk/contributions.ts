@@ -15,6 +15,7 @@ import type { ComponentEntry, NodeEntry, NodePath, SceneDocument } from "../docu
 import type { GameObject } from "../../engine/scene/GameObject";
 import type { ComponentInfo } from "../../engine/editor";
 import type { ImportSettings } from "../../engine/scene/importSettings";
+import type { FieldChoice } from "../../engine/core/registry";
 
 /** A component loaded on first use (ADR 0083). */
 export type LoadComponent<P extends object> = () => Promise<FunctionComponent<P>>;
@@ -350,6 +351,30 @@ export interface IdlePrefetchContribution {
   load(): Promise<unknown>;
 }
 
+/**
+ * Choices for a Component field that depend on more than its declaration (ADR 0152): the Meshes plugin
+ * offers `engine.MeshRenderer`'s `variant` as a dropdown of the referenced model's material variants. The
+ * Inspector shows the field as a dropdown of `none` (when there are choices) then the choices. With no
+ * choices it hides the row while the field is unset on every selected node, and otherwise offers `none`
+ * alone, so a stale value can be cleared. A field's static `choices` option (ADR 0042) needs none of this.
+ */
+export interface FieldChoicesContribution {
+  readonly id: string;
+  /** The Component type, e.g. "engine.MeshRenderer". */
+  readonly type: string;
+  /** The field's name, e.g. "variant". */
+  readonly field: string;
+  /** The choice that clears the field, listed first (e.g. `{ label: "Default", value: "" }`). */
+  readonly none?: FieldChoice;
+  /**
+   * What the choices depend on, from the active node's copy of the component (the MeshRenderer's mesh
+   * reference): they're asked for again when it changes.
+   */
+  key(info: ComponentInfo): string;
+  /** The choices for the component as `key` describes it; empty when there's nothing to choose. A rejection counts as none. */
+  choices(info: ComponentInfo): readonly FieldChoice[] | Promise<readonly FieldChoice[]>;
+}
+
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const assetFormats = createRegistry<AssetFormatContribution<any>>("Asset format"); // eslint-disable-line @typescript-eslint/no-explicit-any -- formats differ in T
@@ -364,3 +389,4 @@ export const assetActions = createRegistry<AssetActionContribution>("Asset actio
 export const playStatsCounters = createRegistry<PlayStatsCounterContribution>("Play stats counter");
 export const sceneOpenMigrations = createRegistry<SceneOpenMigrationContribution>("Scene open migration");
 export const idlePrefetches = createRegistry<IdlePrefetchContribution>("Idle prefetch");
+export const fieldChoices = createRegistry<FieldChoicesContribution>("Field choices");
