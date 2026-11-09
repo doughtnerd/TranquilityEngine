@@ -46,6 +46,9 @@ export interface DecodedAudio {
  * detaches the buffer it is given, so this decodes a copy and `encoded` stays usable (the encoded cache keeps it for
  * rebuilds). Resamples to the context rate, as `decodeAudioData` does. Rejects on a decode failure. B6 removes it.
  */
-export async function decodeClip(_context: Pick<BaseAudioContext, "decodeAudioData">, _encoded: ArrayBuffer): Promise<DecodedAudio> {
-  throw new Error("not implemented: A1.3a (decodeClip)");
+export async function decodeClip(context: Pick<BaseAudioContext, "decodeAudioData">, encoded: ArrayBuffer): Promise<DecodedAudio> {
+  const buffer = await context.decodeAudioData(encoded.slice(0));
+  const channelData: Float32Array[] = [];
+  for (let c = 0; c < buffer.numberOfChannels; c++) channelData.push(buffer.getChannelData(c));
+  return { frames: buffer.length, channels: buffer.numberOfChannels, sampleRate: buffer.sampleRate, channelData };
 }
