@@ -39,7 +39,7 @@ test("searches across folders and adds a prefab to the scene as an undoable step
   await assets(page).getByRole("button", { name: "Add pipe-pair.prefab.json to the scene" }).click();
   await expect(page.locator(".tree .row.selected .name")).toHaveText("pipe-pair");
   await expect(page.locator(".inspector .node-name")).toHaveValue("pipe-pair");
-  await expect(await undoItem(page)).toContainText(/Add node/);
+  await expect(await undoItem(page)).toContainText(/Add pipe-pair/);
   await closeMenus(page);
 
   await page.keyboard.press("ControlOrMeta+z");

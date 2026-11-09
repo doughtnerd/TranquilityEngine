@@ -99,7 +99,7 @@ test("New Scene in the Assets panel writes a scene with a camera and opens it; S
   const empty = (await assets(page).locator(".asset-items").boundingBox())!;
   await page.mouse.click(empty.x + empty.width - 10, empty.y + empty.height - 10, { button: "right" });
   await page.getByRole("menuitem", { name: "New Scene" }).click();
-  expect(await tabs(page)).toEqual(["main.scene.json", "New Scene.scene.json"]);
+  await expect.poll(() => tabs(page)).toEqual(["main.scene.json", "New Scene.scene.json"]); // the scene kind's creator loads on first use
   await expect(page.locator(".scene-name")).toHaveText("New Scene.scene.json");
   await expect(row(page, "camera")).toHaveCount(1);
   const text = await page.evaluate(() => (window as unknown as Hooks).testFolder.read("New Scene.scene.json"));
